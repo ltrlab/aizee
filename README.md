@@ -50,7 +50,7 @@ BOM/bill_of_materials.xlsx
 2. **Jetson Software Setup**
     - Install Ubuntu 22.04 LTS on the Jetson Orin Nano Super.
       
-    ```
+    ```bash
     sudo apt update && sudo apt install curl gnupg lsb-release
     sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | sudo apt-key add -
     sudo sh -c 'echo "deb http://packages.ros.org/ros2/ubuntu $(lsb\_release -cs) main" > /etc/apt/sources.list.d/ros2-latest.list'
@@ -58,8 +58,8 @@ BOM/bill_of_materials.xlsx
     ```
     - Clone this repo and build:
       
-    ```
-    cd ~/aizee-household-robot/jetson\_ws
+    ```bash
+    cd ~/aizee-household-robot/jetson_ws
     colcon build
     source install/setup.bash
     ```
@@ -69,9 +69,9 @@ BOM/bill_of_materials.xlsx
     *   Select “Teensy 4.1” as the board, compile and upload.
 6. **Run the Teleoperation Demo**
    ```bash
-   cd ~/aizee-household-robot/jetson\_ws
+   cd ~/aizee-household-robot/jetson_ws
    source install/setup.bash
-   ros2 launch aizee\_control teleop.launch.py
+   ros2 launch aizee_control teleop.launch.py
    ```
    - On Windows (Unity + Oculus):
         1.  Start Unity application.
