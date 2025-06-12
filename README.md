@@ -81,3 +81,11 @@ BOM/bill_of_materials.xlsx
 ## Controls and Operation
 
 _TBD_
+
+### Running the RPLIDAR A1M8
+
+In `/jetson_ws/src/rplidar_ros`
+
+```
+ros2 launch rplidar_ros view_rplidar_a1_launch.py
+```
