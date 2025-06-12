@@ -1,0 +1,41 @@
+[0.019s] Invoking command in '/home/ltr/aizee/jetson_ws/build/rplidar_ros': /usr/bin/cmake /home/ltr/aizee/jetson_ws/src/rplidar_ros -DCATKIN_INSTALL_INTO_PREFIX_ROOT=0 -DCMAKE_INSTALL_PREFIX=/home/ltr/aizee/jetson_ws/install/rplidar_ros
+[0.041s] [0mCMake Deprecation Warning at CMakeLists.txt:1 (cmake_minimum_required):
+[0.042s]   Compatibility with CMake < 2.8.12 will be removed from a future version of
+[0.042s]   CMake.
+[0.042s] 
+[0.042s]   Update the VERSION argument <min> value or use a ...<max> suffix to tell
+[0.042s]   CMake that the project does not need compatibility with older versions.
+[0.042s] 
+[0.042s] [0m
+[0.151s] -- The C compiler identification is GNU 11.4.0
+[0.295s] -- The CXX compiler identification is GNU 11.4.0
+[0.322s] -- Detecting C compiler ABI info
+[0.498s] -- Detecting C compiler ABI info - done
+[0.526s] -- Check for working C compiler: /usr/bin/cc - skipped
+[0.527s] -- Detecting C compile features
+[0.529s] -- Detecting C compile features - done
+[0.543s] -- Detecting CXX compiler ABI info
+[0.725s] -- Detecting CXX compiler ABI info - done
+[0.754s] -- Check for working CXX compiler: /usr/bin/c++ - skipped
+[0.755s] -- Detecting CXX compile features
+[0.758s] -- Detecting CXX compile features - done
+[0.788s] [31mCMake Error at CMakeLists.txt:16 (find_package):
+[0.788s]   By not providing "Findcatkin.cmake" in CMAKE_MODULE_PATH this project has
+[0.789s]   asked CMake to find a package configuration file provided by "catkin", but
+[0.789s]   CMake did not find one.
+[0.789s] 
+[0.789s]   Could not find a package configuration file provided by "catkin" with any
+[0.789s]   of the following names:
+[0.789s] 
+[0.790s]     catkinConfig.cmake
+[0.790s]     catkin-config.cmake
+[0.790s] 
+[0.790s]   Add the installation prefix of "catkin" to CMAKE_PREFIX_PATH or set
+[0.790s]   "catkin_DIR" to a directory containing one of the above files.  If "catkin"
+[0.790s]   provides a separate development package or SDK, be sure it has been
+[0.790s]   installed.
+[0.791s] 
+[0.791s] [0m
+[0.791s] -- Configuring incomplete, errors occurred!
+[0.791s] See also "/home/ltr/aizee/jetson_ws/build/rplidar_ros/CMakeFiles/CMakeOutput.log".
+[0.804s] Invoked command in '/home/ltr/aizee/jetson_ws/build/rplidar_ros' returned '1': /usr/bin/cmake /home/ltr/aizee/jetson_ws/src/rplidar_ros -DCATKIN_INSTALL_INTO_PREFIX_ROOT=0 -DCMAKE_INSTALL_PREFIX=/home/ltr/aizee/jetson_ws/install/rplidar_ros

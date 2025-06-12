@@ -1,0 +1,115 @@
+-- Found ament_cmake: 1.3.11 (/opt/ros/humble/share/ament_cmake/cmake)
+-- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter 
+-- Found rclcpp: 16.0.12 (/opt/ros/humble/share/rclcpp/cmake)
+-- Found rosidl_generator_c: 3.1.6 (/opt/ros/humble/share/rosidl_generator_c/cmake)
+-- Found rosidl_adapter: 3.1.6 (/opt/ros/humble/share/rosidl_adapter/cmake)
+-- Found rosidl_generator_cpp: 3.1.6 (/opt/ros/humble/share/rosidl_generator_cpp/cmake)
+-- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+-- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+-- Found rmw_implementation_cmake: 6.1.2 (/opt/ros/humble/share/rmw_implementation_cmake/cmake)
+-- Found rmw_fastrtps_cpp: 6.2.7 (/opt/ros/humble/share/rmw_fastrtps_cpp/cmake)
+-- Found OpenSSL: /usr/lib/aarch64-linux-gnu/libcrypto.so (found version "3.0.2")  
+-- Found FastRTPS: /opt/ros/humble/include  
+-- Using RMW implementation 'rmw_fastrtps_cpp' as default
+-- Looking for pthread.h
+-- Looking for pthread.h - found
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE  
+-- Found sensor_msgs: 4.8.0 (/opt/ros/humble/share/sensor_msgs/cmake)
+-- Found std_srvs: 4.8.0 (/opt/ros/humble/share/std_srvs/cmake)
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/ltr/aizee/jetson_ws/build/rplidar_ros
+[ 15%] [32mBuilding CXX object CMakeFiles/rplidar_client.dir/src/rplidar_client.cpp.o[0m
+[ 15%] [32mBuilding CXX object CMakeFiles/rplidar_composition.dir/sdk/src/arch/linux/net_serial.cpp.o[0m
+[ 15%] [32mBuilding CXX object CMakeFiles/rplidar_node.dir/sdk/src/arch/linux/net_serial.cpp.o[0m
+[ 15%] [32mBuilding CXX object CMakeFiles/rplidar_composition.dir/src/rplidar_node.cpp.o[0m
+[ 15%] [32mBuilding CXX object CMakeFiles/rplidar_node.dir/sdk/src/arch/linux/net_socket.cpp.o[0m
+[ 15%] [32mBuilding CXX object CMakeFiles/rplidar_node.dir/src/rplidar_node.cpp.o[0m
+[ 18%] [32mBuilding CXX object CMakeFiles/rplidar_node.dir/sdk/src/arch/linux/timer.cpp.o[0m
+[ 21%] [32mBuilding CXX object CMakeFiles/rplidar_composition.dir/sdk/src/arch/linux/net_socket.cpp.o[0m
+[ 23%] [32mBuilding CXX object CMakeFiles/rplidar_node.dir/sdk/src/dataunpacker/dataunpacker.cpp.o[0m
+[ 26%] [32mBuilding CXX object CMakeFiles/rplidar_node.dir/sdk/src/dataunpacker/unpacker/handler_capsules.cpp.o[0m
+[ 28%] [32mBuilding CXX object CMakeFiles/rplidar_composition.dir/sdk/src/arch/linux/timer.cpp.o[0m
+[ 31%] [32mBuilding CXX object CMakeFiles/rplidar_node.dir/sdk/src/dataunpacker/unpacker/handler_hqnode.cpp.o[0m
+[ 34%] [32mBuilding CXX object CMakeFiles/rplidar_composition.dir/sdk/src/dataunpacker/dataunpacker.cpp.o[0m
+[ 36%] [32mBuilding CXX object CMakeFiles/rplidar_node.dir/sdk/src/dataunpacker/unpacker/handler_normalnode.cpp.o[0m
+[ 39%] [32mBuilding CXX object CMakeFiles/rplidar_node.dir/sdk/src/hal/thread.cpp.o[0m
+[ 42%] [32mBuilding CXX object CMakeFiles/rplidar_node.dir/sdk/src/rplidar_driver.cpp.o[0m
+[ 44%] [32mBuilding CXX object CMakeFiles/rplidar_composition.dir/sdk/src/dataunpacker/unpacker/handler_capsules.cpp.o[0m
+[ 47%] [32mBuilding CXX object CMakeFiles/rplidar_node.dir/sdk/src/sl_async_transceiver.cpp.o[0m
+[ 50%] [32mBuilding CXX object CMakeFiles/rplidar_node.dir/sdk/src/sl_crc.cpp.o[0m
+[ 52%] [32mBuilding CXX object CMakeFiles/rplidar_node.dir/sdk/src/sl_lidar_driver.cpp.o[0m
+[ 55%] [32mBuilding CXX object CMakeFiles/rplidar_composition.dir/sdk/src/dataunpacker/unpacker/handler_hqnode.cpp.o[0m
+[ 57%] [32mBuilding CXX object CMakeFiles/rplidar_node.dir/sdk/src/sl_lidarprotocol_codec.cpp.o[0m
+[ 60%] [32mBuilding CXX object CMakeFiles/rplidar_composition.dir/sdk/src/dataunpacker/unpacker/handler_normalnode.cpp.o[0m
+[ 63%] [32mBuilding CXX object CMakeFiles/rplidar_node.dir/sdk/src/sl_serial_channel.cpp.o[0m
+[ 65%] [32mBuilding CXX object CMakeFiles/rplidar_node.dir/sdk/src/sl_tcp_channel.cpp.o[0m
+[ 68%] [32mBuilding CXX object CMakeFiles/rplidar_node.dir/sdk/src/sl_udp_channel.cpp.o[0m
+[ 71%] [32mBuilding CXX object CMakeFiles/rplidar_composition.dir/sdk/src/hal/thread.cpp.o[0m
+[ 73%] [32mBuilding CXX object CMakeFiles/rplidar_composition.dir/sdk/src/rplidar_driver.cpp.o[0m
+[ 76%] [32mBuilding CXX object CMakeFiles/rplidar_composition.dir/sdk/src/sl_async_transceiver.cpp.o[0m
+[ 78%] [32mBuilding CXX object CMakeFiles/rplidar_composition.dir/sdk/src/sl_crc.cpp.o[0m
+[ 81%] [32mBuilding CXX object CMakeFiles/rplidar_composition.dir/sdk/src/sl_lidar_driver.cpp.o[0m
+[ 84%] [32mBuilding CXX object CMakeFiles/rplidar_composition.dir/sdk/src/sl_lidarprotocol_codec.cpp.o[0m
+[ 86%] [32mBuilding CXX object CMakeFiles/rplidar_composition.dir/sdk/src/sl_serial_channel.cpp.o[0m
+[ 89%] [32mBuilding CXX object CMakeFiles/rplidar_composition.dir/sdk/src/sl_tcp_channel.cpp.o[0m
+[ 92%] [32mBuilding CXX object CMakeFiles/rplidar_composition.dir/sdk/src/sl_udp_channel.cpp.o[0m
+[ 94%] [32m[1mLinking CXX executable rplidar_composition[0m
+[ 97%] [32m[1mLinking CXX executable rplidar_node[0m
+[ 97%] Built target rplidar_composition
+[ 97%] Built target rplidar_node
+[100%] [32m[1mLinking CXX executable rplidar_client[0m
+[100%] Built target rplidar_client
+-- Install configuration: ""
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch/view_rplidar_a3_launch.py
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch/rplidar_a2m8_launch.py
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch/rplidar_s3_launch.py
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch/rplidar_a2m12_launch.py
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch/view_rplidar_s1_tcp_launch.py
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch/rplidar_a3_launch.py
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch/view_rplidar_s1_launch.py
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch/rplidar_a1_launch.py
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch/rplidar_a2m7_launch.py
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch/view_rplidar_a2m7_launch.py
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch/view_rplidar_a2m8_launch.py
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch/view_rplidar_t1_launch.py
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch/rplidar_s2_launch.py
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch/view_rplidar_s2e_launch.py
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch/view_rplidar_s3_launch.py
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch/view_rplidar_a2m12_launch.py
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch/view_rplidar_a1_launch.py
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch/rplidar_s1_tcp_launch.py
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch/rplidar_t1_launch.py
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch/rplidar_c1_launch.py
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch/view_rplidar_s2_launch.py
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch/view_rplidar_c1_launch.py
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch/rplidar_s1_launch.py
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/launch/rplidar_s2e_launch.py
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/rviz
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/rviz/rplidar_ros.rviz
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/lib/rplidar_ros/rplidar_node
+-- Set runtime path of "/home/ltr/aizee/jetson_ws/install/rplidar_ros/lib/rplidar_ros/rplidar_node" to ""
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/lib/rplidar_ros/rplidar_composition
+-- Set runtime path of "/home/ltr/aizee/jetson_ws/install/rplidar_ros/lib/rplidar_ros/rplidar_composition" to ""
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/lib/rplidar_ros/rplidar_client
+-- Set runtime path of "/home/ltr/aizee/jetson_ws/install/rplidar_ros/lib/rplidar_ros/rplidar_client" to ""
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/ament_index/resource_index/package_run_dependencies/rplidar_ros
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/ament_index/resource_index/parent_prefix_path/rplidar_ros
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/environment/ament_prefix_path.sh
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/environment/ament_prefix_path.dsv
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/environment/path.sh
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/environment/path.dsv
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/local_setup.bash
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/local_setup.sh
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/local_setup.zsh
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/local_setup.dsv
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/package.dsv
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/ament_index/resource_index/packages/rplidar_ros
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/cmake/ament_cmake_export_dependencies-extras.cmake
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/cmake/ament_cmake_export_include_directories-extras.cmake
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/cmake/rplidar_rosConfig.cmake
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/cmake/rplidar_rosConfig-version.cmake
+-- Installing: /home/ltr/aizee/jetson_ws/install/rplidar_ros/share/rplidar_ros/package.xml
