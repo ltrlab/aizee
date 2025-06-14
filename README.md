@@ -7,14 +7,14 @@ This repository contains all the code necessary to operate AIZEE for a teleopera
 ## Quick Setup
 - Clone this repository.
 ```bash
-git clone https://github.com/ltrlab/opensauce-demo-2025.git
-cd opensauce-demo-2025
+git clone https://github.com/ltrlab/aizee.git
+cd aizee
 ./start-demo
 ```
 
 ## Directory Structure
 ```
-opensauce-demo-2025/              ← Root of the repository
+aizee/                            ← Root of the repository
 ├── .github/
 │   ├── ISSUE_TEMPLATE.md         ← Bug report & feature request templates
 │   └── PULL_REQUEST_TEMPLATE.md  ← Pull request template for Jira linking
@@ -27,9 +27,12 @@ opensauce-demo-2025/              ← Root of the repository
 │       └── platform_wiring.pdf
 │
 ├── BOM/
-│   └── bill_of_materials.xlsx    ← Full assembly guide.
+│   └── BOM.md                    ← Full assembly guide.
 │
 ├── jetson_ws/                    ← ROS 2 workspace for everything on Jetson
+│
+├── windows_ws/                   ← All files that will be running on a Windows machine.
+│   └── unity_ws/                 ← The Unity project workspace.
 │
 ├── teensy/                       ← All code that lives on the Teensy 4.1
 └── .gitignore                    ← Standard ignores (build artifacts, temp files)
@@ -59,17 +62,17 @@ BOM/bill_of_materials.xlsx
     - Clone this repo and build:
       
     ```bash
-    cd ~/aizee-household-robot/jetson_ws
+    cd ~/aizee/jetson_ws
     colcon build
     source install/setup.bash
     ```
 4. **Teensy Firmware**
     *   Install Teensyduino (latest).
-    *   Open teensy/src/aizee\_motors.ino in Arduino IDE.
+    *   Open teensy/src/aizee_rover_teensy_firmware.c in Arduino IDE.
     *   Select “Teensy 4.1” as the board, compile and upload.
 6. **Run the Teleoperation Demo**
    ```bash
-   cd ~/aizee-household-robot/jetson_ws
+   cd ~/aizee/jetson_ws
    source install/setup.bash
    ros2 launch aizee_control teleop.launch.py
    ```
@@ -79,8 +82,6 @@ BOM/bill_of_materials.xlsx
         3.  Launch the Unity application.
     
 ## Controls and Operation
-
-_TBD_
 
 ### Running the RPLIDAR A1M8
 
