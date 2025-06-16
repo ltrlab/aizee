@@ -1,6 +1,8 @@
 # Open Sauce 2025: AIZEE @ Booth #250372
 This repository contains all the code necessary to operate AIZEE for a teleoperation demo at Open Sauce 2025. The workspaces are broken into folders for their respective machines.
 
+![AIZEE V1 PREVIEW](.github/images/v1_cad_preview.png)
+
 ## Quick Links
 | [Confluence Page](https://ltrlabs.atlassian.net/wiki/x/AYDpC) | [Mechanical Design](https://ltrlabs.atlassian.net/jira/software/projects/HD/boards/1/backlog) | [Software Development](https://ltrlabs.atlassian.net/jira/software/projects/SW/boards/2/backlog) | [Logistics Plan](https://ltrlabs.atlassian.net/jira/software/projects/LOGIC/boards/6/backlog) |
 
