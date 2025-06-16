@@ -2,7 +2,7 @@
 
 This folder contains the list of all parts needed to build Aizee.
 
-## [V1 BOM](docs/BOM_V1.md)
+## [V1 BOM](/BOM_V1.md)
 
 <details>
 <summary>Aizee V1 Bill of Materials</summary>
@@ -48,11 +48,11 @@ This folder contains the list of all parts needed to build Aizee.
 | 4 Pack 20g–2 Kg Force Resistor                     |      3 | \$12.99 each          | Force Sensor for Gripper                 | Amazon: <https://www.amazon.com/dp/B0CZ6L5NMM>                                                                                    |     |
 | VL53L4CD ToF Range Sensor (0–1300 mm)              |      1 | \$25.99               | Distance Sensor for Gripper              | Amazon: <https://www.amazon.com/dp/B0DJ74Z8KH>                                                                                    |     |
 | 4-Pack ES3302                                      |      5 | \$30.24 each          | Servos for Gripper Fingers               | Aliexpress: <https://www.aliexpress.us/item/3256809057391734.html>                                                                |     |
-| Custom ESP32 + PCA9285 Gripper Driver              |      1 | TBD                   | Gripper Driver                           | PCBWay + Flux.ai (design)                                                                                                         |     |
+| Custom ESP32 + PCA9285 Gripper Driver              |      1 | TBD                   | Gripper Driver                           | PCBWay + Flux.ai https://www.flux.ai/overmyhead/aizee-gripper (design)                                                                                                         |     |
 
 </details>
 
-## [V1.5 BOM](docs/BOM_V1.5.md)
+## [V1.5 BOM](/BOM_V1.5.md)
 
 <details>
 <summary>Aizee V1.5 Bill of Materials</summary>

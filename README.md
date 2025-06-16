@@ -27,7 +27,9 @@ aizee/                            ← Root of the repository
 │       └── platform_wiring.pdf
 │
 ├── BOM/
-│   └── BOM.md                    ← Full assembly guide.
+│   └── BOMV1.5.md                ← Full parts list for V1.5
+│   └── BOMV1.md                  ← Full parts list for V1
+│   └── README.md                 ← Both in one place.
 │
 ├── jetson_ws/                    ← ROS 2 workspace for everything on Jetson
 │
