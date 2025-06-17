@@ -2,3 +2,7 @@
 	path = jetson_ws/src/rplidar_ros
 	url = https://github.com/Slamtec/rplidar_ros.git
 	branch = ros2
+[submodule "wsl_ws/src/ROS-TCP-Endpoint"]
+	path = wsl_ws/src/ROS-TCP-Endpoint
+	url = https://github.com/Unity-Technologies/ROS-TCP-Endpoint.git
+	branch = main-ros2
