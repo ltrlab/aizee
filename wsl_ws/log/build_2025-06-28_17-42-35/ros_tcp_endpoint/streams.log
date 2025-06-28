@@ -1,0 +1,72 @@
+[1.053s] Invoking command in '/home/skavrx/aizee/wsl_ws/src/ROS-TCP-Endpoint': CONDA_PROMPT_MODIFIER=(base) PYTHONPATH=/home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/ros_tcp_endpoint build --build-base /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build install --record /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/install.log --install-scripts $base/lib/ros_tcp_endpoint --single-version-externally-managed install_data
+[1.342s] /usr/lib/python3/dist-packages/setuptools/dist.py:723: UserWarning: Usage of dash-separated 'script-dir' will not be supported in future versions. Please use the underscore name 'script_dir' instead
+[1.343s]   warnings.warn(
+[1.351s] running egg_info
+[1.351s] creating ../../build/ros_tcp_endpoint/ros_tcp_endpoint.egg-info
+[1.352s] writing ../../build/ros_tcp_endpoint/ros_tcp_endpoint.egg-info/PKG-INFO
+[1.353s] writing dependency_links to ../../build/ros_tcp_endpoint/ros_tcp_endpoint.egg-info/dependency_links.txt
+[1.353s] writing entry points to ../../build/ros_tcp_endpoint/ros_tcp_endpoint.egg-info/entry_points.txt
+[1.353s] writing requirements to ../../build/ros_tcp_endpoint/ros_tcp_endpoint.egg-info/requires.txt
+[1.353s] writing top-level names to ../../build/ros_tcp_endpoint/ros_tcp_endpoint.egg-info/top_level.txt
+[1.353s] writing manifest file '../../build/ros_tcp_endpoint/ros_tcp_endpoint.egg-info/SOURCES.txt'
+[1.356s] reading manifest file '../../build/ros_tcp_endpoint/ros_tcp_endpoint.egg-info/SOURCES.txt'
+[1.356s] adding license file 'LICENSE'
+[1.358s] writing manifest file '../../build/ros_tcp_endpoint/ros_tcp_endpoint.egg-info/SOURCES.txt'
+[1.358s] running build
+[1.358s] running build_py
+[1.358s] creating /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build
+[1.359s] creating /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib
+[1.360s] creating /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint
+[1.360s] copying ros_tcp_endpoint/__init__.py -> /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint
+[1.362s] copying ros_tcp_endpoint/server.py -> /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint
+[1.363s] copying ros_tcp_endpoint/exceptions.py -> /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint
+[1.363s] copying ros_tcp_endpoint/unity_service.py -> /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint
+[1.364s] copying ros_tcp_endpoint/client.py -> /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint
+[1.365s] copying ros_tcp_endpoint/service.py -> /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint
+[1.365s] copying ros_tcp_endpoint/publisher.py -> /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint
+[1.366s] copying ros_tcp_endpoint/communication.py -> /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint
+[1.366s] copying ros_tcp_endpoint/subscriber.py -> /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint
+[1.367s] copying ros_tcp_endpoint/thread_pauser.py -> /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint
+[1.367s] copying ros_tcp_endpoint/default_server_endpoint.py -> /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint
+[1.368s] copying ros_tcp_endpoint/tcp_sender.py -> /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint
+[1.369s] running install
+[1.369s] running install_lib
+[1.370s] creating /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint
+[1.371s] copying /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint/__init__.py -> /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint
+[1.372s] copying /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint/server.py -> /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint
+[1.372s] copying /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint/exceptions.py -> /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint
+[1.373s] copying /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint/unity_service.py -> /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint
+[1.373s] copying /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint/client.py -> /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint
+[1.374s] copying /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint/service.py -> /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint
+[1.374s] copying /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint/publisher.py -> /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint
+[1.375s] copying /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint/communication.py -> /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint
+[1.375s] copying /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint/subscriber.py -> /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint
+[1.375s] copying /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint/thread_pauser.py -> /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint
+[1.376s] copying /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint/default_server_endpoint.py -> /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint
+[1.376s] copying /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build/lib/ros_tcp_endpoint/tcp_sender.py -> /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint
+[1.377s] byte-compiling /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint/__init__.py to __init__.cpython-310.pyc
+[1.378s] byte-compiling /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint/server.py to server.cpython-310.pyc
+[1.380s] byte-compiling /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint/exceptions.py to exceptions.cpython-310.pyc
+[1.382s] byte-compiling /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint/unity_service.py to unity_service.cpython-310.pyc
+[1.383s] byte-compiling /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint/client.py to client.cpython-310.pyc
+[1.384s] byte-compiling /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint/service.py to service.cpython-310.pyc
+[1.384s] byte-compiling /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint/publisher.py to publisher.cpython-310.pyc
+[1.385s] byte-compiling /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint/communication.py to communication.cpython-310.pyc
+[1.385s] byte-compiling /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint/subscriber.py to subscriber.cpython-310.pyc
+[1.386s] byte-compiling /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint/thread_pauser.py to thread_pauser.cpython-310.pyc
+[1.386s] byte-compiling /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint/default_server_endpoint.py to default_server_endpoint.cpython-310.pyc
+[1.386s] byte-compiling /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint/tcp_sender.py to tcp_sender.cpython-310.pyc
+[1.388s] running install_data
+[1.388s] creating /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/share/ament_index
+[1.388s] creating /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/share/ament_index/resource_index
+[1.389s] creating /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/share/ament_index/resource_index/packages
+[1.390s] copying resource/ros_tcp_endpoint -> /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/share/ament_index/resource_index/packages
+[1.390s] copying package.xml -> /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/share/ros_tcp_endpoint
+[1.390s] creating /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/share/ros_tcp_endpoint/launch
+[1.391s] copying launch/endpoint.py -> /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/share/ros_tcp_endpoint/launch
+[1.392s] running install_egg_info
+[1.395s] Copying ../../build/ros_tcp_endpoint/ros_tcp_endpoint.egg-info to /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint-0.0.1-py3.10.egg-info
+[1.397s] running install_scripts
+[1.420s] Installing default_server_endpoint script to /home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/ros_tcp_endpoint
+[1.421s] writing list of installed files to '/home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/install.log'
+[1.462s] Invoked command in '/home/skavrx/aizee/wsl_ws/src/ROS-TCP-Endpoint' returned '0': CONDA_PROMPT_MODIFIER=(base) PYTHONPATH=/home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/ros_tcp_endpoint build --build-base /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build install --record /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/install.log --install-scripts $base/lib/ros_tcp_endpoint --single-version-externally-managed install_data

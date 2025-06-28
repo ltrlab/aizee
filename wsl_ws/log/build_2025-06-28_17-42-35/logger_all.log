@@ -1,0 +1,257 @@
+[0.356s] DEBUG:colcon:Command line arguments: ['/usr/bin/colcon', 'build']
+[0.356s] DEBUG:colcon:Parsed command line arguments: Namespace(log_base=None, log_level=None, verb_name='build', build_base='build', install_base='install', merge_install=False, symlink_install=False, test_result_base=None, continue_on_error=False, executor='parallel', parallel_workers=12, event_handlers=None, ignore_user_meta=False, metas=['./colcon.meta'], base_paths=['.'], packages_ignore=None, packages_ignore_regex=None, paths=None, packages_up_to=None, packages_up_to_regex=None, packages_above=None, packages_above_and_dependencies=None, packages_above_depth=None, packages_select_by_dep=None, packages_skip_by_dep=None, packages_skip_up_to=None, packages_select_build_failed=False, packages_skip_build_finished=False, packages_select_test_failures=False, packages_skip_test_passed=False, packages_select=None, packages_skip=None, packages_select_regex=None, packages_skip_regex=None, packages_start=None, packages_end=None, allow_overriding=[], cmake_args=None, cmake_target=None, cmake_target_skip_unavailable=False, cmake_clean_cache=False, cmake_clean_first=False, cmake_force_configure=False, ament_cmake_args=None, catkin_cmake_args=None, catkin_skip_building_tests=False, mixin_files=None, mixin=None, verb_parser=<colcon_mixin.mixin.mixin_argument.MixinArgumentDecorator object at 0x7257a96c5c00>, verb_extension=<colcon_core.verb.build.BuildVerb object at 0x7257a985eb30>, main=<bound method BuildVerb.main of <colcon_core.verb.build.BuildVerb object at 0x7257a985eb30>>, mixin_verb=('build',))
+[0.742s] Level 1:colcon.colcon_core.package_discovery:discover_packages(colcon_meta) check parameters
+[0.743s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) check parameters
+[0.743s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) check parameters
+[0.743s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) check parameters
+[0.743s] Level 1:colcon.colcon_core.package_discovery:discover_packages(colcon_meta) discover
+[0.743s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) discover
+[0.743s] INFO:colcon.colcon_core.package_discovery:Crawling recursively for packages in '/home/skavrx/aizee/wsl_ws'
+[0.743s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['ignore', 'ignore_ament_install']
+[0.743s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ignore'
+[0.743s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ignore_ament_install'
+[0.743s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['colcon_pkg']
+[0.743s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'colcon_pkg'
+[0.743s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['colcon_meta']
+[0.743s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'colcon_meta'
+[0.743s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['ros']
+[0.743s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ros'
+[0.757s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['cmake', 'python']
+[0.758s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'cmake'
+[0.758s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'python'
+[0.758s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['python_setup_py']
+[0.758s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'python_setup_py'
+[0.758s] Level 1:colcon.colcon_core.package_identification:_identify(build) by extensions ['ignore', 'ignore_ament_install']
+[0.758s] Level 1:colcon.colcon_core.package_identification:_identify(build) by extension 'ignore'
+[0.758s] Level 1:colcon.colcon_core.package_identification:_identify(build) ignored
+[0.758s] Level 1:colcon.colcon_core.package_identification:_identify(install) by extensions ['ignore', 'ignore_ament_install']
+[0.758s] Level 1:colcon.colcon_core.package_identification:_identify(install) by extension 'ignore'
+[0.758s] Level 1:colcon.colcon_core.package_identification:_identify(install) ignored
+[0.758s] Level 1:colcon.colcon_core.package_identification:_identify(log) by extensions ['ignore', 'ignore_ament_install']
+[0.759s] Level 1:colcon.colcon_core.package_identification:_identify(log) by extension 'ignore'
+[0.759s] Level 1:colcon.colcon_core.package_identification:_identify(log) ignored
+[0.759s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extensions ['ignore', 'ignore_ament_install']
+[0.759s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extension 'ignore'
+[0.759s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extension 'ignore_ament_install'
+[0.759s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extensions ['colcon_pkg']
+[0.759s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extension 'colcon_pkg'
+[0.759s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extensions ['colcon_meta']
+[0.759s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extension 'colcon_meta'
+[0.759s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extensions ['ros']
+[0.759s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extension 'ros'
+[0.759s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extensions ['cmake', 'python']
+[0.759s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extension 'cmake'
+[0.759s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extension 'python'
+[0.759s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extensions ['python_setup_py']
+[0.759s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extension 'python_setup_py'
+[0.759s] Level 1:colcon.colcon_core.package_identification:_identify(src/ROS-TCP-Endpoint) by extensions ['ignore', 'ignore_ament_install']
+[0.759s] Level 1:colcon.colcon_core.package_identification:_identify(src/ROS-TCP-Endpoint) by extension 'ignore'
+[0.759s] Level 1:colcon.colcon_core.package_identification:_identify(src/ROS-TCP-Endpoint) by extension 'ignore_ament_install'
+[0.759s] Level 1:colcon.colcon_core.package_identification:_identify(src/ROS-TCP-Endpoint) by extensions ['colcon_pkg']
+[0.759s] Level 1:colcon.colcon_core.package_identification:_identify(src/ROS-TCP-Endpoint) by extension 'colcon_pkg'
+[0.760s] Level 1:colcon.colcon_core.package_identification:_identify(src/ROS-TCP-Endpoint) by extensions ['colcon_meta']
+[0.760s] Level 1:colcon.colcon_core.package_identification:_identify(src/ROS-TCP-Endpoint) by extension 'colcon_meta'
+[0.760s] Level 1:colcon.colcon_core.package_identification:_identify(src/ROS-TCP-Endpoint) by extensions ['ros']
+[0.760s] Level 1:colcon.colcon_core.package_identification:_identify(src/ROS-TCP-Endpoint) by extension 'ros'
+[0.763s] DEBUG:colcon.colcon_core.package_identification:Package 'src/ROS-TCP-Endpoint' with type 'ros.ament_python' and name 'ros_tcp_endpoint'
+[0.763s] Level 1:colcon.colcon_core.package_identification:_identify(src/aizee_model) by extensions ['ignore', 'ignore_ament_install']
+[0.763s] Level 1:colcon.colcon_core.package_identification:_identify(src/aizee_model) by extension 'ignore'
+[0.763s] Level 1:colcon.colcon_core.package_identification:_identify(src/aizee_model) by extension 'ignore_ament_install'
+[0.763s] Level 1:colcon.colcon_core.package_identification:_identify(src/aizee_model) by extensions ['colcon_pkg']
+[0.763s] Level 1:colcon.colcon_core.package_identification:_identify(src/aizee_model) by extension 'colcon_pkg'
+[0.763s] Level 1:colcon.colcon_core.package_identification:_identify(src/aizee_model) by extensions ['colcon_meta']
+[0.763s] Level 1:colcon.colcon_core.package_identification:_identify(src/aizee_model) by extension 'colcon_meta'
+[0.763s] Level 1:colcon.colcon_core.package_identification:_identify(src/aizee_model) by extensions ['ros']
+[0.763s] Level 1:colcon.colcon_core.package_identification:_identify(src/aizee_model) by extension 'ros'
+[0.764s] DEBUG:colcon.colcon_core.package_identification:Package 'src/aizee_model' with type 'ros.ament_cmake' and name 'aizee_model'
+[0.764s] Level 1:colcon.colcon_core.package_identification:_identify(src/moveit_aizee) by extensions ['ignore', 'ignore_ament_install']
+[0.764s] Level 1:colcon.colcon_core.package_identification:_identify(src/moveit_aizee) by extension 'ignore'
+[0.764s] Level 1:colcon.colcon_core.package_identification:_identify(src/moveit_aizee) by extension 'ignore_ament_install'
+[0.764s] Level 1:colcon.colcon_core.package_identification:_identify(src/moveit_aizee) by extensions ['colcon_pkg']
+[0.764s] Level 1:colcon.colcon_core.package_identification:_identify(src/moveit_aizee) by extension 'colcon_pkg'
+[0.764s] Level 1:colcon.colcon_core.package_identification:_identify(src/moveit_aizee) by extensions ['colcon_meta']
+[0.764s] Level 1:colcon.colcon_core.package_identification:_identify(src/moveit_aizee) by extension 'colcon_meta'
+[0.764s] Level 1:colcon.colcon_core.package_identification:_identify(src/moveit_aizee) by extensions ['ros']
+[0.764s] Level 1:colcon.colcon_core.package_identification:_identify(src/moveit_aizee) by extension 'ros'
+[0.766s] DEBUG:colcon.colcon_core.package_identification:Package 'src/moveit_aizee' with type 'ros.ament_cmake' and name 'moveit_aizee'
+[0.766s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) using defaults
+[0.766s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) discover
+[0.766s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) using defaults
+[0.766s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) discover
+[0.766s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) using defaults
+[0.813s] Level 1:colcon.colcon_core.package_discovery:discover_packages(prefix_path) check parameters
+[0.813s] Level 1:colcon.colcon_core.package_discovery:discover_packages(prefix_path) discover
+[0.817s] DEBUG:colcon.colcon_installed_package_information.package_discovery:Found 1 installed packages in /home/skavrx/aizee/wsl_ws/install
+[0.819s] DEBUG:colcon.colcon_installed_package_information.package_discovery:Found 340 installed packages in /opt/ros/humble
+[0.821s] Level 1:colcon.colcon_core.package_discovery:discover_packages(prefix_path) using defaults
+[0.931s] Level 5:colcon.colcon_core.verb:set package 'aizee_model' build argument 'cmake_args' from command line to 'None'
+[0.932s] Level 5:colcon.colcon_core.verb:set package 'aizee_model' build argument 'cmake_target' from command line to 'None'
+[0.932s] Level 5:colcon.colcon_core.verb:set package 'aizee_model' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.932s] Level 5:colcon.colcon_core.verb:set package 'aizee_model' build argument 'cmake_clean_cache' from command line to 'False'
+[0.932s] Level 5:colcon.colcon_core.verb:set package 'aizee_model' build argument 'cmake_clean_first' from command line to 'False'
+[0.932s] Level 5:colcon.colcon_core.verb:set package 'aizee_model' build argument 'cmake_force_configure' from command line to 'False'
+[0.932s] Level 5:colcon.colcon_core.verb:set package 'aizee_model' build argument 'ament_cmake_args' from command line to 'None'
+[0.932s] Level 5:colcon.colcon_core.verb:set package 'aizee_model' build argument 'catkin_cmake_args' from command line to 'None'
+[0.932s] Level 5:colcon.colcon_core.verb:set package 'aizee_model' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.932s] DEBUG:colcon.colcon_core.verb:Building package 'aizee_model' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/skavrx/aizee/wsl_ws/build/aizee_model', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/skavrx/aizee/wsl_ws/install/aizee_model', 'merge_install': False, 'path': '/home/skavrx/aizee/wsl_ws/src/aizee_model', 'symlink_install': False, 'test_result_base': None}
+[0.932s] Level 5:colcon.colcon_core.verb:set package 'ros_tcp_endpoint' build argument 'cmake_args' from command line to 'None'
+[0.932s] Level 5:colcon.colcon_core.verb:set package 'ros_tcp_endpoint' build argument 'cmake_target' from command line to 'None'
+[0.932s] Level 5:colcon.colcon_core.verb:set package 'ros_tcp_endpoint' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.933s] Level 5:colcon.colcon_core.verb:set package 'ros_tcp_endpoint' build argument 'cmake_clean_cache' from command line to 'False'
+[0.933s] Level 5:colcon.colcon_core.verb:set package 'ros_tcp_endpoint' build argument 'cmake_clean_first' from command line to 'False'
+[0.933s] Level 5:colcon.colcon_core.verb:set package 'ros_tcp_endpoint' build argument 'cmake_force_configure' from command line to 'False'
+[0.933s] Level 5:colcon.colcon_core.verb:set package 'ros_tcp_endpoint' build argument 'ament_cmake_args' from command line to 'None'
+[0.933s] Level 5:colcon.colcon_core.verb:set package 'ros_tcp_endpoint' build argument 'catkin_cmake_args' from command line to 'None'
+[0.933s] Level 5:colcon.colcon_core.verb:set package 'ros_tcp_endpoint' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.933s] DEBUG:colcon.colcon_core.verb:Building package 'ros_tcp_endpoint' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint', 'merge_install': False, 'path': '/home/skavrx/aizee/wsl_ws/src/ROS-TCP-Endpoint', 'symlink_install': False, 'test_result_base': None}
+[0.933s] Level 5:colcon.colcon_core.verb:set package 'moveit_aizee' build argument 'cmake_args' from command line to 'None'
+[0.933s] Level 5:colcon.colcon_core.verb:set package 'moveit_aizee' build argument 'cmake_target' from command line to 'None'
+[0.933s] Level 5:colcon.colcon_core.verb:set package 'moveit_aizee' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.933s] Level 5:colcon.colcon_core.verb:set package 'moveit_aizee' build argument 'cmake_clean_cache' from command line to 'False'
+[0.933s] Level 5:colcon.colcon_core.verb:set package 'moveit_aizee' build argument 'cmake_clean_first' from command line to 'False'
+[0.933s] Level 5:colcon.colcon_core.verb:set package 'moveit_aizee' build argument 'cmake_force_configure' from command line to 'False'
+[0.933s] Level 5:colcon.colcon_core.verb:set package 'moveit_aizee' build argument 'ament_cmake_args' from command line to 'None'
+[0.933s] Level 5:colcon.colcon_core.verb:set package 'moveit_aizee' build argument 'catkin_cmake_args' from command line to 'None'
+[0.933s] Level 5:colcon.colcon_core.verb:set package 'moveit_aizee' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.933s] DEBUG:colcon.colcon_core.verb:Building package 'moveit_aizee' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/skavrx/aizee/wsl_ws/build/moveit_aizee', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/skavrx/aizee/wsl_ws/install/moveit_aizee', 'merge_install': False, 'path': '/home/skavrx/aizee/wsl_ws/src/moveit_aizee', 'symlink_install': False, 'test_result_base': None}
+[0.934s] INFO:colcon.colcon_core.executor:Executing jobs using 'parallel' executor
+[0.935s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:run_until_complete
+[0.935s] INFO:colcon.colcon_ros.task.ament_cmake.build:Building ROS package in '/home/skavrx/aizee/wsl_ws/src/aizee_model' with build type 'ament_cmake'
+[0.935s] INFO:colcon.colcon_cmake.task.cmake.build:Building CMake package in '/home/skavrx/aizee/wsl_ws/src/aizee_model'
+[0.942s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_core.shell.bat': Not used on non-Windows systems
+[0.942s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.942s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.947s] INFO:colcon.colcon_ros.task.ament_python.build:Building ROS package in '/home/skavrx/aizee/wsl_ws/src/ROS-TCP-Endpoint' with build type 'ament_python'
+[0.948s] Level 1:colcon.colcon_core.shell:create_environment_hook('ros_tcp_endpoint', 'ament_prefix_path')
+[0.948s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/share/ros_tcp_endpoint/hook/ament_prefix_path.ps1'
+[0.952s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/share/ros_tcp_endpoint/hook/ament_prefix_path.dsv'
+[0.953s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/share/ros_tcp_endpoint/hook/ament_prefix_path.sh'
+[0.954s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.954s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.968s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/skavrx/aizee/wsl_ws/build/aizee_model': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble CONDA_PROMPT_MODIFIER=(base) /usr/bin/cmake /home/skavrx/aizee/wsl_ws/src/aizee_model -DCMAKE_INSTALL_PREFIX=/home/skavrx/aizee/wsl_ws/install/aizee_model
+[1.300s] INFO:colcon.colcon_core.task.python.build:Building Python package in '/home/skavrx/aizee/wsl_ws/src/ROS-TCP-Endpoint'
+[1.301s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[1.301s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[1.563s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/skavrx/aizee/wsl_ws/build/aizee_model' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble CONDA_PROMPT_MODIFIER=(base) /usr/bin/cmake /home/skavrx/aizee/wsl_ws/src/aizee_model -DCMAKE_INSTALL_PREFIX=/home/skavrx/aizee/wsl_ws/install/aizee_model
+[1.567s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/skavrx/aizee/wsl_ws/build/aizee_model': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble CONDA_PROMPT_MODIFIER=(base) /usr/bin/cmake --build /home/skavrx/aizee/wsl_ws/build/aizee_model -- -j12 -l12
+[1.635s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/skavrx/aizee/wsl_ws/build/aizee_model' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble CONDA_PROMPT_MODIFIER=(base) /usr/bin/cmake --build /home/skavrx/aizee/wsl_ws/build/aizee_model -- -j12 -l12
+[1.652s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/skavrx/aizee/wsl_ws/build/aizee_model': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble CONDA_PROMPT_MODIFIER=(base) /usr/bin/cmake --install /home/skavrx/aizee/wsl_ws/build/aizee_model
+[1.698s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(aizee_model)
+[1.699s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/skavrx/aizee/wsl_ws/build/aizee_model' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble CONDA_PROMPT_MODIFIER=(base) /usr/bin/cmake --install /home/skavrx/aizee/wsl_ws/build/aizee_model
+[1.707s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/aizee_model' for CMake module files
+[1.708s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/aizee_model' for CMake config files
+[1.708s] Level 1:colcon.colcon_core.shell:create_environment_hook('aizee_model', 'cmake_prefix_path')
+[1.709s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/hook/cmake_prefix_path.ps1'
+[1.710s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/hook/cmake_prefix_path.dsv'
+[1.710s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/hook/cmake_prefix_path.sh'
+[1.712s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/aizee_model/bin'
+[1.712s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/aizee_model/lib/pkgconfig/aizee_model.pc'
+[1.712s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/aizee_model/lib/python3.10/site-packages'
+[1.713s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/aizee_model/bin'
+[1.713s] INFO:colcon.colcon_core.shell:Creating package script '/home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/package.ps1'
+[1.715s] INFO:colcon.colcon_core.shell:Creating package descriptor '/home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/package.dsv'
+[1.716s] INFO:colcon.colcon_core.shell:Creating package script '/home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/package.sh'
+[1.719s] INFO:colcon.colcon_core.shell:Creating package script '/home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/package.bash'
+[1.720s] INFO:colcon.colcon_core.shell:Creating package script '/home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/package.zsh'
+[1.722s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/home/skavrx/aizee/wsl_ws/install/aizee_model/share/colcon-core/packages/aizee_model)
+[1.723s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(aizee_model)
+[1.724s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/aizee_model' for CMake module files
+[1.724s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/aizee_model' for CMake config files
+[1.725s] Level 1:colcon.colcon_core.shell:create_environment_hook('aizee_model', 'cmake_prefix_path')
+[1.725s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/hook/cmake_prefix_path.ps1'
+[1.726s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/hook/cmake_prefix_path.dsv'
+[1.727s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/hook/cmake_prefix_path.sh'
+[1.728s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/aizee_model/bin'
+[1.728s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/aizee_model/lib/pkgconfig/aizee_model.pc'
+[1.728s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/aizee_model/lib/python3.10/site-packages'
+[1.728s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/aizee_model/bin'
+[1.729s] INFO:colcon.colcon_core.shell:Creating package script '/home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/package.ps1'
+[1.729s] INFO:colcon.colcon_core.shell:Creating package descriptor '/home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/package.dsv'
+[1.730s] INFO:colcon.colcon_core.shell:Creating package script '/home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/package.sh'
+[1.730s] INFO:colcon.colcon_core.shell:Creating package script '/home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/package.bash'
+[1.731s] INFO:colcon.colcon_core.shell:Creating package script '/home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/package.zsh'
+[1.731s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/home/skavrx/aizee/wsl_ws/install/aizee_model/share/colcon-core/packages/aizee_model)
+[1.731s] INFO:colcon.colcon_ros.task.ament_cmake.build:Building ROS package in '/home/skavrx/aizee/wsl_ws/src/moveit_aizee' with build type 'ament_cmake'
+[1.732s] INFO:colcon.colcon_cmake.task.cmake.build:Building CMake package in '/home/skavrx/aizee/wsl_ws/src/moveit_aizee'
+[1.732s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[1.733s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[1.850s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/skavrx/aizee/wsl_ws/build/moveit_aizee': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble CONDA_PROMPT_MODIFIER=(base) /usr/bin/cmake /home/skavrx/aizee/wsl_ws/src/moveit_aizee -DCMAKE_INSTALL_PREFIX=/home/skavrx/aizee/wsl_ws/install/moveit_aizee
+[2.001s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/skavrx/aizee/wsl_ws/src/ROS-TCP-Endpoint': CONDA_PROMPT_MODIFIER=(base) PYTHONPATH=/home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/ros_tcp_endpoint build --build-base /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build install --record /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/install.log --install-scripts $base/lib/ros_tcp_endpoint --single-version-externally-managed install_data
+[2.409s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint' for CMake module files
+[2.410s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/skavrx/aizee/wsl_ws/src/ROS-TCP-Endpoint' returned '0': CONDA_PROMPT_MODIFIER=(base) PYTHONPATH=/home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/ros_tcp_endpoint build --build-base /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/build install --record /home/skavrx/aizee/wsl_ws/build/ros_tcp_endpoint/install.log --install-scripts $base/lib/ros_tcp_endpoint --single-version-externally-managed install_data
+[2.411s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint' for CMake config files
+[2.411s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib'
+[2.412s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/bin'
+[2.412s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/pkgconfig/ros_tcp_endpoint.pc'
+[2.412s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages'
+[2.412s] Level 1:colcon.colcon_core.shell:create_environment_hook('ros_tcp_endpoint', 'pythonpath')
+[2.412s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/share/ros_tcp_endpoint/hook/pythonpath.ps1'
+[2.413s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/share/ros_tcp_endpoint/hook/pythonpath.dsv'
+[2.413s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/share/ros_tcp_endpoint/hook/pythonpath.sh'
+[2.414s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/bin'
+[2.414s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(ros_tcp_endpoint)
+[2.414s] INFO:colcon.colcon_core.shell:Creating package script '/home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/share/ros_tcp_endpoint/package.ps1'
+[2.415s] INFO:colcon.colcon_core.shell:Creating package descriptor '/home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/share/ros_tcp_endpoint/package.dsv'
+[2.415s] INFO:colcon.colcon_core.shell:Creating package script '/home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/share/ros_tcp_endpoint/package.sh'
+[2.415s] INFO:colcon.colcon_core.shell:Creating package script '/home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/share/ros_tcp_endpoint/package.bash'
+[2.416s] INFO:colcon.colcon_core.shell:Creating package script '/home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/share/ros_tcp_endpoint/package.zsh'
+[2.416s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/home/skavrx/aizee/wsl_ws/install/ros_tcp_endpoint/share/colcon-core/packages/ros_tcp_endpoint)
+[5.145s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/skavrx/aizee/wsl_ws/build/moveit_aizee' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble CONDA_PROMPT_MODIFIER=(base) /usr/bin/cmake /home/skavrx/aizee/wsl_ws/src/moveit_aizee -DCMAKE_INSTALL_PREFIX=/home/skavrx/aizee/wsl_ws/install/moveit_aizee
+[5.147s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/skavrx/aizee/wsl_ws/build/moveit_aizee': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble CONDA_PROMPT_MODIFIER=(base) /usr/bin/cmake --build /home/skavrx/aizee/wsl_ws/build/moveit_aizee -- -j12 -l12
+[5.211s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/skavrx/aizee/wsl_ws/build/moveit_aizee' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble CONDA_PROMPT_MODIFIER=(base) /usr/bin/cmake --build /home/skavrx/aizee/wsl_ws/build/moveit_aizee -- -j12 -l12
+[5.213s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/skavrx/aizee/wsl_ws/build/moveit_aizee': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble CONDA_PROMPT_MODIFIER=(base) /usr/bin/cmake --install /home/skavrx/aizee/wsl_ws/build/moveit_aizee
+[5.243s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(moveit_aizee)
+[5.243s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/moveit_aizee' for CMake module files
+[5.244s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/skavrx/aizee/wsl_ws/build/moveit_aizee' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble CONDA_PROMPT_MODIFIER=(base) /usr/bin/cmake --install /home/skavrx/aizee/wsl_ws/build/moveit_aizee
+[5.245s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/moveit_aizee' for CMake config files
+[5.245s] Level 1:colcon.colcon_core.shell:create_environment_hook('moveit_aizee', 'cmake_prefix_path')
+[5.245s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/skavrx/aizee/wsl_ws/install/moveit_aizee/share/moveit_aizee/hook/cmake_prefix_path.ps1'
+[5.246s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/skavrx/aizee/wsl_ws/install/moveit_aizee/share/moveit_aizee/hook/cmake_prefix_path.dsv'
+[5.247s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/skavrx/aizee/wsl_ws/install/moveit_aizee/share/moveit_aizee/hook/cmake_prefix_path.sh'
+[5.247s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/moveit_aizee/bin'
+[5.247s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/moveit_aizee/lib/pkgconfig/moveit_aizee.pc'
+[5.247s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/moveit_aizee/lib/python3.10/site-packages'
+[5.247s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/moveit_aizee/bin'
+[5.248s] INFO:colcon.colcon_core.shell:Creating package script '/home/skavrx/aizee/wsl_ws/install/moveit_aizee/share/moveit_aizee/package.ps1'
+[5.248s] INFO:colcon.colcon_core.shell:Creating package descriptor '/home/skavrx/aizee/wsl_ws/install/moveit_aizee/share/moveit_aizee/package.dsv'
+[5.248s] INFO:colcon.colcon_core.shell:Creating package script '/home/skavrx/aizee/wsl_ws/install/moveit_aizee/share/moveit_aizee/package.sh'
+[5.249s] INFO:colcon.colcon_core.shell:Creating package script '/home/skavrx/aizee/wsl_ws/install/moveit_aizee/share/moveit_aizee/package.bash'
+[5.249s] INFO:colcon.colcon_core.shell:Creating package script '/home/skavrx/aizee/wsl_ws/install/moveit_aizee/share/moveit_aizee/package.zsh'
+[5.249s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/home/skavrx/aizee/wsl_ws/install/moveit_aizee/share/colcon-core/packages/moveit_aizee)
+[5.251s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(moveit_aizee)
+[5.252s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/moveit_aizee' for CMake module files
+[5.252s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/moveit_aizee' for CMake config files
+[5.253s] Level 1:colcon.colcon_core.shell:create_environment_hook('moveit_aizee', 'cmake_prefix_path')
+[5.253s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/skavrx/aizee/wsl_ws/install/moveit_aizee/share/moveit_aizee/hook/cmake_prefix_path.ps1'
+[5.253s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/skavrx/aizee/wsl_ws/install/moveit_aizee/share/moveit_aizee/hook/cmake_prefix_path.dsv'
+[5.254s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/skavrx/aizee/wsl_ws/install/moveit_aizee/share/moveit_aizee/hook/cmake_prefix_path.sh'
+[5.254s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/moveit_aizee/bin'
+[5.254s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/moveit_aizee/lib/pkgconfig/moveit_aizee.pc'
+[5.254s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/moveit_aizee/lib/python3.10/site-packages'
+[5.255s] Level 1:colcon.colcon_core.environment:checking '/home/skavrx/aizee/wsl_ws/install/moveit_aizee/bin'
+[5.255s] INFO:colcon.colcon_core.shell:Creating package script '/home/skavrx/aizee/wsl_ws/install/moveit_aizee/share/moveit_aizee/package.ps1'
+[5.255s] INFO:colcon.colcon_core.shell:Creating package descriptor '/home/skavrx/aizee/wsl_ws/install/moveit_aizee/share/moveit_aizee/package.dsv'
+[5.256s] INFO:colcon.colcon_core.shell:Creating package script '/home/skavrx/aizee/wsl_ws/install/moveit_aizee/share/moveit_aizee/package.sh'
+[5.256s] INFO:colcon.colcon_core.shell:Creating package script '/home/skavrx/aizee/wsl_ws/install/moveit_aizee/share/moveit_aizee/package.bash'
+[5.256s] INFO:colcon.colcon_core.shell:Creating package script '/home/skavrx/aizee/wsl_ws/install/moveit_aizee/share/moveit_aizee/package.zsh'
+[5.257s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/home/skavrx/aizee/wsl_ws/install/moveit_aizee/share/colcon-core/packages/moveit_aizee)
+[5.257s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:closing loop
+[5.258s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:loop closed
+[5.258s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:run_until_complete finished with '0'
+[5.258s] DEBUG:colcon.colcon_core.event_reactor:joining thread
+[5.367s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_notification.desktop_notification.notify_send': Could not find 'notify-send'
+[5.367s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_notification.desktop_notification.terminal_notifier': Not used on non-Darwin systems
+[5.367s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_notification.desktop_notification.win32': Not used on non-Windows systems
+[5.367s] INFO:colcon.colcon_notification.desktop_notification:Sending desktop notification using 'notify2'
+[5.370s] DEBUG:colcon.colcon_notification.desktop_notification.notify2:Failed to initialize notify2: org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.Notifications was not provided by any .service files
+[5.370s] DEBUG:colcon.colcon_core.event_reactor:joined thread
+[5.370s] INFO:colcon.colcon_core.shell:Creating prefix script '/home/skavrx/aizee/wsl_ws/install/local_setup.ps1'
+[5.371s] INFO:colcon.colcon_core.shell:Creating prefix util module '/home/skavrx/aizee/wsl_ws/install/_local_setup_util_ps1.py'
+[5.373s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/home/skavrx/aizee/wsl_ws/install/setup.ps1'
+[5.374s] INFO:colcon.colcon_core.shell:Creating prefix script '/home/skavrx/aizee/wsl_ws/install/local_setup.sh'
+[5.376s] INFO:colcon.colcon_core.shell:Creating prefix util module '/home/skavrx/aizee/wsl_ws/install/_local_setup_util_sh.py'
+[5.378s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/home/skavrx/aizee/wsl_ws/install/setup.sh'
+[5.379s] INFO:colcon.colcon_core.shell:Creating prefix script '/home/skavrx/aizee/wsl_ws/install/local_setup.bash'
+[5.380s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/home/skavrx/aizee/wsl_ws/install/setup.bash'
+[5.382s] INFO:colcon.colcon_core.shell:Creating prefix script '/home/skavrx/aizee/wsl_ws/install/local_setup.zsh'
+[5.382s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/home/skavrx/aizee/wsl_ws/install/setup.zsh'

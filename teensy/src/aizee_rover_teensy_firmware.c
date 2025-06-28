@@ -16,7 +16,7 @@
 //#define ESC_FR_PIN 10    // Originally Front Right ESC PWM
 #define ESC_FR_PIN 5
 
-#define ESC_FL_PIN 24    // Front Left ESC PWM
+#define ESC_FL_PIN 21    // Front Left ESC PWM
 #define ESC_BR_PIN 4    // Back Right ESC PWM
 //#define ESC_BL_PIN 5    // Back Left ESC PWM
 #define ESC_BL_PIN 10

@@ -1,0 +1,46 @@
+-- Install configuration: ""
+-- Execute custom install script
+-- Symlinking: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/config/joint_names_aizee_model.yaml
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/launch/display.launch
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/launch/gazebo.launch
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/meshes/base_link.STL
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/meshes/bl_wheel_link.STL
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/meshes/br_wheel_link.STL
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/meshes/fl_wheel_link.STL
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/meshes/fr_wheel_link.STL
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/meshes/gantry_base_link.STL
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/meshes/gantry_swivel_link.STL
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/meshes/head_pitch_link.STL
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/meshes/head_swivel_link.STL
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/meshes/head_tilt_link.STL
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/meshes/left_forearm_link.STL
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/meshes/left_lower_elbow_link.STL
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/meshes/left_shoulder_pitch_link.STL
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/meshes/left_upper_arm_link.STL
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/meshes/left_upper_elbow_link.STL
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/meshes/left_wrist_pitch_link.STL
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/meshes/left_wrist_tool_link.STL
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/meshes/right_forearm_link.STL
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/meshes/right_lower_elbow_link.STL
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/meshes/right_shoulder_pitch_link.STL
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/meshes/right_upper_arm_link.STL
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/meshes/right_upper_elbow_link.STL
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/meshes/right_wrist_pitch_link.STL
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/meshes/right_wrist_tool_link.STL
+-- Symlinking: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/urdf/aizee_model.csv
+-- Symlinking: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/urdf/aizee_model.urdf
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/ament_index/resource_index/package_run_dependencies/aizee_model
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/ament_index/resource_index/parent_prefix_path/aizee_model
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/environment/ament_prefix_path.sh
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/environment/ament_prefix_path.dsv
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/environment/path.sh
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/environment/path.dsv
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/local_setup.bash
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/local_setup.sh
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/local_setup.zsh
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/local_setup.dsv
+-- Symlinking: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/package.dsv
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/ament_index/resource_index/packages/aizee_model
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/cmake/aizee_modelConfig.cmake
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/cmake/aizee_modelConfig-version.cmake
+-- Up-to-date symlink: /home/skavrx/aizee/wsl_ws/install/aizee_model/share/aizee_model/package.xml

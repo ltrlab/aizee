@@ -1,0 +1,17 @@
+# Default initial positions for aizee_model's ros2_control fake system
+
+initial_positions:
+  left_forearm_joint: 0.0
+  left_lower_elbow_joint: 0.0
+  left_shoulder_pitch_joint: 0.0
+  left_upper_arm_joint: 0.0
+  left_upper_elbow_joint: 0.0
+  left_wrist_pitch_joint: 0.0
+  left_wrist_tool_joint: 0.0
+  right_forearm_joint: 0.0
+  right_lower_elbow_joint: 0.0
+  right_shoulder_pitch_joint: 0.0
+  right_upper_arm_joint: 0.0
+  right_upper_elbow_joint: 0.0
+  right_wrist_pitch_joint: 0.0
+  right_wrist_tool_joint: 0.0

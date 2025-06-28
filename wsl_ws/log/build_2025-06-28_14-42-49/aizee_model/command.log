@@ -1,0 +1,4 @@
+Invoking command in '/home/skavrx/aizee/wsl_ws/build/aizee_model': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble CONDA_PROMPT_MODIFIER=(base) /usr/bin/cmake --build /home/skavrx/aizee/wsl_ws/build/aizee_model -- -j12 -l12
+Invoked command in '/home/skavrx/aizee/wsl_ws/build/aizee_model' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble CONDA_PROMPT_MODIFIER=(base) /usr/bin/cmake --build /home/skavrx/aizee/wsl_ws/build/aizee_model -- -j12 -l12
+Invoking command in '/home/skavrx/aizee/wsl_ws/build/aizee_model': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble CONDA_PROMPT_MODIFIER=(base) /usr/bin/cmake --install /home/skavrx/aizee/wsl_ws/build/aizee_model
+Invoked command in '/home/skavrx/aizee/wsl_ws/build/aizee_model' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble CONDA_PROMPT_MODIFIER=(base) /usr/bin/cmake --install /home/skavrx/aizee/wsl_ws/build/aizee_model
