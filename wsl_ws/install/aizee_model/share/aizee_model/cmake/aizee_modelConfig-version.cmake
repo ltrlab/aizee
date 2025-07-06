@@ -1,1 +1,1 @@
-/home/skavrx/aizee/wsl_ws/build/aizee_model/ament_cmake_core/aizee_modelConfig-version.cmake
+/home/ltr/aizee/wsl_ws/build/aizee_model/ament_cmake_core/aizee_modelConfig-version.cmake

@@ -1,0 +1,13 @@
+# lx224_limits.yaml
+head_yaw:
+  id: 2
+  min: 0
+  max: 1000
+head_pitch:
+  id: 1
+  min: 0
+  max: 1000
+head_roll:
+  id: 3
+  min: 0
+  max: 1000

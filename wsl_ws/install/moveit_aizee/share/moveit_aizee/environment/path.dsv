@@ -1,1 +1,1 @@
-prepend-non-duplicate-if-exists;PATH;bin
+/home/ltr/aizee/wsl_ws/build/moveit_aizee/ament_cmake_environment_hooks/path.dsv

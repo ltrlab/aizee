@@ -1,2 +1,1 @@
-source;share/moveit_aizee/environment/ament_prefix_path.sh
-source;share/moveit_aizee/environment/path.sh
+/home/ltr/aizee/wsl_ws/build/moveit_aizee/ament_cmake_environment_hooks/local_setup.dsv

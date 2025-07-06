@@ -1,1 +1,1 @@
-/home/skavrx/aizee/wsl_ws/build/aizee_model/ament_cmake_environment_hooks/local_setup.sh
+/home/ltr/aizee/wsl_ws/build/aizee_model/ament_cmake_environment_hooks/local_setup.sh

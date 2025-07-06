@@ -1,0 +1,13 @@
+moveit_cpp:
+  planning_scene_monitor_options:
+    name: planning_scene_monitor
+    robot_description: robot_description
+    publish_planning_scene: true
+    joint_state_topic: /joint_states
+    attached_collision_object_topic: /attached_collision_object
+    monitored_planning_scene_topic: /planning_scene
+    wait_for_initial_state_timeout: 0.0
+
+  planning_pipeline_names: ["ompl"]
+  default_planning_pipeline: "ompl"
+

@@ -1,0 +1,51 @@
+###############################################################################
+# LEFT-ARM ­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­
+###############################################################################
+moveit_servo:
+  ros__parameters:
+    move_group_name:         left_arm
+    planning_frame:          base_link
+    ee_frame_name:           left_wrist_tool_link
+    cartesian_command_in_topic:  /left_arm/delta_twist
+    joint_command_out_topic:     /left_arm_controller/joint_trajectory
+    status_topic:                /left_arm/servo_status
+    publish_period:               0.003    # 333 Hz
+    incoming_command_timeout:     0.05
+    use_smoothing:                true
+    smoothing_filter_type:        butterworth
+    butterworth_cutoff_frequency: 4.0
+    speed_scaling:                0.8
+    joint_limit_margin:           0.1
+    lower_singularity_threshold:  20.0
+    hard_stop_singularity_threshold: 5.0
+    check_collisions:             true
+    self_collision_proximity_threshold: 0.02
+    scene_collision_proximity_threshold: 0.02
+    collision_check_rate:         10
+
+---
+###############################################################################
+# RIGHT-ARM ­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­
+###############################################################################
+moveit_servo:
+  ros__parameters:
+    move_group_name:         right_arm
+    planning_frame:          base_link
+    ee_frame_name:           right_wrist_tool_link
+    cartesian_command_in_topic:  /right_arm/delta_twist
+    joint_command_out_topic:     /right_arm_controller/joint_trajectory
+    status_topic:                /right_arm/servo_status
+    publish_period:               0.003
+    incoming_command_timeout:     0.05
+    use_smoothing:                true
+    smoothing_filter_type:        butterworth
+    butterworth_cutoff_frequency: 4.0
+    speed_scaling:                0.8
+    joint_limit_margin:           0.1
+    lower_singularity_threshold:  20.0
+    hard_stop_singularity_threshold: 5.0
+    check_collisions:             true
+    self_collision_proximity_threshold: 0.02
+    scene_collision_proximity_threshold: 0.02
+    collision_check_rate:         10
+

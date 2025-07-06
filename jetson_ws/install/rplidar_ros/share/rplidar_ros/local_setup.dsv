@@ -1,2 +1,1 @@
-source;share/rplidar_ros/environment/ament_prefix_path.sh
-source;share/rplidar_ros/environment/path.sh
+/home/ltr/aizee/jetson_ws/build/rplidar_ros/ament_cmake_environment_hooks/local_setup.dsv

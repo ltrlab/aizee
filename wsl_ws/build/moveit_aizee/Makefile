@@ -57,10 +57,10 @@ RM = /usr/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = /home/skavrx/aizee/wsl_ws/src/moveit_aizee
+CMAKE_SOURCE_DIR = /home/ltr/aizee/wsl_ws/src/moveit_aizee
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /home/skavrx/aizee/wsl_ws/build/moveit_aizee
+CMAKE_BINARY_DIR = /home/ltr/aizee/wsl_ws/build/moveit_aizee
 
 #=============================================================================
 # Targets provided globally by CMake.
@@ -142,9 +142,9 @@ install/strip/fast: preinstall/fast
 
 # The main all target
 all: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /home/skavrx/aizee/wsl_ws/build/moveit_aizee/CMakeFiles /home/skavrx/aizee/wsl_ws/build/moveit_aizee//CMakeFiles/progress.marks
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/ltr/aizee/wsl_ws/build/moveit_aizee/CMakeFiles /home/ltr/aizee/wsl_ws/build/moveit_aizee//CMakeFiles/progress.marks
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 all
-	$(CMAKE_COMMAND) -E cmake_progress_start /home/skavrx/aizee/wsl_ws/build/moveit_aizee/CMakeFiles 0
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/ltr/aizee/wsl_ws/build/moveit_aizee/CMakeFiles 0
 .PHONY : all
 
 # The main clean target

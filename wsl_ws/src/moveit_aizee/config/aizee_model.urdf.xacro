@@ -1,5 +1,6 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="aizee_model">
+    <xacro:arg name="ros2_control_hardware_type" default="mock_components"/>
     <xacro:arg name="initial_positions_file" default="initial_positions.yaml" />
 
     <!-- Import aizee_model urdf file -->
@@ -9,6 +10,6 @@
     <xacro:include filename="aizee_model.ros2_control.xacro" />
 
 
-    <xacro:aizee_model_ros2_control name="FakeSystem" initial_positions_file="$(arg initial_positions_file)"/>
+    <xacro:aizee_model_ros2_control name="$(arg ros2_control_hardware_type)" initial_positions_file="$(arg initial_positions_file)"/>
 
 </robot>

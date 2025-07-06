@@ -1,6 +1,0 @@
-Invoking command in '/home/ltr/aizee/jetson_ws/build/rplidar_ros': CMAKE_PREFIX_PATH=/opt/ros/humble:${CMAKE_PREFIX_PATH} /usr/bin/cmake /home/ltr/aizee/jetson_ws/src/rplidar_ros -DCMAKE_INSTALL_PREFIX=/home/ltr/aizee/jetson_ws/install/rplidar_ros
-Invoked command in '/home/ltr/aizee/jetson_ws/build/rplidar_ros' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble:${CMAKE_PREFIX_PATH} /usr/bin/cmake /home/ltr/aizee/jetson_ws/src/rplidar_ros -DCMAKE_INSTALL_PREFIX=/home/ltr/aizee/jetson_ws/install/rplidar_ros
-Invoking command in '/home/ltr/aizee/jetson_ws/build/rplidar_ros': CMAKE_PREFIX_PATH=/opt/ros/humble:${CMAKE_PREFIX_PATH} /usr/bin/cmake --build /home/ltr/aizee/jetson_ws/build/rplidar_ros -- -j6 -l6
-Invoked command in '/home/ltr/aizee/jetson_ws/build/rplidar_ros' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble:${CMAKE_PREFIX_PATH} /usr/bin/cmake --build /home/ltr/aizee/jetson_ws/build/rplidar_ros -- -j6 -l6
-Invoking command in '/home/ltr/aizee/jetson_ws/build/rplidar_ros': CMAKE_PREFIX_PATH=/opt/ros/humble:${CMAKE_PREFIX_PATH} /usr/bin/cmake --install /home/ltr/aizee/jetson_ws/build/rplidar_ros
-Invoked command in '/home/ltr/aizee/jetson_ws/build/rplidar_ros' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble:${CMAKE_PREFIX_PATH} /usr/bin/cmake --install /home/ltr/aizee/jetson_ws/build/rplidar_ros

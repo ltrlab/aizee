@@ -1,112 +1,53 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-    <xacro:macro name="aizee_model_ros2_control" params="name initial_positions_file">
-        <xacro:property name="initial_positions" value="${load_yaml(initial_positions_file)['initial_positions']}"/>
+  <xacro:macro name="aizee_model_ros2_control" params="name initial_positions_file">
+    <xacro:property name="initial_positions" value="${load_yaml(initial_positions_file)['initial_positions']}"/>
 
-        <ros2_control name="${name}" type="system">
-            <hardware>
-                <!-- By default, set up controllers for simulation. This won't work on real hardware -->
-                <plugin>mock_components/GenericSystem</plugin>
-            </hardware>
-            <joint name="left_shoulder_pitch_joint">
-                <command_interface name="position"/>
-                <state_interface name="position">
-                  <param name="initial_value">${initial_positions['left_shoulder_pitch_joint']}</param>
-                </state_interface>
-                <state_interface name="velocity"/>
-            </joint>
-            <joint name="left_upper_arm_joint">
-                <command_interface name="position"/>
-                <state_interface name="position">
-                  <param name="initial_value">${initial_positions['left_upper_arm_joint']}</param>
-                </state_interface>
-                <state_interface name="velocity"/>
-            </joint>
-            <joint name="left_upper_elbow_joint">
-                <command_interface name="position"/>
-                <state_interface name="position">
-                  <param name="initial_value">${initial_positions['left_upper_elbow_joint']}</param>
-                </state_interface>
-                <state_interface name="velocity"/>
-            </joint>
-            <joint name="left_lower_elbow_joint">
-                <command_interface name="position"/>
-                <state_interface name="position">
-                  <param name="initial_value">${initial_positions['left_lower_elbow_joint']}</param>
-                </state_interface>
-                <state_interface name="velocity"/>
-            </joint>
-            <joint name="left_forearm_joint">
-                <command_interface name="position"/>
-                <state_interface name="position">
-                  <param name="initial_value">${initial_positions['left_forearm_joint']}</param>
-                </state_interface>
-                <state_interface name="velocity"/>
-            </joint>
-            <joint name="left_wrist_pitch_joint">
-                <command_interface name="position"/>
-                <state_interface name="position">
-                  <param name="initial_value">${initial_positions['left_wrist_pitch_joint']}</param>
-                </state_interface>
-                <state_interface name="velocity"/>
-            </joint>
-            <joint name="left_wrist_tool_joint">
-                <command_interface name="position"/>
-                <state_interface name="position">
-                  <param name="initial_value">${initial_positions['left_wrist_tool_joint']}</param>
-                </state_interface>
-                <state_interface name="velocity"/>
-            </joint>
-            <joint name="right_shoulder_pitch_joint">
-                <command_interface name="position"/>
-                <state_interface name="position">
-                  <param name="initial_value">${initial_positions['right_shoulder_pitch_joint']}</param>
-                </state_interface>
-                <state_interface name="velocity"/>
-            </joint>
-            <joint name="right_upper_arm_joint">
-                <command_interface name="position"/>
-                <state_interface name="position">
-                  <param name="initial_value">${initial_positions['right_upper_arm_joint']}</param>
-                </state_interface>
-                <state_interface name="velocity"/>
-            </joint>
-            <joint name="right_upper_elbow_joint">
-                <command_interface name="position"/>
-                <state_interface name="position">
-                  <param name="initial_value">${initial_positions['right_upper_elbow_joint']}</param>
-                </state_interface>
-                <state_interface name="velocity"/>
-            </joint>
-            <joint name="right_lower_elbow_joint">
-                <command_interface name="position"/>
-                <state_interface name="position">
-                  <param name="initial_value">${initial_positions['right_lower_elbow_joint']}</param>
-                </state_interface>
-                <state_interface name="velocity"/>
-            </joint>
-            <joint name="right_forearm_joint">
-                <command_interface name="position"/>
-                <state_interface name="position">
-                  <param name="initial_value">${initial_positions['right_forearm_joint']}</param>
-                </state_interface>
-                <state_interface name="velocity"/>
-            </joint>
-            <joint name="right_wrist_pitch_joint">
-                <command_interface name="position"/>
-                <state_interface name="position">
-                  <param name="initial_value">${initial_positions['right_wrist_pitch_joint']}</param>
-                </state_interface>
-                <state_interface name="velocity"/>
-            </joint>
-            <joint name="right_wrist_tool_joint">
-                <command_interface name="position"/>
-                <state_interface name="position">
-                  <param name="initial_value">${initial_positions['right_wrist_tool_joint']}</param>
-                </state_interface>
-                <state_interface name="velocity"/>
-            </joint>
+    <ros2_control name="${name}" type="system">
+      <hardware>
 
-        </ros2_control>
-    </xacro:macro>
+
+
+          <plugin>feetech_ros2_driver/FeetechHardwareInterface</plugin>
+          <param name="usb_port">/dev/ttyUSB0</param> <!-- required -->
+          <param name="baudrate">1000000</param>     <!-- optional -->
+
+      </hardware>
+
+      <!-- Joint definitions -->
+      <xacro:macro name="feetech_joint" params="joint_name id">
+        <joint name="${joint_name}">
+          <param name="id">${id}</param>
+          <param name="offset">0</param>
+          <param name="p_cofficient">16</param>
+          <param name="d_cofficient">8</param>
+          <command_interface name="position"/>
+          <state_interface name="position">
+            <param name="initial_value">${initial_positions[joint_name]}</param>
+          </state_interface>
+          <state_interface name="velocity"/>
+        </joint>
+      </xacro:macro>
+
+      <!-- Left Arm Joints -->
+      <xacro:feetech_joint joint_name="left_shoulder_pitch_joint" id="11"/>
+      <xacro:feetech_joint joint_name="left_upper_arm_joint" id="12"/>
+      <xacro:feetech_joint joint_name="left_upper_elbow_joint" id="13"/>
+      <xacro:feetech_joint joint_name="left_lower_elbow_joint" id="14"/>
+      <xacro:feetech_joint joint_name="left_forearm_joint" id="15"/>
+      <xacro:feetech_joint joint_name="left_wrist_pitch_joint" id="16"/>
+      <xacro:feetech_joint joint_name="left_wrist_tool_joint" id="17"/>
+
+      <!-- Right Arm Joints -->
+      <xacro:feetech_joint joint_name="right_shoulder_pitch_joint" id="1"/>
+      <xacro:feetech_joint joint_name="right_upper_arm_joint" id="2"/>
+      <xacro:feetech_joint joint_name="right_upper_elbow_joint" id="3"/>
+      <xacro:feetech_joint joint_name="right_lower_elbow_joint" id="4"/>
+      <xacro:feetech_joint joint_name="right_forearm_joint" id="5"/>
+      <xacro:feetech_joint joint_name="right_wrist_pitch_joint" id="6"/>
+      <xacro:feetech_joint joint_name="right_wrist_tool_joint" id="7"/>
+
+    </ros2_control>
+  </xacro:macro>
 </robot>
+
