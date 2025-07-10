@@ -53,10 +53,10 @@ RM = /usr/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = /home/ltr/aizee/wsl_ws/src/moveit_aizee
+CMAKE_SOURCE_DIR = /home/skavrx/aizee/wsl_ws/src/moveit_aizee
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /home/ltr/aizee/wsl_ws/build/moveit_aizee
+CMAKE_BINARY_DIR = /home/skavrx/aizee/wsl_ws/build/moveit_aizee
 
 # Utility rule file for uninstall.
 
@@ -78,6 +78,6 @@ CMakeFiles/uninstall.dir/clean:
 .PHONY : CMakeFiles/uninstall.dir/clean
 
 CMakeFiles/uninstall.dir/depend:
-	cd /home/ltr/aizee/wsl_ws/build/moveit_aizee && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/ltr/aizee/wsl_ws/src/moveit_aizee /home/ltr/aizee/wsl_ws/src/moveit_aizee /home/ltr/aizee/wsl_ws/build/moveit_aizee /home/ltr/aizee/wsl_ws/build/moveit_aizee /home/ltr/aizee/wsl_ws/build/moveit_aizee/CMakeFiles/uninstall.dir/DependInfo.cmake --color=$(COLOR)
+	cd /home/skavrx/aizee/wsl_ws/build/moveit_aizee && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/skavrx/aizee/wsl_ws/src/moveit_aizee /home/skavrx/aizee/wsl_ws/src/moveit_aizee /home/skavrx/aizee/wsl_ws/build/moveit_aizee /home/skavrx/aizee/wsl_ws/build/moveit_aizee /home/skavrx/aizee/wsl_ws/build/moveit_aizee/CMakeFiles/uninstall.dir/DependInfo.cmake --color=$(COLOR)
 .PHONY : CMakeFiles/uninstall.dir/depend
 

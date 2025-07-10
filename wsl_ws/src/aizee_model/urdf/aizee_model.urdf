@@ -284,7 +284,7 @@
   </link>
   <joint
     name="gantry_swivel_joint"
-    type="continuous">
+    type="revolute">
     <origin
       xyz="-0.001715 0 0.045"
       rpy="1.5708 0 2.2013" />
@@ -400,7 +400,7 @@
   </link>
   <joint
     name="head_swivel_joint"
-    type="continuous">
+    type="revolute">
     <origin
       xyz="-0.14381 0.13594 0.0001"
       rpy="0.0060232 0 -1.5708" />
@@ -458,7 +458,7 @@
   </link>
   <joint
     name="head_tilt_joint"
-    type="continuous">
+    type="revolute">
     <origin
       xyz="-0.0428400156095683 0 0"
       rpy="0 -0.0307989676412341 0.000185569376448724" />
@@ -516,7 +516,7 @@
   </link>
   <joint
     name="head_pitch_joint"
-    type="continuous">
+    type="revolute">
     <origin
       xyz="-0.00715658863950375 0 0.000220485265838899"
       rpy="0.0301375093124696 -0.0107085179536229 1.06890143125903" />
@@ -574,7 +574,7 @@
   </link>
   <joint
     name="left_shoulder_pitch_joint"
-    type="continuous">
+    type="revolute">
     <origin
       xyz="-0.132221795513797 0.0585381329785393 0.0484092415095189"
       rpy="1.57079632679485 0 1.51682218893965" />
@@ -585,8 +585,8 @@
     <axis
       xyz="0 -1 0" />
     <limit
-      lower="-3.14"
-      upper="3.14"
+      lower="-1.82"
+      upper="1.57"
       effort="1"
       velocity="1" />
   </joint>
@@ -632,7 +632,7 @@
   </link>
   <joint
     name="left_upper_arm_joint"
-    type="continuous">
+    type="revolute">
     <origin
       xyz="0 0.106100000000015 0"
       rpy="0.00814224527237571 -0.000617071463435104 0.151282779582204" />
@@ -641,10 +641,10 @@
     <child
       link="left_upper_arm_link" />
     <axis
-      xyz="-0.0539479353612109 0 -0.998543749802813" />
+      xyz="0.0539479353612109 0 0.998543749802813" />
     <limit
-      lower="-3.14"
-      upper="3.14"
+      lower="-2.7"
+      upper="0"
       effort="1"
       velocity="1" />
   </joint>
@@ -690,7 +690,7 @@
   </link>
   <joint
     name="left_upper_elbow_joint"
-    type="continuous">
+    type="revolute">
     <origin
       xyz="-0.0862752361730876 0.0131904590673321 0.00456101284012125"
       rpy="1.72230140661996 1.51682218893961 3.14159265358868" />
@@ -701,8 +701,8 @@
     <axis
       xyz="0 -1 0" />
     <limit
-      lower="-3.14"
-      upper="3.14"
+      lower="-0.815"
+      upper="1.05"
       effort="1"
       velocity="1" />
   </joint>
@@ -748,7 +748,7 @@
   </link>
   <joint
     name="left_lower_elbow_joint"
-    type="continuous">
+    type="revolute">
     <origin
       xyz="0.0381999999999999 0.112403218450237 0"
       rpy="1.96400162440628 -0.0881271151702069 -1.59563952845257" />
@@ -759,8 +759,8 @@
     <axis
       xyz="0.0880130878903102 0.920101163566567 -0.381664178517532" />
     <limit
-      lower="-3.14"
-      upper="3.14"
+      lower="-2.1"
+      upper="0"
       effort="1"
       velocity="1" />
   </joint>
@@ -806,7 +806,7 @@
   </link>
   <joint
     name="left_forearm_joint"
-    type="continuous">
+    type="revolute">
     <origin
       xyz="-0.0269534702231389 -0.00214213478108321 -0.00613953045680213"
       rpy="-2.03700008275405 -0.274733744913246 -0.191545917444494" />
@@ -817,8 +817,8 @@
     <axis
       xyz="0.980643317783876 -0.0724305556359773 0.18191343517205" />
     <limit
-      lower="-3.14"
-      upper="3.14"
+      lower="-2.0"
+      upper="2.5"
       effort="1"
       velocity="1" />
   </joint>
@@ -864,7 +864,7 @@
   </link>
   <joint
     name="left_wrist_pitch_joint"
-    type="continuous">
+    type="revolute">
     <origin
       xyz="-0.124566694244269 0.00920052654643505 -0.0231076425516841"
       rpy="3.08769993658993 -1.35192984023637 -2.62673064646398" />
@@ -875,8 +875,8 @@
     <axis
       xyz="0 -0.866025403784494 0.499999999999905" />
     <limit
-      lower="-3.14"
-      upper="3.14"
+      lower="-0.22"
+      upper="0.22"
       effort="1"
       velocity="1" />
   </joint>
@@ -922,7 +922,7 @@
   </link>
   <joint
     name="left_wrist_tool_joint"
-    type="continuous">
+    type="revolute">
     <origin
       xyz="0 0.0141339745962058 0.0264807621135386"
       rpy="-2.07922112326353 -0.0741625565421061 0.0531350305035374" />
@@ -933,8 +933,8 @@
     <axis
       xyz="0.995843763645555 0.0904852634576426 -0.0103737893393476" />
     <limit
-      lower="-3.14"
-      upper="3.14"
+      lower="-1.5"
+      upper="1.5"
       effort="1"
       velocity="1" />
   </joint>
@@ -980,7 +980,7 @@
   </link>
   <joint
     name="right_shoulder_pitch_joint"
-    type="continuous">
+    type="revolute">
     <origin
       xyz="-0.132221795513731 0.0585381329786272 -0.0482092415089532"
       rpy="-1.57079632679482 0 1.51682218893965" />
@@ -991,8 +991,8 @@
     <axis
       xyz="0 -1 0" />
     <limit
-      lower="-3.14"
-      upper="3.14"
+      lower="-1.57"
+      upper="1.82"
       effort="1"
       velocity="1" />
   </joint>
@@ -1038,7 +1038,7 @@
   </link>
   <joint
     name="right_upper_arm_joint"
-    type="continuous">
+    type="revolute">
     <origin
       xyz="0 0.106100000000039 0"
       rpy="-0.00814224527237025 0.000617071463434093 0.151282779581485" />
@@ -1047,10 +1047,10 @@
     <child
       link="right_upper_arm_link" />
     <axis
-      xyz="-0.0539479353612105 0 0.998543749802813" />
+      xyz="0.0539479353612105 0 -0.998543749802813" />
     <limit
-      lower="-3.14"
-      upper="3.14"
+      lower="0"
+      upper="2.7"
       effort="1"
       velocity="1" />
   </joint>
@@ -1096,7 +1096,7 @@
   </link>
   <joint
     name="right_upper_elbow_joint"
-    type="continuous">
+    type="revolute">
     <origin
       xyz="-0.0837801498896704 0.012813143712194 -0.00493341280167864"
       rpy="-1.72230140661924 -1.5168221889396 3.14159265358867" />
@@ -1107,8 +1107,8 @@
     <axis
       xyz="0 -1 0" />
     <limit
-      lower="-3.14"
-      upper="3.14"
+      lower="-1.05"
+      upper="0.815"
       effort="1"
       velocity="1" />
   </joint>
@@ -1154,7 +1154,7 @@
   </link>
   <joint
     name="right_lower_elbow_joint"
-    type="continuous">
+    type="revolute">
     <origin
       xyz="0.0382000000000001 0.112403218450237 0"
       rpy="-1.96400162440639 0.0881271151694865 -1.59563952845256" />
@@ -1165,8 +1165,8 @@
     <axis
       xyz="0.0880130878895927 0.920101163566584 0.381664178517656" />
     <limit
-      lower="-3.14"
-      upper="3.14"
+      lower="0"
+      upper="2.1"
       effort="1"
       velocity="1" />
   </joint>
@@ -1212,7 +1212,7 @@
   </link>
   <joint
     name="right_forearm_joint"
-    type="continuous">
+    type="revolute">
     <origin
       xyz="-0.0269534702231089 -0.00214213478098909 0.00613953045678181"
       rpy="2.03700008275405 0.274733744913229 -0.191545917444501" />
@@ -1223,8 +1223,8 @@
     <axis
       xyz="0.980643317783738 -0.0724305556360726 -0.181913435172757" />
     <limit
-      lower="-3.14"
-      upper="3.14"
+      lower="-2.5"
+      upper="2.0"
       effort="1"
       velocity="1" />
   </joint>
@@ -1270,7 +1270,7 @@
   </link>
   <joint
     name="right_wrist_pitch_joint"
-    type="continuous">
+    type="revolute">
     <origin
       xyz="-0.124566694244279 0.00920052654645065 0.0231076425517911"
       rpy="-0.577491492596529 -1.35192984023572 0.514862007124234" />
@@ -1281,8 +1281,8 @@
     <axis
       xyz="0 -1 0" />
     <limit
-      lower="-3.14"
-      upper="3.14"
+      lower="-0.22"
+      upper="0.22"
       effort="1"
       velocity="1" />
   </joint>
@@ -1328,7 +1328,7 @@
   </link>
   <joint
     name="right_wrist_tool_joint"
-    type="continuous">
+    type="revolute">
     <origin
       xyz="0 -0.000999999999963808 0.03"
       rpy="-1.5540529618699 -0.0907744325651698 -3.13273515949314" />
@@ -1339,8 +1339,8 @@
     <axis
       xyz="-0.99584376364562 -0.0904852634569211 0.0103737893393444" />
     <limit
-      lower="-3.14"
-      upper="3.14"
+      lower="-1.5"
+      upper="1.5"
       effort="1"
       velocity="1" />
   </joint>

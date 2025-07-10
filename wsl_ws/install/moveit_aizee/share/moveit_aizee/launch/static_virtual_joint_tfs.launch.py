@@ -1,1 +1,1 @@
-/home/ltr/aizee/wsl_ws/src/moveit_aizee/launch/static_virtual_joint_tfs.launch.py
+/home/skavrx/aizee/wsl_ws/src/moveit_aizee/launch/static_virtual_joint_tfs.launch.py

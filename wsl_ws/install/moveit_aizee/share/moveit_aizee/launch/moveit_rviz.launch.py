@@ -1,1 +1,1 @@
-/home/ltr/aizee/wsl_ws/src/moveit_aizee/launch/moveit_rviz.launch.py
+/home/skavrx/aizee/wsl_ws/src/moveit_aizee/launch/moveit_rviz.launch.py
