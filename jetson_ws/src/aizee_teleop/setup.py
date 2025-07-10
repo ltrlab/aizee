@@ -24,7 +24,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'test_node = aizee_teleop.test_node:main'
+            'joy_dual_arm_node = aizee_teleop.joy_dual_arm_node:main'
         ],
     },
 )

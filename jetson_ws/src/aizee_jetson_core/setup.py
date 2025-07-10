@@ -25,6 +25,8 @@ setup(
             'test_move_robstride = aizee_jetson_core.test_move_robstride:main',
             'arm_node = aizee_jetson_core.arm_node:main',
             'scservo_sync_driver = aizee_jetson_core.scservo_sync_driver:main',
+            'arm_interactive_marker = aizee_jetson_core.arm_interactive_marker:main',
+            'marker_to_servo = aizee_jetson_core.marker_to_servo:main',
         ],
     },
 )

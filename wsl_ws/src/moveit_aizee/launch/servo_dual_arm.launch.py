@@ -13,6 +13,7 @@ from launch_ros.actions import Node, ComposableNodeContainer
 from launch_ros.descriptions import ComposableNode
 from ament_index_python.packages import get_package_share_directory as gpsd
 from moveit_configs_utils import MoveItConfigsBuilder
+from launch_ros.actions import Node as ROSNode
 
 # ---------- helper ----------------------------------------------------------
 def _yaml(pkg, rel):
@@ -104,6 +105,14 @@ def generate_launch_description():
         ],
         output="screen",
     )
+    
+    # Joy Node for Dual Arms
+    joy_bridge = ROSNode(
+        package="aizee_teleop",
+        executable="joy_dual_arm_node",
+        name="joy_dual_arm_node",
+        output="screen",
+    )
 
     # 6) RViz (loads MoveIt panels & Servo markers) ------------------------
     rviz = Node(
@@ -111,7 +120,8 @@ def generate_launch_description():
         arguments=["-d", os.path.join(gpsd("moveit_aizee"),
                                       "config", "moveit.rviz")],
         parameters=[mc.robot_description,
-                    mc.robot_description_semantic],
+                    mc.robot_description_semantic,
+                    mc.robot_description_kinematics],
     )
     
     # 7) Dummy Joint Publisher (for testing)
@@ -126,14 +136,23 @@ def generate_launch_description():
         executable="joint_state_publisher",
         name="dummy_joint_state_publisher",
         parameters=[{
-            "rate": 30.0,
+            "rate": 50.0,
             "source_list": dummy_joint_names,
         }],
         output="log",
     )  
+    
+    ee_marker = Node(                                  # publishes “ee_marker”
+        package="aizee_jetson_core",
+        executable="arm_interactive_marker",
+        name="ee_interactive_marker",
+        output="screen",
+        parameters=[{"base_frame":  "gantry_base_link",
+                     "ee_frame":    "right_wrist_tool_link"}],
+    )
 
     return LaunchDescription([
         ros2_control, js_broadcaster, left_ctrl, right_ctrl,
-        left_servo_node, right_servo_node, dummy_js_pub,
-        joy_container, rviz
+        left_servo_node, right_servo_node,
+        joy_container, joy_bridge, ee_marker, rviz
     ])

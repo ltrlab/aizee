@@ -1,26 +1,34 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <xacro:macro name="aizee_model_ros2_control" params="name initial_positions_file">
-    <xacro:property name="initial_positions" value="${load_yaml(initial_positions_file)['initial_positions']}"/>
+
+  <!-- === aizee_model_ros2_control ======================================== -->
+  <xacro:macro name="aizee_model_ros2_control"
+               params="name hardware_type initial_positions_file">
+
+    <!-- initial positions for simulation -->
+    <xacro:property name="initial_positions"
+                    value="${load_yaml(initial_positions_file)['initial_positions']}" />
 
     <ros2_control name="${name}" type="system">
       <hardware>
-
-
-
+        <xacro:if value="${hardware_type == 'mock_components'}">
+          <plugin>ros2_control_demo_hardware/MockSystem</plugin>
+        </xacro:if>
+        <xacro:unless value="${hardware_type == 'mock_components'}">
           <plugin>feetech_ros2_driver/FeetechHardwareInterface</plugin>
-          <param name="usb_port">/dev/ttyUSB0</param> <!-- required -->
-          <param name="baudrate">1000000</param>     <!-- optional -->
-
+          <param name="usb_port">/dev/ttyUSB0</param>
+          <param name="baudrate">1000000</param>
+        </xacro:unless>
       </hardware>
 
-      <!-- Joint definitions -->
-      <xacro:macro name="feetech_joint" params="joint_name id">
+      <!-- helper macro: *offset* defaults to 0 -->
+      <xacro:macro name="feetech_joint" params="joint_name id offset:=0">
         <joint name="${joint_name}">
           <param name="id">${id}</param>
-          <param name="offset">0</param>
+          <param name="offset">${offset}</param>
           <param name="p_cofficient">16</param>
           <param name="d_cofficient">8</param>
+
           <command_interface name="position"/>
           <state_interface name="position">
             <param name="initial_value">${initial_positions[joint_name]}</param>
@@ -29,23 +37,23 @@
         </joint>
       </xacro:macro>
 
-      <!-- Left Arm Joints -->
-      <xacro:feetech_joint joint_name="left_shoulder_pitch_joint" id="11"/>
-      <xacro:feetech_joint joint_name="left_upper_arm_joint" id="12"/>
-      <xacro:feetech_joint joint_name="left_upper_elbow_joint" id="13"/>
-      <xacro:feetech_joint joint_name="left_lower_elbow_joint" id="14"/>
-      <xacro:feetech_joint joint_name="left_forearm_joint" id="15"/>
-      <xacro:feetech_joint joint_name="left_wrist_pitch_joint" id="16"/>
-      <xacro:feetech_joint joint_name="left_wrist_tool_joint" id="17"/>
+      <!-- ── Left Arm (measured offsets) ─────────────────────────────────── -->
+      <xacro:feetech_joint joint_name="left_shoulder_pitch_joint" id="11" offset="1800" />
+      <xacro:feetech_joint joint_name="left_upper_arm_joint"      id="12" offset="1200" />
+      <xacro:feetech_joint joint_name="left_upper_elbow_joint"    id="13" offset="1400" />
+      <xacro:feetech_joint joint_name="left_lower_elbow_joint"    id="14" offset="-2100" />
+      <xacro:feetech_joint joint_name="left_forearm_joint"        id="15" offset="-2400" />
+      <xacro:feetech_joint joint_name="left_wrist_pitch_joint"    id="16" offset="-1700" />
+      <xacro:feetech_joint joint_name="left_wrist_tool_joint"     id="17" offset="1800" />
 
-      <!-- Right Arm Joints -->
-      <xacro:feetech_joint joint_name="right_shoulder_pitch_joint" id="1"/>
-      <xacro:feetech_joint joint_name="right_upper_arm_joint" id="2"/>
-      <xacro:feetech_joint joint_name="right_upper_elbow_joint" id="3"/>
-      <xacro:feetech_joint joint_name="right_lower_elbow_joint" id="4"/>
-      <xacro:feetech_joint joint_name="right_forearm_joint" id="5"/>
-      <xacro:feetech_joint joint_name="right_wrist_pitch_joint" id="6"/>
-      <xacro:feetech_joint joint_name="right_wrist_tool_joint" id="7"/>
+      <!-- ── Right Arm (measured offsets) ────────────────────────────────── -->
+      <xacro:feetech_joint joint_name="right_shoulder_pitch_joint" id="1" offset="-1600"/>
+      <xacro:feetech_joint joint_name="right_upper_arm_joint"      id="2" offset="2300" />
+      <xacro:feetech_joint joint_name="right_upper_elbow_joint"    id="3" offset="-1000" />
+      <xacro:feetech_joint joint_name="right_lower_elbow_joint"    id="4" offset="2500" />
+      <xacro:feetech_joint joint_name="right_forearm_joint"        id="5" offset="-1400" />
+      <xacro:feetech_joint joint_name="right_wrist_pitch_joint"    id="6" offset="1250" />
+      <xacro:feetech_joint joint_name="right_wrist_tool_joint"     id="7" offset="-1800" />
 
     </ros2_control>
   </xacro:macro>

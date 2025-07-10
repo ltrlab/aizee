@@ -6,20 +6,6 @@
   name="aizee_model">
   <link
     name="base_link">
-    <inertial>
-      <origin
-        xyz="0.00368940757643534 0.0829174970261824 -0.00823004017937248"
-        rpy="0 0 0" />
-      <mass
-        value="8.83294978683653" />
-      <inertia
-        ixx="0.0239490546736828"
-        ixy="0.000101248384077654"
-        ixz="5.52508053649083E-06"
-        iyy="0.0225327805264349"
-        iyz="2.35145000728001E-05"
-        izz="0.0305830636885939" />
-    </inertial>
     <visual>
       <origin
         xyz="0 0 0"
@@ -358,7 +344,7 @@
     name="gantry_base_joint"
     type="prismatic">
     <origin
-      xyz="-0.157321468199926 1.17368391308377 -3.09533448479469"
+      xyz="-0.157321468199926 1.17368391308377 -0.309533448479469"
       rpy="0 0 0" />
     <parent
       link="gantry_swivel_link" />
@@ -597,7 +583,7 @@
     <child
       link="left_shoulder_pitch_link" />
     <axis
-      xyz="0 1 0" />
+      xyz="0 -1 0" />
     <limit
       lower="-1.82"
       upper="1.57"
@@ -655,7 +641,7 @@
     <child
       link="left_upper_arm_link" />
     <axis
-      xyz="0.0539479353612052 0 0.998543749802813" />
+      xyz="-0.0539479353612052 0 -0.998543749802813" />
     <limit
       lower="-2.7"
       upper="0"
@@ -713,7 +699,7 @@
     <child
       link="left_upper_elbow_link" />
     <axis
-      xyz="0 1 0" />
+      xyz="0 -1 0" />
     <limit
       lower="-0.815"
       upper="1.05"
@@ -887,7 +873,7 @@
     <child
       link="left_wrist_pitch_link" />
     <axis
-      xyz="0 0.866025403784494 -0.499999999999905" />
+      xyz="0 -0.866025403784494 0.499999999999905" />
     <limit
       lower="-0.22"
       upper="0.22"
@@ -1003,7 +989,7 @@
     <child
       link="right_shoulder_pitch_link" />
     <axis
-      xyz="0 1 0" />
+      xyz="0 -1 0" />
     <limit
       lower="1.57"
       upper="1.82"
@@ -1061,7 +1047,7 @@
     <child
       link="right_upper_arm_link" />
     <axis
-      xyz="0.0539479353612056 0 -0.998543749802813" />
+      xyz="-0.0539479353612056 0 0.998543749802813" />
     <limit
       lower="0"
       upper="2.7"
@@ -1119,7 +1105,7 @@
     <child
       link="right_upper_elbow_link" />
     <axis
-      xyz="0 1 0" />
+      xyz="0 -1 0" />
     <limit
       lower="-1.05"
       upper="0.815"
@@ -1293,7 +1279,7 @@
     <child
       link="right_wrist_pitch_link" />
     <axis
-      xyz="0 0.999999999998175 0" />
+      xyz="0 -0.999999999998175 0" />
     <limit
       lower="-0.22"
       upper="0.22"
@@ -1351,7 +1337,7 @@
     <child
       link="right_wrist_tool_link" />
     <axis
-      xyz="0.995843763645616 0.09048526345698 -0.0103737893393006" />
+      xyz="-0.995843763645616 -0.09048526345698 0.0103737893393006" />
     <limit
       lower="-1.5"
       upper="1.5"
