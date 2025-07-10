@@ -3,16 +3,30 @@
      Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
      For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
 <robot
-  name="aizee_model">
+  name="aizee_urdf">
   <link
     name="base_link">
+    <inertial>
+      <origin
+        xyz="0.00369566449310155 0.0068460370137379 0.0818028639831661"
+        rpy="0 0 0" />
+      <mass
+        value="8.72034111313672" />
+      <inertia
+        ixx="0.0239220443263958"
+        ixy="-3.94021371749643E-06"
+        ixz="0.00010137553960162"
+        iyy="0.0304764022408285"
+        iyz="-2.31328263890737E-05"
+        izz="0.0224473726878476" />
+    </inertial>
     <visual>
       <origin
         xyz="0 0 0"
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/base_link.STL" />
+          filename="package://aizee_urdf/meshes/base_link.STL" />
       </geometry>
       <material
         name="">
@@ -26,7 +40,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/base_link.STL" />
+          filename="package://aizee_urdf/meshes/base_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -34,16 +48,16 @@
     name="fr_wheel_link">
     <inertial>
       <origin
-        xyz="-5.46627908770692E-08 -0.0186624897526543 -3.37595906785282E-09"
+        xyz="-5.46627908770692E-08 -0.0186624897526542 -3.37595906091392E-09"
         rpy="0 0 0" />
       <mass
-        value="0.426146379184825" />
+        value="0.426146379184826" />
       <inertia
         ixx="0.00128519449195817"
-        ixy="-1.71323451991008E-10"
-        ixz="-2.79401242699905E-11"
+        ixy="-1.71323451994293E-10"
+        ixz="-2.79401242042218E-11"
         iyy="0.00247152544875011"
-        iyz="-1.13833169168181E-10"
+        iyz="-1.13833169192363E-10"
         izz="0.00128519581424847" />
     </inertial>
     <visual>
@@ -52,7 +66,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/fr_wheel_link.STL" />
+          filename="package://aizee_urdf/meshes/fr_wheel_link.STL" />
       </geometry>
       <material
         name="">
@@ -66,7 +80,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/fr_wheel_link.STL" />
+          filename="package://aizee_urdf/meshes/fr_wheel_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -87,16 +101,16 @@
     name="fl_wheel_link">
     <inertial>
       <origin
-        xyz="-5.45316413275154E-08 -0.0186624897523085 -3.17734610844056E-09"
+        xyz="-5.45316413413932E-08 -0.0186624897523085 -3.17734610844056E-09"
         rpy="0 0 0" />
       <mass
         value="0.426146379160631" />
       <inertia
         ixx="0.00128519449163043"
-        ixy="-1.70595585741986E-10"
-        ixz="-2.72508219332013E-11"
+        ixy="-1.70595585733158E-10"
+        ixz="-2.72508219874114E-11"
         iyy="0.00247152544860307"
-        iyz="-1.13562728369243E-10"
+        iyz="-1.13562728394045E-10"
         izz="0.00128519581445071" />
     </inertial>
     <visual>
@@ -105,7 +119,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/fl_wheel_link.STL" />
+          filename="package://aizee_urdf/meshes/fl_wheel_link.STL" />
       </geometry>
       <material
         name="">
@@ -119,7 +133,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/fl_wheel_link.STL" />
+          filename="package://aizee_urdf/meshes/fl_wheel_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -140,16 +154,16 @@
     name="br_wheel_link">
     <inertial>
       <origin
-        xyz="-5.46627909048247E-08 0.0186625103656381 -3.37595910254729E-09"
+        xyz="-5.46627909325803E-08 0.0186625103656381 -3.37595910948618E-09"
         rpy="0 0 0" />
       <mass
         value="0.426146379184826" />
       <inertia
         ixx="0.00128519449195818"
-        ixy="-1.71323451195235E-10"
-        ixz="-2.79401242048679E-11"
+        ixy="-1.71323451217895E-10"
+        ixz="-2.79401243746405E-11"
         iyy="0.00247152544875012"
-        iyz="-1.1383316939129E-10"
+        iyz="-1.13833169358357E-10"
         izz="0.00128519581424847" />
     </inertial>
     <visual>
@@ -158,7 +172,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/br_wheel_link.STL" />
+          filename="package://aizee_urdf/meshes/br_wheel_link.STL" />
       </geometry>
       <material
         name="">
@@ -172,7 +186,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/br_wheel_link.STL" />
+          filename="package://aizee_urdf/meshes/br_wheel_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -199,10 +213,10 @@
         value="0.426146379308016" />
       <inertia
         ixx="0.00128519449230551"
-        ixy="-1.71311975107913E-10"
-        ixz="-2.80043327394697E-11"
+        ixy="-1.71311975127587E-10"
+        ixz="-2.80043328207849E-11"
         iyy="0.00247152544942666"
-        iyz="-1.14095859060689E-10"
+        iyz="-1.14095859070835E-10"
         izz="0.00128519581458769" />
     </inertial>
     <visual>
@@ -211,7 +225,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/bl_wheel_link.STL" />
+          filename="package://aizee_urdf/meshes/bl_wheel_link.STL" />
       </geometry>
       <material
         name="">
@@ -225,7 +239,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/bl_wheel_link.STL" />
+          filename="package://aizee_urdf/meshes/bl_wheel_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -246,17 +260,17 @@
     name="gantry_swivel_link">
     <inertial>
       <origin
-        xyz="-0.00481906046255163 0.470872937031539 0.00667916409485437"
+        xyz="-0.00465556417346933 0.47244048275071 0.00644612717972496"
         rpy="0 0 0" />
       <mass
-        value="4.14956251604638" />
+        value="4.13256157024676" />
       <inertia
-        ixx="0.237751282453851"
-        ixy="-2.59343031176992E-05"
-        ixz="-0.000359708214556283"
-        iyy="0.00704742891187417"
-        iyz="1.65990947852233E-05"
-        izz="0.237980503973506" />
+        ixx="0.237746407803337"
+        ixy="-2.5933195375133E-05"
+        ixz="-0.000358272877905692"
+        iyy="0.00704387345235934"
+        iyz="1.65973344566911E-05"
+        izz="0.23797469415958" />
     </inertial>
     <visual>
       <origin
@@ -264,7 +278,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/gantry_swivel_link.STL" />
+          filename="package://aizee_urdf/meshes/gantry_swivel_link.STL" />
       </geometry>
       <material
         name="">
@@ -278,7 +292,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/gantry_swivel_link.STL" />
+          filename="package://aizee_urdf/meshes/gantry_swivel_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -304,17 +318,17 @@
     name="gantry_base_link">
     <inertial>
       <origin
-        xyz="0.178249085149494 0.0787174725280506 3.05936364203354"
+        xyz="-0.0889206626308974 0.00183063032907627 -0.00190283858000342"
         rpy="0 0 0" />
       <mass
-        value="2.87751988356169" />
+        value="2.87751988332943" />
       <inertia
-        ixx="0.00798246795154849"
-        ixy="-0.00015054975035743"
-        ixz="-0.0020821333849389"
-        iyy="0.0132005727335871"
-        iyz="0.000192549431774713"
-        izz="0.00918534791001343" />
+        ixx="0.0107502811681918"
+        ixy="-0.000244284946535558"
+        ixz="6.1939289000521E-05"
+        iyy="0.0132005727336988"
+        iyz="-8.08553878206434E-06"
+        izz="0.00641753469271213" />
     </inertial>
     <visual>
       <origin
@@ -322,7 +336,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/gantry_base_link.STL" />
+          filename="package://aizee_urdf/meshes/gantry_base_link.STL" />
       </geometry>
       <material
         name="">
@@ -336,7 +350,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/gantry_base_link.STL" />
+          filename="package://aizee_urdf/meshes/gantry_base_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -344,8 +358,8 @@
     name="gantry_base_joint"
     type="prismatic">
     <origin
-      xyz="-0.157321468199926 1.17368391308377 -0.309533448479469"
-      rpy="0 0 0" />
+      xyz="0.0748880019266167 1.25057075528059 -0.106672907010273"
+      rpy="0 0.940291533304643 0" />
     <parent
       link="gantry_swivel_link" />
     <child
@@ -362,17 +376,17 @@
     name="head_swivel_link">
     <inertial>
       <origin
-        xyz="-0.0317534999757465 0.038995079148132 -0.000234878143316078"
+        xyz="-0.0317534999757447 0.0389950791481321 -0.000234878143316077"
         rpy="0 0 0" />
       <mass
-        value="0.0645692908984825" />
+        value="0.0645692908984822" />
       <inertia
-        ixx="2.19143491108637E-05"
-        ixy="8.59546728879504E-06"
-        ixz="-5.17728743081215E-08"
-        iyy="3.65035191291138E-05"
-        iyz="7.4636395709133E-09"
-        izz="3.77426072161144E-05" />
+        ixx="2.19143491108634E-05"
+        ixy="8.59546728879489E-06"
+        ixz="-5.17728743081307E-08"
+        iyy="3.65035191291136E-05"
+        iyz="7.4636395709536E-09"
+        izz="3.7742607216114E-05" />
     </inertial>
     <visual>
       <origin
@@ -380,7 +394,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/head_swivel_link.STL" />
+          filename="package://aizee_urdf/meshes/head_swivel_link.STL" />
       </geometry>
       <material
         name="">
@@ -394,7 +408,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/head_swivel_link.STL" />
+          filename="package://aizee_urdf/meshes/head_swivel_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -402,8 +416,8 @@
     name="head_swivel_joint"
     type="continuous">
     <origin
-      xyz="0.242106081826129 0.135938295928873 2.97917338191868"
-      rpy="2.20732432388274 0 -1.57079632679517" />
+      xyz="0.0134984733922502 0.0590514537320603 0.00240000000046037"
+      rpy="-3.13556944999228 0 -1.57079632679489" />
     <parent
       link="gantry_base_link" />
     <child
@@ -420,16 +434,16 @@
     name="head_tilt_link">
     <inertial>
       <origin
-        xyz="0.000344345851992722 0.00646158645454845 -2.06908995537824E-05"
+        xyz="0.000344345851994721 0.0064615864545485 -2.06908995458513E-05"
         rpy="0 0 0" />
       <mass
         value="0.0805110064262411" />
       <inertia
         ixx="2.09512468906614E-05"
-        ixy="-1.45810557369461E-08"
-        ixz="-1.7016431511319E-07"
+        ixy="-1.45810557369462E-08"
+        ixz="-1.70164315113191E-07"
         iyy="1.65096605263484E-05"
-        iyz="-5.87295435875052E-09"
+        iyz="-5.87295435875061E-09"
         izz="1.36041934860479E-05" />
     </inertial>
     <visual>
@@ -438,7 +452,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/head_tilt_link.STL" />
+          filename="package://aizee_urdf/meshes/head_tilt_link.STL" />
       </geometry>
       <material
         name="">
@@ -452,7 +466,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/head_tilt_link.STL" />
+          filename="package://aizee_urdf/meshes/head_tilt_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -478,17 +492,17 @@
     name="head_pitch_link">
     <inertial>
       <origin
-        xyz="-0.0378363465971923 -0.0127393114972798 -0.0021680654295506"
+        xyz="-0.0378363465971917 -0.0127393114972805 -0.00216806542954933"
         rpy="0 0 0" />
       <mass
-        value="0.113884247586372" />
+        value="0.113884247586373" />
       <inertia
-        ixx="0.00014255506647324"
-        ixy="-7.88980334654689E-06"
-        ixz="2.71224617501231E-06"
+        ixx="0.000142555066473239"
+        ixy="-7.88980334654685E-06"
+        ixz="2.71224617501283E-06"
         iyy="0.000157515094336006"
-        iyz="2.67584376992046E-06"
-        izz="4.18778744392634E-05" />
+        iyz="2.67584376992045E-06"
+        izz="4.18778744392642E-05" />
     </inertial>
     <visual>
       <origin
@@ -496,7 +510,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/head_pitch_link.STL" />
+          filename="package://aizee_urdf/meshes/head_pitch_link.STL" />
       </geometry>
       <material
         name="">
@@ -510,7 +524,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/head_pitch_link.STL" />
+          filename="package://aizee_urdf/meshes/head_pitch_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -536,14 +550,14 @@
     name="left_shoulder_pitch_link">
     <inertial>
       <origin
-        xyz="-0.00366625450710356 -0.0540212847619638 0.000196348311228389"
+        xyz="-0.00366625450710334 -0.0540212847619638 0.000196348311228389"
         rpy="0 0 0" />
       <mass
         value="0.224603058456901" />
       <inertia
         ixx="0.000101500474148185"
-        ixy="-6.82752515700463E-06"
-        ixz="2.76992102239034E-08"
+        ixy="-6.82752515700464E-06"
+        ixz="2.76992102238979E-08"
         iyy="8.33644473974677E-05"
         iyz="-2.54208961689891E-07"
         izz="0.000108145520013598" />
@@ -554,7 +568,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/left_shoulder_pitch_link.STL" />
+          filename="package://aizee_urdf/meshes/left_shoulder_pitch_link.STL" />
       </geometry>
       <material
         name="">
@@ -568,7 +582,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/left_shoulder_pitch_link.STL" />
+          filename="package://aizee_urdf/meshes/left_shoulder_pitch_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -576,8 +590,8 @@
     name="left_shoulder_pitch_joint"
     type="continuous">
     <origin
-      xyz="0.0935898391350412 0.0585381329786352 2.88512198886941"
-      rpy="-0.631198918193714 -0.0435891683503071 1.60263708973709" />
+      xyz="0.00190847339162745 -0.0183487092181731 -0.173009266509531"
+      rpy="-1.5707963267949 0 1.6247704646502" />
     <parent
       link="gantry_base_link" />
     <child
@@ -585,8 +599,8 @@
     <axis
       xyz="0 -1 0" />
     <limit
-      lower="-1.82"
-      upper="1.57"
+      lower="-3.14"
+      upper="3.14"
       effort="1"
       velocity="1" />
   </joint>
@@ -612,7 +626,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/left_upper_arm_link.STL" />
+          filename="package://aizee_urdf/meshes/left_upper_arm_link.STL" />
       </geometry>
       <material
         name="">
@@ -626,7 +640,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/left_upper_arm_link.STL" />
+          filename="package://aizee_urdf/meshes/left_upper_arm_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -643,8 +657,8 @@
     <axis
       xyz="-0.0539479353612052 0 -0.998543749802813" />
     <limit
-      lower="-2.7"
-      upper="0"
+      lower="-3.14"
+      upper="3.14"
       effort="1"
       velocity="1" />
   </joint>
@@ -652,17 +666,17 @@
     name="left_upper_elbow_link">
     <inertial>
       <origin
-        xyz="0.0063954208135982 0.0872573783897015 -0.0020686049027539"
+        xyz="0.00639542080557087 0.0872573783842139 -0.00206860491854177"
         rpy="0 0 0" />
       <mass
-        value="0.174638971892268" />
+        value="0.174638971803144" />
       <inertia
-        ixx="0.000144828279858494"
-        ixy="-4.96315045600044E-05"
-        ixz="-1.00606786137541E-07"
-        iyy="6.78224410184125E-05"
-        iyz="8.60322842723968E-07"
-        izz="0.000196951013052636" />
+        ixx="0.000144828279849352"
+        ixy="-4.96315045627789E-05"
+        ixz="-1.00606785501653E-07"
+        iyy="6.78224410170007E-05"
+        iyz="8.6032284087931E-07"
+        izz="0.000196951013043025" />
     </inertial>
     <visual>
       <origin
@@ -670,7 +684,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/left_upper_elbow_link.STL" />
+          filename="package://aizee_urdf/meshes/left_upper_elbow_link.STL" />
       </geometry>
       <material
         name="">
@@ -684,7 +698,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/left_upper_elbow_link.STL" />
+          filename="package://aizee_urdf/meshes/left_upper_elbow_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -701,8 +715,8 @@
     <axis
       xyz="0 -1 0" />
     <limit
-      lower="-0.815"
-      upper="1.05"
+      lower="-3.14"
+      upper="3.14"
       effort="1"
       velocity="1" />
   </joint>
@@ -710,7 +724,7 @@
     name="left_lower_elbow_link">
     <inertial>
       <origin
-        xyz="-0.0384012806454137 -0.00785859011357548 -0.00587888140572798"
+        xyz="-0.0384012806454133 -0.00785859011357548 -0.00587888140572804"
         rpy="0 0 0" />
       <mass
         value="0.151902535776002" />
@@ -728,7 +742,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/left_lower_elbow_link.STL" />
+          filename="package://aizee_urdf/meshes/left_lower_elbow_link.STL" />
       </geometry>
       <material
         name="">
@@ -742,7 +756,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/left_lower_elbow_link.STL" />
+          filename="package://aizee_urdf/meshes/left_lower_elbow_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -759,8 +773,8 @@
     <axis
       xyz="0.0880130878902615 0.920101163566549 -0.381664178517586" />
     <limit
-      lower="-2.1"
-      upper="0"
+      lower="-3.14"
+      upper="3.14"
       effort="1"
       velocity="1" />
   </joint>
@@ -768,17 +782,17 @@
     name="left_forearm_link">
     <inertial>
       <origin
-        xyz="-0.0881848451432138 0.00476209067713834 -0.0158110196363839"
+        xyz="-0.0881848451431847 0.004762090677078 -0.0158110196363526"
         rpy="0 0 0" />
       <mass
-        value="0.133070486659464" />
+        value="0.133070486658893" />
       <inertia
-        ixx="3.84773302292164E-05"
-        ixy="2.2054009195661E-06"
-        ixz="-2.20235527414744E-06"
-        iyy="7.37294784592023E-05"
-        iyz="2.37824234256486E-06"
-        izz="5.58551108822215E-05" />
+        ixx="3.84773302290753E-05"
+        ixy="2.20540091950927E-06"
+        ixz="-2.20235527401214E-06"
+        iyy="7.37294784588457E-05"
+        iyz="2.37824234252112E-06"
+        izz="5.58551108819743E-05" />
     </inertial>
     <visual>
       <origin
@@ -786,7 +800,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/left_forearm_link.STL" />
+          filename="package://aizee_urdf/meshes/left_forearm_link.STL" />
       </geometry>
       <material
         name="">
@@ -800,7 +814,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/left_forearm_link.STL" />
+          filename="package://aizee_urdf/meshes/left_forearm_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -817,8 +831,8 @@
     <axis
       xyz="0.980643317783864 -0.0724305556359989 0.181913435172108" />
     <limit
-      lower="-2.0"
-      upper="2.5"
+      lower="-3.14"
+      upper="3.14"
       effort="1"
       velocity="1" />
   </joint>
@@ -826,14 +840,14 @@
     name="left_wrist_pitch_link">
     <inertial>
       <origin
-        xyz="-0.000976200915286662 0.00387708787434096 0.00871504590679717"
+        xyz="-0.00097620091528669 0.00387708787434093 0.00871504590679717"
         rpy="0 0 0" />
       <mass
-        value="0.0263062577407527" />
+        value="0.0263062577407526" />
       <inertia
         ixx="1.20787443936794E-05"
-        ixy="2.58815784477123E-07"
-        ixz="4.48417991497033E-07"
+        ixy="2.58815784477125E-07"
+        ixz="4.48417991497035E-07"
         iyy="1.211052369407E-05"
         iyz="1.59016912824003E-06"
         izz="1.39466338599312E-05" />
@@ -844,7 +858,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/left_wrist_pitch_link.STL" />
+          filename="package://aizee_urdf/meshes/left_wrist_pitch_link.STL" />
       </geometry>
       <material
         name="">
@@ -858,7 +872,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/left_wrist_pitch_link.STL" />
+          filename="package://aizee_urdf/meshes/left_wrist_pitch_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -875,8 +889,8 @@
     <axis
       xyz="0 -0.866025403784494 0.499999999999905" />
     <limit
-      lower="-0.22"
-      upper="0.22"
+      lower="-3.14"
+      upper="3.14"
       effort="1"
       velocity="1" />
   </joint>
@@ -884,16 +898,16 @@
     name="left_wrist_tool_link">
     <inertial>
       <origin
-        xyz="0.0150606893814914 -0.0335618936293743 0.00141729578731209"
+        xyz="0.0150606893814914 -0.0335618936293743 0.00141729578731203"
         rpy="0 0 0" />
       <mass
         value="0.109165570786613" />
       <inertia
         ixx="4.79249279687809E-05"
-        ixy="-9.8924293981908E-06"
-        ixz="8.73271494265089E-08"
+        ixy="-9.89242939819081E-06"
+        ixz="8.73271494265076E-08"
         iyy="3.46888786448698E-05"
-        iyz="3.2045983483394E-08"
+        iyz="3.20459834834016E-08"
         izz="4.89192830147545E-05" />
     </inertial>
     <visual>
@@ -902,7 +916,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/left_wrist_tool_link.STL" />
+          filename="package://aizee_urdf/meshes/left_wrist_tool_link.STL" />
       </geometry>
       <material
         name="">
@@ -916,7 +930,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/left_wrist_tool_link.STL" />
+          filename="package://aizee_urdf/meshes/left_wrist_tool_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -933,8 +947,8 @@
     <axis
       xyz="0.995843763645561 0.0904852634575847 -0.0103737893393016" />
     <limit
-      lower="-1.5"
-      upper="1.5"
+      lower="-3.14"
+      upper="3.14"
       effort="1"
       velocity="1" />
   </joint>
@@ -942,16 +956,16 @@
     name="right_shoulder_pitch_link">
     <inertial>
       <origin
-        xyz="-0.00366633033287944 0.0730787263256541 -0.000196472994200836"
+        xyz="-0.00366633033287922 0.0730787263256541 -0.000196472994200836"
         rpy="0 0 0" />
       <mass
         value="0.2246031087904" />
       <inertia
         ixx="0.000101500499717251"
         ixy="-6.82749765297035E-06"
-        ixz="-2.78086224265211E-08"
+        ixz="-2.78086224265198E-08"
         iyy="8.33644138092405E-05"
-        iyz="2.54262064555648E-07"
+        iyz="2.54262064555644E-07"
         izz="0.000108145604298187" />
     </inertial>
     <visual>
@@ -960,7 +974,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/right_shoulder_pitch_link.STL" />
+          filename="package://aizee_urdf/meshes/right_shoulder_pitch_link.STL" />
       </geometry>
       <material
         name="">
@@ -974,7 +988,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/right_shoulder_pitch_link.STL" />
+          filename="package://aizee_urdf/meshes/right_shoulder_pitch_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -982,8 +996,8 @@
     name="right_shoulder_pitch_joint"
     type="continuous">
     <origin
-      xyz="0.274293991616603 0.058538132978631 3.01701581020399"
-      rpy="2.51039373539614 -0.0435891683503091 1.60263708973709" />
+      xyz="0.00190847339150882 -0.0183487092181824 0.0507092415096265"
+      rpy="1.57079632679496 0 1.6247704646502" />
     <parent
       link="gantry_base_link" />
     <child
@@ -991,8 +1005,8 @@
     <axis
       xyz="0 -1 0" />
     <limit
-      lower="1.57"
-      upper="1.82"
+      lower="-3.14"
+      upper="3.14"
       effort="1"
       velocity="1" />
   </joint>
@@ -1018,7 +1032,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/right_upper_arm_link.STL" />
+          filename="package://aizee_urdf/meshes/right_upper_arm_link.STL" />
       </geometry>
       <material
         name="">
@@ -1032,7 +1046,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/right_upper_arm_link.STL" />
+          filename="package://aizee_urdf/meshes/right_upper_arm_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -1049,8 +1063,8 @@
     <axis
       xyz="-0.0539479353612056 0 0.998543749802813" />
     <limit
-      lower="0"
-      upper="2.7"
+      lower="-3.14"
+      upper="3.14"
       effort="1"
       velocity="1" />
   </joint>
@@ -1058,17 +1072,17 @@
     name="right_upper_elbow_link">
     <inertial>
       <origin
-        xyz="0.00639564820870245 0.0872557861739049 0.00207119890793367"
+        xyz="0.00639564820067759 0.0872557861684293 0.00207119892372312"
         rpy="0 0 0" />
       <mass
-        value="0.17462194414463" />
+        value="0.174621944055462" />
       <inertia
-        ixx="0.000144829041391368"
-        ixy="-4.96321681987224E-05"
-        ixz="1.01056671133304E-07"
-        iyy="6.78203460269219E-05"
-        iyz="-8.60250194213348E-07"
-        izz="0.000196949982801383" />
+        ixx="0.000144829041382155"
+        ixy="-4.96321682014811E-05"
+        ixz="1.01056670499481E-07"
+        iyy="6.78203460255095E-05"
+        iyz="-8.60250192363476E-07"
+        izz="0.000196949982791701" />
     </inertial>
     <visual>
       <origin
@@ -1076,7 +1090,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/right_upper_elbow_link.STL" />
+          filename="package://aizee_urdf/meshes/right_upper_elbow_link.STL" />
       </geometry>
       <material
         name="">
@@ -1090,7 +1104,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/right_upper_elbow_link.STL" />
+          filename="package://aizee_urdf/meshes/right_upper_elbow_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -1107,8 +1121,8 @@
     <axis
       xyz="0 -1 0" />
     <limit
-      lower="-1.05"
-      upper="0.815"
+      lower="-3.14"
+      upper="3.14"
       effort="1"
       velocity="1" />
   </joint>
@@ -1116,7 +1130,7 @@
     name="right_lower_elbow_link">
     <inertial>
       <origin
-        xyz="-0.0384012442069588 -0.007858511251331 0.00587906711354463"
+        xyz="-0.0384012442069588 -0.00785851125133102 0.00587906711354469"
         rpy="0 0 0" />
       <mass
         value="0.151904197101514" />
@@ -1134,7 +1148,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/right_lower_elbow_link.STL" />
+          filename="package://aizee_urdf/meshes/right_lower_elbow_link.STL" />
       </geometry>
       <material
         name="">
@@ -1148,7 +1162,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/right_lower_elbow_link.STL" />
+          filename="package://aizee_urdf/meshes/right_lower_elbow_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -1165,8 +1179,8 @@
     <axis
       xyz="0.0880130878899545 0.920101163566575 0.381664178517595" />
     <limit
-      lower="0"
-      upper="2.1"
+      lower="-3.14"
+      upper="3.14"
       effort="1"
       velocity="1" />
   </joint>
@@ -1174,17 +1188,17 @@
     name="right_forearm_link">
     <inertial>
       <origin
-        xyz="-0.0881846753190366 0.00476205122885504 0.015811180069621"
+        xyz="-0.0881846753190154 0.00476205122886658 0.0158111800695777"
         rpy="0 0 0" />
       <mass
-        value="0.133069921434071" />
+        value="0.133069921433842" />
       <inertia
-        ixx="3.84772142880184E-05"
-        ixy="2.20525594230588E-06"
-        ixz="2.20249074106523E-06"
-        iyy="7.37301581090305E-05"
-        iyz="-2.37824939444123E-06"
-        izz="5.58558204840689E-05" />
+        ixx="3.84772142878655E-05"
+        ixy="2.20525594226963E-06"
+        ixz="2.20249074094468E-06"
+        iyy="7.37301581087857E-05"
+        iyz="-2.37824939439681E-06"
+        izz="5.58558204839514E-05" />
     </inertial>
     <visual>
       <origin
@@ -1192,7 +1206,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/right_forearm_link.STL" />
+          filename="package://aizee_urdf/meshes/right_forearm_link.STL" />
       </geometry>
       <material
         name="">
@@ -1206,7 +1220,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/right_forearm_link.STL" />
+          filename="package://aizee_urdf/meshes/right_forearm_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -1223,8 +1237,8 @@
     <axis
       xyz="0.980643317783807 -0.0724305556360285 -0.181913435172403" />
     <limit
-      lower="-2.5"
-      upper="2.0"
+      lower="-3.14"
+      upper="3.14"
       effort="1"
       velocity="1" />
   </joint>
@@ -1232,16 +1246,16 @@
     name="right_wrist_pitch_link">
     <inertial>
       <origin
-        xyz="-0.000976345353643465 0.000999476310045377 -0.00948535498337566"
+        xyz="-0.000976345353643493 0.000999476310045377 -0.00948535498337577"
         rpy="0 0 0" />
       <mass
         value="0.0263065978280762" />
       <inertia
         ixx="1.2080454337315E-05"
-        ixy="4.86335004953772E-10"
-        ixz="-5.17724240006248E-07"
+        ixy="4.86335004953335E-10"
+        ixz="-5.17724240006246E-07"
         iyy="1.11915249319666E-05"
-        iyz="1.15840250685374E-10"
+        iyz="1.15840250685586E-10"
         izz="1.48646778943291E-05" />
     </inertial>
     <visual>
@@ -1250,7 +1264,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/right_wrist_pitch_link.STL" />
+          filename="package://aizee_urdf/meshes/right_wrist_pitch_link.STL" />
       </geometry>
       <material
         name="">
@@ -1264,7 +1278,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/right_wrist_pitch_link.STL" />
+          filename="package://aizee_urdf/meshes/right_wrist_pitch_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -1281,8 +1295,8 @@
     <axis
       xyz="0 -0.999999999998175 0" />
     <limit
-      lower="-0.22"
-      upper="0.22"
+      lower="-3.14"
+      upper="3.14"
       effort="1"
       velocity="1" />
   </joint>
@@ -1290,17 +1304,17 @@
     name="right_wrist_tool_link">
     <inertial>
       <origin
-        xyz="0.0158573641025974 -0.0334895053506832 0.0014089968396247"
+        xyz="0.0158573641025974 -0.0334895053506835 0.00140899683962481"
         rpy="0 0 0" />
       <mass
         value="0.109165571976926" />
       <inertia
-        ixx="4.79249281327562E-05"
-        ixy="-9.89242965029905E-06"
-        ixz="8.7327288915467E-08"
-        iyy="3.468887871489E-05"
-        iyz="3.20459441768868E-08"
-        izz="4.89192832751407E-05" />
+        ixx="4.79249281327564E-05"
+        ixy="-9.89242965029902E-06"
+        ixz="8.73272889154803E-08"
+        iyy="3.46888787148901E-05"
+        iyz="3.20459441769416E-08"
+        izz="4.89192832751409E-05" />
     </inertial>
     <visual>
       <origin
@@ -1308,7 +1322,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/right_wrist_tool_link.STL" />
+          filename="package://aizee_urdf/meshes/right_wrist_tool_link.STL" />
       </geometry>
       <material
         name="">
@@ -1322,7 +1336,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://aizee_model/meshes/right_wrist_tool_link.STL" />
+          filename="package://aizee_urdf/meshes/right_wrist_tool_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -1339,8 +1353,8 @@
     <axis
       xyz="-0.995843763645616 -0.09048526345698 0.0103737893393006" />
     <limit
-      lower="-1.5"
-      upper="1.5"
+      lower="-3.14"
+      upper="3.14"
       effort="1"
       velocity="1" />
   </joint>
