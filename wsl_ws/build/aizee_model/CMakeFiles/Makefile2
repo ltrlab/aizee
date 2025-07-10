@@ -54,10 +54,10 @@ RM = /usr/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = /home/ltr/aizee/wsl_ws/src/aizee_model
+CMAKE_SOURCE_DIR = /home/skavrx/aizee/wsl_ws/src/aizee_model
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /home/ltr/aizee/wsl_ws/build/aizee_model
+CMAKE_BINARY_DIR = /home/skavrx/aizee/wsl_ws/build/aizee_model
 
 #=============================================================================
 # Directory level rules for the build root directory
@@ -82,14 +82,14 @@ clean: CMakeFiles/aizee_model_uninstall.dir/clean
 CMakeFiles/uninstall.dir/all: CMakeFiles/aizee_model_uninstall.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/uninstall.dir/build.make CMakeFiles/uninstall.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/uninstall.dir/build.make CMakeFiles/uninstall.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/home/ltr/aizee/wsl_ws/build/aizee_model/CMakeFiles --progress-num= "Built target uninstall"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/home/skavrx/aizee/wsl_ws/build/aizee_model/CMakeFiles --progress-num= "Built target uninstall"
 .PHONY : CMakeFiles/uninstall.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/uninstall.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /home/ltr/aizee/wsl_ws/build/aizee_model/CMakeFiles 0
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/skavrx/aizee/wsl_ws/build/aizee_model/CMakeFiles 0
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/uninstall.dir/all
-	$(CMAKE_COMMAND) -E cmake_progress_start /home/ltr/aizee/wsl_ws/build/aizee_model/CMakeFiles 0
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/skavrx/aizee/wsl_ws/build/aizee_model/CMakeFiles 0
 .PHONY : CMakeFiles/uninstall.dir/rule
 
 # Convenience name for target.
@@ -108,14 +108,14 @@ CMakeFiles/uninstall.dir/clean:
 CMakeFiles/aizee_model_uninstall.dir/all:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/aizee_model_uninstall.dir/build.make CMakeFiles/aizee_model_uninstall.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/aizee_model_uninstall.dir/build.make CMakeFiles/aizee_model_uninstall.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/home/ltr/aizee/wsl_ws/build/aizee_model/CMakeFiles --progress-num= "Built target aizee_model_uninstall"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/home/skavrx/aizee/wsl_ws/build/aizee_model/CMakeFiles --progress-num= "Built target aizee_model_uninstall"
 .PHONY : CMakeFiles/aizee_model_uninstall.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/aizee_model_uninstall.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /home/ltr/aizee/wsl_ws/build/aizee_model/CMakeFiles 0
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/skavrx/aizee/wsl_ws/build/aizee_model/CMakeFiles 0
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/aizee_model_uninstall.dir/all
-	$(CMAKE_COMMAND) -E cmake_progress_start /home/ltr/aizee/wsl_ws/build/aizee_model/CMakeFiles 0
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/skavrx/aizee/wsl_ws/build/aizee_model/CMakeFiles 0
 .PHONY : CMakeFiles/aizee_model_uninstall.dir/rule
 
 # Convenience name for target.

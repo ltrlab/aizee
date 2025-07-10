@@ -6,20 +6,6 @@
   name="aizee_model">
   <link
     name="base_link">
-    <inertial>
-      <origin
-        xyz="0.00369566449310157 0.081802863983166 -0.00684603701373789"
-        rpy="0 0 0" />
-      <mass
-        value="8.72034111313673" />
-      <inertia
-        ixx="0.0239220443263959"
-        ixy="0.00010137553960162"
-        ixz="3.94021371749703E-06"
-        iyy="0.0224473726878477"
-        iyz="2.31328263890732E-05"
-        izz="0.0304764022408285" />
-    </inertial>
     <visual>
       <origin
         xyz="0 0 0"
@@ -597,7 +583,7 @@
     <child
       link="left_shoulder_pitch_link" />
     <axis
-      xyz="0 1 0" />
+      xyz="0 -1 0" />
     <limit
       lower="-3.14"
       upper="3.14"
@@ -655,7 +641,7 @@
     <child
       link="left_upper_arm_link" />
     <axis
-      xyz="0.0539479353612109 0 0.998543749802813" />
+      xyz="-0.0539479353612109 0 -0.998543749802813" />
     <limit
       lower="-3.14"
       upper="3.14"
@@ -713,7 +699,7 @@
     <child
       link="left_upper_elbow_link" />
     <axis
-      xyz="0 1 0" />
+      xyz="0 -1 0" />
     <limit
       lower="-3.14"
       upper="3.14"
@@ -887,7 +873,7 @@
     <child
       link="left_wrist_pitch_link" />
     <axis
-      xyz="0 0.866025403784494 -0.499999999999905" />
+      xyz="0 -0.866025403784494 0.499999999999905" />
     <limit
       lower="-3.14"
       upper="3.14"
@@ -1003,7 +989,7 @@
     <child
       link="right_shoulder_pitch_link" />
     <axis
-      xyz="0 1 0" />
+      xyz="0 -1 0" />
     <limit
       lower="-3.14"
       upper="3.14"
@@ -1061,7 +1047,7 @@
     <child
       link="right_upper_arm_link" />
     <axis
-      xyz="0.0539479353612105 0 -0.998543749802813" />
+      xyz="-0.0539479353612105 0 0.998543749802813" />
     <limit
       lower="-3.14"
       upper="3.14"
@@ -1119,7 +1105,7 @@
     <child
       link="right_upper_elbow_link" />
     <axis
-      xyz="0 1 0" />
+      xyz="0 -1 0" />
     <limit
       lower="-3.14"
       upper="3.14"
@@ -1293,7 +1279,7 @@
     <child
       link="right_wrist_pitch_link" />
     <axis
-      xyz="0 1 0" />
+      xyz="0 -1 0" />
     <limit
       lower="-3.14"
       upper="3.14"
@@ -1351,7 +1337,7 @@
     <child
       link="right_wrist_tool_link" />
     <axis
-      xyz="0.99584376364562 0.0904852634569211 -0.0103737893393444" />
+      xyz="-0.99584376364562 -0.0904852634569211 0.0103737893393444" />
     <limit
       lower="-3.14"
       upper="3.14"

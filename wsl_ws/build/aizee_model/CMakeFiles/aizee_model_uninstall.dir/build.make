@@ -53,10 +53,10 @@ RM = /usr/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = /home/ltr/aizee/wsl_ws/src/aizee_model
+CMAKE_SOURCE_DIR = /home/skavrx/aizee/wsl_ws/src/aizee_model
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /home/ltr/aizee/wsl_ws/build/aizee_model
+CMAKE_BINARY_DIR = /home/skavrx/aizee/wsl_ws/build/aizee_model
 
 # Utility rule file for aizee_model_uninstall.
 
@@ -67,7 +67,7 @@ include CMakeFiles/aizee_model_uninstall.dir/compiler_depend.make
 include CMakeFiles/aizee_model_uninstall.dir/progress.make
 
 CMakeFiles/aizee_model_uninstall:
-	/usr/bin/cmake -P /home/ltr/aizee/wsl_ws/build/aizee_model/ament_cmake_uninstall_target/ament_cmake_uninstall_target.cmake
+	/usr/bin/cmake -P /home/skavrx/aizee/wsl_ws/build/aizee_model/ament_cmake_uninstall_target/ament_cmake_uninstall_target.cmake
 
 aizee_model_uninstall: CMakeFiles/aizee_model_uninstall
 aizee_model_uninstall: CMakeFiles/aizee_model_uninstall.dir/build.make
@@ -82,6 +82,6 @@ CMakeFiles/aizee_model_uninstall.dir/clean:
 .PHONY : CMakeFiles/aizee_model_uninstall.dir/clean
 
 CMakeFiles/aizee_model_uninstall.dir/depend:
-	cd /home/ltr/aizee/wsl_ws/build/aizee_model && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/ltr/aizee/wsl_ws/src/aizee_model /home/ltr/aizee/wsl_ws/src/aizee_model /home/ltr/aizee/wsl_ws/build/aizee_model /home/ltr/aizee/wsl_ws/build/aizee_model /home/ltr/aizee/wsl_ws/build/aizee_model/CMakeFiles/aizee_model_uninstall.dir/DependInfo.cmake --color=$(COLOR)
+	cd /home/skavrx/aizee/wsl_ws/build/aizee_model && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/skavrx/aizee/wsl_ws/src/aizee_model /home/skavrx/aizee/wsl_ws/src/aizee_model /home/skavrx/aizee/wsl_ws/build/aizee_model /home/skavrx/aizee/wsl_ws/build/aizee_model /home/skavrx/aizee/wsl_ws/build/aizee_model/CMakeFiles/aizee_model_uninstall.dir/DependInfo.cmake --color=$(COLOR)
 .PHONY : CMakeFiles/aizee_model_uninstall.dir/depend
 
