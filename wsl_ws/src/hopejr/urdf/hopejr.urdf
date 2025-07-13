@@ -1,0 +1,453 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="hopejr">
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="-0.0431076595032378 1.29740138560759 0.0043028385780374"
+        rpy="0 0 0" />
+      <mass
+        value="2.87751988334455" />
+      <inertia
+        ixx="0.0107502811685928"
+        ixy="0.000244284946568019"
+        ixz="6.19392890213895E-05"
+        iyy="0.0132005727339374"
+        iyz="8.08553868796547E-06"
+        izz="0.00641753469285797" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hopejr/meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hopejr/meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="right_shoulder_link">
+    <inertial>
+      <origin
+        xyz="-0.00366633048575471 0.073078726035871 -0.000196473271182995"
+        rpy="0 0 0" />
+      <mass
+        value="0.224603109976489" />
+      <inertia
+        ixx="0.000101500501243235"
+        ixy="-6.82749857596955E-06"
+        ixz="-2.78106088911714E-08"
+        iyy="8.3364414008642E-05"
+        iyz="2.54260768286728E-07"
+        izz="0.000108145604197816" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hopejr/meshes/right_shoulder_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hopejr/meshes/right_shoulder_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_shoulder_joint"
+    type="revolute">
+    <origin
+      xyz="-0.13394 0.048309 1.2772"
+      rpy="0 -1.5168 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="right_shoulder_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-1.57"
+      upper="1.82"
+      effort="1"
+      velocity="1" />
+  </joint>
+  <link
+    name="right_upper_arm_link">
+    <inertial>
+      <origin
+        xyz="-0.0766992737061696 0.0134044028807087 0.000326638414126834"
+        rpy="0 0 0" />
+      <mass
+        value="0.311238426775694" />
+      <inertia
+        ixx="0.000138970067331875"
+        ixy="3.48842401604284E-05"
+        ixz="3.86355381129112E-05"
+        iyy="0.000383694121674623"
+        iyz="-3.99816700692933E-06"
+        izz="0.000295826495250162" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hopejr/meshes/right_upper_arm_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hopejr/meshes/right_upper_arm_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_upper_arm_joint"
+    type="revolute">
+    <origin
+      xyz="0 0.1061 0"
+      rpy="-0.0081422 0.00061707 0.15128" />
+    <parent
+      link="right_shoulder_link" />
+    <child
+      link="right_upper_arm_link" />
+    <axis
+      xyz="0.053948 0 -0.99854" />
+    <limit
+      lower="0"
+      upper="2.7"
+      effort="1"
+      velocity="1" />
+  </joint>
+  <link
+    name="right_upper_elbow_link">
+    <inertial>
+      <origin
+        xyz="0.00639564820821042 0.0872557862402017 0.00207119892119237"
+        rpy="0 0 0" />
+      <mass
+        value="0.174621944576985" />
+      <inertia
+        ixx="0.000144829041674728"
+        ixy="-4.96321685692095E-05"
+        ixz="1.01056667538789E-07"
+        iyy="6.78203462105185E-05"
+        iyz="-8.60250275986942E-07"
+        izz="0.000196949983254397" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hopejr/meshes/right_upper_elbow_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hopejr/meshes/right_upper_elbow_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_upper_elbow_joint"
+    type="revolute">
+    <origin
+      xyz="-0.08378 0.012813 -0.0049334"
+      rpy="-1.7223 -1.5168 3.1416" />
+    <parent
+      link="right_upper_arm_link" />
+    <child
+      link="right_upper_elbow_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-1.05"
+      upper="0.815"
+      effort="1"
+      velocity="1" />
+  </joint>
+  <link
+    name="right_lower_elbow_link">
+    <inertial>
+      <origin
+        xyz="-0.0384012442069543 -0.00785851125130121 0.0058790671135284"
+        rpy="0 0 0" />
+      <mass
+        value="0.151904197101513" />
+      <inertia
+        ixx="3.84864381691016E-05"
+        ixy="1.17654297661299E-06"
+        ixz="6.18266537995094E-06"
+        iyy="6.38351264784852E-05"
+        iyz="2.40045758350238E-06"
+        izz="5.79465269689682E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hopejr/meshes/right_lower_elbow_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hopejr/meshes/right_lower_elbow_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_lower_elbow_joint"
+    type="revolute">
+    <origin
+      xyz="0.0382 0.1124 0"
+      rpy="-1.964 0.088127 -1.5956" />
+    <parent
+      link="right_upper_elbow_link" />
+    <child
+      link="right_lower_elbow_link" />
+    <axis
+      xyz="0.088013 0.9201 0.38166" />
+    <limit
+      lower="0"
+      upper="2.1"
+      effort="1"
+      velocity="1" />
+  </joint>
+  <link
+    name="right_forearm_link">
+    <inertial>
+      <origin
+        xyz="-0.0881846820679997 0.00476206023093534 0.0158111800466809"
+        rpy="0 0 0" />
+      <mass
+        value="0.133069954449835" />
+      <inertia
+        ixx="3.84772229927692E-05"
+        ixy="2.20525535400294E-06"
+        ixz="2.20248819510205E-06"
+        iyy="7.37301593221685E-05"
+        iyz="-2.37825033058667E-06"
+        izz="5.58558134677147E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hopejr/meshes/right_forearm_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hopejr/meshes/right_forearm_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_forearm_joint"
+    type="revolute">
+    <origin
+      xyz="-0.026953 -0.0021421 0.0061395"
+      rpy="2.037 0.27473 -0.19155" />
+    <parent
+      link="right_lower_elbow_link" />
+    <child
+      link="right_forearm_link" />
+    <axis
+      xyz="0.98064 -0.072431 -0.18191" />
+    <limit
+      lower="-2.5"
+      upper="2"
+      effort="1"
+      velocity="1" />
+  </joint>
+  <link
+    name="wrist_pitch_link">
+    <inertial>
+      <origin
+        xyz="-0.000976347199643096 -0.000999459523875756 0.009485362992665"
+        rpy="0 0 0" />
+      <mass
+        value="0.02630660356343" />
+      <inertia
+        ixx="1.20804580477078E-05"
+        ixy="-4.86170177587396E-10"
+        ixz="5.17724260973255E-07"
+        iyy="1.11915298931713E-05"
+        iyz="1.23170082015224E-10"
+        izz="1.48646799413629E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hopejr/meshes/wrist_pitch_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hopejr/meshes/wrist_pitch_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="wrist_pitch_joint"
+    type="revolute">
+    <origin
+      xyz="-0.12457 0.0092005 0.023108"
+      rpy="-0.57749 -1.3519 0.51486" />
+    <parent
+      link="right_forearm_link" />
+    <child
+      link="wrist_pitch_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-0.22"
+      upper="0.22"
+      effort="1"
+      velocity="1" />
+  </joint>
+  <link
+    name="right_tool_link">
+    <inertial>
+      <origin
+        xyz="0.0158573641026411 -0.0334895053506801 0.00140899683962292"
+        rpy="0 0 0" />
+      <mass
+        value="0.109165571976926" />
+      <inertia
+        ixx="4.79249281327563E-05"
+        ixy="-9.89242965029899E-06"
+        ixz="8.73272889154573E-08"
+        iyy="3.468887871489E-05"
+        iyz="3.20459441768457E-08"
+        izz="4.89192832751407E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hopejr/meshes/right_tool_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://hopejr/meshes/right_tool_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_tool_joint"
+    type="revolute">
+    <origin
+      xyz="0 -0.001 0.03"
+      rpy="-1.5541 -0.090774 -3.1327" />
+    <parent
+      link="wrist_pitch_link" />
+    <child
+      link="right_tool_link" />
+    <axis
+      xyz="0.99584 0.090485 -0.010374" />
+    <limit
+      lower="-1.5"
+      upper="1.5"
+      effort="1"
+      velocity="1" />
+  </joint>
+</robot>
