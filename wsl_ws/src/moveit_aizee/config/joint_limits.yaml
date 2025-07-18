@@ -10,7 +10,8 @@ joint_limits:
     max_position: 2.5
     has_velocity_limits: true
     max_velocity: 1.0
-    has_acceleration_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 1.0
 
   left_lower_elbow_joint:
     has_position_limits: true
@@ -18,7 +19,8 @@ joint_limits:
     max_position: 0.0
     has_velocity_limits: true
     max_velocity: 1.0
-    has_acceleration_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 1.0
 
   left_shoulder_pitch_joint:
     has_position_limits: true
@@ -26,15 +28,17 @@ joint_limits:
     max_position: 1.57
     has_velocity_limits: true
     max_velocity: 1.0
-    has_acceleration_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 1.0
 
   left_upper_arm_joint:
     has_position_limits: true
-    min_position: -2.7
-    max_position: 0.0
+    min_position: 0.0
+    max_position: 2.7
     has_velocity_limits: true
     max_velocity: 1.0
-    has_acceleration_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 1.0
 
   left_upper_elbow_joint:
     has_position_limits: true
@@ -42,15 +46,17 @@ joint_limits:
     max_position: 1.05
     has_velocity_limits: true
     max_velocity: 1.0
-    has_acceleration_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 1.0
 
   left_wrist_pitch_joint:
     has_position_limits: true
-    min_position: -0.22
-    max_position: 0.22
+    min_position: -0.88
+    max_position: 0.88
     has_velocity_limits: true
     max_velocity: 1.0
-    has_acceleration_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 1.0
 
   left_wrist_tool_joint:
     has_position_limits: true
@@ -58,7 +64,8 @@ joint_limits:
     max_position: 1.5
     has_velocity_limits: true
     max_velocity: 1.0
-    has_acceleration_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 1.0
 
   right_forearm_joint:
     has_position_limits: true
@@ -66,7 +73,8 @@ joint_limits:
     max_position: 2.0
     has_velocity_limits: true
     max_velocity: 1.0
-    has_acceleration_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 1.0
 
   right_lower_elbow_joint:
     has_position_limits: true
@@ -74,23 +82,26 @@ joint_limits:
     max_position: 2.1
     has_velocity_limits: true
     max_velocity: 1.0
-    has_acceleration_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 1.0
 
   right_shoulder_pitch_joint:
     has_position_limits: true
-    min_position: 1.57
+    min_position: -1.57
     max_position: 1.82
     has_velocity_limits: true
     max_velocity: 1.0
-    has_acceleration_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 1.0
 
   right_upper_arm_joint:
     has_position_limits: true
-    min_position: 0.0
-    max_position: 2.7
+    min_position: -2.7
+    max_position: 0.0
     has_velocity_limits: true
     max_velocity: 1.0
-    has_acceleration_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 1.0
 
   right_upper_elbow_joint:
     has_position_limits: true
@@ -98,7 +109,8 @@ joint_limits:
     max_position: 0.815
     has_velocity_limits: true
     max_velocity: 1.0
-    has_acceleration_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 1.0
 
   right_wrist_pitch_joint:
     has_position_limits: true
@@ -106,7 +118,8 @@ joint_limits:
     max_position: 0.22
     has_velocity_limits: true
     max_velocity: 1.0
-    has_acceleration_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 1.0
 
   right_wrist_tool_joint:
     has_position_limits: true
@@ -114,7 +127,8 @@ joint_limits:
     max_position: 1.5
     has_velocity_limits: true
     max_velocity: 1.0
-    has_acceleration_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 1.0
 
   gantry_base_joint:
     has_position_limits: true
@@ -122,7 +136,8 @@ joint_limits:
     max_position: 3.14
     has_velocity_limits: true
     max_velocity: 1.0
-    has_acceleration_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 1.0
 
   gantry_swivel_joint:
     has_position_limits: true
@@ -130,7 +145,8 @@ joint_limits:
     max_position: 3.14
     has_velocity_limits: true
     max_velocity: 1.0
-    has_acceleration_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 1.0
 
   head_swivel_joint:
     has_position_limits: true
@@ -138,7 +154,8 @@ joint_limits:
     max_position: 3.14
     has_velocity_limits: true
     max_velocity: 1.0
-    has_acceleration_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 1.0
 
   head_tilt_joint:
     has_position_limits: true
@@ -146,7 +163,8 @@ joint_limits:
     max_position: 3.14
     has_velocity_limits: true
     max_velocity: 1.0
-    has_acceleration_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 1.0
 
   head_pitch_joint:
     has_position_limits: true
@@ -154,4 +172,5 @@ joint_limits:
     max_position: 3.14
     has_velocity_limits: true
     max_velocity: 1.0
-    has_acceleration_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 1.0

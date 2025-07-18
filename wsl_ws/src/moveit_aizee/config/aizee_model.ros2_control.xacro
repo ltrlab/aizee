@@ -9,16 +9,11 @@
     <xacro:property name="initial_positions"
                     value="${load_yaml(initial_positions_file)['initial_positions']}" />
 
-    <ros2_control name="${name}" type="system">
+    <ros2_control name="left_arm_hw" type="system">
       <hardware>
-        <xacro:if value="${hardware_type == 'mock_components'}">
-          <plugin>ros2_control_demo_hardware/MockSystem</plugin>
-        </xacro:if>
-        <xacro:unless value="${hardware_type == 'mock_components'}">
-          <plugin>feetech_ros2_driver/FeetechHardwareInterface</plugin>
-          <param name="usb_port">/dev/ttyUSB0</param>
-          <param name="baudrate">1000000</param>
-        </xacro:unless>
+        <plugin>feetech_ros2_driver/FeetechHardwareInterface</plugin>
+        <param name="usb_port">/dev/ttyUSB0</param>
+        <param name="baudrate">1000000</param>
       </hardware>
 
       <!-- helper macro: *offset* defaults to 0 -->
@@ -26,8 +21,8 @@
         <joint name="${joint_name}">
           <param name="id">${id}</param>
           <param name="offset">${offset}</param>
-          <param name="p_cofficient">16</param>
-          <param name="d_cofficient">8</param>
+          <!-- <param name="p_cofficient">16</param>
+          <param name="d_cofficient">8</param> -->
 
           <command_interface name="position"/>
           <state_interface name="position">
@@ -42,9 +37,35 @@
       <xacro:feetech_joint joint_name="left_upper_arm_joint"      id="12" offset="1200" />
       <xacro:feetech_joint joint_name="left_upper_elbow_joint"    id="13" offset="1400" />
       <xacro:feetech_joint joint_name="left_lower_elbow_joint"    id="14" offset="-2100" />
-      <xacro:feetech_joint joint_name="left_forearm_joint"        id="15" offset="-2400" />
-      <xacro:feetech_joint joint_name="left_wrist_pitch_joint"    id="16" offset="-1700" />
+      <xacro:feetech_joint joint_name="left_forearm_joint"        id="15" offset="1200" />
+      <xacro:feetech_joint joint_name="left_wrist_pitch_joint"    id="16" offset="-1500" />
       <xacro:feetech_joint joint_name="left_wrist_tool_joint"     id="17" offset="1800" />
+
+      
+    </ros2_control>
+    
+    <ros2_control name="right_arm_hw" type="system">
+      <hardware>
+        <plugin>feetech_ros2_driver/FeetechHardwareInterface</plugin>
+        <param name="usb_port">/dev/ttyUSB1</param>   <!-- CHANGED -->
+        <param name="baudrate">1000000</param>
+      </hardware>
+
+      <!-- helper macro: *offset* defaults to 0 -->
+      <xacro:macro name="feetech_joint" params="joint_name id offset:=0">
+        <joint name="${joint_name}">
+          <param name="id">${id}</param>
+          <param name="offset">${offset}</param>
+          <!-- <param name="p_cofficient">16</param>
+          <param name="d_cofficient">8</param> -->
+
+          <command_interface name="position"/>
+          <state_interface name="position">
+            <param name="initial_value">${initial_positions[joint_name]}</param>
+          </state_interface>
+          <state_interface name="velocity"/>
+        </joint>
+      </xacro:macro>
 
       <!-- ── Right Arm (measured offsets) ────────────────────────────────── -->
       <xacro:feetech_joint joint_name="right_shoulder_pitch_joint" id="1" offset="-1600"/>

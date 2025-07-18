@@ -1,1 +1,1 @@
-/home/skavrx/aizee/wsl_ws/src/moveit_aizee/launch/setup_assistant.launch.py
+/home/ltr/aizee/wsl_ws/src/moveit_aizee/launch/setup_assistant.launch.py

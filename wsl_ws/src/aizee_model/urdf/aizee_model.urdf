@@ -641,10 +641,10 @@
     <child
       link="left_upper_arm_link" />
     <axis
-      xyz="0.0539479353612109 0 0.998543749802813" />
+      xyz="-0.0539479353612109 0 -0.998543749802813" />
     <limit
-      lower="-2.7"
-      upper="0"
+      lower="0"
+      upper="2.7"
       effort="1"
       velocity="1" />
   </joint>
@@ -873,7 +873,7 @@
     <child
       link="left_wrist_pitch_link" />
     <axis
-      xyz="0 -0.866025403784494 0.499999999999905" />
+      xyz="0 0.866025403784494 -0.499999999999905" />
     <limit
       lower="-0.22"
       upper="0.22"
@@ -931,7 +931,7 @@
     <child
       link="left_wrist_tool_link" />
     <axis
-      xyz="0.995843763645555 0.0904852634576426 -0.0103737893393476" />
+      xyz="-0.995843763645555 0.0904852634576426 0.0103737893393476" />
     <limit
       lower="-1.5"
       upper="1.5"
@@ -1047,10 +1047,10 @@
     <child
       link="right_upper_arm_link" />
     <axis
-      xyz="0.0539479353612105 0 -0.998543749802813" />
+      xyz="-0.0539479353612105 0 0.998543749802813" />
     <limit
-      lower="0"
-      upper="2.7"
+      lower="-2.7"
+      upper="0"
       effort="1"
       velocity="1" />
   </joint>
@@ -1279,7 +1279,7 @@
     <child
       link="right_wrist_pitch_link" />
     <axis
-      xyz="0 -1 0" />
+      xyz="0 1 0" />
     <limit
       lower="-0.22"
       upper="0.22"

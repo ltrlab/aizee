@@ -1,8 +1,8 @@
-# Install script for directory: /home/skavrx/aizee/wsl_ws/src/moveit_aizee
+# Install script for directory: /home/ltr/aizee/wsl_ws/src/moveit_aizee
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
-  set(CMAKE_INSTALL_PREFIX "/home/skavrx/aizee/wsl_ws/install/moveit_aizee")
+  set(CMAKE_INSTALL_PREFIX "/home/ltr/aizee/wsl_ws/install/moveit_aizee")
 endif()
 string(REGEX REPLACE "/$" "" CMAKE_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}")
 
@@ -43,7 +43,7 @@ if(NOT DEFINED CMAKE_OBJDUMP)
 endif()
 
 if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_COMPONENT)
-  include("/home/skavrx/aizee/wsl_ws/build/moveit_aizee/ament_cmake_symlink_install/ament_cmake_symlink_install.cmake")
+  include("/home/ltr/aizee/wsl_ws/build/moveit_aizee/ament_cmake_symlink_install/ament_cmake_symlink_install.cmake")
 endif()
 
 if(CMAKE_INSTALL_COMPONENT)
@@ -54,5 +54,5 @@ endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
-file(WRITE "/home/skavrx/aizee/wsl_ws/build/moveit_aizee/${CMAKE_INSTALL_MANIFEST}"
+file(WRITE "/home/ltr/aizee/wsl_ws/build/moveit_aizee/${CMAKE_INSTALL_MANIFEST}"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")

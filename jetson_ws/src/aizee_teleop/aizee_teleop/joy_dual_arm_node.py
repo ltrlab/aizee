@@ -30,10 +30,10 @@ class Btn:    # button indices
 # ───────────────────────────────────────────────────────────────────────────
 
 _DEADZONE   = 0.08     # ignore tiny stick noise
-_LIN_GAIN   = 1.0      # m s⁻¹ per full deflection
-_ANG_GAIN   = 1.5      # rad s⁻¹ per full deflection
-_LIN_CLAMP  = 0.25
-_ANG_CLAMP  = 1.0
+_LIN_GAIN   = 0.5      # m s⁻¹ per full deflection
+_ANG_GAIN   = 0.75      # rad s⁻¹ per full deflection
+_LIN_CLAMP  = 0.5
+_ANG_CLAMP  = 0.5
 _FILL_HZ    = 10.0     # missing-joint filler
 
 _MISSING_JOINTS = [
@@ -102,11 +102,11 @@ class JoyDualArm(Node):
         send_right = len(msg.buttons) > Btn.RB and msg.buttons[Btn.RB]
 
         if not (send_left or send_right):
-            # self.pub_left.publish(tw)
-            self.pub_right.publish(tw)
+            self.pub_left.publish(tw)
+            #self.pub_right.publish(tw)
         else:
-            # if send_left:  self.pub_left.publish(tw)
-            if send_right: self.pub_right.publish(tw)
+            if send_left:  self.pub_left.publish(tw)
+            #if send_right: self.pub_right.publish(tw)
 
     # ────────────────────────────────────────────────────────────────
     def _start_servo(self) -> None:
@@ -118,11 +118,16 @@ class JoyDualArm(Node):
         self.servo_started = True
         self.get_logger().info("Sent start_servo to both arms")
 
-    def _fill_joints(self) -> None:
-        js = JointState()
+    def _fill_joints(self):
+        js              = JointState()
         js.header.stamp = self.get_clock().now().to_msg()
-        js.name, js.position = _MISSING_JOINTS, [0.0]*len(_MISSING_JOINTS)
+        js.name         = _MISSING_JOINTS
+        js.position     = [0.0] * len(_MISSING_JOINTS)
+        # velocity / effort arrays must match length; zero is fine
+        js.velocity     = [0.0] * len(_MISSING_JOINTS)
+        js.effort       = [0.0] * len(_MISSING_JOINTS)
         self.js_pub.publish(js)
+
 
 # ───────────────────────────────────────────────────────────────────────────
 def main() -> None:

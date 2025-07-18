@@ -1,1 +1,1 @@
-/home/skavrx/aizee/wsl_ws/src/moveit_aizee/launch/move_group.launch.py
+/home/ltr/aizee/wsl_ws/src/moveit_aizee/launch/move_group.launch.py

@@ -1,1 +1,1 @@
-/home/skavrx/aizee/wsl_ws/build/moveit_aizee/ament_cmake_core/moveit_aizeeConfig.cmake
+/home/ltr/aizee/wsl_ws/build/moveit_aizee/ament_cmake_core/moveit_aizeeConfig.cmake
