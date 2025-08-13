@@ -124,6 +124,11 @@ def generate_launch_description():
                       name="joy_dual_arm_node",
                       output="screen")
 
+    phospho_teleop = Node(package="phospho_teleop",
+                          executable="teleop_server",
+                          name="phospho_teleop",
+                          output="screen")
+
     # ───────────────────────────── RViz ───────────────────────────────────
     rviz = Node(package="rviz2", executable="rviz2",
                 arguments=["-d", CFG("moveit.rviz")],
@@ -153,6 +158,6 @@ def generate_launch_description():
         # planning
         global_mg,
         # tele-op / viz
-        joy_container, joy_bridge,
+        joy_container, joy_bridge, phospho_teleop,
         rviz, ee_marker,
     ])

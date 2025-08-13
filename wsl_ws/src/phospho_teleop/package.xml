@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>phospho_teleop</name>
+  <version>0.1.0</version>
+  <description>Teleoperation pipeline from Phosphobot integrated for Aizee arms.</description>
+  <maintainer email="todo@example.com">TODO</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>numpy</exec_depend>
+</package>
