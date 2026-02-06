@@ -1,0 +1,31 @@
+# AIZEE Python Dependencies
+
+# Core communication
+pyzmq>=25.0.0
+
+# Visualization and logging
+rerun-sdk>=0.15.0
+
+# Scientific computing
+numpy>=1.24.0
+
+# Camera interface
+pyrealsense2>=2.54.0
+
+# Teleop interface
+pygame>=2.5.0  # For joystick/gamepad support
+
+# Data serialization
+msgpack>=1.0.5
+
+# Optional GUI
+# PyQt6>=6.5.0  # Uncomment if using Qt for teleop GUI
+
+# Utilities
+pyyaml>=6.0
+python-dateutil>=2.8.2
+
+# Development tools
+pytest>=7.4.0
+black>=23.7.0
+mypy>=1.5.0

@@ -1,0 +1,163 @@
+# AIZEE Hardware Configuration
+# Update CAN IDs and network addresses to match your deployment
+
+motors:
+  # Drive wheels - ROBSTRIDE 04 Series
+  wheels:
+    - id: left_wheel
+      can_id: 0x01
+      type: ROBSTRIDE04
+      direction: 1  # 1 = forward, -1 = reverse
+      max_velocity: 10.0  # rad/s
+      max_torque: 12.0    # Nm
+
+    - id: right_wheel
+      can_id: 0x02
+      type: ROBSTRIDE04
+      direction: 1
+      max_velocity: 10.0
+      max_torque: 12.0
+
+  # Base swivel - ROBSTRIDE 03 Series
+  swivel:
+    id: swivel
+    can_id: 0x03
+    type: ROBSTRIDE03
+    min_position: -3.14159  # rad (-180°)
+    max_position: 3.14159   # rad (+180°)
+    max_velocity: 5.0
+    max_torque: 8.0
+
+  # 3-DOF Arm
+  arm:
+    - id: shoulder_pitch
+      can_id: 0x04
+      type: ROBSTRIDE04
+      min_position: -1.57   # -90°
+      max_position: 1.57    # +90°
+      max_velocity: 3.0
+      max_torque: 10.0
+
+    - id: elbow
+      can_id: 0x05
+      type: ROBSTRIDE03
+      min_position: 0.0
+      max_position: 2.35    # ~135°
+      max_velocity: 4.0
+      max_torque: 8.0
+
+    - id: wrist_gripper
+      can_id: 0x06
+      type: ROBSTRIDE02
+      min_position: 0.0     # Open
+      max_position: 0.785   # Closed (45°)
+      max_velocity: 3.0
+      max_torque: 2.0
+
+# Control loop parameters
+control:
+  arm_frequency: 1000  # Hz - deterministic control loop
+  base_frequency: 100  # Hz - wheels + swivel
+  telemetry_rate: 50   # Hz - published motor states
+
+  # Safety
+  watchdog_timeout: 0.1  # seconds - stop if no command received
+  enable_soft_limits: true
+  emergency_decel: 50.0  # rad/s² - emergency stop deceleration
+
+# CAN bus configuration
+can:
+  interface: can0
+  bitrate: 1000000  # 1 Mbps
+  timeout: 0.01     # seconds
+
+# Network topology
+network:
+  # Jetson Orin Nano (main controller)
+  jetson:
+    ip: 192.168.1.10
+    hostname: aizee-jetson
+
+    # ZeroMQ endpoints
+    zmq:
+      command_sub: "tcp://*:5555"      # Receives commands from teleop
+      telemetry_pub: "tcp://*:5556"    # Publishes motor states
+      camera_sub: "tcp://*:5557"       # Receives camera streams from RPis
+
+  # Raspberry Pi camera nodes
+  cameras:
+    - id: cam_front
+      ip: 192.168.1.21
+      hostname: aizee-rpi-front
+      serial: D455_SERIAL_001
+      position: [0.25, 0.0, 0.15]      # [x, y, z] in meters, relative to base_link
+      orientation: [0.0, 0.0, 0.0]     # [roll, pitch, yaw] in radians
+
+    - id: cam_rear
+      ip: 192.168.1.22
+      hostname: aizee-rpi-rear
+      serial: D455_SERIAL_002
+      position: [-0.25, 0.0, 0.15]
+      orientation: [0.0, 0.0, 3.14159]  # Facing backward
+
+    - id: cam_left
+      ip: 192.168.1.23
+      hostname: aizee-rpi-left
+      serial: D455_SERIAL_003
+      position: [0.0, 0.20, 0.15]
+      orientation: [0.0, 0.0, 1.5708]   # Facing left
+
+    - id: cam_right
+      ip: 192.168.1.24
+      hostname: aizee-rpi-right
+      serial: D455_SERIAL_004
+      position: [0.0, -0.20, 0.15]
+      orientation: [0.0, 0.0, -1.5708]  # Facing right
+
+# Camera stream configuration
+cameras:
+  realsense:
+    color:
+      width: 640
+      height: 480
+      fps: 30
+      format: RGB8
+      compression: JPEG
+      quality: 85
+
+    depth:
+      width: 640
+      height: 480
+      fps: 30
+      format: Z16  # 16-bit depth
+      # Optional downsampling to reduce bandwidth
+      downsample_factor: 1
+
+    imu:
+      accel_rate: 200  # Hz
+      gyro_rate: 200   # Hz
+
+  stream:
+    max_latency: 0.05  # seconds - target network latency
+    buffer_size: 3     # frames to buffer
+
+# LiDAR configuration (future integration)
+lidar:
+  - id: lidar_front
+    type: SLAMTEC_A1
+    ip: 192.168.1.30
+    position: [0.20, 0.0, 0.10]
+    orientation: [0.0, 0.0, 0.0]
+
+  - id: lidar_rear
+    type: SLAMTEC_A1
+    ip: 192.168.1.31
+    position: [-0.20, 0.0, 0.10]
+    orientation: [0.0, 0.0, 3.14159]
+
+# Logging
+logging:
+  mcap_dir: logs/
+  auto_record: true
+  max_file_size: 10GB  # Rotate logs at this size
+  compress: true

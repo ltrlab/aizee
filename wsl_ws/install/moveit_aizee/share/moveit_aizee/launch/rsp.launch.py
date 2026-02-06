@@ -1,1 +1,0 @@
-/home/ltr/aizee/wsl_ws/src/moveit_aizee/launch/rsp.launch.py

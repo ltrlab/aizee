@@ -1,0 +1,47 @@
+[workspace]
+members = [
+    "motor_control",
+    "comms",
+    "bindings",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["LTRLAB"]
+license = "MIT"
+repository = "https://github.com/ltrlab/aizee"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+tokio-util = "0.7"
+
+# Communication
+zmq = "0.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# CAN bus interface
+socketcan = "3.3"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Configuration
+config = "0.14"
+
+# Python bindings
+pyo3 = { version = "0.20", features = ["extension-module"] }
+
+# Time
+chrono = "0.4"
+
+# Utilities
+bytes = "1.5"

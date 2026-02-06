@@ -1,0 +1,19 @@
+[package]
+name = "motor_control"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio.workspace = true
+zmq.workspace = true
+socketcan.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+config.workspace = true
+chrono.workspace = true
