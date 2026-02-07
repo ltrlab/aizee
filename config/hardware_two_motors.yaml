@@ -1,0 +1,46 @@
+motors:
+  wheels:
+    - id: left_wheel
+      can_id: 0x03
+      type: ROBSTRIDE04
+      direction: 1
+      max_velocity: 10.0
+      max_torque: 12.0
+    - id: right_wheel
+      can_id: 0x02
+      type: ROBSTRIDE03
+      direction: 1
+      max_velocity: 10.0
+      max_torque: 12.0
+
+  swivel:
+    id: swivel_dummy
+    can_id: 0xFF
+    type: ROBSTRIDE03
+    min_position: -3.14159
+    max_position: 3.14159
+    max_velocity: 5.0
+    max_torque: 8.0
+
+  arm: []
+
+control:
+  arm_frequency: 1000
+  base_frequency: 100
+  telemetry_rate: 50
+  watchdog_timeout: 100.0
+  enable_soft_limits: true
+  emergency_decel: 50.0
+
+can:
+  interface: can1
+  bitrate: 1000000
+
+network:
+  jetson:
+    ip: 192.168.0.26
+    hostname: aizee-jetson
+    zmq:
+      command_sub: 'tcp://*:5555'
+      telemetry_pub: 'tcp://*:5556'
+      camera_sub: 'tcp://*:5557'

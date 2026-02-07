@@ -14,3 +14,6 @@ anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 bytes.workspace = true
+
+[dev-dependencies]
+tokio-test = "0.4"

@@ -1,6 +1,8 @@
 // AIZEE Communication Library
 // ZeroMQ abstractions for pub/sub messaging
 
-pub fn placeholder() {
-    // Implementation in Phase 1
-}
+pub mod messages;
+pub mod zmq_bridge;
+
+pub use messages::{CommandMessage, TelemetryMessage, MotorTelemetry};
+pub use zmq_bridge::{CommandSubscriber, TelemetryPublisher};
