@@ -53,6 +53,15 @@ impl MotorMode {
     pub fn is_running(&self) -> bool {
         *self == MotorMode::Run
     }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MotorMode::Reset => "reset",
+            MotorMode::Calibration => "calibration",
+            MotorMode::Run => "run",
+            MotorMode::Unknown => "unknown",
+        }
+    }
 }
 
 /// Motor error flags

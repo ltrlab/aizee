@@ -4,7 +4,7 @@ use crate::messages::{CommandMessage, TelemetryMessage};
 use anyhow::{Context, Result};
 use std::time::Duration;
 
-/// Subscribe to command messages from teleop
+/// Receive command messages from teleop (PULL socket)
 pub struct CommandSubscriber {
     socket: zmq::Socket,
 }
@@ -12,12 +12,18 @@ pub struct CommandSubscriber {
 impl CommandSubscriber {
     pub fn new(endpoint: &str) -> Result<Self> {
         let context = zmq::Context::new();
-        let socket = context.socket(zmq::SUB)?;
-        socket.connect(endpoint)?;
-        socket.set_subscribe(b"")?; // Subscribe to all messages
-        socket.set_rcvtimeo(100)?; // 100ms receive timeout
+        // Use PULL instead of SUB - guarantees delivery, no slow joiner problem
+        let socket = context.socket(zmq::PULL)?;
 
-        tracing::info!("Command subscriber connected to {}", endpoint);
+        // Bind as the receiver (standard PUSH-PULL pattern)
+        socket.bind(endpoint)?;
+
+        // Set receive timeout
+        if let Err(e) = socket.set_rcvtimeo(100) {
+            tracing::warn!("Could not set receive timeout: {}", e);
+        }
+
+        tracing::info!("Command receiver (PULL) bound to {}", endpoint);
 
         Ok(Self { socket })
     }
@@ -26,12 +32,20 @@ impl CommandSubscriber {
     pub fn recv_command(&mut self) -> Result<Option<CommandMessage>> {
         match self.socket.recv_bytes(0) {
             Ok(bytes) => {
+                tracing::debug!("Received {} bytes on ZMQ socket", bytes.len());
                 let cmd: CommandMessage = serde_json::from_slice(&bytes)
                     .context("Failed to deserialize command")?;
+                tracing::info!("Parsed command: {:?}", cmd);
                 Ok(Some(cmd))
             }
-            Err(zmq::Error::EAGAIN) => Ok(None), // Timeout, no message available
-            Err(e) => Err(e.into()),
+            Err(zmq::Error::EAGAIN) => {
+                // Timeout, no message available (normal)
+                Ok(None)
+            }
+            Err(e) => {
+                tracing::error!("ZMQ receive error: {}", e);
+                Err(e.into())
+            }
         }
     }
 }

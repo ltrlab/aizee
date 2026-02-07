@@ -1,6 +1,6 @@
 // Motor state management and control
 
-use crate::robstride::{MotorFeedback, MotorModel, RunMode};
+use crate::robstride::{MotorError, MotorFeedback, MotorMode, MotorModel, RunMode};
 use anyhow::{anyhow, Result};
 use std::time::{Duration, Instant};
 
@@ -13,6 +13,27 @@ pub enum MotorState {
     Running,
     Error,
     Disabled,
+}
+
+impl MotorState {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MotorState::Idle => "idle",
+            MotorState::Enabling => "enabling",
+            MotorState::Enabled => "enabled",
+            MotorState::Running => "running",
+            MotorState::Error => "error",
+            MotorState::Disabled => "disabled",
+        }
+    }
+}
+
+/// Structured fault information for diagnostics and telemetry
+#[derive(Debug, Clone)]
+pub struct FaultInfo {
+    pub error: MotorError,
+    pub mode_at_fault: MotorMode,
+    pub recovery_attempts: u32,
 }
 
 /// Motor configuration from hardware.yaml
@@ -41,6 +62,8 @@ pub struct Motor {
     pub kd: f32,
     pub consecutive_errors: u32,
     pub position_initialized: bool,
+    pub fault_info: Option<FaultInfo>,
+    pub last_feedback_time: Instant,
 }
 
 impl Motor {
@@ -58,11 +81,36 @@ impl Motor {
             kd: 0.0,
             consecutive_errors: 0,
             position_initialized: false,
+            fault_info: None,
+            last_feedback_time: Instant::now(),
         }
     }
 
     /// Update motor state with new feedback
     pub fn update_feedback(&mut self, feedback: MotorFeedback) {
+        self.last_feedback_time = Instant::now();
+
+        // Mode transition detection: Run → Reset means the motor faulted
+        // Only detect faults when motor is expected to be active (Enabled/Running)
+        if let Some(prev) = &self.feedback {
+            if prev.mode == MotorMode::Run && feedback.mode == MotorMode::Reset
+                && matches!(self.state, MotorState::Enabled | MotorState::Running)
+            {
+                if self.state != MotorState::Error {
+                    tracing::warn!(
+                        "Motor {} mode transition Run→Reset (hardware fault detected)",
+                        self.config.id
+                    );
+                    self.state = MotorState::Error;
+                    self.fault_info = Some(FaultInfo {
+                        error: feedback.error,
+                        mode_at_fault: MotorMode::Run,
+                        recovery_attempts: 0,
+                    });
+                }
+            }
+        }
+
         // Check for errors in feedback
         if feedback.error.has_error() {
             self.consecutive_errors += 1;
@@ -76,6 +124,11 @@ impl Motor {
                         feedback.error
                     );
                     self.state = MotorState::Error;
+                    self.fault_info = Some(FaultInfo {
+                        error: feedback.error,
+                        mode_at_fault: feedback.mode,
+                        recovery_attempts: 0,
+                    });
                 }
             } else {
                 tracing::debug!(
@@ -175,6 +228,14 @@ impl Motor {
     pub fn is_timeout(&self) -> bool {
         matches!(self.state, MotorState::Running)
             && self.last_command_time.elapsed() > self.command_timeout
+    }
+
+    /// Check if motor feedback has timed out (no CAN response received)
+    /// Only active motors (Enabled/Running) can have feedback timeouts
+    pub fn is_feedback_timeout(&self, timeout: Duration) -> bool {
+        matches!(self.state, MotorState::Enabled | MotorState::Running)
+            && self.feedback.is_some()
+            && self.last_feedback_time.elapsed() > timeout
     }
 
     /// Check if motor position is within soft limits

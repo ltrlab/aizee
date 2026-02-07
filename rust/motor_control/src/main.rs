@@ -416,9 +416,17 @@ impl ControlSystem {
     fn handle_command(&mut self, cmd: CommandMessage) -> Result<()> {
         debug!("Handling command: {:?}", cmd);
 
+        // Allow ClearFault, ClearEmergencyStop, and TriggerFault through even during e-stop
         if self.emergency_stop {
-            warn!("Emergency stop active, ignoring command");
-            return Ok(());
+            match &cmd {
+                CommandMessage::ClearEmergencyStop
+                | CommandMessage::ClearFault { .. }
+                | CommandMessage::TriggerFault { .. } => {}
+                _ => {
+                    warn!("Emergency stop active, ignoring command");
+                    return Ok(());
+                }
+            }
         }
 
         match cmd {
@@ -495,6 +503,68 @@ impl ControlSystem {
                         motor.target_velocity = 0.0;
                         info!("Software zero for {}: target_pos set to fb_pos={:.3}", motor_id, current_pos);
                     }
+                }
+            }
+            CommandMessage::ClearFault { motor_ids } => {
+                for motor_id in &motor_ids {
+                    if let Some(motor) = self.find_motor_mut(motor_id) {
+                        if motor.state != MotorState::Error {
+                            info!("Motor {} not in Error state, skipping clear_fault", motor_id);
+                            continue;
+                        }
+                    }
+                    info!("Attempting fault recovery for motor {}", motor_id);
+                    match self.enable_motor(motor_id) {
+                        Ok(()) => {
+                            if let Some(motor) = self.find_motor_mut(motor_id) {
+                                // Reset feedback timestamp since enable_motor reads
+                                // CAN frames internally without calling update_feedback
+                                motor.last_feedback_time = Instant::now();
+                                if motor.state == MotorState::Enabled {
+                                    info!("Motor {} fault cleared successfully", motor_id);
+                                    motor.fault_info = None;
+                                } else {
+                                    // enable_motor already set state to Error
+                                    if let Some(ref mut fi) = motor.fault_info {
+                                        fi.recovery_attempts += 1;
+                                        warn!("Motor {} fault recovery failed (attempt {})",
+                                              motor_id, fi.recovery_attempts);
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Motor {} fault recovery error: {}", motor_id, e);
+                            if let Some(motor) = self.find_motor_mut(motor_id) {
+                                if let Some(ref mut fi) = motor.fault_info {
+                                    fi.recovery_attempts += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            CommandMessage::TriggerFault { motor_ids } => {
+                for motor_id in &motor_ids {
+                    if let Some(motor) = self.find_motor_mut(motor_id) {
+                        warn!("Triggering simulated fault on motor {}", motor_id);
+                        motor.state = MotorState::Error;
+                        motor.fault_info = Some(motor::FaultInfo {
+                            error: robstride::MotorError::from_bits(0),
+                            mode_at_fault: robstride::MotorMode::Run,
+                            recovery_attempts: 0,
+                        });
+                    } else {
+                        warn!("Motor {} not found for trigger_fault", motor_id);
+                    }
+                }
+            }
+            CommandMessage::ClearEmergencyStop => {
+                if self.emergency_stop {
+                    info!("Clearing emergency stop");
+                    self.emergency_stop = false;
+                } else {
+                    info!("Emergency stop was not active");
                 }
             }
         }
@@ -660,10 +730,14 @@ impl ControlSystem {
     fn publish_telemetry(&mut self) -> Result<()> {
         let mut msg = TelemetryMessage::new();
 
-        for motor in &self.base_group.motors {
+        let all_motors = self.base_group.motors.iter().chain(self.arm_group.motors.iter());
+        for motor in all_motors {
             if let Some(feedback) = &motor.feedback {
                 let error_str = if feedback.error.has_error() {
                     Some(format!("{:?}", feedback.error))
+                } else if let Some(ref fi) = motor.fault_info {
+                    // Report fault info even if current feedback has no error flags
+                    Some(format!("fault: {:?} (recovery_attempts: {})", fi.error, fi.recovery_attempts))
                 } else {
                     None
                 };
@@ -675,27 +749,8 @@ impl ControlSystem {
                         velocity: feedback.velocity,
                         torque: feedback.torque,
                         temperature: feedback.temperature,
-                        error: error_str,
-                    },
-                );
-            }
-        }
-
-        for motor in &self.arm_group.motors {
-            if let Some(feedback) = &motor.feedback {
-                let error_str = if feedback.error.has_error() {
-                    Some(format!("{:?}", feedback.error))
-                } else {
-                    None
-                };
-
-                msg.add_motor(
-                    motor.config.id.clone(),
-                    MotorTelemetry {
-                        position: feedback.position,
-                        velocity: feedback.velocity,
-                        torque: feedback.torque,
-                        temperature: feedback.temperature,
+                        state: motor.state.as_str().to_string(),
+                        mode: feedback.mode.as_str().to_string(),
                         error: error_str,
                     },
                 );
@@ -707,7 +762,10 @@ impl ControlSystem {
     }
 
     fn check_safety(&mut self) {
-        // Check for timeouts
+        // 500ms timeout accounts for enable_motor() blocking the control loop (~200-400ms)
+        let feedback_timeout = Duration::from_millis(500);
+
+        // Check for command timeouts
         if self.base_group.has_timeouts() {
             warn!("Base group timeout detected");
             self.base_group.emergency_stop_all();
@@ -717,7 +775,35 @@ impl ControlSystem {
             self.arm_group.emergency_stop_all();
         }
 
-        // Check for errors
+        // Check for feedback heartbeat timeouts (motor stopped responding on CAN)
+        for motor in &mut self.base_group.motors {
+            if motor.is_feedback_timeout(feedback_timeout) && motor.state != MotorState::Error {
+                warn!("Motor {} feedback timeout (no CAN response for {:?})",
+                      motor.config.id, feedback_timeout);
+                motor.state = MotorState::Error;
+                motor.fault_info = Some(motor::FaultInfo {
+                    error: robstride::MotorError::from_bits(0),
+                    mode_at_fault: motor.feedback.as_ref()
+                        .map(|f| f.mode).unwrap_or(robstride::MotorMode::Unknown),
+                    recovery_attempts: 0,
+                });
+            }
+        }
+        for motor in &mut self.arm_group.motors {
+            if motor.is_feedback_timeout(feedback_timeout) && motor.state != MotorState::Error {
+                warn!("Motor {} feedback timeout (no CAN response for {:?})",
+                      motor.config.id, feedback_timeout);
+                motor.state = MotorState::Error;
+                motor.fault_info = Some(motor::FaultInfo {
+                    error: robstride::MotorError::from_bits(0),
+                    mode_at_fault: motor.feedback.as_ref()
+                        .map(|f| f.mode).unwrap_or(robstride::MotorMode::Unknown),
+                    recovery_attempts: 0,
+                });
+            }
+        }
+
+        // Check for errors (logging only)
         if self.base_group.has_errors() {
             error!("Base group has errors");
         }

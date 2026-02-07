@@ -35,6 +35,16 @@ pub enum CommandMessage {
     ZeroPosition {
         motor_ids: Vec<String>,
     },
+    #[serde(rename = "clear_fault")]
+    ClearFault {
+        motor_ids: Vec<String>,
+    },
+    #[serde(rename = "trigger_fault")]
+    TriggerFault {
+        motor_ids: Vec<String>,
+    },
+    #[serde(rename = "clear_emergency_stop")]
+    ClearEmergencyStop,
 }
 
 /// Individual motor telemetry
@@ -44,6 +54,8 @@ pub struct MotorTelemetry {
     pub velocity: f32,
     pub torque: f32,
     pub temperature: f32,
+    pub state: String,
+    pub mode: String,
     pub error: Option<String>,
 }
 
@@ -114,6 +126,8 @@ mod tests {
                 velocity: 0.5,
                 torque: 2.1,
                 temperature: 45.0,
+                state: "running".to_string(),
+                mode: "run".to_string(),
                 error: None,
             },
         );

@@ -10,12 +10,12 @@ import time
 import sys
 from typing import Dict, Any
 
-class SimpleT eleop:
+class SimpleTeleop:
     def __init__(self, command_addr="tcp://localhost:5555", telemetry_addr="tcp://localhost:5556"):
         self.context = zmq.Context()
 
-        # Publisher for commands
-        self.cmd_pub = self.context.socket(zmq.PUB)
+        # PUSH socket for commands (PUSH-PULL pattern)
+        self.cmd_pub = self.context.socket(zmq.PUSH)
         self.cmd_pub.connect(command_addr)
         print(f"Connected to command endpoint: {command_addr}")
 

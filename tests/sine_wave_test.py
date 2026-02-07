@@ -61,11 +61,17 @@ def telemetry_listener(tel_endpoint):
             if now - last_print >= 1.0:
                 motors = data.get("motors", {})
                 parts = []
-                for name, info in motors.items():
+                for name, info in sorted(motors.items()):
                     pos = info.get("position", 0)
                     vel = info.get("velocity", 0)
                     temp = info.get("temperature", 0)
-                    parts.append(f"{name}: pos={pos:+.3f} vel={vel:+.3f} T={temp:.0f}C")
+                    state = info.get("state", "?")
+                    mode = info.get("mode", "?")
+                    err = info.get("error")
+                    s = f"{name}: pos={pos:+.3f} vel={vel:+.3f} T={temp:.0f}C [{state}/{mode}]"
+                    if err:
+                        s += f" ERR={err}"
+                    parts.append(s)
                 if parts:
                     print(f"  [telemetry] {' | '.join(parts)}")
                 last_print = now
@@ -190,8 +196,8 @@ def main():
 
             time.sleep(dt)
 
-        # Step 4: Stop and disable
-        print("\n[4/4] Stopping motors...")
+        # Step 4: Stop sine wave
+        print("\n[4/6] Stopping sine wave...")
 
         # Send zero velocity
         for _ in range(10):
@@ -202,9 +208,29 @@ def main():
             })
             time.sleep(0.02)
 
-        time.sleep(0.5)
+        time.sleep(1.0)
 
-        # Disable motors
+        # Step 5: Fault trigger/clear test
+        print("[5/6] Fault detection test...")
+        print("  Triggering simulated fault on right_wheel...")
+        send_command(cmd_socket, {
+            "type": "trigger_fault",
+            "motor_ids": ["right_wheel"]
+        })
+        time.sleep(2.0)
+        print("  (check telemetry above - right_wheel should show state=error)")
+
+        print("  Clearing fault on right_wheel...")
+        send_command(cmd_socket, {
+            "type": "clear_fault",
+            "motor_ids": ["right_wheel"]
+        })
+        time.sleep(2.0)
+        print("  (check telemetry above - right_wheel should show state=enabled)")
+
+        # Step 6: Disable motors
+        print("[6/6] Disabling motors...")
+
         send_command(cmd_socket, {
             "type": "disable",
             "motor_ids": ["left_wheel", "right_wheel"]

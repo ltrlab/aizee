@@ -236,14 +236,14 @@ The system uses SocketCAN on Linux with 1 Mbps bitrate.
 
 ### Tuned Control Parameters
 
-**ROBSTRIDE03 Motors** (tested on Jetson with CAN ID 0x02):
+**ROBSTRIDE03 Motors** (CAN ID 0x03):
 - **Kp (position gain)**: 3.0 - Smooth motion without vibrations
 - **Kd (damping gain)**: 0.3-0.8 - Good damping, minimal oscillation
 - **Control frequency**: 50-100 Hz for smooth continuous motion
 - **Note**: Higher gains (Kp=20, Kd=2) cause significant vibrations
 
-**ROBSTRIDE04 Motors** (tested on Jetson with CAN ID 0x03):
-- Successfully tested with "drive" velocity commands via ZeroMQ
+**ROBSTRIDE04 Motors** (CAN ID 0x02):
+- Successfully tested with sine wave and drive velocity commands
 - Responds to gentle velocity commands (linear=0.15-0.5 rad/s)
 - Zero position command working correctly
 
@@ -279,8 +279,8 @@ The project follows a phased implementation plan (see `docs/PHASES.md`):
 ### Motor Assignments
 
 **Current Testing Setup** (2 motors on ROBSTRIDE chain):
-- **CAN ID 0x02**: ROBSTRIDE03 (test motor, mapped as "right_wheel" in config)
-- **CAN ID 0x03**: ROBSTRIDE04 (test motor, mapped as "left_wheel" in config)
+- **CAN ID 0x02**: ROBSTRIDE04 (test motor, mapped as "left_wheel" in config)
+- **CAN ID 0x03**: ROBSTRIDE03 (test motor, mapped as "right_wheel" in config)
 - Test config: `config/hardware_two_motors.yaml`
 
 **Full System Configuration** (planned, 6 motors):

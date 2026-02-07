@@ -1,28 +1,30 @@
 motors:
   wheels:
     - id: left_wheel
-      can_id: 0x03
+      can_id: 0x02
       type: ROBSTRIDE04
       direction: 1
       max_velocity: 10.0
       max_torque: 12.0
     - id: right_wheel
-      can_id: 0x02
+      can_id: 0x03
       type: ROBSTRIDE03
       direction: 1
       max_velocity: 10.0
       max_torque: 12.0
 
   swivel:
-    id: swivel_dummy
-    can_id: 0xFF
+    id: swivel_disabled
+    can_id: 0xFE
     type: ROBSTRIDE03
     min_position: -3.14159
     max_position: 3.14159
-    max_velocity: 5.0
-    max_torque: 8.0
+    max_velocity: 0.0
+    max_torque: 0.0
 
   arm: []
+
+# Note: swivel is disabled for two-motor testing (max_velocity=0 prevents timeouts)
 
 control:
   arm_frequency: 1000
