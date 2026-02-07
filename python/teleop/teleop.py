@@ -273,6 +273,148 @@ class Comms:
         self.ctx.term()
 
 
+class MultiModuleComms:
+    """Multi-module ZeroMQ communication for distributed robot architecture."""
+
+    def __init__(self, modules_config):
+        self.ctx = zmq.Context()
+        self.modules = {}
+        self.commands_sent = 0
+
+        for module_name, cfg in modules_config.items():
+            cmd_sock = self.ctx.socket(zmq.PUSH)
+            cmd_sock.connect(cfg["command"])
+
+            telem_sock = self.ctx.socket(zmq.SUB)
+            telem_sock.connect(cfg["telemetry"])
+            telem_sock.setsockopt_string(zmq.SUBSCRIBE, "")
+            telem_sock.setsockopt(zmq.RCVTIMEO, 50)
+
+            self.modules[module_name] = {
+                "cmd": cmd_sock,
+                "telem": telem_sock,
+                "motors": cfg["motors"],
+                "last_telemetry": None,
+                "last_telemetry_time": 0.0,
+            }
+
+    # -- send helpers -------------------------------------------------------
+
+    def send_command(self, module_name, cmd_msg):
+        """Send command to specific module."""
+        if module_name in self.modules:
+            self.modules[module_name]["cmd"].send_string(json.dumps(cmd_msg))
+            self.commands_sent += 1
+
+    def send_drive(self, linear, angular, swivel=0.0):
+        """Send drive command to rover module."""
+        self.send_command("rover", {
+            "type": "drive",
+            "linear": linear,
+            "angular": angular,
+            "swivel": swivel
+        })
+
+    def send_arm_joints(self, positions, velocities=None, kp=None, kd=None):
+        """Send arm joint command to arm module."""
+        cmd = {
+            "type": "arm_joints",
+            "positions": positions,
+            "velocities": velocities or [0.0] * len(positions),
+        }
+        if kp:
+            cmd["kp"] = kp
+        if kd:
+            cmd["kd"] = kd
+        self.send_command("arm", cmd)
+
+    def send_enable(self, motor_ids):
+        """Enable motors across all relevant modules."""
+        for module_name, mod in self.modules.items():
+            motors_to_enable = [m for m in motor_ids if m in mod["motors"]]
+            if motors_to_enable:
+                self.send_command(module_name, {
+                    "type": "enable",
+                    "motor_ids": motors_to_enable
+                })
+
+    def send_disable(self, motor_ids):
+        """Disable motors across all relevant modules."""
+        for module_name, mod in self.modules.items():
+            motors_to_disable = [m for m in motor_ids if m in mod["motors"]]
+            if motors_to_disable:
+                self.send_command(module_name, {
+                    "type": "disable",
+                    "motor_ids": motors_to_disable
+                })
+
+    def send_emergency_stop(self):
+        """Send emergency stop to all modules."""
+        for module_name in self.modules:
+            self.send_command(module_name, {"type": "emergency_stop"})
+
+    def send_clear_estop(self):
+        """Clear emergency stop on all modules."""
+        for module_name in self.modules:
+            self.send_command(module_name, {"type": "clear_emergency_stop"})
+
+    def send_clear_faults(self, motor_ids):
+        """Clear faults for motors across all relevant modules."""
+        for module_name, mod in self.modules.items():
+            motors_to_clear = [m for m in motor_ids if m in mod["motors"]]
+            if motors_to_clear:
+                self.send_command(module_name, {
+                    "type": "clear_fault",
+                    "motor_ids": motors_to_clear
+                })
+
+    def send_zero_position(self, motor_ids):
+        """Zero position for motors across all relevant modules."""
+        for module_name, mod in self.modules.items():
+            motors_to_zero = [m for m in motor_ids if m in mod["motors"]]
+            if motors_to_zero:
+                self.send_command(module_name, {
+                    "type": "zero_position",
+                    "motor_ids": motors_to_zero
+                })
+
+    # -- receive ------------------------------------------------------------
+
+    def recv_latest_telemetry(self):
+        """Drain telemetry from all modules."""
+        for module_name, mod in self.modules.items():
+            while True:
+                try:
+                    raw = mod["telem"].recv_string(zmq.NOBLOCK)
+                    mod["last_telemetry"] = json.loads(raw)
+                    mod["last_telemetry_time"] = time.monotonic()
+                except zmq.Again:
+                    break
+
+    @property
+    def last_telemetry(self):
+        """Merged telemetry from all modules."""
+        merged = {"timestamp": time.time(), "motors": {}}
+        for module_name, mod in self.modules.items():
+            if mod["last_telemetry"] and "motors" in mod["last_telemetry"]:
+                merged["motors"].update(mod["last_telemetry"]["motors"])
+        return merged if merged["motors"] else None
+
+    @property
+    def last_telemetry_time(self):
+        """Most recent telemetry timestamp across all modules."""
+        times = [m["last_telemetry_time"] for m in self.modules.values()]
+        return max(times) if times else 0.0
+
+    # -- cleanup ------------------------------------------------------------
+
+    def close(self):
+        for mod in self.modules.values():
+            mod["cmd"].close()
+            mod["telem"].close()
+        self.ctx.term()
+
+
 # ---------------------------------------------------------------------------
 # Command dispatch
 # ---------------------------------------------------------------------------
@@ -474,16 +616,6 @@ def main(stdscr):
 
     cfg = load_config(config_path)
 
-    # Endpoint override
-    cmd_addr = cfg["endpoints"]["command"]
-    telem_addr = cfg["endpoints"]["telemetry"]
-    if args.endpoint:
-        cmd_addr = args.endpoint
-        # Derive telemetry from command port + 1
-        parts = cmd_addr.rsplit(":", 1)
-        telem_port = int(parts[1]) + 1
-        telem_addr = f"{parts[0]}:{telem_port}"
-
     # --- curses setup ------------------------------------------------------
     curses.curs_set(0)
     stdscr.nodelay(True)
@@ -495,7 +627,20 @@ def main(stdscr):
         joystick = init_joystick()
 
     # --- comms -------------------------------------------------------------
-    comms = Comms(cmd_addr, telem_addr)
+    # Multi-module mode if 'modules' exists in config
+    if "modules" in cfg:
+        comms = MultiModuleComms(cfg["modules"])
+    else:
+        # Legacy single-module mode
+        cmd_addr = cfg["endpoints"]["command"]
+        telem_addr = cfg["endpoints"]["telemetry"]
+        if args.endpoint:
+            cmd_addr = args.endpoint
+            # Derive telemetry from command port + 1
+            parts = cmd_addr.rsplit(":", 1)
+            telem_port = int(parts[1]) + 1
+            telem_addr = f"{parts[0]}:{telem_port}"
+        comms = Comms(cmd_addr, telem_addr)
 
     # --- state -------------------------------------------------------------
     state = InputState()

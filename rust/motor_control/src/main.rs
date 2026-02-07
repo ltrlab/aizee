@@ -57,11 +57,16 @@ struct CanConfig {
 
 #[derive(Debug, Clone, serde::Deserialize)]
 struct NetworkConfig {
-    jetson: JetsonConfig,
+    #[serde(alias = "jetson")]  // Backward compatibility
+    device: DeviceConfig,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
-struct JetsonConfig {
+struct DeviceConfig {
+    #[serde(default)]
+    ip: String,
+    #[serde(default)]
+    hostname: String,
     zmq: ZmqConfig,
 }
 
@@ -166,8 +171,8 @@ impl ControlSystem {
         }
 
         // Initialize ZeroMQ
-        let command_sub = CommandSubscriber::new(&config.network.jetson.zmq.command_sub)?;
-        let telemetry_pub = TelemetryPublisher::new(&config.network.jetson.zmq.telemetry_pub)?;
+        let command_sub = CommandSubscriber::new(&config.network.device.zmq.command_sub)?;
+        let telemetry_pub = TelemetryPublisher::new(&config.network.device.zmq.telemetry_pub)?;
 
         info!("Control system initialized");
         Ok(Self {

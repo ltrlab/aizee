@@ -1,0 +1,61 @@
+# AIZEE Hardware Configuration - RPi4 Arm Module
+# Arm motors only (shoulder_pitch, elbow, wrist)
+# Base motors controlled by separate Jetson module
+
+motors:
+  # Empty wheel section - base motors on different module
+  wheels: []
+
+  # Dummy swivel to satisfy config schema
+  swivel:
+    id: swivel_dummy
+    can_id: 0xFF      # Invalid ID, won't be used
+    type: ROBSTRIDE03
+    max_velocity: 0.0
+    max_torque: 0.0
+
+  # 3-DOF Arm motors
+  arm:
+    - id: shoulder_pitch
+      can_id: 0x05
+      type: ROBSTRIDE04
+      min_position: -1.57   # -90°
+      max_position: 1.57    # +90°
+      max_velocity: 3.0
+      max_torque: 10.0
+
+    - id: elbow
+      can_id: 0x06
+      type: ROBSTRIDE03
+      min_position: -2.0
+      max_position: 2.0
+      max_velocity: 3.0
+      max_torque: 8.0
+
+    - id: wrist
+      can_id: 0x07
+      type: ROBSTRIDE02
+      min_position: -3.14
+      max_position: 3.14
+      max_velocity: 5.0
+      max_torque: 4.0
+
+# Control loop parameters
+control:
+  arm_frequency: 1000.0  # Hz - high-frequency control for arm
+  base_frequency: 100.0  # Hz - not used but required by schema
+  telemetry_rate: 50.0   # Hz - published motor states
+  watchdog_timeout: 0.1  # seconds - stop if no command received
+
+# CAN bus configuration (USB CAN adapter)
+can:
+  interface: can0
+
+# Network topology
+network:
+  device:  # Generic device config
+    ip: 192.168.0.28
+    hostname: aizee-arm
+    zmq:
+      command_sub: "tcp://*:5557"      # Different port from rover
+      telemetry_pub: "tcp://*:5558"    # Different port from rover

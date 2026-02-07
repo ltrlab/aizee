@@ -6,10 +6,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AIZEE is a modular mobile manipulation robotics platform featuring:
 - **6 ROBSTRIDE motors** (CAN bus): 3 for the wheeled base (2 drive wheels + 1 swivel), 3 for the arm
-- **NVIDIA Jetson Orin Nano**: Main controller running motor control (Rust) and data aggregation
+- **NVIDIA Jetson Orin Nano**: Rover module controller (base motors)
+- **Raspberry Pi 4 (Arm)**: Arm module controller (arm motors)
 - **4× Raspberry Pi 4**: Camera nodes with Intel RealSense D455 RGB-D cameras
 - **ZeroMQ**: Inter-process communication for commands and telemetry
 - **Rerun**: Real-time visualization and MCAP data logging
+
+### Multi-Device Architecture
+
+AIZEE uses a modular architecture where each functional subsystem runs on a separate compute module:
+- **Rover Module** (Jetson 192.168.0.27): Base motors, ZMQ :5555/:5556
+- **Arm Module** (RPi4 192.168.0.28): Arm motors, ZMQ :5557/:5558
+- **Torso Module** (RPi4, future): Servo-based torso, ZMQ :5559/:5560
+
+Each module runs an independent motor_control instance with module-specific configuration.
+Unified teleop on dev machine controls all modules simultaneously.
+
+See `docs/MULTI_DEVICE_DEPLOYMENT.md` and `docs/QUICK_START_MULTIDEVICE.md` for deployment guides.
 
 ## Development Commands
 

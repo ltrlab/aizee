@@ -1,15 +1,29 @@
 # AIZEE Teleop Configuration
 # Input mappings, scaling, and ZMQ endpoints
 
-endpoints:
-  command: "tcp://192.168.0.27:5555"
-  telemetry: "tcp://192.168.0.27:5556"
+# Multi-module configuration (rover + arm)
+# Comment out 'modules' section to use legacy 'endpoints' mode
+modules:
+  rover:
+    command: "tcp://192.168.0.27:5555"
+    telemetry: "tcp://192.168.0.27:5556"
+    motors: ["left_wheel", "right_wheel", "swivel"]
+  arm:
+    command: "tcp://192.168.0.28:5557"
+    telemetry: "tcp://192.168.0.28:5558"
+    motors: ["shoulder_pitch", "elbow", "wrist"]
+
+# Legacy single-module configuration (backward compatible)
+# Uncomment to use single-module mode
+# endpoints:
+#   command: "tcp://192.168.0.27:5555"
+#   telemetry: "tcp://192.168.0.27:5556"
 
 motors:
   drive: ["left_wheel", "right_wheel"]
   swivel: ["swivel"]
-  arm: []
-  all: ["left_wheel", "right_wheel", "swivel"]
+  arm: ["shoulder_pitch", "elbow", "wrist"]
+  all: ["left_wheel", "right_wheel", "swivel", "shoulder_pitch", "elbow", "wrist"]
 
 control:
   command_rate_hz: 20
