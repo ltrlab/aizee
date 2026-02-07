@@ -435,8 +435,8 @@ impl ControlSystem {
         }
 
         match cmd {
-            CommandMessage::Drive { linear, angular } => {
-                // Simple differential drive for two wheels
+            CommandMessage::Drive { linear, angular, swivel } => {
+                // Differential drive for two wheels
                 let left_vel = linear - angular;
                 let right_vel = linear + angular;
 
@@ -447,6 +447,13 @@ impl ControlSystem {
                 if let Some(right_motor) = self.base_group.motors.get_mut(1) {
                     info!("Setting {} velocity to {:.3} rad/s", right_motor.config.id, right_vel);
                     right_motor.set_velocity_target(right_vel)?;
+                }
+                // Swivel (third motor in base group, if present)
+                if let Some(swivel_motor) = self.base_group.motors.get_mut(2) {
+                    if swivel != 0.0 {
+                        info!("Setting {} velocity to {:.3} rad/s", swivel_motor.config.id, swivel);
+                    }
+                    swivel_motor.set_velocity_target(swivel)?;
                 }
             }
             CommandMessage::ArmJoints {

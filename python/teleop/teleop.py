@@ -55,6 +55,7 @@ class InputState:
         # Continuous axes (-1.0 .. +1.0, scaled to max later)
         self.linear = 0.0
         self.angular = 0.0
+        self.swivel = 0.0
 
         # One-shot flags — consumed after dispatch
         self.enable_all = False
@@ -140,6 +141,9 @@ def read_gamepad(joystick, cfg, state):
     raw_angular = joystick.get_axis(axes["left_stick_x"])
     if invert.get("left_stick_x", False):
         raw_angular = -raw_angular
+    raw_swivel = joystick.get_axis(axes["right_stick_x"])
+    if invert.get("right_stick_x", False):
+        raw_swivel = -raw_swivel
 
     state.linear = apply_curve(
         apply_deadzone(raw_linear, deadzone),
@@ -148,6 +152,10 @@ def read_gamepad(joystick, cfg, state):
     state.angular = apply_curve(
         apply_deadzone(raw_angular, deadzone),
         cfg["drive"]["angular_exponent"],
+    )
+    state.swivel = apply_curve(
+        apply_deadzone(raw_swivel, deadzone),
+        cfg["drive"]["angular_exponent"],  # Use same exponent as angular
     )
 
     # --- buttons (one-shot on press) ---
@@ -220,8 +228,8 @@ class Comms:
         self.cmd.send_string(json.dumps(msg))
         self.commands_sent += 1
 
-    def send_drive(self, linear, angular):
-        self.send({"type": "drive", "linear": linear, "angular": angular})
+    def send_drive(self, linear, angular, swivel=0.0):
+        self.send({"type": "drive", "linear": linear, "angular": angular, "swivel": swivel})
 
     def send_enable(self, motor_ids):
         self.send({"type": "enable", "motor_ids": motor_ids})
@@ -305,7 +313,8 @@ def dispatch_commands(state, comms, cfg):
     if not sent_estop:
         linear = state.linear * cfg["drive"]["max_linear"]
         angular = state.angular * cfg["drive"]["max_angular"]
-        comms.send_drive(linear, angular)
+        swivel = state.swivel * cfg["drive"]["max_swivel"]
+        comms.send_drive(linear, angular, swivel)
 
 
 # ---------------------------------------------------------------------------
@@ -351,10 +360,11 @@ def draw_ui(stdscr, state, comms, cfg, start_time):
     # Drive values (scaled)
     lin_scaled = state.linear * cfg["drive"]["max_linear"]
     ang_scaled = state.angular * cfg["drive"]["max_angular"]
+    swv_scaled = state.swivel * cfg["drive"]["max_swivel"]
     safe_addstr(
         stdscr, row, 0,
         f"  DRIVE:  linear={lin_scaled:+7.3f} rad/s   "
-        f"angular={ang_scaled:+7.3f} rad/s",
+        f"angular={ang_scaled:+7.3f} rad/s   swivel={swv_scaled:+6.3f} rad/s",
     )
     row += 2
 
@@ -506,6 +516,7 @@ def main(stdscr):
             if joystick is None or not state.gamepad_connected:
                 state.linear = 0.0
                 state.angular = 0.0
+                state.swivel = 0.0
 
             while True:
                 key = stdscr.getch()

@@ -11,6 +11,8 @@ pub enum CommandMessage {
     Drive {
         linear: f32,
         angular: f32,
+        #[serde(default)]
+        swivel: f32,
     },
     #[serde(rename = "arm_joints")]
     ArmJoints {
