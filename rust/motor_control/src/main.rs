@@ -384,6 +384,11 @@ impl ControlSystem {
             if let Some(motor) = self.find_motor_mut(motor_id) {
                 motor.state = if enabled { MotorState::Enabled } else { MotorState::Error };
                 motor.last_command_time = Instant::now();
+                // Reset feedback timestamp — enable_motor reads CAN frames directly
+                // without calling update_feedback(), so last_feedback_time goes stale
+                // during the blocking enable sequence (~280ms per motor). Without this
+                // reset, check_safety() trips the 500ms feedback timeout immediately.
+                motor.last_feedback_time = Instant::now();
                 motor.consecutive_errors = 0;
                 // Use the ACTUAL confirmed position from the enable response
                 // This prevents stale feedback from overwriting with the old position

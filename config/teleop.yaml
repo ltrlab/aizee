@@ -1,0 +1,42 @@
+# AIZEE Teleop Configuration
+# Input mappings, scaling, and ZMQ endpoints
+
+endpoints:
+  command: "tcp://192.168.0.27:5555"
+  telemetry: "tcp://192.168.0.27:5556"
+
+motors:
+  drive: ["left_wheel", "right_wheel"]
+  arm: []
+  all: ["left_wheel", "right_wheel"]
+
+control:
+  command_rate_hz: 20
+  telemetry_timeout_ms: 200
+  deadzone: 0.08
+
+drive:
+  max_linear: 2.0       # rad/s
+  max_angular: 1.5      # rad/s
+  linear_exponent: 1.5
+  angular_exponent: 1.5
+
+arm:
+  max_velocity: 1.0
+  kp: [3.0, 3.0, 3.0]
+  kd: [0.3, 0.3, 0.3]
+
+gamepad:
+  axes:
+    left_stick_y: 1
+    left_stick_x: 0
+    right_stick_y: 4
+    right_stick_x: 3
+  buttons:
+    a: 0          # enable all
+    b: 1          # disable all
+    back: 6       # emergency stop
+    start: 7      # clear estop + faults
+  axis_invert:
+    left_stick_y: true
+    left_stick_x: false
