@@ -21,10 +21,13 @@ import time
 import yaml
 import zmq
 
-# Pygame for gamepad — optional, runs headless
+# Pygame for gamepad — optional
+# On Linux (Jetson/SSH), use dummy video driver since there's no display.
+# On Windows, SDL needs a real video driver for joystick input to work.
 _pygame_available = False
 try:
-    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    if sys.platform != "win32":
+        os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
     import pygame
     _pygame_available = True
 except ImportError:
@@ -93,9 +96,23 @@ def init_joystick():
         return None
     pygame.init()
     pygame.joystick.init()
+    # On Windows, SDL needs a display surface for full joystick input.
+    # Create a tiny hidden window that won't interfere with curses.
+    if sys.platform == "win32":
+        os.environ.setdefault("SDL_VIDEO_WINDOW_POS", "-10000,-10000")
+        pygame.display.set_mode((1, 1))
     if pygame.joystick.get_count() == 0:
         return None
-    js = pygame.joystick.Joystick(0)
+    # Pick first device that isn't a keyboard/non-gamepad
+    chosen = 0
+    for i in range(pygame.joystick.get_count()):
+        js = pygame.joystick.Joystick(i)
+        js.init()
+        name = js.get_name().lower()
+        if js.get_numaxes() >= 2 and "keychron" not in name and "keyboard" not in name:
+            chosen = i
+            break
+    js = pygame.joystick.Joystick(chosen)
     js.init()
     return js
 
@@ -106,7 +123,8 @@ def read_gamepad(joystick, cfg, state):
         state.gamepad_connected = False
         return
 
-    pygame.event.pump()  # process SDL events
+    # get() drains the event queue — needed on Windows for full input
+    pygame.event.get()
 
     state.gamepad_connected = True
     gp = cfg["gamepad"]

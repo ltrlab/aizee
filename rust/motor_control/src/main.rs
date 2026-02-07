@@ -595,64 +595,28 @@ impl ControlSystem {
             }
         }
 
-        // Send position commands to base motors (integrate velocity)
-        // ROBSTRIDE motors need changing position targets to move
-        // Use actual elapsed time for velocity integration (this function is called
-        // at arm loop rate ~1kHz, not base rate ~100Hz)
-        let now = Instant::now();
-        let dt = now.duration_since(self.last_base_control).as_secs_f32();
-        self.last_base_control = now;
-        // Clamp dt to avoid jumps on first iteration or timing glitches
-        let dt = dt.clamp(0.0001, 0.1);
+        // Send velocity commands to base motors (pure velocity control)
+        // Uses Kp=0 so position is ignored — avoids position wrapping at ±4π
+        // ROBSTRIDE control law: torque = Kp*(pos_err) + Kd*(vel_err) + ff
+        // With Kp=0: torque = Kd * (target_vel - actual_vel)
         for motor in &mut self.base_group.motors {
-            // Send control frames for both Enabled and Running motors
-            // Motors need continuous control frames after enable to stay active
             if motor.state == MotorState::Enabled || motor.state == MotorState::Running {
-                // Always sync target_position from latest feedback when available
-                // This prevents stale targets from causing jerks
-                if let Some(ref fb) = motor.feedback {
-                    if !motor.position_initialized {
-                        motor.target_position = fb.position;
-                        motor.position_initialized = true;
-                        info!("  → Initialized {} target position to {:.3} rad",
-                              motor.config.id, motor.target_position);
-                    }
-                }
+                let fb_pos = motor.feedback.as_ref().map(|f| f.position).unwrap_or(0.0);
+                let frame = robstride::build_control_frame(
+                    motor.config.can_id,
+                    motor.config.model,
+                    fb_pos,                  // Echo feedback position (ignored with Kp=0)
+                    motor.target_velocity,   // Velocity target
+                    0.0,                     // Kp=0: no position tracking, no wrapping issues
+                    3.0,                     // Kd=3.0: velocity tracking gain
+                    0.0,                     // No feedforward torque
+                );
+                self.can_socket.write_frame(&frame)?;
 
-                if motor.state == MotorState::Enabled {
-                    // Hold position with gentle damping while waiting for commands
-                    let hold_pos = motor.feedback.as_ref().map(|f| f.position).unwrap_or(motor.target_position);
-                    let frame = robstride::build_control_frame(
-                        motor.config.can_id,
-                        motor.config.model,
-                        hold_pos,  // Track feedback position
-                        0.0,       // Target velocity = 0
-                        0.0,       // Zero Kp - no position force
-                        0.5,       // Kd=0.5 - gentle damping, matches Running state
-                        0.0,       // No torque
-                    );
-                    self.can_socket.write_frame(&frame)?;
-                } else {
-                    // Running state: integrate velocity and apply gains
-                    motor.target_position += motor.target_velocity * dt;
-
-                    let frame = robstride::build_control_frame(
-                        motor.config.can_id,
-                        motor.config.model,
-                        motor.target_position,   // Integrated position target
-                        motor.target_velocity,   // Velocity feedforward
-                        1.0,   // Kp - gentle position tracking
-                        0.5,   // Kd - velocity damping
-                        0.0,   // No feedforward torque
-                    );
-                    self.can_socket.write_frame(&frame)?;
-
-                    // Log Running state every 500 ticks (~500ms at 1kHz) for diagnostics
-                    if self.control_tick % 500 == 0 {
-                        info!("  RUN {}: tgt_pos={:.3} tgt_vel={:.3} fb_pos={:.3} dt={:.4}",
-                              motor.config.id, motor.target_position, motor.target_velocity,
-                              motor.feedback.as_ref().map(|f| f.position).unwrap_or(-999.0), dt);
-                    }
+                if self.control_tick % 500 == 0 && motor.state == MotorState::Running {
+                    info!("  RUN {}: tgt_vel={:.3} fb_vel={:.3} fb_pos={:.3}",
+                          motor.config.id, motor.target_velocity,
+                          motor.feedback.as_ref().map(|f| f.velocity).unwrap_or(-999.0), fb_pos);
                 }
             }
         }

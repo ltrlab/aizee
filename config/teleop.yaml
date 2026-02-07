@@ -30,8 +30,8 @@ gamepad:
   axes:
     left_stick_y: 1
     left_stick_x: 0
-    right_stick_y: 4
-    right_stick_x: 3
+    right_stick_y: 3
+    right_stick_x: 2
   buttons:
     a: 0          # enable all
     b: 1          # disable all
