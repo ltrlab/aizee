@@ -1,0 +1,40 @@
+# AIZEE Teleop Configuration - Rover Only
+# Use this config when only the Jetson rover module is connected
+
+# Single-module configuration (rover only)
+endpoints:
+  command: "tcp://192.168.0.27:5555"
+  telemetry: "tcp://192.168.0.27:5556"
+
+motors:
+  drive: ["left_wheel", "right_wheel"]
+  swivel: ["swivel"]
+  arm: []  # No arm motors
+  all: ["left_wheel", "right_wheel", "swivel"]
+
+control:
+  command_rate_hz: 20
+  telemetry_timeout_ms: 200
+  deadzone: 0.08
+
+drive:
+  max_linear: 2.0       # rad/s
+  max_angular: 1.5      # rad/s
+  max_swivel: 1.0       # rad/s
+  linear_exponent: 1.5
+  angular_exponent: 1.5
+
+gamepad:
+  axes:
+    left_stick_y: 0   # Swapped: Y-axis now uses axis 0 for linear movement
+    left_stick_x: 1   # Swapped: X-axis now uses axis 1 for angular movement
+    right_stick_y: 3
+    right_stick_x: 2
+  buttons:
+    a: 0          # enable all
+    b: 1          # disable all
+    back: 6       # emergency stop
+    start: 7      # clear estop + faults
+  axis_invert:
+    left_stick_y: true
+    left_stick_x: false
