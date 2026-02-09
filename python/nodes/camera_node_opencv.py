@@ -45,7 +45,9 @@ class CameraNodeOpenCV:
         width: int = 640,
         height: int = 480,
         fps: int = 30,
-        jpeg_quality: int = 85,
+        jpeg_quality: int = 50,  # Lower quality for faster compression and transmission
+        flip_vertical: bool = False,
+        flip_horizontal: bool = False,
     ):
         """Initialize camera node
 
@@ -67,6 +69,8 @@ class CameraNodeOpenCV:
         self.height = height
         self.fps = fps
         self.jpeg_quality = jpeg_quality
+        self.flip_vertical = flip_vertical
+        self.flip_horizontal = flip_horizontal
 
         self.color_cap: Optional[cv2.VideoCapture] = None
         self.depth_cap: Optional[cv2.VideoCapture] = None
@@ -126,10 +130,14 @@ class CameraNodeOpenCV:
 
         self.zmq_context = zmq.Context()
         self.zmq_socket = self.zmq_context.socket(zmq.PUB)
-        self.zmq_socket.setsockopt(zmq.SNDHWM, 10)  # High water mark
+
+        # Optimize for low latency
+        self.zmq_socket.setsockopt(zmq.SNDHWM, 2)  # Low high water mark to drop old frames
+        self.zmq_socket.setsockopt(zmq.SNDBUF, 1024 * 1024)  # 1MB send buffer
+
         self.zmq_socket.bind(self.zmq_endpoint)
 
-        logger.info("ZeroMQ publisher initialized")
+        logger.info("ZeroMQ publisher initialized (optimized for low latency)")
 
     def compress_color_image(self, color_image: np.ndarray) -> bytes:
         """Compress RGB image to JPEG
@@ -140,10 +148,10 @@ class CameraNodeOpenCV:
         Returns:
             JPEG compressed bytes
         """
-        img = Image.fromarray(color_image)
-        buffer = io.BytesIO()
-        img.save(buffer, format='JPEG', quality=self.jpeg_quality, optimize=True)
-        return buffer.getvalue()
+        # Use OpenCV for faster JPEG encoding
+        ret, buffer = cv2.imencode('.jpg', cv2.cvtColor(color_image, cv2.COLOR_RGB2BGR),
+                                   [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality])
+        return buffer.tobytes()
 
     def process_frames(self):
         """Main processing loop - capture and publish frames"""
@@ -169,6 +177,15 @@ class CameraNodeOpenCV:
                 # OpenCV automatically converts YUYV to BGR, so just convert BGR to RGB
                 color_rgb = cv2.cvtColor(color_frame, cv2.COLOR_BGR2RGB)
 
+                # Apply orientation corrections if needed
+                if self.flip_vertical and self.flip_horizontal:
+                    # Both flips = 180 degree rotation
+                    color_rgb = cv2.rotate(color_rgb, cv2.ROTATE_180)
+                elif self.flip_vertical:
+                    color_rgb = cv2.flip(color_rgb, 0)  # Flip around x-axis
+                elif self.flip_horizontal:
+                    color_rgb = cv2.flip(color_rgb, 1)  # Flip around y-axis
+
                 # Read depth frame
                 ret_depth, depth_frame = self.depth_cap.read()
                 if not ret_depth or depth_frame is None:
@@ -184,6 +201,14 @@ class CameraNodeOpenCV:
                 # Keep as uint8 for infrared, or scale to uint16 for depth-like representation
                 # For now, keep as uint8 to reduce bandwidth
                 depth_frame = depth_frame.astype(np.uint8)
+
+                # Apply same orientation corrections to infrared
+                if self.flip_vertical and self.flip_horizontal:
+                    depth_frame = cv2.rotate(depth_frame, cv2.ROTATE_180)
+                elif self.flip_vertical:
+                    depth_frame = cv2.flip(depth_frame, 0)
+                elif self.flip_horizontal:
+                    depth_frame = cv2.flip(depth_frame, 1)
 
                 # Compress color image
                 color_jpeg = self.compress_color_image(color_rgb)
@@ -313,11 +338,31 @@ def main():
     parser.add_argument(
         '--jpeg-quality',
         type=int,
-        default=85,
-        help='JPEG compression quality (1-100)'
+        default=50,
+        help='JPEG compression quality (1-100, lower = faster)'
+    )
+    parser.add_argument(
+        '--flip-vertical',
+        action='store_true',
+        help='Flip image vertically (for upside-down mounting)'
+    )
+    parser.add_argument(
+        '--flip-horizontal',
+        action='store_true',
+        help='Flip image horizontally (mirror)'
+    )
+    parser.add_argument(
+        '--rotate-180',
+        action='store_true',
+        help='Rotate image 180 degrees (same as --flip-vertical --flip-horizontal)'
     )
 
     args = parser.parse_args()
+
+    # Handle --rotate-180 shortcut
+    if args.rotate_180:
+        args.flip_vertical = True
+        args.flip_horizontal = True
 
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
@@ -330,7 +375,9 @@ def main():
         color_device=args.color_device,
         depth_device=args.depth_device,
         fps=args.fps,
-        jpeg_quality=args.jpeg_quality
+        jpeg_quality=args.jpeg_quality,
+        flip_vertical=args.flip_vertical,
+        flip_horizontal=args.flip_horizontal
     )
 
     node.run()
