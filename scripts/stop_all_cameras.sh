@@ -8,19 +8,19 @@ echo "=== Stopping all AIZEE camera services ==="
 echo ""
 
 echo "Stopping cam_front (192.168.0.22)..."
-ssh pi@192.168.0.22 "sudo systemctl stop aizee-camera-cam_front" &
+ssh ltr@192.168.0.22 "sudo systemctl stop aizee-camera-cam_front" &
 PID1=$!
 
 echo "Stopping cam_rear (192.168.0.23)..."
-ssh pi@192.168.0.23 "sudo systemctl stop aizee-camera-cam_rear" &
+ssh ltr@192.168.0.23 "sudo systemctl stop aizee-camera-cam_rear" &
 PID2=$!
 
 echo "Stopping cam_left (192.168.0.24)..."
-ssh pi@192.168.0.24 "sudo systemctl stop aizee-camera-cam_left" &
+ssh ltr@192.168.0.24 "sudo systemctl stop aizee-camera-cam_left" &
 PID3=$!
 
 echo "Stopping cam_right (192.168.0.25)..."
-ssh pi@192.168.0.25 "sudo systemctl stop aizee-camera-cam_right" &
+ssh ltr@192.168.0.25 "sudo systemctl stop aizee-camera-cam_right" &
 PID4=$!
 
 echo ""

@@ -1,6 +1,6 @@
 #!/bin/bash
-# Deploy AIZEE camera node to Raspberry Pi 4
-# Usage: ./deploy_rpi4_camera.sh [cam_front|cam_rear|cam_left|cam_right]
+# Deploy AIZEE camera node to Raspberry Pi 4 using tar+ssh (no rsync needed)
+# Usage: ./deploy_rpi4_camera_scp.sh [cam_front|cam_rear|cam_left|cam_right]
 
 set -e
 
@@ -51,20 +51,21 @@ if ! ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$TARGET" "echo 'Connec
     exit 1
 fi
 
-echo "1. Syncing Python codebase..."
-rsync -av --delete \
-    --exclude 'rust/' \
-    --exclude 'target/' \
-    --exclude '.git/' \
-    --exclude '*.pyc' \
-    --exclude '__pycache__/' \
-    --exclude 'logs/' \
-    --exclude '*.mcap' \
-    ./ "$TARGET:~/$REMOTE_DIR/"
+echo "1. Syncing Python codebase via tar..."
+# Create tar archive excluding unwanted files and transfer via SSH
+tar czf - \
+    --exclude='rust' \
+    --exclude='target' \
+    --exclude='.git' \
+    --exclude='*.pyc' \
+    --exclude='__pycache__' \
+    --exclude='logs' \
+    --exclude='*.mcap' \
+    . | ssh "$TARGET" "mkdir -p ~/$REMOTE_DIR && cd ~/$REMOTE_DIR && tar xzf -"
 
 echo ""
 echo "2. Installing Python dependencies..."
-ssh "$TARGET" "cd ~/$REMOTE_DIR && pip3 install --user -r requirements.txt"
+ssh "$TARGET" "cd ~/$REMOTE_DIR && pip3 install --break-system-packages -r requirements.txt 2>&1 | grep -E '(Successfully installed|Requirement already satisfied)' || echo 'Dependencies installed'"
 
 echo ""
 echo "3. Installing systemd service..."

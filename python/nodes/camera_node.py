@@ -98,13 +98,14 @@ class CameraNode:
             self.fps
         )
 
-        # Enable IMU streams
-        try:
-            self.config.enable_stream(rs.stream.accel, rs.format.motion_xyz32f, 200)
-            self.config.enable_stream(rs.stream.gyro, rs.format.motion_xyz32f, 200)
-            logger.info("IMU streams enabled (200Hz)")
-        except RuntimeError as e:
-            logger.warning(f"Could not enable IMU streams: {e}")
+        # Enable IMU streams - TEMPORARILY DISABLED FOR TESTING
+        # try:
+        #     self.config.enable_stream(rs.stream.accel, rs.format.motion_xyz32f, 200)
+        #     self.config.enable_stream(rs.stream.gyro, rs.format.motion_xyz32f, 200)
+        #     logger.info("IMU streams enabled (200Hz)")
+        # except RuntimeError as e:
+        #     logger.warning(f"Could not enable IMU streams: {e}")
+        logger.info("IMU streams disabled for testing")
 
         # Start pipeline
         try:
