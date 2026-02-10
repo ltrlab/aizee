@@ -5,12 +5,13 @@ AIZEE Rerun Bridge Node
 Subscribes to all ZeroMQ data streams and visualizes them in Rerun.
 Supports:
 - Camera streams (RGB + Infrared from multiple cameras)
+- LiDAR scans (RPLiDAR A1M8 point clouds)
 - Motor telemetry (future)
 - Command logging (future)
 
 Usage:
     python rerun_bridge.py --cameras tcp://192.168.0.2:5557
-    python rerun_bridge.py --cameras tcp://192.168.0.2:5557 tcp://192.168.0.3:5558
+    python rerun_bridge.py --cameras tcp://192.168.0.2:5557 tcp://192.168.0.3:5558 --lidar tcp://192.168.0.27:5561
     python rerun_bridge.py --cameras tcp://192.168.0.2:5557 --save logs/session_001.mcap
 """
 
@@ -46,6 +47,7 @@ class RerunBridge:
     def __init__(
         self,
         camera_endpoints: List[str],
+        lidar_endpoints: List[str] = None,
         save_path: Optional[str] = None,
         application_id: str = "aizee"
     ):
@@ -53,19 +55,23 @@ class RerunBridge:
 
         Args:
             camera_endpoints: List of ZMQ endpoints for camera streams
+            lidar_endpoints: List of ZMQ endpoints for LiDAR streams
             save_path: Optional MCAP file path to save recording
             application_id: Rerun application ID
         """
         self.camera_endpoints = camera_endpoints
+        self.lidar_endpoints = lidar_endpoints or []
         self.save_path = save_path
         self.application_id = application_id
 
         self.zmq_context: Optional[zmq.Context] = None
         self.camera_sockets: List[zmq.Socket] = []
+        self.lidar_sockets: List[zmq.Socket] = []
         self.running = False
 
         # Statistics
         self.frame_counts = {}
+        self.scan_counts = {}
         self.last_stats_time = time.time()
 
     def initialize_rerun(self):
@@ -86,11 +92,12 @@ class RerunBridge:
         logger.info("Rerun initialized successfully")
 
     def initialize_zmq(self):
-        """Initialize ZeroMQ subscribers for all camera streams"""
+        """Initialize ZeroMQ subscribers for all camera and LiDAR streams"""
         logger.info("Initializing ZeroMQ subscribers...")
 
         self.zmq_context = zmq.Context()
 
+        # Subscribe to camera streams
         for endpoint in self.camera_endpoints:
             logger.info(f"Subscribing to camera at {endpoint}")
             socket = self.zmq_context.socket(zmq.SUB)
@@ -103,10 +110,23 @@ class RerunBridge:
             socket.subscribe("")  # Subscribe to all messages
             self.camera_sockets.append(socket)
 
+        # Subscribe to LiDAR streams
+        for endpoint in self.lidar_endpoints:
+            logger.info(f"Subscribing to LiDAR at {endpoint}")
+            socket = self.zmq_context.socket(zmq.SUB)
+
+            # Optimize for low latency
+            socket.setsockopt(zmq.RCVHWM, 2)  # Keep only latest scans
+            socket.setsockopt(zmq.RCVBUF, 1 * 1024 * 1024)  # 1MB receive buffer
+
+            socket.connect(endpoint)
+            socket.subscribe("")  # Subscribe to all messages
+            self.lidar_sockets.append(socket)
+
         # Give subscriptions time to propagate
         time.sleep(0.5)
 
-        logger.info(f"Subscribed to {len(self.camera_sockets)} camera stream(s)")
+        logger.info(f"Subscribed to {len(self.camera_sockets)} camera stream(s) and {len(self.lidar_sockets)} LiDAR stream(s)")
 
     def process_camera_message(self, message: dict):
         """Process and log camera data to Rerun
@@ -152,6 +172,72 @@ class RerunBridge:
 
         # Skip text updates for lower overhead (shown in console instead)
 
+    def process_lidar_message(self, message: dict):
+        """Process and log LiDAR scan data to Rerun as 3D point clouds
+
+        Args:
+            message: LiDAR telemetry message with scan data
+        """
+        timestamp = message.get('timestamp', time.time())
+        lidar_scans = message.get('lidar_scans', [])
+
+        if not lidar_scans:
+            return
+
+        # Set Rerun timeline
+        rr.set_time("timestamp", timestamp)
+
+        for scan in lidar_scans:
+            sensor_id = scan.get('sensor_id', 'unknown')
+            ranges = np.array(scan.get('ranges', []))
+            intensities = np.array(scan.get('intensities', []))
+            angle_min = scan.get('angle_min', 0.0)
+            angle_max = scan.get('angle_max', 2 * np.pi)
+
+            # Update statistics
+            if sensor_id not in self.scan_counts:
+                self.scan_counts[sensor_id] = 0
+            self.scan_counts[sensor_id] += 1
+
+            if len(ranges) == 0:
+                continue
+
+            # Generate angles for each point
+            angles = np.linspace(angle_min, angle_max, len(ranges))
+
+            # Convert polar coordinates to Cartesian (x, y, z)
+            # For 2D LiDAR on horizontal plane: z=0
+            x = ranges * np.cos(angles)
+            y = ranges * np.sin(angles)
+            z = np.zeros_like(x)
+
+            # Stack into point cloud
+            points = np.column_stack([x, y, z])
+
+            # Filter out invalid points (zero range)
+            valid_mask = ranges > 0.0
+            points = points[valid_mask]
+            intensities_filtered = intensities[valid_mask] if len(intensities) > 0 else None
+
+            if len(points) == 0:
+                continue
+
+            # Normalize intensities to 0-255 for coloring
+            if intensities_filtered is not None and len(intensities_filtered) > 0:
+                colors = np.stack([intensities_filtered] * 3, axis=-1)  # Grayscale
+            else:
+                # Default color: cyan for front, magenta for back
+                if 'front' in sensor_id:
+                    colors = np.array([[0, 255, 255]] * len(points), dtype=np.uint8)
+                else:
+                    colors = np.array([[255, 0, 255]] * len(points), dtype=np.uint8)
+
+            # Log to Rerun as 3D point cloud
+            rr.log(
+                f"world/sensors/{sensor_id}/scan",
+                rr.Points3D(points, radii=0.02, colors=colors)
+            )
+
     def process_streams(self):
         """Main processing loop - receive and log all data streams"""
         logger.info("Starting stream processing loop...")
@@ -165,6 +251,8 @@ class RerunBridge:
         poller = zmq.Poller()
         for socket in self.camera_sockets:
             poller.register(socket, zmq.POLLIN)
+        for socket in self.lidar_sockets:
+            poller.register(socket, zmq.POLLIN)
 
         logger.info("Rerun bridge running. Open the Rerun viewer to see streams.")
 
@@ -173,6 +261,7 @@ class RerunBridge:
                 # Poll for messages with shorter timeout for better responsiveness
                 socks = dict(poller.poll(timeout=100))
 
+                # Process camera messages
                 for socket in self.camera_sockets:
                     if socket in socks and socks[socket] == zmq.POLLIN:
                         # Drain all pending messages, only process the latest
@@ -190,6 +279,24 @@ class RerunBridge:
                         if latest_message:
                             self.process_camera_message(latest_message)
 
+                # Process LiDAR messages
+                for socket in self.lidar_sockets:
+                    if socket in socks and socks[socket] == zmq.POLLIN:
+                        # Drain all pending messages, only process the latest
+                        latest_message = None
+                        while True:
+                            try:
+                                # Non-blocking receive to drain queue
+                                message_json = socket.recv_string(zmq.NOBLOCK)
+                                latest_message = json.loads(message_json)
+                            except zmq.Again:
+                                # No more messages available
+                                break
+
+                        # Process only the latest message
+                        if latest_message:
+                            self.process_lidar_message(latest_message)
+
                 # Print statistics every 5 seconds
                 current_time = time.time()
                 if current_time - self.last_stats_time >= 5.0:
@@ -197,10 +304,14 @@ class RerunBridge:
                     logger.info("Stream statistics:")
                     for camera_id, count in self.frame_counts.items():
                         fps = count / elapsed
-                        logger.info(f"  {camera_id}: {count} frames ({fps:.1f} fps)")
+                        logger.info(f"  Camera {camera_id}: {count} frames ({fps:.1f} fps)")
+                    for sensor_id, count in self.scan_counts.items():
+                        scan_rate = count / elapsed
+                        logger.info(f"  LiDAR {sensor_id}: {count} scans ({scan_rate:.1f} Hz)")
 
                     # Reset counters
                     self.frame_counts = {}
+                    self.scan_counts = {}
                     self.last_stats_time = current_time
 
             except KeyboardInterrupt:
@@ -222,6 +333,8 @@ class RerunBridge:
         # Close ZMQ sockets
         for socket in self.camera_sockets:
             socket.close()
+        for socket in self.lidar_sockets:
+            socket.close()
 
         if self.zmq_context:
             self.zmq_context.term()
@@ -237,6 +350,7 @@ class RerunBridge:
             logger.info("=" * 60)
             logger.info("Rerun bridge ready!")
             logger.info(f"Viewing {len(self.camera_endpoints)} camera stream(s)")
+            logger.info(f"Viewing {len(self.lidar_endpoints)} LiDAR stream(s)")
             if self.save_path:
                 logger.info(f"Recording to: {self.save_path}")
             logger.info("Open the Rerun viewer in your browser or app")
@@ -266,8 +380,14 @@ def main():
     parser.add_argument(
         '--cameras',
         nargs='+',
-        default=['tcp://192.168.0.2:5557'],
+        default=[],
         help='ZMQ endpoints for camera streams (space-separated)'
+    )
+    parser.add_argument(
+        '--lidar',
+        nargs='+',
+        default=[],
+        help='ZMQ endpoints for LiDAR streams (space-separated)'
     )
     parser.add_argument(
         '--save',
@@ -290,6 +410,7 @@ def main():
     # Create and run bridge
     bridge = RerunBridge(
         camera_endpoints=args.cameras,
+        lidar_endpoints=args.lidar,
         save_path=args.save,
         application_id=args.app_id
     )
