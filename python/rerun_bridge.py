@@ -72,6 +72,7 @@ class RerunBridge:
         # Statistics
         self.frame_counts = {}
         self.scan_counts = {}
+        self.scan_sequences = {}  # Track sequence numbers per sensor
         self.last_stats_time = time.time()
 
     def initialize_rerun(self):
@@ -184,8 +185,8 @@ class RerunBridge:
         if not lidar_scans:
             return
 
-        # Set Rerun timeline
-        rr.set_time("timestamp", timestamp)
+        # Set Rerun timeline with sequence number for each sensor
+        # This ensures scans update in the viewer
 
         for scan in lidar_scans:
             sensor_id = scan.get('sensor_id', 'unknown')
@@ -198,6 +199,9 @@ class RerunBridge:
             if sensor_id not in self.scan_counts:
                 self.scan_counts[sensor_id] = 0
             self.scan_counts[sensor_id] += 1
+
+            # For live streams, don't set explicit timeline
+            # Let Rerun use wall-clock time for continuous playback
 
             if len(ranges) == 0:
                 continue
