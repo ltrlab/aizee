@@ -182,7 +182,7 @@ pub mod params {
     pub const MECHPOS: u16 = 0x7019;
     pub const IQF: u16 = 0x701A;
     pub const MECHVEL: u16 = 0x701B;
-    pub const VBUS: u16 = 0x701C;
+    pub const VBUS: u16 = 0x701C;  // Battery voltage (float, in Volts)
     pub const LOC_KP: u16 = 0x701E;
     pub const SPD_KP: u16 = 0x701F;
     pub const SPD_KI: u16 = 0x7020;
@@ -272,6 +272,23 @@ pub fn build_read_param_frame(motor_id: u8, param_id: u16) -> CanFrame {
     let mut data = [0u8; 8];
     data[0..2].copy_from_slice(&param_id.to_le_bytes());
     CanFrame::new(socketcan::Id::Extended(arb_id), &data).expect("Failed to create frame")
+}
+
+/// Parse read parameter response
+/// Returns (param_id, value) from the response frame
+pub fn parse_read_param_response(frame: &CanFrame) -> Result<(u16, f32)> {
+    let data = frame.data();
+    if data.len() != 8 {
+        return Err(anyhow!("Invalid parameter response length: {}", data.len()));
+    }
+
+    // Parameter ID in bytes 0-1 (little-endian)
+    let param_id = u16::from_le_bytes([data[0], data[1]]);
+
+    // Value in bytes 4-7 (float, little-endian)
+    let value = f32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+
+    Ok((param_id, value))
 }
 
 /// Build write parameter frame

@@ -66,6 +66,8 @@ pub struct MotorTelemetry {
 pub struct TelemetryMessage {
     pub timestamp: f64,
     pub motors: HashMap<String, MotorTelemetry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub battery_voltage: Option<f32>,
 }
 
 impl TelemetryMessage {
@@ -76,6 +78,7 @@ impl TelemetryMessage {
                 .unwrap()
                 .as_secs_f64(),
             motors: HashMap::new(),
+            battery_voltage: None,
         }
     }
 

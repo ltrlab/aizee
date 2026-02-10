@@ -118,6 +118,8 @@ struct ControlSystem {
     emergency_stop: bool,
     last_base_control: Instant,
     control_tick: u64,
+    battery_voltage: Option<f32>, // Battery voltage from VBUS register
+    last_vbus_request: Instant,   // Track when we last requested VBUS
 }
 
 impl ControlSystem {
@@ -185,6 +187,8 @@ impl ControlSystem {
             emergency_stop: false,
             last_base_control: Instant::now(),
             control_tick: 0,
+            battery_voltage: None,
+            last_vbus_request: Instant::now(),
         })
     }
 
@@ -633,6 +637,17 @@ impl ControlSystem {
             }
         }
 
+        // Request battery voltage (VBUS) periodically (10Hz = every 100ms)
+        if self.last_vbus_request.elapsed() >= Duration::from_millis(100) {
+            // Request VBUS from first base motor (typically a wheel motor)
+            if let Some(motor) = self.base_group.motors.first() {
+                let frame = robstride::build_read_param_frame(motor.config.can_id, robstride::params::VBUS);
+                self.can_socket.write_frame(&frame)?;
+                self.last_vbus_request = Instant::now();
+                debug!("Requested VBUS from motor {} (CAN ID 0x{:02X})", motor.config.id, motor.config.can_id);
+            }
+        }
+
         Ok(())
     }
 
@@ -652,13 +667,33 @@ impl ControlSystem {
                             continue;
                         }
                     };
-                    // Only process Feedback frames (msg_type == 2)
+                    // Process Feedback frames (msg_type == 2) and ReadParam responses (msg_type == 17)
                     let msg_type = ((arb_id_raw >> 24) & 0x1F) as u8;
+                    let motor_can_id = ((arb_id_raw >> 8) & 0xFF) as u8;
+
+                    // Handle ReadParam responses (battery voltage)
+                    if msg_type == 17 {
+                        match robstride::parse_read_param_response(&frame) {
+                            Ok((param_id, value)) => {
+                                if param_id == robstride::params::VBUS {
+                                    self.battery_voltage = Some(value);
+                                    debug!("Battery voltage: {:.2}V", value);
+                                } else {
+                                    debug!("Read param response: 0x{:04X} = {:.3}", param_id, value);
+                                }
+                            }
+                            Err(e) => {
+                                warn!("Failed to parse read param response: {}", e);
+                            }
+                        }
+                        continue;
+                    }
+
+                    // Only process Feedback frames (msg_type == 2)
                     if msg_type != 2 {
                         debug!("Skipping non-feedback frame: arb_id=0x{:08X}, msg_type={}", arb_id_raw, msg_type);
                         continue;
                     }
-                    let motor_can_id = ((arb_id_raw >> 8) & 0xFF) as u8;
                     debug!("Received feedback frame: arb_id=0x{:08X}, motor_id=0x{:02X}", arb_id_raw, motor_can_id);
 
                     // Try to find motor in base group
@@ -737,6 +772,9 @@ impl ControlSystem {
                 );
             }
         }
+
+        // Include battery voltage if available
+        msg.battery_voltage = self.battery_voltage;
 
         self.telemetry_pub.publish(&msg)?;
         Ok(())

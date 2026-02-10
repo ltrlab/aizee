@@ -17,6 +17,16 @@ control:
   telemetry_timeout_ms: 200
   deadzone: 0.08
 
+battery:
+  # 6S LiPo battery monitoring (6 × 3.7V nominal = 22.2V)
+  cells: 6
+  cell_type: "lipo"
+  voltage_full: 25.2      # 6 × 4.2V (fully charged)
+  voltage_nominal: 22.2   # 6 × 3.7V (nominal)
+  voltage_warning: 21.0   # 6 × 3.5V (land soon)
+  voltage_critical: 20.0  # 6 × 3.33V (land immediately)
+  voltage_min: 18.0       # 6 × 3.0V (damage threshold - emergency only)
+
 drive:
   max_linear: 2.0       # rad/s
   max_angular: 1.5      # rad/s

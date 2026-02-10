@@ -864,7 +864,45 @@ def draw_ui(stdscr, state, comms, cfg, start_time, last_row_count=None):
 
     uptime = now - start_time
     safe_addstr(stdscr, row, 0, f"  Uptime: {uptime:.0f}s", clear_line=True)
-    row += 2
+    row += 1
+
+    # Battery voltage monitoring
+    if "battery" in cfg and telem and "battery_voltage" in telem:
+        voltage = telem["battery_voltage"]
+        bat_cfg = cfg["battery"]
+
+        # Determine battery status and color
+        if voltage >= bat_cfg["voltage_nominal"]:
+            status = "OK"
+            attr = curses.color_pair(1) | curses.A_BOLD  # Green + bold
+        elif voltage >= bat_cfg["voltage_warning"]:
+            status = "GOOD"
+            attr = curses.color_pair(2)  # Cyan
+        elif voltage >= bat_cfg["voltage_critical"]:
+            status = "WARN"
+            attr = curses.color_pair(3) | curses.A_BOLD  # Yellow + bold
+        else:
+            status = "CRIT"
+            attr = curses.color_pair(4) | curses.A_BOLD | curses.A_REVERSE  # Red + bold + reverse
+
+        # Calculate percentage (rough estimate)
+        v_range = bat_cfg["voltage_full"] - bat_cfg["voltage_min"]
+        v_current = voltage - bat_cfg["voltage_min"]
+        percent = max(0, min(100, (v_current / v_range) * 100))
+
+        safe_addstr(
+            stdscr, row, 0,
+            f"  Battery: {voltage:.2f}V ({percent:.0f}%) [{status}]  "
+            f"({bat_cfg['cells']}S {bat_cfg['cell_type'].upper()})",
+            attr, clear_line=True
+        )
+    elif "battery" in cfg:
+        safe_addstr(
+            stdscr, row, 0,
+            f"  Battery: (no data)",
+            clear_line=True
+        )
+    row += 1
 
     # Key legend
     safe_addstr(
@@ -956,6 +994,14 @@ def main(stdscr):
     curses.curs_set(0)
     stdscr.nodelay(True)
     stdscr.timeout(0)
+
+    # Initialize colors for battery status
+    curses.start_color()
+    curses.use_default_colors()
+    curses.init_pair(1, curses.COLOR_GREEN, -1)   # OK - green
+    curses.init_pair(2, curses.COLOR_CYAN, -1)    # GOOD - cyan
+    curses.init_pair(3, curses.COLOR_YELLOW, -1)  # WARN - yellow
+    curses.init_pair(4, curses.COLOR_RED, -1)     # CRIT - red (bold)
 
     # --- gamepad -----------------------------------------------------------
     joystick = None
