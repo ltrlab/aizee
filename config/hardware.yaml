@@ -85,29 +85,29 @@ network:
   # Raspberry Pi camera nodes
   cameras:
     - id: cam_front
-      ip: 192.168.1.21
-      hostname: aizee-rpi-front
+      ip: 192.168.0.22
+      hostname: AIZEE-ROVER-PI-1
       serial: D455_SERIAL_001
       position: [0.25, 0.0, 0.15]      # [x, y, z] in meters, relative to base_link
       orientation: [0.0, 0.0, 0.0]     # [roll, pitch, yaw] in radians
 
     - id: cam_rear
-      ip: 192.168.1.22
-      hostname: aizee-rpi-rear
+      ip: 192.168.0.23
+      hostname: AIZEE-ROVER-PI-2
       serial: D455_SERIAL_002
       position: [-0.25, 0.0, 0.15]
       orientation: [0.0, 0.0, 3.14159]  # Facing backward
 
     - id: cam_left
-      ip: 192.168.1.23
-      hostname: aizee-rpi-left
+      ip: 192.168.0.24
+      hostname: AIZEE-ROVER-PI-3
       serial: D455_SERIAL_003
       position: [0.0, 0.20, 0.15]
       orientation: [0.0, 0.0, 1.5708]   # Facing left
 
     - id: cam_right
-      ip: 192.168.1.24
-      hostname: aizee-rpi-right
+      ip: 192.168.0.25
+      hostname: AIZEE-ROVER-PI-4
       serial: D455_SERIAL_004
       position: [0.0, -0.20, 0.15]
       orientation: [0.0, 0.0, -1.5708]  # Facing right

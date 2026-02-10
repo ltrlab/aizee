@@ -1,0 +1,23 @@
+[Unit]
+Description=AIZEE Camera Node - Front (RealSense D455)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/aizee
+Environment="PYTHONUNBUFFERED=1"
+Environment="AIZEE_CONFIG=/home/pi/aizee/config/hardware_rpi4_cam_front.yaml"
+ExecStart=/usr/bin/python3 /home/pi/aizee/python/nodes/camera_node.py \
+    --camera-id cam_front \
+    --zmq-endpoint tcp://*:5557 \
+    --fps 30 \
+    --jpeg-quality 85
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
