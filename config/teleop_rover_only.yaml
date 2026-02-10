@@ -26,8 +26,8 @@ drive:
 
 gamepad:
   axes:
-    left_stick_y: 0   # Swapped: Y-axis now uses axis 0 for linear movement
-    left_stick_x: 1   # Swapped: X-axis now uses axis 1 for angular movement
+    left_stick_y: 1   # Standard Xbox mapping: axis 1 for forward/back
+    left_stick_x: 0   # Standard Xbox mapping: axis 0 for left/right
     right_stick_y: 3
     right_stick_x: 2
   buttons:
