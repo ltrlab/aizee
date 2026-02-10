@@ -61,6 +61,19 @@ pub struct MotorTelemetry {
     pub error: Option<String>,
 }
 
+/// LiDAR scan data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LidarScan {
+    pub sensor_id: String,        // "lidar_front" or "lidar_back"
+    pub angle_min: f32,           // radians
+    pub angle_max: f32,           // radians
+    pub angle_increment: f32,     // radians
+    pub range_min: f32,           // meters (0.15 for A1M8)
+    pub range_max: f32,           // meters (12.0 for A1M8)
+    pub ranges: Vec<f32>,         // meters (360 points typical)
+    pub intensities: Vec<u8>,     // signal quality 0-255
+}
+
 /// Telemetry message published to ZeroMQ
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelemetryMessage {
@@ -68,6 +81,8 @@ pub struct TelemetryMessage {
     pub motors: HashMap<String, MotorTelemetry>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub battery_voltage: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lidar_scans: Option<Vec<LidarScan>>,
 }
 
 impl TelemetryMessage {
@@ -79,6 +94,7 @@ impl TelemetryMessage {
                 .as_secs_f64(),
             motors: HashMap::new(),
             battery_voltage: None,
+            lidar_scans: None,
         }
     }
 

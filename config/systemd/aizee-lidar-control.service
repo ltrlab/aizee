@@ -1,0 +1,26 @@
+[Unit]
+Description=AIZEE LiDAR Control - RPLiDAR A1M8 Scanners
+After=network.target aizee-motor-control-rover.service
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=ltr
+WorkingDirectory=/home/ltr/aizee
+Environment="AIZEE_CONFIG=/home/ltr/aizee/config/hardware_jetson_rover.yaml"
+Environment="RUST_LOG=info"
+
+# Wait for motor control to stabilize
+ExecStartPre=/usr/bin/sleep 2
+
+# Check that LiDAR devices exist (udev rules must be configured)
+ExecStartPre=/usr/bin/test -e /dev/rplidar_front
+ExecStartPre=/usr/bin/test -e /dev/rplidar_back
+
+ExecStart=/home/ltr/aizee/rust/target/release/lidar_control
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

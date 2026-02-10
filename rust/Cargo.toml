@@ -3,6 +3,7 @@ members = [
     "motor_control",
     "comms",
     "bindings",
+    "lidar_control",
 ]
 resolver = "2"
 

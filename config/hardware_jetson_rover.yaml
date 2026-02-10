@@ -39,7 +39,17 @@ control:
 
 # CAN bus configuration
 can:
-  interface: can0
+  interface: can1
+
+# LiDAR sensors - RPLiDAR A1M8
+lidars:
+  - id: lidar_front
+    device: /dev/rplidar_front  # Udev symlink (see config/udev/99-rplidar.rules)
+    scan_mode: standard
+
+  - id: lidar_back
+    device: /dev/rplidar_back   # Udev symlink (see config/udev/99-rplidar.rules)
+    scan_mode: standard
 
 # Network topology
 network:
@@ -49,3 +59,4 @@ network:
     zmq:
       command_sub: "tcp://*:5555"      # Receives commands from teleop
       telemetry_pub: "tcp://*:5556"    # Publishes motor states
+      lidar_pub: "tcp://*:5561"        # Publishes LiDAR scans
