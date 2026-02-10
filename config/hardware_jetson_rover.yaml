@@ -51,6 +51,19 @@ lidars:
     device: /dev/rplidar_back   # Udev symlink (see config/udev/99-rplidar.rules)
     scan_mode: standard
 
+# UPS Power Module - Waveshare UPS Power Module (C)
+ups:
+  enabled: true
+  i2c_bus: 7              # I2C bus number (Jetson Orin Nano default)
+  i2c_addr: 0x41          # INA219 I2C address
+  update_rate: 1.0        # Hz - publishing rate
+  battery_chemistry: "lipo_3s"  # 3S LiPo (11.1V nominal)
+  voltage_full: 12.6      # Fully charged (3 × 4.2V)
+  voltage_nominal: 11.1   # Nominal (3 × 3.7V)
+  voltage_warning: 10.5   # Warning threshold (3 × 3.5V)
+  voltage_critical: 9.9   # Critical threshold (3 × 3.3V)
+  voltage_min: 9.0        # Absolute minimum (3 × 3.0V)
+
 # Network topology
 network:
   device:  # Generic device config (was 'jetson')
@@ -60,3 +73,4 @@ network:
       command_sub: "tcp://*:5555"      # Receives commands from teleop
       telemetry_pub: "tcp://*:5556"    # Publishes motor states
       lidar_pub: "tcp://*:5561"        # Publishes LiDAR scans
+      ups_pub: "tcp://*:5562"          # Publishes UPS power telemetry

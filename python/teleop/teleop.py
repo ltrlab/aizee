@@ -242,9 +242,10 @@ def read_keyboard(key, state):
 class Comms:
     """ZeroMQ command (PUSH) and telemetry (SUB) sockets."""
 
-    def __init__(self, cmd_addr, telem_addr):
+    def __init__(self, cmd_addr, telem_addr, ups_telem_addr=None):
         self.cmd_addr = cmd_addr
         self.telem_addr = telem_addr
+        self.ups_telem_addr = ups_telem_addr
         self.ctx = zmq.Context()
 
         # CRITICAL: Set linger to 0 to prevent hanging on close
@@ -271,6 +272,24 @@ class Comms:
             logger.error(f"Failed to connect to telemetry endpoint {telem_addr}: {e}")
             self.cmd.close()
             raise
+
+        # Optional UPS telemetry subscriber
+        self.ups_sub = None
+        self.last_ups_telemetry = None
+        self.last_ups_telemetry_time = 0.0
+        if ups_telem_addr:
+            try:
+                self.ups_sub = self.ctx.socket(zmq.SUB)
+                self.ups_sub.setsockopt(zmq.LINGER, 0)
+                self.ups_sub.setsockopt_string(zmq.SUBSCRIBE, "")
+                self.ups_sub.setsockopt(zmq.RCVTIMEO, 50)
+                self.ups_sub.connect(ups_telem_addr)
+                logger.info(f"Connected to UPS telemetry endpoint: {ups_telem_addr}")
+            except zmq.ZMQError as e:
+                logger.warning(f"Failed to connect to UPS telemetry endpoint {ups_telem_addr}: {e}")
+                if self.ups_sub:
+                    self.ups_sub.close()
+                self.ups_sub = None
 
         self.commands_sent = 0
         self.last_telemetry = None
@@ -359,6 +378,32 @@ class Comms:
             self.connected = False
         return self.last_telemetry
 
+    def recv_latest_ups_telemetry(self):
+        """Drain UPS SUB socket, keep only the newest message."""
+        if not self.ups_sub:
+            return self.last_ups_telemetry
+
+        latest = None
+        try:
+            while True:
+                try:
+                    raw = self.ups_sub.recv_string(zmq.NOBLOCK)
+                    latest = json.loads(raw)
+                except zmq.Again:
+                    break
+                except json.JSONDecodeError as e:
+                    logger.error(f"Invalid UPS telemetry JSON: {e}")
+                    break
+            if latest is not None:
+                if not isinstance(latest, dict):
+                    logger.warning(f"Invalid UPS telemetry format: expected dict, got {type(latest)}")
+                    return self.last_ups_telemetry
+                self.last_ups_telemetry = latest
+                self.last_ups_telemetry_time = time.monotonic()
+        except zmq.ZMQError as e:
+            logger.error(f"UPS telemetry receive error: {e}")
+        return self.last_ups_telemetry
+
     def is_telemetry_stale(self):
         """Check if telemetry is stale (no recent updates)."""
         if self.last_telemetry_time == 0.0:
@@ -381,6 +426,8 @@ class Comms:
             # Set linger to 0 again to ensure no blocking
             self.cmd.setsockopt(zmq.LINGER, 0)
             self.sub.setsockopt(zmq.LINGER, 0)
+            if self.ups_sub:
+                self.ups_sub.setsockopt(zmq.LINGER, 0)
         except zmq.ZMQError:
             pass  # Socket might already be closed
 
@@ -395,6 +442,13 @@ class Comms:
             logger.debug("Telemetry socket closed")
         except zmq.ZMQError as e:
             logger.warning(f"Error closing telemetry socket: {e}")
+
+        if self.ups_sub:
+            try:
+                self.ups_sub.close()
+                logger.debug("UPS telemetry socket closed")
+            except zmq.ZMQError as e:
+                logger.warning(f"Error closing UPS telemetry socket: {e}")
 
         try:
             # Terminate context with no linger - should not block now
@@ -866,7 +920,7 @@ def draw_ui(stdscr, state, comms, cfg, start_time, last_row_count=None):
     safe_addstr(stdscr, row, 0, f"  Uptime: {uptime:.0f}s", clear_line=True)
     row += 1
 
-    # Battery voltage monitoring
+    # Battery voltage monitoring (from motor controller)
     if "battery" in cfg and telem and "battery_voltage" in telem:
         voltage = telem["battery_voltage"]
         bat_cfg = cfg["battery"]
@@ -892,14 +946,50 @@ def draw_ui(stdscr, state, comms, cfg, start_time, last_row_count=None):
 
         safe_addstr(
             stdscr, row, 0,
-            f"  Battery: {voltage:.2f}V ({percent:.0f}%) [{status}]  "
+            f"  Battery (Motor): {voltage:.2f}V ({percent:.0f}%) [{status}]  "
             f"({bat_cfg['cells']}S {bat_cfg['cell_type'].upper()})",
             attr, clear_line=True
         )
     elif "battery" in cfg:
         safe_addstr(
             stdscr, row, 0,
-            f"  Battery: (no data)",
+            f"  Battery (Motor): (no data)",
+            clear_line=True
+        )
+    row += 1
+
+    # UPS Power monitoring (from UPS module)
+    ups_telem = comms.last_ups_telemetry if hasattr(comms, 'last_ups_telemetry') else None
+    if ups_telem and "ups" in ups_telem:
+        ups_data = ups_telem["ups"]
+        voltage = ups_data.get("voltage", 0.0)
+        current = ups_data.get("current", 0.0)
+        power = ups_data.get("power", 0.0)
+        percentage = ups_data.get("percentage", 0.0)
+
+        # Determine UPS status and color based on battery percentage
+        if percentage >= 50:
+            status = "OK"
+            attr = curses.color_pair(1) | curses.A_BOLD  # Green
+        elif percentage >= 30:
+            status = "GOOD"
+            attr = curses.color_pair(2)  # Cyan
+        elif percentage >= 15:
+            status = "WARN"
+            attr = curses.color_pair(3) | curses.A_BOLD  # Yellow
+        else:
+            status = "CRIT"
+            attr = curses.color_pair(4) | curses.A_BOLD | curses.A_REVERSE  # Red
+
+        safe_addstr(
+            stdscr, row, 0,
+            f"  UPS: {voltage:.2f}V  {current:.3f}A  {power:.2f}W  ({percentage:.0f}%) [{status}]",
+            attr, clear_line=True
+        )
+    elif hasattr(comms, 'ups_sub') and comms.ups_sub:
+        safe_addstr(
+            stdscr, row, 0,
+            f"  UPS: (no data)",
             clear_line=True
         )
     row += 1
@@ -1026,13 +1116,14 @@ def main(stdscr):
             logger.info("Using single-module configuration")
             cmd_addr = cfg["endpoints"]["command"]
             telem_addr = cfg["endpoints"]["telemetry"]
+            ups_telem_addr = cfg["endpoints"].get("ups_telemetry", None)
             if args.endpoint:
                 cmd_addr = args.endpoint
                 # Derive telemetry from command port + 1
                 parts = cmd_addr.rsplit(":", 1)
                 telem_port = int(parts[1]) + 1
                 telem_addr = f"{parts[0]}:{telem_port}"
-            comms = Comms(cmd_addr, telem_addr)
+            comms = Comms(cmd_addr, telem_addr, ups_telem_addr)
     except Exception as e:
         logger.error(f"Failed to initialize communications: {e}")
         raise
@@ -1073,6 +1164,7 @@ def main(stdscr):
 
             # 3. Telemetry
             comms.recv_latest_telemetry()
+            comms.recv_latest_ups_telemetry()
 
             # Check for persistent telemetry issues
             if comms.last_telemetry_time == 0.0:
