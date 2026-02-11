@@ -1,6 +1,6 @@
 // Motor state management and control
 
-use crate::robstride::{MotorError, MotorFeedback, MotorMode, MotorModel, RunMode};
+use crate::robstride::{MotorError, MotorFeedback, MotorMode, MotorModel};
 use anyhow::{anyhow, Result};
 use std::time::{Duration, Instant};
 
@@ -41,6 +41,7 @@ pub struct FaultInfo {
 pub struct MotorConfig {
     pub id: String,
     pub can_id: u8,
+    pub can_bus: String,  // CAN bus name (e.g., "can1", "can2")
     pub model: MotorModel,
     pub min_position: Option<f32>,
     pub max_position: Option<f32>,

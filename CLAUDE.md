@@ -235,6 +235,8 @@ The arm control loop must maintain <1ms jitter.
 
 ## Working with CAN Bus
 
+**IMPORTANT**: Motors are connected to **`can1`** interface (not can0).
+
 CAN interface must be configured before running motor control:
 ```bash
 sudo ./scripts/setup_can.sh
@@ -246,6 +248,11 @@ Useful CAN debugging tools:
 - `ip link show can1` - Check interface status
 
 The system uses SocketCAN on Linux with 1 Mbps bitrate.
+
+### CAN Interface Configuration
+- **Jetson Orin Nano**: Motors on `can1` (configured in systemd service)
+- **Bitrate**: 1000000 (1 Mbps)
+- **Service**: Auto-configures can1 on startup via ExecStartPre
 
 ### Tuned Control Parameters
 

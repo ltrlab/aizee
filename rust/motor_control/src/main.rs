@@ -6,7 +6,7 @@ mod robstride;
 use anyhow::{Context, Result};
 use comms::{CommandMessage, CommandSubscriber, MotorTelemetry, TelemetryMessage, TelemetryPublisher};
 use motor::{Motor, MotorConfig, MotorGroup, MotorState};
-use robstride::{MotorModel, RunMode};
+use robstride::MotorModel;
 use socketcan::{CanSocket, EmbeddedFrame, Socket};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -32,6 +32,8 @@ struct MotorsConfig {
 struct MotorConfigYaml {
     id: String,
     can_id: u8,
+    #[serde(default = "default_can_bus")]
+    can_bus: String,  // Optional, defaults to "can1" for backward compatibility
     #[serde(rename = "type")]
     motor_type: String,
     #[serde(default)]
@@ -40,6 +42,10 @@ struct MotorConfigYaml {
     max_position: Option<f32>,
     max_velocity: f32,
     max_torque: f32,
+}
+
+fn default_can_bus() -> String {
+    "can1".to_string()
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -52,7 +58,10 @@ struct ControlConfig {
 
 #[derive(Debug, Clone, serde::Deserialize)]
 struct CanConfig {
-    interface: String,
+    #[serde(default)]
+    interface: String,  // Legacy single interface (deprecated)
+    #[serde(default)]
+    interfaces: HashMap<String, String>,  // New: map of bus name -> interface name
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -100,6 +109,7 @@ fn yaml_to_motor_config(yaml: &MotorConfigYaml) -> MotorConfig {
     MotorConfig {
         id: yaml.id.clone(),
         can_id: yaml.can_id,
+        can_bus: yaml.can_bus.clone(),
         model: parse_motor_model(&yaml.motor_type),
         min_position: yaml.min_position,
         max_position: yaml.max_position,
@@ -109,12 +119,13 @@ fn yaml_to_motor_config(yaml: &MotorConfigYaml) -> MotorConfig {
 }
 
 struct ControlSystem {
-    can_socket: CanSocket,
+    can_sockets: HashMap<String, CanSocket>,  // bus_name -> socket
     base_group: MotorGroup,
     arm_group: MotorGroup,
     command_sub: CommandSubscriber,
     telemetry_pub: TelemetryPublisher,
     motor_id_map: HashMap<String, u8>, // motor_id -> can_id
+    motor_bus_map: HashMap<String, String>, // motor_id -> can_bus
     emergency_stop: bool,
     last_base_control: Instant,
     control_tick: u64,
@@ -124,15 +135,27 @@ struct ControlSystem {
 
 impl ControlSystem {
     fn new(config: Config) -> Result<Self> {
-        // Initialize CAN socket
-        let can_socket = CanSocket::open(&config.can.interface)
-            .with_context(|| format!("Failed to open CAN interface {}", config.can.interface))?;
+        // Initialize CAN sockets (supports multiple buses)
+        let mut can_sockets = HashMap::new();
 
-        // Set to non-blocking mode to avoid blocking tokio runtime
-        can_socket.set_nonblocking(true)
-            .context("Failed to set CAN socket to non-blocking mode")?;
+        // Build interface map (supports both legacy single interface and new multi-interface)
+        let mut interfaces = config.can.interfaces.clone();
+        if !config.can.interface.is_empty() && interfaces.is_empty() {
+            // Legacy mode: single interface on can1
+            interfaces.insert("can1".to_string(), config.can.interface.clone());
+        }
 
-        info!("CAN interface {} opened (non-blocking)", config.can.interface);
+        // Open all CAN interfaces
+        for (bus_name, interface_name) in &interfaces {
+            let socket = CanSocket::open(interface_name)
+                .with_context(|| format!("Failed to open CAN interface {} for bus {}", interface_name, bus_name))?;
+
+            socket.set_nonblocking(true)
+                .with_context(|| format!("Failed to set CAN socket {} to non-blocking mode", bus_name))?;
+
+            info!("CAN interface {} opened for bus {} (non-blocking)", interface_name, bus_name);
+            can_sockets.insert(bus_name.clone(), socket);
+        }
 
         // Create motor groups
         let watchdog_timeout = Duration::from_secs_f32(config.control.watchdog_timeout);
@@ -162,14 +185,18 @@ impl ControlSystem {
             config.control.arm_frequency,
         );
 
-        // Build motor ID map
+        // Build motor ID and bus maps
         let mut motor_id_map = HashMap::new();
+        let mut motor_bus_map = HashMap::new();
         for wheel in &config.motors.wheels {
             motor_id_map.insert(wheel.id.clone(), wheel.can_id);
+            motor_bus_map.insert(wheel.id.clone(), wheel.can_bus.clone());
         }
         motor_id_map.insert(config.motors.swivel.id.clone(), config.motors.swivel.can_id);
+        motor_bus_map.insert(config.motors.swivel.id.clone(), config.motors.swivel.can_bus.clone());
         for arm_motor in &config.motors.arm {
             motor_id_map.insert(arm_motor.id.clone(), arm_motor.can_id);
+            motor_bus_map.insert(arm_motor.id.clone(), arm_motor.can_bus.clone());
         }
 
         // Initialize ZeroMQ
@@ -178,12 +205,13 @@ impl ControlSystem {
 
         info!("Control system initialized");
         Ok(Self {
-            can_socket,
+            can_sockets,
             base_group,
             arm_group,
             command_sub,
             telemetry_pub,
             motor_id_map,
+            motor_bus_map,
             emergency_stop: false,
             last_base_control: Instant::now(),
             control_tick: 0,
@@ -235,15 +263,28 @@ impl ControlSystem {
         None
     }
 
+    /// Get CAN socket for a motor by ID
+    fn get_can_socket(&self, motor_id: &str) -> Option<&CanSocket> {
+        let bus = self.motor_bus_map.get(motor_id)?;
+        self.can_sockets.get(bus)
+    }
+
+    /// Get CAN socket for a motor's bus name
+    fn get_can_socket_by_bus(&self, bus: &str) -> Option<&CanSocket> {
+        self.can_sockets.get(bus)
+    }
+
     /// Send zero-force keepalive frames to all enabled/running base motors
     fn send_keepalives(&self) {
         for motor in &self.base_group.motors {
             if motor.state == MotorState::Enabled || motor.state == MotorState::Running {
-                let pos = motor.feedback.as_ref().map(|f| f.position).unwrap_or(0.0);
-                let keepalive = robstride::build_control_frame(
-                    motor.config.can_id, motor.config.model, pos, 0.0, 0.0, 0.0, 0.0,
-                );
-                let _ = self.can_socket.write_frame(&keepalive);
+                if let Some(socket) = self.get_can_socket_by_bus(&motor.config.can_bus) {
+                    let pos = motor.feedback.as_ref().map(|f| f.position).unwrap_or(0.0);
+                    let keepalive = robstride::build_control_frame(
+                        motor.config.can_id, motor.config.model, pos, 0.0, 0.0, 0.0, 0.0,
+                    );
+                    let _ = socket.write_frame(&keepalive);
+                }
             }
         }
     }
@@ -260,16 +301,19 @@ impl ControlSystem {
 
     fn enable_motor(&mut self, motor_id: &str) -> Result<()> {
         if let Some((can_id, model)) = self.can_id_and_model(motor_id) {
+            // Get CAN socket for this motor
+            let socket = self.get_can_socket(motor_id)
+                .ok_or_else(|| anyhow::anyhow!("CAN bus not found for motor {}", motor_id))?;
 
             // First send disable to clear any existing fault state
             let disable_frame = robstride::build_disable_frame(can_id);
-            self.can_socket.write_frame(&disable_frame)?;
+            socket.write_frame(&disable_frame)?;
             self.sleep_with_keepalives(50);
             info!("Sent disable (fault clear) for motor {}", motor_id);
 
             // Drain any pending CAN frames
             loop {
-                match self.can_socket.read_frame() {
+                match socket.read_frame() {
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
                     _ => continue,
                 }
@@ -280,7 +324,7 @@ impl ControlSystem {
             let mut confirmed_position = 0.0f32;
             for attempt in 1..=3 {
                 let frame = robstride::build_enable_frame(can_id);
-                self.can_socket.write_frame(&frame)?;
+                socket.write_frame(&frame)?;
                 info!("Sent enable for motor {} (attempt {})", motor_id, attempt);
 
                 // Brief wait then check for response
@@ -291,7 +335,7 @@ impl ControlSystem {
                 for _ in 0..20 {
                     // Send keepalives while polling for response
                     self.send_keepalives();
-                    match self.can_socket.read_frame() {
+                    match socket.read_frame() {
                         Ok(frame) => {
                             let arb_id_raw = match frame.id() {
                                 socketcan::Id::Extended(id) => id.as_raw(),
@@ -337,7 +381,7 @@ impl ControlSystem {
                     // (~200ms later) which is safe.
                     for _ in 0..50 {
                         let keepalive = robstride::build_control_frame(can_id, model, confirmed_position, 0.0, 0.0, 0.0, 0.0);
-                        let _ = self.can_socket.write_frame(&keepalive);
+                        let _ = socket.write_frame(&keepalive);
                         self.send_keepalives(); // keep other motors alive too
                         std::thread::sleep(std::time::Duration::from_millis(2));
                     }
@@ -346,7 +390,7 @@ impl ControlSystem {
                     let mut still_running = false;
                     // Drain and check latest feedback
                     loop {
-                        match self.can_socket.read_frame() {
+                        match socket.read_frame() {
                             Ok(frame) => {
                                 let arb_id_raw = match frame.id() {
                                     socketcan::Id::Extended(id) => id.as_raw(),
@@ -376,12 +420,12 @@ impl ControlSystem {
                         break;
                     } else {
                         warn!("Motor {} faulted after enable (attempt {}), retrying...", motor_id, attempt);
-                        self.can_socket.write_frame(&disable_frame)?;
+                        socket.write_frame(&disable_frame)?;
                         self.sleep_with_keepalives(100);
                     }
                 } else {
                     warn!("Motor {} did NOT enter Run mode on attempt {}", motor_id, attempt);
-                    self.can_socket.write_frame(&disable_frame)?;
+                    socket.write_frame(&disable_frame)?;
                     self.sleep_with_keepalives(50);
                 }
             }
@@ -414,8 +458,10 @@ impl ControlSystem {
 
     fn disable_motor(&mut self, motor_id: &str) -> Result<()> {
         if let Some(can_id) = self.motor_id_map.get(motor_id) {
+            let socket = self.get_can_socket(motor_id)
+                .ok_or_else(|| anyhow::anyhow!("CAN bus not found for motor {}", motor_id))?;
             let frame = robstride::build_disable_frame(*can_id);
-            self.can_socket.write_frame(&frame)?;
+            socket.write_frame(&frame)?;
             if let Some(motor) = self.find_motor_mut(motor_id) {
                 motor.state = MotorState::Disabled;
                 motor.last_command_time = Instant::now(); // Update command time
@@ -488,16 +534,18 @@ impl ControlSystem {
                 }
             }
             CommandMessage::Enable { motor_ids } => {
-                let mut enabled_motors: Vec<(u8, MotorModel)> = Vec::new();
+                let mut enabled_motors: Vec<(String, u8, MotorModel)> = Vec::new();
                 for motor_id in &motor_ids {
                     // Send keepalives to already-enabled motors before enabling next one
-                    for &(cid, cmodel) in &enabled_motors {
-                        let keepalive = robstride::build_control_frame(cid, cmodel, 0.0, 0.0, 0.0, 0.0, 0.0);
-                        let _ = self.can_socket.write_frame(&keepalive);
+                    for (mid, cid, cmodel) in &enabled_motors {
+                        if let Some(socket) = self.get_can_socket(mid) {
+                            let keepalive = robstride::build_control_frame(*cid, *cmodel, 0.0, 0.0, 0.0, 0.0, 0.0);
+                            let _ = socket.write_frame(&keepalive);
+                        }
                     }
                     self.enable_motor(motor_id)?;
                     if let Some((cid, cmodel)) = self.can_id_and_model(motor_id) {
-                        enabled_motors.push((cid, cmodel));
+                        enabled_motors.push((motor_id.clone(), cid, cmodel));
                     }
                 }
             }
@@ -598,16 +646,18 @@ impl ControlSystem {
         // Send control commands to arm motors
         for motor in &self.arm_group.motors {
             if motor.state == MotorState::Running {
-                let frame = robstride::build_control_frame(
-                    motor.config.can_id,
-                    motor.config.model,
-                    motor.target_position,
-                    motor.target_velocity,
-                    motor.kp,
-                    motor.kd,
-                    motor.target_torque,
-                );
-                self.can_socket.write_frame(&frame)?;
+                if let Some(socket) = self.get_can_socket_by_bus(&motor.config.can_bus) {
+                    let frame = robstride::build_control_frame(
+                        motor.config.can_id,
+                        motor.config.model,
+                        motor.target_position,
+                        motor.target_velocity,
+                        motor.kp,
+                        motor.kd,
+                        motor.target_torque,
+                    );
+                    socket.write_frame(&frame)?;
+                }
             }
         }
 
@@ -615,24 +665,26 @@ impl ControlSystem {
         // Uses Kp=0 so position is ignored — avoids position wrapping at ±4π
         // ROBSTRIDE control law: torque = Kp*(pos_err) + Kd*(vel_err) + ff
         // With Kp=0: torque = Kd * (target_vel - actual_vel)
-        for motor in &mut self.base_group.motors {
+        for motor in &self.base_group.motors {
             if motor.state == MotorState::Enabled || motor.state == MotorState::Running {
-                let fb_pos = motor.feedback.as_ref().map(|f| f.position).unwrap_or(0.0);
-                let frame = robstride::build_control_frame(
-                    motor.config.can_id,
-                    motor.config.model,
-                    fb_pos,                  // Echo feedback position (ignored with Kp=0)
-                    motor.target_velocity,   // Velocity target
-                    0.0,                     // Kp=0: no position tracking, no wrapping issues
-                    3.0,                     // Kd=3.0: velocity tracking gain
-                    0.0,                     // No feedforward torque
-                );
-                self.can_socket.write_frame(&frame)?;
+                if let Some(socket) = self.get_can_socket_by_bus(&motor.config.can_bus) {
+                    let fb_pos = motor.feedback.as_ref().map(|f| f.position).unwrap_or(0.0);
+                    let frame = robstride::build_control_frame(
+                        motor.config.can_id,
+                        motor.config.model,
+                        fb_pos,                  // Echo feedback position (ignored with Kp=0)
+                        motor.target_velocity,   // Velocity target
+                        0.0,                     // Kp=0: no position tracking, no wrapping issues
+                        3.0,                     // Kd=3.0: velocity tracking gain
+                        0.0,                     // No feedforward torque
+                    );
+                    socket.write_frame(&frame)?;
 
-                if self.control_tick % 500 == 0 && motor.state == MotorState::Running {
-                    info!("  RUN {}: tgt_vel={:.3} fb_vel={:.3} fb_pos={:.3}",
-                          motor.config.id, motor.target_velocity,
-                          motor.feedback.as_ref().map(|f| f.velocity).unwrap_or(-999.0), fb_pos);
+                    if self.control_tick % 500 == 0 && motor.state == MotorState::Running {
+                        info!("  RUN {}: tgt_vel={:.3} fb_vel={:.3} fb_pos={:.3}",
+                              motor.config.id, motor.target_velocity,
+                              motor.feedback.as_ref().map(|f| f.velocity).unwrap_or(-999.0), fb_pos);
+                    }
                 }
             }
         }
@@ -641,10 +693,12 @@ impl ControlSystem {
         if self.last_vbus_request.elapsed() >= Duration::from_millis(100) {
             // Request VBUS from first base motor (typically a wheel motor)
             if let Some(motor) = self.base_group.motors.first() {
-                let frame = robstride::build_read_param_frame(motor.config.can_id, robstride::params::VBUS);
-                self.can_socket.write_frame(&frame)?;
-                self.last_vbus_request = Instant::now();
-                debug!("Requested VBUS from motor {} (CAN ID 0x{:02X})", motor.config.id, motor.config.can_id);
+                if let Some(socket) = self.get_can_socket_by_bus(&motor.config.can_bus) {
+                    let frame = robstride::build_read_param_frame(motor.config.can_id, robstride::params::VBUS);
+                    socket.write_frame(&frame)?;
+                    self.last_vbus_request = Instant::now();
+                    debug!("Requested VBUS from motor {} (CAN ID 0x{:02X})", motor.config.id, motor.config.can_id);
+                }
             }
         }
 
@@ -652,10 +706,12 @@ impl ControlSystem {
     }
 
     fn read_feedback(&mut self) -> Result<()> {
-        // Read all available CAN frames
+        // Read all available CAN frames from all buses
         let mut frame_count = 0;
-        loop {
-            match self.can_socket.read_frame() {
+
+        for (_bus_name, socket) in &self.can_sockets {
+            loop {
+                match socket.read_frame() {
                 Ok(frame) => {
                     frame_count += 1;
                     // Extract motor ID from arbitration ID
@@ -731,14 +787,16 @@ impl ControlSystem {
                         debug!("No motor found for CAN ID 0x{:02X}", motor_can_id);
                     }
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    if frame_count > 0 {
-                        debug!("Read {} frames this cycle", frame_count);
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        break; // Move to next CAN bus
                     }
-                    break;
+                    Err(e) => return Err(e.into()),
                 }
-                Err(e) => return Err(e.into()),
             }
+        }
+
+        if frame_count > 0 {
+            debug!("Read {} frames this cycle", frame_count);
         }
         Ok(())
     }

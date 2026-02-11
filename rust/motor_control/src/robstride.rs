@@ -3,7 +3,6 @@
 
 use anyhow::{anyhow, Result};
 use socketcan::{CanFrame, EmbeddedFrame, ExtendedId};
-use std::time::Duration;
 
 /// Motor command types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

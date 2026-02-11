@@ -1,0 +1,83 @@
+# AIZEE Hardware Configuration - Jetson with Dual CAN
+# Rover base motors on can1 + Gantry/arm motors on can2
+
+motors:
+  # Drive wheels - ROBSTRIDE 04 Series (on can1)
+  wheels:
+    - id: left_wheel
+      can_id: 0x02
+      can_bus: can1
+      type: ROBSTRIDE04
+      max_velocity: 10.0  # rad/s
+      max_torque: 12.0    # Nm
+
+    - id: right_wheel
+      can_id: 0x04
+      can_bus: can1
+      type: ROBSTRIDE04
+      max_velocity: 10.0
+      max_torque: 12.0
+
+  # Base swivel - ROBSTRIDE 03 Series (on can1)
+  swivel:
+    id: swivel
+    can_id: 0x03
+    can_bus: can1
+    type: ROBSTRIDE03
+    min_position: -3.14159  # rad (-180°)
+    max_position: 3.14159   # rad (+180°)
+    max_velocity: 5.0
+    max_torque: 6.0
+
+  # Gantry/Arm motors - on can2
+  arm:
+    - id: gantry_base
+      can_id: 0x05
+      can_bus: can2
+      type: ROBSTRIDE04
+      min_position: -1.57   # -90°
+      max_position: 1.57    # +90°
+      max_velocity: 3.0
+      max_torque: 10.0
+
+    - id: gantry_mid
+      can_id: 0x06
+      can_bus: can2
+      type: ROBSTRIDE03
+      min_position: -2.0
+      max_position: 2.0
+      max_velocity: 3.0
+      max_torque: 8.0
+
+    - id: gantry_end
+      can_id: 0x07
+      can_bus: can2
+      type: ROBSTRIDE02
+      min_position: -3.14
+      max_position: 3.14
+      max_velocity: 5.0
+      max_torque: 4.0
+
+# Control loop parameters
+control:
+  arm_frequency: 1000.0  # Hz - high-frequency control for arm
+  base_frequency: 100.0  # Hz - wheels + swivel
+  telemetry_rate: 50.0   # Hz - published motor states
+  watchdog_timeout: 0.1  # seconds - stop if no command received
+
+# CAN bus configuration - dual CAN setup
+can:
+  interfaces:
+    can1: can1  # Rover motors
+    can2: can2  # Gantry/arm motors
+
+# Network topology
+network:
+  device:
+    ip: 192.168.0.27
+    hostname: aizee-jetson
+    zmq:
+      command_sub: "tcp://*:5555"      # Receives commands from teleop
+      telemetry_pub: "tcp://*:5556"    # Publishes motor states
+      lidar_pub: "tcp://*:5561"        # Publishes LiDAR scans
+      ups_pub: "tcp://*:5562"          # Publishes UPS power telemetry
