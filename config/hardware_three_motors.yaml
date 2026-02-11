@@ -40,7 +40,7 @@ can:
 
 network:
   jetson:
-    ip: 192.168.0.26
+    ip: 192.168.0.27
     hostname: aizee-jetson
     zmq:
       command_sub: 'tcp://*:5555'

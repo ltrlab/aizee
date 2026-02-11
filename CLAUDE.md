@@ -95,7 +95,7 @@ Logs are stored in `logs/` directory as MCAP files when using Rerun integration.
 ### Current Development Setup
 
 **Jetson Connection Details:**
-- IP Address: 192.168.0.26 (local network)
+- IP Address: 192.168.0.27 (local network)
 - Username: `ltr`
 - Password: `changeme!123`
 - SSH Key: `P:/Workspace/ssh-keys/aizee_rover_id` (no passphrase)
@@ -107,10 +107,10 @@ To deploy the codebase to the Jetson from the development machine:
 ```bash
 # Deploy entire aizee directory to Jetson
 cd /p/Workspace
-scp -i /p/Workspace/ssh-keys/aizee_rover_id -r aizee ltr@192.168.0.26:~/
+scp -i /p/Workspace/ssh-keys/aizee_rover_id -r aizee ltr@192.168.0.27:~/
 
 # Or deploy specific files/directories
-scp -i /p/Workspace/ssh-keys/aizee_rover_id -r rust/motor_control ltr@192.168.0.26:~/aizee/rust/
+scp -i /p/Workspace/ssh-keys/aizee_rover_id -r rust/motor_control ltr@192.168.0.27:~/aizee/rust/
 ```
 
 ### Building on Jetson
@@ -118,7 +118,7 @@ scp -i /p/Workspace/ssh-keys/aizee_rover_id -r rust/motor_control ltr@192.168.0.
 After deploying code, SSH into the Jetson and build:
 
 ```bash
-ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.26
+ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27
 
 # On Jetson:
 cd ~/aizee
@@ -311,7 +311,7 @@ The project follows a phased implementation plan (see `docs/PHASES.md`):
 - **CAN ID 0x06**: Wrist/gripper (ROBSTRIDE02, compact)
 
 ### Network Topology
-- **Jetson**: 192.168.0.26
+- **Jetson**: 192.168.0.27
 - **RPi cameras**: 192.168.1.21-24 (not yet deployed)
 - Gigabit Ethernet with PoE switch for camera power
 
