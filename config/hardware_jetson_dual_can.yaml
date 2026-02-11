@@ -1,39 +1,39 @@
 # AIZEE Hardware Configuration - Jetson with Dual CAN
-# Rover base motors on can1 + Gantry/arm motors on can2
+# Rover base motors on can2 + Gantry/arm motors on can1
 
 motors:
-  # Drive wheels - ROBSTRIDE 04 Series (on can1)
+  # Drive wheels - ROBSTRIDE 04 Series (on can2)
   wheels:
     - id: left_wheel
       can_id: 0x02
-      can_bus: can1
+      can_bus: can2
       type: ROBSTRIDE04
       max_velocity: 10.0  # rad/s
       max_torque: 12.0    # Nm
 
     - id: right_wheel
       can_id: 0x04
-      can_bus: can1
+      can_bus: can2
       type: ROBSTRIDE04
       max_velocity: 10.0
       max_torque: 12.0
 
-  # Base swivel - ROBSTRIDE 03 Series (on can1)
+  # Base swivel - ROBSTRIDE 03 Series (on can2)
   swivel:
     id: swivel
     can_id: 0x03
-    can_bus: can1
+    can_bus: can2
     type: ROBSTRIDE03
     min_position: -3.14159  # rad (-180°)
     max_position: 3.14159   # rad (+180°)
     max_velocity: 5.0
     max_torque: 6.0
 
-  # Gantry/Arm motors - on can2
+  # Gantry/Arm motors - on can1
   arm:
     - id: gantry_base
       can_id: 0x05
-      can_bus: can2
+      can_bus: can1
       type: ROBSTRIDE04
       min_position: -1.57   # -90°
       max_position: 1.57    # +90°
@@ -42,7 +42,7 @@ motors:
 
     - id: gantry_mid
       can_id: 0x06
-      can_bus: can2
+      can_bus: can1
       type: ROBSTRIDE03
       min_position: -2.0
       max_position: 2.0
@@ -51,7 +51,7 @@ motors:
 
     - id: gantry_end
       can_id: 0x07
-      can_bus: can2
+      can_bus: can1
       type: ROBSTRIDE02
       min_position: -3.14
       max_position: 3.14
@@ -68,8 +68,8 @@ control:
 # CAN bus configuration - dual CAN setup
 can:
   interfaces:
-    can1: can1  # Rover motors
-    can2: can2  # Gantry/arm motors
+    can1: can1  # Gantry/arm motors
+    can2: can2  # Rover motors
 
 # Network topology
 network:
