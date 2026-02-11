@@ -53,14 +53,14 @@ motors:
       can_id: 0x07
       can_bus: can1
       type: ROBSTRIDE02
-      min_position: -3.14
-      max_position: 3.14
+      # min_position: -3.14   # Temporarily disabled - motor at 6.43
+      # max_position: 3.14
       max_velocity: 5.0
       max_torque: 4.0
 
 # Control loop parameters
 control:
-  arm_frequency: 1000.0  # Hz - high-frequency control for arm
+  arm_frequency: 100.0   # Hz - reduced from 1000Hz to prevent CAN buffer overflow
   base_frequency: 100.0  # Hz - wheels + swivel
   telemetry_rate: 50.0   # Hz - published motor states
   watchdog_timeout: 0.1  # seconds - stop if no command received

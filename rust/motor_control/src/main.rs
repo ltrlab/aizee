@@ -8,6 +8,7 @@ use comms::{CommandMessage, CommandSubscriber, MotorTelemetry, TelemetryMessage,
 use motor::{Motor, MotorConfig, MotorGroup, MotorState};
 use robstride::MotorModel;
 use socketcan::{CanSocket, EmbeddedFrame, Socket};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::time::interval;
@@ -131,6 +132,8 @@ struct ControlSystem {
     control_tick: u64,
     battery_voltage: Option<f32>, // Battery voltage from VBUS register
     last_vbus_request: Instant,   // Track when we last requested VBUS
+    dropped_frames: RefCell<HashMap<String, u64>>, // Track dropped frames per CAN bus
+    last_buffer_warning: RefCell<HashMap<String, Instant>>, // Rate-limit buffer warnings
 }
 
 impl ControlSystem {
@@ -217,6 +220,8 @@ impl ControlSystem {
             control_tick: 0,
             battery_voltage: None,
             last_vbus_request: Instant::now(),
+            dropped_frames: RefCell::new(HashMap::new()),
+            last_buffer_warning: RefCell::new(HashMap::new()),
         })
     }
 
@@ -246,6 +251,43 @@ impl ControlSystem {
             }
         }
         MotorModel::Model03 // fallback
+    }
+
+    /// Safely write a CAN frame with buffer overflow handling
+    /// Returns Ok(()) even if buffer is full (logs warning instead of crashing)
+    fn safe_write_frame(&self, socket: &CanSocket, frame: &socketcan::CanFrame, bus_name: &str) -> Result<()> {
+        match socket.write_frame(frame) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                // Check if this is ENOBUFS (errno 105 - "No buffer space available")
+                if let Some(105) = e.raw_os_error() {
+                    // Track dropped frames (using RefCell for interior mutability)
+                    let mut dropped = self.dropped_frames.borrow_mut();
+                    *dropped.entry(bus_name.to_string()).or_insert(0) += 1;
+
+                    // Rate-limit warnings to once per second
+                    let now = Instant::now();
+                    let should_warn = {
+                        let warnings = self.last_buffer_warning.borrow();
+                        warnings.get(bus_name)
+                            .map(|last| now.duration_since(*last) >= Duration::from_secs(1))
+                            .unwrap_or(true)
+                    };
+
+                    if should_warn {
+                        let dropped_count = *dropped.get(bus_name).unwrap_or(&0);
+                        warn!("CAN {} TX buffer full - frame dropped (total dropped: {})", bus_name, dropped_count);
+                        self.last_buffer_warning.borrow_mut().insert(bus_name.to_string(), now);
+                    }
+
+                    // Don't crash - just skip this frame
+                    Ok(())
+                } else {
+                    // Other errors should still be propagated
+                    Err(e).with_context(|| format!("Failed to write CAN frame on {}", bus_name))
+                }
+            }
+        }
     }
 
     /// Look up CAN ID and model for a motor by name
@@ -301,13 +343,16 @@ impl ControlSystem {
 
     fn enable_motor(&mut self, motor_id: &str) -> Result<()> {
         if let Some((can_id, model)) = self.can_id_and_model(motor_id) {
-            // Get CAN socket for this motor
+            // Get CAN socket and bus name for this motor
             let socket = self.get_can_socket(motor_id)
                 .ok_or_else(|| anyhow::anyhow!("CAN bus not found for motor {}", motor_id))?;
+            let bus_name = self.motor_bus_map.get(motor_id)
+                .ok_or_else(|| anyhow::anyhow!("Bus name not found for motor {}", motor_id))?
+                .clone(); // Clone to avoid borrow conflict
 
             // First send disable to clear any existing fault state
             let disable_frame = robstride::build_disable_frame(can_id);
-            socket.write_frame(&disable_frame)?;
+            self.safe_write_frame(socket, &disable_frame, &bus_name)?;
             self.sleep_with_keepalives(50);
             info!("Sent disable (fault clear) for motor {}", motor_id);
 
@@ -324,7 +369,7 @@ impl ControlSystem {
             let mut confirmed_position = 0.0f32;
             for attempt in 1..=3 {
                 let frame = robstride::build_enable_frame(can_id);
-                socket.write_frame(&frame)?;
+                self.safe_write_frame(socket, &frame, &bus_name)?;
                 info!("Sent enable for motor {} (attempt {})", motor_id, attempt);
 
                 // Brief wait then check for response
@@ -460,8 +505,11 @@ impl ControlSystem {
         if let Some(can_id) = self.motor_id_map.get(motor_id) {
             let socket = self.get_can_socket(motor_id)
                 .ok_or_else(|| anyhow::anyhow!("CAN bus not found for motor {}", motor_id))?;
+            let bus_name = self.motor_bus_map.get(motor_id)
+                .ok_or_else(|| anyhow::anyhow!("Bus name not found for motor {}", motor_id))?
+                .clone(); // Clone to avoid borrow conflict
             let frame = robstride::build_disable_frame(*can_id);
-            socket.write_frame(&frame)?;
+            self.safe_write_frame(socket, &frame, &bus_name)?;
             if let Some(motor) = self.find_motor_mut(motor_id) {
                 motor.state = MotorState::Disabled;
                 motor.last_command_time = Instant::now(); // Update command time
@@ -646,7 +694,8 @@ impl ControlSystem {
         // Send control commands to arm motors
         for motor in &self.arm_group.motors {
             if motor.state == MotorState::Running {
-                if let Some(socket) = self.get_can_socket_by_bus(&motor.config.can_bus) {
+                let bus_name = motor.config.can_bus.clone(); // Clone to avoid borrow conflict
+                if let Some(socket) = self.get_can_socket_by_bus(&bus_name) {
                     let frame = robstride::build_control_frame(
                         motor.config.can_id,
                         motor.config.model,
@@ -656,7 +705,7 @@ impl ControlSystem {
                         motor.kd,
                         motor.target_torque,
                     );
-                    socket.write_frame(&frame)?;
+                    self.safe_write_frame(socket, &frame, &bus_name)?;
                 }
             }
         }
@@ -667,7 +716,8 @@ impl ControlSystem {
         // With Kp=0: torque = Kd * (target_vel - actual_vel)
         for motor in &self.base_group.motors {
             if motor.state == MotorState::Enabled || motor.state == MotorState::Running {
-                if let Some(socket) = self.get_can_socket_by_bus(&motor.config.can_bus) {
+                let bus_name = motor.config.can_bus.clone(); // Clone to avoid borrow conflict
+                if let Some(socket) = self.get_can_socket_by_bus(&bus_name) {
                     let fb_pos = motor.feedback.as_ref().map(|f| f.position).unwrap_or(0.0);
                     let frame = robstride::build_control_frame(
                         motor.config.can_id,
@@ -678,7 +728,7 @@ impl ControlSystem {
                         3.0,                     // Kd=3.0: velocity tracking gain
                         0.0,                     // No feedforward torque
                     );
-                    socket.write_frame(&frame)?;
+                    self.safe_write_frame(socket, &frame, &bus_name)?;
 
                     if self.control_tick % 500 == 0 && motor.state == MotorState::Running {
                         info!("  RUN {}: tgt_vel={:.3} fb_vel={:.3} fb_pos={:.3}",
@@ -693,11 +743,14 @@ impl ControlSystem {
         if self.last_vbus_request.elapsed() >= Duration::from_millis(100) {
             // Request VBUS from first base motor (typically a wheel motor)
             if let Some(motor) = self.base_group.motors.first() {
-                if let Some(socket) = self.get_can_socket_by_bus(&motor.config.can_bus) {
-                    let frame = robstride::build_read_param_frame(motor.config.can_id, robstride::params::VBUS);
-                    socket.write_frame(&frame)?;
+                let bus_name = motor.config.can_bus.clone(); // Clone to avoid borrow conflict
+                let can_id = motor.config.can_id;
+                let motor_id = motor.config.id.clone();
+                if let Some(socket) = self.get_can_socket_by_bus(&bus_name) {
+                    let frame = robstride::build_read_param_frame(can_id, robstride::params::VBUS);
+                    self.safe_write_frame(socket, &frame, &bus_name)?;
                     self.last_vbus_request = Instant::now();
-                    debug!("Requested VBUS from motor {} (CAN ID 0x{:02X})", motor.config.id, motor.config.can_id);
+                    debug!("Requested VBUS from motor {} (CAN ID 0x{:02X})", motor_id, can_id);
                 }
             }
         }
