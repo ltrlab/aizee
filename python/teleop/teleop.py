@@ -84,6 +84,34 @@ class InputState:
         self.angular = 0.0
         self.swivel = 0.0
 
+        # Keyboard smoothing: target values and ramp rates
+        self.linear_target = 0.0
+        self.angular_target = 0.0
+        self.swivel_target = 0.0
+        self.keyboard_accel_rate = 50.0  # units/sec - instant response (~1 tick)
+        self.keyboard_decel_rate = 8.0   # units/sec - smooth deceleration
+
+        # Track when each key was first pressed and last seen
+        self.w_first_press_time = 0.0
+        self.s_first_press_time = 0.0
+        self.a_first_press_time = 0.0
+        self.d_first_press_time = 0.0
+        self.last_w_time = 0.0
+        self.last_s_time = 0.0
+        self.last_a_time = 0.0
+        self.last_d_time = 0.0
+        self.w_repeat_count = 0
+        self.s_repeat_count = 0
+        self.a_repeat_count = 0
+        self.d_repeat_count = 0
+
+        # Timeout settings
+        self.key_timeout_short = 0.12    # 120ms - base timeout for release detection
+        self.key_timeout_active = 0.08   # 80ms - fast release during active repeat
+        self.tap_window = 0.2            # 200ms - quick tap detection window
+        self.repeat_delay_end = 0.65     # 650ms - OS repeat should start by this time
+        self.repeat_active_threshold = 2 # Need 2+ events to confirm repeat is active
+
         # One-shot flags — consumed after dispatch
         self.enable_all = False
         self.disable_all = False
@@ -94,6 +122,10 @@ class InputState:
         self.quit = False
 
         self.gamepad_connected = False
+
+        # Gamepad raw state for display
+        self.gamepad_axes = {}
+        self.gamepad_buttons = {}
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +207,13 @@ def read_gamepad(joystick, cfg, state):
     if invert.get("right_stick_x", False):
         raw_swivel = -raw_swivel
 
+    # Store raw values for display
+    state.gamepad_axes = {
+        "left_stick_x": raw_x,
+        "left_stick_y": raw_y,
+        "right_stick_x": raw_swivel,
+    }
+
     # Y-axis (forward/back) mapped to angular (makes robot turn)
     # X-axis (left/right) mapped to linear (makes robot go forward/back)
     state.angular = apply_curve(
@@ -191,35 +230,95 @@ def read_gamepad(joystick, cfg, state):
     )
 
     # --- buttons (one-shot on press) ---
-    if joystick.get_button(buttons["a"]):
+    # Store button states for display
+    state.gamepad_buttons = {
+        "a": joystick.get_button(buttons["a"]),
+        "b": joystick.get_button(buttons["b"]),
+        "back": joystick.get_button(buttons["back"]),
+        "start": joystick.get_button(buttons["start"]),
+    }
+
+    if state.gamepad_buttons["a"]:
         state.enable_all = True
-    if joystick.get_button(buttons["b"]):
+    if state.gamepad_buttons["b"]:
         state.disable_all = True
-    if joystick.get_button(buttons["back"]):
+    if state.gamepad_buttons["back"]:
         state.emergency_stop = True
-    if joystick.get_button(buttons["start"]):
+    if state.gamepad_buttons["start"]:
         state.clear_estop = True
         state.clear_faults = True
 
 
-def read_keyboard(key, state):
+def read_keyboard_pygame(state):
+    """Read keyboard state using pygame (true key state, not events).
+
+    Only called when pygame is available. Provides instant response
+    without timeout hacks since we can detect key up/down directly.
+    """
+    if not _pygame_available:
+        return
+
+    # Need to pump events for keyboard state to update
+    pygame.event.pump()
+    keys = pygame.key.get_pressed()
+
+    # WORKAROUND: Motor controller has linear/angular backwards
+    # W/S maps to angular (forward/back)
+    if keys[pygame.K_w]:
+        state.angular_target = 1.0
+    elif keys[pygame.K_s]:
+        state.angular_target = -1.0
+    else:
+        state.angular_target = 0.0
+
+    # A/D maps to linear (turn)
+    if keys[pygame.K_d]:
+        state.linear_target = 1.0
+    elif keys[pygame.K_a]:
+        state.linear_target = -1.0
+    else:
+        state.linear_target = 0.0
+
+    # Swivel (no keys yet)
+    state.swivel_target = 0.0
+
+
+def read_keyboard(key, state, current_time, skip_movement_keys=False):
     """Process a single curses key code into *state*.
 
-    Keyboard is binary: pressed = full value. The caller resets
-    linear/angular to 0 before draining keys, so only the *last*
-    directional key in the drain wins (good enough at 20 Hz).
+    Tracks first press time and repeat count for each key to determine
+    if keyboard repeat is active.
+
+    Args:
+        skip_movement_keys: If True, ignore WASD (used when pygame handles movement)
     """
     # WORKAROUND: Motor controller has linear/angular backwards
     # Swapping keys here so controls feel right to user
     # TODO: Fix in rust/motor_control instead
-    if key == ord("w") or key == ord("W"):
-        state.angular = 1.0   # W maps to angular (makes robot turn)
-    elif key == ord("s") or key == ord("S"):
-        state.angular = -1.0  # S maps to angular (makes robot turn)
-    elif key == ord("a") or key == ord("A"):
-        state.linear = -1.0   # A maps to linear (makes robot go back)
-    elif key == ord("d") or key == ord("D"):
-        state.linear = 1.0    # D maps to linear (makes robot go forward)
+    if not skip_movement_keys and (key == ord("w") or key == ord("W")):
+        if state.w_repeat_count == 0:
+            state.w_first_press_time = current_time
+        state.last_w_time = current_time
+        state.w_repeat_count += 1
+        state.angular_target = 1.0
+    elif not skip_movement_keys and (key == ord("s") or key == ord("S")):
+        if state.s_repeat_count == 0:
+            state.s_first_press_time = current_time
+        state.last_s_time = current_time
+        state.s_repeat_count += 1
+        state.angular_target = -1.0
+    elif not skip_movement_keys and (key == ord("a") or key == ord("A")):
+        if state.a_repeat_count == 0:
+            state.a_first_press_time = current_time
+        state.last_a_time = current_time
+        state.a_repeat_count += 1
+        state.linear_target = -1.0
+    elif not skip_movement_keys and (key == ord("d") or key == ord("D")):
+        if state.d_repeat_count == 0:
+            state.d_first_press_time = current_time
+        state.last_d_time = current_time
+        state.d_repeat_count += 1
+        state.linear_target = 1.0
     elif key == ord("e") or key == ord("E"):
         state.enable_all = True
     elif key == ord("q") or key == ord("Q"):
@@ -233,6 +332,40 @@ def read_keyboard(key, state):
         state.zero_positions = True
     elif key == 27:  # Escape
         state.quit = True
+
+
+def smooth_keyboard_inputs(state, dt):
+    """Smoothly ramp keyboard inputs toward target values.
+
+    Uses fast acceleration (instant response on key press) and
+    slow deceleration (smooth release) for better control feel.
+
+    Args:
+        state: InputState with current and target values
+        dt: Time delta since last update (seconds)
+    """
+    def ramp_toward(current, target, accel_rate, decel_rate, dt):
+        """Ramp current value toward target with asymmetric rates."""
+        diff = target - current
+
+        # Choose rate based on whether we're accelerating or decelerating
+        # Accelerating: target magnitude > current magnitude
+        # Decelerating: target magnitude < current magnitude
+        is_accelerating = abs(target) > abs(current)
+        rate = accel_rate if is_accelerating else decel_rate
+
+        max_change = rate * dt
+        if abs(diff) <= max_change:
+            return target
+        return current + max_change if diff > 0 else current - max_change
+
+    # Ramp each axis toward its target with asymmetric rates
+    state.linear = ramp_toward(state.linear, state.linear_target,
+                               state.keyboard_accel_rate, state.keyboard_decel_rate, dt)
+    state.angular = ramp_toward(state.angular, state.angular_target,
+                                state.keyboard_accel_rate, state.keyboard_decel_rate, dt)
+    state.swivel = ramp_toward(state.swivel, state.swivel_target,
+                               state.keyboard_accel_rate, state.keyboard_decel_rate, dt)
 
 
 # ---------------------------------------------------------------------------
@@ -868,6 +1001,43 @@ def draw_ui(stdscr, state, comms, cfg, start_time, last_row_count=None):
     )
     row += 2
 
+    # Gamepad state and mapping (only if gamepad connected)
+    if state.gamepad_connected and state.gamepad_axes:
+        safe_addstr(stdscr, row, 0, f"  --- CONTROLLER {'-' * 43}", curses.A_BOLD, clear_line=True)
+        row += 1
+
+        # Raw axis values
+        safe_addstr(
+            stdscr, row, 0,
+            f"  Axes:  LX={state.gamepad_axes.get('left_stick_x', 0.0):+5.2f}  "
+            f"LY={state.gamepad_axes.get('left_stick_y', 0.0):+5.2f}  "
+            f"RX={state.gamepad_axes.get('right_stick_x', 0.0):+5.2f}",
+            clear_line=True
+        )
+        row += 1
+
+        # Button states
+        btn_a = "■" if state.gamepad_buttons.get("a", False) else "□"
+        btn_b = "■" if state.gamepad_buttons.get("b", False) else "□"
+        btn_back = "■" if state.gamepad_buttons.get("back", False) else "□"
+        btn_start = "■" if state.gamepad_buttons.get("start", False) else "□"
+        safe_addstr(
+            stdscr, row, 0,
+            f"  Buttons:  A={btn_a}  B={btn_b}  Back={btn_back}  Start={btn_start}",
+            clear_line=True
+        )
+        row += 1
+
+        # Control mapping
+        safe_addstr(stdscr, row, 0, "  Mapping:", clear_line=True)
+        row += 1
+        safe_addstr(stdscr, row, 0, "    Left Stick Y → Forward/Back  |  Left Stick X → Turn", clear_line=True)
+        row += 1
+        safe_addstr(stdscr, row, 0, "    Right Stick X → Swivel", clear_line=True)
+        row += 1
+        safe_addstr(stdscr, row, 0, "    A=Enable  B=Disable  Back=ESTOP  Start=Clear Faults", clear_line=True)
+        row += 2
+
     # Motor telemetry
     safe_addstr(stdscr, row, 0, f"  --- MOTORS {'-' * 47}", curses.A_BOLD, clear_line=True)
     row += 1
@@ -1142,25 +1312,107 @@ def main(stdscr):
     no_telem_start = None    # When did telemetry loss start
 
     try:
+        last_time = time.monotonic()
         while not state.quit:
             t0 = time.monotonic()
+            dt = t0 - last_time
+            last_time = t0
 
             # 1. Gamepad
             if joystick is not None:
                 read_gamepad(joystick, cfg, state)
 
-            # 2. Keyboard — drain all pending keys
-            #    If no gamepad, reset axes so keyboard is binary per tick
+            # 2. Keyboard input
             if joystick is None or not state.gamepad_connected:
-                state.linear = 0.0
-                state.angular = 0.0
-                state.swivel = 0.0
+                # Use pygame keyboard state if available (true key state, no timing hacks)
+                if _pygame_available:
+                    read_keyboard_pygame(state)
+                    # Still process curses keys for commands (E, Q, R, etc) but skip WASD
+                    while True:
+                        key = stdscr.getch()
+                        if key == -1:
+                            break
+                        read_keyboard(key, state, t0, skip_movement_keys=True)
+                    # Smooth inputs
+                    smooth_keyboard_inputs(state, dt)
+                else:
+                    # Fallback to curses-only (with timing hacks)
+                    # Process all keys in buffer
+                    while True:
+                        key = stdscr.getch()
+                        if key == -1:
+                            break
+                        read_keyboard(key, state, t0)
 
-            while True:
-                key = stdscr.getch()
-                if key == -1:
-                    break
-                read_keyboard(key, state)
+                    # Smart timeout: Don't reset during repeat delay window (0.2-0.65s)
+                    # Forward/back (W/S -> angular)
+                    w_age = t0 - state.last_w_time
+                    s_age = t0 - state.last_s_time
+                    w_time_since_first = t0 - state.w_first_press_time if state.w_repeat_count > 0 else 999
+                    s_time_since_first = t0 - state.s_first_press_time if state.s_repeat_count > 0 else 999
+
+                    # Determine timeout
+                    if state.w_repeat_count >= state.repeat_active_threshold or state.s_repeat_count >= state.repeat_active_threshold:
+                        timeout_angular = state.key_timeout_active
+                    else:
+                        timeout_angular = state.key_timeout_short
+
+                    # Check if we should reset
+                    should_reset_angular = False
+                    if w_age > timeout_angular and s_age > timeout_angular:
+                        # Timeout expired - but check if we're in repeat delay window
+                        w_in_repeat_window = (state.w_repeat_count > 0 and
+                                             state.tap_window < w_time_since_first < state.repeat_delay_end)
+                        s_in_repeat_window = (state.s_repeat_count > 0 and
+                                             state.tap_window < s_time_since_first < state.repeat_delay_end)
+
+                        # Only reset if NOT in repeat delay window
+                        if not w_in_repeat_window and not s_in_repeat_window:
+                            should_reset_angular = True
+
+                    if should_reset_angular:
+                        state.angular_target = 0.0
+                        state.w_repeat_count = 0
+                        state.s_repeat_count = 0
+
+                    # Left/right (A/D -> linear)
+                    a_age = t0 - state.last_a_time
+                    d_age = t0 - state.last_d_time
+                    a_time_since_first = t0 - state.a_first_press_time if state.a_repeat_count > 0 else 999
+                    d_time_since_first = t0 - state.d_first_press_time if state.d_repeat_count > 0 else 999
+
+                    if state.a_repeat_count >= state.repeat_active_threshold or state.d_repeat_count >= state.repeat_active_threshold:
+                        timeout_linear = state.key_timeout_active
+                    else:
+                        timeout_linear = state.key_timeout_short
+
+                    should_reset_linear = False
+                    if a_age > timeout_linear and d_age > timeout_linear:
+                        a_in_repeat_window = (state.a_repeat_count > 0 and
+                                             state.tap_window < a_time_since_first < state.repeat_delay_end)
+                        d_in_repeat_window = (state.d_repeat_count > 0 and
+                                             state.tap_window < d_time_since_first < state.repeat_delay_end)
+
+                        if not a_in_repeat_window and not d_in_repeat_window:
+                            should_reset_linear = True
+
+                    if should_reset_linear:
+                        state.linear_target = 0.0
+                        state.a_repeat_count = 0
+                        state.d_repeat_count = 0
+
+                    # Swivel has no keys yet
+                    state.swivel_target = 0.0
+
+                    # Smooth keyboard inputs toward targets
+                    smooth_keyboard_inputs(state, dt)
+            else:
+                # Gamepad mode - still need to process keyboard for commands
+                while True:
+                    key = stdscr.getch()
+                    if key == -1:
+                        break
+                    read_keyboard(key, state, t0)
 
             # 3. Telemetry
             comms.recv_latest_telemetry()
