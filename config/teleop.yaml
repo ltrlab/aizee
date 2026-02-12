@@ -1,30 +1,30 @@
 # AIZEE Teleop Configuration
 # Input mappings, scaling, and ZMQ endpoints
 
-# Multi-module configuration (rover + arm)
-# Comment out 'modules' section to use legacy 'endpoints' mode
-modules:
-  rover:
-    command: "tcp://192.168.0.27:5555"
-    telemetry: "tcp://192.168.0.27:5556"
-    motors: ["left_wheel", "right_wheel", "swivel"]
-  arm:
-    command: "tcp://192.168.0.28:5557"
-    telemetry: "tcp://192.168.0.28:5558"
-    motors: ["shoulder_pitch", "elbow", "wrist"]
+# Single-module configuration for dual-CAN Jetson
+# All motors (rover + gantry) on one motor_control instance
+endpoints:
+  command: "tcp://192.168.0.27:5555"
+  telemetry: "tcp://192.168.0.27:5556"
+  ups_telemetry: "tcp://192.168.0.27:5562"  # UPS Power Module telemetry
 
-# Legacy single-module configuration (backward compatible)
-# Uncomment to use single-module mode
-# endpoints:
-#   command: "tcp://192.168.0.27:5555"
-#   telemetry: "tcp://192.168.0.27:5556"
-#   ups_telemetry: "tcp://192.168.0.27:5562"  # UPS Power Module telemetry
+# Multi-module configuration (distributed system)
+# Comment out to use multi-module mode
+# modules:
+#   rover:
+#     command: "tcp://192.168.0.27:5555"
+#     telemetry: "tcp://192.168.0.27:5556"
+#     motors: ["left_wheel", "right_wheel", "swivel"]
+#   arm:
+#     command: "tcp://192.168.0.28:5557"
+#     telemetry: "tcp://192.168.0.28:5558"
+#     motors: ["gantry_base", "gantry_mid", "gantry_end"]
 
 motors:
   drive: ["left_wheel", "right_wheel"]
   swivel: ["swivel"]
-  arm: ["shoulder_pitch", "elbow", "wrist"]
-  all: ["left_wheel", "right_wheel", "swivel", "shoulder_pitch", "elbow", "wrist"]
+  gantry: ["gantry_base", "gantry_mid", "gantry_end"]
+  all: ["left_wheel", "right_wheel", "swivel", "gantry_base", "gantry_mid", "gantry_end"]
 
 control:
   command_rate_hz: 20
@@ -48,10 +48,11 @@ drive:
   linear_exponent: 1.5
   angular_exponent: 1.5
 
-arm:
-  max_velocity: 1.0
-  kp: [3.0, 3.0, 3.0]
-  kd: [0.3, 0.3, 0.3]
+gantry:
+  max_velocity: 1.0       # rad/s per joint
+  increment: 0.02         # rad per key press (small for safety during tuning)
+  kp: [2.0, 2.0, 2.0]     # Position gains [base, mid, end] - MIT mode impedance control
+  kd: [0.1, 0.1, 0.1]     # Damping gains [base, mid, end] - MIT mode impedance control
 
 gamepad:
   axes:

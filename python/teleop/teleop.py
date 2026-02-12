@@ -84,6 +84,14 @@ class InputState:
         self.angular = 0.0
         self.swivel = 0.0
 
+        # Gantry joint positions (absolute, in radians)
+        self.gantry_base = 0.0
+        self.gantry_mid = 0.0
+        self.gantry_end = 0.0
+        self.gantry_initialized = False  # Set true after reading from telemetry
+        self.gantry_homed = False        # Set true after countdown completes
+        self.gantry_countdown = 0.0      # Countdown timer (seconds remaining)
+
         # Keyboard smoothing: target values and ramp rates
         self.linear_target = 0.0
         self.angular_target = 0.0
@@ -120,6 +128,15 @@ class InputState:
         self.clear_faults = False
         self.zero_positions = False
         self.quit = False
+
+        # Gantry control flags (one-shot)
+        self.gantry_base_dec = False
+        self.gantry_base_inc = False
+        self.gantry_mid_dec = False
+        self.gantry_mid_inc = False
+        self.gantry_end_dec = False
+        self.gantry_end_inc = False
+        self.gantry_home = False  # Set current positions as home
 
         self.gamepad_connected = False
 
@@ -330,6 +347,20 @@ def read_keyboard(key, state, current_time, skip_movement_keys=False):
         state.clear_faults = True
     elif key == ord("z") or key == ord("Z"):
         state.zero_positions = True
+    elif key == ord("1"):
+        state.gantry_base_dec = True
+    elif key == ord("2"):
+        state.gantry_base_inc = True
+    elif key == ord("3"):
+        state.gantry_mid_dec = True
+    elif key == ord("4"):
+        state.gantry_mid_inc = True
+    elif key == ord("5"):
+        state.gantry_end_dec = True
+    elif key == ord("6"):
+        state.gantry_end_inc = True
+    elif key == ord("h") or key == ord("H"):
+        state.gantry_home = True
     elif key == 27:  # Escape
         state.quit = True
 
@@ -474,6 +505,19 @@ class Comms:
 
     def send_zero_position(self, motor_ids):
         self.send({"type": "zero_position", "motor_ids": motor_ids})
+
+    def send_arm_joints(self, positions, velocities=None, kp=None, kd=None):
+        """Send arm/gantry joint command with position targets."""
+        cmd = {
+            "type": "arm_joints",
+            "positions": positions,
+            "velocities": velocities or [0.0] * len(positions),
+        }
+        if kp:
+            cmd["kp"] = kp
+        if kd:
+            cmd["kd"] = kd
+        self.send(cmd)
 
     # -- receive ------------------------------------------------------------
 
@@ -859,7 +903,7 @@ class MultiModuleComms:
 # Command dispatch
 # ---------------------------------------------------------------------------
 
-def dispatch_commands(state, comms, cfg):
+def dispatch_commands(state, comms, cfg, dt=0.05):
     """Send one-shot actions then drive command. Consumes flags."""
     all_motors = cfg["motors"]["all"]
 
@@ -890,6 +934,97 @@ def dispatch_commands(state, comms, cfg):
     if state.zero_positions:
         comms.send_zero_position(all_motors)
         state.zero_positions = False
+
+    # --- gantry control (incremental position adjustments) ----------------
+    gantry_changed = False
+    if "gantry" in cfg:
+        # Continuously update displayed positions from telemetry (even before homing)
+        if comms.last_telemetry and "motors" in comms.last_telemetry:
+            motors = comms.last_telemetry["motors"]
+            if "gantry_base" in motors and motors["gantry_base"]:
+                state.gantry_base = motors["gantry_base"].get("position", state.gantry_base)
+            if "gantry_mid" in motors and motors["gantry_mid"]:
+                state.gantry_mid = motors["gantry_mid"].get("position", state.gantry_mid)
+            if "gantry_end" in motors and motors["gantry_end"]:
+                state.gantry_end = motors["gantry_end"].get("position", state.gantry_end)
+
+        # Handle home command - Start 5-second countdown
+        if state.gantry_home:
+            if comms.last_telemetry and "motors" in comms.last_telemetry:
+                motors = comms.last_telemetry["motors"]
+                # Verify all gantry motors have valid telemetry before homing
+                has_base = "gantry_base" in motors and motors["gantry_base"] and motors["gantry_base"].get("state") != "disabled"
+                has_mid = "gantry_mid" in motors and motors["gantry_mid"] and motors["gantry_mid"].get("state") != "disabled"
+                has_end = "gantry_end" in motors and motors["gantry_end"] and motors["gantry_end"].get("state") != "disabled"
+
+                if has_base and has_mid and has_end:
+                    # Read CURRENT positions and start countdown
+                    state.gantry_base = motors["gantry_base"].get("position", 0.0)
+                    state.gantry_mid = motors["gantry_mid"].get("position", 0.0)
+                    state.gantry_end = motors["gantry_end"].get("position", 0.0)
+                    state.gantry_initialized = True
+                    state.gantry_countdown = 5.0  # Start 5-second countdown
+                    logger.info(f"Gantry home positions locked: base={state.gantry_base:.3f}, mid={state.gantry_mid:.3f}, end={state.gantry_end:.3f}")
+                    logger.info("Starting 5-second countdown before enabling control...")
+                else:
+                    logger.warning("Cannot home gantry - motors not enabled or no valid telemetry")
+            state.gantry_home = False
+
+        # Update countdown timer (decrement by actual elapsed time)
+        if state.gantry_countdown > 0:
+            state.gantry_countdown -= dt
+            if state.gantry_countdown <= 0:
+                state.gantry_countdown = 0
+                state.gantry_homed = True
+                logger.info("Gantry control ENABLED - you can now use keys 1-6")
+
+        # Send arm_joints commands continuously to keep motors alive (even before homing)
+        # This prevents the motors from timing out and faulting
+        if hasattr(comms, 'send_arm_joints'):
+            positions = [state.gantry_base, state.gantry_mid, state.gantry_end]
+            velocities = [0.0, 0.0, 0.0]
+            comms.send_arm_joints(positions, velocities,
+                                cfg["gantry"]["kp"],
+                                cfg["gantry"]["kd"])
+
+        # Only allow gantry movement after homing
+        if state.gantry_homed:
+            increment = cfg["gantry"]["increment"]
+
+            if state.gantry_base_dec:
+                state.gantry_base -= increment
+                state.gantry_base_dec = False
+                gantry_changed = True
+            if state.gantry_base_inc:
+                state.gantry_base += increment
+                state.gantry_base_inc = False
+                gantry_changed = True
+
+            if state.gantry_mid_dec:
+                state.gantry_mid -= increment
+                state.gantry_mid_dec = False
+                gantry_changed = True
+            if state.gantry_mid_inc:
+                state.gantry_mid += increment
+                state.gantry_mid_inc = False
+                gantry_changed = True
+
+            if state.gantry_end_dec:
+                state.gantry_end -= increment
+                state.gantry_end_dec = False
+                gantry_changed = True
+            if state.gantry_end_inc:
+                state.gantry_end += increment
+                state.gantry_end_inc = False
+                gantry_changed = True
+        else:
+            # Consume gantry key presses but don't move (not homed yet)
+            state.gantry_base_dec = False
+            state.gantry_base_inc = False
+            state.gantry_mid_dec = False
+            state.gantry_mid_inc = False
+            state.gantry_end_dec = False
+            state.gantry_end_inc = False
 
     # --- drive (always, to feed watchdog) ----------------------------------
     if not sent_estop:
@@ -999,7 +1134,27 @@ def draw_ui(stdscr, state, comms, cfg, start_time, last_row_count=None):
         f"angular={lin_scaled:+7.3f} rad/s   swivel={swv_scaled:+6.3f} rad/s",
         clear_line=True
     )
-    row += 2
+    row += 1
+
+    # Gantry positions (if gantry config exists)
+    if "gantry" in cfg:
+        gantry_line = (
+            f"  GANTRY: base={state.gantry_base:+7.3f} rad   "
+            f"mid={state.gantry_mid:+7.3f} rad   end={state.gantry_end:+7.3f} rad"
+        )
+        if state.gantry_countdown > 0:
+            # Countdown in progress
+            gantry_line += f"  [ENABLING IN {state.gantry_countdown:.1f}s...]"
+            safe_addstr(stdscr, row, 0, gantry_line, curses.A_BOLD | curses.color_pair(3), clear_line=True)
+        elif not state.gantry_homed:
+            # Not homed yet
+            gantry_line += "  [NOT HOMED - Press H to home]"
+            safe_addstr(stdscr, row, 0, gantry_line, curses.A_REVERSE, clear_line=True)
+        else:
+            # Homed and ready
+            safe_addstr(stdscr, row, 0, gantry_line, clear_line=True)
+        row += 1
+    row += 1
 
     # Gamepad state and mapping (only if gamepad connected)
     if state.gamepad_connected and state.gamepad_axes:
@@ -1177,6 +1332,13 @@ def draw_ui(stdscr, state, comms, cfg, start_time, last_row_count=None):
         clear_line=True
     )
     row += 1
+    if "gantry" in cfg:
+        safe_addstr(
+            stdscr, row, 0,
+            "  H=home gantry  1/2=base-/+  3/4=mid-/+  5/6=end-/+",
+            clear_line=True
+        )
+        row += 1
     safe_addstr(stdscr, row, 0, bar, curses.A_BOLD, clear_line=True)
     row += 1
 
@@ -1433,7 +1595,7 @@ def main(stdscr):
                 no_telem_logged = False
 
             # 4. Dispatch
-            dispatch_commands(state, comms, cfg)
+            dispatch_commands(state, comms, cfg, dt)
 
             # 5. Draw (optimized with selective line clearing)
             last_row_count = draw_ui(stdscr, state, comms, cfg, start_time, last_row_count)

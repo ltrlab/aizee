@@ -1,4 +1,8 @@
-# AIZEE - Advanced Intelligent Zero-g Exploration Environment
+# AIZEE - open-source wheeled humanoid platform
+
+![AIZEE PREVIEW](image.png)
+
+OnShape Link: https://cad.onshape.com/documents/191b8a861f2900918f30776f/w/8fcf08900b23701d0eff1c6a/e/fcb77dc7adbafb5b753006f3
 
 A modular robotics software stack for teleoperation, autonomous navigation, and multi-sensor data fusion.
 
@@ -112,46 +116,68 @@ aizee/
 
 ## Development Status
 
-**Current Phase**: Phase 0 - Project Foundation
+**Current Phase**: Phase 6 - Extensions Complete ✅
 
-See [Implementation Phases](docs/PHASES.md) for detailed roadmap.
+All major subsystems deployed and operational:
+- ✅ Rust motor control (1kHz arm, 100Hz base)
+- ✅ Python teleop interface with multi-module support
+- ✅ 4× RPi camera nodes (Intel RealSense D455)
+- ✅ 2× RPLiDAR A1M8 sensors
+- ✅ UPS battery monitoring (INA219)
+- ✅ Rerun visualization and MCAP logging
+
+See [Implementation Phases](docs/PHASES.md) for complete roadmap.
 
 ## Quick Start
 
+See [docs/quickstart/](docs/quickstart/) for detailed setup guides:
+- **[QUICK_START_MULTIDEVICE.md](docs/quickstart/QUICK_START_MULTIDEVICE.md)**: 10-minute multi-device deployment
+- **[JETSON_QUICK_START.md](docs/quickstart/JETSON_QUICK_START.md)**: Jetson Orin Nano setup
+- **[QUICK_START_AFTER_REBOOT.md](docs/quickstart/QUICK_START_AFTER_REBOOT.md)**: Post-reboot startup
+
 ### Prerequisites
-- Jetson Orin Nano with JetPack 6.x
+- NVIDIA Jetson Orin Nano with JetPack 6.x
+- 4× Raspberry Pi 4 (camera nodes)
+- 1× Raspberry Pi 4 (arm module, optional)
 - Rust toolchain (stable)
 - Python 3.10+
-- ZeroMQ libraries
 
-### Installation
+### Basic Installation
 ```bash
 # Clone repository
 git clone https://github.com/ltrlab/aizee.git
 cd aizee
 
-# Install Rust dependencies (on Jetson)
-cd rust/motor_control
-cargo build --release
-
 # Install Python dependencies
 pip install -r requirements.txt
-```
 
-### Hardware Configuration
-Edit `config/hardware.yaml` to match your CAN IDs and network topology.
+# Deploy to Jetson
+./scripts/deploy_jetson_rover.sh
+
+# Deploy to camera nodes
+./scripts/deploy_all_cameras.sh
+```
 
 ### Running the System
 ```bash
-# On Jetson: Start motor controller
-./rust/motor_control/target/release/motor_control
+# Start all modules
+./scripts/start_all_modules.sh
 
-# On dev machine: Start teleop
+# Run teleop from dev machine
 python python/teleop/teleop.py
 
-# On each RPi: Start camera node (auto-started via systemd)
-sudo systemctl start aizee-camera
+# View live data
+python python/rerun_bridge.py
 ```
+
+## Documentation
+
+- **[CLAUDE.md](CLAUDE.md)**: Comprehensive guide for Claude Code development
+- **[docs/](docs/)**: Technical documentation
+  - [docs/subsystems/](docs/subsystems/): Camera, LiDAR, UPS system docs
+  - [docs/deployment/](docs/deployment/): Multi-device deployment guides
+  - [docs/quickstart/](docs/quickstart/): Quick start guides
+  - [docs/PHASES.md](docs/PHASES.md): Implementation roadmap
 
 ## License
 
@@ -159,8 +185,8 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Contributing
 
-This is an active research project. See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines.
+This is an active research project. Contributions welcome!
 
 ## Contact
 
-LTRLAB - [GitHub](https://github.com/ltrlab)
+LTRLABS - [GitHub](https://github.com/ltrlab)

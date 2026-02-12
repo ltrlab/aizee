@@ -1,0 +1,8 @@
+# Allow ltr user to configure CAN interfaces without password
+# This is required for systemd service ExecStartPre commands
+ltr ALL=(ALL) NOPASSWD: /usr/sbin/ip link set can0 down
+ltr ALL=(ALL) NOPASSWD: /usr/sbin/ip link set can0 type can bitrate *
+ltr ALL=(ALL) NOPASSWD: /usr/sbin/ip link set can0 up
+ltr ALL=(ALL) NOPASSWD: /usr/sbin/ip link set can1 down
+ltr ALL=(ALL) NOPASSWD: /usr/sbin/ip link set can1 type can bitrate *
+ltr ALL=(ALL) NOPASSWD: /usr/sbin/ip link set can1 up

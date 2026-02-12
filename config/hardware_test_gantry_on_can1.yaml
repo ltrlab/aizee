@@ -1,0 +1,44 @@
+# Temporary test config - Gantry motors on can1 using rover motor naming
+# This lets the teleop control gantry motors as if they were rover motors
+
+motors:
+  wheels:
+    - id: left_wheel
+      can_id: 0x05  # Actually gantry_base (RB04)
+      type: ROBSTRIDE04
+      max_velocity: 10.0
+      max_torque: 12.0
+
+    - id: right_wheel
+      can_id: 0x07  # Actually gantry_end (RB02)
+      type: ROBSTRIDE02
+      max_velocity: 10.0
+      max_torque: 4.0
+
+  swivel:
+    id: swivel
+    can_id: 0x06  # Actually gantry_mid (RB03)
+    type: ROBSTRIDE03
+    min_position: -3.14159
+    max_position: 3.14159
+    max_velocity: 5.0
+    max_torque: 8.0
+
+  arm: []
+
+control:
+  arm_frequency: 1000.0
+  base_frequency: 100.0
+  telemetry_rate: 50.0
+  watchdog_timeout: 0.1
+
+can:
+  interface: can1
+
+network:
+  device:
+    ip: 192.168.0.27
+    hostname: aizee-jetson
+    zmq:
+      command_sub: "tcp://*:5555"
+      telemetry_pub: "tcp://*:5556"
