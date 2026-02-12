@@ -5,14 +5,14 @@ motors:
   # Drive wheels - ROBSTRIDE 04 Series (on can2)
   wheels:
     - id: left_wheel
-      can_id: 0x02
+      can_id: 0x04
       can_bus: can2
       type: ROBSTRIDE04
       max_velocity: 10.0  # rad/s
       max_torque: 12.0    # Nm
 
     - id: right_wheel
-      can_id: 0x04
+      can_id: 0x02
       can_bus: can2
       type: ROBSTRIDE04
       max_velocity: 10.0

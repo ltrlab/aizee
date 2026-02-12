@@ -540,6 +540,9 @@ impl ControlSystem {
         match cmd {
             CommandMessage::Drive { linear, angular, swivel } => {
                 // Differential drive for two wheels
+                // Negate both to match controller direction
+                let linear = -linear;
+                let angular = -angular;
                 let left_vel = linear - angular;
                 let right_vel = linear + angular;
 
