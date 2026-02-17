@@ -51,8 +51,8 @@ drive:
 gantry:
   max_velocity: 1.0       # rad/s per joint
   increment: 0.02         # rad per key press (small for safety during tuning)
-  kp: [2.0, 2.0, 2.0]     # Position gains [base, mid, end] - MIT mode impedance control
-  kd: [0.1, 0.1, 0.1]     # Damping gains [base, mid, end] - MIT mode impedance control
+  kp: [5.0, 5.0, 2.0]     # Position gains [base, mid, end] - MIT mode impedance control
+  kd: [0.2, 0.2, 0.1]     # Damping gains [base, mid, end] - MIT mode impedance control
 
 gamepad:
   axes:

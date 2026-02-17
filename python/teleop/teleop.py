@@ -982,6 +982,8 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
                         state.gantry_end = motors["gantry_end"].get("position", 0.0)
                     state.gantry_initialized = True
                     state.gantry_homed = True
+                    # Reset smoothed rate when homing to avoid drift
+                    state.gantry_base_rate_smooth = 0.0
                     logger.info(f"Gantry homed: base={state.gantry_base:.3f}, mid={state.gantry_mid:.3f}, end={state.gantry_end:.3f}")
                 else:
                     logger.warning("Cannot home gantry - no gantry motors enabled or no valid telemetry")
