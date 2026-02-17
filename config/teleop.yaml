@@ -23,8 +23,8 @@ endpoints:
 motors:
   drive: ["left_wheel", "right_wheel"]
   swivel: ["swivel"]
-  gantry: ["gantry_base"]
-  all: ["left_wheel", "right_wheel", "swivel", "gantry_base"]
+  gantry: ["gantry_base", "gantry_mid", "gantry_end"]
+  all: ["left_wheel", "right_wheel", "swivel", "gantry_base", "gantry_mid", "gantry_end"]
 
 control:
   command_rate_hz: 20

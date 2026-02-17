@@ -27,7 +27,7 @@ motors:
     max_velocity: 5.0
     max_torque: 6.0
 
-  # Gantry arm - ROBSTRIDE 04 Series
+  # Gantry arm - 3DoF
   arm:
     - id: gantry_base
       can_id: 0x05
@@ -36,6 +36,22 @@ motors:
       max_position: 3.14159   # rad (+180°)
       max_velocity: 10.0
       max_torque: 12.0
+
+    - id: gantry_mid
+      can_id: 0x06
+      type: ROBSTRIDE03
+      min_position: -3.14159
+      max_position: 3.14159
+      max_velocity: 5.0
+      max_torque: 6.0
+
+    - id: gantry_end
+      can_id: 0x07
+      type: ROBSTRIDE02
+      min_position: -3.14159
+      max_position: 3.14159
+      max_velocity: 10.0
+      max_torque: 4.0
 
 # Control loop parameters
 control:
