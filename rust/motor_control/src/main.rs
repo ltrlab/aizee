@@ -121,6 +121,7 @@ fn yaml_to_motor_config(yaml: &MotorConfigYaml) -> MotorConfig {
 
 struct ControlSystem {
     can_sockets: HashMap<String, CanSocket>,  // bus_name -> socket
+    can_interfaces: HashMap<String, String>,  // bus_name -> interface_name (for socket recovery)
     base_group: MotorGroup,
     arm_group: MotorGroup,
     command_sub: CommandSubscriber,
@@ -134,6 +135,7 @@ struct ControlSystem {
     last_vbus_request: Instant,   // Track when we last requested VBUS
     dropped_frames: RefCell<HashMap<String, u64>>, // Track dropped frames per CAN bus
     last_buffer_warning: RefCell<HashMap<String, Instant>>, // Rate-limit buffer warnings
+    consecutive_tx_errors: RefCell<HashMap<String, u32>>, // Track consecutive errors for recovery
 }
 
 impl ControlSystem {
@@ -159,6 +161,8 @@ impl ControlSystem {
             info!("CAN interface {} opened for bus {} (non-blocking)", interface_name, bus_name);
             can_sockets.insert(bus_name.clone(), socket);
         }
+
+        let can_interfaces = interfaces.clone();
 
         // Create motor groups
         let watchdog_timeout = Duration::from_secs_f32(config.control.watchdog_timeout);
@@ -209,6 +213,7 @@ impl ControlSystem {
         info!("Control system initialized");
         Ok(Self {
             can_sockets,
+            can_interfaces,
             base_group,
             arm_group,
             command_sub,
@@ -222,6 +227,7 @@ impl ControlSystem {
             last_vbus_request: Instant::now(),
             dropped_frames: RefCell::new(HashMap::new()),
             last_buffer_warning: RefCell::new(HashMap::new()),
+            consecutive_tx_errors: RefCell::new(HashMap::new()),
         })
     }
 
@@ -253,38 +259,90 @@ impl ControlSystem {
         MotorModel::Model03 // fallback
     }
 
-    /// Safely write a CAN frame with buffer overflow handling
-    /// Returns Ok(()) even if buffer is full (logs warning instead of crashing)
+    /// Safely write a CAN frame with USB-CAN adapter error recovery.
+    /// All CAN write errors are treated as recoverable: the gs_usb adapter's echo ID
+    /// tracking can corrupt, causing EAGAIN when the kernel TX queue fills permanently.
+    /// Consecutive errors are tracked so recover_can_if_needed() can reset the socket.
     fn safe_write_frame(&self, socket: &CanSocket, frame: &socketcan::CanFrame, bus_name: &str) -> Result<()> {
         match socket.write_frame(frame) {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                // Reset consecutive error counter on success
+                self.consecutive_tx_errors.borrow_mut().insert(bus_name.to_string(), 0);
+                // Brief delay between frames to let the gs_usb adapter process the TX echo
+                std::thread::sleep(Duration::from_micros(200));
+                Ok(())
+            },
             Err(e) => {
-                // Check if this is ENOBUFS (errno 105 - "No buffer space available")
-                if let Some(105) = e.raw_os_error() {
-                    // Track dropped frames (using RefCell for interior mutability)
-                    let mut dropped = self.dropped_frames.borrow_mut();
-                    *dropped.entry(bus_name.to_string()).or_insert(0) += 1;
+                let errno = e.raw_os_error();
+                // Track consecutive errors for recovery detection
+                let consecutive = {
+                    let mut errors = self.consecutive_tx_errors.borrow_mut();
+                    let count = errors.entry(bus_name.to_string()).or_insert(0);
+                    *count += 1;
+                    *count
+                };
 
-                    // Rate-limit warnings to once per second
-                    let now = Instant::now();
-                    let should_warn = {
-                        let warnings = self.last_buffer_warning.borrow();
-                        warnings.get(bus_name)
-                            .map(|last| now.duration_since(*last) >= Duration::from_secs(1))
-                            .unwrap_or(true)
-                    };
+                // Track total dropped frames
+                let mut dropped = self.dropped_frames.borrow_mut();
+                *dropped.entry(bus_name.to_string()).or_insert(0) += 1;
 
-                    if should_warn {
-                        let dropped_count = *dropped.get(bus_name).unwrap_or(&0);
-                        warn!("CAN {} TX buffer full - frame dropped (total dropped: {})", bus_name, dropped_count);
-                        self.last_buffer_warning.borrow_mut().insert(bus_name.to_string(), now);
+                // Rate-limit warnings to once per second
+                let now = Instant::now();
+                let should_warn = {
+                    let warnings = self.last_buffer_warning.borrow();
+                    warnings.get(bus_name)
+                        .map(|last| now.duration_since(*last) >= Duration::from_secs(1))
+                        .unwrap_or(true)
+                };
+
+                if should_warn {
+                    let dropped_count = *dropped.get(bus_name).unwrap_or(&0);
+                    warn!("CAN {} TX error (errno {:?}, consecutive: {}) - frame dropped (total: {})",
+                          bus_name, errno, consecutive, dropped_count);
+                    self.last_buffer_warning.borrow_mut().insert(bus_name.to_string(), now);
+                }
+
+                std::thread::sleep(Duration::from_micros(500));
+                Ok(())
+            }
+        }
+    }
+
+    /// Recover CAN sockets stuck with consecutive TX errors.
+    /// The gs_usb USB-CAN adapter echo ID tracking can corrupt, filling the kernel TX
+    /// queue permanently (EAGAIN). Closing and reopening the socket flushes stale TX URBs.
+    fn recover_can_if_needed(&mut self) {
+        const RECOVERY_THRESHOLD: u32 = 50;
+
+        let buses_to_recover: Vec<String> = {
+            let errors = self.consecutive_tx_errors.borrow();
+            errors.iter()
+                .filter(|(_, &count)| count >= RECOVERY_THRESHOLD)
+                .map(|(bus, _)| bus.clone())
+                .collect()
+        };
+
+        for bus_name in buses_to_recover {
+            if let Some(interface_name) = self.can_interfaces.get(&bus_name) {
+                warn!("CAN {} stuck ({} consecutive TX errors), recovering socket...",
+                      bus_name, RECOVERY_THRESHOLD);
+
+                // Drop old socket (closes fd, frees kernel TX URBs)
+                self.can_sockets.remove(&bus_name);
+
+                match CanSocket::open(interface_name) {
+                    Ok(socket) => {
+                        if let Err(e) = socket.set_nonblocking(true) {
+                            error!("Failed to set recovered socket {} to non-blocking: {}", bus_name, e);
+                            continue;
+                        }
+                        self.can_sockets.insert(bus_name.clone(), socket);
+                        self.consecutive_tx_errors.borrow_mut().insert(bus_name.clone(), 0);
+                        info!("CAN {} socket recovered successfully", bus_name);
                     }
-
-                    // Don't crash - just skip this frame
-                    Ok(())
-                } else {
-                    // Other errors should still be propagated
-                    Err(e).with_context(|| format!("Failed to write CAN frame on {}", bus_name))
+                    Err(e) => {
+                        error!("Failed to reopen CAN socket {}: {}", bus_name, e);
+                    }
                 }
             }
         }
@@ -691,13 +749,11 @@ impl ControlSystem {
         Ok(())
     }
 
-    fn send_control_commands(&mut self) -> Result<()> {
-        self.control_tick += 1;
-
-        // Send control commands to arm motors
+    /// Send control commands to arm motors only (called at arm_frequency, e.g. 1kHz)
+    fn send_arm_commands(&mut self) -> Result<()> {
         for motor in &self.arm_group.motors {
             if motor.state == MotorState::Running {
-                let bus_name = motor.config.can_bus.clone(); // Clone to avoid borrow conflict
+                let bus_name = motor.config.can_bus.clone();
                 if let Some(socket) = self.get_can_socket_by_bus(&bus_name) {
                     let frame = robstride::build_control_frame(
                         motor.config.can_id,
@@ -712,6 +768,12 @@ impl ControlSystem {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Send control commands to base motors only (called at base_frequency, e.g. 100Hz)
+    fn send_base_commands(&mut self) -> Result<()> {
+        self.control_tick += 1;
 
         // Send velocity commands to base motors (pure velocity control)
         // Uses Kp=0 so position is ignored — avoids position wrapping at ±4π
@@ -719,7 +781,7 @@ impl ControlSystem {
         // With Kp=0: torque = Kd * (target_vel - actual_vel)
         for motor in &self.base_group.motors {
             if motor.state == MotorState::Enabled || motor.state == MotorState::Running {
-                let bus_name = motor.config.can_bus.clone(); // Clone to avoid borrow conflict
+                let bus_name = motor.config.can_bus.clone();
                 if let Some(socket) = self.get_can_socket_by_bus(&bus_name) {
                     let fb_pos = motor.feedback.as_ref().map(|f| f.position).unwrap_or(0.0);
                     let frame = robstride::build_control_frame(
@@ -733,7 +795,7 @@ impl ControlSystem {
                     );
                     self.safe_write_frame(socket, &frame, &bus_name)?;
 
-                    if self.control_tick % 500 == 0 && motor.state == MotorState::Running {
+                    if self.control_tick % 50 == 0 && motor.state == MotorState::Running {
                         info!("  RUN {}: tgt_vel={:.3} fb_vel={:.3} fb_pos={:.3}",
                               motor.config.id, motor.target_velocity,
                               motor.feedback.as_ref().map(|f| f.velocity).unwrap_or(-999.0), fb_pos);
@@ -744,9 +806,8 @@ impl ControlSystem {
 
         // Request battery voltage (VBUS) periodically (10Hz = every 100ms)
         if self.last_vbus_request.elapsed() >= Duration::from_millis(100) {
-            // Request VBUS from first base motor (typically a wheel motor)
             if let Some(motor) = self.base_group.motors.first() {
-                let bus_name = motor.config.can_bus.clone(); // Clone to avoid borrow conflict
+                let bus_name = motor.config.can_bus.clone();
                 let can_id = motor.config.can_id;
                 let motor_id = motor.config.id.clone();
                 if let Some(socket) = self.get_can_socket_by_bus(&bus_name) {
@@ -991,12 +1052,12 @@ async fn main() -> Result<()> {
         }
         tokio::select! {
             _ = arm_interval.tick() => {
-                // Arm control loop (1 kHz)
+                // Arm control loop (1 kHz) - arm motors only
                 if let Err(e) = system.read_feedback() {
                     error!("Failed to read feedback: {}", e);
                 }
-                if let Err(e) = system.send_control_commands() {
-                    error!("Failed to send control commands: {}", e);
+                if let Err(e) = system.send_arm_commands() {
+                    error!("Failed to send arm commands: {}", e);
                 }
                 system.check_safety();
 
@@ -1008,17 +1069,18 @@ async fn main() -> Result<()> {
                             error!("Failed to handle command: {}", e);
                         }
                     }
-                    Ok(None) => {
-                        // No command available (normal - timeout)
-                    }
+                    Ok(None) => {}
                     Err(e) => {
                         error!("Failed to receive command: {}", e);
                     }
                 }
             }
             _ = base_interval.tick() => {
-                // Base control loop (100 Hz)
-                // Feedback is already read in arm loop
+                // Base control loop (100 Hz) - base motors only
+                if let Err(e) = system.send_base_commands() {
+                    error!("Failed to send base commands: {}", e);
+                }
+                system.recover_can_if_needed();
             }
             _ = telemetry_interval.tick() => {
                 // Telemetry publishing (50 Hz)

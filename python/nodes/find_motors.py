@@ -25,7 +25,7 @@ def scan_motors(interface='can0', timeout=5.0):
     print()
 
     try:
-        bus = can.interface.Bus(interface=interface, bustype='socketcan')
+        bus = can.Bus(interface='socketcan', channel=interface)
     except Exception as e:
         print(f"Error: Failed to open CAN interface {interface}")
         print(f"  {e}")
