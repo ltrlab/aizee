@@ -88,6 +88,8 @@ class InputState:
         self.gantry_base = 0.0
         self.gantry_mid = 0.0
         self.gantry_end = 0.0
+        self.gantry_base_rate = 0.0      # Right stick Y → gantry base velocity (-1..+1)
+        self.gantry_base_rate_smooth = 0.0  # Smoothed version for output
         self.gantry_initialized = False  # Set true after reading from telemetry
         self.gantry_homed = False        # Set true after countdown completes
         self.gantry_countdown = 0.0      # Countdown timer (seconds remaining)
@@ -223,12 +225,16 @@ def read_gamepad(joystick, cfg, state):
     raw_swivel = joystick.get_axis(axes["right_stick_x"])
     if invert.get("right_stick_x", False):
         raw_swivel = -raw_swivel
+    raw_ry = joystick.get_axis(axes["right_stick_y"])
+    if invert.get("right_stick_y", False):
+        raw_ry = -raw_ry
 
     # Store raw values for display
     state.gamepad_axes = {
         "left_stick_x": raw_x,
         "left_stick_y": raw_y,
         "right_stick_x": raw_swivel,
+        "right_stick_y": raw_ry,
     }
 
     # Y-axis (forward/back) mapped to angular (makes robot turn)
@@ -244,6 +250,11 @@ def read_gamepad(joystick, cfg, state):
     state.swivel = apply_curve(
         apply_deadzone(raw_swivel, deadzone),
         cfg["drive"]["angular_exponent"],  # Use same exponent as angular
+    )
+    # Right stick Y → gantry base velocity
+    state.gantry_base_rate = apply_curve(
+        apply_deadzone(raw_ry, deadzone),
+        cfg["drive"]["linear_exponent"],
     )
 
     # --- buttons (one-shot on press) ---
@@ -938,8 +949,9 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
     # --- gantry control (incremental position adjustments) ----------------
     gantry_changed = False
     if "gantry" in cfg:
-        # Continuously update displayed positions from telemetry (even before homing)
-        if comms.last_telemetry and "motors" in comms.last_telemetry:
+        # Update positions from telemetry only before homing
+        # Once homed, teleop owns the target positions
+        if not state.gantry_homed and comms.last_telemetry and "motors" in comms.last_telemetry:
             motors = comms.last_telemetry["motors"]
             if "gantry_base" in motors and motors["gantry_base"]:
                 state.gantry_base = motors["gantry_base"].get("position", state.gantry_base)
@@ -948,41 +960,40 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
             if "gantry_end" in motors and motors["gantry_end"]:
                 state.gantry_end = motors["gantry_end"].get("position", state.gantry_end)
 
-        # Handle home command - Start 5-second countdown
+        # Handle home command - lock current positions and enable control
         if state.gantry_home:
             if comms.last_telemetry and "motors" in comms.last_telemetry:
                 motors = comms.last_telemetry["motors"]
-                # Verify all gantry motors have valid telemetry before homing
-                has_base = "gantry_base" in motors and motors["gantry_base"] and motors["gantry_base"].get("state") != "disabled"
-                has_mid = "gantry_mid" in motors and motors["gantry_mid"] and motors["gantry_mid"].get("state") != "disabled"
-                has_end = "gantry_end" in motors and motors["gantry_end"] and motors["gantry_end"].get("state") != "disabled"
+                # Check which gantry motors have valid telemetry
+                gantry_motor_ids = cfg["motors"].get("gantry", [])
+                has_any = False
+                for mid in gantry_motor_ids:
+                    if mid in motors and motors[mid] and motors[mid].get("state") != "disabled":
+                        has_any = True
+                        break
 
-                if has_base and has_mid and has_end:
-                    # Read CURRENT positions and start countdown
-                    state.gantry_base = motors["gantry_base"].get("position", 0.0)
-                    state.gantry_mid = motors["gantry_mid"].get("position", 0.0)
-                    state.gantry_end = motors["gantry_end"].get("position", 0.0)
+                if has_any:
+                    # Read current positions for all available gantry motors
+                    if "gantry_base" in motors and motors["gantry_base"]:
+                        state.gantry_base = motors["gantry_base"].get("position", 0.0)
+                    if "gantry_mid" in motors and motors["gantry_mid"]:
+                        state.gantry_mid = motors["gantry_mid"].get("position", 0.0)
+                    if "gantry_end" in motors and motors["gantry_end"]:
+                        state.gantry_end = motors["gantry_end"].get("position", 0.0)
                     state.gantry_initialized = True
-                    state.gantry_countdown = 5.0  # Start 5-second countdown
-                    logger.info(f"Gantry home positions locked: base={state.gantry_base:.3f}, mid={state.gantry_mid:.3f}, end={state.gantry_end:.3f}")
-                    logger.info("Starting 5-second countdown before enabling control...")
+                    state.gantry_homed = True
+                    logger.info(f"Gantry homed: base={state.gantry_base:.3f}, mid={state.gantry_mid:.3f}, end={state.gantry_end:.3f}")
                 else:
-                    logger.warning("Cannot home gantry - motors not enabled or no valid telemetry")
+                    logger.warning("Cannot home gantry - no gantry motors enabled or no valid telemetry")
             state.gantry_home = False
-
-        # Update countdown timer (decrement by actual elapsed time)
-        if state.gantry_countdown > 0:
-            state.gantry_countdown -= dt
-            if state.gantry_countdown <= 0:
-                state.gantry_countdown = 0
-                state.gantry_homed = True
-                logger.info("Gantry control ENABLED - you can now use keys 1-6")
 
         # Send arm_joints commands continuously to keep motors alive (even before homing)
         # This prevents the motors from timing out and faulting
         if hasattr(comms, 'send_arm_joints'):
+            max_vel = cfg["gantry"]["max_velocity"]
+            base_vel = state.gantry_base_rate_smooth * max_vel
             positions = [state.gantry_base, state.gantry_mid, state.gantry_end]
-            velocities = [0.0, 0.0, 0.0]
+            velocities = [base_vel, 0.0, 0.0]
             comms.send_arm_joints(positions, velocities,
                                 cfg["gantry"]["kp"],
                                 cfg["gantry"]["kd"])
@@ -990,6 +1001,24 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
         # Only allow gantry movement after homing
         if state.gantry_homed:
             increment = cfg["gantry"]["increment"]
+            max_vel = cfg["gantry"]["max_velocity"]
+
+            # Right joystick Y → gantry base continuous velocity control
+            # Smooth the rate with asymmetric ramp (fast accel, smooth decel)
+            accel = 8.0  # rate/sec — how fast stick input takes effect
+            decel = 4.0  # rate/sec — how smoothly it stops
+            diff = state.gantry_base_rate - state.gantry_base_rate_smooth
+            is_accel = abs(state.gantry_base_rate) > abs(state.gantry_base_rate_smooth)
+            rate = accel if is_accel else decel
+            max_change = rate * dt
+            if abs(diff) <= max_change:
+                state.gantry_base_rate_smooth = state.gantry_base_rate
+            else:
+                state.gantry_base_rate_smooth += max_change if diff > 0 else -max_change
+
+            if abs(state.gantry_base_rate_smooth) > 0.01:
+                state.gantry_base += state.gantry_base_rate_smooth * max_vel * dt
+                gantry_changed = True
 
             if state.gantry_base_dec:
                 state.gantry_base -= increment
@@ -1017,6 +1046,12 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
                 state.gantry_end += increment
                 state.gantry_end_inc = False
                 gantry_changed = True
+
+            # Clamp positions to soft limits (matches motor_control config)
+            pos_limit = 3.14159
+            state.gantry_base = max(-pos_limit, min(pos_limit, state.gantry_base))
+            state.gantry_mid = max(-pos_limit, min(pos_limit, state.gantry_mid))
+            state.gantry_end = max(-pos_limit, min(pos_limit, state.gantry_end))
         else:
             # Consume gantry key presses but don't move (not homed yet)
             state.gantry_base_dec = False
@@ -1142,11 +1177,7 @@ def draw_ui(stdscr, state, comms, cfg, start_time, last_row_count=None):
             f"  GANTRY: base={state.gantry_base:+7.3f} rad   "
             f"mid={state.gantry_mid:+7.3f} rad   end={state.gantry_end:+7.3f} rad"
         )
-        if state.gantry_countdown > 0:
-            # Countdown in progress
-            gantry_line += f"  [ENABLING IN {state.gantry_countdown:.1f}s...]"
-            safe_addstr(stdscr, row, 0, gantry_line, curses.A_BOLD | curses.color_pair(3), clear_line=True)
-        elif not state.gantry_homed:
+        if not state.gantry_homed:
             # Not homed yet
             gantry_line += "  [NOT HOMED - Press H to home]"
             safe_addstr(stdscr, row, 0, gantry_line, curses.A_REVERSE, clear_line=True)
@@ -1166,7 +1197,8 @@ def draw_ui(stdscr, state, comms, cfg, start_time, last_row_count=None):
             stdscr, row, 0,
             f"  Axes:  LX={state.gamepad_axes.get('left_stick_x', 0.0):+5.2f}  "
             f"LY={state.gamepad_axes.get('left_stick_y', 0.0):+5.2f}  "
-            f"RX={state.gamepad_axes.get('right_stick_x', 0.0):+5.2f}",
+            f"RX={state.gamepad_axes.get('right_stick_x', 0.0):+5.2f}  "
+            f"RY={state.gamepad_axes.get('right_stick_y', 0.0):+5.2f}",
             clear_line=True
         )
         row += 1
@@ -1188,7 +1220,7 @@ def draw_ui(stdscr, state, comms, cfg, start_time, last_row_count=None):
         row += 1
         safe_addstr(stdscr, row, 0, "    Left Stick Y → Forward/Back  |  Left Stick X → Turn", clear_line=True)
         row += 1
-        safe_addstr(stdscr, row, 0, "    Right Stick X → Swivel", clear_line=True)
+        safe_addstr(stdscr, row, 0, "    Right Stick X → Swivel  |  Right Stick Y → Gantry Base", clear_line=True)
         row += 1
         safe_addstr(stdscr, row, 0, "    A=Enable  B=Disable  Back=ESTOP  Start=Clear Faults", clear_line=True)
         row += 2

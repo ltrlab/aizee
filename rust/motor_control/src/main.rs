@@ -627,9 +627,9 @@ impl ControlSystem {
                 kd,
             } => {
                 let num_arm_motors = self.arm_group.motors.len();
-                if positions.len() != num_arm_motors {
+                if positions.len() < num_arm_motors {
                     return Err(anyhow::anyhow!(
-                        "Expected {} positions, got {}",
+                        "Expected at least {} positions, got {}",
                         num_arm_motors,
                         positions.len()
                     ));
