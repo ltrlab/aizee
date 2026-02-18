@@ -84,14 +84,18 @@ class InputState:
         self.angular = 0.0
         self.swivel = 0.0
 
-        # Gantry joint positions (absolute, in radians)
+        # Gantry joint positions (relative to home, in radians)
         self.gantry_base = 0.0
         self.gantry_mid = 0.0
         self.gantry_end = 0.0
+        # Home offsets (absolute encoder positions when homed)
+        self.gantry_base_offset = 0.0
+        self.gantry_mid_offset = 0.0
+        self.gantry_end_offset = 0.0
         self.gantry_base_rate = 0.0      # Right stick Y → gantry base velocity (-1..+1)
         self.gantry_base_rate_smooth = 0.0  # Smoothed version for output
         self.gantry_initialized = False  # Set true after reading from telemetry
-        self.gantry_homed = False        # Set true after countdown completes
+        self.gantry_homed = False        # Set true after homing
         self.gantry_countdown = 0.0      # Countdown timer (seconds remaining)
 
         # Keyboard smoothing: target values and ramp rates
@@ -949,18 +953,39 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
     # --- gantry control (incremental position adjustments) ----------------
     gantry_changed = False
     if "gantry" in cfg:
-        # Update positions from telemetry only before homing
-        # Once homed, teleop owns the target positions
-        if not state.gantry_homed and comms.last_telemetry and "motors" in comms.last_telemetry:
+        # Auto-initialize: When motors are first enabled, read their actual positions
+        # This prevents motors from trying to move to 0,0,0 on startup
+        if not state.gantry_initialized and comms.last_telemetry and "motors" in comms.last_telemetry:
             motors = comms.last_telemetry["motors"]
-            if "gantry_base" in motors and motors["gantry_base"]:
-                state.gantry_base = motors["gantry_base"].get("position", state.gantry_base)
-            if "gantry_mid" in motors and motors["gantry_mid"]:
-                state.gantry_mid = motors["gantry_mid"].get("position", state.gantry_mid)
-            if "gantry_end" in motors and motors["gantry_end"]:
-                state.gantry_end = motors["gantry_end"].get("position", state.gantry_end)
+            gantry_motor_ids = cfg["motors"].get("gantry", [])
 
-        # Handle home command - lock current positions and enable control
+            # Check if any gantry motors are enabled and have valid telemetry
+            has_any_enabled = False
+            for mid in gantry_motor_ids:
+                if mid in motors and motors[mid]:
+                    motor_state = motors[mid].get("state", "disabled")
+                    if motor_state == "running" or motor_state == "enabled":
+                        has_any_enabled = True
+                        break
+
+            if has_any_enabled:
+                # Initialize home offsets to current absolute positions
+                # Relative positions start at 0.0
+                if "gantry_base" in motors and motors["gantry_base"]:
+                    state.gantry_base_offset = motors["gantry_base"].get("position", 0.0)
+                    state.gantry_base = 0.0
+                if "gantry_mid" in motors and motors["gantry_mid"]:
+                    state.gantry_mid_offset = motors["gantry_mid"].get("position", 0.0)
+                    state.gantry_mid = 0.0
+                if "gantry_end" in motors and motors["gantry_end"]:
+                    state.gantry_end_offset = motors["gantry_end"].get("position", 0.0)
+                    state.gantry_end = 0.0
+                state.gantry_initialized = True
+                state.gantry_homed = True  # Auto-homed on first enable
+                logger.info(f"Gantry auto-homed at encoder positions: base={state.gantry_base_offset:.3f}, mid={state.gantry_mid_offset:.3f}, end={state.gantry_end_offset:.3f}")
+                logger.info(f"Relative positions: base={state.gantry_base:.3f}, mid={state.gantry_mid:.3f}, end={state.gantry_end:.3f}")
+
+        # Handle home command - re-zero at current position
         if state.gantry_home:
             if comms.last_telemetry and "motors" in comms.last_telemetry:
                 motors = comms.last_telemetry["motors"]
@@ -973,35 +998,49 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
                         break
 
                 if has_any:
-                    # Read current positions for all available gantry motors
+                    # Re-home: update offsets to current absolute positions, reset relative to 0
                     if "gantry_base" in motors and motors["gantry_base"]:
-                        state.gantry_base = motors["gantry_base"].get("position", 0.0)
+                        abs_pos = motors["gantry_base"].get("position", state.gantry_base_offset)
+                        # New offset = old offset + relative position
+                        state.gantry_base_offset = state.gantry_base_offset + state.gantry_base
+                        state.gantry_base = 0.0
                     if "gantry_mid" in motors and motors["gantry_mid"]:
-                        state.gantry_mid = motors["gantry_mid"].get("position", 0.0)
+                        abs_pos = motors["gantry_mid"].get("position", state.gantry_mid_offset)
+                        state.gantry_mid_offset = state.gantry_mid_offset + state.gantry_mid
+                        state.gantry_mid = 0.0
                     if "gantry_end" in motors and motors["gantry_end"]:
-                        state.gantry_end = motors["gantry_end"].get("position", 0.0)
+                        abs_pos = motors["gantry_end"].get("position", state.gantry_end_offset)
+                        state.gantry_end_offset = state.gantry_end_offset + state.gantry_end
+                        state.gantry_end = 0.0
                     state.gantry_initialized = True
                     state.gantry_homed = True
                     # Reset smoothed rate when homing to avoid drift
                     state.gantry_base_rate_smooth = 0.0
-                    logger.info(f"Gantry homed: base={state.gantry_base:.3f}, mid={state.gantry_mid:.3f}, end={state.gantry_end:.3f}")
+                    logger.info(f"Gantry re-homed at encoder positions: base={state.gantry_base_offset:.3f}, mid={state.gantry_mid_offset:.3f}, end={state.gantry_end_offset:.3f}")
+                    logger.info(f"Relative positions reset to: base={state.gantry_base:.3f}, mid={state.gantry_mid:.3f}, end={state.gantry_end:.3f}")
                 else:
                     logger.warning("Cannot home gantry - no gantry motors enabled or no valid telemetry")
             state.gantry_home = False
 
-        # Send arm_joints commands continuously to keep motors alive (even before homing)
-        # This prevents the motors from timing out and faulting
-        if hasattr(comms, 'send_arm_joints'):
+        # Send arm_joints commands continuously to keep motors alive
+        # Only send after initialization to prevent motors from moving to 0,0,0 on startup
+        # Send absolute positions (relative + offset) to motors
+        if state.gantry_initialized and hasattr(comms, 'send_arm_joints'):
             max_vel = cfg["gantry"]["max_velocity"]
             base_vel = state.gantry_base_rate_smooth * max_vel
-            positions = [state.gantry_base, state.gantry_mid, state.gantry_end]
+            # Convert relative positions to absolute by adding home offsets
+            abs_base = state.gantry_base + state.gantry_base_offset
+            abs_mid = state.gantry_mid + state.gantry_mid_offset
+            abs_end = state.gantry_end + state.gantry_end_offset
+            positions = [abs_base, abs_mid, abs_end]
             velocities = [base_vel, 0.0, 0.0]
             comms.send_arm_joints(positions, velocities,
                                 cfg["gantry"]["kp"],
                                 cfg["gantry"]["kd"])
 
-        # Only allow gantry movement after homing
-        if state.gantry_homed:
+        # Allow gantry movement after initialization (auto-init or explicit homing)
+        # Homing (H key) is optional - just confirms current position as reference
+        if state.gantry_initialized:
             increment = cfg["gantry"]["increment"]
             max_vel = cfg["gantry"]["max_velocity"]
 
@@ -1049,13 +1088,15 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
                 state.gantry_end_inc = False
                 gantry_changed = True
 
-            # Clamp positions to soft limits (matches motor_control config)
-            pos_limit = 3.14159
-            state.gantry_base = max(-pos_limit, min(pos_limit, state.gantry_base))
-            state.gantry_mid = max(-pos_limit, min(pos_limit, state.gantry_mid))
-            state.gantry_end = max(-pos_limit, min(pos_limit, state.gantry_end))
+            # Clamp relative positions to ±π from home
+            # This allows ±180° of travel from wherever the motors were homed
+            if gantry_changed:
+                pos_limit = 3.14159
+                state.gantry_base = max(-pos_limit, min(pos_limit, state.gantry_base))
+                state.gantry_mid = max(-pos_limit, min(pos_limit, state.gantry_mid))
+                state.gantry_end = max(-pos_limit, min(pos_limit, state.gantry_end))
         else:
-            # Consume gantry key presses but don't move (not homed yet)
+            # Consume gantry key presses but don't move (not initialized yet)
             state.gantry_base_dec = False
             state.gantry_base_inc = False
             state.gantry_mid_dec = False

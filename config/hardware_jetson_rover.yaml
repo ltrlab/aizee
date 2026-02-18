@@ -28,28 +28,30 @@ motors:
     max_torque: 6.0
 
   # Gantry arm - 3DoF
+  # Wide limits to accommodate any startup encoder position ± π range
+  # Teleop enforces ±π relative to home position
   arm:
     - id: gantry_base
       can_id: 0x05
       type: ROBSTRIDE04
-      min_position: -3.14159  # rad (-180°)
-      max_position: 3.14159   # rad (+180°)
+      min_position: -20.0  # ~6 full rotations negative
+      max_position: 20.0   # ~6 full rotations positive
       max_velocity: 10.0
       max_torque: 12.0
 
     - id: gantry_mid
       can_id: 0x06
       type: ROBSTRIDE03
-      min_position: -3.14159
-      max_position: 3.14159
+      min_position: -20.0
+      max_position: 20.0
       max_velocity: 5.0
       max_torque: 6.0
 
     - id: gantry_end
       can_id: 0x07
       type: ROBSTRIDE02
-      min_position: -3.14159
-      max_position: 3.14159
+      min_position: -20.0
+      max_position: 20.0
       max_velocity: 10.0
       max_torque: 4.0
 
