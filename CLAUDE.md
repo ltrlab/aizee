@@ -5,22 +5,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 AIZEE is a modular mobile manipulation robotics platform featuring:
-- **6 ROBSTRIDE motors** (CAN bus): 3 for the wheeled base (2 drive wheels + 1 swivel), 3 for the arm
-- **NVIDIA Jetson Orin Nano**: Rover module controller (base motors)
-- **Raspberry Pi 4 (Arm)**: Arm module controller (arm motors)
+- **6 ROBSTRIDE motors** (CAN bus): 3 for the wheeled base (2 drive wheels + 1 swivel), 3 for the gantry arm (3DoF)
+- **NVIDIA Jetson Orin Nano**: Main controller running all 6 motors on can1
 - **4× Raspberry Pi 4**: Camera nodes with Intel RealSense D455 RGB-D cameras
+- **2× RPLiDAR A1M8**: 360° scanning LiDAR sensors
 - **ZeroMQ**: Inter-process communication for commands and telemetry
 - **Rerun**: Real-time visualization and MCAP data logging
 
 ### Multi-Device Architecture
 
 AIZEE uses a modular architecture where each functional subsystem runs on a separate compute module:
-- **Rover Module** (Jetson 192.168.0.27): Base motors, ZMQ :5555/:5556
-- **Arm Module** (RPi4 192.168.0.28): Arm motors, ZMQ :5557/:5558
+- **Rover Module** (Jetson 192.168.0.27): All 6 motors (base + gantry arm) on can1, ZMQ :5555/:5556
+- **Arm Module** (RPi4 192.168.0.28, optional): Reserved for separate arm module if needed, ZMQ :5557/:5558
 - **Torso Module** (RPi4, future): Servo-based torso, ZMQ :5559/:5560
 
-Each module runs an independent motor_control instance with module-specific configuration.
-Unified teleop on dev machine controls all modules simultaneously.
+**Current Deployment**: All motors run on the Jetson via a single motor_control instance controlling can1.
+Alternative configurations with separate arm module are supported via multi-module configs.
 
 See `docs/MULTI_DEVICE_DEPLOYMENT.md` and `docs/QUICK_START_MULTIDEVICE.md` for deployment guides.
 
@@ -108,8 +108,10 @@ python python/test_lidar_telemetry.py    # Test LiDAR data
 - Motor control code (`rust/motor_control/`)
 - LiDAR code (`rust/lidar_control/`)
 - UPS monitoring (`python/nodes/ups_node.py`)
-- Base motor configurations (`config/hardware_jetson_rover.yaml`)
+- Motor configurations (`config/hardware_jetson_rover.yaml`) - includes all 6 motors (base + gantry)
 - Rover-specific scripts
+
+**Important**: The Jetson now controls all 6 motors (3 base + 3 gantry) on can1, so any motor control changes affect the entire system.
 
 **Deploy to RPi4 Arm (192.168.0.28)** when changing:
 - Arm motor control code
@@ -284,9 +286,9 @@ The system uses module-specific YAML configuration files:
 
 **Primary configurations** (production use):
 - `config/hardware.yaml`: Full 6-motor system reference (documentation only)
-- `config/hardware_jetson_rover.yaml`: **Rover module** (3 base motors on can1) - Used by Jetson
-- `config/hardware_rpi4_arm.yaml`: **Arm module** (3 arm motors on can0) - Used by Arm Pi
-- `config/hardware_jetson_dual_can.yaml`: Dual CAN bus setup (if using both rover and gantry on Jetson)
+- `config/hardware_jetson_rover.yaml`: **Rover module** (all 6 motors on can1: base + gantry) - Used by Jetson
+- `config/hardware_rpi4_arm.yaml`: **Arm module** (3 arm motors on can0) - Used by Arm Pi (alternative config)
+- `config/hardware_jetson_dual_can.yaml`: Dual CAN bus setup (if using both rover and gantry on separate buses)
 
 **Camera configurations** (per-node, used by camera systemd services):
 - `config/hardware_rpi4_cam_front.yaml` - Camera Pi 192.168.0.22
@@ -545,6 +547,15 @@ The Rust motor control (`rust/motor_control/src/main.rs`) implements:
    - Three motor models: Model02 (low torque), Model03 (medium), Model04 (high torque)
 
 4. **Motor groups**: Base motors and arm motors are organized into groups with different control frequencies
+   - **Base group** (100Hz): left_wheel, right_wheel, swivel - velocity commands
+   - **Arm group** (1kHz): gantry_base, gantry_mid, gantry_end - position commands with impedance control
+
+5. **Gantry arm control implementation**:
+   - MIT mode impedance control: Kp (position gain) + Kd (damping gain) for compliant manipulation
+   - Velocity feedforward: Target velocity sent alongside position for smoother tracking
+   - Position clamping: Software limits at ±π rad to prevent motor controller rejections
+   - Smooth joystick integration: Asymmetric rate smoothing (8.0 accel, 4.0 decel) for fluid operator control
+   - Re-homing: H key sets current position as zero for all gantry joints
 
 ## Key Design Patterns
 
@@ -562,6 +573,15 @@ Transitions happen via CAN enable/disable frames.
 ### Async with Deterministic Control
 Uses tokio for async I/O but maintains hard real-time control loop via `tokio::time::interval`.
 The arm control loop must maintain <1ms jitter.
+
+### Gantry Arm Control Pattern
+The gantry arm uses MIT mode impedance control with several key techniques:
+- **Position + Velocity commands**: Send both target position and velocity for smooth tracking
+- **Asymmetric smoothing**: Fast acceleration (8.0 rad/s²) for responsiveness, slow deceleration (4.0 rad/s²) for smoothness
+- **Position clamping**: Software limits prevent motor faults by clamping to ±π rad before sending commands
+- **Partial motor set support**: Homing and control work with any subset of gantry motors (base, mid, end)
+- **Telemetry coordination**: Only read telemetry before homing; after homing, teleop owns position targets
+- **Feedforward gains**: Kp controls position stiffness, Kd controls damping; tune per joint based on load
 
 ## Working with CAN Bus
 
@@ -586,16 +606,21 @@ The system uses SocketCAN on Linux with 1 Mbps bitrate.
 
 ### Tuned Control Parameters
 
-**ROBSTRIDE03 Motors** (CAN ID 0x03):
-- **Kp (position gain)**: 3.0 - Smooth motion without vibrations
-- **Kd (damping gain)**: 0.3-0.8 - Good damping, minimal oscillation
-- **Control frequency**: 50-100 Hz for smooth continuous motion
-- **Note**: Higher gains (Kp=20, Kd=2) cause significant vibrations
+**Gantry Arm Control** (3DoF arm with position control):
+- **Kp (position gains)**: [5.0, 5.0, 2.0] for [base, mid, end]
+  - Base and mid joints: Higher stiffness (5.0) for load-bearing joints
+  - End joint: Lower stiffness (2.0) for compliant end effector
+- **Kd (damping gains)**: [0.2, 0.2, 0.1] for [base, mid, end]
+  - Provides smooth motion without oscillation
+- **Control frequency**: 1000 Hz (1 kHz) for precise position tracking
+- **Velocity feedforward**: Enabled for smoother tracking with joystick control
+- **Position clamping**: ±π radians (±180°) soft limits to prevent motor faults
+- **Joystick smoothing**: Asymmetric ramping (8.0 accel, 4.0 decel) for fluid motion
 
-**ROBSTRIDE04 Motors** (CAN ID 0x02):
-- Successfully tested with sine wave and drive velocity commands
-- Responds to gentle velocity commands (linear=0.15-0.5 rad/s)
-- Zero position command working correctly
+**Base Motors** (drive wheels + swivel):
+- **Control mode**: Velocity control for differential drive
+- **Control frequency**: 100 Hz
+- **Drive limits**: 2.0 rad/s linear, 1.5 rad/s angular, 1.0 rad/s swivel
 
 **CAN Protocol Format**:
 - CAN ID format: `motor_id | (0xAA << 8) | (msg_type << 24)`
@@ -610,6 +635,17 @@ The system uses SocketCAN on Linux with 1 Mbps bitrate.
 - `~/test_both_motors_zeroed.sh`: Tests both motors via Rust motor_control + ZeroMQ
 - `~/test_individual.sh`: Tests each motor separately
 - `~/scan_all_motors.py`: Scans CAN bus for all connected motors (IDs 1-127)
+
+**Gantry Arm Testing** (February 2026):
+- Use `python/teleop/teleop.py` with full system config
+- **Initial setup**:
+  1. Enable motors with A button (gamepad) or 'a' key (keyboard)
+  2. Press H key to home all gantry joints (sets current position as zero)
+  3. Use right stick Y-axis to control gantry_base smoothly
+  4. Use keys 3/4 for gantry_mid, 5/6 for gantry_end
+- **Safety**: Motors will fault if position exceeds ±π rad soft limits
+- **Re-homing**: Press H anytime to re-zero joints at current position
+- **Tuning**: Modify kp/kd gains in `config/teleop.yaml` for different stiffness/damping
 
 **Note**: See `JETSON_TEST_REVIEW.md` for complete list of test scripts and cleanup recommendations
 
@@ -665,12 +701,15 @@ The documentation has been reorganized into clear categories. Always use current
 - **CAN ID 0x03**: ROBSTRIDE03 (test motor, mapped as "right_wheel" in config)
 - Test config: `config/hardware_two_motors.yaml`
 
-**Full System Configuration** (planned, 6 motors):
-- **CAN ID 0x01-0x02**: Drive wheels (ROBSTRIDE04, high torque)
-- **CAN ID 0x03**: Base swivel (ROBSTRIDE03)
-- **CAN ID 0x04**: Shoulder pitch (ROBSTRIDE04)
-- **CAN ID 0x05**: Elbow (ROBSTRIDE03)
-- **CAN ID 0x06**: Wrist/gripper (ROBSTRIDE02, compact)
+**Full System Configuration** (deployed on Jetson, 6 motors on can1):
+- **Base Motors** (3 motors):
+  - **CAN ID 0x02**: left_wheel (ROBSTRIDE04, high torque)
+  - **CAN ID 0x04**: right_wheel (ROBSTRIDE04, high torque)
+  - **CAN ID 0x03**: swivel (ROBSTRIDE03, base rotation)
+- **Gantry Arm** (3 motors, 3DoF):
+  - **CAN ID 0x05**: gantry_base (ROBSTRIDE04, shoulder joint)
+  - **CAN ID 0x06**: gantry_mid (ROBSTRIDE03, mid joint)
+  - **CAN ID 0x07**: gantry_end (ROBSTRIDE02, end effector)
 
 ### Network Topology
 
@@ -768,6 +807,27 @@ These issues have been resolved but are documented for awareness and to help dia
 - **Symptom**: Jerky motion when using keyboard teleop
 - **Fix**: Improved command smoothing and rate limiting
 - **Commit**: `dfd36fc Fix keyboard control smoothing in teleop`
+
+**Gantry arm integration** (Completed: February 2026):
+- **Feature**: Added complete 3DoF gantry arm with smooth joystick control
+- **Motors**: gantry_base (0x05), gantry_mid (0x06), gantry_end (0x07) on can1
+- **Controls**: Right stick Y-axis for base, keys 3/4 for mid, 5/6 for end, H key for homing
+- **Improvements**:
+  - Velocity feedforward for smooth tracking
+  - Asymmetric rate smoothing (fast accel, smooth decel)
+  - Position clamping to prevent soft limit violations
+  - Re-homing capability for zeroing joints
+  - Tuned gains: kp=[5.0, 5.0, 2.0], kd=[0.2, 0.2, 0.1]
+- **Commits**:
+  - `2cccf1a feat(gantry): add gantry_base motor and joystick control`
+  - `24fb8a1 feat(gantry): add gantry_mid and gantry_end motors to rover config`
+  - `d171fcf feat(gantry): improve tuning and re-homing UX`
+
+**CAN frame rate bug and gs_usb adapter issues** (Fixed: February 2026):
+- **Symptom**: Motor faults and communication issues with CANable USB-CAN adapter
+- **Cause**: gs_usb firmware echo ID corruption causing TX queue problems
+- **Fix**: Improved CAN buffer management and adapter recovery logic
+- **Commit**: `17cef03 fix(motor_control): fix CAN frame rate bug and add gs_usb adapter recovery`
 
 ### Emergency Recovery Procedures
 
@@ -1011,6 +1071,28 @@ Multiple teleop scripts for different testing scenarios:
 - `python/teleop/arm_teleop.py`: Arm-only control
 - `python/teleop/test_connectivity.py`: Network connectivity verification
 - `python/teleop/detailed_motor_test.py`: Per-motor diagnostic tests
+
+### Gantry Arm Controls
+
+**Joystick Controls**:
+- **Right Stick Y-axis**: Gantry base velocity control (smooth with feedforward)
+  - Up: Move base forward
+  - Down: Move base backward
+  - Smooth ramping: 8.0 rad/s² acceleration, 4.0 rad/s² deceleration
+
+**Keyboard Controls**:
+- **Keys 3/4**: Gantry mid joint position control (increment/decrement)
+- **Keys 5/6**: Gantry end joint position control (increment/decrement)
+- **H Key**: Home all gantry joints (set current position as zero, can be used anytime)
+- **A Button**: Enable all motors (including gantry)
+- **B Button**: Disable all motors
+- **Back Button**: Emergency stop
+- **Start Button**: Clear emergency stop and motor faults
+
+**Control Parameters** (configured in `config/teleop.yaml`):
+- Gantry increment: 0.02 rad per key press (safe tuning increment)
+- Max velocity: 1.0 rad/s per joint
+- Position limits: ±3.14159 rad (±180°) with clamping
 
 ## Git Workflow
 
