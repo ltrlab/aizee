@@ -338,6 +338,7 @@ mod tests {
         let config = MotorConfig {
             id: "test_motor".to_string(),
             can_id: 1,
+            can_bus: "can1".to_string(),
             model: MotorModel::Model03,
             min_position: Some(-1.57),
             max_position: Some(1.57),

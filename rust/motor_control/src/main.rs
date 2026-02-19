@@ -551,6 +551,24 @@ impl ControlSystem {
                 motor.target_position = confirmed_position;
                 motor.target_velocity = 0.0;
                 motor.position_initialized = true; // Prevent re-init from stale feedback
+                // Populate synthetic feedback so this motor appears in telemetry immediately.
+                // enable_motor() reads CAN frames directly without calling update_feedback(),
+                // leaving motor.feedback = None. publish_telemetry() skips motors with no
+                // feedback, so the motor is invisible to teleop. For the swivel this creates
+                // a circular dependency: teleop only sends Swivel commands after seeing the
+                // motor as "enabled" in telemetry, but it never appears without feedback.
+                if enabled {
+                    motor.feedback = Some(robstride::MotorFeedback {
+                        motor_id: can_id,
+                        mode: robstride::MotorMode::Run,
+                        position: confirmed_position,
+                        velocity: 0.0,
+                        torque: 0.0,
+                        temperature: 0.0,
+                        error: robstride::MotorError::from_bits(0),
+                        timestamp: std::time::Instant::now(),
+                    });
+                }
                 info!("Motor {} state set to {:?}, target_pos={:.3}", motor_id, motor.state, confirmed_position);
             }
             Ok(())
@@ -596,28 +614,43 @@ impl ControlSystem {
         }
 
         match cmd {
-            CommandMessage::Drive { linear, angular, swivel } => {
-                // Differential drive for two wheels
+            CommandMessage::Drive { linear, angular, kp, kd } => {
+                // Differential drive for two wheels only (swivel handled separately)
                 // Negate both to match controller direction
                 let linear = -linear;
                 let angular = -angular;
                 let left_vel = linear - angular;
                 let right_vel = linear + angular;
 
+                // Default gains if not provided (backwards compatibility)
+                let drive_kp = if kp == 0.0 && kd == 0.0 { 0.0 } else { kp };
+                let drive_kd = if kp == 0.0 && kd == 0.0 { 3.0 } else { kd };
+
                 if let Some(left_motor) = self.base_group.motors.first_mut() {
-                    info!("Setting {} velocity to {:.3} rad/s", left_motor.config.id, left_vel);
+                    info!("Setting {} velocity to {:.3} rad/s (Kp={:.1}, Kd={:.1})",
+                          left_motor.config.id, left_vel, drive_kp, drive_kd);
                     left_motor.set_velocity_target(left_vel)?;
+                    left_motor.kp = drive_kp;
+                    left_motor.kd = drive_kd;
                 }
                 if let Some(right_motor) = self.base_group.motors.get_mut(1) {
-                    info!("Setting {} velocity to {:.3} rad/s", right_motor.config.id, right_vel);
+                    info!("Setting {} velocity to {:.3} rad/s (Kp={:.1}, Kd={:.1})",
+                          right_motor.config.id, right_vel, drive_kp, drive_kd);
                     right_motor.set_velocity_target(right_vel)?;
+                    right_motor.kp = drive_kp;
+                    right_motor.kd = drive_kd;
                 }
-                // Swivel (third motor in base group, if present)
+            }
+            CommandMessage::Swivel { position, kp, kd } => {
+                // Swivel uses position control (third motor in base group)
+                // Default gains if not provided
+                let swivel_kp = if kp == 0.0 && kd == 0.0 { 5.0 } else { kp };
+                let swivel_kd = if kp == 0.0 && kd == 0.0 { 0.5 } else { kd };
+
                 if let Some(swivel_motor) = self.base_group.motors.get_mut(2) {
-                    if swivel != 0.0 {
-                        info!("Setting {} velocity to {:.3} rad/s", swivel_motor.config.id, swivel);
-                    }
-                    swivel_motor.set_velocity_target(swivel)?;
+                    info!("Setting {} position to {:.3} rad (Kp={:.1}, Kd={:.1})",
+                          swivel_motor.config.id, position, swivel_kp, swivel_kd);
+                    swivel_motor.set_position_target(position, 0.0, swivel_kp, swivel_kd)?;
                 }
             }
             CommandMessage::ArmJoints {
@@ -775,32 +808,71 @@ impl ControlSystem {
     fn send_base_commands(&mut self) -> Result<()> {
         self.control_tick += 1;
 
-        // Send velocity commands to base motors (pure velocity control)
-        // Uses Kp=0 so position is ignored — avoids position wrapping at ±4π
-        // ROBSTRIDE control law: torque = Kp*(pos_err) + Kd*(vel_err) + ff
-        // With Kp=0: torque = Kd * (target_vel - actual_vel)
-        for motor in &self.base_group.motors {
+        // Send commands to base motors
+        // First 2 motors (left/right wheels): velocity control
+        // Third motor (swivel): position control
+        for (idx, motor) in self.base_group.motors.iter().enumerate() {
             if motor.state == MotorState::Enabled || motor.state == MotorState::Running {
                 let bus_name = motor.config.can_bus.clone();
                 if let Some(socket) = self.get_can_socket_by_bus(&bus_name) {
                     let fb_pos = motor.feedback.as_ref().map(|f| f.position).unwrap_or(0.0);
-                    let frame = robstride::build_control_frame(
-                        motor.config.can_id,
-                        motor.config.model,
-                        fb_pos,                  // Echo feedback position (ignored with Kp=0)
-                        motor.target_velocity,   // Velocity target
-                        0.0,                     // Kp=0: no position tracking, no wrapping issues
-                        3.0,                     // Kd=3.0: velocity tracking gain
-                        0.0,                     // No feedforward torque
-                    );
+
+                    let frame = if idx < 2 {
+                        // Drive wheels: velocity control
+                        // Kp=0 for pure velocity control (avoids position wrapping at ±4π)
+                        // ROBSTRIDE control law: torque = Kp*(pos_err) + Kd*(vel_err) + ff
+                        robstride::build_control_frame(
+                            motor.config.can_id,
+                            motor.config.model,
+                            fb_pos,                  // Echo feedback position (ignored with Kp=0)
+                            motor.target_velocity,   // Velocity target
+                            motor.kp,                // Tunable position gain (default 0.0)
+                            motor.kd,                // Tunable velocity tracking gain (default 3.0)
+                            0.0,                     // No feedforward torque
+                        )
+                    } else {
+                        // Swivel: position control
+                        robstride::build_control_frame(
+                            motor.config.can_id,
+                            motor.config.model,
+                            motor.target_position,   // Position target
+                            0.0,                     // Velocity target (not used)
+                            motor.kp,                // Position gain (default 5.0)
+                            motor.kd,                // Damping gain (default 0.5)
+                            0.0,                     // No feedforward torque
+                        )
+                    };
+
                     self.safe_write_frame(socket, &frame, &bus_name)?;
 
                     if self.control_tick % 50 == 0 && motor.state == MotorState::Running {
-                        info!("  RUN {}: tgt_vel={:.3} fb_vel={:.3} fb_pos={:.3}",
-                              motor.config.id, motor.target_velocity,
-                              motor.feedback.as_ref().map(|f| f.velocity).unwrap_or(-999.0), fb_pos);
+                        if idx < 2 {
+                            info!("  RUN {}: tgt_vel={:.3} fb_vel={:.3} fb_pos={:.3} Kp={:.1} Kd={:.1}",
+                                  motor.config.id, motor.target_velocity,
+                                  motor.feedback.as_ref().map(|f| f.velocity).unwrap_or(-999.0), fb_pos,
+                                  motor.kp, motor.kd);
+                        } else {
+                            info!("  RUN {}: tgt_pos={:.3} fb_pos={:.3} Kp={:.1} Kd={:.1}",
+                                  motor.config.id, motor.target_position, fb_pos,
+                                  motor.kp, motor.kd);
+                        }
                     }
                 }
+            }
+        }
+
+        // Auto-transition base motors from Enabled → Running once commands are flowing.
+        // Wheel motors reach Running via set_velocity_target() on the first Drive command.
+        // The swivel depends on a Swivel command from teleop, which is gated on
+        // swivel_initialized, which requires the motor to appear in telemetry — a circular
+        // dependency broken by the synthetic feedback in enable_motor(). This transition
+        // handles any remaining case where a base motor hasn't yet received an explicit
+        // command (e.g. no teleop connected, or swivel command still in flight).
+        for motor in &mut self.base_group.motors {
+            if motor.state == MotorState::Enabled {
+                motor.state = MotorState::Running;
+                motor.last_command_time = Instant::now();
+                info!("Motor {} auto-transitioned Enabled → Running", motor.config.id);
             }
         }
 

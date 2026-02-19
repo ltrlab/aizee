@@ -13,9 +13,14 @@ echo "Target: $TARGET"
 echo "Remote directory: ~/$REMOTE_DIR"
 echo ""
 
-# Check if target is reachable
+# Check if target is reachable (cross-platform: Windows uses -n/-w, Linux uses -c/-W)
 HOST=$(echo $TARGET | cut -d'@' -f2)
-if ! ping -c 1 -W 2 "$HOST" > /dev/null 2>&1; then
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OS" == "Windows_NT" ]]; then
+    PING_OK=$(ping -n 1 -w 2000 "$HOST" 2>&1 | grep -c "TTL=")
+else
+    PING_OK=$(ping -c 1 -W 2 "$HOST" > /dev/null 2>&1 && echo 1 || echo 0)
+fi
+if [[ "$PING_OK" == "0" ]]; then
     echo "ERROR: Cannot reach $HOST"
     exit 1
 fi

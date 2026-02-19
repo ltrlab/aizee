@@ -82,7 +82,11 @@ class InputState:
         # Continuous axes (-1.0 .. +1.0, scaled to max later)
         self.linear = 0.0
         self.angular = 0.0
-        self.swivel = 0.0
+
+        # Swivel joint position (relative to home, in radians) - position controlled
+        self.swivel_position = 0.0
+        self.swivel_offset = 0.0
+        self.swivel_initialized = False
 
         # Gantry joint positions (relative to home, in radians)
         self.gantry_base = 0.0
@@ -101,9 +105,12 @@ class InputState:
         # Keyboard smoothing: target values and ramp rates
         self.linear_target = 0.0
         self.angular_target = 0.0
-        self.swivel_target = 0.0
         self.keyboard_accel_rate = 50.0  # units/sec - instant response (~1 tick)
         self.keyboard_decel_rate = 8.0   # units/sec - smooth deceleration
+
+        # Swivel position control flags (one-shot)
+        self.swivel_inc = False
+        self.swivel_dec = False
 
         # Track when each key was first pressed and last seen
         self.w_first_press_time = 0.0
@@ -134,6 +141,15 @@ class InputState:
         self.clear_faults = False
         self.zero_positions = False
         self.quit = False
+
+        # Safe shutdown state (X key)
+        self.safe_shutdown = False
+        self.shutdown_countdown = 0.0  # Seconds remaining in countdown
+        self.shutdown_active = False   # True when moving to zero positions
+
+        # Safe disable confirmation (E key)
+        self.disable_confirm_pending = False
+        self.disable_confirm_time = 0.0  # Time when warning was shown
 
         # Gantry control flags (one-shot)
         self.gantry_base_dec = False
@@ -251,10 +267,7 @@ def read_gamepad(joystick, cfg, state):
         apply_deadzone(raw_x, deadzone),
         cfg["drive"]["linear_exponent"],
     )
-    state.swivel = apply_curve(
-        apply_deadzone(raw_swivel, deadzone),
-        cfg["drive"]["angular_exponent"],  # Use same exponent as angular
-    )
+    # Swivel is now position-controlled via Z/C keys (no gamepad velocity control)
     # Right stick Y → gantry base velocity
     state.gantry_base_rate = apply_curve(
         apply_deadzone(raw_ry, deadzone),
@@ -311,8 +324,7 @@ def read_keyboard_pygame(state):
     else:
         state.linear_target = 0.0
 
-    # Swivel (no keys yet)
-    state.swivel_target = 0.0
+    # Z/C for swivel position control - handled via events in main loop, not here
 
 
 def read_keyboard(key, state, current_time, skip_movement_keys=False):
@@ -354,13 +366,35 @@ def read_keyboard(key, state, current_time, skip_movement_keys=False):
     elif key == ord("e") or key == ord("E"):
         state.enable_all = True
     elif key == ord("q") or key == ord("Q"):
-        state.disable_all = True
+        # Safe disable: requires confirmation
+        if state.disable_confirm_pending:
+            # Second press - confirm disable
+            logger.info("Q pressed - confirming disable")
+            state.disable_all = True
+            state.disable_confirm_pending = False
+        else:
+            # First press - show warning
+            logger.info("Q pressed - showing disable warning")
+            state.disable_confirm_pending = True
+            state.disable_confirm_time = current_time
+    elif key == ord("x") or key == ord("X"):
+        # Safe shutdown: countdown then move to zero
+        if not state.shutdown_active and state.shutdown_countdown <= 0:
+            state.safe_shutdown = True
+            state.shutdown_countdown = 3.0  # 3 second countdown
     elif key == ord(" "):
         state.emergency_stop = True
     elif key == ord("r") or key == ord("R"):
         state.clear_estop = True
         state.clear_faults = True
     elif key == ord("z") or key == ord("Z"):
+        # Z for swivel decrement
+        state.swivel_dec = True
+    elif key == ord("c") or key == ord("C"):
+        # C for swivel increment
+        state.swivel_inc = True
+    elif key == ord("0"):
+        # 0 key for zero positions (moved from Z)
         state.zero_positions = True
     elif key == ord("1"):
         state.gantry_base_dec = True
@@ -410,8 +444,6 @@ def smooth_keyboard_inputs(state, dt):
                                state.keyboard_accel_rate, state.keyboard_decel_rate, dt)
     state.angular = ramp_toward(state.angular, state.angular_target,
                                 state.keyboard_accel_rate, state.keyboard_decel_rate, dt)
-    state.swivel = ramp_toward(state.swivel, state.swivel_target,
-                               state.keyboard_accel_rate, state.keyboard_decel_rate, dt)
 
 
 # ---------------------------------------------------------------------------
@@ -497,11 +529,22 @@ class Comms:
             self.connected = False
             return False
 
-    def send_drive(self, linear, angular, swivel=0.0):
-        # TODO: Motor controller interprets linear/angular parameters incorrectly
-        # This needs to be fixed in rust/motor_control/src/main.rs
-        # For now, sending parameters as-is with incorrect semantics
-        self.send({"type": "drive", "linear": linear, "angular": angular, "swivel": swivel})
+    def send_drive(self, linear, angular, kp=0.0, kd=3.0):
+        self.send({
+            "type": "drive",
+            "linear": linear,
+            "angular": angular,
+            "kp": kp,
+            "kd": kd
+        })
+
+    def send_swivel_position(self, position, kp=5.0, kd=0.5):
+        self.send({
+            "type": "swivel",
+            "position": position,
+            "kp": kp,
+            "kd": kd
+        })
 
     def send_enable(self, motor_ids):
         self.send({"type": "enable", "motor_ids": motor_ids})
@@ -725,16 +768,23 @@ class MultiModuleComms:
             mod["connected"] = False
             return False
 
-    def send_drive(self, linear, angular, swivel=0.0):
-        """Send drive command to rover module."""
-        # TODO: Motor controller interprets linear/angular parameters incorrectly
-        # This needs to be fixed in rust/motor_control/src/main.rs
-        # For now, sending parameters as-is with incorrect semantics
+    def send_drive(self, linear, angular, kp=0.0, kd=3.0):
+        """Send drive command to rover module with tunable MIT mode gains (wheels only)."""
         self.send_command("rover", {
             "type": "drive",
             "linear": linear,
             "angular": angular,
-            "swivel": swivel
+            "kp": kp,
+            "kd": kd
+        })
+
+    def send_swivel_position(self, position, kp=5.0, kd=0.5):
+        """Send swivel position command to rover module."""
+        self.send_command("rover", {
+            "type": "swivel",
+            "position": position,
+            "kp": kp,
+            "kd": kd
         })
 
     def send_arm_joints(self, positions, velocities=None, kp=None, kd=None):
@@ -943,12 +993,88 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
         state.enable_all = False
 
     if state.disable_all:
+        logger.info(f"Disabling all motors: {all_motors}")
         comms.send_disable(all_motors)
         state.disable_all = False
 
     if state.zero_positions:
         comms.send_zero_position(all_motors)
         state.zero_positions = False
+
+    # --- safe disable confirmation timeout (Q key) -------------------------
+    if state.disable_confirm_pending:
+        # Cancel if timeout (5 seconds) or if any other key pressed
+        if (time.monotonic() - state.disable_confirm_time) > 5.0:
+            state.disable_confirm_pending = False
+            logger.info("Disable confirmation timeout - cancelled")
+
+    # --- safe shutdown sequence (X key) ------------------------------------
+    if state.shutdown_countdown > 0:
+        state.shutdown_countdown -= dt
+        if state.shutdown_countdown <= 0:
+            # Countdown finished, start moving to zero
+            state.shutdown_active = True
+            logger.info("Safe shutdown: Moving gantry to zero positions...")
+
+    if state.shutdown_active and state.gantry_initialized:
+        # Move gantry slowly to zero positions
+        shutdown_speed = 0.2  # rad/s - slow and safe
+        max_change = shutdown_speed * dt
+
+        # Move each joint toward zero
+        for joint_name, current_pos in [
+            ("base", state.gantry_base),
+            ("mid", state.gantry_mid),
+            ("end", state.gantry_end)
+        ]:
+            if abs(current_pos) > 0.01:  # Not at zero yet
+                if abs(current_pos) < max_change:
+                    # Close enough, snap to zero
+                    if joint_name == "base":
+                        state.gantry_base = 0.0
+                    elif joint_name == "mid":
+                        state.gantry_mid = 0.0
+                    elif joint_name == "end":
+                        state.gantry_end = 0.0
+                else:
+                    # Move toward zero
+                    step = -max_change if current_pos > 0 else max_change
+                    if joint_name == "base":
+                        state.gantry_base += step
+                    elif joint_name == "mid":
+                        state.gantry_mid += step
+                    elif joint_name == "end":
+                        state.gantry_end += step
+
+        # Check if all at zero
+        if abs(state.gantry_base) < 0.01 and abs(state.gantry_mid) < 0.01 and abs(state.gantry_end) < 0.01:
+            # All at zero, disable motors
+            logger.info("Safe shutdown: Gantry at zero, disabling motors...")
+            comms.send_disable(cfg["motors"]["all"])
+            state.shutdown_active = False
+            state.safe_shutdown = False
+
+    # --- swivel position control (auto-initialize from telemetry) ----------
+    if not state.swivel_initialized and comms.last_telemetry and "motors" in comms.last_telemetry:
+        motors = comms.last_telemetry["motors"]
+        if "swivel" in motors and motors["swivel"]:
+            motor_state = motors["swivel"].get("state", "disabled")
+            if motor_state == "running" or motor_state == "enabled":
+                # Initialize swivel position from telemetry
+                state.swivel_offset = motors["swivel"].get("position", 0.0)
+                state.swivel_position = 0.0  # Relative position starts at 0
+                state.swivel_initialized = True
+                logger.info(f"Swivel auto-homed at encoder position: {state.swivel_offset:.3f}")
+
+    # Handle swivel position adjustments (Z/C keys)
+    swivel_increment = cfg.get("drive", {}).get("swivel_increment", 0.1)  # rad per key press
+    if state.swivel_initialized:
+        if state.swivel_dec:
+            state.swivel_position -= swivel_increment
+            state.swivel_dec = False
+        if state.swivel_inc:
+            state.swivel_position += swivel_increment
+            state.swivel_inc = False
 
     # --- gantry control (incremental position adjustments) ----------------
     gantry_changed = False
@@ -1108,8 +1234,18 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
     if not sent_estop:
         linear = state.linear * cfg["drive"]["max_linear"]
         angular = state.angular * cfg["drive"]["max_angular"]
-        swivel = state.swivel * cfg["drive"]["max_swivel"]
-        comms.send_drive(linear, angular, swivel)
+        # Get tunable MIT mode gains from config
+        kp = cfg["drive"].get("kp", 0.0)
+        kd = cfg["drive"].get("kd", 3.0)
+        comms.send_drive(linear, angular, kp, kd)
+
+    # --- swivel position control (send absolute position) ------------------
+    if state.swivel_initialized and not sent_estop:
+        swivel_kp = cfg["drive"].get("swivel_kp", 5.0)
+        swivel_kd = cfg["drive"].get("swivel_kd", 0.5)
+        # Convert relative position to absolute
+        abs_swivel = state.swivel_position + state.swivel_offset
+        comms.send_swivel_position(abs_swivel, swivel_kp, swivel_kd)
 
 
 # ---------------------------------------------------------------------------
@@ -1173,6 +1309,39 @@ def draw_ui(stdscr, state, comms, cfg, start_time, last_row_count=None):
     safe_addstr(stdscr, row, 0, bar, curses.A_BOLD, clear_line=True)
     row += 1
 
+    # Safe disable confirmation warning (Q key first press)
+    if state.disable_confirm_pending:
+        remaining = 5.0 - (now - state.disable_confirm_time)
+        if remaining > 0:
+            warning_msg = f"  WARNING: ACTUATORS WILL POWER OFF AND GANTRY WILL FALL! Press Q again to confirm ({remaining:.1f}s)"
+            safe_addstr(stdscr, row, 0, warning_msg, curses.A_REVERSE | curses.A_BOLD, clear_line=True)
+            row += 1
+            safe_addstr(stdscr, row, 0, "  CHECK SAFETY BEFORE CONFIRMING!", curses.A_REVERSE | curses.A_BOLD, clear_line=True)
+            row += 2
+        else:
+            state.disable_confirm_pending = False
+
+    # Safe shutdown countdown (X key pressed)
+    if state.shutdown_countdown > 0:
+        countdown_msg = f"  SAFE SHUTDOWN: Moving to zero positions in {state.shutdown_countdown:.1f} seconds..."
+        safe_addstr(stdscr, row, 0, countdown_msg, curses.A_REVERSE | curses.A_BOLD, clear_line=True)
+        row += 2
+
+    # Safe shutdown active (moving to zero)
+    if state.shutdown_active:
+        if state.gantry_initialized:
+            status_msg = "  SAFE SHUTDOWN ACTIVE: Moving gantry to zero positions..."
+            safe_addstr(stdscr, row, 0, status_msg, curses.A_REVERSE | curses.A_BOLD, clear_line=True)
+            row += 1
+            # Show current positions
+            progress_msg = f"    base={state.gantry_base:+6.3f}  mid={state.gantry_mid:+6.3f}  end={state.gantry_end:+6.3f}"
+            safe_addstr(stdscr, row, 0, progress_msg, curses.A_BOLD, clear_line=True)
+            row += 2
+        else:
+            status_msg = "  SAFE SHUTDOWN ACTIVE: Waiting for gantry initialization..."
+            safe_addstr(stdscr, row, 0, status_msg, curses.A_REVERSE | curses.A_BOLD, clear_line=True)
+            row += 2
+
     # Connection status (for multi-module systems)
     if hasattr(comms, 'modules'):
         module_status = comms.get_module_status()
@@ -1201,7 +1370,8 @@ def draw_ui(stdscr, state, comms, cfg, start_time, last_row_count=None):
     # Swap values in display to show correct semantic meaning
     lin_scaled = state.linear * cfg["drive"]["max_linear"]
     ang_scaled = state.angular * cfg["drive"]["max_angular"]
-    swv_scaled = state.swivel * cfg["drive"]["max_swivel"]
+    # Swivel is position-controlled now, show relative position
+    swv_pos = state.swivel_position if state.swivel_initialized else 0.0
 
     # Display with swapped values so labels match actual robot behavior
     # state.angular → show as "linear" (angular command causes forward/back motion)
@@ -1209,7 +1379,7 @@ def draw_ui(stdscr, state, comms, cfg, start_time, last_row_count=None):
     safe_addstr(
         stdscr, row, 0,
         f"  DRIVE:  linear={ang_scaled:+7.3f} rad/s   "
-        f"angular={lin_scaled:+7.3f} rad/s   swivel={swv_scaled:+6.3f} rad/s",
+        f"angular={lin_scaled:+7.3f} rad/s   swivel_pos={swv_pos:+6.3f} rad",
         clear_line=True
     )
     row += 1
@@ -1638,8 +1808,7 @@ def main(stdscr):
                         state.a_repeat_count = 0
                         state.d_repeat_count = 0
 
-                    # Swivel has no keys yet
-                    state.swivel_target = 0.0
+                    # Swivel is position-controlled via Z/C keys (handled separately)
 
                     # Smooth keyboard inputs toward targets
                     smooth_keyboard_inputs(state, dt)

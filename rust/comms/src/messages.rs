@@ -12,7 +12,17 @@ pub enum CommandMessage {
         linear: f32,
         angular: f32,
         #[serde(default)]
-        swivel: f32,
+        kp: f32,
+        #[serde(default)]
+        kd: f32,
+    },
+    #[serde(rename = "swivel")]
+    Swivel {
+        position: f32,
+        #[serde(default)]
+        kp: f32,
+        #[serde(default)]
+        kd: f32,
     },
     #[serde(rename = "arm_joints")]
     ArmJoints {

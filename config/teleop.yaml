@@ -44,9 +44,15 @@ battery:
 drive:
   max_linear: 2.0       # rad/s
   max_angular: 1.5      # rad/s
-  max_swivel: 1.0       # rad/s
   linear_exponent: 1.5
   angular_exponent: 1.5
+  # MIT mode velocity control gains for drive wheels
+  kp: 0.0               # Position gain (0.0 = pure velocity control, no position tracking)
+  kd: 3.0               # Velocity tracking gain (damping)
+  # Swivel position control (separate from drive wheels)
+  swivel_kp: 45.0        # Swivel position gain
+  swivel_kd: 5.0        # Swivel velocity tracking gain
+  swivel_increment: 0.01 # rad per Z/C key press
 
 gantry:
   max_velocity: 1.0       # rad/s per joint
