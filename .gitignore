@@ -90,3 +90,4 @@ install/
 *.pem
 *.key
 secrets/
+scripts/.jetson_password

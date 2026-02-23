@@ -29,8 +29,11 @@ import select
 # Motor configuration for gantry/arm on can2
 ARM_MOTORS = {
     'gantry_base': {'id': 0x05, 'model': 'RB04', 'name': 'Gantry Base'},
-    'gantry_mid': {'id': 0x06, 'model': 'RB03', 'name': 'Gantry Mid'},
-    'gantry_end': {'id': 0x07, 'model': 'RB02', 'name': 'Gantry End'},
+    'gantry_mid':  {'id': 0x06, 'model': 'RB03', 'name': 'Gantry Mid'},
+    'gantry_end':  {'id': 0x07, 'model': 'RB02', 'name': 'Gantry End'},
+    'wrist_pitch': {'id': 0x08, 'model': 'RB02', 'name': 'Wrist Pitch'},
+    'wrist_roll':  {'id': 0x09, 'model': 'RB00', 'name': 'Wrist Roll'},
+    'gripper':     {'id': 0x0A, 'model': 'RB00', 'name': 'Gripper'},
 }
 
 CAN_INTERFACE = 'can2'

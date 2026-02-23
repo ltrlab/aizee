@@ -6,13 +6,17 @@ Subscribes to all ZeroMQ data streams and visualizes them in Rerun.
 Supports:
 - Camera streams (RGB + Infrared from multiple cameras)
 - LiDAR scans (RPLiDAR A1M8 point clouds)
-- Motor telemetry (future)
-- Command logging (future)
+- Motor telemetry (position, velocity, torque, temperature @ 50Hz)
+- Gantry arm FK (3D transform hierarchy)
+- Rover odometry (dead-reckoning path trail)
+- Battery voltage (from motor telemetry message)
+- UPS power monitoring
 
 Usage:
     python rerun_bridge.py --cameras tcp://192.168.0.2:5557
     python rerun_bridge.py --cameras tcp://192.168.0.2:5557 tcp://192.168.0.3:5558 --lidar tcp://192.168.0.27:5561
     python rerun_bridge.py --cameras tcp://192.168.0.2:5557 --save logs/session_001.mcap
+    python rerun_bridge.py --telemetry tcp://192.168.0.27:5556 --lidar tcp://192.168.0.27:5561 --ups tcp://192.168.0.27:5562
 """
 
 import argparse
@@ -21,6 +25,7 @@ import gc
 import io
 import json
 import logging
+import math
 import signal
 import sys
 import time
@@ -31,6 +36,7 @@ from typing import List, Optional
 import cv2
 import numpy as np
 import rerun as rr
+import rerun.blueprint as rrb
 import zmq
 
 
@@ -41,14 +47,116 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+class RoverOdometry:
+    """Dead-reckoning odometry from differential-drive wheel velocities."""
+
+    def __init__(self, wheel_radius=0.150, wheelbase=0.354):
+        self.r = wheel_radius
+        self.L = wheelbase
+        self.x = self.y = self.theta = 0.0
+        self.last_ts = None
+        self.path: list[list[float]] = [[0.0, 0.0, 0.0]]
+
+    def update(self, left_vel: float, right_vel: float, timestamp: float):
+        if self.last_ts is None:
+            self.last_ts = timestamp
+            return
+        dt = timestamp - self.last_ts
+        self.last_ts = timestamp
+        if dt <= 0 or dt > 1.0:
+            return
+        vL = left_vel * self.r
+        vR = right_vel * self.r
+        v = (vL + vR) / 2.0
+        omega = (vR - vL) / self.L
+        self.theta += v * dt
+        self.x += omega * math.cos(self.theta) * dt
+        self.y += omega * math.sin(self.theta) * dt
+        self.path.append([self.x, self.y, 0.0])
+        if len(self.path) > 2000:  # cap trail length
+            self.path = self.path[-2000:]
+
+
+def build_blueprint() -> rrb.Blueprint:
+    """Build the programmatic Rerun panel layout sent on startup."""
+    return rrb.Blueprint(
+        rrb.Horizontal(
+            rrb.Vertical(
+                rrb.Spatial3DView(
+                    name="World",
+                    origin="/",
+                    contents=["world/**", "cameras/**"],
+                ),
+                rrb.TextDocumentView(
+                    name="Motor Status",
+                    origin="motors/status",
+                ),
+                row_shares=[4, 1],
+            ),
+            rrb.Vertical(
+                rrb.TimeSeriesView(
+                    name="Base Positions",
+                    contents=[
+                        "motors/left_wheel/position",
+                        "motors/right_wheel/position",
+                        "motors/swivel/position",
+                    ],
+                ),
+                rrb.TimeSeriesView(
+                    name="Gantry Positions",
+                    contents=[
+                        "motors/gantry_base/position",
+                        "motors/gantry_mid/position",
+                        "motors/gantry_end/position",
+                    ],
+                ),
+                rrb.TimeSeriesView(
+                    name="Wrist Positions",
+                    contents=[
+                        "motors/wrist_pitch/position",
+                        "motors/wrist_roll/position",
+                        "motors/gripper/position",
+                    ],
+                ),
+                rrb.TimeSeriesView(
+                    name="Velocity",
+                    contents=["motors/*/velocity"],
+                ),
+                rrb.TimeSeriesView(
+                    name="Torque",
+                    contents=["motors/*/torque"],
+                ),
+                rrb.TimeSeriesView(
+                    name="Temperature",
+                    contents=["motors/*/temperature"],
+                ),
+                rrb.TimeSeriesView(
+                    name="Power",
+                    origin="power",
+                ),
+            ),
+            column_shares=[3, 2],
+        )
+    )
+
+
 class RerunBridge:
     """Bridge node that subscribes to ZMQ streams and logs to Rerun"""
+
+    # Arm link lengths (metres)
+    L0 = 0.5906  # base → mid
+    L1 = 0.5649  # mid → end
+    L2 = 0.100   # end → wrist_pitch pivot
+    L3 = 0.1063  # wrist_pitch pivot → wrist_roll pivot
+    L5 = 0.132   # wrist_roll pivot → gripper tip
+    ARM_MOUNT_Z = 0.200  # arm mount height above rover base frame
 
     def __init__(
         self,
         camera_endpoints: List[str],
         lidar_endpoints: List[str] = None,
         ups_endpoints: List[str] = None,
+        telemetry_endpoints: List[str] = None,
         save_path: Optional[str] = None,
         application_id: str = "aizee"
     ):
@@ -58,12 +166,14 @@ class RerunBridge:
             camera_endpoints: List of ZMQ endpoints for camera streams
             lidar_endpoints: List of ZMQ endpoints for LiDAR streams
             ups_endpoints: List of ZMQ endpoints for UPS power streams
+            telemetry_endpoints: List of ZMQ endpoints for motor telemetry streams
             save_path: Optional MCAP file path to save recording
             application_id: Rerun application ID
         """
         self.camera_endpoints = camera_endpoints
         self.lidar_endpoints = lidar_endpoints or []
         self.ups_endpoints = ups_endpoints or []
+        self.telemetry_endpoints = telemetry_endpoints or ["tcp://192.168.0.27:5556"]
         self.save_path = save_path
         self.application_id = application_id
 
@@ -71,6 +181,7 @@ class RerunBridge:
         self.camera_sockets: List[zmq.Socket] = []
         self.lidar_sockets: List[zmq.Socket] = []
         self.ups_sockets: List[zmq.Socket] = []
+        self.telemetry_sockets: List[zmq.Socket] = []
         self.running = False
 
         # Statistics
@@ -78,7 +189,11 @@ class RerunBridge:
         self.scan_counts = {}
         self.scan_sequences = {}  # Track sequence numbers per sensor
         self.ups_message_counts = {}
+        self.telemetry_message_counts = {}
         self.last_stats_time = time.time()
+
+        # Odometry
+        self.odometry = RoverOdometry()
 
     def initialize_rerun(self):
         """Initialize Rerun recording session"""
@@ -87,13 +202,57 @@ class RerunBridge:
         # Initialize Rerun with automatic viewer spawn
         rr.init(self.application_id, spawn=True)
 
+        # Send blueprint for automatic panel layout
+        rr.send_blueprint(build_blueprint())
+
         # Set up recording to MCAP if requested
         if self.save_path:
             logger.info(f"Recording to: {self.save_path}")
             rr.save(self.save_path)
 
-        # Log application metadata
+        # World coordinate system
         rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
+
+        # --- Static geometry ---
+
+        # Rover body outline
+        rr.log(
+            "world/rover/body",
+            rr.Boxes3D(
+                half_sizes=[[0.25, 0.175, 0.125]],
+                centers=[[0.0, 0.0, 0.125]],
+            ),
+            static=True,
+        )
+
+        # Arm mount offset (fixed relative to rover body)
+        rr.log(
+            "world/rover/arm",
+            rr.Transform3D(translation=[0.0, 0.0, self.ARM_MOUNT_Z]),
+            static=True,
+        )
+
+        # Arm link visualisations (in their respective joint frames)
+        _jb  = "world/rover/arm/joint_base"
+        _jm  = f"{_jb}/joint_mid"
+        _je  = f"{_jm}/joint_end"
+        _jwp = f"{_je}/joint_wrist_pitch"
+        _jwr = f"{_jwp}/joint_wrist_roll"
+        rr.log(f"{_jb}/link_0",
+            rr.LineStrips3D([[[0.0, 0.0, 0.0], [self.L0, 0.0, 0.0]]], colors=[[255, 180, 0]]),
+            static=True)
+        rr.log(f"{_jm}/link_1",
+            rr.LineStrips3D([[[0.0, 0.0, 0.0], [self.L1, 0.0, 0.0]]], colors=[[255, 140, 0]]),
+            static=True)
+        rr.log(f"{_je}/link_2",
+            rr.LineStrips3D([[[0.0, 0.0, 0.0], [self.L2, 0.0, 0.0]]], colors=[[255, 100, 0]]),
+            static=True)
+        rr.log(f"{_jwp}/link_3",
+            rr.LineStrips3D([[[0.0, 0.0, 0.0], [self.L3, 0.0, 0.0]]], colors=[[255, 60, 0]]),
+            static=True)
+        rr.log(f"{_jwr}/link_5",
+            rr.LineStrips3D([[[0.0, 0.0, 0.0], [self.L5, 0.0, 0.0]]], colors=[[255, 0, 50]]),
+            static=True)
 
         logger.info("Rerun initialized successfully")
 
@@ -142,10 +301,27 @@ class RerunBridge:
             socket.subscribe("")  # Subscribe to all messages
             self.ups_sockets.append(socket)
 
+        # Subscribe to motor telemetry streams (50 Hz)
+        for endpoint in self.telemetry_endpoints:
+            logger.info(f"Subscribing to motor telemetry at {endpoint}")
+            socket = self.zmq_context.socket(zmq.SUB)
+
+            socket.setsockopt(zmq.RCVHWM, 2)          # Keep only latest telemetry
+            socket.setsockopt(zmq.RCVBUF, 512 * 1024)  # 512KB receive buffer
+
+            socket.connect(endpoint)
+            socket.subscribe("")  # Subscribe to all messages
+            self.telemetry_sockets.append(socket)
+
         # Give subscriptions time to propagate
         time.sleep(0.5)
 
-        logger.info(f"Subscribed to {len(self.camera_sockets)} camera stream(s), {len(self.lidar_sockets)} LiDAR stream(s), and {len(self.ups_sockets)} UPS stream(s)")
+        logger.info(
+            f"Subscribed to {len(self.camera_sockets)} camera stream(s), "
+            f"{len(self.lidar_sockets)} LiDAR stream(s), "
+            f"{len(self.ups_sockets)} UPS stream(s), "
+            f"{len(self.telemetry_sockets)} telemetry stream(s)"
+        )
 
     def process_camera_message(self, message: dict):
         """Process and log camera data to Rerun
@@ -310,6 +486,142 @@ class RerunBridge:
             )
         )
 
+    def process_telemetry_message(self, message: dict):
+        """Process and log motor telemetry to Rerun.
+
+        Args:
+            message: TelemetryMessage dict with timestamp, motors dict, and
+                     optional battery_voltage field.
+        """
+        timestamp = message.get("timestamp", time.time())
+        motors: dict = message.get("motors", {})
+
+        if not motors:
+            return
+
+        # Set timeline to telemetry timestamp (seconds)
+        rr.set_time("time", timestamp=timestamp)
+
+        # --- Per-motor scalar plots ---
+        for motor_id, m in motors.items():
+            rr.log(f"motors/{motor_id}/position",    rr.Scalars(m.get("position",    0.0)))
+            rr.log(f"motors/{motor_id}/velocity",    rr.Scalars(m.get("velocity",    0.0)))
+            rr.log(f"motors/{motor_id}/torque",      rr.Scalars(m.get("torque",      0.0)))
+            rr.log(f"motors/{motor_id}/temperature", rr.Scalars(m.get("temperature", 0.0)))
+
+        # --- Motor status Markdown table ---
+        motor_order = [
+            "left_wheel", "right_wheel", "swivel",
+            "gantry_base", "gantry_mid", "gantry_end",
+            "wrist_pitch", "wrist_roll", "gripper",
+        ]
+        header = "| ID | State | Pos (rad) | Vel (rad/s) | Torque (Nm) | Temp (°C) | Error |\n"
+        header += "|---|---|---|---|---|---|---|\n"
+        rows = []
+        for mid in motor_order:
+            m = motors.get(mid)
+            if m is None:
+                rows.append(f"| {mid} | — | — | — | — | — | — |")
+            else:
+                state = m.get("state", "—")
+                pos   = m.get("position",    0.0)
+                vel   = m.get("velocity",    0.0)
+                torq  = m.get("torque",      0.0)
+                temp  = m.get("temperature", 0.0)
+                error = m.get("error") or "—"
+                rows.append(
+                    f"| {mid} | {state} | {pos:.3f} | {vel:.3f} | {torq:.3f} | {temp:.1f} | {error} |"
+                )
+        # Also append any motors not in the canonical order
+        for mid, m in motors.items():
+            if mid not in motor_order:
+                state = m.get("state", "—")
+                pos   = m.get("position",    0.0)
+                vel   = m.get("velocity",    0.0)
+                torq  = m.get("torque",      0.0)
+                temp  = m.get("temperature", 0.0)
+                error = m.get("error") or "—"
+                rows.append(
+                    f"| {mid} | {state} | {pos:.3f} | {vel:.3f} | {torq:.3f} | {temp:.1f} | {error} |"
+                )
+        rr.log(
+            "motors/status",
+            rr.TextDocument(
+                "**Motor Status**\n\n" + header + "\n".join(rows),
+                media_type=rr.MediaType.MARKDOWN,
+            ),
+        )
+
+        # --- Rover odometry ---
+        left_vel  = motors.get("left_wheel",  {}).get("velocity", 0.0)
+        right_vel = motors.get("right_wheel", {}).get("velocity", 0.0)
+        self.odometry.update(left_vel, right_vel, timestamp)
+
+        rr.log(
+            "world/rover",
+            rr.Transform3D(
+                translation=[self.odometry.x, self.odometry.y, 0.0],
+                rotation=rr.RotationAxisAngle([0, 0, 1], self.odometry.theta),
+            ),
+        )
+        rr.log(
+            "world/rover/path",
+            rr.LineStrips3D([self.odometry.path]),
+        )
+
+        # --- Gantry arm FK ---
+        base_pos = motors.get("gantry_base", {}).get("position", 0.0)
+        mid_pos  = motors.get("gantry_mid",  {}).get("position", 0.0)
+        end_pos  = motors.get("gantry_end",  {}).get("position", 0.0)
+
+        rr.log(
+            "world/rover/arm/joint_base",
+            rr.Transform3D(rotation=rr.RotationAxisAngle([0, 0, 1], base_pos)),
+        )
+        rr.log(
+            "world/rover/arm/joint_base/joint_mid",
+            rr.Transform3D(
+                translation=[self.L0, 0.0, 0.0],
+                rotation=rr.RotationAxisAngle([0, 1, 0], mid_pos),
+            ),
+        )
+        rr.log(
+            "world/rover/arm/joint_base/joint_mid/joint_end",
+            rr.Transform3D(
+                translation=[self.L1, 0.0, 0.0],
+                rotation=rr.RotationAxisAngle([0, 1, 0], end_pos),
+            ),
+        )
+
+        wrist_pitch_pos = motors.get("wrist_pitch", {}).get("position", 0.0)
+        wrist_roll_pos  = motors.get("wrist_roll",  {}).get("position", 0.0)
+        gripper_pos     = motors.get("gripper",     {}).get("position", 0.0)
+
+        _je = "world/rover/arm/joint_base/joint_mid/joint_end"
+        rr.log(f"{_je}/joint_wrist_pitch",
+            rr.Transform3D(
+                translation=[self.L2, 0.0, 0.0],
+                rotation=rr.RotationAxisAngle([0, 1, 0], wrist_pitch_pos),
+            ),
+        )
+        rr.log(f"{_je}/joint_wrist_pitch/joint_wrist_roll",
+            rr.Transform3D(
+                translation=[self.L3, 0.0, 0.0],
+                rotation=rr.RotationAxisAngle([1, 0, 0], wrist_roll_pos),
+            ),
+        )
+        rr.log(f"{_je}/joint_wrist_pitch/joint_wrist_roll/joint_gripper",
+            rr.Transform3D(
+                translation=[self.L5, 0.0, 0.0],
+                rotation=rr.RotationAxisAngle([0, 0, 1], gripper_pos),
+            ),
+        )
+
+        # --- Battery voltage ---
+        battery_voltage = message.get("battery_voltage")
+        if battery_voltage is not None:
+            rr.log("power/battery", rr.Scalars(battery_voltage))
+
     def process_streams(self):
         """Main processing loop - receive and log all data streams"""
         logger.info("Starting stream processing loop...")
@@ -326,6 +638,8 @@ class RerunBridge:
         for socket in self.lidar_sockets:
             poller.register(socket, zmq.POLLIN)
         for socket in self.ups_sockets:
+            poller.register(socket, zmq.POLLIN)
+        for socket in self.telemetry_sockets:
             poller.register(socket, zmq.POLLIN)
 
         logger.info("Rerun bridge running. Open the Rerun viewer to see streams.")
@@ -389,6 +703,24 @@ class RerunBridge:
                         if latest_message:
                             self.process_ups_message(latest_message)
 
+                # Process motor telemetry messages (50 Hz — drain, process latest)
+                for socket in self.telemetry_sockets:
+                    if socket in socks and socks[socket] == zmq.POLLIN:
+                        latest_message = None
+                        while True:
+                            try:
+                                message_json = socket.recv_string(zmq.NOBLOCK)
+                                latest_message = json.loads(message_json)
+                            except zmq.Again:
+                                break
+
+                        if latest_message:
+                            endpoint = self.telemetry_endpoints[self.telemetry_sockets.index(socket)]
+                            if endpoint not in self.telemetry_message_counts:
+                                self.telemetry_message_counts[endpoint] = 0
+                            self.telemetry_message_counts[endpoint] += 1
+                            self.process_telemetry_message(latest_message)
+
                 # Print statistics every 5 seconds
                 current_time = time.time()
                 if current_time - self.last_stats_time >= 5.0:
@@ -403,11 +735,15 @@ class RerunBridge:
                     for ups_id, count in self.ups_message_counts.items():
                         ups_rate = count / elapsed
                         logger.info(f"  UPS {ups_id}: {count} messages ({ups_rate:.1f} Hz)")
+                    for ep, count in self.telemetry_message_counts.items():
+                        tel_rate = count / elapsed
+                        logger.info(f"  Telemetry {ep}: {count} messages ({tel_rate:.1f} Hz)")
 
                     # Reset counters
                     self.frame_counts = {}
                     self.scan_counts = {}
                     self.ups_message_counts = {}
+                    self.telemetry_message_counts = {}
                     self.last_stats_time = current_time
 
             except KeyboardInterrupt:
@@ -433,6 +769,8 @@ class RerunBridge:
             socket.close()
         for socket in self.ups_sockets:
             socket.close()
+        for socket in self.telemetry_sockets:
+            socket.close()
 
         if self.zmq_context:
             self.zmq_context.term()
@@ -450,6 +788,7 @@ class RerunBridge:
             logger.info(f"Viewing {len(self.camera_endpoints)} camera stream(s)")
             logger.info(f"Viewing {len(self.lidar_endpoints)} LiDAR stream(s)")
             logger.info(f"Viewing {len(self.ups_endpoints)} UPS stream(s)")
+            logger.info(f"Viewing {len(self.telemetry_endpoints)} telemetry stream(s)")
             if self.save_path:
                 logger.info(f"Recording to: {self.save_path}")
             logger.info("Open the Rerun viewer in your browser or app")
@@ -495,6 +834,12 @@ def main():
         help='ZMQ endpoints for UPS power streams (space-separated)'
     )
     parser.add_argument(
+        '--telemetry',
+        nargs='+',
+        default=["tcp://192.168.0.27:5556"],
+        help='ZMQ endpoints for motor telemetry streams (space-separated)'
+    )
+    parser.add_argument(
         '--save',
         type=str,
         help='Save recording to MCAP file (e.g., logs/session_001.mcap)'
@@ -517,6 +862,7 @@ def main():
         camera_endpoints=args.cameras,
         lidar_endpoints=args.lidar,
         ups_endpoints=args.ups,
+        telemetry_endpoints=args.telemetry,
         save_path=args.save,
         application_id=args.app_id
     )

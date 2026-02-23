@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 AIZEE is a modular mobile manipulation robotics platform:
-- **6 ROBSTRIDE motors** on CAN bus: 3 for the wheeled base (2 drive wheels + 1 swivel), 3 for the gantry arm (3DoF)
+- **9 ROBSTRIDE motors** on CAN bus: 3 for the wheeled base (2 drive wheels + 1 swivel), 6 for the gantry arm (6DoF)
 - **NVIDIA Jetson Orin Nano** (192.168.0.27): Main controller, all 6 motors on `can1`, ZMQ :5555/:5556
 - **4× Raspberry Pi 4** (192.168.0.22–25): Camera nodes with Intel RealSense D455 RGB-D
 - **2× RPLiDAR A1M8**: 360° scanning on Jetson via USB, ZMQ :5561
@@ -164,7 +164,7 @@ Defined in `rust/comms/src/messages.rs`:
 **CAN protocol** (`rust/motor_control/src/robstride.rs`):
 - ROBSTRIDE motors on `can1` at 1 Mbps (not can0)
 - CAN ID format: `motor_id | (0xAA << 8) | (msg_type << 24)`, host ID = `0xAA`
-- Three motor models: Model02 (low torque), Model03 (medium), Model04 (high torque)
+- Four motor models: Model00 (micro, ~2 Nm), Model02 (low torque), Model03 (medium), Model04 (high torque)
 
 ### Hardware Assignments
 
@@ -176,6 +176,38 @@ Defined in `rust/comms/src/messages.rs`:
 | gantry_base | 0x05 | ROBSTRIDE04 | Arm (1kHz) |
 | gantry_mid | 0x06 | ROBSTRIDE03 | Arm (1kHz) |
 | gantry_end | 0x07 | ROBSTRIDE02 | Arm (1kHz) |
+| wrist_pitch | 0x08 | ROBSTRIDE02 | Arm (1kHz) |
+| wrist_roll | 0x09 | ROBSTRIDE00 | Arm (1kHz) |
+| gripper | 0x0A | ROBSTRIDE00 | Arm (1kHz) |
+
+### Arm FK Geometry
+
+The arm is mounted 0.200 m above the rover base frame (`world/rover/arm`). All links extend along the local +X axis; rotations are in radians.
+
+| Segment | Length | Parent joint | Child joint | Rotation axis |
+|---|---|---|---|---|
+| link_0 | 0.5906 m | gantry_base | gantry_mid | Z (yaw) |
+| link_1 | 0.5649 m | gantry_mid | gantry_end | Y (pitch) |
+| link_2 | 0.100 m | gantry_end | wrist_pitch | Y (pitch) |
+| link_3 | 0.1063 m | wrist_pitch | wrist_roll | Y (pitch) |
+| link_5 | 0.132 m | wrist_roll | gripper tip | X (roll) → Z (gripper open/close) |
+
+**Rerun entity hierarchy** (all under `world/rover/arm/`):
+```
+joint_base                          ← gantry_base pos, rot Z
+  link_0  [0→0.5906, 0, 0]
+  joint_mid                         ← gantry_mid pos, rot Y, at [0.5906,0,0]
+    link_1  [0→0.5649, 0, 0]
+    joint_end                       ← gantry_end pos, rot Y, at [0.5649,0,0]
+      link_2  [0→0.100, 0, 0]
+      joint_wrist_pitch             ← wrist_pitch pos, rot Y, at [0.100,0,0]
+        link_3  [0→0.1063, 0, 0]
+        joint_wrist_roll            ← wrist_roll pos, rot X, at [0.1063,0,0]
+          link_5  [0→0.132, 0, 0]
+          joint_gripper             ← gripper pos, rot Z, at [0.132,0,0]
+```
+
+> **Note**: wrist_pitch→wrist_roll link length (L4) is not yet measured; the two joints are currently treated as coincident. Update `L4` in `rerun_bridge.py` and add `link_4` once measured.
 
 ### Network Topology
 

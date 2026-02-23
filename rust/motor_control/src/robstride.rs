@@ -102,6 +102,7 @@ pub enum MotorModel {
     Model04, // High torque (240 Nm range)
     Model03, // Medium torque (34 Nm range)
     Model02, // Low torque
+    Model00, // Micro motor (wrist/gripper, ~2 Nm)
 }
 
 impl MotorModel {
@@ -123,6 +124,7 @@ impl MotorModel {
             MotorModel::Model04 => 15.0,
             MotorModel::Model03 => 50.0,
             MotorModel::Model02 => 44.0,
+            MotorModel::Model00 => 30.0,
         }
     }
 
@@ -132,6 +134,7 @@ impl MotorModel {
             MotorModel::Model04 => 120.0,
             MotorModel::Model03 => 60.0,
             MotorModel::Model02 => 17.0,
+            MotorModel::Model00 => 2.0,
         }
     }
 
@@ -140,6 +143,7 @@ impl MotorModel {
         match self {
             MotorModel::Model04 | MotorModel::Model03 => 5000.0,
             MotorModel::Model02 => 500.0,
+            MotorModel::Model00 => 100.0,
         }
     }
 
@@ -148,6 +152,7 @@ impl MotorModel {
         match self {
             MotorModel::Model04 | MotorModel::Model03 => 100.0,
             MotorModel::Model02 => 5.0,
+            MotorModel::Model00 => 5.0,
         }
     }
 }

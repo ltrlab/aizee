@@ -99,6 +99,7 @@ fn parse_motor_model(type_str: &str) -> MotorModel {
         "ROBSTRIDE04" => MotorModel::Model04,
         "ROBSTRIDE03" => MotorModel::Model03,
         "ROBSTRIDE02" => MotorModel::Model02,
+        "ROBSTRIDE00" => MotorModel::Model00,
         _ => {
             warn!("Unknown motor type {}, defaulting to Model03", type_str);
             MotorModel::Model03

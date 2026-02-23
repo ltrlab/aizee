@@ -27,7 +27,7 @@ motors:
     max_velocity: 5.0
     max_torque: 6.0
 
-  # Gantry arm - 3DoF
+  # Gantry arm - 6DoF
   # Wide limits to accommodate any startup encoder position ± π range
   # Teleop enforces ±π relative to home position
   arm:
@@ -54,6 +54,30 @@ motors:
       max_position: 20.0
       max_velocity: 10.0
       max_torque: 4.0
+
+    - id: wrist_pitch
+      can_id: 0x08
+      type: ROBSTRIDE02
+      min_position: -20.0
+      max_position: 20.0
+      max_velocity: 10.0
+      max_torque: 4.0
+
+    - id: wrist_roll
+      can_id: 0x09
+      type: ROBSTRIDE00
+      min_position: -20.0
+      max_position: 20.0
+      max_velocity: 30.0
+      max_torque: 2.0
+
+    - id: gripper
+      can_id: 0x0A
+      type: ROBSTRIDE00
+      min_position: -20.0
+      max_position: 20.0
+      max_velocity: 30.0
+      max_torque: 2.0
 
 # Control loop parameters
 control:
