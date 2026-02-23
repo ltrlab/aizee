@@ -24,17 +24,20 @@ AIZEE is a mobile manipulation platform designed for real-time control, rich sen
   - Distributed processing architecture
 
 ### Actuation
-- **6× ROBSTRIDE Motors** (CAN bus)
+- **9× ROBSTRIDE Motors** (CAN bus)
   - **Base (3 motors)**:
     - 2× ROBSTRIDE04: Left/right drive wheels (high torque)
     - 1× ROBSTRIDE03: Base swivel joint
-  - **Arm Chain (3 motors, 3DoF)**:
-    - 1× ROBSTRIDE04: Shoulder joint (high torque for supporting arm weight)
-    - 1× ROBSTRIDE03: Elbow joint (medium torque)
-    - 1× ROBSTRIDE02: Wrist/gripper (low torque, compact form factor)
+  - **Gantry Arm (6 motors, 6DoF)**:
+    - 1× ROBSTRIDE04: gantry_base (shoulder yaw, high torque)
+    - 1× ROBSTRIDE03: gantry_mid (shoulder pitch, medium torque)
+    - 1× ROBSTRIDE02: gantry_end (elbow pitch)
+    - 1× ROBSTRIDE02: wrist_pitch
+    - 1× ROBSTRIDE00: wrist_roll (micro motor)
+    - 1× ROBSTRIDE00: gripper (micro motor)
 
 - **Control Frequencies**:
-  - Arm joints (3 motors): 1 kHz deterministic loop
+  - Arm joints (6 motors): 1 kHz deterministic loop
   - Base (wheels + swivel, 3 motors): 100 Hz
 
 ### Sensors

@@ -249,15 +249,21 @@ Services: `aizee-motor-control-rover`, `aizee-motor-control-arm`, `aizee-camera-
 
 ## Teleop Interface
 
-**Gantry arm controls** (in `python/teleop/teleop.py`):
-- A button / `a` key: Enable all motors
-- H key: Home gantry joints (set current position as zero — can be done anytime)
-- Right stick Y-axis: gantry_base velocity
-- Keys 3/4: gantry_mid ±0.02 rad increments
-- Keys 5/6: gantry_end ±0.02 rad increments
-- B button: Disable all motors
-- Back button: Emergency stop
-- Start button: Clear faults
+**Controls** (in `python/teleop/teleop.py`):
+- A button / `e` key: Enable all motors
+- B button / `q` key: Disable all motors (requires second press to confirm)
+- Back button / `space`: Emergency stop
+- Start button / `r` key: Clear estop + faults
+- H key: Home all arm joints (sets current position as zero — do this after enabling)
+- Right stick Y-axis: gantry_base continuous velocity
+- Keys 1/2: gantry_base ±0.02 rad
+- Keys 3/4: gantry_mid ±0.02 rad
+- Keys 5/6: gantry_end ±0.02 rad
+- Keys 7/8: wrist_pitch ±0.02 rad
+- Keys [/]: wrist_roll ±0.02 rad
+- Keys -/=: gripper ±0.02 rad
+- Z/C keys: swivel ±0.01 rad
+- X key: safe shutdown (move all joints to zero, then disable)
 
 ## Debugging
 
