@@ -160,6 +160,20 @@ class InputState:
         self.gantry_end_inc = False
         self.gantry_home = False  # Set current positions as home
 
+        # Wrist and gripper joint positions (relative to home)
+        self.wrist_pitch = 0.0
+        self.wrist_roll = 0.0
+        self.gripper = 0.0
+        self.wrist_pitch_offset = 0.0
+        self.wrist_roll_offset = 0.0
+        self.gripper_offset = 0.0
+        self.wrist_pitch_dec = False
+        self.wrist_pitch_inc = False
+        self.wrist_roll_dec = False
+        self.wrist_roll_inc = False
+        self.gripper_dec = False
+        self.gripper_inc = False
+
         self.gamepad_connected = False
 
         # Gamepad raw state for display
@@ -408,6 +422,18 @@ def read_keyboard(key, state, current_time, skip_movement_keys=False):
         state.gantry_end_dec = True
     elif key == ord("6"):
         state.gantry_end_inc = True
+    elif key == ord("7"):
+        state.wrist_pitch_dec = True
+    elif key == ord("8"):
+        state.wrist_pitch_inc = True
+    elif key == ord("["):
+        state.wrist_roll_dec = True
+    elif key == ord("]"):
+        state.wrist_roll_inc = True
+    elif key == ord("-"):
+        state.gripper_dec = True
+    elif key == ord("="):
+        state.gripper_inc = True
     elif key == ord("h") or key == ord("H"):
         state.gantry_home = True
     elif key == 27:  # Escape
@@ -979,6 +1005,9 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
         comms.send_emergency_stop()
         state.emergency_stop = False
         sent_estop = True
+        # Force re-read of actual positions on next enable
+        state.gantry_initialized = False
+        state.gantry_homed = False
 
     if state.clear_estop:
         comms.send_clear_estop()
@@ -996,6 +1025,10 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
         logger.info(f"Disabling all motors: {all_motors}")
         comms.send_disable(all_motors)
         state.disable_all = False
+        # Force re-read of actual positions on next enable so motors don't
+        # snap back to stale targets if the arm was moved while disabled
+        state.gantry_initialized = False
+        state.gantry_homed = False
 
     if state.zero_positions:
         comms.send_zero_position(all_motors)
@@ -1025,7 +1058,10 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
         for joint_name, current_pos in [
             ("base", state.gantry_base),
             ("mid", state.gantry_mid),
-            ("end", state.gantry_end)
+            ("end", state.gantry_end),
+            ("wrist_pitch", state.wrist_pitch),
+            ("wrist_roll", state.wrist_roll),
+            ("gripper", state.gripper),
         ]:
             if abs(current_pos) > 0.01:  # Not at zero yet
                 if abs(current_pos) < max_change:
@@ -1036,6 +1072,12 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
                         state.gantry_mid = 0.0
                     elif joint_name == "end":
                         state.gantry_end = 0.0
+                    elif joint_name == "wrist_pitch":
+                        state.wrist_pitch = 0.0
+                    elif joint_name == "wrist_roll":
+                        state.wrist_roll = 0.0
+                    elif joint_name == "gripper":
+                        state.gripper = 0.0
                 else:
                     # Move toward zero
                     step = -max_change if current_pos > 0 else max_change
@@ -1045,14 +1087,24 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
                         state.gantry_mid += step
                     elif joint_name == "end":
                         state.gantry_end += step
+                    elif joint_name == "wrist_pitch":
+                        state.wrist_pitch += step
+                    elif joint_name == "wrist_roll":
+                        state.wrist_roll += step
+                    elif joint_name == "gripper":
+                        state.gripper += step
 
         # Check if all at zero
-        if abs(state.gantry_base) < 0.01 and abs(state.gantry_mid) < 0.01 and abs(state.gantry_end) < 0.01:
+        if (abs(state.gantry_base) < 0.01 and abs(state.gantry_mid) < 0.01 and
+                abs(state.gantry_end) < 0.01 and abs(state.wrist_pitch) < 0.01 and
+                abs(state.wrist_roll) < 0.01 and abs(state.gripper) < 0.01):
             # All at zero, disable motors
             logger.info("Safe shutdown: Gantry at zero, disabling motors...")
             comms.send_disable(cfg["motors"]["all"])
             state.shutdown_active = False
             state.safe_shutdown = False
+            state.gantry_initialized = False
+            state.gantry_homed = False
 
     # --- swivel position control (auto-initialize from telemetry) ----------
     if not state.swivel_initialized and comms.last_telemetry and "motors" in comms.last_telemetry:
@@ -1106,6 +1158,15 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
                 if "gantry_end" in motors and motors["gantry_end"]:
                     state.gantry_end_offset = motors["gantry_end"].get("position", 0.0)
                     state.gantry_end = 0.0
+                if "wrist_pitch" in motors and motors["wrist_pitch"]:
+                    state.wrist_pitch_offset = motors["wrist_pitch"].get("position", 0.0)
+                    state.wrist_pitch = 0.0
+                if "wrist_roll" in motors and motors["wrist_roll"]:
+                    state.wrist_roll_offset = motors["wrist_roll"].get("position", 0.0)
+                    state.wrist_roll = 0.0
+                if "gripper" in motors and motors["gripper"]:
+                    state.gripper_offset = motors["gripper"].get("position", 0.0)
+                    state.gripper = 0.0
                 state.gantry_initialized = True
                 state.gantry_homed = True  # Auto-homed on first enable
                 logger.info(f"Gantry auto-homed at encoder positions: base={state.gantry_base_offset:.3f}, mid={state.gantry_mid_offset:.3f}, end={state.gantry_end_offset:.3f}")
@@ -1138,6 +1199,15 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
                         abs_pos = motors["gantry_end"].get("position", state.gantry_end_offset)
                         state.gantry_end_offset = state.gantry_end_offset + state.gantry_end
                         state.gantry_end = 0.0
+                    if "wrist_pitch" in motors and motors["wrist_pitch"]:
+                        state.wrist_pitch_offset = state.wrist_pitch_offset + state.wrist_pitch
+                        state.wrist_pitch = 0.0
+                    if "wrist_roll" in motors and motors["wrist_roll"]:
+                        state.wrist_roll_offset = state.wrist_roll_offset + state.wrist_roll
+                        state.wrist_roll = 0.0
+                    if "gripper" in motors and motors["gripper"]:
+                        state.gripper_offset = state.gripper_offset + state.gripper
+                        state.gripper = 0.0
                     state.gantry_initialized = True
                     state.gantry_homed = True
                     # Reset smoothed rate when homing to avoid drift
@@ -1158,8 +1228,11 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
             abs_base = state.gantry_base + state.gantry_base_offset
             abs_mid = state.gantry_mid + state.gantry_mid_offset
             abs_end = state.gantry_end + state.gantry_end_offset
-            positions = [abs_base, abs_mid, abs_end]
-            velocities = [base_vel, 0.0, 0.0]
+            abs_wrist_pitch = state.wrist_pitch + state.wrist_pitch_offset
+            abs_wrist_roll = state.wrist_roll + state.wrist_roll_offset
+            abs_gripper = state.gripper + state.gripper_offset
+            positions = [abs_base, abs_mid, abs_end, abs_wrist_pitch, abs_wrist_roll, abs_gripper]
+            velocities = [base_vel, 0.0, 0.0, 0.0, 0.0, 0.0]
             comms.send_arm_joints(positions, velocities,
                                 cfg["gantry"]["kp"],
                                 cfg["gantry"]["kd"])
@@ -1214,6 +1287,33 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
                 state.gantry_end_inc = False
                 gantry_changed = True
 
+            if state.wrist_pitch_dec:
+                state.wrist_pitch -= increment
+                state.wrist_pitch_dec = False
+                gantry_changed = True
+            if state.wrist_pitch_inc:
+                state.wrist_pitch += increment
+                state.wrist_pitch_inc = False
+                gantry_changed = True
+
+            if state.wrist_roll_dec:
+                state.wrist_roll -= increment
+                state.wrist_roll_dec = False
+                gantry_changed = True
+            if state.wrist_roll_inc:
+                state.wrist_roll += increment
+                state.wrist_roll_inc = False
+                gantry_changed = True
+
+            if state.gripper_dec:
+                state.gripper -= increment
+                state.gripper_dec = False
+                gantry_changed = True
+            if state.gripper_inc:
+                state.gripper += increment
+                state.gripper_inc = False
+                gantry_changed = True
+
             # Clamp relative positions to ±π from home
             # This allows ±180° of travel from wherever the motors were homed
             if gantry_changed:
@@ -1221,6 +1321,9 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
                 state.gantry_base = max(-pos_limit, min(pos_limit, state.gantry_base))
                 state.gantry_mid = max(-pos_limit, min(pos_limit, state.gantry_mid))
                 state.gantry_end = max(-pos_limit, min(pos_limit, state.gantry_end))
+                state.wrist_pitch = max(-pos_limit, min(pos_limit, state.wrist_pitch))
+                state.wrist_roll = max(-pos_limit, min(pos_limit, state.wrist_roll))
+                state.gripper = max(-pos_limit, min(pos_limit, state.gripper))
         else:
             # Consume gantry key presses but don't move (not initialized yet)
             state.gantry_base_dec = False
@@ -1229,6 +1332,12 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
             state.gantry_mid_inc = False
             state.gantry_end_dec = False
             state.gantry_end_inc = False
+            state.wrist_pitch_dec = False
+            state.wrist_pitch_inc = False
+            state.wrist_roll_dec = False
+            state.wrist_roll_inc = False
+            state.gripper_dec = False
+            state.gripper_inc = False
 
     # --- drive (always, to feed watchdog) ----------------------------------
     if not sent_estop:
@@ -1334,7 +1443,9 @@ def draw_ui(stdscr, state, comms, cfg, start_time, last_row_count=None):
             safe_addstr(stdscr, row, 0, status_msg, curses.A_REVERSE | curses.A_BOLD, clear_line=True)
             row += 1
             # Show current positions
-            progress_msg = f"    base={state.gantry_base:+6.3f}  mid={state.gantry_mid:+6.3f}  end={state.gantry_end:+6.3f}"
+            progress_msg = (f"    base={state.gantry_base:+6.3f}  mid={state.gantry_mid:+6.3f}  "
+                            f"end={state.gantry_end:+6.3f}  wrist_p={state.wrist_pitch:+6.3f}  "
+                            f"wrist_r={state.wrist_roll:+6.3f}  grip={state.gripper:+6.3f}")
             safe_addstr(stdscr, row, 0, progress_msg, curses.A_BOLD, clear_line=True)
             row += 2
         else:
@@ -1391,12 +1502,16 @@ def draw_ui(stdscr, state, comms, cfg, start_time, last_row_count=None):
             f"mid={state.gantry_mid:+7.3f} rad   end={state.gantry_end:+7.3f} rad"
         )
         if not state.gantry_homed:
-            # Not homed yet
             gantry_line += "  [NOT HOMED - Press H to home]"
             safe_addstr(stdscr, row, 0, gantry_line, curses.A_REVERSE, clear_line=True)
         else:
-            # Homed and ready
             safe_addstr(stdscr, row, 0, gantry_line, clear_line=True)
+        row += 1
+        wrist_line = (
+            f"  WRIST:  pitch={state.wrist_pitch:+7.3f} rad   "
+            f"roll={state.wrist_roll:+7.3f} rad   grip={state.gripper:+7.3f} rad"
+        )
+        safe_addstr(stdscr, row, 0, wrist_line, clear_line=True)
         row += 1
     row += 1
 
@@ -1580,7 +1695,7 @@ def draw_ui(stdscr, state, comms, cfg, start_time, last_row_count=None):
     if "gantry" in cfg:
         safe_addstr(
             stdscr, row, 0,
-            "  H=home gantry  1/2=base-/+  3/4=mid-/+  5/6=end-/+",
+            "  H=home  1/2=base  3/4=mid  5/6=end  7/8=wrist_pitch  [/]=wrist_roll  -/==gripper",
             clear_line=True
         )
         row += 1

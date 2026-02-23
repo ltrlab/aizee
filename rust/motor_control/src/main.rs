@@ -388,6 +388,21 @@ impl ControlSystem {
                 }
             }
         }
+        // Arm motors also need keepalives during the blocking enable sequence —
+        // the hardware watchdog (~100ms) fires if arm motors get no CAN frames
+        // while later motors in the enable list are timing out (up to ~300ms each
+        // for unconnected motors exhausting their 3 retries).
+        for motor in &self.arm_group.motors {
+            if motor.state == MotorState::Enabled || motor.state == MotorState::Running {
+                if let Some(socket) = self.get_can_socket_by_bus(&motor.config.can_bus) {
+                    let pos = motor.feedback.as_ref().map(|f| f.position).unwrap_or(0.0);
+                    let keepalive = robstride::build_control_frame(
+                        motor.config.can_id, motor.config.model, pos, 0.0, 0.0, 0.0, 0.0,
+                    );
+                    let _ = socket.write_frame(&keepalive);
+                }
+            }
+        }
     }
 
     /// Sleep while sending keepalives to active motors every 5ms
