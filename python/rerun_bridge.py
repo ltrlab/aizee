@@ -147,21 +147,12 @@ def build_blueprint() -> rrb.Blueprint:
     """Build the programmatic Rerun panel layout sent on startup."""
     return rrb.Blueprint(
         rrb.Horizontal(
-            rrb.Vertical(
-                # Main 3D world view – rover body, arm FK, pointclouds, LiDAR
-                rrb.Spatial3DView(
-                    name="World",
-                    origin="/",
-                    contents=["world/**", "cameras/**"],
-                ),
-                # Floating row of live RGB feeds from all four cameras
-                rrb.Horizontal(
-                    rrb.Spatial2DView(name="Front",  origin="cameras/cam_front"),
-                    rrb.Spatial2DView(name="Rear",   origin="cameras/cam_rear"),
-                    rrb.Spatial2DView(name="Left",   origin="cameras/cam_left"),
-                    rrb.Spatial2DView(name="Right",  origin="cameras/cam_right"),
-                ),
-                row_shares=[3, 1],
+            # Single 3D view: all camera pointclouds + floating RGB projections +
+            # rover body, arm FK, LiDAR, odometry path.
+            rrb.Spatial3DView(
+                name="World",
+                origin="/",
+                contents=["world/**"],
             ),
             rrb.Vertical(
                 rrb.TextDocumentView(
@@ -266,6 +257,9 @@ class RerunBridge:
         self.telemetry_message_counts = {}
         self.last_stats_time = time.time()
 
+        # Cameras whose Pinhole has been initialised from real intrinsics
+        self._pinhole_set: set = set()
+
         # Odometry
         self.odometry = RoverOdometry()
 
@@ -364,6 +358,47 @@ class RerunBridge:
                 static=True,
             )
 
+        # --- Camera sensor entities: Transform3D + Pinhole ---
+        # Each camera gets a child entity "sensor" with the correct pose so that
+        # images logged there appear as projected RGB billboards in the 3D view.
+        #
+        # Camera coordinate convention: RDF (X=right, Y=down, Z=forward).
+        # Rotation matrix (parent_from_child): columns are camera axes in rover frame.
+        #   cam+X (image right) in rover = [ sin(yaw), -cos(yaw),  0 ]
+        #   cam+Y (image down)  in rover = [        0,         0, -1 ]
+        #   cam+Z (forward)     in rover = [ cos(yaw),  sin(yaw),  0 ]
+        for cam_id, pose in CAMERA_POSES.items():
+            pos = pose["pos"]
+            yaw = pose["yaw"]
+            sy, cy_r = math.sin(yaw), math.cos(yaw)
+            R = np.array([
+                [ sy,   0.0, cy_r],
+                [-cy_r, 0.0,  sy ],
+                [ 0.0, -1.0,  0.0],
+            ], dtype=np.float32)
+            rr.log(
+                f"world/rover/cameras/{cam_id}/sensor",
+                rr.Transform3D(
+                    translation=pos,
+                    rotation=rr.RotationMat3x3(mat=R),
+                ),
+                static=True,
+            )
+            # Default D455 intrinsics — updated on first depth frame
+            rr.log(
+                f"world/rover/cameras/{cam_id}/sensor",
+                rr.Pinhole(
+                    image_from_camera=np.array([
+                        [388.71, 0.0, 320.0],
+                        [0.0, 388.71, 240.0],
+                        [0.0,    0.0,   1.0],
+                    ], dtype=np.float32),
+                    width=640,
+                    height=480,
+                ),
+                static=True,
+            )
+
         logger.info("Rerun initialized successfully")
 
     def initialize_zmq(self):
@@ -459,7 +494,8 @@ class RerunBridge:
                 # Decode JPEG directly to numpy array (faster than PIL)
                 color_np = cv2.imdecode(np.frombuffer(color_data, dtype=np.uint8), cv2.IMREAD_COLOR)
                 color_rgb = cv2.cvtColor(color_np, cv2.COLOR_BGR2RGB)
-                rr.log(f"cameras/{camera_id}/color", rr.Image(color_rgb))
+                # 3D floating projection — displayed as a billboard at the camera pose
+                rr.log(f"world/rover/cameras/{camera_id}/sensor/image", rr.Image(color_rgb))
             except Exception as e:
                 logger.error(f"Error processing color image from {camera_id}: {e}")
 
@@ -470,6 +506,27 @@ class RerunBridge:
             intrinsics = depth_info.get('intrinsics')
             depth_scale = depth_info.get('scale', 0.001)
             if intrinsics is not None:
+                # Update Pinhole with actual calibrated intrinsics on first depth frame
+                if camera_id not in self._pinhole_set:
+                    rr.log(
+                        f"world/rover/cameras/{camera_id}/sensor",
+                        rr.Pinhole(
+                            image_from_camera=np.array([
+                                [intrinsics['fx'], 0.0, intrinsics['cx']],
+                                [0.0, intrinsics['fy'], intrinsics['cy']],
+                                [0.0,           0.0,             1.0],
+                            ], dtype=np.float32),
+                            width=intrinsics['width'],
+                            height=intrinsics['height'],
+                        ),
+                    )
+                    self._pinhole_set.add(camera_id)
+                    logger.info(
+                        f"Pinhole set for {camera_id}: "
+                        f"fx={intrinsics['fx']:.2f} fy={intrinsics['fy']:.2f} "
+                        f"cx={intrinsics['cx']:.2f} cy={intrinsics['cy']:.2f}"
+                    )
+
                 try:
                     depth_bytes = base64.b64decode(depth_info['data'])
                     dw = depth_info['width']
