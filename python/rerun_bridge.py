@@ -380,7 +380,7 @@ class RerunBridge:
                 f"world/rover/cameras/{cam_id}/sensor",
                 rr.Transform3D(
                     translation=pos,
-                    rotation=rr.RotationMat3x3(mat=R),
+                    mat3x3=R,
                 ),
                 static=True,
             )
@@ -483,8 +483,9 @@ class RerunBridge:
             self.frame_counts[camera_id] = 0
         self.frame_counts[camera_id] += 1
 
-        # Set Rerun timeline - only set sequence to reduce overhead
-        rr.set_time("frame", sequence=frame_number)
+        # Set Rerun timeline — use local receive time (not Pi timestamp) to avoid
+        # clock skew between Pis causing out-of-order entries on the timeline.
+        rr.set_time("time", timestamp=time.time())
 
         # --- Color image ---
         color_rgb = None
@@ -494,6 +495,8 @@ class RerunBridge:
                 # Decode JPEG directly to numpy array (faster than PIL)
                 color_np = cv2.imdecode(np.frombuffer(color_data, dtype=np.uint8), cv2.IMREAD_COLOR)
                 color_rgb = cv2.cvtColor(color_np, cv2.COLOR_BGR2RGB)
+                # Cameras are mounted upside-down — rotate 180° to correct orientation
+                color_rgb = cv2.flip(color_rgb, -1)
                 # 3D floating projection — displayed as a billboard at the camera pose
                 rr.log(f"world/rover/cameras/{camera_id}/sensor/image", rr.Image(color_rgb))
             except Exception as e:
@@ -532,6 +535,8 @@ class RerunBridge:
                     dw = depth_info['width']
                     dh = depth_info['height']
                     depth_np = np.frombuffer(depth_bytes, dtype=np.uint16).reshape((dh, dw))
+                    # Cameras are mounted upside-down — rotate 180° to match corrected color image
+                    depth_np = depth_np[::-1, ::-1]
 
                     pose = CAMERA_POSES.get(camera_id)
                     if pose is not None:
