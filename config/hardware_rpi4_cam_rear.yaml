@@ -4,7 +4,7 @@
 camera:
   id: cam_rear
   model: D455
-  serial: D455_SERIAL_002  # Update after discovering actual serial
+  serial: "036322250347"   # D455 on PI-2, firmware 5.17.0.10
 
   streams:
     color:

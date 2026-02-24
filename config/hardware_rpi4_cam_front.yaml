@@ -4,7 +4,7 @@
 camera:
   id: cam_front
   model: D455
-  serial: D455_SERIAL_001  # Update after discovering actual serial
+  serial: "039222250133"   # D455 on PI-1, firmware 5.17.0.10
 
   streams:
     color:

@@ -61,16 +61,22 @@ python python/rerun_bridge.py           # Live data visualization
 **Where to deploy when changing:**
 - `rust/motor_control/`, `rust/lidar_control/`, `python/nodes/ups_node.py`, `config/hardware_jetson_rover.yaml` → Jetson (192.168.0.27)
 - `python/camera_relay.py`, `config/systemd/aizee-camera-relay.service` → Jetson (relay service)
-- `python/nodes/camera_node.py`, `config/hardware_rpi4_cam_*.yaml` → Camera Pis (via Jetson ProxyJump)
+- `python/nodes/camera_node.py`, `config/hardware_rpi4_cam_*.yaml` → Camera Pis (via Jetson hop)
 - `python/teleop/`, `python/rerun_bridge.py` → Dev machine only
 
 **SSH access:**
 - Key: `P:/Workspace/ssh-keys/aizee_rover_id`
 - User: `ltr` on all nodes
-- Pis are on PoE subnet (10.42.0.0/24) — reach them via Jetson ProxyJump:
+- Pis are on PoE subnet (10.42.0.0/24) — reach via Jetson hop (NOT `-J` ProxyJump — that doesn't forward the key to the jump host):
   ```bash
-  ssh -i /p/Workspace/ssh-keys/aizee_rover_id -J ltr@192.168.0.27 ltr@10.42.0.11
+  # Interactive shell on a Pi
+  ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 \
+      "ssh -i ~/.ssh/aizee_rover_id ltr@10.42.0.11"
+  # Run a command on a Pi
+  ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 \
+      "ssh -i ~/.ssh/aizee_rover_id -o StrictHostKeyChecking=no ltr@10.42.0.11 'cmd'"
   ```
+- Jetson has the Pi SSH key at `~/.ssh/aizee_rover_id` (deployed by `./scripts/deploy_jetson_rover.sh`)
 - New Pi: run `./scripts/setup_pi_ethernet.sh <1-4>` to bootstrap key auth + static IP
 
 ## Running the System
@@ -234,6 +240,18 @@ Two subnets:
 
 **Jetson DHCP**: `dnsmasq` on Jetson assigns leases to Pis on 10.42.0.0/24; leases in `/var/lib/misc/dnsmasq.leases`. Config in `/etc/dnsmasq.d/aizee-poe.conf`.
 
+**Pi internet access (NAT masquerade)**: Pis have no direct internet. When internet is needed on Pis (e.g., apt-get, git clone for builds), enable NAT on Jetson:
+```bash
+# On Jetson — enable NAT (survives until reboot):
+sudo iptables -t nat -A POSTROUTING -s 10.42.0.0/24 -o wlP1p1s0 -j MASQUERADE
+echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward
+
+# On each Pi — add default route and DNS:
+sudo ip route add default via 10.42.0.1
+echo -e "nameserver 8.8.8.8\nnameserver 1.1.1.1" | sudo tee /etc/resolv.conf
+```
+Note: these settings are runtime-only and don't persist across reboots.
+
 ## Configuration
 
 **Primary configs** (selected via `AIZEE_CONFIG` env var):
@@ -290,10 +308,10 @@ ip link show can1                         # Check interface status
 
 # Camera diagnostics
 ./scripts/test_all_camera_streams.sh      # Tests via Jetson relay (192.168.0.27:5557-5560)
-lsusb | grep Intel                        # Verify RealSense USB (run on Pi via ProxyJump)
 journalctl -u aizee-camera-relay -f       # Camera relay on Jetson
-# On Pi via ProxyJump:
-# ssh -i /p/Workspace/ssh-keys/aizee_rover_id -J ltr@192.168.0.27 ltr@10.42.0.11 journalctl -u aizee-camera-cam_front -f
+# On Pi via Jetson hop:
+# ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 "ssh -i ~/.ssh/aizee_rover_id ltr@10.42.0.11 'lsusb | grep Intel'"
+# ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 "ssh -i ~/.ssh/aizee_rover_id ltr@10.42.0.11 'journalctl -u aizee-camera-cam_front -n 30'"
 
 # LiDAR diagnostics
 python python/test_lidar_telemetry.py
@@ -321,7 +339,7 @@ python python/teleop/detailed_motor_test.py
 
 **SSH deployment fails (Jetson)**: `./scripts/setup_ssh_keys.sh`; test with `ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27`
 
-**SSH deployment fails (Pi)**: Pis are on PoE subnet, use ProxyJump. For a new Pi, run `./scripts/setup_pi_ethernet.sh <1-4>` to install key and set static IP. Pis have passwordless sudo.
+**SSH deployment fails (Pi)**: Pis are on PoE subnet — use Jetson hop (not `-J` ProxyJump). For a new Pi, run `./scripts/setup_pi_ethernet.sh <1-4>` to install key and set static IP. Pis have passwordless sudo.
 
 ## Code Style
 
