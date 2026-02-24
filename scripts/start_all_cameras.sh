@@ -4,23 +4,28 @@
 
 set -e
 
+SSH_KEY="/p/Workspace/ssh-keys/aizee_rover_id"
+JETSON_IP="192.168.0.27"
+JETSON_SSH="ssh -i $SSH_KEY ltr@$JETSON_IP"
+PI_SSH="ssh -i ~/.ssh/aizee_rover_id -o StrictHostKeyChecking=no"
+
 echo "=== Starting all AIZEE camera services ==="
 echo ""
 
-echo "Starting cam_front (192.168.0.22)..."
-ssh ltr@192.168.0.22 "sudo systemctl start aizee-camera-cam_front" &
+echo "Starting cam_front (10.42.0.11)..."
+$JETSON_SSH "$PI_SSH ltr@10.42.0.11 'sudo systemctl start aizee-camera-cam_front'" &
 PID1=$!
 
-echo "Starting cam_rear (192.168.0.23)..."
-ssh ltr@192.168.0.23 "sudo systemctl start aizee-camera-cam_rear" &
+echo "Starting cam_rear (10.42.0.12)..."
+$JETSON_SSH "$PI_SSH ltr@10.42.0.12 'sudo systemctl start aizee-camera-cam_rear'" &
 PID2=$!
 
-echo "Starting cam_left (192.168.0.24)..."
-ssh ltr@192.168.0.24 "sudo systemctl start aizee-camera-cam_left" &
+echo "Starting cam_left (10.42.0.13)..."
+$JETSON_SSH "$PI_SSH ltr@10.42.0.13 'sudo systemctl start aizee-camera-cam_left'" &
 PID3=$!
 
-echo "Starting cam_right (192.168.0.25)..."
-ssh ltr@192.168.0.25 "sudo systemctl start aizee-camera-cam_right" &
+echo "Starting cam_right (10.42.0.14)..."
+$JETSON_SSH "$PI_SSH ltr@10.42.0.14 'sudo systemctl start aizee-camera-cam_right'" &
 PID4=$!
 
 echo ""
@@ -31,14 +36,10 @@ echo ""
 echo "=== All camera services started! ==="
 echo ""
 echo "To check status:"
-echo "  ssh ltr@192.168.0.22 sudo systemctl status aizee-camera-cam_front"
-echo "  ssh ltr@192.168.0.23 sudo systemctl status aizee-camera-cam_rear"
-echo "  ssh ltr@192.168.0.24 sudo systemctl status aizee-camera-cam_left"
-echo "  ssh ltr@192.168.0.25 sudo systemctl status aizee-camera-cam_right"
+JCMD="ssh -i $SSH_KEY ltr@$JETSON_IP"
+echo "  $JCMD \"ssh -i ~/.ssh/aizee_rover_id ltr@10.42.0.11 'sudo systemctl status aizee-camera-cam_front'\""
+echo "  $JCMD \"ssh -i ~/.ssh/aizee_rover_id ltr@10.42.0.12 'sudo systemctl status aizee-camera-cam_rear'\""
 echo ""
-echo "To view live logs (run in separate terminals):"
-echo "  ssh ltr@192.168.0.22 sudo journalctl -u aizee-camera-cam_front -f"
-echo "  ssh ltr@192.168.0.23 sudo journalctl -u aizee-camera-cam_rear -f"
-echo "  ssh ltr@192.168.0.24 sudo journalctl -u aizee-camera-cam_left -f"
-echo "  ssh ltr@192.168.0.25 sudo journalctl -u aizee-camera-cam_right -f"
+echo "To view live logs:"
+echo "  $JCMD \"ssh -i ~/.ssh/aizee_rover_id ltr@10.42.0.11 'sudo journalctl -u aizee-camera-cam_front -f'\""
 echo ""

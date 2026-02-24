@@ -28,7 +28,7 @@ camera:
 
 network:
   device:
-    ip: 192.168.0.22
+    ip: 10.42.0.11        # PoE Ethernet (was 192.168.0.22 on WiFi)
     hostname: AIZEE-ROVER-PI-1
     zmq:
       camera_pub: "tcp://*:5557"

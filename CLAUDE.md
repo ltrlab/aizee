@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 AIZEE is a modular mobile manipulation robotics platform:
 - **9 ROBSTRIDE motors** on CAN bus: 3 for the wheeled base (2 drive wheels + 1 swivel), 6 for the gantry arm (6DoF)
 - **NVIDIA Jetson Orin Nano** (192.168.0.27): Main controller, all 6 motors on `can1`, ZMQ :5555/:5556
-- **4× Raspberry Pi 4** (192.168.0.22–25): Camera nodes with Intel RealSense D455 RGB-D
+- **4× Raspberry Pi 4** (10.42.0.11–14, PoE Ethernet): Camera nodes with Intel RealSense D455 RGB-D
 - **2× RPLiDAR A1M8**: 360° scanning on Jetson via USB, ZMQ :5561
 - **ZeroMQ**: Inter-process communication for all commands and telemetry
 - **Rerun**: Real-time visualization and MCAP data logging
@@ -60,12 +60,18 @@ python python/rerun_bridge.py           # Live data visualization
 
 **Where to deploy when changing:**
 - `rust/motor_control/`, `rust/lidar_control/`, `python/nodes/ups_node.py`, `config/hardware_jetson_rover.yaml` → Jetson (192.168.0.27)
-- `python/nodes/camera_node.py`, `config/hardware_rpi4_cam_*.yaml` → Camera Pis (192.168.0.22–25)
+- `python/camera_relay.py`, `config/systemd/aizee-camera-relay.service` → Jetson (relay service)
+- `python/nodes/camera_node.py`, `config/hardware_rpi4_cam_*.yaml` → Camera Pis (via Jetson ProxyJump)
 - `python/teleop/`, `python/rerun_bridge.py` → Dev machine only
 
 **SSH access:**
 - Key: `P:/Workspace/ssh-keys/aizee_rover_id`
 - User: `ltr` on all nodes
+- Pis are on PoE subnet (10.42.0.0/24) — reach them via Jetson ProxyJump:
+  ```bash
+  ssh -i /p/Workspace/ssh-keys/aizee_rover_id -J ltr@192.168.0.27 ltr@10.42.0.11
+  ```
+- New Pi: run `./scripts/setup_pi_ethernet.sh <1-4>` to bootstrap key auth + static IP
 
 ## Running the System
 
@@ -112,7 +118,7 @@ Teleop (Python)       --[ZMQ tcp://*:5555]-->  Motor Control (Rust)
                                                ROBSTRIDE Motors
                                                     | Feedback
 Motor Control (Rust)  --[ZMQ tcp://*:5556]-->  Rerun Bridge (Python)
-RPi Cameras (Python)  --[ZMQ tcp://*:5557]-->  Rerun Bridge
+RPi Cameras (Python)  --[ZMQ tcp://*:5557-5560]-->  Camera Relay (Jetson)  --[ZMQ tcp://*:5557-5560]-->  Rerun Bridge
 LiDAR (Rust)          --[ZMQ tcp://*:5561]-->  Rerun Bridge
 UPS (Python)          --[ZMQ tcp://*:5562]-->  Rerun Bridge
                                                     v
@@ -211,14 +217,22 @@ joint_base                          ← gantry_base pos, rot Z
 
 ### Network Topology
 
-| Node | IP | ZMQ Ports |
-|---|---|---|
-| Jetson (Rover) | 192.168.0.27 | :5555 cmd, :5556 telemetry, :5561 lidar, :5562 ups |
-| RPi4 Arm (alt) | 192.168.0.28 | :5557 cmd, :5558 telemetry |
-| cam_front | 192.168.0.22 | :5557+ |
-| cam_rear | 192.168.0.23 | — |
-| cam_left | 192.168.0.24 | — |
-| cam_right | 192.168.0.25 | — |
+Two subnets:
+- **WiFi** (192.168.0.0/24): dev machine ↔ Jetson
+- **PoE Ethernet** (10.42.0.0/24): Jetson ↔ Pis only (not directly reachable from dev)
+
+| Node | WiFi IP | PoE IP | ZMQ Ports |
+|---|---|---|---|
+| Jetson (Rover) | 192.168.0.27 (`wlP1p1s0`) | 10.42.0.1 (`enP8p1s0`) | :5555 cmd, :5556 telemetry, :5557–5560 camera relay, :5561 lidar, :5562 ups |
+| RPi4 Arm (alt) | 192.168.0.28 | — | :5557 cmd, :5558 telemetry |
+| cam_front (PI-1) | — | 10.42.0.11 | :5557 (published to Jetson only) |
+| cam_rear (PI-2) | — | 10.42.0.12 | :5558 |
+| cam_left (PI-3) | — | 10.42.0.13 | :5559 |
+| cam_right (PI-4) | — | 10.42.0.14 | :5560 |
+
+**Camera relay** (`python/camera_relay.py`, service `aizee-camera-relay` on Jetson): subscribes to Pi ZMQ streams on PoE subnet, re-publishes on all Jetson interfaces so dev machine can connect to `tcp://192.168.0.27:5557-5560`.
+
+**Jetson DHCP**: `dnsmasq` on Jetson assigns leases to Pis on 10.42.0.0/24; leases in `/var/lib/misc/dnsmasq.leases`. Config in `/etc/dnsmasq.d/aizee-poe.conf`.
 
 ## Configuration
 
@@ -245,7 +259,7 @@ sudo systemctl {start|stop|restart|status|enable} aizee-motor-control-rover
 sudo journalctl -u aizee-motor-control-rover -f
 ```
 
-Services: `aizee-motor-control-rover`, `aizee-motor-control-arm`, `aizee-camera-cam_{front,rear,left,right}`, `aizee-lidar-control`, `aizee-ups-monitor`
+Services: `aizee-motor-control-rover`, `aizee-motor-control-arm`, `aizee-camera-relay` (Jetson), `aizee-camera-cam_{front,rear,left,right}` (Pis), `aizee-lidar-control`, `aizee-ups-monitor`
 
 ## Teleop Interface
 
@@ -275,9 +289,11 @@ cansend can1 001#1122334455667788         # Send test frame
 ip link show can1                         # Check interface status
 
 # Camera diagnostics
-./scripts/test_all_camera_streams.sh
-lsusb | grep Intel                        # Verify RealSense USB
-journalctl -u aizee-camera-cam_front -f
+./scripts/test_all_camera_streams.sh      # Tests via Jetson relay (192.168.0.27:5557-5560)
+lsusb | grep Intel                        # Verify RealSense USB (run on Pi via ProxyJump)
+journalctl -u aizee-camera-relay -f       # Camera relay on Jetson
+# On Pi via ProxyJump:
+# ssh -i /p/Workspace/ssh-keys/aizee_rover_id -J ltr@192.168.0.27 ltr@10.42.0.11 journalctl -u aizee-camera-cam_front -f
 
 # LiDAR diagnostics
 python python/test_lidar_telemetry.py
@@ -303,7 +319,9 @@ python python/teleop/detailed_motor_test.py
 
 **Control loop jitter**: Set `RUST_LOG=info` or `error` — debug logging adds measurable latency
 
-**SSH deployment fails**: `./scripts/setup_ssh_keys.sh`; test with `ssh -i P:/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27`
+**SSH deployment fails (Jetson)**: `./scripts/setup_ssh_keys.sh`; test with `ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27`
+
+**SSH deployment fails (Pi)**: Pis are on PoE subnet, use ProxyJump. For a new Pi, run `./scripts/setup_pi_ethernet.sh <1-4>` to install key and set static IP. Pis have passwordless sudo.
 
 ## Code Style
 

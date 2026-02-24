@@ -47,6 +47,72 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Camera geometry – square arrangement, one camera per side of the rover body.
+# Position: [x, y, z] metres in rover body frame (+X fwd, +Y left, +Z up).
+# Yaw: rotation around rover Z-axis (radians).  0 = facing forward (+X).
+# ---------------------------------------------------------------------------
+CAMERA_POSES: dict = {
+    "cam_front": {"pos": [0.25,   0.0,  0.15], "yaw": 0.0},
+    "cam_rear":  {"pos": [-0.25,  0.0,  0.15], "yaw": math.pi},
+    "cam_left":  {"pos": [0.0,    0.20, 0.15], "yaw": math.pi / 2},
+    "cam_right": {"pos": [0.0,   -0.20, 0.15], "yaw": -math.pi / 2},
+}
+
+# Pixel stride for depth-to-pointcloud back-projection (higher = fewer points, faster)
+_CLOUD_STRIDE = 4
+
+
+def depth_to_rover_points(
+    depth_np: np.ndarray,
+    intrinsics: dict,
+    depth_scale: float,
+    yaw: float,
+    pos: list,
+    stride: int = _CLOUD_STRIDE,
+) -> tuple:
+    """Back-project a depth image into 3D points in the rover body frame.
+
+    RealSense camera-native axes: Z forward, X right, Y down.
+    Rover frame (RIGHT_HAND_Z_UP):  X forward, Y left,  Z up.
+
+    Rotation from camera to rover for a camera rotated by `yaw` around rover Z:
+        rover_x =  sin(yaw)*cam_x + cos(yaw)*cam_z + pos[0]
+        rover_y = -cos(yaw)*cam_x + sin(yaw)*cam_z + pos[1]
+        rover_z = -cam_y                            + pos[2]
+
+    Returns:
+        points  – (N, 3) float32 array of 3D points in rover body frame
+        px_yx   – (N, 2) int32 array of [row, col] source pixel coordinates
+    """
+    h, w = depth_np.shape
+    fx = intrinsics["fx"]
+    fy = intrinsics["fy"]
+    cx = intrinsics["cx"]
+    cy = intrinsics["cy"]
+
+    ys, xs = np.mgrid[0:h:stride, 0:w:stride]
+    d = depth_np[ys, xs].astype(np.float32) * depth_scale
+
+    valid = (d > 0.15) & (d < 6.0)  # D455 reliable range
+    d = d[valid]
+    if d.size == 0:
+        return np.empty((0, 3), np.float32), np.empty((0, 2), np.int32)
+
+    cam_x = (xs[valid] - cx) * d / fx
+    cam_y = (ys[valid] - cy) * d / fy
+    cam_z = d
+
+    sy, cy_r = math.sin(yaw), math.cos(yaw)
+    rover_x = sy * cam_x + cy_r * cam_z + pos[0]
+    rover_y = -cy_r * cam_x + sy * cam_z + pos[1]
+    rover_z = -cam_y + pos[2]
+
+    points = np.column_stack([rover_x, rover_y, rover_z]).astype(np.float32)
+    px_yx = np.column_stack([ys[valid], xs[valid]])
+    return points, px_yx
+
+
 class RoverOdometry:
     """Dead-reckoning odometry from differential-drive wheel velocities."""
 
@@ -69,9 +135,9 @@ class RoverOdometry:
         vR = right_vel * self.r
         v = (vL + vR) / 2.0
         omega = (vR - vL) / self.L
-        self.theta += v * dt
-        self.x += omega * math.cos(self.theta) * dt
-        self.y += omega * math.sin(self.theta) * dt
+        self.theta += omega * dt
+        self.x += v * math.cos(self.theta) * dt
+        self.y += v * math.sin(self.theta) * dt
         self.path.append([self.x, self.y, 0.0])
         if len(self.path) > 2000:  # cap trail length
             self.path = self.path[-2000:]
@@ -82,18 +148,26 @@ def build_blueprint() -> rrb.Blueprint:
     return rrb.Blueprint(
         rrb.Horizontal(
             rrb.Vertical(
+                # Main 3D world view – rover body, arm FK, pointclouds, LiDAR
                 rrb.Spatial3DView(
                     name="World",
                     origin="/",
                     contents=["world/**", "cameras/**"],
                 ),
+                # Floating row of live RGB feeds from all four cameras
+                rrb.Horizontal(
+                    rrb.Spatial2DView(name="Front",  origin="cameras/cam_front"),
+                    rrb.Spatial2DView(name="Rear",   origin="cameras/cam_rear"),
+                    rrb.Spatial2DView(name="Left",   origin="cameras/cam_left"),
+                    rrb.Spatial2DView(name="Right",  origin="cameras/cam_right"),
+                ),
+                row_shares=[3, 1],
+            ),
+            rrb.Vertical(
                 rrb.TextDocumentView(
                     name="Motor Status",
                     origin="motors/status",
                 ),
-                row_shares=[4, 1],
-            ),
-            rrb.Vertical(
                 rrb.TimeSeriesView(
                     name="Base Positions",
                     contents=[
@@ -254,6 +328,42 @@ class RerunBridge:
             rr.LineStrips3D([[[0.0, 0.0, 0.0], [self.L5, 0.0, 0.0]]], colors=[[255, 0, 50]]),
             static=True)
 
+        # --- Static camera geometry (square arrangement, one per side) ---
+        # Small boxes at each camera position in rover body frame.
+        # These move with the rover via the world/rover odometry transform.
+        cam_colors = {
+            "cam_front": [0, 200, 255],
+            "cam_rear":  [255, 100, 0],
+            "cam_left":  [0, 255, 100],
+            "cam_right": [200, 0, 255],
+        }
+        for cam_id, pose in CAMERA_POSES.items():
+            pos = pose["pos"]
+            yaw = pose["yaw"]
+            color = cam_colors.get(cam_id, [200, 200, 200])
+            rr.log(
+                f"world/rover/cameras/{cam_id}",
+                rr.Boxes3D(
+                    half_sizes=[[0.025, 0.015, 0.015]],
+                    centers=[pos],
+                    labels=[cam_id],
+                    colors=[color],
+                ),
+                static=True,
+            )
+            # Direction arrow: a short line segment showing which way the camera faces.
+            # Camera forward in rover frame: [cos(yaw), sin(yaw), 0]
+            tip = [
+                pos[0] + 0.08 * math.cos(yaw),
+                pos[1] + 0.08 * math.sin(yaw),
+                pos[2],
+            ]
+            rr.log(
+                f"world/rover/cameras/{cam_id}/fov",
+                rr.LineStrips3D([[pos, tip]], colors=[color]),
+                static=True,
+            )
+
         logger.info("Rerun initialized successfully")
 
     def initialize_zmq(self):
@@ -341,18 +451,50 @@ class RerunBridge:
         # Set Rerun timeline - only set sequence to reduce overhead
         rr.set_time("frame", sequence=frame_number)
 
-        # Process color image
+        # --- Color image ---
+        color_rgb = None
         if 'color' in message:
             try:
                 color_data = base64.b64decode(message['color']['data'])
                 # Decode JPEG directly to numpy array (faster than PIL)
                 color_np = cv2.imdecode(np.frombuffer(color_data, dtype=np.uint8), cv2.IMREAD_COLOR)
                 color_rgb = cv2.cvtColor(color_np, cv2.COLOR_BGR2RGB)
-
-                # Log to Rerun
                 rr.log(f"cameras/{camera_id}/color", rr.Image(color_rgb))
             except Exception as e:
                 logger.error(f"Error processing color image from {camera_id}: {e}")
+
+        # --- Pointcloud from depth ---
+        # Requires depth intrinsics sent by camera_node (added in v2).
+        if 'depth' in message:
+            depth_info = message['depth']
+            intrinsics = depth_info.get('intrinsics')
+            depth_scale = depth_info.get('scale', 0.001)
+            if intrinsics is not None:
+                try:
+                    depth_bytes = base64.b64decode(depth_info['data'])
+                    dw = depth_info['width']
+                    dh = depth_info['height']
+                    depth_np = np.frombuffer(depth_bytes, dtype=np.uint16).reshape((dh, dw))
+
+                    pose = CAMERA_POSES.get(camera_id)
+                    if pose is not None:
+                        points, px_yx = depth_to_rover_points(
+                            depth_np, intrinsics, depth_scale,
+                            pose['yaw'], pose['pos'],
+                        )
+                        if points.shape[0] > 0:
+                            if color_rgb is not None:
+                                rows = np.clip(px_yx[:, 0], 0, color_rgb.shape[0] - 1)
+                                cols = np.clip(px_yx[:, 1], 0, color_rgb.shape[1] - 1)
+                                cloud_colors = color_rgb[rows, cols]
+                            else:
+                                cloud_colors = None
+                            rr.log(
+                                f"world/rover/cameras/{camera_id}/cloud",
+                                rr.Points3D(points, radii=0.01, colors=cloud_colors),
+                            )
+                except Exception as e:
+                    logger.error(f"Error computing pointcloud for {camera_id}: {e}")
 
         # Skip infrared for now to reduce latency (can enable later)
         # if 'infrared' in message:

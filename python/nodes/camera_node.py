@@ -69,6 +69,10 @@ class CameraNode:
         self.zmq_socket: Optional[zmq.Socket] = None
         self.running = False
 
+        # Depth calibration (populated on pipeline start)
+        self.depth_intrinsics: Optional[dict] = None
+        self.depth_scale: float = 0.001  # metres per uint16 unit (D455 default)
+
         # Statistics
         self.frame_count = 0
         self.last_stats_time = time.time()
@@ -112,11 +116,24 @@ class CameraNode:
             profile = self.pipeline.start(self.config)
             logger.info("Camera pipeline started successfully")
 
-            # Get camera intrinsics for depth stream
+            # Get depth intrinsics (used by rerun_bridge to compute pointclouds)
             depth_stream = profile.get_stream(rs.stream.depth)
-            intrinsics = depth_stream.as_video_stream_profile().get_intrinsics()
-            logger.info(f"Depth intrinsics: {intrinsics.width}x{intrinsics.height}, "
-                       f"fx={intrinsics.fx:.2f}, fy={intrinsics.fy:.2f}")
+            di = depth_stream.as_video_stream_profile().get_intrinsics()
+            self.depth_intrinsics = {
+                "fx": di.fx, "fy": di.fy,
+                "cx": di.ppx, "cy": di.ppy,
+                "width": di.width, "height": di.height,
+            }
+            logger.info(
+                f"Depth intrinsics: {di.width}x{di.height}, "
+                f"fx={di.fx:.2f}, fy={di.fy:.2f}, "
+                f"cx={di.ppx:.2f}, cy={di.ppy:.2f}"
+            )
+
+            # Get depth scale (metres per uint16 unit; typically 0.001 for D455)
+            depth_sensor = profile.get_device().first_depth_sensor()
+            self.depth_scale = depth_sensor.get_depth_scale()
+            logger.info(f"Depth scale: {self.depth_scale:.6f} m/unit")
 
         except RuntimeError as e:
             logger.error(f"Failed to start camera pipeline: {e}")
@@ -194,6 +211,8 @@ class CameraNode:
                         'format': 'uint16',
                         'width': self.depth_resolution[0],
                         'height': self.depth_resolution[1],
+                        'intrinsics': self.depth_intrinsics,
+                        'scale': self.depth_scale,
                     }
                 }
 

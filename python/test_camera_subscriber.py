@@ -71,6 +71,17 @@ def main():
                 color_data = base64.b64decode(message['color']['data'])
                 print(f"  Color JPEG size: {len(color_data)} bytes")
 
+                # Verify depth intrinsics (required for pointcloud generation)
+                depth_info = message.get('depth', {})
+                intrinsics = depth_info.get('intrinsics')
+                depth_scale = depth_info.get('scale')
+                if intrinsics:
+                    print(f"  Depth intrinsics: fx={intrinsics['fx']:.1f} fy={intrinsics['fy']:.1f} "
+                          f"cx={intrinsics['cx']:.1f} cy={intrinsics['cy']:.1f}")
+                    print(f"  Depth scale: {depth_scale:.6f} m/unit")
+                else:
+                    print("  WARNING: depth intrinsics missing – pointclouds will not be computed")
+
                 frame_count = 0
                 last_stats_time = current_time
 
