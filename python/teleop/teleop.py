@@ -1652,19 +1652,24 @@ def draw_ui(stdscr, state, comms, cfg, start_time, last_row_count=None):
         power = ups_data.get("power", 0.0)
         percentage = ups_data.get("percentage", 0.0)
 
-        # Determine UPS status and color based on battery percentage
-        if percentage >= 50:
+        # Determine UPS status and color based on voltage thresholds from config
+        ups_cfg = cfg.get("ups", {})
+        v_nominal  = ups_cfg.get("voltage_nominal",  11.7)
+        v_warning  = ups_cfg.get("voltage_warning",  10.8)
+        v_shutdown = ups_cfg.get("voltage_shutdown", 10.0)
+
+        if voltage >= v_nominal:
             status = "OK"
             attr = curses.color_pair(1) | curses.A_BOLD  # Green
-        elif percentage >= 30:
-            status = "GOOD"
-            attr = curses.color_pair(2)  # Cyan
-        elif percentage >= 15:
+        elif voltage >= v_warning:
             status = "WARN"
             attr = curses.color_pair(3) | curses.A_BOLD  # Yellow
-        else:
+        elif voltage >= v_shutdown:
             status = "CRIT"
-            attr = curses.color_pair(4) | curses.A_BOLD | curses.A_REVERSE  # Red
+            attr = curses.color_pair(4) | curses.A_BOLD  # Red
+        else:
+            status = "SHUTDOWN"
+            attr = curses.color_pair(4) | curses.A_BOLD | curses.A_REVERSE  # Red + reverse
 
         safe_addstr(
             stdscr, row, 0,

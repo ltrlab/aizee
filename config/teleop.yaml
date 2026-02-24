@@ -37,9 +37,16 @@ battery:
   cell_type: "lipo"
   voltage_full: 25.2      # 6 × 4.2V (fully charged)
   voltage_nominal: 22.2   # 6 × 3.7V (nominal)
-  voltage_warning: 21.0   # 6 × 3.5V (land soon)
-  voltage_critical: 20.0  # 6 × 3.33V (land immediately)
-  voltage_min: 18.0       # 6 × 3.0V (damage threshold - emergency only)
+  voltage_warning: 21.0   # 6 × 3.5V (warn)
+  voltage_critical: 20.0  # 6 × 3.33V (shutdown threshold)
+  voltage_min: 20.0       # 0% reference = shutdown threshold
+
+ups:
+  # Jetson UPS battery (3S LiPo: 9.0V min, 12.6V max)
+  voltage_full: 12.6      # 3 × 4.2V (fully charged)
+  voltage_nominal: 11.7   # 3 × 3.9V (nominal)
+  voltage_warning: 10.8   # 3 × 3.6V (warn)
+  voltage_shutdown: 10.0  # Jetson UPS auto-shutdown threshold
 
 drive:
   max_linear: 2.0       # rad/s
