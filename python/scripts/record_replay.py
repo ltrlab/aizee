@@ -569,7 +569,7 @@ def _replay_live(
     ctx = zmq.Context()
 
     # Command socket (PUSH/PUB)
-    cmd_sock = ctx.socket(zmq.PUB)
+    cmd_sock = ctx.socket(zmq.PUSH)
     cmd_sock.connect(args.cmd)
 
     # Telemetry socket
