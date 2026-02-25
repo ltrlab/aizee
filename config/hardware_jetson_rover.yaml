@@ -113,6 +113,13 @@ ups:
   voltage_critical: 9.9   # Critical threshold (3 × 3.3V)
   voltage_min: 9.0        # Absolute minimum (3 × 3.0V)
 
+# Tufty2040 Status Display — Raspberry Pi Pico connected via USB CDC
+display:
+  enabled: true
+  serial_port: "/dev/tufty_display"   # Udev symlink (see config/udev/99-aizee-display.rules)
+  baud_rate: 115200
+  update_rate: 2.0                     # Hz — display refresh rate
+
 # Network topology
 network:
   device:  # Generic device config (was 'jetson')
@@ -125,3 +132,4 @@ network:
       ups_pub: "tcp://*:5562"          # Publishes UPS power telemetry
       arm_cam_left_pub: "tcp://*:5563" # D435 arm camera left  (see hardware_jetson_arm_cam_left.yaml)
       arm_cam_right_pub: "tcp://*:5564" # D435 arm camera right (see hardware_jetson_arm_cam_right.yaml)
+      motor_telem_sub: "tcp://localhost:5556"  # Motor telemetry subscriber (display_node)

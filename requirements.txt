@@ -23,6 +23,9 @@ msgpack>=1.0.5
 # Optional GUI
 # PyQt6>=6.5.0  # Uncomment if using Qt for teleop GUI
 
+# Display node (Tufty2040 USB CDC serial)
+pyserial>=3.5
+
 # Utilities
 pyyaml>=6.0
 python-dateutil>=2.8.2
