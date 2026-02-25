@@ -449,11 +449,17 @@ impl ControlSystem {
                 // Brief wait then check for response
                 self.sleep_with_keepalives(10);
 
-                // Read response frames to check if motor entered Run mode
+                // Read response frames to check if motor entered Run mode.
+                // Time-bounded loop: 50ms window, keepalives throttled to every 5ms
+                // to avoid flooding the bus with responses from already-enabled motors.
                 let mut got_run_mode = false;
-                for _ in 0..20 {
-                    // Send keepalives while polling for response
-                    self.send_keepalives();
+                let poll_start = Instant::now();
+                let mut last_keepalive = Instant::now();
+                while poll_start.elapsed() < Duration::from_millis(50) && !got_run_mode {
+                    if last_keepalive.elapsed() >= Duration::from_millis(5) {
+                        self.send_keepalives();
+                        last_keepalive = Instant::now();
+                    }
                     match socket.read_frame() {
                         Ok(frame) => {
                             let arb_id_raw = match frame.id() {
@@ -480,11 +486,10 @@ impl ControlSystem {
 
                             if mode_bits == 2 {
                                 got_run_mode = true;
-                                break;
                             }
                         }
                         Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                            std::thread::sleep(std::time::Duration::from_millis(2));
+                            std::thread::sleep(Duration::from_millis(1));
                         }
                         Err(e) => return Err(e.into()),
                     }
@@ -815,6 +820,17 @@ impl ControlSystem {
                     );
                     self.safe_write_frame(socket, &frame, &bus_name)?;
                 }
+            } else if motor.state == MotorState::Enabled {
+                // Send zero-force position-hold frame to prevent hardware watchdog from firing
+                // while waiting for the first ArmJoints command after enable.
+                let bus_name = motor.config.can_bus.clone();
+                if let Some(socket) = self.get_can_socket_by_bus(&bus_name) {
+                    let pos = motor.feedback.as_ref().map(|f| f.position).unwrap_or(motor.target_position);
+                    let frame = robstride::build_control_frame(
+                        motor.config.can_id, motor.config.model, pos, 0.0, 0.0, 0.0, 0.0,
+                    );
+                    let _ = socket.write_frame(&frame);
+                }
             }
         }
         Ok(())
@@ -1120,7 +1136,9 @@ async fn main() -> Result<()> {
     let telemetry_period = Duration::from_secs_f32(1.0 / config.control.telemetry_rate);
 
     let mut arm_interval = interval(arm_period);
+    arm_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut base_interval = interval(base_period);
+    base_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut telemetry_interval = interval(telemetry_period);
 
     info!("Control loops started:");
