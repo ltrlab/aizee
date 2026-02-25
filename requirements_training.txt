@@ -1,0 +1,39 @@
+# AIZEE ACT Training Requirements
+# Install on dev machine (Windows + GPU) in addition to requirements.txt:
+#
+#   pip install -r requirements.txt
+#   pip install -r requirements_training.txt
+
+# Deep learning framework — GPU-accelerated training on dev machine
+# Install the correct CUDA variant for your GPU, e.g.:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+torch>=2.1.0
+torchvision>=0.16.0   # ResNet18 pretrained weights via torchvision.models
+
+# HDF5 episode storage
+h5py>=3.9.0
+
+# Tensor reshape utilities (used in transformer attention operations)
+einops>=0.6.0
+
+# ---------------------------------------------------------------------------
+# Jetson Orin inference note
+# ---------------------------------------------------------------------------
+# PyTorch for Jetson Orin MUST be installed from NVIDIA's JetPack wheel —
+# NOT from PyPI — to get CUDA GPU support.
+#
+# 1. Install JetPack 6.x via SDK Manager (or apt):
+#    sudo apt install nvidia-jetpack
+#
+# 2. Install the matching PyTorch wheel from NVIDIA:
+#    https://developer.download.nvidia.com/compute/redist/jp/v61/pytorch/
+#
+#    Example (JetPack 6.1, Python 3.10):
+#    pip install torch-2.3.0-cp310-cp310-linux_aarch64.whl
+#
+# 3. torchvision and h5py can be installed from PyPI normally:
+#    pip install torchvision h5py einops
+#
+# 4. torchvision may need to be built from source on aarch64 if no
+#    matching wheel is available:
+#    pip install torchvision --no-binary torchvision
