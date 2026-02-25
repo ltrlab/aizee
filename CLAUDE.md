@@ -12,6 +12,12 @@ AIZEE is a modular mobile manipulation robotics platform:
 - **ZeroMQ**: Inter-process communication for all commands and telemetry
 - **Rerun**: Real-time visualization and MCAP data logging
 
+## Prerequisites
+
+- Rust toolchain (stable, installed via `rustup`)
+- Python 3.10+
+- `pip install -r requirements.txt`
+
 ## Build Commands
 
 ```bash
@@ -31,6 +37,10 @@ pip install -r requirements.txt
 
 # Python tests (when available)
 pytest python/
+
+# Python lint/type-check
+black python/
+mypy python/
 ```
 
 ## Development Workflow
@@ -46,16 +56,23 @@ cd rust && cargo build --release
 ./scripts/deploy_rpi4_arm.sh            # Arm module changes
 ./scripts/deploy_all_cameras.sh         # Camera node changes
 
-# 3. Rebuild on Jetson after deploy
-ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27
-cd ~/aizee && source ~/.cargo/env && cd rust/motor_control && cargo build --release
+# 3. Rebuild on Jetson after deploy (see SSH access below)
+ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 \
+    "cd ~/aizee && source ~/.cargo/env && cd rust/motor_control && cargo build --release"
 
 # 4. Restart services
 sudo systemctl restart aizee-motor-control-rover
 
 # 5. Test
 python python/teleop/teleop.py          # Full teleop
-python python/rerun_bridge.py           # Live data visualization
+python python/rerun_bridge.py           # Live data visualization (motor telemetry + LiDAR)
+# With all streams including arm cameras:
+python python/rerun_bridge.py \
+    --cameras tcp://192.168.0.27:5557 tcp://192.168.0.27:5558 \
+              tcp://192.168.0.27:5559 tcp://192.168.0.27:5560 \
+              tcp://192.168.0.27:5563 tcp://192.168.0.27:5564 \
+    --lidar tcp://192.168.0.27:5561 \
+    --ups tcp://192.168.0.27:5562
 ```
 
 **Where to deploy when changing:**
@@ -229,7 +246,7 @@ Two subnets:
 
 | Node | WiFi IP | PoE IP | ZMQ Ports |
 |---|---|---|---|
-| Jetson (Rover) | 192.168.0.27 (`wlP1p1s0`) | 10.42.0.1 (`enP8p1s0`) | :5555 cmd, :5556 telemetry, :5557–5560 camera relay, :5561 lidar, :5562 ups |
+| Jetson (Rover) | 192.168.0.27 (`wlP1p1s0`) | 10.42.0.1 (`enP8p1s0`) | :5555 cmd, :5556 telemetry, :5557–5560 camera relay, :5561 lidar, :5562 ups, :5563–5564 arm cams |
 | RPi4 Arm (alt) | 192.168.0.28 | — | :5557 cmd, :5558 telemetry |
 | cam_front (PI-1) | — | 10.42.0.11 | :5557 (published to Jetson only) |
 | cam_rear (PI-2) | — | 10.42.0.12 | :5558 |
@@ -237,6 +254,8 @@ Two subnets:
 | cam_right (PI-4) | — | 10.42.0.14 | :5560 |
 
 **Camera relay** (`python/camera_relay.py`, service `aizee-camera-relay` on Jetson): subscribes to Pi ZMQ streams on PoE subnet, re-publishes on all Jetson interfaces so dev machine can connect to `tcp://192.168.0.27:5557-5560`.
+
+**Arm cameras** (D435, USB to Jetson): two cameras at the end of the arm on top looking at the gripper. Nodes run directly on the Jetson — no relay. Configs: `config/hardware_jetson_arm_cam_{left,right}.yaml`; ports :5563 (left) and :5564 (right). Services start/stop automatically on USB plug/unplug via udev rules (`config/udev/99-aizee-realsense.rules`). Deploy with `./scripts/deploy_arm_cameras.sh`. If cameras are moved to different USB ports, update `KERNEL==` values in the udev rules file (find new values with `udevadm info -a /dev/bus/usb/<BUS>/<DEV> | grep KERNEL`).
 
 **Jetson DHCP**: `dnsmasq` on Jetson assigns leases to Pis on 10.42.0.0/24; leases in `/var/lib/misc/dnsmasq.leases`. Config in `/etc/dnsmasq.d/aizee-poe.conf`.
 
@@ -277,7 +296,7 @@ sudo systemctl {start|stop|restart|status|enable} aizee-motor-control-rover
 sudo journalctl -u aizee-motor-control-rover -f
 ```
 
-Services: `aizee-motor-control-rover`, `aizee-motor-control-arm`, `aizee-camera-relay` (Jetson), `aizee-camera-cam_{front,rear,left,right}` (Pis), `aizee-lidar-control`, `aizee-ups-monitor`
+Services: `aizee-motor-control-rover`, `aizee-motor-control-arm`, `aizee-camera-relay` (Jetson), `aizee-camera-cam_{front,rear,left,right}` (Pis), `aizee-lidar-control`, `aizee-ups-monitor`, `aizee-arm-cam-left`, `aizee-arm-cam-right` (Jetson)
 
 ## Teleop Interface
 

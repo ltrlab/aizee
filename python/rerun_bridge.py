@@ -59,6 +59,45 @@ CAMERA_POSES: dict = {
     "cam_right": {"pos": [0.0,   -0.20, 0.15], "yaw": -math.pi / 2},
 }
 
+# ---------------------------------------------------------------------------
+# Arm camera geometry – D435 cameras USB-connected to Jetson, mounted on top
+# of the arm near the wrist_roll joint, looking at the gripper.
+#
+# Positions are in the joint_wrist_roll frame:
+#   +X = toward gripper tip, +Y = arm left, +Z = up (when arm is horizontal).
+#
+# Rotation matrix (parent_from_child): columns are camera axes in the
+# joint_wrist_roll frame.  Camera convention: X=right, Y=down, Z=forward.
+#   cam+X (image right) → wrist_roll +X  [1, 0, 0]  (toward gripper tip)
+#   cam+Y (image down)  → wrist_roll -Y  [0,-1, 0]  (arm's right side)
+#   cam+Z (optical fwd) → wrist_roll -Z  [0, 0,-1]  (straight down)
+#
+# NOTE: measure and update positions once cameras are physically mounted.
+#       Tweak the rotation matrix if cameras are tilted differently.
+# ---------------------------------------------------------------------------
+_ARM_CAM_R = np.array(
+    [[1., 0., 0.],
+     [0., -1., 0.],
+     [0., 0., -1.]],
+    dtype=np.float32,
+)
+_WRIST_ROLL_PATH = (
+    "world/rover/arm/joint_base/joint_mid/joint_end"
+    "/joint_wrist_pitch/joint_wrist_roll"
+)
+ARM_CAM_CONFIGS: dict = {
+    "arm_cam_left":  {"pos": [0.01,  0.04, 0.05]},  # left of centre, above arm
+    "arm_cam_right": {"pos": [0.01, -0.04, 0.05]},  # right of centre, above arm
+}
+
+# D435 default intrinsics at 640×480 (updated from calibration on first depth frame)
+_D435_K = np.array(
+    [[383.0,   0.0, 320.0],
+     [  0.0, 383.0, 237.0],
+     [  0.0,   0.0,   1.0]],
+    dtype=np.float32,
+)
+
 # Pixel stride for depth-to-pointcloud back-projection (higher = fewer points, faster)
 _CLOUD_STRIDE = 4
 
@@ -155,6 +194,18 @@ def build_blueprint() -> rrb.Blueprint:
                 contents=["world/**"],
             ),
             rrb.Vertical(
+                # Arm gripper camera feeds (2D image views)
+                rrb.Horizontal(
+                    rrb.Spatial2DView(
+                        name="Arm Left",
+                        origin=f"{_WRIST_ROLL_PATH}/arm_cam_left/sensor",
+                    ),
+                    rrb.Spatial2DView(
+                        name="Arm Right",
+                        origin=f"{_WRIST_ROLL_PATH}/arm_cam_right/sensor",
+                    ),
+                    column_shares=[1, 1],
+                ),
                 rrb.TextDocumentView(
                     name="Motor Status",
                     origin="motors/status",
@@ -399,6 +450,46 @@ class RerunBridge:
                 static=True,
             )
 
+        # --- Static arm camera geometry (under joint_wrist_roll hierarchy) ---
+        # These transform entities are children of joint_wrist_roll, so they
+        # automatically move with the arm as FK joint transforms are updated.
+        arm_cam_colors = {
+            "arm_cam_left":  [0, 230, 130],
+            "arm_cam_right": [230, 130, 0],
+        }
+        for cam_id, cfg in ARM_CAM_CONFIGS.items():
+            pos = cfg["pos"]
+            color = arm_cam_colors.get(cam_id, [200, 200, 200])
+            sensor_path = f"{_WRIST_ROLL_PATH}/{cam_id}/sensor"
+
+            # Small box marker at the camera's position
+            rr.log(
+                f"{_WRIST_ROLL_PATH}/{cam_id}",
+                rr.Boxes3D(
+                    half_sizes=[[0.020, 0.013, 0.010]],
+                    centers=[pos],
+                    labels=[cam_id],
+                    colors=[color],
+                ),
+                static=True,
+            )
+
+            # Sensor transform + Pinhole (defaults; updated on first depth frame)
+            rr.log(
+                sensor_path,
+                rr.Transform3D(translation=pos, mat3x3=_ARM_CAM_R),
+                static=True,
+            )
+            rr.log(
+                sensor_path,
+                rr.Pinhole(
+                    image_from_camera=_D435_K,
+                    width=640,
+                    height=480,
+                ),
+                static=True,
+            )
+
         logger.info("Rerun initialized successfully")
 
     def initialize_zmq(self):
@@ -468,6 +559,78 @@ class RerunBridge:
             f"{len(self.telemetry_sockets)} telemetry stream(s)"
         )
 
+    def _process_arm_camera_message(self, message: dict):
+        """Process and log an arm (D435) camera frame to Rerun.
+
+        Arm cameras are children of joint_wrist_roll in the Rerun hierarchy, so
+        their images and depth maps automatically follow the arm's FK pose.
+        Depth is logged as rr.DepthImage — Rerun handles 3-D projection via the
+        Pinhole + Transform3D chain rather than us doing manual back-projection.
+        """
+        camera_id = message.get("camera_id", "unknown")
+        timestamp = message.get("timestamp", time.time())
+
+        if camera_id not in self.frame_counts:
+            self.frame_counts[camera_id] = 0
+        self.frame_counts[camera_id] += 1
+
+        rr.set_time("time", timestamp=time.time())
+
+        sensor_path = f"{_WRIST_ROLL_PATH}/{camera_id}/sensor"
+
+        # Update Pinhole with real calibrated intrinsics on first depth frame
+        if "depth" in message and camera_id not in self._pinhole_set:
+            intrinsics = message["depth"].get("intrinsics")
+            if intrinsics:
+                rr.log(
+                    sensor_path,
+                    rr.Pinhole(
+                        image_from_camera=np.array(
+                            [[intrinsics["fx"], 0.0, intrinsics["cx"]],
+                             [0.0, intrinsics["fy"], intrinsics["cy"]],
+                             [0.0, 0.0, 1.0]],
+                            dtype=np.float32,
+                        ),
+                        width=intrinsics["width"],
+                        height=intrinsics["height"],
+                    ),
+                )
+                self._pinhole_set.add(camera_id)
+                logger.info(
+                    f"Pinhole updated for {camera_id}: "
+                    f"fx={intrinsics['fx']:.2f} fy={intrinsics['fy']:.2f} "
+                    f"cx={intrinsics['cx']:.2f} cy={intrinsics['cy']:.2f}"
+                )
+
+        # Color image — arm cameras are right-side up, no flip needed
+        if "color" in message:
+            try:
+                color_data = base64.b64decode(message["color"]["data"])
+                color_np = cv2.imdecode(
+                    np.frombuffer(color_data, dtype=np.uint8), cv2.IMREAD_COLOR
+                )
+                color_rgb = cv2.cvtColor(color_np, cv2.COLOR_BGR2RGB)
+                rr.log(f"{sensor_path}/color", rr.Image(color_rgb))
+            except Exception as e:
+                logger.error(f"Error processing color from {camera_id}: {e}")
+
+        # Depth image — logged natively; Rerun renders as 3D via Pinhole + Transform3D
+        if "depth" in message:
+            try:
+                depth_info = message["depth"]
+                depth_bytes = base64.b64decode(depth_info["data"])
+                dw = depth_info["width"]
+                dh = depth_info["height"]
+                depth_np = np.frombuffer(depth_bytes, dtype=np.uint16).reshape((dh, dw))
+                depth_scale = depth_info.get("scale", 0.001)
+                # meter= tells Rerun which uint16 value corresponds to 1 metre
+                rr.log(
+                    f"{sensor_path}/depth",
+                    rr.DepthImage(depth_np, meter=1.0 / depth_scale),
+                )
+            except Exception as e:
+                logger.error(f"Error processing depth from {camera_id}: {e}")
+
     def process_camera_message(self, message: dict):
         """Process and log camera data to Rerun
 
@@ -475,6 +638,12 @@ class RerunBridge:
             message: Camera message dictionary with color and infrared data
         """
         camera_id = message.get('camera_id', 'unknown')
+
+        # Arm cameras (D435 on Jetson USB) use a different entity hierarchy and
+        # depth rendering approach — delegate to the arm-specific handler.
+        if camera_id in ARM_CAM_CONFIGS:
+            self._process_arm_camera_message(message)
+            return
         timestamp = message.get('timestamp', time.time())
         frame_number = message.get('frame_number', 0)
 
