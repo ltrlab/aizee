@@ -94,7 +94,11 @@ def _draw(lines: list[str], n_prev: int = 0, first: bool = False) -> int:
 
 
 def run_monitor(arm: So101Leader, get_key) -> bool:
-    """Show live positions until user presses C.  Returns True to proceed."""
+    """Show live positions until user presses C.  Returns True to proceed.
+
+    Uses read_unwrapped() so the unwrap state is seeded before calibration
+    starts — critical for joints that cross the 0/4095 boundary.
+    """
     lines = _render_monitor(None, arm.JOINTS, arm.port)
     n = _draw(lines, first=True)
 
@@ -103,8 +107,10 @@ def run_monitor(arm: So101Leader, get_key) -> bool:
         if key == "C":
             return True
 
-        raw = arm.read_raw()
-        lines = _render_monitor(raw, arm.JOINTS, arm.port)
+        unwrapped = arm.read_unwrapped()
+        # Display physical position (mod 4096) — bar and ticks stay in 0-4095
+        display = {j: v % 4096 for j, v in unwrapped.items()} if unwrapped else None
+        lines = _render_monitor(display, arm.JOINTS, arm.port)
         n = _draw(lines, n_prev=n)
         time.sleep(0.05)
 
@@ -138,25 +144,33 @@ def run_calibration(arm: So101Leader, get_key) -> Optional[dict]:
             print(f"     (Ctrl-C to abort)\n")
 
             captured: Optional[int] = None
-            last_n = 0
             while captured is None:
                 key = get_key()
                 if key == " ":
-                    raw = arm.read_raw()
-                    if raw:
-                        captured = raw[joint]
+                    unwrapped = arm.read_unwrapped()
+                    if unwrapped:
+                        captured = unwrapped[joint]  # store unwrapped value
                         break
 
-                raw = arm.read_raw()
-                cur = raw[joint] if raw else None
-                cur_r = f"{ticks_to_rad(cur):+.3f}" if cur is not None else "---"
-                line = f"\r  current: ticks={cur or '---':>5}  rad={cur_r}   {_bar(cur or 0, 20)}\033[K"
+                unwrapped = arm.read_unwrapped()
+                if unwrapped:
+                    cur_u = unwrapped[joint]          # continuous unwrapped
+                    cur_p = cur_u % 4096              # physical 0-4095 for display
+                    cur_r = ticks_to_rad(cur_p)
+                    wrap_note = f"  unwrapped={cur_u}" if cur_u != cur_p else ""
+                    line = (f"\r  current: ticks={cur_p:>5}  rad={cur_r:>+7.3f}"
+                            f"  {_bar(cur_p, 18)}{wrap_note}\033[K")
+                else:
+                    line = "\r  current: ---\033[K"
                 sys.stdout.write(line)
                 sys.stdout.flush()
                 time.sleep(0.05)
 
             sys.stdout.write("\r\033[K")
-            print(f"  Captured {label}: ticks={captured}  rad={ticks_to_rad(captured):+.3f}\n")
+            # Show physical ticks alongside unwrapped for transparency
+            phys = captured % 4096
+            wrap_note = f"  (unwrapped={captured})" if captured != phys else ""
+            print(f"  Captured {label}: ticks={phys}  rad={ticks_to_rad(phys):+.3f}{wrap_note}\n")
 
             if step == 0:
                 results.setdefault(joint, {})["min_raw"] = captured
@@ -185,7 +199,10 @@ def _print_calib_header(
     for j, data in done.items():
         mn = data.get("min_raw", "?")
         mx = data.get("max_raw", "?")
-        print(f"  [done] {j:<18}  min={mn}  max={mx}")
+        mn_p = mn % 4096 if isinstance(mn, int) else mn
+        mx_p = mx % 4096 if isinstance(mx, int) else mx
+        wrap = "  [wrapped]" if isinstance(mn, int) and (mn != mn_p or mx != mx_p) else ""
+        print(f"  [done] {j:<18}  min={mn_p}  max={mx_p}{wrap}")
     if idx > 0:
         print()
     step_str = "A: move to MIN" if step == 0 else "B: move to MAX"

@@ -104,6 +104,9 @@ class So101Leader:
         self.baud   = baud
         self._ser: Optional[serial.Serial] = None
         self._calib = _load_calib(Path(calib))
+        # Per-joint unwrap state — tracks rollovers across 0/4095 boundary
+        self._prev_raw:   dict[str, Optional[int]] = {j: None for j in self.JOINTS}
+        self._unwrap_off: dict[str, int]           = {j: 0    for j in self.JOINTS}
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -128,23 +131,48 @@ class So101Leader:
         return bool(self._ser and self._ser.is_open)
 
     # ------------------------------------------------------------------
+    # Encoder unwrapping
+    # ------------------------------------------------------------------
+
+    def _unwrap(self, joint: str, raw: int) -> int:
+        """Return a continuously unwrapped position for *joint*.
+
+        Detects when the 12-bit encoder crosses the 0/4095 boundary by
+        checking whether the step between consecutive readings exceeds half
+        the encoder range (2048 ticks).  Each crossing adjusts the per-joint
+        offset so callers see a monotonically varying value instead of a flip.
+
+        Note: on fresh connect the offset resets to 0, so the arm should
+        start in a position well away from the wrap boundary.
+        """
+        prev = self._prev_raw[joint]
+        if prev is not None:
+            delta = raw - prev
+            if delta > _TICKS // 2:      # jumped backward over 0 (e.g. 4090 -> 5)
+                self._unwrap_off[joint] -= _TICKS
+            elif delta < -(_TICKS // 2): # jumped forward over 4095 (e.g. 5 -> 4090)
+                self._unwrap_off[joint] += _TICKS
+        self._prev_raw[joint] = raw
+        return raw + self._unwrap_off[joint]
+
+    # ------------------------------------------------------------------
     # Controller interface  (poll every control cycle)
     # ------------------------------------------------------------------
 
     def poll(self) -> Optional[np.ndarray]:
         """Read all 6 servos and return AIZEE joint targets [rad].
 
-        Uses calibration (min/max raw → rad_min/rad_max per joint).
+        Uses calibration (min/max unwrapped → rad_min/rad_max per joint).
         Falls back to raw-ticks-to-radians conversion if no calibration.
         Returns None if any servo read fails.
         """
-        raw = self.read_raw()
-        if raw is None:
+        unwrapped = self.read_unwrapped()
+        if unwrapped is None:
             return None
 
         out = np.zeros(6, dtype=np.float32)
         for i, joint in enumerate(self.JOINTS):
-            ticks = raw[joint]
+            ticks = unwrapped[joint]
             if self._calib:
                 jc    = self._calib["joints"].get(joint, {})
                 mn    = jc.get("min_raw",  0)
@@ -159,17 +187,35 @@ class So101Leader:
         return out
 
     # ------------------------------------------------------------------
-    # Raw reads
+    # Raw / unwrapped reads
     # ------------------------------------------------------------------
 
     def read_raw(self) -> Optional[dict[str, int]]:
-        """Return {joint: ticks} for all 6 servos, or None on any error."""
+        """Return {joint: ticks} in [0, 4095] for all 6 servos.
+
+        Does NOT update the unwrap state — use read_unwrapped() when you
+        need rollover-safe continuous values (calibration, poll).
+        """
         result: dict[str, int] = {}
         for servo_id, joint in enumerate(self.JOINTS, start=1):
             val = self._read_u16(servo_id, _REG_POS)
             if val is None:
                 return None
             result[joint] = val
+        return result
+
+    def read_unwrapped(self) -> Optional[dict[str, int]]:
+        """Read all servos and return continuously unwrapped positions.
+
+        Values may be outside [0, 4095] when the servo has crossed the
+        encoder boundary since connect().  Updates internal unwrap state.
+        """
+        result: dict[str, int] = {}
+        for servo_id, joint in enumerate(self.JOINTS, start=1):
+            val = self._read_u16(servo_id, _REG_POS)
+            if val is None:
+                return None
+            result[joint] = self._unwrap(joint, val)
         return result
 
     def read_positions(self) -> Optional[dict[str, float]]:
