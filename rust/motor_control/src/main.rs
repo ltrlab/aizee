@@ -750,6 +750,28 @@ impl ControlSystem {
                         enabled_motors.push((motor_id.clone(), cid, cmodel));
                     }
                 }
+
+                // Refresh feedback timestamps for all just-enabled motors.
+                //
+                // The sequential enable takes ~165ms per motor, so after enabling
+                // all 9 motors the first motor's last_feedback_time is ~1320ms stale.
+                // check_safety() uses a 500ms feedback timeout, so it trips on the
+                // first 7 motors and sets them back to Error — even though they are
+                // fine. This happens because our stabilization drain loop discards
+                // non-target-motor frames without calling update_feedback(), so
+                // last_feedback_time never advances during subsequent enables.
+                //
+                // Resetting here is equivalent to what enable_motor() does
+                // individually; it just extends the grace period to cover the
+                // full batch enable duration rather than a single motor's.
+                let now = Instant::now();
+                for motor in self.base_group.motors.iter_mut()
+                    .chain(self.arm_group.motors.iter_mut())
+                {
+                    if matches!(motor.state, MotorState::Enabled | MotorState::Running) {
+                        motor.last_feedback_time = now;
+                    }
+                }
             }
             CommandMessage::Disable { motor_ids } => {
                 for motor_id in motor_ids {
