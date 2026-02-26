@@ -61,8 +61,10 @@ def _render(
     actual:     Optional[np.ndarray],
     status:     str,
     hint:       str,
+    robot_ok:   bool = False,
 ) -> list[str]:
     sep = "-" * _W
+    robot_line = "  robot: connected" if robot_ok else "  robot: offline (no telemetry)"
     lines = [
         "=" * _W,
         "  SO-101 -> AIZEE Teleop",
@@ -77,6 +79,7 @@ def _render(
         lines.append(f"  {so101j:<18} {l_s}  {t_s}  {a_s}")
     lines += [
         f"  {sep}",
+        robot_line,
         f"  {status}",
         f"  {hint}",
         "=" * _W,
@@ -157,6 +160,8 @@ def main() -> None:
     # --- ZMQ ---
     ctx        = zmq.Context()
     cmd_sock   = ctx.socket(zmq.PUSH)
+    cmd_sock.setsockopt(zmq.SNDHWM, 2)   # never block — drop stale commands
+    cmd_sock.setsockopt(zmq.LINGER,  0)  # don't wait on close
     cmd_sock.connect(args.cmd)
     telem_sock = ctx.socket(zmq.SUB)
     telem_sock.connect(args.telem)
@@ -179,9 +184,10 @@ def main() -> None:
     held_target: Optional[np.ndarray] = None
     status      = "[ ] ready"
     hint        = "E=enable  H=hold  Q=quit"
+    robot_ok    = q_actual is not None
 
     # Initial draw
-    _draw(_render(None, None, q_actual, status, hint), first=True)
+    _draw(_render(None, None, q_actual, status, hint, robot_ok), first=True)
 
     period = 1.0 / RECORD_HZ
 
@@ -194,7 +200,10 @@ def main() -> None:
             if key == "Q":
                 break
             elif key == "E":
-                cmd_sock.send_string(json.dumps({"type": "enable", "motor_ids": ARM_JOINTS}))
+                try:
+                    cmd_sock.send_string(json.dumps({"type": "enable", "motor_ids": ARM_JOINTS}), zmq.NOBLOCK)
+                except zmq.Again:
+                    pass
                 hint   = "E=enable  H=hold  Q=quit"
                 status = "[ ] enabled"
             elif key == "H":
@@ -221,19 +230,23 @@ def main() -> None:
                 ref = q_actual if q_actual is not None else target
                 delta  = np.clip(target - ref, -args.max_delta, args.max_delta)
                 q_cmd  = ref + delta
-                cmd_sock.send_string(json.dumps({
-                    "type":       "arm_joints",
-                    "positions":  q_cmd.tolist(),
-                    "velocities": [0.0] * 6,
-                    "kp":         KP,
-                    "kd":         KD,
-                }))
+                try:
+                    cmd_sock.send_string(json.dumps({
+                        "type":       "arm_joints",
+                        "positions":  q_cmd.tolist(),
+                        "velocities": [0.0] * 6,
+                        "kp":         KP,
+                        "kd":         KD,
+                    }), zmq.NOBLOCK)
+                except zmq.Again:
+                    pass
 
             # --- Telemetry ---
             telem  = _drain(telem_sock)
             q_new  = _qpos(telem)
             if q_new is not None:
                 q_actual = q_new
+                robot_ok = True
 
             # --- Status ---
             if not hold and leader_rad is not None:
@@ -242,7 +255,7 @@ def main() -> None:
                 status = "[!] no leader data"
 
             # --- Render ---
-            _draw(_render(leader_rad, target, q_actual, status, hint))
+            _draw(_render(leader_rad, target, q_actual, status, hint, robot_ok))
 
             sleep_t = period - (time.time() - t0)
             if sleep_t > 0:
