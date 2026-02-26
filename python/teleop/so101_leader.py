@@ -117,6 +117,10 @@ class So101Leader:
         try:
             self._ser = serial.Serial(self.port, self.baud, timeout=0.05)
             time.sleep(0.1)
+            # Reset unwrap state so seeding runs again on first read.
+            for j in self.JOINTS:
+                self._prev_raw[j]   = None
+                self._unwrap_off[j] = 0
             return True
         except serial.SerialException as exc:
             print(f"[SO-101] connect failed on {self.port}: {exc}")
@@ -137,23 +141,40 @@ class So101Leader:
     def _unwrap(self, joint: str, raw: int) -> int:
         """Return a continuously unwrapped position for *joint*.
 
-        Detects when the 12-bit encoder crosses the 0/4095 boundary by
-        checking whether the step between consecutive readings exceeds half
-        the encoder range (2048 ticks).  Each crossing adjusts the per-joint
-        offset so callers see a monotonically varying value instead of a flip.
+        On the very first reading after connect(), seeds _unwrap_off so that
+        the initial physical tick maps correctly into the calibrated range:
+        - Wrapped ranges (min_raw > max_raw): if the initial tick is in the
+          lower segment [0, max_raw], add one full revolution so the value
+          sits above the upper segment [min_raw, 4095].
 
-        Note: on fresh connect the offset resets to 0, so the arm should
-        start in a position well away from the wrap boundary.
+        Subsequent calls track rollovers by checking whether the step between
+        consecutive readings exceeds half the encoder range (2048 ticks).
+        _prev_raw stores the UNWRAPPED value so that the delta computation
+        stays valid even after the offset has been adjusted.
         """
-        prev = self._prev_raw[joint]
-        if prev is not None:
-            delta = raw - prev
-            if delta > _TICKS // 2:      # jumped backward over 0 (e.g. 4090 -> 5)
-                self._unwrap_off[joint] -= _TICKS
-            elif delta < -(_TICKS // 2): # jumped forward over 4095 (e.g. 5 -> 4090)
-                self._unwrap_off[joint] += _TICKS
-        self._prev_raw[joint] = raw
-        return raw + self._unwrap_off[joint]
+        prev_u = self._prev_raw[joint]     # stored as unwrapped (may be >4095)
+        if prev_u is None:
+            # First read — seed offset for wrapped calibration ranges.
+            if self._calib:
+                jc = self._calib["joints"].get(joint, {})
+                mn = jc.get("min_raw", 0)
+                mx = jc.get("max_raw", _TICKS - 1)
+                if mn > mx and raw <= mx:
+                    # raw is in the lower segment of a wrapped range;
+                    # shift up by one revolution so it reads above min_raw.
+                    self._unwrap_off[joint] = _TICKS
+            self._prev_raw[joint] = raw + self._unwrap_off[joint]
+            return raw + self._unwrap_off[joint]
+
+        prev_raw = prev_u % _TICKS         # physical tick implied by last unwrapped
+        delta = raw - prev_raw
+        if delta > _TICKS // 2:            # backward wrap: e.g. 5 → 4090
+            self._unwrap_off[joint] -= _TICKS
+        elif delta < -(_TICKS // 2):       # forward wrap:  e.g. 4090 → 5
+            self._unwrap_off[joint] += _TICKS
+        unwrapped = raw + self._unwrap_off[joint]
+        self._prev_raw[joint] = unwrapped
+        return unwrapped
 
     # ------------------------------------------------------------------
     # Controller interface  (poll every control cycle)
@@ -162,8 +183,12 @@ class So101Leader:
     def poll(self) -> Optional[np.ndarray]:
         """Read all 6 servos and return AIZEE joint targets [rad].
 
-        Uses calibration (min/max unwrapped → rad_min/rad_max per joint).
-        Falls back to raw-ticks-to-radians conversion if no calibration.
+        Uses read_unwrapped() for continuous tracking across the 0/4095
+        encoder boundary.  Calibration bounds are lifted into the same
+        unwrapped space so that linear interpolation is always monotonic
+        regardless of where in the revolution the servo started.
+
+        Falls back to raw-ticks-to-radians if no calibration is loaded.
         Returns None if any servo read fails.
         """
         unwrapped = self.read_unwrapped()
@@ -172,18 +197,23 @@ class So101Leader:
 
         out = np.zeros(6, dtype=np.float32)
         for i, joint in enumerate(self.JOINTS):
-            ticks = unwrapped[joint]
+            u = unwrapped[joint]           # continuously varying (may be outside 0-4095)
             if self._calib:
                 jc    = self._calib["joints"].get(joint, {})
                 mn    = jc.get("min_raw",  0)
                 mx    = jc.get("max_raw",  _TICKS - 1)
                 r_min = jc.get("rad_min",  AIZEE_DEFAULTS[i][0])
                 r_max = jc.get("rad_max",  AIZEE_DEFAULTS[i][1])
-                span  = mx - mn
-                frac  = max(0.0, min(1.0, (ticks - mn) / span)) if span else 0.5
+                # Lift calibration bounds into unwrapped space.
+                # For wrapped ranges (mn > mx), the span crosses 0/4095 so
+                # the upper bound in unwrapped space is mn + span = 4096 + mx.
+                mn_u = mn
+                mx_u = mx if mn <= mx else mn + (_TICKS - mn + mx)
+                span = mx_u - mn_u
+                frac = max(0.0, min(1.0, (u - mn_u) / span)) if span else 0.5
                 out[i] = r_min + frac * (r_max - r_min)
             else:
-                out[i] = ticks_to_rad(ticks)
+                out[i] = ticks_to_rad(u % _TICKS)
         return out
 
     # ------------------------------------------------------------------
@@ -191,11 +221,7 @@ class So101Leader:
     # ------------------------------------------------------------------
 
     def read_raw(self) -> Optional[dict[str, int]]:
-        """Return {joint: ticks} in [0, 4095] for all 6 servos.
-
-        Does NOT update the unwrap state — use read_unwrapped() when you
-        need rollover-safe continuous values (calibration, poll).
-        """
+        """Return {joint: ticks} in [0, 4095] for all 6 servos."""
         result: dict[str, int] = {}
         for servo_id, joint in enumerate(self.JOINTS, start=1):
             val = self._read_u16(servo_id, _REG_POS)
