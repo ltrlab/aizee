@@ -1,0 +1,54 @@
+{
+  "calibrated_at": "2026-02-26T05:34:06.071161+00:00",
+  "baud": 1000000,
+  "joints": {
+    "shoulder_pan": {
+      "id": 1,
+      "aizee": "gantry_base",
+      "min_raw": 811,
+      "max_raw": 3505,
+      "rad_min": -1.57,
+      "rad_max": 1.57
+    },
+    "shoulder_lift": {
+      "id": 2,
+      "aizee": "gantry_mid",
+      "min_raw": 1795,
+      "max_raw": 4005,
+      "rad_min": -0.12,
+      "rad_max": 1.57
+    },
+    "elbow_flex": {
+      "id": 3,
+      "aizee": "gantry_end",
+      "min_raw": 72,
+      "max_raw": 2193,
+      "rad_min": -1.57,
+      "rad_max": 0.0
+    },
+    "wrist_flex": {
+      "id": 4,
+      "aizee": "wrist_pitch",
+      "min_raw": 952,
+      "max_raw": 3281,
+      "rad_min": -1.0,
+      "rad_max": 1.0
+    },
+    "wrist_roll": {
+      "id": 5,
+      "aizee": "wrist_roll",
+      "min_raw": 2986,
+      "max_raw": 2681,
+      "rad_min": -1.57,
+      "rad_max": 1.57
+    },
+    "gripper": {
+      "id": 6,
+      "aizee": "gripper",
+      "min_raw": 2158,
+      "max_raw": 2481,
+      "rad_min": 0.0,
+      "rad_max": 0.5
+    }
+  }
+}
