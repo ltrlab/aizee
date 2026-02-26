@@ -8,9 +8,10 @@ Deploy:
     mpremote cp tufty2040/main.py :main.py
 
 JSON packet format (from display_node.py on Jetson):
-    {"mv":24.1,"up":11.4,"ub":73,"me":true,"ms":{...},"t":1740000000.0}
+    {"mv":24.1,"up":11.4,"ub":73,"me":true,"ms":{...},"sv":{...},"t":1740000000.0}
 
 Motor state chars: r=running, e=enabling, d=disabled, x=error, ?=unknown
+Service state chars: a=active, f=failed, i=inactive, e=activating, ?=unknown
 """
 
 import json
@@ -74,6 +75,25 @@ STATE_COLORS = {
     "d": (DARK_GRAY, GRAY),
     "x": (RED,       WHITE),
     "?": (DARK_GRAY, GRAY),
+}
+
+# ---------------------------------------------------------------------------
+# Service display layout
+# ---------------------------------------------------------------------------
+
+# Two rows of (abbrev, display_label) pairs
+SERVICES_ROWS = [
+    [("motors", "MOTOR"), ("lidar", "LIDAR"), ("ups", "UPS")],
+    [("relay",  "RELAY"), ("disp",  "DISP")],
+]
+
+# Service state char → (bg_pen, text_pen, status_label)
+SV_COLORS = {
+    "a": (GREEN,     BLACK, "OK "),
+    "f": (RED,       WHITE, "ERR"),
+    "i": (YELLOW,    BLACK, "---"),
+    "e": (YELLOW,    BLACK, "ACT"),
+    "?": (DARK_GRAY, GRAY,  "???"),
 }
 
 # ---------------------------------------------------------------------------
@@ -259,11 +279,40 @@ def draw_motors_enabled(me: bool, ms: dict):
             x += 44
 
 
+def draw_services_section(sv: dict):
+    """
+    Systemd service status grid — two rows of coloured boxes.
+    y range: 154–200
+    """
+    draw_section_line(154)
+
+    display.set_pen(GRAY)
+    display.set_font("bitmap8")
+    display.text("SERVICES:", 4, 158, scale=1)
+
+    row_ys = [170, 188]
+    for row_idx, row in enumerate(SERVICES_ROWS):
+        y = row_ys[row_idx]
+        x = 4
+        for abbrev, label in row:
+            state = sv.get(abbrev, "?") if sv else "?"
+            bg_pen, txt_pen, status_text = SV_COLORS.get(state, SV_COLORS["?"])
+
+            display.set_pen(bg_pen)
+            display.rectangle(x, y, 100, 14)
+
+            display.set_pen(txt_pen)
+            display.text(label,       x + 3,  y + 3, scale=1)
+            display.text(status_text, x + 65, y + 3, scale=1)
+
+            x += 104
+
+
 def draw_no_data():
     """Placeholder values shown when no packet has been received yet."""
-    # Battery section with all --- values
     draw_battery_section(None, None, None)
     draw_motors_enabled(False, {})
+    draw_services_section({})
 
 
 def render(data: dict, stale: bool, waiting: bool):
@@ -279,8 +328,10 @@ def render(data: dict, stale: bool, waiting: bool):
         ub = data.get("ub")
         me = data.get("me", False)
         ms = data.get("ms", {})
+        sv = data.get("sv", {})
         draw_battery_section(mv, up, ub)
         draw_motors_enabled(me, ms)
+        draw_services_section(sv)
 
     display.update()
 

@@ -18,6 +18,7 @@ import argparse
 import json
 import logging
 import signal
+import subprocess
 import sys
 import time
 from typing import Optional
@@ -61,6 +62,16 @@ BASE_MOTOR_ABBREVS = {"lw", "rw", "sw"}
 MOTOR_STALE_TIMEOUT = 10.0  # seconds
 UPS_STALE_TIMEOUT   = 15.0  # seconds
 
+# Jetson services to monitor — (systemd unit name, display abbreviation)
+SERVICES = [
+    ("aizee-motor-control-rover", "motors"),
+    ("aizee-lidar-control",       "lidar"),
+    ("aizee-ups-monitor",         "ups"),
+    ("aizee-camera-relay",        "relay"),
+    ("aizee-display",             "disp"),
+]
+SERVICE_CHECK_INTERVAL = 5.0  # seconds — rate-limit systemctl calls
+
 
 def _bind_to_connect(endpoint: str) -> str:
     """Convert a bind endpoint (tcp://*:PORT) to a connect endpoint (tcp://localhost:PORT)."""
@@ -99,6 +110,10 @@ class DisplayNode:
         self.last_motor_time: float = 0.0
         self.latest_ups: Optional[dict] = None
         self.last_ups_time: float = 0.0
+
+        # Cached service states
+        self.service_states: dict = {}
+        self.last_service_check: float = 0.0
 
         self.running = False
 
@@ -182,6 +197,44 @@ class DisplayNode:
                 self.last_ups_time = time.time()
 
     # ------------------------------------------------------------------
+    # Service status
+    # ------------------------------------------------------------------
+
+    def _check_services(self) -> dict:
+        """Query systemctl is-active for each monitored service.
+
+        Returns {abbrev: status_char} where status_char is one of:
+          "a" = active, "f" = failed, "i" = inactive, "e" = activating, "?" = unknown
+        """
+        names = [s[0] for s in SERVICES]
+        states: dict = {}
+        try:
+            result = subprocess.run(
+                ["systemctl", "is-active"] + names,
+                capture_output=True,
+                text=True,
+                timeout=3.0,
+            )
+            lines = result.stdout.strip().splitlines()
+            for (_, abbrev), line in zip(SERVICES, lines):
+                status = line.strip()
+                if status == "active":
+                    states[abbrev] = "a"
+                elif status == "failed":
+                    states[abbrev] = "f"
+                elif status == "inactive":
+                    states[abbrev] = "i"
+                elif status == "activating":
+                    states[abbrev] = "e"
+                else:
+                    states[abbrev] = "?"
+        except Exception as exc:
+            logger.warning(f"Service status check failed: {exc}")
+            for _, abbrev in SERVICES:
+                states[abbrev] = "?"
+        return states
+
+    # ------------------------------------------------------------------
     # Packet assembly
     # ------------------------------------------------------------------
 
@@ -239,6 +292,7 @@ class DisplayNode:
             "ub": ub,
             "me": me,
             "ms": ms,
+            "sv": self.service_states,
             "t":  round(now, 1),
         }
 
@@ -297,6 +351,11 @@ class DisplayNode:
                 # Reconnect serial if needed
                 if self.serial is None:
                     self._try_reconnect_serial()
+
+                # Check service states periodically (rate-limited to avoid systemctl overhead)
+                if current_time - self.last_service_check >= SERVICE_CHECK_INTERVAL:
+                    self.service_states = self._check_services()
+                    self.last_service_check = current_time
 
                 # Always drain ZMQ (non-blocking)
                 self._drain_zmq()

@@ -503,16 +503,44 @@ impl ControlSystem {
                     // motor faults due to interaction with the motor's internal enable
                     // transition. Kd braking is applied in the main loop Enabled state
                     // (~200ms later) which is safe.
+                    //
+                    // Initialize still_running = true: we just confirmed Run mode entry
+                    // and are sending valid zero-force control frames. We'll update it
+                    // if we see a frame indicating the motor left Run mode.
+                    let mut still_running = true;
                     for _ in 0..50 {
                         let keepalive = robstride::build_control_frame(can_id, model, confirmed_position, 0.0, 0.0, 0.0, 0.0);
                         let _ = socket.write_frame(&keepalive);
                         self.send_keepalives(); // keep other motors alive too
                         std::thread::sleep(std::time::Duration::from_millis(2));
+                        // Drain receive buffer each iteration to prevent overflow from
+                        // other motors' feedback responses, and track whether the target
+                        // motor stays in Run mode.
+                        loop {
+                            match socket.read_frame() {
+                                Ok(frame) => {
+                                    let arb_id_raw = match frame.id() {
+                                        socketcan::Id::Extended(id) => id.as_raw(),
+                                        _ => continue,
+                                    };
+                                    if ((arb_id_raw >> 24) & 0x1F) as u8 != 2 { continue; }
+                                    let resp_motor_id = ((arb_id_raw >> 8) & 0xFF) as u8;
+                                    if resp_motor_id != can_id { continue; }
+                                    let mode_bits = ((arb_id_raw >> 22) & 0x03) as u8;
+                                    let data = frame.data();
+                                    if data.len() >= 2 {
+                                        let angle_raw = u16::from_be_bytes([data[0], data[1]]);
+                                        confirmed_position = (angle_raw as f32 / 65535.0) * (8.0 * std::f32::consts::PI) - (4.0 * std::f32::consts::PI);
+                                    }
+                                    still_running = mode_bits == 2;
+                                }
+                                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                                Err(_) => break,
+                            }
+                        }
                     }
 
-                    // Verify motor is still in Run mode after settling
-                    let mut still_running = false;
-                    // Drain and check latest feedback
+                    // Final drain for any frames that arrived after the last iteration
                     loop {
                         match socket.read_frame() {
                             Ok(frame) => {
@@ -520,12 +548,10 @@ impl ControlSystem {
                                     socketcan::Id::Extended(id) => id.as_raw(),
                                     _ => continue,
                                 };
-                                let msg_type = ((arb_id_raw >> 24) & 0x1F) as u8;
-                                if msg_type != 2 { continue; }
+                                if ((arb_id_raw >> 24) & 0x1F) as u8 != 2 { continue; }
                                 let resp_motor_id = ((arb_id_raw >> 8) & 0xFF) as u8;
                                 if resp_motor_id != can_id { continue; }
                                 let mode_bits = ((arb_id_raw >> 22) & 0x03) as u8;
-                                // Update confirmed_position from latest feedback
                                 let data = frame.data();
                                 if data.len() >= 2 {
                                     let angle_raw = u16::from_be_bytes([data[0], data[1]]);
@@ -706,7 +732,20 @@ impl ControlSystem {
                             let _ = socket.write_frame(&keepalive);
                         }
                     }
-                    self.enable_motor(motor_id)?;
+                    // Outer retry loop: attempt enable up to 3 times, each with its own
+                    // 3-attempt internal retry, giving up to 9 total enable attempts.
+                    for outer_attempt in 1..=3 {
+                        self.enable_motor(motor_id)?;
+                        let is_enabled = self.find_motor_mut(motor_id)
+                            .map(|m| m.state == MotorState::Enabled)
+                            .unwrap_or(false);
+                        if is_enabled {
+                            break;
+                        }
+                        if outer_attempt < 3 {
+                            warn!("Motor {} outer enable attempt {} failed, retrying...", motor_id, outer_attempt);
+                        }
+                    }
                     if let Some((cid, cmodel)) = self.can_id_and_model(motor_id) {
                         enabled_motors.push((motor_id.clone(), cid, cmodel));
                     }
