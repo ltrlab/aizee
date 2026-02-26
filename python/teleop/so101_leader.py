@@ -7,7 +7,7 @@ Controller protocol (duck-typed, works anywhere in the teleop system):
     arm = So101Leader('/dev/ttyACM0')
     arm.connect()
     while True:
-        targets = arm.poll()   # Optional[np.ndarray]  6 AIZEE joint targets [rad]
+        targets = arm.poll()   # Optional[np.ndarray]  7 AIZEE joint targets [rad]
     arm.close()
 
 Install dependency:  pip install pyserial
@@ -48,6 +48,7 @@ AIZEE_DEFAULTS: list[tuple[float, float]] = [
     (-1.57,  0.50),   # gantry_mid   ← shoulder_lift
     (-0.50,  1.57),   # gantry_end   ← elbow_flex
     (-1.00,  1.00),   # wrist_pitch  ← wrist_flex
+    (-1.57,  1.57),   # wrist_yaw    ← wrist_yaw
     (-1.57,  1.57),   # wrist_roll   ← wrist_roll
     ( 0.00,  0.50),   # gripper      ← gripper  (0=open, 0.5=closed)
 ]
@@ -63,16 +64,17 @@ def ticks_to_rad(ticks: int) -> float:
 # ---------------------------------------------------------------------------
 
 class So101Leader:
-    """SO-101 6-DOF leader arm.  Reads STS3215 servo positions over USB serial
+    """SO-101 7-DOF leader arm.  Reads STS3215 servo positions over USB serial
     and converts them to AIZEE arm joint targets using a calibration file.
 
-    Servo IDs 1-6 map to joints in order:
-        1 shoulder_pan → gantry_base
+    Servo IDs 1-7 map to joints in order:
+        1 shoulder_pan  → gantry_base
         2 shoulder_lift → gantry_mid
         3 elbow_flex    → gantry_end
         4 wrist_flex    → wrist_pitch
-        5 wrist_roll    → wrist_roll
-        6 gripper       → gripper
+        5 wrist_yaw     → wrist_yaw
+        6 wrist_roll    → wrist_roll
+        7 gripper       → gripper
     """
 
     JOINTS = [
@@ -80,6 +82,7 @@ class So101Leader:
         "shoulder_lift",
         "elbow_flex",
         "wrist_flex",
+        "wrist_yaw",
         "wrist_roll",
         "gripper",
     ]
@@ -88,6 +91,7 @@ class So101Leader:
         "gantry_mid",
         "gantry_end",
         "wrist_pitch",
+        "wrist_yaw",
         "wrist_roll",
         "gripper",
     ]
@@ -103,7 +107,8 @@ class So101Leader:
         self.port   = port
         self.baud   = baud
         self._ser: Optional[serial.Serial] = None
-        self._calib = _load_calib(Path(calib))
+        self._calib_path = Path(calib)
+        self._calib = _load_calib(self._calib_path)
         # Per-joint unwrap state — tracks rollovers across 0/4095 boundary
         self._prev_raw:   dict[str, Optional[int]] = {j: None for j in self.JOINTS}
         self._unwrap_off: dict[str, int]           = {j: 0    for j in self.JOINTS}
@@ -195,7 +200,7 @@ class So101Leader:
         if unwrapped is None:
             return None
 
-        out = np.zeros(6, dtype=np.float32)
+        out = np.zeros(len(self.JOINTS), dtype=np.float32)
         for i, joint in enumerate(self.JOINTS):
             u = unwrapped[joint]           # continuously varying (may be outside 0-4095)
             if self._calib:
@@ -217,11 +222,46 @@ class So101Leader:
         return out
 
     # ------------------------------------------------------------------
+    # Zero-offset / direction mapping
+    # ------------------------------------------------------------------
+
+    @property
+    def zero_offsets(self) -> np.ndarray:
+        """Per-joint zero offsets [rad] loaded from calibration.
+        Subtracted from poll() output before sending to AIZEE arm."""
+        out = np.zeros(len(self.JOINTS), dtype=np.float32)
+        if self._calib:
+            for i, j in enumerate(self.JOINTS):
+                out[i] = float(self._calib["joints"].get(j, {}).get("zero_offset", 0.0))
+        return out
+
+    @property
+    def directions(self) -> np.ndarray:
+        """Per-joint direction signs (+1 or -1) loaded from calibration.
+        Multiplied after zero subtraction to align rotation direction with AIZEE arm."""
+        out = np.ones(len(self.JOINTS), dtype=np.float32)
+        if self._calib:
+            for i, j in enumerate(self.JOINTS):
+                out[i] = float(self._calib["joints"].get(j, {}).get("direction", 1))
+        return out
+
+    def save_zero(self, offsets: np.ndarray) -> None:
+        """Persist zero_offset values to the calibration JSON on disk."""
+        if not self._calib:
+            return
+        for i, joint in enumerate(self.JOINTS):
+            if joint in self._calib["joints"]:
+                self._calib["joints"][joint]["zero_offset"] = round(float(offsets[i]), 4)
+        with open(self._calib_path, "w") as f:
+            import json as _json
+            _json.dump(self._calib, f, indent=2)
+
+    # ------------------------------------------------------------------
     # Raw / unwrapped reads
     # ------------------------------------------------------------------
 
     def read_raw(self) -> Optional[dict[str, int]]:
-        """Return {joint: ticks} in [0, 4095] for all 6 servos."""
+        """Return {joint: ticks} in [0, 4095] for all 7 servos."""
         result: dict[str, int] = {}
         for servo_id, joint in enumerate(self.JOINTS, start=1):
             val = self._read_u16(servo_id, _REG_POS)

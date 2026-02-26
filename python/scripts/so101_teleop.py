@@ -22,6 +22,7 @@ Controls (keyboard, while script is running):
 from __future__ import annotations
 
 import argparse
+import enum
 import json
 import sys
 import time
@@ -48,11 +49,22 @@ def _ansi_on() -> None:
         k32.SetConsoleMode(k32.GetStdHandle(-11), 7)
 
 
-_W = 62
+_W = 68
 _LEADER_JOINTS = [
     "shoulder_pan", "shoulder_lift", "elbow_flex",
-    "wrist_flex",   "wrist_roll",    "gripper",
+    "wrist_flex",   "wrist_yaw",     "wrist_roll",    "gripper",
 ]
+
+# UPS voltage thresholds (V)
+_UPS_OK   = 11.7
+_UPS_WARN = 10.8
+_UPS_CRIT = 10.0
+
+# ANSI color codes (enabled on Windows via _ansi_on())
+_GRN = "\033[1;32m"
+_YEL = "\033[1;33m"
+_RED = "\033[1;31m"
+_RST = "\033[0m"
 
 
 def _render(
@@ -61,28 +73,60 @@ def _render(
     actual:     Optional[np.ndarray],
     status:     str,
     hint:       str,
-    robot_ok:   bool = False,
+    robot_ok:   bool  = False,
+    telem_age:  float = 999.0,
+    ups_data:   Optional[dict] = None,
 ) -> list[str]:
-    sep = "-" * _W
-    robot_line = "  robot: connected" if robot_ok else "  robot: offline (no telemetry)"
+    BAR = "=" * _W
+    SEP = "-" * (_W - 2)   # inner separator indented 2 spaces = same total width as BAR
+
+    # Robot status (with color; pad by visible text length to keep UPS aligned)
+    if robot_ok and telem_age < 2.0:
+        robot_text    = "robot: connected"
+        robot_display = f"{_GRN}{robot_text}{_RST}"
+    elif robot_ok:
+        robot_text    = f"robot: stale {telem_age:.0f}s"
+        robot_display = f"{_YEL}{robot_text}{_RST}"
+    else:
+        robot_text    = "robot: offline"
+        robot_display = robot_text
+    robot_pad = " " * max(2, 24 - len(robot_text))
+
+    # UPS status
+    if ups_data:
+        v   = float(ups_data.get("voltage",    0.0))
+        c   = float(ups_data.get("current",    0.0))
+        p   = float(ups_data.get("power",      0.0))
+        pct = float(ups_data.get("percentage", 0.0))
+        if   v >= _UPS_OK:   col, ups_st = _GRN, "OK"
+        elif v >= _UPS_WARN: col, ups_st = _YEL, "WARN"
+        elif v >= _UPS_CRIT: col, ups_st = _RED, "CRIT"
+        else:                col, ups_st = _RED, "SHUTDOWN"
+        ups_line = f"UPS  {v:.2f}V  {c:.2f}A  {p:.1f}W  ({pct:.0f}%)  {col}[{ups_st}]{_RST}"
+    else:
+        ups_line = "UPS  --"
+
     lines = [
-        "=" * _W,
-        "  SO-101 -> AIZEE Teleop",
-        "=" * _W,
-        f"  {'so101 joint':<18} {'leader':>8}  {'target':>8}  {'actual':>8}",
-        f"  {sep}",
+        BAR,
+        f"  SO-101 \u2192 AIZEE Teleop{' ' * max(1, _W - 23 - len(status))}{status}",
+        BAR,
+        f"  {'so101 joint':<18} {'leader':>8}  {'target':>8}  {'actual':>8}   {'err':>7}",
+        f"  {SEP}",
     ]
-    for i, (so101j, aizeej) in enumerate(zip(_LEADER_JOINTS, ARM_JOINTS)):
+    for i, so101j in enumerate(_LEADER_JOINTS):
         l_s = f"{float(leader_rad[i]):>+8.3f}" if leader_rad is not None else "      --"
         t_s = f"{float(target[i]):>+8.3f}"     if target     is not None else "      --"
         a_s = f"{float(actual[i]):>+8.3f}"     if actual     is not None else "      --"
-        lines.append(f"  {so101j:<18} {l_s}  {t_s}  {a_s}")
+        if target is not None and actual is not None:
+            e_s = f"{float(target[i] - actual[i]):>+7.3f}"
+        else:
+            e_s = "     --"
+        lines.append(f"  {so101j:<18} {l_s}  {t_s}  {a_s}   {e_s}")
     lines += [
-        f"  {sep}",
-        robot_line,
-        f"  {status}",
+        f"  {SEP}",
+        f"  {robot_display}{robot_pad}{ups_line}",
         f"  {hint}",
-        "=" * _W,
+        BAR,
     ]
     return lines
 
@@ -142,8 +186,14 @@ def main() -> None:
     ap.add_argument("--calib",     default=str(CALIB_PATH),               help="Calibration JSON")
     ap.add_argument("--cmd",       default="tcp://localhost:5555")
     ap.add_argument("--telem",     default="tcp://localhost:5556")
-    ap.add_argument("--max-delta", type=float, default=0.05, dest="max_delta",
+    ap.add_argument("--ups",       default="tcp://localhost:5562",
+                    help="UPS telemetry address (empty string to disable)")
+    ap.add_argument("--max-delta",     type=float, default=0.05, dest="max_delta",
                     help="Per-step safety clamp [rad] (default 0.05)")
+    ap.add_argument("--align-margin",  type=float, default=0.05, dest="align_margin",
+                    help="Max per-joint error [rad] to be considered aligned (default 0.05)")
+    ap.add_argument("--align-time",    type=float, default=3.0,  dest="align_time",
+                    help="Seconds to hold within margin before tracking begins (default 3.0)")
     args = ap.parse_args()
 
     _ansi_on()
@@ -157,6 +207,11 @@ def main() -> None:
     print(f"SO-101 connected on {args.port}")
     print(f"Calibration: {'loaded from ' + args.calib if calib_present else 'NONE — raw ticks->rad (run so101_calibrate.py first)'}")
 
+    # Per-joint zero offset and direction — loaded from calibration, updated by Z key.
+    # target = directions * (leader_rad - zero_offsets)
+    zero_offsets: np.ndarray = leader.zero_offsets
+    directions:   np.ndarray = leader.directions
+
     # --- ZMQ ---
     ctx        = zmq.Context()
     cmd_sock   = ctx.socket(zmq.PUSH)
@@ -166,6 +221,12 @@ def main() -> None:
     telem_sock = ctx.socket(zmq.SUB)
     telem_sock.connect(args.telem)
     telem_sock.setsockopt_string(zmq.SUBSCRIBE, "")
+    ups_sock: Optional[zmq.Socket] = None
+    if args.ups:
+        ups_sock = ctx.socket(zmq.SUB)
+        ups_sock.setsockopt(zmq.LINGER, 0)
+        ups_sock.setsockopt_string(zmq.SUBSCRIBE, "")
+        ups_sock.connect(args.ups)
 
     get_key = setup_keyboard()
 
@@ -180,14 +241,29 @@ def main() -> None:
                 break
         time.sleep(0.05)
 
-    hold        = False
-    held_target: Optional[np.ndarray] = None
-    status      = "[ ] ready"
-    hint        = "E=enable  H=hold  Q=quit"
-    robot_ok    = q_actual is not None
+    # ---------------------------------------------------------------------------
+    # State machine
+    # ---------------------------------------------------------------------------
+    class State(enum.Enum):
+        READY    = "ready"
+        ALIGNING = "aligning"   # enabled, slowly moving arm to match leader
+        TRACKING = "tracking"   # following leader in real time
+        HOLD     = "hold"       # target frozen at last actual
+
+    teleop_state                   = State.READY
+    converge_start: Optional[float] = None   # when arm first entered margin
+    held_target:    Optional[np.ndarray] = None
+    zero_msg:       str   = ""               # status text for zero-capture flash
+    zero_msg_until: float = 0.0              # show zero_msg until this time
+    last_telem_time: float = time.time() if q_actual is not None else 0.0
+    ups_data:       Optional[dict] = None
+    robot_ok = q_actual is not None
+
+    status = "[ ] ready"
+    hint   = "E=enable  Z=zero  M=mirror  Q=quit"
 
     # Initial draw
-    _draw(_render(None, None, q_actual, status, hint, robot_ok), first=True)
+    _draw(_render(None, None, q_actual, status, hint, robot_ok, 999.0, None), first=True)
 
     period = 1.0 / RECORD_HZ
 
@@ -199,63 +275,145 @@ def main() -> None:
             key = get_key()
             if key == "Q":
                 break
+
             elif key == "E":
+                # Enable arm motors and enter alignment phase
                 try:
                     cmd_sock.send_string(json.dumps({"type": "enable", "motor_ids": ARM_JOINTS}), zmq.NOBLOCK)
                 except zmq.Again:
                     pass
-                hint   = "E=enable  H=hold  Q=quit"
-                status = "[ ] enabled"
+                teleop_state   = State.ALIGNING
+                converge_start = None
+
             elif key == "H":
-                hold = not hold
-                if hold and q_actual is not None:
-                    held_target = q_actual.copy()
-                    status = "[H] HOLD — target frozen at actual"
-                else:
-                    hold   = False
-                    status = "[ ] tracking leader"
+                if teleop_state in (State.TRACKING, State.ALIGNING):
+                    # Freeze target at current actual position
+                    if q_actual is not None:
+                        held_target = q_actual.copy()
+                    teleop_state = State.HOLD
+                elif teleop_state == State.HOLD:
+                    # Return to alignment before tracking resumes
+                    teleop_state   = State.ALIGNING
+                    converge_start = None
+
+            elif key == "Z":
+                # Capture current SO-101 positions as new zero reference.
+                # leader_rad may not be available yet; read one poll directly.
+                _z = leader.poll()
+                if _z is not None:
+                    zero_offsets = _z.copy()
+                    leader.save_zero(zero_offsets)
+                    zero_msg       = "[Z] zeroed — saved"
+                    zero_msg_until = t0 + 2.0
+
+            elif key == "M":
+                # Mirror: set zero so current SO-101 pose maps to current AIZEE actual.
+                # Solves: q_actual = directions * (leader_rad - zero_offsets)
+                #      => zero_offsets = leader_rad - directions * q_actual
+                _m = leader.poll()
+                if _m is not None and q_actual is not None:
+                    zero_offsets = _m - directions * q_actual
+                    leader.save_zero(zero_offsets)
+                    zero_msg       = "[M] mirrored — saved"
+                    zero_msg_until = t0 + 2.0
 
             # --- Read SO-101 ---
             leader_rad = leader.poll()
 
-            if hold and held_target is not None:
-                target = held_target
-            elif leader_rad is not None:
-                target = leader_rad
-            else:
-                target = q_actual  # stale — no command if no leader read
+            # --- Apply per-joint zero offset + direction ---
+            # target (AIZEE space) = directions * (leader_rad - zero_offsets)
+            mapped_rad: Optional[np.ndarray] = (
+                directions * (leader_rad - zero_offsets)
+                if leader_rad is not None else None
+            )
 
-            # --- Safety clamp and send ---
-            if target is not None:
-                ref = q_actual if q_actual is not None else target
-                delta  = np.clip(target - ref, -args.max_delta, args.max_delta)
-                q_cmd  = ref + delta
+            # --- Determine target ---
+            if teleop_state == State.HOLD:
+                target = held_target
+            elif mapped_rad is not None:
+                target = mapped_rad
+            else:
+                target = q_actual   # no leader data — hold current actual
+
+            # --- Send arm command (all states except READY) ---
+            if target is not None and teleop_state != State.READY:
+                ref   = q_actual if q_actual is not None else target
+                delta = np.clip(target - ref, -args.max_delta, args.max_delta)
+                q_cmd = ref + delta
                 try:
                     cmd_sock.send_string(json.dumps({
                         "type":       "arm_joints",
                         "positions":  q_cmd.tolist(),
-                        "velocities": [0.0] * 6,
+                        "velocities": [0.0] * len(ARM_JOINTS),
                         "kp":         KP,
                         "kd":         KD,
                     }), zmq.NOBLOCK)
                 except zmq.Again:
                     pass
 
-            # --- Telemetry ---
-            telem  = _drain(telem_sock)
-            q_new  = _qpos(telem)
-            if q_new is not None:
-                q_actual = q_new
-                robot_ok = True
+            # --- Alignment convergence check ---
+            # Tracks how long max per-joint error < align_margin.
+            # Auto-transitions to TRACKING once held for align_time seconds.
+            if teleop_state == State.ALIGNING:
+                if mapped_rad is not None and q_actual is not None:
+                    max_err = float(np.max(np.abs(q_actual - mapped_rad)))
+                    if max_err < args.align_margin:
+                        if converge_start is None:
+                            converge_start = t0          # just entered margin
+                        elif t0 - converge_start >= args.align_time:
+                            teleop_state   = State.TRACKING
+                            converge_start = None
+                    else:
+                        converge_start = None            # diverged — reset timer
+                else:
+                    converge_start = None                # can't check without data
 
-            # --- Status ---
-            if not hold and leader_rad is not None:
-                status = "[*] tracking"
-            elif leader_rad is None:
-                status = "[!] no leader data"
+            # --- Telemetry ---
+            telem = _drain(telem_sock)
+            q_new = _qpos(telem)
+            if q_new is not None:
+                q_actual        = q_new
+                robot_ok        = True
+                last_telem_time = t0
+
+            if ups_sock is not None:
+                ups_msg = _drain(ups_sock)
+                if ups_msg and "ups" in ups_msg:
+                    ups_data = ups_msg["ups"]
+
+            # --- Build status + hint ---
+            if teleop_state == State.READY:
+                status = "[ ] ready"
+                hint   = "E=enable  Z=zero  M=mirror  Q=quit"
+
+            elif teleop_state == State.ALIGNING:
+                if mapped_rad is not None and q_actual is not None:
+                    max_err = float(np.max(np.abs(q_actual - mapped_rad)))
+                    if converge_start is not None:
+                        held_s = t0 - converge_start
+                        status = f"[~] aligned  hold {held_s:.1f}/{args.align_time:.0f}s"
+                    else:
+                        status = f"[~] aligning  err {max_err:.3f} rad"
+                else:
+                    status = "[~] aligning..."
+                hint = "H=hold  Z/M=zero  E=align  Q=quit"
+
+            elif teleop_state == State.TRACKING:
+                status = "[*] tracking" if leader_rad is not None else "[!] no leader data"
+                hint   = "H=hold  Z/M=zero  E=align  Q=quit"
+
+            elif teleop_state == State.HOLD:
+                status = "[H] HOLD"
+                hint   = "H=resume  Z/M=zero  Q=quit"
+
+            # Zero capture flash overrides status for 2 s
+            if t0 < zero_msg_until:
+                status = zero_msg
 
             # --- Render ---
-            _draw(_render(leader_rad, target, q_actual, status, hint, robot_ok))
+            telem_age = t0 - last_telem_time if robot_ok else 999.0
+            _draw(_render(leader_rad, target, q_actual, status, hint,
+                          robot_ok, telem_age, ups_data))
 
             sleep_t = period - (time.time() - t0)
             if sleep_t > 0:
@@ -268,6 +426,8 @@ def main() -> None:
         leader.close()
         cmd_sock.close()
         telem_sock.close()
+        if ups_sock is not None:
+            ups_sock.close()
         ctx.term()
 
 

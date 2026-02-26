@@ -31,6 +31,7 @@ ARM_JOINTS = [
     "gantry_mid",
     "gantry_end",
     "wrist_pitch",
+    "wrist_yaw",
     "wrist_roll",
     "gripper",
 ]
@@ -44,8 +45,8 @@ L5 = 0.132    # wrist_roll pivot → gripper tip
 ARM_MOUNT_Z = 0.200  # arm mount height above rover base frame
 
 # Gains — from config/teleop.yaml
-KP = [75.0, 65.0, 10.0, 5.0, 10.0, 10.0]
-KD = [7.0, 5.5, 0.2, 0.2, 2.0, 2.0]
+KP = [75.0, 65.0, 10.0, 5.0, 5.0, 10.0, 10.0]
+KD = [7.0, 5.5, 0.2, 0.2, 0.2, 2.0, 2.0]
 
 RECORD_HZ = 20
 

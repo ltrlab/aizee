@@ -1,54 +1,76 @@
 {
-  "calibrated_at": "2026-02-26T05:34:06.071161+00:00",
+  "calibrated_at": "2026-02-26T18:19:55.811337+00:00",
   "baud": 1000000,
   "joints": {
     "shoulder_pan": {
       "id": 1,
       "aizee": "gantry_base",
-      "min_raw": 811,
-      "max_raw": 3505,
+      "min_raw": 801,
+      "max_raw": 3507,
       "rad_min": -1.57,
-      "rad_max": 1.57
+      "rad_max": 1.57,
+      "zero_offset": -0.0801,
+      "direction": 1
     },
     "shoulder_lift": {
       "id": 2,
       "aizee": "gantry_mid",
-      "min_raw": 1795,
-      "max_raw": 4005,
-      "rad_min": -0.12,
-      "rad_max": 1.57
+      "min_raw": 1945,
+      "max_raw": 4032,
+      "rad_min": -1.57,
+      "rad_max": 0.5,
+      "zero_offset": -1.5551,
+      "direction": 1
     },
     "elbow_flex": {
       "id": 3,
       "aizee": "gantry_end",
-      "min_raw": 72,
-      "max_raw": 2193,
-      "rad_min": -1.57,
-      "rad_max": 0.0
+      "min_raw": 112,
+      "max_raw": 2194,
+      "rad_min": -0.5,
+      "rad_max": 1.57,
+      "zero_offset": 1.57,
+      "direction": 1
     },
     "wrist_flex": {
       "id": 4,
       "aizee": "wrist_pitch",
-      "min_raw": 952,
+      "min_raw": 951,
       "max_raw": 3281,
       "rad_min": -1.0,
-      "rad_max": 1.0
+      "rad_max": 1.0,
+      "zero_offset": -0.9991,
+      "direction": 1
+    },
+    "wrist_yaw": {
+      "id": 5,
+      "aizee": "wrist_yaw",
+      "min_raw": 2988,
+      "max_raw": 2680,
+      "rad_min": -1.57,
+      "rad_max": 1.57,
+      "zero_offset": 0.0307,
+      "direction": 1
     },
     "wrist_roll": {
-      "id": 5,
+      "id": 6,
       "aizee": "wrist_roll",
-      "min_raw": 2986,
-      "max_raw": 2681,
+      "min_raw": 2487,
+      "max_raw": 3972,
       "rad_min": -1.57,
-      "rad_max": 1.57
+      "rad_max": 1.57,
+      "zero_offset": -1.5171,
+      "direction": 1
     },
     "gripper": {
-      "id": 6,
+      "id": 7,
       "aizee": "gripper",
-      "min_raw": 2158,
-      "max_raw": 2481,
+      "min_raw": 4061,
+      "max_raw": 3761,
       "rad_min": 0.0,
-      "rad_max": 0.5
+      "rad_max": 0.5,
+      "zero_offset": 0.2505,
+      "direction": 1
     }
   }
 }
