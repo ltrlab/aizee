@@ -1020,6 +1020,24 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
     if state.enable_all:
         comms.send_enable(all_motors)
         state.enable_all = False
+        # Immediately follow with a zero-impedance arm command at the current actual
+        # positions.  This overwrites any stale target cached in the Rust arm loop,
+        # preventing motors from spiking to their pre-disable position when the arm
+        # was physically moved while disabled.  Kp=0 / Kd=0 means zero torque
+        # regardless of any position error, so the command is safe even if telemetry
+        # is slightly stale.  Auto-init (below) will re-seed offsets and enable full
+        # Kp/Kd control on the next loop iteration that sees "running" motor state.
+        if (comms.last_telemetry and "motors" in comms.last_telemetry
+                and "gantry" in cfg.get("motors", {})):
+            _telem = comms.last_telemetry["motors"]
+            _gjoints = cfg["motors"]["gantry"]
+            _seed_pos = [(_telem.get(j) or {}).get("position", 0.0) for j in _gjoints]
+            comms.send_arm_joints(
+                _seed_pos,
+                [0.0] * len(_gjoints),
+                kp=[0.0] * len(_gjoints),
+                kd=[0.0] * len(_gjoints),
+            )
 
     if state.disable_all:
         logger.info(f"Disabling all motors: {all_motors}")
@@ -1322,19 +1340,38 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
                 state.gripper_inc = False
                 gantry_changed = True
 
-            # Clamp joint positions to physical limits.
-            # If calibration is loaded, the absolute clamp applied at send time is
-            # authoritative — skip the ±π relative clamp so calibrated joints with
-            # ranges > π from home (e.g. gripper) are not artificially restricted.
-            # Without calibration, fall back to ±π from home as a conservative guard.
-            if gantry_changed and not cfg.get("arm_limits"):
-                pos_limit = 3.14159
-                state.gantry_base = max(-pos_limit, min(pos_limit, state.gantry_base))
-                state.gantry_mid = max(-pos_limit, min(pos_limit, state.gantry_mid))
-                state.gantry_end = max(-pos_limit, min(pos_limit, state.gantry_end))
-                state.wrist_pitch = max(-pos_limit, min(pos_limit, state.wrist_pitch))
-                state.wrist_roll = max(-pos_limit, min(pos_limit, state.wrist_roll))
-                state.gripper = max(-pos_limit, min(pos_limit, state.gripper))
+            # Clamp the target accumulator to physical limits so the user cannot
+            # wind it up past a reachable position (which would create a dead zone
+            # where key presses appear to do nothing until the accumulator unwinds).
+            # With calibration: convert each absolute limit to relative space via
+            #   rel_limit = abs_limit - offset
+            # and clamp the relative accumulator directly.
+            # Without calibration: fall back to ±π from home as a conservative guard.
+            if gantry_changed:
+                arm_limits = cfg.get("arm_limits")
+                if arm_limits:
+                    for _jname, _off_attr, _rel_attr in [
+                        ("gantry_base",  "gantry_base_offset",  "gantry_base"),
+                        ("gantry_mid",   "gantry_mid_offset",   "gantry_mid"),
+                        ("gantry_end",   "gantry_end_offset",   "gantry_end"),
+                        ("wrist_pitch",  "wrist_pitch_offset",  "wrist_pitch"),
+                        ("wrist_roll",   "wrist_roll_offset",   "wrist_roll"),
+                        ("gripper",      "gripper_offset",      "gripper"),
+                    ]:
+                        if _jname in arm_limits:
+                            _lo, _hi = arm_limits[_jname]
+                            _off = getattr(state, _off_attr)
+                            _rel = getattr(state, _rel_attr)
+                            setattr(state, _rel_attr,
+                                    max(_lo - _off, min(_hi - _off, _rel)))
+                else:
+                    pos_limit = 3.14159
+                    state.gantry_base = max(-pos_limit, min(pos_limit, state.gantry_base))
+                    state.gantry_mid = max(-pos_limit, min(pos_limit, state.gantry_mid))
+                    state.gantry_end = max(-pos_limit, min(pos_limit, state.gantry_end))
+                    state.wrist_pitch = max(-pos_limit, min(pos_limit, state.wrist_pitch))
+                    state.wrist_roll = max(-pos_limit, min(pos_limit, state.wrist_roll))
+                    state.gripper = max(-pos_limit, min(pos_limit, state.gripper))
         else:
             # Consume gantry key presses but don't move (not initialized yet)
             state.gantry_base_dec = False
@@ -1535,10 +1572,12 @@ def draw_ui(stdscr, state, comms, cfg, start_time, last_row_count=None):
         safe_addstr(stdscr, row, 0, SEP, clear_line=True); row += 1
 
         motors = telem.get("motors", {}) if telem else {}
+        arm_limits = cfg.get("arm_limits")
         homed_tag = "" if state.gantry_homed else "  [NOT HOMED — press H]"
         hdr_attr = curses.A_BOLD if state.gantry_homed else (curses.A_BOLD | curses.A_REVERSE)
+        lim_hdr = "      lo        hi" if arm_limits else ""
         safe_addstr(stdscr, row, 0,
-            f"  ARM JOINTS      target      actual       err{homed_tag}",
+            f"  ARM JOINTS      target      actual       err{lim_hdr}{homed_tag}",
             hdr_attr, clear_line=True); row += 1
 
         for jname, target in [
@@ -1553,13 +1592,18 @@ def draw_ui(stdscr, state, comms, cfg, start_time, last_row_count=None):
             if m is not None:
                 actual = m.get("position", 0.0)
                 err    = target - actual
-                safe_addstr(stdscr, row, 0,
-                    f"  {jname:<14}  {target:>+8.4f}   {actual:>+8.4f}   {err:>+7.4f}",
-                    clear_line=True)
+                base_str = f"  {jname:<14}  {target:>+8.4f}   {actual:>+8.4f}   {err:>+7.4f}"
             else:
-                safe_addstr(stdscr, row, 0,
-                    f"  {jname:<14}  {target:>+8.4f}         --          --",
-                    clear_line=True)
+                base_str = f"  {jname:<14}  {target:>+8.4f}         --          --"
+            if arm_limits and jname in arm_limits:
+                lo, hi = arm_limits[jname]
+                at_lo = target <= lo + 1e-4
+                at_hi = target >= hi - 1e-4
+                marker = "!" if (at_lo or at_hi) else " "
+                lim_str = f"  {marker}{lo:>+8.3f} {hi:>+8.3f}"
+            else:
+                lim_str = ""
+            safe_addstr(stdscr, row, 0, base_str + lim_str, clear_line=True)
             row += 1
 
     # -----------------------------------------------------------------------

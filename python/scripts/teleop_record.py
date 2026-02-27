@@ -111,7 +111,7 @@ def _enable_ansi_windows() -> None:
 
 
 _KEY_LABELS = ["1 / 2", "3 / 4", "5 / 6", "7 / 8", "[ / ]", "- / ="]
-_W = 58  # display width
+_W = 58  # base display width (extended when limits shown)
 
 
 def _render(
@@ -119,13 +119,17 @@ def _render(
     q_actual: Optional[np.ndarray],
     rec_line: str,
     hint_line: str,
+    arm_limits: Optional[dict] = None,
 ) -> list[str]:
-    sep = "-" * _W
+    show_lim = arm_limits is not None
+    w = (_W + 20) if show_lim else _W
+    sep = "-" * w
+    hdr_suffix = f"  {'lo':>8} {'hi':>8}" if show_lim else ""
     lines = [
-        "=" * _W,
+        "=" * w,
         "  AIZEE  TELEOP + RECORD",
-        "=" * _W,
-        f"  {'joint':<16} {'keys':<7} {'target':>8}  {'actual':>8}",
+        "=" * w,
+        f"  {'joint':<16} {'keys':<7} {'target':>8}  {'actual':>8}{hdr_suffix}",
         f"  {sep}",
     ]
     for i, (joint, kl) in enumerate(zip(ARM_JOINTS, _KEY_LABELS)):
@@ -134,17 +138,25 @@ def _render(
             a_str = f"{float(q_actual[i]):>+8.3f}"
         else:
             a_str = "      --"
-        lines.append(f"  {joint:<16} {kl:<7} {t:>+8.3f}  {a_str}")
+        if show_lim and joint in arm_limits:
+            lo, hi = arm_limits[joint]
+            at_lo = t <= lo + 1e-4
+            at_hi = t >= hi - 1e-4
+            marker = "!" if (at_lo or at_hi) else " "
+            lim_str = f"  {marker}{lo:>+7.3f} {hi:>+8.3f}"
+        else:
+            lim_str = ""
+        lines.append(f"  {joint:<16} {kl:<7} {t:>+8.3f}  {a_str}{lim_str}")
     lines += [
         f"  {sep}",
         f"  {rec_line}",
         f"  {hint_line}",
-        "=" * _W,
+        "=" * w,
     ]
     return lines
 
 
-_N_LINES = len(_render(np.zeros(6), None, "", ""))  # = 12
+_N_LINES = len(_render(np.zeros(6), None, "", ""))  # line count unchanged by limits
 
 
 def _draw(lines: list[str], first: bool = False) -> None:
@@ -225,7 +237,7 @@ def main() -> None:
     # --- Initial draw ---
     rec_line  = "[ ] IDLE"
     hint_line = "E=enable  H=home  SPC=estop  R=rec  Q=quit"
-    _draw(_render(q_target, q_actual, rec_line, hint_line), first=True)
+    _draw(_render(q_target, q_actual, rec_line, hint_line, arm_limits), first=True)
 
     period = 1.0 / RECORD_HZ
 
@@ -273,6 +285,12 @@ def main() -> None:
             elif key in KEY_BINDINGS:
                 joint_i, delta = KEY_BINDINGS[key]
                 q_target[joint_i] = q_target[joint_i] + delta
+                # Clamp target so it can't wind up past calibration limits.
+                if arm_limits:
+                    q_target = np.array(
+                        clamp_arm_positions(q_target.tolist(), arm_limits),
+                        dtype=np.float32,
+                    )
 
             # ---- Safety-clamped command --------------------------------
             q_cmd = q_target.copy()
@@ -315,7 +333,7 @@ def main() -> None:
                 rec_line = "[ ] IDLE"
 
             # ---- Render ------------------------------------------------
-            _draw(_render(q_target, q_actual, rec_line, hint_line))
+            _draw(_render(q_target, q_actual, rec_line, hint_line, arm_limits))
 
             sleep_t = period - (time.time() - t0)
             if sleep_t > 0:
