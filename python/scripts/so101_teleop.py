@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "teleop"))
 from so101_leader import So101Leader, CALIB_PATH
 
 sys.path.insert(0, str(Path(__file__).parent))
-from record_replay import ARM_JOINTS, RECORD_HZ, KP, KD, setup_keyboard
+from record_replay import ARM_JOINTS, RECORD_HZ, KP, KD, setup_keyboard, load_arm_limits, clamp_arm_positions
 
 # ---------------------------------------------------------------------------
 # ANSI display
@@ -115,12 +115,11 @@ def _render(
     ]
     for i, so101j in enumerate(_LEADER_JOINTS):
         l_s = f"{float(leader_rad[i]):>+8.3f}" if leader_rad is not None else "      --"
-        t_s = f"{float(target[i]):>+8.3f}"     if target     is not None else "      --"
-        a_s = f"{float(actual[i]):>+8.3f}"     if actual     is not None else "      --"
-        if target is not None and actual is not None:
-            e_s = f"{float(target[i] - actual[i]):>+7.3f}"
-        else:
-            e_s = "     --"
+        t_ok = target is not None and not np.isnan(target[i])
+        a_ok = actual is not None and not np.isnan(actual[i])
+        t_s = f"{float(target[i]):>+8.3f}" if t_ok else "      --"
+        a_s = f"{float(actual[i]):>+8.3f}" if a_ok else "      --"
+        e_s = f"{float(target[i] - actual[i]):>+7.3f}" if (t_ok and a_ok) else "     --"
         lines.append(f"  {so101j:<18} {l_s}  {t_s}  {a_s}   {e_s}")
     lines += [
         f"  {SEP}",
@@ -159,15 +158,22 @@ def _drain(sock) -> Optional[dict]:
 
 
 def _qpos(telem: Optional[dict]) -> Optional[np.ndarray]:
+    """Extract arm joint positions from telemetry.
+
+    Returns None only if telemetry is absent entirely.  If individual motors
+    are missing (e.g. failed to enable), their position is set to 0.0 so the
+    rest of the joints still show actual data.  Missing motors will appear as
+    state="error" in the Rust telemetry rather than being absent from the dict.
+    """
     if not telem or "motors" not in telem:
         return None
     motors = telem["motors"]
+    if not any(j in motors for j in ARM_JOINTS):
+        return None   # no arm motors at all
     out = []
     for j in ARM_JOINTS:
         m = motors.get(j)
-        if m is None:
-            return None
-        out.append(float(m.get("position", 0.0)))
+        out.append(float(m.get("position", 0.0)) if m is not None else 0.0)
     return np.array(out, dtype=np.float32)
 
 
@@ -190,6 +196,8 @@ def main() -> None:
                     help="UPS telemetry address (empty string to disable)")
     ap.add_argument("--max-delta",     type=float, default=0.05, dest="max_delta",
                     help="Per-step safety clamp [rad] (default 0.05)")
+    ap.add_argument("--robstride-calib", default=None, dest="robstride_calib",
+                    help="Path to robstride_calibration.json (default: auto-discover)")
     ap.add_argument("--align-margin",  type=float, default=0.05, dest="align_margin",
                     help="Max per-joint error [rad] to be considered aligned (default 0.05)")
     ap.add_argument("--align-time",    type=float, default=3.0,  dest="align_time",
@@ -206,6 +214,16 @@ def main() -> None:
     calib_present = Path(args.calib).exists()
     print(f"SO-101 connected on {args.port}")
     print(f"Calibration: {'loaded from ' + args.calib if calib_present else 'NONE — raw ticks->rad (run so101_calibrate.py first)'}")
+
+    arm_limits = load_arm_limits(Path(args.robstride_calib) if args.robstride_calib else None)
+    print(f"Arm limits: {'loaded (' + str(len(arm_limits)) + ' joints)' if arm_limits else 'none — run robstride_calibrate.py first'}")
+
+    # Indices into the 7-elem leader array that map to ARM_JOINTS (skips wrist_yaw).
+    # e.g. [0, 1, 2, 3, 5, 6] — index 4 (wrist_yaw) has no AIZEE motor.
+    _arm_joint_set = set(ARM_JOINTS)
+    _so101_for_aizee: list[int] = [
+        i for i, j in enumerate(leader.AIZEE_JOINTS) if j in _arm_joint_set
+    ]
 
     # Per-joint zero offset and direction — loaded from calibration, updated by Z key.
     # target = directions * (leader_rad - zero_offsets)
@@ -263,7 +281,11 @@ def main() -> None:
     hint   = "E=enable  Z=zero  M=mirror  Q=quit"
 
     # Initial draw
-    _draw(_render(None, None, q_actual, status, hint, robot_ok, 999.0, None), first=True)
+    _init_actual = None
+    if q_actual is not None:
+        _init_actual = np.full(7, np.nan, dtype=np.float32)
+        _init_actual[_so101_for_aizee] = q_actual
+    _draw(_render(None, None, _init_actual, status, hint, robot_ok, 999.0, None), first=True)
 
     period = 1.0 / RECORD_HZ
 
@@ -308,11 +330,15 @@ def main() -> None:
 
             elif key == "M":
                 # Mirror: set zero so current SO-101 pose maps to current AIZEE actual.
-                # Solves: q_actual = directions * (leader_rad - zero_offsets)
-                #      => zero_offsets = leader_rad - directions * q_actual
+                # q_actual is 6-elem (AIZEE); zero_offsets/directions are 7-elem (SO-101).
+                # For each AIZEE motor j: zero_offsets[s] = _m[s] - directions[s] * q_actual[j]
+                # where s = _so101_for_aizee[j].  wrist_yaw offset (index 4) is unchanged.
                 _m = leader.poll()
                 if _m is not None and q_actual is not None:
-                    zero_offsets = _m - directions * q_actual
+                    new_offsets = zero_offsets.copy()
+                    for aizee_j, so101_i in enumerate(_so101_for_aizee):
+                        new_offsets[so101_i] = _m[so101_i] - directions[so101_i] * q_actual[aizee_j]
+                    zero_offsets = new_offsets
                     leader.save_zero(zero_offsets)
                     zero_msg       = "[M] mirrored — saved"
                     zero_msg_until = t0 + 2.0
@@ -321,17 +347,21 @@ def main() -> None:
             leader_rad = leader.poll()
 
             # --- Apply per-joint zero offset + direction ---
-            # target (AIZEE space) = directions * (leader_rad - zero_offsets)
+            # mapped_rad (7-elem, AIZEE space) = directions * (leader_rad - zero_offsets)
             mapped_rad: Optional[np.ndarray] = (
                 directions * (leader_rad - zero_offsets)
                 if leader_rad is not None else None
             )
+            # aizee_cmd: 6-elem command for Rust (skips wrist_yaw at index 4)
+            aizee_cmd: Optional[np.ndarray] = (
+                mapped_rad[_so101_for_aizee] if mapped_rad is not None else None
+            )
 
-            # --- Determine target ---
+            # --- Determine target (6-elem, AIZEE command space) ---
             if teleop_state == State.HOLD:
                 target = held_target
-            elif mapped_rad is not None:
-                target = mapped_rad
+            elif aizee_cmd is not None:
+                target = aizee_cmd
             else:
                 target = q_actual   # no leader data — hold current actual
 
@@ -340,6 +370,8 @@ def main() -> None:
                 ref   = q_actual if q_actual is not None else target
                 delta = np.clip(target - ref, -args.max_delta, args.max_delta)
                 q_cmd = ref + delta
+                if arm_limits:
+                    q_cmd = np.array(clamp_arm_positions(q_cmd.tolist(), arm_limits), dtype=np.float32)
                 try:
                     cmd_sock.send_string(json.dumps({
                         "type":       "arm_joints",
@@ -355,8 +387,8 @@ def main() -> None:
             # Tracks how long max per-joint error < align_margin.
             # Auto-transitions to TRACKING once held for align_time seconds.
             if teleop_state == State.ALIGNING:
-                if mapped_rad is not None and q_actual is not None:
-                    max_err = float(np.max(np.abs(q_actual - mapped_rad)))
+                if aizee_cmd is not None and q_actual is not None:
+                    max_err = float(np.max(np.abs(q_actual - aizee_cmd)))
                     if max_err < args.align_margin:
                         if converge_start is None:
                             converge_start = t0          # just entered margin
@@ -387,8 +419,8 @@ def main() -> None:
                 hint   = "E=enable  Z=zero  M=mirror  Q=quit"
 
             elif teleop_state == State.ALIGNING:
-                if mapped_rad is not None and q_actual is not None:
-                    max_err = float(np.max(np.abs(q_actual - mapped_rad)))
+                if aizee_cmd is not None and q_actual is not None:
+                    max_err = float(np.max(np.abs(q_actual - aizee_cmd)))
                     if converge_start is not None:
                         held_s = t0 - converge_start
                         status = f"[~] aligned  hold {held_s:.1f}/{args.align_time:.0f}s"
@@ -411,8 +443,19 @@ def main() -> None:
                 status = zero_msg
 
             # --- Render ---
+            # Expand 6-elem AIZEE arrays to 7-elem display arrays (NaN for wrist_yaw)
+            if target is not None:
+                target_display = np.full(7, np.nan, dtype=np.float32)
+                target_display[_so101_for_aizee] = target
+            else:
+                target_display = None
+            if q_actual is not None:
+                actual_display = np.full(7, np.nan, dtype=np.float32)
+                actual_display[_so101_for_aizee] = q_actual
+            else:
+                actual_display = None
             telem_age = t0 - last_telem_time if robot_ok else 999.0
-            _draw(_render(leader_rad, target, q_actual, status, hint,
+            _draw(_render(leader_rad, target_display, actual_display, status, hint,
                           robot_ok, telem_age, ups_data))
 
             sleep_t = period - (time.time() - t0)

@@ -1232,6 +1232,14 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
             abs_wrist_roll = state.wrist_roll + state.wrist_roll_offset
             abs_gripper = state.gripper + state.gripper_offset
             positions = [abs_base, abs_mid, abs_end, abs_wrist_pitch, abs_wrist_roll, abs_gripper]
+            arm_limits = cfg.get("arm_limits")
+            if arm_limits:
+                _joint_names = ["gantry_base", "gantry_mid", "gantry_end",
+                                "wrist_pitch", "wrist_roll", "gripper"]
+                for _i, _jname in enumerate(_joint_names):
+                    if _jname in arm_limits:
+                        _lo, _hi = arm_limits[_jname]
+                        positions[_i] = max(_lo, min(_hi, positions[_i]))
             velocities = [base_vel, 0.0, 0.0, 0.0, 0.0, 0.0]
             comms.send_arm_joints(positions, velocities,
                                 cfg["gantry"]["kp"],
@@ -1314,9 +1322,12 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
                 state.gripper_inc = False
                 gantry_changed = True
 
-            # Clamp relative positions to ±π from home
-            # This allows ±180° of travel from wherever the motors were homed
-            if gantry_changed:
+            # Clamp joint positions to physical limits.
+            # If calibration is loaded, the absolute clamp applied at send time is
+            # authoritative — skip the ±π relative clamp so calibrated joints with
+            # ranges > π from home (e.g. gripper) are not artificially restricted.
+            # Without calibration, fall back to ±π from home as a conservative guard.
+            if gantry_changed and not cfg.get("arm_limits"):
                 pos_limit = 3.14159
                 state.gantry_base = max(-pos_limit, min(pos_limit, state.gantry_base))
                 state.gantry_mid = max(-pos_limit, min(pos_limit, state.gantry_mid))
@@ -1385,6 +1396,30 @@ def safe_addstr(stdscr, y, x, text, attr=0, clear_line=False):
         pass
 
 
+def _format_motor_error(err_str):
+    """Condense a Rust MotorError debug string to just the active flag names.
+
+    Input:  'fault@Run: MotorError { undervoltage: false, overcurrent: true, ... } (attempts: 1)'
+    Output: 'Run: overcurrent  (attempts: 1)'
+    No-flags case: 'Run fault, no error flags (likely watchdog)  (attempts: 0)'
+    """
+    import re
+    if not err_str:
+        return ""
+    flags = re.findall(r'(\w+): true', err_str)
+    attempts_m = re.search(r'\(attempts:\s*(\d+)\)', err_str)
+    attempts = f"  (attempts: {attempts_m.group(1)})" if attempts_m else ""
+    mode_m = re.search(r'fault@(\w+):', err_str)
+    mode = mode_m.group(1) if mode_m else ""
+    if flags:
+        prefix = f"{mode}: " if mode else ""
+        return prefix + ", ".join(flags) + attempts
+    if "fault" in err_str:
+        cause = f"{mode} " if mode else ""
+        return f"{cause}fault, no error flags (likely watchdog)" + attempts
+    return err_str[:80]
+
+
 def draw_ui(stdscr, state, comms, cfg, start_time, last_row_count=None):
     """Render the full terminal UI with optimized updates.
 
@@ -1394,318 +1429,232 @@ def draw_ui(stdscr, state, comms, cfg, start_time, last_row_count=None):
     Returns:
         Number of rows used (for next frame's selective clear)
     """
-    # Don't use erase() - it's slow. We'll clear lines as we go.
     telem = comms.last_telemetry
-    now = time.monotonic()
+    now   = time.monotonic()
 
-    hz = cfg["control"]["command_rate_hz"]
-    gp_tag = "GAMEPAD" if state.gamepad_connected else "KB ONLY"
-    bar = "=" * 60
+    hz     = cfg["control"]["command_rate_hz"]
+    W      = 62
+    BAR    = "=" * W
+    SEP    = "-" * W
+    gp_tag = "GAMEPAD" if state.gamepad_connected else "KB"
 
-    # Check telemetry health
     telem_stale = comms.is_telemetry_stale()
-    telem_age = comms.get_telemetry_age()
 
     row = 0
-    safe_addstr(stdscr, row, 0, bar, curses.A_BOLD, clear_line=True)
-    row += 1
-    safe_addstr(
-        stdscr, row, 0,
-        f"  AIZEE TELEOP{' ' * 28}[{gp_tag}] {hz}Hz",
-        curses.A_BOLD, clear_line=True
-    )
-    row += 1
-    safe_addstr(stdscr, row, 0, bar, curses.A_BOLD, clear_line=True)
-    row += 1
 
-    # Safe disable confirmation warning (Q key first press)
+    # -----------------------------------------------------------------------
+    # Header
+    # -----------------------------------------------------------------------
+    safe_addstr(stdscr, row, 0, BAR, curses.A_BOLD, clear_line=True); row += 1
+    right_tag = f"[{gp_tag}]  {hz}Hz"
+    safe_addstr(stdscr, row, 0,
+        f"  AIZEE TELEOP{' ' * max(1, W - 14 - len(right_tag))}{right_tag}",
+        curses.A_BOLD, clear_line=True); row += 1
+    safe_addstr(stdscr, row, 0, BAR, curses.A_BOLD, clear_line=True); row += 1
+
+    # -----------------------------------------------------------------------
+    # Alerts (conditional, variable height)
+    # -----------------------------------------------------------------------
     if state.disable_confirm_pending:
         remaining = 5.0 - (now - state.disable_confirm_time)
         if remaining > 0:
-            warning_msg = f"  WARNING: ACTUATORS WILL POWER OFF AND GANTRY WILL FALL! Press Q again to confirm ({remaining:.1f}s)"
-            safe_addstr(stdscr, row, 0, warning_msg, curses.A_REVERSE | curses.A_BOLD, clear_line=True)
-            row += 1
-            safe_addstr(stdscr, row, 0, "  CHECK SAFETY BEFORE CONFIRMING!", curses.A_REVERSE | curses.A_BOLD, clear_line=True)
-            row += 2
+            safe_addstr(stdscr, row, 0,
+                f"  ! MOTORS WILL POWER OFF — press Q again ({remaining:.1f}s)",
+                curses.A_REVERSE | curses.A_BOLD, clear_line=True); row += 1
+            safe_addstr(stdscr, row, 0, "  ! CHECK SAFETY BEFORE CONFIRMING!",
+                curses.A_REVERSE | curses.A_BOLD, clear_line=True); row += 1
         else:
             state.disable_confirm_pending = False
 
-    # Safe shutdown countdown (X key pressed)
     if state.shutdown_countdown > 0:
-        countdown_msg = f"  SAFE SHUTDOWN: Moving to zero positions in {state.shutdown_countdown:.1f} seconds..."
-        safe_addstr(stdscr, row, 0, countdown_msg, curses.A_REVERSE | curses.A_BOLD, clear_line=True)
-        row += 2
+        safe_addstr(stdscr, row, 0,
+            f"  SAFE SHUTDOWN in {state.shutdown_countdown:.1f}s — moving all joints to zero",
+            curses.A_REVERSE | curses.A_BOLD, clear_line=True); row += 1
 
-    # Safe shutdown active (moving to zero)
     if state.shutdown_active:
-        if state.gantry_initialized:
-            status_msg = "  SAFE SHUTDOWN ACTIVE: Moving gantry to zero positions..."
-            safe_addstr(stdscr, row, 0, status_msg, curses.A_REVERSE | curses.A_BOLD, clear_line=True)
-            row += 1
-            # Show current positions
-            progress_msg = (f"    base={state.gantry_base:+6.3f}  mid={state.gantry_mid:+6.3f}  "
-                            f"end={state.gantry_end:+6.3f}  wrist_p={state.wrist_pitch:+6.3f}  "
-                            f"wrist_r={state.wrist_roll:+6.3f}  grip={state.gripper:+6.3f}")
-            safe_addstr(stdscr, row, 0, progress_msg, curses.A_BOLD, clear_line=True)
-            row += 2
-        else:
-            status_msg = "  SAFE SHUTDOWN ACTIVE: Waiting for gantry initialization..."
-            safe_addstr(stdscr, row, 0, status_msg, curses.A_REVERSE | curses.A_BOLD, clear_line=True)
-            row += 2
+        safe_addstr(stdscr, row, 0, "  SAFE SHUTDOWN: moving to zero...",
+            curses.A_REVERSE | curses.A_BOLD, clear_line=True); row += 1
 
-    # Connection status (for multi-module systems)
+    # -----------------------------------------------------------------------
+    # System / Connection
+    # -----------------------------------------------------------------------
     if hasattr(comms, 'modules'):
         module_status = comms.get_module_status()
-        safe_addstr(stdscr, row, 0, "  CONNECTION STATUS:", curses.A_BOLD, clear_line=True)
-        row += 1
-        for module_name, status in module_status.items():
-            conn_str = "OK" if status["connected"] and not status["stale"] else "WARN" if status["stale"] else "FAIL"
-            age_str = f"{status['telemetry_age']*1000:.0f}ms" if status['telemetry_age'] < 999 else "NO DATA"
-            rate_str = f"{status['telem_rate']:.1f}Hz" if status['telem_rate'] > 0 else "0Hz"
-            attr = curses.A_NORMAL if conn_str == "OK" else curses.A_REVERSE
-            safe_addstr(stdscr, row, 0, f"    {module_name:10s} [{conn_str}]  age={age_str:8s}  rate={rate_str}", attr, clear_line=True)
-            row += 1
-        row += 1
+        parts = []
+        any_warn = False
+        for mod_name, s in module_status.items():
+            if s["stale"]:
+                age_s = "NO DATA" if s["telemetry_age"] > 99 else f"{s['telemetry_age']*1000:.0f}ms"
+                parts.append(f"{mod_name}:[WARN {age_s}]")
+                any_warn = True
+            else:
+                parts.append(f"{mod_name}:[OK {s['telemetry_age']*1000:.0f}ms {s['telem_rate']:.0f}Hz]")
+        safe_addstr(stdscr, row, 0, "  SYS   " + "   ".join(parts),
+            curses.A_REVERSE if any_warn else 0, clear_line=True); row += 1
     else:
-        # Single module status
-        rate_str = f"{comms.telem_rate:.1f}Hz" if hasattr(comms, 'telem_rate') and comms.telem_rate > 0 else "0Hz"
+        rate = getattr(comms, 'telem_rate', 0.0)
+        telem_age = comms.get_telemetry_age()
         if telem_stale:
-            age_str = f"{telem_age*1000:.0f}ms" if telem_age < 999 else "NO DATA"
-            safe_addstr(stdscr, row, 0, f"  CONNECTION: [WARN] age={age_str:8s}  rate={rate_str}", curses.A_REVERSE, clear_line=True)
+            age_s = "NO DATA" if telem_age > 99 else f"{telem_age*1000:.0f}ms"
+            safe_addstr(stdscr, row, 0, f"  SYS   [{age_s}]  OFFLINE",
+                curses.A_REVERSE, clear_line=True)
         else:
-            safe_addstr(stdscr, row, 0, f"  CONNECTION: [OK] age={telem_age*1000:.0f}ms  rate={rate_str}", clear_line=True)
-        row += 2
+            safe_addstr(stdscr, row, 0, f"  SYS   [OK {telem_age*1000:.0f}ms  {rate:.0f}Hz]",
+                clear_line=True)
+        row += 1
 
-    # Drive values (scaled)
-    # NOTE: Motor controller interprets linear/angular backwards
-    # Swap values in display to show correct semantic meaning
-    lin_scaled = state.linear * cfg["drive"]["max_linear"]
+    uptime = now - start_time
+    if comms.last_telemetry_time > 0:
+        age_ms = (now - comms.last_telemetry_time) * 1000
+        safe_addstr(stdscr, row, 0,
+            f"  Uptime: {uptime:.0f}s   Cmds: {comms.commands_sent}   Telem: {age_ms:.0f}ms ago",
+            clear_line=True)
+    else:
+        safe_addstr(stdscr, row, 0,
+            f"  Uptime: {uptime:.0f}s   Cmds: {comms.commands_sent}   Telem: (none)",
+            clear_line=True)
+    row += 1
+
+    # -----------------------------------------------------------------------
+    # Drive
+    # -----------------------------------------------------------------------
+    safe_addstr(stdscr, row, 0, SEP, clear_line=True); row += 1
+
+    # NOTE: Motor controller interprets linear/angular backwards; swap for display.
+    lin_scaled = state.linear  * cfg["drive"]["max_linear"]
     ang_scaled = state.angular * cfg["drive"]["max_angular"]
-    # Swivel is position-controlled now, show relative position
     swv_pos = state.swivel_position if state.swivel_initialized else 0.0
+    safe_addstr(stdscr, row, 0,
+        f"  DRIVE   lin={ang_scaled:+7.3f} m/s   ang={lin_scaled:+7.3f} rad/s   swv={swv_pos:+6.3f}",
+        clear_line=True); row += 1
 
-    # Display with swapped values so labels match actual robot behavior
-    # state.angular → show as "linear" (angular command causes forward/back motion)
-    # state.linear → show as "angular" (linear command causes turning)
-    safe_addstr(
-        stdscr, row, 0,
-        f"  DRIVE:  linear={ang_scaled:+7.3f} rad/s   "
-        f"angular={lin_scaled:+7.3f} rad/s   swivel_pos={swv_pos:+6.3f} rad",
-        clear_line=True
-    )
-    row += 1
-
-    # Gantry positions (if gantry config exists)
+    # -----------------------------------------------------------------------
+    # Arm Joints — target vs actual vs error
+    # -----------------------------------------------------------------------
     if "gantry" in cfg:
-        gantry_line = (
-            f"  GANTRY: base={state.gantry_base:+7.3f} rad   "
-            f"mid={state.gantry_mid:+7.3f} rad   end={state.gantry_end:+7.3f} rad"
-        )
-        if not state.gantry_homed:
-            gantry_line += "  [NOT HOMED - Press H to home]"
-            safe_addstr(stdscr, row, 0, gantry_line, curses.A_REVERSE, clear_line=True)
-        else:
-            safe_addstr(stdscr, row, 0, gantry_line, clear_line=True)
-        row += 1
-        wrist_line = (
-            f"  WRIST:  pitch={state.wrist_pitch:+7.3f} rad   "
-            f"roll={state.wrist_roll:+7.3f} rad   grip={state.gripper:+7.3f} rad"
-        )
-        safe_addstr(stdscr, row, 0, wrist_line, clear_line=True)
-        row += 1
-    row += 1
+        safe_addstr(stdscr, row, 0, SEP, clear_line=True); row += 1
 
-    # Gamepad state and mapping (only if gamepad connected)
-    if state.gamepad_connected and state.gamepad_axes:
-        safe_addstr(stdscr, row, 0, f"  --- CONTROLLER {'-' * 43}", curses.A_BOLD, clear_line=True)
-        row += 1
+        motors = telem.get("motors", {}) if telem else {}
+        homed_tag = "" if state.gantry_homed else "  [NOT HOMED — press H]"
+        hdr_attr = curses.A_BOLD if state.gantry_homed else (curses.A_BOLD | curses.A_REVERSE)
+        safe_addstr(stdscr, row, 0,
+            f"  ARM JOINTS      target      actual       err{homed_tag}",
+            hdr_attr, clear_line=True); row += 1
 
-        # Raw axis values
-        safe_addstr(
-            stdscr, row, 0,
-            f"  Axes:  LX={state.gamepad_axes.get('left_stick_x', 0.0):+5.2f}  "
-            f"LY={state.gamepad_axes.get('left_stick_y', 0.0):+5.2f}  "
-            f"RX={state.gamepad_axes.get('right_stick_x', 0.0):+5.2f}  "
-            f"RY={state.gamepad_axes.get('right_stick_y', 0.0):+5.2f}",
-            clear_line=True
-        )
-        row += 1
+        for jname, target in [
+            ("gantry_base",  state.gantry_base  + state.gantry_base_offset),
+            ("gantry_mid",   state.gantry_mid   + state.gantry_mid_offset),
+            ("gantry_end",   state.gantry_end   + state.gantry_end_offset),
+            ("wrist_pitch",  state.wrist_pitch  + state.wrist_pitch_offset),
+            ("wrist_roll",   state.wrist_roll   + state.wrist_roll_offset),
+            ("gripper",      state.gripper      + state.gripper_offset),
+        ]:
+            m = motors.get(jname) if state.gantry_initialized else None
+            if m is not None:
+                actual = m.get("position", 0.0)
+                err    = target - actual
+                safe_addstr(stdscr, row, 0,
+                    f"  {jname:<14}  {target:>+8.4f}   {actual:>+8.4f}   {err:>+7.4f}",
+                    clear_line=True)
+            else:
+                safe_addstr(stdscr, row, 0,
+                    f"  {jname:<14}  {target:>+8.4f}         --          --",
+                    clear_line=True)
+            row += 1
 
-        # Button states
-        btn_a = "■" if state.gamepad_buttons.get("a", False) else "□"
-        btn_b = "■" if state.gamepad_buttons.get("b", False) else "□"
-        btn_back = "■" if state.gamepad_buttons.get("back", False) else "□"
-        btn_start = "■" if state.gamepad_buttons.get("start", False) else "□"
-        safe_addstr(
-            stdscr, row, 0,
-            f"  Buttons:  A={btn_a}  B={btn_b}  Back={btn_back}  Start={btn_start}",
-            clear_line=True
-        )
-        row += 1
-
-        # Control mapping
-        safe_addstr(stdscr, row, 0, "  Mapping:", clear_line=True)
-        row += 1
-        safe_addstr(stdscr, row, 0, "    Left Stick Y → Forward/Back  |  Left Stick X → Turn", clear_line=True)
-        row += 1
-        safe_addstr(stdscr, row, 0, "    Right Stick X → Swivel  |  Right Stick Y → Gantry Base", clear_line=True)
-        row += 1
-        safe_addstr(stdscr, row, 0, "    A=Enable  B=Disable  Back=ESTOP  Start=Clear Faults", clear_line=True)
-        row += 2
-
+    # -----------------------------------------------------------------------
     # Motor telemetry
-    safe_addstr(stdscr, row, 0, f"  --- MOTORS {'-' * 47}", curses.A_BOLD, clear_line=True)
-    row += 1
+    # -----------------------------------------------------------------------
+    safe_addstr(stdscr, row, 0, SEP, clear_line=True); row += 1
+    safe_addstr(stdscr, row, 0,
+        f"  MOTORS           state      pos(rad)  vel(rad/s)    T",
+        curses.A_BOLD, clear_line=True); row += 1
 
     if telem and "motors" in telem:
         for mid in cfg["motors"]["all"]:
             m = telem["motors"].get(mid)
             if m is None:
-                safe_addstr(stdscr, row, 0, f"  {mid:15s}  (no data)", clear_line=True)
+                safe_addstr(stdscr, row, 0, f"  {mid:<16}  (no data)", clear_line=True); row += 1
             else:
-                st = m.get("state", "?")
-                pos = m.get("position", 0.0)
-                vel = m.get("velocity", 0.0)
+                st   = m.get("state", "?")
+                pos  = m.get("position", 0.0)
+                vel  = m.get("velocity", 0.0)
                 temp = m.get("temperature", 0.0)
-                err = m.get("error")
-                line = (
-                    f"  {mid:15s} {st:10s} "
-                    f"pos={pos:+8.3f}  vel={vel:+7.3f}  T={temp:.0f}C"
-                )
+                err  = m.get("error")
+                attr = (curses.color_pair(4) | curses.A_BOLD) if err else 0
+                safe_addstr(stdscr, row, 0,
+                    f"  {mid:<16}  {st:<10}  {pos:>+7.3f}   {vel:>+7.3f}   {temp:.0f}°C",
+                    attr, clear_line=True); row += 1
                 if err:
-                    line += f"  ERR:{err}"
-                safe_addstr(stdscr, row, 0, line, clear_line=True)
-            row += 1
+                    safe_addstr(stdscr, row, 0,
+                        f"    \u2514\u2500 {_format_motor_error(err)}",
+                        curses.color_pair(4) | curses.A_BOLD, clear_line=True); row += 1
     else:
-        safe_addstr(stdscr, row, 0, "  (waiting for telemetry...)", clear_line=True)
-        row += 1
+        safe_addstr(stdscr, row, 0, "  (waiting for telemetry...)", clear_line=True); row += 1
 
-    row += 1
-    safe_addstr(stdscr, row, 0, f"  --- STATUS {'-' * 47}", curses.A_BOLD, clear_line=True)
-    row += 1
+    # -----------------------------------------------------------------------
+    # Power (battery + UPS)
+    # -----------------------------------------------------------------------
+    safe_addstr(stdscr, row, 0, SEP, clear_line=True); row += 1
 
-    # Telemetry age
-    if comms.last_telemetry_time > 0:
-        age_ms = (now - comms.last_telemetry_time) * 1000
-        safe_addstr(
-            stdscr, row, 0,
-            f"  Telemetry: {age_ms:.0f}ms ago"
-            f"         Commands sent: {comms.commands_sent}",
-            clear_line=True
-        )
-    else:
-        safe_addstr(
-            stdscr, row, 0,
-            f"  Telemetry: (none)          Commands sent: {comms.commands_sent}",
-            clear_line=True
-        )
-    row += 1
-
-    uptime = now - start_time
-    safe_addstr(stdscr, row, 0, f"  Uptime: {uptime:.0f}s", clear_line=True)
-    row += 1
-
-    # Battery voltage monitoring (from motor controller)
     if "battery" in cfg and telem and "battery_voltage" in telem:
         voltage = telem["battery_voltage"]
         bat_cfg = cfg["battery"]
-
-        # Determine battery status and color
-        if voltage >= bat_cfg["voltage_nominal"]:
-            status = "OK"
-            attr = curses.color_pair(1) | curses.A_BOLD  # Green + bold
-        elif voltage >= bat_cfg["voltage_warning"]:
-            status = "GOOD"
-            attr = curses.color_pair(2)  # Cyan
-        elif voltage >= bat_cfg["voltage_critical"]:
-            status = "WARN"
-            attr = curses.color_pair(3) | curses.A_BOLD  # Yellow + bold
-        else:
-            status = "CRIT"
-            attr = curses.color_pair(4) | curses.A_BOLD | curses.A_REVERSE  # Red + bold + reverse
-
-        # Calculate percentage (rough estimate)
         v_range = bat_cfg["voltage_full"] - bat_cfg["voltage_min"]
-        v_current = voltage - bat_cfg["voltage_min"]
-        percent = max(0, min(100, (v_current / v_range) * 100))
-
-        safe_addstr(
-            stdscr, row, 0,
-            f"  Battery (Motor): {voltage:.2f}V ({percent:.0f}%) [{status}]  "
-            f"({bat_cfg['cells']}S {bat_cfg['cell_type'].upper()})",
-            attr, clear_line=True
-        )
+        percent = max(0, min(100, (voltage - bat_cfg["voltage_min"]) / v_range * 100))
+        if voltage >= bat_cfg["voltage_nominal"]:
+            bat_st, bat_attr = "OK",   curses.color_pair(1) | curses.A_BOLD
+        elif voltage >= bat_cfg["voltage_warning"]:
+            bat_st, bat_attr = "GOOD", curses.color_pair(2)
+        elif voltage >= bat_cfg["voltage_critical"]:
+            bat_st, bat_attr = "WARN", curses.color_pair(3) | curses.A_BOLD
+        else:
+            bat_st, bat_attr = "CRIT", curses.color_pair(4) | curses.A_BOLD | curses.A_REVERSE
+        safe_addstr(stdscr, row, 0,
+            f"  BAT  {voltage:.2f}V ({percent:.0f}%) [{bat_st}]"
+            f"  ({bat_cfg['cells']}S {bat_cfg['cell_type'].upper()})",
+            bat_attr, clear_line=True); row += 1
     elif "battery" in cfg:
-        safe_addstr(
-            stdscr, row, 0,
-            f"  Battery (Motor): (no data)",
-            clear_line=True
-        )
-    row += 1
+        safe_addstr(stdscr, row, 0, "  BAT  DC  (actuator power off)", clear_line=True); row += 1
 
-    # UPS Power monitoring (from UPS module)
     ups_telem = comms.last_ups_telemetry if hasattr(comms, 'last_ups_telemetry') else None
     if ups_telem and "ups" in ups_telem:
-        ups_data = ups_telem["ups"]
-        voltage = ups_data.get("voltage", 0.0)
-        current = ups_data.get("current", 0.0)
-        power = ups_data.get("power", 0.0)
-        percentage = ups_data.get("percentage", 0.0)
-
-        # Determine UPS status and color based on voltage thresholds from config
+        ud  = ups_telem["ups"]
+        v, c, p, pct = (ud.get("voltage", 0.0), ud.get("current", 0.0),
+                        ud.get("power", 0.0),   ud.get("percentage", 0.0))
         ups_cfg = cfg.get("ups", {})
-        v_nominal  = ups_cfg.get("voltage_nominal",  11.7)
-        v_warning  = ups_cfg.get("voltage_warning",  10.8)
-        v_shutdown = ups_cfg.get("voltage_shutdown", 10.0)
-
-        if voltage >= v_nominal:
-            status = "OK"
-            attr = curses.color_pair(1) | curses.A_BOLD  # Green
-        elif voltage >= v_warning:
-            status = "WARN"
-            attr = curses.color_pair(3) | curses.A_BOLD  # Yellow
-        elif voltage >= v_shutdown:
-            status = "CRIT"
-            attr = curses.color_pair(4) | curses.A_BOLD  # Red
-        else:
-            status = "SHUTDOWN"
-            attr = curses.color_pair(4) | curses.A_BOLD | curses.A_REVERSE  # Red + reverse
-
-        safe_addstr(
-            stdscr, row, 0,
-            f"  UPS: {voltage:.2f}V  {current:.3f}A  {power:.2f}W  ({percentage:.0f}%) [{status}]",
-            attr, clear_line=True
-        )
+        vn, vw  = ups_cfg.get("voltage_nominal", 11.7), ups_cfg.get("voltage_warning", 10.8)
+        vs      = ups_cfg.get("voltage_shutdown", 10.0)
+        if v >= vn:   ups_st, ups_attr = "OK",       curses.color_pair(1) | curses.A_BOLD
+        elif v >= vw: ups_st, ups_attr = "WARN",     curses.color_pair(3) | curses.A_BOLD
+        elif v >= vs: ups_st, ups_attr = "CRIT",     curses.color_pair(4) | curses.A_BOLD
+        else:         ups_st, ups_attr = "SHUTDOWN",  curses.color_pair(4) | curses.A_BOLD | curses.A_REVERSE
+        safe_addstr(stdscr, row, 0,
+            f"  UPS  {v:.2f}V  {c:.2f}A  {p:.1f}W  ({pct:.0f}%) [{ups_st}]",
+            ups_attr, clear_line=True); row += 1
     elif hasattr(comms, 'ups_sub') and comms.ups_sub:
-        safe_addstr(
-            stdscr, row, 0,
-            f"  UPS: (no data)",
-            clear_line=True
-        )
-    row += 1
+        safe_addstr(stdscr, row, 0, "  UPS  (no data)", clear_line=True); row += 1
 
+    # Gamepad axes (compact single line, only when connected)
+    if state.gamepad_connected and state.gamepad_axes:
+        ax = state.gamepad_axes
+        safe_addstr(stdscr, row, 0,
+            f"  PAD  LX={ax.get('left_stick_x', 0.0):+.2f}  LY={ax.get('left_stick_y', 0.0):+.2f}"
+            f"  RX={ax.get('right_stick_x', 0.0):+.2f}  RY={ax.get('right_stick_y', 0.0):+.2f}",
+            clear_line=True); row += 1
+
+    # -----------------------------------------------------------------------
     # Key legend
-    safe_addstr(
-        stdscr, row, 0,
-        "  WASD=drive  E=enable  Q=disable  SPACE=ESTOP  ESC=quit",
-        clear_line=True
-    )
-    row += 1
-    safe_addstr(
-        stdscr, row, 0,
-        "  R=clear faults  Z=zero positions",
-        clear_line=True
-    )
-    row += 1
+    # -----------------------------------------------------------------------
+    safe_addstr(stdscr, row, 0, BAR, curses.A_BOLD, clear_line=True); row += 1
+    safe_addstr(stdscr, row, 0,
+        "  E=enable  Q=disable  SPC=estop  R=clear  H=home  ESC=quit",
+        clear_line=True); row += 1
     if "gantry" in cfg:
-        safe_addstr(
-            stdscr, row, 0,
-            "  H=home  1/2=base  3/4=mid  5/6=end  7/8=wrist_pitch  [/]=wrist_roll  -/==gripper",
-            clear_line=True
-        )
-        row += 1
-    safe_addstr(stdscr, row, 0, bar, curses.A_BOLD, clear_line=True)
-    row += 1
+        safe_addstr(stdscr, row, 0,
+            "  1/2=base  3/4=mid  5/6=end  7/8=pitch  [/]=roll  -/==grip",
+            clear_line=True); row += 1
+    safe_addstr(stdscr, row, 0, BAR, curses.A_BOLD, clear_line=True); row += 1
 
     # Clear any remaining lines from previous frame (if screen shrunk)
     if last_row_count is not None and last_row_count > row:
@@ -1748,6 +1697,10 @@ def main(stdscr):
         default="INFO",
         help="Set logging level (default: INFO)",
     )
+    parser.add_argument(
+        "--robstride-calib", default=None,
+        help="Path to robstride_calibration.json (default: auto-discover)",
+    )
     args = parser.parse_args()
 
     # --- logging setup -----------------------------------------------------
@@ -1776,6 +1729,32 @@ def main(stdscr):
 
     logger.info(f"Loading config from: {config_path}")
     cfg = load_config(config_path)
+
+    # --- arm calibration limits --------------------------------------------
+    cfg["arm_limits"] = None
+    if args.robstride_calib:
+        calib_candidates = [args.robstride_calib]
+    else:
+        here = os.path.dirname(os.path.abspath(__file__))
+        calib_candidates = [
+            os.path.join(here, "..", "..", "config", "robstride_calibration.json"),
+            os.path.join("config", "robstride_calibration.json"),
+        ]
+    for c in calib_candidates:
+        if os.path.isfile(c):
+            try:
+                with open(c) as f:
+                    _calib = json.load(f)
+                cfg["arm_limits"] = {}
+                for _j, _d in _calib.get("joints", {}).items():
+                    _a, _b = float(_d["min_rad"]), float(_d["max_rad"])
+                    cfg["arm_limits"][_j] = (min(_a, _b), max(_a, _b))
+                logger.info(f"Arm limits loaded from {c} ({len(cfg['arm_limits'])} joints)")
+            except Exception as _e:
+                logger.warning(f"Could not load arm limits from {c}: {_e}")
+            break
+    if cfg["arm_limits"] is None:
+        logger.info("No robstride_calibration.json found — arm limits not enforced")
 
     # --- curses setup ------------------------------------------------------
     curses.curs_set(0)

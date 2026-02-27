@@ -40,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from record_replay import (
     ARM_JOINTS, RECORD_HZ, KP, KD,
     save_recording, _next_recording_path,
-    setup_keyboard,
+    setup_keyboard, load_arm_limits, clamp_arm_positions,
 )
 
 # ---------------------------------------------------------------------------
@@ -172,9 +172,17 @@ def main() -> None:
         "--max-delta", type=float, default=0.05, dest="max_delta",
         help="Per-step safety clamp radius (rad). Default 0.05.",
     )
+    ap.add_argument(
+        "--robstride-calib", default=None, dest="robstride_calib",
+        help="Path to robstride_calibration.json (default: auto-discover)",
+    )
     args = ap.parse_args()
 
     _enable_ansi_windows()
+
+    arm_limits = load_arm_limits(Path(args.robstride_calib) if args.robstride_calib else None)
+    if arm_limits:
+        print(f"Arm limits loaded ({len(arm_limits)} joints)")
 
     # --- ZMQ ---
     ctx        = zmq.Context()
@@ -271,6 +279,8 @@ def main() -> None:
             if q_actual is not None:
                 delta = np.clip(q_cmd - q_actual, -args.max_delta, args.max_delta)
                 q_cmd = q_actual + delta
+            if arm_limits:
+                q_cmd = np.array(clamp_arm_positions(q_cmd.tolist(), arm_limits), dtype=np.float32)
 
             cmd_sock.send_string(json.dumps({
                 "type":       "arm_joints",

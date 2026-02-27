@@ -31,7 +31,6 @@ ARM_JOINTS = [
     "gantry_mid",
     "gantry_end",
     "wrist_pitch",
-    "wrist_yaw",
     "wrist_roll",
     "gripper",
 ]
@@ -49,6 +48,44 @@ KP = [75.0, 65.0, 10.0, 5.0, 5.0, 10.0, 10.0]
 KD = [7.0, 5.5, 0.2, 0.2, 0.2, 2.0, 2.0]
 
 RECORD_HZ = 20
+
+ROBSTRIDE_CALIB_PATH = Path(__file__).parent.parent.parent / "config" / "robstride_calibration.json"
+
+
+def load_arm_limits(path: Optional[Path] = None) -> Optional[dict[str, tuple[float, float]]]:
+    """Load arm joint limits from robstride_calibration.json.
+
+    Returns {joint_name: (min_rad, max_rad)} or None if the file is absent.
+    """
+    calib_path = Path(path) if path is not None else ROBSTRIDE_CALIB_PATH
+    try:
+        with open(calib_path) as f:
+            calib = json.load(f)
+        limits = {}
+        for joint, data in calib.get("joints", {}).items():
+            a, b = float(data["min_rad"]), float(data["max_rad"])
+            limits[joint] = (min(a, b), max(a, b))
+        return limits or None
+    except FileNotFoundError:
+        return None
+    except Exception as exc:
+        print(f"Warning: could not load arm limits from {calib_path}: {exc}", file=sys.stderr)
+        return None
+
+
+def clamp_arm_positions(
+    positions: list,
+    limits: dict[str, tuple[float, float]],
+    joints: list[str] = ARM_JOINTS,
+) -> list:
+    """Clamp each arm joint position to its calibration [min_rad, max_rad]."""
+    out = list(positions)
+    for i, joint in enumerate(joints):
+        if joint in limits and i < len(out):
+            lo, hi = limits[joint]
+            out[i] = max(lo, min(hi, float(out[i])))
+    return out
+
 
 # ---------------------------------------------------------------------------
 # Copied inline from act_policy_node.py
@@ -567,6 +604,10 @@ def _replay_live(
         print("\nAborted.")
         return
 
+    arm_limits = load_arm_limits()
+    if arm_limits:
+        print(f"Arm limits loaded ({len(arm_limits)} joints)")
+
     ctx = zmq.Context()
 
     # Command socket (PUSH/PUB)
@@ -608,7 +649,7 @@ def _replay_live(
     # --- goto-start ---
     if args.goto_start:
         print("Moving to start position...")
-        _goto_start(cmd_sock, telem_sock, qpos[0], args.max_delta)
+        _goto_start(cmd_sock, telem_sock, qpos[0], args.max_delta, arm_limits)
 
     # --- Replay loop ---
     print(f"\n[LIVE] Replaying {len(qpos)} frames")
@@ -622,6 +663,8 @@ def _replay_live(
 
             # Apply delta clamping relative to current position
             safe_target, clamped = apply_safety_limits(target, current_qpos, args.max_delta)
+            if arm_limits:
+                safe_target = np.array(clamp_arm_positions(safe_target.tolist(), arm_limits), dtype=np.float32)
 
             # Send command
             cmd = {
@@ -673,6 +716,7 @@ def _goto_start(
     telem_sock,
     target: np.ndarray,
     max_delta: float,
+    arm_limits=None,
     tol: float = 0.02,
     timeout: float = 30.0,
 ) -> None:
@@ -694,6 +738,8 @@ def _goto_start(
 
     while time.time() - t_start < timeout:
         safe, _ = apply_safety_limits(target, current, max_delta)
+        if arm_limits:
+            safe = np.array(clamp_arm_positions(safe.tolist(), arm_limits), dtype=np.float32)
         cmd = {
             "type": "arm_joints",
             "positions": safe.tolist(),
