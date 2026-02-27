@@ -142,6 +142,19 @@ class InputState:
         self.zero_positions = False
         self.quit = False
 
+        # Timestamp set whenever gantry_initialized is forced to False (disable/estop/enable).
+        # Auto-init is only allowed to fire when comms.last_telemetry_time is NEWER than
+        # this value, preventing stale "running" telemetry (captured at the start of the
+        # same tick) from triggering a false init on the exact tick the reset was issued.
+        # Initialized to -1.0 so the first real telemetry timestamp (always > 0) passes
+        # the guard on fresh startup before any disable/enable has been issued.
+        self.gantry_init_reset_time = -1.0
+
+        # Gamepad previous-frame button state for rising-edge detection.
+        # Prevents multiple enable/disable commands from queuing when a button is held.
+        self.prev_gamepad_enable = False
+        self.prev_gamepad_disable = False
+
         # Safe shutdown state (X key)
         self.safe_shutdown = False
         self.shutdown_countdown = 0.0  # Seconds remaining in countdown
@@ -297,10 +310,19 @@ def read_gamepad(joystick, cfg, state):
         "start": joystick.get_button(buttons["start"]),
     }
 
-    if state.gamepad_buttons["a"]:
+    # Rising-edge detection for enable/disable: only fire on the tick the button
+    # transitions from not-pressed to pressed.  Without this, holding A for >50ms
+    # queues multiple Enable commands that Rust processes sequentially, causing
+    # repeated ~280ms disable→enable cycles per motor while the arm is live.
+    enable_pressed  = state.gamepad_buttons["a"]
+    disable_pressed = state.gamepad_buttons["b"]
+    if enable_pressed and not state.prev_gamepad_enable:
         state.enable_all = True
-    if state.gamepad_buttons["b"]:
+    if disable_pressed and not state.prev_gamepad_disable:
         state.disable_all = True
+    state.prev_gamepad_enable  = enable_pressed
+    state.prev_gamepad_disable = disable_pressed
+
     if state.gamepad_buttons["back"]:
         state.emergency_stop = True
     if state.gamepad_buttons["start"]:
@@ -1005,9 +1027,13 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
         comms.send_emergency_stop()
         state.emergency_stop = False
         sent_estop = True
-        # Force re-read of actual positions on next enable
+        # Force re-read of actual positions on next enable.
+        # gantry_init_reset_time prevents the auto-init block from firing on this
+        # same tick with stale "running" telemetry from recv_latest_telemetry().
         state.gantry_initialized = False
         state.gantry_homed = False
+        state.gantry_init_reset_time = time.monotonic()
+        state.swivel_initialized = False
 
     if state.clear_estop:
         comms.send_clear_estop()
@@ -1020,6 +1046,13 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
     if state.enable_all:
         comms.send_enable(all_motors)
         state.enable_all = False
+        # Reset gantry init so auto-init fires fresh with post-enable telemetry.
+        # This clears any stale offsets set by the same-tick false init that occurs
+        # on the disable tick (see gantry_init_reset_time for the guard mechanism).
+        state.gantry_initialized = False
+        state.gantry_homed = False
+        state.gantry_init_reset_time = time.monotonic()
+        state.swivel_initialized = False
         # Immediately follow with a zero-impedance arm command at the current actual
         # positions.  This overwrites any stale target cached in the Rust arm loop,
         # preventing motors from spiking to their pre-disable position when the arm
@@ -1044,9 +1077,13 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
         comms.send_disable(all_motors)
         state.disable_all = False
         # Force re-read of actual positions on next enable so motors don't
-        # snap back to stale targets if the arm was moved while disabled
+        # snap back to stale targets if the arm was moved while disabled.
+        # gantry_init_reset_time prevents the auto-init block from firing on this
+        # same tick with stale "running" telemetry from recv_latest_telemetry().
         state.gantry_initialized = False
         state.gantry_homed = False
+        state.gantry_init_reset_time = time.monotonic()
+        state.swivel_initialized = False
 
     if state.zero_positions:
         comms.send_zero_position(all_motors)
@@ -1150,8 +1187,18 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
     gantry_changed = False
     if "gantry" in cfg:
         # Auto-initialize: When motors are first enabled, read their actual positions
-        # This prevents motors from trying to move to 0,0,0 on startup
-        if not state.gantry_initialized and comms.last_telemetry and "motors" in comms.last_telemetry:
+        # to prevent commanding 0,0,0 on startup.
+        #
+        # Guard: comms.last_telemetry_time > state.gantry_init_reset_time
+        # recv_latest_telemetry() runs BEFORE dispatch_commands() each tick, so
+        # last_telemetry_time is always older than any reset_time issued during
+        # this tick.  This prevents stale "running" telemetry (captured at the
+        # start of the tick that sent disable/enable/estop) from triggering a
+        # false init on the same tick as the reset.
+        if (not state.gantry_initialized
+                and comms.last_telemetry
+                and comms.last_telemetry_time > state.gantry_init_reset_time
+                and "motors" in comms.last_telemetry):
             motors = comms.last_telemetry["motors"]
             gantry_motor_ids = cfg["motors"].get("gantry", [])
 
@@ -1185,6 +1232,9 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
                 if "gripper" in motors and motors["gripper"]:
                     state.gripper_offset = motors["gripper"].get("position", 0.0)
                     state.gripper = 0.0
+                # Reset smoothed joystick rate so a held stick doesn't cause
+                # immediate motion on the first command tick after init.
+                state.gantry_base_rate_smooth = 0.0
                 state.gantry_initialized = True
                 state.gantry_homed = True  # Auto-homed on first enable
                 logger.info(f"Gantry auto-homed at encoder positions: base={state.gantry_base_offset:.3f}, mid={state.gantry_mid_offset:.3f}, end={state.gantry_end_offset:.3f}")
