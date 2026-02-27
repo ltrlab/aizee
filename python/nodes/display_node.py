@@ -21,6 +21,7 @@ import signal
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 import serial
@@ -72,6 +73,16 @@ SERVICES = [
 ]
 SERVICE_CHECK_INTERVAL = 5.0  # seconds — rate-limit systemctl calls
 
+CAMERA_PIS = [
+    ("pi1", "10.42.0.11"),
+    ("pi2", "10.42.0.12"),
+    ("pi3", "10.42.0.13"),
+    ("pi4", "10.42.0.14"),
+]
+MOTOR_FULL_V = 25.2   # 6S LiPo @ 4.2 V/cell
+MOTOR_MIN_V  = 19.8   # 6S LiPo @ 3.3 V/cell (practical empty)
+IP_CHECK_INTERVAL = 30.0   # seconds — refresh Jetson IP
+
 
 def _bind_to_connect(endpoint: str) -> str:
     """Convert a bind endpoint (tcp://*:PORT) to a connect endpoint (tcp://localhost:PORT)."""
@@ -114,6 +125,12 @@ class DisplayNode:
         # Cached service states
         self.service_states: dict = {}
         self.last_service_check: float = 0.0
+
+        # Cached Pi reachability and Jetson IP
+        self.pi_states: dict = {}
+        self.last_pi_check: float = 0.0
+        self.jetson_ip: str = ""
+        self.last_ip_check: float = 0.0
 
         self.running = False
 
@@ -234,6 +251,37 @@ class DisplayNode:
                 states[abbrev] = "?"
         return states
 
+    def _ping_host(self, ip: str) -> bool:
+        try:
+            r = subprocess.run(["ping", "-c", "1", "-W", "1", ip],
+                               capture_output=True, timeout=2.5)
+            return r.returncode == 0
+        except Exception:
+            return False
+
+    def _check_pis(self) -> dict:
+        try:
+            with ThreadPoolExecutor(max_workers=4) as ex:
+                futures = {k: ex.submit(self._ping_host, ip) for k, ip in CAMERA_PIS}
+                return {k: ("u" if f.result(timeout=3.0) else "d")
+                        for k, f in futures.items()}
+        except Exception:
+            return {k: "?" for k, _ in CAMERA_PIS}
+
+    def _get_jetson_ip(self) -> str:
+        try:
+            r = subprocess.run(["hostname", "-I"], capture_output=True,
+                               text=True, timeout=2.0)
+            for ip in r.stdout.strip().split():
+                if ip.startswith("192.168."):
+                    return ip
+            for ip in r.stdout.strip().split():
+                if not ip.startswith("127."):
+                    return ip
+        except Exception:
+            pass
+        return ""
+
     # ------------------------------------------------------------------
     # Packet assembly
     # ------------------------------------------------------------------
@@ -249,6 +297,7 @@ class DisplayNode:
             mv = None
             me = False
             ms = {}
+            mpos = {}
         else:
             motors: dict = self.latest_motor.get("motors", {})
 
@@ -257,8 +306,9 @@ class DisplayNode:
             if mv is not None:
                 mv = round(float(mv), 2)
 
-            # Per-motor state abbreviations
+            # Per-motor state abbreviations and positions (radians)
             ms = {}
+            mpos = {}
             for full_name, abbrev in MOTOR_ABBREV.items():
                 m = motors.get(full_name)
                 if m is None:
@@ -266,10 +316,20 @@ class DisplayNode:
                 else:
                     state_str = m.get("state", "")
                     char = STATE_CHAR.get(state_str, "?")
+                    pos = m.get("position")
+                    if pos is not None:
+                        mpos[abbrev] = round(float(pos), 2)
                 ms[abbrev] = char
 
             # Motors-enabled: all three base motors must be "running"
             me = all(ms.get(b) == "r" for b in BASE_MOTOR_ABBREVS)
+
+        # Motor battery percentage
+        if mv is not None:
+            mp = int(max(0, min(100,
+                    (mv - MOTOR_MIN_V) / (MOTOR_FULL_V - MOTOR_MIN_V) * 100)))
+        else:
+            mp = None
 
         # --- UPS telemetry ---
         ups_stale = (self.last_ups_time == 0.0 or
@@ -288,11 +348,15 @@ class DisplayNode:
 
         return {
             "mv": mv,
+            "mp": mp,
             "up": up,
             "ub": ub,
             "me": me,
             "ms": ms,
+            "mpos": mpos,
             "sv": self.service_states,
+            "ip": self.jetson_ip,
+            "pi": self.pi_states,
             "t":  round(now, 1),
         }
 
@@ -355,7 +419,12 @@ class DisplayNode:
                 # Check service states periodically (rate-limited to avoid systemctl overhead)
                 if current_time - self.last_service_check >= SERVICE_CHECK_INTERVAL:
                     self.service_states = self._check_services()
+                    self.pi_states      = self._check_pis()
                     self.last_service_check = current_time
+
+                if current_time - self.last_ip_check >= IP_CHECK_INTERVAL:
+                    self.jetson_ip = self._get_jetson_ip()
+                    self.last_ip_check = current_time
 
                 # Always drain ZMQ (non-blocking)
                 self._drain_zmq()

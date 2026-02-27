@@ -125,10 +125,10 @@ BORDER_RULES = [
     ("blue",   lambda sv, mv, me, stale, waiting: True),
 ]
 BORDER_RGBS = {
-    "red":    (220,  40,  40),
-    "green":  (  0, 200,  80),
-    "blue":   ( 30, 100, 220),
-    "yellow": (230, 200,   0),
+    "red":    (255,  60,  60),
+    "green":  ( 60, 255, 120),
+    "blue":   ( 80, 180, 255),
+    "yellow": (255, 240,  40),
 }
 
 # ---------------------------------------------------------------------------
@@ -157,9 +157,9 @@ BASE_MOTORS = {"lw", "rw", "sw"}
 STATE_COLORS = {
     "r": (GREEN,     BLACK),
     "e": (YELLOW,    BLACK),
-    "d": (DARK_GRAY, GRAY),
+    "d": (YELLOW,    BLACK),   # disabled → yellow
     "x": (RED,       WHITE),
-    "?": (DARK_GRAY, GRAY),
+    "?": (RED,       WHITE),   # unknown/off → red
 }
 
 # ---------------------------------------------------------------------------
@@ -430,9 +430,11 @@ def draw_battery_section(mv, up, ub, mp=None):
         display.rectangle(bar_x + 1, bar_y + 1, fill_w, bar_h - 2)
 
 
-def draw_motors_enabled(me, ms):
+def draw_motors_enabled(me, ms, mpos=None):
     """
     Motor enable status pill (y=92–108) + per-motor state boxes (y=110–156).
+    mpos: dict of abbrev → position in radians (optional).
+    Boxes are 50×14 px to fit motor label + position value.
     """
     draw_section_line(90)
 
@@ -459,6 +461,7 @@ def draw_motors_enabled(me, ms):
     # Row 1 (BASE): lw, rw, sw  y=110
     # Row 2 (ARM):  gb, gm, ge  y=126
     # Row 3 (ARM):  wp, wr, gr  y=142
+    # Box: 50×14 px, step 56 px — fits "xx+X.X" (6 chars × 8 px = 48 px)
 
     display.set_pen(GRAY)
     display.text("BASE:", 14, 114, scale=1)
@@ -473,12 +476,17 @@ def draw_motors_enabled(me, ms):
         x = 50
         for mid in motor_row:
             state_char = ms.get(mid, "?") if ms else "?"
-            bg_pen, txt_pen = STATE_COLORS.get(state_char, (DARK_GRAY, GRAY))
+            bg_pen, txt_pen = STATE_COLORS.get(state_char, (RED, WHITE))
             display.set_pen(bg_pen)
-            display.rectangle(x, y, 38, 14)
+            display.rectangle(x, y, 50, 14)
             display.set_pen(txt_pen)
-            display.text("{}[{}]".format(mid, state_char.upper()), x + 2, y + 3, scale=1)
-            x += 44
+            pos = mpos.get(mid) if mpos else None
+            if pos is not None:
+                label = "{}{}".format(mid, "{:+.1f}".format(pos))
+            else:
+                label = "{}[{}]".format(mid, state_char.upper())
+            display.text(label, x + 2, y + 3, scale=1)
+            x += 56
 
 
 def draw_services_section(sv):
@@ -550,8 +558,9 @@ def render_content(data, stale, waiting):
     mp  = data.get("mp")     if data else None
     up  = data.get("up")     if data else None
     ub  = data.get("ub")     if data else None
-    ms  = data.get("ms", {}) if data else {}
-    pi  = data.get("pi", {}) if data else {}
+    ms   = data.get("ms",   {}) if data else {}
+    mpos = data.get("mpos", {}) if data else {}
+    pi   = data.get("pi",   {}) if data else {}
     _lock.acquire()
     try:
         _bsv, _bmv, _bme, _bstale, _bwaiting = sv, mv, me, stale, waiting
@@ -561,7 +570,7 @@ def render_content(data, stale, waiting):
             draw_no_data()
         else:
             draw_battery_section(mv, up, ub, mp)
-            draw_motors_enabled(me, ms)
+            draw_motors_enabled(me, ms, mpos)
             draw_services_section(sv)
             draw_pi_section(pi)
     finally:
