@@ -134,6 +134,7 @@ struct ControlSystem {
     control_tick: u64,
     battery_voltage: Option<f32>, // Battery voltage from VBUS register
     last_vbus_request: Instant,   // Track when we last requested VBUS
+    last_battery_voltage_update: Option<Instant>, // Track freshness of battery reading
     dropped_frames: RefCell<HashMap<String, u64>>, // Track dropped frames per CAN bus
     last_buffer_warning: RefCell<HashMap<String, Instant>>, // Rate-limit buffer warnings
     consecutive_tx_errors: RefCell<HashMap<String, u32>>, // Track consecutive errors for recovery
@@ -226,6 +227,7 @@ impl ControlSystem {
             control_tick: 0,
             battery_voltage: None,
             last_vbus_request: Instant::now(),
+            last_battery_voltage_update: None,
             dropped_frames: RefCell::new(HashMap::new()),
             last_buffer_warning: RefCell::new(HashMap::new()),
             consecutive_tx_errors: RefCell::new(HashMap::new()),
@@ -1015,6 +1017,7 @@ impl ControlSystem {
                             Ok((param_id, value)) => {
                                 if param_id == robstride::params::VBUS {
                                     self.battery_voltage = Some(value);
+                                    self.last_battery_voltage_update = Some(Instant::now());
                                     debug!("Battery voltage: {:.2}V", value);
                                 } else {
                                     debug!("Read param response: 0x{:04X} = {:.3}", param_id, value);
@@ -1113,8 +1116,11 @@ impl ControlSystem {
             }
         }
 
-        // Include battery voltage if available
-        msg.battery_voltage = self.battery_voltage;
+        // Include battery voltage only if fresh (within 5 s of last VBUS response)
+        let batt_fresh = self.last_battery_voltage_update
+            .map(|t| t.elapsed() < Duration::from_secs(5))
+            .unwrap_or(false);
+        msg.battery_voltage = if batt_fresh { self.battery_voltage } else { None };
 
         self.telemetry_pub.publish(&msg)?;
         Ok(())

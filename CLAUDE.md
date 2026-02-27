@@ -31,11 +31,17 @@ cargo build -p lidar_control --release
 # Run Rust tests
 cargo test --all
 cargo test -p motor_control
+cargo test -p motor_control -- test_specific_name   # single test by name
+RUST_LOG=debug cargo test --all -- --nocapture      # with logging output
 
 # Python dependencies
 pip install -r requirements.txt
 
-# Python tests (when available)
+# Python quick test (interactive or automated)
+python python/teleop/simple_test.py      # interactive mode
+python python/teleop/simple_test.py auto # automated test sequence
+
+# Python tests
 pytest python/
 
 # Python lint/type-check
@@ -131,6 +137,8 @@ journalctl -u aizee-motor-control-rover -f
 - `rerun_bridge.py`: Aggregates all ZMQ streams; logs MCAP to `logs/`
 - `nodes/camera_node.py`: RealSense D455 capture (RGB + depth + IMU), JPEG compressed, ZMQ publisher
 - `nodes/ups_node.py`: INA219 I2C battery monitoring, ZMQ publisher
+- `training/`: ACT (Action Chunking with Transformers) model training on collected demonstrations
+- `scripts/`: Utilities for demo collection, replay, and data management
 
 ### Communication Flow
 

@@ -1,4 +1,4 @@
-# AIZEE - open-source wheeled humanoid platform
+# AIZEE - open-source mobile robotic platform
 
 ![AIZEE PREVIEW](image.png)
 
