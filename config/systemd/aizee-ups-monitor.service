@@ -1,0 +1,31 @@
+[Unit]
+Description=AIZEE UPS Power Monitor
+Documentation=https://github.com/ltrlab/aizee
+After=network.target
+
+[Service]
+Type=simple
+User=ltr
+Group=ltr
+WorkingDirectory=/home/ltr/aizee
+Environment="PYTHONUNBUFFERED=1"
+Environment="AIZEE_CONFIG=/home/ltr/aizee/config/hardware_jetson_rover.yaml"
+
+# Main UPS monitoring process
+ExecStart=/usr/bin/python3 /home/ltr/aizee/python/nodes/ups_node.py --config /home/ltr/aizee/config/hardware_jetson_rover.yaml
+
+# Restart policy
+Restart=on-failure
+RestartSec=5s
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aizee-ups
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

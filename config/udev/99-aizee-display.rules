@@ -1,0 +1,20 @@
+# Pimoroni Tufty2040 running Pimoroni MicroPython (RP2040 USB CDC)
+# VID: 0x2e8a (Raspberry Pi), PID: 0x1002 (Pimoroni MicroPython)
+# Note: stock MicroPython uses PID 0x0005; Pimoroni builds use 0x1002
+#
+# Creates /dev/tufty_display symlink and systemd device unit so that
+# aizee-display.service starts on plug-in and stops on unplug.
+#
+# SETUP:
+#   sudo cp config/udev/99-aizee-display.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+#   sudo usermod -aG dialout ltr  # if not already in group
+#
+# Verify VID/PID: udevadm info -a /dev/ttyACM0 | grep -E "idVendor|idProduct"
+# If another RP2040 is also connected, add: ATTRS{serial}=="<SERIAL>" to disambiguate
+
+SUBSYSTEM=="tty", \
+    ATTRS{idVendor}=="2e8a", ATTRS{idProduct}=="1002", \
+    SYMLINK+="tufty_display", \
+    MODE="0660", GROUP="dialout", \
+    TAG+="systemd", ENV{SYSTEMD_ALIAS}+="/dev/tufty_display"

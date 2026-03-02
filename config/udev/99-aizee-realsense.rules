@@ -1,0 +1,31 @@
+# Udev rules for AIZEE arm-mounted Intel RealSense D435 cameras
+#
+# Creates stable /dev symlinks and systemd device units so that
+# aizee-arm-cam-left/right.service start on plug-in and stop on unplug.
+#
+# Cameras are identified by USB port location (the D435 does not expose
+# its firmware serial number via the USB descriptor).
+#
+# SETUP: Run scripts/install_arm_cameras.sh from the dev machine, or manually:
+#   sudo cp config/udev/99-aizee-realsense.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+#
+# If cameras are moved to different USB ports, find the new KERNEL value with:
+#   udevadm info -a /dev/bus/usb/<BUS>/<DEV> | grep 'KERNEL=='
+# then update the rules and re-run the install script.
+#
+# Camera port assignments (Jetson Orin Nano):
+#   arm_cam_left  (S/N 941322071864): USB bus 2, port 2-1.4.3  (USB 2.1 hub)
+#   arm_cam_right (S/N 818312070515): USB bus 1, port 1-2.4.4  (USB 3.2 hub)
+
+SUBSYSTEM=="usb", \
+    ATTR{idVendor}=="8086", ATTR{idProduct}=="0b07", \
+    KERNEL=="2-1.4.3", \
+    SYMLINK+="realsense_arm_left", \
+    TAG+="systemd", ENV{SYSTEMD_ALIAS}+="/dev/realsense_arm_left"
+
+SUBSYSTEM=="usb", \
+    ATTR{idVendor}=="8086", ATTR{idProduct}=="0b07", \
+    KERNEL=="1-2.4.4", \
+    SYMLINK+="realsense_arm_right", \
+    TAG+="systemd", ENV{SYSTEMD_ALIAS}+="/dev/realsense_arm_right"

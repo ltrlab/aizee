@@ -1,1 +1,0 @@
-/home/ltr/aizee/wsl_ws/build/aizee_model/ament_cmake_environment_hooks/local_setup.zsh

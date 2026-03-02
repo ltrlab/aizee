@@ -1,0 +1,42 @@
+{
+  "calibrated_at": "2026-03-02T01:46:12.696075+00:00",
+  "endpoint": "tcp://192.168.0.27:5555",
+  "joints": {
+    "gantry_base": {
+      "can_id": 5,
+      "model": "ROBSTRIDE04",
+      "min_rad": 0.02166748,
+      "max_rad": -1.8781967
+    },
+    "gantry_mid": {
+      "can_id": 6,
+      "model": "ROBSTRIDE03",
+      "min_rad": -0.008628845,
+      "max_rad": 2.6141357
+    },
+    "gantry_end": {
+      "can_id": 7,
+      "model": "ROBSTRIDE02",
+      "min_rad": 0.010545731,
+      "max_rad": -3.9483347
+    },
+    "wrist_pitch": {
+      "can_id": 8,
+      "model": "ROBSTRIDE02",
+      "min_rad": -3.273757,
+      "max_rad": 3.2104797
+    },
+    "wrist_roll": {
+      "can_id": 9,
+      "model": "ROBSTRIDE00",
+      "min_rad": -0.3825426,
+      "max_rad": 2.5673475
+    },
+    "gripper": {
+      "can_id": 10,
+      "model": "ROBSTRIDE00",
+      "min_rad": 0.076125145,
+      "max_rad": 5.3020945
+    }
+  }
+}
