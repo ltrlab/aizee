@@ -15,11 +15,11 @@ The Tufty2040 provides a live robot-health dashboard. It connects to the Jetson 
 
 ```
 ┌──────────────────────────────────────┐  y=0
-│ AIZEE STATUS                      OK │  title bar
+│ AIZEE STATUS   192.168.0.27       OK │  title bar + IP
 ├──────────────────────────────────────┤  y=22
 │ JETSON BATTERY    │  MOTOR BATTERY   │
-│  11.4V   73%      │  24.1V           │  battery section
-│  ████████████░░░  │                  │
+│  11.4V   73%      │  24.1V    81%    │  both halves get voltage+%
+│  ████████████░░░  │  █████████░░░░   │  both halves get bar
 ├──────────────────────────────────────┤  y=80
 │ MOTORS:  [ ENABLED ]                 │  enable pill
 ├──────────────────────────────────────┤  y=100
@@ -30,8 +30,12 @@ The Tufty2040 provides a live robot-health dashboard. It connects to the Jetson 
 │ SERVICES:                            │
 │ [MOTOR  OK][LIDAR  OK][UPS    OK]   │  service status
 │ [RELAY  OK][DISP   OK]              │
+├──────────────────────────────────────┤  y=200
+│ PIES: [P1 UP][P2 UP][P3 UP][P4 UP] │  RPi camera node reachability
 └──────────────────────────────────────┘  y=240
 ```
+
+When motor battery is disconnected (`mv` absent): right half shows "DC" in gray, bar is empty.
 
 **Motor state colours:** green=running, yellow=enabling, dark=disabled, red=error
 
@@ -125,23 +129,29 @@ sudo journalctl -u aizee-display -f
 ```json
 {
   "mv": 24.1,
+  "mp": 81,
   "up": 11.4,
   "ub": 73,
   "me": true,
   "ms": {"lw":"r","rw":"r","sw":"r","gb":"r","gm":"r","ge":"r","wp":"r","wr":"r","gr":"r"},
   "sv": {"motors":"a","lidar":"a","ups":"a","relay":"a","disp":"a"},
+  "ip": "192.168.0.27",
+  "pi": {"pi1":"u","pi2":"u","pi3":"u","pi4":"u"},
   "t": 1740000000.0
 }
 ```
 
 | Field | Description |
 |-------|-------------|
-| `mv`  | Motor bus voltage (V) |
+| `mv`  | Motor bus voltage (V), or absent when actuator power is off |
+| `mp`  | Motor battery percentage (0–100), or absent when `mv` is absent |
 | `up`  | UPS voltage (V) |
 | `ub`  | UPS battery percentage |
 | `me`  | Motors enabled (all 3 base motors in running state) |
 | `ms`  | Per-motor state: `r`=running `e`=enabling `d`=disabled `x`=error `?`=unknown |
 | `sv`  | Per-service state: `a`=active `f`=failed `i`=inactive `e`=activating `?`=unknown |
+| `ip`  | Jetson WiFi IP address string (e.g. `"192.168.0.27"`), or `""` |
+| `pi`  | Per-Pi reachability: `{"pi1":"u","pi2":"d",...}` — `u`=up, `d`=down, `?`=unknown |
 | `t`   | Unix timestamp |
 
 Service status is polled every 5 seconds via `systemctl is-active`. Monitored services: `aizee-motor-control-rover`, `aizee-lidar-control`, `aizee-ups-monitor`, `aizee-camera-relay`, `aizee-display`.

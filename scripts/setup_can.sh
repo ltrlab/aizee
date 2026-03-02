@@ -53,10 +53,10 @@ case $adapter_choice in
         # -o: open device
         # -c: close device on exit
         # -s8: 1 Mbps bitrate
-        slcand -o -c -s8 $DEVICE can0
+        slcand -o -c -s8 $DEVICE can1
 
         # Bring up interface
-        ip link set can0 up
+        ip link set can1 up
 
         echo -e "${GREEN}✓ CANable adapter configured${NC}"
         ;;
@@ -65,9 +65,9 @@ case $adapter_choice in
         echo -e "\n${GREEN}Setting up native SocketCAN...${NC}"
 
         # Configure bitrate
-        ip link set can0 down 2>/dev/null || true
-        ip link set can0 type can bitrate 1000000
-        ip link set can0 up
+        ip link set can1 down 2>/dev/null || true
+        ip link set can1 type can bitrate 1000000
+        ip link set can1 up
 
         echo -e "${GREEN}✓ Native CAN interface configured${NC}"
         ;;
@@ -76,9 +76,9 @@ case $adapter_choice in
         echo -e "\n${GREEN}Setting up PEAK PCAN-USB...${NC}"
 
         # PEAK adapters usually work with native SocketCAN
-        ip link set can0 down 2>/dev/null || true
-        ip link set can0 type can bitrate 1000000
-        ip link set can0 up
+        ip link set can1 down 2>/dev/null || true
+        ip link set can1 type can bitrate 1000000
+        ip link set can1 up
 
         echo -e "${GREEN}✓ PCAN-USB configured${NC}"
         ;;
@@ -92,11 +92,11 @@ esac
 # Verify interface is up
 echo
 echo "Verifying CAN interface..."
-if ip link show can0 | grep -q "UP"; then
-    echo -e "${GREEN}✓ can0 is UP${NC}"
-    ip link show can0
+if ip link show can1 | grep -q "UP"; then
+    echo -e "${GREEN}✓ can1 is UP${NC}"
+    ip link show can1
 else
-    echo -e "${RED}✗ can0 failed to come up${NC}"
+    echo -e "${RED}✗ can1 failed to come up${NC}"
     exit 1
 fi
 
@@ -106,11 +106,11 @@ echo " CAN Interface Ready"
 echo "===================================="
 echo
 echo "To monitor CAN traffic:"
-echo "  candump can0"
+echo "  candump can1"
 echo
 echo "To bring down the interface:"
-echo "  sudo ip link set can0 down"
+echo "  sudo ip link set can1 down"
 echo
 echo "To send a test frame:"
-echo "  cansend can0 001#1122334455667788"
+echo "  cansend can1 001#1122334455667788"
 echo

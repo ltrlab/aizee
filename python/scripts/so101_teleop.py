@@ -16,7 +16,13 @@ Usage:
 Controls (keyboard, while script is running):
     E    enable all arm joints on the AIZEE arm
     H    hold — freeze target at current actual position
+    X    soft shutdown — hold 1 s, return to zero, disable
     Q    quit  (Ctrl-C also works)
+
+Tuning:
+    --leader-alpha FLOAT   Smoothing factor for leader readings (default 0.5).
+                           Lower = smoother / less oscillation, more lag.
+                           Raise toward 1.0 if tracking feels sluggish.
 """
 
 from __future__ import annotations
@@ -26,6 +32,7 @@ import enum
 import json
 import sys
 import time
+import yaml
 from pathlib import Path
 from typing import Optional
 
@@ -49,11 +56,11 @@ def _ansi_on() -> None:
         k32.SetConsoleMode(k32.GetStdHandle(-11), 7)
 
 
-_W = 68
-_LEADER_JOINTS = [
-    "shoulder_pan", "shoulder_lift", "elbow_flex",
-    "wrist_flex",   "wrist_yaw",     "wrist_roll",    "gripper",
-]
+_W = 76   # total visible width including box borders (inner = 74)
+# All 7 SO-101 servos map 1-to-1 to AIZEE joints.
+# Servo 1 (shoulder_pan) → swivel, servos 2-7 → arm joints.
+_LEADER_JOINTS = ["swivel", "gantry_base", "gantry_mid", "gantry_end",
+                  "wrist_pitch", "wrist_roll", "gripper"]
 
 # UPS voltage thresholds (V)
 _UPS_OK   = 11.7
@@ -76,11 +83,54 @@ def _render(
     robot_ok:   bool  = False,
     telem_age:  float = 999.0,
     ups_data:   Optional[dict] = None,
+    clamped:    Optional[list[bool]] = None,
 ) -> list[str]:
-    BAR = "=" * _W
-    SEP = "-" * (_W - 2)   # inner separator indented 2 spaces = same total width as BAR
+    _IW = _W - 2   # inner visible width (74)
 
-    # Robot status (with color; pad by visible text length to keep UPS aligned)
+    TOP = "\u2554" + "\u2550" * _IW + "\u2557"   # ╔═══╗
+    MID = "\u2560" + "\u2550" * _IW + "\u2563"   # ╠═══╣
+    BOT = "\u255a" + "\u2550" * _IW + "\u255d"   # ╚═══╝
+    SEP = "\u2551  " + "\u2500" * (_IW - 4) + "  \u2551"  # ║  ───  ║
+
+    def _row(text: str, vis: int = -1) -> str:
+        """Wrap text in box borders, padding to _IW visible chars."""
+        vlen = len(text) if vis < 0 else vis
+        return "\u2551" + text + " " * max(0, _IW - vlen) + "\u2551"
+
+    # Title line — status right-aligned
+    # "  SO-101 → AIZEE Teleop" is 23 visible chars (→ is single-width)
+    title_vis = 23
+    gap = max(1, _IW - title_vis - len(status))
+    title_line = _row(
+        f"  SO-101 \u2192 AIZEE Teleop{' ' * gap}{status}",
+        title_vis + gap + len(status),
+    )
+
+    # Column header  (leader col is 9 wide: 8 value + 1 clamp flag)
+    header_line = _row(
+        f"  {'joint':<18} {'leader':>9}  {'target':>8}  {'actual':>8}   {'err':>7}"
+    )
+
+    # Joint data rows
+    joint_lines = []
+    for i, jname in enumerate(_LEADER_JOINTS):
+        is_clamped = (clamped is not None and i < len(clamped) and clamped[i])
+        if leader_rad is not None:
+            clamp_flag = f"{_YEL}!{_RST}" if is_clamped else " "
+            l_s  = f"{float(leader_rad[i]):>+8.3f}{clamp_flag}"
+        else:
+            l_s  = "      -- "
+        l_vis = 9   # 8-char value + 1 flag/space  (format: >+8.3f + clamp or padding)
+        t_ok = target is not None and not np.isnan(target[i])
+        a_ok = actual is not None and not np.isnan(actual[i])
+        t_s  = f"{float(target[i]):>+8.3f}"             if t_ok else "      --"
+        a_s  = f"{float(actual[i]):>+8.3f}"             if a_ok else "      --"
+        e_s  = f"{float(target[i] - actual[i]):>+7.3f}" if (t_ok and a_ok) else "     --"
+        row_text = f"  {jname:<18} {l_s}  {t_s}  {a_s}   {e_s}"
+        row_vis  = 2 + 18 + 1 + l_vis + 2 + 8 + 2 + 8 + 3 + 7
+        joint_lines.append(_row(row_text, row_vis))
+
+    # Robot / UPS status line
     if robot_ok and telem_age < 2.0:
         robot_text    = "robot: connected"
         robot_display = f"{_GRN}{robot_text}{_RST}"
@@ -92,7 +142,6 @@ def _render(
         robot_display = robot_text
     robot_pad = " " * max(2, 24 - len(robot_text))
 
-    # UPS status
     if ups_data:
         v   = float(ups_data.get("voltage",    0.0))
         c   = float(ups_data.get("current",    0.0))
@@ -102,35 +151,38 @@ def _render(
         elif v >= _UPS_WARN: col, ups_st = _YEL, "WARN"
         elif v >= _UPS_CRIT: col, ups_st = _RED, "CRIT"
         else:                col, ups_st = _RED, "SHUTDOWN"
-        ups_line = f"UPS  {v:.2f}V  {c:.2f}A  {p:.1f}W  ({pct:.0f}%)  {col}[{ups_st}]{_RST}"
+        ups_body = f"UPS  {v:.2f}V  {c:.2f}A  {p:.1f}W  ({pct:.0f}%)"
+        ups_line = f"{ups_body}  {col}[{ups_st}]{_RST}"
+        ups_vis  = len(ups_body) + 2 + 1 + len(ups_st) + 1   # "  [STATUS]"
     else:
         ups_line = "UPS  --"
+        ups_vis  = 7
 
-    lines = [
-        BAR,
-        f"  SO-101 \u2192 AIZEE Teleop{' ' * max(1, _W - 23 - len(status))}{status}",
-        BAR,
-        f"  {'so101 joint':<18} {'leader':>8}  {'target':>8}  {'actual':>8}   {'err':>7}",
-        f"  {SEP}",
-    ]
-    for i, so101j in enumerate(_LEADER_JOINTS):
-        l_s = f"{float(leader_rad[i]):>+8.3f}" if leader_rad is not None else "      --"
-        t_ok = target is not None and not np.isnan(target[i])
-        a_ok = actual is not None and not np.isnan(actual[i])
-        t_s = f"{float(target[i]):>+8.3f}" if t_ok else "      --"
-        a_s = f"{float(actual[i]):>+8.3f}" if a_ok else "      --"
-        e_s = f"{float(target[i] - actual[i]):>+7.3f}" if (t_ok and a_ok) else "     --"
-        lines.append(f"  {so101j:<18} {l_s}  {t_s}  {a_s}   {e_s}")
-    lines += [
-        f"  {SEP}",
+    robot_line = _row(
         f"  {robot_display}{robot_pad}{ups_line}",
-        f"  {hint}",
-        BAR,
+        2 + len(robot_text) + len(robot_pad) + ups_vis,
+    )
+
+    # Controls / hint line
+    ctrl_text = hint if hint else "Q quit"
+    ctrl_line = _row(f"  {ctrl_text}")
+
+    return [
+        TOP,
+        title_line,
+        MID,
+        header_line,
+        SEP,
+        *joint_lines,
+        SEP,
+        robot_line,
+        MID,
+        ctrl_line,
+        BOT,
     ]
-    return lines
 
 
-_N = len(_render(None, None, None, "", ""))
+_N = len(_render(None, None, None, "", "", clamped=None))
 
 
 def _draw(lines: list[str], first: bool = False) -> None:
@@ -181,7 +233,25 @@ def _qpos(telem: Optional[dict]) -> Optional[np.ndarray]:
 # Main
 # ---------------------------------------------------------------------------
 
+def _load_teleop_yaml() -> dict:
+    """Return parsed teleop.yaml, or {} on failure."""
+    here = Path(__file__).parent
+    for candidate in [
+        here / ".." / ".." / "config" / "teleop.yaml",
+        Path("config") / "teleop.yaml",
+    ]:
+        p = candidate.resolve()
+        if p.exists():
+            return yaml.safe_load(p.read_text()) or {}
+    return {}
+
+
+def _load_endpoints() -> dict:
+    return _load_teleop_yaml().get("endpoints", {})
+
+
 def main() -> None:
+    _ep = _load_endpoints()
     ap = argparse.ArgumentParser(
         description="SO-101 leader arm teleop for the AIZEE arm",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -190,9 +260,9 @@ def main() -> None:
     ap.add_argument("--port",      required=True,                          help="SO-101 serial port")
     ap.add_argument("--baud",      type=int,  default=1_000_000)
     ap.add_argument("--calib",     default=str(CALIB_PATH),               help="Calibration JSON")
-    ap.add_argument("--cmd",       default="tcp://localhost:5555")
-    ap.add_argument("--telem",     default="tcp://localhost:5556")
-    ap.add_argument("--ups",       default="tcp://localhost:5562",
+    ap.add_argument("--cmd",       default=_ep.get("command",       "tcp://192.168.0.27:5555"))
+    ap.add_argument("--telem",     default=_ep.get("telemetry",     "tcp://192.168.0.27:5556"))
+    ap.add_argument("--ups",       default=_ep.get("ups_telemetry", "tcp://192.168.0.27:5562"),
                     help="UPS telemetry address (empty string to disable)")
     ap.add_argument("--max-delta",     type=float, default=0.05, dest="max_delta",
                     help="Per-step safety clamp [rad] (default 0.05)")
@@ -202,6 +272,8 @@ def main() -> None:
                     help="Max per-joint error [rad] to be considered aligned (default 0.05)")
     ap.add_argument("--align-time",    type=float, default=3.0,  dest="align_time",
                     help="Seconds to hold within margin before tracking begins (default 3.0)")
+    ap.add_argument("--leader-alpha",  type=float, default=0.5,  dest="leader_alpha",
+                    help="Leader smoothing factor 0-1 (1=raw, lower=smoother, default 0.5)")
     args = ap.parse_args()
 
     _ansi_on()
@@ -218,8 +290,16 @@ def main() -> None:
     arm_limits = load_arm_limits(Path(args.robstride_calib) if args.robstride_calib else None)
     print(f"Arm limits: {'loaded (' + str(len(arm_limits)) + ' joints)' if arm_limits else 'none — run robstride_calibrate.py first'}")
 
-    # Indices into the 7-elem leader array that map to ARM_JOINTS (skips wrist_yaw).
-    # e.g. [0, 1, 2, 3, 5, 6] — index 4 (wrist_yaw) has no AIZEE motor.
+    # Load gains from teleop.yaml (same source as teleop.py).
+    # record_replay.py KP/KD are stale 7-elem arrays with wrong wrist values — don't use them.
+    _tcfg = _load_teleop_yaml().get("gantry", {})
+    _kp: list[float] = _tcfg.get("kp", KP)
+    _kd: list[float] = _tcfg.get("kd", KD)
+    print(f"Arm gains: kp={_kp}  kd={_kd}")
+
+    # Indices into the 7-elem leader array that map to ARM_JOINTS.
+    # Servo 1 (swivel) is at index 0 of AIZEE_JOINTS but is not an arm joint,
+    # so it is skipped.  Result: [1, 2, 3, 4, 5, 6].
     _arm_joint_set = set(ARM_JOINTS)
     _so101_for_aizee: list[int] = [
         i for i, j in enumerate(leader.AIZEE_JOINTS) if j in _arm_joint_set
@@ -267,25 +347,30 @@ def main() -> None:
         ALIGNING = "aligning"   # enabled, slowly moving arm to match leader
         TRACKING = "tracking"   # following leader in real time
         HOLD     = "hold"       # target frozen at last actual
+        SHUTDOWN = "shutdown"   # hold 1 s, then slowly return to zero
 
     teleop_state                   = State.READY
     converge_start: Optional[float] = None   # when arm first entered margin
     held_target:    Optional[np.ndarray] = None
     zero_msg:       str   = ""               # status text for zero-capture flash
     zero_msg_until: float = 0.0              # show zero_msg until this time
+    shutdown_countdown: float              = 0.0   # seconds remaining to hold
+    shutdown_target:    Optional[np.ndarray] = None  # frozen arm positions at shutdown start
+    shutdown_swivel:    Optional[float]      = None  # frozen swivel position at shutdown start
+    leader_filt:        Optional[np.ndarray] = None  # exponentially smoothed leader reading
+    swivel_actual:      Optional[float]      = None  # latest swivel position from telemetry
+    held_swivel:        Optional[float]      = None  # swivel position frozen in HOLD
     last_telem_time: float = time.time() if q_actual is not None else 0.0
     ups_data:       Optional[dict] = None
     robot_ok = q_actual is not None
 
     status = "[ ] ready"
-    hint   = "E=enable  Z=zero  M=mirror  Q=quit"
+    hint   = "E enable · Z zero · M mirror · Q quit"
 
-    # Initial draw
-    _init_actual = None
-    if q_actual is not None:
-        _init_actual = np.full(7, np.nan, dtype=np.float32)
-        _init_actual[_so101_for_aizee] = q_actual
-    _draw(_render(None, None, _init_actual, status, hint, robot_ok, 999.0, None), first=True)
+    # Initial draw — q_actual is 6-elem; prepend NaN for swivel slot
+    _nan = float("nan")
+    _init_actual = (np.concatenate([[_nan], q_actual]) if q_actual is not None else None)
+    _draw(_render(None, None, _init_actual, status, hint, robot_ok, 999.0, None, clamped=None), first=True)
 
     period = 1.0 / RECORD_HZ
 
@@ -301,17 +386,19 @@ def main() -> None:
             elif key == "E":
                 # Enable arm motors and enter alignment phase
                 try:
-                    cmd_sock.send_string(json.dumps({"type": "enable", "motor_ids": ARM_JOINTS}), zmq.NOBLOCK)
+                    cmd_sock.send_string(json.dumps({"type": "enable", "motor_ids": ["swivel"] + ARM_JOINTS}), zmq.NOBLOCK)
                 except zmq.Again:
                     pass
                 teleop_state   = State.ALIGNING
                 converge_start = None
+                leader_filt    = None  # reset smoothing filter on re-enable
 
             elif key == "H":
                 if teleop_state in (State.TRACKING, State.ALIGNING):
                     # Freeze target at current actual position
                     if q_actual is not None:
                         held_target = q_actual.copy()
+                    held_swivel  = swivel_actual
                     teleop_state = State.HOLD
                 elif teleop_state == State.HOLD:
                     # Return to alignment before tracking resumes
@@ -330,58 +417,170 @@ def main() -> None:
 
             elif key == "M":
                 # Mirror: set zero so current SO-101 pose maps to current AIZEE actual.
-                # q_actual is 6-elem (AIZEE); zero_offsets/directions are 7-elem (SO-101).
-                # For each AIZEE motor j: zero_offsets[s] = _m[s] - directions[s] * q_actual[j]
-                # where s = _so101_for_aizee[j].  wrist_yaw offset (index 4) is unchanged.
+                # q_actual is 6-elem (arm); zero_offsets/directions are 7-elem (SO-101).
+                # Arm joints: zero_offsets[s] = _m[s] - directions[s] * q_actual[j]
+                # Swivel (index 0): zero_offsets[0] = _m[0] - directions[0] * swivel_actual
                 _m = leader.poll()
                 if _m is not None and q_actual is not None:
                     new_offsets = zero_offsets.copy()
                     for aizee_j, so101_i in enumerate(_so101_for_aizee):
                         new_offsets[so101_i] = _m[so101_i] - directions[so101_i] * q_actual[aizee_j]
+                    if swivel_actual is not None:
+                        new_offsets[0] = _m[0] - directions[0] * swivel_actual
                     zero_offsets = new_offsets
                     leader.save_zero(zero_offsets)
                     zero_msg       = "[M] mirrored — saved"
                     zero_msg_until = t0 + 2.0
 
+            elif key == "X":
+                # Soft shutdown: hold for 1 s, then slowly return to zero
+                if teleop_state in (State.ALIGNING, State.TRACKING, State.HOLD):
+                    shutdown_target    = (q_actual.copy() if q_actual is not None
+                                          else held_target.copy() if held_target is not None
+                                          else None)
+                    shutdown_swivel    = (swivel_actual if swivel_actual is not None
+                                          else held_swivel if held_swivel is not None
+                                          else None)
+                    shutdown_countdown = 1.0
+                    teleop_state       = State.SHUTDOWN
+
             # --- Read SO-101 ---
             leader_rad = leader.poll()
 
+            # --- Exponential smoothing filter ---
+            # Attenuates high-frequency noise (hand tremors, encoder jitter) that
+            # would otherwise cause the arm to oscillate chasing a jittery target.
+            # leader_rad is shown in the display (raw); leader_filt drives commands.
+            if leader_rad is not None:
+                if leader_filt is None:
+                    leader_filt = leader_rad.copy()
+                else:
+                    a = args.leader_alpha
+                    leader_filt = a * leader_rad + (1.0 - a) * leader_filt
+            else:
+                leader_filt = None
+
             # --- Apply per-joint zero offset + direction ---
-            # mapped_rad (7-elem, AIZEE space) = directions * (leader_rad - zero_offsets)
+            # mapped_rad (7-elem, AIZEE space) = directions * (leader_filt - zero_offsets)
             mapped_rad: Optional[np.ndarray] = (
-                directions * (leader_rad - zero_offsets)
-                if leader_rad is not None else None
+                directions * (leader_filt - zero_offsets)
+                if leader_filt is not None else None
             )
-            # aizee_cmd: 6-elem command for Rust (skips wrist_yaw at index 4)
+            # aizee_cmd: 6-elem command for Rust arm (skips swivel at index 0)
             aizee_cmd: Optional[np.ndarray] = (
                 mapped_rad[_so101_for_aizee] if mapped_rad is not None else None
             )
+            # swivel_cmd: scalar command for Rust swivel motor (index 0)
+            swivel_cmd: Optional[float] = (
+                float(mapped_rad[0]) if mapped_rad is not None else None
+            )
 
-            # --- Determine target (6-elem, AIZEE command space) ---
+            # --- Determine targets ---
             if teleop_state == State.HOLD:
-                target = held_target
+                target       = held_target
+                swivel_tgt   = held_swivel
             elif aizee_cmd is not None:
-                target = aizee_cmd
+                target       = aizee_cmd
+                swivel_tgt   = swivel_cmd
             else:
-                target = q_actual   # no leader data — hold current actual
+                target       = q_actual      # no leader data — hold current actual
+                swivel_tgt   = swivel_actual
 
-            # --- Send arm command (all states except READY) ---
-            if target is not None and teleop_state != State.READY:
-                ref   = q_actual if q_actual is not None else target
-                delta = np.clip(target - ref, -args.max_delta, args.max_delta)
-                q_cmd = ref + delta
-                if arm_limits:
-                    q_cmd = np.array(clamp_arm_positions(q_cmd.tolist(), arm_limits), dtype=np.float32)
-                try:
-                    cmd_sock.send_string(json.dumps({
-                        "type":       "arm_joints",
-                        "positions":  q_cmd.tolist(),
-                        "velocities": [0.0] * len(ARM_JOINTS),
-                        "kp":         KP,
-                        "kd":         KD,
-                    }), zmq.NOBLOCK)
-                except zmq.Again:
-                    pass
+            # --- Send arm + swivel commands ---
+            if teleop_state == State.SHUTDOWN:
+                dt = period   # fixed timestep
+                SHUTDOWN_SPEED = 0.2   # rad/s
+                max_change = SHUTDOWN_SPEED * dt
+                if shutdown_countdown > 0:
+                    # Phase 1: hold position for 1 s
+                    shutdown_countdown -= dt
+                    if shutdown_target is not None:
+                        try:
+                            cmd_sock.send_string(json.dumps({
+                                "type":       "arm_joints",
+                                "positions":  shutdown_target.tolist(),
+                                "velocities": [0.0] * len(ARM_JOINTS),
+                                "kp":         _kp,
+                                "kd":         _kd,
+                            }), zmq.NOBLOCK)
+                        except zmq.Again:
+                            pass
+                    if shutdown_swivel is not None:
+                        try:
+                            cmd_sock.send_string(json.dumps({"type": "swivel", "position": shutdown_swivel}), zmq.NOBLOCK)
+                        except zmq.Again:
+                            pass
+                else:
+                    # Phase 2: slowly move each joint toward zero at 0.2 rad/s
+                    if shutdown_target is None:
+                        shutdown_target = np.zeros(len(ARM_JOINTS), dtype=np.float32)
+                    ref = q_actual if q_actual is not None else shutdown_target
+                    new_target = shutdown_target.copy()
+                    for i in range(len(new_target)):
+                        if abs(new_target[i]) < max_change:
+                            new_target[i] = 0.0
+                        else:
+                            new_target[i] -= np.sign(new_target[i]) * max_change
+                    shutdown_target = new_target
+                    # Delta-clamp against actual for safety
+                    delta = np.clip(shutdown_target - ref, -args.max_delta, args.max_delta)
+                    q_cmd = ref + delta
+                    if arm_limits:
+                        q_cmd = np.array(clamp_arm_positions(q_cmd.tolist(), arm_limits), dtype=np.float32)
+                    try:
+                        cmd_sock.send_string(json.dumps({
+                            "type":       "arm_joints",
+                            "positions":  q_cmd.tolist(),
+                            "velocities": [0.0] * len(ARM_JOINTS),
+                            "kp":         _kp,
+                            "kd":         _kd,
+                        }), zmq.NOBLOCK)
+                    except zmq.Again:
+                        pass
+                    # Swivel: step toward zero
+                    if shutdown_swivel is None:
+                        shutdown_swivel = 0.0
+                    if abs(shutdown_swivel) < max_change:
+                        shutdown_swivel = 0.0
+                    else:
+                        shutdown_swivel -= np.sign(shutdown_swivel) * max_change
+                    try:
+                        cmd_sock.send_string(json.dumps({"type": "swivel", "position": shutdown_swivel}), zmq.NOBLOCK)
+                    except zmq.Again:
+                        pass
+                    # Check if all joints (arm + swivel) are at zero
+                    arm_at_zero    = np.all(np.abs(shutdown_target) < 0.01)
+                    swivel_at_zero = abs(shutdown_swivel) < 0.01
+                    if arm_at_zero and swivel_at_zero:
+                        try:
+                            cmd_sock.send_string(json.dumps({"type": "disable", "motor_ids": ["swivel"] + ARM_JOINTS}), zmq.NOBLOCK)
+                        except zmq.Again:
+                            pass
+                        teleop_state = State.READY
+
+            elif teleop_state != State.READY:
+                # Normal command sending
+                if target is not None:
+                    ref   = q_actual if q_actual is not None else target
+                    delta = np.clip(target - ref, -args.max_delta, args.max_delta)
+                    q_cmd = ref + delta
+                    if arm_limits:
+                        q_cmd = np.array(clamp_arm_positions(q_cmd.tolist(), arm_limits), dtype=np.float32)
+                    try:
+                        cmd_sock.send_string(json.dumps({
+                            "type":       "arm_joints",
+                            "positions":  q_cmd.tolist(),
+                            "velocities": [0.0] * len(ARM_JOINTS),
+                            "kp":         _kp,
+                            "kd":         _kd,
+                        }), zmq.NOBLOCK)
+                    except zmq.Again:
+                        pass
+                if swivel_tgt is not None:
+                    try:
+                        cmd_sock.send_string(json.dumps({"type": "swivel", "position": swivel_tgt}), zmq.NOBLOCK)
+                    except zmq.Again:
+                        pass
 
             # --- Alignment convergence check ---
             # Tracks how long max per-joint error < align_margin.
@@ -407,6 +606,10 @@ def main() -> None:
                 q_actual        = q_new
                 robot_ok        = True
                 last_telem_time = t0
+            if telem and "motors" in telem:
+                swivel_m = telem["motors"].get("swivel")
+                if swivel_m is not None:
+                    swivel_actual = float(swivel_m.get("position", 0.0))
 
             if ups_sock is not None:
                 ups_msg = _drain(ups_sock)
@@ -416,7 +619,7 @@ def main() -> None:
             # --- Build status + hint ---
             if teleop_state == State.READY:
                 status = "[ ] ready"
-                hint   = "E=enable  Z=zero  M=mirror  Q=quit"
+                hint   = "E enable · Z zero · M mirror · Q quit"
 
             elif teleop_state == State.ALIGNING:
                 if aizee_cmd is not None and q_actual is not None:
@@ -428,35 +631,55 @@ def main() -> None:
                         status = f"[~] aligning  err {max_err:.3f} rad"
                 else:
                     status = "[~] aligning..."
-                hint = "H=hold  Z/M=zero  E=align  Q=quit"
+                hint = "H hold · X shutdown · Z/M zero · E re-align · Q quit"
 
             elif teleop_state == State.TRACKING:
                 status = "[*] tracking" if leader_rad is not None else "[!] no leader data"
-                hint   = "H=hold  Z/M=zero  E=align  Q=quit"
+                hint   = "H hold · X shutdown · Z/M zero · E re-align · Q quit"
 
             elif teleop_state == State.HOLD:
                 status = "[H] HOLD"
-                hint   = "H=resume  Z/M=zero  Q=quit"
+                hint   = "H resume · X shutdown · Z/M zero · Q quit"
+
+            elif teleop_state == State.SHUTDOWN:
+                if shutdown_countdown > 0:
+                    status = f"[X] shutdown  hold {shutdown_countdown:.1f}s"
+                else:
+                    pct = 0
+                    if shutdown_target is not None and q_actual is not None:
+                        max_dist = float(np.max(np.abs(shutdown_target)))
+                        if max_dist > 0.01:
+                            pct = max(0, int(100 * (1.0 - max_dist / max(max_dist, 0.001))))
+                    status = f"[X] returning to zero  {pct}%"
+                hint = ""
 
             # Zero capture flash overrides status for 2 s
             if t0 < zero_msg_until:
                 status = zero_msg
 
             # --- Render ---
-            # Expand 6-elem AIZEE arrays to 7-elem display arrays (NaN for wrist_yaw)
-            if target is not None:
-                target_display = np.full(7, np.nan, dtype=np.float32)
-                target_display[_so101_for_aizee] = target
+            # Build 7-elem display arrays: index 0 = swivel, indices 1-6 = arm joints.
+            # NaN signals missing data to _render() so it shows "--".
+            # During SHUTDOWN, show the frozen/ramp target rather than the live leader.
+            _nan = float("nan")
+            if teleop_state == State.SHUTDOWN:
+                _disp_arm    = shutdown_target
+                _disp_swivel = shutdown_swivel
             else:
-                target_display = None
+                _disp_arm    = target
+                _disp_swivel = swivel_tgt
+            if _disp_arm is not None:
+                disp_target = np.concatenate([[_disp_swivel if _disp_swivel is not None else _nan], _disp_arm])
+            else:
+                disp_target = None
             if q_actual is not None:
-                actual_display = np.full(7, np.nan, dtype=np.float32)
-                actual_display[_so101_for_aizee] = q_actual
+                disp_actual = np.concatenate([[swivel_actual if swivel_actual is not None else _nan], q_actual])
             else:
-                actual_display = None
+                disp_actual = None
             telem_age = t0 - last_telem_time if robot_ok else 999.0
-            _draw(_render(leader_rad, target_display, actual_display, status, hint,
-                          robot_ok, telem_age, ups_data))
+            _clamped = leader.clamped_joints if leader_rad is not None else None
+            _draw(_render(leader_rad, disp_target, disp_actual, status, hint,
+                          robot_ok, telem_age, ups_data, clamped=_clamped))
 
             sleep_t = period - (time.time() - t0)
             if sleep_t > 0:

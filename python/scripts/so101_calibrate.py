@@ -30,6 +30,28 @@ from so101_leader import So101Leader, ticks_to_rad, AIZEE_DEFAULTS, CALIB_PATH
 sys.path.insert(0, str(Path(__file__).parent))
 from record_replay import setup_keyboard
 
+ROBSTRIDE_CALIB_PATH = Path(__file__).parent.parent.parent / "config" / "robstride_calibration.json"
+
+# ---------------------------------------------------------------------------
+# AIZEE limits
+# ---------------------------------------------------------------------------
+
+def _load_aizee_limits(path: Path = ROBSTRIDE_CALIB_PATH) -> dict[str, float]:
+    """Return {aizee_joint: span_rad} from robstride_calibration.json, or {} if absent."""
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+        result = {}
+        for joint, jd in data.get("joints", {}).items():
+            mn = float(jd.get("min_rad", 0.0))
+            mx = float(jd.get("max_rad", 0.0))
+            result[joint] = abs(mx - mn)
+        return result
+    except Exception:
+        return {}
+
+
 # ---------------------------------------------------------------------------
 # ANSI helpers
 # ---------------------------------------------------------------------------
@@ -197,8 +219,11 @@ def _print_calib_header(
     for j, data in done.items():
         mn = data.get("min_raw", "?")
         mx = data.get("max_raw", "?")
-        wrap = "  [wrapped]" if isinstance(mn, int) and isinstance(mx, int) and mn > mx else ""
-        print(f"  [done] {j:<18}  min={mn}  max={mx}{wrap}")
+        if isinstance(mn, int) and isinstance(mx, int) and mn > mx:
+            note = "  [wrap]" if (mn - mx) > 2048 else "  [inverted]"
+        else:
+            note = ""
+        print(f"  [done] {j:<18}  min={mn}  max={mx}{note}")
     if idx > 0:
         print()
     step_str = "A: move to MIN" if step == 0 else "B: move to MAX"
@@ -211,6 +236,18 @@ def _print_calib_header(
 # ---------------------------------------------------------------------------
 
 def save_calibration(results: dict, joints: list[str], aizee_joints: list[str], path: Path) -> None:
+    # Load existing calibration to preserve manually-set fields (direction, zero_offset).
+    existing: dict = {}
+    if path.exists():
+        try:
+            import json as _json
+            existing = _json.loads(path.read_text()).get("joints", {})
+        except Exception:
+            pass
+
+    # Load AIZEE physical spans so SO-101 full range maps to AIZEE full range.
+    aizee_spans = _load_aizee_limits()
+
     path.parent.mkdir(parents=True, exist_ok=True)
     calib = {
         "calibrated_at": datetime.now(timezone.utc).isoformat(),
@@ -218,14 +255,27 @@ def save_calibration(results: dict, joints: list[str], aizee_joints: list[str], 
         "joints": {},
     }
     for i, (joint, aizee_joint) in enumerate(zip(joints, aizee_joints)):
-        r = results.get(joint, {})
+        r   = results.get(joint, {})
+        old = existing.get(joint, {})
+        if aizee_joint in aizee_spans:
+            # Map SO-101 full physical range → [0, aizee_span].
+            # zero_offset must be re-set with M key after recalibration.
+            rad_min     = 0.0
+            rad_max     = round(aizee_spans[aizee_joint], 4)
+            zero_offset = 0.0
+        else:
+            rad_min     = r.get("rad_min", AIZEE_DEFAULTS[i][0])
+            rad_max     = r.get("rad_max", AIZEE_DEFAULTS[i][1])
+            zero_offset = old.get("zero_offset", 0.0)
         calib["joints"][joint] = {
-            "id":        i + 1,
-            "aizee":     aizee_joint,
-            "min_raw":   r.get("min_raw", 0),
-            "max_raw":   r.get("max_raw", 4095),
-            "rad_min":   r.get("rad_min", AIZEE_DEFAULTS[i][0]),
-            "rad_max":   r.get("rad_max", AIZEE_DEFAULTS[i][1]),
+            "id":          i + 1,
+            "aizee":       aizee_joint,
+            "min_raw":     r.get("min_raw", 0),
+            "max_raw":     r.get("max_raw", 4095),
+            "rad_min":     rad_min,
+            "rad_max":     rad_max,
+            "zero_offset": zero_offset,
+            "direction":   old.get("direction", 1),
         }
     with open(path, "w") as f:
         json.dump(calib, f, indent=2)

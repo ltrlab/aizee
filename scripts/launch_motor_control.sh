@@ -31,15 +31,15 @@ if [ ! -f "$MOTOR_CONTROL_BIN" ]; then
 fi
 
 # Check if CAN interface is up
-if ! ip link show can0 &>/dev/null; then
-    echo -e "${RED}✗ CAN interface 'can0' not found${NC}"
+if ! ip link show can1 &>/dev/null; then
+    echo -e "${RED}✗ CAN interface 'can1' not found${NC}"
     echo "Run: sudo $SCRIPT_DIR/setup_can.sh"
     exit 1
 fi
 
-if ! ip link show can0 | grep -q "UP"; then
-    echo -e "${RED}✗ CAN interface 'can0' is DOWN${NC}"
-    echo "Run: sudo ip link set can0 up"
+if ! ip link show can1 | grep -q "UP"; then
+    echo -e "${RED}✗ CAN interface 'can1' is DOWN${NC}"
+    echo "Run: sudo ip link set can1 up"
     exit 1
 fi
 

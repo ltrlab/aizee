@@ -44,11 +44,11 @@ CALIB_PATH = Path("config/so101_calibration.json")
 # Default AIZEE arm target range [rad_min, rad_max] per SO-101 joint.
 # Order matches JOINTS below.  Edit via the calibration JSON after recording.
 AIZEE_DEFAULTS: list[tuple[float, float]] = [
-    (-1.57,  1.57),   # gantry_base  ← shoulder_pan
-    (-1.57,  0.50),   # gantry_mid   ← shoulder_lift
-    (-0.50,  1.57),   # gantry_end   ← elbow_flex
-    (-1.00,  1.00),   # wrist_pitch  ← wrist_flex
-    (-1.57,  1.57),   # wrist_yaw    ← wrist_yaw
+    (-1.57,  1.57),   # swivel       ← shoulder_pan
+    (-1.57,  1.57),   # gantry_base  ← shoulder_lift
+    (-1.57,  0.50),   # gantry_mid   ← elbow_flex
+    (-0.50,  1.57),   # gantry_end   ← wrist_flex
+    (-1.00,  1.00),   # wrist_pitch  ← wrist_yaw (SO-101 servo 5)
     (-1.57,  1.57),   # wrist_roll   ← wrist_roll
     ( 0.00,  0.50),   # gripper      ← gripper  (0=open, 0.5=closed)
 ]
@@ -68,11 +68,11 @@ class So101Leader:
     and converts them to AIZEE arm joint targets using a calibration file.
 
     Servo IDs 1-7 map to joints in order:
-        1 shoulder_pan  → gantry_base
-        2 shoulder_lift → gantry_mid
-        3 elbow_flex    → gantry_end
-        4 wrist_flex    → wrist_pitch
-        5 wrist_yaw     → wrist_yaw
+        1 shoulder_pan  → swivel      (rover base)
+        2 shoulder_lift → gantry_base
+        3 elbow_flex    → gantry_mid
+        4 wrist_flex    → gantry_end
+        5 wrist_yaw     → wrist_pitch
         6 wrist_roll    → wrist_roll
         7 gripper       → gripper
     """
@@ -87,11 +87,11 @@ class So101Leader:
         "gripper",
     ]
     AIZEE_JOINTS = [
+        "swivel",
         "gantry_base",
         "gantry_mid",
         "gantry_end",
         "wrist_pitch",
-        "wrist_yaw",
         "wrist_roll",
         "gripper",
     ]
@@ -112,6 +112,8 @@ class So101Leader:
         # Per-joint unwrap state — tracks rollovers across 0/4095 boundary
         self._prev_raw:   dict[str, Optional[int]] = {j: None for j in self.JOINTS}
         self._unwrap_off: dict[str, int]           = {j: 0    for j in self.JOINTS}
+        # Set by poll(): True if that joint's raw frac was outside [0,1] (clamped)
+        self._clamped:    list[bool]               = [False] * len(self.JOINTS)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -126,6 +128,7 @@ class So101Leader:
             for j in self.JOINTS:
                 self._prev_raw[j]   = None
                 self._unwrap_off[j] = 0
+            self._clamped = [False] * len(self.JOINTS)
             return True
         except serial.SerialException as exc:
             print(f"[SO-101] connect failed on {self.port}: {exc}")
@@ -138,6 +141,16 @@ class So101Leader:
     @property
     def connected(self) -> bool:
         return bool(self._ser and self._ser.is_open)
+
+    @property
+    def clamped_joints(self) -> list[bool]:
+        """Per-joint clamp flag from the last poll().
+
+        True means the joint's encoder position was outside its calibrated
+        [min_raw, max_raw] range and the output was clamped to rad_min/rad_max.
+        This usually means the SO-101 servo is out of its calibrated window.
+        """
+        return list(self._clamped)
 
     # ------------------------------------------------------------------
     # Encoder unwrapping
@@ -159,13 +172,19 @@ class So101Leader:
         """
         prev_u = self._prev_raw[joint]     # stored as unwrapped (may be >4095)
         if prev_u is None:
-            # First read — seed offset for wrapped calibration ranges.
+            # First read — seed offset for genuine wrapped calibration ranges.
+            # A genuine wrap crosses the 0/4095 boundary: the "short" path between
+            # min_raw and max_raw passes through 0.  This happens when
+            # min_raw > max_raw AND min_raw - max_raw > TICKS//2.
+            # Non-wrap inverted ranges (physical min = high encoder, physical max = low,
+            # but entirely within one revolution) have mn > mx with mn - mx < TICKS//2
+            # and do NOT need the unwrap offset.
             if self._calib:
                 jc = self._calib["joints"].get(joint, {})
                 mn = jc.get("min_raw", 0)
                 mx = jc.get("max_raw", _TICKS - 1)
-                if mn > mx and raw <= mx:
-                    # raw is in the lower segment of a wrapped range;
+                if mn > mx and (mn - mx) > _TICKS // 2 and raw <= mx:
+                    # raw is in the lower segment of a genuine wrapped range;
                     # shift up by one revolution so it reads above min_raw.
                     self._unwrap_off[joint] = _TICKS
             self._prev_raw[joint] = raw + self._unwrap_off[joint]
@@ -188,10 +207,13 @@ class So101Leader:
     def poll(self) -> Optional[np.ndarray]:
         """Read all 6 servos and return AIZEE joint targets [rad].
 
-        Uses read_unwrapped() for continuous tracking across the 0/4095
-        encoder boundary.  Calibration bounds are lifted into the same
-        unwrapped space so that linear interpolation is always monotonic
-        regardless of where in the revolution the servo started.
+        Handles three encoder range types (see calibration JSON):
+          Normal    (min_raw <= max_raw): simple linear interpolation.
+          Wrap      (min_raw > max_raw, gap > 2048): genuine 0/4095 crossing;
+                    upper bound is lifted into unwrapped space.
+          Inverted  (min_raw > max_raw, gap <= 2048): physical min = high
+                    encoder value; interpolation runs in reverse so that
+                    u=min_raw→rad_min and u=max_raw→rad_max.
 
         Falls back to raw-ticks-to-radians if no calibration is loaded.
         Returns None if any servo read fails.
@@ -209,15 +231,32 @@ class So101Leader:
                 mx    = jc.get("max_raw",  _TICKS - 1)
                 r_min = jc.get("rad_min",  AIZEE_DEFAULTS[i][0])
                 r_max = jc.get("rad_max",  AIZEE_DEFAULTS[i][1])
-                # Lift calibration bounds into unwrapped space.
-                # For wrapped ranges (mn > mx), the span crosses 0/4095 so
-                # the upper bound in unwrapped space is mn + span = 4096 + mx.
-                mn_u = mn
-                mx_u = mx if mn <= mx else mn + (_TICKS - mn + mx)
-                span = mx_u - mn_u
-                frac = max(0.0, min(1.0, (u - mn_u) / span)) if span else 0.5
+                # Three encoder range types:
+                #   Normal:       mn <= mx — simple ascending range.
+                #   Genuine wrap: mn > mx, mn - mx > TICKS//2 — crosses 0/4095.
+                #   Inverted:     mn > mx, mn - mx < TICKS//2 — physical min is
+                #                 high encoder value, physical max is low.  Does NOT
+                #                 cross 0/4095; the old code misidentified this as a
+                #                 wrap and produced frac ≤ 0 for all mid-range values.
+                if mn <= mx:
+                    # Normal ascending range.
+                    span = mx - mn
+                    raw_frac = (u - mn) / span if span else 0.5
+                elif (mn - mx) > _TICKS // 2:
+                    # Genuine wrap: lift upper bound into unwrapped space.
+                    mx_u = mn + (_TICKS - mn + mx)
+                    span = mx_u - mn
+                    raw_frac = (u - mn) / span if span else 0.5
+                else:
+                    # Non-wrap inverted: encoder decreases from physical min → max.
+                    # u = mn → frac = 0 (rad_min); u = mx → frac = 1 (rad_max).
+                    span = mn - mx
+                    raw_frac = (mn - u) / span if span else 0.5
+                self._clamped[i] = (raw_frac < 0.0 or raw_frac > 1.0)
+                frac = max(0.0, min(1.0, raw_frac))
                 out[i] = r_min + frac * (r_max - r_min)
             else:
+                self._clamped[i] = False
                 out[i] = ticks_to_rad(u % _TICKS)
         return out
 
