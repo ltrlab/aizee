@@ -22,6 +22,7 @@ This directory contains all technical documentation for the AIZEE robotics platf
 - **[subsystems/](subsystems/)**: Component-specific documentation
   - [CAMERAS.md](subsystems/CAMERAS.md): Intel RealSense D455 camera system (4 RPi nodes)
   - [LIDAR.md](subsystems/LIDAR.md): RPLiDAR A1M8 dual sensor integration
+  - [MOTORS.md](subsystems/MOTORS.md): ROBSTRIDE motor parameter config — CAN read/write, LIMIT_TORQUE/LIMIT_CUR
   - [UPS.md](subsystems/UPS.md): INA219 battery monitoring system
   - [TUFTY2040.md](subsystems/TUFTY2040.md): Tufty2040 status display — firmware deploy & layout
 

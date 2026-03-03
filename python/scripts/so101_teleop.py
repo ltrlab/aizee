@@ -15,14 +15,13 @@ Usage:
 
 Controls (keyboard, while script is running):
     E    enable all arm joints on the AIZEE arm
+    I    idle — enable motors with zero torque (see actual positions)
     H    hold — freeze target at current actual position
     X    soft shutdown — hold 1 s, return to zero, disable
     Q    quit  (Ctrl-C also works)
 
-Tuning:
-    --leader-alpha FLOAT   Smoothing factor for leader readings (default 0.5).
-                           Lower = smoother / less oscillation, more lag.
-                           Raise toward 1.0 if tracking feels sluggish.
+Gamepad: A=enable  B=shutdown/cancel  Start=hold  Back=quit
+
 """
 
 from __future__ import annotations
@@ -38,6 +37,12 @@ from typing import Optional
 
 import numpy as np
 import zmq
+
+try:
+    import pygame
+    _pygame_available = True
+except ImportError:
+    _pygame_available = False
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "teleop"))
 from so101_leader import So101Leader, CALIB_PATH
@@ -62,6 +67,17 @@ _W = 76   # total visible width including box borders (inner = 74)
 _LEADER_JOINTS = ["swivel", "gantry_base", "gantry_mid", "gantry_end",
                   "wrist_pitch", "wrist_roll", "gripper"]
 
+# Per-joint torque saturation thresholds (Nm) — matches max_torque in hardware_jetson_rover.yaml
+_SAT_TORQUE = {
+    "swivel":      6.0,
+    "gantry_base": 12.0,
+    "gantry_mid":  6.0,
+    "gantry_end":  4.0,
+    "wrist_pitch": 4.0,
+    "wrist_roll":  2.0,
+    "gripper":     2.0,
+}
+
 # UPS voltage thresholds (V)
 _UPS_OK   = 11.7
 _UPS_WARN = 10.8
@@ -72,18 +88,28 @@ _GRN = "\033[1;32m"
 _YEL = "\033[1;33m"
 _RED = "\033[1;31m"
 _RST = "\033[0m"
+_BG_YEL = "\033[103m"   # bright yellow background (warnings)
+_BG_RED  = "\033[101m"  # bright red background (critical)
+
+_TEMP_WARN = 65.0   # °C — yellow background
+_TEMP_CRIT = 80.0   # °C — red background
+_VBUS_WARN = 20.0   # V  — yellow background
+_VBUS_CRIT = 18.0   # V  — red background
 
 
 def _render(
-    leader_rad: Optional[np.ndarray],
-    target:     Optional[np.ndarray],
-    actual:     Optional[np.ndarray],
-    status:     str,
-    hint:       str,
-    robot_ok:   bool  = False,
-    telem_age:  float = 999.0,
-    ups_data:   Optional[dict] = None,
-    clamped:    Optional[list[bool]] = None,
+    leader_rad:      Optional[np.ndarray],
+    target:          Optional[np.ndarray],
+    actual:          Optional[np.ndarray],
+    status:          str,
+    hint:            str,
+    robot_ok:        bool  = False,
+    telem_age:       float = 999.0,
+    ups_data:        Optional[dict] = None,
+    clamped:         Optional[list[bool]] = None,
+    torque:          Optional[np.ndarray] = None,
+    temp:            Optional[np.ndarray] = None,
+    battery_voltage: Optional[float]      = None,
 ) -> list[str]:
     _IW = _W - 2   # inner visible width (74)
 
@@ -108,7 +134,7 @@ def _render(
 
     # Column header  (leader col is 9 wide: 8 value + 1 clamp flag)
     header_line = _row(
-        f"  {'joint':<18} {'leader':>9}  {'target':>8}  {'actual':>8}   {'err':>7}"
+        f"  {'joint':<18} {'leader':>9}  {'target':>8}  {'actual':>8}   {'err':>7}  {'torq':>5}  {'temp':>4}"
     )
 
     # Joint data rows
@@ -126,8 +152,32 @@ def _render(
         t_s  = f"{float(target[i]):>+8.3f}"             if t_ok else "      --"
         a_s  = f"{float(actual[i]):>+8.3f}"             if a_ok else "      --"
         e_s  = f"{float(target[i] - actual[i]):>+7.3f}" if (t_ok and a_ok) else "     --"
-        row_text = f"  {jname:<18} {l_s}  {t_s}  {a_s}   {e_s}"
-        row_vis  = 2 + 18 + 1 + l_vis + 2 + 8 + 2 + 8 + 3 + 7
+        tq_ok = torque is not None and i < len(torque) and not np.isnan(torque[i])
+        if tq_ok:
+            tq    = float(torque[i])
+            thresh = _SAT_TORQUE.get(jname, 999.0)
+            ratio  = abs(tq) / thresh if thresh > 0 else 0.0
+            if ratio >= 0.85:
+                tq_s = f"{_BG_RED}{tq:>+5.1f}{_RST}"
+            elif ratio >= 0.60:
+                tq_s = f"{_BG_YEL}{tq:>+5.1f}{_RST}"
+            else:
+                tq_s = f"{tq:>+5.1f}"
+        else:
+            tq_s = "   --"
+        temp_ok = temp is not None and i < len(temp) and not np.isnan(temp[i])
+        if temp_ok:
+            tc = float(temp[i])
+            if tc >= _TEMP_CRIT:
+                temp_s = f"{_BG_RED}{tc:>3.0f}\u00b0{_RST}"
+            elif tc >= _TEMP_WARN:
+                temp_s = f"{_BG_YEL}{tc:>3.0f}\u00b0{_RST}"
+            else:
+                temp_s = f"{tc:>3.0f}\u00b0"
+        else:
+            temp_s = "  --"
+        row_text = f"  {jname:<18} {l_s}  {t_s}  {a_s}   {e_s}  {tq_s}  {temp_s}"
+        row_vis  = 2 + 18 + 1 + l_vis + 2 + 8 + 2 + 8 + 3 + 7 + 2 + 5 + 2 + 4
         joint_lines.append(_row(row_text, row_vis))
 
     # Robot / UPS status line
@@ -158,9 +208,21 @@ def _render(
         ups_line = "UPS  --"
         ups_vis  = 7
 
+    if battery_voltage is not None:
+        vbus_v = battery_voltage
+        if vbus_v < _VBUS_CRIT:
+            vbus_s = f"  {_BG_RED}VBUS {vbus_v:.1f}V{_RST}"
+        elif vbus_v < _VBUS_WARN:
+            vbus_s = f"  {_BG_YEL}VBUS {vbus_v:.1f}V{_RST}"
+        else:
+            vbus_s = f"  VBUS {vbus_v:.1f}V"
+        vbus_vis = 2 + 5 + len(f"{vbus_v:.1f}") + 1
+    else:
+        vbus_s, vbus_vis = "", 0
+
     robot_line = _row(
-        f"  {robot_display}{robot_pad}{ups_line}",
-        2 + len(robot_text) + len(robot_pad) + ups_vis,
+        f"  {robot_display}{robot_pad}{ups_line}{vbus_s}",
+        2 + len(robot_text) + len(robot_pad) + ups_vis + vbus_vis,
     )
 
     # Controls / hint line
@@ -194,6 +256,58 @@ def _draw(lines: list[str], first: bool = False) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Gamepad helpers
+# ---------------------------------------------------------------------------
+
+def _init_joystick():
+    """Initialize pygame and return first usable joystick, or None."""
+    if not _pygame_available:
+        return None
+    try:
+        import os
+        if sys.platform == "win32":
+            os.environ.setdefault("SDL_VIDEO_WINDOW_POS", "-10000,-10000")
+        pygame.init()
+        if sys.platform == "win32":
+            pygame.display.set_mode((1, 1))
+        pygame.joystick.init()
+        for i in range(pygame.joystick.get_count()):
+            js = pygame.joystick.Joystick(i)
+            js.init()
+            if "keyboard" in js.get_name().lower():
+                continue
+            if js.get_numaxes() >= 2:
+                return js
+    except Exception:
+        pass
+    return None
+
+
+def _read_gamepad(joystick, prev_a: bool, prev_b: bool, prev_start: bool) -> dict:
+    """Poll gamepad buttons and return edge-detected events."""
+    try:
+        pygame.event.pump()
+        raw_a     = bool(joystick.get_button(0))
+        raw_b     = bool(joystick.get_button(1))
+        raw_back  = bool(joystick.get_button(6))
+        raw_start = bool(joystick.get_button(7))
+        return {
+            "enable":    raw_a and not prev_a,
+            "shutdown":  raw_b and not prev_b,
+            "hold":      raw_start and not prev_start,
+            "quit":      raw_back,
+            "raw_a":     raw_a,
+            "raw_b":     raw_b,
+            "raw_start": raw_start,
+        }
+    except Exception:
+        return {
+            "enable": False, "shutdown": False, "hold": False, "quit": False,
+            "raw_a": False, "raw_b": False, "raw_start": False,
+        }
+
+
+# ---------------------------------------------------------------------------
 # ZMQ helpers
 # ---------------------------------------------------------------------------
 
@@ -207,6 +321,33 @@ def _drain(sock) -> Optional[dict]:
         except Exception:
             break
     return latest
+
+
+def _qtorque(telem: Optional[dict]) -> Optional[np.ndarray]:
+    """Extract arm joint torques from telemetry (6-elem, NaN where motor absent)."""
+    if not telem or "motors" not in telem:
+        return None
+    motors = telem["motors"]
+    if not any(j in motors for j in ARM_JOINTS):
+        return None
+    _nan = float("nan")
+    return np.array(
+        [float(motors[j].get("torque", _nan)) if j in motors else _nan for j in ARM_JOINTS],
+        dtype=np.float32,
+    )
+
+
+def _qtemp(telem: Optional[dict]) -> Optional[np.ndarray]:
+    """Extract arm joint temperatures (6-elem, NaN where absent)."""
+    if not telem or "motors" not in telem:
+        return None
+    motors = telem["motors"]
+    if not any(j in motors for j in ARM_JOINTS):
+        return None
+    _nan = float("nan")
+    return np.array(
+        [float(motors[j].get("temperature", _nan)) if j in motors else _nan
+         for j in ARM_JOINTS], dtype=np.float32)
 
 
 def _qpos(telem: Optional[dict]) -> Optional[np.ndarray]:
@@ -264,7 +405,7 @@ def main() -> None:
     ap.add_argument("--telem",     default=_ep.get("telemetry",     "tcp://192.168.0.27:5556"))
     ap.add_argument("--ups",       default=_ep.get("ups_telemetry", "tcp://192.168.0.27:5562"),
                     help="UPS telemetry address (empty string to disable)")
-    ap.add_argument("--max-delta",     type=float, default=0.05, dest="max_delta",
+    ap.add_argument("--max-delta",     type=float, default=0.3, dest="max_delta",
                     help="Per-step safety clamp [rad] (default 0.05)")
     ap.add_argument("--robstride-calib", default=None, dest="robstride_calib",
                     help="Path to robstride_calibration.json (default: auto-discover)")
@@ -272,8 +413,8 @@ def main() -> None:
                     help="Max per-joint error [rad] to be considered aligned (default 0.05)")
     ap.add_argument("--align-time",    type=float, default=3.0,  dest="align_time",
                     help="Seconds to hold within margin before tracking begins (default 3.0)")
-    ap.add_argument("--leader-alpha",  type=float, default=0.5,  dest="leader_alpha",
-                    help="Leader smoothing factor 0-1 (1=raw, lower=smoother, default 0.5)")
+    ap.add_argument("--teleop-pub",    default="tcp://*:5570",   dest="teleop_pub",
+                    help="ZMQ PUB endpoint for teleop state (rerun companion); empty to disable")
     args = ap.parse_args()
 
     _ansi_on()
@@ -325,6 +466,13 @@ def main() -> None:
         ups_sock.setsockopt(zmq.LINGER, 0)
         ups_sock.setsockopt_string(zmq.SUBSCRIBE, "")
         ups_sock.connect(args.ups)
+    teleop_pub_sock: Optional[zmq.Socket] = None
+    if args.teleop_pub:
+        teleop_pub_sock = ctx.socket(zmq.PUB)
+        teleop_pub_sock.setsockopt(zmq.SNDHWM, 2)
+        teleop_pub_sock.setsockopt(zmq.LINGER, 0)
+        teleop_pub_sock.bind(args.teleop_pub)
+        print(f"Teleop state publisher bound on {args.teleop_pub}")
 
     get_key = setup_keyboard()
 
@@ -344,6 +492,7 @@ def main() -> None:
     # ---------------------------------------------------------------------------
     class State(enum.Enum):
         READY    = "ready"
+        IDLE     = "idle"       # enabled, kp=0/kd=0, no tracking — see actual positions
         ALIGNING = "aligning"   # enabled, slowly moving arm to match leader
         TRACKING = "tracking"   # following leader in real time
         HOLD     = "hold"       # target frozen at last actual
@@ -357,12 +506,20 @@ def main() -> None:
     shutdown_countdown: float              = 0.0   # seconds remaining to hold
     shutdown_target:    Optional[np.ndarray] = None  # frozen arm positions at shutdown start
     shutdown_swivel:    Optional[float]      = None  # frozen swivel position at shutdown start
-    leader_filt:        Optional[np.ndarray] = None  # exponentially smoothed leader reading
     swivel_actual:      Optional[float]      = None  # latest swivel position from telemetry
+    swivel_torque:      Optional[float]      = None  # latest swivel torque from telemetry
+    swivel_temp:        Optional[float]      = None  # latest swivel temperature from telemetry
+    arm_torques:        Optional[np.ndarray] = None  # latest arm joint torques (6-elem)
+    arm_temps:          Optional[np.ndarray] = None  # latest arm joint temperatures (6-elem)
     held_swivel:        Optional[float]      = None  # swivel position frozen in HOLD
     last_telem_time: float = time.time() if q_actual is not None else 0.0
-    ups_data:       Optional[dict] = None
+    ups_data:           Optional[dict]       = None
+    battery_voltage:    Optional[float]      = None
     robot_ok = q_actual is not None
+    joystick           = _init_joystick() if _pygame_available else None
+    prev_gamepad_a:    bool = False
+    prev_gamepad_b:    bool = False
+    prev_gamepad_start:bool = False
 
     status = "[ ] ready"
     hint   = "E enable · Z zero · M mirror · Q quit"
@@ -378,10 +535,51 @@ def main() -> None:
         while True:
             t0 = time.time()
 
-            # --- Keyboard ---
+            # --- Gamepad ---
             key = get_key()
+            if joystick is not None:
+                gp = _read_gamepad(joystick, prev_gamepad_a, prev_gamepad_b, prev_gamepad_start)
+                prev_gamepad_a     = gp["raw_a"]
+                prev_gamepad_b     = gp["raw_b"]
+                prev_gamepad_start = gp["raw_start"]
+                if gp["enable"] and teleop_state in (State.READY, State.IDLE):
+                    key = "E"
+                if gp["hold"] and teleop_state in (State.ALIGNING, State.TRACKING, State.HOLD):
+                    key = "H"
+                if gp["shutdown"]:
+                    if teleop_state == State.SHUTDOWN:
+                        key = "CANCEL_SHUTDOWN"
+                    elif teleop_state in (State.ALIGNING, State.TRACKING, State.HOLD, State.IDLE):
+                        key = "X"
+                if gp["quit"]:
+                    key = "Q"
+
+            # --- Keyboard ---
             if key == "Q":
                 break
+
+            elif key == "I":
+                if teleop_state in (State.READY, State.IDLE):
+                    try:
+                        cmd_sock.send_string(json.dumps({
+                            "type": "enable",
+                            "motor_ids": ["swivel"] + ARM_JOINTS
+                        }), zmq.NOBLOCK)
+                    except zmq.Again:
+                        pass
+                    ref = q_actual if q_actual is not None else [0.0] * len(ARM_JOINTS)
+                    ref_list = ref.tolist() if hasattr(ref, "tolist") else list(ref)
+                    try:
+                        cmd_sock.send_string(json.dumps({
+                            "type":       "arm_joints",
+                            "positions":  ref_list,
+                            "velocities": [0.0] * len(ARM_JOINTS),
+                            "kp":         [0.0] * len(ARM_JOINTS),
+                            "kd":         [0.0] * len(ARM_JOINTS),
+                        }), zmq.NOBLOCK)
+                    except zmq.Again:
+                        pass
+                    teleop_state = State.IDLE
 
             elif key == "E":
                 # Enable arm motors and enter alignment phase
@@ -391,7 +589,7 @@ def main() -> None:
                     pass
                 teleop_state   = State.ALIGNING
                 converge_start = None
-                leader_filt    = None  # reset smoothing filter on re-enable
+
 
             elif key == "H":
                 if teleop_state in (State.TRACKING, State.ALIGNING):
@@ -432,9 +630,14 @@ def main() -> None:
                     zero_msg       = "[M] mirrored — saved"
                     zero_msg_until = t0 + 2.0
 
+            elif key == "CANCEL_SHUTDOWN" and teleop_state == State.SHUTDOWN:
+                teleop_state = State.HOLD
+                held_target  = q_actual.copy() if q_actual is not None else held_target
+                held_swivel  = swivel_actual
+
             elif key == "X":
                 # Soft shutdown: hold for 1 s, then slowly return to zero
-                if teleop_state in (State.ALIGNING, State.TRACKING, State.HOLD):
+                if teleop_state in (State.ALIGNING, State.TRACKING, State.HOLD, State.IDLE):
                     shutdown_target    = (q_actual.copy() if q_actual is not None
                                           else held_target.copy() if held_target is not None
                                           else None)
@@ -447,24 +650,11 @@ def main() -> None:
             # --- Read SO-101 ---
             leader_rad = leader.poll()
 
-            # --- Exponential smoothing filter ---
-            # Attenuates high-frequency noise (hand tremors, encoder jitter) that
-            # would otherwise cause the arm to oscillate chasing a jittery target.
-            # leader_rad is shown in the display (raw); leader_filt drives commands.
-            if leader_rad is not None:
-                if leader_filt is None:
-                    leader_filt = leader_rad.copy()
-                else:
-                    a = args.leader_alpha
-                    leader_filt = a * leader_rad + (1.0 - a) * leader_filt
-            else:
-                leader_filt = None
-
             # --- Apply per-joint zero offset + direction ---
-            # mapped_rad (7-elem, AIZEE space) = directions * (leader_filt - zero_offsets)
+            # mapped_rad (7-elem, AIZEE space) = directions * (leader_rad - zero_offsets)
             mapped_rad: Optional[np.ndarray] = (
-                directions * (leader_filt - zero_offsets)
-                if leader_filt is not None else None
+                directions * (leader_rad - zero_offsets)
+                if leader_rad is not None else None
             )
             # aizee_cmd: 6-elem command for Rust arm (skips swivel at index 0)
             aizee_cmd: Optional[np.ndarray] = (
@@ -558,6 +748,27 @@ def main() -> None:
                             pass
                         teleop_state = State.READY
 
+            elif teleop_state == State.IDLE:
+                # Send kp=0/kd=0 continuously to keep Rust watchdog alive
+                if q_actual is not None:
+                    try:
+                        cmd_sock.send_string(json.dumps({
+                            "type":       "arm_joints",
+                            "positions":  q_actual.tolist(),
+                            "velocities": [0.0] * len(ARM_JOINTS),
+                            "kp":         [0.0] * len(ARM_JOINTS),
+                            "kd":         [0.0] * len(ARM_JOINTS),
+                        }), zmq.NOBLOCK)
+                    except zmq.Again:
+                        pass
+                if swivel_actual is not None:
+                    try:
+                        cmd_sock.send_string(json.dumps(
+                            {"type": "swivel", "position": swivel_actual}
+                        ), zmq.NOBLOCK)
+                    except zmq.Again:
+                        pass
+
             elif teleop_state != State.READY:
                 # Normal command sending
                 if target is not None:
@@ -610,6 +821,18 @@ def main() -> None:
                 swivel_m = telem["motors"].get("swivel")
                 if swivel_m is not None:
                     swivel_actual = float(swivel_m.get("position", 0.0))
+                    swivel_torque = float(swivel_m.get("torque", 0.0))
+                    swivel_temp   = float(swivel_m.get("temperature", float("nan")))
+                tq_new = _qtorque(telem)
+                if tq_new is not None:
+                    arm_torques = tq_new
+                temp_new = _qtemp(telem)
+                if temp_new is not None:
+                    arm_temps = temp_new
+            if telem:
+                bv = telem.get("battery_voltage")
+                if bv is not None:
+                    battery_voltage = float(bv)
 
             if ups_sock is not None:
                 ups_msg = _drain(ups_sock)
@@ -619,7 +842,11 @@ def main() -> None:
             # --- Build status + hint ---
             if teleop_state == State.READY:
                 status = "[ ] ready"
-                hint   = "E enable · Z zero · M mirror · Q quit"
+                hint   = "E enable · I idle · Z zero · M mirror · Q quit"
+
+            elif teleop_state == State.IDLE:
+                status = "[I] idle — zero torque"
+                hint   = "E track · H hold · X shutdown · Q quit"
 
             elif teleop_state == State.ALIGNING:
                 if aizee_cmd is not None and q_actual is not None:
@@ -678,8 +905,41 @@ def main() -> None:
                 disp_actual = None
             telem_age = t0 - last_telem_time if robot_ok else 999.0
             _clamped = leader.clamped_joints if leader_rad is not None else None
+            if arm_torques is not None:
+                disp_torque = np.concatenate(
+                    [[swivel_torque if swivel_torque is not None else _nan], arm_torques]
+                )
+            else:
+                disp_torque = None
+            if arm_temps is not None:
+                disp_temp = np.concatenate(
+                    [[swivel_temp if swivel_temp is not None else _nan], arm_temps]
+                )
+            else:
+                disp_temp = None
             _draw(_render(leader_rad, disp_target, disp_actual, status, hint,
-                          robot_ok, telem_age, ups_data, clamped=_clamped))
+                          robot_ok, telem_age, ups_data, clamped=_clamped,
+                          torque=disp_torque, temp=disp_temp,
+                          battery_voltage=battery_voltage))
+
+            # --- Publish teleop state for Rerun companion ---
+            if teleop_pub_sock is not None:
+                def _jlist(arr):
+                    if arr is None:
+                        return [None] * 7
+                    return [None if not np.isfinite(float(x)) else float(x) for x in arr]
+                try:
+                    teleop_pub_sock.send_string(json.dumps({
+                        "timestamp": t0,
+                        "state":     teleop_state.value,
+                        "leader":    _jlist(mapped_rad),
+                        "target":    _jlist(disp_target),
+                        "actual":    _jlist(disp_actual),
+                        "torque":    _jlist(disp_torque),
+                        "temp":      _jlist(disp_temp),
+                    }), zmq.NOBLOCK)
+                except zmq.Again:
+                    pass
 
             sleep_t = period - (time.time() - t0)
             if sleep_t > 0:
@@ -694,6 +954,8 @@ def main() -> None:
         telem_sock.close()
         if ups_sock is not None:
             ups_sock.close()
+        if teleop_pub_sock is not None:
+            teleop_pub_sock.close()
         ctx.term()
 
 

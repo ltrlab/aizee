@@ -57,15 +57,15 @@ drive:
   kp: 0.0               # Position gain (0.0 = pure velocity control, no position tracking)
   kd: 3.0               # Velocity tracking gain (damping)
   # Swivel position control (separate from drive wheels)
-  swivel_kp: 45.0        # Swivel position gain
+  swivel_kp: 80.0        # Swivel position gain
   swivel_kd: 5.0        # Swivel velocity tracking gain
   swivel_increment: 0.01 # rad per Z/C key press
 
 gantry:
   max_velocity: 1.0       # rad/s per joint
   increment: 0.02         # rad per key press (small for safety during tuning)
-  kp: [80.0, 70.0, 60.0, 10.0, 10.0, 10.0]   # Position gains [base, mid, end, wrist_pitch, wrist_roll, gripper]
-  kd: [7.0, 5.5, 5.0, 0.2, 4.0, 2.0]        # Damping gains [base, mid, end, wrist_pitch, wrist_roll, gripper]
+  kp: [85.0, 75.0, 40.0, 7.0, 10.0, 10.0]   # Position gains [base, mid, end, wrist_pitch, wrist_roll, gripper]
+  kd: [7.0, 5.5, 4.0, 0.2, 4.0, 2.0]        # Damping gains [base, mid, end, wrist_pitch, wrist_roll, gripper]
 
 gamepad:
   axes:
