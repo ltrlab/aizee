@@ -18,8 +18,11 @@ impl CommandSubscriber {
         // Bind as the receiver (standard PUSH-PULL pattern)
         socket.bind(endpoint)?;
 
-        // Set receive timeout
-        if let Err(e) = socket.set_rcvtimeo(100) {
+        // Non-blocking: return EAGAIN immediately if no message available.
+        // rcvtimeo=0 prevents the arm control loop (which calls recv_command on
+        // every 1 kHz tick) from stalling for 100 ms waiting for a ZMQ message,
+        // which was throttling the arm CAN output to ~10 Hz instead of 1 kHz.
+        if let Err(e) = socket.set_rcvtimeo(0) {
             tracing::warn!("Could not set receive timeout: {}", e);
         }
 

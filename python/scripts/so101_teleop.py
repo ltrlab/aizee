@@ -30,6 +30,7 @@ import argparse
 import enum
 import json
 import sys
+import threading
 import time
 import yaml
 from pathlib import Path
@@ -48,7 +49,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "teleop"))
 from so101_leader import So101Leader, CALIB_PATH
 
 sys.path.insert(0, str(Path(__file__).parent))
-from record_replay import ARM_JOINTS, RECORD_HZ, KP, KD, setup_keyboard, load_arm_limits, clamp_arm_positions
+from record_replay import ARM_JOINTS, KP, KD, setup_keyboard, load_arm_limits, clamp_arm_positions
+
+TELEOP_HZ = 30   # main loop rate (independent of recording rate)
 
 # ---------------------------------------------------------------------------
 # ANSI display
@@ -433,10 +436,32 @@ def main() -> None:
 
     # Load gains from teleop.yaml (same source as teleop.py).
     # record_replay.py KP/KD are stale 7-elem arrays with wrong wrist values — don't use them.
-    _tcfg = _load_teleop_yaml().get("gantry", {})
+    _yaml = _load_teleop_yaml()
+    _tcfg = _yaml.get("gantry", {})
     _kp: list[float] = _tcfg.get("kp", KP)
     _kd: list[float] = _tcfg.get("kd", KD)
     print(f"Arm gains: kp={_kp}  kd={_kd}")
+    _dcfg = _yaml.get("drive", {})
+    _swivel_kp: float = float(_dcfg.get("swivel_kp", 80.0))
+    _swivel_kd: float = float(_dcfg.get("swivel_kd", 5.0))
+    print(f"Swivel gains: kp={_swivel_kp}  kd={_swivel_kd}")
+
+    # --- Leader reader thread ---
+    # Runs leader.poll() continuously so serial I/O never blocks the main loop.
+    _lr_lock   = threading.Lock()
+    _lr_latest: dict = {"rad": None, "clamped": None}
+
+    def _leader_reader(stop: threading.Event) -> None:
+        while not stop.is_set():
+            r = leader.poll()
+            with _lr_lock:
+                _lr_latest["rad"]     = r
+                _lr_latest["clamped"] = (leader.clamped_joints
+                                         if r is not None else _lr_latest["clamped"])
+
+    _lr_stop   = threading.Event()
+    _lr_thread = threading.Thread(target=_leader_reader, args=(_lr_stop,), daemon=True)
+    _lr_thread.start()
 
     # Indices into the 7-elem leader array that map to ARM_JOINTS.
     # Servo 1 (swivel) is at index 0 of AIZEE_JOINTS but is not an arm joint,
@@ -522,14 +547,14 @@ def main() -> None:
     prev_gamepad_start:bool = False
 
     status = "[ ] ready"
-    hint   = "E enable · Z zero · M mirror · Q quit"
+    hint   = "E enable · I idle · Z zero · M mirror · Q quit"
 
     # Initial draw — q_actual is 6-elem; prepend NaN for swivel slot
     _nan = float("nan")
     _init_actual = (np.concatenate([[_nan], q_actual]) if q_actual is not None else None)
     _draw(_render(None, None, _init_actual, status, hint, robot_ok, 999.0, None, clamped=None), first=True)
 
-    period = 1.0 / RECORD_HZ
+    period = 1.0 / TELEOP_HZ
 
     try:
         while True:
@@ -605,8 +630,8 @@ def main() -> None:
 
             elif key == "Z":
                 # Capture current SO-101 positions as new zero reference.
-                # leader_rad may not be available yet; read one poll directly.
-                _z = leader.poll()
+                with _lr_lock:
+                    _z = _lr_latest["rad"]
                 if _z is not None:
                     zero_offsets = _z.copy()
                     leader.save_zero(zero_offsets)
@@ -618,7 +643,8 @@ def main() -> None:
                 # q_actual is 6-elem (arm); zero_offsets/directions are 7-elem (SO-101).
                 # Arm joints: zero_offsets[s] = _m[s] - directions[s] * q_actual[j]
                 # Swivel (index 0): zero_offsets[0] = _m[0] - directions[0] * swivel_actual
-                _m = leader.poll()
+                with _lr_lock:
+                    _m = _lr_latest["rad"]
                 if _m is not None and q_actual is not None:
                     new_offsets = zero_offsets.copy()
                     for aizee_j, so101_i in enumerate(_so101_for_aizee):
@@ -647,8 +673,10 @@ def main() -> None:
                     shutdown_countdown = 1.0
                     teleop_state       = State.SHUTDOWN
 
-            # --- Read SO-101 ---
-            leader_rad = leader.poll()
+            # --- Read SO-101 (from background reader thread) ---
+            with _lr_lock:
+                leader_rad    = _lr_latest["rad"]
+                _clamped_live = _lr_latest["clamped"]
 
             # --- Apply per-joint zero offset + direction ---
             # mapped_rad (7-elem, AIZEE space) = directions * (leader_rad - zero_offsets)
@@ -697,7 +725,8 @@ def main() -> None:
                             pass
                     if shutdown_swivel is not None:
                         try:
-                            cmd_sock.send_string(json.dumps({"type": "swivel", "position": shutdown_swivel}), zmq.NOBLOCK)
+                            cmd_sock.send_string(json.dumps({"type": "swivel", "position": shutdown_swivel,
+                                                              "kp": _swivel_kp, "kd": _swivel_kd}), zmq.NOBLOCK)
                         except zmq.Again:
                             pass
                 else:
@@ -735,7 +764,8 @@ def main() -> None:
                     else:
                         shutdown_swivel -= np.sign(shutdown_swivel) * max_change
                     try:
-                        cmd_sock.send_string(json.dumps({"type": "swivel", "position": shutdown_swivel}), zmq.NOBLOCK)
+                        cmd_sock.send_string(json.dumps({"type": "swivel", "position": shutdown_swivel,
+                                                          "kp": _swivel_kp, "kd": _swivel_kd}), zmq.NOBLOCK)
                     except zmq.Again:
                         pass
                     # Check if all joints (arm + swivel) are at zero
@@ -764,7 +794,8 @@ def main() -> None:
                 if swivel_actual is not None:
                     try:
                         cmd_sock.send_string(json.dumps(
-                            {"type": "swivel", "position": swivel_actual}
+                            {"type": "swivel", "position": swivel_actual,
+                             "kp": _swivel_kp, "kd": _swivel_kd}
                         ), zmq.NOBLOCK)
                     except zmq.Again:
                         pass
@@ -789,7 +820,8 @@ def main() -> None:
                         pass
                 if swivel_tgt is not None:
                     try:
-                        cmd_sock.send_string(json.dumps({"type": "swivel", "position": swivel_tgt}), zmq.NOBLOCK)
+                        cmd_sock.send_string(json.dumps({"type": "swivel", "position": swivel_tgt,
+                                                          "kp": _swivel_kp, "kd": _swivel_kd}), zmq.NOBLOCK)
                     except zmq.Again:
                         pass
 
@@ -904,7 +936,7 @@ def main() -> None:
             else:
                 disp_actual = None
             telem_age = t0 - last_telem_time if robot_ok else 999.0
-            _clamped = leader.clamped_joints if leader_rad is not None else None
+            _clamped = _clamped_live if leader_rad is not None else None
             if arm_torques is not None:
                 disp_torque = np.concatenate(
                     [[swivel_torque if swivel_torque is not None else _nan], arm_torques]
@@ -948,6 +980,8 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        _lr_stop.set()
+        _lr_thread.join(timeout=1.0)
         print("\nQuit.")
         leader.close()
         cmd_sock.close()

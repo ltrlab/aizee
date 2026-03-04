@@ -35,6 +35,8 @@ except ImportError:
 _BAUD      = 1_000_000
 _HEADER    = b"\xFF\xFF"
 _READ      = 0x02
+_SYNC_READ = 0x82   # Feetech INST_SYNC_READ — broadcast to N servos, one packet
+_BROADCAST = 0xFE   # Feetech broadcast ID
 _REG_POS   = 0x38   # Present_Position — 2 bytes, little-endian
 _CENTER    = 2048   # raw ticks at mechanical center
 _TICKS     = 4096   # ticks per full revolution (12-bit encoder)
@@ -299,15 +301,59 @@ class So101Leader:
     # Raw / unwrapped reads
     # ------------------------------------------------------------------
 
+    def _sync_read_positions(self) -> Optional[dict[str, int]]:
+        """Read all servo positions with one sync-read broadcast packet.
+
+        Sends a single  FF FF FE [LEN] 82 [REG_POS] 02 [ID1..IDn] [CS]
+        and reads back one 8-byte status packet per servo.
+
+        One USB round-trip instead of 7, reducing poll latency from
+        ~14-56 ms (7 × sequential read) to ~2-5 ms.
+
+        Parsing scans each response buffer for the FF FF [servo_id] header
+        (matching the feetech-servo-sdk readRx approach) so slight framing
+        offsets don't corrupt the whole batch.  Checksum is verified per
+        response; returns None if any servo is missing or corrupt.
+        """
+        ids = list(range(1, len(self.JOINTS) + 1))   # servo IDs 1..7
+        n   = len(ids)
+        # Packet: FF FF FE [LEN] SYNC_READ REG_POS 02 ID1 ID2 ... IDn CS
+        body     = bytes([_BROADCAST, n + 4, _SYNC_READ, _REG_POS, 2] + ids)
+        checksum = (~sum(body)) & 0xFF
+        pkt      = _HEADER + body + bytes([checksum])
+        try:
+            self._ser.reset_input_buffer()
+            self._ser.write(pkt)
+            self._ser.flush()
+            raw = bytearray(self._ser.read(n * 8))   # 7 × 8 = 56 bytes
+        except serial.SerialException:
+            return None
+        if len(raw) < n * 8:
+            return None
+        result: dict[str, int] = {}
+        for servo_id, joint in zip(ids, self.JOINTS):
+            # Scan for FF FF [servo_id] — tolerates minor framing offsets
+            found = False
+            pos   = 0
+            while pos <= len(raw) - 8:
+                if raw[pos] == 0xFF and raw[pos+1] == 0xFF and raw[pos+2] == servo_id:
+                    pkt_len = raw[pos+3]   # expected 4 == data_length+2
+                    error   = raw[pos+4]
+                    if pkt_len == 4 and error == 0:
+                        d0, d1, cs = raw[pos+5], raw[pos+6], raw[pos+7]
+                        cal = (~(servo_id + pkt_len + error + d0 + d1)) & 0xFF
+                        if cs == cal:
+                            result[joint] = d0 | (d1 << 8)
+                            found = True
+                            break
+                pos += 1
+            if not found:
+                return None
+        return result
+
     def read_raw(self) -> Optional[dict[str, int]]:
         """Return {joint: ticks} in [0, 4095] for all 7 servos."""
-        result: dict[str, int] = {}
-        for servo_id, joint in enumerate(self.JOINTS, start=1):
-            val = self._read_u16(servo_id, _REG_POS)
-            if val is None:
-                return None
-            result[joint] = val
-        return result
+        return self._sync_read_positions()
 
     def read_unwrapped(self) -> Optional[dict[str, int]]:
         """Read all servos and return continuously unwrapped positions.
@@ -315,13 +361,11 @@ class So101Leader:
         Values may be outside [0, 4095] when the servo has crossed the
         encoder boundary since connect().  Updates internal unwrap state.
         """
-        result: dict[str, int] = {}
-        for servo_id, joint in enumerate(self.JOINTS, start=1):
-            val = self._read_u16(servo_id, _REG_POS)
-            if val is None:
-                return None
-            result[joint] = self._unwrap(joint, val)
-        return result
+        raw = self._sync_read_positions()
+        if raw is None:
+            return None
+        # Apply unwrap in consistent joint order (matches _prev_raw keying)
+        return {joint: self._unwrap(joint, raw[joint]) for joint in self.JOINTS}
 
     def read_positions(self) -> Optional[dict[str, float]]:
         """Return {joint: radians} (center = 0), or None on error."""

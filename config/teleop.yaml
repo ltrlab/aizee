@@ -27,7 +27,7 @@ motors:
   all: ["left_wheel", "right_wheel", "swivel", "gantry_base", "gantry_mid", "gantry_end", "wrist_pitch", "wrist_roll", "gripper"]
 
 control:
-  command_rate_hz: 20
+  command_rate_hz: 50
   telemetry_timeout_ms: 200
   deadzone: 0.08
 
