@@ -154,7 +154,7 @@ print(f"Received {len(msg['lidar_scans'])} scans")
 
 ## Deployment
 
-See `docs/LIDAR_DEPLOYMENT.md` for complete deployment guide.
+See `docs/subsystems/LIDAR.md` for complete deployment guide.
 
 ## Performance
 

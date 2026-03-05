@@ -386,4 +386,4 @@ python python/teleop/detailed_motor_test.py
 - `docs/quickstart/`: Setup guides (multidevice, post-reboot, Jetson)
 - `docs/deployment/`: Deployment procedures and troubleshooting
 - `docs/subsystems/`: Camera, LiDAR, UPS component docs
-- `docs/archive/`: Historical docs (may be outdated)
+

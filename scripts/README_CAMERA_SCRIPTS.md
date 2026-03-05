@@ -25,11 +25,13 @@ Deploy camera software to a single Raspberry Pi.
 4. Installs systemd service file
 5. Tests camera connectivity
 
-**Auto IP Mapping:**
-- `cam_front` → 192.168.0.22 (AIZEE-ROVER-PI-1)
-- `cam_rear` → 192.168.0.23 (AIZEE-ROVER-PI-2)
-- `cam_left` → 192.168.0.24 (AIZEE-ROVER-PI-3)
-- `cam_right` → 192.168.0.25 (AIZEE-ROVER-PI-4)
+**Auto IP Mapping (PoE subnet, accessed via Jetson hop):**
+- `cam_front` → 10.42.0.11 (cam_front / PI-1)
+- `cam_rear` → 10.42.0.12 (cam_rear / PI-2)
+- `cam_left` → 10.42.0.13 (cam_left / PI-3)
+- `cam_right` → 10.42.0.14 (cam_right / PI-4)
+
+> The Pis are on the PoE-only subnet and are not directly reachable from the dev machine. Deploy scripts use the Jetson (192.168.0.27) as a hop. The camera relay service on the Jetson re-publishes streams on 192.168.0.27:5557-5560.
 
 ### `deploy_all_cameras.sh`
 Deploy camera software to all 4 Raspberry Pi devices at once.
@@ -61,12 +63,12 @@ Start camera services on all 4 Raspberry Pis simultaneously.
 2. Starts systemd service for each camera
 3. Provides status checking commands
 
-**Equivalent manual commands:**
+**Equivalent manual commands (via Jetson hop):**
 ```bash
-ssh pi@192.168.0.22 sudo systemctl start aizee-camera-cam_front
-ssh pi@192.168.0.23 sudo systemctl start aizee-camera-cam_rear
-ssh pi@192.168.0.24 sudo systemctl start aizee-camera-cam_left
-ssh pi@192.168.0.25 sudo systemctl start aizee-camera-cam_right
+ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 "ssh -i ~/.ssh/aizee_rover_id ltr@10.42.0.11 'sudo systemctl start aizee-camera-cam_front'"
+ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 "ssh -i ~/.ssh/aizee_rover_id ltr@10.42.0.12 'sudo systemctl start aizee-camera-cam_rear'"
+ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 "ssh -i ~/.ssh/aizee_rover_id ltr@10.42.0.13 'sudo systemctl start aizee-camera-cam_left'"
+ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 "ssh -i ~/.ssh/aizee_rover_id ltr@10.42.0.14 'sudo systemctl start aizee-camera-cam_right'"
 ```
 
 ### `stop_all_cameras.sh`
@@ -121,11 +123,11 @@ Received 150 frames in 5.0s (30.0 fps)  # For each camera
 # 3. Test all streams
 ./test_all_camera_streams.sh 30
 
-# 4. Enable auto-start on boot (manual step)
-ssh pi@192.168.0.22 sudo systemctl enable aizee-camera-cam_front
-ssh pi@192.168.0.23 sudo systemctl enable aizee-camera-cam_rear
-ssh pi@192.168.0.24 sudo systemctl enable aizee-camera-cam_left
-ssh pi@192.168.0.25 sudo systemctl enable aizee-camera-cam_right
+# 4. Enable auto-start on boot (manual step, via Jetson hop)
+ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 "ssh -i ~/.ssh/aizee_rover_id ltr@10.42.0.11 'sudo systemctl enable aizee-camera-cam_front'"
+ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 "ssh -i ~/.ssh/aizee_rover_id ltr@10.42.0.12 'sudo systemctl enable aizee-camera-cam_rear'"
+ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 "ssh -i ~/.ssh/aizee_rover_id ltr@10.42.0.13 'sudo systemctl enable aizee-camera-cam_left'"
+ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 "ssh -i ~/.ssh/aizee_rover_id ltr@10.42.0.14 'sudo systemctl enable aizee-camera-cam_right'"
 ```
 
 ### Update After Code Changes
@@ -140,18 +142,20 @@ ssh pi@192.168.0.25 sudo systemctl enable aizee-camera-cam_right
 ```bash
 # Deploy and restart specific camera
 ./deploy_rpi4_camera.sh cam_front
-ssh pi@192.168.0.22 sudo systemctl restart aizee-camera-cam_front
-ssh pi@192.168.0.22 sudo journalctl -u aizee-camera-cam_front -f
+ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 \
+    "ssh -i ~/.ssh/aizee_rover_id ltr@10.42.0.11 'sudo systemctl restart aizee-camera-cam_front'"
+ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 \
+    "ssh -i ~/.ssh/aizee_rover_id ltr@10.42.0.11 'sudo journalctl -u aizee-camera-cam_front -f'"
 ```
 
 ## Script Requirements
 
 ### Prerequisites
-- SSH access to all Raspberry Pi devices
-- SSH key-based authentication configured (no password prompt)
+- SSH access to all Raspberry Pi devices via Jetson hop (PoE subnet 10.42.0.0/24)
+- SSH key at `/p/Workspace/ssh-keys/aizee_rover_id` authorized on all nodes
 - `rsync` installed on dev machine
 - Python 3 installed on all Pis
-- Network connectivity to 192.168.0.22-25
+- Network connectivity to Jetson (192.168.0.27)
 
 ### File Structure Expected
 ```
@@ -183,13 +187,15 @@ aizee/
 
 ### Script Fails: "Cannot reach host"
 ```bash
-# Verify Pi is on network
-ping 192.168.0.22
+# Verify Jetson is reachable
+ping 192.168.0.27
 
-# Check SSH access
-ssh pi@192.168.0.22 echo "Connection OK"
+# Verify SSH key works
+ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 echo "OK"
 
-# Verify static IP is configured on Pi
+# Verify Pi is reachable via Jetson hop
+ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 \
+    "ssh -i ~/.ssh/aizee_rover_id ltr@10.42.0.11 echo OK"
 ```
 
 ### Deployment Fails: "rsync error"
@@ -198,36 +204,34 @@ ssh pi@192.168.0.22 echo "Connection OK"
 which rsync
 
 # Test rsync manually
-rsync -av test_file pi@192.168.0.22:~/
+rsync -av test_file -e "ssh -i /p/Workspace/ssh-keys/aizee_rover_id" \
+    ltr@192.168.0.27:~/
 ```
 
 ### Service Fails to Start
 ```bash
-# Check service status on Pi
-ssh pi@192.168.0.22 sudo systemctl status aizee-camera-cam_front
+# Check service status on Pi (via Jetson hop)
+ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 \
+    "ssh -i ~/.ssh/aizee_rover_id ltr@10.42.0.11 \
+     'sudo systemctl status aizee-camera-cam_front'"
 
 # View detailed logs
-ssh pi@192.168.0.22 sudo journalctl -u aizee-camera-cam_front -n 100
+ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 \
+    "ssh -i ~/.ssh/aizee_rover_id ltr@10.42.0.11 \
+     'sudo journalctl -u aizee-camera-cam_front -n 100'"
 
 # Common issues:
 # - Python dependencies not installed: pip3 install -r requirements.txt
-# - RealSense SDK not built: See docs/CAMERA_DEPLOYMENT.md
 # - Camera not connected: lsusb | grep Intel
 ```
 
 ### Test Stream Fails
 ```bash
-# Test single camera
-python python/test_camera_subscriber.py --zmq-endpoint tcp://192.168.0.22:5557
+# Test relay stream (connects via Jetson, no hop needed)
+python python/test_camera_subscriber.py --zmq-endpoint tcp://192.168.0.27:5557
 
-# Check if service is running
-ssh pi@192.168.0.22 sudo systemctl status aizee-camera-cam_front
-
-# Check if ZMQ port is open
-ssh pi@192.168.0.22 sudo netstat -tlnp | grep 5557
-
-# Check firewall (should be disabled on Raspberry Pi OS by default)
-ssh pi@192.168.0.22 sudo iptables -L
+# Check relay service on Jetson
+sudo journalctl -u aizee-camera-relay -f
 ```
 
 ## Advanced Usage
@@ -261,7 +265,4 @@ wait
 
 ## See Also
 
-- [Full Deployment Guide](../docs/CAMERA_DEPLOYMENT.md) - Comprehensive setup instructions
-- [Quick Start Guide](../docs/CAMERA_QUICK_START.md) - Condensed reference
-- [Implementation Summary](../docs/CAMERA_IMPLEMENTATION_SUMMARY.md) - Architecture overview
-- [Deployment Checklist](../CAMERA_DEPLOYMENT_CHECKLIST.md) - Step-by-step checklist
+- [Camera System Overview](../docs/subsystems/CAMERAS.md) - Current network config, relay, and operational reference

@@ -1,4 +1,4 @@
-## # AIZEE Motor Control
+# AIZEE Motor Control
 
 Low-level CAN bus motor control for ROBSTRIDE actuators with deterministic control loops.
 
@@ -37,15 +37,17 @@ ip link show can0
 
 ### For SocketCAN Native Interfaces
 
+On the Jetson Orin Nano (production), motors are on `can1`:
+
 ```bash
 # Set bitrate to 1 Mbps
-sudo ip link set can0 type can bitrate 1000000
+sudo ip link set can1 type can bitrate 1000000
 
 # Bring up the interface
-sudo ip link set can0 up
+sudo ip link set can1 up
 
 # Verify
-ip link show can0
+ip link show can1
 ```
 
 ## Running
@@ -71,7 +73,7 @@ motors:
       # ...
 
 can:
-  interface: can0  # CAN interface name
+  interface: can1  # Jetson production: can1; RPi4 arm module: can0
 
 network:
   jetson:
@@ -176,7 +178,7 @@ sudo ./target/release/motor_control
 1. Check CAN wiring (CAN-H, CAN-L, 120Ω termination)
 2. Verify motor power (40V supply connected)
 3. Check motor CAN ID matches config
-4. Use `candump can0` to see CAN traffic
+4. Use `candump can1` to see CAN traffic (Jetson) or `candump can0` (RPi4 arm module)
 5. Test with single motor first
 
 ### High CPU Usage

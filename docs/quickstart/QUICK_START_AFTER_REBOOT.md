@@ -83,8 +83,8 @@ python python/teleop/teleop.py --config config/teleop_rover_only.yaml
 **Solution**:
 ```bash
 ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27
-sudo ip link set can0 type can bitrate 1000000
-sudo ip link set can0 up
+sudo ip link set can1 type can bitrate 1000000
+sudo ip link set can1 up
 ```
 
 **Permanent fix** (done by systemd service):
@@ -137,11 +137,11 @@ If this fails:
 2. **Check CAN wiring**: Verify CAN bus connections are secure
 3. **Check CAN interface**: Should show bitrate 1000000
    ```bash
-   ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 ip link show can0
+   ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 ip link show can1
    ```
 4. **Monitor CAN traffic**:
    ```bash
-   ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 candump can0
+   ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 candump can1
    ```
 5. **Enable motors**: In teleop, press **A button** (or **E key**) to enable all motors
 
@@ -185,8 +185,8 @@ If you want to run motor control manually without the service:
 ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27
 
 # Setup CAN interface
-sudo ip link set can0 type can bitrate 1000000
-sudo ip link set can0 up
+sudo ip link set can1 type can bitrate 1000000
+sudo ip link set can1 up
 
 # Run motor control
 cd ~/aizee
@@ -206,7 +206,7 @@ Ethernet (192.168.0.x)
    ├─ Service: aizee-motor-control-rover
    ├─ Config: hardware_jetson_rover.yaml
    ├─ ZMQ: :5555 (cmd), :5556 (telem)
-   ├─ CAN: can0 @ 1Mbps
+   ├─ CAN: can1 @ 1Mbps
    └─ Motors:
       ├─ left_wheel (CAN ID 0x02, ROBSTRIDE04)
       ├─ right_wheel (CAN ID 0x04, ROBSTRIDE04)
@@ -242,7 +242,7 @@ ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 \
     sudo journalctl -u aizee-motor-control-rover -f
 
 # Monitor CAN traffic
-ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 candump can0
+ssh -i /p/Workspace/ssh-keys/aizee_rover_id ltr@192.168.0.27 candump can1
 
 # Test telemetry directly
 python3 -c "import zmq, json; ctx = zmq.Context(); s = ctx.socket(zmq.SUB); s.connect('tcp://192.168.0.27:5556'); s.setsockopt(zmq.SUBSCRIBE, b''); s.setsockopt(zmq.RCVTIMEO, 5000); print(json.dumps(json.loads(s.recv_string()), indent=2))"

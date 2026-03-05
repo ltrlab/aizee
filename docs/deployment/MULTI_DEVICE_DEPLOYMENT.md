@@ -44,14 +44,19 @@ This guide covers deploying AIZEE across multiple compute modules using the modu
 - **Config**: `config/hardware_jetson_rover.yaml`
 
 ### Arm Module (Raspberry Pi 4)
-- **Hardware**: 3 ROBSTRIDE motors (arm)
-  - shoulder_pitch (CAN ID 0x05)
-  - elbow (CAN ID 0x06)
-  - wrist (CAN ID 0x07)
+- **Hardware**: 6 ROBSTRIDE motors (arm)
+  - gantry_base (CAN ID 0x05, ROBSTRIDE04)
+  - gantry_mid (CAN ID 0x06, ROBSTRIDE03)
+  - gantry_end (CAN ID 0x07, ROBSTRIDE02)
+  - wrist_pitch (CAN ID 0x08, ROBSTRIDE02)
+  - wrist_roll (CAN ID 0x09, ROBSTRIDE00)
+  - gripper (CAN ID 0x0A, ROBSTRIDE00)
 - **Network**: 192.168.0.28
 - **ZMQ Ports**: :5557 (command), :5558 (telemetry)
 - **Config**: `config/hardware_rpi4_arm.yaml`
 - **CAN Interface**: USB CAN adapter (can0)
+
+> **Production note**: In the standard Jetson-only setup, all 6 arm motors plus the 3 base motors run together on the Jetson via `can1`. This RPi4 arm module is an alternative split configuration.
 
 ### Torso Module (Future)
 - **Hardware**: 14 Feetech servos via serial
@@ -172,7 +177,7 @@ modules:
   arm:
     command: "tcp://192.168.0.28:5557"
     telemetry: "tcp://192.168.0.28:5558"
-    motors: ["shoulder_pitch", "elbow", "wrist"]
+    motors: ["gantry_base", "gantry_mid", "gantry_end", "wrist_pitch", "wrist_roll", "gripper"]
 ```
 
 **Run unified teleop:**
