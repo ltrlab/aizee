@@ -179,19 +179,35 @@ class EpisodeDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Tuple[Dict, torch.Tensor]:
         ep_idx, t = self._index[idx]
-        ep = self._read_episode(ep_idx)
-        T = ep["qpos"].shape[0]
+        T = self._episode_lengths[ep_idx]
+        t_end = min(t + self.chunk_size, T)
+
+        # Read only the single timestep (and action slice) needed.
+        # With images chunked as (1, H, W, 3) this reads exactly one frame
+        # instead of loading the full episode into memory per sample.
+        if self._cache_data is not None:
+            ep = self._cache_data[ep_idx]
+            qpos_raw  = ep["qpos"][t]
+            left_raw  = ep["left"][t]
+            right_raw = ep["right"][t]
+            chunk_raw = ep["actions"][t:t_end]
+        else:
+            path = self._episode_paths[ep_idx]
+            with h5py.File(path, "r") as f:
+                qpos_raw  = f["observations/qpos"][t]
+                left_raw  = f["observations/images/left"][t]
+                right_raw = f["observations/images/right"][t]
+                chunk_raw = f["actions"][t:t_end]
 
         # Normalize qpos
-        qpos = self.normalize_qpos(ep["qpos"][t])  # [6]
+        qpos = self.normalize_qpos(qpos_raw)  # [6]
 
         # Normalize images
-        left = self.normalize_image(ep["left"][t])   # [3,240,320]
-        right = self.normalize_image(ep["right"][t])  # [3,240,320]
+        left  = self.normalize_image(left_raw)   # [3,240,320]
+        right = self.normalize_image(right_raw)  # [3,240,320]
 
         # Action chunk: pad with last action if near episode end
-        t_end = min(t + self.chunk_size, T)
-        chunk = ep["actions"][t:t_end]  # [k, 6], k ≤ chunk_size
+        chunk = chunk_raw
         if chunk.shape[0] < self.chunk_size:
             pad = np.tile(chunk[-1:], (self.chunk_size - chunk.shape[0], 1))
             chunk = np.concatenate([chunk, pad], axis=0)  # [chunk_size, 6]

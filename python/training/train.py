@@ -135,6 +135,11 @@ def main():
         weight_decay=args.weight_decay,
     )
 
+    # Cosine annealing: decay from lr to lr/100 over all epochs
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=args.epochs, eta_min=args.lr * 0.01
+    )
+
     start_epoch = 0
 
     # Resume
@@ -147,6 +152,8 @@ def main():
             ckpt = torch.load(ckpt_path, map_location=device)
             policy.load_state_dict(ckpt["model_state_dict"])
             optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+            if "scheduler_state_dict" in ckpt:
+                scheduler.load_state_dict(ckpt["scheduler_state_dict"])
             start_epoch = ckpt["epoch"] + 1
             print(f"Resuming from epoch {start_epoch}")
 
@@ -190,9 +197,13 @@ def main():
         avg_kl = epoch_kl / max(n_batches, 1)
         avg_total = epoch_total / max(n_batches, 1)
 
+        scheduler.step()
+        current_lr = scheduler.get_last_lr()[0]
+
         print(
             f"Epoch {epoch+1}/{args.epochs} — "
-            f"l1={avg_l1:.4f}  kl={avg_kl:.4f}  total={avg_total:.4f}"
+            f"l1={avg_l1:.4f}  kl={avg_kl:.4f}  total={avg_total:.4f}  "
+            f"lr={current_lr:.2e}"
         )
 
         # Save checkpoint
@@ -203,6 +214,7 @@ def main():
                     "epoch": epoch,
                     "model_state_dict": policy.state_dict(),
                     "optimizer_state_dict": optimizer.state_dict(),
+                    "scheduler_state_dict": scheduler.state_dict(),
                     "dataset_stats": {
                         k: v.numpy() if hasattr(v, "numpy") else v
                         for k, v in dataset.dataset_stats.items()

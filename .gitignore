@@ -40,6 +40,10 @@ ENV/
 .vscode/
 *.code-workspace
 
+# Training data
+episodes/
+checkpoints/
+
 # Logs and recordings
 logs/*.mcap
 logs/*.csv

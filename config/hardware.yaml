@@ -61,13 +61,13 @@ control:
   telemetry_rate: 50   # Hz - published motor states
 
   # Safety
-  watchdog_timeout: 0.1  # seconds - stop if no command received
+  watchdog_timeout: 0.5  # seconds - stop if no command received
   enable_soft_limits: true
   emergency_decel: 50.0  # rad/s² - emergency stop deceleration
 
 # CAN bus configuration
 can:
-  interface: can0
+  interface: can1
   bitrate: 1000000  # 1 Mbps
   timeout: 0.01     # seconds
 

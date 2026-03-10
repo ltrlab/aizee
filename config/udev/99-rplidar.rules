@@ -1,26 +1,18 @@
 # Udev rules for RPLiDAR A1M8 sensors
-# These rules create stable device names /dev/rplidar_front and /dev/rplidar_back
+# Uses USB port location since both sensors have identical serial numbers (0001)
 #
-# SETUP INSTRUCTIONS:
-# 1. Connect both RPLiDAR sensors to the Jetson Orin Nano via USB
-# 2. Find the serial numbers:
-#    lsusb | grep "Silicon Labs"
-#    sudo udevadm info -a -n /dev/ttyUSB0 | grep serial
-#    sudo udevadm info -a -n /dev/ttyUSB1 | grep serial
-# 3. Replace <FRONT_SERIAL> and <BACK_SERIAL> below with actual serial numbers
-# 4. Copy this file to /etc/udev/rules.d/:
-#    sudo cp 99-rplidar.rules /etc/udev/rules.d/
-# 5. Reload udev rules:
-#    sudo udevadm control --reload-rules && sudo udevadm trigger
-# 6. Verify:
-#    ls -la /dev/rplidar_*
+# SETUP:
+#   sudo cp config/udev/99-rplidar.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
 #
-# RPLiDAR A1M8 uses CP2102 USB-to-UART chip:
-# - Vendor ID: 10c4 (Silicon Labs)
-# - Product ID: ea60 (CP210x UART Bridge)
+# To find port of a device: udevadm info --attribute-walk /dev/ttyUSBx | grep KERNELS
+#
+# Current port assignments (Jetson Orin Nano):
+#   rplidar_front: USB port 1-2.2 -> /dev/ttyUSB1
+#   rplidar_back:  USB port 1-2.1 -> /dev/ttyUSB0
 
-# Front LiDAR
-SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="<FRONT_SERIAL>", SYMLINK+="rplidar_front", MODE="0666", GROUP="dialout"
+# Front LiDAR (USB port 1-2.2)
+SUBSYSTEM=="tty", KERNELS=="1-2.2", SYMLINK+="rplidar_front", MODE="0666", GROUP="dialout"
 
-# Back LiDAR
-SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="<BACK_SERIAL>", SYMLINK+="rplidar_back", MODE="0666", GROUP="dialout"
+# Back LiDAR (USB port 1-2.1)
+SUBSYSTEM=="tty", KERNELS=="1-2.1", SYMLINK+="rplidar_back", MODE="0666", GROUP="dialout"

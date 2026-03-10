@@ -36,6 +36,7 @@ from typing import Deque, Dict, Optional, Tuple
 
 import numpy as np
 import torch
+import yaml
 import zmq
 from PIL import Image
 
@@ -50,9 +51,26 @@ from python.training.act_model import ACTPolicy
 ARM_JOINTS = ["gantry_base", "gantry_mid", "gantry_end", "wrist_pitch", "wrist_roll", "gripper"]
 NUM_JOINTS = 6
 
-# From config/teleop.yaml
-DEFAULT_KP = [75.0, 65.0, 10.0, 5.0, 10.0, 10.0]
-DEFAULT_KD = [7.0, 5.5, 0.2, 0.2, 2.0, 2.0]
+# Fallback gains if teleop.yaml is not found
+_DEFAULT_KP = [75.0, 65.0, 10.0, 5.0, 10.0, 10.0]
+_DEFAULT_KD = [7.0, 5.5, 0.2, 0.2, 2.0, 2.0]
+
+
+def _load_gains():
+    """Load arm KP/KD from config/teleop.yaml, falling back to defaults."""
+    here = Path(__file__).parent
+    for candidate in [
+        here / ".." / ".." / "config" / "teleop.yaml",
+        Path("config") / "teleop.yaml",
+    ]:
+        p = candidate.resolve()
+        if p.exists():
+            cfg = yaml.safe_load(p.read_text()) or {}
+            gantry = cfg.get("gantry", {})
+            kp = gantry.get("kp", _DEFAULT_KP)
+            kd = gantry.get("kd", _DEFAULT_KD)
+            return list(kp), list(kd)
+    return list(_DEFAULT_KP), list(_DEFAULT_KD)
 
 # ImageNet normalization
 _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
@@ -286,6 +304,9 @@ def main():
     print(f"Device: {device}")
     print(f"Checkpoint: {args.checkpoint}")
 
+    kp, kd = _load_gains()
+    print(f"Arm gains: kp={kp}  kd={kd}")
+
     # Load model
     print("Loading checkpoint...")
     policy, dataset_stats, config = load_checkpoint(args.checkpoint, device)
@@ -328,7 +349,6 @@ def main():
     if not args.dry_run:
         cmd_push = ctx.socket(zmq.PUSH)
         cmd_push.setsockopt(zmq.LINGER, 0)
-        cmd_push.setsockopt(zmq.SNDTIMEO, 100)
         cmd_push.connect(args.cmd)
 
     print(f"Subscribing to telem:    {args.telem}")
@@ -494,8 +514,8 @@ def main():
                     "type": "arm_joints",
                     "positions": action.tolist(),
                     "velocities": [0.0] * NUM_JOINTS,
-                    "kp": DEFAULT_KP,
-                    "kd": DEFAULT_KD,
+                    "kp": kp,
+                    "kd": kd,
                 }
                 try:
                     cmd_push.send_string(json.dumps(cmd), zmq.NOBLOCK)

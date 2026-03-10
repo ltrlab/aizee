@@ -721,7 +721,14 @@ impl ControlSystem {
                     let vel = velocities.get(i).copied().unwrap_or(0.0);
                     let kp_val = kp.get(i).copied().unwrap_or(30.0);
                     let kd_val = kd.get(i).copied().unwrap_or(1.0);
-                    motor.set_position_target(positions[i], vel, kp_val, kd_val)?;
+                    if let Err(e) = motor.set_position_target(positions[i], vel, kp_val, kd_val) {
+                        // Soft-limit violation: hold the last valid target but refresh
+                        // last_command_time so the watchdog doesn't fire for the whole
+                        // arm group just because one joint hit its limit.
+                        warn!("Motor {} rejected pos {:.3}: {} — holding last target",
+                              motor.config.id, positions[i], e);
+                        motor.last_command_time = std::time::Instant::now();
+                    }
                 }
             }
             CommandMessage::Enable { motor_ids } => {

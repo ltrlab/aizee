@@ -50,6 +50,9 @@ class ArmCameraNode:
 
         self.enable_color: bool = color_cfg.get("enabled", True)
         self.enable_depth: bool = depth_cfg.get("enabled", True)
+        # Hardware inter-camera sync. "off"=disabled, "master"=free-run with sync-out,
+        # "slave"=triggered by sync-in. Requires a physical sync cable between cameras.
+        self.sync_mode: str = cam_cfg.get("sync_mode", "off").lower()
 
         self.color_w: int = color_cfg.get("width", 640)
         self.color_h: int = color_cfg.get("height", 480)
@@ -129,6 +132,21 @@ class ArmCameraNode:
                     f"cx={di.ppx:.2f}, cy={di.ppy:.2f}, "
                     f"scale={self.depth_scale:.6f} m/unit"
                 )
+
+            # Apply inter-camera hardware sync if requested.
+            # The option lives on the depth sensor even when depth streaming is disabled.
+            _SYNC_VALS = {"off": 0, "master": 1, "slave": 2}
+            sync_val = _SYNC_VALS.get(self.sync_mode, 0)
+            if sync_val > 0:
+                try:
+                    depth_sensor = device.first_depth_sensor()
+                    if depth_sensor.supports(rs.option.inter_cam_sync_mode):
+                        depth_sensor.set_option(rs.option.inter_cam_sync_mode, float(sync_val))
+                        logger.info(f"Inter-camera sync mode: {self.sync_mode} ({sync_val})")
+                    else:
+                        logger.warning("Camera does not support inter_cam_sync_mode")
+                except Exception as e:
+                    logger.warning(f"Could not set sync mode '{self.sync_mode}': {e}")
 
         except RuntimeError as e:
             logger.error(f"Failed to start camera pipeline: {e}")

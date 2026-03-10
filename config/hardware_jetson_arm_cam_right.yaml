@@ -9,6 +9,8 @@ camera:
   # Set both cameras' serials so each process claims the correct physical unit.
   serial: "818312070515"   # D435 on USB 3.2 — swap with left config if physical L/R is inverted
   # Calibrated intrinsics (640x480): fx=382.02 fy=382.02 cx=319.24 cy=235.91
+  # Hardware inter-camera sync. Set to "slave" here once the sync cable is wired.
+  sync_mode: "off"   # "off" | "master" | "slave"
 
   streams:
     color:
@@ -21,7 +23,7 @@ camera:
       quality: 85
 
     depth:
-      enabled: true
+      enabled: false
       width: 640
       height: 480
       fps: 30

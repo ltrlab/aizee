@@ -409,7 +409,7 @@ def main() -> None:
     ap.add_argument("--ups",       default=_ep.get("ups_telemetry", "tcp://192.168.0.27:5562"),
                     help="UPS telemetry address (empty string to disable)")
     ap.add_argument("--max-delta",     type=float, default=0.3, dest="max_delta",
-                    help="Per-step safety clamp [rad] (default 0.05)")
+                    help="Per-step safety clamp [rad] (default 0.3)")
     ap.add_argument("--robstride-calib", default=None, dest="robstride_calib",
                     help="Path to robstride_calibration.json (default: auto-discover)")
     ap.add_argument("--align-margin",  type=float, default=0.05, dest="align_margin",
@@ -768,8 +768,14 @@ def main() -> None:
                                                           "kp": _swivel_kp, "kd": _swivel_kd}), zmq.NOBLOCK)
                     except zmq.Again:
                         pass
-                    # Check if all joints (arm + swivel) are at zero
-                    arm_at_zero    = np.all(np.abs(shutdown_target) < 0.01)
+                    # Check if all joints (arm + swivel) are at zero.
+                    # Use q_actual (real feedback) when available so we don't
+                    # declare done while the arm is still lagging the ramp target.
+                    if q_actual is not None:
+                        arm_at_zero = (np.all(np.abs(shutdown_target) < 0.01)
+                                       and np.all(np.abs(q_actual) < 0.05))
+                    else:
+                        arm_at_zero = np.all(np.abs(shutdown_target) < 0.01)
                     swivel_at_zero = abs(shutdown_swivel) < 0.01
                     if arm_at_zero and swivel_at_zero:
                         try:
