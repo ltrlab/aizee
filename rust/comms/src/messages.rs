@@ -32,6 +32,8 @@ pub enum CommandMessage {
         kp: Vec<f32>,
         #[serde(default)]
         kd: Vec<f32>,
+        #[serde(default)]
+        torques: Vec<f32>,
     },
     #[serde(rename = "enable")]
     Enable {
@@ -89,6 +91,8 @@ pub struct LidarScan {
 pub struct TelemetryMessage {
     pub timestamp: f64,
     pub motors: HashMap<String, MotorTelemetry>,
+    #[serde(default)]
+    pub emergency_stop: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub battery_voltage: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -103,6 +107,7 @@ impl TelemetryMessage {
                 .unwrap()
                 .as_secs_f64(),
             motors: HashMap::new(),
+            emergency_stop: false,
             battery_voltage: None,
             lidar_scans: None,
         }
@@ -139,9 +144,25 @@ mod tests {
         let json = r#"{"type":"arm_joints","positions":[0.1,0.5,-0.3],"velocities":[0.0,0.0,0.0]}"#;
         let cmd: CommandMessage = serde_json::from_str(json).unwrap();
         match cmd {
-            CommandMessage::ArmJoints { positions, .. } => {
+            CommandMessage::ArmJoints { positions, torques, .. } => {
                 assert_eq!(positions.len(), 3);
                 assert_eq!(positions[0], 0.1);
+                assert!(torques.is_empty(), "torques should default to empty vec");
+            }
+            _ => panic!("Wrong command type"),
+        }
+    }
+
+    #[test]
+    fn test_arm_joints_with_torques() {
+        let json = r#"{"type":"arm_joints","positions":[0.1,0.5,-0.3],"velocities":[0.0,0.0,0.0],"torques":[1.0,2.0,0.5]}"#;
+        let cmd: CommandMessage = serde_json::from_str(json).unwrap();
+        match cmd {
+            CommandMessage::ArmJoints { positions, torques, .. } => {
+                assert_eq!(positions.len(), 3);
+                assert_eq!(torques.len(), 3);
+                assert_eq!(torques[0], 1.0);
+                assert_eq!(torques[1], 2.0);
             }
             _ => panic!("Wrong command type"),
         }

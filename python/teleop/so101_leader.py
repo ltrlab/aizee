@@ -294,8 +294,7 @@ class So101Leader:
             if joint in self._calib["joints"]:
                 self._calib["joints"][joint]["zero_offset"] = round(float(offsets[i]), 4)
         with open(self._calib_path, "w") as f:
-            import json as _json
-            _json.dump(self._calib, f, indent=2)
+            json.dump(self._calib, f, indent=2)
 
     # ------------------------------------------------------------------
     # Raw / unwrapped reads

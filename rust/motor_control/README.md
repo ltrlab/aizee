@@ -76,7 +76,7 @@ can:
   interface: can1  # Jetson production: can1; RPi4 arm module: can0
 
 network:
-  jetson:
+  device:  # accepts "jetson" as alias for backward compatibility
     zmq:
       command_sub: "tcp://*:5555"
       telemetry_pub: "tcp://*:5556"

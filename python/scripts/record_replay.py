@@ -43,9 +43,9 @@ L3 = 0.1063   # wrist_pitch pivot → wrist_roll pivot
 L5 = 0.132    # wrist_roll pivot → gripper tip
 ARM_MOUNT_Z = 0.200  # arm mount height above rover base frame
 
-# Gains — from config/teleop.yaml
-KP = [75.0, 65.0, 10.0, 5.0, 5.0, 10.0, 10.0]
-KD = [7.0, 5.5, 0.2, 0.2, 0.2, 2.0, 2.0]
+# Gains — from config/teleop.yaml gantry section (6 arm joints, no swivel)
+KP = [100.0, 100.0, 40.0, 7.0, 3.0, 3.0]
+KD = [7.0, 5.5, 4.0, 0.2, 1.0, 1.0]
 
 RECORD_HZ = 20
 
@@ -673,6 +673,7 @@ def _replay_live(
                 "velocities": [0.0] * 6,
                 "kp": KP,
                 "kd": KD,
+                "torques": [0.0] * 6,
             }
             cmd_sock.send_string(json.dumps(cmd))
 
@@ -746,6 +747,7 @@ def _goto_start(
             "velocities": [0.0] * 6,
             "kp": KP,
             "kd": KD,
+            "torques": [0.0] * 6,
         }
         cmd_sock.send_string(json.dumps(cmd))
         time.sleep(1.0 / RECORD_HZ)

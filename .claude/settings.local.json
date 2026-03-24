@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3:*)",
+      "Bash(python:*)",
+      "WebSearch",
+      "WebFetch(domain:onshape-to-robot.readthedocs.io)",
+      "WebFetch(domain:github.com)",
+      "Bash(ssh:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:wiki.seeedstudio.com)",
+      "WebFetch(domain:docs.openarm.dev)",
+      "WebFetch(domain:www.mail-archive.com)",
+      "WebFetch(domain:docs.rs)",
+      "WebFetch(domain:crates.io)",
+      "Bash(curl:*)",
+      "Bash(gh api:*)",
+      "Bash(gh search:*)"
+    ]
+  }
+}

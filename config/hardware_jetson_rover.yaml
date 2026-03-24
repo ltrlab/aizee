@@ -28,60 +28,60 @@ motors:
     max_torque: 6.0
 
   # Gantry arm - 6DoF
-  # Wide limits to accommodate any startup encoder position ± π range
-  # Teleop enforces ±π relative to home position
+  # Position limits from robstride_calibration.json + safety margin.
+  # max_torque limits feedforward torque; PD torque is bounded by MIT encoding.
   arm:
     - id: gantry_base
       can_id: 0x05
       type: ROBSTRIDE04
-      min_position: -20.0  # ~6 full rotations negative
-      max_position: 20.0   # ~6 full rotations positive
+      min_position: -2.5   # Physical range ~[-1.88, 0.02] + margin
+      max_position: 0.5
       max_velocity: 10.0
-      max_torque: 12.0
+      max_torque: 60.0    # RS04 peak=120Nm; gravity+PD needs headroom
 
     - id: gantry_mid
       can_id: 0x06
       type: ROBSTRIDE03
-      min_position: -20.0
-      max_position: 20.0
+      min_position: -0.5   # Physical range ~[-0.01, 2.61] + margin
+      max_position: 3.2
       max_velocity: 5.0
-      max_torque: 6.0
+      max_torque: 40.0    # RS03 peak=60Nm; ~22Nm gravity at full extension
 
     - id: gantry_end
       can_id: 0x07
       type: ROBSTRIDE02
-      min_position: -20.0
-      max_position: 20.0
+      min_position: -4.5   # Physical range ~[-3.95, 0.01] + margin
+      max_position: 0.5
       max_velocity: 10.0
-      max_torque: 4.0
+      max_torque: 12.0    # RS02 peak=17Nm
 
     - id: wrist_pitch
       can_id: 0x08
       type: ROBSTRIDE02
-      min_position: -20.0
-      max_position: 20.0
+      min_position: -3.5   # Physical range ~[-3.27, 3.21] + margin
+      max_position: 3.5
       max_velocity: 10.0
-      max_torque: 4.0
+      max_torque: 12.0    # RS02 peak=17Nm
 
     - id: wrist_roll
       can_id: 0x09
       type: ROBSTRIDE00
-      min_position: -20.0
-      max_position: 20.0
+      min_position: -1.0   # Physical range ~[-0.38, 2.57] + margin
+      max_position: 3.2
       max_velocity: 30.0
-      max_torque: 2.0
+      max_torque: 1.5     # RS00 peak=2Nm, nominal=0.5Nm
 
     - id: gripper
       can_id: 0x0A
       type: ROBSTRIDE00
-      min_position: -20.0
-      max_position: 20.0
+      min_position: -0.5   # Physical range ~[0.08, 7.30] but mechanism is much smaller
+      max_position: 5.0    # Conservative: real gripper likely <2 rad travel
       max_velocity: 30.0
-      max_torque: 2.0
+      max_torque: 1.5     # RS00 peak=2Nm, nominal=0.5Nm
 
 # Control loop parameters
 control:
-  arm_frequency: 1000.0  # Hz - not used but required by schema
+  arm_frequency: 400.0   # Hz - limited by CAN bus: 6 motors × ~280µs round-trip = 1680µs/cycle
   base_frequency: 100.0  # Hz - wheels + swivel
   telemetry_rate: 50.0   # Hz - published motor states
   watchdog_timeout: 0.1  # seconds - stop if no command received

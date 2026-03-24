@@ -103,31 +103,40 @@ AIZEE is a mobile manipulation platform designed for real-time control, rich sen
 
 ```
 aizee/
-├── rust/               # Rust workspace
-│   ├── motor_control/  # CAN driver + control loops
-│   ├── comms/          # ZeroMQ abstractions
-│   └── bindings/       # PyO3 Python bindings
+├── rust/                   # Rust workspace
+│   ├── motor_control/      # CAN driver + dual control loops (1kHz arm, 100Hz base)
+│   ├── comms/              # ZeroMQ abstractions and message schemas
+│   ├── lidar_control/      # RPLiDAR A1M8 dual-sensor driver
+│   └── bindings/           # PyO3 Python bindings (reserved)
 ├── python/
-│   ├── aizee/          # Main Python package
-│   ├── teleop/         # Teleoperation interface
-│   └── nodes/          # RPi camera streaming nodes
-├── urdf/               # Robot URDF from OnShape
-├── config/             # Hardware parameters (YAML)
-├── logs/               # MCAP recordings
-└── docs/               # Documentation
+│   ├── teleop/             # Teleoperation interfaces (full teleop, SO-101 leader)
+│   ├── nodes/              # Camera and UPS sensor nodes
+│   ├── scripts/            # Demo collection, episode replay, visualization
+│   └── training/           # ACT policy training and dataset utilities
+├── config/                 # Hardware YAML configs and calibration files
+├── scripts/                # Deployment, setup, and diagnostic shell scripts
+├── firmware/               # Embedded firmware (Tufty2040 status display)
+├── urdf/                   # Robot URDF from OnShape
+├── episodes/               # Recorded demonstration episodes (HDF5)
+├── tests/                  # Test suite
+└── docs/                   # Documentation
 ```
 
 ## Development Status
 
-**Current Phase**: Phase 6 - Extensions Complete ✅
-
 All major subsystems deployed and operational:
 - ✅ Rust motor control (1kHz arm, 100Hz base)
-- ✅ Python teleop interface with multi-module support
-- ✅ 4× RPi camera nodes (Intel RealSense D455)
+- ✅ Python teleop interface with gamepad + keyboard support
+- ✅ 4× RPi camera nodes (Intel RealSense D455 RGB-D)
+- ✅ 2× arm cameras (D435, USB to Jetson, udev auto-start)
 - ✅ 2× RPLiDAR A1M8 sensors
 - ✅ UPS battery monitoring (INA219)
 - ✅ Rerun visualization and MCAP logging
+- ✅ SO-101 leader arm teleoperation (7-DOF, calibrated)
+- ✅ Demonstration collection with camera sync (HDF5)
+- ✅ ACT policy training (Action Chunking with Transformers)
+- ✅ ACT policy inference node (20 Hz, temporal ensemble)
+- ✅ Episode replay with safety clamping
 
 See [Implementation Phases](docs/PHASES.md) for complete roadmap.
 
@@ -163,14 +172,36 @@ pip install -r requirements.txt
 
 ### Running the System
 ```bash
-# Start all modules
+# Start all modules on Jetson
 ./scripts/start_all_modules.sh
 
 # Run teleop from dev machine
 python python/teleop/teleop.py
 
+# Run SO-101 leader arm teleop
+python python/scripts/so101_teleop.py --port /dev/ttyACM0
+
 # View live data
 python python/rerun_bridge.py
+```
+
+### Demonstration Collection and Training
+```bash
+# Record demonstrations with SO-101 leader arm and wrist cameras
+python python/scripts/collect_demo.py --port /dev/ttyACM0 \
+    --cam-left tcp://192.168.0.27:5563 --cam-right tcp://192.168.0.27:5564
+
+# Train ACT policy on collected episodes
+python python/training/train.py --data-dir episodes/ --output-dir checkpoints/
+
+# Run trained policy on the arm (inference node)
+python python/nodes/act_policy_node.py --checkpoint checkpoints/act_epoch_0100.pt
+
+# Visualize a recorded episode in Rerun
+python python/scripts/view_episode.py episodes/episode_0001.hdf5
+
+# Replay a recorded episode on the arm
+python python/scripts/episode_replay_live.py episodes/episode_0001.hdf5
 ```
 
 ## Documentation

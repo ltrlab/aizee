@@ -612,12 +612,13 @@ class Comms:
     def send_zero_position(self, motor_ids):
         self.send({"type": "zero_position", "motor_ids": motor_ids})
 
-    def send_arm_joints(self, positions, velocities=None, kp=None, kd=None):
+    def send_arm_joints(self, positions, velocities=None, kp=None, kd=None, torques=None):
         """Send arm/gantry joint command with position targets."""
         cmd = {
             "type": "arm_joints",
             "positions": positions,
             "velocities": velocities or [0.0] * len(positions),
+            "torques": torques or [0.0] * len(positions),
         }
         if kp:
             cmd["kp"] = kp
@@ -835,12 +836,13 @@ class MultiModuleComms:
             "kd": kd
         })
 
-    def send_arm_joints(self, positions, velocities=None, kp=None, kd=None):
+    def send_arm_joints(self, positions, velocities=None, kp=None, kd=None, torques=None):
         """Send arm joint command to arm module."""
         cmd = {
             "type": "arm_joints",
             "positions": positions,
             "velocities": velocities or [0.0] * len(positions),
+            "torques": torques or [0.0] * len(positions),
         }
         if kp:
             cmd["kp"] = kp

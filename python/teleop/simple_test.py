@@ -61,12 +61,13 @@ class SimpleTeleop:
             "angular": angular
         })
 
-    def move_arm(self, positions: list, velocities: list = None, kp: list = None, kd: list = None):
+    def move_arm(self, positions: list, velocities: list = None, kp: list = None, kd: list = None, torques: list = None):
         """Send arm joint command"""
         cmd = {
             "type": "arm_joints",
             "positions": positions,
-            "velocities": velocities or [0.0] * len(positions)
+            "velocities": velocities or [0.0] * len(positions),
+            "torques": torques or [0.0] * len(positions),
         }
         if kp:
             cmd["kp"] = kp

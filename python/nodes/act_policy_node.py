@@ -93,7 +93,7 @@ def drain_sub(sock) -> Optional[dict]:
             latest = json.loads(raw)
         except zmq.Again:
             break
-        except (json.JSONDecodeError, Exception):
+        except Exception:
             break
     return latest
 
@@ -516,6 +516,7 @@ def main():
                     "velocities": [0.0] * NUM_JOINTS,
                     "kp": kp,
                     "kd": kd,
+                    "torques": [0.0] * NUM_JOINTS,
                 }
                 try:
                     cmd_push.send_string(json.dumps(cmd), zmq.NOBLOCK)

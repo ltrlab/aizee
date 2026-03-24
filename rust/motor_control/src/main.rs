@@ -7,9 +7,10 @@ use anyhow::{Context, Result};
 use comms::{CommandMessage, CommandSubscriber, MotorTelemetry, TelemetryMessage, TelemetryPublisher};
 use motor::{Motor, MotorConfig, MotorGroup, MotorState};
 use robstride::MotorModel;
-use socketcan::{CanSocket, EmbeddedFrame, Socket};
+use socketcan::{CanSocket, EmbeddedFrame, Socket, SocketOptions};
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::process::Command;
 use std::time::{Duration, Instant};
 use tokio::time::interval;
 use tracing::{debug, error, info, warn};
@@ -138,6 +139,12 @@ struct ControlSystem {
     dropped_frames: RefCell<HashMap<String, u64>>, // Track dropped frames per CAN bus
     last_buffer_warning: RefCell<HashMap<String, Instant>>, // Rate-limit buffer warnings
     consecutive_tx_errors: RefCell<HashMap<String, u32>>, // Track consecutive errors for recovery
+    last_error_log: Instant, // Rate-limit "group has errors" log flood
+    last_socket_recovery: Instant, // Rate-limit socket recovery to prevent storm
+    can_recovery_level: HashMap<String, u32>, // Current recovery escalation level per bus (0=socket, 1=link, 2=exit)
+    can_recovery_attempts: HashMap<String, u32>, // Attempts at current level per bus
+    total_recoveries: u32, // Total recovery attempts across all levels (exit at 10)
+    last_link_recovery: Instant, // Rate-limit link-level recovery
 }
 
 impl ControlSystem {
@@ -160,7 +167,21 @@ impl ControlSystem {
             socket.set_nonblocking(true)
                 .with_context(|| format!("Failed to set CAN socket {} to non-blocking mode", bus_name))?;
 
-            info!("CAN interface {} opened for bus {} (non-blocking)", interface_name, bus_name);
+            // Disable loopback: by default Linux CAN copies every TX frame back to the
+            // RX queue for other applications. We're the only app on this bus — disabling
+            // loopback eliminates kernel-side frame copying overhead.
+            if let Err(e) = socket.set_loopback(false) {
+                warn!("Failed to disable CAN loopback on {}: {} (continuing)", bus_name, e);
+            }
+
+            // Enable CAN error frame reception: gives us visibility into bus-off,
+            // error-passive, TX/RX error counter overflow, and other bus health issues.
+            // Without this we only discover bus problems indirectly through ENOBUFS.
+            if let Err(e) = socket.set_error_filter_accept_all() {
+                warn!("Failed to set CAN error filter on {}: {} (continuing)", bus_name, e);
+            }
+
+            info!("CAN interface {} opened for bus {} (non-blocking, loopback off, error frames on)", interface_name, bus_name);
             can_sockets.insert(bus_name.clone(), socket);
         }
 
@@ -231,6 +252,12 @@ impl ControlSystem {
             dropped_frames: RefCell::new(HashMap::new()),
             last_buffer_warning: RefCell::new(HashMap::new()),
             consecutive_tx_errors: RefCell::new(HashMap::new()),
+            last_error_log: Instant::now(),
+            last_socket_recovery: Instant::now(),
+            can_recovery_level: HashMap::new(),
+            can_recovery_attempts: HashMap::new(),
+            total_recoveries: 0,
+            last_link_recovery: Instant::now(),
         })
     }
 
@@ -262,60 +289,240 @@ impl ControlSystem {
         MotorModel::Model03 // fallback
     }
 
-    /// Safely write a CAN frame with USB-CAN adapter error recovery.
-    /// All CAN write errors are treated as recoverable: the gs_usb adapter's echo ID
-    /// tracking can corrupt, causing EAGAIN when the kernel TX queue fills permanently.
-    /// Consecutive errors are tracked so recover_can_if_needed() can reset the socket.
+    /// Write a CAN frame with retry on ENOBUFS/EAGAIN.
+    ///
+    /// The gs_usb adapter has only 10 TX URBs. When all are in-flight, writes return
+    /// ENOBUFS (105) or EAGAIN (11). Instead of dropping the frame and sleeping, we
+    /// retry with a short backoff — the USB round-trip is ~1ms, so a URB slot will
+    /// free up quickly. This matches what other projects (OpenArm, K-Scale) do:
+    /// never drop a control frame, just wait for bus capacity.
+    ///
+    /// Only truly unrecoverable errors (persistent after all retries) increment the
+    /// consecutive error counter for escalating recovery.
     fn safe_write_frame(&self, socket: &CanSocket, frame: &socketcan::CanFrame, bus_name: &str) -> Result<()> {
-        match socket.write_frame(frame) {
-            Ok(_) => {
-                // Reset consecutive error counter on success
-                self.consecutive_tx_errors.borrow_mut().insert(bus_name.to_string(), 0);
-                // Brief delay between frames to let the gs_usb adapter process the TX echo
-                std::thread::sleep(Duration::from_micros(200));
-                Ok(())
-            },
-            Err(e) => {
-                let errno = e.raw_os_error();
-                // Track consecutive errors for recovery detection
-                let consecutive = {
-                    let mut errors = self.consecutive_tx_errors.borrow_mut();
-                    let count = errors.entry(bus_name.to_string()).or_insert(0);
-                    *count += 1;
-                    *count
-                };
+        const MAX_RETRIES: u32 = 10;
+        const RETRY_BACKOFF_US: u64 = 150; // ~1 CAN frame time at 1Mbps
 
-                // Track total dropped frames
-                let mut dropped = self.dropped_frames.borrow_mut();
-                *dropped.entry(bus_name.to_string()).or_insert(0) += 1;
-
-                // Rate-limit warnings to once per second
-                let now = Instant::now();
-                let should_warn = {
-                    let warnings = self.last_buffer_warning.borrow();
-                    warnings.get(bus_name)
-                        .map(|last| now.duration_since(*last) >= Duration::from_secs(1))
-                        .unwrap_or(true)
-                };
-
-                if should_warn {
-                    let dropped_count = *dropped.get(bus_name).unwrap_or(&0);
-                    warn!("CAN {} TX error (errno {:?}, consecutive: {}) - frame dropped (total: {})",
-                          bus_name, errno, consecutive, dropped_count);
-                    self.last_buffer_warning.borrow_mut().insert(bus_name.to_string(), now);
+        for attempt in 0..=MAX_RETRIES {
+            match socket.write_frame(frame) {
+                Ok(_) => {
+                    // Success — reset consecutive error counter
+                    self.consecutive_tx_errors.borrow_mut().insert(bus_name.to_string(), 0);
+                    return Ok(());
                 }
+                Err(e) => {
+                    let errno = e.raw_os_error().unwrap_or(0);
+                    // ENOBUFS (105) or EAGAIN (11) — TX queue full, retry after backoff
+                    if (errno == 105 || errno == 11) && attempt < MAX_RETRIES {
+                        std::thread::sleep(Duration::from_micros(RETRY_BACKOFF_US));
+                        continue;
+                    }
 
-                std::thread::sleep(Duration::from_micros(500));
-                Ok(())
+                    // All retries exhausted or non-transient error — count as failure
+                    let consecutive = {
+                        let mut errors = self.consecutive_tx_errors.borrow_mut();
+                        let count = errors.entry(bus_name.to_string()).or_insert(0);
+                        *count += 1;
+                        *count
+                    };
+
+                    let mut dropped = self.dropped_frames.borrow_mut();
+                    *dropped.entry(bus_name.to_string()).or_insert(0) += 1;
+
+                    // Rate-limit warnings to once per second
+                    let now = Instant::now();
+                    let should_warn = {
+                        let warnings = self.last_buffer_warning.borrow();
+                        warnings.get(bus_name)
+                            .map(|last| now.duration_since(*last) >= Duration::from_secs(1))
+                            .unwrap_or(true)
+                    };
+
+                    if should_warn {
+                        let dropped_count = *dropped.get(bus_name).unwrap_or(&0);
+                        warn!("CAN {} TX failed after {} retries (errno {}, consecutive: {}, total dropped: {})",
+                              bus_name, attempt, errno, consecutive, dropped_count);
+                        self.last_buffer_warning.borrow_mut().insert(bus_name.to_string(), now);
+                    }
+
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Write a CAN frame through safe_write_frame (tracking errors) but discard the result.
+    /// Use this instead of `let _ = socket.write_frame(...)` so TX errors are counted toward
+    /// recovery detection.
+    fn tracked_write_frame(&self, socket: &CanSocket, frame: &socketcan::CanFrame, bus_name: &str) {
+        let _ = self.safe_write_frame(socket, frame, bus_name);
+    }
+
+    /// Level 0 recovery: close and reopen the CAN socket.
+    /// Flushes kernel socket buffers but does NOT reset gs_usb TX echo ID pool.
+    fn recover_socket(&mut self, bus_name: &str) -> bool {
+        let interface_name = match self.can_interfaces.get(bus_name) {
+            Some(name) => name.clone(),
+            None => return false,
+        };
+
+        let error_count = self.consecutive_tx_errors.borrow()
+            .get(bus_name).copied().unwrap_or(0);
+        warn!("CAN {} Level 0 recovery: socket reopen ({} consecutive TX errors)",
+              bus_name, error_count);
+
+        // Drop old socket (closes fd, frees kernel socket buffers)
+        self.can_sockets.remove(bus_name);
+        std::thread::sleep(Duration::from_millis(50));
+
+        match CanSocket::open(&interface_name) {
+            Ok(socket) => {
+                if let Err(e) = socket.set_nonblocking(true) {
+                    error!("Failed to set recovered socket {} to non-blocking: {}", bus_name, e);
+                    return false;
+                }
+                let _ = socket.set_loopback(false);
+                let _ = socket.set_error_filter_accept_all();
+                self.can_sockets.insert(bus_name.to_string(), socket);
+                self.consecutive_tx_errors.borrow_mut().insert(bus_name.to_string(), 0);
+                info!("CAN {} Level 0 recovery complete", bus_name);
+                true
+            }
+            Err(e) => {
+                error!("Failed to reopen CAN socket {}: {}", bus_name, e);
+                false
             }
         }
     }
 
-    /// Recover CAN sockets stuck with consecutive TX errors.
-    /// The gs_usb USB-CAN adapter echo ID tracking can corrupt, filling the kernel TX
-    /// queue permanently (EAGAIN). Closing and reopening the socket flushes stale TX URBs.
+    /// Level 1 recovery: ip link down/up to reset gs_usb TX echo ID pool.
+    /// Calls `sudo ip link set <iface> down`, reconfigures bitrate/txqueuelen, then up.
+    /// All motors on this bus are set to Disabled (user must re-enable).
+    fn recover_link(&mut self, bus_name: &str) -> bool {
+        let interface_name = match self.can_interfaces.get(bus_name) {
+            Some(name) => name.clone(),
+            None => return false,
+        };
+
+        warn!("CAN {} Level 1 recovery: ip link down/up (resetting USB-CAN echo IDs)", bus_name);
+
+        // Close socket first
+        self.can_sockets.remove(bus_name);
+        std::thread::sleep(Duration::from_millis(50));
+
+        // ip link set down — calls ndo_stop() → usb_kill_anchored_urbs()
+        let down = Command::new("sudo")
+            .args(["ip", "link", "set", &interface_name, "down"])
+            .output();
+        match down {
+            Ok(output) if output.status.success() => {
+                info!("CAN {} interface {} brought down", bus_name, interface_name);
+            }
+            Ok(output) => {
+                error!("Failed to bring down {}: {}", interface_name,
+                       String::from_utf8_lossy(&output.stderr));
+                return false;
+            }
+            Err(e) => {
+                error!("Failed to run ip link set {} down: {}", interface_name, e);
+                return false;
+            }
+        }
+
+        std::thread::sleep(Duration::from_millis(200));
+
+        // Reconfigure bitrate
+        let config_type = Command::new("sudo")
+            .args(["ip", "link", "set", &interface_name, "type", "can",
+                   "bitrate", "1000000", "restart-ms", "100"])
+            .output();
+        if let Ok(output) = config_type {
+            if !output.status.success() {
+                warn!("CAN {} bitrate config warning: {}", bus_name,
+                      String::from_utf8_lossy(&output.stderr));
+            }
+        }
+
+        // Set txqueuelen
+        let txq = Command::new("sudo")
+            .args(["ip", "link", "set", &interface_name, "txqueuelen", "128"])
+            .output();
+        if let Ok(output) = txq {
+            if !output.status.success() {
+                warn!("CAN {} txqueuelen config warning: {}", bus_name,
+                      String::from_utf8_lossy(&output.stderr));
+            }
+        }
+
+        // ip link set up — calls ndo_open() → reinitializes TX context pool
+        let up = Command::new("sudo")
+            .args(["ip", "link", "set", &interface_name, "up"])
+            .output();
+        match up {
+            Ok(output) if output.status.success() => {
+                info!("CAN {} interface {} brought up", bus_name, interface_name);
+            }
+            Ok(output) => {
+                error!("Failed to bring up {}: {}", interface_name,
+                       String::from_utf8_lossy(&output.stderr));
+                return false;
+            }
+            Err(e) => {
+                error!("Failed to run ip link set {} up: {}", interface_name, e);
+                return false;
+            }
+        }
+
+        std::thread::sleep(Duration::from_millis(200));
+
+        // Reopen socket
+        match CanSocket::open(&interface_name) {
+            Ok(socket) => {
+                if let Err(e) = socket.set_nonblocking(true) {
+                    error!("Failed to set recovered socket {} to non-blocking: {}", bus_name, e);
+                    return false;
+                }
+                let _ = socket.set_loopback(false);
+                let _ = socket.set_error_filter_accept_all();
+                self.can_sockets.insert(bus_name.to_string(), socket);
+                self.consecutive_tx_errors.borrow_mut().insert(bus_name.to_string(), 0);
+
+                // Set all motors on this bus to Disabled — user must re-enable
+                for motor in self.base_group.motors.iter_mut()
+                    .chain(self.arm_group.motors.iter_mut())
+                {
+                    if motor.config.can_bus == bus_name {
+                        motor.state = MotorState::Disabled;
+                        motor.feedback = None;
+                    }
+                }
+
+                info!("CAN {} Level 1 recovery complete — all motors on bus set to Disabled", bus_name);
+                true
+            }
+            Err(e) => {
+                error!("Failed to reopen CAN socket {} after link recovery: {}", bus_name, e);
+                false
+            }
+        }
+    }
+
+    /// Escalating CAN recovery for stuck TX errors.
+    ///
+    /// Level 0 — Socket reopen (transient issues): 2 attempts, 10s cooldown.
+    /// Level 1 — ip link down/up (gs_usb echo corruption): 2 attempts, 30s cooldown.
+    /// Level 2 — Exit (USB-level corruption): process exits, systemd restarts with USB reset.
+    ///
+    /// KEY INSIGHT: If we reach this function again after a "successful" recovery, it means
+    /// the fix didn't actually work (ENOBUFS resumed). So attempts always increment —
+    /// success/fail of the operation itself doesn't matter for escalation.
     fn recover_can_if_needed(&mut self) {
         const RECOVERY_THRESHOLD: u32 = 50;
+        const SOCKET_COOLDOWN: Duration = Duration::from_secs(10);
+        const LINK_COOLDOWN: Duration = Duration::from_secs(30);
+        const MAX_SOCKET_ATTEMPTS: u32 = 2;
+        const MAX_LINK_ATTEMPTS: u32 = 2;
 
         let buses_to_recover: Vec<String> = {
             let errors = self.consecutive_tx_errors.borrow();
@@ -326,27 +533,75 @@ impl ControlSystem {
         };
 
         for bus_name in buses_to_recover {
-            if let Some(interface_name) = self.can_interfaces.get(&bus_name) {
-                warn!("CAN {} stuck ({} consecutive TX errors), recovering socket...",
-                      bus_name, RECOVERY_THRESHOLD);
+            let level = self.can_recovery_level.get(&bus_name).copied().unwrap_or(0);
+            let attempts = self.can_recovery_attempts.get(&bus_name).copied().unwrap_or(0);
 
-                // Drop old socket (closes fd, frees kernel TX URBs)
-                self.can_sockets.remove(&bus_name);
+            // Level 2+ = exit immediately
+            if level >= 2 {
+                error!("CAN {} recovery exhausted (level={}) — exiting for systemd restart with USB reset",
+                       bus_name, level);
+                std::process::exit(1);
+            }
 
-                match CanSocket::open(interface_name) {
-                    Ok(socket) => {
-                        if let Err(e) = socket.set_nonblocking(true) {
-                            error!("Failed to set recovered socket {} to non-blocking: {}", bus_name, e);
-                            continue;
-                        }
-                        self.can_sockets.insert(bus_name.clone(), socket);
-                        self.consecutive_tx_errors.borrow_mut().insert(bus_name.clone(), 0);
-                        info!("CAN {} socket recovered successfully", bus_name);
-                    }
-                    Err(e) => {
-                        error!("Failed to reopen CAN socket {}: {}", bus_name, e);
+            // Check cooldown for current level
+            match level {
+                0 => {
+                    if self.last_socket_recovery.elapsed() < SOCKET_COOLDOWN {
+                        continue;
                     }
                 }
+                1 => {
+                    if self.last_link_recovery.elapsed() < LINK_COOLDOWN {
+                        continue;
+                    }
+                }
+                _ => {}
+            }
+
+            // Check if current level is exhausted → escalate BEFORE attempting
+            match level {
+                0 if attempts >= MAX_SOCKET_ATTEMPTS => {
+                    warn!("CAN {} Level 0 exhausted ({} attempts), escalating to Level 1 (ip link down/up)",
+                          bus_name, attempts);
+                    self.can_recovery_level.insert(bus_name.clone(), 1);
+                    self.can_recovery_attempts.insert(bus_name.clone(), 0);
+                    // Fall through to try Level 1 immediately (if cooldown allows)
+                    if self.last_link_recovery.elapsed() < LINK_COOLDOWN {
+                        continue;
+                    }
+                    // Try Level 1 now
+                    let success = self.recover_link(&bus_name);
+                    self.last_link_recovery = Instant::now();
+                    self.can_recovery_attempts.insert(bus_name.clone(), 1);
+                    if success {
+                        info!("CAN {} Level 1 recovery succeeded on first try", bus_name);
+                    }
+                }
+                1 if attempts >= MAX_LINK_ATTEMPTS => {
+                    warn!("CAN {} Level 1 exhausted ({} attempts), escalating to Level 2 (exit)",
+                          bus_name, attempts);
+                    self.can_recovery_level.insert(bus_name.clone(), 2);
+                    error!("CAN {} recovery exhausted — exiting for systemd restart with USB reset", bus_name);
+                    std::process::exit(1);
+                }
+                0 => {
+                    // Level 0: socket reopen
+                    self.recover_socket(&bus_name);
+                    self.last_socket_recovery = Instant::now();
+                    // Always increment — if we're back here, it didn't really work
+                    let new_attempts = attempts + 1;
+                    self.can_recovery_attempts.insert(bus_name.clone(), new_attempts);
+                    warn!("CAN {} Level 0 attempt {}/{}", bus_name, new_attempts, MAX_SOCKET_ATTEMPTS);
+                }
+                1 => {
+                    // Level 1: ip link down/up
+                    self.recover_link(&bus_name);
+                    self.last_link_recovery = Instant::now();
+                    let new_attempts = attempts + 1;
+                    self.can_recovery_attempts.insert(bus_name.clone(), new_attempts);
+                    warn!("CAN {} Level 1 attempt {}/{}", bus_name, new_attempts, MAX_LINK_ATTEMPTS);
+                }
+                _ => {}
             }
         }
     }
@@ -386,7 +641,7 @@ impl ControlSystem {
                     let keepalive = robstride::build_control_frame(
                         motor.config.can_id, motor.config.model, pos, 0.0, 0.0, 0.0, 0.0,
                     );
-                    let _ = socket.write_frame(&keepalive);
+                    self.tracked_write_frame(socket, &keepalive, &motor.config.can_bus);
                 }
             }
         }
@@ -401,7 +656,7 @@ impl ControlSystem {
                     let keepalive = robstride::build_control_frame(
                         motor.config.can_id, motor.config.model, pos, 0.0, 0.0, 0.0, 0.0,
                     );
-                    let _ = socket.write_frame(&keepalive);
+                    self.tracked_write_frame(socket, &keepalive, &motor.config.can_bus);
                 }
             }
         }
@@ -512,7 +767,7 @@ impl ControlSystem {
                     let mut still_running = true;
                     for _ in 0..50 {
                         let keepalive = robstride::build_control_frame(can_id, model, confirmed_position, 0.0, 0.0, 0.0, 0.0);
-                        let _ = socket.write_frame(&keepalive);
+                        self.tracked_write_frame(socket, &keepalive, &bus_name);
                         self.send_keepalives(); // keep other motors alive too
                         std::thread::sleep(std::time::Duration::from_millis(2));
                         // Drain receive buffer each iteration to prevent overflow from
@@ -572,12 +827,12 @@ impl ControlSystem {
                         break;
                     } else {
                         warn!("Motor {} faulted after enable (attempt {}), retrying...", motor_id, attempt);
-                        socket.write_frame(&disable_frame)?;
+                        self.tracked_write_frame(socket, &disable_frame, &bus_name);
                         self.sleep_with_keepalives(100);
                     }
                 } else {
                     warn!("Motor {} did NOT enter Run mode on attempt {}", motor_id, attempt);
-                    socket.write_frame(&disable_frame)?;
+                    self.tracked_write_frame(socket, &disable_frame, &bus_name);
                     self.sleep_with_keepalives(50);
                 }
             }
@@ -699,7 +954,7 @@ impl ControlSystem {
                 if let Some(swivel_motor) = self.base_group.motors.get_mut(2) {
                     info!("Setting {} position to {:.3} rad (Kp={:.1}, Kd={:.1})",
                           swivel_motor.config.id, position, swivel_kp, swivel_kd);
-                    swivel_motor.set_position_target(position, 0.0, swivel_kp, swivel_kd)?;
+                    swivel_motor.set_position_target(position, 0.0, swivel_kp, swivel_kd, 0.0)?;
                 }
             }
             CommandMessage::ArmJoints {
@@ -707,6 +962,7 @@ impl ControlSystem {
                 velocities,
                 kp,
                 kd,
+                torques,
             } => {
                 let num_arm_motors = self.arm_group.motors.len();
                 if positions.len() < num_arm_motors {
@@ -721,7 +977,8 @@ impl ControlSystem {
                     let vel = velocities.get(i).copied().unwrap_or(0.0);
                     let kp_val = kp.get(i).copied().unwrap_or(30.0);
                     let kd_val = kd.get(i).copied().unwrap_or(1.0);
-                    if let Err(e) = motor.set_position_target(positions[i], vel, kp_val, kd_val) {
+                    let torque_ff = torques.get(i).copied().unwrap_or(0.0);
+                    if let Err(e) = motor.set_position_target(positions[i], vel, kp_val, kd_val, torque_ff) {
                         // Soft-limit violation: hold the last valid target but refresh
                         // last_command_time so the watchdog doesn't fire for the whole
                         // arm group just because one joint hit its limit.
@@ -734,17 +991,38 @@ impl ControlSystem {
             CommandMessage::Enable { motor_ids } => {
                 let mut enabled_motors: Vec<(String, u8, MotorModel)> = Vec::new();
                 for motor_id in &motor_ids {
+                    // Skip motors that are already enabled or running — re-enabling a
+                    // running motor blocks the main loop for ~170ms per motor, starving
+                    // the command timeout watchdog and triggering emergency_stop_all().
+                    let already_active = self.find_motor_mut(motor_id)
+                        .map(|m| matches!(m.state, MotorState::Enabled | MotorState::Running))
+                        .unwrap_or(false);
+                    if already_active {
+                        info!("Motor {} already active, skipping enable", motor_id);
+                        if let Some((cid, cmodel)) = self.can_id_and_model(motor_id) {
+                            enabled_motors.push((motor_id.clone(), cid, cmodel));
+                        }
+                        continue;
+                    }
+
                     // Send keepalives to already-enabled motors before enabling next one
                     for (mid, cid, cmodel) in &enabled_motors {
+                        let mid_bus = self.motor_bus_map.get(mid).cloned().unwrap_or_default();
                         if let Some(socket) = self.get_can_socket(mid) {
                             let keepalive = robstride::build_control_frame(*cid, *cmodel, 0.0, 0.0, 0.0, 0.0, 0.0);
-                            let _ = socket.write_frame(&keepalive);
+                            self.tracked_write_frame(socket, &keepalive, &mid_bus);
                         }
                     }
                     // Outer retry loop: attempt enable up to 3 times, each with its own
                     // 3-attempt internal retry, giving up to 9 total enable attempts.
+                    // IMPORTANT: Don't propagate errors — a CAN TX error on one motor
+                    // must not abort the entire enable sequence or skip the post-enable
+                    // feedback timestamp refresh (which would cause a timeout death spiral).
                     for outer_attempt in 1..=3 {
-                        self.enable_motor(motor_id)?;
+                        if let Err(e) = self.enable_motor(motor_id) {
+                            warn!("Motor {} enable error (attempt {}): {} — continuing", motor_id, outer_attempt, e);
+                            break; // Skip further retries for this motor, try next one
+                        }
                         let is_enabled = self.find_motor_mut(motor_id)
                             .map(|m| m.state == MotorState::Enabled)
                             .unwrap_or(false);
@@ -899,7 +1177,7 @@ impl ControlSystem {
                     let frame = robstride::build_control_frame(
                         motor.config.can_id, motor.config.model, pos, 0.0, 0.0, 0.0, 0.0,
                     );
-                    let _ = socket.write_frame(&frame);
+                    self.tracked_write_frame(socket, &frame, &bus_name);
                 }
             }
         }
@@ -963,20 +1241,12 @@ impl ControlSystem {
             }
         }
 
-        // Auto-transition base motors from Enabled → Running once commands are flowing.
-        // Wheel motors reach Running via set_velocity_target() on the first Drive command.
-        // The swivel depends on a Swivel command from teleop, which is gated on
-        // swivel_initialized, which requires the motor to appear in telemetry — a circular
-        // dependency broken by the synthetic feedback in enable_motor(). This transition
-        // handles any remaining case where a base motor hasn't yet received an explicit
-        // command (e.g. no teleop connected, or swivel command still in flight).
-        for motor in &mut self.base_group.motors {
-            if motor.state == MotorState::Enabled {
-                motor.state = MotorState::Running;
-                motor.last_command_time = Instant::now();
-                info!("Motor {} auto-transitioned Enabled → Running", motor.config.id);
-            }
-        }
+        // NOTE: No auto-transition from Enabled → Running here. Motors transition
+        // to Running when they receive an actual command (Drive/Swivel/ArmJoints).
+        // Auto-transitioning caused a watchdog death spiral: swivel entered Running
+        // but no Swivel commands were flowing (e.g. in idle mode), so 100ms later the
+        // command timeout fired emergency_stop_all() on the entire base group.
+        // Enabled motors already receive zero-force keepalive frames above.
 
         // Request battery voltage (VBUS) periodically (10Hz = every 100ms)
         if self.last_vbus_request.elapsed() >= Duration::from_millis(100) {
@@ -1005,6 +1275,20 @@ impl ControlSystem {
                 match socket.read_frame() {
                 Ok(frame) => {
                     frame_count += 1;
+
+                    // Handle CAN error frames (bus-off, error-passive, etc.)
+                    if frame.is_error_frame() {
+                        let raw_id = frame.raw_id();
+                        let data = frame.data();
+                        // CAN error frame bits: bus-off (0x40), error-passive (0x20),
+                        // error-warning (0x04), TX error counter (data[6]), RX error counter (data[7])
+                        let tx_err = data.get(6).copied().unwrap_or(0);
+                        let rx_err = data.get(7).copied().unwrap_or(0);
+                        warn!("CAN {} error frame: id=0x{:08X} data={:02X?} TX_err={} RX_err={}",
+                              _bus_name, raw_id, data, tx_err, rx_err);
+                        continue;
+                    }
+
                     // Extract motor ID from arbitration ID
                     // Response format: host_id (bits 0-7) | motor_id (bits 8-15) | msg_type (bits 24-31)
                     let arb_id_raw = match frame.id() {
@@ -1128,14 +1412,18 @@ impl ControlSystem {
             .map(|t| t.elapsed() < Duration::from_secs(5))
             .unwrap_or(false);
         msg.battery_voltage = if batt_fresh { self.battery_voltage } else { None };
+        msg.emergency_stop = self.emergency_stop;
 
         self.telemetry_pub.publish(&msg)?;
         Ok(())
     }
 
     fn check_safety(&mut self) {
-        // 500ms timeout accounts for enable_motor() blocking the control loop (~200-400ms)
-        let feedback_timeout = Duration::from_millis(500);
+        // 2000ms timeout: CAN TX queue overflow can cause transient feedback gaps lasting
+        // hundreds of ms. A 500ms timeout was causing a death spiral: timeout → Error state →
+        // stop sending control frames → motor never recovers. 2s gives ~800 arm cycles
+        // worth of retries before giving up on a truly dead motor.
+        let feedback_timeout = Duration::from_millis(2000);
 
         // Check for command timeouts
         if self.base_group.has_timeouts() {
@@ -1175,12 +1463,23 @@ impl ControlSystem {
             }
         }
 
-        // Check for errors (logging only)
-        if self.base_group.has_errors() {
-            error!("Base group has errors");
-        }
-        if self.arm_group.has_errors() {
-            error!("Arm group has errors");
+        // Check for errors (rate-limited logging — once per second)
+        if (self.base_group.has_errors() || self.arm_group.has_errors())
+            && self.last_error_log.elapsed() >= Duration::from_secs(1)
+        {
+            let base_err: Vec<_> = self.base_group.motors.iter()
+                .filter(|m| m.state == MotorState::Error)
+                .map(|m| m.config.id.as_str()).collect();
+            let arm_err: Vec<_> = self.arm_group.motors.iter()
+                .filter(|m| m.state == MotorState::Error)
+                .map(|m| m.config.id.as_str()).collect();
+            if !base_err.is_empty() {
+                error!("Base group errors: {:?}", base_err);
+            }
+            if !arm_err.is_empty() {
+                error!("Arm group errors: {:?}", arm_err);
+            }
+            self.last_error_log = Instant::now();
         }
     }
 }

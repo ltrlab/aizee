@@ -6,27 +6,26 @@
 # Cameras are identified by USB port location (the D435 does not expose
 # its firmware serial number via the USB descriptor).
 #
-# SETUP: Run scripts/install_arm_cameras.sh from the dev machine, or manually:
+# SETUP: Run scripts/deploy_arm_cameras.sh from the dev machine, or manually:
 #   sudo cp config/udev/99-aizee-realsense.rules /etc/udev/rules.d/
 #   sudo udevadm control --reload-rules && sudo udevadm trigger
 #
-# If cameras are moved to different USB ports, find the new KERNEL value with:
-#   udevadm info -a /dev/bus/usb/<BUS>/<DEV> | grep 'KERNEL=='
-# then update the rules and re-run the install script.
+# If cameras are moved to different USB ports, run:
+#   ./scripts/fix_arm_camera_ports.sh
 #
 # Camera port assignments (Jetson Orin Nano):
-#   arm_cam_left  (S/N 941322071864): USB bus 2, port 2-1.4.2  (USB 3.2)
-#   arm_cam_right (S/N 818312070515): USB bus 2, port 2-1.4.1  (USB 3.2)
-# Verified with: python3 -c "import pyrealsense2 as rs; ctx=rs.context(); [print(d.get_info(rs.camera_info.serial_number), d.get_info(rs.camera_info.physical_port)) for d in ctx.query_devices()]"
+#   arm_cam_left  (S/N 941322071864): USB port 2-1.4.1
+#   arm_cam_right (S/N 818312070515): USB port 2-1.4.2
+# Auto-detected by fix_arm_camera_ports.sh on 2026-03-23
 
 SUBSYSTEM=="usb", \
     ATTR{idVendor}=="8086", ATTR{idProduct}=="0b07", \
-    KERNEL=="2-1.4.2", \
+    KERNEL=="2-1.4.1", \
     SYMLINK+="realsense_arm_left", \
     TAG+="systemd", ENV{SYSTEMD_ALIAS}+="/dev/realsense_arm_left"
 
 SUBSYSTEM=="usb", \
     ATTR{idVendor}=="8086", ATTR{idProduct}=="0b07", \
-    KERNEL=="2-1.4.1", \
+    KERNEL=="2-1.4.2", \
     SYMLINK+="realsense_arm_right", \
     TAG+="systemd", ENV{SYSTEMD_ALIAS}+="/dev/realsense_arm_right"

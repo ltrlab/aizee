@@ -77,13 +77,13 @@ _LEADER_JOINTS = ["swivel", "gantry_base", "gantry_mid", "gantry_end",
                   "wrist_pitch", "wrist_roll", "gripper"]
 
 _SAT_TORQUE = {
-    "swivel":      6.0,
-    "gantry_base": 12.0,
-    "gantry_mid":  6.0,
-    "gantry_end":  4.0,
-    "wrist_pitch": 4.0,
-    "wrist_roll":  2.0,
-    "gripper":     2.0,
+    "swivel":      12.0,   # RS03 nominal
+    "gantry_base": 24.0,   # RS04 nominal
+    "gantry_mid":  12.0,   # RS03 nominal
+    "gantry_end":   5.0,   # RS02 nominal
+    "wrist_pitch":  5.0,   # RS02 nominal
+    "wrist_roll":   0.5,   # RS00 nominal
+    "gripper":      0.5,   # RS00 nominal
 }
 
 _UPS_OK   = 11.7
@@ -218,10 +218,14 @@ def _render(
         c   = float(ups_data.get("current",    0.0))
         p   = float(ups_data.get("power",      0.0))
         pct = float(ups_data.get("percentage", 0.0))
-        col = _GRN if v >= _UPS_OK else _YEL if v >= _UPS_WARN else _RED
-        st  = ("OK"       if v >= _UPS_OK   else
-               "WARN"     if v >= _UPS_WARN else
-               "CRIT"     if v >= _UPS_CRIT else "SHUTDOWN")
+        if v >= _UPS_OK:
+            col, st = _GRN, "OK"
+        elif v >= _UPS_WARN:
+            col, st = _YEL, "WARN"
+        elif v >= _UPS_CRIT:
+            col, st = _RED, "CRIT"
+        else:
+            col, st = _RED, "SHUTDOWN"
         ups_body = f"UPS {v:.2f}V {c:.2f}A {p:.1f}W ({pct:.0f}%)"
         ups_disp = f"{ups_body}  {col}[{st}]{_RST}"
         ups_vis  = len(ups_body) + 2 + 1 + len(st) + 1
@@ -230,10 +234,13 @@ def _render(
         ups_vis  = 6
 
     if battery_voltage is not None:
-        bv  = battery_voltage
-        col = _BG_RED if bv < _VBUS_CRIT else _BG_YEL if bv < _VBUS_WARN else ""
-        rst = _RST if col else ""
-        vbus_s   = f"  {col}VBUS {bv:.1f}V{rst}"
+        bv = battery_voltage
+        if bv < _VBUS_CRIT:
+            vbus_s = f"  {_BG_RED}VBUS {bv:.1f}V{_RST}"
+        elif bv < _VBUS_WARN:
+            vbus_s = f"  {_BG_YEL}VBUS {bv:.1f}V{_RST}"
+        else:
+            vbus_s = f"  VBUS {bv:.1f}V"
         vbus_vis = 2 + 5 + len(f"{bv:.1f}") + 1
     else:
         vbus_s, vbus_vis = "", 0
@@ -387,6 +394,104 @@ def _send(sock, msg: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Background camera / UPS receiver
+# ---------------------------------------------------------------------------
+# Runs in its own thread so that JSON-parsing large camera frames never
+# blocks the motor-command loop.  Caches the latest message per source;
+# the main loop reads cached values under a lock.
+
+def _start_cam_receiver(
+    ctx: zmq.Context,
+    left_ep: str,
+    right_ep: str,
+    ups_ep: Optional[str],
+) -> tuple[threading.Event, threading.Thread, threading.Lock, dict]:
+    lock = threading.Lock()
+    cache: dict = {
+        "left": None, "left_time": 0.0, "left_ts": None,
+        "right": None, "right_time": 0.0, "right_ts": None,
+        "ups": None,
+    }
+    stop = threading.Event()
+
+    def _run() -> None:
+        left_sock = ctx.socket(zmq.SUB)
+        left_sock.setsockopt(zmq.LINGER, 0)
+        left_sock.setsockopt(zmq.CONFLATE, 1)
+        left_sock.setsockopt_string(zmq.SUBSCRIBE, "")
+        left_sock.connect(left_ep)
+
+        right_sock = ctx.socket(zmq.SUB)
+        right_sock.setsockopt(zmq.LINGER, 0)
+        right_sock.setsockopt(zmq.CONFLATE, 1)
+        right_sock.setsockopt_string(zmq.SUBSCRIBE, "")
+        right_sock.connect(right_ep)
+
+        ups_sock: Optional[zmq.Socket] = None
+        if ups_ep:
+            ups_sock = ctx.socket(zmq.SUB)
+            ups_sock.setsockopt(zmq.LINGER, 0)
+            ups_sock.setsockopt(zmq.CONFLATE, 1)
+            ups_sock.setsockopt_string(zmq.SUBSCRIBE, "")
+            ups_sock.connect(ups_ep)
+
+        poller = zmq.Poller()
+        poller.register(left_sock, zmq.POLLIN)
+        poller.register(right_sock, zmq.POLLIN)
+        if ups_sock:
+            poller.register(ups_sock, zmq.POLLIN)
+
+        try:
+            while not stop.is_set():
+                try:
+                    events = dict(poller.poll(timeout=100))
+                except zmq.ZMQError:
+                    break
+                now = time.time()
+
+                if left_sock in events:
+                    try:
+                        msg = json.loads(left_sock.recv_string(zmq.NOBLOCK))
+                        with lock:
+                            cache["left"] = msg
+                            cache["left_time"] = now
+                            ts = msg.get("timestamp")
+                            if ts is not None:
+                                cache["left_ts"] = float(ts)
+                    except Exception:
+                        pass
+
+                if right_sock in events:
+                    try:
+                        msg = json.loads(right_sock.recv_string(zmq.NOBLOCK))
+                        with lock:
+                            cache["right"] = msg
+                            cache["right_time"] = now
+                            ts = msg.get("timestamp")
+                            if ts is not None:
+                                cache["right_ts"] = float(ts)
+                    except Exception:
+                        pass
+
+                if ups_sock and ups_sock in events:
+                    try:
+                        msg = json.loads(ups_sock.recv_string(zmq.NOBLOCK))
+                        with lock:
+                            cache["ups"] = msg
+                    except Exception:
+                        pass
+        finally:
+            left_sock.close()
+            right_sock.close()
+            if ups_sock:
+                ups_sock.close()
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    return stop, thread, lock, cache
+
+
+# ---------------------------------------------------------------------------
 # Image decoding
 # ---------------------------------------------------------------------------
 
@@ -533,8 +638,8 @@ def main() -> None:
     ap.add_argument("--ups",             default=_ep.get("ups_telemetry", "tcp://192.168.0.27:5562"),
                     help="UPS telemetry address (empty to disable)")
     ap.add_argument("--output-dir",      default="episodes",              dest="output_dir")
-    ap.add_argument("--max-steps",       type=int, default=600,           dest="max_steps",
-                    help="Max steps per episode (default: 600 = 30 s at 20 Hz)")
+    ap.add_argument("--max-steps",       type=int, default=10000,           dest="max_steps",
+                    help="Max steps per episode (default: 10000 = 30 s at 20 Hz)")
     ap.add_argument("--image-size",      default="240x320",               dest="image_size",
                     help="Image size HxW (default: 240x320)")
     ap.add_argument("--dry-run",         action="store_true",             dest="dry_run")
@@ -607,25 +712,15 @@ def main() -> None:
 
     telem_sock = ctx.socket(zmq.SUB)
     telem_sock.setsockopt(zmq.LINGER, 0)
+    telem_sock.setsockopt(zmq.CONFLATE, 1)
     telem_sock.setsockopt_string(zmq.SUBSCRIBE, "")
     telem_sock.connect(args.telem)
 
-    left_sock = ctx.socket(zmq.SUB)
-    left_sock.setsockopt(zmq.LINGER, 0)
-    left_sock.setsockopt_string(zmq.SUBSCRIBE, "")
-    left_sock.connect(args.cam_left)
-
-    right_sock = ctx.socket(zmq.SUB)
-    right_sock.setsockopt(zmq.LINGER, 0)
-    right_sock.setsockopt_string(zmq.SUBSCRIBE, "")
-    right_sock.connect(args.cam_right)
-
-    ups_sock: Optional[zmq.Socket] = None
-    if args.ups:
-        ups_sock = ctx.socket(zmq.SUB)
-        ups_sock.setsockopt(zmq.LINGER, 0)
-        ups_sock.setsockopt_string(zmq.SUBSCRIBE, "")
-        ups_sock.connect(args.ups)
+    # Camera + UPS reception runs in a background thread so that
+    # JSON-parsing large JPEG frames never delays motor commands.
+    _cam_stop, _cam_thread, _cam_lock, _cam_cache = _start_cam_receiver(
+        ctx, args.cam_left, args.cam_right, args.ups or None,
+    )
 
     get_key = setup_keyboard()
 
@@ -649,6 +744,7 @@ def main() -> None:
         TRACKING = "tracking"
         HOLD     = "hold"
         SHUTDOWN = "shutdown"
+        ESTOP    = "estop"
 
     teleop_state                       = State.READY
     held_target:     Optional[np.ndarray] = None
@@ -656,6 +752,8 @@ def main() -> None:
     shutdown_countdown: float          = 0.0
     shutdown_target: Optional[np.ndarray] = None
     shutdown_swivel: Optional[float]   = None
+    shutdown_zero_since: float         = 0.0   # when ramp first hit zero
+    _SHUTDOWN_TIMEOUT                  = 3.0   # force-disable after this many seconds at zero
     swivel_actual:   Optional[float]   = None
     swivel_torque:   Optional[float]   = None
     swivel_temp:     Optional[float]   = None
@@ -737,23 +835,17 @@ def main() -> None:
                 _save_thread = None
 
             # -----------------------------------------------------------------
-            # Drain cameras
+            # Read cached camera data (populated by background thread)
             # -----------------------------------------------------------------
-            lm = _drain(left_sock)
-            if lm is not None:
-                latest_left = lm
-                last_left_time = t0
-                ts = lm.get("timestamp")
-                if ts is not None:
-                    latest_left_ts = float(ts)
-
-            rm = _drain(right_sock)
-            if rm is not None:
-                latest_right = rm
-                last_right_time = t0
-                ts = rm.get("timestamp")
-                if ts is not None:
-                    latest_right_ts = float(ts)
+            with _cam_lock:
+                if _cam_cache["left"] is not None:
+                    latest_left    = _cam_cache["left"]
+                    last_left_time = _cam_cache["left_time"]
+                    latest_left_ts = _cam_cache["left_ts"]
+                if _cam_cache["right"] is not None:
+                    latest_right    = _cam_cache["right"]
+                    last_right_time = _cam_cache["right_time"]
+                    latest_right_ts = _cam_cache["right_ts"]
 
             cam_left_age  = (t0 - last_left_time)  if last_left_time  > 0 else 999.0
             cam_right_age = (t0 - last_right_time) if last_right_time > 0 else 999.0
@@ -790,6 +882,7 @@ def main() -> None:
                         "type": "arm_joints", "positions": ref,
                         "velocities": [0.0] * NUM_JOINTS,
                         "kp": [0.0] * NUM_JOINTS, "kd": [0.0] * NUM_JOINTS,
+                        "torques": [0.0] * NUM_JOINTS,
                     })
                     teleop_state = State.IDLE
 
@@ -884,8 +977,9 @@ def main() -> None:
                                           else np.zeros(NUM_JOINTS))
                     shutdown_swivel    = (swivel_actual if swivel_actual is not None
                                           else held_swivel if held_swivel is not None else 0.0)
-                    shutdown_countdown = 1.0
-                    teleop_state       = State.SHUTDOWN
+                    shutdown_countdown  = 1.0
+                    shutdown_zero_since = 0.0
+                    teleop_state        = State.SHUTDOWN
                     if recording:
                         recording = False   # stop recording on shutdown
 
@@ -932,6 +1026,7 @@ def main() -> None:
                         _send(cmd_sock, {
                             "type": "arm_joints", "positions": shutdown_target.tolist(),
                             "velocities": [0.0] * NUM_JOINTS, "kp": _kp, "kd": _kd,
+                            "torques": [0.0] * NUM_JOINTS,
                         })
                     if shutdown_swivel is not None:
                         _send(cmd_sock, {"type": "swivel", "position": shutdown_swivel,
@@ -952,6 +1047,7 @@ def main() -> None:
                     _send(cmd_sock, {
                         "type": "arm_joints", "positions": q_cmd.tolist(),
                         "velocities": [0.0] * NUM_JOINTS, "kp": _kp, "kd": _kd,
+                        "torques": [0.0] * NUM_JOINTS,
                     })
                     if shutdown_swivel is None:
                         shutdown_swivel = 0.0
@@ -959,9 +1055,14 @@ def main() -> None:
                                        else shutdown_swivel - np.sign(shutdown_swivel) * max_change)
                     _send(cmd_sock, {"type": "swivel", "position": shutdown_swivel,
                                      "kp": _swivel_kp, "kd": _swivel_kd})
-                    arm_done = (np.all(np.abs(shutdown_target) < 0.01)
-                                and (q_actual is None or np.all(np.abs(q_actual) < 0.05)))
-                    if arm_done and abs(shutdown_swivel) < 0.01:
+                    ramp_done = (np.all(np.abs(shutdown_target) < 0.01)
+                                 and abs(shutdown_swivel) < 0.01)
+                    if ramp_done and shutdown_zero_since == 0.0:
+                        shutdown_zero_since = t0
+                    actual_close = (q_actual is None or np.all(np.abs(q_actual) < 0.05))
+                    timed_out    = (shutdown_zero_since > 0
+                                    and t0 - shutdown_zero_since >= _SHUTDOWN_TIMEOUT)
+                    if ramp_done and (actual_close or timed_out):
                         _send(cmd_sock, {"type": "disable", "motor_ids": ["swivel"] + ARM_JOINTS})
                         teleop_state = State.READY
 
@@ -971,6 +1072,7 @@ def main() -> None:
                         "type": "arm_joints", "positions": q_actual.tolist(),
                         "velocities": [0.0] * NUM_JOINTS,
                         "kp": [0.0] * NUM_JOINTS, "kd": [0.0] * NUM_JOINTS,
+                        "torques": [0.0] * NUM_JOINTS,
                     })
                 if swivel_actual is not None:
                     _send(cmd_sock, {"type": "swivel", "position": swivel_actual,
@@ -986,6 +1088,7 @@ def main() -> None:
                     _send(cmd_sock, {
                         "type": "arm_joints", "positions": q_cmd.tolist(),
                         "velocities": [0.0] * NUM_JOINTS, "kp": _kp, "kd": _kd,
+                        "torques": [0.0] * NUM_JOINTS,
                     })
                 if swivel_tgt is not None:
                     _send(cmd_sock, {"type": "swivel", "position": swivel_tgt,
@@ -1020,10 +1123,37 @@ def main() -> None:
                 if bv is not None:
                     battery_voltage = float(bv)
 
-            if ups_sock is not None:
-                um = _drain(ups_sock)
-                if um and "ups" in um:
-                    ups_data = um["ups"]
+            with _cam_lock:
+                _ups_msg = _cam_cache["ups"]
+            if _ups_msg is not None and "ups" in _ups_msg:
+                ups_data = _ups_msg["ups"]
+
+            # -----------------------------------------------------------------
+            # E-Stop detection
+            # -----------------------------------------------------------------
+            if telem and telem.get("emergency_stop"):
+                if teleop_state != State.ESTOP:
+                    if recording:
+                        recording = False
+                        steps     = len(qpos_buf)
+                        dur       = steps / REC_HZ
+                        drop_note = f"  drop:{dropped_frames}" if dropped_frames else ""
+                        if steps > 0 and not args.dry_run:
+                            save_msg       = f"[saving {steps} steps (e-stop)...]"
+                            save_msg_until = t0 + 120.0
+                            _save_result_holder[0] = None
+                            _save_thread = _start_async_save(
+                                args.output_dir, qpos_buf, left_buf, right_buf,
+                                telem_ts_buf, left_ts_buf, right_ts_buf, swivel_buf,
+                                dur, drop_note, tag=" (e-stop)",
+                            )
+                        elif steps > 0:
+                            save_msg       = f"[DRY RUN] e-stop: {steps} steps  {dur:.1f}s"
+                            save_msg_until = t0 + 5.0
+                    teleop_state = State.ESTOP
+            elif teleop_state == State.ESTOP:
+                # E-stop cleared — return to READY, user must re-enable
+                teleop_state = State.READY
 
             # -----------------------------------------------------------------
             # Recording (sub-sampled to REC_HZ)
@@ -1099,6 +1229,10 @@ def main() -> None:
                           if shutdown_countdown > 0 else "[X] returning to zero")
                 hint   = "B=cancel (gamepad) · Q=quit"
 
+            elif teleop_state == State.ESTOP:
+                status = f"{_BG_RED} !! EMERGENCY STOP !! {_RST}"
+                hint   = "release e-stop to clear · Q=quit"
+
             # Flash messages override
             if t0 < zero_msg_until:
                 status = zero_msg
@@ -1151,10 +1285,8 @@ def main() -> None:
             leader.close()
         cmd_sock.close()
         telem_sock.close()
-        left_sock.close()
-        right_sock.close()
-        if ups_sock is not None:
-            ups_sock.close()
+        _cam_stop.set()
+        _cam_thread.join(timeout=2.0)
         ctx.term()
         print("\nDone.")
 

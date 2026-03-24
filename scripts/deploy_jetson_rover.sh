@@ -42,13 +42,13 @@ echo "Connected."
 echo ""
 
 # Pack sources into a tarball, excluding build artifacts and repo metadata
-echo "1. Packing rust/ and config/ ..."
+echo "1. Packing rust/, config/, and scripts/ ..."
 tar czf "$TARBALL" \
     --exclude='rust/target' \
     --exclude='*.pyc' \
     --exclude='__pycache__' \
     --exclude='logs' \
-    rust/ config/
+    rust/ config/ scripts/aizee-reset-usb-can
 echo "   $(du -h $TARBALL | cut -f1) packed."
 echo ""
 
@@ -68,17 +68,32 @@ echo "4. Building motor_control on Jetson (this takes a minute)..."
 $SSH "$TARGET" "cd ~/$REMOTE_DIR/rust/motor_control && source ~/.cargo/env && cargo build --release 2>&1"
 echo ""
 
-# Install service file, reload, restart, and show status.
+# Install helper scripts, service file, sudoers, reload, restart, and show status.
 # sudo -S reads the password from the first line of stdin; bash -s reads the
 # subsequent lines as commands — pipe both together in one group.
-echo "5. Installing service, restarting, and checking status..."
+echo "5. Installing scripts, service, sudoers, restarting, and checking status..."
 {
     echo "$JETSON_PASS"
     cat << 'SUDO_CMDS'
-cp ~/aizee/config/systemd/aizee-motor-control-rover.service /etc/systemd/system/
+# Install USB-CAN reset helper script (fix CRLF from Windows git)
+sed 's/\r$//' /home/ltr/aizee/scripts/aizee-reset-usb-can > /usr/local/bin/aizee-reset-usb-can
+chmod 755 /usr/local/bin/aizee-reset-usb-can
+
+# Install sudoers for passwordless CAN management
+cat > /etc/sudoers.d/aizee-can << 'SUDOERS'
+# Allow ltr to run USB-CAN reset (used by systemd ExecStartPre and runtime recovery)
+ltr ALL=(ALL) NOPASSWD: /usr/local/bin/aizee-reset-usb-can
+# Allow ltr to manage CAN interfaces (used by runtime ip link down/up recovery)
+ltr ALL=(ALL) NOPASSWD: /usr/sbin/ip link set can0 *
+ltr ALL=(ALL) NOPASSWD: /usr/sbin/ip link set can1 *
+SUDOERS
+chmod 440 /etc/sudoers.d/aizee-can
+
+# Install service file and restart
+cp /home/ltr/aizee/config/systemd/aizee-motor-control-rover.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl restart aizee-motor-control-rover
-sleep 1
+sleep 2
 systemctl status aizee-motor-control-rover --no-pager -l
 SUDO_CMDS
 } | $SSH "$TARGET" "sudo -S bash -s 2>/dev/null"

@@ -72,13 +72,13 @@ _LEADER_JOINTS = ["swivel", "gantry_base", "gantry_mid", "gantry_end",
 
 # Per-joint torque saturation thresholds (Nm) — matches max_torque in hardware_jetson_rover.yaml
 _SAT_TORQUE = {
-    "swivel":      6.0,
-    "gantry_base": 12.0,
-    "gantry_mid":  6.0,
-    "gantry_end":  4.0,
-    "wrist_pitch": 4.0,
-    "wrist_roll":  2.0,
-    "gripper":     2.0,
+    "swivel":      12.0,   # RS03 nominal
+    "gantry_base": 24.0,   # RS04 nominal
+    "gantry_mid":  12.0,   # RS03 nominal
+    "gantry_end":   5.0,   # RS02 nominal
+    "wrist_pitch":  5.0,   # RS02 nominal
+    "wrist_roll":   0.5,   # RS00 nominal
+    "gripper":      0.5,   # RS00 nominal
 }
 
 # UPS voltage thresholds (V)
@@ -326,6 +326,13 @@ def _drain(sock) -> Optional[dict]:
     return latest
 
 
+def _send(sock, msg: dict) -> None:
+    try:
+        sock.send_string(json.dumps(msg), zmq.NOBLOCK)
+    except zmq.Again:
+        pass
+
+
 def _qtorque(telem: Optional[dict]) -> Optional[np.ndarray]:
     """Extract arm joint torques from telemetry (6-elem, NaN where motor absent)."""
     if not telem or "motors" not in telem:
@@ -483,12 +490,14 @@ def main() -> None:
     cmd_sock.setsockopt(zmq.LINGER,  0)  # don't wait on close
     cmd_sock.connect(args.cmd)
     telem_sock = ctx.socket(zmq.SUB)
+    telem_sock.setsockopt(zmq.CONFLATE, 1)
     telem_sock.connect(args.telem)
     telem_sock.setsockopt_string(zmq.SUBSCRIBE, "")
     ups_sock: Optional[zmq.Socket] = None
     if args.ups:
         ups_sock = ctx.socket(zmq.SUB)
         ups_sock.setsockopt(zmq.LINGER, 0)
+        ups_sock.setsockopt(zmq.CONFLATE, 1)
         ups_sock.setsockopt_string(zmq.SUBSCRIBE, "")
         ups_sock.connect(args.ups)
     teleop_pub_sock: Optional[zmq.Socket] = None
@@ -531,6 +540,8 @@ def main() -> None:
     shutdown_countdown: float              = 0.0   # seconds remaining to hold
     shutdown_target:    Optional[np.ndarray] = None  # frozen arm positions at shutdown start
     shutdown_swivel:    Optional[float]      = None  # frozen swivel position at shutdown start
+    shutdown_zero_since: float              = 0.0   # when ramp first hit zero
+    _SHUTDOWN_TIMEOUT                       = 3.0   # force-disable after this many seconds at zero
     swivel_actual:      Optional[float]      = None  # latest swivel position from telemetry
     swivel_torque:      Optional[float]      = None  # latest swivel torque from telemetry
     swivel_temp:        Optional[float]      = None  # latest swivel temperature from telemetry
@@ -585,33 +596,22 @@ def main() -> None:
 
             elif key == "I":
                 if teleop_state in (State.READY, State.IDLE):
-                    try:
-                        cmd_sock.send_string(json.dumps({
-                            "type": "enable",
-                            "motor_ids": ["swivel"] + ARM_JOINTS
-                        }), zmq.NOBLOCK)
-                    except zmq.Again:
-                        pass
+                    _send(cmd_sock, {"type": "enable", "motor_ids": ["swivel"] + ARM_JOINTS})
                     ref = q_actual if q_actual is not None else [0.0] * len(ARM_JOINTS)
                     ref_list = ref.tolist() if hasattr(ref, "tolist") else list(ref)
-                    try:
-                        cmd_sock.send_string(json.dumps({
-                            "type":       "arm_joints",
-                            "positions":  ref_list,
-                            "velocities": [0.0] * len(ARM_JOINTS),
-                            "kp":         [0.0] * len(ARM_JOINTS),
-                            "kd":         [0.0] * len(ARM_JOINTS),
-                        }), zmq.NOBLOCK)
-                    except zmq.Again:
-                        pass
+                    _send(cmd_sock, {
+                        "type":       "arm_joints",
+                        "positions":  ref_list,
+                        "velocities": [0.0] * len(ARM_JOINTS),
+                        "kp":         [0.0] * len(ARM_JOINTS),
+                        "kd":         [0.0] * len(ARM_JOINTS),
+                        "torques":    [0.0] * len(ARM_JOINTS),
+                    })
                     teleop_state = State.IDLE
 
             elif key == "E":
                 # Enable arm motors and enter alignment phase
-                try:
-                    cmd_sock.send_string(json.dumps({"type": "enable", "motor_ids": ["swivel"] + ARM_JOINTS}), zmq.NOBLOCK)
-                except zmq.Again:
-                    pass
+                _send(cmd_sock, {"type": "enable", "motor_ids": ["swivel"] + ARM_JOINTS})
                 teleop_state   = State.ALIGNING
                 converge_start = None
 
@@ -670,8 +670,9 @@ def main() -> None:
                     shutdown_swivel    = (swivel_actual if swivel_actual is not None
                                           else held_swivel if held_swivel is not None
                                           else None)
-                    shutdown_countdown = 1.0
-                    teleop_state       = State.SHUTDOWN
+                    shutdown_countdown  = 1.0
+                    shutdown_zero_since = 0.0
+                    teleop_state        = State.SHUTDOWN
 
             # --- Read SO-101 (from background reader thread) ---
             with _lr_lock:
@@ -713,22 +714,17 @@ def main() -> None:
                     # Phase 1: hold position for 1 s
                     shutdown_countdown -= dt
                     if shutdown_target is not None:
-                        try:
-                            cmd_sock.send_string(json.dumps({
-                                "type":       "arm_joints",
-                                "positions":  shutdown_target.tolist(),
-                                "velocities": [0.0] * len(ARM_JOINTS),
-                                "kp":         _kp,
-                                "kd":         _kd,
-                            }), zmq.NOBLOCK)
-                        except zmq.Again:
-                            pass
+                        _send(cmd_sock, {
+                            "type":       "arm_joints",
+                            "positions":  shutdown_target.tolist(),
+                            "velocities": [0.0] * len(ARM_JOINTS),
+                            "kp":         _kp,
+                            "kd":         _kd,
+                            "torques":    [0.0] * len(ARM_JOINTS),
+                        })
                     if shutdown_swivel is not None:
-                        try:
-                            cmd_sock.send_string(json.dumps({"type": "swivel", "position": shutdown_swivel,
-                                                              "kp": _swivel_kp, "kd": _swivel_kd}), zmq.NOBLOCK)
-                        except zmq.Again:
-                            pass
+                        _send(cmd_sock, {"type": "swivel", "position": shutdown_swivel,
+                                         "kp": _swivel_kp, "kd": _swivel_kd})
                 else:
                     # Phase 2: slowly move each joint toward zero at 0.2 rad/s
                     if shutdown_target is None:
@@ -746,16 +742,14 @@ def main() -> None:
                     q_cmd = ref + delta
                     if arm_limits:
                         q_cmd = np.array(clamp_arm_positions(q_cmd.tolist(), arm_limits), dtype=np.float32)
-                    try:
-                        cmd_sock.send_string(json.dumps({
-                            "type":       "arm_joints",
-                            "positions":  q_cmd.tolist(),
-                            "velocities": [0.0] * len(ARM_JOINTS),
-                            "kp":         _kp,
-                            "kd":         _kd,
-                        }), zmq.NOBLOCK)
-                    except zmq.Again:
-                        pass
+                    _send(cmd_sock, {
+                        "type":       "arm_joints",
+                        "positions":  q_cmd.tolist(),
+                        "velocities": [0.0] * len(ARM_JOINTS),
+                        "kp":         _kp,
+                        "kd":         _kd,
+                        "torques":    [0.0] * len(ARM_JOINTS),
+                    })
                     # Swivel: step toward zero
                     if shutdown_swivel is None:
                         shutdown_swivel = 0.0
@@ -763,48 +757,33 @@ def main() -> None:
                         shutdown_swivel = 0.0
                     else:
                         shutdown_swivel -= np.sign(shutdown_swivel) * max_change
-                    try:
-                        cmd_sock.send_string(json.dumps({"type": "swivel", "position": shutdown_swivel,
-                                                          "kp": _swivel_kp, "kd": _swivel_kd}), zmq.NOBLOCK)
-                    except zmq.Again:
-                        pass
-                    # Check if all joints (arm + swivel) are at zero.
-                    # Use q_actual (real feedback) when available so we don't
-                    # declare done while the arm is still lagging the ramp target.
-                    if q_actual is not None:
-                        arm_at_zero = (np.all(np.abs(shutdown_target) < 0.01)
-                                       and np.all(np.abs(q_actual) < 0.05))
-                    else:
-                        arm_at_zero = np.all(np.abs(shutdown_target) < 0.01)
-                    swivel_at_zero = abs(shutdown_swivel) < 0.01
-                    if arm_at_zero and swivel_at_zero:
-                        try:
-                            cmd_sock.send_string(json.dumps({"type": "disable", "motor_ids": ["swivel"] + ARM_JOINTS}), zmq.NOBLOCK)
-                        except zmq.Again:
-                            pass
+                    _send(cmd_sock, {"type": "swivel", "position": shutdown_swivel,
+                                     "kp": _swivel_kp, "kd": _swivel_kd})
+                    ramp_done = (np.all(np.abs(shutdown_target) < 0.01)
+                                 and abs(shutdown_swivel) < 0.01)
+                    if ramp_done and shutdown_zero_since == 0.0:
+                        shutdown_zero_since = t0
+                    actual_close = (q_actual is None or np.all(np.abs(q_actual) < 0.05))
+                    timed_out    = (shutdown_zero_since > 0
+                                    and t0 - shutdown_zero_since >= _SHUTDOWN_TIMEOUT)
+                    if ramp_done and (actual_close or timed_out):
+                        _send(cmd_sock, {"type": "disable", "motor_ids": ["swivel"] + ARM_JOINTS})
                         teleop_state = State.READY
 
             elif teleop_state == State.IDLE:
                 # Send kp=0/kd=0 continuously to keep Rust watchdog alive
                 if q_actual is not None:
-                    try:
-                        cmd_sock.send_string(json.dumps({
-                            "type":       "arm_joints",
-                            "positions":  q_actual.tolist(),
-                            "velocities": [0.0] * len(ARM_JOINTS),
-                            "kp":         [0.0] * len(ARM_JOINTS),
-                            "kd":         [0.0] * len(ARM_JOINTS),
-                        }), zmq.NOBLOCK)
-                    except zmq.Again:
-                        pass
+                    _send(cmd_sock, {
+                        "type":       "arm_joints",
+                        "positions":  q_actual.tolist(),
+                        "velocities": [0.0] * len(ARM_JOINTS),
+                        "kp":         [0.0] * len(ARM_JOINTS),
+                        "kd":         [0.0] * len(ARM_JOINTS),
+                        "torques":    [0.0] * len(ARM_JOINTS),
+                    })
                 if swivel_actual is not None:
-                    try:
-                        cmd_sock.send_string(json.dumps(
-                            {"type": "swivel", "position": swivel_actual,
-                             "kp": _swivel_kp, "kd": _swivel_kd}
-                        ), zmq.NOBLOCK)
-                    except zmq.Again:
-                        pass
+                    _send(cmd_sock, {"type": "swivel", "position": swivel_actual,
+                                     "kp": _swivel_kp, "kd": _swivel_kd})
 
             elif teleop_state != State.READY:
                 # Normal command sending
@@ -814,22 +793,17 @@ def main() -> None:
                     q_cmd = ref + delta
                     if arm_limits:
                         q_cmd = np.array(clamp_arm_positions(q_cmd.tolist(), arm_limits), dtype=np.float32)
-                    try:
-                        cmd_sock.send_string(json.dumps({
-                            "type":       "arm_joints",
-                            "positions":  q_cmd.tolist(),
-                            "velocities": [0.0] * len(ARM_JOINTS),
-                            "kp":         _kp,
-                            "kd":         _kd,
-                        }), zmq.NOBLOCK)
-                    except zmq.Again:
-                        pass
+                    _send(cmd_sock, {
+                        "type":       "arm_joints",
+                        "positions":  q_cmd.tolist(),
+                        "velocities": [0.0] * len(ARM_JOINTS),
+                        "kp":         _kp,
+                        "kd":         _kd,
+                        "torques":    [0.0] * len(ARM_JOINTS),
+                    })
                 if swivel_tgt is not None:
-                    try:
-                        cmd_sock.send_string(json.dumps({"type": "swivel", "position": swivel_tgt,
-                                                          "kp": _swivel_kp, "kd": _swivel_kd}), zmq.NOBLOCK)
-                    except zmq.Again:
-                        pass
+                    _send(cmd_sock, {"type": "swivel", "position": swivel_tgt,
+                                     "kp": _swivel_kp, "kd": _swivel_kd})
 
             # --- Alignment convergence check ---
             # Tracks how long max per-joint error < align_margin.
@@ -966,18 +940,15 @@ def main() -> None:
                     if arr is None:
                         return [None] * 7
                     return [None if not np.isfinite(float(x)) else float(x) for x in arr]
-                try:
-                    teleop_pub_sock.send_string(json.dumps({
-                        "timestamp": t0,
-                        "state":     teleop_state.value,
-                        "leader":    _jlist(mapped_rad),
-                        "target":    _jlist(disp_target),
-                        "actual":    _jlist(disp_actual),
-                        "torque":    _jlist(disp_torque),
-                        "temp":      _jlist(disp_temp),
-                    }), zmq.NOBLOCK)
-                except zmq.Again:
-                    pass
+                _send(teleop_pub_sock, {
+                    "timestamp": t0,
+                    "state":     teleop_state.value,
+                    "leader":    _jlist(mapped_rad),
+                    "target":    _jlist(disp_target),
+                    "actual":    _jlist(disp_actual),
+                    "torque":    _jlist(disp_torque),
+                    "temp":      _jlist(disp_temp),
+                })
 
             sleep_t = period - (time.time() - t0)
             if sleep_t > 0:

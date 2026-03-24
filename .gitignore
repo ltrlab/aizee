@@ -95,3 +95,7 @@ install/
 *.key
 secrets/
 scripts/.jetson_password
+.env
+
+# URDF export generated meshes (large STL files)
+urdf/*/meshes/

@@ -99,8 +99,21 @@ impl Motor {
             {
                 if self.state != MotorState::Error {
                     tracing::warn!(
-                        "Motor {} mode transition Run→Reset (hardware fault detected)",
-                        self.config.id
+                        "Motor {} [0x{:02X}] mode transition Run→Reset (hardware fault): \
+                         undervolt={} overcurrent={} overtemp={} mag_enc={} hall_enc={} uncal={} \
+                         pos={:.3} vel={:.3} torque={:.3} temp={:.1}°C",
+                        self.config.id,
+                        self.config.can_id,
+                        feedback.error.undervoltage,
+                        feedback.error.overcurrent,
+                        feedback.error.overtemp,
+                        feedback.error.magnetic_encoding_fault,
+                        feedback.error.hall_encoding_fault,
+                        feedback.error.uncalibrated,
+                        feedback.position,
+                        feedback.velocity,
+                        feedback.torque,
+                        feedback.temperature,
                     );
                     self.state = MotorState::Error;
                     self.fault_info = Some(FaultInfo {
@@ -119,10 +132,23 @@ impl Motor {
                 // Only enter Error state after sustained errors (10 consecutive frames)
                 if self.state != MotorState::Error {
                     tracing::warn!(
-                        "Motor {} entering Error state after {} consecutive errors: {:?}",
+                        "Motor {} [0x{:02X}] FAULT after {} consecutive errors: \
+                         undervolt={} overcurrent={} overtemp={} mag_enc={} hall_enc={} uncal={} \
+                         mode={:?} pos={:.3} vel={:.3} torque={:.3} temp={:.1}°C",
                         self.config.id,
+                        self.config.can_id,
                         self.consecutive_errors,
-                        feedback.error
+                        feedback.error.undervoltage,
+                        feedback.error.overcurrent,
+                        feedback.error.overtemp,
+                        feedback.error.magnetic_encoding_fault,
+                        feedback.error.hall_encoding_fault,
+                        feedback.error.uncalibrated,
+                        feedback.mode,
+                        feedback.position,
+                        feedback.velocity,
+                        feedback.torque,
+                        feedback.temperature,
                     );
                     self.state = MotorState::Error;
                     self.fault_info = Some(FaultInfo {
@@ -154,13 +180,14 @@ impl Motor {
         self.feedback = Some(feedback);
     }
 
-    /// Set target position with velocity and gains
+    /// Set target position with velocity, gains, and optional torque feedforward
     pub fn set_position_target(
         &mut self,
         position: f32,
         velocity: f32,
         kp: f32,
         kd: f32,
+        torque_ff: f32,
     ) -> Result<()> {
         // Validate soft limits
         if let Some(min_pos) = self.config.min_position {
@@ -195,6 +222,8 @@ impl Motor {
         self.target_velocity = velocity;
         self.kp = kp;
         self.kd = kd;
+        // Clamp feedforward torque to config max_torque (defense-in-depth)
+        self.target_torque = torque_ff.clamp(-self.config.max_torque, self.config.max_torque);
         self.last_command_time = Instant::now();
 
         if self.state == MotorState::Enabled {
@@ -354,13 +383,13 @@ mod tests {
         motor.state = MotorState::Enabled;
 
         // Valid position
-        assert!(motor.set_position_target(1.0, 0.0, 1.0, 0.1).is_ok());
+        assert!(motor.set_position_target(1.0, 0.0, 1.0, 0.1, 0.0).is_ok());
 
         // Below minimum
-        assert!(motor.set_position_target(-2.0, 0.0, 1.0, 0.1).is_err());
+        assert!(motor.set_position_target(-2.0, 0.0, 1.0, 0.1, 0.0).is_err());
 
         // Above maximum
-        assert!(motor.set_position_target(2.0, 0.0, 1.0, 0.1).is_err());
+        assert!(motor.set_position_target(2.0, 0.0, 1.0, 0.1, 0.0).is_err());
     }
 
     #[test]

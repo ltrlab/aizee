@@ -1,0 +1,10 @@
+{
+    "url": "https://cad.onshape.com/documents/191b8a861f2900918f30776f/w/8fcf08900b23701d0eff1c6a/e/e731770a141a01a1670f672c",
+    "output_format": "urdf",
+    "output_filename": "aizee",
+    "robot_name": "aizee",
+    "assembly_name": "aizee_urdf",
+    "assets_directory": "meshes",
+    "include_configuration_suffix": false,
+    "round_decimals": 8
+}

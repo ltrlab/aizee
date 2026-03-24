@@ -202,6 +202,7 @@ class KeepaliveThread:
                     "velocities": [0.0] * n,
                     "kp": [0.0] * n,
                     "kd": [0.0] * n,
+                    "torques": [0.0] * n,
                 }
                 try:
                     sock.send_string(json.dumps(cmd), zmq.NOBLOCK)
