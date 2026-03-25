@@ -84,7 +84,7 @@ control:
   arm_frequency: 400.0   # Hz - limited by CAN bus: 6 motors × ~280µs round-trip = 1680µs/cycle
   base_frequency: 100.0  # Hz - wheels + swivel
   telemetry_rate: 50.0   # Hz - published motor states
-  watchdog_timeout: 0.1  # seconds - stop if no command received
+  watchdog_timeout: 0.5  # seconds - hold position if no command received (500ms tolerates WiFi jitter)
 
 # CAN bus configuration
 can:

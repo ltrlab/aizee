@@ -294,6 +294,21 @@ impl Motor {
         tracing::warn!("Motor {} emergency stop", self.config.id);
     }
 
+    /// Command timeout hold — zero velocity/torque but maintain position with gains.
+    /// Unlike emergency_stop(), keeps the motor Running so the control loop continues
+    /// to send position-hold frames with Kp/Kd, preventing the arm from dropping.
+    /// Keeps the existing target_position (doesn't snap to feedback) to avoid a
+    /// step change when commands resume.
+    pub fn hold_position(&mut self) {
+        // Keep target_position as-is — the arm holds at the last commanded position.
+        // Snapping to feedback would cause a lurch when commands resume.
+        self.target_velocity = 0.0;
+        self.target_torque = 0.0;
+        // Keep state Running and Kp/Kd gains — control loop continues holding
+        // Refresh command time so timeout doesn't re-fire every cycle
+        self.last_command_time = Instant::now();
+    }
+
     /// Get current position (from feedback)
     pub fn position(&self) -> Option<f32> {
         self.feedback.as_ref().map(|f| f.position)
@@ -350,6 +365,16 @@ impl MotorGroup {
     pub fn emergency_stop_all(&mut self) {
         for motor in &mut self.motors {
             motor.emergency_stop();
+        }
+    }
+
+    /// Hold position on all timed-out motors (command timeout).
+    /// Motors keep Running with Kp/Kd gains instead of dropping to zero-force Enabled.
+    pub fn hold_timed_out(&mut self) {
+        for motor in &mut self.motors {
+            if motor.is_timeout() {
+                motor.hold_position();
+            }
         }
     }
 

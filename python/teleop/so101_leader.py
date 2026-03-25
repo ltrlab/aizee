@@ -116,6 +116,9 @@ class So101Leader:
         self._unwrap_off: dict[str, int]           = {j: 0    for j in self.JOINTS}
         # Set by poll(): True if that joint's raw frac was outside [0,1] (clamped)
         self._clamped:    list[bool]               = [False] * len(self.JOINTS)
+        # Glitch rejection state — detects multi-joint simultaneous jumps
+        self._last_clean: Optional[np.ndarray]     = None
+        self._reject_count: int                    = 0
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -131,6 +134,8 @@ class So101Leader:
                 self._prev_raw[j]   = None
                 self._unwrap_off[j] = 0
             self._clamped = [False] * len(self.JOINTS)
+            self._last_clean = None
+            self._reject_count = 0
             return True
         except serial.SerialException as exc:
             print(f"[SO-101] connect failed on {self.port}: {exc}")
@@ -260,6 +265,28 @@ class So101Leader:
             else:
                 self._clamped[i] = False
                 out[i] = ticks_to_rad(u % _TICKS)
+
+        # Multi-joint glitch rejection: the Feetech STS3215 sync-read
+        # occasionally returns wrong positions for ALL servos at once.
+        # Detect by counting joints that changed significantly since the
+        # last accepted reading.  Physical hand motion at ~150 Hz poll rate
+        # never moves 4+ joints by >0.008 rad in a single ~6 ms sample.
+        # After 50 consecutive rejections (~333 ms), accept the reading as
+        # a new baseline (arm was physically repositioned, not a glitch).
+        _GLITCH_JOINT_THRESH = 0.008   # rad — min delta to count as "jumping"
+        _GLITCH_MIN_JOINTS   = 4       # simultaneous joints to flag as glitch
+        _MAX_REJECTS         = 50      # accept after this many consecutive rejections
+
+        if self._last_clean is not None:
+            n_big = int(np.sum(np.abs(out - self._last_clean) > _GLITCH_JOINT_THRESH))
+            if n_big >= _GLITCH_MIN_JOINTS:
+                self._reject_count += 1
+                if self._reject_count < _MAX_REJECTS:
+                    return self._last_clean.copy()
+                # Too many consecutive rejections — accept as new baseline
+
+        self._last_clean = out.copy()
+        self._reject_count = 0
         return out
 
     # ------------------------------------------------------------------

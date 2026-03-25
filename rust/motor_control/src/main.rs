@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use comms::{CommandMessage, CommandSubscriber, MotorTelemetry, TelemetryMessage, TelemetryPublisher};
 use motor::{Motor, MotorConfig, MotorGroup, MotorState};
 use robstride::MotorModel;
-use socketcan::{CanSocket, EmbeddedFrame, Socket, SocketOptions};
+use socketcan::{CanSocket, EmbeddedFrame, Frame, Socket, SocketOptions};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::process::Command;
@@ -140,6 +140,7 @@ struct ControlSystem {
     last_buffer_warning: RefCell<HashMap<String, Instant>>, // Rate-limit buffer warnings
     consecutive_tx_errors: RefCell<HashMap<String, u32>>, // Track consecutive errors for recovery
     last_error_log: Instant, // Rate-limit "group has errors" log flood
+    last_hold_log: Instant,  // Rate-limit "command timeout hold" log
     last_socket_recovery: Instant, // Rate-limit socket recovery to prevent storm
     can_recovery_level: HashMap<String, u32>, // Current recovery escalation level per bus (0=socket, 1=link, 2=exit)
     can_recovery_attempts: HashMap<String, u32>, // Attempts at current level per bus
@@ -174,14 +175,7 @@ impl ControlSystem {
                 warn!("Failed to disable CAN loopback on {}: {} (continuing)", bus_name, e);
             }
 
-            // Enable CAN error frame reception: gives us visibility into bus-off,
-            // error-passive, TX/RX error counter overflow, and other bus health issues.
-            // Without this we only discover bus problems indirectly through ENOBUFS.
-            if let Err(e) = socket.set_error_filter_accept_all() {
-                warn!("Failed to set CAN error filter on {}: {} (continuing)", bus_name, e);
-            }
-
-            info!("CAN interface {} opened for bus {} (non-blocking, loopback off, error frames on)", interface_name, bus_name);
+            info!("CAN interface {} opened for bus {} (non-blocking, loopback off)", interface_name, bus_name);
             can_sockets.insert(bus_name.clone(), socket);
         }
 
@@ -253,6 +247,7 @@ impl ControlSystem {
             last_buffer_warning: RefCell::new(HashMap::new()),
             consecutive_tx_errors: RefCell::new(HashMap::new()),
             last_error_log: Instant::now(),
+            last_hold_log: Instant::now(),
             last_socket_recovery: Instant::now(),
             can_recovery_level: HashMap::new(),
             can_recovery_attempts: HashMap::new(),
@@ -383,7 +378,6 @@ impl ControlSystem {
                     return false;
                 }
                 let _ = socket.set_loopback(false);
-                let _ = socket.set_error_filter_accept_all();
                 self.can_sockets.insert(bus_name.to_string(), socket);
                 self.consecutive_tx_errors.borrow_mut().insert(bus_name.to_string(), 0);
                 info!("CAN {} Level 0 recovery complete", bus_name);
@@ -484,7 +478,6 @@ impl ControlSystem {
                     return false;
                 }
                 let _ = socket.set_loopback(false);
-                let _ = socket.set_error_filter_accept_all();
                 self.can_sockets.insert(bus_name.to_string(), socket);
                 self.consecutive_tx_errors.borrow_mut().insert(bus_name.to_string(), 0);
 
@@ -703,20 +696,28 @@ impl ControlSystem {
                 self.safe_write_frame(socket, &frame, &bus_name)?;
                 info!("Sent enable for motor {} (attempt {})", motor_id, attempt);
 
-                // Brief wait then check for response
-                self.sleep_with_keepalives(10);
+                // Brief wait for motor to process enable — NO keepalives here!
+                // Keepalives flood the bus with responses from enabled motors,
+                // preventing us from seeing the enable response from the target.
+                // Enabled motors survive ~100ms without keepalives (hardware watchdog).
+                std::thread::sleep(Duration::from_millis(2));
 
-                // Read response frames to check if motor entered Run mode.
-                // Time-bounded loop: 50ms window, keepalives throttled to every 5ms
-                // to avoid flooding the bus with responses from already-enabled motors.
+                // Drain stale frames before polling for the enable response
+                loop {
+                    match socket.read_frame() {
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                        _ => continue,
+                    }
+                }
+
+                // Re-send enable in case the first was lost during bus contention
+                let frame = robstride::build_enable_frame(can_id);
+                self.safe_write_frame(socket, &frame, &bus_name)?;
+
+                // Poll for response — clean bus, no keepalive noise
                 let mut got_run_mode = false;
                 let poll_start = Instant::now();
-                let mut last_keepalive = Instant::now();
                 while poll_start.elapsed() < Duration::from_millis(50) && !got_run_mode {
-                    if last_keepalive.elapsed() >= Duration::from_millis(5) {
-                        self.send_keepalives();
-                        last_keepalive = Instant::now();
-                    }
                     match socket.read_frame() {
                         Ok(frame) => {
                             let arb_id_raw = match frame.id() {
@@ -724,11 +725,18 @@ impl ControlSystem {
                                 _ => continue,
                             };
                             let msg_type = ((arb_id_raw >> 24) & 0x1F) as u8;
-                            if msg_type != 2 { continue; }
                             let resp_motor_id = ((arb_id_raw >> 8) & 0xFF) as u8;
+                            let mode_bits = ((arb_id_raw >> 22) & 0x03) as u8;
+
+                            // Log all feedback frames during enable poll for debugging
+                            if msg_type == 2 {
+                                info!("  enable poll: motor=0x{:02X} mode={} (want 0x{:02X})",
+                                      resp_motor_id, mode_bits, can_id);
+                            }
+
+                            if msg_type != 2 { continue; }
                             if resp_motor_id != can_id { continue; }
 
-                            let mode_bits = ((arb_id_raw >> 22) & 0x03) as u8;
                             let error_bits = ((arb_id_raw >> 16) & 0x1F) as u8;
 
                             // Parse position from feedback to use for keepalive
@@ -776,7 +784,7 @@ impl ControlSystem {
                         loop {
                             match socket.read_frame() {
                                 Ok(frame) => {
-                                    let arb_id_raw = match frame.id() {
+                                            let arb_id_raw = match frame.id() {
                                         socketcan::Id::Extended(id) => id.as_raw(),
                                         _ => continue,
                                     };
@@ -1276,19 +1284,6 @@ impl ControlSystem {
                 Ok(frame) => {
                     frame_count += 1;
 
-                    // Handle CAN error frames (bus-off, error-passive, etc.)
-                    if frame.is_error_frame() {
-                        let raw_id = frame.raw_id();
-                        let data = frame.data();
-                        // CAN error frame bits: bus-off (0x40), error-passive (0x20),
-                        // error-warning (0x04), TX error counter (data[6]), RX error counter (data[7])
-                        let tx_err = data.get(6).copied().unwrap_or(0);
-                        let rx_err = data.get(7).copied().unwrap_or(0);
-                        warn!("CAN {} error frame: id=0x{:08X} data={:02X?} TX_err={} RX_err={}",
-                              _bus_name, raw_id, data, tx_err, rx_err);
-                        continue;
-                    }
-
                     // Extract motor ID from arbitration ID
                     // Response format: host_id (bits 0-7) | motor_id (bits 8-15) | msg_type (bits 24-31)
                     let arb_id_raw = match frame.id() {
@@ -1425,14 +1420,19 @@ impl ControlSystem {
         // worth of retries before giving up on a truly dead motor.
         let feedback_timeout = Duration::from_millis(2000);
 
-        // Check for command timeouts
-        if self.base_group.has_timeouts() {
-            warn!("Base group timeout detected");
-            self.base_group.emergency_stop_all();
+        // Check for command timeouts — hold position instead of emergency stopping.
+        // Motors stay Running with Kp/Kd gains so the arm doesn't drop under gravity.
+        let base_timeout = self.base_group.has_timeouts();
+        let arm_timeout = self.arm_group.has_timeouts();
+        if base_timeout {
+            self.base_group.hold_timed_out();
         }
-        if self.arm_group.has_timeouts() {
-            warn!("Arm group timeout detected");
-            self.arm_group.emergency_stop_all();
+        if arm_timeout {
+            self.arm_group.hold_timed_out();
+        }
+        if (base_timeout || arm_timeout) && self.last_hold_log.elapsed() >= Duration::from_secs(5) {
+            warn!("Command timeout — holding position (base={}, arm={})", base_timeout, arm_timeout);
+            self.last_hold_log = Instant::now();
         }
 
         // Check for feedback heartbeat timeouts (motor stopped responding on CAN)
