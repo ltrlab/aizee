@@ -1040,21 +1040,13 @@ def main() -> None:
                         new_tgt[i] = (0.0 if abs(new_tgt[i]) < max_change
                                       else new_tgt[i] - np.sign(new_tgt[i]) * max_change)
                     shutdown_target = new_tgt
-                    delta   = np.clip(shutdown_target - ref, -args.max_delta, args.max_delta)
-                    q_cmd   = ref + delta
-                    if arm_limits:
-                        q_cmd = np.array(clamp_arm_positions(q_cmd.tolist(), arm_limits))
-                    _send(cmd_sock, {
-                        "type": "arm_joints", "positions": q_cmd.tolist(),
-                        "velocities": [0.0] * NUM_JOINTS, "kp": _kp, "kd": _kd,
-                        "torques": [0.0] * NUM_JOINTS,
-                    })
                     if shutdown_swivel is None:
                         shutdown_swivel = 0.0
                     shutdown_swivel = (0.0 if abs(shutdown_swivel) < max_change
                                        else shutdown_swivel - np.sign(shutdown_swivel) * max_change)
-                    _send(cmd_sock, {"type": "swivel", "position": shutdown_swivel,
-                                     "kp": _swivel_kp, "kd": _swivel_kd})
+                    # Check completion BEFORE sending — the ZMQ PUSH socket
+                    # has HWM=2 so sending arm+swivel+disable in one iteration
+                    # would silently drop the disable command.
                     ramp_done = (np.all(np.abs(shutdown_target) < 0.01)
                                  and abs(shutdown_swivel) < 0.01)
                     if ramp_done and shutdown_zero_since == 0.0:
@@ -1065,6 +1057,18 @@ def main() -> None:
                     if ramp_done and (actual_close or timed_out):
                         _send(cmd_sock, {"type": "disable", "motor_ids": ["swivel"] + ARM_JOINTS})
                         teleop_state = State.READY
+                    else:
+                        delta   = np.clip(shutdown_target - ref, -args.max_delta, args.max_delta)
+                        q_cmd   = ref + delta
+                        if arm_limits:
+                            q_cmd = np.array(clamp_arm_positions(q_cmd.tolist(), arm_limits))
+                        _send(cmd_sock, {
+                            "type": "arm_joints", "positions": q_cmd.tolist(),
+                            "velocities": [0.0] * NUM_JOINTS, "kp": _kp, "kd": _kd,
+                            "torques": [0.0] * NUM_JOINTS,
+                        })
+                        _send(cmd_sock, {"type": "swivel", "position": shutdown_swivel,
+                                         "kp": _swivel_kp, "kd": _swivel_kd})
 
             elif teleop_state == State.IDLE:
                 if q_actual is not None:
@@ -1283,6 +1287,9 @@ def main() -> None:
             _lr_stop.set()
             _lr_thread.join(timeout=1.0)
             leader.close()
+        # Disable all motors before closing (prevents motors staying enabled after quit)
+        _send(cmd_sock, {"type": "disable", "motor_ids": ["swivel"] + ARM_JOINTS})
+        time.sleep(0.1)  # let ZMQ flush the disable command
         cmd_sock.close()
         telem_sock.close()
         _cam_stop.set()
