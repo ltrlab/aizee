@@ -341,13 +341,19 @@ def load_episode(path: Path) -> tuple[np.ndarray, Optional[np.ndarray], float]:
     """Load episode HDF5.
 
     Returns:
-        qpos   : [T, 6] float32 — arm joint positions
+        qpos   : [T, 6] float32 — arm joint positions (commanded if available, else actual)
         swivel : [T]    float32 — swivel positions, or None if not recorded
         hz     : float  — recording rate
     """
     with h5py.File(path, "r") as f:
         if "observations" in f and "qpos" in f["observations"]:
-            qpos   = f["observations/qpos"][:]
+            # Prefer commanded positions (no sag) for replay
+            if "qcmd" in f["observations"]:
+                qpos = f["observations/qcmd"][:]
+                print(f"  Using commanded positions (qcmd) for replay")
+            else:
+                qpos = f["observations/qpos"][:]
+                print(f"  Using actual positions (qpos) for replay — no qcmd in file")
             swivel = f["observations/swivel"][:] if "swivel" in f["observations"] else None
             hz     = float(f.attrs.get("hz", 20.0))
         elif "qpos" in f:
@@ -383,8 +389,10 @@ def main() -> None:
                     help="Move arm to episode start position before replay")
     ap.add_argument("--loop",              action="store_true",      help="Loop episode indefinitely")
     ap.add_argument("--urdf",              default=None,             help="URDF file for gravity compensation")
-    ap.add_argument("--no-gravity-comp",   action="store_true",      dest="no_gravity_comp",
-                    help="Disable gravity compensation even if URDF is available")
+    ap.add_argument("--gravity-comp",      action="store_true",      dest="gravity_comp",
+                    help="Enable gravity compensation feedforward (off by default when replaying qcmd)")
+    ap.add_argument("--gravity-scale",    type=float, default=1.0,  dest="gravity_scale",
+                    help="Scale factor for gravity compensation torques (default 1.0)")
     ap.add_argument("--no-vel-ff",         action="store_true",      dest="no_vel_ff",
                     help="Disable velocity feedforward during replay")
     ap.add_argument("--dry-run",           action="store_true",      dest="dry_run",
@@ -419,15 +427,25 @@ def main() -> None:
     # Gravity compensation model
     # -------------------------------------------------------------------------
     _grav_model: Optional[ArmGravityModel] = None
-    if not args.no_gravity_comp:
+    _grav_calib = Path(__file__).resolve().parent.parent.parent / "config" / "gravity_calibration.json"
+    if args.gravity_comp:
         if args.urdf is not None:
             _grav_model = ArmGravityModel.from_urdf(args.urdf)
             print(f"Gravity comp: loaded from {args.urdf}")
+        elif _grav_calib.exists():
+            _grav_model = ArmGravityModel.from_calibration(_grav_calib)
+            print(f"Gravity comp: loaded calibrated model from {_grav_calib.name}")
         else:
-            # Use default placeholder model (approximate masses)
             _grav_model = ArmGravityModel()
             print("Gravity comp: using default model (placeholder masses)")
         _grav_model.print_model()
+
+    # Gravity comp mask: only apply to joints that need it.
+    # wrist_pitch disabled — physically perpendicular, doesn't bear gravity load.
+    # gantry_base (Z-axis) and gripper (Z-axis) are always zero anyway.
+    _GRAV_MASK = [1, 1, 1, 0, 1, 0]  # [base, mid, end, wrist_pitch, wrist_roll, gripper]
+    if _grav_model is not None:
+        print(f"Gravity comp: joints=[gantry_mid, gantry_end], scale={args.gravity_scale:.2f}")
 
     # -------------------------------------------------------------------------
     # Pre-compute velocity feedforward from trajectory
@@ -524,6 +542,7 @@ def main() -> None:
     shutdown_swivel:     Optional[float]      = None
     shutdown_countdown:  float = 0.0
     shutdown_zero_since: float = 0.0
+    shutdown_grav_ramp:  Optional[float] = None
     _SHUTDOWN_TIMEOUT          = 3.0
 
     status = "[ ] ready — motors off"
@@ -552,13 +571,16 @@ def main() -> None:
         q_cmd: np.ndarray,
         torques: Optional[list] = None,
         velocities: Optional[list] = None,
+        grav_scale: Optional[float] = None,
     ) -> None:
         if args.dry_run:
             return
         # Compute gravity compensation if model is available
         ff_torques = torques
         if ff_torques is None and _grav_model is not None and q_actual is not None:
-            ff_torques = _grav_model.gravity_torques(q_actual).tolist()
+            gs = grav_scale if grav_scale is not None else args.gravity_scale
+            raw = _grav_model.gravity_torques(q_actual)
+            ff_torques = [float(raw[i]) * _GRAV_MASK[i] * gs for i in range(NUM_JOINTS)]
         _send(cmd_sock, {
             "type":       "arm_joints",
             "positions":  q_cmd.tolist(),
@@ -635,6 +657,7 @@ def main() -> None:
                     shutdown_swivel    = swivel_actual if swivel_actual is not None else 0.0
                     shutdown_countdown  = 1.0
                     shutdown_zero_since = 0.0
+                    shutdown_grav_ramp  = None
                     state = State.SHUTDOWN
 
             # -----------------------------------------------------------------
@@ -662,7 +685,7 @@ def main() -> None:
                     sw_tgt = float(ep_swivel[frame_idx]) if has_swivel else None
                     vel_ff = (ep_velocities[frame_idx].tolist()
                               if ep_velocities is not None else None)
-                    _send_arm(_safe_cmd(tgt, q_actual), velocities=vel_ff)
+                    _send_arm(_safe_cmd(tgt, current_target), velocities=vel_ff)
                     if sw_tgt is not None:
                         _send_swivel(sw_tgt)
                     current_target     = tgt
@@ -692,33 +715,49 @@ def main() -> None:
                 else:
                     if shutdown_target is None:
                         shutdown_target = np.zeros(NUM_JOINTS)
-                    ref     = q_actual if q_actual is not None else shutdown_target
-                    new_tgt = shutdown_target.copy()
-                    for i in range(len(new_tgt)):
-                        new_tgt[i] = (0.0 if abs(new_tgt[i]) < max_change
-                                      else new_tgt[i] - np.sign(new_tgt[i]) * max_change)
-                    shutdown_target = new_tgt
-                    _send_arm(_safe_cmd(shutdown_target, ref))
-                    if shutdown_swivel is None:
-                        shutdown_swivel = 0.0
-                    shutdown_swivel = (0.0 if abs(shutdown_swivel) < max_change
-                                       else shutdown_swivel - np.sign(shutdown_swivel) * max_change)
-                    if has_swivel:
-                        _send_swivel(shutdown_swivel)
+                    # Check completion BEFORE sending — the ZMQ PUSH socket
+                    # has HWM=2 so sending arm+swivel+disable in one iteration
+                    # would silently drop the disable command.
                     ramp_done = (np.all(np.abs(shutdown_target) < 0.01)
-                                 and (not has_swivel or abs(shutdown_swivel) < 0.01))
+                                 and (not has_swivel
+                                      or abs(shutdown_swivel if shutdown_swivel is not None else 0.0) < 0.01))
                     if ramp_done and shutdown_zero_since == 0.0:
                         shutdown_zero_since = t0
                     actual_close = (q_actual is None or np.all(np.abs(q_actual) < 0.05))
                     timed_out    = (shutdown_zero_since > 0
                                     and t0 - shutdown_zero_since >= _SHUTDOWN_TIMEOUT)
-                    if ramp_done and (actual_close or timed_out):
-                        if not args.dry_run:
-                            _send(cmd_sock, {"type": "disable", "motor_ids": all_motor_ids})
-                        state              = State.READY
-                        frame_idx          = 0
-                        current_target     = ep_qpos[0] if ep_frames > 0 else None
-                        current_swivel_tgt = float(ep_swivel[0]) if has_swivel and ep_frames > 0 else None
+                    if shutdown_grav_ramp is not None:
+                        # Gravity ramp-down phase: reduce feedforward before disable
+                        if shutdown_grav_ramp > 0.01:
+                            shutdown_grav_ramp = max(0.0, shutdown_grav_ramp - dt * 2.0)
+                            _send_arm(np.zeros(NUM_JOINTS), grav_scale=shutdown_grav_ramp)
+                            if has_swivel:
+                                _send_swivel(0.0)
+                        else:
+                            if not args.dry_run:
+                                _send(cmd_sock, {"type": "disable", "motor_ids": all_motor_ids})
+                            state              = State.READY
+                            frame_idx          = 0
+                            current_target     = ep_qpos[0] if ep_frames > 0 else None
+                            current_swivel_tgt = float(ep_swivel[0]) if has_swivel and ep_frames > 0 else None
+                    elif ramp_done and (actual_close or timed_out):
+                        # Position ramp complete — begin gravity comp ramp-down
+                        shutdown_grav_ramp = args.gravity_scale if _grav_model is not None else 0.0
+                    else:
+                        # Still ramping — send position commands
+                        ref     = q_actual if q_actual is not None else shutdown_target
+                        new_tgt = shutdown_target.copy()
+                        for i in range(len(new_tgt)):
+                            new_tgt[i] = (0.0 if abs(new_tgt[i]) < max_change
+                                          else new_tgt[i] - np.sign(new_tgt[i]) * max_change)
+                        shutdown_target = new_tgt
+                        _send_arm(_safe_cmd(shutdown_target, ref))
+                        if shutdown_swivel is None:
+                            shutdown_swivel = 0.0
+                        shutdown_swivel = (0.0 if abs(shutdown_swivel) < max_change
+                                           else shutdown_swivel - np.sign(shutdown_swivel) * max_change)
+                        if has_swivel:
+                            _send_swivel(shutdown_swivel)
 
             # -----------------------------------------------------------------
             # Telemetry
@@ -781,8 +820,12 @@ def main() -> None:
                 hint   = "SPACE=replay · R=restart · X=shutdown · Q=quit"
 
             elif state == State.SHUTDOWN:
-                status = (f"[X] shutdown  hold {shutdown_countdown:.1f}s"
-                          if shutdown_countdown > 0 else "[X] returning to zero")
+                if shutdown_countdown > 0:
+                    status = f"[X] shutdown  hold {shutdown_countdown:.1f}s"
+                elif shutdown_grav_ramp is not None:
+                    status = f"[X] ramping down gravity comp ({shutdown_grav_ramp:.2f})"
+                else:
+                    status = "[X] returning to zero"
                 hint   = "Q=quit"
 
             # -----------------------------------------------------------------
@@ -819,6 +862,9 @@ def main() -> None:
         pass
     finally:
         if not args.dry_run:
+            # Disable all motors before closing (prevents motors staying enabled after quit)
+            _send(cmd_sock, {"type": "disable", "motor_ids": all_motor_ids})
+            time.sleep(0.1)  # let ZMQ flush the disable command
             cmd_sock.close()
             telem_sock.close()
         if ups_sock is not None:

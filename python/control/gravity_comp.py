@@ -51,11 +51,11 @@ class JointDef:
 
 _DEFAULT_CHAIN = [
     JointDef("gantry_base",  "Z", LinkParams(length=0.5906, mass=2.00, com_x=0.3937)),  # CoM 2/3 from base
-    JointDef("gantry_mid",   "Y", LinkParams(length=0.5649, mass=2.20, com_x=0.2825)),  # CoM 1/2 way
-    JointDef("gantry_end",   "Y", LinkParams(length=0.100,  mass=1.00, com_x=0.050)),   # CoM center
-    JointDef("wrist_pitch",  "Y", LinkParams(length=0.1063, mass=0.50, com_x=0.053)),   # CoM center
-    JointDef("wrist_roll",   "X", LinkParams(length=0.132,  mass=0.50, com_x=0.066)),   # CoM center
-    JointDef("gripper",      "Z", LinkParams(length=0.0,    mass=0.25, com_x=0.0)),     # gripper mechanism
+    JointDef("gantry_mid",   "Y", LinkParams(length=0.5649, mass=1.50, com_x=0.2825)),  # CoM 1/2 way
+    JointDef("gantry_end",   "Y", LinkParams(length=0.100,  mass=2.00, com_x=0.050)),   # CoM center
+    JointDef("wrist_pitch",  "Y", LinkParams(length=0.1063, mass=2.0, com_x=0.053)),   # CoM center
+    JointDef("wrist_roll",   "X", LinkParams(length=0.132,  mass=1.0, com_x=0.066)),   # CoM center
+    JointDef("gripper",      "Z", LinkParams(length=0.0,    mass=0.5, com_x=0.0)),     # gripper mechanism
 ]
 
 
@@ -128,8 +128,11 @@ class ArmGravityModel:
                 torque_vec = np.cross(r_ij, F_g)
                 total_torque += np.dot(axis_world, torque_vec)
 
-            # Negate: we want the torque that *counteracts* gravity
-            tau[i] = -total_torque
+            # The model's rotation convention (Ry positive = toward -Z)
+            # is opposite to the physical motor convention (positive angle
+            # = upward).  The convention flip and the counteract-gravity
+            # negation cancel, so we use total_torque directly.
+            tau[i] = total_torque
 
         return tau.astype(np.float32)
 
@@ -256,6 +259,38 @@ class ArmGravityModel:
         return cls(chain=chain, gravity=gravity)
 
     # ------------------------------------------------------------------
+    # Factory: load from calibration JSON
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def from_calibration(
+        cls, json_path: str | Path, gravity: float = 9.81
+    ) -> "ArmGravityModel":
+        """Build an ArmGravityModel from a gravity calibration JSON file.
+
+        The JSON is produced by ``gravity_calibrate.py`` and contains
+        calibrated masses and center-of-mass positions for each link.
+        """
+        import json as _json
+
+        data = _json.loads(Path(json_path).read_text())
+        result = data.get("result", data)
+
+        chain: list[JointDef] = []
+        for jd_default, cal in zip(_DEFAULT_CHAIN, result["links"]):
+            chain.append(JointDef(
+                name=jd_default.name,
+                axis=jd_default.axis,
+                link=LinkParams(
+                    length=jd_default.link.length,
+                    mass=float(cal["mass"]),
+                    com_x=float(cal["com_x"]),
+                ),
+            ))
+
+        return cls(chain=chain, gravity=gravity)
+
+    # ------------------------------------------------------------------
     # Diagnostics
     # ------------------------------------------------------------------
 
@@ -333,10 +368,9 @@ if __name__ == "__main__":
 
     # Test at a few configurations
     configs = {
-        "all zeros (upright)":   np.zeros(6),
-        "mid at 90° (horizontal)": np.array([0.0, math.pi/2, 0.0, 0.0, 0.0, 0.0]),
+        "all zeros (horizontal — max torque)": np.zeros(6),
+        "mid at 90° (upward — min torque)": np.array([0.0, math.pi/2, 0.0, 0.0, 0.0, 0.0]),
         "mid+end at 45°":        np.array([0.0, math.pi/4, math.pi/4, 0.0, 0.0, 0.0]),
-        "fully extended horizontal": np.array([0.0, math.pi/2, 0.0, 0.0, 0.0, 0.0]),
     }
 
     for label, q in configs.items():

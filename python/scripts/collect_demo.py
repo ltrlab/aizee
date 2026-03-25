@@ -559,7 +559,7 @@ def _qtemp(telem: Optional[dict]) -> Optional[np.ndarray]:
 def save_episode(
     output_dir, qpos_buf, left_buf, right_buf,
     telem_ts_buf=None, left_ts_buf=None, right_ts_buf=None,
-    swivel_buf=None,
+    swivel_buf=None, qcmd_buf=None,
 ):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -571,7 +571,10 @@ def save_episode(
     qpos_arr  = np.stack(qpos_buf,  axis=0)   # [T, 6]
     left_arr  = np.stack(left_buf,  axis=0)   # [T, H, W, 3]
     right_arr = np.stack(right_buf, axis=0)   # [T, H, W, 3]
-    actions   = np.concatenate([qpos_arr[1:], qpos_arr[-1:]], axis=0)  # [T, 6]
+    qcmd_arr  = np.stack(qcmd_buf, axis=0) if qcmd_buf and len(qcmd_buf) == len(qpos_buf) else None
+    # Actions derived from commanded positions (no sag) when available
+    act_src   = qcmd_arr if qcmd_arr is not None else qpos_arr
+    actions   = np.concatenate([act_src[1:], act_src[-1:]], axis=0)  # [T, 6]
     H, W      = left_arr.shape[1], left_arr.shape[2]
 
     with h5py.File(path, "w") as f:
@@ -579,6 +582,8 @@ def save_episode(
         f.attrs["arm_joints"] = ",".join(ARM_JOINTS)
         obs  = f.create_group("observations")
         obs.create_dataset("qpos",   data=qpos_arr,  compression="gzip", compression_opts=4)
+        if qcmd_arr is not None:
+            obs.create_dataset("qcmd", data=qcmd_arr, compression="gzip", compression_opts=4)
         imgs = obs.create_group("images")
         imgs.create_dataset("left",  data=left_arr,  compression="gzip", compression_opts=4, chunks=(1, H, W, 3))
         imgs.create_dataset("right", data=right_arr, compression="gzip", compression_opts=4, chunks=(1, H, W, 3))
@@ -777,6 +782,7 @@ def main() -> None:
     # Recording state
     recording      = False
     qpos_buf:    list = []
+    qcmd_buf:    list = []
     left_buf:    list = []
     right_buf:   list = []
     swivel_buf:  list = []
@@ -794,6 +800,7 @@ def main() -> None:
     latest_telem_ts: Optional[float] = None
     latest_left_ts:  Optional[float] = None
     latest_right_ts: Optional[float] = None
+    latest_q_cmd: Optional[np.ndarray] = None  # last commanded position sent to motors
 
     status = "[ ] ready — motors off"
     hint   = ("E=hold · I=idle · Q=quit" if leader is None
@@ -809,10 +816,10 @@ def main() -> None:
     _save_thread:        Optional[threading.Thread] = None
     _save_result_holder: list                       = [None]
 
-    def _start_async_save(out_dir, qb, lb, rb, tb, ltb, rtb, swb, dur, drop_note, tag=""):
+    def _start_async_save(out_dir, qb, lb, rb, tb, ltb, rtb, swb, dur, drop_note, tag="", qcb=None):
         def _run():
             try:
-                p, T = save_episode(out_dir, qb, lb, rb, tb, ltb, rtb, swivel_buf=swb)
+                p, T = save_episode(out_dir, qb, lb, rb, tb, ltb, rtb, swivel_buf=swb, qcmd_buf=qcb)
                 _save_result_holder[0] = f"[SAVED {p.name}  {T} steps  {dur:.1f}s{drop_note}]{tag}"
             except Exception as e:
                 _save_result_holder[0] = f"[SAVE ERROR: {e}]"
@@ -913,6 +920,7 @@ def main() -> None:
                     if teleop_state in (State.IDLE, State.TRACKING, State.HOLD):
                         recording      = True
                         qpos_buf       = []
+                        qcmd_buf       = []
                         left_buf       = []
                         right_buf      = []
                         swivel_buf     = []
@@ -937,7 +945,7 @@ def main() -> None:
                         _save_thread = _start_async_save(
                             args.output_dir, qpos_buf, left_buf, right_buf,
                             telem_ts_buf, left_ts_buf, right_ts_buf, swivel_buf,
-                            dur, drop_note,
+                            dur, drop_note, qcb=qcmd_buf,
                         )
                     if steps == 0 or args.dry_run:
                         save_msg_until = t0 + 5.0
@@ -1089,6 +1097,7 @@ def main() -> None:
                     q_cmd = ref + delta
                     if arm_limits:
                         q_cmd = np.array(clamp_arm_positions(q_cmd.tolist(), arm_limits))
+                    latest_q_cmd = q_cmd.copy()
                     _send(cmd_sock, {
                         "type": "arm_joints", "positions": q_cmd.tolist(),
                         "velocities": [0.0] * NUM_JOINTS, "kp": _kp, "kd": _kd,
@@ -1149,7 +1158,7 @@ def main() -> None:
                             _save_thread = _start_async_save(
                                 args.output_dir, qpos_buf, left_buf, right_buf,
                                 telem_ts_buf, left_ts_buf, right_ts_buf, swivel_buf,
-                                dur, drop_note, tag=" (e-stop)",
+                                dur, drop_note, tag=" (e-stop)", qcb=qcmd_buf,
                             )
                         elif steps > 0:
                             save_msg       = f"[DRY RUN] e-stop: {steps} steps  {dur:.1f}s"
@@ -1170,6 +1179,7 @@ def main() -> None:
                 if (q_actual is not None and left_img is not None
                         and right_img is not None and cams_ok):
                     qpos_buf.append(q_actual.copy())
+                    qcmd_buf.append(latest_q_cmd.copy() if latest_q_cmd is not None else q_actual.copy())
                     left_buf.append(left_img)
                     right_buf.append(right_img)
                     swivel_buf.append(swivel_actual if swivel_actual is not None else _nan)
@@ -1192,7 +1202,7 @@ def main() -> None:
                         _save_thread = _start_async_save(
                             args.output_dir, qpos_buf, left_buf, right_buf,
                             telem_ts_buf, left_ts_buf, right_ts_buf, swivel_buf,
-                            dur, drop_note="", tag=" (max steps)",
+                            dur, drop_note="", tag=" (max steps)", qcb=qcmd_buf,
                         )
                     if args.dry_run:
                         save_msg_until = t0 + 5.0
