@@ -6,6 +6,7 @@ Usage:
     python train.py --data-dir episodes/ --output-dir checkpoints/ \\
         --epochs 100 --batch-size 32 --chunk-size 100 --lr 1e-4 --device cuda
     python train.py --data-dir episodes/ --output-dir checkpoints/ --resume
+    python train.py --data-dir episodes/ --output-dir checkpoints/ --state-dim 12
 
 Checkpoints are saved every 5 epochs to:
     checkpoints/act_epoch_XXXX.pt
@@ -44,13 +45,18 @@ def parse_args():
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--chunk-size", type=int, default=100)
     parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--lr-backbone", type=float, default=1e-5,
+                        help="Learning rate for image backbone (10x lower than main)")
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--kl-weight", type=float, default=10.0)
-    parser.add_argument("--d-model", type=int, default=512)
+    parser.add_argument("--d-model", type=int, default=256)
+    parser.add_argument("--dim-feedforward", type=int, default=2048)
     parser.add_argument("--z-dim", type=int, default=32)
     parser.add_argument("--nhead", type=int, default=8)
     parser.add_argument("--num-encoder-layers", type=int, default=4)
     parser.add_argument("--num-decoder-layers", type=int, default=7)
+    parser.add_argument("--state-dim", type=int, default=6, choices=[6, 12, 18],
+                        help="State vector dimension: 6=qpos, 12=qpos+qcmd, 18=qpos+qcmd+torques")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--save-every", type=int, default=5, help="Save checkpoint every N epochs")
@@ -71,11 +77,13 @@ def collate_fn(batch):
     actions = torch.stack(action_list, dim=0)
 
     qpos = torch.stack([o["qpos"] for o in obs_list], dim=0)
+    state = torch.stack([o["state"] for o in obs_list], dim=0)
     imgs_left = torch.stack([o["images"]["left"] for o in obs_list], dim=0)
     imgs_right = torch.stack([o["images"]["right"] for o in obs_list], dim=0)
 
     obs = {
         "qpos": qpos,
+        "state": state,
         "images": {"left": imgs_left, "right": imgs_right},
     }
     return obs, actions
@@ -90,6 +98,7 @@ def main():
     print(f"Device: {device}")
     print(f"Data dir: {args.data_dir}")
     print(f"Output dir: {output_dir}")
+    print(f"State dim: {args.state_dim}")
 
     # Dataset
     print("Loading dataset...")
@@ -97,10 +106,11 @@ def main():
         args.data_dir,
         chunk_size=args.chunk_size,
         cache=args.cache,
+        state_dim=args.state_dim,
     )
     print(
         f"Dataset: {len(dataset)} samples across {dataset.num_episodes} episodes "
-        f"(chunk_size={args.chunk_size})"
+        f"(chunk_size={args.chunk_size}, state_dim={args.state_dim})"
     )
 
     loader = DataLoader(
@@ -117,23 +127,29 @@ def main():
     policy = ACTPolicy(
         chunk_size=args.chunk_size,
         d_model=args.d_model,
+        dim_feedforward=args.dim_feedforward,
         z_dim=args.z_dim,
         nhead=args.nhead,
         num_encoder_layers=args.num_encoder_layers,
         num_decoder_layers=args.num_decoder_layers,
         kl_weight=args.kl_weight,
         pretrained_encoder=True,
+        state_dim=args.state_dim,
     ).to(device)
 
     n_params = sum(p.numel() for p in policy.parameters() if p.requires_grad)
     print(f"Model parameters: {n_params:,}")
 
-    # Optimizer
+    # Optimizer with separate backbone LR (10x lower)
+    param_groups = [
+        {"params": policy.backbone_parameters(), "lr": args.lr_backbone},
+        {"params": policy.non_backbone_parameters(), "lr": args.lr},
+    ]
     optimizer = torch.optim.AdamW(
-        policy.parameters(),
-        lr=args.lr,
+        param_groups,
         weight_decay=args.weight_decay,
     )
+    print(f"LR: {args.lr:.1e} (backbone: {args.lr_backbone:.1e})")
 
     # Cosine annealing: decay from lr to lr/100 over all epochs
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -167,16 +183,17 @@ def main():
 
         for batch_idx, (obs, actions) in enumerate(loader):
             qpos = obs["qpos"].to(device)
+            state = obs["state"].to(device)
             imgs_left = obs["images"]["left"].to(device)
             imgs_right = obs["images"]["right"].to(device)
             actions = actions.to(device)
 
             optimizer.zero_grad()
-            loss_dict = policy(qpos, imgs_left, imgs_right, actions)
+            loss_dict = policy(qpos, state, imgs_left, imgs_right, actions)
             loss = loss_dict["total"]
             loss.backward()
-            # Gradient clipping for stability
-            nn.utils.clip_grad_norm_(policy.parameters(), max_norm=10.0)
+            # Gradient clipping (0.1 matches original ACT)
+            nn.utils.clip_grad_norm_(policy.parameters(), max_norm=0.1)
             optimizer.step()
 
             epoch_l1 += loss_dict["l1"].item()
@@ -198,12 +215,14 @@ def main():
         avg_total = epoch_total / max(n_batches, 1)
 
         scheduler.step()
-        current_lr = scheduler.get_last_lr()[0]
+        lrs = scheduler.get_last_lr()
+        lr_backbone = lrs[0]
+        lr_main = lrs[1] if len(lrs) > 1 else lrs[0]
 
         print(
             f"Epoch {epoch+1}/{args.epochs} — "
             f"l1={avg_l1:.4f}  kl={avg_kl:.4f}  total={avg_total:.4f}  "
-            f"lr={current_lr:.2e}"
+            f"lr={lr_main:.2e} (backbone={lr_backbone:.2e})"
         )
 
         # Save checkpoint
@@ -222,11 +241,13 @@ def main():
                     "config": {
                         "chunk_size": args.chunk_size,
                         "d_model": args.d_model,
+                        "dim_feedforward": args.dim_feedforward,
                         "z_dim": args.z_dim,
                         "nhead": args.nhead,
                         "num_encoder_layers": args.num_encoder_layers,
                         "num_decoder_layers": args.num_decoder_layers,
                         "kl_weight": args.kl_weight,
+                        "state_dim": args.state_dim,
                     },
                     "train_loss": {
                         "l1": avg_l1,

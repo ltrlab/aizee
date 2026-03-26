@@ -116,6 +116,20 @@ def extract_qpos(telem: dict) -> Optional[np.ndarray]:
     return np.array(qpos, dtype=np.float32)
 
 
+def extract_torques(telem: dict) -> Optional[np.ndarray]:
+    """Extract [6] float32 arm joint torques from telemetry."""
+    if telem is None or "motors" not in telem:
+        return None
+    motors = telem["motors"]
+    torques = []
+    for joint in ARM_JOINTS:
+        m = motors.get(joint)
+        if m is None:
+            return None
+        torques.append(float(m.get("torque", 0.0)))
+    return np.array(torques, dtype=np.float32)
+
+
 def decode_image(msg: dict, target_size=(320, 240)) -> Optional[np.ndarray]:
     """Decode camera message to uint8 [H, W, 3]. target_size = (width, height)."""
     color = msg.get("color", {})
@@ -139,11 +153,17 @@ def normalize_qpos(qpos: np.ndarray, stats: dict) -> np.ndarray:
     return (qpos - stats["qpos_mean"]) / stats["qpos_std"]
 
 
+def normalize_qcmd(qcmd: np.ndarray, stats: dict) -> np.ndarray:
+    return (qcmd - stats["qcmd_mean"]) / stats["qcmd_std"]
+
+
+def normalize_torques(torques: np.ndarray, stats: dict) -> np.ndarray:
+    return (torques - stats["torque_mean"]) / stats["torque_std"]
+
+
 def denormalize_actions(actions: np.ndarray, stats: dict) -> np.ndarray:
-    """actions: [..., 6] in [-1,1] → absolute joint positions."""
-    mn = stats["action_min"]
-    rng = stats["action_range"]
-    return (actions + 1.0) / 2.0 * rng + mn
+    """actions: [..., 6] z-score normalized → absolute joint positions."""
+    return actions * stats["action_std"] + stats["action_mean"]
 
 
 def apply_safety_limits(
@@ -254,21 +274,55 @@ def load_checkpoint(path: str, device: torch.device):
         if hasattr(dataset_stats[k], "astype"):
             dataset_stats[k] = dataset_stats[k].astype(np.float32)
 
+    state_dim = config.get("state_dim", 6)
+    dim_feedforward = config.get("dim_feedforward", 2048)
+
     policy = ACTPolicy(
         chunk_size=config["chunk_size"],
         d_model=config["d_model"],
+        dim_feedforward=dim_feedforward,
         z_dim=config["z_dim"],
         nhead=config["nhead"],
         num_encoder_layers=config["num_encoder_layers"],
         num_decoder_layers=config["num_decoder_layers"],
         kl_weight=config.get("kl_weight", 10.0),
         pretrained_encoder=False,  # weights loaded from checkpoint
+        state_dim=state_dim,
     ).to(device)
 
     policy.load_state_dict(ckpt["model_state_dict"])
     policy.eval()
 
     return policy, dataset_stats, config
+
+
+def _build_state_vector(
+    qpos_norm: np.ndarray,
+    state_dim: int,
+    last_action: Optional[np.ndarray],
+    qpos_raw: np.ndarray,
+    torques_raw: Optional[np.ndarray],
+    stats: dict,
+) -> np.ndarray:
+    """Build the extended state vector for inference.
+
+    At inference, qcmd = last predicted action (same trick ALOHA uses with leader).
+    First step uses qpos_raw as bootstrap (zero compliance = safe).
+    """
+    if state_dim == 6:
+        return qpos_norm.copy()
+
+    # qcmd = last_action if available, else bootstrap with current qpos
+    qcmd_raw = last_action if last_action is not None else qpos_raw
+    qcmd_norm = normalize_qcmd(qcmd_raw, stats)
+
+    if state_dim == 12:
+        return np.concatenate([qpos_norm, qcmd_norm])  # [12]
+
+    # state_dim == 18
+    tq_raw = torques_raw if torques_raw is not None else np.zeros(NUM_JOINTS, dtype=np.float32)
+    tq_norm = normalize_torques(tq_raw, stats)
+    return np.concatenate([qpos_norm, qcmd_norm, tq_norm])  # [18]
 
 
 def main():
@@ -311,7 +365,8 @@ def main():
     print("Loading checkpoint...")
     policy, dataset_stats, config = load_checkpoint(args.checkpoint, device)
     chunk_size = config["chunk_size"]
-    print(f"Policy loaded: chunk_size={chunk_size}")
+    state_dim = config.get("state_dim", 6)
+    print(f"Policy loaded: chunk_size={chunk_size}, state_dim={state_dim}")
 
     # Print safety limits derived from training data — operator should verify these
     # look physically plausible before running live.
@@ -369,6 +424,7 @@ def main():
     latest_telem = None
     latest_left = None
     latest_right = None
+    last_action: Optional[np.ndarray] = None  # tracks last predicted action for qcmd
 
     tick = 1.0 / 20.0   # 20 Hz
     commands_sent = 0
@@ -450,20 +506,29 @@ def main():
                 time.sleep(max(0, tick - elapsed))
                 continue
 
+            # Extract torques (needed for state_dim=18)
+            torques_raw = extract_torques(latest_telem) if state_dim >= 18 else None
+
             # Normalize
             qpos_norm = normalize_qpos(qpos_raw, dataset_stats)
             left_norm = normalize_image(left_img)
             right_norm = normalize_image(right_img)
 
+            # Build extended state vector
+            state_vec = _build_state_vector(
+                qpos_norm, state_dim, last_action, qpos_raw, torques_raw, dataset_stats,
+            )
+
             # Build tensors
-            qpos_t = torch.from_numpy(qpos_norm).unsqueeze(0).to(device)         # [1, 6]
-            left_t = torch.from_numpy(left_norm).unsqueeze(0).to(device)          # [1, 3, H, W]
-            right_t = torch.from_numpy(right_norm).unsqueeze(0).to(device)        # [1, 3, H, W]
+            qpos_t = torch.from_numpy(qpos_norm).unsqueeze(0).to(device)          # [1, 6]
+            state_t = torch.from_numpy(state_vec).unsqueeze(0).to(device)          # [1, state_dim]
+            left_t = torch.from_numpy(left_norm).unsqueeze(0).to(device)           # [1, 3, H, W]
+            right_t = torch.from_numpy(right_norm).unsqueeze(0).to(device)         # [1, 3, H, W]
 
             # Inference
             infer_start = time.monotonic()
             with torch.no_grad():
-                pred_chunk = policy.select_action(qpos_t, left_t, right_t)  # [1, chunk_size, 6]
+                pred_chunk = policy.select_action(qpos_t, state_t, left_t, right_t)  # [1, chunk_size, 6]
             infer_time = time.monotonic() - infer_start
 
             if infer_time > WARN_LATENCY:
@@ -493,6 +558,9 @@ def main():
             action, delta_clamped = apply_safety_limits(
                 action, qpos_raw, dataset_stats, args.max_delta
             )
+
+            # Track last action for qcmd in next step
+            last_action = action.copy()
 
             # Log
             action_str = " ".join(f"{v:+6.3f}" for v in action)
