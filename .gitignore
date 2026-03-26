@@ -45,9 +45,7 @@ episodes/
 checkpoints/
 
 # Logs and recordings
-logs/*.mcap
-logs/*.csv
-logs/*.log
+logs/
 *.log
 
 # Temporary files
@@ -60,6 +58,7 @@ logs/*.log
 .DS_Store
 Thumbs.db
 Desktop.ini
+*.stackdump
 
 # Hardware-specific configs (user should copy from templates)
 config/local_hardware.yaml
