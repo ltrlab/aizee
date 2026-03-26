@@ -58,6 +58,12 @@ try:
 except ImportError:
     _rerun_available = False
 
+try:
+    import serial as _serial
+    _pyserial_available = True
+except ImportError:
+    _pyserial_available = False
+
 _so101_available = False
 try:
     sys.path.insert(0, str(Path(__file__).parent.parent / "teleop"))
@@ -142,6 +148,7 @@ def _render(
     rec_steps:        int                 = 0,
     recording:        bool                = False,
     dropped:          int                 = 0,
+    estop_active:     bool                = False,
 ) -> list[str]:
     TOP = "\u2554" + "\u2550" * _IW + "\u2557"
     MID = "\u2560" + "\u2550" * _IW + "\u2563"
@@ -289,6 +296,14 @@ def _render(
     cam_part = f"cams  {l_s}  {r_s}"
     cam_vis  = 6 + l_v + 2 + r_v
 
+    # E-stop indicator
+    if estop_active:
+        estop_disp = f"{_BG_RED}E-STOP{_RST}"
+        estop_vis  = 6
+    else:
+        estop_disp = f"{_GRN}SAFE{_RST}"
+        estop_vis  = 4
+
     # Recording status
     if recording:
         dur     = rec_steps / REC_HZ
@@ -302,8 +317,8 @@ def _render(
         rec_vis  = 4
 
     status_line = _row(
-        f"  {ldr_disp}{ldr_pad}{cam_part}  {rec_disp}",
-        2 + len(ldr_txt) + len(ldr_pad) + cam_vis + 2 + rec_vis,
+        f"  {ldr_disp}{ldr_pad}{cam_part}  {estop_disp}  {rec_disp}",
+        2 + len(ldr_txt) + len(ldr_pad) + cam_vis + 2 + estop_vis + 2 + rec_vis,
     )
 
     ctrl_line = _row(f"  {hint}" if hint else "  Q quit")
@@ -499,6 +514,59 @@ def _start_cam_receiver(
 
 
 # ---------------------------------------------------------------------------
+# Background e-stop serial reader
+# ---------------------------------------------------------------------------
+# Reads JSON lines from the ESP32 e-stop receiver over serial.
+# Sets/clears a threading.Event so the main loop can gate motor commands.
+
+def _start_estop_reader(
+    port: str,
+    stop: threading.Event,
+    flag: threading.Event,
+) -> Optional[threading.Thread]:
+    if not _pyserial_available:
+        print("WARNING: pyserial not installed — hardware e-stop disabled")
+        return None
+
+    def _run() -> None:
+        ser = None
+        while not stop.is_set():
+            if ser is None:
+                try:
+                    ser = _serial.Serial(port, 115200, timeout=1)
+                    print(f"E-stop receiver connected on {port}")
+                except _serial.SerialException:
+                    stop.wait(2)
+                    continue
+            try:
+                raw = ser.readline()
+            except _serial.SerialException:
+                print(f"E-stop serial error, reconnecting {port}...")
+                ser = None
+                stop.wait(1)
+                continue
+            if not raw:
+                continue
+            line = raw.decode(errors="replace").strip()
+            if not line or line.startswith("#"):
+                continue
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            estop = data.get("estop")
+            if estop is not None:
+                if estop:
+                    flag.set()
+                else:
+                    flag.clear()
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return t
+
+
+# ---------------------------------------------------------------------------
 # Image decoding
 # ---------------------------------------------------------------------------
 
@@ -663,6 +731,8 @@ def main() -> None:
     ap.add_argument("--robstride-calib", default=None,                    dest="robstride_calib")
     ap.add_argument("--no-rerun",       action="store_true",             dest="no_rerun",
                     help="Disable Rerun live camera preview")
+    ap.add_argument("--estop-port",    default=None,                    dest="estop_port",
+                    help="Serial port for ESP32 e-stop receiver (e.g. /dev/estop-receiver, COM10)")
     args = ap.parse_args()
 
     _ansi_on()
@@ -740,6 +810,15 @@ def main() -> None:
     )
 
     # -------------------------------------------------------------------------
+    # Hardware e-stop (ESP32 serial)
+    # -------------------------------------------------------------------------
+    _estop_flag = threading.Event()   # set = e-stop active
+    _estop_stop = threading.Event()
+    _estop_thread: Optional[threading.Thread] = None
+    if args.estop_port:
+        _estop_thread = _start_estop_reader(args.estop_port, _estop_stop, _estop_flag)
+
+    # -------------------------------------------------------------------------
     # Rerun live camera preview
     # -------------------------------------------------------------------------
     use_rerun = not args.no_rerun
@@ -797,6 +876,8 @@ def main() -> None:
     ups_data:        Optional[dict]    = None
     battery_voltage: Optional[float]   = None
     robot_ok = q_actual is not None
+    estop_active = False
+    prev_estop_hw = False
 
     zero_msg       = ""
     zero_msg_until = 0.0
@@ -1069,9 +1150,37 @@ def main() -> None:
                 swivel_tgt = swivel_actual
 
             # -----------------------------------------------------------------
+            # Hardware e-stop gate — skip ALL motor commands so watchdog
+            # holds position (arm doesn't fall).
+            # -----------------------------------------------------------------
+            estop_hw_active = _estop_flag.is_set()
+            if estop_hw_active and not prev_estop_hw:
+                # Rising edge — auto-save recording
+                if recording:
+                    recording = False
+                    steps     = len(qpos_buf)
+                    dur       = steps / REC_HZ
+                    drop_note = f"  drop:{dropped_frames}" if dropped_frames else ""
+                    if steps > 0 and not args.dry_run:
+                        save_msg       = f"[saving {steps} steps (hw e-stop)...]"
+                        save_msg_until = t0 + 120.0
+                        _save_result_holder[0] = None
+                        _save_thread = _start_async_save(
+                            args.output_dir, qpos_buf, left_buf, right_buf,
+                            telem_ts_buf, left_ts_buf, right_ts_buf, swivel_buf,
+                            dur, drop_note, tag=" (hw e-stop)", qcb=qcmd_buf, tqb=torque_buf,
+                        )
+                    elif steps > 0:
+                        save_msg       = f"[DRY RUN] hw e-stop: {steps} steps  {dur:.1f}s"
+                        save_msg_until = t0 + 5.0
+            prev_estop_hw = estop_hw_active
+
+            # -----------------------------------------------------------------
             # Send motor commands
             # -----------------------------------------------------------------
-            if teleop_state == State.SHUTDOWN:
+            if estop_hw_active:
+                pass  # watchdog holds position
+            elif teleop_state == State.SHUTDOWN:
                 dt         = period
                 max_change = 0.2 * dt   # 0.2 rad/s ramp
                 if shutdown_countdown > 0:
@@ -1181,6 +1290,10 @@ def main() -> None:
                 bv = telem.get("battery_voltage")
                 if bv is not None:
                     battery_voltage = float(bv)
+                estop_from_telem = bool(telem.get("emergency_stop", False))
+            else:
+                estop_from_telem = False
+            estop_active = estop_from_telem or estop_hw_active
 
             with _cam_lock:
                 _ups_msg = _cam_cache["ups"]
@@ -1331,6 +1444,7 @@ def main() -> None:
                 rec_steps=len(qpos_buf),
                 recording=recording,
                 dropped=dropped_frames,
+                estop_active=estop_active,
             ))
 
             frame_counter += 1
@@ -1352,6 +1466,9 @@ def main() -> None:
         telem_sock.close()
         _cam_stop.set()
         _cam_thread.join(timeout=2.0)
+        _estop_stop.set()
+        if _estop_thread is not None:
+            _estop_thread.join(timeout=1.0)
         ctx.term()
         print("\nDone.")
 

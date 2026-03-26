@@ -53,15 +53,29 @@ def main():
             continue
 
         line = raw.decode(errors="replace").strip()
-        if not line or line.startswith("#"):
+        if not line:
             continue
 
-        try:
-            data = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+        estop = None
 
-        estop = data.get("estop")
+        if line.startswith("#"):
+            # Diagnostic: # nc=0 no=0 seq=1234 age=50
+            # nc_raw is the raw G8 pin: 0 = pressed (e-stop active), 1 = released
+            for part in line[2:].split():
+                if part.startswith("nc="):
+                    try:
+                        estop = int(part[3:]) == 0
+                    except ValueError:
+                        pass
+                    break
+        elif line.startswith("{"):
+            # JSON state change: {"estop": true}
+            try:
+                data = json.loads(line)
+                estop = data.get("estop")
+            except json.JSONDecodeError:
+                pass
+
         if estop is None:
             continue
 
