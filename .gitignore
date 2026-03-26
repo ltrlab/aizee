@@ -54,6 +54,10 @@ logs/
 *.swp
 *~
 
+# Claude Code
+CLAUDE.md
+.claude/
+
 # OS files
 .DS_Store
 Thumbs.db
