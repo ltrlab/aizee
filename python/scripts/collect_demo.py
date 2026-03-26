@@ -51,6 +51,13 @@ try:
 except ImportError:
     _pygame_available = False
 
+try:
+    import rerun as rr
+    import rerun.blueprint as rrb
+    _rerun_available = True
+except ImportError:
+    _rerun_available = False
+
 _so101_available = False
 try:
     sys.path.insert(0, str(Path(__file__).parent.parent / "teleop"))
@@ -559,7 +566,7 @@ def _qtemp(telem: Optional[dict]) -> Optional[np.ndarray]:
 def save_episode(
     output_dir, qpos_buf, left_buf, right_buf,
     telem_ts_buf=None, left_ts_buf=None, right_ts_buf=None,
-    swivel_buf=None, qcmd_buf=None,
+    swivel_buf=None, qcmd_buf=None, torque_buf=None,
 ):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -572,6 +579,7 @@ def save_episode(
     left_arr  = np.stack(left_buf,  axis=0)   # [T, H, W, 3]
     right_arr = np.stack(right_buf, axis=0)   # [T, H, W, 3]
     qcmd_arr  = np.stack(qcmd_buf, axis=0) if qcmd_buf and len(qcmd_buf) == len(qpos_buf) else None
+    torque_arr = np.stack(torque_buf, axis=0) if torque_buf and len(torque_buf) == len(qpos_buf) else None
     # Actions derived from commanded positions (no sag) when available
     act_src   = qcmd_arr if qcmd_arr is not None else qpos_arr
     actions   = np.concatenate([act_src[1:], act_src[-1:]], axis=0)  # [T, 6]
@@ -584,6 +592,8 @@ def save_episode(
         obs.create_dataset("qpos",   data=qpos_arr,  compression="gzip", compression_opts=4)
         if qcmd_arr is not None:
             obs.create_dataset("qcmd", data=qcmd_arr, compression="gzip", compression_opts=4)
+        if torque_arr is not None:
+            obs.create_dataset("torques", data=torque_arr, compression="gzip", compression_opts=4)
         imgs = obs.create_group("images")
         imgs.create_dataset("left",  data=left_arr,  compression="gzip", compression_opts=4, chunks=(1, H, W, 3))
         imgs.create_dataset("right", data=right_arr, compression="gzip", compression_opts=4, chunks=(1, H, W, 3))
@@ -651,6 +661,8 @@ def main() -> None:
     ap.add_argument("--max-delta",       type=float, default=0.3,         dest="max_delta",
                     help="Per-step safety clamp [rad] (default 0.3)")
     ap.add_argument("--robstride-calib", default=None,                    dest="robstride_calib")
+    ap.add_argument("--no-rerun",       action="store_true",             dest="no_rerun",
+                    help="Disable Rerun live camera preview")
     args = ap.parse_args()
 
     _ansi_on()
@@ -727,6 +739,23 @@ def main() -> None:
         ctx, args.cam_left, args.cam_right, args.ups or None,
     )
 
+    # -------------------------------------------------------------------------
+    # Rerun live camera preview
+    # -------------------------------------------------------------------------
+    use_rerun = not args.no_rerun
+    if use_rerun and not _rerun_available:
+        print("WARNING: rerun not installed — live camera preview disabled")
+        use_rerun = False
+    if use_rerun:
+        rr.init("aizee_collect", spawn=True)
+        rr.send_blueprint(rrb.Blueprint(
+            rrb.Horizontal(
+                rrb.Spatial2DView(name="Left", origin="cameras/left"),
+                rrb.Spatial2DView(name="Right", origin="cameras/right"),
+                column_shares=[1, 1],
+            )
+        ))
+
     get_key = setup_keyboard()
 
     # Seed q_actual from first telemetry packet
@@ -783,6 +812,7 @@ def main() -> None:
     recording      = False
     qpos_buf:    list = []
     qcmd_buf:    list = []
+    torque_buf:  list = []
     left_buf:    list = []
     right_buf:   list = []
     swivel_buf:  list = []
@@ -811,15 +841,16 @@ def main() -> None:
     _draw(_render(None, None, _init_actual, status, hint,
                   robot_ok=robot_ok, leader_connected=(leader is not None)), first=True)
 
+    frame_counter = 0
     period = 1.0 / LOOP_HZ
 
     _save_thread:        Optional[threading.Thread] = None
     _save_result_holder: list                       = [None]
 
-    def _start_async_save(out_dir, qb, lb, rb, tb, ltb, rtb, swb, dur, drop_note, tag="", qcb=None):
+    def _start_async_save(out_dir, qb, lb, rb, tb, ltb, rtb, swb, dur, drop_note, tag="", qcb=None, tqb=None):
         def _run():
             try:
-                p, T = save_episode(out_dir, qb, lb, rb, tb, ltb, rtb, swivel_buf=swb, qcmd_buf=qcb)
+                p, T = save_episode(out_dir, qb, lb, rb, tb, ltb, rtb, swivel_buf=swb, qcmd_buf=qcb, torque_buf=tqb)
                 _save_result_holder[0] = f"[SAVED {p.name}  {T} steps  {dur:.1f}s{drop_note}]{tag}"
             except Exception as e:
                 _save_result_holder[0] = f"[SAVE ERROR: {e}]"
@@ -856,6 +887,20 @@ def main() -> None:
 
             cam_left_age  = (t0 - last_left_time)  if last_left_time  > 0 else 999.0
             cam_right_age = (t0 - last_right_time) if last_right_time > 0 else 999.0
+
+            # Log camera images to Rerun (~15 Hz = every other iteration)
+            if use_rerun and (frame_counter % 2 == 0):
+                rr.set_time("time", timestamp=t0)
+                if latest_left is not None:
+                    jpeg = latest_left.get("color", {}).get("data")
+                    if jpeg:
+                        rr.log("cameras/left", rr.EncodedImage(
+                            contents=base64.b64decode(jpeg), media_type="image/jpeg"))
+                if latest_right is not None:
+                    jpeg = latest_right.get("color", {}).get("data")
+                    if jpeg:
+                        rr.log("cameras/right", rr.EncodedImage(
+                            contents=base64.b64decode(jpeg), media_type="image/jpeg"))
 
             # -----------------------------------------------------------------
             # Gamepad
@@ -921,6 +966,7 @@ def main() -> None:
                         recording      = True
                         qpos_buf       = []
                         qcmd_buf       = []
+                        torque_buf     = []
                         left_buf       = []
                         right_buf      = []
                         swivel_buf     = []
@@ -945,7 +991,7 @@ def main() -> None:
                         _save_thread = _start_async_save(
                             args.output_dir, qpos_buf, left_buf, right_buf,
                             telem_ts_buf, left_ts_buf, right_ts_buf, swivel_buf,
-                            dur, drop_note, qcb=qcmd_buf,
+                            dur, drop_note, qcb=qcmd_buf, tqb=torque_buf,
                         )
                     if steps == 0 or args.dry_run:
                         save_msg_until = t0 + 5.0
@@ -1158,7 +1204,7 @@ def main() -> None:
                             _save_thread = _start_async_save(
                                 args.output_dir, qpos_buf, left_buf, right_buf,
                                 telem_ts_buf, left_ts_buf, right_ts_buf, swivel_buf,
-                                dur, drop_note, tag=" (e-stop)", qcb=qcmd_buf,
+                                dur, drop_note, tag=" (e-stop)", qcb=qcmd_buf, tqb=torque_buf,
                             )
                         elif steps > 0:
                             save_msg       = f"[DRY RUN] e-stop: {steps} steps  {dur:.1f}s"
@@ -1180,6 +1226,7 @@ def main() -> None:
                         and right_img is not None and cams_ok):
                     qpos_buf.append(q_actual.copy())
                     qcmd_buf.append(latest_q_cmd.copy() if latest_q_cmd is not None else q_actual.copy())
+                    torque_buf.append(arm_torques.copy() if arm_torques is not None else np.zeros(NUM_JOINTS, dtype=np.float32))
                     left_buf.append(left_img)
                     right_buf.append(right_img)
                     swivel_buf.append(swivel_actual if swivel_actual is not None else _nan)
@@ -1202,7 +1249,7 @@ def main() -> None:
                         _save_thread = _start_async_save(
                             args.output_dir, qpos_buf, left_buf, right_buf,
                             telem_ts_buf, left_ts_buf, right_ts_buf, swivel_buf,
-                            dur, drop_note="", tag=" (max steps)", qcb=qcmd_buf,
+                            dur, drop_note="", tag=" (max steps)", qcb=qcmd_buf, tqb=torque_buf,
                         )
                     if args.dry_run:
                         save_msg_until = t0 + 5.0
@@ -1286,6 +1333,7 @@ def main() -> None:
                 dropped=dropped_frames,
             ))
 
+            frame_counter += 1
             sleep_t = period - (time.time() - t0)
             if sleep_t > 0:
                 time.sleep(sleep_t)
