@@ -16,14 +16,17 @@ Usage:
 Controls:
     E    enable arm motors (align to leader if --port given)
     I    idle — enable with zero torque (see actual positions)
+    F    toggle wheel motors (WASD / left stick to drive)
     H    hold — freeze target at current actual position
     R    toggle recording (IDLE / TRACKING / HOLD only)
     X    soft shutdown — hold 1 s, return to zero, disable
     Z    zero — capture current SO-101 pose as zero reference
     M    mirror — set zero so current leader maps to current actual
     Q    quit  (Ctrl-C also works)
+    WASD drive wheels (W=fwd S=back A=left D=right, requires F first)
 
 Gamepad: A=enable  B=shutdown/cancel  Start=hold  Back=quit
+         Left stick = drive (requires F first)
 """
 
 from __future__ import annotations
@@ -89,6 +92,9 @@ _IW = _W - 2
 _LEADER_JOINTS = ["swivel", "gantry_base", "gantry_mid", "gantry_end",
                   "wrist_pitch", "wrist_roll", "gripper"]
 
+_BASE_MOTORS = ["left_wheel", "right_wheel"]
+_ALL_MOTORS  = _BASE_MOTORS + ["swivel"] + list(ARM_JOINTS)
+
 _SAT_TORQUE = {
     "swivel":      12.0,   # RS03 nominal
     "gantry_base": 24.0,   # RS04 nominal
@@ -149,6 +155,10 @@ def _render(
     recording:        bool                = False,
     dropped:          int                 = 0,
     estop_active:     bool                = False,
+    wheel_states:     Optional[dict]      = None,
+    wheels_enabled:   bool                = False,
+    drive_linear:     float               = 0.0,
+    drive_angular:    float               = 0.0,
 ) -> list[str]:
     TOP = "\u2554" + "\u2550" * _IW + "\u2557"
     MID = "\u2560" + "\u2550" * _IW + "\u2563"
@@ -214,6 +224,51 @@ def _render(
         row_text = f"  {jname:<18} {l_s}  {t_s}  {a_s}   {e_s}  {tq_s}  {temp_s}"
         row_vis  = 2 + 18 + 1 + l_vis + 2 + 8 + 2 + 8 + 3 + 7 + 2 + 5 + 2 + 4
         joint_lines.append(_row(row_text, row_vis))
+
+    # Wheel motor rows
+    wheel_lines = []
+    for wname in _BASE_MOTORS:
+        wm = (wheel_states or {}).get(wname)
+        if wm is not None:
+            wst = wm.get("state", "?")
+            if wst in ("running", "enabled"):
+                st_s = f"{_GRN}{wst:<7}{_RST}"
+            elif wst == "disabled":
+                st_s = f"{wst:<7}"
+            else:
+                st_s = f"{_RED}{wst:<7}{_RST}"
+            st_vis = 7
+            wvel = wm.get("velocity")
+            vel_s = f"{wvel:>+6.2f}" if wvel is not None else "    --"
+            wtq  = wm.get("torque")
+            tq_s = f"{wtq:>+5.1f}" if wtq is not None else "   --"
+            wtmp = wm.get("temperature")
+            if wtmp is not None:
+                if wtmp >= _TEMP_CRIT:
+                    tmp_s = f"{_BG_RED}{wtmp:>3.0f}\u00b0{_RST}"
+                elif wtmp >= _TEMP_WARN:
+                    tmp_s = f"{_BG_YEL}{wtmp:>3.0f}\u00b0{_RST}"
+                else:
+                    tmp_s = f"{wtmp:>3.0f}\u00b0"
+            else:
+                tmp_s = " --"
+            wrow = f"  {wname:<16} {st_s}  vel:{vel_s}  trq:{tq_s}  {tmp_s}"
+            wvis = 2 + 16 + 1 + st_vis + 2 + 4 + 6 + 2 + 4 + 5 + 2 + 4
+        else:
+            wrow = f"  {wname:<16} --"
+            wvis = 2 + 16 + 1 + 2
+        wheel_lines.append(_row(wrow, wvis))
+
+    # Drive input indicator
+    if wheels_enabled:
+        dl_s = f"{drive_linear:>+5.2f}"
+        da_s = f"{drive_angular:>+5.2f}"
+        drive_row = f"  drive: lin {dl_s}  ang {da_s}   {_GRN}ON{_RST}  [WASD/stick · F=off]"
+        drive_vis = len(f"  drive: lin {dl_s}  ang {da_s}   ON  [WASD/stick · F=off]")
+    else:
+        drive_row = f"  drive: OFF — press F to enable wheels"
+        drive_vis = -1  # auto
+    wheel_lines.append(_row(drive_row, drive_vis))
 
     # Robot / UPS line
     if robot_ok and telem_age < 2.0:
@@ -326,6 +381,7 @@ def _render(
     return [
         TOP, title_line, MID,
         header_line, SEP, *joint_lines, SEP,
+        *wheel_lines, SEP,
         robot_line, status_line,
         MID, ctrl_line, BOT,
     ]
@@ -369,13 +425,62 @@ def _init_joystick():
     return None
 
 
-def _read_gamepad(joystick, prev_a: bool, prev_b: bool, prev_start: bool) -> dict:
+def _apply_deadzone(value: float, deadzone: float = 0.08) -> float:
+    if abs(value) < deadzone:
+        return 0.0
+    sign = 1.0 if value > 0 else -1.0
+    return sign * (abs(value) - deadzone) / (1.0 - deadzone)
+
+
+def _apply_curve(value: float, exponent: float = 1.5) -> float:
+    sign = 1.0 if value >= 0 else -1.0
+    return sign * (abs(value) ** exponent)
+
+
+def _ramp_toward(current: float, target: float, accel: float, decel: float, dt: float) -> float:
+    diff = target - current
+    rate = accel if abs(target) > abs(current) else decel
+    max_change = rate * dt
+    if abs(diff) <= max_change:
+        return target
+    return current + max_change if diff > 0 else current - max_change
+
+
+def _read_gamepad(joystick, prev_a: bool, prev_b: bool, prev_start: bool,
+                  gp_cfg: Optional[dict] = None) -> dict:
+    _empty = {
+        "enable": False, "shutdown": False, "hold": False, "quit": False,
+        "raw_a": False, "raw_b": False, "raw_start": False,
+        "drive_linear": 0.0, "drive_angular": 0.0,
+    }
     try:
         pygame.event.pump()
         raw_a     = bool(joystick.get_button(0))
         raw_b     = bool(joystick.get_button(1))
         raw_back  = bool(joystick.get_button(6))
         raw_start = bool(joystick.get_button(7))
+
+        # Left stick axes for driving
+        drive_linear  = 0.0
+        drive_angular = 0.0
+        if gp_cfg is not None:
+            axes   = gp_cfg.get("axes", {})
+            invert = gp_cfg.get("axis_invert", {})
+            dz     = 0.08
+
+            raw_y = joystick.get_axis(axes.get("left_stick_y", 1))
+            if invert.get("left_stick_y", False):
+                raw_y = -raw_y
+            raw_x = joystick.get_axis(axes.get("left_stick_x", 0))
+            if invert.get("left_stick_x", False):
+                raw_x = -raw_x
+
+            # WORKAROUND: motor controller has linear/angular backwards
+            # Y-axis → angular (forward/back), X-axis → linear (turn)
+            # Negate angular so stick-forward = robot-forward
+            drive_angular = -_apply_curve(_apply_deadzone(raw_y, dz))
+            drive_linear  = _apply_curve(_apply_deadzone(raw_x, dz))
+
         return {
             "enable":    raw_a and not prev_a,
             "shutdown":  raw_b and not prev_b,
@@ -384,12 +489,11 @@ def _read_gamepad(joystick, prev_a: bool, prev_b: bool, prev_start: bool) -> dic
             "raw_a":     raw_a,
             "raw_b":     raw_b,
             "raw_start": raw_start,
+            "drive_linear":  drive_linear,
+            "drive_angular": drive_angular,
         }
     except Exception:
-        return {
-            "enable": False, "shutdown": False, "hold": False, "quit": False,
-            "raw_a": False, "raw_b": False, "raw_start": False,
-        }
+        return _empty
 
 
 # ---------------------------------------------------------------------------
@@ -784,8 +888,13 @@ def main() -> None:
     _kp: list  = _tcfg.get("kp", KP)
     _kd: list  = _tcfg.get("kd", KD)
     _dcfg      = _yaml.get("drive", {})
-    _swivel_kp = float(_dcfg.get("swivel_kp", 80.0))
+    _swivel_kp = float(_dcfg.get("swivel_kp", 100.0))
     _swivel_kd = float(_dcfg.get("swivel_kd", 5.0))
+    _max_linear  = float(_dcfg.get("max_linear",  2.0))
+    _max_angular = float(_dcfg.get("max_angular", 1.5))
+    _drive_kp    = float(_dcfg.get("kp", 0.0))
+    _drive_kd    = float(_dcfg.get("kd", 3.0))
+    _gp_cfg      = _yaml.get("gamepad", {})
 
     # -------------------------------------------------------------------------
     # ZMQ sockets
@@ -793,7 +902,7 @@ def main() -> None:
     ctx = zmq.Context()
 
     cmd_sock = ctx.socket(zmq.PUSH)
-    cmd_sock.setsockopt(zmq.SNDHWM, 2)
+    cmd_sock.setsockopt(zmq.SNDHWM, 4)
     cmd_sock.setsockopt(zmq.LINGER,  0)
     cmd_sock.connect(args.cmd)
 
@@ -879,6 +988,21 @@ def main() -> None:
     estop_active = False
     prev_estop_hw = False
 
+    # Drive state (wheels)
+    drive_linear         = 0.0   # current smoothed linear (-1..+1)
+    drive_angular        = 0.0   # current smoothed angular (-1..+1)
+    drive_linear_target  = 0.0
+    drive_angular_target = 0.0
+    _drive_accel         = 50.0  # instant on key press
+    _drive_decel         = 8.0   # smooth release
+    _last_w_time         = 0.0   # WASD timeout tracking
+    _last_s_time         = 0.0
+    _last_a_time         = 0.0
+    _last_d_time         = 0.0
+    _wasd_timeout        = 0.15  # seconds — clear target if no repeat
+    wheels_enabled                 = False  # F key toggles
+    wheel_states:  Optional[dict] = None   # telemetry for wheel motors
+
     zero_msg       = ""
     zero_msg_until = 0.0
     save_msg       = ""
@@ -914,13 +1038,14 @@ def main() -> None:
     latest_q_cmd: Optional[np.ndarray] = None  # last commanded position sent to motors
 
     status = "[ ] ready — motors off"
-    hint   = ("E=hold · I=idle · Q=quit" if leader is None
-              else "E=track · I=idle · Z=zero · M=mirror · Q=quit")
+    hint   = ("E=hold · I=idle · F=wheels · Q=quit" if leader is None
+              else "E=track · I=idle · F=wheels · Z=zero · M=mirror · Q=quit")
 
     _nan = float("nan")
     _init_actual = (np.concatenate([[_nan], q_actual]) if q_actual is not None else None)
     _draw(_render(None, None, _init_actual, status, hint,
-                  robot_ok=robot_ok, leader_connected=(leader is not None)), first=True)
+                  robot_ok=robot_ok, leader_connected=(leader is not None),
+                  wheel_states=wheel_states, wheels_enabled=wheels_enabled), first=True)
 
     frame_counter = 0
     period = 1.0 / LOOP_HZ
@@ -984,14 +1109,33 @@ def main() -> None:
                             contents=base64.b64decode(jpeg), media_type="image/jpeg"))
 
             # -----------------------------------------------------------------
-            # Gamepad
+            # Gamepad + drive axes
             # -----------------------------------------------------------------
-            key = get_key()
+            # When pygame handles WASD, drain terminal buffer discarding WASD
+            # so held W doesn't starve command keys (E, Q, etc.)
+            if _pygame_available:
+                key = None
+                while True:
+                    _k = get_key()
+                    if _k is None:
+                        break
+                    if _k not in ("W", "A", "S", "D"):
+                        key = _k
+            else:
+                key = get_key()
+
+            _stick_active = False
             if joystick is not None:
-                gp = _read_gamepad(joystick, prev_gp_a, prev_gp_b, prev_gp_start)
+                gp = _read_gamepad(joystick, prev_gp_a, prev_gp_b, prev_gp_start,
+                                   gp_cfg=_gp_cfg)
                 prev_gp_a     = gp["raw_a"]
                 prev_gp_b     = gp["raw_b"]
                 prev_gp_start = gp["raw_start"]
+                # Stick axes → drive targets (always apply, 0 when centered)
+                _stick_active = (abs(gp["drive_linear"]) > 0.01
+                                 or abs(gp["drive_angular"]) > 0.01)
+                drive_linear_target  = gp["drive_linear"]
+                drive_angular_target = gp["drive_angular"]
                 if gp["enable"] and teleop_state in (State.READY, State.IDLE):
                     key = "E"
                 if gp["hold"] and teleop_state in (State.TRACKING, State.HOLD, State.IDLE):
@@ -1002,7 +1146,62 @@ def main() -> None:
                     key = "Q"
 
             # -----------------------------------------------------------------
-            # Keyboard
+            # WASD drive input — pygame true key state (no repeat delay)
+            # Matches teleop.py read_keyboard_pygame(): instant on/off.
+            # -----------------------------------------------------------------
+            if _pygame_available:
+                # Pump events if no joystick did it already
+                if joystick is None:
+                    pygame.event.pump()
+                _pkeys = pygame.key.get_pressed()
+                # WORKAROUND: motor controller has linear/angular backwards
+                # W/S → angular (forward/back), A/D → linear (turn)
+                _kb_ang = 0.0
+                _kb_lin = 0.0
+                if _pkeys[pygame.K_w]:
+                    _kb_ang = -1.0
+                elif _pkeys[pygame.K_s]:
+                    _kb_ang = 1.0
+                if _pkeys[pygame.K_d]:
+                    _kb_lin = 1.0
+                elif _pkeys[pygame.K_a]:
+                    _kb_lin = -1.0
+                # Keyboard overrides only when stick is idle
+                if not _stick_active:
+                    drive_angular_target = _kb_ang
+                    drive_linear_target  = _kb_lin
+            else:
+                # Fallback: terminal key with timeout (has OS repeat delay)
+                if not _stick_active and key in ("W", "S", "A", "D"):
+                    if key == "W":
+                        drive_angular_target = -1.0
+                        _last_w_time = t0
+                    elif key == "S":
+                        drive_angular_target = 1.0
+                        _last_s_time = t0
+                    elif key == "A":
+                        drive_linear_target = -1.0
+                        _last_a_time = t0
+                    elif key == "D":
+                        drive_linear_target = 1.0
+                        _last_d_time = t0
+                    key = None
+                if not _stick_active:
+                    if (t0 - _last_w_time > _wasd_timeout
+                            and t0 - _last_s_time > _wasd_timeout):
+                        drive_angular_target = 0.0
+                    if (t0 - _last_a_time > _wasd_timeout
+                            and t0 - _last_d_time > _wasd_timeout):
+                        drive_linear_target = 0.0
+
+            # Drive smoothing (fast accel, smooth decel)
+            drive_linear  = _ramp_toward(drive_linear,  drive_linear_target,
+                                         _drive_accel, _drive_decel, period)
+            drive_angular = _ramp_toward(drive_angular, drive_angular_target,
+                                         _drive_accel, _drive_decel, period)
+
+            # -----------------------------------------------------------------
+            # Keyboard (command keys)
             # -----------------------------------------------------------------
             if key == "Q":
                 break
@@ -1028,6 +1227,17 @@ def main() -> None:
                         held_target  = q_actual.copy() if q_actual is not None else np.zeros(NUM_JOINTS)
                         held_swivel  = swivel_actual
                         teleop_state = State.HOLD
+
+            elif key == "F":
+                # Toggle wheel motors on/off (separate from arm to avoid CAN overload)
+                if wheels_enabled:
+                    _send(cmd_sock, {"type": "disable", "motor_ids": _BASE_MOTORS})
+                    wheels_enabled = False
+                    drive_linear = drive_angular = 0.0
+                    drive_linear_target = drive_angular_target = 0.0
+                elif teleop_state not in (State.READY, State.ESTOP):
+                    _send(cmd_sock, {"type": "enable", "motor_ids": _BASE_MOTORS})
+                    wheels_enabled = True
 
             elif key == "H":
                 if teleop_state == State.TRACKING:
@@ -1180,7 +1390,15 @@ def main() -> None:
             # -----------------------------------------------------------------
             if estop_hw_active:
                 pass  # watchdog holds position
+
+            # Send drive command every tick (feeds watchdog, enables WASD/stick movement)
+            elif teleop_state == State.READY:
+                pass  # motors off, nothing to send
+
             elif teleop_state == State.SHUTDOWN:
+                if wheels_enabled:
+                    _send(cmd_sock, {"type": "drive", "linear": 0.0, "angular": 0.0,
+                                     "kp": _drive_kp, "kd": _drive_kd})
                 dt         = period
                 max_change = 0.2 * dt   # 0.2 rad/s ramp
                 if shutdown_countdown > 0:
@@ -1218,7 +1436,11 @@ def main() -> None:
                     timed_out    = (shutdown_zero_since > 0
                                     and t0 - shutdown_zero_since >= _SHUTDOWN_TIMEOUT)
                     if ramp_done and (actual_close or timed_out):
-                        _send(cmd_sock, {"type": "disable", "motor_ids": ["swivel"] + ARM_JOINTS})
+                        _disable_ids = ["swivel"] + ARM_JOINTS
+                        if wheels_enabled:
+                            _disable_ids = _BASE_MOTORS + _disable_ids
+                            wheels_enabled = False
+                        _send(cmd_sock, {"type": "disable", "motor_ids": _disable_ids})
                         teleop_state = State.READY
                     else:
                         delta   = np.clip(shutdown_target - ref, -args.max_delta, args.max_delta)
@@ -1244,6 +1466,11 @@ def main() -> None:
                 if swivel_actual is not None:
                     _send(cmd_sock, {"type": "swivel", "position": swivel_actual,
                                      "kp": _swivel_kp, "kd": _swivel_kd})
+                if wheels_enabled:
+                    _send(cmd_sock, {"type": "drive",
+                                     "linear":  drive_linear  * _max_linear,
+                                     "angular": drive_angular * _max_angular,
+                                     "kp": _drive_kp, "kd": _drive_kd})
 
             elif teleop_state in (State.TRACKING, State.HOLD):
                 if target is not None:
@@ -1261,6 +1488,11 @@ def main() -> None:
                 if swivel_tgt is not None:
                     _send(cmd_sock, {"type": "swivel", "position": swivel_tgt,
                                      "kp": _swivel_kp, "kd": _swivel_kd})
+                if wheels_enabled:
+                    _send(cmd_sock, {"type": "drive",
+                                     "linear":  drive_linear  * _max_linear,
+                                     "angular": drive_angular * _max_angular,
+                                     "kp": _drive_kp, "kd": _drive_kd})
 
             # -----------------------------------------------------------------
             # Telemetry
@@ -1283,6 +1515,19 @@ def main() -> None:
                 te = _qtemp(telem)
                 if te is not None:
                     arm_temps = te
+                # Wheel motor telemetry
+                _ws: dict = {}
+                for wn in _BASE_MOTORS:
+                    wm = telem["motors"].get(wn)
+                    if wm is not None:
+                        _ws[wn] = {
+                            "state":       wm.get("state", "?"),
+                            "velocity":    wm.get("velocity"),
+                            "torque":      wm.get("torque"),
+                            "temperature": wm.get("temperature"),
+                        }
+                if _ws:
+                    wheel_states = _ws
             if telem:
                 ts = telem.get("timestamp")
                 if ts is not None:
@@ -1373,9 +1618,9 @@ def main() -> None:
             if teleop_state == State.READY:
                 status = "[ ] ready — motors off"
                 if leader is not None:
-                    hint = "E=track · I=idle · Z=zero · M=mirror · Q=quit"
+                    hint = "E=track · I=idle · F=wheels · Z=zero · M=mirror · Q=quit"
                 else:
-                    hint = "E=hold · I=idle · Q=quit"
+                    hint = "E=hold · I=idle · F=wheels · Q=quit"
 
             elif teleop_state == State.IDLE:
                 status = "[I] idle — zero torque (arm free)"
@@ -1445,6 +1690,10 @@ def main() -> None:
                 recording=recording,
                 dropped=dropped_frames,
                 estop_active=estop_active,
+                wheel_states=wheel_states,
+                wheels_enabled=wheels_enabled,
+                drive_linear=drive_linear * _max_linear,
+                drive_angular=drive_angular * _max_angular,
             ))
 
             frame_counter += 1
@@ -1460,7 +1709,10 @@ def main() -> None:
             _lr_thread.join(timeout=1.0)
             leader.close()
         # Disable all motors before closing (prevents motors staying enabled after quit)
-        _send(cmd_sock, {"type": "disable", "motor_ids": ["swivel"] + ARM_JOINTS})
+        if wheels_enabled:
+            _send(cmd_sock, {"type": "drive", "linear": 0.0, "angular": 0.0,
+                             "kp": 0.0, "kd": 3.0})
+        _send(cmd_sock, {"type": "disable", "motor_ids": _ALL_MOTORS})
         time.sleep(0.1)  # let ZMQ flush the disable command
         cmd_sock.close()
         telem_sock.close()
