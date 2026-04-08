@@ -82,6 +82,11 @@ LOOP_HZ    = 30
 REC_HZ     = 20
 NUM_JOINTS = len(ARM_JOINTS)   # 6
 
+# Reduce GIL switch interval so background threads (camera JSON parsing,
+# image decode, Rerun logging) yield to the main loop faster.  Default is
+# 5 ms — a single large camera JSON parse can stall the main loop that long.
+sys.setswitchinterval(0.001)   # 1 ms
+
 # ---------------------------------------------------------------------------
 # Display constants
 # ---------------------------------------------------------------------------
@@ -132,6 +137,10 @@ def _ansi_on() -> None:
         import ctypes
         k32 = ctypes.windll.kernel32
         k32.SetConsoleMode(k32.GetStdHandle(-11), 7)
+        # Set timer resolution to 1 ms so time.sleep() is accurate.
+        # Without this, Windows quantizes sleep to ~15 ms (system tick),
+        # turning a 30 Hz loop into ~22 Hz with periodic stutter.
+        ctypes.windll.winmm.timeBeginPeriod(1)
 
 
 def _render(
@@ -396,6 +405,140 @@ def _draw(lines: list[str], first: bool = False) -> None:
     for line in lines:
         sys.stdout.write(f"\r{line}\033[K\n")
     sys.stdout.flush()
+
+
+def _start_display_thread() -> tuple[threading.Event, threading.Thread,
+                                      threading.Lock, dict, threading.Event]:
+    """Background thread for console rendering.
+
+    Runs both _render() (string formatting, numpy concat) and _draw()
+    (stdout write+flush) off the main loop.  Main loop passes a shallow
+    dict of display values; this thread does all the work.
+    """
+    lock   = threading.Lock()
+    holder: dict = {"args": None, "first": True}
+    signal = threading.Event()
+    stop   = threading.Event()
+
+    def _run() -> None:
+        while not stop.is_set():
+            if not signal.wait(timeout=0.1):
+                continue
+            signal.clear()
+            with lock:
+                args  = holder["args"]
+                first = holder["first"]
+                if first:
+                    holder["first"] = False
+            if args is not None:
+                lines = _render(**args)
+                _draw(lines, first=first)
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    return stop, thread, lock, holder, signal
+
+
+def _start_rerun_thread() -> tuple[threading.Event, threading.Thread,
+                                    threading.Lock, dict, threading.Event]:
+    """Background thread for Rerun camera image logging.
+
+    base64 decode + rr.log() can block 5-30 ms when the Rerun viewer's
+    ingestion pipe backs up.  Fire-and-forget from the main loop.
+    """
+    lock   = threading.Lock()
+    holder: dict = {"left": None, "right": None, "time": 0.0}
+    signal = threading.Event()
+    stop   = threading.Event()
+
+    def _run() -> None:
+        import base64 as _b64
+        while not stop.is_set():
+            if not signal.wait(timeout=0.1):
+                continue
+            signal.clear()
+            with lock:
+                lj = holder["left"]
+                rj = holder["right"]
+                ts = holder["time"]
+                holder["left"]  = None
+                holder["right"] = None
+            try:
+                rr.set_time("time", timestamp=ts)
+                if lj:
+                    # Flip left camera vertically to match world orientation
+                    _raw = _b64.b64decode(lj)
+                    _img = Image.open(io.BytesIO(_raw))
+                    _img = _img.transpose(Image.FLIP_TOP_BOTTOM)
+                    _buf = io.BytesIO()
+                    _img.save(_buf, format="JPEG", quality=85)
+                    rr.log("cameras/left", rr.EncodedImage(
+                        contents=_buf.getvalue(), media_type="image/jpeg"))
+                if rj:
+                    rr.log("cameras/right", rr.EncodedImage(
+                        contents=_b64.b64decode(rj), media_type="image/jpeg"))
+            except Exception:
+                pass
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    return stop, thread, lock, holder, signal
+
+
+def _start_image_decoder(
+    cam_lock: threading.Lock,
+    cam_cache: dict,
+    img_size: tuple,
+) -> tuple[threading.Event, threading.Thread, threading.Lock, dict, threading.Event]:
+    """Background thread that decodes + resizes camera JPEGs.
+
+    Runs continuously while *rec_flag* is set, decoding new camera
+    frames as they arrive in cam_cache.  The main loop reads pre-decoded
+    numpy arrays from *decoded* instead of calling decode_image() inline.
+    """
+    lock     = threading.Lock()
+    decoded: dict = {"left": None, "right": None,
+                     "left_time": 0.0, "right_time": 0.0}
+    rec_flag = threading.Event()
+    stop     = threading.Event()
+
+    def _run() -> None:
+        prev_lt = 0.0
+        prev_rt = 0.0
+        while not stop.is_set():
+            if not rec_flag.is_set():
+                stop.wait(0.05)
+                continue
+
+            with cam_lock:
+                l_msg = cam_cache["left"]
+                l_t   = cam_cache["left_time"]
+                r_msg = cam_cache["right"]
+                r_t   = cam_cache["right_time"]
+
+            changed = False
+            if l_t > prev_lt and l_msg is not None:
+                img = decode_image(l_msg, img_size, flip_v=True)
+                with lock:
+                    decoded["left"]      = img
+                    decoded["left_time"] = l_t
+                prev_lt = l_t
+                changed = True
+
+            if r_t > prev_rt and r_msg is not None:
+                img = decode_image(r_msg, img_size)
+                with lock:
+                    decoded["right"]      = img
+                    decoded["right_time"] = r_t
+                prev_rt = r_t
+                changed = True
+
+            if not changed:
+                stop.wait(0.005)   # 200 Hz poll when idle
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    return stop, thread, lock, decoded, rec_flag
 
 
 # ---------------------------------------------------------------------------
@@ -674,13 +817,15 @@ def _start_estop_reader(
 # Image decoding
 # ---------------------------------------------------------------------------
 
-def decode_image(msg: dict, target_size: tuple) -> Optional[np.ndarray]:
+def decode_image(msg: dict, target_size: tuple, flip_v: bool = False) -> Optional[np.ndarray]:
     """Decode a camera message to uint8 [H, W, 3]. target_size is (W, H)."""
     color    = msg.get("color", {})
     data_b64 = color.get("data")
     if data_b64 is None:
         return None
     img = Image.open(io.BytesIO(base64.b64decode(data_b64))).convert("RGB")
+    if flip_v:
+        img = img.transpose(Image.FLIP_TOP_BOTTOM)
     img = img.resize(target_size, Image.LANCZOS)
     return np.array(img, dtype=np.uint8)
 
@@ -918,6 +1063,10 @@ def main() -> None:
         ctx, args.cam_left, args.cam_right, args.ups or None,
     )
 
+    # Background image decoder (base64 + JPEG + resize off main loop)
+    _dec_stop, _dec_thread, _dec_lock, _dec_cache, _rec_flag = \
+        _start_image_decoder(_cam_lock, _cam_cache, img_size)
+
     # -------------------------------------------------------------------------
     # Hardware e-stop (ESP32 serial)
     # -------------------------------------------------------------------------
@@ -1043,9 +1192,33 @@ def main() -> None:
 
     _nan = float("nan")
     _init_actual = (np.concatenate([[_nan], q_actual]) if q_actual is not None else None)
-    _draw(_render(None, None, _init_actual, status, hint,
-                  robot_ok=robot_ok, leader_connected=(leader is not None),
-                  wheel_states=wheel_states, wheels_enabled=wheels_enabled), first=True)
+
+    # -------------------------------------------------------------------------
+    # Background display thread (avoids blocking main loop on Windows stdout)
+    # -------------------------------------------------------------------------
+    _disp_stop, _disp_thread, _disp_lock, _disp_holder, _disp_event = \
+        _start_display_thread()
+    # Queue the initial frame (first=True is the default in holder)
+    with _disp_lock:
+        _disp_holder["args"] = dict(
+            leader_rad=None, target=None, actual=_init_actual,
+            status=status, hint=hint, robot_ok=robot_ok,
+            leader_connected=(leader is not None),
+            wheel_states=wheel_states, wheels_enabled=wheels_enabled,
+        )
+    _disp_event.set()
+
+    # -------------------------------------------------------------------------
+    # Background Rerun thread (avoids blocking main loop on rr.log IPC)
+    # -------------------------------------------------------------------------
+    _rr_stop:   Optional[threading.Event]  = None
+    _rr_thread: Optional[threading.Thread] = None
+    _rr_lock:   Optional[threading.Lock]   = None
+    _rr_holder: Optional[dict]             = None
+    _rr_event:  Optional[threading.Event]  = None
+    if use_rerun:
+        _rr_stop, _rr_thread, _rr_lock, _rr_holder, _rr_event = \
+            _start_rerun_thread()
 
     frame_counter = 0
     period = 1.0 / LOOP_HZ
@@ -1094,19 +1267,17 @@ def main() -> None:
             cam_left_age  = (t0 - last_left_time)  if last_left_time  > 0 else 999.0
             cam_right_age = (t0 - last_right_time) if last_right_time > 0 else 999.0
 
-            # Log camera images to Rerun (~15 Hz = every other iteration)
-            if use_rerun and (frame_counter % 2 == 0):
-                rr.set_time("time", timestamp=t0)
-                if latest_left is not None:
-                    jpeg = latest_left.get("color", {}).get("data")
-                    if jpeg:
-                        rr.log("cameras/left", rr.EncodedImage(
-                            contents=base64.b64decode(jpeg), media_type="image/jpeg"))
-                if latest_right is not None:
-                    jpeg = latest_right.get("color", {}).get("data")
-                    if jpeg:
-                        rr.log("cameras/right", rr.EncodedImage(
-                            contents=base64.b64decode(jpeg), media_type="image/jpeg"))
+            # Queue camera images for Rerun (~15 Hz = every other iteration)
+            # Actual base64 decode + rr.log() runs on background thread.
+            if _rr_event is not None and (frame_counter % 2 == 0):
+                lj = latest_left.get("color", {}).get("data")  if latest_left  else None
+                rj = latest_right.get("color", {}).get("data") if latest_right else None
+                if lj or rj:
+                    with _rr_lock:
+                        _rr_holder["left"]  = lj
+                        _rr_holder["right"] = rj
+                        _rr_holder["time"]  = t0
+                    _rr_event.set()
 
             # -----------------------------------------------------------------
             # Gamepad + drive axes
@@ -1255,6 +1426,7 @@ def main() -> None:
                 if not recording:
                     if teleop_state in (State.IDLE, State.TRACKING, State.HOLD):
                         recording      = True
+                        _rec_flag.set()   # start background image decoder
                         qpos_buf       = []
                         qcmd_buf       = []
                         torque_buf     = []
@@ -1268,6 +1440,7 @@ def main() -> None:
                         last_rec_time  = 0.0
                 else:
                     recording  = False
+                    _rec_flag.clear()  # stop background image decoder
                     steps      = len(qpos_buf)
                     dur        = steps / REC_HZ
                     drop_note  = f"  drop:{dropped_frames}" if dropped_frames else ""
@@ -1327,6 +1500,7 @@ def main() -> None:
                     teleop_state        = State.SHUTDOWN
                     if recording:
                         recording = False   # stop recording on shutdown
+                        _rec_flag.clear()
 
             # -----------------------------------------------------------------
             # Leader data
@@ -1368,6 +1542,7 @@ def main() -> None:
                 # Rising edge — auto-save recording
                 if recording:
                     recording = False
+                    _rec_flag.clear()
                     steps     = len(qpos_buf)
                     dur       = steps / REC_HZ
                     drop_note = f"  drop:{dropped_frames}" if dropped_frames else ""
@@ -1552,6 +1727,7 @@ def main() -> None:
                 if teleop_state != State.ESTOP:
                     if recording:
                         recording = False
+                        _rec_flag.clear()
                         steps     = len(qpos_buf)
                         dur       = steps / REC_HZ
                         drop_note = f"  drop:{dropped_frames}" if dropped_frames else ""
@@ -1577,8 +1753,10 @@ def main() -> None:
             # -----------------------------------------------------------------
             if recording and t0 - last_rec_time >= 1.0 / REC_HZ:
                 last_rec_time = t0
-                left_img  = decode_image(latest_left,  img_size) if latest_left  is not None else None
-                right_img = decode_image(latest_right, img_size) if latest_right is not None else None
+                # Read pre-decoded images from background thread (no blocking)
+                with _dec_lock:
+                    left_img  = _dec_cache["left"]
+                    right_img = _dec_cache["right"]
                 cams_ok   = cam_left_age < _CAM_STALE and cam_right_age < _CAM_STALE
                 if (q_actual is not None and left_img is not None
                         and right_img is not None and cams_ok):
@@ -1596,6 +1774,7 @@ def main() -> None:
 
                 if len(qpos_buf) >= args.max_steps:
                     recording = False
+                    _rec_flag.clear()
                     steps     = len(qpos_buf)
                     dur       = steps / REC_HZ
                     if args.dry_run:
@@ -1659,29 +1838,31 @@ def main() -> None:
                 hint = save_msg
 
             # -----------------------------------------------------------------
-            # Render
+            # Render — queue raw values to display thread (render + draw
+            # both run off the main loop to avoid GIL contention)
             # -----------------------------------------------------------------
             if teleop_state == State.SHUTDOWN:
-                disp_arm, disp_swivel = shutdown_target, shutdown_swivel
+                _da, _ds = shutdown_target, shutdown_swivel
             else:
-                disp_arm, disp_swivel = target, swivel_tgt
+                _da, _ds = target, swivel_tgt
 
-            disp_target = (np.concatenate([[disp_swivel if disp_swivel is not None else _nan], disp_arm])
-                           if disp_arm is not None else None)
-            disp_actual = (np.concatenate([[swivel_actual if swivel_actual is not None else _nan], q_actual])
-                           if q_actual is not None else None)
-            disp_torque = (np.concatenate([[swivel_torque if swivel_torque is not None else _nan], arm_torques])
-                           if arm_torques is not None else None)
-            disp_temp   = (np.concatenate([[swivel_temp if swivel_temp is not None else _nan], arm_temps])
-                           if arm_temps is not None else None)
-
-            telem_age = t0 - last_telem_time if robot_ok else 999.0
-
-            _draw(_render(
-                leader_rad, disp_target, disp_actual, status, hint,
-                robot_ok, telem_age, ups_data,
-                _clamped_live if leader_rad is not None else None,
-                disp_torque, disp_temp, battery_voltage,
+            # Build display snapshot OUTSIDE lock (numpy concat ~0.5ms)
+            _disp_snapshot = dict(
+                leader_rad=leader_rad,
+                target=(np.concatenate([[_ds if _ds is not None else _nan], _da])
+                        if _da is not None else None),
+                actual=(np.concatenate([[swivel_actual if swivel_actual is not None else _nan], q_actual])
+                        if q_actual is not None else None),
+                status=status, hint=hint,
+                robot_ok=robot_ok,
+                telem_age=(t0 - last_telem_time if robot_ok else 999.0),
+                ups_data=ups_data,
+                clamped=(_clamped_live if leader_rad is not None else None),
+                torque=(np.concatenate([[swivel_torque if swivel_torque is not None else _nan], arm_torques])
+                        if arm_torques is not None else None),
+                temp=(np.concatenate([[swivel_temp if swivel_temp is not None else _nan], arm_temps])
+                      if arm_temps is not None else None),
+                battery_voltage=battery_voltage,
                 leader_connected=(leader is not None),
                 leader_age=leader_age,
                 cam_left_age=cam_left_age,
@@ -1694,7 +1875,11 @@ def main() -> None:
                 wheels_enabled=wheels_enabled,
                 drive_linear=drive_linear * _max_linear,
                 drive_angular=drive_angular * _max_angular,
-            ))
+            )
+            # Lock held only for reference swap (~µs)
+            with _disp_lock:
+                _disp_holder["args"] = _disp_snapshot
+            _disp_event.set()
 
             frame_counter += 1
             sleep_t = period - (time.time() - t0)
@@ -1716,11 +1901,19 @@ def main() -> None:
         time.sleep(0.1)  # let ZMQ flush the disable command
         cmd_sock.close()
         telem_sock.close()
+        _rec_flag.clear()
+        _dec_stop.set()
+        _dec_thread.join(timeout=1.0)
         _cam_stop.set()
         _cam_thread.join(timeout=2.0)
         _estop_stop.set()
         if _estop_thread is not None:
             _estop_thread.join(timeout=1.0)
+        _disp_stop.set()
+        _disp_thread.join(timeout=1.0)
+        if _rr_stop is not None:
+            _rr_stop.set()
+            _rr_thread.join(timeout=1.0)
         ctx.term()
         print("\nDone.")
 

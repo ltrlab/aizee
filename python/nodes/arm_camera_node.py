@@ -157,13 +157,18 @@ class ArmCameraNode:
         logger.info(f"Binding ZMQ PUB to {self.zmq_endpoint}")
         self.zmq_context = zmq.Context()
         self.zmq_socket = self.zmq_context.socket(zmq.PUB)
-        self.zmq_socket.setsockopt(zmq.SNDHWM, 10)
+        # Keep buffer tiny so WiFi hiccups don't pile up stale frames.
+        # With HWM=2, at most ~66ms of data is buffered; the subscriber's
+        # CONFLATE=1 then always gets a near-current frame.
+        self.zmq_socket.setsockopt(zmq.SNDHWM, 2)
         self.zmq_socket.bind(self.zmq_endpoint)
 
     def _compress_color(self, rgb: np.ndarray) -> bytes:
         img = Image.fromarray(rgb)
         buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=self.jpeg_quality, optimize=True)
+        # optimize=False — skip multi-pass Huffman search (2-5× faster,
+        # negligible quality difference at quality=85)
+        img.save(buf, format="JPEG", quality=self.jpeg_quality)
         return buf.getvalue()
 
     def process_frames(self):

@@ -9,6 +9,8 @@ Type=simple
 User=ltr
 WorkingDirectory=/home/ltr/aizee
 Environment="PYTHONUNBUFFERED=1"
+# Lower priority — camera frames can slip; motor control cannot
+Nice=5
 ExecStart=/usr/bin/python3 /home/ltr/aizee/python/nodes/arm_camera_node.py \
     --config /home/ltr/aizee/config/hardware_jetson_arm_cam_right.yaml
 Restart=on-failure

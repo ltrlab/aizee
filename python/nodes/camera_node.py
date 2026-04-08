@@ -161,7 +161,7 @@ class CameraNode:
         """
         img = Image.fromarray(color_image)
         buffer = io.BytesIO()
-        img.save(buffer, format='JPEG', quality=self.jpeg_quality, optimize=True)
+        img.save(buffer, format='JPEG', quality=self.jpeg_quality)
         return buffer.getvalue()
 
     def process_frames(self):
