@@ -447,7 +447,8 @@ def _start_rerun_thread() -> tuple[threading.Event, threading.Thread,
     ingestion pipe backs up.  Fire-and-forget from the main loop.
     """
     lock   = threading.Lock()
-    holder: dict = {"left": None, "right": None, "time": 0.0, "joints": None}
+    holder: dict = {"left": None, "right": None, "time": 0.0,
+                    "joints": None, "leader": None}
     signal = threading.Event()
     stop   = threading.Event()
 
@@ -462,9 +463,11 @@ def _start_rerun_thread() -> tuple[threading.Event, threading.Thread,
                 rj = holder["right"]
                 ts = holder["time"]
                 joints = holder["joints"]
-                holder["left"]  = None
-                holder["right"] = None
+                leader = holder["leader"]
+                holder["left"]   = None
+                holder["right"]  = None
                 holder["joints"] = None
+                holder["leader"] = None
             try:
                 rr.set_time("time", timestamp=ts)
                 if lj:
@@ -479,10 +482,14 @@ def _start_rerun_thread() -> tuple[threading.Event, threading.Thread,
                 if rj:
                     rr.log("cameras/right", rr.EncodedImage(
                         contents=_b64.b64decode(rj), media_type="image/jpeg"))
-                # Log joint positions as individual scalars for time-series plot
+                # Log actual joint positions (solid lines)
                 if joints is not None:
                     for jname, val in joints.items():
-                        rr.log(f"joints/{jname}", rr.Scalar(val))
+                        rr.log(f"joints/{jname}", rr.Scalars(val))
+                # Log leader arm commands (dashed — shows tracking error)
+                if leader is not None:
+                    for jname, val in leader.items():
+                        rr.log(f"leader/{jname}", rr.Scalars(val))
             except Exception:
                 pass
 
@@ -1090,7 +1097,14 @@ def main() -> None:
         print("WARNING: rerun not installed — live camera preview disabled")
         use_rerun = False
     if use_rerun:
-        rr.init("aizee_collect", spawn=True)
+        rr.init("aizee_collect")
+        rr.spawn(memory_limit="1GiB")
+        # Seed joint + leader entity paths so the blueprint can resolve them
+        _joint_names = ["swivel"] + list(ARM_JOINTS)
+        rr.set_time("time", timestamp=time.time())
+        for _jn in _joint_names:
+            rr.log(f"joints/{_jn}", rr.Scalars(0.0))
+            rr.log(f"leader/{_jn}", rr.Scalars(0.0))
         rr.send_blueprint(rrb.Blueprint(
             rrb.Vertical(
                 rrb.Horizontal(
@@ -1098,7 +1112,11 @@ def main() -> None:
                     rrb.Spatial2DView(name="Right", origin="cameras/right"),
                     column_shares=[1, 1],
                 ),
-                rrb.TimeSeriesView(name="Joint Positions", origin="joints"),
+                rrb.TimeSeriesView(
+                    name="Joint Positions",
+                    contents=[f"joints/{j}" for j in _joint_names]
+                            + [f"leader/{j}" for j in _joint_names],
+                ),
                 row_shares=[2, 1],
             )
         ))
@@ -1279,28 +1297,16 @@ def main() -> None:
 
             # Queue data for Rerun background thread.
             # Cameras at ~15 Hz (every other frame), joints every frame.
-            if _rr_event is not None:
-                _rr_dirty = False
-                with _rr_lock:
-                    _rr_holder["time"] = t0
-                    # Camera images every other frame
-                    if frame_counter % 2 == 0:
-                        lj = latest_left.get("color", {}).get("data")  if latest_left  else None
-                        rj = latest_right.get("color", {}).get("data") if latest_right else None
-                        if lj or rj:
-                            _rr_holder["left"]  = lj
-                            _rr_holder["right"] = rj
-                            _rr_dirty = True
-                    # Joint positions every frame
-                    if q_actual is not None:
-                        _jd = {}
-                        if swivel_actual is not None:
-                            _jd["swivel"] = swivel_actual
-                        for _ji, _jn in enumerate(ARM_JOINTS):
-                            _jd[_jn] = float(q_actual[_ji])
-                        _rr_holder["joints"] = _jd
-                        _rr_dirty = True
-                if _rr_dirty:
+            # Queue camera images for Rerun (~15 Hz = every other frame).
+            # Joint data is queued later, after telemetry + leader are read.
+            if _rr_event is not None and (frame_counter % 2 == 0):
+                lj = latest_left.get("color", {}).get("data")  if latest_left  else None
+                rj = latest_right.get("color", {}).get("data") if latest_right else None
+                if lj or rj:
+                    with _rr_lock:
+                        _rr_holder["left"]  = lj
+                        _rr_holder["right"] = rj
+                        _rr_holder["time"]  = t0
                     _rr_event.set()
 
             # -----------------------------------------------------------------
@@ -1743,6 +1749,29 @@ def main() -> None:
                 _ups_msg = _cam_cache["ups"]
             if _ups_msg is not None and "ups" in _ups_msg:
                 ups_data = _ups_msg["ups"]
+
+            # Queue joint positions + leader commands to Rerun (every frame)
+            if _rr_event is not None:
+                _jd: Optional[dict] = None
+                _ld: Optional[dict] = None
+                if q_actual is not None:
+                    _jd = {}
+                    if swivel_actual is not None:
+                        _jd["swivel"] = swivel_actual
+                    for _ji, _jn in enumerate(ARM_JOINTS):
+                        _jd[_jn] = float(q_actual[_ji])
+                if aizee_cmd is not None:
+                    _ld = {}
+                    if swivel_cmd is not None:
+                        _ld["swivel"] = swivel_cmd
+                    for _ji, _jn in enumerate(ARM_JOINTS):
+                        _ld[_jn] = float(aizee_cmd[_ji])
+                if _jd or _ld:
+                    with _rr_lock:
+                        _rr_holder["time"]   = t0
+                        _rr_holder["joints"] = _jd
+                        _rr_holder["leader"] = _ld
+                    _rr_event.set()
 
             # -----------------------------------------------------------------
             # E-Stop detection
