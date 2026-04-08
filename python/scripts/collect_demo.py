@@ -447,7 +447,7 @@ def _start_rerun_thread() -> tuple[threading.Event, threading.Thread,
     ingestion pipe backs up.  Fire-and-forget from the main loop.
     """
     lock   = threading.Lock()
-    holder: dict = {"left": None, "right": None, "time": 0.0}
+    holder: dict = {"left": None, "right": None, "time": 0.0, "joints": None}
     signal = threading.Event()
     stop   = threading.Event()
 
@@ -461,8 +461,10 @@ def _start_rerun_thread() -> tuple[threading.Event, threading.Thread,
                 lj = holder["left"]
                 rj = holder["right"]
                 ts = holder["time"]
+                joints = holder["joints"]
                 holder["left"]  = None
                 holder["right"] = None
+                holder["joints"] = None
             try:
                 rr.set_time("time", timestamp=ts)
                 if lj:
@@ -477,6 +479,10 @@ def _start_rerun_thread() -> tuple[threading.Event, threading.Thread,
                 if rj:
                     rr.log("cameras/right", rr.EncodedImage(
                         contents=_b64.b64decode(rj), media_type="image/jpeg"))
+                # Log joint positions as individual scalars for time-series plot
+                if joints is not None:
+                    for jname, val in joints.items():
+                        rr.log(f"joints/{jname}", rr.Scalar(val))
             except Exception:
                 pass
 
@@ -1086,10 +1092,14 @@ def main() -> None:
     if use_rerun:
         rr.init("aizee_collect", spawn=True)
         rr.send_blueprint(rrb.Blueprint(
-            rrb.Horizontal(
-                rrb.Spatial2DView(name="Left", origin="cameras/left"),
-                rrb.Spatial2DView(name="Right", origin="cameras/right"),
-                column_shares=[1, 1],
+            rrb.Vertical(
+                rrb.Horizontal(
+                    rrb.Spatial2DView(name="Left", origin="cameras/left"),
+                    rrb.Spatial2DView(name="Right", origin="cameras/right"),
+                    column_shares=[1, 1],
+                ),
+                rrb.TimeSeriesView(name="Joint Positions", origin="joints"),
+                row_shares=[2, 1],
             )
         ))
 
@@ -1267,16 +1277,30 @@ def main() -> None:
             cam_left_age  = (t0 - last_left_time)  if last_left_time  > 0 else 999.0
             cam_right_age = (t0 - last_right_time) if last_right_time > 0 else 999.0
 
-            # Queue camera images for Rerun (~15 Hz = every other iteration)
-            # Actual base64 decode + rr.log() runs on background thread.
-            if _rr_event is not None and (frame_counter % 2 == 0):
-                lj = latest_left.get("color", {}).get("data")  if latest_left  else None
-                rj = latest_right.get("color", {}).get("data") if latest_right else None
-                if lj or rj:
-                    with _rr_lock:
-                        _rr_holder["left"]  = lj
-                        _rr_holder["right"] = rj
-                        _rr_holder["time"]  = t0
+            # Queue data for Rerun background thread.
+            # Cameras at ~15 Hz (every other frame), joints every frame.
+            if _rr_event is not None:
+                _rr_dirty = False
+                with _rr_lock:
+                    _rr_holder["time"] = t0
+                    # Camera images every other frame
+                    if frame_counter % 2 == 0:
+                        lj = latest_left.get("color", {}).get("data")  if latest_left  else None
+                        rj = latest_right.get("color", {}).get("data") if latest_right else None
+                        if lj or rj:
+                            _rr_holder["left"]  = lj
+                            _rr_holder["right"] = rj
+                            _rr_dirty = True
+                    # Joint positions every frame
+                    if q_actual is not None:
+                        _jd = {}
+                        if swivel_actual is not None:
+                            _jd["swivel"] = swivel_actual
+                        for _ji, _jn in enumerate(ARM_JOINTS):
+                            _jd[_jn] = float(q_actual[_ji])
+                        _rr_holder["joints"] = _jd
+                        _rr_dirty = True
+                if _rr_dirty:
                     _rr_event.set()
 
             # -----------------------------------------------------------------
