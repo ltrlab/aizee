@@ -22,6 +22,7 @@ Controls:
     X    soft shutdown — hold 1 s, return to zero, disable
     Z    zero — capture current SO-101 pose as zero reference
     M    mirror — set zero so current leader maps to current actual
+    P    save current arm position as ready pose (config/ready_pose.json)
     Q    quit  (Ctrl-C also works)
     WASD drive wheels (W=fwd S=back A=left D=right, requires F first)
 
@@ -1511,6 +1512,23 @@ def main() -> None:
                     zero_offsets   = new_offsets
                     leader.save_zero(zero_offsets)
                     zero_msg       = "[M] mirrored — saved"
+                    zero_msg_until = t0 + 2.0
+
+            elif key == "P":
+                if q_actual is not None:
+                    ready = {
+                        "arm_joints": list(ARM_JOINTS),
+                        "positions": q_actual.tolist(),
+                    }
+                    if swivel_actual is not None:
+                        ready["swivel"] = swivel_actual
+                    rp_path = Path(__file__).resolve().parent.parent.parent / "config" / "ready_pose.json"
+                    rp_path.parent.mkdir(parents=True, exist_ok=True)
+                    rp_path.write_text(json.dumps(ready, indent=2))
+                    zero_msg       = f"[P] ready pose saved"
+                    zero_msg_until = t0 + 3.0
+                else:
+                    zero_msg       = "[P] no telemetry — cannot save"
                     zero_msg_until = t0 + 2.0
 
             elif key == "CANCEL_SHUTDOWN" and teleop_state == State.SHUTDOWN:

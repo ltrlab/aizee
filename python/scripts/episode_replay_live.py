@@ -385,8 +385,10 @@ def main() -> None:
     ap.add_argument("--speed",             type=float, default=1.0,  help="Playback speed multiplier (default 1.0)")
     ap.add_argument("--max-delta",         type=float, default=0.3,  dest="max_delta",
                     help="Per-step safety clamp [rad] (default 0.3)")
-    ap.add_argument("--goto-start",        action="store_true",      dest="goto_start",
-                    help="Move arm to episode start position before replay")
+    ap.add_argument("--no-goto-start",     action="store_true",      dest="no_goto_start",
+                    help="Skip slow ramp to episode start position before replay")
+    ap.add_argument("--ramp-speed",        type=float, default=1.5,  dest="ramp_speed",
+                    help="Approach speed to start position [rad/s] (default 1.5)")
     ap.add_argument("--loop",              action="store_true",      help="Loop episode indefinitely")
     ap.add_argument("--urdf",              default=None,             help="URDF file for gravity compensation")
     ap.add_argument("--gravity-comp",      action="store_true",      dest="gravity_comp",
@@ -413,6 +415,8 @@ def main() -> None:
     ep_duration  = ep_frames / ep_hz if ep_hz > 0 else 0.0
     frame_period = 1.0 / (ep_hz * args.speed)   # wall-clock seconds per frame
     has_swivel   = ep_swivel is not None
+    goto_start   = not args.no_goto_start
+    _ramp_delta  = args.ramp_speed / LOOP_HZ   # rad per control step
 
     arm_limits = load_arm_limits(Path(args.robstride_calib) if args.robstride_calib else None)
     _yaml  = _load_teleop_yaml()
@@ -622,7 +626,7 @@ def main() -> None:
                         _send(cmd_sock, {"type": "enable", "motor_ids": all_motor_ids})
                     frame_idx = 0
                     dropped   = 0
-                    if args.goto_start and q_actual is not None and not args.dry_run:
+                    if goto_start and q_actual is not None and not args.dry_run:
                         state = State.ARMING
                     else:
                         last_frame_wall = t0
@@ -638,14 +642,17 @@ def main() -> None:
                 elif state == State.DONE:
                     frame_idx = 0
                     dropped   = 0
-                    last_frame_wall = t0
-                    state = State.PLAYING
+                    if goto_start and not args.dry_run:
+                        state = State.ARMING
+                    else:
+                        last_frame_wall = t0
+                        state = State.PLAYING
 
             elif key == "R":
                 if state in (State.PLAYING, State.PAUSED, State.DONE):
                     frame_idx = 0
                     dropped   = 0
-                    if args.goto_start and not args.dry_run:
+                    if goto_start and not args.dry_run:
                         state = State.ARMING
                     else:
                         last_frame_wall = t0
@@ -666,7 +673,12 @@ def main() -> None:
             if state == State.ARMING:
                 tgt    = ep_qpos[0]
                 sw_tgt = float(ep_swivel[0]) if has_swivel else None
-                _send_arm(_safe_cmd(tgt, q_actual))
+                # Slow ramp to start position (ramp_speed rad/s, not max_delta)
+                ref   = q_actual if q_actual is not None else tgt
+                q_cmd = ref + np.clip(tgt - ref, -_ramp_delta, _ramp_delta)
+                if arm_limits:
+                    q_cmd = np.array(clamp_arm_positions(q_cmd.tolist(), arm_limits))
+                _send_arm(q_cmd)
                 if sw_tgt is not None:
                     _send_swivel(sw_tgt)
                 current_target     = tgt

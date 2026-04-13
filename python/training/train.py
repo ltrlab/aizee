@@ -29,6 +29,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 
 # Allow running from repo root or python/training/
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -62,6 +63,8 @@ def parse_args():
     parser.add_argument("--save-every", type=int, default=5, help="Save checkpoint every N epochs")
     parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint")
     parser.add_argument("--cache", action="store_true", help="Cache all HDF5 data in RAM")
+    parser.add_argument("--no-tensorboard", action="store_true", dest="no_tensorboard",
+                        help="Disable TensorBoard logging")
     return parser.parse_args()
 
 
@@ -156,6 +159,13 @@ def main():
         optimizer, T_max=args.epochs, eta_min=args.lr * 0.01
     )
 
+    # TensorBoard
+    writer = None
+    if not args.no_tensorboard:
+        tb_dir = output_dir / "tb_logs"
+        writer = SummaryWriter(log_dir=str(tb_dir))
+        print(f"TensorBoard: {tb_dir}")
+
     start_epoch = 0
 
     # Resume
@@ -225,6 +235,13 @@ def main():
             f"lr={lr_main:.2e} (backbone={lr_backbone:.2e})"
         )
 
+        if writer is not None:
+            writer.add_scalar("loss/l1", avg_l1, epoch + 1)
+            writer.add_scalar("loss/kl", avg_kl, epoch + 1)
+            writer.add_scalar("loss/total", avg_total, epoch + 1)
+            writer.add_scalar("lr/main", lr_main, epoch + 1)
+            writer.add_scalar("lr/backbone", lr_backbone, epoch + 1)
+
         # Save checkpoint
         if (epoch + 1) % args.save_every == 0 or (epoch + 1) == args.epochs:
             ckpt_path = output_dir / f"act_epoch_{epoch+1:04d}.pt"
@@ -259,6 +276,8 @@ def main():
             )
             print(f"  Saved checkpoint: {ckpt_path}")
 
+    if writer is not None:
+        writer.close()
     print("Training complete.")
 
 

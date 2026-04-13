@@ -87,13 +87,17 @@ def collect_episodes(args) -> List[str]:
 
 def build_eval_blueprint(show_images: bool) -> rrb.Blueprint:
     """Build a Rerun blueprint for evaluation visualization."""
+    action_contents = []
+    for joint in ARM_JOINTS:
+        action_contents.append(f"eval/gt_action/{joint}")
+        action_contents.append(f"eval/pred_action/{joint}")
     actions_view = rrb.TimeSeriesView(
         name="GT vs Predicted Actions",
-        contents=["eval/gt_action/*", "eval/pred_action/*"],
+        contents=action_contents,
     )
     error_view = rrb.TimeSeriesView(
         name="Per-Joint L1 Error",
-        contents=["eval/l1_error/*"],
+        contents=[f"eval/l1_error/{joint}" for joint in ARM_JOINTS],
     )
     infer_view = rrb.TimeSeriesView(
         name="Inference Time (ms)",
@@ -245,7 +249,7 @@ def evaluate_episode(
         inference_times[t] = infer_ms
 
         # --- Log to Rerun ---
-        rr.set_time("time", timestamp=frame * dt)
+        rr.set_time("frame", sequence=frame)
 
         for j, joint in enumerate(ARM_JOINTS):
             rr.log(f"eval/gt_action/{joint}", rr.Scalars(float(gt_action[j])))
@@ -345,7 +349,7 @@ def main():
         print(f" {T} frames", flush=True)
 
         # Log episode info
-        rr.set_time("time", timestamp=global_frame * (1.0 / ep.get("hz", 20)))
+        rr.set_time("frame", sequence=global_frame)
         rr.log("eval/info", rr.TextDocument(
             f"**Episode**: {ep_name}\n\n"
             f"**Frames**: {T}\n\n"
@@ -395,7 +399,7 @@ def main():
     for j, joint in enumerate(ARM_JOINTS):
         summary_lines.append(f"| {joint} | {all_l1[:, j].mean():.4f} | {all_l1[:, j].max():.4f} |")
     summary_lines.append(f"| **OVERALL** | **{all_l1.mean():.4f}** | **{all_l1.max():.4f}** |")
-    rr.set_time("time", timestamp=global_frame * (1.0 / 20))
+    rr.set_time("frame", sequence=global_frame)
     rr.log("eval/info", rr.TextDocument(
         "\n".join(summary_lines),
         media_type=rr.MediaType.MARKDOWN,

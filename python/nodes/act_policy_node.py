@@ -40,6 +40,13 @@ import yaml
 import zmq
 from PIL import Image
 
+try:
+    import rerun as rr
+    import rerun.blueprint as rrb
+    _rerun_available = True
+except ImportError:
+    _rerun_available = False
+
 # Allow running from repo root or python/nodes/
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -78,6 +85,28 @@ _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 STALE_THRESH = 0.200   # 200 ms
 WARN_LATENCY = 0.080   # 80 ms — warn if inference takes longer
+
+
+def _setup_keyboard():
+    """Non-blocking key reader. Returns a callable that returns a key or None."""
+    if sys.platform == "win32":
+        import msvcrt
+        def _get():
+            if msvcrt.kbhit():
+                ch = msvcrt.getwch()
+                return ch.upper()
+            return None
+    else:
+        import select, tty, termios
+        fd = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
+        tty.setcbreak(fd)
+        def _get():
+            if select.select([sys.stdin], [], [], 0)[0]:
+                ch = sys.stdin.read(1)
+                return ch.upper() if ch else None
+            return None
+    return _get
 
 
 # ---------------------------------------------------------------------------
@@ -265,14 +294,17 @@ class TemporalEnsemble:
 
 def load_checkpoint(path: str, device: torch.device):
     """Load checkpoint, return (policy, dataset_stats, config)."""
-    ckpt = torch.load(path, map_location=device)
+    ckpt = torch.load(path, map_location=device, weights_only=False)
     config = ckpt["config"]
     dataset_stats = ckpt["dataset_stats"]
 
-    # Convert numpy arrays to float32
+    # Convert to float32 numpy (handles both numpy arrays and torch tensors)
     for k in dataset_stats:
-        if hasattr(dataset_stats[k], "astype"):
-            dataset_stats[k] = dataset_stats[k].astype(np.float32)
+        v = dataset_stats[k]
+        if hasattr(v, "numpy"):
+            dataset_stats[k] = v.cpu().numpy().astype(np.float32)
+        elif hasattr(v, "astype"):
+            dataset_stats[k] = v.astype(np.float32)
 
     state_dim = config.get("state_dim", 6)
     dim_feedforward = config.get("dim_feedforward", 2048)
@@ -340,6 +372,12 @@ def main():
     parser.add_argument("--max-delta", type=float, default=0.05,
                         help="Max joint position change per step in rad "
                              "(velocity guard, default 0.05 = 1 rad/s at 20 Hz)")
+    parser.add_argument("--ready-pose", default=None, dest="ready_pose",
+                        help="Path to ready_pose.json (auto-detected from config/ if not set)")
+    parser.add_argument("--ramp-speed", type=float, default=1.5, dest="ramp_speed",
+                        help="Ramp speed to ready pose [rad/s] (default 1.5)")
+    parser.add_argument("--no-rerun", action="store_true", dest="no_rerun",
+                        help="Disable Rerun visualization")
     args = parser.parse_args()
 
     # Safety warning
@@ -382,6 +420,25 @@ def main():
           f"(≈ ±{args.max_delta * 20:.1f} rad/s at 20 Hz)")
     print()
 
+    # Load ready pose: prefer checkpoint's dataset_stats, fall back to JSON
+    ready_pose: Optional[np.ndarray] = None
+    if "ready_pose" in dataset_stats:
+        ready_pose = dataset_stats["ready_pose"]
+        print(f"Ready pose from checkpoint: {ready_pose}")
+    elif args.ready_pose:
+        rp_data = json.loads(Path(args.ready_pose).read_text())
+        ready_pose = np.array(rp_data["positions"], dtype=np.float32)
+        print(f"Ready pose from {args.ready_pose}: {ready_pose}")
+    else:
+        rp_path = Path(__file__).resolve().parent.parent.parent / "config" / "ready_pose.json"
+        if rp_path.exists():
+            rp_data = json.loads(rp_path.read_text())
+            ready_pose = np.array(rp_data["positions"], dtype=np.float32)
+            print(f"Ready pose from {rp_path.name}: {ready_pose}")
+        else:
+            print("No ready pose found — skipping pre-ramp")
+    print()
+
     # ZMQ setup
     ctx = zmq.Context()
 
@@ -413,6 +470,44 @@ def main():
         print(f"Pushing commands to:     {args.cmd}")
     print()
 
+    # Rerun visualization — streams to a local viewer via IPC or network
+    use_rerun = not args.no_rerun and _rerun_available
+    if use_rerun:
+        rr.init("aizee_policy")
+        rr.spawn(memory_limit="512MiB")
+        for jn in ARM_JOINTS:
+            rr.set_time("frame", sequence=0)
+            rr.log(f"qpos/{jn}", rr.Scalars(0.0))
+            rr.log(f"action/{jn}", rr.Scalars(0.0))
+            rr.log(f"error/{jn}", rr.Scalars(0.0))
+        rr.send_blueprint(rrb.Blueprint(
+            rrb.Vertical(
+                rrb.Horizontal(
+                    rrb.Spatial2DView(name="Left", origin="cameras/left"),
+                    rrb.Spatial2DView(name="Right", origin="cameras/right"),
+                    column_shares=[1, 1],
+                ),
+                rrb.TimeSeriesView(
+                    name="Joint Positions (qpos=amber, action=green)",
+                    contents=[f"qpos/{j}" for j in ARM_JOINTS]
+                           + [f"action/{j}" for j in ARM_JOINTS],
+                ),
+                rrb.TimeSeriesView(
+                    name="Per-Joint Error |action - qpos|",
+                    contents=[f"error/{j}" for j in ARM_JOINTS],
+                ),
+                rrb.TimeSeriesView(
+                    name="Inference Time (ms)",
+                    contents=["inference_ms"],
+                ),
+                row_shares=[2, 2, 1, 1],
+            )
+        ))
+        print("Rerun: viewer spawned")
+    elif not args.no_rerun:
+        print("NOTE: rerun not installed — run with --no-rerun to suppress this")
+        use_rerun = False
+
     # Temporal ensemble
     use_ensemble = args.ensemble_steps > 0
     ensemble = TemporalEnsemble(chunk_size, args.ensemble_steps) if use_ensemble else None
@@ -428,9 +523,26 @@ def main():
 
     tick = 1.0 / 20.0   # 20 Hz
     commands_sent = 0
+    rr_frame = 0
     all_sources_ready = False
+    paused = False
+    shutting_down = False
+    shutdown_target: Optional[np.ndarray] = None
+    shutdown_countdown = 0.0
+    quit_requested = False
+    hold_position: Optional[np.ndarray] = None
+    get_key = _setup_keyboard()
+
+    # Rerun series colors
+    if use_rerun:
+        for jn in ARM_JOINTS:
+            rr.log(f"qpos/{jn}", rr.SeriesLines(colors=[[255, 200, 60]], names=[f"qpos_{jn}"]), static=True)
+            rr.log(f"action/{jn}", rr.SeriesLines(colors=[[80, 220, 80]], names=[f"act_{jn}"]), static=True)
+            rr.log(f"error/{jn}", rr.SeriesLines(colors=[[255, 80, 80]], names=[jn]), static=True)
+            rr.log("inference_ms", rr.SeriesLines(colors=[[160, 160, 160]], names=["ms"]), static=True)
 
     print("Waiting for all sources to become ready...")
+    print("Controls: SPACE=pause/resume  Q=quit (confirm twice)")
 
     try:
         while True:
@@ -452,6 +564,106 @@ def main():
                 latest_right = right_msg
                 last_right_time = t0
 
+            # Keyboard
+            key = get_key()
+            if key == "Q":
+                if quit_requested:
+                    # Second Q — begin shutdown
+                    if not args.dry_run and cmd_push is not None:
+                        qpos_now = extract_qpos(latest_telem) if latest_telem else None
+                        shutdown_target = qpos_now.copy() if qpos_now is not None else np.zeros(NUM_JOINTS)
+                        shutdown_countdown = 1.0
+                        shutting_down = True
+                        print("\n[SHUTDOWN] Holding 1s then ramping to zero...")
+                    else:
+                        break
+                else:
+                    quit_requested = True
+                    print("\n[Q] Press Q again to confirm shutdown, or SPACE to cancel.")
+            elif key == " ":
+                quit_requested = False
+                if shutting_down:
+                    shutting_down = False
+                    paused = True
+                    qpos_now = extract_qpos(latest_telem) if latest_telem else None
+                    hold_position = qpos_now.copy() if qpos_now is not None else last_action
+                    print("\n[PAUSED] Shutdown cancelled. Holding position.")
+                elif paused:
+                    paused = False
+                    hold_position = None
+                    if ensemble is not None:
+                        ensemble._chunks.clear()
+                    print("\n[RESUMED] Inference active.")
+                else:
+                    paused = True
+                    qpos_now = extract_qpos(latest_telem) if latest_telem else None
+                    hold_position = qpos_now.copy() if qpos_now is not None else last_action
+                    print("\n[PAUSED] Holding position. SPACE=resume  Q=quit")
+
+            # Shutdown state: hold 1s, ramp to zero, disable
+            if shutting_down and not args.dry_run and cmd_push is not None:
+                dt = tick
+                if shutdown_countdown > 0:
+                    shutdown_countdown -= dt
+                    if shutdown_target is not None:
+                        cmd_push.send_string(json.dumps({
+                            "type": "arm_joints",
+                            "positions": shutdown_target.tolist(),
+                            "velocities": [0.0] * NUM_JOINTS,
+                            "kp": kp, "kd": kd,
+                            "torques": [0.0] * NUM_JOINTS,
+                        }), zmq.NOBLOCK)
+                else:
+                    max_change = 0.2 * dt
+                    if shutdown_target is None:
+                        shutdown_target = np.zeros(NUM_JOINTS)
+                    qpos_now = extract_qpos(latest_telem) if latest_telem else shutdown_target
+                    ref = qpos_now if qpos_now is not None else shutdown_target
+                    for i in range(NUM_JOINTS):
+                        shutdown_target[i] = (0.0 if abs(shutdown_target[i]) < max_change
+                                              else shutdown_target[i] - np.sign(shutdown_target[i]) * max_change)
+                    ramp_done = np.all(np.abs(shutdown_target) < 0.01)
+                    actual_close = qpos_now is None or np.all(np.abs(qpos_now) < 0.05)
+                    if ramp_done and actual_close:
+                        cmd_push.send_string(json.dumps({
+                            "type": "disable",
+                            "motor_ids": list(ARM_JOINTS),
+                        }), zmq.NOBLOCK)
+                        print("\n[SHUTDOWN] Motors disabled. Exiting.")
+                        break
+                    else:
+                        delta = np.clip(shutdown_target - ref, -0.3, 0.3)
+                        q_cmd = ref + delta
+                        cmd_push.send_string(json.dumps({
+                            "type": "arm_joints",
+                            "positions": q_cmd.tolist(),
+                            "velocities": [0.0] * NUM_JOINTS,
+                            "kp": kp, "kd": kd,
+                            "torques": [0.0] * NUM_JOINTS,
+                        }), zmq.NOBLOCK)
+                        print(f"\r[SHUTDOWN] Returning to zero... max_err={np.max(np.abs(shutdown_target)):.3f}    ",
+                              end="", flush=True)
+                elapsed = time.monotonic() - t0
+                time.sleep(max(0, tick - elapsed))
+                continue
+
+            # While paused, hold position and skip inference
+            if paused and not args.dry_run and cmd_push is not None and hold_position is not None:
+                cmd_push.send_string(json.dumps({
+                    "type": "arm_joints",
+                    "positions": hold_position.tolist(),
+                    "velocities": [0.0] * NUM_JOINTS,
+                    "kp": kp, "kd": kd,
+                    "torques": [0.0] * NUM_JOINTS,
+                }), zmq.NOBLOCK)
+                elapsed = time.monotonic() - t0
+                time.sleep(max(0, tick - elapsed))
+                continue
+            elif paused:
+                elapsed = time.monotonic() - t0
+                time.sleep(max(0, tick - elapsed))
+                continue
+
             # Check freshness
             telem_age = t0 - last_telem_time if last_telem_time > 0 else 999.0
             left_age = t0 - last_left_time if last_left_time > 0 else 999.0
@@ -465,7 +677,59 @@ def main():
             if not all_sources_ready:
                 if all_ok:
                     all_sources_ready = True
-                    print("All sources ready. Starting inference loop.")
+                    print("\nAll sources ready.")
+
+                    # Ramp to ready pose before inference
+                    if ready_pose is not None and not args.dry_run and cmd_push is not None:
+                        print("Enabling motors and ramping to ready pose...")
+                        cmd_push.send_string(json.dumps({
+                            "type": "enable",
+                            "motor_ids": list(ARM_JOINTS),
+                        }), zmq.NOBLOCK)
+                        time.sleep(0.1)
+
+                        ramp_delta = args.ramp_speed / 20.0  # per tick at 20 Hz
+                        while True:
+                            rt0 = time.monotonic()
+                            # Keep sockets drained
+                            t = drain_sub(telem_sub)
+                            if t is not None:
+                                latest_telem = t
+                                last_telem_time = rt0
+                            drain_sub(left_sub)
+                            drain_sub(right_sub)
+
+                            qpos = extract_qpos(latest_telem)
+                            if qpos is None:
+                                time.sleep(tick)
+                                continue
+
+                            err = np.max(np.abs(qpos - ready_pose))
+                            delta = np.clip(ready_pose - qpos, -ramp_delta, ramp_delta)
+                            q_cmd = qpos + delta
+                            cmd_push.send_string(json.dumps({
+                                "type": "arm_joints",
+                                "positions": q_cmd.tolist(),
+                                "velocities": [0.0] * NUM_JOINTS,
+                                "kp": kp, "kd": kd,
+                                "torques": [0.0] * NUM_JOINTS,
+                            }), zmq.NOBLOCK)
+
+                            print(f"\rRamping to ready pose... err={err:.3f} rad   ",
+                                  end="", flush=True)
+                            if err < 0.03:
+                                print("\nReady pose reached. Stabilising cameras...")
+                                time.sleep(0.5)
+                                # Drain stale frames accumulated during ramp
+                                drain_sub(left_sub)
+                                drain_sub(right_sub)
+                                drain_sub(telem_sub)
+                                break
+
+                            elapsed = time.monotonic() - rt0
+                            time.sleep(max(0, tick - elapsed))
+
+                    print("Starting inference loop.")
                 else:
                     # Status while waiting
                     flags = []
@@ -501,7 +765,11 @@ def main():
             right_img = decode_image(latest_right)
 
             if qpos_raw is None or left_img is None or right_img is None:
-                print("\r[SKIP] Decode failed    ", end="", flush=True)
+                fails = []
+                if qpos_raw is None: fails.append("qpos")
+                if left_img is None: fails.append("left_img")
+                if right_img is None: fails.append("right_img")
+                print(f"\r[SKIP] Decode failed: {','.join(fails)}    ", end="", flush=True)
                 elapsed = time.monotonic() - t0
                 time.sleep(max(0, tick - elapsed))
                 continue
@@ -561,6 +829,21 @@ def main():
 
             # Track last action for qcmd in next step
             last_action = action.copy()
+
+            # Rerun logging
+            if use_rerun:
+                rr.set_time("frame", sequence=rr_frame)
+                for j, jn in enumerate(ARM_JOINTS):
+                    rr.log(f"qpos/{jn}", rr.Scalars(float(qpos_raw[j])))
+                    rr.log(f"action/{jn}", rr.Scalars(float(action[j])))
+                    rr.log(f"error/{jn}", rr.Scalars(float(abs(action[j] - qpos_raw[j]))))
+                rr.log("inference_ms", rr.Scalars(infer_time * 1000.0))
+                if rr_frame % 2 == 0:
+                    if left_img is not None:
+                        rr.log("cameras/left", rr.Image(left_img))
+                    if right_img is not None:
+                        rr.log("cameras/right", rr.Image(right_img))
+                rr_frame += 1
 
             # Log
             action_str = " ".join(f"{v:+6.3f}" for v in action)

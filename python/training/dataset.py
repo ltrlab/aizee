@@ -101,11 +101,13 @@ class EpisodeDataset(Dataset):
         all_actions: List[np.ndarray] = []
         all_qcmd: List[np.ndarray] = []
         all_torques: List[np.ndarray] = []
+        start_poses: List[np.ndarray] = []
 
         for path in self._episode_paths:
             with h5py.File(path, "r") as f:
                 qpos = f["observations/qpos"][:]
                 all_qpos.append(qpos)
+                start_poses.append(qpos[0])
                 all_actions.append(f["actions"][:])
                 # qcmd: fall back to qpos if not present (zero compliance)
                 if "observations/qcmd" in f:
@@ -155,6 +157,7 @@ class EpisodeDataset(Dataset):
             "action_std": action_std,
             "action_min": action_min,
             "action_max": action_max,
+            "ready_pose": np.stack(start_poses).mean(axis=0).astype(np.float32),
         }
 
     # ------------------------------------------------------------------
