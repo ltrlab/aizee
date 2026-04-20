@@ -369,9 +369,9 @@ def main():
                         help="Run inference but do NOT send commands to :5555")
     parser.add_argument("--ensemble-steps", type=int, default=25,
                         help="Number of past chunks to ensemble (0 = disable)")
-    parser.add_argument("--max-delta", type=float, default=0.05,
+    parser.add_argument("--max-delta", type=float, default=0.3,
                         help="Max joint position change per step in rad "
-                             "(velocity guard, default 0.05 = 1 rad/s at 20 Hz)")
+                             "(velocity guard, default 0.3 = 6 rad/s at 20 Hz)")
     parser.add_argument("--ready-pose", default=None, dest="ready_pose",
                         help="Path to ready_pose.json (auto-detected from config/ if not set)")
     parser.add_argument("--ramp-speed", type=float, default=1.5, dest="ramp_speed",
