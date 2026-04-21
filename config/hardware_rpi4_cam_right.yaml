@@ -1,0 +1,41 @@
+# AIZEE Hardware Configuration - RPi4 Camera Module (Right)
+# RealSense D455 camera node for right-facing camera
+
+camera:
+  id: cam_right
+  model: D455
+  serial: D455_SERIAL_004  # Update after discovering actual serial
+
+  streams:
+    color:
+      width: 640
+      height: 480
+      fps: 30
+      format: RGB8
+      compression: JPEG
+      quality: 85
+
+    depth:
+      width: 640
+      height: 480
+      fps: 30
+      format: Z16
+      downsample_factor: 1
+
+    imu:
+      accel_rate: 200
+      gyro_rate: 200
+
+network:
+  device:
+    ip: 10.42.0.14        # PoE Ethernet (was 192.168.0.25 on WiFi)
+    hostname: AIZEE-ROVER-PI-4
+    zmq:
+      camera_pub: "tcp://*:5560"
+
+spatial:
+  position: [0.0, -0.20, 0.15]     # [x, y, z] in meters, relative to base_link
+  orientation: [0.0, 0.0, -1.5708] # [roll, pitch, yaw] in radians - facing right
+
+logging:
+  level: INFO

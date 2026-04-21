@@ -1,0 +1,22 @@
+[Unit]
+Description=AIZEE Tufty2040 Status Display
+# Start when the Tufty2040 USB device appears; stop on unplug.
+BindsTo=dev-tufty_display.device
+After=dev-tufty_display.device
+
+[Service]
+Type=simple
+User=ltr
+WorkingDirectory=/home/ltr/aizee
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/usr/bin/python3 /home/ltr/aizee/python/nodes/display_node.py \
+    --config /home/ltr/aizee/config/hardware_jetson_rover.yaml
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+# Creates /etc/systemd/system/dev-tufty_display.device.wants/ symlink.
+# Service starts automatically whenever the Tufty2040 is plugged in.
+WantedBy=dev-tufty_display.device

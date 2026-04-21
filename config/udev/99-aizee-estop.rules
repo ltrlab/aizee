@@ -1,0 +1,15 @@
+# Persistent symlink for the e-stop receiver ESP-WROOM-32.
+# Creates /dev/estop-receiver regardless of which ttyUSB port it lands on.
+#
+# Multiple CP210x devices share idVendor/idProduct/serial, so we match
+# by USB hub port (KERNELS) to distinguish from the LiDAR adapters.
+#
+# To find the correct KERNELS value if the receiver moves USB ports:
+#   1. Unplug receiver, note which /dev/ttyUSB* disappears
+#   2. Plug it back in:  udevadm info -a /dev/ttyUSBN | grep KERNELS
+#   3. Use the first KERNELS value (e.g. "1-2.4.3:1.0")
+#
+# Current: USB hub port 2.4.3 on the Jetson Orin Nano
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", KERNELS=="1-2.4.3:1.0", SYMLINK+="estop-receiver", MODE="0666"
+# CH340 fallback (alternative USB-serial chip on some devkits):
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="estop-receiver", MODE="0666"

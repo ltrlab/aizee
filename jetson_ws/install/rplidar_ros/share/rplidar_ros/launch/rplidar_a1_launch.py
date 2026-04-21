@@ -1,1 +1,0 @@
-/home/ltr/aizee/jetson_ws/src/rplidar_ros/launch/rplidar_a1_launch.py

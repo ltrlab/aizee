@@ -1,0 +1,135 @@
+# AIZEE Hardware Configuration - Jetson Rover Module
+# Rover base motors only (left_wheel, right_wheel, swivel)
+# Arm motors controlled by separate RPi4 module
+
+motors:
+  # Drive wheels - ROBSTRIDE 04 Series
+  wheels:
+    - id: left_wheel
+      can_id: 0x02
+      type: ROBSTRIDE04
+      max_velocity: 10.0  # rad/s
+      max_torque: 12.0    # Nm
+
+    - id: right_wheel
+      can_id: 0x04
+      type: ROBSTRIDE04
+      max_velocity: 10.0
+      max_torque: 12.0
+
+  # Base swivel - ROBSTRIDE 03 Series
+  swivel:
+    id: swivel
+    can_id: 0x03
+    type: ROBSTRIDE03
+    min_position: -15.0  # ±4π encoder range is ±12.566; ±15 gives headroom
+    max_position: 15.0   # Teleop enforces relative travel via swivel_position
+    max_velocity: 5.0
+    max_torque: 6.0
+
+  # Gantry arm - 6DoF
+  # Position limits from robstride_calibration.json + safety margin.
+  # max_torque limits feedforward torque; PD torque is bounded by MIT encoding.
+  arm:
+    - id: gantry_base
+      can_id: 0x05
+      type: ROBSTRIDE04
+      min_position: -2.5   # Physical range ~[-1.88, 0.02] + margin
+      max_position: 0.5
+      max_velocity: 10.0
+      max_torque: 60.0    # RS04 peak=120Nm; gravity+PD needs headroom
+
+    - id: gantry_mid
+      can_id: 0x06
+      type: ROBSTRIDE03
+      min_position: -0.5   # Physical range ~[-0.01, 2.61] + margin
+      max_position: 3.2
+      max_velocity: 5.0
+      max_torque: 40.0    # RS03 peak=60Nm; ~22Nm gravity at full extension
+
+    - id: gantry_end
+      can_id: 0x07
+      type: ROBSTRIDE02
+      min_position: -4.5   # Physical range ~[-3.95, 0.01] + margin
+      max_position: 0.5
+      max_velocity: 10.0
+      max_torque: 12.0    # RS02 peak=17Nm
+
+    - id: wrist_pitch
+      can_id: 0x08
+      type: ROBSTRIDE02
+      min_position: -3.5   # Physical range ~[-3.27, 3.21] + margin
+      max_position: 3.5
+      max_velocity: 10.0
+      max_torque: 12.0    # RS02 peak=17Nm
+
+    - id: wrist_roll
+      can_id: 0x09
+      type: ROBSTRIDE00
+      min_position: -1.0   # Physical range ~[-0.38, 2.57] + margin
+      max_position: 3.2
+      max_velocity: 30.0
+      max_torque: 1.5     # RS00 peak=2Nm, nominal=0.5Nm
+
+    - id: gripper
+      can_id: 0x0A
+      type: ROBSTRIDE00
+      min_position: -0.5   # Physical range ~[0.08, 7.30] but mechanism is much smaller
+      max_position: 5.0    # Conservative: real gripper likely <2 rad travel
+      max_velocity: 30.0
+      max_torque: 1.5     # RS00 peak=2Nm, nominal=0.5Nm
+
+# Control loop parameters
+control:
+  arm_frequency: 400.0   # Hz - limited by CAN bus: 6 motors × ~280µs round-trip = 1680µs/cycle
+  base_frequency: 100.0  # Hz - wheels + swivel
+  telemetry_rate: 50.0   # Hz - published motor states
+  watchdog_timeout: 0.5  # seconds - hold position if no command received (500ms tolerates WiFi jitter)
+
+# CAN bus configuration
+can:
+  interface: can1
+
+# LiDAR sensors - RPLiDAR A1M8
+lidars:
+  - id: lidar_front
+    device: /dev/rplidar_front  # Udev symlink (see config/udev/99-rplidar.rules)
+    scan_mode: standard
+
+  - id: lidar_back
+    device: /dev/rplidar_back   # Udev symlink (see config/udev/99-rplidar.rules)
+    scan_mode: standard
+
+# UPS Power Module - Waveshare UPS Power Module (C)
+ups:
+  enabled: true
+  i2c_bus: 7              # I2C bus number (Jetson Orin Nano default)
+  i2c_addr: 0x41          # INA219 I2C address
+  update_rate: 1.0        # Hz - publishing rate
+  battery_chemistry: "lipo_3s"  # 3S LiPo (11.1V nominal)
+  voltage_full: 12.6      # Fully charged (3 × 4.2V)
+  voltage_nominal: 11.1   # Nominal (3 × 3.7V)
+  voltage_warning: 10.5   # Warning threshold (3 × 3.5V)
+  voltage_critical: 9.9   # Critical threshold (3 × 3.3V)
+  voltage_min: 9.0        # Absolute minimum (3 × 3.0V)
+
+# Tufty2040 Status Display — Raspberry Pi Pico connected via USB CDC
+display:
+  enabled: true
+  serial_port: "/dev/tufty_display"   # Udev symlink (see config/udev/99-aizee-display.rules)
+  baud_rate: 115200
+  update_rate: 2.0                     # Hz — display refresh rate
+
+# Network topology
+network:
+  device:  # Generic device config (was 'jetson')
+    ip: 192.168.0.27
+    hostname: aizee-jetson
+    zmq:
+      command_sub: "tcp://*:5555"      # Receives commands from teleop
+      telemetry_pub: "tcp://*:5556"    # Publishes motor states
+      lidar_pub: "tcp://*:5561"        # Publishes LiDAR scans
+      ups_pub: "tcp://*:5562"          # Publishes UPS power telemetry
+      arm_cam_left_pub: "tcp://*:5563" # D435 arm camera left  (see hardware_jetson_arm_cam_left.yaml)
+      arm_cam_right_pub: "tcp://*:5564" # D435 arm camera right (see hardware_jetson_arm_cam_right.yaml)
+      motor_telem_sub: "tcp://localhost:5556"  # Motor telemetry subscriber (display_node)

@@ -1,0 +1,18 @@
+[Unit]
+Description=AIZEE E-Stop Bridge (ESP-NOW receiver serial → ZMQ)
+After=network.target aizee-motor-control-rover.service
+
+[Service]
+Type=simple
+User=ltr
+WorkingDirectory=/home/ltr/aizee
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/usr/bin/python3 /home/ltr/aizee/firmware/estop/bridge.py --port /dev/estop-receiver --zmq tcp://localhost:5555
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aizee-estop
+
+[Install]
+WantedBy=multi-user.target

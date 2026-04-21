@@ -1,0 +1,52 @@
+# AIZEE Hardware Configuration - Arm Camera Left (RealSense D435)
+# USB-connected to Jetson, mounted on top of the arm near the wrist_roll joint,
+# looking at the gripper. Publishes directly on Jetson WiFi — no relay required.
+
+camera:
+  id: arm_cam_left
+  model: D435
+  # Run `rs-enumerate-devices` on the Jetson to find serial numbers.
+  # Set both cameras' serials so each process claims the correct physical unit.
+  serial: "941322071864"   # D435 on USB 2.1 — swap with right config if physical L/R is inverted
+  # Calibrated intrinsics (640x480): fx=384.84 fy=384.84 cx=319.66 cy=242.73
+  # Hardware inter-camera sync. Set to "master" here and "slave" on right camera once
+  # the physical sync cable (2.5 mm stereo jack between the two D435 sync ports) is wired.
+  sync_mode: "off"   # "off" | "master" | "slave"
+
+  streams:
+    color:
+      enabled: true
+      width: 640
+      height: 480
+      fps: 30
+      format: RGB8
+      compression: JPEG
+      quality: 85        # Lower to reduce bandwidth (e.g. 60) if needed
+
+    depth:
+      enabled: false
+      width: 640
+      height: 480
+      fps: 30
+      format: Z16
+
+network:
+  device:
+    ip: 192.168.0.27      # Jetson WiFi — rerun_bridge connects here from dev machine
+    hostname: aizee-jetson
+    zmq:
+      camera_pub: "tcp://*:5563"
+
+# Position and orientation of the camera sensor relative to joint_wrist_roll.
+# Coordinate frame of joint_wrist_roll: +X toward gripper tip, +Z up (when arm horizontal).
+# NOTE: These are placeholder values — measure and update once cameras are physically mounted.
+spatial:
+  parent_joint: wrist_roll
+  position: [0.01, 0.04, 0.05]     # [x, y, z] metres — left of centre, above arm
+  # Orientation is read by rerun_bridge. Default rotation has optical axis pointing
+  # down (-Z in wrist_roll frame) with image right toward gripper tip (+X).
+  # Adjust roll/pitch/yaw (radians) to correct for actual mounting angle.
+  orientation: [0.0, 0.0, 0.0]     # [roll, pitch, yaw] — placeholder
+
+logging:
+  level: INFO

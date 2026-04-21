@@ -1,0 +1,83 @@
+#!/bin/bash
+# Reset USB-CAN adapter and configure CAN interface.
+# Deployed to /usr/local/bin/aizee-reset-usb-can on the Jetson.
+# Called by systemd ExecStartPre to ensure a pristine adapter on every service start.
+#
+# Usage: aizee-reset-usb-can <interface>   (e.g. can1)
+#
+# What it does:
+#   1. Finds the USB device backing the CAN interface via sysfs
+#   2. Unbinds and rebinds the USB device (resets gs_usb firmware state)
+#   3. Waits for the interface to re-enumerate
+#   4. Configures bitrate, restart-ms, txqueuelen, and brings the interface up
+
+set -e
+
+IFACE="${1:-can1}"
+BITRATE=1000000
+RESTART_MS=100
+TXQUEUELEN=128
+REBIND_WAIT=2
+
+echo "aizee-reset-usb-can: resetting $IFACE"
+
+# Step 1: Bring interface down (ignore errors — may already be down)
+ip link set "$IFACE" down 2>/dev/null || true
+
+# Step 2: Find the USB device path from sysfs
+#   /sys/class/net/can1/device -> ../../usb1/1-2/1-2:1.0
+#   We need the parent (e.g. 1-2) and driver (e.g. gs_usb)
+SYSFS_DEV=$(readlink -f "/sys/class/net/$IFACE/device" 2>/dev/null || true)
+
+if [[ -z "$SYSFS_DEV" || ! -d "$SYSFS_DEV" ]]; then
+    echo "WARNING: Cannot find sysfs device for $IFACE — skipping USB reset, configuring only"
+else
+    # Walk up to the USB device (parent of the interface, e.g. 1-2)
+    USB_INTF_DIR="$SYSFS_DEV"
+    USB_DEV_DIR=$(dirname "$USB_INTF_DIR")
+
+    # Find the driver for unbinding
+    DRIVER_LINK=$(readlink "$USB_INTF_DIR/driver" 2>/dev/null || true)
+    DRIVER_NAME=$(basename "$DRIVER_LINK" 2>/dev/null || true)
+
+    # Get the interface ID (e.g. 1-2:1.0)
+    USB_INTF_ID=$(basename "$USB_INTF_DIR")
+
+    if [[ -n "$DRIVER_NAME" && -e "/sys/bus/usb/drivers/$DRIVER_NAME" ]]; then
+        echo "  USB interface: $USB_INTF_ID, driver: $DRIVER_NAME"
+
+        # Unbind
+        echo "$USB_INTF_ID" > "/sys/bus/usb/drivers/$DRIVER_NAME/unbind" 2>/dev/null || true
+        echo "  Unbound $USB_INTF_ID from $DRIVER_NAME"
+        sleep "$REBIND_WAIT"
+
+        # Rebind
+        echo "$USB_INTF_ID" > "/sys/bus/usb/drivers/$DRIVER_NAME/bind" 2>/dev/null || true
+        echo "  Rebound $USB_INTF_ID to $DRIVER_NAME"
+        sleep "$REBIND_WAIT"
+
+        # Wait for interface to appear (up to 5 seconds)
+        for i in $(seq 1 10); do
+            if ip link show "$IFACE" &>/dev/null; then
+                echo "  Interface $IFACE re-enumerated after ${i}x0.5s"
+                break
+            fi
+            sleep 0.5
+        done
+    else
+        echo "  WARNING: No driver found for $USB_INTF_ID — skipping unbind/bind"
+    fi
+fi
+
+# Step 3: Configure and bring up
+if ! ip link show "$IFACE" &>/dev/null; then
+    echo "ERROR: Interface $IFACE not found after reset"
+    exit 1
+fi
+
+ip link set "$IFACE" down 2>/dev/null || true
+ip link set "$IFACE" type can bitrate "$BITRATE" restart-ms "$RESTART_MS" 2>/dev/null || true
+ip link set "$IFACE" txqueuelen "$TXQUEUELEN"
+ip link set "$IFACE" up
+
+echo "aizee-reset-usb-can: $IFACE configured (bitrate=$BITRATE, restart-ms=$RESTART_MS, txqueuelen=$TXQUEUELEN) and UP"

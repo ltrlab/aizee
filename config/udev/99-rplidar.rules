@@ -1,0 +1,18 @@
+# Udev rules for RPLiDAR A1M8 sensors
+# Uses USB port location since both sensors have identical serial numbers (0001)
+#
+# SETUP:
+#   sudo cp config/udev/99-rplidar.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+#
+# To find port of a device: udevadm info --attribute-walk /dev/ttyUSBx | grep KERNELS
+#
+# Current port assignments (Jetson Orin Nano):
+#   rplidar_front: USB port 1-2.2 -> /dev/ttyUSB1
+#   rplidar_back:  USB port 1-2.1 -> /dev/ttyUSB0
+
+# Front LiDAR (USB port 1-2.2)
+SUBSYSTEM=="tty", KERNELS=="1-2.2", SYMLINK+="rplidar_front", MODE="0666", GROUP="dialout"
+
+# Back LiDAR (USB port 1-2.1)
+SUBSYSTEM=="tty", KERNELS=="1-2.1", SYMLINK+="rplidar_back", MODE="0666", GROUP="dialout"
