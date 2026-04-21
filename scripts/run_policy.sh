@@ -44,7 +44,15 @@ echo ""
 if $LOCAL_MODE; then
     # Run locally with Rerun, connecting to Jetson ZMQ over network
     if [[ -z "$CHECKPOINT" ]]; then
-        CHECKPOINT="$LOCAL_DIR/checkpoints/act_epoch_0200.pt"
+        if [[ -f "$LOCAL_DIR/checkpoints/act_best.pt" ]]; then
+            CHECKPOINT="$LOCAL_DIR/checkpoints/act_best.pt"
+        else
+            CHECKPOINT=$(ls -t "$LOCAL_DIR"/checkpoints/act_epoch_*.pt 2>/dev/null | head -1)
+            if [[ -z "$CHECKPOINT" ]]; then
+                echo "ERROR: No checkpoints found in $LOCAL_DIR/checkpoints/"
+                exit 1
+            fi
+        fi
     fi
     echo "Mode: LOCAL (dev machine + Rerun)"
     echo "Checkpoint: $CHECKPOINT"
@@ -60,9 +68,13 @@ if $LOCAL_MODE; then
 else
     # Run on Jetson via SSH
     if [[ -z "$CHECKPOINT" ]]; then
-        echo "Finding latest checkpoint on Jetson..."
+        echo "Finding best checkpoint on Jetson..."
         CHECKPOINT=$(ssh -i "$SSH_KEY" "$JETSON" \
-            "ls -t ~/$REMOTE_DIR/checkpoints/act_epoch_*.pt 2>/dev/null | head -1")
+            "if [[ -f ~/$REMOTE_DIR/checkpoints/act_best.pt ]]; then \
+                echo ~/$REMOTE_DIR/checkpoints/act_best.pt; \
+            else \
+                ls -t ~/$REMOTE_DIR/checkpoints/act_epoch_*.pt 2>/dev/null | head -1; \
+            fi")
         if [[ -z "$CHECKPOINT" ]]; then
             echo "ERROR: No checkpoints found on Jetson"
             exit 1

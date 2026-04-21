@@ -435,3 +435,123 @@ def _load_calib(path: Path) -> Optional[dict]:
         with open(path) as f:
             return json.load(f)
     return None
+
+
+# ---------------------------------------------------------------------------
+# Auto-detection
+# ---------------------------------------------------------------------------
+
+# USB-serial chip VIDs commonly shipped on SO-101 servo adapters.
+# WCH CH340 (WaveShare Bus Servo Adapter) is by far the most common.
+_SO101_KNOWN_VIDS = {
+    0x1A86,  # WCH CH340 / CH341
+    0x0403,  # FTDI
+    0x10C4,  # Silicon Labs CP210x
+    0x067B,  # Prolific PL2303
+}
+
+
+def _probe_so101(device: str, baud: int = _BAUD, timeout: float = 0.2) -> tuple[bool, str]:
+    """Return (ok, detail) for probing *device* as an SO-101.
+
+    Sends up to two Feetech sync-read broadcasts (CH340/CH341 adapters often
+    reset on open and miss the first packet).  Accepts the port if at least
+    4 of the 7 servos respond — tolerates a partially-populated arm but
+    rejects unrelated serial devices (ESP32, USB-UARTs, etc.).
+
+    *detail* is a short human-readable string describing what happened, so
+    callers can surface diagnostics when no port is found.
+    """
+    if serial is None:
+        return False, "pyserial not installed"
+    try:
+        ser = serial.Serial(device, baud, timeout=timeout)
+    except (serial.SerialException, OSError) as exc:
+        return False, f"open failed ({exc.__class__.__name__})"
+    try:
+        # CH340/CH341 adapters reset on open — give the bus time to settle.
+        time.sleep(0.25)
+        ids  = list(range(1, len(So101Leader.JOINTS) + 1))
+        n    = len(ids)
+        body = bytes([_BROADCAST, n + 4, _SYNC_READ, _REG_POS, 2] + ids)
+        cs   = (~sum(body)) & 0xFF
+        pkt  = _HEADER + body + bytes([cs])
+
+        best_found = 0
+        for attempt in range(2):
+            try:
+                ser.reset_input_buffer()
+                ser.write(pkt)
+                ser.flush()
+                raw = bytearray(ser.read(n * 8))
+            except (serial.SerialException, OSError) as exc:
+                return False, f"io error ({exc.__class__.__name__})"
+            found = 0
+            for servo_id in ids:
+                pos = 0
+                while pos <= len(raw) - 8:
+                    if (raw[pos] == 0xFF and raw[pos+1] == 0xFF and raw[pos+2] == servo_id
+                            and raw[pos+3] == 4 and raw[pos+4] == 0):
+                        found += 1
+                        break
+                    pos += 1
+            best_found = max(best_found, found)
+            if found >= 4:
+                return True, f"{found}/{n} servos responded"
+            time.sleep(0.05)
+        return False, (f"{best_found}/{n} servos responded"
+                       if best_found else "no response")
+    finally:
+        try:
+            ser.close()
+        except Exception:
+            pass
+
+
+def find_so101_port(
+    exclude: Optional[list[str]] = None,
+    baud: int = _BAUD,
+    verbose: bool = False,
+) -> Optional[str]:
+    """Auto-detect the SO-101 leader arm's USB serial port.
+
+    Enumerates serial ports via pyserial, prefers ports whose USB VID matches
+    a known SO-101 adapter chip, and verifies each candidate by sending a
+    Feetech sync-read broadcast.  Returns the first device whose servos
+    respond, or None if no SO-101 is found.
+
+    Args:
+        exclude: device paths to skip (e.g. the ESP32 e-stop receiver port).
+        baud:    serial baud rate (default 1 Mbaud — SO-101 Feetech bus).
+        verbose: print each candidate's VID/PID and probe result.
+    """
+    if serial is None:
+        return None
+    try:
+        from serial.tools import list_ports
+    except ImportError:
+        return None
+
+    excl  = set(exclude or [])
+    ports = [p for p in list_ports.comports() if p.device not in excl]
+    # Try known-VID ports first; fall back to unknown-VID ports only if none match.
+    known  = [p for p in ports if p.vid in _SO101_KNOWN_VIDS]
+    others = [p for p in ports if p.vid not in _SO101_KNOWN_VIDS]
+    ordered = known + others
+
+    if verbose:
+        if not ordered:
+            print("  (no serial ports enumerated)")
+        for p in ordered:
+            vid_pid = (f"{p.vid:04X}:{p.pid:04X}"
+                       if p.vid is not None and p.pid is not None else "????:????")
+            desc = p.description or ""
+            print(f"  {p.device:<10}  VID:PID={vid_pid}  {desc}")
+
+    for p in ordered:
+        ok, detail = _probe_so101(p.device, baud)
+        if verbose:
+            print(f"  probe {p.device}: {'OK' if ok else 'fail'} — {detail}")
+        if ok:
+            return p.device
+    return None

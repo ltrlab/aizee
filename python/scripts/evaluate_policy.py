@@ -20,7 +20,7 @@ import csv
 import sys
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 import h5py
 import numpy as np
@@ -32,8 +32,8 @@ import torch
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from python.nodes.act_policy_node import (
-    ARM_JOINTS,
-    NUM_JOINTS,
+    POLICY_JOINTS,
+    NUM_POLICY_JOINTS,
     TemporalEnsemble,
     _build_state_vector,
     denormalize_actions,
@@ -48,29 +48,29 @@ from python.nodes.act_policy_node import (
 # ---------------------------------------------------------------------------
 
 def load_episode(path: str) -> dict:
-    """Load one HDF5 episode into memory. Returns dict of numpy arrays."""
+    """Load one HDF5 episode into memory. Returns dict of numpy arrays.
+
+    Expects format_version=2 episodes (7-DOF qpos/qcmd/actions with swivel first).
+    """
     with h5py.File(path, "r") as f:
         ep = {
-            "qpos": f["observations/qpos"][:],          # [T, 6]
-            "actions": f["actions"][:],                  # [T, 6]
+            "qpos": f["observations/qpos"][:],          # [T, J]
+            "actions": f["actions"][:],                  # [T, J]
         }
-        # Images
         if "observations/images/left" in f:
-            ep["img_left"] = f["observations/images/left"][:]   # [T, H, W, 3]
+            ep["img_left"] = f["observations/images/left"][:]
         if "observations/images/right" in f:
             ep["img_right"] = f["observations/images/right"][:]
-        # Optional extended state
         if "observations/qcmd" in f:
-            ep["qcmd"] = f["observations/qcmd"][:]       # [T, 6]
+            ep["qcmd"] = f["observations/qcmd"][:]
         if "observations/torques" in f:
-            ep["torques"] = f["observations/torques"][:]  # [T, 6]
-        # Metadata
+            ep["torques"] = f["observations/torques"][:]
         ep["hz"] = int(f.attrs.get("hz", 20))
+        ep["num_joints"] = int(ep["qpos"].shape[1])
     return ep
 
 
 def collect_episodes(args) -> List[str]:
-    """Resolve --episode / --episode-dir to a sorted list of HDF5 paths."""
     if args.episode:
         return args.episode
     ep_dir = Path(args.episode_dir)
@@ -85,33 +85,25 @@ def collect_episodes(args) -> List[str]:
 # Rerun blueprint
 # ---------------------------------------------------------------------------
 
-def build_eval_blueprint(show_images: bool) -> rrb.Blueprint:
-    """Build a Rerun blueprint for evaluation visualization."""
+def build_eval_blueprint(show_images: bool, joint_names: List[str]) -> rrb.Blueprint:
     action_contents = []
-    for joint in ARM_JOINTS:
+    for joint in joint_names:
         action_contents.append(f"eval/gt_action/{joint}")
         action_contents.append(f"eval/pred_action/{joint}")
     actions_view = rrb.TimeSeriesView(
-        name="GT vs Predicted Actions",
-        contents=action_contents,
+        name="GT vs Predicted Actions", contents=action_contents,
     )
     error_view = rrb.TimeSeriesView(
         name="Per-Joint L1 Error",
-        contents=[f"eval/l1_error/{joint}" for joint in ARM_JOINTS],
+        contents=[f"eval/l1_error/{joint}" for joint in joint_names],
     )
     infer_view = rrb.TimeSeriesView(
-        name="Inference Time (ms)",
-        contents=["eval/inference_ms"],
+        name="Inference Time (ms)", contents=["eval/inference_ms"],
     )
-    info_view = rrb.TextDocumentView(
-        name="Info",
-        origin="eval/info",
-    )
+    info_view = rrb.TextDocumentView(name="Info", origin="eval/info")
 
     right_col = rrb.Vertical(
-        actions_view,
-        error_view,
-        infer_view,
+        actions_view, error_view, infer_view,
         row_shares=[3, 2, 1],
     )
 
@@ -126,35 +118,25 @@ def build_eval_blueprint(show_images: bool) -> rrb.Blueprint:
             row_shares=[3, 1],
         )
         return rrb.Blueprint(
-            rrb.Horizontal(
-                left_col,
-                right_col,
-                column_shares=[2, 3],
-            )
+            rrb.Horizontal(left_col, right_col, column_shares=[2, 3])
         )
-    else:
-        return rrb.Blueprint(
-            rrb.Horizontal(
-                right_col,
-                info_view,
-                column_shares=[4, 1],
-            )
-        )
+    return rrb.Blueprint(
+        rrb.Horizontal(right_col, info_view, column_shares=[4, 1])
+    )
 
 
 # ---------------------------------------------------------------------------
 # Colors
 # ---------------------------------------------------------------------------
 
-GT_COLOR = [255, 200, 60]     # amber
-PRED_COLOR = [80, 220, 80]    # green
-ERROR_COLOR = [255, 80, 80]   # red
-INFER_COLOR = [160, 160, 160] # gray
+GT_COLOR = [255, 200, 60]
+PRED_COLOR = [80, 220, 80]
+ERROR_COLOR = [255, 80, 80]
+INFER_COLOR = [160, 160, 160]
 
 
-def _log_series_colors():
-    """Log static SeriesLines colors for all evaluation entity paths."""
-    for joint in ARM_JOINTS:
+def _log_series_colors(joint_names: List[str]):
+    for joint in joint_names:
         rr.log(f"eval/gt_action/{joint}", rr.SeriesLines(colors=[GT_COLOR], names=[f"gt_{joint}"]), static=True)
         rr.log(f"eval/pred_action/{joint}", rr.SeriesLines(colors=[PRED_COLOR], names=[f"pred_{joint}"]), static=True)
         rr.log(f"eval/l1_error/{joint}", rr.SeriesLines(colors=[ERROR_COLOR], names=[joint]), static=True)
@@ -176,42 +158,50 @@ def evaluate_episode(
     show_images: bool,
     frame_offset: int,
     speed: float,
+    joint_names: List[str],
 ) -> dict:
     """Run open-loop evaluation on one episode. Returns metrics dict."""
     chunk_size = config["chunk_size"]
-    state_dim = config.get("state_dim", 6)
+    num_joints = config["num_joints"]
+    state_mode = config["state_mode"]
+    action_mode = config["action_mode"]
     T = ep["qpos"].shape[0]
 
-    ensemble = TemporalEnsemble(chunk_size, ensemble_steps) if use_ensemble else None
+    if ep["num_joints"] != num_joints:
+        raise ValueError(
+            f"episode has {ep['num_joints']} joints, checkpoint expects {num_joints}"
+        )
 
-    pred_actions = np.zeros((T, NUM_JOINTS), dtype=np.float32)
+    ensemble = (TemporalEnsemble(chunk_size, ensemble_steps, num_joints)
+                if use_ensemble else None)
+
+    pred_actions = np.zeros((T, num_joints), dtype=np.float32)
     inference_times = np.zeros(T, dtype=np.float64)
 
     hz = ep.get("hz", 20)
     dt = 1.0 / hz
-
     has_images = "img_left" in ep and "img_right" in ep
 
     for t in range(T):
         frame = frame_offset + t
 
-        # --- Ground truth observations ---
         qpos_raw = ep["qpos"][t].astype(np.float32)
         gt_action = ep["actions"][t].astype(np.float32)
 
-        # For state_dim >= 12, use ground truth qcmd (not recursive prediction)
-        qcmd_raw = ep.get("qcmd", ep["qpos"])[t].astype(np.float32) if state_dim >= 12 else None
-        torques_raw = ep.get("torques", np.zeros_like(ep["qpos"]))[t].astype(np.float32) if state_dim >= 18 else None
+        # For state_mode with qcmd, use ground truth qcmd (not recursive prediction)
+        qcmd_raw = None
+        if state_mode in ("qpos_qcmd", "qpos_qcmd_tq"):
+            qcmd_raw = ep.get("qcmd", ep["qpos"])[t].astype(np.float32)
+        torques_raw = None
+        if state_mode == "qpos_qcmd_tq":
+            torques_raw = ep.get("torques", np.zeros_like(ep["qpos"]))[t].astype(np.float32)
 
-        # --- Normalize ---
         qpos_norm = normalize_qpos(qpos_raw, stats)
 
-        # Build state vector: pass ground truth qcmd as last_action
         state_vec = _build_state_vector(
-            qpos_norm, state_dim, qcmd_raw, qpos_raw, torques_raw, stats,
+            qpos_norm, state_mode, qcmd_raw, qpos_raw, torques_raw, stats, num_joints,
         )
 
-        # --- Images ---
         if has_images:
             left_norm = normalize_image(ep["img_left"][t])
             right_norm = normalize_image(ep["img_right"][t])
@@ -219,23 +209,19 @@ def evaluate_episode(
             left_norm = np.zeros((3, 240, 320), dtype=np.float32)
             right_norm = np.zeros((3, 240, 320), dtype=np.float32)
 
-        # --- Tensors ---
         qpos_t = torch.from_numpy(qpos_norm).unsqueeze(0).to(device)
         state_t = torch.from_numpy(state_vec).unsqueeze(0).to(device)
         left_t = torch.from_numpy(left_norm).unsqueeze(0).to(device)
         right_t = torch.from_numpy(right_norm).unsqueeze(0).to(device)
 
-        # --- Inference ---
         t0 = time.perf_counter()
         with torch.no_grad():
             pred_chunk = policy.select_action(qpos_t, state_t, left_t, right_t)
         infer_ms = (time.perf_counter() - t0) * 1000.0
 
-        # Denormalize
-        pred_np = pred_chunk[0].cpu().numpy()                  # [chunk_size, 6]
-        pred_abs = denormalize_actions(pred_np, stats)         # [chunk_size, 6]
+        pred_np = pred_chunk[0].cpu().numpy()
+        pred_abs = denormalize_actions(pred_np, stats, action_mode, qpos=qpos_raw)
 
-        # Temporal ensemble or take first action
         if use_ensemble and ensemble is not None:
             ensemble.add_chunk(pred_abs)
             action = ensemble.get_action()
@@ -248,39 +234,31 @@ def evaluate_episode(
         pred_actions[t] = action
         inference_times[t] = infer_ms
 
-        # --- Log to Rerun ---
         rr.set_time("frame", sequence=frame)
-
-        for j, joint in enumerate(ARM_JOINTS):
+        for j, joint in enumerate(joint_names):
             rr.log(f"eval/gt_action/{joint}", rr.Scalars(float(gt_action[j])))
             rr.log(f"eval/pred_action/{joint}", rr.Scalars(float(action[j])))
             rr.log(f"eval/l1_error/{joint}", rr.Scalars(float(abs(action[j] - gt_action[j]))))
-
         rr.log("eval/inference_ms", rr.Scalars(infer_ms))
 
-        # Images
         if show_images and has_images:
             rr.log("cameras/left", rr.Image(ep["img_left"][t]))
             rr.log("cameras/right", rr.Image(ep["img_right"][t]))
 
-        # Throttle if speed > 0
         if speed > 0:
             time.sleep(dt / speed)
 
-    # --- Compute metrics ---
     gt_actions = ep["actions"][:T].astype(np.float32)
-    l1_errors = np.abs(pred_actions - gt_actions)  # [T, 6]
-
-    metrics = {
-        "per_joint_mean": l1_errors.mean(axis=0),   # [6]
-        "per_joint_max": l1_errors.max(axis=0),      # [6]
+    l1_errors = np.abs(pred_actions - gt_actions)
+    return {
+        "per_joint_mean": l1_errors.mean(axis=0),
+        "per_joint_max": l1_errors.max(axis=0),
         "overall_mean": l1_errors.mean(),
         "overall_max": l1_errors.max(),
         "mean_infer_ms": inference_times.mean(),
         "num_frames": T,
         "l1_errors": l1_errors,
     }
-    return metrics
 
 
 # ---------------------------------------------------------------------------
@@ -297,8 +275,8 @@ def main():
     group.add_argument("--episode-dir", help="Directory of episode_*.hdf5 files")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--ensemble", action="store_true", help="Enable temporal ensemble")
-    parser.add_argument("--ensemble-steps", type=int, default=25,
-                        help="Past chunks for ensemble (default: 25)")
+    parser.add_argument("--ensemble-steps", type=int, default=16,
+                        help="Past chunks for ensemble (default: 16)")
     parser.add_argument("--no-images", action="store_true",
                         help="Skip camera images in Rerun (faster)")
     parser.add_argument("--speed", type=float, default=0,
@@ -312,31 +290,34 @@ def main():
     device = torch.device(args.device)
     show_images = not args.no_images
 
-    # Load model
     print(f"Loading checkpoint: {args.checkpoint}")
     policy, stats, config = load_checkpoint(args.checkpoint, device)
     chunk_size = config["chunk_size"]
-    state_dim = config.get("state_dim", 6)
-    print(f"  chunk_size={chunk_size}, state_dim={state_dim}, device={device}")
+    num_joints = config["num_joints"]
+    state_mode = config["state_mode"]
+    action_mode = config["action_mode"]
+    print(f"  chunk_size={chunk_size}  num_joints={num_joints}  "
+          f"state_mode={state_mode}  action_mode={action_mode}  device={device}")
     if args.ensemble:
         print(f"  ensemble enabled, steps={args.ensemble_steps}")
 
-    # Collect episodes
+    joint_names = list(POLICY_JOINTS[:num_joints])
+    if num_joints != NUM_POLICY_JOINTS:
+        print(f"[WARN] num_joints={num_joints} but POLICY_JOINTS has "
+              f"{NUM_POLICY_JOINTS} entries; using first {num_joints} names.")
+
     episode_paths = collect_episodes(args)
     print(f"Episodes: {len(episode_paths)}")
 
-    # Init Rerun
     rr.init("aizee_eval", spawn=args.save is None)
     if args.save:
         rr.save(args.save)
-    rr.send_blueprint(build_eval_blueprint(show_images))
-    _log_series_colors()
+    rr.send_blueprint(build_eval_blueprint(show_images, joint_names))
+    _log_series_colors(joint_names)
 
-    # Per-episode results
     all_metrics = []
     global_frame = 0
 
-    # Header
     print()
     print(f"{'Episode':<40s} {'Mean L1':>8s} {'Max L1':>8s} {'Inf (ms)':>10s}")
     print(f"{'-'*40} {'-'*8} {'-'*8} {'-'*10}")
@@ -348,13 +329,13 @@ def main():
         T = ep["qpos"].shape[0]
         print(f" {T} frames", flush=True)
 
-        # Log episode info
         rr.set_time("frame", sequence=global_frame)
         rr.log("eval/info", rr.TextDocument(
             f"**Episode**: {ep_name}\n\n"
             f"**Frames**: {T}\n\n"
             f"**Ensemble**: {'on' if args.ensemble else 'off'}\n\n"
-            f"**State dim**: {state_dim}",
+            f"**State mode**: {state_mode}\n\n"
+            f"**Action mode**: {action_mode}",
             media_type=rr.MediaType.MARKDOWN,
         ))
 
@@ -369,17 +350,15 @@ def main():
             show_images=show_images,
             frame_offset=global_frame,
             speed=args.speed,
+            joint_names=joint_names,
         )
         all_metrics.append((ep_name, metrics))
         global_frame += metrics["num_frames"]
 
-        # Print episode line
-        print(f"  {ep_name:<40s} {metrics['overall_mean']:8.4f} {metrics['overall_max']:8.4f} {metrics['mean_infer_ms']:10.1f}")
-
-        # Free episode images
+        print(f"  {ep_name:<40s} {metrics['overall_mean']:8.4f} "
+              f"{metrics['overall_max']:8.4f} {metrics['mean_infer_ms']:10.1f}")
         del ep
 
-    # --- Aggregate summary ---
     print()
     if len(all_metrics) > 1:
         all_l1 = np.concatenate([m["l1_errors"] for _, m in all_metrics], axis=0)
@@ -388,36 +367,33 @@ def main():
 
     print(f"{'Joint':<14s} {'Mean L1':>8s} {'Max L1':>8s}")
     print(f"{'-'*14} {'-'*8} {'-'*8}")
-    for j, joint in enumerate(ARM_JOINTS):
+    for j, joint in enumerate(joint_names):
         print(f"{joint:<14s} {all_l1[:, j].mean():8.4f} {all_l1[:, j].max():8.4f}")
     print(f"{'OVERALL':<14s} {all_l1.mean():8.4f} {all_l1.max():8.4f}")
 
-    # Log final summary to Rerun
     summary_lines = ["## Evaluation Summary\n"]
     summary_lines.append(f"| Joint | Mean L1 | Max L1 |")
     summary_lines.append(f"|-------|---------|--------|")
-    for j, joint in enumerate(ARM_JOINTS):
+    for j, joint in enumerate(joint_names):
         summary_lines.append(f"| {joint} | {all_l1[:, j].mean():.4f} | {all_l1[:, j].max():.4f} |")
     summary_lines.append(f"| **OVERALL** | **{all_l1.mean():.4f}** | **{all_l1.max():.4f}** |")
     rr.set_time("frame", sequence=global_frame)
     rr.log("eval/info", rr.TextDocument(
-        "\n".join(summary_lines),
-        media_type=rr.MediaType.MARKDOWN,
+        "\n".join(summary_lines), media_type=rr.MediaType.MARKDOWN,
     ))
 
-    # --- CSV export ---
     if args.csv:
         with open(args.csv, "w", newline="") as f:
             writer = csv.writer(f)
             header = ["episode", "frames", "overall_mean_l1", "overall_max_l1", "mean_infer_ms"]
-            header += [f"{j}_mean_l1" for j in ARM_JOINTS]
-            header += [f"{j}_max_l1" for j in ARM_JOINTS]
+            header += [f"{j}_mean_l1" for j in joint_names]
+            header += [f"{j}_max_l1" for j in joint_names]
             writer.writerow(header)
             for ep_name, m in all_metrics:
                 row = [ep_name, m["num_frames"], f"{m['overall_mean']:.6f}",
                        f"{m['overall_max']:.6f}", f"{m['mean_infer_ms']:.2f}"]
-                row += [f"{m['per_joint_mean'][j]:.6f}" for j in range(NUM_JOINTS)]
-                row += [f"{m['per_joint_max'][j]:.6f}" for j in range(NUM_JOINTS)]
+                row += [f"{m['per_joint_mean'][j]:.6f}" for j in range(num_joints)]
+                row += [f"{m['per_joint_max'][j]:.6f}" for j in range(num_joints)]
                 writer.writerow(row)
         print(f"\nCSV saved: {args.csv}")
 

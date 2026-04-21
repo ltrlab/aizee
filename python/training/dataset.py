@@ -1,39 +1,58 @@
 """
 dataset.py — PyTorch Dataset over AIZEE HDF5 demonstration episodes.
 
-Each HDF5 file has the schema:
-    /observations/qpos           float32 [T, 6]
-    /observations/qcmd           float32 [T, 6]   (optional — commanded positions)
-    /observations/torques        float32 [T, 6]   (optional — motor torques)
+Each HDF5 file (format_version=2) has the schema:
+    /observations/qpos           float32 [T, J]   (J = 7: swivel + 6 arm joints)
+    /observations/qcmd           float32 [T, J]   (optional — commanded positions)
+    /observations/torques        float32 [T, J]   (optional — motor torques)
     /observations/images/left    uint8   [T, 240, 320, 3]
     /observations/images/right   uint8   [T, 240, 320, 3]
-    /actions                     float32 [T, 6]
-    attrs: hz=20, arm_joints="gantry_base,..."
+    /actions                     float32 [T, J]
+    attrs: hz=20, arm_joints="swivel,gantry_base,...", action_space="absolute"
 
 Usage:
-    dataset = EpisodeDataset("episodes/", chunk_size=100, state_dim=12)
+    dataset = EpisodeDataset("episodes/", chunk_size=32, state_mode="qpos_qcmd",
+                             action_mode="relative", augment=True)
     obs, action_chunk = dataset[0]
-    # obs["qpos"]             → [6]          float32 tensor (normalized)
-    # obs["state"]            → [state_dim]  float32 tensor (normalized)
+    # obs["qpos"]             → [J]          float32 tensor (normalized)
+    # obs["state"]            → [J*k]        float32 tensor (normalized, k=1/2/3)
     # obs["images"]["left"]   → [3,240,320]  float32 tensor (ImageNet norm)
     # obs["images"]["right"]  → [3,240,320]  float32 tensor (ImageNet norm)
-    # action_chunk            → [chunk_size, 6] float32 tensor (normalized)
+    # action_chunk            → [chunk_size, J] float32 tensor (normalized)
+
+Action modes:
+    "absolute" — predict absolute joint targets (original ACT).
+    "relative" — predict (target - current_qpos); inference adds current qpos back.
+                 Typically generalizes much better on small datasets because the
+                 policy only has to learn motion shapes, not absolute poses.
 """
 
 from __future__ import annotations
 
-import os
+import random
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import h5py
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.utils.data import Dataset
 
 # ImageNet normalization constants
 _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
+STATE_MODES = ("qpos", "qpos_qcmd", "qpos_qcmd_tq")
+ACTION_MODES = ("absolute", "relative")
+
+
+def _state_mode_k(mode: str) -> int:
+    """Number of per-joint feature blocks concatenated to form state."""
+    if mode == "qpos":         return 1
+    if mode == "qpos_qcmd":    return 2
+    if mode == "qpos_qcmd_tq": return 3
+    raise ValueError(f"unknown state_mode: {mode!r}; expected one of {STATE_MODES}")
 
 
 class EpisodeDataset(Dataset):
@@ -42,51 +61,84 @@ class EpisodeDataset(Dataset):
     Args:
         data_dir: Directory containing episode_XXXX.hdf5 files.
         chunk_size: Number of future actions to return per sample.
+        state_mode: What to pack into the state vector fed to the decoder.
+            "qpos"         — qpos only (1 × J)
+            "qpos_qcmd"    — qpos + qcmd (2 × J)
+            "qpos_qcmd_tq" — qpos + qcmd + torques (3 × J)
+        action_mode: "absolute" or "relative". See module docstring.
+        augment: If True, apply train-time image + small state noise.
+                 Leave off for validation and offline eval.
         cache: If True, load all HDF5 data into RAM at init.
-        state_dim: Dimension of the state vector fed to the decoder.
-            6  = qpos only (backward compatible)
-            12 = [qpos, qcmd]
-            18 = [qpos, qcmd, torques]
+        episode_paths: Explicit list of paths (overrides data_dir glob). Used
+                       for train/val splitting — pass the split's paths here
+                       and reuse dataset_stats from the training subset via
+                       the `dataset_stats` arg.
+        dataset_stats: If provided, skip stat computation and use these. Used
+                       for the validation set so its normalization matches the
+                       training set exactly.
     """
 
     def __init__(
         self,
-        data_dir: str,
-        chunk_size: int = 100,
+        data_dir: Optional[str] = None,
+        chunk_size: int = 32,
+        state_mode: str = "qpos_qcmd",
+        action_mode: str = "relative",
+        augment: bool = False,
         cache: bool = False,
-        state_dim: int = 6,
+        episode_paths: Optional[List[Path]] = None,
+        dataset_stats: Optional[Dict] = None,
     ):
-        self.data_dir = Path(data_dir)
+        if state_mode not in STATE_MODES:
+            raise ValueError(f"state_mode must be in {STATE_MODES}, got {state_mode!r}")
+        if action_mode not in ACTION_MODES:
+            raise ValueError(f"action_mode must be in {ACTION_MODES}, got {action_mode!r}")
+
         self.chunk_size = chunk_size
+        self.state_mode = state_mode
+        self.action_mode = action_mode
+        self.augment = augment
         self.cache = cache
-        self.state_dim = state_dim
+        self._k = _state_mode_k(state_mode)
 
-        assert state_dim in (6, 12, 18), f"state_dim must be 6, 12, or 18, got {state_dim}"
-
-        # Discover episode files
-        self._episode_paths: List[Path] = sorted(
-            self.data_dir.glob("episode_*.hdf5")
-        )
+        # Resolve episode paths
+        if episode_paths is not None:
+            self._episode_paths: List[Path] = list(episode_paths)
+        else:
+            if data_dir is None:
+                raise ValueError("either data_dir or episode_paths must be provided")
+            self._episode_paths = sorted(Path(data_dir).glob("episode_*.hdf5"))
         if len(self._episode_paths) == 0:
-            raise FileNotFoundError(
-                f"No episode_*.hdf5 files found in {self.data_dir}"
-            )
+            raise FileNotFoundError("no episode_*.hdf5 files found")
 
-        # Build flat index: list of (episode_idx, timestep)
-        self._index: List[Tuple[int, int]] = []
+        # Infer num_joints from first episode
+        with h5py.File(self._episode_paths[0], "r") as f:
+            qpos0 = f["observations/qpos"]
+            self.num_joints = int(qpos0.shape[1])
+        self.state_dim = self.num_joints * self._k
+        self.action_dim = self.num_joints
+
+        # Build flat index and episode lengths
         self._episode_lengths: List[int] = []
-
+        self._index: List[Tuple[int, int]] = []
         for ep_idx, path in enumerate(self._episode_paths):
             with h5py.File(path, "r") as f:
                 T = f["observations/qpos"].shape[0]
+                assert f["observations/qpos"].shape[1] == self.num_joints, (
+                    f"{path.name}: qpos has {f['observations/qpos'].shape[1]} "
+                    f"joints, expected {self.num_joints}"
+                )
             self._episode_lengths.append(T)
             for t in range(T):
                 self._index.append((ep_idx, t))
 
-        # Compute normalization statistics over all episodes
-        self.dataset_stats = self._compute_stats()
+        # Stats
+        if dataset_stats is not None:
+            self.dataset_stats = dataset_stats
+        else:
+            self.dataset_stats = self._compute_stats()
 
-        # Optional: load everything into RAM
+        # Optional in-memory cache
         self._cache_data: Optional[List[Dict]] = None
         if cache:
             self._load_cache()
@@ -101,63 +153,68 @@ class EpisodeDataset(Dataset):
         all_actions: List[np.ndarray] = []
         all_qcmd: List[np.ndarray] = []
         all_torques: List[np.ndarray] = []
+        all_rel_actions: List[np.ndarray] = []
         start_poses: List[np.ndarray] = []
 
         for path in self._episode_paths:
             with h5py.File(path, "r") as f:
                 qpos = f["observations/qpos"][:]
-                all_qpos.append(qpos)
-                start_poses.append(qpos[0])
-                all_actions.append(f["actions"][:])
-                # qcmd: fall back to qpos if not present (zero compliance)
-                if "observations/qcmd" in f:
-                    all_qcmd.append(f["observations/qcmd"][:])
-                else:
-                    all_qcmd.append(qpos.copy())
-                # torques: zero-fill if not present
-                if "observations/torques" in f:
-                    all_torques.append(f["observations/torques"][:])
-                else:
-                    all_torques.append(np.zeros_like(qpos))
+                actions = f["actions"][:]
+                qcmd = f["observations/qcmd"][:] if "observations/qcmd" in f else qpos.copy()
+                torques = (f["observations/torques"][:]
+                           if "observations/torques" in f else np.zeros_like(qpos))
 
-        qpos_cat = np.concatenate(all_qpos, axis=0)       # [N, 6]
-        act_cat = np.concatenate(all_actions, axis=0)      # [N, 6]
-        qcmd_cat = np.concatenate(all_qcmd, axis=0)        # [N, 6]
-        torque_cat = np.concatenate(all_torques, axis=0)    # [N, 6]
+            all_qpos.append(qpos)
+            all_actions.append(actions)
+            all_qcmd.append(qcmd)
+            all_torques.append(torques)
+            start_poses.append(qpos[0])
 
-        qpos_mean = qpos_cat.mean(axis=0).astype(np.float32)
-        qpos_std = qpos_cat.std(axis=0).astype(np.float32)
-        qpos_std = np.maximum(qpos_std, 1e-6)
+            # For relative actions we normalize per-joint deltas (target − current qpos)
+            # over the chunk horizon. Use qpos as the anchor since that's what the
+            # policy sees at inference.
+            T = qpos.shape[0]
+            horizons = min(self.chunk_size, T)
+            for t in range(T):
+                end = min(t + horizons, T)
+                all_rel_actions.append(actions[t:end] - qpos[t:t + 1])
 
-        qcmd_mean = qcmd_cat.mean(axis=0).astype(np.float32)
-        qcmd_std = qcmd_cat.std(axis=0).astype(np.float32)
-        qcmd_std = np.maximum(qcmd_std, 1e-6)
+        qpos_cat = np.concatenate(all_qpos, axis=0)
+        act_cat = np.concatenate(all_actions, axis=0)
+        qcmd_cat = np.concatenate(all_qcmd, axis=0)
+        torque_cat = np.concatenate(all_torques, axis=0)
+        rel_cat = np.concatenate(all_rel_actions, axis=0)
 
-        torque_mean = torque_cat.mean(axis=0).astype(np.float32)
-        torque_std = torque_cat.std(axis=0).astype(np.float32)
-        torque_std = np.maximum(torque_std, 1e-6)
+        def _mean_std(x: np.ndarray, min_std: float = 1e-6) -> Tuple[np.ndarray, np.ndarray]:
+            m = x.mean(axis=0).astype(np.float32)
+            s = np.maximum(x.std(axis=0).astype(np.float32), min_std)
+            return m, s
 
-        # Z-score normalization for actions (matches original ACT)
-        action_mean = act_cat.mean(axis=0).astype(np.float32)
-        action_std = act_cat.std(axis=0).astype(np.float32)
-        action_std = np.maximum(action_std, 0.01)
+        qpos_mean, qpos_std = _mean_std(qpos_cat)
+        qcmd_mean, qcmd_std = _mean_std(qcmd_cat)
+        torque_mean, torque_std = _mean_std(torque_cat)
+        action_mean, action_std = _mean_std(act_cat, min_std=0.01)
+        rel_mean, rel_std = _mean_std(rel_cat, min_std=0.005)
 
         # Keep min/max for safety clamping in act_policy_node.py
         action_min = act_cat.min(axis=0).astype(np.float32)
         action_max = act_cat.max(axis=0).astype(np.float32)
+        # Per-joint range of relative actions — used as a conservative deploy clamp
+        rel_min = rel_cat.min(axis=0).astype(np.float32)
+        rel_max = rel_cat.max(axis=0).astype(np.float32)
 
+        start_arr = np.stack(start_poses)
         return {
-            "qpos_mean": qpos_mean,
-            "qpos_std": qpos_std,
-            "qcmd_mean": qcmd_mean,
-            "qcmd_std": qcmd_std,
-            "torque_mean": torque_mean,
-            "torque_std": torque_std,
-            "action_mean": action_mean,
-            "action_std": action_std,
-            "action_min": action_min,
-            "action_max": action_max,
-            "ready_pose": np.stack(start_poses).mean(axis=0).astype(np.float32),
+            "qpos_mean": qpos_mean, "qpos_std": qpos_std,
+            "qcmd_mean": qcmd_mean, "qcmd_std": qcmd_std,
+            "torque_mean": torque_mean, "torque_std": torque_std,
+            "action_mean": action_mean, "action_std": action_std,
+            "action_min": action_min, "action_max": action_max,
+            "rel_action_mean": rel_mean, "rel_action_std": rel_std,
+            "rel_action_min": rel_min, "rel_action_max": rel_max,
+            # Representative start poses — policy ramps to the closest one at deploy
+            "start_poses": start_arr.astype(np.float32),
+            "ready_pose": start_arr.mean(axis=0).astype(np.float32),
         }
 
     # ------------------------------------------------------------------
@@ -170,62 +227,160 @@ class EpisodeDataset(Dataset):
         for path in self._episode_paths:
             with h5py.File(path, "r") as f:
                 qpos = f["observations/qpos"][:]
-                ep = {
+                self._cache_data.append({
                     "qpos": qpos,
                     "left": f["observations/images/left"][:],
                     "right": f["observations/images/right"][:],
                     "actions": f["actions"][:],
-                    "qcmd": f["observations/qcmd"][:] if "observations/qcmd" in f else qpos.copy(),
-                    "torques": f["observations/torques"][:] if "observations/torques" in f else np.zeros_like(qpos),
-                }
-                self._cache_data.append(ep)
+                    "qcmd": (f["observations/qcmd"][:]
+                             if "observations/qcmd" in f else qpos.copy()),
+                    "torques": (f["observations/torques"][:]
+                                if "observations/torques" in f else np.zeros_like(qpos)),
+                })
 
-    def _read_episode(self, ep_idx: int) -> Dict:
-        """Return episode data dict, from cache or HDF5."""
+    def _read_frame(self, ep_idx: int, t: int, t_end: int) -> Dict:
+        """Return per-frame arrays for (ep_idx, t) plus action chunk [t:t_end]."""
         if self._cache_data is not None:
-            return self._cache_data[ep_idx]
+            ep = self._cache_data[ep_idx]
+            return {
+                "qpos": ep["qpos"][t],
+                "left": ep["left"][t],
+                "right": ep["right"][t],
+                "actions": ep["actions"][t:t_end],
+                "qcmd": ep["qcmd"][t],
+                "torques": ep["torques"][t],
+            }
         path = self._episode_paths[ep_idx]
         with h5py.File(path, "r") as f:
-            qpos = f["observations/qpos"][:]
-            return {
+            qpos = f["observations/qpos"][t]
+            out = {
                 "qpos": qpos,
-                "left": f["observations/images/left"][:],
-                "right": f["observations/images/right"][:],
-                "actions": f["actions"][:],
-                "qcmd": f["observations/qcmd"][:] if "observations/qcmd" in f else qpos.copy(),
-                "torques": f["observations/torques"][:] if "observations/torques" in f else np.zeros_like(qpos),
+                "left": f["observations/images/left"][t],
+                "right": f["observations/images/right"][t],
+                "actions": f["actions"][t:t_end],
+                "qcmd": f["observations/qcmd"][t] if "observations/qcmd" in f else qpos.copy(),
+                "torques": (f["observations/torques"][t]
+                            if "observations/torques" in f else np.zeros_like(qpos)),
             }
+        return out
 
     # ------------------------------------------------------------------
-    # Normalization helpers
+    # Normalization
     # ------------------------------------------------------------------
 
-    def normalize_qpos(self, qpos: np.ndarray) -> np.ndarray:
-        """Normalize qpos by per-joint mean/std."""
-        return (qpos - self.dataset_stats["qpos_mean"]) / self.dataset_stats["qpos_std"]
+    def _norm(self, x: np.ndarray, mean_key: str, std_key: str) -> np.ndarray:
+        return (x - self.dataset_stats[mean_key]) / self.dataset_stats[std_key]
 
-    def normalize_qcmd(self, qcmd: np.ndarray) -> np.ndarray:
-        """Normalize qcmd by per-joint mean/std."""
-        return (qcmd - self.dataset_stats["qcmd_mean"]) / self.dataset_stats["qcmd_std"]
+    def normalize_qpos(self, qpos):    return self._norm(qpos, "qpos_mean", "qpos_std")
+    def normalize_qcmd(self, qcmd):    return self._norm(qcmd, "qcmd_mean", "qcmd_std")
+    def normalize_torques(self, tq):   return self._norm(tq, "torque_mean", "torque_std")
 
-    def normalize_torques(self, torques: np.ndarray) -> np.ndarray:
-        """Normalize torques by per-joint mean/std."""
-        return (torques - self.dataset_stats["torque_mean"]) / self.dataset_stats["torque_std"]
+    def normalize_actions(self, actions: np.ndarray, qpos: Optional[np.ndarray] = None) -> np.ndarray:
+        """Normalize target actions according to the configured action_mode.
 
-    def normalize_actions(self, actions: np.ndarray) -> np.ndarray:
-        """Normalize actions via z-score (mean/std), matching original ACT."""
-        return (actions - self.dataset_stats["action_mean"]) / self.dataset_stats["action_std"]
+        For "relative" mode, qpos is the anchor (current joint position) — each
+        chunk step is converted to (action - qpos) before normalization.
+        """
+        if self.action_mode == "absolute":
+            return self._norm(actions, "action_mean", "action_std")
+        if qpos is None:
+            raise ValueError("qpos anchor required for relative action mode")
+        rel = actions - qpos[None, :]
+        return self._norm(rel, "rel_action_mean", "rel_action_std")
 
-    def denormalize_actions(self, actions: np.ndarray) -> np.ndarray:
-        """Invert normalize_actions."""
-        return actions * self.dataset_stats["action_std"] + self.dataset_stats["action_mean"]
+    def denormalize_actions(
+        self, norm_actions: np.ndarray, qpos: Optional[np.ndarray] = None
+    ) -> np.ndarray:
+        """Invert normalize_actions → absolute joint positions."""
+        if self.action_mode == "absolute":
+            return norm_actions * self.dataset_stats["action_std"] + self.dataset_stats["action_mean"]
+        if qpos is None:
+            raise ValueError("qpos anchor required for relative action mode")
+        rel = norm_actions * self.dataset_stats["rel_action_std"] + self.dataset_stats["rel_action_mean"]
+        # Broadcast qpos across chunk dim if needed
+        if rel.ndim == 2 and qpos.ndim == 1:
+            return rel + qpos[None, :]
+        return rel + qpos
+
+    # ------------------------------------------------------------------
+    # Image augmentation
+    # ------------------------------------------------------------------
 
     @staticmethod
-    def normalize_image(img: np.ndarray) -> np.ndarray:
-        """Convert uint8 [H,W,3] → float32 [3,H,W] ImageNet normalized."""
-        x = img.astype(np.float32) / 255.0  # [H,W,3]
+    def _imagenet_normalize(img_u8: np.ndarray) -> np.ndarray:
+        """uint8 [H,W,3] → float32 [3,H,W] ImageNet normalized."""
+        x = img_u8.astype(np.float32) / 255.0
         x = (x - _IMAGENET_MEAN) / _IMAGENET_STD
-        return x.transpose(2, 0, 1)  # [3,H,W]
+        return x.transpose(2, 0, 1)
+
+    # Preserve the original static-method name for back-compat with act_policy_node.py
+    normalize_image = _imagenet_normalize
+
+    def _augment_and_normalize(
+        self, left_u8: np.ndarray, right_u8: np.ndarray, rng: random.Random
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Train-time augmentation + ImageNet normalization for a camera pair.
+
+        - Same geometric crop on left and right (they're a stereo rig).
+        - Independent color jitter per camera (simulates differing exposure / WB).
+        """
+        H, W = left_u8.shape[:2]
+
+        # Shared random-resized crop (scale 0.88–1.0, small aspect variation)
+        scale = rng.uniform(0.88, 1.00)
+        ar = rng.uniform(0.95, 1.05)
+        crop_h = int(round(H * scale))
+        crop_w = int(round(H * scale * ar * (W / H)))
+        crop_h = max(1, min(H, crop_h))
+        crop_w = max(1, min(W, crop_w))
+        top = rng.randint(0, H - crop_h)
+        left = rng.randint(0, W - crop_w)
+
+        def geom(img: np.ndarray) -> np.ndarray:
+            cropped = img[top:top + crop_h, left:left + crop_w]
+            # Resize back to H×W using torch (no PIL dependency on uint8 HWC)
+            t = torch.from_numpy(cropped).permute(2, 0, 1).unsqueeze(0).float()
+            t = F.interpolate(t, size=(H, W), mode="bilinear", align_corners=False)
+            return t.squeeze(0).permute(1, 2, 0).clamp(0, 255).to(torch.uint8).numpy()
+
+        def color_jitter(img_u8: np.ndarray) -> np.ndarray:
+            img = img_u8.astype(np.float32) / 255.0
+            # Brightness
+            img = img * rng.uniform(0.80, 1.20)
+            # Contrast
+            m = img.mean()
+            img = (img - m) * rng.uniform(0.80, 1.20) + m
+            # Saturation
+            gray = img.mean(axis=2, keepdims=True)
+            img = gray + (img - gray) * rng.uniform(0.80, 1.20)
+            # Hue — cheap channel shuffle-ish perturbation
+            shift = rng.uniform(-0.05, 0.05)
+            img = img + np.array([shift, 0, -shift], dtype=np.float32)[None, None, :]
+            return np.clip(img * 255.0, 0, 255).astype(np.uint8)
+
+        # Geometric
+        left_aug = geom(left_u8)
+        right_aug = geom(right_u8)
+
+        # Color jitter (independent)
+        if rng.random() < 0.8:
+            left_aug = color_jitter(left_aug)
+        if rng.random() < 0.8:
+            right_aug = color_jitter(right_aug)
+
+        # Small-prob Gaussian blur (very mild)
+        def maybe_blur(img: np.ndarray) -> np.ndarray:
+            if rng.random() >= 0.1:
+                return img
+            t = torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0).float()
+            # Lightweight 3×3 box blur via avg_pool with padding
+            t = F.avg_pool2d(t, kernel_size=3, stride=1, padding=1)
+            return t.squeeze(0).permute(1, 2, 0).clamp(0, 255).to(torch.uint8).numpy()
+
+        left_aug = maybe_blur(left_aug)
+        right_aug = maybe_blur(right_aug)
+
+        return self._imagenet_normalize(left_aug), self._imagenet_normalize(right_aug)
 
     # ------------------------------------------------------------------
     # Dataset interface
@@ -239,66 +394,52 @@ class EpisodeDataset(Dataset):
         T = self._episode_lengths[ep_idx]
         t_end = min(t + self.chunk_size, T)
 
-        # Read only the single timestep (and action slice) needed.
-        if self._cache_data is not None:
-            ep = self._cache_data[ep_idx]
-            qpos_raw  = ep["qpos"][t]
-            left_raw  = ep["left"][t]
-            right_raw = ep["right"][t]
-            chunk_raw = ep["actions"][t:t_end]
-            qcmd_raw  = ep["qcmd"][t]
-            torque_raw = ep["torques"][t]
+        frame = self._read_frame(ep_idx, t, t_end)
+        qpos_raw = frame["qpos"]
+        qcmd_raw = frame["qcmd"]
+        torque_raw = frame["torques"]
+        chunk_raw = frame["actions"]
+        left_raw = frame["left"]
+        right_raw = frame["right"]
+
+        # State vector
+        qpos_n = self.normalize_qpos(qpos_raw).astype(np.float32)
+        if self.state_mode == "qpos":
+            state = qpos_n
+        elif self.state_mode == "qpos_qcmd":
+            state = np.concatenate([qpos_n, self.normalize_qcmd(qcmd_raw)]).astype(np.float32)
+        else:  # qpos_qcmd_tq
+            state = np.concatenate([
+                qpos_n,
+                self.normalize_qcmd(qcmd_raw),
+                self.normalize_torques(torque_raw),
+            ]).astype(np.float32)
+
+        # Image augmentation / normalization
+        if self.augment:
+            rng = random.Random((ep_idx * 1_000_003 + t) ^ torch.randint(0, 2**31 - 1, (1,)).item())
+            left_n, right_n = self._augment_and_normalize(left_raw, right_raw, rng)
         else:
-            path = self._episode_paths[ep_idx]
-            with h5py.File(path, "r") as f:
-                qpos_raw  = f["observations/qpos"][t]
-                left_raw  = f["observations/images/left"][t]
-                right_raw = f["observations/images/right"][t]
-                chunk_raw = f["actions"][t:t_end]
-                if "observations/qcmd" in f:
-                    qcmd_raw = f["observations/qcmd"][t]
-                else:
-                    qcmd_raw = qpos_raw.copy()
-                if "observations/torques" in f:
-                    torque_raw = f["observations/torques"][t]
-                else:
-                    torque_raw = np.zeros_like(qpos_raw)
+            left_n = self._imagenet_normalize(left_raw)
+            right_n = self._imagenet_normalize(right_raw)
 
-        # Normalize qpos (always [6] — used by CVAE encoder)
-        qpos = self.normalize_qpos(qpos_raw)  # [6]
-
-        # Build extended state vector based on state_dim
-        if self.state_dim == 6:
-            state = qpos.copy()
-        elif self.state_dim == 12:
-            qcmd = self.normalize_qcmd(qcmd_raw)
-            state = np.concatenate([qpos, qcmd])  # [12]
-        else:  # 18
-            qcmd = self.normalize_qcmd(qcmd_raw)
-            torques = self.normalize_torques(torque_raw)
-            state = np.concatenate([qpos, qcmd, torques])  # [18]
-
-        # Normalize images
-        left  = self.normalize_image(left_raw)   # [3,240,320]
-        right = self.normalize_image(right_raw)  # [3,240,320]
-
-        # Action chunk: pad with last action if near episode end
-        chunk = chunk_raw
+        # Action chunk — pad with last action if near episode end
+        chunk = chunk_raw.astype(np.float32)
         if chunk.shape[0] < self.chunk_size:
             pad = np.tile(chunk[-1:], (self.chunk_size - chunk.shape[0], 1))
-            chunk = np.concatenate([chunk, pad], axis=0)  # [chunk_size, 6]
-        chunk = self.normalize_actions(chunk)
+            chunk = np.concatenate([chunk, pad], axis=0)
+
+        chunk_n = self.normalize_actions(chunk, qpos=qpos_raw).astype(np.float32)
 
         obs = {
-            "qpos": torch.from_numpy(qpos),
-            "state": torch.from_numpy(state.astype(np.float32)),
+            "qpos": torch.from_numpy(qpos_n),
+            "state": torch.from_numpy(state),
             "images": {
-                "left": torch.from_numpy(left),
-                "right": torch.from_numpy(right),
+                "left": torch.from_numpy(left_n),
+                "right": torch.from_numpy(right_n),
             },
         }
-        action_chunk = torch.from_numpy(chunk.astype(np.float32))
-        return obs, action_chunk
+        return obs, torch.from_numpy(chunk_n)
 
     # ------------------------------------------------------------------
     # Convenience
@@ -308,6 +449,37 @@ class EpisodeDataset(Dataset):
     def num_episodes(self) -> int:
         return len(self._episode_paths)
 
+    @property
+    def episode_paths(self) -> List[Path]:
+        return list(self._episode_paths)
+
     def stats_as_tensors(self) -> Dict[str, torch.Tensor]:
         """Return dataset_stats with numpy arrays converted to float tensors."""
-        return {k: torch.from_numpy(v) for k, v in self.dataset_stats.items()}
+        return {k: torch.from_numpy(v) if isinstance(v, np.ndarray) else v
+                for k, v in self.dataset_stats.items()}
+
+
+def split_episodes(
+    data_dir: str, val_fraction: float, seed: int = 0
+) -> Tuple[List[Path], List[Path]]:
+    """Split episode files into train/val sets by episode (never within an episode).
+
+    A deterministic shuffle of the sorted file list is used so re-running with
+    the same seed reproduces the split. At least one episode is kept in each
+    subset when val_fraction > 0.
+    """
+    paths = sorted(Path(data_dir).glob("episode_*.hdf5"))
+    if len(paths) == 0:
+        raise FileNotFoundError(f"no episode_*.hdf5 files found in {data_dir}")
+    if val_fraction <= 0:
+        return paths, []
+
+    rng = random.Random(seed)
+    shuffled = paths[:]
+    rng.shuffle(shuffled)
+    n_val = max(1, int(round(len(shuffled) * val_fraction)))
+    n_val = min(n_val, len(shuffled) - 1)   # keep at least one for train
+    val = shuffled[:n_val]
+    train = shuffled[n_val:]
+    # Return in original file-order for readable logs
+    return sorted(train), sorted(val)

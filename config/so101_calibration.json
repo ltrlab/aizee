@@ -9,7 +9,7 @@
       "max_raw": 3505,
       "rad_min": -1.57,
       "rad_max": 1.57,
-      "zero_offset": -0.1709,
+      "zero_offset": -0.0423,
       "direction": 1
     },
     "shoulder_lift": {
@@ -19,7 +19,7 @@
       "max_raw": 4004,
       "rad_min": 0.0,
       "rad_max": 1.8999,
-      "zero_offset": 0.0125,
+      "zero_offset": 0.0102,
       "direction": -1
     },
     "elbow_flex": {
@@ -29,7 +29,7 @@
       "max_raw": 180,
       "rad_min": 0.0,
       "rad_max": 2.6228,
-      "zero_offset": -0.0489,
+      "zero_offset": -0.0328,
       "direction": 1
     },
     "wrist_flex": {
@@ -39,7 +39,7 @@
       "max_raw": 3168,
       "rad_min": 0.0,
       "rad_max": 3.9589,
-      "zero_offset": 0.0094,
+      "zero_offset": 0.0113,
       "direction": -1
     },
     "wrist_yaw": {
@@ -49,7 +49,7 @@
       "max_raw": 4000,
       "rad_min": 0.0,
       "rad_max": 6.4842,
-      "zero_offset": 1.2804,
+      "zero_offset": 1.2542,
       "direction": 1
     },
     "wrist_roll": {
@@ -59,7 +59,7 @@
       "max_raw": 2495,
       "rad_min": 0.0,
       "rad_max": 2.9499,
-      "zero_offset": 0.0921,
+      "zero_offset": 0.251,
       "direction": 1
     },
     "gripper": {
@@ -69,7 +69,7 @@
       "max_raw": 2984,
       "rad_min": 0.0,
       "rad_max": 7.226,
-      "zero_offset": 3.3176,
+      "zero_offset": 3.1666,
       "direction": 1
     }
   }

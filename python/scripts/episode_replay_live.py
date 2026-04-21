@@ -338,32 +338,55 @@ def _load_endpoints() -> dict:
 # ---------------------------------------------------------------------------
 
 def load_episode(path: Path) -> tuple[np.ndarray, Optional[np.ndarray], float]:
-    """Load episode HDF5.
+    """Load episode HDF5 (format_version=2).
+
+    format_version=2 stores the swivel as column 0 of qpos / qcmd. This
+    loader peels column 0 back into a separate `swivel` array for the
+    existing renderer / command path.
 
     Returns:
         qpos   : [T, 6] float32 — arm joint positions (commanded if available, else actual)
-        swivel : [T]    float32 — swivel positions, or None if not recorded
+        swivel : [T]    float32 — swivel positions (column 0), or None if absent
         hz     : float  — recording rate
     """
     with h5py.File(path, "r") as f:
         if "observations" in f and "qpos" in f["observations"]:
-            # Prefer commanded positions (no sag) for replay
             if "qcmd" in f["observations"]:
-                qpos = f["observations/qcmd"][:]
-                print(f"  Using commanded positions (qcmd) for replay")
+                raw = f["observations/qcmd"][:]
+                print("  Using commanded positions (qcmd) for replay")
             else:
-                qpos = f["observations/qpos"][:]
-                print(f"  Using actual positions (qpos) for replay — no qcmd in file")
-            swivel = f["observations/swivel"][:] if "swivel" in f["observations"] else None
-            hz     = float(f.attrs.get("hz", 20.0))
+                raw = f["observations/qpos"][:]
+                print("  Using actual positions (qpos) for replay — no qcmd in file")
+            hz = float(f.attrs.get("hz", 20.0))
+            fmt = int(f.attrs.get("format_version", 1))
         elif "qpos" in f:
-            qpos   = f["qpos"][:]
-            swivel = None
-            hz     = float(f.attrs.get("hz", 20.0))
+            raw = f["qpos"][:]
+            hz = float(f.attrs.get("hz", 20.0))
+            fmt = int(f.attrs.get("format_version", 1))
         else:
             raise ValueError(f"Unrecognised HDF5 format: {path}")
-    swivel_out = swivel.astype(np.float32) if swivel is not None else None
-    return qpos.astype(np.float32), swivel_out, hz
+
+    raw = raw.astype(np.float32)
+
+    if raw.ndim != 2:
+        raise ValueError(f"qpos must be 2D, got shape {raw.shape}")
+
+    # format_version=2: 7 columns = [swivel, *ARM_JOINTS]
+    if raw.shape[1] == NUM_JOINTS + 1:
+        swivel = raw[:, 0].copy()
+        qpos = raw[:, 1:].copy()
+        return qpos, swivel, hz
+
+    # Legacy: 6 columns, no swivel recorded
+    if raw.shape[1] == NUM_JOINTS:
+        if fmt >= 2:
+            print(f"  [WARN] format_version={fmt} but qpos has only {NUM_JOINTS} columns")
+        return raw, None, hz
+
+    raise ValueError(
+        f"qpos has {raw.shape[1]} columns; expected {NUM_JOINTS} or {NUM_JOINTS + 1} "
+        f"(swivel-prefixed). Re-record this episode with the current collect_demo.py."
+    )
 
 
 # ---------------------------------------------------------------------------

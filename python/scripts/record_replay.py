@@ -35,6 +35,12 @@ ARM_JOINTS = [
     "gripper",
 ]
 
+# Full 7-DOF joint list used by the learning pipeline (swivel + 6 arm joints).
+# ARM_JOINTS stays 6-DOF because the firmware `arm_joints` command covers only
+# the gantry motors — swivel is commanded separately via `{"type":"swivel",...}`.
+POLICY_JOINTS = ["swivel"] + ARM_JOINTS   # 7-DOF
+NUM_POLICY_JOINTS = len(POLICY_JOINTS)     # 7
+
 # Arm link lengths (metres) — from rerun_bridge.py
 L0 = 0.5906   # base → mid
 L1 = 0.5649   # mid → end
@@ -46,6 +52,10 @@ ARM_MOUNT_Z = 0.200  # arm mount height above rover base frame
 # Gains — from config/teleop.yaml gantry section (6 arm joints, no swivel)
 KP = [100.0, 100.0, 40.0, 7.0, 3.0, 3.0]
 KD = [7.0, 5.5, 4.0, 0.2, 1.0, 1.0]
+
+# Swivel gains — from config/teleop.yaml drive.swivel_* (separate command)
+SWIVEL_KP = 150.0
+SWIVEL_KD = 5.0
 
 RECORD_HZ = 20
 
@@ -133,6 +143,34 @@ def extract_velocities(telem: dict) -> Optional[np.ndarray]:
             return None
         vels.append(float(m.get("velocity", 0.0)))
     return np.array(vels, dtype=np.float32)
+
+
+def extract_policy_qpos(telem: dict) -> Optional[np.ndarray]:
+    """Extract [7] float32 positions in POLICY_JOINTS order (swivel first)."""
+    if telem is None or "motors" not in telem:
+        return None
+    motors = telem["motors"]
+    out = []
+    for joint in POLICY_JOINTS:
+        m = motors.get(joint)
+        if m is None:
+            return None
+        out.append(float(m.get("position", 0.0)))
+    return np.array(out, dtype=np.float32)
+
+
+def extract_policy_torques(telem: dict) -> Optional[np.ndarray]:
+    """Extract [7] float32 torques in POLICY_JOINTS order (swivel first)."""
+    if telem is None or "motors" not in telem:
+        return None
+    motors = telem["motors"]
+    out = []
+    for joint in POLICY_JOINTS:
+        m = motors.get(joint)
+        if m is None:
+            return None
+        out.append(float(m.get("torque", 0.0)))
+    return np.array(out, dtype=np.float32)
 
 
 def apply_safety_limits(

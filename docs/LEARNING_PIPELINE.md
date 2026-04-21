@@ -121,20 +121,23 @@ Recording samples at **20 Hz** (the main control loop runs at 30 Hz but sub-samp
 
 Camera images are decoded in a background thread so JPEG parsing doesn't delay motor commands. Episode saving is also backgrounded so gzip compression doesn't block the UI.
 
-### Episode HDF5 format
+### Episode HDF5 format (format_version=2)
 
 ```
 episode_XXXX.hdf5
-├── attrs: hz=20, arm_joints="gantry_base,gantry_mid,..."
+├── attrs:
+│     hz=20
+│     format_version=2
+│     arm_joints="swivel,gantry_base,gantry_mid,gantry_end,wrist_pitch,wrist_roll,gripper"
+│     action_space="absolute"
 ├── observations/
-│   ├── qpos          float32  [T, 6]    actual motor positions
-│   ├── qcmd          float32  [T, 6]    commanded positions
-│   ├── torques       float32  [T, 6]    motor torques
-│   ├── swivel        float32  [T]       swivel joint position
+│   ├── qpos          float32  [T, 7]    actual motor positions (swivel = column 0)
+│   ├── qcmd          float32  [T, 7]    commanded positions
+│   ├── torques       float32  [T, 7]    motor torques
 │   └── images/
 │       ├── left      uint8    [T, 240, 320, 3]
 │       └── right     uint8    [T, 240, 320, 3]
-├── actions           float32  [T, 6]    = qcmd[1:] padded (next-step target)
+├── actions           float32  [T, 7]    = qcmd[1:] padded (next-step target)
 └── timestamps/
     ├── telem         float64  [T]
     ├── camera_left   float64  [T]
@@ -142,6 +145,8 @@ episode_XXXX.hdf5
 ```
 
 **Actions** are derived as one-step-ahead commanded positions: `actions[t] = qcmd[t+1]`. This is what the controller actually targeted next, not the raw leader position — avoids gravity sag artifacts.
+
+**Swivel is column 0** of every 7-dim vector (qpos, qcmd, torques, actions). This lets the policy learn a single joint vector end-to-end instead of treating the swivel as a separate channel that must be wired up at deploy time.
 
 ### Inspecting episodes
 
@@ -177,9 +182,9 @@ python python/training/train.py --data-dir episodes/ --output-dir checkpoints/
 |---|---|---|
 | `--data-dir` | **required** | Directory containing `episode_*.hdf5` |
 | `--output-dir` | `checkpoints` | Checkpoint output directory |
-| `--epochs` | 100 | Total training epochs |
+| `--epochs` | 200 | Total training epochs |
 | `--batch-size` | 32 | Batch size |
-| `--chunk-size` | 100 | Number of future actions predicted per sample |
+| `--chunk-size` | 32 | Number of future actions predicted per sample |
 | `--lr` | 1e-4 | Learning rate (non-backbone) |
 | `--lr-backbone` | 1e-5 | Learning rate for ResNet18 backbone (10× lower) |
 | `--weight-decay` | 1e-4 | AdamW weight decay |
@@ -190,20 +195,25 @@ python python/training/train.py --data-dir episodes/ --output-dir checkpoints/
 | `--nhead` | 8 | Attention heads |
 | `--num-encoder-layers` | 4 | CVAE encoder layers |
 | `--num-decoder-layers` | 7 | DETR decoder layers |
-| `--state-dim` | 6 | State vector: 6=qpos, 12=qpos+qcmd, 18=qpos+qcmd+torques |
+| `--state-mode` | `qpos_qcmd` | State layout: `qpos`, `qpos_qcmd`, `qpos_qcmd_tq` |
+| `--action-mode` | `relative` | `absolute` = predict joint targets; `relative` = predict `(target − qpos)` |
+| `--augment` | off | Enable train-time image augmentation (geometric crop + color jitter) |
+| `--val-fraction` | 0.15 | Fraction of episodes held out for validation (0 disables) |
+| `--val-seed` | 0 | Seed for train/val episode split |
 | `--device` | cuda/cpu | PyTorch device |
 | `--num-workers` | 4 | DataLoader workers |
-| `--save-every` | 5 | Save checkpoint every N epochs |
-| `--resume` | off | Resume from latest checkpoint in output-dir |
+| `--save-every` | 10 | Save periodic checkpoint every N epochs |
+| `--resume` | off | Resume from latest periodic checkpoint in output-dir |
 | `--cache` | off | Cache all episodes in RAM (faster, more memory) |
 
 ### What happens during training
 
-1. **Dataset init** — all episodes are discovered, a flat `(episode, timestep)` index is built, and normalization statistics (per-joint mean/std for qpos, qcmd, torques, actions; per-joint min/max for actions) are computed across the full dataset.
-2. **Each sample** — at index `(ep, t)`: load `qpos[t]`, both images at `t`, and `actions[t:t+chunk_size]`. Normalize everything (z-score for positions/actions, ImageNet for images). Build the state vector based on `state_dim`.
-3. **Forward pass** — CVAE encodes `(qpos, actions)` → latent `z`, decoder predicts action chunk from `(images, state, z)`. Loss = L1 on actions + `kl_weight × KL`.
-4. **Optimizer** — AdamW with two param groups (backbone gets `lr_backbone`), gradient clipping at `max_norm=0.1`, cosine annealing to `lr × 0.01`.
-5. **Checkpoints** — saved every `save_every` epochs as `act_epoch_XXXX.pt`.
+1. **Train/val split** — episodes are split by file (never within an episode). Validation uses the training set's statistics so normalization is identical.
+2. **Dataset init** — all episodes are discovered, a flat `(episode, timestep)` index is built, and normalization statistics (per-joint mean/std for qpos, qcmd, torques, absolute-actions, and relative-actions; per-joint min/max of absolute and relative actions for safety clamping) are computed across the full training subset. Per-episode start poses are also captured so deploy-time can pick the closest one.
+3. **Each sample** — at index `(ep, t)`: load `qpos[t]`, both images at `t`, and `actions[t:t+chunk_size]`. Normalize everything (z-score for positions/actions, ImageNet for images). Build the state vector based on `state_mode`. If `--action-mode relative`, each action is converted to `(action − qpos[t])` before normalization. If `--augment`, train images get geometric crop + per-camera color jitter.
+4. **Forward pass** — CVAE encodes `(qpos, actions)` → latent `z`, decoder predicts action chunk from `(images, state, z)`. Loss = L1 on actions + `kl_weight × KL`.
+5. **Optimizer** — AdamW with two param groups (backbone gets `lr_backbone`), gradient clipping at `max_norm=0.1`, cosine annealing to `lr × 0.01`.
+6. **Checkpoints** — periodic saves every `save_every` epochs as `act_epoch_XXXX.pt`. The checkpoint with the lowest validation total-loss is additionally saved to `act_best.pt`.
 
 ### Checkpoint contents
 
@@ -212,22 +222,32 @@ Each `.pt` file contains everything needed for inference:
 ```python
 {
     "epoch": int,
+    "best_val": float,
     "model_state_dict": ...,
     "optimizer_state_dict": ...,
     "scheduler_state_dict": ...,
     "dataset_stats": {
-        "qpos_mean", "qpos_std",        # [6] each
+        "qpos_mean", "qpos_std",              # [7] each
         "qcmd_mean", "qcmd_std",
         "torque_mean", "torque_std",
-        "action_mean", "action_std",
-        "action_min", "action_max",      # for safety clamping
+        "action_mean", "action_std",           # absolute-action stats
+        "action_min", "action_max",            # absolute-action range (clamp)
+        "rel_action_mean", "rel_action_std",   # delta-action stats
+        "rel_action_min", "rel_action_max",    # delta-action range (clamp)
+        "start_poses",                         # [N, 7] — every episode's starting qpos
+        "ready_pose",                          # [7] — mean of start_poses (legacy fallback)
     },
     "config": {
         "chunk_size", "d_model", "dim_feedforward", "z_dim",
         "nhead", "num_encoder_layers", "num_decoder_layers",
-        "kl_weight", "state_dim",
+        "kl_weight",
+        "num_joints",     # 7 = swivel + 6 arm joints
+        "state_mode",     # "qpos" | "qpos_qcmd" | "qpos_qcmd_tq"
+        "state_dim",      # num_joints × (1|2|3), derived from state_mode
+        "action_mode",    # "absolute" | "relative"
     },
     "train_loss": {"l1": float, "kl": float, "total": float},
+    "val_loss":   {"l1": float, "kl": float, "total": float},   # null if val_fraction=0
 }
 ```
 
@@ -239,15 +259,15 @@ Each `.pt` file contains everything needed for inference:
 python python/training/train.py --data-dir episodes/ --output-dir checkpoints/ --resume
 ```
 
-Finds the latest `act_epoch_*.pt` in the output directory and continues from `epoch + 1`.
+Finds the latest `act_epoch_*.pt` in the output directory and continues from `epoch + 1`. `best_val` is preserved so the best-checkpoint tracking picks up correctly.
 
 ### Training tips
 
-- **Start with defaults** — the architecture hyperparameters match the original ACT paper and work well.
-- **`state_dim=12`** (qpos + qcmd) generally outperforms `state_dim=6` because the decoder sees what position was last commanded, giving it a velocity signal.
+- **Start with defaults** — `state_mode=qpos_qcmd`, `action_mode=relative`, `chunk_size=32`. Relative actions generalize much better on small datasets because the model only has to learn motion shapes, not absolute poses.
+- **Turn on `--augment`** whenever you have fewer than ~100 episodes. Geometric crop + color jitter is cheap insurance against overfitting to lighting / framing.
+- **Watch `val/total` in TensorBoard** — if it diverges from `train/total`, you're overfitting (add more episodes or augmentation). The `act_best.pt` saved at the lowest `val/total` is usually the best one to deploy.
 - **`--cache`** speeds up training significantly if episodes fit in RAM. Each 500-frame episode with images is ~264 MB.
-- **Watch the L1 loss** — it should drop steadily. If it plateaus early, you may need more diverse demonstrations.
-- **Train for 100-300 epochs** for most tasks. Check with `evaluate_policy.py` before committing to long runs.
+- **Train for 200-400 epochs** for most tasks. Check `act_best.pt` with `evaluate_policy.py` before committing to longer runs.
 
 ---
 
@@ -293,7 +313,7 @@ python python/scripts/evaluate_policy.py \
 | `--episode-dir` | — | Directory of `episode_*.hdf5` files |
 | `--device` | cuda/cpu | PyTorch device |
 | `--ensemble` | off | Enable temporal ensemble |
-| `--ensemble-steps` | 25 | Past chunks for ensemble |
+| `--ensemble-steps` | 16 | Past chunks for ensemble |
 | `--no-images` | off | Skip camera images in Rerun |
 | `--speed` | 0 | Playback speed (0 = as fast as possible) |
 | `--save` | None | Save `.rrd` instead of spawning viewer |
@@ -326,13 +346,14 @@ Episode                                  Mean L1   Max L1   Inf (ms)
 
 Joint          Mean L1   Max L1
 -------------- -------- --------
+swivel           0.0098   0.0312
 gantry_base      0.0123   0.0456
 gantry_mid       0.0234   0.0789
 gantry_end       0.0189   0.0567
 wrist_pitch      0.0145   0.0345
 wrist_roll       0.0087   0.0234
 gripper          0.0156   0.0489
-OVERALL          0.0156   0.0789
+OVERALL          0.0147   0.0789
 ```
 
 ### Interpreting results
@@ -353,7 +374,7 @@ Always test with `--dry-run` before sending commands to hardware:
 
 ```bash
 python python/nodes/act_policy_node.py \
-    --checkpoint checkpoints/act_epoch_0100.pt \
+    --checkpoint checkpoints/act_best.pt \
     --dry-run
 ```
 
@@ -365,24 +386,24 @@ This runs the full inference pipeline (subscribes to telemetry + cameras, runs t
 ### Live deployment
 
 ```bash
-# Default (Jetson endpoints, CUDA)
+# Default (Jetson endpoints, CUDA) — usually deploy act_best.pt
 python python/nodes/act_policy_node.py \
-    --checkpoint checkpoints/act_epoch_0100.pt
+    --checkpoint checkpoints/act_best.pt
 
-# With temporal ensemble
+# With a larger ensemble window
 python python/nodes/act_policy_node.py \
-    --checkpoint checkpoints/act_epoch_0100.pt \
-    --ensemble-steps 25
+    --checkpoint checkpoints/act_best.pt \
+    --ensemble-steps 20
 
 # CPU-only (slower, use on dev machine for testing)
 python python/nodes/act_policy_node.py \
-    --checkpoint checkpoints/act_epoch_0100.pt \
+    --checkpoint checkpoints/act_best.pt \
     --device cpu
 
-# Tighter velocity guard (default is 0.05 rad/step = 1 rad/s at 20 Hz)
+# Tighter velocity guard for both arm and swivel
 python python/nodes/act_policy_node.py \
-    --checkpoint checkpoints/act_epoch_0100.pt \
-    --max-delta 0.03
+    --checkpoint checkpoints/act_best.pt \
+    --max-delta 0.15 --max-delta-swivel 0.08
 ```
 
 ### All arguments
@@ -396,24 +417,37 @@ python python/nodes/act_policy_node.py \
 | `--cmd` | `tcp://localhost:5555` | ZMQ command PUSH endpoint |
 | `--device` | cuda/cpu | PyTorch device |
 | `--dry-run` | off | Inference only, no commands sent |
-| `--ensemble-steps` | 25 | Past chunks for ensemble (0 = disable) |
-| `--max-delta` | 0.05 | Max joint delta per step in rad (at 20 Hz: 0.05 = 1 rad/s) |
+| `--ensemble-steps` | 16 | Past chunks for ensemble (0 = disable) |
+| `--max-delta` | 0.3 | Max arm-joint delta per step in rad (at 20 Hz: 0.3 = 6 rad/s) |
+| `--max-delta-swivel` | 0.15 | Max swivel delta per step in rad (at 20 Hz: 0.15 = 3 rad/s) |
+| `--ramp-speed` | 1.5 | Ramp speed to ready pose in rad/s |
+| `--no-rerun` | off | Disable Rerun visualization |
 
 ### Safety features
 
 | Feature | Details |
 |---|---|
 | **Source readiness** | Waits for all 3 streams (telemetry, left cam, right cam) before sending any command. |
+| **Closest-start ready pose** | Before inference, the node picks the training-set start pose nearest to the arm's current position and ramps to it, so the first observation is on-distribution. |
 | **Staleness check** | Skips the tick if any source is > 200 ms old. |
-| **Absolute bounds** | Clamps actions to `[action_min, action_max]` from training data. |
-| **Delta guard** | Clamps `|action - current_qpos|` to `max_delta` per joint per step. |
+| **Position bounds** | Absolute mode clamps actions to `[action_min, action_max]`. Relative mode clamps `(action − qpos)` to `[rel_action_min, rel_action_max]`. Both ranges come from the training data. |
+| **Delta guard** | Clamps `|action − current_qpos|` per joint per step; swivel uses a tighter limit than the arm joints. |
 | **Latency warning** | Warns if inference takes > 80 ms (motor watchdog is 100 ms). |
+
+### Command dispatch
+
+The policy outputs a 7-dim action each tick. The node splits it into two ZMQ messages every step:
+
+- `{"type": "swivel", "position": action[0], ...}` — routes to the swivel base controller.
+- `{"type": "arm_joints", "positions": action[1:7], ...}` — routes to the 6-DOF gantry/wrist controller.
+
+This matches the original firmware interface; the policy-level 7-DOF vector is purely a training-side convenience so the model learns whole-body coordination.
 
 ### Important warnings
 
 - **Do NOT run `teleop.py` and `act_policy_node.py` simultaneously.** Both push to `:5555`. Interleaved commands are dangerous.
-- **`state_dim` must match training.** The checkpoint carries `config["state_dim"]` and the node uses it automatically. If your episodes were collected with `qcmd` but you trained with `state_dim=6`, the qcmd data is simply ignored.
-- **Arm gains** are loaded from `config/teleop.yaml` (the `gantry.kp` and `gantry.kd` values). Make sure these match what was used during data collection.
+- **`state_mode` / `action_mode` must match training.** The checkpoint carries these in `config` and the node uses them automatically. For old checkpoints without these fields, the node falls back to `state_mode=qpos_qcmd`, `action_mode=absolute`.
+- **Arm gains** are loaded from `config/teleop.yaml` (the `gantry.kp` and `gantry.kd` values). Make sure these match what was used during data collection. Swivel gains (`SWIVEL_KP`, `SWIVEL_KD`) are defined in `record_replay.py`.
 
 ---
 
@@ -456,24 +490,24 @@ python python/scripts/collect_demo.py --port COM4 --output-dir episodes/pick_cup
 # 3. Inspect a few episodes visually
 python python/scripts/view_episode.py episodes/pick_cup/episode_0005.hdf5
 
-# 4. Train for 200 epochs
+# 4. Train for 300 epochs with augmentation + 15% validation
 python python/training/train.py \
     --data-dir episodes/pick_cup \
     --output-dir checkpoints/pick_cup \
-    --epochs 200 --state-dim 12
+    --epochs 300 --augment --val-fraction 0.15
 
-# 5. Evaluate offline
+# 5. Evaluate the best-val checkpoint offline
 python python/scripts/evaluate_policy.py \
-    --checkpoint checkpoints/pick_cup/act_epoch_0200.pt \
+    --checkpoint checkpoints/pick_cup/act_best.pt \
     --episode-dir episodes/pick_cup \
     --ensemble --csv eval_pick_cup.csv
 
 # 6. If Mean L1 looks good, dry-run on hardware
 python python/nodes/act_policy_node.py \
-    --checkpoint checkpoints/pick_cup/act_epoch_0200.pt \
+    --checkpoint checkpoints/pick_cup/act_best.pt \
     --dry-run
 
 # 7. Deploy live
 python python/nodes/act_policy_node.py \
-    --checkpoint checkpoints/pick_cup/act_epoch_0200.pt
+    --checkpoint checkpoints/pick_cup/act_best.pt
 ```

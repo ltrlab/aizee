@@ -10,7 +10,7 @@ Architecture:
   - CVAE encoder (training only): transformer encodes [CLS, qpos, actions]
     -> latent z (dim=32)
   - Transformer decoder: DETR-style with learned chunk_size queries
-  - Action head: linear d_model -> 6 per query
+  - Action head: linear d_model -> num_joints per query
 
 Forward signatures:
     # Training
@@ -19,7 +19,7 @@ Forward signatures:
 
     # Inference
     action_chunk = policy.select_action(qpos, state, images_left, images_right)
-    # -> [B, chunk_size, 6]
+    # -> [B, chunk_size, num_joints]
 """
 
 from __future__ import annotations
@@ -148,7 +148,7 @@ class ImageEncoder(nn.Module):
 class StateEncoder(nn.Module):
     """2-layer MLP embedding state -> d_model vector."""
 
-    def __init__(self, input_dim: int = 6, d_model: int = 256):
+    def __init__(self, input_dim: int = 7, d_model: int = 256):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(input_dim, d_model),
@@ -174,13 +174,14 @@ class CVAEEncoder(nn.Module):
     Input sequence: [CLS_embed, qpos_embed, action_tokens]
     where CLS is a learned embedding (separate from qpos projection).
 
-    Note: CVAE always uses qpos [B, 6] — it encodes action style,
+    Note: CVAE uses qpos [B, num_joints] — it encodes action style,
     not compliance information.
     """
 
     def __init__(
         self,
-        action_dim: int = 6,
+        action_dim: int = 7,
+        num_joints: int = 7,
         chunk_size: int = 100,
         d_model: int = 256,
         z_dim: int = 32,
@@ -197,7 +198,7 @@ class CVAEEncoder(nn.Module):
         # Project action sequence to d_model
         self.action_proj = nn.Linear(action_dim, d_model)
         # Project qpos to d_model
-        self.qpos_proj = nn.Linear(6, d_model)
+        self.qpos_proj = nn.Linear(num_joints, d_model)
         # Learned CLS token (separate from qpos)
         self.cls_embed = nn.Embedding(1, d_model)
 
@@ -218,8 +219,8 @@ class CVAEEncoder(nn.Module):
         self, actions: torch.Tensor, qpos: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        actions: [B, chunk_size, 6]
-        qpos:    [B, 6]
+        actions: [B, chunk_size, num_joints]
+        qpos:    [B, num_joints]
         Returns: mu [B, z_dim], log_var [B, z_dim]
         """
         B = actions.size(0)
@@ -306,10 +307,11 @@ class ACTPolicy(nn.Module):
         z_dim: CVAE latent dimension.
         kl_weight: Weight for KL term in ELBO loss.
         pretrained_encoder: Use pretrained ResNet18 weights.
+        num_joints: Number of joints in qpos/action vectors (7 = swivel + 6-DOF arm).
         state_dim: Dimension of the state vector for the decoder context.
-            6  = qpos only (backward compatible)
-            12 = [qpos, qcmd]
-            18 = [qpos, qcmd, torques]
+            num_joints      = qpos only
+            2 * num_joints  = [qpos, qcmd]
+            3 * num_joints  = [qpos, qcmd, torques]
     """
 
     def __init__(
@@ -324,13 +326,15 @@ class ACTPolicy(nn.Module):
         dropout: float = 0.1,
         kl_weight: float = 10.0,
         pretrained_encoder: bool = True,
-        state_dim: int = 6,
+        num_joints: int = 7,
+        state_dim: int = 14,
     ):
         super().__init__()
         self.chunk_size = chunk_size
         self.d_model = d_model
         self.z_dim = z_dim
         self.kl_weight = kl_weight
+        self.num_joints = num_joints
         self.state_dim = state_dim
 
         # Single shared image encoder for all cameras
@@ -343,9 +347,10 @@ class ACTPolicy(nn.Module):
         # Project z -> d_model
         self.z_proj = nn.Linear(z_dim, d_model)
 
-        # CVAE encoder (used during training) — always uses qpos [6]
+        # CVAE encoder (used during training) — uses qpos [num_joints]
         self.cvae_encoder = CVAEEncoder(
-            action_dim=6,
+            action_dim=num_joints,
+            num_joints=num_joints,
             chunk_size=chunk_size,
             d_model=d_model,
             z_dim=z_dim,
@@ -366,7 +371,7 @@ class ACTPolicy(nn.Module):
         )
 
         # Action head
-        self.action_head = nn.Linear(d_model, 6)
+        self.action_head = nn.Linear(d_model, num_joints)
 
         self._init_weights()
 
@@ -456,25 +461,25 @@ class ACTPolicy(nn.Module):
         """Training forward pass.
 
         Args:
-            qpos: [B, 6] normalized joint positions (for CVAE encoder)
+            qpos: [B, num_joints] normalized joint positions (for CVAE encoder)
             state: [B, state_dim] normalized state vector (for decoder context)
             images_left: [B, 3, H, W] ImageNet-normalized
             images_right: [B, 3, H, W] ImageNet-normalized
-            actions: [B, chunk_size, 6] normalized target actions
+            actions: [B, chunk_size, num_joints] normalized target actions
 
         Returns:
             dict with keys "l1", "kl", "total" (all scalar tensors)
         """
         assert actions is not None, "actions required for training forward pass"
 
-        # CVAE encode -> latent z (uses qpos [6] only)
+        # CVAE encode -> latent z
         mu, log_var = self.cvae_encoder(actions, qpos)
         z = self._reparameterize(mu, log_var)
 
         # Build memory with extended state and decode
         memory = self._build_memory(state, images_left, images_right, z)
         decoded = self.decoder(memory)               # [B, chunk_size, d_model]
-        pred_actions = self.action_head(decoded)     # [B, chunk_size, 6]
+        pred_actions = self.action_head(decoded)     # [B, chunk_size, num_joints]
 
         # L1 reconstruction loss
         l1_loss = F.l1_loss(pred_actions, actions)
@@ -497,17 +502,17 @@ class ACTPolicy(nn.Module):
         """Inference forward pass. z = zeros (deterministic).
 
         Args:
-            qpos: [B, 6] (used for z prior dimensioning)
+            qpos: [B, num_joints] (used for z prior dimensioning)
             state: [B, state_dim]
             images_left: [B, 3, H, W]
             images_right: [B, 3, H, W]
 
         Returns:
-            action_chunk: [B, chunk_size, 6]
+            action_chunk: [B, chunk_size, num_joints]
         """
         B = qpos.size(0)
         z = torch.zeros(B, self.z_dim, device=qpos.device, dtype=qpos.dtype)
 
         memory = self._build_memory(state, images_left, images_right, z)
         decoded = self.decoder(memory)
-        return self.action_head(decoded)  # [B, chunk_size, 6]
+        return self.action_head(decoded)  # [B, chunk_size, num_joints]

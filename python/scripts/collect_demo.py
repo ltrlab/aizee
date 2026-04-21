@@ -37,6 +37,7 @@ import base64
 import enum
 import io
 import json
+import queue
 import sys
 import threading
 import time
@@ -71,13 +72,16 @@ except ImportError:
 _so101_available = False
 try:
     sys.path.insert(0, str(Path(__file__).parent.parent / "teleop"))
-    from so101_leader import So101Leader, CALIB_PATH as _CALIB_PATH
+    from so101_leader import So101Leader, CALIB_PATH as _CALIB_PATH, find_so101_port
     _so101_available = True
 except ImportError:
     _CALIB_PATH = Path("so101_calibration.json")
 
 sys.path.insert(0, str(Path(__file__).parent))
-from record_replay import ARM_JOINTS, KP, KD, setup_keyboard, load_arm_limits, clamp_arm_positions
+from record_replay import (
+    ARM_JOINTS, POLICY_JOINTS, KP, KD,
+    setup_keyboard, load_arm_limits, clamp_arm_positions,
+)
 
 LOOP_HZ    = 30
 REC_HZ     = 20
@@ -169,6 +173,7 @@ def _render(
     wheels_enabled:   bool                = False,
     drive_linear:     float               = 0.0,
     drive_angular:    float               = 0.0,
+    **_ignored,
 ) -> list[str]:
     TOP = "\u2554" + "\u2550" * _IW + "\u2557"
     MID = "\u2560" + "\u2550" * _IW + "\u2563"
@@ -503,12 +508,13 @@ def _start_image_decoder(
     cam_lock: threading.Lock,
     cam_cache: dict,
     img_size: tuple,
+    always_on: bool = False,
 ) -> tuple[threading.Event, threading.Thread, threading.Lock, dict, threading.Event]:
     """Background thread that decodes + resizes camera JPEGs.
 
-    Runs continuously while *rec_flag* is set, decoding new camera
-    frames as they arrive in cam_cache.  The main loop reads pre-decoded
-    numpy arrays from *decoded* instead of calling decode_image() inline.
+    Gated on *rec_flag* by default (decoding only matters for the record
+    buffer).  Pass always_on=True for GUI mode where live preview needs
+    decoded frames even outside recording.
     """
     lock     = threading.Lock()
     decoded: dict = {"left": None, "right": None,
@@ -520,7 +526,7 @@ def _start_image_decoder(
         prev_lt = 0.0
         prev_rt = 0.0
         while not stop.is_set():
-            if not rec_flag.is_set():
+            if not (always_on or rec_flag.is_set()):
                 stop.wait(0.05)
                 continue
 
@@ -894,10 +900,41 @@ def _qtemp(telem: Optional[dict]) -> Optional[np.ndarray]:
 # HDF5 episode writer
 # ---------------------------------------------------------------------------
 
+def _prepend_swivel(arm_arr: np.ndarray, swivel_buf, *, fill_name: str) -> np.ndarray:
+    """Prepend the swivel column to a [T, 6] arm array → [T, 7].
+
+    NaN swivel samples (missing telemetry) are forward/backward filled so the
+    resulting array contains no NaNs; if the entire buffer is missing, zeros
+    are used as a last resort with a warning.
+    """
+    T = arm_arr.shape[0]
+    sv = np.asarray(swivel_buf, dtype=np.float32).reshape(-1)
+    assert sv.shape[0] == T, f"swivel length {sv.shape[0]} != {fill_name} length {T}"
+
+    mask = ~np.isnan(sv)
+    if not mask.any():
+        print(f"[save_episode] WARNING: no valid swivel samples for {fill_name}; filling with 0")
+        sv = np.zeros(T, dtype=np.float32)
+    elif not mask.all():
+        # Forward-fill then backward-fill
+        valid_idx = np.where(mask)[0]
+        first = valid_idx[0]
+        last  = valid_idx[-1]
+        sv[:first] = sv[first]
+        sv[last+1:] = sv[last]
+        # Fill any remaining internal gaps with previous value
+        for i in range(first + 1, last):
+            if np.isnan(sv[i]):
+                sv[i] = sv[i - 1]
+
+    return np.concatenate([sv[:, None], arm_arr], axis=1).astype(np.float32)
+
+
 def save_episode(
     output_dir, qpos_buf, left_buf, right_buf,
     telem_ts_buf=None, left_ts_buf=None, right_ts_buf=None,
     swivel_buf=None, qcmd_buf=None, torque_buf=None,
+    task_tag: str = "", notes: str = "",
 ):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -906,19 +943,36 @@ def save_episode(
     ep_num   = (int(existing[-1].stem.split("_")[1]) + 1) if existing else 0
     path     = output_dir / f"episode_{ep_num:04d}.hdf5"
 
-    qpos_arr  = np.stack(qpos_buf,  axis=0)   # [T, 6]
+    qpos_arm  = np.stack(qpos_buf,  axis=0)   # [T, 6]  arm joints only
     left_arr  = np.stack(left_buf,  axis=0)   # [T, H, W, 3]
     right_arr = np.stack(right_buf, axis=0)   # [T, H, W, 3]
-    qcmd_arr  = np.stack(qcmd_buf, axis=0) if qcmd_buf and len(qcmd_buf) == len(qpos_buf) else None
-    torque_arr = np.stack(torque_buf, axis=0) if torque_buf and len(torque_buf) == len(qpos_buf) else None
+    qcmd_arm  = np.stack(qcmd_buf, axis=0) if qcmd_buf and len(qcmd_buf) == len(qpos_buf) else None
+    torque_arm = np.stack(torque_buf, axis=0) if torque_buf and len(torque_buf) == len(qpos_buf) else None
+
+    # Prepend swivel to every arm array → 7-DOF policy format.
+    # The swivel buffer is always populated alongside qpos_buf in the main loop,
+    # so an assertion here catches any regression.
+    assert swivel_buf is not None and len(swivel_buf) == len(qpos_buf), \
+        "swivel_buf must be present and aligned with qpos_buf"
+
+    qpos_arr   = _prepend_swivel(qpos_arm,  swivel_buf, fill_name="qpos")
+    qcmd_arr   = _prepend_swivel(qcmd_arm,  swivel_buf, fill_name="qcmd") if qcmd_arm is not None else None
+    torque_arr = (_prepend_swivel(torque_arm, [0.0] * len(qpos_buf), fill_name="torques")
+                  if torque_arm is not None else None)
+
     # Actions derived from commanded positions (no sag) when available
-    act_src   = qcmd_arr if qcmd_arr is not None else qpos_arr
-    actions   = np.concatenate([act_src[1:], act_src[-1:]], axis=0)  # [T, 6]
-    H, W      = left_arr.shape[1], left_arr.shape[2]
+    act_src  = qcmd_arr if qcmd_arr is not None else qpos_arr
+    actions  = np.concatenate([act_src[1:], act_src[-1:]], axis=0).astype(np.float32)  # [T, 7]
+    H, W     = left_arr.shape[1], left_arr.shape[2]
 
     with h5py.File(path, "w") as f:
-        f.attrs["hz"]        = REC_HZ
-        f.attrs["arm_joints"] = ",".join(ARM_JOINTS)
+        f.attrs["hz"]           = REC_HZ
+        f.attrs["arm_joints"]   = ",".join(POLICY_JOINTS)
+        f.attrs["action_space"] = "absolute"     # qcmd-style absolute joint targets
+        f.attrs["format_version"] = 2            # v1 = 6-DOF with sidecar swivel, v2 = 7-DOF
+        f.attrs["task_tag"]     = task_tag
+        f.attrs["notes"]        = notes
+        f.attrs["collected_at"] = float(time.time())
         obs  = f.create_group("observations")
         obs.create_dataset("qpos",   data=qpos_arr,  compression="gzip", compression_opts=4)
         if qcmd_arr is not None:
@@ -929,9 +983,6 @@ def save_episode(
         imgs.create_dataset("left",  data=left_arr,  compression="gzip", compression_opts=4, chunks=(1, H, W, 3))
         imgs.create_dataset("right", data=right_arr, compression="gzip", compression_opts=4, chunks=(1, H, W, 3))
         f.create_dataset("actions",  data=actions,   compression="gzip", compression_opts=4)
-        if swivel_buf is not None and len(swivel_buf) == len(qpos_buf):
-            obs.create_dataset("swivel", data=np.array(swivel_buf, dtype=np.float32),
-                               compression="gzip", compression_opts=4)
         if telem_ts_buf is not None:
             ts = f.create_group("timestamps")
             ts.create_dataset("telem",        data=np.array(telem_ts_buf, dtype=np.float64))
@@ -994,8 +1045,12 @@ def main() -> None:
     ap.add_argument("--robstride-calib", default=None,                    dest="robstride_calib")
     ap.add_argument("--no-rerun",       action="store_true",             dest="no_rerun",
                     help="Disable Rerun live camera preview")
+    ap.add_argument("--gui",            action="store_true",             dest="gui",
+                    help="Launch PySide6 control panel (embeds Rerun web viewer)")
     ap.add_argument("--estop-port",    default=None,                    dest="estop_port",
                     help="Serial port for ESP32 e-stop receiver (e.g. /dev/estop-receiver, COM10)")
+    ap.add_argument("--task-tag",      default="",                      dest="task_tag",
+                    help="Task label written as episode attr (GUI can override live)")
     args = ap.parse_args()
 
     _ansi_on()
@@ -1014,14 +1069,25 @@ def main() -> None:
     directions       = None
     _so101_for_aizee: list[int] = []
 
-    if args.port is not None:
+    so101_port = args.port
+    if so101_port is None and _so101_available:
+        _excl = [args.estop_port] if args.estop_port else []
+        print("Searching for SO-101 leader arm...", flush=True)
+        so101_port = find_so101_port(exclude=_excl, verbose=True)
+        if so101_port:
+            print(f"SO-101 auto-detected on {so101_port}")
+        else:
+            print("SO-101 not detected — continuing without leader tracking "
+                  "(pass --port to force)")
+
+    if so101_port is not None:
         if not _so101_available:
             print("SO-101 support not available (missing so101_leader module)")
             sys.exit(1)
-        leader = So101Leader(args.port, args.baud, calib=args.calib)
+        leader = So101Leader(so101_port, args.baud, calib=args.calib)
         if not leader.connect():
             sys.exit(1)
-        print(f"SO-101 connected on {args.port}")
+        print(f"SO-101 connected on {so101_port}")
         zero_offsets     = leader.zero_offsets
         directions       = leader.directions
         _arm_joint_set   = set(ARM_JOINTS)
@@ -1079,7 +1145,7 @@ def main() -> None:
 
     # Background image decoder (base64 + JPEG + resize off main loop)
     _dec_stop, _dec_thread, _dec_lock, _dec_cache, _rec_flag = \
-        _start_image_decoder(_cam_lock, _cam_cache, img_size)
+        _start_image_decoder(_cam_lock, _cam_cache, img_size, always_on=args.gui)
 
     # -------------------------------------------------------------------------
     # Hardware e-stop (ESP32 serial)
@@ -1097,30 +1163,54 @@ def main() -> None:
     if use_rerun and not _rerun_available:
         print("WARNING: rerun not installed — live camera preview disabled")
         use_rerun = False
+    _rerun_web_url: Optional[str] = None
     if use_rerun:
         rr.init("aizee_collect")
-        rr.spawn(memory_limit="1GiB")
+        if args.gui:
+            # Serve over gRPC + host the WASM viewer locally so the Qt window
+            # can embed it via QWebEngineView. open_browser=False: Qt opens it.
+            _grpc_uri = rr.serve_grpc(server_memory_limit="1GiB")
+            rr.serve_web_viewer(web_port=9090, open_browser=False, connect_to=_grpc_uri)
+            from urllib.parse import quote as _urlquote
+            _rerun_web_url = f"http://localhost:9090/?url={_urlquote(_grpc_uri, safe='')}"
+        else:
+            rr.spawn(memory_limit="1GiB")
         # Seed joint + leader entity paths so the blueprint can resolve them
         _joint_names = ["swivel"] + list(ARM_JOINTS)
         rr.set_time("time", timestamp=time.time())
         for _jn in _joint_names:
             rr.log(f"joints/{_jn}", rr.Scalars(0.0))
             rr.log(f"leader/{_jn}", rr.Scalars(0.0))
-        rr.send_blueprint(rrb.Blueprint(
-            rrb.Vertical(
+        if args.gui:
+            # GUI mode: native joint bars below — Rerun embed shows only
+            # cameras, with all chrome (panels + timeline) hidden.
+            rr.send_blueprint(rrb.Blueprint(
                 rrb.Horizontal(
                     rrb.Spatial2DView(name="Left", origin="cameras/left"),
                     rrb.Spatial2DView(name="Right", origin="cameras/right"),
                     column_shares=[1, 1],
                 ),
-                rrb.TimeSeriesView(
-                    name="Joint Positions",
-                    contents=[f"joints/{j}" for j in _joint_names]
-                            + [f"leader/{j}" for j in _joint_names],
-                ),
-                row_shares=[2, 1],
-            )
-        ))
+                rrb.BlueprintPanel(state="hidden"),
+                rrb.SelectionPanel(state="hidden"),
+                rrb.TimePanel(state="hidden"),
+                collapse_panels=True,
+            ))
+        else:
+            rr.send_blueprint(rrb.Blueprint(
+                rrb.Vertical(
+                    rrb.Horizontal(
+                        rrb.Spatial2DView(name="Left", origin="cameras/left"),
+                        rrb.Spatial2DView(name="Right", origin="cameras/right"),
+                        column_shares=[1, 1],
+                    ),
+                    rrb.TimeSeriesView(
+                        name="Joint Positions",
+                        contents=[f"joints/{j}" for j in _joint_names]
+                                + [f"leader/{j}" for j in _joint_names],
+                    ),
+                    row_shares=[2, 1],
+                )
+            ))
 
     get_key = setup_keyboard()
 
@@ -1205,6 +1295,10 @@ def main() -> None:
     dropped_frames = 0
     last_rec_time  = 0.0
 
+    # Episode metadata (GUI can mutate task_tag / notes live via the holder)
+    _meta: dict = {"task_tag": args.task_tag, "notes": ""}
+    last_saved_path: Optional[Path] = None
+
     # Camera state
     last_left_time   = 0.0
     last_right_time  = 0.0
@@ -1223,10 +1317,37 @@ def main() -> None:
     _init_actual = (np.concatenate([[_nan], q_actual]) if q_actual is not None else None)
 
     # -------------------------------------------------------------------------
-    # Background display thread (avoids blocking main loop on Windows stdout)
+    # Display: terminal renderer (default) or Qt GUI (--gui)
     # -------------------------------------------------------------------------
-    _disp_stop, _disp_thread, _disp_lock, _disp_holder, _disp_event = \
-        _start_display_thread()
+    gui_cmd_queue: queue.Queue = queue.Queue(maxsize=32)
+    _qt_renderer = None
+    _disp_thread = None
+    _disp_stop: Optional[threading.Event] = None
+    _disp_event: Optional[threading.Event] = None
+
+    if args.gui:
+        from collect_demo_gui import QtRenderer
+
+        import os
+        def _on_delete_last(path: Path) -> None:
+            os.remove(path)
+
+        _qt_renderer = QtRenderer(
+            rerun_url=_rerun_web_url,
+            cmd_queue=gui_cmd_queue,
+            meta=_meta,
+            on_delete_last=_on_delete_last,
+            output_dir=Path(args.output_dir),
+            leader_connected=(leader is not None),
+        )
+        _disp_lock   = _qt_renderer.lock
+        _disp_holder = _qt_renderer.holder
+        _disp_stop   = _qt_renderer.stop_event
+        _qt_renderer.start()
+    else:
+        _disp_stop, _disp_thread, _disp_lock, _disp_holder, _disp_event = \
+            _start_display_thread()
+
     # Queue the initial frame (first=True is the default in holder)
     with _disp_lock:
         _disp_holder["args"] = dict(
@@ -1235,7 +1356,8 @@ def main() -> None:
             leader_connected=(leader is not None),
             wheel_states=wheel_states, wheels_enabled=wheels_enabled,
         )
-    _disp_event.set()
+    if _disp_event is not None:
+        _disp_event.set()
 
     # -------------------------------------------------------------------------
     # Background Rerun thread (avoids blocking main loop on rr.log IPC)
@@ -1255,16 +1377,57 @@ def main() -> None:
     _save_thread:        Optional[threading.Thread] = None
     _save_result_holder: list                       = [None]
 
-    def _start_async_save(out_dir, qb, lb, rb, tb, ltb, rtb, swb, dur, drop_note, tag="", qcb=None, tqb=None):
+    def _start_async_save(out_dir, qb, lb, rb, tb, ltb, rtb, swb, dur, drop_note, tag="", qcb=None, tqb=None, task_tag="", notes=""):
         def _run():
             try:
-                p, T = save_episode(out_dir, qb, lb, rb, tb, ltb, rtb, swivel_buf=swb, qcmd_buf=qcb, torque_buf=tqb)
-                _save_result_holder[0] = f"[SAVED {p.name}  {T} steps  {dur:.1f}s{drop_note}]{tag}"
+                p, T = save_episode(
+                    out_dir, qb, lb, rb, tb, ltb, rtb,
+                    swivel_buf=swb, qcmd_buf=qcb, torque_buf=tqb,
+                    task_tag=task_tag, notes=notes,
+                )
+                _save_result_holder[0] = (p, f"[SAVED {p.name}  {T} steps  {dur:.1f}s{drop_note}]{tag}")
             except Exception as e:
-                _save_result_holder[0] = f"[SAVE ERROR: {e}]"
+                _save_result_holder[0] = (None, f"[SAVE ERROR: {e}]")
         t = threading.Thread(target=_run, daemon=True)
         t.start()
         return t
+
+    def _finalize_recording(reason: str, t_now: float) -> None:
+        """Stop recording and dispatch an async save (or dry-run / skip-empty).
+
+        reason is a short free-text suffix shown in status + attached to the
+        save-success message ("" = user R toggle; " (hw e-stop)" / " (e-stop)" /
+        " (max steps)" for auto-stop paths).
+        """
+        nonlocal recording, save_msg, save_msg_until, _save_thread
+        if not recording:
+            return
+        recording = False
+        _rec_flag.clear()
+        steps     = len(qpos_buf)
+        dur       = steps / REC_HZ
+        drop_note = f"  drop:{dropped_frames}" if dropped_frames else ""
+        tag_txt   = reason if reason else ""
+
+        if steps == 0:
+            save_msg       = f"[STOPPED{tag_txt} — 0 steps, nothing saved]"
+            save_msg_until = t_now + 5.0
+            return
+
+        if args.dry_run:
+            save_msg       = f"[DRY RUN]{tag_txt} {steps} steps  {dur:.1f}s{drop_note}"
+            save_msg_until = t_now + 5.0
+            return
+
+        save_msg               = f"[saving {steps} steps{tag_txt}...]"
+        save_msg_until         = t_now + 120.0
+        _save_result_holder[0] = None
+        _save_thread = _start_async_save(
+            args.output_dir, qpos_buf, left_buf, right_buf,
+            telem_ts_buf, left_ts_buf, right_ts_buf, swivel_buf,
+            dur, drop_note, tag=tag_txt, qcb=qcmd_buf, tqb=torque_buf,
+            task_tag=_meta["task_tag"], notes=_meta["notes"],
+        )
 
     try:
         while True:
@@ -1275,8 +1438,9 @@ def main() -> None:
             # -----------------------------------------------------------------
             if _save_thread is not None and not _save_thread.is_alive():
                 if _save_result_holder[0] is not None:
-                    save_msg       = _save_result_holder[0]
-                    save_msg_until = t0 + 5.0
+                    _saved_path, save_msg = _save_result_holder[0]
+                    save_msg_until  = t0 + 5.0
+                    last_saved_path = _saved_path
                     _save_result_holder[0] = None
                 _save_thread = None
 
@@ -1325,6 +1489,13 @@ def main() -> None:
                         key = _k
             else:
                 key = get_key()
+
+            # GUI button presses flow through the same key dispatch as keyboard.
+            # Drain one per frame so rapid clicks don't starve state transitions.
+            try:
+                key = gui_cmd_queue.get_nowait()
+            except queue.Empty:
+                pass
 
             _stick_active = False
             if joystick is not None:
@@ -1470,26 +1641,7 @@ def main() -> None:
                         dropped_frames = 0
                         last_rec_time  = 0.0
                 else:
-                    recording  = False
-                    _rec_flag.clear()  # stop background image decoder
-                    steps      = len(qpos_buf)
-                    dur        = steps / REC_HZ
-                    drop_note  = f"  drop:{dropped_frames}" if dropped_frames else ""
-                    if steps == 0:
-                        save_msg = "[STOPPED — 0 steps, nothing saved]"
-                    elif args.dry_run:
-                        save_msg = f"[DRY RUN] {steps} steps  {dur:.1f}s{drop_note}"
-                    else:
-                        save_msg       = f"[saving {steps} steps...]"
-                        save_msg_until = t0 + 120.0
-                        _save_result_holder[0] = None
-                        _save_thread = _start_async_save(
-                            args.output_dir, qpos_buf, left_buf, right_buf,
-                            telem_ts_buf, left_ts_buf, right_ts_buf, swivel_buf,
-                            dur, drop_note, qcb=qcmd_buf, tqb=torque_buf,
-                        )
-                    if steps == 0 or args.dry_run:
-                        save_msg_until = t0 + 5.0
+                    _finalize_recording("", t0)
 
             elif key == "Z" and leader is not None:
                 with _lr_lock:
@@ -1587,25 +1739,7 @@ def main() -> None:
             # -----------------------------------------------------------------
             estop_hw_active = _estop_flag.is_set()
             if estop_hw_active and not prev_estop_hw:
-                # Rising edge — auto-save recording
-                if recording:
-                    recording = False
-                    _rec_flag.clear()
-                    steps     = len(qpos_buf)
-                    dur       = steps / REC_HZ
-                    drop_note = f"  drop:{dropped_frames}" if dropped_frames else ""
-                    if steps > 0 and not args.dry_run:
-                        save_msg       = f"[saving {steps} steps (hw e-stop)...]"
-                        save_msg_until = t0 + 120.0
-                        _save_result_holder[0] = None
-                        _save_thread = _start_async_save(
-                            args.output_dir, qpos_buf, left_buf, right_buf,
-                            telem_ts_buf, left_ts_buf, right_ts_buf, swivel_buf,
-                            dur, drop_note, tag=" (hw e-stop)", qcb=qcmd_buf, tqb=torque_buf,
-                        )
-                    elif steps > 0:
-                        save_msg       = f"[DRY RUN] hw e-stop: {steps} steps  {dur:.1f}s"
-                        save_msg_until = t0 + 5.0
+                _finalize_recording(" (hw e-stop)", t0)
             prev_estop_hw = estop_hw_active
 
             # -----------------------------------------------------------------
@@ -1796,24 +1930,7 @@ def main() -> None:
             # -----------------------------------------------------------------
             if telem and telem.get("emergency_stop"):
                 if teleop_state != State.ESTOP:
-                    if recording:
-                        recording = False
-                        _rec_flag.clear()
-                        steps     = len(qpos_buf)
-                        dur       = steps / REC_HZ
-                        drop_note = f"  drop:{dropped_frames}" if dropped_frames else ""
-                        if steps > 0 and not args.dry_run:
-                            save_msg       = f"[saving {steps} steps (e-stop)...]"
-                            save_msg_until = t0 + 120.0
-                            _save_result_holder[0] = None
-                            _save_thread = _start_async_save(
-                                args.output_dir, qpos_buf, left_buf, right_buf,
-                                telem_ts_buf, left_ts_buf, right_ts_buf, swivel_buf,
-                                dur, drop_note, tag=" (e-stop)", qcb=qcmd_buf, tqb=torque_buf,
-                            )
-                        elif steps > 0:
-                            save_msg       = f"[DRY RUN] e-stop: {steps} steps  {dur:.1f}s"
-                            save_msg_until = t0 + 5.0
+                    _finalize_recording(" (e-stop)", t0)
                     teleop_state = State.ESTOP
             elif teleop_state == State.ESTOP:
                 # E-stop cleared — return to READY, user must re-enable
@@ -1844,23 +1961,7 @@ def main() -> None:
                     dropped_frames += 1
 
                 if len(qpos_buf) >= args.max_steps:
-                    recording = False
-                    _rec_flag.clear()
-                    steps     = len(qpos_buf)
-                    dur       = steps / REC_HZ
-                    if args.dry_run:
-                        save_msg = f"[DRY RUN] max steps: {steps}  {dur:.1f}s"
-                    else:
-                        save_msg       = f"[saving {steps} steps (max)...]"
-                        save_msg_until = t0 + 120.0
-                        _save_result_holder[0] = None
-                        _save_thread = _start_async_save(
-                            args.output_dir, qpos_buf, left_buf, right_buf,
-                            telem_ts_buf, left_ts_buf, right_ts_buf, swivel_buf,
-                            dur, drop_note="", tag=" (max steps)", qcb=qcmd_buf, tqb=torque_buf,
-                        )
-                    if args.dry_run:
-                        save_msg_until = t0 + 5.0
+                    _finalize_recording(" (max steps)", t0)
 
             # -----------------------------------------------------------------
             # Status strings
@@ -1918,8 +2019,16 @@ def main() -> None:
                 _da, _ds = target, swivel_tgt
 
             # Build display snapshot OUTSIDE lock (numpy concat ~0.5ms)
+            # Mapped leader in the robot frame (Z/M-corrected) so the GUI
+            # can compare leader directly against actual/target.  None when
+            # tracking is inactive or no leader sample has arrived.
+            leader_mapped: Optional[np.ndarray] = None
+            if aizee_cmd is not None and swivel_cmd is not None:
+                leader_mapped = np.concatenate([[swivel_cmd], aizee_cmd])
+
             _disp_snapshot = dict(
                 leader_rad=leader_rad,
+                leader_mapped=leader_mapped,
                 target=(np.concatenate([[_ds if _ds is not None else _nan], _da])
                         if _da is not None else None),
                 actual=(np.concatenate([[swivel_actual if swivel_actual is not None else _nan], q_actual])
@@ -1946,11 +2055,16 @@ def main() -> None:
                 wheels_enabled=wheels_enabled,
                 drive_linear=drive_linear * _max_linear,
                 drive_angular=drive_angular * _max_angular,
+                state=teleop_state.value,
+                save_msg=(save_msg if t0 < save_msg_until else None),
+                last_saved_path=last_saved_path,
+                task_tag=_meta["task_tag"],
             )
             # Lock held only for reference swap (~µs)
             with _disp_lock:
                 _disp_holder["args"] = _disp_snapshot
-            _disp_event.set()
+            if _disp_event is not None:
+                _disp_event.set()
 
             frame_counter += 1
             sleep_t = period - (time.time() - t0)
@@ -1980,8 +2094,12 @@ def main() -> None:
         _estop_stop.set()
         if _estop_thread is not None:
             _estop_thread.join(timeout=1.0)
-        _disp_stop.set()
-        _disp_thread.join(timeout=1.0)
+        if _qt_renderer is not None:
+            _qt_renderer.request_quit()
+            _qt_renderer.join(timeout=2.0)
+        else:
+            _disp_stop.set()
+            _disp_thread.join(timeout=1.0)
         if _rr_stop is not None:
             _rr_stop.set()
             _rr_thread.join(timeout=1.0)
