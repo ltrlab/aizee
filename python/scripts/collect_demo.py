@@ -16,18 +16,17 @@ Usage:
 Controls:
     E    enable arm motors (align to leader if --port given)
     I    idle — enable with zero torque (see actual positions)
-    F    toggle wheel motors (WASD / left stick to drive)
     H    hold — freeze target at current actual position
-    R    toggle recording (IDLE / TRACKING / HOLD only)
+    R    toggle recording (TRACKING only)
     X    soft shutdown — hold 1 s, return to zero, disable
     Z    zero — capture current SO-101 pose as zero reference
     M    mirror — set zero so current leader maps to current actual
     P    save current arm position as ready pose (config/ready_pose.json)
     Q    quit  (Ctrl-C also works)
-    WASD drive wheels (W=fwd S=back A=left D=right, requires F first)
+    WASD drive wheels (W=fwd S=back A=left D=right; wheels enable with arm)
 
 Gamepad: A=enable  B=shutdown/cancel  Start=hold  Back=quit
-         Left stick = drive (requires F first)
+         Left stick = drive (wheels enable with arm)
 """
 
 from __future__ import annotations
@@ -278,10 +277,10 @@ def _render(
     if wheels_enabled:
         dl_s = f"{drive_linear:>+5.2f}"
         da_s = f"{drive_angular:>+5.2f}"
-        drive_row = f"  drive: lin {dl_s}  ang {da_s}   {_GRN}ON{_RST}  [WASD/stick · F=off]"
-        drive_vis = len(f"  drive: lin {dl_s}  ang {da_s}   ON  [WASD/stick · F=off]")
+        drive_row = f"  drive: lin {dl_s}  ang {da_s}   {_GRN}ON{_RST}  [WASD/stick]"
+        drive_vis = len(f"  drive: lin {dl_s}  ang {da_s}   ON  [WASD/stick]")
     else:
-        drive_row = f"  drive: OFF — press F to enable wheels"
+        drive_row = f"  drive: OFF — enable arm to drive"
         drive_vis = -1  # auto
     wheel_lines.append(_row(drive_row, drive_vis))
 
@@ -1013,6 +1012,478 @@ def _load_endpoints() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Live episode replay (on-robot playback inside the main loop)
+# ---------------------------------------------------------------------------
+
+def _load_episode_for_replay(
+    path: Path,
+) -> tuple[np.ndarray, Optional[np.ndarray], float]:
+    """Load an episode HDF5 for live replay.
+
+    Returns (qpos[T,6] arm joints, swivel[T] or None, hz).
+    Mirrors episode_replay_live.load_episode() — format_version=2 stores
+    swivel as column 0; legacy files may be 6-col arm-only.
+    """
+    with h5py.File(path, "r") as f:
+        if "observations" in f and "qpos" in f["observations"]:
+            if "qcmd" in f["observations"]:
+                raw = f["observations/qcmd"][:]
+            else:
+                raw = f["observations/qpos"][:]
+            hz = float(f.attrs.get("hz", 20.0))
+        elif "qpos" in f:
+            raw = f["qpos"][:]
+            hz = float(f.attrs.get("hz", 20.0))
+        else:
+            raise ValueError(f"Unrecognised HDF5 format: {path}")
+
+    raw = raw.astype(np.float32)
+    if raw.ndim != 2:
+        raise ValueError(f"qpos must be 2D, got shape {raw.shape}")
+    if raw.shape[1] == NUM_JOINTS + 1:
+        return raw[:, 1:].copy(), raw[:, 0].copy(), hz
+    if raw.shape[1] == NUM_JOINTS:
+        return raw, None, hz
+    raise ValueError(
+        f"qpos has {raw.shape[1]} columns; expected {NUM_JOINTS} or {NUM_JOINTS + 1}"
+    )
+
+
+class _LiveReplay:
+    """State machine for on-robot episode playback inside collect_demo.
+
+    The main loop owns ZMQ; this class produces lists of motor-command
+    dicts via step() / arm() / play() etc., which the caller sends.
+    See episode_replay_live.py for the standalone reference.
+    """
+
+    class Phase(enum.Enum):
+        READY    = "ready"
+        ARMING   = "arming"
+        PLAYING  = "playing"
+        PAUSED   = "paused"
+        DONE     = "done"
+        SHUTDOWN = "shutdown"
+
+    def __init__(
+        self, *, kp, kd, swivel_kp, swivel_kd,
+        max_delta: float, arm_limits, all_motor_ids,
+    ):
+        self._kp              = list(kp)
+        self._kd              = list(kd)
+        self._swivel_kp       = float(swivel_kp)
+        self._swivel_kd       = float(swivel_kd)
+        self._arm_limits      = arm_limits
+        self._all_motor_ids   = list(all_motor_ids)
+
+        # Live config (mutable from GUI)
+        self.max_delta        = float(max_delta)
+        self.speed            = 1.0
+        self.loop_mode        = False
+        self.goto_start       = True
+        self.vel_ff_enabled   = False
+        self.ramp_speed       = 0.4   # rad/s approach to start pose
+        self._ramp_step       = self.ramp_speed / LOOP_HZ
+        self._arm_max_lead    = 0.05  # rad cap on how far the command may
+                                      # lead q_actual during ARMING — keeps
+                                      # the open-loop integrator from racing
+                                      # past what the arm can physically follow
+
+        # Episode (set by load())
+        self.ep_path:       Optional[Path]       = None
+        self.ep_name:       str                  = ""
+        self.ep_qpos:       Optional[np.ndarray] = None
+        self.ep_swivel:     Optional[np.ndarray] = None
+        self.ep_velocities: Optional[np.ndarray] = None
+        self.ep_hz:         float                = 0.0
+        self.ep_frames:     int                  = 0
+        self.ep_has_swivel: bool                 = False
+
+        # Runtime state
+        self.live:              bool                  = False
+        self.phase                                    = self.Phase.READY
+        self.frame_idx:         int                   = 0
+        self.last_frame_wall:   float                 = 0.0
+        self.current_target:    Optional[np.ndarray]  = None
+        self.current_swivel:    Optional[float]       = None
+        self.error:             float                 = 0.0
+        self.message:           str                   = ""
+
+        # Shutdown state (mirrors teleop SHUTDOWN block)
+        self._shutdown_target:      Optional[np.ndarray] = None
+        self._shutdown_swivel:      Optional[float]      = None
+        self._shutdown_countdown:   float                = 0.0
+        self._shutdown_zero_since:  float                = 0.0
+        self._SHUTDOWN_TIMEOUT                           = 3.0
+
+    # -- Episode loading ---------------------------------------------------
+    def load(self, path: Path) -> Optional[str]:
+        """Load an episode. Returns None on success, error string on failure."""
+        try:
+            qpos, swivel, hz = _load_episode_for_replay(path)
+        except Exception as e:
+            self.message = f"load error: {e}"
+            return str(e)
+        self.ep_path       = path
+        self.ep_name       = path.name
+        self.ep_qpos       = qpos
+        self.ep_swivel     = swivel
+        self.ep_hz         = hz
+        self.ep_frames     = len(qpos)
+        self.ep_has_swivel = swivel is not None
+        self.ep_velocities = self._compute_vel_ff(qpos, hz)
+        self.frame_idx     = 0
+        self.phase         = self.Phase.READY
+        self.current_target = qpos[0].copy() if self.ep_frames > 0 else None
+        self.current_swivel = (float(swivel[0])
+                               if (self.ep_has_swivel and self.ep_frames > 0) else None)
+        self.error         = 0.0
+        self.message       = f"loaded {path.name}  {self.ep_frames}f @ {hz:.0f} Hz"
+        return None
+
+    @staticmethod
+    def _compute_vel_ff(qpos: np.ndarray, hz: float) -> Optional[np.ndarray]:
+        T = len(qpos)
+        if T < 2 or hz <= 0:
+            return None
+        dt = 1.0 / hz
+        dq = np.diff(qpos, axis=0) / dt                        # [T-1, 6]
+        dq = np.vstack([dq, np.zeros((1, qpos.shape[1]))])     # [T,   6]
+        smoothed = dq.copy()
+        for i in range(1, T - 1):
+            smoothed[i] = (dq[i - 1] + dq[i] + dq[i + 1]) / 3.0
+        if T > 1:
+            smoothed[0] = (dq[0] + dq[1]) / 2.0
+        return smoothed.astype(np.float32)
+
+    # -- Mode transitions --------------------------------------------------
+    def enter_live(self) -> bool:
+        if self.ep_qpos is None or self.ep_frames == 0:
+            return False
+        self.live      = True
+        self.phase     = self.Phase.READY
+        self.frame_idx = 0
+        return True
+
+    def exit_live(self) -> bool:
+        """Exit live mode. Rejected while motors are actively commanded."""
+        if self.phase in (self.Phase.ARMING, self.Phase.PLAYING, self.Phase.SHUTDOWN):
+            return False
+        self.live  = False
+        self.phase = self.Phase.READY
+        return True
+
+    # -- Transport ---------------------------------------------------------
+    def arm(self, q_actual, swivel_actual) -> list[dict]:
+        if not self.live or self.ep_qpos is None or self.ep_frames == 0:
+            return []
+        if self.phase == self.Phase.SHUTDOWN:
+            return []
+        self.frame_idx = 0
+        cmds: list[dict] = [{"type": "enable", "motor_ids": self._all_motor_ids}]
+        if self.goto_start and q_actual is not None:
+            # Seed the ramp's integrator from the current measured pose so
+            # the arming step starts exactly where the arm is.  Without
+            # this, the ARMING tick would feed encoder noise straight back
+            # into q_cmd and the arm would shake on its way to the start.
+            self.current_target = q_actual.copy().astype(np.float32)
+            if self.ep_has_swivel and swivel_actual is not None:
+                self.current_swivel = float(swivel_actual)
+            self.phase = self.Phase.ARMING
+        else:
+            self.phase           = self.Phase.PLAYING
+            self.last_frame_wall = time.time()
+        return cmds
+
+    def play(self, q_actual, swivel_actual) -> list[dict]:
+        if not self.live or self.phase == self.Phase.SHUTDOWN:
+            return []
+        if self.phase in (self.Phase.READY, self.Phase.DONE):
+            return self.arm(q_actual, swivel_actual)
+        if self.phase == self.Phase.PAUSED:
+            self.phase           = self.Phase.PLAYING
+            self.last_frame_wall = time.time()
+        return []
+
+    def pause(self) -> None:
+        if self.live and self.phase == self.Phase.PLAYING:
+            self.phase = self.Phase.PAUSED
+
+    def toggle(self, q_actual, swivel_actual) -> list[dict]:
+        if not self.live:
+            return []
+        if self.phase == self.Phase.PLAYING:
+            self.pause()
+            return []
+        return self.play(q_actual, swivel_actual)
+
+    def restart(self, q_actual, swivel_actual) -> list[dict]:
+        if not self.live or self.phase == self.Phase.SHUTDOWN:
+            return []
+        self.frame_idx = 0
+        cmds: list[dict] = []
+        if self.phase == self.Phase.READY:
+            cmds.append({"type": "enable", "motor_ids": self._all_motor_ids})
+        if self.goto_start and q_actual is not None:
+            self.phase = self.Phase.ARMING
+        else:
+            self.phase           = self.Phase.PLAYING
+            self.last_frame_wall = time.time()
+        return cmds
+
+    def stop(self, q_actual, swivel_actual) -> None:
+        """Abort: ramp to zero and disable. Phase returns to READY when done."""
+        if not self.live or self.phase == self.Phase.SHUTDOWN:
+            return
+        if self.phase == self.Phase.READY:
+            return
+        self._shutdown_target = (q_actual.copy() if q_actual is not None
+                                 else (self.current_target.copy()
+                                       if self.current_target is not None
+                                       else np.zeros(NUM_JOINTS, dtype=np.float32)))
+        self._shutdown_swivel = (swivel_actual if swivel_actual is not None
+                                 else (self.current_swivel
+                                       if self.current_swivel is not None else 0.0))
+        self._shutdown_countdown  = 1.0
+        self._shutdown_zero_since = 0.0
+        self.phase                = self.Phase.SHUTDOWN
+
+    def set_speed(self, speed: float) -> None:
+        self.speed = max(0.1, min(float(speed), 4.0))
+
+    def set_opts(self, **opts) -> None:
+        if "loop" in opts:
+            self.loop_mode = bool(opts["loop"])
+        if "goto_start" in opts:
+            self.goto_start = bool(opts["goto_start"])
+        if "max_delta" in opts:
+            self.max_delta = max(0.01, float(opts["max_delta"]))
+        if "vel_ff" in opts:
+            self.vel_ff_enabled = bool(opts["vel_ff"])
+        if "ramp_speed" in opts:
+            self.ramp_speed = max(0.1, float(opts["ramp_speed"]))
+            self._ramp_step = self.ramp_speed / LOOP_HZ
+
+    # -- Command builders --------------------------------------------------
+    def _safe_cmd(self, target: np.ndarray, ref: Optional[np.ndarray]) -> np.ndarray:
+        r = ref if ref is not None else target
+        q = r + np.clip(target - r, -self.max_delta, self.max_delta)
+        if self._arm_limits:
+            q = np.array(clamp_arm_positions(q.tolist(), self._arm_limits))
+        return q
+
+    def _arm_cmd(self, q_cmd: np.ndarray, vel_ff: Optional[list]) -> dict:
+        return {
+            "type":       "arm_joints",
+            "positions":  q_cmd.tolist(),
+            "velocities": vel_ff if vel_ff is not None else [0.0] * NUM_JOINTS,
+            "kp":         self._kp,
+            "kd":         self._kd,
+            "torques":    [0.0] * NUM_JOINTS,
+        }
+
+    def _swivel_cmd(self, pos: float) -> dict:
+        return {"type": "swivel", "position": float(pos),
+                "kp": self._swivel_kp, "kd": self._swivel_kd}
+
+    # -- Per-tick step -----------------------------------------------------
+    def step(
+        self, t0: float, q_actual: Optional[np.ndarray],
+        swivel_actual: Optional[float], period: float,
+    ) -> list[dict]:
+        if not self.live:
+            return []
+
+        # Tracking error telemetry (arm only)
+        if q_actual is not None and self.current_target is not None:
+            self.error = float(np.max(np.abs(q_actual - self.current_target)))
+
+        cmds: list[dict] = []
+        phase = self.phase
+
+        if phase == self.Phase.READY:
+            return cmds
+
+        if phase == self.Phase.ARMING:
+            tgt    = self.ep_qpos[0]
+            sw_tgt = float(self.ep_swivel[0]) if self.ep_has_swivel else None
+            # Integrate the ramp on the previously-commanded pose, not on
+            # q_actual — keeps encoder noise out of the command loop.  Then
+            # clamp how far that integrator may lead the actual arm so the
+            # command can't race ahead of physical motion.
+            ref    = (self.current_target if self.current_target is not None
+                      else (q_actual if q_actual is not None else tgt))
+            if q_actual is not None:
+                lead = np.clip(ref - q_actual,
+                               -self._arm_max_lead, self._arm_max_lead)
+                ref  = q_actual + lead
+            q_cmd  = ref + np.clip(tgt - ref, -self._ramp_step, self._ramp_step)
+            if self._arm_limits:
+                q_cmd = np.array(clamp_arm_positions(q_cmd.tolist(), self._arm_limits))
+            cmds.append(self._arm_cmd(q_cmd, None))
+            sw_cmd = sw_tgt
+            if sw_tgt is not None:
+                sw_ref = (self.current_swivel if self.current_swivel is not None
+                          else (swivel_actual if swivel_actual is not None else sw_tgt))
+                if swivel_actual is not None:
+                    sw_ref = swivel_actual + max(
+                        min(sw_ref - swivel_actual, self._arm_max_lead),
+                        -self._arm_max_lead)
+                delta  = sw_tgt - sw_ref
+                sw_cmd = sw_ref + max(min(delta, self._ramp_step), -self._ramp_step)
+                cmds.append(self._swivel_cmd(sw_cmd))
+            self.current_target = q_cmd
+            self.current_swivel = sw_cmd
+            arm_ok  = q_actual is not None and np.all(np.abs(q_actual - tgt) < 0.03)
+            swiv_ok = (not self.ep_has_swivel or sw_tgt is None or swivel_actual is None
+                       or abs(swivel_actual - sw_tgt) < 0.03)
+            if arm_ok and swiv_ok:
+                self.phase           = self.Phase.PLAYING
+                self.last_frame_wall = t0
+            return cmds
+
+        if phase == self.Phase.PLAYING:
+            frame_period = 1.0 / max(self.ep_hz * self.speed, 0.1)
+            if t0 - self.last_frame_wall >= frame_period and self.frame_idx < self.ep_frames:
+                self.last_frame_wall = t0
+                tgt    = self.ep_qpos[self.frame_idx]
+                sw_tgt = float(self.ep_swivel[self.frame_idx]) if self.ep_has_swivel else None
+                vel_ff = (self.ep_velocities[self.frame_idx].tolist()
+                          if (self.ep_velocities is not None and self.vel_ff_enabled)
+                          else None)
+                cmds.append(self._arm_cmd(
+                    self._safe_cmd(tgt, self.current_target), vel_ff))
+                if sw_tgt is not None:
+                    cmds.append(self._swivel_cmd(sw_tgt))
+                self.current_target = tgt
+                self.current_swivel = sw_tgt
+                self.frame_idx += 1
+                if self.frame_idx >= self.ep_frames:
+                    if self.loop_mode:
+                        self.frame_idx = 0
+                    else:
+                        self.phase = self.Phase.DONE
+            return cmds
+
+        if phase in (self.Phase.PAUSED, self.Phase.DONE):
+            if self.current_target is not None:
+                cmds.append(self._arm_cmd(
+                    self._safe_cmd(self.current_target, q_actual), None))
+            if self.current_swivel is not None:
+                cmds.append(self._swivel_cmd(self.current_swivel))
+            return cmds
+
+        if phase == self.Phase.SHUTDOWN:
+            dt         = period
+            max_change = 0.2 * dt   # 0.2 rad/s ramp to zero
+            if self._shutdown_countdown > 0:
+                self._shutdown_countdown -= dt
+                if self._shutdown_target is not None:
+                    cmds.append(self._arm_cmd(self._shutdown_target, None))
+                if self._shutdown_swivel is not None:
+                    cmds.append(self._swivel_cmd(self._shutdown_swivel))
+                return cmds
+            if self._shutdown_target is None:
+                self._shutdown_target = np.zeros(NUM_JOINTS, dtype=np.float32)
+            new_tgt = self._shutdown_target.copy()
+            for i in range(len(new_tgt)):
+                new_tgt[i] = (0.0 if abs(new_tgt[i]) < max_change
+                              else new_tgt[i] - np.sign(new_tgt[i]) * max_change)
+            self._shutdown_target = new_tgt
+            if self._shutdown_swivel is None:
+                self._shutdown_swivel = 0.0
+            self._shutdown_swivel = (0.0 if abs(self._shutdown_swivel) < max_change
+                                     else self._shutdown_swivel
+                                          - np.sign(self._shutdown_swivel) * max_change)
+            ramp_done = (np.all(np.abs(self._shutdown_target) < 0.01)
+                         and abs(self._shutdown_swivel) < 0.01)
+            if ramp_done and self._shutdown_zero_since == 0.0:
+                self._shutdown_zero_since = t0
+            actual_close = (q_actual is None or np.all(np.abs(q_actual) < 0.05))
+            timed_out    = (self._shutdown_zero_since > 0
+                            and t0 - self._shutdown_zero_since >= self._SHUTDOWN_TIMEOUT)
+            if ramp_done and (actual_close or timed_out):
+                cmds.append({"type": "disable", "motor_ids": self._all_motor_ids})
+                self.phase               = self.Phase.READY
+                self.frame_idx           = 0
+                self._shutdown_target    = None
+                self._shutdown_swivel    = None
+                self.current_target = (self.ep_qpos[0].copy()
+                                       if self.ep_frames > 0 else None)
+                self.current_swivel = (float(self.ep_swivel[0])
+                                       if (self.ep_has_swivel and self.ep_frames > 0)
+                                       else None)
+            else:
+                ref   = q_actual if q_actual is not None else self._shutdown_target
+                q_cmd = self._safe_cmd(self._shutdown_target, ref)
+                cmds.append(self._arm_cmd(q_cmd, None))
+                cmds.append(self._swivel_cmd(self._shutdown_swivel))
+            return cmds
+
+        return cmds
+
+    # -- Snapshot / status -------------------------------------------------
+    def snapshot_fields(self) -> dict:
+        pct = (100.0 * self.frame_idx / self.ep_frames) if self.ep_frames else 0.0
+        dur = (self.ep_frames / self.ep_hz) if self.ep_hz > 0 else 0.0
+        # Per-joint target the GUI's joint panel can plot against live actual.
+        # Layout is [swivel, gantry_base, gantry_mid, gantry_end,
+        # wrist_pitch, wrist_roll, gripper] to match JOINT_NAMES.
+        if self.current_target is not None:
+            sw = float(self.current_swivel) if self.current_swivel is not None else 0.0
+            replay_target = [sw, *(float(x) for x in self.current_target)]
+        else:
+            replay_target = None
+        return {
+            "replay_live":        self.live,
+            "replay_phase":       self.phase.value if self.live else None,
+            "replay_frame":       self.frame_idx,
+            "replay_frames":      self.ep_frames,
+            "replay_pct":         pct,
+            "replay_hz":          self.ep_hz,
+            "replay_duration":    dur,
+            "replay_speed":       self.speed,
+            "replay_loop":        self.loop_mode,
+            "replay_goto_start":  self.goto_start,
+            "replay_vel_ff":      self.vel_ff_enabled,
+            "replay_max_delta":   self.max_delta,
+            "replay_error":       self.error,
+            "replay_path":        str(self.ep_path) if self.ep_path else "",
+            "replay_name":        self.ep_name,
+            "replay_has_swivel":  self.ep_has_swivel,
+            "replay_message":     self.message,
+            "replay_target":      replay_target,
+        }
+
+    def status_line(self) -> tuple[str, str]:
+        """Returns (status, hint) strings, or ('','') when live mode is off."""
+        if not self.live:
+            return "", ""
+        p = self.phase
+        if p == self.Phase.READY:
+            return (f"[replay] ready — {self.ep_name}  {self.ep_frames}f",
+                    "PLAY to arm+play · exit to return to teleop")
+        if p == self.Phase.ARMING:
+            return (f"[replay] arming — err {self.error:.3f} rad",
+                    "STOP to abort")
+        if p == self.Phase.PLAYING:
+            pct = 100.0 * self.frame_idx / max(self.ep_frames, 1)
+            lp  = "  LOOP" if self.loop_mode else ""
+            return (f"[replay] PLAYING  {pct:.0f}%  {self.speed:.2f}x{lp}",
+                    "PAUSE · STOP")
+        if p == self.Phase.PAUSED:
+            pct = 100.0 * self.frame_idx / max(self.ep_frames, 1)
+            return (f"[replay] PAUSED  {pct:.0f}%", "PLAY · STOP")
+        if p == self.Phase.DONE:
+            return ("[replay] done", "PLAY to re-run · STOP to disable")
+        if p == self.Phase.SHUTDOWN:
+            if self._shutdown_countdown > 0:
+                return (f"[replay] shutdown  hold {self._shutdown_countdown:.1f}s", "")
+            return ("[replay] returning to zero", "")
+        return "", ""
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -1122,6 +1593,17 @@ def main() -> None:
     _gp_cfg      = _yaml.get("gamepad", {})
 
     # -------------------------------------------------------------------------
+    # Live replay controller (on-robot playback from GUI Replay tab)
+    # -------------------------------------------------------------------------
+    live_replay = _LiveReplay(
+        kp=_kp, kd=_kd,
+        swivel_kp=_swivel_kp, swivel_kd=_swivel_kd,
+        max_delta=args.max_delta,
+        arm_limits=arm_limits,
+        all_motor_ids=["swivel"] + list(ARM_JOINTS),
+    )
+
+    # -------------------------------------------------------------------------
     # ZMQ sockets
     # -------------------------------------------------------------------------
     ctx = zmq.Context()
@@ -1169,7 +1651,10 @@ def main() -> None:
         if args.gui:
             # Serve over gRPC + host the WASM viewer locally so the Qt window
             # can embed it via QWebEngineView. open_browser=False: Qt opens it.
-            _grpc_uri = rr.serve_grpc(server_memory_limit="1GiB")
+            # Keep the server's history window small so a hidden web viewer
+            # (e.g. behind the recorded-frames page in REPLAY mode) doesn't
+            # have a multi-second backlog to drain when it becomes visible.
+            _grpc_uri = rr.serve_grpc(server_memory_limit="128MiB")
             rr.serve_web_viewer(web_port=9090, open_browser=False, connect_to=_grpc_uri)
             from urllib.parse import quote as _urlquote
             _rerun_web_url = f"http://localhost:9090/?url={_urlquote(_grpc_uri, safe='')}"
@@ -1233,12 +1718,25 @@ def main() -> None:
         IDLE     = "idle"
         TRACKING = "tracking"
         HOLD     = "hold"
+        ENGAGING = "engaging"   # rate-limited approach to leader before TRACKING
         SHUTDOWN = "shutdown"
         ESTOP    = "estop"
+
+    # Engagement parameters: when E is pressed from READY/IDLE, the arm ramps
+    # toward the leader pose at a bounded rate (instead of snapping at full
+    # PD authority).  Once the arm is within ENGAGE_DONE_THRESHOLD of the
+    # leader on every joint, the state auto-promotes to TRACKING.
+    ENGAGE_DELTA          = 0.015  # rad/tick (~0.45 rad/s @ 30 Hz) — slow ramp
+    ENGAGE_MAX_LEAD       = 0.05   # rad — cap on q_cmd lead vs. q_actual
+    ENGAGE_WARN_THRESHOLD = 0.20   # rad — show warning toast above this gap
+    ENGAGE_DONE_THRESHOLD = 0.04   # rad — promote to TRACKING below this gap
 
     teleop_state                       = State.READY
     held_target:     Optional[np.ndarray] = None
     held_swivel:     Optional[float]   = None
+    engage_q_cmd:    Optional[np.ndarray] = None
+    engage_swivel:   Optional[float]   = None
+    engage_warned:   bool              = False
     shutdown_countdown: float          = 0.0
     shutdown_target: Optional[np.ndarray] = None
     shutdown_swivel: Optional[float]   = None
@@ -1247,8 +1745,10 @@ def main() -> None:
     swivel_actual:   Optional[float]   = None
     swivel_torque:   Optional[float]   = None
     swivel_temp:     Optional[float]   = None
+    swivel_state:    str               = "?"
     arm_torques:     Optional[np.ndarray] = None
     arm_temps:       Optional[np.ndarray] = None
+    arm_states:      list               = ["?"] * NUM_JOINTS
     last_telem_time: float             = time.time() if q_actual is not None else 0.0
     ups_data:        Optional[dict]    = None
     battery_voltage: Optional[float]   = None
@@ -1268,7 +1768,6 @@ def main() -> None:
     _last_a_time         = 0.0
     _last_d_time         = 0.0
     _wasd_timeout        = 0.15  # seconds — clear target if no repeat
-    wheels_enabled                 = False  # F key toggles
     wheel_states:  Optional[dict] = None   # telemetry for wheel motors
 
     zero_msg       = ""
@@ -1310,8 +1809,8 @@ def main() -> None:
     latest_q_cmd: Optional[np.ndarray] = None  # last commanded position sent to motors
 
     status = "[ ] ready — motors off"
-    hint   = ("E=hold · I=idle · F=wheels · Q=quit" if leader is None
-              else "E=track · I=idle · F=wheels · Z=zero · M=mirror · Q=quit")
+    hint   = ("E=hold · I=idle · Q=quit" if leader is None
+              else "E=track · I=idle · Z=zero · M=mirror · Q=quit")
 
     _nan = float("nan")
     _init_actual = (np.concatenate([[_nan], q_actual]) if q_actual is not None else None)
@@ -1354,7 +1853,7 @@ def main() -> None:
             leader_rad=None, target=None, actual=_init_actual,
             status=status, hint=hint, robot_ok=robot_ok,
             leader_connected=(leader is not None),
-            wheel_states=wheel_states, wheels_enabled=wheels_enabled,
+            wheel_states=wheel_states, wheels_enabled=False,
         )
     if _disp_event is not None:
         _disp_event.set()
@@ -1497,6 +1996,52 @@ def main() -> None:
             except queue.Empty:
                 pass
 
+            # Dict commands (live-replay control protocol from GUI)
+            if isinstance(key, dict):
+                _cmd = key.get("cmd", "")
+                if _cmd == "replay_on":
+                    if recording:
+                        _finalize_recording(" (replay)", t0)
+                    _path = Path(key.get("path", ""))
+                    err = live_replay.load(_path)
+                    if err is None and live_replay.enter_live():
+                        # Park teleop while replaying — motors off until user arms
+                        teleop_state = State.READY
+                        save_msg       = f"[replay loaded] {_path.name}"
+                        save_msg_until = t0 + 3.0
+                    else:
+                        save_msg       = f"[replay load failed] {err or 'no episode'}"
+                        save_msg_until = t0 + 5.0
+                elif _cmd == "replay_off":
+                    if not live_replay.exit_live():
+                        save_msg       = "[replay] stop first before exiting live mode"
+                        save_msg_until = t0 + 3.0
+                elif _cmd == "replay_arm":
+                    for _c in live_replay.arm(q_actual, swivel_actual):
+                        _send(cmd_sock, _c)
+                elif _cmd == "replay_play":
+                    for _c in live_replay.play(q_actual, swivel_actual):
+                        _send(cmd_sock, _c)
+                elif _cmd == "replay_pause":
+                    live_replay.pause()
+                elif _cmd == "replay_toggle":
+                    for _c in live_replay.toggle(q_actual, swivel_actual):
+                        _send(cmd_sock, _c)
+                elif _cmd == "replay_restart":
+                    for _c in live_replay.restart(q_actual, swivel_actual):
+                        _send(cmd_sock, _c)
+                elif _cmd == "replay_stop":
+                    live_replay.stop(q_actual, swivel_actual)
+                elif _cmd == "replay_speed":
+                    live_replay.set_speed(float(key.get("speed", 1.0)))
+                elif _cmd == "replay_opts":
+                    live_replay.set_opts(**{k: v for k, v in key.items() if k != "cmd"})
+                key = None
+
+            # Block teleop motor/recording keys while live replay owns the arm
+            if live_replay.live and key in ("E", "I", "H", "X", "R", "Z", "M", "P"):
+                key = None
+
             _stick_active = False
             if joystick is not None:
                 gp = _read_gamepad(joystick, prev_gp_a, prev_gp_b, prev_gp_start,
@@ -1511,7 +2056,8 @@ def main() -> None:
                 drive_angular_target = gp["drive_angular"]
                 if gp["enable"] and teleop_state in (State.READY, State.IDLE):
                     key = "E"
-                if gp["hold"] and teleop_state in (State.TRACKING, State.HOLD, State.IDLE):
+                if gp["hold"] and teleop_state in (State.TRACKING, State.HOLD,
+                                                    State.IDLE, State.ENGAGING):
                     key = "H"
                 if gp["shutdown"]:
                     key = "CANCEL_SHUTDOWN" if teleop_state == State.SHUTDOWN else "X"
@@ -1567,6 +2113,11 @@ def main() -> None:
                             and t0 - _last_d_time > _wasd_timeout):
                         drive_linear_target = 0.0
 
+            # Zero drive targets while live replay owns the rover
+            if live_replay.live:
+                drive_linear_target  = 0.0
+                drive_angular_target = 0.0
+
             # Drive smoothing (fast accel, smooth decel)
             drive_linear  = _ramp_toward(drive_linear,  drive_linear_target,
                                          _drive_accel, _drive_decel, period)
@@ -1581,7 +2132,8 @@ def main() -> None:
 
             elif key == "I":
                 if teleop_state in (State.READY, State.IDLE):
-                    _send(cmd_sock, {"type": "enable", "motor_ids": ["swivel"] + ARM_JOINTS})
+                    _send(cmd_sock, {"type": "enable",
+                                     "motor_ids": _BASE_MOTORS + ["swivel"] + ARM_JOINTS})
                     ref = q_actual.tolist() if q_actual is not None else [0.0] * NUM_JOINTS
                     _send(cmd_sock, {
                         "type": "arm_joints", "positions": ref,
@@ -1593,27 +2145,24 @@ def main() -> None:
 
             elif key == "E":
                 if teleop_state in (State.READY, State.IDLE):
-                    _send(cmd_sock, {"type": "enable", "motor_ids": ["swivel"] + ARM_JOINTS})
+                    _send(cmd_sock, {"type": "enable",
+                                     "motor_ids": _BASE_MOTORS + ["swivel"] + ARM_JOINTS})
                     if leader is not None:
-                        teleop_state = State.TRACKING
+                        # Soft engage — seed the integrator from the current
+                        # arm pose so ENGAGING ramps slowly to the leader
+                        # instead of snapping at full PD authority.
+                        engage_q_cmd  = (q_actual.copy().astype(np.float32)
+                                         if q_actual is not None else None)
+                        engage_swivel = swivel_actual
+                        engage_warned = False
+                        teleop_state  = State.ENGAGING
                     else:
                         held_target  = q_actual.copy() if q_actual is not None else np.zeros(NUM_JOINTS)
                         held_swivel  = swivel_actual
                         teleop_state = State.HOLD
 
-            elif key == "F":
-                # Toggle wheel motors on/off (separate from arm to avoid CAN overload)
-                if wheels_enabled:
-                    _send(cmd_sock, {"type": "disable", "motor_ids": _BASE_MOTORS})
-                    wheels_enabled = False
-                    drive_linear = drive_angular = 0.0
-                    drive_linear_target = drive_angular_target = 0.0
-                elif teleop_state not in (State.READY, State.ESTOP):
-                    _send(cmd_sock, {"type": "enable", "motor_ids": _BASE_MOTORS})
-                    wheels_enabled = True
-
             elif key == "H":
-                if teleop_state == State.TRACKING:
+                if teleop_state in (State.TRACKING, State.ENGAGING):
                     held_target  = q_actual.copy() if q_actual is not None else held_target
                     held_swivel  = swivel_actual
                     teleop_state = State.HOLD
@@ -1626,7 +2175,7 @@ def main() -> None:
 
             elif key == "R":
                 if not recording:
-                    if teleop_state in (State.IDLE, State.TRACKING, State.HOLD):
+                    if teleop_state == State.TRACKING:
                         recording      = True
                         _rec_flag.set()   # start background image decoder
                         qpos_buf       = []
@@ -1640,6 +2189,9 @@ def main() -> None:
                         right_ts_buf   = []
                         dropped_frames = 0
                         last_rec_time  = 0.0
+                    else:
+                        save_msg       = "[record blocked] enable tracking first (E)"
+                        save_msg_until = t0 + 2.0
                 else:
                     _finalize_recording("", t0)
 
@@ -1689,7 +2241,8 @@ def main() -> None:
                 held_swivel  = swivel_actual
 
             elif key == "X":
-                if teleop_state in (State.TRACKING, State.HOLD, State.IDLE):
+                if teleop_state in (State.TRACKING, State.HOLD, State.IDLE,
+                                    State.ENGAGING):
                     shutdown_target    = (q_actual.copy() if q_actual is not None
                                           else held_target.copy() if held_target is not None
                                           else np.zeros(NUM_JOINTS))
@@ -1723,7 +2276,10 @@ def main() -> None:
                     swivel_cmd = float(mapped[0])
 
             # Determine targets
-            if teleop_state == State.HOLD:
+            if live_replay.live:
+                target     = live_replay.current_target
+                swivel_tgt = live_replay.current_swivel
+            elif teleop_state == State.HOLD:
                 target     = held_target
                 swivel_tgt = held_swivel
             elif aizee_cmd is not None:
@@ -1748,14 +2304,18 @@ def main() -> None:
             if estop_hw_active:
                 pass  # watchdog holds position
 
+            elif live_replay.live:
+                # Live replay owns the arm — send whatever step() emits.
+                for _c in live_replay.step(t0, q_actual, swivel_actual, period):
+                    _send(cmd_sock, _c)
+
             # Send drive command every tick (feeds watchdog, enables WASD/stick movement)
             elif teleop_state == State.READY:
                 pass  # motors off, nothing to send
 
             elif teleop_state == State.SHUTDOWN:
-                if wheels_enabled:
-                    _send(cmd_sock, {"type": "drive", "linear": 0.0, "angular": 0.0,
-                                     "kp": _drive_kp, "kd": _drive_kd})
+                _send(cmd_sock, {"type": "drive", "linear": 0.0, "angular": 0.0,
+                                 "kp": _drive_kp, "kd": _drive_kd})
                 dt         = period
                 max_change = 0.2 * dt   # 0.2 rad/s ramp
                 if shutdown_countdown > 0:
@@ -1793,11 +2353,10 @@ def main() -> None:
                     timed_out    = (shutdown_zero_since > 0
                                     and t0 - shutdown_zero_since >= _SHUTDOWN_TIMEOUT)
                     if ramp_done and (actual_close or timed_out):
-                        _disable_ids = ["swivel"] + ARM_JOINTS
-                        if wheels_enabled:
-                            _disable_ids = _BASE_MOTORS + _disable_ids
-                            wheels_enabled = False
-                        _send(cmd_sock, {"type": "disable", "motor_ids": _disable_ids})
+                        _send(cmd_sock, {"type": "disable",
+                                         "motor_ids": _BASE_MOTORS + ["swivel"] + ARM_JOINTS})
+                        drive_linear = drive_angular = 0.0
+                        drive_linear_target = drive_angular_target = 0.0
                         teleop_state = State.READY
                     else:
                         delta   = np.clip(shutdown_target - ref, -args.max_delta, args.max_delta)
@@ -1823,11 +2382,72 @@ def main() -> None:
                 if swivel_actual is not None:
                     _send(cmd_sock, {"type": "swivel", "position": swivel_actual,
                                      "kp": _swivel_kp, "kd": _swivel_kd})
-                if wheels_enabled:
-                    _send(cmd_sock, {"type": "drive",
-                                     "linear":  drive_linear  * _max_linear,
-                                     "angular": drive_angular * _max_angular,
-                                     "kp": _drive_kp, "kd": _drive_kd})
+                _send(cmd_sock, {"type": "drive",
+                                 "linear":  drive_linear  * _max_linear,
+                                 "angular": drive_angular * _max_angular,
+                                 "kp": _drive_kp, "kd": _drive_kd})
+
+            elif teleop_state == State.ENGAGING:
+                # One-shot warning when engaging with a large gap to leader.
+                if (not engage_warned and target is not None
+                        and q_actual is not None):
+                    gap = float(np.max(np.abs(target - q_actual)))
+                    if gap > ENGAGE_WARN_THRESHOLD:
+                        save_msg       = (f"[engaging] leader is {gap:.2f} rad "
+                                          f"from arm — ramping slowly")
+                        save_msg_until = t0 + 4.0
+                    engage_warned = True
+
+                if target is not None:
+                    # Integrate previous command (not q_actual) to keep the
+                    # ramp smooth, then clamp the lead vs. q_actual so the
+                    # commanded velocity is bounded by physical motion.
+                    ref = (engage_q_cmd if engage_q_cmd is not None
+                           else (q_actual if q_actual is not None else target))
+                    if q_actual is not None:
+                        lead = np.clip(ref - q_actual,
+                                       -ENGAGE_MAX_LEAD, ENGAGE_MAX_LEAD)
+                        ref  = q_actual + lead
+                    delta = np.clip(target - ref, -ENGAGE_DELTA, ENGAGE_DELTA)
+                    q_cmd = ref + delta
+                    if arm_limits:
+                        q_cmd = np.array(clamp_arm_positions(q_cmd.tolist(), arm_limits))
+                    engage_q_cmd = q_cmd
+                    latest_q_cmd = q_cmd.copy()
+                    _send(cmd_sock, {
+                        "type": "arm_joints", "positions": q_cmd.tolist(),
+                        "velocities": [0.0] * NUM_JOINTS, "kp": _kp, "kd": _kd,
+                        "torques": [0.0] * NUM_JOINTS,
+                    })
+                if swivel_tgt is not None:
+                    sw_ref = (engage_swivel if engage_swivel is not None
+                              else (swivel_actual if swivel_actual is not None
+                                    else swivel_tgt))
+                    if swivel_actual is not None:
+                        sw_ref = swivel_actual + max(min(sw_ref - swivel_actual,
+                                                          ENGAGE_MAX_LEAD),
+                                                     -ENGAGE_MAX_LEAD)
+                    sw_delta = swivel_tgt - sw_ref
+                    sw_cmd   = sw_ref + max(min(sw_delta, ENGAGE_DELTA),
+                                            -ENGAGE_DELTA)
+                    engage_swivel = sw_cmd
+                    _send(cmd_sock, {"type": "swivel", "position": sw_cmd,
+                                     "kp": _swivel_kp, "kd": _swivel_kd})
+                _send(cmd_sock, {"type": "drive",
+                                 "linear":  drive_linear  * _max_linear,
+                                 "angular": drive_angular * _max_angular,
+                                 "kp": _drive_kp, "kd": _drive_kd})
+                # Promote to TRACKING once the arm is close on every joint.
+                arm_close = (q_actual is not None and target is not None
+                             and np.max(np.abs(target - q_actual))
+                                 < ENGAGE_DONE_THRESHOLD)
+                sw_close  = (swivel_tgt is None or swivel_actual is None
+                             or abs(swivel_tgt - swivel_actual)
+                                < ENGAGE_DONE_THRESHOLD)
+                if arm_close and sw_close:
+                    teleop_state  = State.TRACKING
+                    engage_q_cmd  = None
+                    engage_swivel = None
 
             elif teleop_state in (State.TRACKING, State.HOLD):
                 if target is not None:
@@ -1845,11 +2465,10 @@ def main() -> None:
                 if swivel_tgt is not None:
                     _send(cmd_sock, {"type": "swivel", "position": swivel_tgt,
                                      "kp": _swivel_kp, "kd": _swivel_kd})
-                if wheels_enabled:
-                    _send(cmd_sock, {"type": "drive",
-                                     "linear":  drive_linear  * _max_linear,
-                                     "angular": drive_angular * _max_angular,
-                                     "kp": _drive_kp, "kd": _drive_kd})
+                _send(cmd_sock, {"type": "drive",
+                                 "linear":  drive_linear  * _max_linear,
+                                 "angular": drive_angular * _max_angular,
+                                 "kp": _drive_kp, "kd": _drive_kd})
 
             # -----------------------------------------------------------------
             # Telemetry
@@ -1866,12 +2485,19 @@ def main() -> None:
                     swivel_actual = float(sw.get("position",    0.0))
                     swivel_torque = float(sw.get("torque",      0.0))
                     swivel_temp   = float(sw.get("temperature", _nan))
+                    swivel_state  = str(sw.get("state", "?"))
                 tq = _qtorque(telem)
                 if tq is not None:
                     arm_torques = tq
                 te = _qtemp(telem)
                 if te is not None:
                     arm_temps = te
+                _arm_st = [
+                    str(telem["motors"].get(j, {}).get("state", "?"))
+                    for j in ARM_JOINTS
+                ]
+                if any(s != "?" for s in _arm_st):
+                    arm_states = _arm_st
                 # Wheel motor telemetry
                 _ws: dict = {}
                 for wn in _BASE_MOTORS:
@@ -1969,9 +2595,9 @@ def main() -> None:
             if teleop_state == State.READY:
                 status = "[ ] ready — motors off"
                 if leader is not None:
-                    hint = "E=track · I=idle · F=wheels · Z=zero · M=mirror · Q=quit"
+                    hint = "E=track · I=idle · Z=zero · M=mirror · Q=quit"
                 else:
-                    hint = "E=hold · I=idle · F=wheels · Q=quit"
+                    hint = "E=hold · I=idle · Q=quit"
 
             elif teleop_state == State.IDLE:
                 status = "[I] idle — zero torque (arm free)"
@@ -1979,6 +2605,14 @@ def main() -> None:
                     hint = "E=track · H=hold · R=record · X=shutdown · Q=quit"
                 else:
                     hint = "H=hold · R=record · X=shutdown · Q=quit"
+
+            elif teleop_state == State.ENGAGING:
+                gap_str = ""
+                if q_actual is not None and target is not None:
+                    _g = float(np.max(np.abs(target - q_actual)))
+                    gap_str = f"  (gap {_g:.2f} rad)"
+                status = f"[~] engaging — slow ramp to leader{gap_str}"
+                hint   = "X=shutdown · Q=quit"
 
             elif teleop_state == State.TRACKING:
                 if leader_rad is None or leader_age > 0.5:
@@ -2002,6 +2636,14 @@ def main() -> None:
             elif teleop_state == State.ESTOP:
                 status = f"{_BG_RED} !! EMERGENCY STOP !! {_RST}"
                 hint   = "release e-stop to clear · Q=quit"
+
+            # Live replay overrides teleop status (shown while live mode active)
+            if live_replay.live:
+                _rs, _rh = live_replay.status_line()
+                if _rs:
+                    status = _rs
+                if _rh:
+                    hint = _rh
 
             # Flash messages override
             if t0 < zero_msg_until:
@@ -2042,6 +2684,7 @@ def main() -> None:
                         if arm_torques is not None else None),
                 temp=(np.concatenate([[swivel_temp if swivel_temp is not None else _nan], arm_temps])
                       if arm_temps is not None else None),
+                motor_states=[swivel_state, *arm_states],
                 battery_voltage=battery_voltage,
                 leader_connected=(leader is not None),
                 leader_age=leader_age,
@@ -2052,13 +2695,17 @@ def main() -> None:
                 dropped=dropped_frames,
                 estop_active=estop_active,
                 wheel_states=wheel_states,
-                wheels_enabled=wheels_enabled,
+                wheels_enabled=teleop_state in (
+                    State.IDLE, State.TRACKING, State.HOLD,
+                    State.ENGAGING, State.SHUTDOWN),
                 drive_linear=drive_linear * _max_linear,
                 drive_angular=drive_angular * _max_angular,
                 state=teleop_state.value,
                 save_msg=(save_msg if t0 < save_msg_until else None),
+                action_msg=(zero_msg if t0 < zero_msg_until else None),
                 last_saved_path=last_saved_path,
                 task_tag=_meta["task_tag"],
+                **live_replay.snapshot_fields(),
             )
             # Lock held only for reference swap (~µs)
             with _disp_lock:
@@ -2079,9 +2726,8 @@ def main() -> None:
             _lr_thread.join(timeout=1.0)
             leader.close()
         # Disable all motors before closing (prevents motors staying enabled after quit)
-        if wheels_enabled:
-            _send(cmd_sock, {"type": "drive", "linear": 0.0, "angular": 0.0,
-                             "kp": 0.0, "kd": 3.0})
+        _send(cmd_sock, {"type": "drive", "linear": 0.0, "angular": 0.0,
+                         "kp": 0.0, "kd": 3.0})
         _send(cmd_sock, {"type": "disable", "motor_ids": _ALL_MOTORS})
         time.sleep(0.1)  # let ZMQ flush the disable command
         cmd_sock.close()
