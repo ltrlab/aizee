@@ -42,7 +42,6 @@ from PySide6.QtGui import (
     QAction, QColor, QDesktopServices, QFont, QImage, QKeySequence,
     QPainter, QPainterPath, QPen, QPixmap, QShortcut,
 )
-from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout,
     QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
@@ -159,10 +158,11 @@ class _Pill(QLabel):
     """Rounded badge with a label + dynamic color."""
 
     def __init__(self, text: str = "—", bg: str = "#333", fg: str = "#ccc",
-                 min_w: int = 80) -> None:
+                 min_w: int = 80, font_family: Optional[str] = None) -> None:
         super().__init__(text)
         self.setAlignment(Qt.AlignCenter)
         self.setMinimumWidth(min_w)
+        self._font_family = font_family
         self._set(bg, fg)
 
     def set_pill(self, text: str, bg: str, fg: str = "white") -> None:
@@ -170,10 +170,12 @@ class _Pill(QLabel):
         self._set(bg, fg)
 
     def _set(self, bg: str, fg: str) -> None:
+        family = (f"font-family: '{self._font_family}'; "
+                  if self._font_family else "")
         self.setStyleSheet(
             f"background: {bg}; color: {fg}; "
             f"padding: 6px 14px; border-radius: 12px; "
-            f"font-weight: 600; font-size: 10pt;"
+            f"font-weight: 600; font-size: 10pt; {family}"
         )
 
 
@@ -1945,12 +1947,11 @@ class _EventLog(QFrame):
 
 class _HealthStrip(QFrame):
 
-    def __init__(self, leader_connected: bool) -> None:
+    def __init__(self) -> None:
         super().__init__()
         self.setStyleSheet(
             f"_HealthStrip {{ background: {COL_PANEL}; "
             f"border: 1px solid {COL_BORDER}; border-radius: 6px; }}")
-        self._leader_expected = leader_connected
         self._dismissed = False
         self._all_ok_time: Optional[float] = None
 
@@ -2009,14 +2010,11 @@ class _HealthStrip(QFrame):
             "white" if cams_good else COL_MUTED,
         )
 
-        # Leader arm (pass/skip depending on whether user plugged it in).
-        leader_good = bool(snap.get("leader_connected", False)) or not self._leader_expected
-        leader_label = "leader OK" if snap.get("leader_connected") else (
-            "leader  —  skip" if not self._leader_expected else "leader  MISSING")
+        # Leader arm — hot-pluggable, so just WAIT until present, then OK.
+        leader_good = bool(snap.get("leader_connected", False))
         self._c_leader.set_pill(
-            leader_label,
-            COL_OK if snap.get("leader_connected") else (
-                "#333" if not self._leader_expected else COL_WARN),
+            f"leader {'OK' if leader_good else 'WAIT'}",
+            COL_OK if leader_good else "#333",
             "white" if leader_good else COL_MUTED,
         )
 
@@ -2404,6 +2402,81 @@ class _PlaybackCameraPair(QFrame):
         if frame.dtype != np.uint8:
             frame = frame.astype(np.uint8)
         img = QImage(frame.tobytes(), w, h, 3 * w, QImage.Format_RGB888)
+        pm = QPixmap.fromImage(img)
+        target = lbl.size()
+        if target.width() > 4 and target.height() > 4:
+            pm = pm.scaled(target, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        lbl.setPixmap(pm)
+
+
+class _LiveCameraPair(QFrame):
+    """Native Qt live camera preview — two QLabels fed raw JPEG bytes.
+
+    Replaces the embedded Rerun WASM viewer in GUI mode.  Decoding happens
+    in Qt's native C++ JPEG decoder, so there's no gRPC stream, no
+    WASM viewer, and no Chromium compositor to back up on a slow CPU.
+    Frames are timestamped — older arrivals are dropped, so a paint that
+    falls behind by one tick simply skips ahead instead of accumulating.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setStyleSheet(
+            f"_LiveCameraPair {{ background: #0a0a0a; "
+            f"border: 1px solid {COL_BORDER}; border-radius: 6px; }}")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(6, 6, 6, 6)
+        row.setSpacing(6)
+        self._left  = self._make_cam("Left")
+        self._right = self._make_cam("Right")
+        row.addWidget(self._left_wrap,  1)
+        row.addWidget(self._right_wrap, 1)
+        self._left_ts:  float = 0.0
+        self._right_ts: float = 0.0
+
+    def _make_cam(self, label: str) -> QLabel:
+        wrap = QFrame()
+        wrap.setStyleSheet(
+            f"QFrame {{ background: black; border: 1px solid {COL_BORDER}; "
+            f"border-radius: 4px; }}")
+        v = QVBoxLayout(wrap)
+        v.setContentsMargins(0, 0, 0, 0); v.setSpacing(0)
+        hdr = QLabel(f"  {label}")
+        hdr.setStyleSheet(
+            f"color: {COL_MUTED}; font-size: 9pt; font-weight: 700; "
+            f"padding: 3px; background: rgba(0,0,0,0.5);")
+        v.addWidget(hdr)
+        cam = QLabel()
+        cam.setAlignment(Qt.AlignCenter)
+        cam.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        cam.setMinimumSize(1, 1)
+        cam.setStyleSheet("background: black; color: #444;")
+        cam.setText("(waiting for camera…)")
+        v.addWidget(cam, 1)
+        if label == "Left":
+            self._left_wrap = wrap
+        else:
+            self._right_wrap = wrap
+        return cam
+
+    def set_frames(self,
+                   left_jpeg:  Optional[bytes], left_ts:  float,
+                   right_jpeg: Optional[bytes], right_ts: float) -> None:
+        if left_jpeg is not None and left_ts > self._left_ts:
+            self._left_ts = left_ts
+            # Left camera is mounted upside-down; mirror vertically.
+            self._render_jpeg(self._left, left_jpeg, flip_v=True)
+        if right_jpeg is not None and right_ts > self._right_ts:
+            self._right_ts = right_ts
+            self._render_jpeg(self._right, right_jpeg, flip_v=False)
+
+    def _render_jpeg(self, lbl: QLabel, jpeg: bytes, flip_v: bool) -> None:
+        img = QImage()
+        if not img.loadFromData(jpeg, "JPEG"):
+            return
+        if flip_v:
+            img = img.mirrored(False, True)
         pm = QPixmap.fromImage(img)
         target = lbl.size()
         if target.width() > 4 and target.height() > 4:
@@ -2977,15 +3050,12 @@ class _MainWindow(QMainWindow):
 
     def __init__(
         self,
-        rerun_url: Optional[str],
         cmd_queue: queue.Queue,
         meta: dict,
         on_delete_last: Callable[[Path], None],
         output_dir: Path,
-        leader_connected: bool,
     ) -> None:
         super().__init__()
-        self._rerun_url      = rerun_url
         self._cmd_queue      = cmd_queue
         self._meta           = meta
         self._on_delete_last = on_delete_last
@@ -3017,11 +3087,15 @@ class _MainWindow(QMainWindow):
 
         self._mode_switch = _ModeSwitch()
         self._mode_switch.modeChanged.connect(self._on_mode_changed)
-        root.addWidget(self._mode_switch)
 
-        root.addLayout(self._build_status_bar())
+        top_row = QHBoxLayout()
+        top_row.setSpacing(10)
+        top_row.addWidget(self._mode_switch)
+        top_row.addStretch(1)
+        self._build_status_bar(top_row)
+        root.addLayout(top_row)
 
-        self._health = _HealthStrip(leader_connected)
+        self._health = _HealthStrip()
         root.addWidget(self._health)
 
         main_row = QHBoxLayout()
@@ -3052,21 +3126,28 @@ class _MainWindow(QMainWindow):
     # Status bar
     # ------------------------------------------------------------------
 
-    def _build_status_bar(self) -> QHBoxLayout:
-        row = QHBoxLayout()
+    def _build_status_bar(self, row: QHBoxLayout) -> None:
+        """Append status pills + fullscreen button to *row* (called from __init__).
+
+        The pills sit on the top-right of the window, in line with the
+        fullscreen button and the mode switch (which is on the top-left).
+        """
         row.setSpacing(8)
 
         self.lbl_state   = _Pill("READY",     "#444",    "#bbb", min_w=110)
         self.lbl_robot   = _Pill("robot --",  "#333",    COL_MUTED)
         self.lbl_battery = _Pill("bus --",    "#333",    COL_MUTED)
         self.lbl_estop   = _Pill("e-stop ?",  "#333",    COL_MUTED)
-        self.lbl_cams    = _Pill("cams --",   "#333",    COL_MUTED, min_w=140)
+        # Fixed width + monospaced font so the changing latency digits don't
+        # nudge adjacent pills as values fluctuate.
+        self.lbl_cams    = _Pill("cams --",   "#333",    COL_MUTED,
+                                 font_family="Consolas")
+        self.lbl_cams.setFixedWidth(200)
         self.lbl_leader  = _Pill("leader --", "#333",    COL_MUTED)
 
         for w in (self.lbl_state, self.lbl_robot, self.lbl_battery,
                   self.lbl_estop, self.lbl_cams, self.lbl_leader):
             row.addWidget(w)
-        row.addStretch(1)
 
         self.btn_fullscreen = QPushButton("⛶ Fullscreen")
         self.btn_fullscreen.setCursor(Qt.PointingHandCursor)
@@ -3081,7 +3162,6 @@ class _MainWindow(QMainWindow):
         """)
         self.btn_fullscreen.clicked.connect(self._toggle_fullscreen)
         row.addWidget(self.btn_fullscreen)
-        return row
 
     # ------------------------------------------------------------------
     # Center pages (Collect / Replay)
@@ -3091,23 +3171,17 @@ class _MainWindow(QMainWindow):
         split = QSplitter(Qt.Vertical)
         split.setHandleWidth(6)
 
-        # Camera area lives in a host frame so the web view can be temporarily
-        # reparented into the replay center while live-replay mode is on.
+        # Live camera preview is a native Qt widget (was an embedded Rerun
+        # WASM viewer) — see _LiveCameraPair for the rationale.  Lives in
+        # a host frame so it can be reparented into the replay center while
+        # live-replay mode is on.
         self._collect_cam_host = QFrame()
         self._collect_cam_host.setMinimumHeight(280)
         _ch = QVBoxLayout(self._collect_cam_host)
         _ch.setContentsMargins(0, 0, 0, 0); _ch.setSpacing(0)
-        if self._rerun_url:
-            self._web = QWebEngineView()
-            self._web.setUrl(QUrl(self._rerun_url))
-            self._web.setMinimumHeight(280)
-            _ch.addWidget(self._web)
-        else:
-            self._web = None
-            ph = QLabel("(Rerun disabled — run without --no-rerun to see cameras)")
-            ph.setAlignment(Qt.AlignCenter)
-            ph.setStyleSheet(f"color: {COL_MUTED}; font-size: 13pt;")
-            _ch.addWidget(ph)
+        self._cam_pair = _LiveCameraPair()
+        self._cam_pair.setMinimumHeight(280)
+        _ch.addWidget(self._cam_pair)
         split.addWidget(self._collect_cam_host)
 
         # Bottom area: time-series chart in place of the joint table.
@@ -3128,8 +3202,8 @@ class _MainWindow(QMainWindow):
         split = QSplitter(Qt.Vertical)
         split.setHandleWidth(6)
 
-        # Camera area swaps between recorded HDF5 frames (page 0) and the live
-        # Rerun viewer (page 1, populated by reparenting self._web on demand).
+        # Camera area swaps between recorded HDF5 frames (page 0) and the
+        # live preview (page 1, populated by reparenting self._cam_pair).
         self._replay_cams = _PlaybackCameraPair()
         self._replay_live_cam_host = QFrame()
         self._replay_live_cam_host.setStyleSheet(
@@ -3137,11 +3211,6 @@ class _MainWindow(QMainWindow):
             f"border-radius: 6px; }}")
         _lh = QVBoxLayout(self._replay_live_cam_host)
         _lh.setContentsMargins(0, 0, 0, 0); _lh.setSpacing(0)
-        if self._web is None:
-            ph = QLabel("(Live cameras unavailable — run without --no-rerun)")
-            ph.setAlignment(Qt.AlignCenter)
-            ph.setStyleSheet(f"color: {COL_MUTED}; font-size: 13pt;")
-            _lh.addWidget(ph)
         self._replay_cam_stack = QStackedWidget()
         self._replay_cam_stack.addWidget(self._replay_cams)            # 0
         self._replay_cam_stack.addWidget(self._replay_live_cam_host)   # 1
@@ -3168,14 +3237,12 @@ class _MainWindow(QMainWindow):
         return split
 
     def _set_replay_cam_source_live(self, live: bool) -> None:
-        """Swap the replay camera area between recorded frames and live Rerun."""
+        """Swap the replay camera area between recorded frames and live preview."""
         if live:
-            if self._web is not None:
-                self._replay_live_cam_host.layout().addWidget(self._web)
+            self._replay_live_cam_host.layout().addWidget(self._cam_pair)
             self._replay_cam_stack.setCurrentIndex(1)
         else:
-            if self._web is not None:
-                self._collect_cam_host.layout().addWidget(self._web)
+            self._collect_cam_host.layout().addWidget(self._cam_pair)
             self._replay_cam_stack.setCurrentIndex(0)
 
     # ------------------------------------------------------------------
@@ -3569,6 +3636,11 @@ class _MainWindow(QMainWindow):
     # Snapshot → widgets (Collect-mode live telemetry)
     # ------------------------------------------------------------------
 
+    def set_camera_frames(self,
+                          left:  Optional[bytes], left_ts:  float,
+                          right: Optional[bytes], right_ts: float) -> None:
+        self._cam_pair.set_frames(left, left_ts, right, right_ts)
+
     def apply_snapshot(self, s: dict) -> None:
         self._last_snapshot = s
 
@@ -3634,7 +3706,7 @@ class _MainWindow(QMainWindow):
         rage = float(s.get("cam_right_age", 999.0))
         if lage < 0.5 and rage < 0.5:
             self.lbl_cams.set_pill(
-                f"cams OK  L{lage*1000:.0f} R{rage*1000:.0f}ms", COL_OK)
+                f"cams OK  L{lage*1000:3.0f} R{rage*1000:3.0f}ms", COL_OK)
         elif lage > 2.0 and rage > 2.0:
             self.lbl_cams.set_pill("cams STALE", COL_CRIT)
         else:
@@ -3788,21 +3860,23 @@ class QtRenderer:
 
     def __init__(
         self,
-        rerun_url: Optional[str],
         cmd_queue: queue.Queue,
         meta: dict,
         on_delete_last: Callable[[Path], None],
         output_dir: Path,
-        leader_connected: bool,
     ) -> None:
-        self._rerun_url       = rerun_url
         self._cmd_queue       = cmd_queue
         self._meta            = meta
         self._on_delete_last  = on_delete_last
         self._output_dir      = output_dir
-        self._leader_connected = leader_connected
         self._lock            = threading.Lock()
         self._holder: dict    = {"args": None}
+        # Separate camera holder so the main loop can push raw JPEG bytes
+        # at camera-publisher cadence without rebuilding the full snapshot
+        # dict.  QtRenderer._tick reads it under the same lock and forwards
+        # to _LiveCameraPair, which drops stale frames by timestamp.
+        self._cam_holder: dict = {"left": None, "left_ts": 0.0,
+                                  "right": None, "right_ts": 0.0}
         self._stop            = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._window: Optional[_MainWindow]      = None
@@ -3810,6 +3884,10 @@ class QtRenderer:
     @property
     def holder(self) -> dict:
         return self._holder
+
+    @property
+    def cam_holder(self) -> dict:
+        return self._cam_holder
 
     @property
     def lock(self) -> threading.Lock:
@@ -3849,12 +3927,10 @@ class QtRenderer:
         app.setFont(QFont("Segoe UI", 10))
 
         self._window = _MainWindow(
-            rerun_url=self._rerun_url,
             cmd_queue=self._cmd_queue,
             meta=self._meta,
             on_delete_last=self._on_delete_last,
             output_dir=self._output_dir,
-            leader_connected=self._leader_connected,
         )
         self._window.show()
 
@@ -3877,6 +3953,13 @@ class QtRenderer:
 
     def _tick(self) -> None:
         with self._lock:
-            snap = self._holder["args"]
-        if snap is not None and self._window is not None:
-            self._window.apply_snapshot(snap)
+            snap   = self._holder["args"]
+            l_jpg  = self._cam_holder["left"]
+            l_ts   = self._cam_holder["left_ts"]
+            r_jpg  = self._cam_holder["right"]
+            r_ts   = self._cam_holder["right_ts"]
+        if self._window is not None:
+            if snap is not None:
+                self._window.apply_snapshot(snap)
+            if l_jpg is not None or r_jpg is not None:
+                self._window.set_camera_frames(l_jpg, l_ts, r_jpg, r_ts)

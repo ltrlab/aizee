@@ -71,7 +71,9 @@ except ImportError:
 _so101_available = False
 try:
     sys.path.insert(0, str(Path(__file__).parent.parent / "teleop"))
-    from so101_leader import So101Leader, CALIB_PATH as _CALIB_PATH, find_so101_port
+    from so101_leader import (
+        So101Leader, CALIB_PATH as _CALIB_PATH, find_so101_port, _probe_so101,
+    )
     _so101_available = True
 except ImportError:
     _CALIB_PATH = Path("so101_calibration.json")
@@ -1530,7 +1532,11 @@ def main() -> None:
     img_size  = (int(w_s), int(h_s))   # PIL: (width, height)
 
     # -------------------------------------------------------------------------
-    # SO-101 leader (optional)
+    # SO-101 leader (optional, hot-pluggable)
+    #
+    # The leader is allowed to be absent at startup AND to appear later.  A
+    # background watcher polls comports() at low frequency and only probes the
+    # bus when the port set actually changes — no spammy probe loop.
     # -------------------------------------------------------------------------
     leader           = None
     _lr_lock         = threading.Lock()
@@ -1539,6 +1545,63 @@ def main() -> None:
     zero_offsets     = None
     directions       = None
     _so101_for_aizee: list[int] = []
+    _arm_joint_set   = set(ARM_JOINTS)
+
+    # Atomic single-slot box read by the always-on reader thread.  Updating
+    # the dict key is a single bytecode op, so the reader sees None or a
+    # complete leader object — never a half-installed one.
+    _leader_box: dict = {"leader": None}
+
+    # Hot-plug install hand-off: watcher writes a dict here, main loop pops
+    # it at the top of the loop and rebinds `leader`/`zero_offsets`/etc.
+    _install_lock = threading.Lock()
+    _install_pending: dict = {}
+
+    def _try_install_leader(port: str) -> bool:
+        """Connect to *port* and install as the active leader. Returns True on success."""
+        try:
+            ldr = So101Leader(port, args.baud, calib=args.calib)
+        except Exception as exc:
+            print(f"SO-101 init failed on {port}: {exc}", flush=True)
+            return False
+        try:
+            ok = ldr.connect()
+        except Exception as exc:
+            print(f"SO-101 connect raised on {port}: {exc}", flush=True)
+            return False
+        if not ok:
+            return False
+        for_aizee = [i for i, j in enumerate(ldr.AIZEE_JOINTS) if j in _arm_joint_set]
+        # Caller decides whether to write to local rebinds or hand off to main loop.
+        with _install_lock:
+            _install_pending["data"] = {
+                "leader":       ldr,
+                "zero_offsets": ldr.zero_offsets,
+                "directions":   ldr.directions,
+                "for_aizee":    for_aizee,
+            }
+        _leader_box["leader"] = ldr
+        return True
+
+    def _leader_reader(stop: threading.Event) -> None:
+        """Always-on reader thread; idles until a leader is installed in _leader_box."""
+        while not stop.is_set():
+            ldr = _leader_box["leader"]
+            if ldr is None:
+                time.sleep(0.02)
+                continue
+            try:
+                r = ldr.poll()
+            except Exception:
+                r = None
+            with _lr_lock:
+                if r is not None:
+                    _lr_latest["rad"]     = r
+                    _lr_latest["clamped"] = ldr.clamped_joints
+                    _lr_latest["time"]    = time.time()
+
+    _lr_thread = threading.Thread(target=_leader_reader, args=(_lr_stop,), daemon=True)
+    _lr_thread.start()
 
     so101_port = args.port
     if so101_port is None and _so101_available:
@@ -1549,34 +1612,71 @@ def main() -> None:
             print(f"SO-101 auto-detected on {so101_port}")
         else:
             print("SO-101 not detected — continuing without leader tracking "
-                  "(pass --port to force)")
+                  "(plug it in any time, or pass --port to force)")
+
+    if so101_port is not None and not _so101_available:
+        print("SO-101 support not available (missing so101_leader module)")
+        so101_port = None
 
     if so101_port is not None:
-        if not _so101_available:
-            print("SO-101 support not available (missing so101_leader module)")
-            sys.exit(1)
-        leader = So101Leader(so101_port, args.baud, calib=args.calib)
-        if not leader.connect():
-            sys.exit(1)
-        print(f"SO-101 connected on {so101_port}")
-        zero_offsets     = leader.zero_offsets
-        directions       = leader.directions
-        _arm_joint_set   = set(ARM_JOINTS)
-        _so101_for_aizee = [i for i, j in enumerate(leader.AIZEE_JOINTS) if j in _arm_joint_set]
+        if _try_install_leader(so101_port):
+            print(f"SO-101 connected on {so101_port}")
+            # Drain the pending hand-off into local bindings immediately
+            # (main loop hasn't started yet).
+            with _install_lock:
+                _p = _install_pending.pop("data", None)
+            if _p is not None:
+                leader           = _p["leader"]
+                zero_offsets     = _p["zero_offsets"]
+                directions       = _p["directions"]
+                _so101_for_aizee = _p["for_aizee"]
+        else:
+            print(f"SO-101 connect failed on {so101_port} — "
+                  "continuing; will retry when port reappears")
 
-        def _leader_reader(stop: threading.Event) -> None:
-            while not stop.is_set():
-                r = leader.poll()
-                with _lr_lock:
-                    if r is not None:
-                        _lr_latest["rad"]     = r
-                        _lr_latest["clamped"] = leader.clamped_joints
-                        _lr_latest["time"]    = time.time()
-                    elif _lr_latest["rad"] is None:
-                        pass  # keep old rad so display doesn't flicker on momentary miss
+    # Background hot-plug watcher.  Runs whenever a leader is not currently
+    # installed; only probes when the port set changes (cheap enumeration is
+    # the trigger; expensive sync-read is gated).
+    _hp_stop = threading.Event()
 
-        _lr_thread = threading.Thread(target=_leader_reader, args=(_lr_stop,), daemon=True)
-        _lr_thread.start()
+    def _leader_hotplug_watcher() -> None:
+        if not _so101_available or not _pyserial_available:
+            return
+        try:
+            from serial.tools import list_ports
+        except ImportError:
+            return
+        excl = {args.estop_port} if args.estop_port else set()
+        try:
+            prev = {p.device for p in list_ports.comports()}
+        except Exception:
+            prev = set()
+        while not _hp_stop.is_set():
+            if _hp_stop.wait(1.5):
+                return
+            if _leader_box["leader"] is not None:
+                continue
+            try:
+                cur = {p.device for p in list_ports.comports()}
+            except Exception:
+                continue
+            new_ports = (cur - prev) - excl
+            prev = cur
+            if not new_ports:
+                continue
+            for dev in sorted(new_ports):
+                ok, _detail = _probe_so101(dev)
+                if not ok:
+                    continue
+                if _try_install_leader(dev):
+                    print(f"SO-101 hot-plugged on {dev}", flush=True)
+                    return  # one-shot install; future unplug/replug not supported
+
+    _hp_thread: Optional[threading.Thread] = None
+    if _so101_available and _pyserial_available:
+        _hp_thread = threading.Thread(target=_leader_hotplug_watcher, daemon=True,
+                                      name="SO101HotPlug")
+        _hp_thread.start()
 
     arm_limits = load_arm_limits(Path(args.robstride_calib) if args.robstride_calib else None)
     _yaml      = _load_teleop_yaml()
@@ -1639,63 +1739,37 @@ def main() -> None:
         _estop_thread = _start_estop_reader(args.estop_port, _estop_stop, _estop_flag)
 
     # -------------------------------------------------------------------------
-    # Rerun live camera preview
+    # Rerun live camera preview (terminal mode only — GUI uses native Qt
+    # widgets for cameras + scalars, which avoids the WASM/gRPC/Chromium
+    # pipeline that backs up unboundedly on weak CPUs).
     # -------------------------------------------------------------------------
-    use_rerun = not args.no_rerun
+    use_rerun = not args.no_rerun and not args.gui
     if use_rerun and not _rerun_available:
         print("WARNING: rerun not installed — live camera preview disabled")
         use_rerun = False
-    _rerun_web_url: Optional[str] = None
     if use_rerun:
         rr.init("aizee_collect")
-        if args.gui:
-            # Serve over gRPC + host the WASM viewer locally so the Qt window
-            # can embed it via QWebEngineView. open_browser=False: Qt opens it.
-            # Keep the server's history window small so a hidden web viewer
-            # (e.g. behind the recorded-frames page in REPLAY mode) doesn't
-            # have a multi-second backlog to drain when it becomes visible.
-            _grpc_uri = rr.serve_grpc(server_memory_limit="128MiB")
-            rr.serve_web_viewer(web_port=9090, open_browser=False, connect_to=_grpc_uri)
-            from urllib.parse import quote as _urlquote
-            _rerun_web_url = f"http://localhost:9090/?url={_urlquote(_grpc_uri, safe='')}"
-        else:
-            rr.spawn(memory_limit="1GiB")
-        # Seed joint + leader entity paths so the blueprint can resolve them
+        rr.spawn(memory_limit="1GiB")
         _joint_names = ["swivel"] + list(ARM_JOINTS)
         rr.set_time("time", timestamp=time.time())
         for _jn in _joint_names:
             rr.log(f"joints/{_jn}", rr.Scalars(0.0))
             rr.log(f"leader/{_jn}", rr.Scalars(0.0))
-        if args.gui:
-            # GUI mode: native joint bars below — Rerun embed shows only
-            # cameras, with all chrome (panels + timeline) hidden.
-            rr.send_blueprint(rrb.Blueprint(
+        rr.send_blueprint(rrb.Blueprint(
+            rrb.Vertical(
                 rrb.Horizontal(
                     rrb.Spatial2DView(name="Left", origin="cameras/left"),
                     rrb.Spatial2DView(name="Right", origin="cameras/right"),
                     column_shares=[1, 1],
                 ),
-                rrb.BlueprintPanel(state="hidden"),
-                rrb.SelectionPanel(state="hidden"),
-                rrb.TimePanel(state="hidden"),
-                collapse_panels=True,
-            ))
-        else:
-            rr.send_blueprint(rrb.Blueprint(
-                rrb.Vertical(
-                    rrb.Horizontal(
-                        rrb.Spatial2DView(name="Left", origin="cameras/left"),
-                        rrb.Spatial2DView(name="Right", origin="cameras/right"),
-                        column_shares=[1, 1],
-                    ),
-                    rrb.TimeSeriesView(
-                        name="Joint Positions",
-                        contents=[f"joints/{j}" for j in _joint_names]
-                                + [f"leader/{j}" for j in _joint_names],
-                    ),
-                    row_shares=[2, 1],
-                )
-            ))
+                rrb.TimeSeriesView(
+                    name="Joint Positions",
+                    contents=[f"joints/{j}" for j in _joint_names]
+                            + [f"leader/{j}" for j in _joint_names],
+                ),
+                row_shares=[2, 1],
+            )
+        ))
 
     get_key = setup_keyboard()
 
@@ -1832,20 +1906,20 @@ def main() -> None:
             os.remove(path)
 
         _qt_renderer = QtRenderer(
-            rerun_url=_rerun_web_url,
             cmd_queue=gui_cmd_queue,
             meta=_meta,
             on_delete_last=_on_delete_last,
             output_dir=Path(args.output_dir),
-            leader_connected=(leader is not None),
         )
         _disp_lock   = _qt_renderer.lock
         _disp_holder = _qt_renderer.holder
+        _disp_cams   = _qt_renderer.cam_holder
         _disp_stop   = _qt_renderer.stop_event
         _qt_renderer.start()
     else:
         _disp_stop, _disp_thread, _disp_lock, _disp_holder, _disp_event = \
             _start_display_thread()
+        _disp_cams: Optional[dict] = None
 
     # Queue the initial frame (first=True is the default in holder)
     with _disp_lock:
@@ -1933,6 +2007,20 @@ def main() -> None:
             t0 = time.time()
 
             # -----------------------------------------------------------------
+            # Hot-plug: install a leader handed off by the watcher thread
+            # -----------------------------------------------------------------
+            if _install_pending:
+                with _install_lock:
+                    _p = _install_pending.pop("data", None)
+                if _p is not None:
+                    leader           = _p["leader"]
+                    zero_offsets     = _p["zero_offsets"]
+                    directions       = _p["directions"]
+                    _so101_for_aizee = _p["for_aizee"]
+                    print(f"[hot-plug] leader installed — {len(_so101_for_aizee)} arm joints mapped",
+                          flush=True)
+
+            # -----------------------------------------------------------------
             # Pick up completed background save
             # -----------------------------------------------------------------
             if _save_thread is not None and not _save_thread.is_alive():
@@ -1972,6 +2060,29 @@ def main() -> None:
                         _rr_holder["right"] = rj
                         _rr_holder["time"]  = t0
                     _rr_event.set()
+
+            # Push raw JPEG bytes to the GUI's native camera widget — only
+            # when a new frame has actually arrived (last_*_time changed),
+            # otherwise we'd re-decode the same JPEG every loop tick.
+            if _disp_cams is not None:
+                push_l = (latest_left  is not None
+                          and last_left_time  > _disp_cams["left_ts"])
+                push_r = (latest_right is not None
+                          and last_right_time > _disp_cams["right_ts"])
+                if push_l or push_r:
+                    lj_b64 = (latest_left.get("color", {}).get("data")
+                              if push_l else None)
+                    rj_b64 = (latest_right.get("color", {}).get("data")
+                              if push_r else None)
+                    lj_bytes = base64.b64decode(lj_b64) if lj_b64 else None
+                    rj_bytes = base64.b64decode(rj_b64) if rj_b64 else None
+                    with _disp_lock:
+                        if lj_bytes is not None:
+                            _disp_cams["left"]    = lj_bytes
+                            _disp_cams["left_ts"] = last_left_time
+                        if rj_bytes is not None:
+                            _disp_cams["right"]    = rj_bytes
+                            _disp_cams["right_ts"] = last_right_time
 
             # -----------------------------------------------------------------
             # Gamepad + drive axes
@@ -2721,9 +2832,12 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        _hp_stop.set()
+        if _hp_thread is not None:
+            _hp_thread.join(timeout=2.0)
+        _lr_stop.set()
+        _lr_thread.join(timeout=1.0)
         if leader is not None:
-            _lr_stop.set()
-            _lr_thread.join(timeout=1.0)
             leader.close()
         # Disable all motors before closing (prevents motors staying enabled after quit)
         _send(cmd_sock, {"type": "drive", "linear": 0.0, "angular": 0.0,
