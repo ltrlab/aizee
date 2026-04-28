@@ -102,3 +102,9 @@ scripts/.jetson_password
 
 # URDF export generated meshes (large STL files)
 urdf/*/meshes/
+
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+firmware/**/.pio/

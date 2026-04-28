@@ -1,0 +1,13 @@
+{
+  "name": "framework-arduino-samd",
+  "version": "0.2.1",
+  "description": "Robotis OpenRB-150 Arduino SAMD core (vendored from the Arduino IDE BSP for PlatformIO consumption).",
+  "keywords": ["framework", "arduino", "samd", "openrb-150"],
+  "homepage": "https://github.com/ROBOTIS-GIT/OpenRB-150",
+  "license": "LGPL-2.1-or-later",
+  "system": "*",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ROBOTIS-GIT/OpenRB-150"
+  }
+}

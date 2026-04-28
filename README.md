@@ -109,13 +109,13 @@ aizee/
 │   ├── lidar_control/      # RPLiDAR A1M8 dual-sensor driver
 │   └── bindings/           # PyO3 Python bindings (reserved)
 ├── python/
-│   ├── teleop/             # Teleoperation interfaces (full teleop, SO-101 leader)
+│   ├── teleop/             # Teleoperation interfaces (full teleop, SO-101 + OpenRB-150 leaders)
 │   ├── nodes/              # Camera and UPS sensor nodes
 │   ├── scripts/            # Demo collection, episode replay, visualization
 │   └── training/           # ACT policy training and dataset utilities
 ├── config/                 # Hardware YAML configs and calibration files
 ├── scripts/                # Deployment, setup, and diagnostic shell scripts
-├── firmware/               # Embedded firmware (Tufty2040 status display)
+├── firmware/               # Embedded firmware (Tufty2040 status, e-stop, OpenRB-150 leader)
 ├── urdf/                   # Robot URDF from OnShape
 ├── episodes/               # Recorded demonstration episodes (HDF5)
 ├── tests/                  # Test suite
@@ -133,6 +133,7 @@ All major subsystems deployed and operational:
 - ✅ UPS battery monitoring (INA219)
 - ✅ Rerun visualization and MCAP logging
 - ✅ SO-101 leader arm teleoperation (7-DOF, calibrated)
+- ✅ OpenRB-150 + Dynamixel XL330 leader arm (drop-in alternative to SO-101)
 - ✅ Demonstration collection with camera sync (HDF5)
 - ✅ ACT policy training (Action Chunking with Transformers)
 - ✅ ACT policy inference node (20 Hz, temporal ensemble)
@@ -181,14 +182,20 @@ python python/teleop/teleop.py
 # Run SO-101 leader arm teleop
 python python/scripts/so101_teleop.py --port /dev/ttyACM0
 
+# Live position + limits monitor (auto-detects SO-101 or OpenRB-150 leader)
+python python/scripts/leader_monitor.py
+
 # View live data
 python python/rerun_bridge.py
 ```
 
 ### Demonstration Collection and Training
 ```bash
-# Record demonstrations with SO-101 leader arm and wrist cameras
-python python/scripts/collect_demo.py --port /dev/ttyACM0 \
+# Record demonstrations (auto-detects SO-101 or OpenRB-150 leader on USB)
+python python/scripts/collect_demo.py \
+    --cam-left tcp://192.168.0.27:5563 --cam-right tcp://192.168.0.27:5564
+# Force a specific leader kind:
+python python/scripts/collect_demo.py --leader openrb \
     --cam-left tcp://192.168.0.27:5563 --cam-right tcp://192.168.0.27:5564
 
 # Train ACT policy on collected episodes

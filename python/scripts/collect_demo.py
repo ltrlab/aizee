@@ -78,6 +78,19 @@ try:
 except ImportError:
     _CALIB_PATH = Path("so101_calibration.json")
 
+# OpenRB-150 + Dynamixel XL330 leader (newer build). Same duck-typed interface
+# as So101Leader, so the runtime code below is leader-kind agnostic once
+# instantiated.
+_leader_module_available = False
+try:
+    from leader import (
+        find_any_leader, get_leader_class, default_calib_path,
+        identify_port, LEADER_KINDS,
+    )
+    _leader_module_available = True
+except ImportError:
+    LEADER_KINDS = ("so101",)
+
 sys.path.insert(0, str(Path(__file__).parent))
 from record_replay import (
     ARM_JOINTS, POLICY_JOINTS, KP, KD,
@@ -1497,10 +1510,13 @@ def main() -> None:
         epilog=__doc__,
     )
     ap.add_argument("--port",            default=None,
-                    help="SO-101 serial port (optional — enables leader tracking)")
+                    help="Leader-arm serial port (optional — enables leader tracking)")
     ap.add_argument("--baud",            type=int, default=1_000_000)
-    ap.add_argument("--calib",           default=str(_CALIB_PATH),
-                    help="SO-101 calibration JSON")
+    ap.add_argument("--calib",           default=None,
+                    help="Leader calibration JSON (defaults to per-leader-kind path)")
+    ap.add_argument("--leader",          default="auto",
+                    choices=("auto", *LEADER_KINDS),
+                    help="Which leader arm to use (auto = try SO-101 then OpenRB-150)")
     ap.add_argument("--cmd",             default=_ep.get("command",       "tcp://192.168.0.27:5555"))
     ap.add_argument("--telem",           default=_ep.get("telemetry",     "tcp://192.168.0.27:5556"))
     ap.add_argument("--cam-left",        default="tcp://192.168.0.27:5563", dest="cam_left")
@@ -1532,11 +1548,16 @@ def main() -> None:
     img_size  = (int(w_s), int(h_s))   # PIL: (width, height)
 
     # -------------------------------------------------------------------------
-    # SO-101 leader (optional, hot-pluggable)
+    # Leader arm (optional, hot-pluggable)
+    #
+    # Two leader kinds are supported, both exposing the same duck-typed
+    # interface (poll/connect/JOINTS/AIZEE_JOINTS/zero_offsets/directions):
+    #   - so101  : Feetech STS3215 over WaveShare USB-serial bus adapter.
+    #   - openrb : Dynamixel XL330 servos behind an OpenRB-150 USB-CDC bridge.
     #
     # The leader is allowed to be absent at startup AND to appear later.  A
-    # background watcher polls comports() at low frequency and only probes the
-    # bus when the port set actually changes — no spammy probe loop.
+    # background watcher polls comports() at low frequency and only probes
+    # ports when the set actually changes — no spammy probe loop.
     # -------------------------------------------------------------------------
     leader           = None
     _lr_lock         = threading.Lock()
@@ -1546,6 +1567,23 @@ def main() -> None:
     directions       = None
     _so101_for_aizee: list[int] = []
     _arm_joint_set   = set(ARM_JOINTS)
+
+    # Selected leader kind ("so101" / "openrb") and its class — set at install
+    # time, used by the hot-plug watcher so a re-plug picks the same kind.
+    _leader_kind:  Optional[str] = None if args.leader == "auto" else args.leader
+    _leader_cls                  = None
+    _leader_calib                = args.calib
+    if args.leader != "auto" and _leader_module_available:
+        _leader_cls   = get_leader_class(args.leader)
+        if _leader_calib is None:
+            _leader_calib = str(default_calib_path(args.leader))
+    # Back-compat fallback: if the leader module isn't importable for any
+    # reason, fall through to the original SO-101-only code path.
+    if _leader_cls is None and _so101_available:
+        _leader_cls   = So101Leader
+        _leader_kind  = _leader_kind or "so101"
+        if _leader_calib is None:
+            _leader_calib = str(_CALIB_PATH)
 
     # Atomic single-slot box read by the always-on reader thread.  Updating
     # the dict key is a single bytecode op, so the reader sees None or a
@@ -1557,17 +1595,33 @@ def main() -> None:
     _install_lock = threading.Lock()
     _install_pending: dict = {}
 
-    def _try_install_leader(port: str) -> bool:
-        """Connect to *port* and install as the active leader. Returns True on success."""
+    def _try_install_leader(port: str, kind: Optional[str] = None) -> bool:
+        """Connect to *port* and install as the active leader. Returns True on success.
+
+        *kind* overrides the previously-selected leader kind (useful for the
+        hot-plug watcher when --leader=auto).  When None, falls back to the
+        currently-bound _leader_cls / _leader_kind / _leader_calib.
+        """
+        nonlocal _leader_cls, _leader_kind, _leader_calib
+        if kind is not None and _leader_module_available:
+            _leader_cls   = get_leader_class(kind)
+            _leader_kind  = kind
+            if args.calib is None:
+                _leader_calib = str(default_calib_path(kind))
+        if _leader_cls is None:
+            print(f"No leader class available — cannot install {port}", flush=True)
+            return False
+        calib_path = _leader_calib if _leader_calib is not None else str(_CALIB_PATH)
+        kind_name  = _leader_kind or "leader"
         try:
-            ldr = So101Leader(port, args.baud, calib=args.calib)
+            ldr = _leader_cls(port, args.baud, calib=calib_path)
         except Exception as exc:
-            print(f"SO-101 init failed on {port}: {exc}", flush=True)
+            print(f"{kind_name} init failed on {port}: {exc}", flush=True)
             return False
         try:
             ok = ldr.connect()
         except Exception as exc:
-            print(f"SO-101 connect raised on {port}: {exc}", flush=True)
+            print(f"{kind_name} connect raised on {port}: {exc}", flush=True)
             return False
         if not ok:
             return False
@@ -1603,24 +1657,44 @@ def main() -> None:
     _lr_thread = threading.Thread(target=_leader_reader, args=(_lr_stop,), daemon=True)
     _lr_thread.start()
 
-    so101_port = args.port
-    if so101_port is None and _so101_available:
+    leader_port = args.port
+    if leader_port is None and _leader_module_available:
+        _excl = [args.estop_port] if args.estop_port else []
+        if args.leader == "auto":
+            print("Searching for any leader arm...", flush=True)
+            leader_port, detected_kind = find_any_leader(exclude=_excl, verbose=True)
+        else:
+            print(f"Searching for {args.leader} leader arm...", flush=True)
+            leader_port, detected_kind = find_any_leader(
+                exclude=_excl, verbose=True, prefer=args.leader,
+            )
+            if detected_kind != args.leader:
+                # Honour the explicit --leader choice — don't silently use a different kind.
+                leader_port, detected_kind = None, None
+        if leader_port:
+            print(f"{detected_kind} auto-detected on {leader_port}")
+            _leader_kind = detected_kind
+            _leader_cls  = get_leader_class(detected_kind)
+            if args.calib is None:
+                _leader_calib = str(default_calib_path(detected_kind))
+        else:
+            print("Leader not detected — continuing without leader tracking "
+                  "(plug it in any time, or pass --port to force)")
+    elif leader_port is None and _so101_available:
+        # Fallback path when leader.py is missing — original SO-101-only code.
         _excl = [args.estop_port] if args.estop_port else []
         print("Searching for SO-101 leader arm...", flush=True)
-        so101_port = find_so101_port(exclude=_excl, verbose=True)
-        if so101_port:
-            print(f"SO-101 auto-detected on {so101_port}")
-        else:
-            print("SO-101 not detected — continuing without leader tracking "
-                  "(plug it in any time, or pass --port to force)")
+        leader_port = find_so101_port(exclude=_excl, verbose=True)
+        if leader_port:
+            print(f"SO-101 auto-detected on {leader_port}")
 
-    if so101_port is not None and not _so101_available:
-        print("SO-101 support not available (missing so101_leader module)")
-        so101_port = None
+    if leader_port is not None and _leader_cls is None:
+        print("Leader-arm support not available (missing leader modules)")
+        leader_port = None
 
-    if so101_port is not None:
-        if _try_install_leader(so101_port):
-            print(f"SO-101 connected on {so101_port}")
+    if leader_port is not None:
+        if _try_install_leader(leader_port):
+            print(f"{_leader_kind or 'leader'} connected on {leader_port}")
             # Drain the pending hand-off into local bindings immediately
             # (main loop hasn't started yet).
             with _install_lock:
@@ -1631,7 +1705,7 @@ def main() -> None:
                 directions       = _p["directions"]
                 _so101_for_aizee = _p["for_aizee"]
         else:
-            print(f"SO-101 connect failed on {so101_port} — "
+            print(f"{_leader_kind or 'leader'} connect failed on {leader_port} — "
                   "continuing; will retry when port reappears")
 
     # Background hot-plug watcher.  Runs whenever a leader is not currently
@@ -1640,13 +1714,18 @@ def main() -> None:
     _hp_stop = threading.Event()
 
     def _leader_hotplug_watcher() -> None:
-        if not _so101_available or not _pyserial_available:
+        if not _pyserial_available:
             return
         try:
             from serial.tools import list_ports
         except ImportError:
             return
         excl = {args.estop_port} if args.estop_port else set()
+        # Which kinds the watcher will accept on hot-plug.
+        if args.leader == "auto":
+            kinds = list(LEADER_KINDS)
+        else:
+            kinds = [args.leader]
         try:
             prev = {p.device for p in list_ports.comports()}
         except Exception:
@@ -1665,17 +1744,33 @@ def main() -> None:
             if not new_ports:
                 continue
             for dev in sorted(new_ports):
-                ok, _detail = _probe_so101(dev)
-                if not ok:
+                # Probe for each acceptable kind in the configured order.
+                detected = None
+                if _leader_module_available:
+                    for k in kinds:
+                        try:
+                            from leader import probe_port
+                            ok, _ = probe_port(dev, k)
+                        except Exception:
+                            ok = False
+                        if ok:
+                            detected = k
+                            break
+                else:
+                    if _so101_available:
+                        ok, _ = _probe_so101(dev)
+                        if ok:
+                            detected = "so101"
+                if detected is None:
                     continue
-                if _try_install_leader(dev):
-                    print(f"SO-101 hot-plugged on {dev}", flush=True)
+                if _try_install_leader(dev, kind=detected):
+                    print(f"{detected} hot-plugged on {dev}", flush=True)
                     return  # one-shot install; future unplug/replug not supported
 
     _hp_thread: Optional[threading.Thread] = None
-    if _so101_available and _pyserial_available:
+    if _pyserial_available and (_leader_module_available or _so101_available):
         _hp_thread = threading.Thread(target=_leader_hotplug_watcher, daemon=True,
-                                      name="SO101HotPlug")
+                                      name="LeaderHotPlug")
         _hp_thread.start()
 
     arm_limits = load_arm_limits(Path(args.robstride_calib) if args.robstride_calib else None)

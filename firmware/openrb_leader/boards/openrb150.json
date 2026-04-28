@@ -1,0 +1,34 @@
+{
+    "build": {
+        "arduino": {
+            "ldscript": "flash_with_bootloader.ld"
+        },
+        "core": "arduino",
+        "cpu": "cortex-m0plus",
+        "extra_flags": "-D__SAMD21G18A__ -DARDUINO_OpenRB -DARDUINO_ARCH_SAMD -DUSE_ARDUINO_MKR_PIN_LAYOUT -D__OPENRB_150__ -DUSBCON",
+        "f_cpu": "48000000L",
+        "hwids": [
+            ["0x2F5D", "0x2202"]
+        ],
+        "mcu": "samd21g18a",
+        "system": "samd",
+        "usb_product": "OpenRB-150",
+        "variant": "OpenRB-150"
+    },
+    "frameworks": ["arduino"],
+    "name": "OpenRB-150",
+    "upload": {
+        "maximum_ram_size": 32768,
+        "maximum_size": 262144,
+        "native_usb": true,
+        "offset_address": "0x2000",
+        "protocol": "sam-ba",
+        "protocols": ["sam-ba"],
+        "use_1200bps_touch": true,
+        "wait_for_upload_port": true,
+        "require_upload_port": true,
+        "speed": 921600
+    },
+    "url": "https://www.robotis.us/openrb-150/",
+    "vendor": "Robotis"
+}
