@@ -576,6 +576,92 @@ def _start_image_decoder(
 
 
 # ---------------------------------------------------------------------------
+# Main-loop profiler (per-section timing → log file, dump every 10 s)
+# ---------------------------------------------------------------------------
+
+class _LoopProfiler:
+    def __init__(self, log_path: Optional[Path] = None) -> None:
+        self._log = None
+        if log_path is not None:
+            try:
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                self._log = open(log_path, "a", buffering=1, encoding="utf-8")
+                self._log.write(f"\n=== profiler started {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+            except Exception:
+                self._log = None
+        self._sec: dict[str, list[float]] = {}
+        self._gauge: dict[str, list[float]] = {}
+        self._work: list[float] = []
+        self._period: list[float] = []
+        self._t_sec: Optional[float] = None
+        self._t_iter: Optional[float] = None
+        self._t_prev: Optional[float] = None
+        self._next_dump = time.perf_counter() + 10.0
+
+    def begin(self) -> None:
+        now = time.perf_counter()
+        if self._t_prev is not None:
+            self._period.append((now - self._t_prev) * 1000.0)
+        self._t_prev = now
+        self._t_iter = now
+        self._t_sec = now
+
+    def tick(self, name: str) -> None:
+        if self._t_sec is None:
+            return
+        now = time.perf_counter()
+        self._sec.setdefault(name, []).append((now - self._t_sec) * 1000.0)
+        self._t_sec = now
+
+    def gauge(self, name: str, value: float) -> None:
+        self._gauge.setdefault(name, []).append(float(value))
+
+    def end(self) -> None:
+        if self._t_iter is None:
+            return
+        now = time.perf_counter()
+        self._work.append((now - self._t_iter) * 1000.0)
+        if now > self._next_dump:
+            self.dump()
+            self._next_dump = now + 10.0
+
+    @staticmethod
+    def _stats(arr: list[float]) -> Optional[tuple[float, float, float, float, int]]:
+        if not arr:
+            return None
+        s = sorted(arr)
+        n = len(s)
+        return (sum(s) / n, s[n // 2], s[min(n - 1, int(n * 0.99))], s[-1], n)
+
+    def dump(self) -> None:
+        if self._log is None:
+            self._sec.clear(); self._work.clear(); self._period.clear()
+            return
+        lines = [f"--- {time.strftime('%H:%M:%S')} ---"]
+        for label, arr in (("period", self._period), ("work", self._work)):
+            st = self._stats(arr)
+            if st:
+                lines.append(f"{label:8s} mean={st[0]:6.2f} p50={st[1]:6.2f} "
+                             f"p99={st[2]:6.2f} max={st[3]:7.2f}  n={st[4]}")
+        rows = []
+        for name, arr in self._sec.items():
+            st = self._stats(arr)
+            if st:
+                rows.append((st[3], st[2], st[0], name))
+        rows.sort(reverse=True)
+        for mx, p99, mean, name in rows:
+            lines.append(f"  {name:14s} mean={mean:6.2f} p99={p99:6.2f} max={mx:7.2f}")
+        for name, arr in self._gauge.items():
+            st = self._stats(arr)
+            if st:
+                lines.append(f"  [g] {name:10s} mean={st[0]:6.2f} p50={st[1]:6.2f} "
+                             f"p99={st[2]:6.2f} max={st[3]:7.2f}")
+        self._log.write("\n".join(lines) + "\n")
+        self._sec.clear(); self._gauge.clear()
+        self._work.clear(); self._period.clear()
+
+
+# ---------------------------------------------------------------------------
 # Gamepad helpers
 # ---------------------------------------------------------------------------
 
@@ -1561,7 +1647,7 @@ def main() -> None:
     # -------------------------------------------------------------------------
     leader           = None
     _lr_lock         = threading.Lock()
-    _lr_latest: dict = {"rad": None, "clamped": None, "time": 0.0}
+    _lr_latest: dict = {"rad": None, "vel": None, "clamped": None, "time": 0.0}
     _lr_stop         = threading.Event()
     zero_offsets     = None
     directions       = None
@@ -1639,20 +1725,40 @@ def main() -> None:
 
     def _leader_reader(stop: threading.Event) -> None:
         """Always-on reader thread; idles until a leader is installed in _leader_box."""
+        prev_r: Optional[np.ndarray] = None
+        prev_t: float = 0.0
+        ema_v:  Optional[np.ndarray] = None
+        # EMA constant for the velocity estimate. Differentiating quantized
+        # 12-bit encoders at ~500 Hz produces ~13 mrad/s of LSB noise, so we
+        # smooth before forwarding. alpha tuned for ~3 sample time-constant.
+        _V_ALPHA = 0.4
         while not stop.is_set():
             ldr = _leader_box["leader"]
             if ldr is None:
+                prev_r = None
+                ema_v  = None
                 time.sleep(0.02)
                 continue
             try:
                 r = ldr.poll()
             except Exception:
                 r = None
+            now = time.time()
+            v: Optional[np.ndarray] = None
+            if r is not None and prev_r is not None and (now - prev_t) > 1e-3:
+                inst_v = (r - prev_r) / (now - prev_t)
+                ema_v  = inst_v if ema_v is None else (
+                    _V_ALPHA * inst_v + (1.0 - _V_ALPHA) * ema_v)
+                v = ema_v
             with _lr_lock:
                 if r is not None:
                     _lr_latest["rad"]     = r
+                    _lr_latest["vel"]     = v
                     _lr_latest["clamped"] = ldr.clamped_joints
-                    _lr_latest["time"]    = time.time()
+                    _lr_latest["time"]    = now
+            if r is not None:
+                prev_r = r
+                prev_t = now
 
     _lr_thread = threading.Thread(target=_leader_reader, args=(_lr_stop,), daemon=True)
     _lr_thread.start()
@@ -1896,9 +2002,23 @@ def main() -> None:
     # PD authority).  Once the arm is within ENGAGE_DONE_THRESHOLD of the
     # leader on every joint, the state auto-promotes to TRACKING.
     ENGAGE_DELTA          = 0.015  # rad/tick (~0.45 rad/s @ 30 Hz) — slow ramp
-    ENGAGE_MAX_LEAD       = 0.05   # rad — cap on q_cmd lead vs. q_actual
     ENGAGE_WARN_THRESHOLD = 0.20   # rad — show warning toast above this gap
     ENGAGE_DONE_THRESHOLD = 0.04   # rad — promote to TRACKING below this gap
+
+    # Per-joint cap on q_cmd lead vs. q_actual during ENGAGING.
+    # Sized so each joint can demand exactly its rated motor torque
+    # (kp · lead = sat_torque).  A flat 0.05 rad cap left high-kp joints
+    # (gantry_base @ kp=200) requesting only 10 N·m — below the stiction +
+    # gravity load needed to break the joint loose, leading to permanent
+    # stuck-engaging states.  Sizing per-joint avoids that without giving
+    # the controller windup margin: at saturation, more lead would not
+    # increase delivered torque, just store position error to dump on the
+    # joint when it finally breaks free.
+    _engage_lead_arm = np.array(
+        [_SAT_TORQUE[j] / float(_kp[i]) for i, j in enumerate(ARM_JOINTS)],
+        dtype=np.float32,
+    )
+    _engage_lead_sw = float(_SAT_TORQUE["swivel"] / _swivel_kp)
 
     teleop_state                       = State.READY
     held_target:     Optional[np.ndarray] = None
@@ -2042,6 +2162,9 @@ def main() -> None:
     frame_counter = 0
     period = 1.0 / LOOP_HZ
 
+    _prof_log_path = Path(__file__).resolve().parent.parent.parent / "logs" / "loop_prof.log"
+    _prof = _LoopProfiler(log_path=_prof_log_path)
+
     _save_thread:        Optional[threading.Thread] = None
     _save_result_holder: list                       = [None]
 
@@ -2100,6 +2223,7 @@ def main() -> None:
     try:
         while True:
             t0 = time.time()
+            _prof.begin()
 
             # -----------------------------------------------------------------
             # Hot-plug: install a leader handed off by the watcher thread
@@ -2141,6 +2265,17 @@ def main() -> None:
 
             cam_left_age  = (t0 - last_left_time)  if last_left_time  > 0 else 999.0
             cam_right_age = (t0 - last_right_time) if last_right_time > 0 else 999.0
+            # End-to-end frame age (publisher capture timestamp → host now).
+            # Includes any clock skew between Jetson and host; we care about
+            # *drift* over time, which is skew-invariant.
+            if latest_left_ts is not None:
+                _prof.gauge("left_age_ms",  (t0 - latest_left_ts) * 1000.0)
+            if latest_right_ts is not None:
+                _prof.gauge("right_age_ms", (t0 - latest_right_ts) * 1000.0)
+            # Time since this loop last *received* a new cam frame (host-only,
+            # no clock-skew component) — flags publisher gaps directly.
+            _prof.gauge("left_recv_age_ms",  cam_left_age * 1000.0)
+            _prof.gauge("right_recv_age_ms", cam_right_age * 1000.0)
 
             # Queue data for Rerun background thread.
             # Cameras at ~15 Hz (every other frame), joints every frame.
@@ -2178,6 +2313,8 @@ def main() -> None:
                         if rj_bytes is not None:
                             _disp_cams["right"]    = rj_bytes
                             _disp_cams["right_ts"] = last_right_time
+
+            _prof.tick("cam")
 
             # -----------------------------------------------------------------
             # Gamepad + drive axes
@@ -2461,18 +2598,23 @@ def main() -> None:
                         recording = False   # stop recording on shutdown
                         _rec_flag.clear()
 
+            _prof.tick("input")
+
             # -----------------------------------------------------------------
             # Leader data
             # -----------------------------------------------------------------
             leader_rad:    Optional[np.ndarray] = None
+            leader_vel:    Optional[np.ndarray] = None
             _clamped_live: Optional[list]       = None
             aizee_cmd:     Optional[np.ndarray] = None
+            aizee_vel_ff:  Optional[np.ndarray] = None
             swivel_cmd:    Optional[float]      = None
             leader_age:    float                = 999.0
 
             if leader is not None:
                 with _lr_lock:
                     leader_rad    = _lr_latest["rad"]
+                    leader_vel    = _lr_latest["vel"]
                     _clamped_live = _lr_latest["clamped"]
                     _leader_t     = _lr_latest["time"]
                 leader_age = t0 - _leader_t if _leader_t > 0 else 999.0
@@ -2480,6 +2622,10 @@ def main() -> None:
                     mapped = directions * (leader_rad - zero_offsets)
                     aizee_cmd  = mapped[_so101_for_aizee]
                     swivel_cmd = float(mapped[0])
+                if leader_vel is not None:
+                    # Velocity has the same sign-flip mapping as position
+                    # (zero_offset cancels under differentiation).
+                    aizee_vel_ff = (directions * leader_vel)[_so101_for_aizee]
 
             # Determine targets
             if live_replay.live:
@@ -2494,6 +2640,8 @@ def main() -> None:
             else:
                 target     = q_actual
                 swivel_tgt = swivel_actual
+
+            _prof.tick("leader")
 
             # -----------------------------------------------------------------
             # Hardware e-stop gate — skip ALL motor commands so watchdog
@@ -2612,7 +2760,7 @@ def main() -> None:
                            else (q_actual if q_actual is not None else target))
                     if q_actual is not None:
                         lead = np.clip(ref - q_actual,
-                                       -ENGAGE_MAX_LEAD, ENGAGE_MAX_LEAD)
+                                       -_engage_lead_arm, _engage_lead_arm)
                         ref  = q_actual + lead
                     delta = np.clip(target - ref, -ENGAGE_DELTA, ENGAGE_DELTA)
                     q_cmd = ref + delta
@@ -2631,8 +2779,8 @@ def main() -> None:
                                     else swivel_tgt))
                     if swivel_actual is not None:
                         sw_ref = swivel_actual + max(min(sw_ref - swivel_actual,
-                                                          ENGAGE_MAX_LEAD),
-                                                     -ENGAGE_MAX_LEAD)
+                                                          _engage_lead_sw),
+                                                     -_engage_lead_sw)
                     sw_delta = swivel_tgt - sw_ref
                     sw_cmd   = sw_ref + max(min(sw_delta, ENGAGE_DELTA),
                                             -ENGAGE_DELTA)
@@ -2657,15 +2805,38 @@ def main() -> None:
 
             elif teleop_state in (State.TRACKING, State.HOLD):
                 if target is not None:
-                    ref   = q_actual if q_actual is not None else target
+                    # Reference the *previous command*, not q_actual: the rate
+                    # limit then operates on the command stream itself, which
+                    # avoids step-discontinuities in q_cmd at leader reversals
+                    # (when q_actual was still moving the old direction).
+                    # Anchor to q_actual via a wider lead clip so the command
+                    # cannot run away if the motor is mechanically stuck.
+                    if latest_q_cmd is not None:
+                        ref = latest_q_cmd.copy()
+                        if q_actual is not None:
+                            _max_lead = 2.0 * args.max_delta
+                            ref = q_actual + np.clip(ref - q_actual,
+                                                     -_max_lead, _max_lead)
+                    elif q_actual is not None:
+                        ref = q_actual
+                    else:
+                        ref = target
                     delta = np.clip(target - ref, -args.max_delta, args.max_delta)
                     q_cmd = ref + delta
                     if arm_limits:
                         q_cmd = np.array(clamp_arm_positions(q_cmd.tolist(), arm_limits))
                     latest_q_cmd = q_cmd.copy()
+                    # Velocity feedforward: leader velocity, zero when on HOLD
+                    # (target frozen) so the motor's kd term doesn't fight a
+                    # phantom command velocity.
+                    if (teleop_state == State.TRACKING
+                            and aizee_vel_ff is not None):
+                        _vel = aizee_vel_ff.tolist()
+                    else:
+                        _vel = [0.0] * NUM_JOINTS
                     _send(cmd_sock, {
                         "type": "arm_joints", "positions": q_cmd.tolist(),
-                        "velocities": [0.0] * NUM_JOINTS, "kp": _kp, "kd": _kd,
+                        "velocities": _vel, "kp": _kp, "kd": _kd,
                         "torques": [0.0] * NUM_JOINTS,
                     })
                 if swivel_tgt is not None:
@@ -2675,6 +2846,8 @@ def main() -> None:
                                  "linear":  drive_linear  * _max_linear,
                                  "angular": drive_angular * _max_angular,
                                  "kp": _drive_kp, "kd": _drive_kd})
+
+            _prof.tick("motor")
 
             # -----------------------------------------------------------------
             # Telemetry
@@ -2733,6 +2906,8 @@ def main() -> None:
                 _ups_msg = _cam_cache["ups"]
             if _ups_msg is not None and "ups" in _ups_msg:
                 ups_data = _ups_msg["ups"]
+
+            _prof.tick("telem")
 
             # Queue joint positions + leader commands to Rerun (every frame)
             if _rr_event is not None:
@@ -2918,6 +3093,9 @@ def main() -> None:
                 _disp_holder["args"] = _disp_snapshot
             if _disp_event is not None:
                 _disp_event.set()
+
+            _prof.tick("display")
+            _prof.end()
 
             frame_counter += 1
             sleep_t = period - (time.time() - t0)

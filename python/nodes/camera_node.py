@@ -77,6 +77,12 @@ class CameraNode:
         self.frame_count = 0
         self.last_stats_time = time.time()
         self.last_frame_time = 0
+        self._stat_drain_total = 0
+        self._stat_drain_max   = 0
+        self._stat_encode_ms: list = []
+        self._stat_send_ms:   list = []
+        self._stat_age_ms:    list = []
+        self._rs_epoch_ms: Optional[float] = None
 
     def initialize_camera(self):
         """Initialize RealSense pipeline and configure streams"""
@@ -171,10 +177,32 @@ class CameraNode:
 
         while self.running:
             try:
-                # Wait for frames (blocking with 5 second timeout)
+                # Wait, then drain to the newest frame so latency cannot
+                # accumulate when encoding/network momentarily falls behind.
                 frames = self.pipeline.wait_for_frames(timeout_ms=5000)
+                drained = 0
+                while True:
+                    try:
+                        newer = self.pipeline.poll_for_frames()
+                    except Exception:
+                        break
+                    if not newer:
+                        break
+                    frames = newer
+                    drained += 1
+                self._stat_drain_total += drained
+                if drained > self._stat_drain_max:
+                    self._stat_drain_max = drained
 
                 timestamp = time.time()
+
+                rs_ts_ms = float(frames.get_timestamp())
+                if rs_ts_ms > 0 and self._rs_epoch_ms is None:
+                    self._rs_epoch_ms = timestamp * 1000.0 - rs_ts_ms
+                if self._rs_epoch_ms is not None:
+                    self._stat_age_ms.append(
+                        (timestamp * 1000.0) - (rs_ts_ms + self._rs_epoch_ms)
+                    )
 
                 # Get color frame
                 color_frame = frames.get_color_frame()
@@ -188,6 +216,7 @@ class CameraNode:
                     logger.warning("No depth frame received")
                     continue
 
+                t_enc = time.perf_counter()
                 # Convert to numpy arrays
                 color_image = np.asanyarray(color_frame.get_data())
                 depth_image = np.asanyarray(depth_frame.get_data())
@@ -235,9 +264,12 @@ class CameraNode:
 
                 except Exception as e:
                     logger.debug(f"IMU data not available: {e}")
+                self._stat_encode_ms.append((time.perf_counter() - t_enc) * 1000.0)
 
                 # Publish via ZeroMQ
+                t_snd = time.perf_counter()
                 self.zmq_socket.send_json(message)
+                self._stat_send_ms.append((time.perf_counter() - t_snd) * 1000.0)
 
                 self.frame_count += 1
                 self.last_frame_time = timestamp
@@ -246,10 +278,38 @@ class CameraNode:
                 if timestamp - self.last_stats_time >= 5.0:
                     elapsed = timestamp - self.last_stats_time
                     current_fps = self.frame_count / elapsed
-                    logger.info(f"Published {self.frame_count} frames in {elapsed:.1f}s "
-                               f"({current_fps:.1f} fps)")
+
+                    def _s(arr: list) -> str:
+                        if not arr:
+                            return "n/a"
+                        a = sorted(arr)
+                        n = len(a)
+                        return (f"mean={sum(a) / n:.1f} "
+                                f"p99={a[min(n - 1, int(n * 0.99))]:.1f} "
+                                f"max={a[-1]:.1f}")
+
+                    try:
+                        import resource as _resource
+                        rss_kb = _resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss
+                    except Exception:
+                        rss_kb = -1
+
+                    logger.info(
+                        f"Published {self.frame_count} frames in {elapsed:.1f}s "
+                        f"({current_fps:.1f} fps)  "
+                        f"drained={self._stat_drain_total} (max {self._stat_drain_max})  "
+                        f"encode_ms[{_s(self._stat_encode_ms)}]  "
+                        f"send_ms[{_s(self._stat_send_ms)}]  "
+                        f"age_ms[{_s(self._stat_age_ms)}]  "
+                        f"rss={rss_kb}kB"
+                    )
                     self.frame_count = 0
                     self.last_stats_time = timestamp
+                    self._stat_drain_total = 0
+                    self._stat_drain_max   = 0
+                    self._stat_encode_ms.clear()
+                    self._stat_send_ms.clear()
+                    self._stat_age_ms.clear()
 
             except RuntimeError as e:
                 logger.error(f"Frame capture error: {e}")

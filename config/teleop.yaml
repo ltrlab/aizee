@@ -64,7 +64,7 @@ drive:
 gantry:
   max_velocity: 1.0       # rad/s per joint
   increment: 0.02         # rad per key press (small for safety during tuning)
-  kp: [200.0, 200.0, 80.0, 50.0, 12.0, 3.0]  # Position gains [base, mid, end, wrist_pitch, wrist_roll, gripper]
+  kp: [200.0, 200.0, 50.0, 40.0, 8.0, 3.0]  # Position gains [base, mid, end, wrist_pitch, wrist_roll, gripper]
   kd: [7.0, 10.0, 4.0, 1.0, 1.0, 1.0]         # Damping gains
 
 gamepad:

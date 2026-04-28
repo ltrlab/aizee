@@ -324,6 +324,23 @@ class OpenRBLeader:
         with open(self._calib_path, "w") as f:
             json.dump(self._calib, f, indent=2)
 
+    def save_limits(self, limits: dict[str, tuple[int, int]]) -> None:
+        """Persist per-joint min_raw/max_raw to the calibration JSON.
+
+        *limits* is {joint_name: (min_raw, max_raw)} in physical encoder
+        ticks (0..4095).  Joints not present in the dict are left untouched.
+        """
+        if not self._calib:
+            return
+        for joint, (mn, mx) in limits.items():
+            jc = self._calib["joints"].get(joint)
+            if jc is None:
+                continue
+            jc["min_raw"] = int(mn)
+            jc["max_raw"] = int(mx)
+        with open(self._calib_path, "w") as f:
+            json.dump(self._calib, f, indent=2)
+
     # ------------------------------------------------------------------
     # Wire protocol
     # ------------------------------------------------------------------

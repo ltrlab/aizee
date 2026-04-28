@@ -49,7 +49,7 @@ _RST = "\033[0m"
 
 
 # Total visible width (inside the box border)
-_W = 92
+_W = 110
 
 
 def _bar(value: float, lo: float, hi: float, width: int = 18) -> str:
@@ -77,20 +77,27 @@ def _fmt_joint_row(
     raw:      Optional[int],
     rad:      Optional[float],
     cal:      dict,
+    obs:      Optional[tuple[int, int]] = None,
 ) -> str:
-    """One per-joint line.  cal is the per-joint dict from calibration JSON."""
+    """One per-joint line.  cal is the per-joint dict from calibration JSON.
+    *obs* is the observed (min, max) tick range for this session, if any."""
     mn        = cal.get("min_raw", 0)
     mx        = cal.get("max_raw", 4095)
     r_min     = cal.get("rad_min", -3.14)
     r_max     = cal.get("rad_max",  3.14)
     direction = cal.get("direction", 1)
-    zero_off  = cal.get("zero_offset", 0.0)
     sid_str   = f"{sid:>2}" if sid is not None else " ?"
+
+    if obs is None:
+        obs_str = "[ ----.. ----]"
+    else:
+        o_mn, o_mx = obs
+        obs_str = f"[{o_mn:>4d}..{o_mx:>4d}]"
 
     if raw is None or rad is None:
         return (f"  {joint:<14} {sid_str}  {'---':>5}  "
-                f"[{mn:>4d}..{mx:>4d}]  {'---':>7}  "
-                f"[{r_min:>+5.2f}..{r_max:>+5.2f}]  {'-' * 18}")
+                f"[{mn:>4d}..{mx:>4d}]  {obs_str}  {'---':>7}  "
+                f"[{r_min:>+5.2f}..{r_max:>+5.2f}]  {'-' * 12}")
 
     # OUT flag if the unwrapped tick falls outside the calibrated band, taking
     # into account the three range types (normal / wrap / inverted).
@@ -105,7 +112,7 @@ def _fmt_joint_row(
 
     # Bar: fraction of (raw - mn)/(mx - mn) for normal, (mn - raw)/(mn - mx) inverted.
     if mn <= mx:
-        bar = _bar(raw, mn, mx)
+        bar = _bar(raw, mn, mx, width=12)
     elif (mn - mx) > 2048:
         # Map [mn, 4095] U [0, mx] to a single 0..1 range for display.
         span = (4096 - mn) + mx
@@ -113,13 +120,13 @@ def _fmt_joint_row(
             frac_pos = raw - mn
         else:
             frac_pos = (4096 - mn) + raw
-        bar = _bar(frac_pos, 0, span)
+        bar = _bar(frac_pos, 0, span, width=12)
     else:
-        bar = _bar(raw, mx, mn)   # reversed
+        bar = _bar(raw, mx, mn, width=12)   # reversed
 
     color = _DIM if direction == 0 else ""
     return (f"  {color}{joint:<14}{_RST} {sid_str}  {raw:>5d}  "
-            f"[{mn:>4d}..{mx:>4d}]  {rad:>+7.3f}  "
+            f"[{mn:>4d}..{mx:>4d}]  {obs_str}  {rad:>+7.3f}  "
             f"[{r_min:>+5.2f}..{r_max:>+5.2f}]  {bar}  {flag}")
 
 
@@ -130,6 +137,7 @@ def _render(
     raw_pos:  Optional[dict[str, int]],
     unw_pos:  Optional[dict[str, int]],
     calib:    dict,
+    observed: Optional[dict[str, tuple[int, int]]] = None,
     status:   str = "",
 ) -> list[str]:
     title = f"  {kind.upper()} Leader Monitor                  port: {port}"
@@ -139,15 +147,17 @@ def _render(
         "=" * _W,
         title,
         "=" * _W,
-        f"  {'joint':<14} {'ID':>2}  {'ticks':>5}  {'raw_range':>12}  "
-        f"{'rad':>7}  {'rad_range':>14}  bar             ",
+        f"  {'joint':<14} {'ID':>2}  {'ticks':>5}  {'cal_range':>12}  "
+        f"{'obs_range':>14}  {'rad':>7}  {'rad_range':>14}  bar          ",
         "  " + "-" * (_W - 2),
     ]
     j_calib = (calib or {}).get("joints", {}) if calib else {}
+    observed = observed or {}
     for i, joint in enumerate(leader.JOINTS):
         cal   = j_calib.get(joint, {})
         sid   = cal.get("id", i + 1)
         raw   = raw_pos[joint] if raw_pos else None
+        obs   = observed.get(joint)
         # Use unwrapped for radians (continuous across boundary), and
         # calibration math from the leader for the actual displayed rad.
         rad: Optional[float] = None
@@ -168,13 +178,14 @@ def _render(
                 raw_frac = (mn - u) / span if span else 0.5
             frac = max(0.0, min(1.0, raw_frac))
             rad  = r_min + frac * (r_max - r_min)
-        lines.append(_fmt_joint_row(joint, leader.AIZEE_JOINTS[i], sid, raw, rad, cal))
+        lines.append(_fmt_joint_row(joint, leader.AIZEE_JOINTS[i], sid,
+                                    raw, rad, cal, obs))
 
     calib_path = default_calib_path(kind)
     calib_note = f"calib: {calib_path}" if calib else f"{_YEL}no calibration loaded ({calib_path}){_RST}"
-    keys = "Q = quit"
+    keys = "Q = quit    R = save observed range as cal limits    X = clear observed"
     if kind == "openrb":
-        keys += "    C = center all servos sequentially (slow, no current spike)"
+        keys += "    C = center all"
     lines += [
         "  " + "-" * (_W - 2),
         f"  {calib_note}",
@@ -275,9 +286,23 @@ def main() -> None:
     getch  = _setup_kb()
     period = 1.0 / max(1.0, args.rate)
     status_line = ""
+    # Per-joint observed (min, max) ticks across this session.  Updated
+    # every poll; can be saved to the calibration JSON via 'R' or wiped
+    # via 'X' so the user can re-sweep without restarting the script.
+    observed: dict[str, tuple[int, int]] = {}
+
+    def _update_observed(raw: Optional[dict[str, int]]) -> None:
+        if not raw:
+            return
+        for j, v in raw.items():
+            if j not in observed:
+                observed[j] = (v, v)
+            else:
+                mn, mx = observed[j]
+                observed[j] = (min(mn, v), max(mx, v))
 
     # First draw (no data yet).
-    lines = _render(leader, kind, port, None, None, leader._calib)
+    lines = _render(leader, kind, port, None, None, leader._calib, observed)
     n = _draw(lines, first=True)
 
     try:
@@ -298,8 +323,9 @@ def main() -> None:
                     status_line = f"{_YEL}centering {joint} (ID={sid})...{_RST}"
                     unw   = leader.read_unwrapped()
                     raw   = {j: v % 4096 for j, v in unw.items()} if unw else None
+                    _update_observed(raw)
                     lines = _render(leader, kind, port, raw, unw,
-                                    leader._calib, status=status_line)
+                                    leader._calib, observed, status=status_line)
                     n     = _draw(lines, n_prev=n)
                     st, found_id, pos = leader.center_one(sid)
                     results.append((joint, sid, st, pos))
@@ -313,10 +339,29 @@ def main() -> None:
                 else:
                     status_line = (f"{_RED}centered {ok_count}/7  failed: "
                                    f"{'; '.join(fail_bits)}{_RST}")
+            elif ch == "R":
+                # Save observed (min, max) per joint into calibration JSON.
+                if not observed:
+                    status_line = (f"{_YEL}no positions observed yet — "
+                                   f"sweep the arm before pressing R{_RST}")
+                else:
+                    try:
+                        leader.save_limits(observed)
+                        status_line = (
+                            f"{_GRN}saved observed range to "
+                            f"{default_calib_path(kind)} ({len(observed)} joints){_RST}"
+                        )
+                    except Exception as exc:
+                        status_line = f"{_RED}save failed: {exc}{_RST}"
+            elif ch == "X":
+                # Clear observed extremes so the user can re-sweep cleanly.
+                observed.clear()
+                status_line = f"{_YEL}observed range cleared — sweep again{_RST}"
             unw   = leader.read_unwrapped()
             raw   = {j: v % 4096 for j, v in unw.items()} if unw else None
+            _update_observed(raw)
             lines = _render(leader, kind, port, raw, unw,
-                            leader._calib, status=status_line)
+                            leader._calib, observed, status=status_line)
             n     = _draw(lines, n_prev=n)
             time.sleep(period)
     except KeyboardInterrupt:
