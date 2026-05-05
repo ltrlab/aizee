@@ -33,10 +33,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from record_replay import ARM_JOINTS, KP, KD, setup_keyboard, load_arm_limits, clamp_arm_positions
 from control.gravity_comp import ArmGravityModel
+from common.wire import pack_msg, unpack_msg
 
-NUM_JOINTS    = len(ARM_JOINTS)   # 6
+NUM_JOINTS    = len(ARM_JOINTS)   # 7 (swivel + 6 gantry, after unification)
 LOOP_HZ       = 30
-_REPLAY_JOINTS = ["swivel"] + ARM_JOINTS   # 7 joints for display
+# Display layout — same swivel-first 7-DOF list as ARM_JOINTS.
+_REPLAY_JOINTS = list(ARM_JOINTS)
 
 # ---------------------------------------------------------------------------
 # Display constants
@@ -253,7 +255,7 @@ def _drain(sock) -> Optional[dict]:
     latest = None
     while True:
         try:
-            latest = json.loads(sock.recv_string(zmq.NOBLOCK))
+            latest = unpack_msg(sock.recv(zmq.NOBLOCK))
         except zmq.Again:
             break
         except Exception:
@@ -263,7 +265,7 @@ def _drain(sock) -> Optional[dict]:
 
 def _send(sock, msg: dict) -> None:
     try:
-        sock.send_string(json.dumps(msg), zmq.NOBLOCK)
+        sock.send(pack_msg(msg), zmq.NOBLOCK)
     except zmq.Again:
         pass
 
@@ -337,55 +339,50 @@ def _load_endpoints() -> dict:
 # Episode loading
 # ---------------------------------------------------------------------------
 
-def load_episode(path: Path) -> tuple[np.ndarray, Optional[np.ndarray], float]:
-    """Load episode HDF5 (format_version=2).
+def load_episode(path: Path) -> tuple[np.ndarray, float]:
+    """Load episode HDF5 and return `(qpos[T, NUM_JOINTS], hz)`.
 
-    format_version=2 stores the swivel as column 0 of qpos / qcmd. This
-    loader peels column 0 back into a separate `swivel` array for the
-    existing renderer / command path.
-
-    Returns:
-        qpos   : [T, 6] float32 — arm joint positions (commanded if available, else actual)
-        swivel : [T]    float32 — swivel positions (column 0), or None if absent
-        hz     : float  — recording rate
+    qpos is always 7-DOF in ARM_JOINTS order (swivel-first).  Pre-
+    unification files where qpos was 6-DOF gantry-only with a sidecar
+    `swivel` dataset are stitched into the unified shape transparently.
     """
     with h5py.File(path, "r") as f:
         if "observations" in f and "qpos" in f["observations"]:
-            if "qcmd" in f["observations"]:
-                raw = f["observations/qcmd"][:]
+            obs = f["observations"]
+            if "qcmd" in obs:
+                raw = obs["qcmd"][:]
                 print("  Using commanded positions (qcmd) for replay")
             else:
-                raw = f["observations/qpos"][:]
+                raw = obs["qpos"][:]
                 print("  Using actual positions (qpos) for replay — no qcmd in file")
+            sw = obs["swivel"][:] if "swivel" in obs else None
             hz = float(f.attrs.get("hz", 20.0))
-            fmt = int(f.attrs.get("format_version", 1))
         elif "qpos" in f:
             raw = f["qpos"][:]
-            hz = float(f.attrs.get("hz", 20.0))
-            fmt = int(f.attrs.get("format_version", 1))
+            sw  = f["swivel"][:] if "swivel" in f else None
+            hz  = float(f.attrs.get("hz", 20.0))
         else:
             raise ValueError(f"Unrecognised HDF5 format: {path}")
 
     raw = raw.astype(np.float32)
-
     if raw.ndim != 2:
         raise ValueError(f"qpos must be 2D, got shape {raw.shape}")
 
-    # format_version=2: 7 columns = [swivel, *ARM_JOINTS]
-    if raw.shape[1] == NUM_JOINTS + 1:
-        swivel = raw[:, 0].copy()
-        qpos = raw[:, 1:].copy()
-        return qpos, swivel, hz
-
-    # Legacy: 6 columns, no swivel recorded
+    # 7-DOF unified — return as-is.
     if raw.shape[1] == NUM_JOINTS:
-        if fmt >= 2:
-            print(f"  [WARN] format_version={fmt} but qpos has only {NUM_JOINTS} columns")
-        return raw, None, hz
+        return raw, hz
+
+    # Legacy 6-DOF gantry-only with sidecar swivel.
+    if raw.shape[1] == NUM_JOINTS - 1:
+        if sw is None:
+            sw = np.zeros((raw.shape[0],), dtype=np.float32)
+        sw_col = sw.astype(np.float32).reshape(-1, 1)
+        n      = min(sw_col.shape[0], raw.shape[0])
+        return np.hstack([sw_col[:n], raw[:n]]).astype(np.float32), hz
 
     raise ValueError(
-        f"qpos has {raw.shape[1]} columns; expected {NUM_JOINTS} or {NUM_JOINTS + 1} "
-        f"(swivel-prefixed). Re-record this episode with the current collect_demo.py."
+        f"qpos has {raw.shape[1]} columns; expected {NUM_JOINTS} (unified) or "
+        f"{NUM_JOINTS - 1} (legacy 6-DOF + sidecar swivel)"
     )
 
 
@@ -433,22 +430,28 @@ def main() -> None:
         print(f"Error: file not found: {ep_path}", file=sys.stderr)
         sys.exit(1)
 
-    ep_qpos, ep_swivel, ep_hz = load_episode(ep_path)
+    ep_qpos, ep_hz = load_episode(ep_path)
     ep_frames    = len(ep_qpos)
     ep_duration  = ep_frames / ep_hz if ep_hz > 0 else 0.0
     frame_period = 1.0 / (ep_hz * args.speed)   # wall-clock seconds per frame
-    has_swivel   = ep_swivel is not None
     goto_start   = not args.no_goto_start
     _ramp_delta  = args.ramp_speed / LOOP_HZ   # rad per control step
 
     arm_limits = load_arm_limits(Path(args.robstride_calib) if args.robstride_calib else None)
-    _yaml  = _load_teleop_yaml()
-    _tcfg  = _yaml.get("gantry", {})
-    _dcfg  = _yaml.get("drive",  {})
-    _kp: list      = _tcfg.get("kp", KP)[:NUM_JOINTS]
-    _kd: list      = _tcfg.get("kd", KD)[:NUM_JOINTS]
-    _swivel_kp     = float(_dcfg.get("swivel_kp", 80.0))
-    _swivel_kd     = float(_dcfg.get("swivel_kd", 5.0))
+    _yaml = _load_teleop_yaml()
+    # 7-DOF gain vectors live under `arm.kp/kd` post-unification; fall back
+    # to the legacy split (`gantry.kp` + `drive.swivel_kp`) for older configs.
+    _acfg = _yaml.get("arm", {})
+    if "kp" in _acfg and "kd" in _acfg:
+        _kp: list = list(_acfg["kp"])
+        _kd: list = list(_acfg["kd"])
+    else:
+        _gan = _yaml.get("gantry", {})
+        _drv = _yaml.get("drive",  {})
+        _kp = [float(_drv.get("swivel_kp", KP[0]))] + list(_gan.get("kp", KP[1:]))
+        _kd = [float(_drv.get("swivel_kd", KD[0]))] + list(_gan.get("kd", KD[1:]))
+    _kp = list(_kp)[:NUM_JOINTS]
+    _kd = list(_kd)[:NUM_JOINTS]
 
     # -------------------------------------------------------------------------
     # Gravity compensation model
@@ -467,10 +470,12 @@ def main() -> None:
             print("Gravity comp: using default model (placeholder masses)")
         _grav_model.print_model()
 
-    # Gravity comp mask: only apply to joints that need it.
-    # wrist_pitch disabled — physically perpendicular, doesn't bear gravity load.
-    # gantry_base (Z-axis) and gripper (Z-axis) are always zero anyway.
-    _GRAV_MASK = [1, 1, 1, 0, 1, 0]  # [base, mid, end, wrist_pitch, wrist_roll, gripper]
+    # Gravity comp mask, ARM_JOINTS-aligned (swivel-first 7-DOF):
+    # swivel — vertical axis, no torque contribution, mask=0.
+    # gantry_base — Z-axis, mask=0 anyway.
+    # wrist_pitch — perpendicular, doesn't bear load, mask=0.
+    # gripper — Z-axis, mask=0.
+    _GRAV_MASK = [0, 1, 1, 1, 0, 1, 0]  # [swivel, base, mid, end, wp, wr, gripper]
     if _grav_model is not None:
         print(f"Gravity comp: joints=[gantry_mid, gantry_end], scale={args.gravity_scale:.2f}")
 
@@ -521,9 +526,8 @@ def main() -> None:
 
     get_key = setup_keyboard()
 
-    # Seed q_actual from first telemetry packet
-    q_actual:      Optional[np.ndarray] = None
-    swivel_actual: Optional[float]      = None
+    # Seed q_actual from first telemetry packet (7-DOF, swivel-first).
+    q_actual: Optional[np.ndarray] = None
     if not args.dry_run:
         for _ in range(40):
             telem = _drain(telem_sock)
@@ -531,9 +535,6 @@ def main() -> None:
                 q = _qpos(telem)
                 if q is not None:
                     q_actual = q
-                    sw = telem.get("motors", {}).get("swivel")
-                    if sw is not None:
-                        swivel_actual = float(sw.get("position", 0.0))
                     break
             time.sleep(0.05)
 
@@ -553,20 +554,16 @@ def main() -> None:
     state               = State.READY
     frame_idx           = 0
     last_frame_wall     = 0.0
-    # current_target / current_swivel_tgt: what we last commanded
-    current_target:      Optional[np.ndarray] = ep_qpos[0] if ep_frames > 0 else None
-    current_swivel_tgt:  Optional[float]      = float(ep_swivel[0]) if has_swivel and ep_frames > 0 else None
+    # current_target is the 7-DOF command we last latched (swivel = index 0).
+    current_target:      Optional[np.ndarray] = ep_qpos[0].copy() if ep_frames > 0 else None
     arm_torques:         Optional[np.ndarray] = None
     arm_temps:           Optional[np.ndarray] = None
-    swivel_torque:       Optional[float]      = None
-    swivel_temp:         Optional[float]      = None
     last_telem_time:     float = time.time() if q_actual is not None else 0.0
     robot_ok:            bool  = q_actual is not None
     ups_data:            Optional[dict]  = None
     battery_voltage:     Optional[float] = None
     dropped              = 0
     shutdown_target:     Optional[np.ndarray] = None
-    shutdown_swivel:     Optional[float]      = None
     shutdown_countdown:  float = 0.0
     shutdown_zero_since: float = 0.0
     shutdown_grav_ramp:  Optional[float] = None
@@ -574,22 +571,12 @@ def main() -> None:
 
     status = "[ ] ready — motors off"
     hint   = "SPACE=start · Q=quit"
-    if not has_swivel:
-        hint += "  [no swivel in episode]"
 
     period = 1.0 / LOOP_HZ
 
-    def _make_disp(arm: Optional[np.ndarray], swivel: Optional[float]) -> Optional[np.ndarray]:
-        """Build 7-element [swivel, arm...] display array."""
-        if arm is None:
-            return None
-        sv = swivel if swivel is not None else _nan
-        return np.concatenate([[sv], arm]).astype(np.float32)
-
     _draw(_render(
         ep_path.name, ep_frames, ep_duration, ep_hz,
-        _make_disp(current_target, current_swivel_tgt),
-        _make_disp(q_actual, swivel_actual),
+        current_target, q_actual,
         status, hint, robot_ok=robot_ok,
         frame_idx=frame_idx, speed=args.speed,
     ), first=True)
@@ -616,12 +603,6 @@ def main() -> None:
             "torques": ff_torques if ff_torques is not None else [0.0] * NUM_JOINTS,
         })
 
-    def _send_swivel(pos: float) -> None:
-        if args.dry_run:
-            return
-        _send(cmd_sock, {"type": "swivel", "position": pos,
-                         "kp": _swivel_kp, "kd": _swivel_kd})
-
     def _safe_cmd(target_pos: np.ndarray, ref: Optional[np.ndarray]) -> np.ndarray:
         r = ref if ref is not None else target_pos
         q = r + np.clip(target_pos - r, -args.max_delta, args.max_delta)
@@ -629,7 +610,7 @@ def main() -> None:
             q = np.array(clamp_arm_positions(q.tolist(), arm_limits))
         return q
 
-    all_motor_ids = (["swivel"] + ARM_JOINTS) if has_swivel else ARM_JOINTS
+    all_motor_ids = list(ARM_JOINTS)
 
     try:
         while True:
@@ -684,7 +665,6 @@ def main() -> None:
             elif key == "X":
                 if state in (State.PLAYING, State.PAUSED, State.DONE, State.ARMING):
                     shutdown_target    = q_actual.copy() if q_actual is not None else np.zeros(NUM_JOINTS)
-                    shutdown_swivel    = swivel_actual if swivel_actual is not None else 0.0
                     shutdown_countdown  = 1.0
                     shutdown_zero_since = 0.0
                     shutdown_grav_ramp  = None
@@ -694,22 +674,16 @@ def main() -> None:
             # Per-state actions
             # -----------------------------------------------------------------
             if state == State.ARMING:
-                tgt    = ep_qpos[0]
-                sw_tgt = float(ep_swivel[0]) if has_swivel else None
-                # Slow ramp to start position (ramp_speed rad/s, not max_delta)
+                tgt = ep_qpos[0]
+                # Slow ramp to start pose (ramp_speed rad/s, not max_delta).
+                # All 7 joints (swivel-first) ramp together.
                 ref   = q_actual if q_actual is not None else tgt
                 q_cmd = ref + np.clip(tgt - ref, -_ramp_delta, _ramp_delta)
                 if arm_limits:
                     q_cmd = np.array(clamp_arm_positions(q_cmd.tolist(), arm_limits))
                 _send_arm(q_cmd)
-                if sw_tgt is not None:
-                    _send_swivel(sw_tgt)
-                current_target     = tgt
-                current_swivel_tgt = sw_tgt
-                arm_ok  = q_actual is not None and np.all(np.abs(q_actual - tgt) < 0.03)
-                swiv_ok = (not has_swivel or sw_tgt is None or swivel_actual is None
-                           or abs(swivel_actual - sw_tgt) < 0.03)
-                if arm_ok and swiv_ok:
+                current_target = tgt
+                if q_actual is not None and np.all(np.abs(q_actual - tgt) < 0.03):
                     last_frame_wall = t0
                     state = State.PLAYING
 
@@ -717,14 +691,10 @@ def main() -> None:
                 if t0 - last_frame_wall >= frame_period and frame_idx < ep_frames:
                     last_frame_wall = t0
                     tgt    = ep_qpos[frame_idx]
-                    sw_tgt = float(ep_swivel[frame_idx]) if has_swivel else None
                     vel_ff = (ep_velocities[frame_idx].tolist()
                               if ep_velocities is not None else None)
                     _send_arm(_safe_cmd(tgt, current_target), velocities=vel_ff)
-                    if sw_tgt is not None:
-                        _send_swivel(sw_tgt)
-                    current_target     = tgt
-                    current_swivel_tgt = sw_tgt
+                    current_target = tgt
                     frame_idx += 1
                     if frame_idx >= ep_frames:
                         if args.loop:
@@ -735,8 +705,6 @@ def main() -> None:
             elif state in (State.PAUSED, State.DONE):
                 if current_target is not None:
                     _send_arm(_safe_cmd(current_target, q_actual))
-                if current_swivel_tgt is not None:
-                    _send_swivel(current_swivel_tgt)
 
             elif state == State.SHUTDOWN:
                 dt         = period
@@ -745,17 +713,10 @@ def main() -> None:
                     shutdown_countdown -= dt
                     if shutdown_target is not None:
                         _send_arm(shutdown_target)
-                    if shutdown_swivel is not None:
-                        _send_swivel(shutdown_swivel)
                 else:
                     if shutdown_target is None:
                         shutdown_target = np.zeros(NUM_JOINTS)
-                    # Check completion BEFORE sending — the ZMQ PUSH socket
-                    # has HWM=2 so sending arm+swivel+disable in one iteration
-                    # would silently drop the disable command.
-                    ramp_done = (np.all(np.abs(shutdown_target) < 0.01)
-                                 and (not has_swivel
-                                      or abs(shutdown_swivel if shutdown_swivel is not None else 0.0) < 0.01))
+                    ramp_done = bool(np.all(np.abs(shutdown_target) < 0.01))
                     if ramp_done and shutdown_zero_since == 0.0:
                         shutdown_zero_since = t0
                     actual_close = (q_actual is None or np.all(np.abs(q_actual) < 0.05))
@@ -766,20 +727,18 @@ def main() -> None:
                         if shutdown_grav_ramp > 0.01:
                             shutdown_grav_ramp = max(0.0, shutdown_grav_ramp - dt * 2.0)
                             _send_arm(np.zeros(NUM_JOINTS), grav_scale=shutdown_grav_ramp)
-                            if has_swivel:
-                                _send_swivel(0.0)
                         else:
                             if not args.dry_run:
                                 _send(cmd_sock, {"type": "disable", "motor_ids": all_motor_ids})
-                            state              = State.READY
-                            frame_idx          = 0
-                            current_target     = ep_qpos[0] if ep_frames > 0 else None
-                            current_swivel_tgt = float(ep_swivel[0]) if has_swivel and ep_frames > 0 else None
+                            state          = State.READY
+                            frame_idx      = 0
+                            current_target = ep_qpos[0].copy() if ep_frames > 0 else None
                     elif ramp_done and (actual_close or timed_out):
                         # Position ramp complete — begin gravity comp ramp-down
                         shutdown_grav_ramp = args.gravity_scale if _grav_model is not None else 0.0
                     else:
-                        # Still ramping — send position commands
+                        # Still ramping — send position commands.  The 7-DOF
+                        # arm covers swivel as joint 0; no separate send.
                         ref     = q_actual if q_actual is not None else shutdown_target
                         new_tgt = shutdown_target.copy()
                         for i in range(len(new_tgt)):
@@ -787,12 +746,6 @@ def main() -> None:
                                           else new_tgt[i] - np.sign(new_tgt[i]) * max_change)
                         shutdown_target = new_tgt
                         _send_arm(_safe_cmd(shutdown_target, ref))
-                        if shutdown_swivel is None:
-                            shutdown_swivel = 0.0
-                        shutdown_swivel = (0.0 if abs(shutdown_swivel) < max_change
-                                           else shutdown_swivel - np.sign(shutdown_swivel) * max_change)
-                        if has_swivel:
-                            _send_swivel(shutdown_swivel)
 
             # -----------------------------------------------------------------
             # Telemetry
@@ -804,11 +757,8 @@ def main() -> None:
                 robot_ok        = True
                 last_telem_time = t0
             if telem and "motors" in telem:
-                sw = telem["motors"].get("swivel")
-                if sw is not None:
-                    swivel_actual = float(sw.get("position",    0.0))
-                    swivel_torque = float(sw.get("torque",      _nan))
-                    swivel_temp   = float(sw.get("temperature", _nan))
+                # Swivel is part of ARM_JOINTS now — _qtorque/_qtemp return
+                # 7-DOF arrays directly, no separate swivel extract.
                 tq = _qtorque(telem)
                 if tq is not None:
                     arm_torques = tq
@@ -864,28 +814,18 @@ def main() -> None:
                 hint   = "Q=quit"
 
             # -----------------------------------------------------------------
-            # Render
+            # Render — display arrays are already 7-DOF (swivel-first).
             # -----------------------------------------------------------------
-            if state == State.SHUTDOWN:
-                disp_arm    = shutdown_target
-                disp_swivel = shutdown_swivel
-            else:
-                disp_arm    = current_target
-                disp_swivel = current_swivel_tgt
-
-            disp_torque = (_make_disp(arm_torques, swivel_torque)
-                           if arm_torques is not None else None)
-            disp_temp   = (_make_disp(arm_temps,   swivel_temp)
-                           if arm_temps is not None else None)
-            telem_age   = t0 - last_telem_time if robot_ok else 999.0
+            disp_arm  = shutdown_target if state == State.SHUTDOWN else current_target
+            telem_age = t0 - last_telem_time if robot_ok else 999.0
 
             _draw(_render(
                 ep_path.name, ep_frames, ep_duration, ep_hz,
-                _make_disp(disp_arm, disp_swivel),
-                _make_disp(q_actual, swivel_actual),
+                disp_arm,
+                q_actual,
                 status, hint,
                 robot_ok, telem_age, ups_data,
-                disp_torque, disp_temp, battery_voltage,
+                arm_torques, arm_temps, battery_voltage,
                 frame_idx, args.speed, dropped,
             ))
 

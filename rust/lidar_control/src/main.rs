@@ -103,10 +103,10 @@ fn publish_scans(context: &zmq::Context, endpoint: &str, scans: &[LidarScan]) ->
     let mut telemetry_msg = TelemetryMessage::new();
     telemetry_msg.lidar_scans = Some(scans.to_vec());
 
-    let json = serde_json::to_string(&telemetry_msg)
-        .context("Failed to serialize telemetry message")?;
+    let bytes = rmp_serde::to_vec_named(&telemetry_msg)
+        .context("Failed to serialize telemetry message to msgpack")?;
 
-    socket.send(&json, 0)
+    socket.send(&bytes, 0)
         .context("Failed to send telemetry message")?;
 
     Ok(())
@@ -186,10 +186,10 @@ async fn main() -> Result<()> {
                     let mut telemetry_msg = TelemetryMessage::new();
                     telemetry_msg.lidar_scans = Some(scan_buffer.clone());
 
-                    // Serialize and publish
-                    match serde_json::to_string(&telemetry_msg) {
-                        Ok(json) => {
-                            if let Err(e) = socket.send(&json, 0) {
+                    // Serialize (msgpack with named fields) and publish
+                    match rmp_serde::to_vec_named(&telemetry_msg) {
+                        Ok(bytes) => {
+                            if let Err(e) = socket.send(&bytes, 0) {
                                 error!("Failed to publish LiDAR telemetry: {}", e);
                             } else {
                                 info!("Published {} LiDAR scan(s)", scan_buffer.len());

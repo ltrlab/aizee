@@ -50,6 +50,12 @@ import zmq
 from PIL import Image
 
 try:
+    import cv2
+    _cv2_available = True
+except ImportError:
+    _cv2_available = False
+
+try:
     import pygame
     _pygame_available = True
 except ImportError:
@@ -97,14 +103,28 @@ from record_replay import (
     setup_keyboard, load_arm_limits, clamp_arm_positions,
 )
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from common.wire import pack_msg, unpack_camera, unpack_msg
+
 LOOP_HZ    = 30
 REC_HZ     = 20
-NUM_JOINTS = len(ARM_JOINTS)   # 6
+NUM_JOINTS = len(ARM_JOINTS)   # 7 (swivel + 6 gantry)
 
 # Reduce GIL switch interval so background threads (camera JSON parsing,
 # image decode, Rerun logging) yield to the main loop faster.  Default is
 # 5 ms — a single large camera JSON parse can stall the main loop that long.
 sys.setswitchinterval(0.001)   # 1 ms
+
+# On Windows, time.sleep granularity defaults to ~15.6 ms, which inflates
+# the 30 Hz period jitter (we've measured p99 leaking to 100+ ms).  Asking
+# the multimedia timer for 1 ms resolution tightens the loop period to the
+# OS scheduler floor.  No-op on non-Windows.
+if sys.platform == "win32":
+    try:
+        import ctypes
+        ctypes.windll.winmm.timeBeginPeriod(1)
+    except Exception:
+        pass
 
 # ---------------------------------------------------------------------------
 # Display constants
@@ -113,11 +133,12 @@ sys.setswitchinterval(0.001)   # 1 ms
 _W  = 76
 _IW = _W - 2
 
-_LEADER_JOINTS = ["swivel", "gantry_base", "gantry_mid", "gantry_end",
-                  "wrist_pitch", "wrist_roll", "gripper"]
+# Display layout — leader joints in the same swivel-first order as ARM_JOINTS.
+_LEADER_JOINTS = list(ARM_JOINTS)
 
 _BASE_MOTORS = ["left_wheel", "right_wheel"]
-_ALL_MOTORS  = _BASE_MOTORS + ["swivel"] + list(ARM_JOINTS)
+# Swivel is now part of ARM_JOINTS (joint 0), so no separate entry here.
+_ALL_MOTORS  = _BASE_MOTORS + list(ARM_JOINTS)
 
 _SAT_TORQUE = {
     "swivel":      12.0,   # RS03 nominal
@@ -459,54 +480,53 @@ def _start_display_thread() -> tuple[threading.Event, threading.Thread,
     return stop, thread, lock, holder, signal
 
 
-def _start_rerun_thread() -> tuple[threading.Event, threading.Thread,
-                                    threading.Lock, dict, threading.Event]:
-    """Background thread for Rerun camera image logging.
+def _start_rerun_thread(
+    dec_lock: threading.Lock,
+    dec_cache: dict,
+) -> tuple[threading.Event, threading.Thread,
+            threading.Lock, dict, threading.Event]:
+    """Background thread for Rerun logging.
 
-    base64 decode + rr.log() can block 5-30 ms when the Rerun viewer's
-    ingestion pipe backs up.  Fire-and-forget from the main loop.
+    Camera frames are pulled from the shared decoder cache (already-decoded
+    uint8 RGB, with the left camera pre-flipped) — no JPEG decode or
+    re-encode happens here.  rr.log() can still block 5-30 ms when the
+    viewer's ingestion pipe backs up, hence the dedicated thread.
     """
     lock   = threading.Lock()
-    holder: dict = {"left": None, "right": None, "time": 0.0,
-                    "joints": None, "leader": None}
+    holder: dict = {"time": 0.0, "joints": None, "leader": None}
     signal = threading.Event()
     stop   = threading.Event()
+    prev_lt = 0.0
+    prev_rt = 0.0
 
     def _run() -> None:
-        import base64 as _b64
+        nonlocal prev_lt, prev_rt
         while not stop.is_set():
             if not signal.wait(timeout=0.1):
                 continue
             signal.clear()
             with lock:
-                lj = holder["left"]
-                rj = holder["right"]
-                ts = holder["time"]
+                ts     = holder["time"]
                 joints = holder["joints"]
                 leader = holder["leader"]
-                holder["left"]   = None
-                holder["right"]  = None
                 holder["joints"] = None
                 holder["leader"] = None
+            with dec_lock:
+                left_img  = dec_cache["left"]
+                left_t    = dec_cache["left_time"]
+                right_img = dec_cache["right"]
+                right_t   = dec_cache["right_time"]
             try:
                 rr.set_time("time", timestamp=ts)
-                if lj:
-                    # Flip left camera vertically to match world orientation
-                    _raw = _b64.b64decode(lj)
-                    _img = Image.open(io.BytesIO(_raw))
-                    _img = _img.transpose(Image.FLIP_TOP_BOTTOM)
-                    _buf = io.BytesIO()
-                    _img.save(_buf, format="JPEG", quality=85)
-                    rr.log("cameras/left", rr.EncodedImage(
-                        contents=_buf.getvalue(), media_type="image/jpeg"))
-                if rj:
-                    rr.log("cameras/right", rr.EncodedImage(
-                        contents=_b64.b64decode(rj), media_type="image/jpeg"))
-                # Log actual joint positions (solid lines)
+                if left_img is not None and left_t > prev_lt:
+                    rr.log("cameras/left", rr.Image(left_img))
+                    prev_lt = left_t
+                if right_img is not None and right_t > prev_rt:
+                    rr.log("cameras/right", rr.Image(right_img))
+                    prev_rt = right_t
                 if joints is not None:
                     for jname, val in joints.items():
                         rr.log(f"joints/{jname}", rr.Scalars(val))
-                # Log leader arm commands (dashed — shows tracking error)
                 if leader is not None:
                     for jname, val in leader.items():
                         rr.log(f"leader/{jname}", rr.Scalars(val))
@@ -767,7 +787,7 @@ def _drain(sock) -> Optional[dict]:
     latest = None
     while True:
         try:
-            latest = json.loads(sock.recv_string(zmq.NOBLOCK))
+            latest = unpack_msg(sock.recv(zmq.NOBLOCK))
         except zmq.Again:
             break
         except Exception:
@@ -775,11 +795,148 @@ def _drain(sock) -> Optional[dict]:
     return latest
 
 
+_cmd_sock_lock = threading.Lock()  # serialises cmd_sock.send across threads
+
+
 def _send(sock, msg: dict) -> None:
+    """Send one message.  Holds `_cmd_sock_lock` so direct sends from the
+    main loop (enable/disable/emergency_stop/replay) don't race with the
+    dedicated cmd-sender thread on the same PUSH socket."""
     try:
-        sock.send_string(json.dumps(msg), zmq.NOBLOCK)
+        with _cmd_sock_lock:
+            sock.send(pack_msg(msg), zmq.NOBLOCK)
     except zmq.Again:
         pass
+
+
+def _build_bundle(
+    arm: Optional[dict] = None,
+    drive: Optional[dict] = None,
+) -> Optional[dict]:
+    """Construct a Bundle message.  Returns None if both sub-payloads are None.
+
+    Swivel is part of `arm` (joint 0) — there is no separate swivel field.
+    """
+    if arm is None and drive is None:
+        return None
+    msg: dict = {"type": "bundle"}
+    if arm is not None:
+        msg["arm_joints"] = arm
+    if drive is not None:
+        msg["drive"] = drive
+    return msg
+
+
+def _send_bundle(
+    sock,
+    arm: Optional[dict] = None,
+    drive: Optional[dict] = None,
+) -> None:
+    """Send a Bundle once, synchronously.  For one-shots (live replay) and
+    shutdown paths.  The 30 Hz teleop path goes through the dedicated
+    cmd-sender thread instead — see `_start_cmd_sender`.
+    """
+    msg = _build_bundle(arm, drive)
+    if msg is None:
+        return
+    try:
+        with _cmd_sock_lock:
+            sock.send(pack_msg(msg), zmq.NOBLOCK)
+    except zmq.Again:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Dedicated command sender thread
+# ---------------------------------------------------------------------------
+# Re-emits the latest queued Bundle at a higher rate than the 30 Hz main
+# loop, so the controller's PD loop sees a fresh frame within ~10 ms even
+# when the main loop is mid-tick.  Also pays the msgpack pack + ZMQ send
+# cost off the main loop (used to be the dominant `motor` p99 spike).
+
+_CMD_SEND_HZ = 100   # send cadence; 10 ms tick
+
+def _start_cmd_sender(
+    sock,
+    hz: int = _CMD_SEND_HZ,
+) -> tuple[threading.Event, threading.Thread, threading.Lock, dict]:
+    lock   = threading.Lock()
+    holder: dict = {"bundle": None}   # latest Bundle dict (None = nothing to send)
+    stop   = threading.Event()
+    period = 1.0 / hz
+
+    def _run() -> None:
+        next_t = time.perf_counter() + period
+        while not stop.is_set():
+            with lock:
+                msg = holder["bundle"]
+            if msg is not None:
+                try:
+                    with _cmd_sock_lock:
+                        sock.send(pack_msg(msg), zmq.NOBLOCK)
+                except zmq.Again:
+                    pass
+                except Exception:
+                    pass
+            now = time.perf_counter()
+            sleep_t = next_t - now
+            if sleep_t > 0:
+                stop.wait(sleep_t)
+            next_t += period
+            # Drift catch-up: if we fell behind by more than one period,
+            # snap forward instead of bursting catch-up sends.
+            if next_t < time.perf_counter():
+                next_t = time.perf_counter() + period
+
+    thread = threading.Thread(target=_run, daemon=True, name="CmdTx")
+    thread.start()
+    return stop, thread, lock, holder
+
+
+# ---------------------------------------------------------------------------
+# Background telemetry receiver
+# ---------------------------------------------------------------------------
+# Mirrors the camera-receiver pattern: keeps json.loads of fat telem packets
+# (multi-motor state) off the main loop.  Caches the latest message; main
+# loop reads it under a lock.
+
+def _start_telem_receiver(
+    ctx: zmq.Context,
+    endpoint: str,
+) -> tuple[threading.Event, threading.Thread, threading.Lock, dict]:
+    lock  = threading.Lock()
+    cache: dict = {"msg": None, "time": 0.0}
+    stop  = threading.Event()
+
+    def _run() -> None:
+        sock = ctx.socket(zmq.SUB)
+        sock.setsockopt(zmq.LINGER, 0)
+        sock.setsockopt(zmq.CONFLATE, 1)
+        sock.setsockopt_string(zmq.SUBSCRIBE, "")
+        sock.connect(endpoint)
+
+        poller = zmq.Poller()
+        poller.register(sock, zmq.POLLIN)
+        try:
+            while not stop.is_set():
+                try:
+                    events = dict(poller.poll(timeout=30))
+                except zmq.ZMQError:
+                    break
+                if sock in events:
+                    try:
+                        msg = unpack_msg(sock.recv(zmq.NOBLOCK))
+                    except Exception:
+                        continue
+                    with lock:
+                        cache["msg"]  = msg
+                        cache["time"] = time.time()
+        finally:
+            sock.close()
+
+    thread = threading.Thread(target=_run, daemon=True, name="TelemRx")
+    thread.start()
+    return stop, thread, lock, cache
 
 
 # ---------------------------------------------------------------------------
@@ -804,15 +961,21 @@ def _start_cam_receiver(
     stop = threading.Event()
 
     def _run() -> None:
+        # NOTE: zmq.CONFLATE is incompatible with multi-frame messages.  After
+        # the camera channel switched to multipart (header msgpack + raw JPEG),
+        # CONFLATE on the SUB triggered libzmq's `!_more` assertion in fq.cpp
+        # the first time a new frame arrived mid-receive.  We drop CONFLATE
+        # and instead set a small RCVHWM and drain to the latest message
+        # explicitly inside the recv block.
         left_sock = ctx.socket(zmq.SUB)
         left_sock.setsockopt(zmq.LINGER, 0)
-        left_sock.setsockopt(zmq.CONFLATE, 1)
+        left_sock.setsockopt(zmq.RCVHWM, 2)
         left_sock.setsockopt_string(zmq.SUBSCRIBE, "")
         left_sock.connect(left_ep)
 
         right_sock = ctx.socket(zmq.SUB)
         right_sock.setsockopt(zmq.LINGER, 0)
-        right_sock.setsockopt(zmq.CONFLATE, 1)
+        right_sock.setsockopt(zmq.RCVHWM, 2)
         right_sock.setsockopt_string(zmq.SUBSCRIBE, "")
         right_sock.connect(right_ep)
 
@@ -833,38 +996,54 @@ def _start_cam_receiver(
         try:
             while not stop.is_set():
                 try:
-                    events = dict(poller.poll(timeout=100))
+                    # 30 ms ≈ one main-loop tick; matches LOOP_HZ so a stop
+                    # request or backlog is noticed within ~one frame.
+                    events = dict(poller.poll(timeout=30))
                 except zmq.ZMQError:
                     break
                 now = time.time()
 
                 if left_sock in events:
-                    try:
-                        msg = json.loads(left_sock.recv_string(zmq.NOBLOCK))
+                    # Drain to the newest available frame (CONFLATE no longer
+                    # applies; old frames would otherwise queue up to RCVHWM=2).
+                    latest = None
+                    while True:
+                        try:
+                            latest = unpack_camera(left_sock.recv_multipart(zmq.NOBLOCK))
+                        except zmq.Again:
+                            break
+                        except Exception:
+                            latest = None
+                            break
+                    if latest is not None:
                         with lock:
-                            cache["left"] = msg
+                            cache["left"] = latest
                             cache["left_time"] = now
-                            ts = msg.get("timestamp")
+                            ts = latest.get("timestamp")
                             if ts is not None:
                                 cache["left_ts"] = float(ts)
-                    except Exception:
-                        pass
 
                 if right_sock in events:
-                    try:
-                        msg = json.loads(right_sock.recv_string(zmq.NOBLOCK))
+                    latest = None
+                    while True:
+                        try:
+                            latest = unpack_camera(right_sock.recv_multipart(zmq.NOBLOCK))
+                        except zmq.Again:
+                            break
+                        except Exception:
+                            latest = None
+                            break
+                    if latest is not None:
                         with lock:
-                            cache["right"] = msg
+                            cache["right"] = latest
                             cache["right_time"] = now
-                            ts = msg.get("timestamp")
+                            ts = latest.get("timestamp")
                             if ts is not None:
                                 cache["right_ts"] = float(ts)
-                    except Exception:
-                        pass
 
                 if ups_sock and ups_sock in events:
                     try:
-                        msg = json.loads(ups_sock.recv_string(zmq.NOBLOCK))
+                        msg = unpack_msg(ups_sock.recv(zmq.NOBLOCK))
                         with lock:
                             cache["ups"] = msg
                     except Exception:
@@ -938,15 +1117,36 @@ def _start_estop_reader(
 # ---------------------------------------------------------------------------
 
 def decode_image(msg: dict, target_size: tuple, flip_v: bool = False) -> Optional[np.ndarray]:
-    """Decode a camera message to uint8 [H, W, 3]. target_size is (W, H)."""
-    color    = msg.get("color", {})
-    data_b64 = color.get("data")
-    if data_b64 is None:
+    """Decode a camera message to uint8 [H, W, 3]. target_size is (W, H).
+
+    Uses cv2 (libjpeg-turbo + INTER_AREA) when available — ~5-10x faster
+    than PIL+LANCZOS and releases the GIL for the JPEG decode and resize.
+    Falls back to PIL when cv2 isn't installed.
+
+    Expects the multipart wire format: `msg["color"]["data_bytes"]` is
+    the raw JPEG.  (Old base64 path under `["data"]` is no longer used.)
+    """
+    color = msg.get("color", {})
+    raw   = color.get("data_bytes")
+    if raw is None:
         return None
-    img = Image.open(io.BytesIO(base64.b64decode(data_b64))).convert("RGB")
+    if _cv2_available:
+        arr = np.frombuffer(raw, dtype=np.uint8)
+        bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if bgr is None:
+            return None
+        if flip_v:
+            bgr = cv2.flip(bgr, 0)
+        # target_size is (W, H); cv2.resize takes (W, H) too.  Skip the
+        # resize when the publisher already produced the target size.
+        if (bgr.shape[1], bgr.shape[0]) != target_size:
+            bgr = cv2.resize(bgr, target_size, interpolation=cv2.INTER_AREA)
+        return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+    img = Image.open(io.BytesIO(raw)).convert("RGB")
     if flip_v:
         img = img.transpose(Image.FLIP_TOP_BOTTOM)
-    img = img.resize(target_size, Image.LANCZOS)
+    if (img.width, img.height) != target_size:
+        img = img.resize(target_size, Image.LANCZOS)
     return np.array(img, dtype=np.uint8)
 
 
@@ -955,7 +1155,7 @@ def decode_image(msg: dict, target_size: tuple, flip_v: bool = False) -> Optiona
 # ---------------------------------------------------------------------------
 
 def _qpos(telem: Optional[dict]) -> Optional[np.ndarray]:
-    """Extract 6-element arm joint positions. Returns None if no arm data."""
+    """Extract 7-element arm joint positions (swivel-first).  None if no arm data."""
     if not telem or "motors" not in telem:
         return None
     motors = telem["motors"]
@@ -1000,40 +1200,10 @@ def _qtemp(telem: Optional[dict]) -> Optional[np.ndarray]:
 # HDF5 episode writer
 # ---------------------------------------------------------------------------
 
-def _prepend_swivel(arm_arr: np.ndarray, swivel_buf, *, fill_name: str) -> np.ndarray:
-    """Prepend the swivel column to a [T, 6] arm array → [T, 7].
-
-    NaN swivel samples (missing telemetry) are forward/backward filled so the
-    resulting array contains no NaNs; if the entire buffer is missing, zeros
-    are used as a last resort with a warning.
-    """
-    T = arm_arr.shape[0]
-    sv = np.asarray(swivel_buf, dtype=np.float32).reshape(-1)
-    assert sv.shape[0] == T, f"swivel length {sv.shape[0]} != {fill_name} length {T}"
-
-    mask = ~np.isnan(sv)
-    if not mask.any():
-        print(f"[save_episode] WARNING: no valid swivel samples for {fill_name}; filling with 0")
-        sv = np.zeros(T, dtype=np.float32)
-    elif not mask.all():
-        # Forward-fill then backward-fill
-        valid_idx = np.where(mask)[0]
-        first = valid_idx[0]
-        last  = valid_idx[-1]
-        sv[:first] = sv[first]
-        sv[last+1:] = sv[last]
-        # Fill any remaining internal gaps with previous value
-        for i in range(first + 1, last):
-            if np.isnan(sv[i]):
-                sv[i] = sv[i - 1]
-
-    return np.concatenate([sv[:, None], arm_arr], axis=1).astype(np.float32)
-
-
 def save_episode(
     output_dir, qpos_buf, left_buf, right_buf,
     telem_ts_buf=None, left_ts_buf=None, right_ts_buf=None,
-    swivel_buf=None, qcmd_buf=None, torque_buf=None,
+    qcmd_buf=None, torque_buf=None,
     task_tag: str = "", notes: str = "",
 ):
     output_dir = Path(output_dir)
@@ -1043,22 +1213,15 @@ def save_episode(
     ep_num   = (int(existing[-1].stem.split("_")[1]) + 1) if existing else 0
     path     = output_dir / f"episode_{ep_num:04d}.hdf5"
 
-    qpos_arm  = np.stack(qpos_buf,  axis=0)   # [T, 6]  arm joints only
-    left_arr  = np.stack(left_buf,  axis=0)   # [T, H, W, 3]
-    right_arr = np.stack(right_buf, axis=0)   # [T, H, W, 3]
-    qcmd_arm  = np.stack(qcmd_buf, axis=0) if qcmd_buf and len(qcmd_buf) == len(qpos_buf) else None
-    torque_arm = np.stack(torque_buf, axis=0) if torque_buf and len(torque_buf) == len(qpos_buf) else None
-
-    # Prepend swivel to every arm array → 7-DOF policy format.
-    # The swivel buffer is always populated alongside qpos_buf in the main loop,
-    # so an assertion here catches any regression.
-    assert swivel_buf is not None and len(swivel_buf) == len(qpos_buf), \
-        "swivel_buf must be present and aligned with qpos_buf"
-
-    qpos_arr   = _prepend_swivel(qpos_arm,  swivel_buf, fill_name="qpos")
-    qcmd_arr   = _prepend_swivel(qcmd_arm,  swivel_buf, fill_name="qcmd") if qcmd_arm is not None else None
-    torque_arr = (_prepend_swivel(torque_arm, [0.0] * len(qpos_buf), fill_name="torques")
-                  if torque_arm is not None else None)
+    # Buffers are already 7-DOF (swivel-first) — qpos_buf comes straight from
+    # _qpos which iterates ARM_JOINTS, and ARM_JOINTS now includes swivel.
+    qpos_arr  = np.stack(qpos_buf,  axis=0).astype(np.float32)   # [T, 7]
+    left_arr  = np.stack(left_buf,  axis=0)                       # [T, H, W, 3]
+    right_arr = np.stack(right_buf, axis=0)                       # [T, H, W, 3]
+    qcmd_arr  = (np.stack(qcmd_buf, axis=0).astype(np.float32)
+                 if qcmd_buf and len(qcmd_buf) == len(qpos_buf) else None)
+    torque_arr = (np.stack(torque_buf, axis=0).astype(np.float32)
+                  if torque_buf and len(torque_buf) == len(qpos_buf) else None)
 
     # Actions derived from commanded positions (no sag) when available
     act_src  = qcmd_arr if qcmd_arr is not None else qpos_arr
@@ -1067,9 +1230,13 @@ def save_episode(
 
     with h5py.File(path, "w") as f:
         f.attrs["hz"]           = REC_HZ
-        f.attrs["arm_joints"]   = ",".join(POLICY_JOINTS)
-        f.attrs["action_space"] = "absolute"     # qcmd-style absolute joint targets
-        f.attrs["format_version"] = 2            # v1 = 6-DOF with sidecar swivel, v2 = 7-DOF
+        f.attrs["arm_joints"]   = ",".join(ARM_JOINTS)
+        f.attrs["action_space"] = "absolute"
+        # v3 = 7-DOF unified arm (swivel as joint 0).  v2 was also 7-DOF
+        # but post-prepend, with a sidecar swivel field in the recording
+        # buffers; v1 was 6-DOF arm + sidecar swivel.  load_recording in
+        # record_replay.py handles all three.
+        f.attrs["format_version"] = 3
         f.attrs["task_tag"]     = task_tag
         f.attrs["notes"]        = notes
         f.attrs["collected_at"] = float(time.time())
@@ -1116,37 +1283,45 @@ def _load_endpoints() -> dict:
 # Live episode replay (on-robot playback inside the main loop)
 # ---------------------------------------------------------------------------
 
-def _load_episode_for_replay(
-    path: Path,
-) -> tuple[np.ndarray, Optional[np.ndarray], float]:
+def _load_episode_for_replay(path: Path) -> tuple[np.ndarray, float]:
     """Load an episode HDF5 for live replay.
 
-    Returns (qpos[T,6] arm joints, swivel[T] or None, hz).
-    Mirrors episode_replay_live.load_episode() — format_version=2 stores
-    swivel as column 0; legacy files may be 6-col arm-only.
+    Returns `(qpos[T, NUM_JOINTS], hz)` — qpos is always 7-DOF in
+    ARM_JOINTS order (swivel-first).  Older 6-DOF files with a sidecar
+    `swivel` dataset are stitched into the unified shape on the way out.
     """
     with h5py.File(path, "r") as f:
         if "observations" in f and "qpos" in f["observations"]:
-            if "qcmd" in f["observations"]:
-                raw = f["observations/qcmd"][:]
-            else:
-                raw = f["observations/qpos"][:]
-            hz = float(f.attrs.get("hz", 20.0))
+            obs = f["observations"]
+            raw = obs["qcmd"][:] if "qcmd" in obs else obs["qpos"][:]
+            sw  = obs["swivel"][:] if "swivel" in obs else None
+            hz  = float(f.attrs.get("hz", 20.0))
         elif "qpos" in f:
             raw = f["qpos"][:]
-            hz = float(f.attrs.get("hz", 20.0))
+            sw  = f["swivel"][:] if "swivel" in f else None
+            hz  = float(f.attrs.get("hz", 20.0))
         else:
             raise ValueError(f"Unrecognised HDF5 format: {path}")
 
     raw = raw.astype(np.float32)
     if raw.ndim != 2:
         raise ValueError(f"qpos must be 2D, got shape {raw.shape}")
-    if raw.shape[1] == NUM_JOINTS + 1:
-        return raw[:, 1:].copy(), raw[:, 0].copy(), hz
+
+    # 7-DOF unified — return as-is.
     if raw.shape[1] == NUM_JOINTS:
-        return raw, None, hz
+        return raw, hz
+
+    # Legacy 6-DOF gantry-only with sidecar swivel.
+    if raw.shape[1] == NUM_JOINTS - 1:
+        if sw is None:
+            sw = np.zeros((raw.shape[0],), dtype=np.float32)
+        sw_col = sw.astype(np.float32).reshape(-1, 1)
+        n      = min(sw_col.shape[0], raw.shape[0])
+        return np.hstack([sw_col[:n], raw[:n]]).astype(np.float32), hz
+
     raise ValueError(
-        f"qpos has {raw.shape[1]} columns; expected {NUM_JOINTS} or {NUM_JOINTS + 1}"
+        f"qpos has {raw.shape[1]} columns; expected {NUM_JOINTS} (unified) or "
+        f"{NUM_JOINTS - 1} (legacy 6-DOF + sidecar swivel)"
     )
 
 
@@ -1167,13 +1342,11 @@ class _LiveReplay:
         SHUTDOWN = "shutdown"
 
     def __init__(
-        self, *, kp, kd, swivel_kp, swivel_kd,
+        self, *, kp, kd,
         max_delta: float, arm_limits, all_motor_ids,
     ):
         self._kp              = list(kp)
         self._kd              = list(kd)
-        self._swivel_kp       = float(swivel_kp)
-        self._swivel_kd       = float(swivel_kd)
         self._arm_limits      = arm_limits
         self._all_motor_ids   = list(all_motor_ids)
 
@@ -1190,29 +1363,26 @@ class _LiveReplay:
                                       # the open-loop integrator from racing
                                       # past what the arm can physically follow
 
-        # Episode (set by load())
+        # Episode (set by load()).  qpos is always 7-DOF (swivel-first).
         self.ep_path:       Optional[Path]       = None
         self.ep_name:       str                  = ""
         self.ep_qpos:       Optional[np.ndarray] = None
-        self.ep_swivel:     Optional[np.ndarray] = None
         self.ep_velocities: Optional[np.ndarray] = None
         self.ep_hz:         float                = 0.0
         self.ep_frames:     int                  = 0
-        self.ep_has_swivel: bool                 = False
 
-        # Runtime state
+        # Runtime state.  current_target is the 7-DOF arm target — swivel
+        # is current_target[0]; there's no separate swivel state anymore.
         self.live:              bool                  = False
         self.phase                                    = self.Phase.READY
         self.frame_idx:         int                   = 0
         self.last_frame_wall:   float                 = 0.0
         self.current_target:    Optional[np.ndarray]  = None
-        self.current_swivel:    Optional[float]       = None
         self.error:             float                 = 0.0
         self.message:           str                   = ""
 
-        # Shutdown state (mirrors teleop SHUTDOWN block)
+        # Shutdown state
         self._shutdown_target:      Optional[np.ndarray] = None
-        self._shutdown_swivel:      Optional[float]      = None
         self._shutdown_countdown:   float                = 0.0
         self._shutdown_zero_since:  float                = 0.0
         self._SHUTDOWN_TIMEOUT                           = 3.0
@@ -1221,23 +1391,19 @@ class _LiveReplay:
     def load(self, path: Path) -> Optional[str]:
         """Load an episode. Returns None on success, error string on failure."""
         try:
-            qpos, swivel, hz = _load_episode_for_replay(path)
+            qpos, hz = _load_episode_for_replay(path)
         except Exception as e:
             self.message = f"load error: {e}"
             return str(e)
         self.ep_path       = path
         self.ep_name       = path.name
         self.ep_qpos       = qpos
-        self.ep_swivel     = swivel
         self.ep_hz         = hz
         self.ep_frames     = len(qpos)
-        self.ep_has_swivel = swivel is not None
         self.ep_velocities = self._compute_vel_ff(qpos, hz)
         self.frame_idx     = 0
         self.phase         = self.Phase.READY
         self.current_target = qpos[0].copy() if self.ep_frames > 0 else None
-        self.current_swivel = (float(swivel[0])
-                               if (self.ep_has_swivel and self.ep_frames > 0) else None)
         self.error         = 0.0
         self.message       = f"loaded {path.name}  {self.ep_frames}f @ {hz:.0f} Hz"
         return None
@@ -1248,8 +1414,8 @@ class _LiveReplay:
         if T < 2 or hz <= 0:
             return None
         dt = 1.0 / hz
-        dq = np.diff(qpos, axis=0) / dt                        # [T-1, 6]
-        dq = np.vstack([dq, np.zeros((1, qpos.shape[1]))])     # [T,   6]
+        dq = np.diff(qpos, axis=0) / dt                        # [T-1, J]
+        dq = np.vstack([dq, np.zeros((1, qpos.shape[1]))])     # [T,   J]
         smoothed = dq.copy()
         for i in range(1, T - 1):
             smoothed[i] = (dq[i - 1] + dq[i] + dq[i + 1]) / 3.0
@@ -1275,7 +1441,7 @@ class _LiveReplay:
         return True
 
     # -- Transport ---------------------------------------------------------
-    def arm(self, q_actual, swivel_actual) -> list[dict]:
+    def arm(self, q_actual) -> list[dict]:
         if not self.live or self.ep_qpos is None or self.ep_frames == 0:
             return []
         if self.phase == self.Phase.SHUTDOWN:
@@ -1284,23 +1450,19 @@ class _LiveReplay:
         cmds: list[dict] = [{"type": "enable", "motor_ids": self._all_motor_ids}]
         if self.goto_start and q_actual is not None:
             # Seed the ramp's integrator from the current measured pose so
-            # the arming step starts exactly where the arm is.  Without
-            # this, the ARMING tick would feed encoder noise straight back
-            # into q_cmd and the arm would shake on its way to the start.
+            # the arming step starts exactly where the arm is.
             self.current_target = q_actual.copy().astype(np.float32)
-            if self.ep_has_swivel and swivel_actual is not None:
-                self.current_swivel = float(swivel_actual)
             self.phase = self.Phase.ARMING
         else:
             self.phase           = self.Phase.PLAYING
             self.last_frame_wall = time.time()
         return cmds
 
-    def play(self, q_actual, swivel_actual) -> list[dict]:
+    def play(self, q_actual) -> list[dict]:
         if not self.live or self.phase == self.Phase.SHUTDOWN:
             return []
         if self.phase in (self.Phase.READY, self.Phase.DONE):
-            return self.arm(q_actual, swivel_actual)
+            return self.arm(q_actual)
         if self.phase == self.Phase.PAUSED:
             self.phase           = self.Phase.PLAYING
             self.last_frame_wall = time.time()
@@ -1310,15 +1472,15 @@ class _LiveReplay:
         if self.live and self.phase == self.Phase.PLAYING:
             self.phase = self.Phase.PAUSED
 
-    def toggle(self, q_actual, swivel_actual) -> list[dict]:
+    def toggle(self, q_actual) -> list[dict]:
         if not self.live:
             return []
         if self.phase == self.Phase.PLAYING:
             self.pause()
             return []
-        return self.play(q_actual, swivel_actual)
+        return self.play(q_actual)
 
-    def restart(self, q_actual, swivel_actual) -> list[dict]:
+    def restart(self, q_actual) -> list[dict]:
         if not self.live or self.phase == self.Phase.SHUTDOWN:
             return []
         self.frame_idx = 0
@@ -1332,7 +1494,7 @@ class _LiveReplay:
             self.last_frame_wall = time.time()
         return cmds
 
-    def stop(self, q_actual, swivel_actual) -> None:
+    def stop(self, q_actual) -> None:
         """Abort: ramp to zero and disable. Phase returns to READY when done."""
         if not self.live or self.phase == self.Phase.SHUTDOWN:
             return
@@ -1342,9 +1504,6 @@ class _LiveReplay:
                                  else (self.current_target.copy()
                                        if self.current_target is not None
                                        else np.zeros(NUM_JOINTS, dtype=np.float32)))
-        self._shutdown_swivel = (swivel_actual if swivel_actual is not None
-                                 else (self.current_swivel
-                                       if self.current_swivel is not None else 0.0))
         self._shutdown_countdown  = 1.0
         self._shutdown_zero_since = 0.0
         self.phase                = self.Phase.SHUTDOWN
@@ -1383,19 +1542,14 @@ class _LiveReplay:
             "torques":    [0.0] * NUM_JOINTS,
         }
 
-    def _swivel_cmd(self, pos: float) -> dict:
-        return {"type": "swivel", "position": float(pos),
-                "kp": self._swivel_kp, "kd": self._swivel_kd}
-
     # -- Per-tick step -----------------------------------------------------
     def step(
-        self, t0: float, q_actual: Optional[np.ndarray],
-        swivel_actual: Optional[float], period: float,
+        self, t0: float, q_actual: Optional[np.ndarray], period: float,
     ) -> list[dict]:
         if not self.live:
             return []
 
-        # Tracking error telemetry (arm only)
+        # Tracking error telemetry (max-norm across all 7 joints)
         if q_actual is not None and self.current_target is not None:
             self.error = float(np.max(np.abs(q_actual - self.current_target)))
 
@@ -1406,39 +1560,20 @@ class _LiveReplay:
             return cmds
 
         if phase == self.Phase.ARMING:
-            tgt    = self.ep_qpos[0]
-            sw_tgt = float(self.ep_swivel[0]) if self.ep_has_swivel else None
-            # Integrate the ramp on the previously-commanded pose, not on
-            # q_actual — keeps encoder noise out of the command loop.  Then
-            # clamp how far that integrator may lead the actual arm so the
-            # command can't race ahead of physical motion.
-            ref    = (self.current_target if self.current_target is not None
-                      else (q_actual if q_actual is not None else tgt))
+            tgt = self.ep_qpos[0]
+            ref = (self.current_target if self.current_target is not None
+                   else (q_actual if q_actual is not None else tgt))
             if q_actual is not None:
                 lead = np.clip(ref - q_actual,
                                -self._arm_max_lead, self._arm_max_lead)
                 ref  = q_actual + lead
-            q_cmd  = ref + np.clip(tgt - ref, -self._ramp_step, self._ramp_step)
+            q_cmd = ref + np.clip(tgt - ref, -self._ramp_step, self._ramp_step)
             if self._arm_limits:
                 q_cmd = np.array(clamp_arm_positions(q_cmd.tolist(), self._arm_limits))
             cmds.append(self._arm_cmd(q_cmd, None))
-            sw_cmd = sw_tgt
-            if sw_tgt is not None:
-                sw_ref = (self.current_swivel if self.current_swivel is not None
-                          else (swivel_actual if swivel_actual is not None else sw_tgt))
-                if swivel_actual is not None:
-                    sw_ref = swivel_actual + max(
-                        min(sw_ref - swivel_actual, self._arm_max_lead),
-                        -self._arm_max_lead)
-                delta  = sw_tgt - sw_ref
-                sw_cmd = sw_ref + max(min(delta, self._ramp_step), -self._ramp_step)
-                cmds.append(self._swivel_cmd(sw_cmd))
             self.current_target = q_cmd
-            self.current_swivel = sw_cmd
-            arm_ok  = q_actual is not None and np.all(np.abs(q_actual - tgt) < 0.03)
-            swiv_ok = (not self.ep_has_swivel or sw_tgt is None or swivel_actual is None
-                       or abs(swivel_actual - sw_tgt) < 0.03)
-            if arm_ok and swiv_ok:
+            arm_ok = q_actual is not None and np.all(np.abs(q_actual - tgt) < 0.03)
+            if arm_ok:
                 self.phase           = self.Phase.PLAYING
                 self.last_frame_wall = t0
             return cmds
@@ -1448,16 +1583,12 @@ class _LiveReplay:
             if t0 - self.last_frame_wall >= frame_period and self.frame_idx < self.ep_frames:
                 self.last_frame_wall = t0
                 tgt    = self.ep_qpos[self.frame_idx]
-                sw_tgt = float(self.ep_swivel[self.frame_idx]) if self.ep_has_swivel else None
                 vel_ff = (self.ep_velocities[self.frame_idx].tolist()
                           if (self.ep_velocities is not None and self.vel_ff_enabled)
                           else None)
                 cmds.append(self._arm_cmd(
                     self._safe_cmd(tgt, self.current_target), vel_ff))
-                if sw_tgt is not None:
-                    cmds.append(self._swivel_cmd(sw_tgt))
                 self.current_target = tgt
-                self.current_swivel = sw_tgt
                 self.frame_idx += 1
                 if self.frame_idx >= self.ep_frames:
                     if self.loop_mode:
@@ -1470,8 +1601,6 @@ class _LiveReplay:
             if self.current_target is not None:
                 cmds.append(self._arm_cmd(
                     self._safe_cmd(self.current_target, q_actual), None))
-            if self.current_swivel is not None:
-                cmds.append(self._swivel_cmd(self.current_swivel))
             return cmds
 
         if phase == self.Phase.SHUTDOWN:
@@ -1481,8 +1610,6 @@ class _LiveReplay:
                 self._shutdown_countdown -= dt
                 if self._shutdown_target is not None:
                     cmds.append(self._arm_cmd(self._shutdown_target, None))
-                if self._shutdown_swivel is not None:
-                    cmds.append(self._swivel_cmd(self._shutdown_swivel))
                 return cmds
             if self._shutdown_target is None:
                 self._shutdown_target = np.zeros(NUM_JOINTS, dtype=np.float32)
@@ -1491,13 +1618,7 @@ class _LiveReplay:
                 new_tgt[i] = (0.0 if abs(new_tgt[i]) < max_change
                               else new_tgt[i] - np.sign(new_tgt[i]) * max_change)
             self._shutdown_target = new_tgt
-            if self._shutdown_swivel is None:
-                self._shutdown_swivel = 0.0
-            self._shutdown_swivel = (0.0 if abs(self._shutdown_swivel) < max_change
-                                     else self._shutdown_swivel
-                                          - np.sign(self._shutdown_swivel) * max_change)
-            ramp_done = (np.all(np.abs(self._shutdown_target) < 0.01)
-                         and abs(self._shutdown_swivel) < 0.01)
+            ramp_done = bool(np.all(np.abs(self._shutdown_target) < 0.01))
             if ramp_done and self._shutdown_zero_since == 0.0:
                 self._shutdown_zero_since = t0
             actual_close = (q_actual is None or np.all(np.abs(q_actual) < 0.05))
@@ -1508,17 +1629,12 @@ class _LiveReplay:
                 self.phase               = self.Phase.READY
                 self.frame_idx           = 0
                 self._shutdown_target    = None
-                self._shutdown_swivel    = None
                 self.current_target = (self.ep_qpos[0].copy()
                                        if self.ep_frames > 0 else None)
-                self.current_swivel = (float(self.ep_swivel[0])
-                                       if (self.ep_has_swivel and self.ep_frames > 0)
-                                       else None)
             else:
                 ref   = q_actual if q_actual is not None else self._shutdown_target
                 q_cmd = self._safe_cmd(self._shutdown_target, ref)
                 cmds.append(self._arm_cmd(q_cmd, None))
-                cmds.append(self._swivel_cmd(self._shutdown_swivel))
             return cmds
 
         return cmds
@@ -1527,12 +1643,10 @@ class _LiveReplay:
     def snapshot_fields(self) -> dict:
         pct = (100.0 * self.frame_idx / self.ep_frames) if self.ep_frames else 0.0
         dur = (self.ep_frames / self.ep_hz) if self.ep_hz > 0 else 0.0
-        # Per-joint target the GUI's joint panel can plot against live actual.
-        # Layout is [swivel, gantry_base, gantry_mid, gantry_end,
-        # wrist_pitch, wrist_roll, gripper] to match JOINT_NAMES.
+        # 7-DOF target the GUI's joint panel plots against live actual.
+        # Layout matches ARM_JOINTS (swivel-first).
         if self.current_target is not None:
-            sw = float(self.current_swivel) if self.current_swivel is not None else 0.0
-            replay_target = [sw, *(float(x) for x in self.current_target)]
+            replay_target = [float(x) for x in self.current_target]
         else:
             replay_target = None
         return {
@@ -1551,7 +1665,6 @@ class _LiveReplay:
             "replay_error":       self.error,
             "replay_path":        str(self.ep_path) if self.ep_path else "",
             "replay_name":        self.ep_name,
-            "replay_has_swivel":  self.ep_has_swivel,
             "replay_message":     self.message,
             "replay_target":      replay_target,
         }
@@ -1881,12 +1994,23 @@ def main() -> None:
 
     arm_limits = load_arm_limits(Path(args.robstride_calib) if args.robstride_calib else None)
     _yaml      = _load_teleop_yaml()
-    _tcfg      = _yaml.get("gantry", {})
-    _kp: list  = _tcfg.get("kp", KP)
-    _kd: list  = _tcfg.get("kd", KD)
-    _dcfg      = _yaml.get("drive", {})
-    _swivel_kp = float(_dcfg.get("swivel_kp", 100.0))
-    _swivel_kd = float(_dcfg.get("swivel_kd", 5.0))
+    # Arm gains are 7-DOF (swivel + 6 gantry).  Older configs that still have
+    # split `gantry.kp` + `drive.swivel_kp` are migrated on the fly.
+    _acfg: dict = _yaml.get("arm", {})
+    if "kp" in _acfg and "kd" in _acfg:
+        _kp: list = list(_acfg["kp"])
+        _kd: list = list(_acfg["kd"])
+    else:
+        _gan = _yaml.get("gantry", {})
+        _drv = _yaml.get("drive", {})
+        _kp = [float(_drv.get("swivel_kp", KP[0]))] + list(_gan.get("kp", KP[1:]))
+        _kd = [float(_drv.get("swivel_kd", KD[0]))] + list(_gan.get("kd", KD[1:]))
+    if len(_kp) != NUM_JOINTS or len(_kd) != NUM_JOINTS:
+        print(f"WARNING: arm gains length {len(_kp)}/{len(_kd)} != {NUM_JOINTS}; "
+              f"falling back to record_replay defaults", flush=True)
+        _kp = list(KP)
+        _kd = list(KD)
+    _dcfg        = _yaml.get("drive", {})
     _max_linear  = float(_dcfg.get("max_linear",  2.0))
     _max_angular = float(_dcfg.get("max_angular", 1.5))
     _drive_kp    = float(_dcfg.get("kp", 0.0))
@@ -1898,10 +2022,9 @@ def main() -> None:
     # -------------------------------------------------------------------------
     live_replay = _LiveReplay(
         kp=_kp, kd=_kd,
-        swivel_kp=_swivel_kp, swivel_kd=_swivel_kd,
         max_delta=args.max_delta,
         arm_limits=arm_limits,
-        all_motor_ids=["swivel"] + list(ARM_JOINTS),
+        all_motor_ids=list(ARM_JOINTS),
     )
 
     # -------------------------------------------------------------------------
@@ -1914,11 +2037,29 @@ def main() -> None:
     cmd_sock.setsockopt(zmq.LINGER,  0)
     cmd_sock.connect(args.cmd)
 
-    telem_sock = ctx.socket(zmq.SUB)
-    telem_sock.setsockopt(zmq.LINGER, 0)
-    telem_sock.setsockopt(zmq.CONFLATE, 1)
-    telem_sock.setsockopt_string(zmq.SUBSCRIBE, "")
-    telem_sock.connect(args.telem)
+    # Dedicated cmd-sender thread re-emits the latest Bundle at 100 Hz.
+    # The main loop posts to a single-slot holder; this thread does the
+    # msgpack pack + ZMQ send.  Effect: motor commands arrive at the
+    # controller every ~10 ms instead of every ~33 ms (the 30 Hz main
+    # loop), and the per-tick `motor` cost in the main loop drops to
+    # roughly the dict construction.
+    _cmd_tx_stop, _cmd_tx_thread, _cmd_lock, _cmd_holder = \
+        _start_cmd_sender(cmd_sock)
+
+    def _post_bundle(arm=None, drive=None) -> None:
+        msg = _build_bundle(arm, drive)
+        with _cmd_lock:
+            _cmd_holder["bundle"] = msg
+
+    def _clear_bundle() -> None:
+        with _cmd_lock:
+            _cmd_holder["bundle"] = None
+
+    # Telemetry parsing runs in its own thread (json.loads of multi-motor
+    # state was a 6-10 ms p99 spike when done in the main loop).
+    _telem_stop, _telem_thread, _telem_lock, _telem_cache = \
+        _start_telem_receiver(ctx, args.telem)
+    _telem_last_time = 0.0  # last cache["time"] consumed by main loop
 
     # Camera + UPS reception runs in a background thread so that
     # JSON-parsing large JPEG frames never delays motor commands.
@@ -1926,9 +2067,11 @@ def main() -> None:
         ctx, args.cam_left, args.cam_right, args.ups or None,
     )
 
-    # Background image decoder (base64 + JPEG + resize off main loop)
+    # Background image decoder (base64 + JPEG + resize off main loop).
+    # Always-on when the GUI or Rerun viewer needs decoded frames live.
+    _dec_always_on = args.gui or (not args.no_rerun and _rerun_available)
     _dec_stop, _dec_thread, _dec_lock, _dec_cache, _rec_flag = \
-        _start_image_decoder(_cam_lock, _cam_cache, img_size, always_on=args.gui)
+        _start_image_decoder(_cam_lock, _cam_cache, img_size, always_on=_dec_always_on)
 
     # -------------------------------------------------------------------------
     # Hardware e-stop (ESP32 serial)
@@ -1951,7 +2094,7 @@ def main() -> None:
     if use_rerun:
         rr.init("aizee_collect")
         rr.spawn(memory_limit="1GiB")
-        _joint_names = ["swivel"] + list(ARM_JOINTS)
+        _joint_names = list(ARM_JOINTS)   # swivel + 6 gantry, in joint order
         rr.set_time("time", timestamp=time.time())
         for _jn in _joint_names:
             rr.log(f"joints/{_jn}", rr.Scalars(0.0))
@@ -1977,8 +2120,11 @@ def main() -> None:
     # Seed q_actual from first telemetry packet
     q_actual: Optional[np.ndarray] = None
     for _ in range(40):
-        telem = _drain(telem_sock)
+        with _telem_lock:
+            telem = _telem_cache["msg"]
+            tt    = _telem_cache["time"]
         if telem:
+            _telem_last_time = tt
             q = _qpos(telem)
             if q is not None:
                 q_actual = q
@@ -2014,30 +2160,25 @@ def main() -> None:
     # the controller windup margin: at saturation, more lead would not
     # increase delivered torque, just store position error to dump on the
     # joint when it finally breaks free.
+    # Per-joint cap on q_cmd lead vs. q_actual during ENGAGING.  Swivel is
+    # joint 0 — its sat_torque/kp falls out of the same per-joint formula
+    # the gantry uses, so there's no separate `_engage_lead_sw` anymore.
     _engage_lead_arm = np.array(
         [_SAT_TORQUE[j] / float(_kp[i]) for i, j in enumerate(ARM_JOINTS)],
         dtype=np.float32,
     )
-    _engage_lead_sw = float(_SAT_TORQUE["swivel"] / _swivel_kp)
 
-    teleop_state                       = State.READY
+    teleop_state                          = State.READY
     held_target:     Optional[np.ndarray] = None
-    held_swivel:     Optional[float]   = None
     engage_q_cmd:    Optional[np.ndarray] = None
-    engage_swivel:   Optional[float]   = None
-    engage_warned:   bool              = False
-    shutdown_countdown: float          = 0.0
+    engage_warned:   bool                 = False
+    shutdown_countdown: float             = 0.0
     shutdown_target: Optional[np.ndarray] = None
-    shutdown_swivel: Optional[float]   = None
-    shutdown_zero_since: float         = 0.0   # when ramp first hit zero
-    _SHUTDOWN_TIMEOUT                  = 3.0   # force-disable after this many seconds at zero
-    swivel_actual:   Optional[float]   = None
-    swivel_torque:   Optional[float]   = None
-    swivel_temp:     Optional[float]   = None
-    swivel_state:    str               = "?"
+    shutdown_zero_since: float            = 0.0   # when ramp first hit zero
+    _SHUTDOWN_TIMEOUT                     = 3.0   # force-disable after this many seconds at zero
     arm_torques:     Optional[np.ndarray] = None
     arm_temps:       Optional[np.ndarray] = None
-    arm_states:      list               = ["?"] * NUM_JOINTS
+    arm_states:      list                 = ["?"] * NUM_JOINTS
     last_telem_time: float             = time.time() if q_actual is not None else 0.0
     ups_data:        Optional[dict]    = None
     battery_voltage: Optional[float]   = None
@@ -2069,14 +2210,14 @@ def main() -> None:
     prev_gp_b:   bool  = False
     prev_gp_start:bool = False
 
-    # Recording state
+    # Recording state.  qpos_buf / qcmd_buf / torque_buf are now 7-DOF
+    # (swivel-first, matches ARM_JOINTS) — there's no separate swivel buffer.
     recording      = False
     qpos_buf:    list = []
     qcmd_buf:    list = []
     torque_buf:  list = []
     left_buf:    list = []
     right_buf:   list = []
-    swivel_buf:  list = []
     telem_ts_buf:  list = []
     left_ts_buf:   list = []
     right_ts_buf:  list = []
@@ -2102,7 +2243,8 @@ def main() -> None:
               else "E=track · I=idle · Z=zero · M=mirror · Q=quit")
 
     _nan = float("nan")
-    _init_actual = (np.concatenate([[_nan], q_actual]) if q_actual is not None else None)
+    # Display arrays now match q_actual shape directly (swivel = index 0).
+    _init_actual = q_actual.copy() if q_actual is not None else None
 
     # -------------------------------------------------------------------------
     # Display: terminal renderer (default) or Qt GUI (--gui)
@@ -2157,7 +2299,7 @@ def main() -> None:
     _rr_event:  Optional[threading.Event]  = None
     if use_rerun:
         _rr_stop, _rr_thread, _rr_lock, _rr_holder, _rr_event = \
-            _start_rerun_thread()
+            _start_rerun_thread(_dec_lock, _dec_cache)
 
     frame_counter = 0
     period = 1.0 / LOOP_HZ
@@ -2168,12 +2310,12 @@ def main() -> None:
     _save_thread:        Optional[threading.Thread] = None
     _save_result_holder: list                       = [None]
 
-    def _start_async_save(out_dir, qb, lb, rb, tb, ltb, rtb, swb, dur, drop_note, tag="", qcb=None, tqb=None, task_tag="", notes=""):
+    def _start_async_save(out_dir, qb, lb, rb, tb, ltb, rtb, dur, drop_note, tag="", qcb=None, tqb=None, task_tag="", notes=""):
         def _run():
             try:
                 p, T = save_episode(
                     out_dir, qb, lb, rb, tb, ltb, rtb,
-                    swivel_buf=swb, qcmd_buf=qcb, torque_buf=tqb,
+                    qcmd_buf=qcb, torque_buf=tqb,
                     task_tag=task_tag, notes=notes,
                 )
                 _save_result_holder[0] = (p, f"[SAVED {p.name}  {T} steps  {dur:.1f}s{drop_note}]{tag}")
@@ -2215,7 +2357,7 @@ def main() -> None:
         _save_result_holder[0] = None
         _save_thread = _start_async_save(
             args.output_dir, qpos_buf, left_buf, right_buf,
-            telem_ts_buf, left_ts_buf, right_ts_buf, swivel_buf,
+            telem_ts_buf, left_ts_buf, right_ts_buf,
             dur, drop_note, tag=tag_txt, qcb=qcmd_buf, tqb=torque_buf,
             task_tag=_meta["task_tag"], notes=_meta["notes"],
         )
@@ -2277,35 +2419,28 @@ def main() -> None:
             _prof.gauge("left_recv_age_ms",  cam_left_age * 1000.0)
             _prof.gauge("right_recv_age_ms", cam_right_age * 1000.0)
 
-            # Queue data for Rerun background thread.
-            # Cameras at ~15 Hz (every other frame), joints every frame.
-            # Queue camera images for Rerun (~15 Hz = every other frame).
+            # Wake the Rerun thread (~15 Hz, every other frame).  Camera
+            # frames are pulled from the shared decoder cache by the
+            # Rerun thread itself — no JPEG copy through the main loop.
             # Joint data is queued later, after telemetry + leader are read.
             if _rr_event is not None and (frame_counter % 2 == 0):
-                lj = latest_left.get("color", {}).get("data")  if latest_left  else None
-                rj = latest_right.get("color", {}).get("data") if latest_right else None
-                if lj or rj:
-                    with _rr_lock:
-                        _rr_holder["left"]  = lj
-                        _rr_holder["right"] = rj
-                        _rr_holder["time"]  = t0
-                    _rr_event.set()
+                with _rr_lock:
+                    _rr_holder["time"] = t0
+                _rr_event.set()
 
             # Push raw JPEG bytes to the GUI's native camera widget — only
             # when a new frame has actually arrived (last_*_time changed),
-            # otherwise we'd re-decode the same JPEG every loop tick.
+            # otherwise we'd re-feed the same JPEG every loop tick.
             if _disp_cams is not None:
                 push_l = (latest_left  is not None
                           and last_left_time  > _disp_cams["left_ts"])
                 push_r = (latest_right is not None
                           and last_right_time > _disp_cams["right_ts"])
                 if push_l or push_r:
-                    lj_b64 = (latest_left.get("color", {}).get("data")
-                              if push_l else None)
-                    rj_b64 = (latest_right.get("color", {}).get("data")
-                              if push_r else None)
-                    lj_bytes = base64.b64decode(lj_b64) if lj_b64 else None
-                    rj_bytes = base64.b64decode(rj_b64) if rj_b64 else None
+                    lj_bytes = (latest_left.get("color", {}).get("data_bytes")
+                                if push_l else None)
+                    rj_bytes = (latest_right.get("color", {}).get("data_bytes")
+                                if push_r else None)
                     with _disp_lock:
                         if lj_bytes is not None:
                             _disp_cams["left"]    = lj_bytes
@@ -2360,21 +2495,21 @@ def main() -> None:
                         save_msg       = "[replay] stop first before exiting live mode"
                         save_msg_until = t0 + 3.0
                 elif _cmd == "replay_arm":
-                    for _c in live_replay.arm(q_actual, swivel_actual):
+                    for _c in live_replay.arm(q_actual):
                         _send(cmd_sock, _c)
                 elif _cmd == "replay_play":
-                    for _c in live_replay.play(q_actual, swivel_actual):
+                    for _c in live_replay.play(q_actual):
                         _send(cmd_sock, _c)
                 elif _cmd == "replay_pause":
                     live_replay.pause()
                 elif _cmd == "replay_toggle":
-                    for _c in live_replay.toggle(q_actual, swivel_actual):
+                    for _c in live_replay.toggle(q_actual):
                         _send(cmd_sock, _c)
                 elif _cmd == "replay_restart":
-                    for _c in live_replay.restart(q_actual, swivel_actual):
+                    for _c in live_replay.restart(q_actual):
                         _send(cmd_sock, _c)
                 elif _cmd == "replay_stop":
-                    live_replay.stop(q_actual, swivel_actual)
+                    live_replay.stop(q_actual)
                 elif _cmd == "replay_speed":
                     live_replay.set_speed(float(key.get("speed", 1.0)))
                 elif _cmd == "replay_opts":
@@ -2476,7 +2611,7 @@ def main() -> None:
             elif key == "I":
                 if teleop_state in (State.READY, State.IDLE):
                     _send(cmd_sock, {"type": "enable",
-                                     "motor_ids": _BASE_MOTORS + ["swivel"] + ARM_JOINTS})
+                                     "motor_ids": _BASE_MOTORS + list(ARM_JOINTS)})
                     ref = q_actual.tolist() if q_actual is not None else [0.0] * NUM_JOINTS
                     _send(cmd_sock, {
                         "type": "arm_joints", "positions": ref,
@@ -2489,31 +2624,27 @@ def main() -> None:
             elif key == "E":
                 if teleop_state in (State.READY, State.IDLE):
                     _send(cmd_sock, {"type": "enable",
-                                     "motor_ids": _BASE_MOTORS + ["swivel"] + ARM_JOINTS})
+                                     "motor_ids": _BASE_MOTORS + list(ARM_JOINTS)})
                     if leader is not None:
                         # Soft engage — seed the integrator from the current
                         # arm pose so ENGAGING ramps slowly to the leader
                         # instead of snapping at full PD authority.
                         engage_q_cmd  = (q_actual.copy().astype(np.float32)
                                          if q_actual is not None else None)
-                        engage_swivel = swivel_actual
                         engage_warned = False
                         teleop_state  = State.ENGAGING
                     else:
                         held_target  = q_actual.copy() if q_actual is not None else np.zeros(NUM_JOINTS)
-                        held_swivel  = swivel_actual
                         teleop_state = State.HOLD
 
             elif key == "H":
                 if teleop_state in (State.TRACKING, State.ENGAGING):
                     held_target  = q_actual.copy() if q_actual is not None else held_target
-                    held_swivel  = swivel_actual
                     teleop_state = State.HOLD
                 elif teleop_state == State.HOLD:
                     teleop_state = State.TRACKING if leader is not None else State.IDLE
                 elif teleop_state == State.IDLE:
                     held_target  = q_actual.copy() if q_actual is not None else np.zeros(NUM_JOINTS)
-                    held_swivel  = swivel_actual
                     teleop_state = State.HOLD
 
             elif key == "R":
@@ -2526,7 +2657,6 @@ def main() -> None:
                         torque_buf     = []
                         left_buf       = []
                         right_buf      = []
-                        swivel_buf     = []
                         telem_ts_buf   = []
                         left_ts_buf    = []
                         right_ts_buf   = []
@@ -2551,11 +2681,12 @@ def main() -> None:
                 with _lr_lock:
                     _m = _lr_latest["rad"]
                 if _m is not None and q_actual is not None:
+                    # Mirror: pin zero so leader maps to current actual.
+                    # ARM_JOINTS now includes swivel as joint 0, so a single
+                    # loop covers all 7 joints.
                     new_offsets = zero_offsets.copy()
                     for ai, si in enumerate(_so101_for_aizee):
                         new_offsets[si] = _m[si] - directions[si] * q_actual[ai]
-                    if swivel_actual is not None:
-                        new_offsets[0] = _m[0] - directions[0] * swivel_actual
                     zero_offsets   = new_offsets
                     leader.save_zero(zero_offsets)
                     zero_msg       = "[M] mirrored — saved"
@@ -2567,8 +2698,6 @@ def main() -> None:
                         "arm_joints": list(ARM_JOINTS),
                         "positions": q_actual.tolist(),
                     }
-                    if swivel_actual is not None:
-                        ready["swivel"] = swivel_actual
                     rp_path = Path(__file__).resolve().parent.parent.parent / "config" / "ready_pose.json"
                     rp_path.parent.mkdir(parents=True, exist_ok=True)
                     rp_path.write_text(json.dumps(ready, indent=2))
@@ -2581,7 +2710,6 @@ def main() -> None:
             elif key == "CANCEL_SHUTDOWN" and teleop_state == State.SHUTDOWN:
                 teleop_state = State.HOLD
                 held_target  = q_actual.copy() if q_actual is not None else held_target
-                held_swivel  = swivel_actual
 
             elif key == "X":
                 if teleop_state in (State.TRACKING, State.HOLD, State.IDLE,
@@ -2589,8 +2717,6 @@ def main() -> None:
                     shutdown_target    = (q_actual.copy() if q_actual is not None
                                           else held_target.copy() if held_target is not None
                                           else np.zeros(NUM_JOINTS))
-                    shutdown_swivel    = (swivel_actual if swivel_actual is not None
-                                          else held_swivel if held_swivel is not None else 0.0)
                     shutdown_countdown  = 1.0
                     shutdown_zero_since = 0.0
                     teleop_state        = State.SHUTDOWN
@@ -2606,9 +2732,8 @@ def main() -> None:
             leader_rad:    Optional[np.ndarray] = None
             leader_vel:    Optional[np.ndarray] = None
             _clamped_live: Optional[list]       = None
-            aizee_cmd:     Optional[np.ndarray] = None
+            aizee_cmd:     Optional[np.ndarray] = None    # 7-DOF, swivel-first
             aizee_vel_ff:  Optional[np.ndarray] = None
-            swivel_cmd:    Optional[float]      = None
             leader_age:    float                = 999.0
 
             if leader is not None:
@@ -2620,26 +2745,21 @@ def main() -> None:
                 leader_age = t0 - _leader_t if _leader_t > 0 else 999.0
                 if leader_rad is not None:
                     mapped = directions * (leader_rad - zero_offsets)
-                    aizee_cmd  = mapped[_so101_for_aizee]
-                    swivel_cmd = float(mapped[0])
+                    aizee_cmd = mapped[_so101_for_aizee]
                 if leader_vel is not None:
                     # Velocity has the same sign-flip mapping as position
                     # (zero_offset cancels under differentiation).
                     aizee_vel_ff = (directions * leader_vel)[_so101_for_aizee]
 
-            # Determine targets
+            # Determine target (7-DOF in ARM_JOINTS order; swivel is index 0).
             if live_replay.live:
-                target     = live_replay.current_target
-                swivel_tgt = live_replay.current_swivel
+                target = live_replay.current_target
             elif teleop_state == State.HOLD:
-                target     = held_target
-                swivel_tgt = held_swivel
+                target = held_target
             elif aizee_cmd is not None:
-                target     = aizee_cmd
-                swivel_tgt = swivel_cmd
+                target = aizee_cmd
             else:
-                target     = q_actual
-                swivel_tgt = swivel_actual
+                target = q_actual
 
             _prof.tick("leader")
 
@@ -2660,29 +2780,27 @@ def main() -> None:
 
             elif live_replay.live:
                 # Live replay owns the arm — send whatever step() emits.
-                for _c in live_replay.step(t0, q_actual, swivel_actual, period):
+                for _c in live_replay.step(t0, q_actual, period):
                     _send(cmd_sock, _c)
 
             # Send drive command every tick (feeds watchdog, enables WASD/stick movement)
             elif teleop_state == State.READY:
-                pass  # motors off, nothing to send
+                _clear_bundle()  # don't let cmd thread re-emit any prior teleop bundle
 
             elif teleop_state == State.SHUTDOWN:
-                _send(cmd_sock, {"type": "drive", "linear": 0.0, "angular": 0.0,
-                                 "kp": _drive_kp, "kd": _drive_kd})
+                drive_zero = {"linear": 0.0, "angular": 0.0,
+                              "kp": _drive_kp, "kd": _drive_kd}
                 dt         = period
                 max_change = 0.2 * dt   # 0.2 rad/s ramp
                 if shutdown_countdown > 0:
                     shutdown_countdown -= dt
-                    if shutdown_target is not None:
-                        _send(cmd_sock, {
-                            "type": "arm_joints", "positions": shutdown_target.tolist(),
-                            "velocities": [0.0] * NUM_JOINTS, "kp": _kp, "kd": _kd,
-                            "torques": [0.0] * NUM_JOINTS,
-                        })
-                    if shutdown_swivel is not None:
-                        _send(cmd_sock, {"type": "swivel", "position": shutdown_swivel,
-                                         "kp": _swivel_kp, "kd": _swivel_kd})
+                    arm_payload = (
+                        {"positions": shutdown_target.tolist(),
+                         "velocities": [0.0] * NUM_JOINTS, "kp": _kp, "kd": _kd,
+                         "torques": [0.0] * NUM_JOINTS}
+                        if shutdown_target is not None else None
+                    )
+                    _post_bundle(arm=arm_payload, drive=drive_zero)
                 else:
                     if shutdown_target is None:
                         shutdown_target = np.zeros(NUM_JOINTS)
@@ -2692,23 +2810,20 @@ def main() -> None:
                         new_tgt[i] = (0.0 if abs(new_tgt[i]) < max_change
                                       else new_tgt[i] - np.sign(new_tgt[i]) * max_change)
                     shutdown_target = new_tgt
-                    if shutdown_swivel is None:
-                        shutdown_swivel = 0.0
-                    shutdown_swivel = (0.0 if abs(shutdown_swivel) < max_change
-                                       else shutdown_swivel - np.sign(shutdown_swivel) * max_change)
-                    # Check completion BEFORE sending — the ZMQ PUSH socket
-                    # has HWM=2 so sending arm+swivel+disable in one iteration
-                    # would silently drop the disable command.
-                    ramp_done = (np.all(np.abs(shutdown_target) < 0.01)
-                                 and abs(shutdown_swivel) < 0.01)
+                    ramp_done = bool(np.all(np.abs(shutdown_target) < 0.01))
                     if ramp_done and shutdown_zero_since == 0.0:
                         shutdown_zero_since = t0
                     actual_close = (q_actual is None or np.all(np.abs(q_actual) < 0.05))
                     timed_out    = (shutdown_zero_since > 0
                                     and t0 - shutdown_zero_since >= _SHUTDOWN_TIMEOUT)
                     if ramp_done and (actual_close or timed_out):
+                        # Stop the cmd-sender thread from re-emitting the
+                        # last shutdown bundle, then send disable.  We do
+                        # NOT reuse the cmd thread for `disable` — it's a
+                        # one-shot transition, not a periodic command.
+                        _clear_bundle()
                         _send(cmd_sock, {"type": "disable",
-                                         "motor_ids": _BASE_MOTORS + ["swivel"] + ARM_JOINTS})
+                                         "motor_ids": _BASE_MOTORS + list(ARM_JOINTS)})
                         drive_linear = drive_angular = 0.0
                         drive_linear_target = drive_angular_target = 0.0
                         teleop_state = State.READY
@@ -2717,29 +2832,28 @@ def main() -> None:
                         q_cmd   = ref + delta
                         if arm_limits:
                             q_cmd = np.array(clamp_arm_positions(q_cmd.tolist(), arm_limits))
-                        _send(cmd_sock, {
-                            "type": "arm_joints", "positions": q_cmd.tolist(),
-                            "velocities": [0.0] * NUM_JOINTS, "kp": _kp, "kd": _kd,
-                            "torques": [0.0] * NUM_JOINTS,
-                        })
-                        _send(cmd_sock, {"type": "swivel", "position": shutdown_swivel,
-                                         "kp": _swivel_kp, "kd": _swivel_kd})
+                        _post_bundle(
+                            arm={"positions": q_cmd.tolist(),
+                                 "velocities": [0.0] * NUM_JOINTS, "kp": _kp, "kd": _kd,
+                                 "torques": [0.0] * NUM_JOINTS},
+                            drive=drive_zero,
+                        )
 
             elif teleop_state == State.IDLE:
+                arm_payload: Optional[dict] = None
                 if q_actual is not None:
-                    _send(cmd_sock, {
-                        "type": "arm_joints", "positions": q_actual.tolist(),
+                    arm_payload = {
+                        "positions": q_actual.tolist(),
                         "velocities": [0.0] * NUM_JOINTS,
                         "kp": [0.0] * NUM_JOINTS, "kd": [0.0] * NUM_JOINTS,
                         "torques": [0.0] * NUM_JOINTS,
-                    })
-                if swivel_actual is not None:
-                    _send(cmd_sock, {"type": "swivel", "position": swivel_actual,
-                                     "kp": _swivel_kp, "kd": _swivel_kd})
-                _send(cmd_sock, {"type": "drive",
-                                 "linear":  drive_linear  * _max_linear,
-                                 "angular": drive_angular * _max_angular,
-                                 "kp": _drive_kp, "kd": _drive_kd})
+                    }
+                _post_bundle(
+                    arm=arm_payload,
+                    drive={"linear":  drive_linear  * _max_linear,
+                           "angular": drive_angular * _max_angular,
+                           "kp": _drive_kp, "kd": _drive_kd},
+                )
 
             elif teleop_state == State.ENGAGING:
                 # One-shot warning when engaging with a large gap to leader.
@@ -2752,6 +2866,7 @@ def main() -> None:
                         save_msg_until = t0 + 4.0
                     engage_warned = True
 
+                arm_payload: Optional[dict] = None
                 if target is not None:
                     # Integrate previous command (not q_actual) to keep the
                     # ramp smooth, then clamp the lead vs. q_actual so the
@@ -2768,42 +2883,28 @@ def main() -> None:
                         q_cmd = np.array(clamp_arm_positions(q_cmd.tolist(), arm_limits))
                     engage_q_cmd = q_cmd
                     latest_q_cmd = q_cmd.copy()
-                    _send(cmd_sock, {
-                        "type": "arm_joints", "positions": q_cmd.tolist(),
+                    arm_payload = {
+                        "positions": q_cmd.tolist(),
                         "velocities": [0.0] * NUM_JOINTS, "kp": _kp, "kd": _kd,
                         "torques": [0.0] * NUM_JOINTS,
-                    })
-                if swivel_tgt is not None:
-                    sw_ref = (engage_swivel if engage_swivel is not None
-                              else (swivel_actual if swivel_actual is not None
-                                    else swivel_tgt))
-                    if swivel_actual is not None:
-                        sw_ref = swivel_actual + max(min(sw_ref - swivel_actual,
-                                                          _engage_lead_sw),
-                                                     -_engage_lead_sw)
-                    sw_delta = swivel_tgt - sw_ref
-                    sw_cmd   = sw_ref + max(min(sw_delta, ENGAGE_DELTA),
-                                            -ENGAGE_DELTA)
-                    engage_swivel = sw_cmd
-                    _send(cmd_sock, {"type": "swivel", "position": sw_cmd,
-                                     "kp": _swivel_kp, "kd": _swivel_kd})
-                _send(cmd_sock, {"type": "drive",
-                                 "linear":  drive_linear  * _max_linear,
-                                 "angular": drive_angular * _max_angular,
-                                 "kp": _drive_kp, "kd": _drive_kd})
-                # Promote to TRACKING once the arm is close on every joint.
+                    }
+                _post_bundle(
+                    arm=arm_payload,
+                    drive={"linear":  drive_linear  * _max_linear,
+                           "angular": drive_angular * _max_angular,
+                           "kp": _drive_kp, "kd": _drive_kd},
+                )
+                # Promote to TRACKING once every joint is close (swivel is
+                # joint 0 of the arm — no separate close-check anymore).
                 arm_close = (q_actual is not None and target is not None
                              and np.max(np.abs(target - q_actual))
                                  < ENGAGE_DONE_THRESHOLD)
-                sw_close  = (swivel_tgt is None or swivel_actual is None
-                             or abs(swivel_tgt - swivel_actual)
-                                < ENGAGE_DONE_THRESHOLD)
-                if arm_close and sw_close:
+                if arm_close:
                     teleop_state  = State.TRACKING
                     engage_q_cmd  = None
-                    engage_swivel = None
 
             elif teleop_state in (State.TRACKING, State.HOLD):
+                arm_payload: Optional[dict] = None
                 if target is not None:
                     # Reference the *previous command*, not q_actual: the rate
                     # limit then operates on the command stream itself, which
@@ -2834,37 +2935,39 @@ def main() -> None:
                         _vel = aizee_vel_ff.tolist()
                     else:
                         _vel = [0.0] * NUM_JOINTS
-                    _send(cmd_sock, {
-                        "type": "arm_joints", "positions": q_cmd.tolist(),
+                    arm_payload = {
+                        "positions": q_cmd.tolist(),
                         "velocities": _vel, "kp": _kp, "kd": _kd,
                         "torques": [0.0] * NUM_JOINTS,
-                    })
-                if swivel_tgt is not None:
-                    _send(cmd_sock, {"type": "swivel", "position": swivel_tgt,
-                                     "kp": _swivel_kp, "kd": _swivel_kd})
-                _send(cmd_sock, {"type": "drive",
-                                 "linear":  drive_linear  * _max_linear,
-                                 "angular": drive_angular * _max_angular,
-                                 "kp": _drive_kp, "kd": _drive_kd})
+                    }
+                _post_bundle(
+                    arm=arm_payload,
+                    drive={"linear":  drive_linear  * _max_linear,
+                           "angular": drive_angular * _max_angular,
+                           "kp": _drive_kp, "kd": _drive_kd},
+                )
 
             _prof.tick("motor")
 
             # -----------------------------------------------------------------
-            # Telemetry
+            # Telemetry — pulled from background-thread cache; only consume
+            # the message when its timestamp advances so we don't re-parse
+            # the same payload tick after tick.
             # -----------------------------------------------------------------
-            telem = _drain(telem_sock)
+            with _telem_lock:
+                _t_msg  = _telem_cache["msg"]
+                _t_time = _telem_cache["time"]
+            telem = _t_msg if _t_time > _telem_last_time else None
+            if telem is not None:
+                _telem_last_time = _t_time
             q_new = _qpos(telem)
             if q_new is not None:
                 q_actual        = q_new
                 robot_ok        = True
                 last_telem_time = t0
             if telem and "motors" in telem:
-                sw = telem["motors"].get("swivel")
-                if sw is not None:
-                    swivel_actual = float(sw.get("position",    0.0))
-                    swivel_torque = float(sw.get("torque",      0.0))
-                    swivel_temp   = float(sw.get("temperature", _nan))
-                    swivel_state  = str(sw.get("state", "?"))
+                # Swivel is the first joint of ARM_JOINTS, so torque/temp
+                # arrays already include it at index 0 — no separate extract.
                 tq = _qtorque(telem)
                 if tq is not None:
                     arm_torques = tq
@@ -2909,22 +3012,16 @@ def main() -> None:
 
             _prof.tick("telem")
 
-            # Queue joint positions + leader commands to Rerun (every frame)
+            # Queue joint positions + leader commands to Rerun (every frame).
+            # ARM_JOINTS includes swivel as joint 0 — q_actual / aizee_cmd
+            # are both 7-element so a single loop covers everything.
             if _rr_event is not None:
                 _jd: Optional[dict] = None
                 _ld: Optional[dict] = None
                 if q_actual is not None:
-                    _jd = {}
-                    if swivel_actual is not None:
-                        _jd["swivel"] = swivel_actual
-                    for _ji, _jn in enumerate(ARM_JOINTS):
-                        _jd[_jn] = float(q_actual[_ji])
+                    _jd = {jn: float(q_actual[i]) for i, jn in enumerate(ARM_JOINTS)}
                 if aizee_cmd is not None:
-                    _ld = {}
-                    if swivel_cmd is not None:
-                        _ld["swivel"] = swivel_cmd
-                    for _ji, _jn in enumerate(ARM_JOINTS):
-                        _ld[_jn] = float(aizee_cmd[_ji])
+                    _ld = {jn: float(aizee_cmd[i]) for i, jn in enumerate(ARM_JOINTS)}
                 if _jd or _ld:
                     with _rr_lock:
                         _rr_holder["time"]   = t0
@@ -2955,12 +3052,13 @@ def main() -> None:
                 cams_ok   = cam_left_age < _CAM_STALE and cam_right_age < _CAM_STALE
                 if (q_actual is not None and left_img is not None
                         and right_img is not None and cams_ok):
+                    # qpos_buf/qcmd_buf/torque_buf are 7-DOF (swivel-first)
+                    # because q_actual / latest_q_cmd / arm_torques are.
                     qpos_buf.append(q_actual.copy())
                     qcmd_buf.append(latest_q_cmd.copy() if latest_q_cmd is not None else q_actual.copy())
                     torque_buf.append(arm_torques.copy() if arm_torques is not None else np.zeros(NUM_JOINTS, dtype=np.float32))
                     left_buf.append(left_img)
                     right_buf.append(right_img)
-                    swivel_buf.append(swivel_actual if swivel_actual is not None else _nan)
                     telem_ts_buf.append(latest_telem_ts if latest_telem_ts is not None else _nan)
                     left_ts_buf.append(latest_left_ts   if latest_left_ts  is not None else _nan)
                     right_ts_buf.append(latest_right_ts if latest_right_ts is not None else _nan)
@@ -3036,36 +3134,28 @@ def main() -> None:
             # Render — queue raw values to display thread (render + draw
             # both run off the main loop to avoid GIL contention)
             # -----------------------------------------------------------------
-            if teleop_state == State.SHUTDOWN:
-                _da, _ds = shutdown_target, shutdown_swivel
-            else:
-                _da, _ds = target, swivel_tgt
+            # Display arrays match q_actual / target / arm_torques shape
+            # directly — swivel is element 0 of each, no concat needed.
+            _da = shutdown_target if teleop_state == State.SHUTDOWN else target
 
-            # Build display snapshot OUTSIDE lock (numpy concat ~0.5ms)
-            # Mapped leader in the robot frame (Z/M-corrected) so the GUI
-            # can compare leader directly against actual/target.  None when
-            # tracking is inactive or no leader sample has arrived.
-            leader_mapped: Optional[np.ndarray] = None
-            if aizee_cmd is not None and swivel_cmd is not None:
-                leader_mapped = np.concatenate([[swivel_cmd], aizee_cmd])
+            # Mapped leader in the robot frame (Z/M-corrected); 7-DOF and
+            # already includes swivel as element 0.  None when tracking is
+            # inactive or no leader sample has arrived.
+            leader_mapped = aizee_cmd if aizee_cmd is not None else None
 
             _disp_snapshot = dict(
                 leader_rad=leader_rad,
                 leader_mapped=leader_mapped,
-                target=(np.concatenate([[_ds if _ds is not None else _nan], _da])
-                        if _da is not None else None),
-                actual=(np.concatenate([[swivel_actual if swivel_actual is not None else _nan], q_actual])
-                        if q_actual is not None else None),
+                target=_da,
+                actual=q_actual,
                 status=status, hint=hint,
                 robot_ok=robot_ok,
                 telem_age=(t0 - last_telem_time if robot_ok else 999.0),
                 ups_data=ups_data,
                 clamped=(_clamped_live if leader_rad is not None else None),
-                torque=(np.concatenate([[swivel_torque if swivel_torque is not None else _nan], arm_torques])
-                        if arm_torques is not None else None),
-                temp=(np.concatenate([[swivel_temp if swivel_temp is not None else _nan], arm_temps])
-                      if arm_temps is not None else None),
-                motor_states=[swivel_state, *arm_states],
+                torque=arm_torques,
+                temp=arm_temps,
+                motor_states=list(arm_states),
                 battery_voltage=battery_voltage,
                 leader_connected=(leader is not None),
                 leader_age=leader_age,
@@ -3112,13 +3202,19 @@ def main() -> None:
         _lr_thread.join(timeout=1.0)
         if leader is not None:
             leader.close()
+        # Stop the cmd-sender thread first so it can't re-emit a bundle
+        # AFTER our explicit drive-zero + disable below.
+        _clear_bundle()
+        _cmd_tx_stop.set()
+        _cmd_tx_thread.join(timeout=1.0)
         # Disable all motors before closing (prevents motors staying enabled after quit)
         _send(cmd_sock, {"type": "drive", "linear": 0.0, "angular": 0.0,
                          "kp": 0.0, "kd": 3.0})
         _send(cmd_sock, {"type": "disable", "motor_ids": _ALL_MOTORS})
         time.sleep(0.1)  # let ZMQ flush the disable command
         cmd_sock.close()
-        telem_sock.close()
+        _telem_stop.set()
+        _telem_thread.join(timeout=1.0)
         _rec_flag.clear()
         _dec_stop.set()
         _dec_thread.join(timeout=1.0)

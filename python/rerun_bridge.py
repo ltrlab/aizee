@@ -20,7 +20,6 @@ Usage:
 """
 
 import argparse
-import base64
 import gc
 import io
 import json
@@ -31,6 +30,7 @@ import sys
 import time
 from datetime import datetime
 from io import BytesIO
+from pathlib import Path
 from typing import List, Optional
 
 import cv2
@@ -38,6 +38,9 @@ import numpy as np
 import rerun as rr
 import rerun.blueprint as rrb
 import zmq
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from common.wire import unpack_camera, unpack_msg
 
 
 logging.basicConfig(
@@ -215,12 +218,14 @@ def build_blueprint() -> rrb.Blueprint:
                     contents=[
                         "motors/left_wheel/position",
                         "motors/right_wheel/position",
-                        "motors/swivel/position",
                     ],
                 ),
                 rrb.TimeSeriesView(
                     name="Gantry Positions",
+                    # Swivel is part of the arm post-unification.  Show it
+                    # alongside the rest of the gantry chain (joint 0).
                     contents=[
+                        "motors/swivel/position",
                         "motors/gantry_base/position",
                         "motors/gantry_mid/position",
                         "motors/gantry_end/position",
@@ -605,7 +610,7 @@ class RerunBridge:
         # Color image — arm cameras are right-side up, no flip needed
         if "color" in message:
             try:
-                color_data = base64.b64decode(message["color"]["data"])
+                color_data = message["color"]["data_bytes"]
                 color_np = cv2.imdecode(
                     np.frombuffer(color_data, dtype=np.uint8), cv2.IMREAD_COLOR
                 )
@@ -618,7 +623,7 @@ class RerunBridge:
         if "depth" in message:
             try:
                 depth_info = message["depth"]
-                depth_bytes = base64.b64decode(depth_info["data"])
+                depth_bytes = depth_info["data_bytes"]
                 dw = depth_info["width"]
                 dh = depth_info["height"]
                 depth_np = np.frombuffer(depth_bytes, dtype=np.uint16).reshape((dh, dw))
@@ -660,7 +665,7 @@ class RerunBridge:
         color_rgb = None
         if 'color' in message:
             try:
-                color_data = base64.b64decode(message['color']['data'])
+                color_data = message['color']['data_bytes']
                 # Decode JPEG directly to numpy array (faster than PIL)
                 color_np = cv2.imdecode(np.frombuffer(color_data, dtype=np.uint8), cv2.IMREAD_COLOR)
                 color_rgb = cv2.cvtColor(color_np, cv2.COLOR_BGR2RGB)
@@ -700,7 +705,7 @@ class RerunBridge:
                     )
 
                 try:
-                    depth_bytes = base64.b64decode(depth_info['data'])
+                    depth_bytes = depth_info['data_bytes']
                     dw = depth_info['width']
                     dh = depth_info['height']
                     depth_np = np.frombuffer(depth_bytes, dtype=np.uint16).reshape((dh, dw))
@@ -1029,11 +1034,9 @@ class RerunBridge:
                         latest_message = None
                         while True:
                             try:
-                                # Non-blocking receive to drain queue
-                                message_json = socket.recv_string(zmq.NOBLOCK)
-                                latest_message = json.loads(message_json)
+                                frames = socket.recv_multipart(zmq.NOBLOCK)
+                                latest_message = unpack_camera(frames)
                             except zmq.Again:
-                                # No more messages available
                                 break
 
                         # Process only the latest message
@@ -1058,32 +1061,26 @@ class RerunBridge:
                         if latest_message:
                             self.process_lidar_message(latest_message)
 
-                # Process UPS messages
+                # Process UPS messages (msgpack)
                 for socket in self.ups_sockets:
                     if socket in socks and socks[socket] == zmq.POLLIN:
-                        # Drain all pending messages, only process the latest
                         latest_message = None
                         while True:
                             try:
-                                # Non-blocking receive to drain queue
-                                message_json = socket.recv_string(zmq.NOBLOCK)
-                                latest_message = json.loads(message_json)
+                                latest_message = unpack_msg(socket.recv(zmq.NOBLOCK))
                             except zmq.Again:
-                                # No more messages available
                                 break
 
-                        # Process only the latest message
                         if latest_message:
                             self.process_ups_message(latest_message)
 
-                # Process motor telemetry messages (50 Hz — drain, process latest)
+                # Process motor telemetry messages (50 Hz, msgpack — drain to latest)
                 for socket in self.telemetry_sockets:
                     if socket in socks and socks[socket] == zmq.POLLIN:
                         latest_message = None
                         while True:
                             try:
-                                message_json = socket.recv_string(zmq.NOBLOCK)
-                                latest_message = json.loads(message_json)
+                                latest_message = unpack_msg(socket.recv(zmq.NOBLOCK))
                             except zmq.Again:
                                 break
 

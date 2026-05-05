@@ -10,20 +10,21 @@ Usage:
 """
 
 import argparse
-import base64
 import io
-import json
 import logging
 import signal
 import sys
 import time
+from pathlib import Path
 from typing import Optional
 
 import cv2
-import msgpack
 import numpy as np
 import zmq
 from PIL import Image
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from common.wire import pack_camera
 
 
 logging.basicConfig(
@@ -48,6 +49,7 @@ class CameraNodeOpenCV:
         jpeg_quality: int = 50,  # Lower quality for faster compression and transmission
         flip_vertical: bool = False,
         flip_horizontal: bool = False,
+        output_resolution: Optional[tuple] = None,
     ):
         """Initialize camera node
 
@@ -71,6 +73,7 @@ class CameraNodeOpenCV:
         self.jpeg_quality = jpeg_quality
         self.flip_vertical = flip_vertical
         self.flip_horizontal = flip_horizontal
+        self.output_resolution = output_resolution
 
         self.color_cap: Optional[cv2.VideoCapture] = None
         self.depth_cap: Optional[cv2.VideoCapture] = None
@@ -210,31 +213,43 @@ class CameraNodeOpenCV:
                 elif self.flip_horizontal:
                     depth_frame = cv2.flip(depth_frame, 1)
 
+                # Optional downscale before encode (saves wire payload)
+                if (self.output_resolution is not None
+                        and (color_rgb.shape[1] != self.output_resolution[0]
+                             or color_rgb.shape[0] != self.output_resolution[1])):
+                    color_rgb = cv2.resize(color_rgb, self.output_resolution,
+                                           interpolation=cv2.INTER_AREA)
+
                 # Compress color image
                 color_jpeg = self.compress_color_image(color_rgb)
+                _cw = color_rgb.shape[1]
+                _ch = color_rgb.shape[0]
+                depth_bytes = depth_frame.tobytes()
 
-                # Prepare message
+                # Prepare header (raw bytes go in separate ZMQ frames).
+                # The "infrared" stream piggybacks on the camera "depth"
+                # slot in pack_camera so consumers can use the same code.
                 message = {
                     'camera_id': self.camera_id,
                     'timestamp': timestamp,
                     'frame_number': self.frame_count,
                     'color': {
-                        'data': base64.b64encode(color_jpeg).decode('ascii'),
                         'format': 'jpeg',
-                        'width': self.width,
-                        'height': self.height,
+                        'width': _cw,
+                        'height': _ch,
                     },
-                    'infrared': {
-                        'data': base64.b64encode(depth_frame.tobytes()).decode('ascii'),
+                    'depth': {
                         'format': 'uint8',
                         'width': depth_frame.shape[1],
                         'height': depth_frame.shape[0],
-                    },
-                    'note': 'Using infrared stream as depth proxy due to SDK compatibility issues'
+                        'note': 'infrared proxy (V4L2 backend)',
+                    }
                 }
 
-                # Publish via ZeroMQ
-                self.zmq_socket.send_json(message)
+                # Publish via ZeroMQ multipart
+                self.zmq_socket.send_multipart(
+                    pack_camera(message, color_jpeg, depth_bytes)
+                )
 
                 self.frame_count += 1
 

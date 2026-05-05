@@ -3,6 +3,34 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Drive sub-payload (also reused inside Bundle).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DrivePayload {
+    pub linear: f32,
+    pub angular: f32,
+    #[serde(default)]
+    pub kp: f32,
+    #[serde(default)]
+    pub kd: f32,
+}
+
+/// Arm-joints sub-payload (also reused inside Bundle).
+///
+/// Swivel is joint 0 of the arm.  There used to be a separate `Swivel`
+/// command and a 6-DOF `ArmJoints` payload; that split has been removed
+/// and `ArmJoints` now carries 7 floats.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArmJointsPayload {
+    pub positions: Vec<f32>,
+    pub velocities: Vec<f32>,
+    #[serde(default)]
+    pub kp: Vec<f32>,
+    #[serde(default)]
+    pub kd: Vec<f32>,
+    #[serde(default)]
+    pub torques: Vec<f32>,
+}
+
 /// Command message types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -16,14 +44,7 @@ pub enum CommandMessage {
         #[serde(default)]
         kd: f32,
     },
-    #[serde(rename = "swivel")]
-    Swivel {
-        position: f32,
-        #[serde(default)]
-        kp: f32,
-        #[serde(default)]
-        kd: f32,
-    },
+    /// 7-DOF arm command, swivel-first.
     #[serde(rename = "arm_joints")]
     ArmJoints {
         positions: Vec<f32>,
@@ -34,6 +55,17 @@ pub enum CommandMessage {
         kd: Vec<f32>,
         #[serde(default)]
         torques: Vec<f32>,
+    },
+    /// Bundles arm + drive into one frame so the per-tick PUSH-socket budget
+    /// is one msgpack send instead of two.  Either sub-field absent means
+    /// "no update for that group this tick" — the previous command still
+    /// latches in the motor controller.
+    #[serde(rename = "bundle")]
+    Bundle {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        arm_joints: Option<ArmJointsPayload>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        drive: Option<DrivePayload>,
     },
     #[serde(rename = "enable")]
     Enable {

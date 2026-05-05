@@ -10,21 +10,22 @@ Usage:
 """
 
 import argparse
-import base64
 import io
-import json
 import logging
 import signal
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
-import msgpack
 import numpy as np
 import pyrealsense2 as rs
 import zmq
 from PIL import Image
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from common.wire import pack_camera
 
 
 logging.basicConfig(
@@ -45,6 +46,7 @@ class CameraNode:
         depth_resolution: tuple = (640, 480),
         fps: int = 30,
         jpeg_quality: int = 85,
+        output_resolution: Optional[tuple] = None,
     ):
         """Initialize camera node
 
@@ -55,6 +57,8 @@ class CameraNode:
             depth_resolution: (width, height) for depth stream
             fps: Frame rate for both streams
             jpeg_quality: JPEG compression quality (1-100)
+            output_resolution: optional (width, height) to downscale color
+                to before JPEG encode.  None = publish at capture resolution.
         """
         self.camera_id = camera_id
         self.zmq_endpoint = zmq_endpoint
@@ -62,6 +66,7 @@ class CameraNode:
         self.depth_resolution = depth_resolution
         self.fps = fps
         self.jpeg_quality = jpeg_quality
+        self.output_resolution = output_resolution
 
         self.pipeline: Optional[rs.pipeline] = None
         self.config: Optional[rs.config] = None
@@ -156,19 +161,20 @@ class CameraNode:
 
         logger.info("ZeroMQ publisher initialized")
 
-    def compress_color_image(self, color_image: np.ndarray) -> bytes:
-        """Compress RGB image to JPEG
+    def compress_color_image(self, color_image: np.ndarray) -> tuple:
+        """Compress RGB image to JPEG.
 
-        Args:
-            color_image: RGB numpy array (H, W, 3)
-
-        Returns:
-            JPEG compressed bytes
+        Returns (bytes, width, height) — width/height reflect the encoded
+        size after the optional output_resolution downscale.
         """
         img = Image.fromarray(color_image)
+        if (self.output_resolution is not None
+                and (self.output_resolution[0] != img.width
+                     or self.output_resolution[1] != img.height)):
+            img = img.resize(self.output_resolution, Image.BILINEAR)
         buffer = io.BytesIO()
         img.save(buffer, format='JPEG', quality=self.jpeg_quality)
-        return buffer.getvalue()
+        return buffer.getvalue(), img.width, img.height
 
     def process_frames(self):
         """Main processing loop - capture and publish frames"""
@@ -222,21 +228,20 @@ class CameraNode:
                 depth_image = np.asanyarray(depth_frame.get_data())
 
                 # Compress color image
-                color_jpeg = self.compress_color_image(color_image)
+                color_jpeg, _cw, _ch = self.compress_color_image(color_image)
+                depth_bytes = depth_image.tobytes()
 
-                # Prepare message
+                # Prepare message header (raw bytes go in separate ZMQ frames)
                 message = {
                     'camera_id': self.camera_id,
                     'timestamp': timestamp,
                     'frame_number': self.frame_count,
                     'color': {
-                        'data': base64.b64encode(color_jpeg).decode('ascii'),
                         'format': 'jpeg',
-                        'width': self.color_resolution[0],
-                        'height': self.color_resolution[1],
+                        'width': _cw,
+                        'height': _ch,
                     },
                     'depth': {
-                        'data': base64.b64encode(depth_image.tobytes()).decode('ascii'),
                         'format': 'uint16',
                         'width': self.depth_resolution[0],
                         'height': self.depth_resolution[1],
@@ -266,9 +271,11 @@ class CameraNode:
                     logger.debug(f"IMU data not available: {e}")
                 self._stat_encode_ms.append((time.perf_counter() - t_enc) * 1000.0)
 
-                # Publish via ZeroMQ
+                # Publish via ZeroMQ multipart (header + raw JPEG + raw depth)
                 t_snd = time.perf_counter()
-                self.zmq_socket.send_json(message)
+                self.zmq_socket.send_multipart(
+                    pack_camera(message, color_jpeg, depth_bytes)
+                )
                 self._stat_send_ms.append((time.perf_counter() - t_snd) * 1000.0)
 
                 self.frame_count += 1
@@ -401,8 +408,21 @@ def main():
         default=85,
         help='JPEG compression quality (1-100)'
     )
+    parser.add_argument(
+        '--output-size',
+        type=str,
+        default=None,
+        help='Optional WxH to downscale color before JPEG encode (e.g. 320x240)'
+    )
 
     args = parser.parse_args()
+    output_resolution = None
+    if args.output_size:
+        try:
+            _w, _h = args.output_size.lower().split("x")
+            output_resolution = (int(_w), int(_h))
+        except ValueError:
+            parser.error("--output-size must be WxH (e.g. 320x240)")
 
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
@@ -413,7 +433,8 @@ def main():
         camera_id=args.camera_id,
         zmq_endpoint=args.zmq_endpoint,
         fps=args.fps,
-        jpeg_quality=args.jpeg_quality
+        jpeg_quality=args.jpeg_quality,
+        output_resolution=output_resolution,
     )
 
     node.run()

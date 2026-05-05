@@ -69,8 +69,10 @@ def relay_thread(ctx: zmq.Context, upstream: str, pub_port: int) -> None:
     while not _stop_event.is_set():
         try:
             if sub.poll(timeout=200):          # 200 ms wait
-                data = sub.recv(zmq.NOBLOCK)
-                pub.send(data, zmq.NOBLOCK)
+                # Camera frames are multipart (header + JPEG + optional
+                # depth) — relay every frame so we don't truncate.
+                frames = sub.recv_multipart(zmq.NOBLOCK)
+                pub.send_multipart(frames, zmq.NOBLOCK)
                 count += 1
         except zmq.Again:
             pass

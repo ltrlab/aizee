@@ -31,18 +31,19 @@ impl CommandSubscriber {
         Ok(Self { socket })
     }
 
-    /// Receive next command (non-blocking with timeout)
+    /// Receive next command (non-blocking).  Wire format is msgpack
+    /// (`#[serde(tag = "type")]` enums encode as a map with a `type`
+    /// field, which msgpack handles natively).
     pub fn recv_command(&mut self) -> Result<Option<CommandMessage>> {
         match self.socket.recv_bytes(0) {
             Ok(bytes) => {
                 tracing::debug!("Received {} bytes on ZMQ socket", bytes.len());
-                let cmd: CommandMessage = serde_json::from_slice(&bytes)
-                    .context("Failed to deserialize command")?;
+                let cmd: CommandMessage = rmp_serde::from_slice(&bytes)
+                    .context("Failed to deserialize msgpack command")?;
                 tracing::info!("Parsed command: {:?}", cmd);
                 Ok(Some(cmd))
             }
             Err(zmq::Error::EAGAIN) => {
-                // Timeout, no message available (normal)
                 Ok(None)
             }
             Err(e) => {
@@ -69,10 +70,13 @@ impl TelemetryPublisher {
         Ok(Self { socket })
     }
 
-    /// Publish telemetry message
+    /// Publish a telemetry message.  Wire format is msgpack with named
+    /// fields (`to_vec_named`) — every Python consumer reconstructs a
+    /// dict shaped like the old JSON form via `unpack_msg(...)`.
     pub fn publish(&mut self, msg: &TelemetryMessage) -> Result<()> {
-        let json = serde_json::to_string(msg)?;
-        self.socket.send(&json, 0)?;
+        let bytes = rmp_serde::to_vec_named(msg)
+            .context("Failed to serialize telemetry to msgpack")?;
+        self.socket.send(&bytes, 0)?;
         Ok(())
     }
 }

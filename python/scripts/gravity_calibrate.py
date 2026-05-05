@@ -47,12 +47,15 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from record_replay import (
     ARM_JOINTS,
+    GANTRY_JOINTS,
+    NUM_GANTRY_JOINTS,
     KP,
     KD,
     setup_keyboard,
     load_arm_limits,
     clamp_arm_positions,
 )
+from common.wire import pack_msg, unpack_msg
 from control.gravity_comp import (
     ArmGravityModel,
     LinkParams,
@@ -62,7 +65,12 @@ from control.gravity_comp import (
     _DEFAULT_CHAIN,
 )
 
-NUM_JOINTS = len(ARM_JOINTS)  # 6
+NUM_JOINTS = len(ARM_JOINTS)         # 7 — wire-protocol arm size (incl. swivel)
+NUM_GANTRY = NUM_GANTRY_JOINTS       # 6 — gravity-comp chain operates on gantry only
+
+# When the wire arm_joints command is 7-DOF (swivel-first) but this script's
+# kinematics live in gantry coordinates, slice off the swivel.
+_GANTRY_SLICE = slice(1, None)
 LOOP_HZ = 30
 SETTLE_TIME = 2.0        # seconds to wait for arm to settle
 SETTLE_VEL = 0.01        # rad/s threshold for "settled"
@@ -318,13 +326,17 @@ def solve_masses_only(
 # ---------------------------------------------------------------------------
 
 def predict_1kg_delta_torques(chain: list[JointDef]) -> np.ndarray:
-    """Predict delta-tau from attaching 1 kg at gripper tip, arm horizontal (q=0)."""
-    delta = np.zeros(6)
-    for i in range(6):
+    """Predict delta-tau from attaching 1 kg at gripper tip, arm horizontal (q=0).
+
+    Returns a [NUM_GANTRY] array — the chain is gantry-only (swivel doesn't
+    contribute a gravitational moment about its vertical axis).
+    """
+    delta = np.zeros(NUM_GANTRY)
+    for i in range(NUM_GANTRY):
         if chain[i].axis in ("Z", "X"):
             delta[i] = 0.0
         else:
-            arm = sum(chain[k].link.length for k in range(i, 6))
+            arm = sum(chain[k].link.length for k in range(i, NUM_GANTRY))
             delta[i] = 1.0 * GRAVITY * arm
     return delta
 
@@ -335,7 +347,9 @@ def validate_geometry(
     """Check if measured 1 kg delta-tau matches predicted within 15%."""
     ok = True
     msgs = []
-    for i in [1, 2, 3]:  # gantry_mid, gantry_end, wrist_pitch
+    # delta_measured / delta_predicted are gantry-coord (6-DOF), so indices
+    # 1..3 are gantry_mid / gantry_end / wrist_pitch — use GANTRY_JOINTS.
+    for i in [1, 2, 3]:
         pred = delta_predicted[i]
         meas = delta_measured[i]
         if abs(pred) < 0.1:
@@ -345,7 +359,7 @@ def validate_geometry(
         if rel_err >= 0.15:
             ok = False
         msgs.append(
-            f"  {ARM_JOINTS[i]:<16} predicted={pred:+6.2f} Nm  "
+            f"  {GANTRY_JOINTS[i]:<16} predicted={pred:+6.2f} Nm  "
             f"measured={meas:+6.2f} Nm  err={rel_err*100:.1f}%  [{status}]"
         )
     return ok, msgs
@@ -359,7 +373,7 @@ def _drain(sock) -> Optional[dict]:
     latest = None
     while True:
         try:
-            latest = json.loads(sock.recv_string(zmq.NOBLOCK))
+            latest = unpack_msg(sock.recv(zmq.NOBLOCK))
         except zmq.Again:
             break
         except Exception:
@@ -369,13 +383,17 @@ def _drain(sock) -> Optional[dict]:
 
 def _send(sock, msg: dict) -> None:
     try:
-        sock.send_string(json.dumps(msg), zmq.NOBLOCK)
+        sock.send(pack_msg(msg), zmq.NOBLOCK)
     except zmq.Again:
         pass
 
 
 def _extract_arm(telem: dict, field: str) -> Optional[np.ndarray]:
-    """Extract [6] array from telemetry for given field."""
+    """Extract [NUM_JOINTS] array from telemetry, ARM_JOINTS order (swivel-first).
+
+    The gravity-comp solver only consumes the gantry chain — slice via
+    `_GANTRY_SLICE` (or call `_extract_gantry`) when feeding kinematics.
+    """
     if not telem or "motors" not in telem:
         return None
     motors = telem["motors"]
@@ -386,6 +404,28 @@ def _extract_arm(telem: dict, field: str) -> Optional[np.ndarray]:
             return None
         vals.append(float(m.get(field, 0.0)))
     return np.array(vals, dtype=np.float64)
+
+
+def _extract_gantry(telem: dict, field: str) -> Optional[np.ndarray]:
+    """Convenience: 6-DOF slice of `_extract_arm` for gantry-only kinematics."""
+    arm = _extract_arm(telem, field)
+    return arm[_GANTRY_SLICE] if arm is not None else None
+
+
+def _to_wire_pose(pose: np.ndarray, swivel_pos: float = 0.0) -> np.ndarray:
+    """Coerce a pose to the 7-DOF wire shape (swivel-first).
+
+    Calibration poses in this script are 6-element gantry vectors.  The
+    motor-control wire format is 7-DOF after the swivel-unification refactor;
+    pad with `swivel_pos` (defaults to 0.0) so the controller doesn't hard
+    fail with "expected at least 7 positions, got 6".
+    """
+    arr = np.asarray(pose, dtype=np.float64)
+    if arr.shape[0] == NUM_JOINTS:
+        return arr
+    if arr.shape[0] == NUM_GANTRY:
+        return np.concatenate([[float(swivel_pos)], arr])
+    raise ValueError(f"pose has {arr.shape[0]} elements; expected {NUM_GANTRY} or {NUM_JOINTS}")
 
 
 def _read_current_pos(telem_sock, retries: int = 20) -> Optional[np.ndarray]:
@@ -1048,7 +1088,9 @@ def calibrate_mode(args) -> None:
                 aborted = True
                 return
 
-            delta_measured = tau_loaded - tau_unloaded
+            # tau_loaded / tau_unloaded are 7-DOF; predict_1kg_delta_torques
+            # works in gantry coordinates.  Slice off swivel before comparing.
+            delta_measured  = (tau_loaded - tau_unloaded)[_GANTRY_SLICE]
             delta_predicted = predict_1kg_delta_torques(chain)
 
             print("\n[5/5] Geometry validation results:")
@@ -1094,7 +1136,10 @@ def calibrate_mode(args) -> None:
         prev_target: Optional[np.ndarray] = None
 
         for idx, pose_def in enumerate(pose_list):
-            target = np.array(pose_def["q"], dtype=np.float64)
+            # Calibration poses are 6-DOF gantry vectors; pad with swivel=0
+            # so the wire arm_joints command carries the full 7 elements.
+            # Internal kinematics work in gantry coordinates via _GANTRY_SLICE.
+            target = _to_wire_pose(np.array(pose_def["q"], dtype=np.float64))
             name = pose_def["name"]
 
             print(f"\n--- Pose {idx + 1}/{len(pose_list)}: {name} ---")
@@ -1120,13 +1165,15 @@ def calibrate_mode(args) -> None:
                 return
 
             prev_target = target
-            collected_poses.append(mean_q)
-            collected_torques.append(mean_tau)
+            # The gravity-comp regression operates on the gantry chain only;
+            # strip the swivel column before feeding it.
+            collected_poses.append(mean_q[_GANTRY_SLICE])
+            collected_torques.append(mean_tau[_GANTRY_SLICE])
             raw_pose_data.append({
                 "name": name,
-                "target": target.tolist(),
-                "q_actual": mean_q.tolist(),
-                "tau_mean": mean_tau.tolist(),
+                "target": target.tolist(),       # 7-DOF wire pose
+                "q_actual": mean_q.tolist(),     # 7-DOF telemetry
+                "tau_mean": mean_tau.tolist(),   # 7-DOF telemetry
             })
 
         # -------------------------------------------------------------------

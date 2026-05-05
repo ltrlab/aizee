@@ -22,8 +22,8 @@ endpoints:
 
 motors:
   drive: ["left_wheel", "right_wheel"]
-  swivel: ["swivel"]
-  gantry: ["gantry_base", "gantry_mid", "gantry_end", "wrist_pitch", "wrist_roll", "gripper"]
+  # Swivel is joint 0 of the arm — there is no separate swivel group anymore.
+  arm: ["swivel", "gantry_base", "gantry_mid", "gantry_end", "wrist_pitch", "wrist_roll", "gripper"]
   all: ["left_wheel", "right_wheel", "swivel", "gantry_base", "gantry_mid", "gantry_end", "wrist_pitch", "wrist_roll", "gripper"]
 
 control:
@@ -53,19 +53,19 @@ drive:
   max_angular: 1.5      # rad/s
   linear_exponent: 1.5
   angular_exponent: 1.5
-  # MIT mode velocity control gains for drive wheels
-  kp: 0.0               # Position gain (0.0 = pure velocity control, no position tracking)
+  # MIT-mode velocity control gains for drive wheels (no swivel here anymore;
+  # swivel is part of `arm` and uses arm.kp[0] / arm.kd[0]).
+  kp: 0.0               # Position gain (0 = pure velocity control)
   kd: 3.0               # Velocity tracking gain (damping)
-  # Swivel position control (separate from drive wheels)
-  swivel_kp: 150.0        # Swivel position gain
-  swivel_kd: 5.0        # Swivel velocity tracking gain
-  swivel_increment: 0.01 # rad per Z/C key press
 
-gantry:
+arm:
+  # 7-DOF gain vectors, swivel-first.
+  # Order: [swivel, gantry_base, gantry_mid, gantry_end, wrist_pitch, wrist_roll, gripper]
+  kp: [150.0, 200.0, 200.0, 50.0, 10.0, 3.0, 2.0]
+  kd: [5.0,   7.0,   10.0,  4.0,  1.0,  1.0, 1.0]
   max_velocity: 1.0       # rad/s per joint
-  increment: 0.02         # rad per key press (small for safety during tuning)
-  kp: [200.0, 200.0, 50.0, 40.0, 8.0, 3.0]  # Position gains [base, mid, end, wrist_pitch, wrist_roll, gripper]
-  kd: [7.0, 10.0, 4.0, 1.0, 1.0, 1.0]         # Damping gains
+  increment: 0.02         # rad per key press (manual jog)
+  swivel_increment: 0.01  # rad per Z/C key press (swivel-only jog kept for muscle memory)
 
 gamepad:
   axes:

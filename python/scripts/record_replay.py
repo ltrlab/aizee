@@ -23,10 +23,19 @@ from typing import Optional, Tuple
 import h5py
 import numpy as np
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from common.wire import pack_msg, unpack_msg
+
 # ---------------------------------------------------------------------------
 # Constants (from rerun_bridge.py / teleop.yaml)
 # ---------------------------------------------------------------------------
+# Swivel is the first arm joint.  Historically the firmware spoke a separate
+# `Swivel` command and ARM_JOINTS was 6-DOF; that split has been removed and
+# ARM_JOINTS now matches the 7-DOF representation the policy pipeline always
+# used.  POLICY_JOINTS is kept as an alias to ease the migration of training
+# code that still imports it; new code should prefer ARM_JOINTS.
 ARM_JOINTS = [
+    "swivel",
     "gantry_base",
     "gantry_mid",
     "gantry_end",
@@ -34,12 +43,16 @@ ARM_JOINTS = [
     "wrist_roll",
     "gripper",
 ]
+NUM_ARM_JOINTS = len(ARM_JOINTS)            # 7
 
-# Full 7-DOF joint list used by the learning pipeline (swivel + 6 arm joints).
-# ARM_JOINTS stays 6-DOF because the firmware `arm_joints` command covers only
-# the gantry motors — swivel is commanded separately via `{"type":"swivel",...}`.
-POLICY_JOINTS = ["swivel"] + ARM_JOINTS   # 7-DOF
-NUM_POLICY_JOINTS = len(POLICY_JOINTS)     # 7
+POLICY_JOINTS = ARM_JOINTS
+NUM_POLICY_JOINTS = NUM_ARM_JOINTS
+
+# Subset useful for code that still wants to address only the gantry joints
+# (e.g. arm-only kinematics that doesn't include the swivel base).  Always
+# the trailing slice — swivel is index 0.
+GANTRY_JOINTS = ARM_JOINTS[1:]              # 6 — exclude swivel
+NUM_GANTRY_JOINTS = len(GANTRY_JOINTS)
 
 # Arm link lengths (metres) — from rerun_bridge.py
 L0 = 0.5906   # base → mid
@@ -49,13 +62,14 @@ L3 = 0.1063   # wrist_pitch pivot → wrist_roll pivot
 L5 = 0.132    # wrist_roll pivot → gripper tip
 ARM_MOUNT_Z = 0.200  # arm mount height above rover base frame
 
-# Gains — from config/teleop.yaml gantry section (6 arm joints, no swivel)
-KP = [100.0, 100.0, 40.0, 7.0, 3.0, 3.0]
-KD = [7.0, 5.5, 4.0, 0.2, 1.0, 1.0]
+# Gains — config/teleop.yaml `arm` section, 7-element (swivel-first) lists.
+KP = [150.0, 100.0, 100.0, 40.0, 7.0, 3.0, 3.0]
+KD = [5.0,   7.0,   5.5,   4.0,  0.2, 1.0, 1.0]
 
-# Swivel gains — from config/teleop.yaml drive.swivel_* (separate command)
-SWIVEL_KP = 150.0
-SWIVEL_KD = 5.0
+# Backwards-compat aliases for callers that still treat swivel separately
+# (e.g. live-replay HUD).  Prefer indexing KP/KD by joint going forward.
+SWIVEL_KP = KP[0]
+SWIVEL_KD = KD[0]
 
 RECORD_HZ = 20
 
@@ -102,75 +116,53 @@ def clamp_arm_positions(
 # ---------------------------------------------------------------------------
 
 def drain_sub(sock) -> Optional[dict]:
-    """Drain a ZMQ SUB socket, return latest message or None."""
+    """Drain a ZMQ SUB socket (msgpack), return latest message or None."""
     import zmq
 
     latest = None
     while True:
         try:
-            raw = sock.recv_string(zmq.NOBLOCK)
-            latest = json.loads(raw)
+            latest = unpack_msg(sock.recv(zmq.NOBLOCK))
         except zmq.Again:
             break
-        except (json.JSONDecodeError, Exception):
+        except Exception:
             break
     return latest
 
 
-def extract_qpos(telem: dict) -> Optional[np.ndarray]:
-    """Extract [6] float32 arm joint positions from telemetry."""
+def _extract_field(
+    telem: Optional[dict], field: str, joints: list = ARM_JOINTS,
+) -> Optional[np.ndarray]:
     if telem is None or "motors" not in telem:
         return None
     motors = telem["motors"]
-    qpos = []
-    for joint in ARM_JOINTS:
+    out = []
+    for joint in joints:
         m = motors.get(joint)
         if m is None:
             return None
-        qpos.append(float(m.get("position", 0.0)))
-    return np.array(qpos, dtype=np.float32)
+        out.append(float(m.get(field, 0.0)))
+    return np.array(out, dtype=np.float32)
+
+
+def extract_qpos(telem: dict) -> Optional[np.ndarray]:
+    """Extract [7] float32 positions in ARM_JOINTS order (swivel first)."""
+    return _extract_field(telem, "position")
 
 
 def extract_velocities(telem: dict) -> Optional[np.ndarray]:
-    """Extract [6] float32 arm joint velocities from telemetry."""
-    if telem is None or "motors" not in telem:
-        return None
-    motors = telem["motors"]
-    vels = []
-    for joint in ARM_JOINTS:
-        m = motors.get(joint)
-        if m is None:
-            return None
-        vels.append(float(m.get("velocity", 0.0)))
-    return np.array(vels, dtype=np.float32)
+    """Extract [7] float32 velocities in ARM_JOINTS order."""
+    return _extract_field(telem, "velocity")
 
 
-def extract_policy_qpos(telem: dict) -> Optional[np.ndarray]:
-    """Extract [7] float32 positions in POLICY_JOINTS order (swivel first)."""
-    if telem is None or "motors" not in telem:
-        return None
-    motors = telem["motors"]
-    out = []
-    for joint in POLICY_JOINTS:
-        m = motors.get(joint)
-        if m is None:
-            return None
-        out.append(float(m.get("position", 0.0)))
-    return np.array(out, dtype=np.float32)
+# POLICY_JOINTS == ARM_JOINTS now; these are kept as aliases for callers in
+# the training pipeline that still import the policy-prefixed names.
+extract_policy_qpos = extract_qpos
 
 
 def extract_policy_torques(telem: dict) -> Optional[np.ndarray]:
-    """Extract [7] float32 torques in POLICY_JOINTS order (swivel first)."""
-    if telem is None or "motors" not in telem:
-        return None
-    motors = telem["motors"]
-    out = []
-    for joint in POLICY_JOINTS:
-        m = motors.get(joint)
-        if m is None:
-            return None
-        out.append(float(m.get("torque", 0.0)))
-    return np.array(out, dtype=np.float32)
+    """Extract [7] float32 torques in ARM_JOINTS order."""
+    return _extract_field(telem, "torque")
 
 
 def apply_safety_limits(
@@ -181,8 +173,8 @@ def apply_safety_limits(
     """Delta-clamp action around current qpos.
 
     Returns:
-        clamped_action: [6] float32, safe to send
-        delta_clamped:  [6] bool, True for joints where delta was binding
+        clamped_action: [J] float32, safe to send  (J = len(ARM_JOINTS))
+        delta_clamped:  [J] bool,    True for joints where delta was binding
     """
     delta = action - qpos_raw
     delta_clamped = np.abs(delta) > max_delta
@@ -281,19 +273,30 @@ def _log_static_arm() -> None:
 
 
 def _log_arm_fk(qpos: np.ndarray) -> None:
-    """Log 6 FK transforms for the arm (extracted from rerun_bridge.py lines 950–991).
+    """Log FK transforms for the arm hierarchy.
 
     Args:
-        qpos: [6] array — [base, mid, end, wrist_pitch, wrist_roll, gripper]
+        qpos: [7] array in ARM_JOINTS order
+              [swivel, base, mid, end, wrist_pitch, wrist_roll, gripper].
+              The swivel transform is logged on the rover→arm link.
     """
     import rerun as rr
 
-    base_pos        = float(qpos[0])
-    mid_pos         = float(qpos[1])
-    end_pos         = float(qpos[2])
-    wrist_pitch_pos = float(qpos[3])
-    wrist_roll_pos  = float(qpos[4])
-    gripper_pos     = float(qpos[5])
+    swivel_pos      = float(qpos[0])
+    base_pos        = float(qpos[1])
+    mid_pos         = float(qpos[2])
+    end_pos         = float(qpos[3])
+    wrist_pitch_pos = float(qpos[4])
+    wrist_roll_pos  = float(qpos[5])
+    gripper_pos     = float(qpos[6])
+
+    rr.log(
+        "world/rover/arm",
+        rr.Transform3D(
+            translation=[0.0, 0.0, ARM_MOUNT_Z],
+            rotation=rr.RotationAxisAngle([0, 0, 1], angle=swivel_pos),
+        ),
+    )
 
     _je = "world/rover/arm/joint_base/joint_mid/joint_end"
 
@@ -365,29 +368,65 @@ def save_recording(path: Path, qpos: np.ndarray, velocities: np.ndarray, timesta
         f.attrs["recorded_at"] = datetime.now(timezone.utc).isoformat()
 
 
+def _maybe_prepend_swivel(
+    qpos: np.ndarray, swivel: Optional[np.ndarray],
+) -> np.ndarray:
+    """Back-compat shim: pre-7-DOF recordings stored qpos as 6-element gantry
+    rows with swivel as a sibling dataset.  Re-stitch to a 7-DOF array so
+    every loader downstream sees the unified shape.
+    """
+    if qpos.ndim != 2 or qpos.shape[1] != NUM_GANTRY_JOINTS:
+        return qpos.astype(np.float32, copy=False)
+    if swivel is None:
+        # Old recording without a swivel dataset — fill with zeros so the
+        # array shape is consistent.  Old data without swivel is rare and
+        # marker-quality at best; downstream code should treat sw=0 as
+        # "unknown".
+        sw_col = np.zeros((qpos.shape[0], 1), dtype=np.float32)
+    else:
+        sw = np.asarray(swivel, dtype=np.float32).reshape(-1)
+        if sw.shape[0] != qpos.shape[0]:
+            # Truncate/pad rather than crash; old episodes occasionally
+            # have a trailing extra swivel sample.
+            n  = min(sw.shape[0], qpos.shape[0])
+            sw = sw[:n]
+            qpos = qpos[:n]
+        sw_col = sw.reshape(-1, 1)
+    return np.hstack([sw_col, qpos.astype(np.float32, copy=False)])
+
+
 def load_recording(path: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Load a recording or episode HDF5.
 
     Supports:
       - recordings/recording_XXXX.hdf5  → /qpos, /velocities, /timestamps
       - episode_XXXX.hdf5               → /observations/qpos (velocities/timestamps synthesized)
+      - Pre-unification files where qpos was 6-DOF and `swivel` was a
+        sibling dataset — those are stitched into a 7-DOF array on load.
 
     Returns:
-        qpos:       [T, 6] float32
-        velocities: [T, 6] float32
+        qpos:       [T, 7] float32 in ARM_JOINTS order (swivel-first)
+        velocities: [T, 7] float32
         timestamps: [T]    float64
     """
     with h5py.File(path, "r") as f:
+        sw_top = f["swivel"][:] if "swivel" in f else None
+        sw_obs = (f["observations/swivel"][:]
+                  if "observations" in f and "swivel" in f["observations"]
+                  else None)
         if "qpos" in f:
             qpos       = f["qpos"][:]
             velocities = f["velocities"][:]
             timestamps = f["timestamps"][:]
+            qpos       = _maybe_prepend_swivel(qpos, sw_top)
+            if velocities.ndim == 2 and velocities.shape[1] == NUM_GANTRY_JOINTS:
+                velocities = _maybe_prepend_swivel(velocities, None)
         elif "observations" in f and "qpos" in f["observations"]:
             # episode_XXXX.hdf5 from collect_demo.py
             qpos = f["observations/qpos"][:]
+            qpos = _maybe_prepend_swivel(qpos, sw_obs)
             T    = len(qpos)
             velocities = np.zeros_like(qpos)
-            # Synthesize timestamps at RECORD_HZ
             timestamps = np.arange(T, dtype=np.float64) / RECORD_HZ
         else:
             raise ValueError(f"Unrecognised HDF5 format: {path}")
@@ -704,16 +743,16 @@ def _replay_live(
             if arm_limits:
                 safe_target = np.array(clamp_arm_positions(safe_target.tolist(), arm_limits), dtype=np.float32)
 
-            # Send command
+            # Send command (7-DOF: swivel + gantry + gripper)
             cmd = {
                 "type": "arm_joints",
                 "positions": safe_target.tolist(),
-                "velocities": [0.0] * 6,
+                "velocities": [0.0] * NUM_ARM_JOINTS,
                 "kp": KP,
                 "kd": KD,
-                "torques": [0.0] * 6,
+                "torques": [0.0] * NUM_ARM_JOINTS,
             }
-            cmd_sock.send_string(json.dumps(cmd))
+            cmd_sock.send(pack_msg(cmd))
 
             # Read telemetry
             telem = drain_sub(telem_sock)
@@ -782,12 +821,12 @@ def _goto_start(
         cmd = {
             "type": "arm_joints",
             "positions": safe.tolist(),
-            "velocities": [0.0] * 6,
+            "velocities": [0.0] * NUM_ARM_JOINTS,
             "kp": KP,
             "kd": KD,
-            "torques": [0.0] * 6,
+            "torques": [0.0] * NUM_ARM_JOINTS,
         }
-        cmd_sock.send_string(json.dumps(cmd))
+        cmd_sock.send(pack_msg(cmd))
         time.sleep(1.0 / RECORD_HZ)
 
         telem = drain_sub(telem_sock)

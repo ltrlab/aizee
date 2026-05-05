@@ -22,12 +22,16 @@ import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Optional
 
 import serial
 import serial.serialutil
 import yaml
 import zmq
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from common.wire import unpack_msg
 
 logging.basicConfig(
     level=logging.INFO,
@@ -189,11 +193,10 @@ class DisplayNode:
             latest = None
             while True:
                 try:
-                    raw = self.motor_sub.recv_string(zmq.NOBLOCK)
-                    latest = json.loads(raw)
+                    latest = unpack_msg(self.motor_sub.recv(zmq.NOBLOCK))
                 except zmq.Again:
                     break
-                except (json.JSONDecodeError, UnicodeDecodeError):
+                except Exception:
                     pass
             if latest is not None:
                 self.latest_motor = latest
@@ -203,11 +206,10 @@ class DisplayNode:
             latest = None
             while True:
                 try:
-                    raw = self.ups_sub.recv_string(zmq.NOBLOCK)
-                    latest = json.loads(raw)
+                    latest = unpack_msg(self.ups_sub.recv(zmq.NOBLOCK))
                 except zmq.Again:
                     break
-                except (json.JSONDecodeError, UnicodeDecodeError):
+                except Exception:
                     pass
             if latest is not None:
                 self.latest_ups = latest

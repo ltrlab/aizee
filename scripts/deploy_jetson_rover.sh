@@ -14,7 +14,7 @@ set -e
 
 TARGET="${1:-ltr@192.168.0.27}"
 REMOTE_DIR="aizee"
-SSH_KEY="/p/Workspace/ssh-keys/aizee_rover_id"
+SSH_KEY="${SSH_KEY:-/p/Workspace/ssh-keys/aizee_rover_id}"
 SSH="ssh -i $SSH_KEY"
 SCP="scp -i $SSH_KEY"
 TARBALL="/tmp/aizee_deploy.tar.gz"

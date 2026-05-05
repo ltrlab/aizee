@@ -28,6 +28,9 @@ import json
 import sys
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from common.wire import pack_msg, unpack_msg
 from typing import Optional
 
 import numpy as np
@@ -48,14 +51,17 @@ from record_replay import (
 # ---------------------------------------------------------------------------
 INCREMENT = 0.02  # rad per key-press (matches teleop.yaml increment)
 
-# (joint_index, delta)
+# (joint_index, delta) — indices match ARM_JOINTS (swivel-first 7-DOF).
+# Z/C jog the swivel; the original gantry bindings (1..8, [/], -/=) shift up
+# by one index to account for swivel landing at position 0.
 KEY_BINDINGS: dict[str, tuple[int, float]] = {
-    "1": (0, +INCREMENT), "2": (0, -INCREMENT),
-    "3": (1, +INCREMENT), "4": (1, -INCREMENT),
-    "5": (2, +INCREMENT), "6": (2, -INCREMENT),
-    "7": (3, +INCREMENT), "8": (3, -INCREMENT),
-    "[": (4, +INCREMENT), "]": (4, -INCREMENT),
-    "-": (5, +INCREMENT), "=": (5, -INCREMENT),
+    "Z": (0, +INCREMENT), "C": (0, -INCREMENT),  # swivel
+    "1": (1, +INCREMENT), "2": (1, -INCREMENT),  # gantry_base
+    "3": (2, +INCREMENT), "4": (2, -INCREMENT),  # gantry_mid
+    "5": (3, +INCREMENT), "6": (3, -INCREMENT),  # gantry_end
+    "7": (4, +INCREMENT), "8": (4, -INCREMENT),  # wrist_pitch
+    "[": (5, +INCREMENT), "]": (5, -INCREMENT),  # wrist_roll
+    "-": (6, +INCREMENT), "=": (6, -INCREMENT),  # gripper
 }
 
 # ---------------------------------------------------------------------------
@@ -66,7 +72,7 @@ def _drain(sock) -> Optional[dict]:
     latest = None
     while True:
         try:
-            latest = json.loads(sock.recv_string(zmq.NOBLOCK))
+            latest = unpack_msg(sock.recv(zmq.NOBLOCK))
         except zmq.Again:
             break
         except Exception:
@@ -156,7 +162,7 @@ def _render(
     return lines
 
 
-_N_LINES = len(_render(np.zeros(6), None, "", ""))  # line count unchanged by limits
+_N_LINES = len(_render(np.zeros(len(ARM_JOINTS)), None, "", ""))  # line count unchanged by limits
 
 
 def _draw(lines: list[str], first: bool = False) -> None:
@@ -207,7 +213,7 @@ def main() -> None:
     get_key = setup_keyboard()
 
     # Seed target from first telemetry packet (avoids jump on startup)
-    q_target: np.ndarray        = np.zeros(6, dtype=np.float32)
+    q_target: np.ndarray        = np.zeros(len(ARM_JOINTS), dtype=np.float32)
     q_actual: Optional[np.ndarray] = None
     print(f"Connecting to {args.telem} ...")
     for _ in range(40):          # up to 2 s
@@ -252,7 +258,7 @@ def main() -> None:
                 break
 
             elif key == " ":
-                cmd_sock.send_string(json.dumps({"type": "emergency_stop"}))
+                cmd_sock.send(pack_msg({"type": "emergency_stop"}))
                 if recording:
                     _save(qpos_buf, vel_buf, ts_buf, rec_path)
                     last_saved, recording = rec_path, False
@@ -260,7 +266,7 @@ def main() -> None:
                 hint_line = "E=enable  H=home  SPC=estop  R=rec  Q=quit"
 
             elif key == "E":
-                cmd_sock.send_string(json.dumps({
+                cmd_sock.send(pack_msg({
                     "type": "enable", "motor_ids": ARM_JOINTS,
                 }))
                 hint_line = "E=enable  H=home  SPC=estop  R=rec  Q=quit"
@@ -300,10 +306,10 @@ def main() -> None:
             if arm_limits:
                 q_cmd = np.array(clamp_arm_positions(q_cmd.tolist(), arm_limits), dtype=np.float32)
 
-            cmd_sock.send_string(json.dumps({
+            cmd_sock.send(pack_msg({
                 "type":       "arm_joints",
                 "positions":  q_cmd.tolist(),
-                "velocities": [0.0] * 6,
+                "velocities": [0.0] * len(q_cmd),
                 "kp":         KP,
                 "kd":         KD,
             }))

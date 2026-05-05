@@ -25,8 +25,13 @@ import logging
 import os
 import sys
 import time
+from pathlib import Path
+
 import yaml
 import zmq
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from common.wire import pack_msg, unpack_msg
 
 # Pygame for gamepad — optional
 # On Linux (Jetson/SSH), use dummy video driver since there's no display.
@@ -566,7 +571,7 @@ class Comms:
     def send(self, msg):
         """Send command with error handling."""
         try:
-            self.cmd.send_string(json.dumps(msg), zmq.NOBLOCK)
+            self.cmd.send(pack_msg(msg), zmq.NOBLOCK)
             self.commands_sent += 1
             return True
         except zmq.Again:
@@ -587,11 +592,24 @@ class Comms:
         })
 
     def send_swivel_position(self, position, kp=5.0, kd=0.5):
+        # After the swivel-unification refactor, swivel is joint 0 of the
+        # 7-DOF arm.  We send a full arm_joints command with non-zero gain
+        # only on swivel; gantry slots have kp/kd=0 so disabled gantry
+        # motors that haven't been enabled in this rover-only teleop mode
+        # are left untouched (the controller skips Disabled motors).
+        positions = [0.0] * 7
+        positions[0] = float(position)
+        kp_vec = [0.0] * 7
+        kd_vec = [0.0] * 7
+        kp_vec[0] = float(kp)
+        kd_vec[0] = float(kd)
         self.send({
-            "type": "swivel",
-            "position": position,
-            "kp": kp,
-            "kd": kd
+            "type": "arm_joints",
+            "positions": positions,
+            "velocities": [0.0] * 7,
+            "kp": kp_vec,
+            "kd": kd_vec,
+            "torques": [0.0] * 7,
         })
 
     def send_enable(self, motor_ids):
@@ -629,18 +647,17 @@ class Comms:
     # -- receive ------------------------------------------------------------
 
     def recv_latest_telemetry(self):
-        """Drain SUB socket, keep only the newest message."""
+        """Drain SUB socket, keep only the newest message (msgpack)."""
         latest = None
         try:
             while True:
                 try:
-                    raw = self.sub.recv_string(zmq.NOBLOCK)
-                    latest = json.loads(raw)
+                    latest = unpack_msg(self.sub.recv(zmq.NOBLOCK))
                     self.telem_count += 1
                 except zmq.Again:
                     break
-                except json.JSONDecodeError as e:
-                    logger.error(f"Invalid telemetry JSON: {e}")
+                except Exception as e:
+                    logger.error(f"Invalid telemetry: {e}")
                     break
             if latest is not None:
                 # Validate telemetry structure
@@ -671,12 +688,11 @@ class Comms:
         try:
             while True:
                 try:
-                    raw = self.ups_sub.recv_string(zmq.NOBLOCK)
-                    latest = json.loads(raw)
+                    latest = unpack_msg(self.ups_sub.recv(zmq.NOBLOCK))
                 except zmq.Again:
                     break
-                except json.JSONDecodeError as e:
-                    logger.error(f"Invalid UPS telemetry JSON: {e}")
+                except Exception as e:
+                    logger.error(f"Invalid UPS telemetry: {e}")
                     break
             if latest is not None:
                 if not isinstance(latest, dict):
@@ -806,7 +822,7 @@ class MultiModuleComms:
 
         mod = self.modules[module_name]
         try:
-            mod["cmd"].send_string(json.dumps(cmd_msg), zmq.NOBLOCK)
+            mod["cmd"].send(pack_msg(cmd_msg), zmq.NOBLOCK)
             self.commands_sent += 1
             return True
         except zmq.Again:
@@ -828,12 +844,24 @@ class MultiModuleComms:
         })
 
     def send_swivel_position(self, position, kp=5.0, kd=0.5):
-        """Send swivel position command to rover module."""
+        """Send swivel position to the rover module via 7-DOF arm_joints.
+
+        Swivel is joint 0 of the unified arm; gantry slots carry kp/kd=0
+        so any disabled gantry motors are left untouched.
+        """
+        positions = [0.0] * 7
+        positions[0] = float(position)
+        kp_vec = [0.0] * 7
+        kd_vec = [0.0] * 7
+        kp_vec[0] = float(kp)
+        kd_vec[0] = float(kd)
         self.send_command("rover", {
-            "type": "swivel",
-            "position": position,
-            "kp": kp,
-            "kd": kd
+            "type": "arm_joints",
+            "positions": positions,
+            "velocities": [0.0] * 7,
+            "kp": kp_vec,
+            "kd": kd_vec,
+            "torques": [0.0] * 7,
         })
 
     def send_arm_joints(self, positions, velocities=None, kp=None, kd=None, torques=None):
@@ -908,8 +936,7 @@ class MultiModuleComms:
             try:
                 while True:
                     try:
-                        raw = mod["telem"].recv_string(zmq.NOBLOCK)
-                        telem = json.loads(raw)
+                        telem = unpack_msg(mod["telem"].recv(zmq.NOBLOCK))
                         mod["telem_count"] += 1
                         # Validate telemetry structure
                         if not isinstance(telem, dict):
@@ -1175,8 +1202,15 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
                 state.swivel_initialized = True
                 logger.info(f"Swivel auto-homed at encoder position: {state.swivel_offset:.3f}")
 
-    # Handle swivel position adjustments (Z/C keys)
-    swivel_increment = cfg.get("drive", {}).get("swivel_increment", 0.1)  # rad per key press
+    # Handle swivel position adjustments (Z/C keys).
+    # `arm.swivel_increment` is the post-unification location; fall back to
+    # the legacy `drive.swivel_increment` for older configs.
+    _arm_cfg  = cfg.get("arm", {})
+    _drv_cfg  = cfg.get("drive", {})
+    swivel_increment = float(
+        _arm_cfg.get("swivel_increment",
+        _drv_cfg.get("swivel_increment", 0.1))
+    )
     if state.swivel_initialized:
         if state.swivel_dec:
             state.swivel_position -= swivel_increment
@@ -1450,8 +1484,16 @@ def dispatch_commands(state, comms, cfg, dt=0.05):
 
     # --- swivel position control (send absolute position) ------------------
     if state.swivel_initialized and not sent_estop:
-        swivel_kp = cfg["drive"].get("swivel_kp", 5.0)
-        swivel_kd = cfg["drive"].get("swivel_kd", 0.5)
+        # Swivel gains live in `arm.kp[0]` / `arm.kd[0]` post-unification;
+        # fall back to legacy `drive.swivel_*` for older configs.
+        _arm_kp = cfg.get("arm", {}).get("kp")
+        _arm_kd = cfg.get("arm", {}).get("kd")
+        if _arm_kp and _arm_kd:
+            swivel_kp = float(_arm_kp[0])
+            swivel_kd = float(_arm_kd[0])
+        else:
+            swivel_kp = float(cfg.get("drive", {}).get("swivel_kp", 5.0))
+            swivel_kd = float(cfg.get("drive", {}).get("swivel_kd", 0.5))
         # Convert relative position to absolute
         abs_swivel = state.swivel_position + state.swivel_offset
         comms.send_swivel_position(abs_swivel, swivel_kp, swivel_kd)

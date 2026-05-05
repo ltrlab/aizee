@@ -3,7 +3,8 @@
 act_policy_node.py — ACT policy inference node for AIZEE arm.
 
 Runs at 20 Hz, subscribes to arm telemetry and both wrist cameras,
-runs the ACT policy, and sends swivel + arm_joints commands.
+runs the ACT policy, and sends a single 7-DOF arm_joints command per tick
+(swivel is joint 0 of the unified arm).
 
 WARNING: Do NOT run teleop.py and this node simultaneously.
 Both push to :5555. Interleaved commands are dangerous.
@@ -25,7 +26,6 @@ Safety:
 from __future__ import annotations
 
 import argparse
-import base64
 import io
 import json
 import sys
@@ -41,6 +41,15 @@ import zmq
 from PIL import Image
 
 try:
+    import cv2
+    _cv2_available = True
+except ImportError:
+    _cv2_available = False
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from common.wire import pack_msg, unpack_camera, unpack_msg
+
+try:
     import rerun as rr
     import rerun.blueprint as rrb
     _rerun_available = True
@@ -53,22 +62,30 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from python.training.act_model import ACTPolicy
 from python.scripts.record_replay import (
     ARM_JOINTS, POLICY_JOINTS, NUM_POLICY_JOINTS,
-    SWIVEL_KP, SWIVEL_KD,
     extract_policy_qpos, extract_policy_torques,
 )
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-NUM_ARM_JOINTS = len(ARM_JOINTS)   # 6 — dimension of the arm_joints ZMQ message
+# After the swivel-unification refactor, ARM_JOINTS is 7-DOF (swivel-first)
+# and equals POLICY_JOINTS — there's no separate Swivel command type and the
+# wire `arm_joints` payload carries 7 floats.
+NUM_ARM_JOINTS = len(ARM_JOINTS)   # 7
 
 # Fallback gains if teleop.yaml is not found
-_DEFAULT_KP = [75.0, 65.0, 10.0, 5.0, 10.0, 10.0]
-_DEFAULT_KD = [7.0, 5.5, 0.2, 0.2, 2.0, 2.0]
+# 7-DOF defaults (swivel-first), matching record_replay.KP/KD.
+_DEFAULT_KP = [150.0, 75.0, 65.0, 10.0, 5.0, 10.0, 10.0]
+_DEFAULT_KD = [5.0,   7.0,  5.5,  0.2,  0.2, 2.0,  2.0]
 
 
 def _load_gains():
-    """Load arm KP/KD from config/teleop.yaml, falling back to defaults."""
+    """Load 7-DOF arm KP/KD from config/teleop.yaml, falling back to defaults.
+
+    Reads `arm.kp` / `arm.kd` (post-unification).  Older configs that still
+    have split `gantry.kp` + `drive.swivel_kp` are stitched together so the
+    policy still gets a swivel-first 7-element vector.
+    """
     here = Path(__file__).parent
     for candidate in [
         here / ".." / ".." / "config" / "teleop.yaml",
@@ -77,9 +94,13 @@ def _load_gains():
         p = candidate.resolve()
         if p.exists():
             cfg = yaml.safe_load(p.read_text()) or {}
+            arm = cfg.get("arm", {})
+            if "kp" in arm and "kd" in arm:
+                return list(arm["kp"]), list(arm["kd"])
             gantry = cfg.get("gantry", {})
-            kp = gantry.get("kp", _DEFAULT_KP)
-            kd = gantry.get("kd", _DEFAULT_KD)
+            drive  = cfg.get("drive",  {})
+            kp = [float(drive.get("swivel_kp", _DEFAULT_KP[0]))] + list(gantry.get("kp", _DEFAULT_KP[1:]))
+            kd = [float(drive.get("swivel_kd", _DEFAULT_KD[0]))] + list(gantry.get("kd", _DEFAULT_KD[1:]))
             return list(kp), list(kd)
     return list(_DEFAULT_KP), list(_DEFAULT_KD)
 
@@ -121,12 +142,25 @@ def _setup_keyboard():
 # ---------------------------------------------------------------------------
 
 def drain_sub(sock) -> Optional[dict]:
-    """Drain a ZMQ SUB socket, return latest message or None."""
+    """Drain an msgpack-over-ZMQ SUB socket, return latest message or None."""
     latest = None
     while True:
         try:
-            raw = sock.recv_string(zmq.NOBLOCK)
-            latest = json.loads(raw)
+            latest = unpack_msg(sock.recv(zmq.NOBLOCK))
+        except zmq.Again:
+            break
+        except Exception:
+            break
+    return latest
+
+
+def drain_camera(sock) -> Optional[dict]:
+    """Drain a multipart camera SUB socket, return latest decoded message."""
+    latest = None
+    while True:
+        try:
+            frames = sock.recv_multipart(zmq.NOBLOCK)
+            latest = unpack_camera(frames)
         except zmq.Again:
             break
         except Exception:
@@ -139,14 +173,25 @@ def drain_sub(sock) -> Optional[dict]:
 # ---------------------------------------------------------------------------
 
 def decode_image(msg: dict, target_size=(320, 240)) -> Optional[np.ndarray]:
-    """Decode camera message to uint8 [H, W, 3]. target_size = (width, height)."""
+    """Decode camera message to uint8 [H, W, 3]. target_size = (width, height).
+
+    Uses cv2 (libjpeg-turbo) when available; falls back to PIL.
+    """
     color = msg.get("color", {})
-    data_b64 = color.get("data")
-    if data_b64 is None:
+    raw   = color.get("data_bytes")
+    if raw is None:
         return None
-    jpeg_bytes = base64.b64decode(data_b64)
-    img = Image.open(io.BytesIO(jpeg_bytes)).convert("RGB")
-    img = img.resize(target_size, Image.LANCZOS)
+    if _cv2_available:
+        arr = np.frombuffer(raw, dtype=np.uint8)
+        bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if bgr is None:
+            return None
+        if (bgr.shape[1], bgr.shape[0]) != target_size:
+            bgr = cv2.resize(bgr, target_size, interpolation=cv2.INTER_AREA)
+        return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+    img = Image.open(io.BytesIO(raw)).convert("RGB")
+    if (img.width, img.height) != target_size:
+        img = img.resize(target_size, Image.LANCZOS)
     return np.array(img, dtype=np.uint8)
 
 
@@ -280,22 +325,11 @@ def _send_joint_command(
     arm_kp: List[float],
     arm_kd: List[float],
 ):
-    """Split the 7-DOF action into a swivel command + arm_joints command."""
-    swivel_pos = float(action[0])
-    arm_pos = action[1:1 + NUM_ARM_JOINTS].tolist()
-
+    """Send the 7-DOF action as a single arm_joints command (swivel-first)."""
     try:
-        cmd_push.send_string(json.dumps({
-            "type": "swivel",
-            "position": swivel_pos,
-            "velocity": 0.0,
-            "kp": SWIVEL_KP,
-            "kd": SWIVEL_KD,
-            "torque": 0.0,
-        }), zmq.NOBLOCK)
-        cmd_push.send_string(json.dumps({
+        cmd_push.send(pack_msg({
             "type": "arm_joints",
-            "positions": arm_pos,
+            "positions": action[:NUM_ARM_JOINTS].astype(np.float32).tolist(),
             "velocities": [0.0] * NUM_ARM_JOINTS,
             "kp": arm_kp, "kd": arm_kd,
             "torques": [0.0] * NUM_ARM_JOINTS,
@@ -424,8 +458,8 @@ def _ramp_to_pose(
     while True:
         rt0 = time.monotonic()
         t = drain_sub(telem_sub)
-        drain_sub(left_sub)
-        drain_sub(right_sub)
+        drain_camera(left_sub)
+        drain_camera(right_sub)
         qpos = extract_policy_qpos(t) if t is not None else None
         if qpos is None:
             time.sleep(tick)
@@ -489,8 +523,7 @@ def main():
     print(f"Checkpoint: {args.checkpoint}")
 
     arm_kp, arm_kd = _load_gains()
-    print(f"Arm gains: kp={arm_kp}  kd={arm_kd}")
-    print(f"Swivel gains: kp={SWIVEL_KP}  kd={SWIVEL_KD}")
+    print(f"Arm gains (swivel-first 7-DOF): kp={arm_kp}  kd={arm_kd}")
 
     # Load model
     print("Loading checkpoint...")
@@ -504,9 +537,8 @@ def main():
           f"state_mode={state_mode} (dim={state_dim})  action_mode={action_mode}")
 
     if num_joints != NUM_POLICY_JOINTS:
-        print(f"[WARN] checkpoint num_joints={num_joints} but POLICY_JOINTS has "
-              f"{NUM_POLICY_JOINTS} entries. Command dispatch assumes "
-              f"index 0 = swivel and indices 1..{NUM_ARM_JOINTS} = ARM_JOINTS.")
+        print(f"[WARN] checkpoint num_joints={num_joints} but ARM_JOINTS has "
+              f"{NUM_POLICY_JOINTS} entries (swivel + 6 gantry, swivel-first).")
 
     # Training-data safety ranges
     print()
@@ -635,11 +667,11 @@ def main():
             if telem is not None:
                 latest_telem = telem
                 last_telem_time = t0
-            left_msg = drain_sub(left_sub)
+            left_msg = drain_camera(left_sub)
             if left_msg is not None:
                 latest_left = left_msg
                 last_left_time = t0
-            right_msg = drain_sub(right_sub)
+            right_msg = drain_camera(right_sub)
             if right_msg is not None:
                 latest_right = right_msg
                 last_right_time = t0
@@ -700,7 +732,7 @@ def main():
                     actual_close = qpos_now is None or bool(np.all(np.abs(qpos_now) < 0.05))
                     if ramp_done and actual_close:
                         try:
-                            cmd_push.send_string(json.dumps({
+                            cmd_push.send(pack_msg({
                                 "type": "disable",
                                 "motor_ids": list(POLICY_JOINTS[:num_joints]),
                             }), zmq.NOBLOCK)
@@ -750,7 +782,7 @@ def main():
                         print(f"Closest start pose: {target}")
                         if not args.dry_run and cmd_push is not None:
                             try:
-                                cmd_push.send_string(json.dumps({
+                                cmd_push.send(pack_msg({
                                     "type": "enable",
                                     "motor_ids": list(POLICY_JOINTS[:num_joints]),
                                 }), zmq.NOBLOCK)
@@ -765,8 +797,8 @@ def main():
                             )
                             print("\nReady pose reached. Stabilising cameras...")
                             time.sleep(0.5)
-                            drain_sub(left_sub)
-                            drain_sub(right_sub)
+                            drain_camera(left_sub)
+                            drain_camera(right_sub)
                             drain_sub(telem_sub)
                     print("Starting inference loop.")
                 else:

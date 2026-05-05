@@ -12,13 +12,12 @@ Usage:
 """
 
 import argparse
-import base64
 import io
-import json
 import logging
 import signal
 import sys
 import time
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -26,6 +25,9 @@ import pyrealsense2 as rs
 import yaml
 import zmq
 from PIL import Image
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from common.wire import pack_camera
 
 
 logging.basicConfig(
@@ -60,6 +62,12 @@ class ArmCameraNode:
         self.depth_h: int = depth_cfg.get("height", 480)
         self.fps: int = color_cfg.get("fps", depth_cfg.get("fps", 30))
         self.jpeg_quality: int = color_cfg.get("quality", 85)
+        # Optional downscale before JPEG encode.  When set, removes the
+        # consumer-side resize entirely AND ~75% of the JPEG payload at
+        # 320x240 vs 640x480.  Depth is left at capture resolution because
+        # depth_intrinsics are bound to the source size.
+        self.output_w: Optional[int] = color_cfg.get("output_width")
+        self.output_h: Optional[int] = color_cfg.get("output_height")
 
         self.zmq_endpoint: str = zmq_cfg.get("camera_pub", "tcp://*:5563")
 
@@ -170,13 +178,19 @@ class ArmCameraNode:
         self.zmq_socket.setsockopt(zmq.SNDHWM, 2)
         self.zmq_socket.bind(self.zmq_endpoint)
 
-    def _compress_color(self, rgb: np.ndarray) -> bytes:
+    def _compress_color(self, rgb: np.ndarray) -> tuple[bytes, int, int]:
+        """JPEG-encode RGB.  Returns (bytes, width, height) of the encoded image.
+
+        When output_w/output_h are configured, downscales here so the wire
+        payload is ~target-resolution and the host doesn't have to resize.
+        """
         img = Image.fromarray(rgb)
+        if (self.output_w is not None and self.output_h is not None
+                and (self.output_w != img.width or self.output_h != img.height)):
+            img = img.resize((self.output_w, self.output_h), Image.BILINEAR)
         buf = io.BytesIO()
-        # optimize=False — skip multi-pass Huffman search (2-5× faster,
-        # negligible quality difference at quality=85)
         img.save(buf, format="JPEG", quality=self.jpeg_quality)
-        return buf.getvalue()
+        return buf.getvalue(), img.width, img.height
 
     def process_frames(self):
         """Main capture-and-publish loop."""
@@ -223,24 +237,25 @@ class ArmCameraNode:
                 }
 
                 t_enc = time.perf_counter()
+                color_jpeg: Optional[bytes] = None
+                depth_bytes: Optional[bytes] = None
                 if self.enable_color:
                     color_frame = frames.get_color_frame()
                     if color_frame:
                         color_np = np.asanyarray(color_frame.get_data())
-                        color_jpeg = self._compress_color(color_np)
+                        color_jpeg, _cw, _ch = self._compress_color(color_np)
                         message["color"] = {
-                            "data": base64.b64encode(color_jpeg).decode("ascii"),
                             "format": "jpeg",
-                            "width": self.color_w,
-                            "height": self.color_h,
+                            "width": _cw,
+                            "height": _ch,
                         }
 
                 if self.enable_depth:
                     depth_frame = frames.get_depth_frame()
                     if depth_frame:
                         depth_np = np.asanyarray(depth_frame.get_data())
+                        depth_bytes = depth_np.tobytes()
                         message["depth"] = {
-                            "data": base64.b64encode(depth_np.tobytes()).decode("ascii"),
                             "format": "uint16",
                             "width": self.depth_w,
                             "height": self.depth_h,
@@ -250,9 +265,11 @@ class ArmCameraNode:
                 self._stat_encode_ms.append((time.perf_counter() - t_enc) * 1000.0)
 
                 # Only publish if we have at least one stream's data
-                if "color" in message or "depth" in message:
+                if color_jpeg is not None or depth_bytes is not None:
                     t_snd = time.perf_counter()
-                    self.zmq_socket.send_json(message)
+                    self.zmq_socket.send_multipart(
+                        pack_camera(message, color_jpeg, depth_bytes)
+                    )
                     self._stat_send_ms.append((time.perf_counter() - t_snd) * 1000.0)
 
                 self.frame_count += 1

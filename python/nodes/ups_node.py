@@ -22,10 +22,14 @@ import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import zmq
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from common.wire import pack_msg
 
 # Import INA219 library
 try:
@@ -170,7 +174,7 @@ class UPSMonitor:
             }
         }
 
-        self.telemetry_pub.send_string(json.dumps(message))
+        self.telemetry_pub.send(pack_msg(message))
         self.message_count += 1
 
     def run_loop(self):

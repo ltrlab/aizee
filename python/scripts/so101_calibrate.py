@@ -142,12 +142,20 @@ def run_monitor(arm: So101Leader, get_key) -> bool:
 # Phase 2 — calibration wizard
 # ---------------------------------------------------------------------------
 
-def run_calibration(arm: So101Leader, get_key) -> Optional[dict]:
+def run_calibration(
+    arm: So101Leader,
+    get_key,
+    only_joints: Optional[set] = None,
+) -> Optional[dict]:
     """Walk through each joint collecting min/max raw ticks.
 
     For each joint:
       Step A: user moves joint to MIN, presses SPACE
       Step B: user moves joint to MAX, presses SPACE
+
+    `only_joints` (optional) is a set of joint names to capture; any joint
+    not in the set is skipped and `save_calibration` will preserve its
+    existing min_raw/max_raw from the on-disk JSON.
 
     Returns calibration dict or None if aborted.
     """
@@ -160,6 +168,10 @@ def run_calibration(arm: So101Leader, get_key) -> Optional[dict]:
     for idx, joint in enumerate(arm.JOINTS):
         aizee_joint = arm.AIZEE_JOINTS[idx]
         rad_min_default, rad_max_default = AIZEE_DEFAULTS[idx]
+
+        if only_joints is not None and joint not in only_joints and aizee_joint not in only_joints:
+            print(f"  [skip] {joint:<18}  ->  {aizee_joint}  (not in --joints filter)")
+            continue
 
         for step, label in enumerate(("MINIMUM", "MAXIMUM")):
             _print_calib_header(idx, n_joints, joint, aizee_joint, step, results)
@@ -267,11 +279,14 @@ def save_calibration(results: dict, joints: list[str], aizee_joints: list[str], 
             rad_min     = r.get("rad_min", AIZEE_DEFAULTS[i][0])
             rad_max     = r.get("rad_max", AIZEE_DEFAULTS[i][1])
             zero_offset = old.get("zero_offset", 0.0)
+        # If this joint wasn't re-captured this run (e.g. --joints filter
+        # excluded it), preserve the existing min_raw/max_raw rather than
+        # falling back to (0, 4095) which would wipe the prior calibration.
         calib["joints"][joint] = {
             "id":          i + 1,
             "aizee":       aizee_joint,
-            "min_raw":     r.get("min_raw", 0),
-            "max_raw":     r.get("max_raw", 4095),
+            "min_raw":     r.get("min_raw", old.get("min_raw", 0)),
+            "max_raw":     r.get("max_raw", old.get("max_raw", 4095)),
             "rad_min":     rad_min,
             "rad_max":     rad_max,
             "zero_offset": zero_offset,

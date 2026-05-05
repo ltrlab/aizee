@@ -4,7 +4,10 @@ mod motor;
 mod robstride;
 
 use anyhow::{Context, Result};
-use comms::{CommandMessage, CommandSubscriber, MotorTelemetry, TelemetryMessage, TelemetryPublisher};
+use comms::{
+    ArmJointsPayload, CommandMessage, CommandSubscriber, DrivePayload, MotorTelemetry,
+    TelemetryMessage, TelemetryPublisher,
+};
 use motor::{Motor, MotorConfig, MotorGroup, MotorState};
 use robstride::MotorModel;
 use socketcan::{CanSocket, EmbeddedFrame, Frame, Socket, SocketOptions};
@@ -184,11 +187,13 @@ impl ControlSystem {
         // Create motor groups
         let watchdog_timeout = Duration::from_secs_f32(config.control.watchdog_timeout);
 
+        // Base group: drive wheels only.  Swivel used to live here at index 2;
+        // it now sits at the head of the arm group so the firmware speaks one
+        // unified `arm_joints` command instead of swivel-vs-arm split.
         let mut base_motors = Vec::new();
         for wheel in &config.motors.wheels {
             base_motors.push(Motor::new(yaml_to_motor_config(wheel), watchdog_timeout));
         }
-        base_motors.push(Motor::new(yaml_to_motor_config(&config.motors.swivel), watchdog_timeout));
 
         let base_group = MotorGroup::new(
             "base".to_string(),
@@ -196,12 +201,15 @@ impl ControlSystem {
             config.control.base_frequency,
         );
 
-        let arm_motors: Vec<Motor> = config
-            .motors
-            .arm
-            .iter()
-            .map(|m| Motor::new(yaml_to_motor_config(m), watchdog_timeout))
-            .collect();
+        // Arm group: swivel (index 0) + gantry joints, driven at arm_frequency.
+        let mut arm_motors: Vec<Motor> = Vec::with_capacity(config.motors.arm.len() + 1);
+        arm_motors.push(Motor::new(
+            yaml_to_motor_config(&config.motors.swivel),
+            watchdog_timeout,
+        ));
+        for m in &config.motors.arm {
+            arm_motors.push(Motor::new(yaml_to_motor_config(m), watchdog_timeout));
+        }
 
         let arm_group = MotorGroup::new(
             "arm".to_string(),
@@ -953,18 +961,6 @@ impl ControlSystem {
                     right_motor.kd = drive_kd;
                 }
             }
-            CommandMessage::Swivel { position, kp, kd } => {
-                // Swivel uses position control (third motor in base group)
-                // Default gains if not provided
-                let swivel_kp = if kp == 0.0 && kd == 0.0 { 5.0 } else { kp };
-                let swivel_kd = if kp == 0.0 && kd == 0.0 { 0.5 } else { kd };
-
-                if let Some(swivel_motor) = self.base_group.motors.get_mut(2) {
-                    info!("Setting {} position to {:.3} rad (Kp={:.1}, Kd={:.1})",
-                          swivel_motor.config.id, position, swivel_kp, swivel_kd);
-                    swivel_motor.set_position_target(position, 0.0, swivel_kp, swivel_kd, 0.0)?;
-                }
-            }
             CommandMessage::ArmJoints {
                 positions,
                 velocities,
@@ -994,6 +990,21 @@ impl ControlSystem {
                               motor.config.id, positions[i], e);
                         motor.last_command_time = std::time::Instant::now();
                     }
+                }
+            }
+            CommandMessage::Bundle { arm_joints, drive } => {
+                // Drive first (lowest stakes), then arm.  Each sub-payload
+                // re-uses the existing variant handlers so any future change
+                // to Drive/ArmJoints semantics carries through automatically.
+                if let Some(DrivePayload { linear, angular, kp, kd }) = drive {
+                    self.handle_command(CommandMessage::Drive { linear, angular, kp, kd })?;
+                }
+                if let Some(ArmJointsPayload {
+                    positions, velocities, kp, kd, torques,
+                }) = arm_joints {
+                    self.handle_command(CommandMessage::ArmJoints {
+                        positions, velocities, kp, kd, torques,
+                    })?;
                 }
             }
             CommandMessage::Enable { motor_ids } => {
@@ -1192,68 +1203,49 @@ impl ControlSystem {
         Ok(())
     }
 
-    /// Send control commands to base motors only (called at base_frequency, e.g. 100Hz)
+    /// Send control commands to base motors only (called at base_frequency, e.g. 100Hz).
+    /// Drive wheels only — swivel moved to the arm group.
     fn send_base_commands(&mut self) -> Result<()> {
         self.control_tick += 1;
 
-        // Send commands to base motors
-        // First 2 motors (left/right wheels): velocity control
-        // Third motor (swivel): position control
-        for (idx, motor) in self.base_group.motors.iter().enumerate() {
+        for motor in self.base_group.motors.iter() {
             if motor.state == MotorState::Enabled || motor.state == MotorState::Running {
                 let bus_name = motor.config.can_bus.clone();
                 if let Some(socket) = self.get_can_socket_by_bus(&bus_name) {
                     let fb_pos = motor.feedback.as_ref().map(|f| f.position).unwrap_or(0.0);
 
-                    let frame = if idx < 2 {
-                        // Drive wheels: velocity control
-                        // Kp=0 for pure velocity control (avoids position wrapping at ±4π)
-                        // ROBSTRIDE control law: torque = Kp*(pos_err) + Kd*(vel_err) + ff
-                        robstride::build_control_frame(
-                            motor.config.can_id,
-                            motor.config.model,
-                            fb_pos,                  // Echo feedback position (ignored with Kp=0)
-                            motor.target_velocity,   // Velocity target
-                            motor.kp,                // Tunable position gain (default 0.0)
-                            motor.kd,                // Tunable velocity tracking gain (default 3.0)
-                            0.0,                     // No feedforward torque
-                        )
-                    } else {
-                        // Swivel: position control
-                        robstride::build_control_frame(
-                            motor.config.can_id,
-                            motor.config.model,
-                            motor.target_position,   // Position target
-                            0.0,                     // Velocity target (not used)
-                            motor.kp,                // Position gain (default 5.0)
-                            motor.kd,                // Damping gain (default 0.5)
-                            0.0,                     // No feedforward torque
-                        )
-                    };
+                    // Drive wheels: velocity control.  Kp=0 for pure velocity
+                    // control (avoids position wrapping at ±4π).  ROBSTRIDE
+                    // control law: torque = Kp*(pos_err) + Kd*(vel_err) + ff.
+                    let frame = robstride::build_control_frame(
+                        motor.config.can_id,
+                        motor.config.model,
+                        fb_pos,                  // Echo feedback position (ignored with Kp=0)
+                        motor.target_velocity,   // Velocity target
+                        motor.kp,                // Tunable position gain (default 0.0)
+                        motor.kd,                // Tunable velocity tracking gain (default 3.0)
+                        0.0,                     // No feedforward torque
+                    );
 
                     self.safe_write_frame(socket, &frame, &bus_name)?;
 
                     if self.control_tick % 50 == 0 && motor.state == MotorState::Running {
-                        if idx < 2 {
-                            info!("  RUN {}: tgt_vel={:.3} fb_vel={:.3} fb_pos={:.3} Kp={:.1} Kd={:.1}",
-                                  motor.config.id, motor.target_velocity,
-                                  motor.feedback.as_ref().map(|f| f.velocity).unwrap_or(-999.0), fb_pos,
-                                  motor.kp, motor.kd);
-                        } else {
-                            info!("  RUN {}: tgt_pos={:.3} fb_pos={:.3} Kp={:.1} Kd={:.1}",
-                                  motor.config.id, motor.target_position, fb_pos,
-                                  motor.kp, motor.kd);
-                        }
+                        info!(
+                            "  RUN {}: tgt_vel={:.3} fb_vel={:.3} fb_pos={:.3} Kp={:.1} Kd={:.1}",
+                            motor.config.id, motor.target_velocity,
+                            motor.feedback.as_ref().map(|f| f.velocity).unwrap_or(-999.0),
+                            fb_pos, motor.kp, motor.kd,
+                        );
                     }
                 }
             }
         }
 
         // NOTE: No auto-transition from Enabled → Running here. Motors transition
-        // to Running when they receive an actual command (Drive/Swivel/ArmJoints).
-        // Auto-transitioning caused a watchdog death spiral: swivel entered Running
-        // but no Swivel commands were flowing (e.g. in idle mode), so 100ms later the
-        // command timeout fired emergency_stop_all() on the entire base group.
+        // to Running when they receive an actual command (Drive/ArmJoints).
+        // Auto-transitioning caused a watchdog death spiral historically when
+        // swivel lived in this group: it entered Running but no commands were
+        // flowing, so 100 ms later the command timeout fired emergency_stop_all().
         // Enabled motors already receive zero-force keepalive frames above.
 
         // Request battery voltage (VBUS) periodically (10Hz = every 100ms)
