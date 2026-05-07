@@ -67,13 +67,17 @@ BASE_MOTOR_ABBREVS = {"lw", "rw", "sw"}
 MOTOR_STALE_TIMEOUT = 10.0  # seconds
 UPS_STALE_TIMEOUT   = 15.0  # seconds
 
-# Jetson services to monitor — (systemd unit name, display abbreviation)
+# Jetson services to monitor — (systemd unit name, display abbreviation).
+# Abbreviations are chosen short (≤6 chars) so the Tufty firmware can fit
+# them in its services row without truncation.
 SERVICES = [
     ("aizee-motor-control-rover", "motors"),
     ("aizee-lidar-control",       "lidar"),
     ("aizee-ups-monitor",         "ups"),
     ("aizee-camera-relay",        "relay"),
     ("aizee-display",             "disp"),
+    ("aizee-arm-cam-left",        "armL"),
+    ("aizee-arm-cam-right",       "armR"),
 ]
 SERVICE_CHECK_INTERVAL = 5.0  # seconds — rate-limit systemctl calls
 

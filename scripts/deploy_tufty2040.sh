@@ -13,11 +13,11 @@
 set -euo pipefail
 
 HOST="ltr@192.168.0.27"
-KEY="/p/Workspace/ssh-keys/aizee_rover_id"
+KEY="${SSH_KEY:-/p/Workspace/ssh-keys/aizee_rover_id}"
 SERVICE="aizee-display"
 DEVICE="/dev/tufty_display"
 PASS="$(cat "$(dirname "${BASH_SOURCE[0]}")/.jetson_password")"
-LOCAL_SCRIPT="$(dirname "${BASH_SOURCE[0]}")/../tufty2040/main.py"
+LOCAL_SCRIPT="$(dirname "${BASH_SOURCE[0]}")/../firmware/tufty2040/main.py"
 
 echo "=== Tufty2040 Deploy ==="
 

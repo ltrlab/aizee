@@ -276,13 +276,25 @@ class OpenRBLeader:
                 self._clamped[i] = False
                 out[i] = ticks_to_rad(u % _TICKS)
 
-        # Multi-joint glitch rejection — same heuristic as SO-101.  Dynamixel
-        # sync-read on OpenRB is more reliable than Feetech but USB-CDC
-        # framing hiccups on host can still mis-align bytes; rejecting
-        # implausible jumps keeps the arm steady.
-        _GLITCH_JOINT_THRESH = 0.008
-        _GLITCH_MIN_JOINTS   = 4
-        _MAX_REJECTS         = 50
+        # Multi-joint glitch rejection — catches USB-CDC byte-misalignment
+        # errors, which produce wild values (~0.5-π rad off) on *every*
+        # joint of the corrupted sync-read frame.
+        #
+        # Tuning notes:
+        # - THRESH 0.15 rad/poll at ~500 Hz polls = 75 rad/s of "real" motion
+        #   — well above any human-driven leader speed, but well below the
+        #   sub-rad deltas a corrupted frame produces.  The previous value
+        #   (0.008) tripped on normal fast teleop, freezing telemetry until
+        #   MAX_REJECTS expired and then snapping forward — that "pause +
+        #   jump" was perceived as an arm jerk.
+        # - MIN_JOINTS 6 of 7 means real coordinated motion (which rarely
+        #   slings every joint past 0.15 rad in one tick) passes through;
+        #   only a frame-wide corruption fires the filter.
+        # - MAX_REJECTS 3 (~6 ms at 500 Hz) is enough to absorb a 1-3 frame
+        #   burst of corruption without producing a visible telemetry stall.
+        _GLITCH_JOINT_THRESH = 0.15
+        _GLITCH_MIN_JOINTS   = 6
+        _MAX_REJECTS         = 3
 
         if self._last_clean is not None:
             n_big = int(np.sum(np.abs(out - self._last_clean) > _GLITCH_JOINT_THRESH))

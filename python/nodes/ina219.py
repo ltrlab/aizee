@@ -88,13 +88,21 @@ class INA219:
         return (data[0] << 8) + data[1]
 
     def write(self, address, data):
-        """Write 16-bit register
+        """Write 16-bit register.
 
-        Args:
-            address: Register address
-            data: 16-bit value to write
+        Uses SMBus `write_word_data` rather than `write_i2c_block_data`
+        because the Jetson's Tegra I2C controller NACKs `write_i2c_block_data`
+        transactions to the INA219 with `errno 121 (Remote I/O error)`,
+        even though `i2cset -y <bus> <addr> <reg> <val> w` (which is
+        SMBus word_data under the hood) succeeds against the same chip.
+        Reads via `read_i2c_block_data` continue to work and don't need
+        the equivalent change.
+
+        SMBus word_data sends bytes low-first; the INA219 register layout
+        is high-first, so we byte-swap the value before passing it down.
         """
-        self.bus.write_i2c_block_data(self.addr, address, [(data >> 8) & 0xFF, data & 0xFF])
+        swapped = ((data & 0xFF) << 8) | ((data >> 8) & 0xFF)
+        self.bus.write_word_data(self.addr, address, swapped)
 
     def set_calibration_16V_5A(self):
         """Configure INA219 for 16V/5A measurement range

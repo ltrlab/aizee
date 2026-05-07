@@ -22,6 +22,10 @@ camera:
       format: RGB8
       compression: JPEG
       quality: 85        # Lower to reduce bandwidth (e.g. 60) if needed
+      # Camera is mounted upside-down on the wrist — rotate 180° before
+      # JPEG encode so the live preview, recordings, and Rerun all see
+      # the same correctly-oriented image.
+      flip: "180"
 
     depth:
       enabled: false

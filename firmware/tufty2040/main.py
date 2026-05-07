@@ -166,10 +166,13 @@ STATE_COLORS = {
 # Service display layout
 # ---------------------------------------------------------------------------
 
-# Two rows of (abbrev, display_label) pairs
+# Two rows of (abbrev, display_label) pairs.  Tiles are 70 px wide (4 per
+# row at the 320 px display width) so we can fit 7 services without
+# pushing the Pi section off the bottom edge.  Labels are 4 chars max so
+# they fit alongside the 3-char status text inside a 70 px tile.
 SERVICES_ROWS = [
-    [("motors", "MOTOR"), ("lidar", "LIDAR"), ("ups", "UPS")],
-    [("relay",  "RELAY"), ("disp",  "DISP")],
+    [("motors", "MOTR"), ("lidar", "LIDR"), ("ups",  "UPS"),  ("relay", "RLAY")],
+    [("disp",   "DISP"), ("armL",  "ARML"), ("armR", "ARMR")],
 ]
 
 # Pi state char → (bg_pen, text_pen, status_label)
@@ -502,6 +505,9 @@ def draw_services_section(sv):
     display.text("SERVICES:", 24, 160, scale=1)
 
     row_ys = [172, 190]
+    # Tile geometry: 70 px wide, 74 px stride — fits 4 tiles + left margin
+    # within the 320 px display width.  Status text is right-aligned
+    # within the tile so 4-char labels and 3-char states never collide.
     for row_idx, row in enumerate(SERVICES_ROWS):
         y = row_ys[row_idx]
         x = 14
@@ -509,11 +515,11 @@ def draw_services_section(sv):
             state = sv.get(abbrev, "?") if sv else "?"
             bg_pen, txt_pen, status_text = SV_COLORS.get(state, SV_COLORS["?"])
             display.set_pen(bg_pen)
-            display.rectangle(x, y, 90, 14)
+            display.rectangle(x, y, 70, 14)
             display.set_pen(txt_pen)
             display.text(label,       x + 3,  y + 3, scale=1)
-            display.text(status_text, x + 55, y + 3, scale=1)
-            x += 94
+            display.text(status_text, x + 45, y + 3, scale=1)
+            x += 74
 
 
 def draw_pi_section(pi):

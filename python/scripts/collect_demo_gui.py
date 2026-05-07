@@ -2463,20 +2463,21 @@ class _LiveCameraPair(QFrame):
     def set_frames(self,
                    left_jpeg:  Optional[bytes], left_ts:  float,
                    right_jpeg: Optional[bytes], right_ts: float) -> None:
+        # Orientation correction for the upside-down left camera is now
+        # applied at the publisher (config/hardware_jetson_arm_cam_left.yaml
+        # → streams.color.flip = "180") so the GUI doesn't need to flip
+        # either side here — the JPEGs arrive correctly oriented.
         if left_jpeg is not None and left_ts > self._left_ts:
             self._left_ts = left_ts
-            # Left camera is mounted upside-down; mirror vertically.
-            self._render_jpeg(self._left, left_jpeg, flip_v=True)
+            self._render_jpeg(self._left, left_jpeg)
         if right_jpeg is not None and right_ts > self._right_ts:
             self._right_ts = right_ts
-            self._render_jpeg(self._right, right_jpeg, flip_v=False)
+            self._render_jpeg(self._right, right_jpeg)
 
-    def _render_jpeg(self, lbl: QLabel, jpeg: bytes, flip_v: bool) -> None:
+    def _render_jpeg(self, lbl: QLabel, jpeg: bytes) -> None:
         img = QImage()
         if not img.loadFromData(jpeg, "JPEG"):
             return
-        if flip_v:
-            img = img.mirrored(False, True)
         pm = QPixmap.fromImage(img)
         target = lbl.size()
         if target.width() > 4 and target.height() > 4:

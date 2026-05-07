@@ -572,7 +572,11 @@ def _start_image_decoder(
 
             changed = False
             if l_t > prev_lt and l_msg is not None:
-                img = decode_image(l_msg, img_size, flip_v=True)
+                # Orientation correction for the upside-down left camera
+                # is now applied at the publisher (config/hardware_jetson_arm_cam_left.yaml
+                # → streams.color.flip = "180"), so the consumer doesn't
+                # need to flip anything here.
+                img = decode_image(l_msg, img_size)
                 with lock:
                     decoded["left"]      = img
                     decoded["left_time"] = l_t
@@ -856,20 +860,104 @@ def _send_bundle(
 
 _CMD_SEND_HZ = 100   # send cadence; 10 ms tick
 
+# Lead-clamp is skipped when telem age exceeds this — see #3 in the
+# main-loop lag analysis.  Otherwise a stale q_actual would pin the
+# command behind the arm's actual progress and gate fast motion.
+_LEAD_CLAMP_TELEM_FRESH_S = 0.10
+
+
 def _start_cmd_sender(
     sock,
+    lr_lock: threading.Lock,
+    lr_latest: dict,
+    lr_mapping: dict,
+    telem_lock: threading.Lock,
+    telem_cache: dict,
     hz: int = _CMD_SEND_HZ,
 ) -> tuple[threading.Event, threading.Thread, threading.Lock, dict]:
+    """Dedicated cmd-sender thread.
+
+    Two modes (set by main loop via the holder):
+
+    * "static"   — re-emits a prebuilt Bundle dict every tick.  Used for
+                   IDLE / HOLD / ENGAGING / SHUTDOWN, where the target is
+                   either frozen or following a slow ramp the main loop
+                   integrates at 30 Hz.
+
+    * "tracking" — computes q_cmd live from `_lr_latest` at the cmd-thread
+                   rate (100 Hz), so leader→motor latency is bounded by
+                   ~10 ms instead of ~33 ms.  The rate limit is per-time
+                   (`max_vel * dt`) rather than per-tick, and the lead-clamp
+                   relaxes when telemetry is stale (see _LEAD_CLAMP_TELEM_FRESH_S).
+
+    Holder shape (under the returned lock):
+        {
+          "mode":     "static" | "tracking" | None,
+          "bundle":   {...}  | None,                   # used when mode=="static"
+          "tracking": {kp, kd, max_vel, max_lead,
+                       vel_ff, drive, arm_limits} | None,
+        }
+    """
     lock   = threading.Lock()
-    holder: dict = {"bundle": None}   # latest Bundle dict (None = nothing to send)
+    # `last_q_cmd` is the current commanded arm pose — main loop reads it
+    # for recording / display / shutdown-target seeding regardless of mode.
+    holder: dict = {"mode": None, "bundle": None, "tracking": None,
+                    "last_q_cmd": None}
     stop   = threading.Event()
     period = 1.0 / hz
 
     def _run() -> None:
         next_t = time.perf_counter() + period
+        last_t: Optional[float] = None
+        last_mode: Optional[str] = None
+        last_q_cmd: Optional[np.ndarray] = None
+
         while not stop.is_set():
+            now_pc = time.perf_counter()
+            dt = (now_pc - last_t) if last_t is not None else period
+            last_t = now_pc
+
             with lock:
-                msg = holder["bundle"]
+                mode     = holder.get("mode")
+                bundle   = holder.get("bundle")
+                tracking = holder.get("tracking")
+
+            # Reset the rate-limit integrator on any mode transition so the
+            # first tick after entering "tracking" doesn't apply a step
+            # accumulated from a prior tracking session.
+            if mode != last_mode:
+                last_q_cmd = None
+                last_mode = mode
+
+            msg: Optional[dict] = None
+
+            if mode == "tracking" and tracking is not None:
+                msg = _compute_tracking_bundle(
+                    tracking, dt, last_q_cmd,
+                    lr_lock, lr_latest, lr_mapping,
+                    telem_lock, telem_cache,
+                )
+                if msg is not None:
+                    # Pull the q_cmd back out of the bundle for the next
+                    # tick's rate-limit integrator and for the main loop
+                    # (recording / display).
+                    arm = msg.get("arm_joints", {})
+                    pos = arm.get("positions")
+                    if pos is not None:
+                        last_q_cmd = np.asarray(pos, dtype=np.float32)
+                        with lock:
+                            holder["last_q_cmd"] = last_q_cmd
+            elif mode == "static" and bundle is not None:
+                msg = bundle
+                # Mirror the static bundle's arm positions into last_q_cmd
+                # so callers that read `holder["last_q_cmd"]` see the same
+                # value regardless of mode.
+                arm = bundle.get("arm_joints") or {}
+                pos = arm.get("positions")
+                if pos is not None:
+                    with lock:
+                        holder["last_q_cmd"] = np.asarray(pos, dtype=np.float32)
+
             if msg is not None:
                 try:
                     with _cmd_sock_lock:
@@ -878,19 +966,106 @@ def _start_cmd_sender(
                     pass
                 except Exception:
                     pass
-            now = time.perf_counter()
-            sleep_t = next_t - now
+
+            sleep_t = next_t - time.perf_counter()
             if sleep_t > 0:
                 stop.wait(sleep_t)
             next_t += period
-            # Drift catch-up: if we fell behind by more than one period,
-            # snap forward instead of bursting catch-up sends.
             if next_t < time.perf_counter():
                 next_t = time.perf_counter() + period
 
     thread = threading.Thread(target=_run, daemon=True, name="CmdTx")
     thread.start()
     return stop, thread, lock, holder
+
+
+def _compute_tracking_bundle(
+    cfg: dict,
+    dt: float,
+    last_q_cmd: Optional[np.ndarray],
+    lr_lock: threading.Lock,
+    lr_latest: dict,
+    lr_mapping: dict,
+    telem_lock: threading.Lock,
+    telem_cache: dict,
+) -> Optional[dict]:
+    """Build a TRACKING-mode arm_joints bundle from the latest leader sample.
+
+    Returns None when the leader has no sample yet, no mapping is
+    installed, or the leader pose is too stale to trust.
+    """
+    # Snapshot leader + mapping under one lock acquisition.
+    with lr_lock:
+        leader_rad     = lr_latest.get("rad")
+        leader_vel     = lr_latest.get("vel")
+        leader_t       = lr_latest.get("time", 0.0)
+        zero_offsets   = lr_mapping.get("zero_offsets")
+        directions     = lr_mapping.get("directions")
+        for_aizee      = lr_mapping.get("for_aizee")
+
+    if (leader_rad is None or zero_offsets is None
+            or directions is None or for_aizee is None):
+        return None
+
+    # Map leader → AIZEE target.  Same math as the old main-loop branch,
+    # just running here at 100 Hz now.
+    mapped = directions * (leader_rad - zero_offsets)
+    target = mapped[for_aizee]
+    if leader_vel is not None:
+        vel_ff_arr = (directions * leader_vel)[for_aizee]
+    else:
+        vel_ff_arr = None
+
+    # Telemetry q_actual + age — used for the lead-clamp.
+    with telem_lock:
+        telem_msg = telem_cache.get("msg")
+        telem_t   = telem_cache.get("time", 0.0)
+    q_actual = _qpos(telem_msg) if telem_msg is not None else None
+    telem_age = time.time() - telem_t if telem_t > 0 else 999.0
+
+    # Reference for the rate limit.
+    if last_q_cmd is not None:
+        ref = last_q_cmd.copy()
+        # Lead-clamp only when telemetry is fresh.  When telem is stale the
+        # clamp would pin the command behind a known-stale q_actual; trust
+        # the velocity rate-limit alone in that case.
+        if q_actual is not None and telem_age < _LEAD_CLAMP_TELEM_FRESH_S:
+            max_lead = float(cfg.get("max_lead", 0.6))
+            ref = q_actual + np.clip(ref - q_actual, -max_lead, max_lead)
+    elif q_actual is not None:
+        ref = q_actual
+    else:
+        ref = target
+
+    # Velocity rate-limit, per-time (was per-30Hz-tick in the old path).
+    max_vel  = float(cfg.get("max_vel", 9.0))   # rad/s
+    max_step = max_vel * max(dt, 1e-3)
+    delta    = np.clip(target - ref, -max_step, max_step)
+    q_cmd    = ref + delta
+
+    arm_limits = cfg.get("arm_limits")
+    if arm_limits:
+        q_cmd = np.array(clamp_arm_positions(q_cmd.tolist(), arm_limits))
+
+    if cfg.get("vel_ff", True) and vel_ff_arr is not None:
+        vel = vel_ff_arr.tolist()
+    else:
+        vel = [0.0] * NUM_JOINTS
+
+    bundle = {
+        "type": "bundle",
+        "arm_joints": {
+            "positions":  q_cmd.tolist(),
+            "velocities": vel,
+            "kp":         cfg.get("kp"),
+            "kd":         cfg.get("kd"),
+            "torques":    [0.0] * NUM_JOINTS,
+        },
+    }
+    drive = cfg.get("drive")
+    if drive is not None:
+        bundle["drive"] = drive
+    return bundle
 
 
 # ---------------------------------------------------------------------------
@@ -1761,6 +1936,14 @@ def main() -> None:
     leader           = None
     _lr_lock         = threading.Lock()
     _lr_latest: dict = {"rad": None, "vel": None, "clamped": None, "time": 0.0}
+    # Shared leader-to-AIZEE mapping params.  Written by main loop (Z, M
+    # keys; leader install / hot-plug); read by the cmd-sender thread when
+    # it computes q_cmd live from leader at 100 Hz.  Held under _lr_lock.
+    _lr_mapping: dict = {
+        "zero_offsets": None,   # np.ndarray, leader-frame
+        "directions":   None,   # np.ndarray, ±1 per leader joint
+        "for_aizee":    None,   # list[int], leader-index → AIZEE-arm-index
+    }
     _lr_stop         = threading.Event()
     zero_offsets     = None
     directions       = None
@@ -1923,6 +2106,12 @@ def main() -> None:
                 zero_offsets     = _p["zero_offsets"]
                 directions       = _p["directions"]
                 _so101_for_aizee = _p["for_aizee"]
+                # Publish mapping to the cmd-thread shared state so live
+                # TRACKING-mode q_cmd computation can see it.
+                with _lr_lock:
+                    _lr_mapping["zero_offsets"] = zero_offsets
+                    _lr_mapping["directions"]   = directions
+                    _lr_mapping["for_aizee"]    = _so101_for_aizee
         else:
             print(f"{_leader_kind or 'leader'} connect failed on {leader_port} — "
                   "continuing; will retry when port reappears")
@@ -2037,29 +2226,63 @@ def main() -> None:
     cmd_sock.setsockopt(zmq.LINGER,  0)
     cmd_sock.connect(args.cmd)
 
-    # Dedicated cmd-sender thread re-emits the latest Bundle at 100 Hz.
-    # The main loop posts to a single-slot holder; this thread does the
-    # msgpack pack + ZMQ send.  Effect: motor commands arrive at the
-    # controller every ~10 ms instead of every ~33 ms (the 30 Hz main
-    # loop), and the per-tick `motor` cost in the main loop drops to
-    # roughly the dict construction.
-    _cmd_tx_stop, _cmd_tx_thread, _cmd_lock, _cmd_holder = \
-        _start_cmd_sender(cmd_sock)
-
-    def _post_bundle(arm=None, drive=None) -> None:
-        msg = _build_bundle(arm, drive)
-        with _cmd_lock:
-            _cmd_holder["bundle"] = msg
-
-    def _clear_bundle() -> None:
-        with _cmd_lock:
-            _cmd_holder["bundle"] = None
-
     # Telemetry parsing runs in its own thread (json.loads of multi-motor
-    # state was a 6-10 ms p99 spike when done in the main loop).
+    # state was a 6-10 ms p99 spike when done in the main loop).  Started
+    # before the cmd-sender thread because the cmd-sender consumes
+    # _telem_cache for the lead-clamp in TRACKING mode.
     _telem_stop, _telem_thread, _telem_lock, _telem_cache = \
         _start_telem_receiver(ctx, args.telem)
     _telem_last_time = 0.0  # last cache["time"] consumed by main loop
+
+    # Dedicated cmd-sender thread.  Re-emits the latest Bundle at 100 Hz
+    # in "static" mode (HOLD/IDLE/ENGAGING/SHUTDOWN), or computes q_cmd
+    # live from the leader thread's latest sample in "tracking" mode —
+    # which lifts the 30 Hz aliasing cap on the leader→cmd path.
+    _cmd_tx_stop, _cmd_tx_thread, _cmd_lock, _cmd_holder = \
+        _start_cmd_sender(
+            cmd_sock,
+            _lr_lock, _lr_latest, _lr_mapping,
+            _telem_lock, _telem_cache,
+        )
+
+    def _post_bundle(arm=None, drive=None) -> None:
+        """Post a static (prebuilt) Bundle.  Used for IDLE/HOLD/ENGAGING/SHUTDOWN."""
+        msg = _build_bundle(arm, drive)
+        with _cmd_lock:
+            _cmd_holder["mode"]     = "static" if msg is not None else None
+            _cmd_holder["bundle"]   = msg
+            _cmd_holder["tracking"] = None
+
+    def _post_tracking(*, drive: dict, kp: list, kd: list,
+                       max_vel: float, max_lead: float,
+                       arm_limits, vel_ff: bool = True) -> None:
+        """Switch the cmd thread into TRACKING mode.
+
+        The cmd thread will read `_lr_latest` directly at 100 Hz and compute
+        q_cmd live with rate limiting per real-time elapsed.  `drive` and
+        the gains are still owned by the main loop (so WASD / gain tuning
+        flow through the same channel).
+        """
+        cfg = {
+            "kp":         list(kp),
+            "kd":         list(kd),
+            "max_vel":    float(max_vel),
+            "max_lead":   float(max_lead),
+            "vel_ff":     bool(vel_ff),
+            "drive":      drive,
+            "arm_limits": arm_limits,
+        }
+        with _cmd_lock:
+            _cmd_holder["mode"]     = "tracking"
+            _cmd_holder["bundle"]   = None
+            _cmd_holder["tracking"] = cfg
+
+    def _clear_bundle() -> None:
+        """Stop the cmd thread from emitting anything."""
+        with _cmd_lock:
+            _cmd_holder["mode"]     = None
+            _cmd_holder["bundle"]   = None
+            _cmd_holder["tracking"] = None
 
     # Camera + UPS reception runs in a background thread so that
     # JSON-parsing large JPEG frames never delays motor commands.
@@ -2378,6 +2601,11 @@ def main() -> None:
                     zero_offsets     = _p["zero_offsets"]
                     directions       = _p["directions"]
                     _so101_for_aizee = _p["for_aizee"]
+                    # Publish to the cmd-thread mapping state.
+                    with _lr_lock:
+                        _lr_mapping["zero_offsets"] = zero_offsets
+                        _lr_mapping["directions"]   = directions
+                        _lr_mapping["for_aizee"]    = _so101_for_aizee
                     print(f"[hot-plug] leader installed — {len(_so101_for_aizee)} arm joints mapped",
                           flush=True)
 
@@ -2672,8 +2900,12 @@ def main() -> None:
                 with _lr_lock:
                     _z = _lr_latest["rad"]
                 if _z is not None:
-                    zero_offsets   = _z.copy()
+                    zero_offsets = _z.copy()
                     leader.save_zero(zero_offsets)
+                    # Republish to the cmd-thread mapping so its TRACKING
+                    # compute picks up the new zero immediately.
+                    with _lr_lock:
+                        _lr_mapping["zero_offsets"] = zero_offsets
                     zero_msg       = "[Z] zeroed — saved"
                     zero_msg_until = t0 + 2.0
 
@@ -2687,8 +2919,10 @@ def main() -> None:
                     new_offsets = zero_offsets.copy()
                     for ai, si in enumerate(_so101_for_aizee):
                         new_offsets[si] = _m[si] - directions[si] * q_actual[ai]
-                    zero_offsets   = new_offsets
+                    zero_offsets = new_offsets
                     leader.save_zero(zero_offsets)
+                    with _lr_lock:
+                        _lr_mapping["zero_offsets"] = zero_offsets
                     zero_msg       = "[M] mirrored — saved"
                     zero_msg_until = t0 + 2.0
 
@@ -2903,15 +3137,28 @@ def main() -> None:
                     teleop_state  = State.TRACKING
                     engage_q_cmd  = None
 
-            elif teleop_state in (State.TRACKING, State.HOLD):
+            elif teleop_state == State.TRACKING:
+                # Hand the leader→q_cmd computation off to the cmd-sender
+                # thread.  It reads `_lr_latest` directly at 100 Hz and
+                # computes q_cmd live with rate-limiting per real-time
+                # elapsed — bounding leader→motor latency to ~10 ms instead
+                # of the ~33 ms aliasing the 30 Hz main loop used to add.
+                _post_tracking(
+                    drive={"linear":  drive_linear  * _max_linear,
+                           "angular": drive_angular * _max_angular,
+                           "kp": _drive_kp, "kd": _drive_kd},
+                    kp=_kp, kd=_kd,
+                    max_vel=args.max_delta * LOOP_HZ,   # rad/s
+                    max_lead=2.0 * args.max_delta,      # rad
+                    arm_limits=arm_limits,
+                    vel_ff=True,
+                )
+
+            elif teleop_state == State.HOLD:
+                # held_target is frozen — no benefit from running the rate
+                # limit at 100 Hz, so this stays a static prebuilt bundle.
                 arm_payload: Optional[dict] = None
                 if target is not None:
-                    # Reference the *previous command*, not q_actual: the rate
-                    # limit then operates on the command stream itself, which
-                    # avoids step-discontinuities in q_cmd at leader reversals
-                    # (when q_actual was still moving the old direction).
-                    # Anchor to q_actual via a wider lead clip so the command
-                    # cannot run away if the motor is mechanically stuck.
                     if latest_q_cmd is not None:
                         ref = latest_q_cmd.copy()
                         if q_actual is not None:
@@ -2927,17 +3174,10 @@ def main() -> None:
                     if arm_limits:
                         q_cmd = np.array(clamp_arm_positions(q_cmd.tolist(), arm_limits))
                     latest_q_cmd = q_cmd.copy()
-                    # Velocity feedforward: leader velocity, zero when on HOLD
-                    # (target frozen) so the motor's kd term doesn't fight a
-                    # phantom command velocity.
-                    if (teleop_state == State.TRACKING
-                            and aizee_vel_ff is not None):
-                        _vel = aizee_vel_ff.tolist()
-                    else:
-                        _vel = [0.0] * NUM_JOINTS
                     arm_payload = {
                         "positions": q_cmd.tolist(),
-                        "velocities": _vel, "kp": _kp, "kd": _kd,
+                        "velocities": [0.0] * NUM_JOINTS,
+                        "kp": _kp, "kd": _kd,
                         "torques": [0.0] * NUM_JOINTS,
                     }
                 _post_bundle(
@@ -3050,12 +3290,26 @@ def main() -> None:
                     left_img  = _dec_cache["left"]
                     right_img = _dec_cache["right"]
                 cams_ok   = cam_left_age < _CAM_STALE and cam_right_age < _CAM_STALE
+                # In TRACKING the cmd thread owns the live commanded pose;
+                # pull it from the holder so the recording captures the
+                # exact value sent on the wire.  Falls back to the main
+                # loop's `latest_q_cmd` (still authoritative for HOLD/
+                # ENGAGING/SHUTDOWN) when the cmd thread hasn't run yet.
+                with _cmd_lock:
+                    _qcmd_live = _cmd_holder.get("last_q_cmd")
+                if _qcmd_live is not None:
+                    rec_q_cmd = np.asarray(_qcmd_live, dtype=np.float32).copy()
+                elif latest_q_cmd is not None:
+                    rec_q_cmd = latest_q_cmd.copy()
+                else:
+                    rec_q_cmd = None
+
                 if (q_actual is not None and left_img is not None
                         and right_img is not None and cams_ok):
                     # qpos_buf/qcmd_buf/torque_buf are 7-DOF (swivel-first)
                     # because q_actual / latest_q_cmd / arm_torques are.
                     qpos_buf.append(q_actual.copy())
-                    qcmd_buf.append(latest_q_cmd.copy() if latest_q_cmd is not None else q_actual.copy())
+                    qcmd_buf.append(rec_q_cmd if rec_q_cmd is not None else q_actual.copy())
                     torque_buf.append(arm_torques.copy() if arm_torques is not None else np.zeros(NUM_JOINTS, dtype=np.float32))
                     left_buf.append(left_img)
                     right_buf.append(right_img)

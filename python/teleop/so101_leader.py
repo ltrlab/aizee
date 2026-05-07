@@ -268,14 +268,18 @@ class So101Leader:
 
         # Multi-joint glitch rejection: the Feetech STS3215 sync-read
         # occasionally returns wrong positions for ALL servos at once.
-        # Detect by counting joints that changed significantly since the
-        # last accepted reading.  Physical hand motion at ~150 Hz poll rate
-        # never moves 4+ joints by >0.008 rad in a single ~6 ms sample.
-        # After 50 consecutive rejections (~333 ms), accept the reading as
-        # a new baseline (arm was physically repositioned, not a glitch).
-        _GLITCH_JOINT_THRESH = 0.008   # rad — min delta to count as "jumping"
-        _GLITCH_MIN_JOINTS   = 4       # simultaneous joints to flag as glitch
-        _MAX_REJECTS         = 50      # accept after this many consecutive rejections
+        #
+        # Detect by counting joints that changed by an implausibly large
+        # amount since the last accepted reading.  Real hand motion rarely
+        # moves *most* joints past 0.15 rad in one ~6 ms sample; corrupted
+        # frames typically slam every joint.
+        #
+        # The previous values (0.008 rad, 4 of 7 joints, 50 rejections)
+        # tripped on normal-speed teleop and froze telemetry for ~333 ms
+        # before snapping forward — visible as a "pause + jump" arm jerk.
+        _GLITCH_JOINT_THRESH = 0.15    # rad — min delta to count as "jumping"
+        _GLITCH_MIN_JOINTS   = 6       # simultaneous joints to flag as glitch
+        _MAX_REJECTS         = 3       # ~20 ms at 150 Hz; absorbs short bursts
 
         if self._last_clean is not None:
             n_big = int(np.sum(np.abs(out - self._last_clean) > _GLITCH_JOINT_THRESH))

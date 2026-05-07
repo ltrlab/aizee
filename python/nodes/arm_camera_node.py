@@ -68,6 +68,21 @@ class ArmCameraNode:
         # depth_intrinsics are bound to the source size.
         self.output_w: Optional[int] = color_cfg.get("output_width")
         self.output_h: Optional[int] = color_cfg.get("output_height")
+        # Optional orientation correction applied before JPEG encode.  Use
+        # this for cameras mounted upside-down or sideways so the corrected
+        # image propagates to every consumer (live preview, recordings,
+        # Rerun) — no need for any consumer-side flip.  Values:
+        #   "none"        — no transform
+        #   "horizontal"  — left/right mirror
+        #   "vertical"    — top/bottom mirror
+        #   "180"         — both (180° rotation)
+        # Depth is NOT flipped because depth intrinsics are tied to the
+        # sensor's native orientation.
+        _flip = str(color_cfg.get("flip", "none")).lower()
+        if _flip not in ("none", "horizontal", "vertical", "180"):
+            logger.warning(f"Unknown color.flip={_flip!r}; using 'none'")
+            _flip = "none"
+        self.color_flip: str = _flip
 
         self.zmq_endpoint: str = zmq_cfg.get("camera_pub", "tcp://*:5563")
 
@@ -183,8 +198,16 @@ class ArmCameraNode:
 
         When output_w/output_h are configured, downscales here so the wire
         payload is ~target-resolution and the host doesn't have to resize.
+        Applies the optional color_flip so consumers see the corrected
+        image without per-consumer flip logic.
         """
         img = Image.fromarray(rgb)
+        if self.color_flip == "horizontal":
+            img = img.transpose(Image.FLIP_LEFT_RIGHT)
+        elif self.color_flip == "vertical":
+            img = img.transpose(Image.FLIP_TOP_BOTTOM)
+        elif self.color_flip == "180":
+            img = img.transpose(Image.ROTATE_180)
         if (self.output_w is not None and self.output_h is not None
                 and (self.output_w != img.width or self.output_h != img.height)):
             img = img.resize((self.output_w, self.output_h), Image.BILINEAR)
