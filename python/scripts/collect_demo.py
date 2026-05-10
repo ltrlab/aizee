@@ -3578,6 +3578,35 @@ def main() -> None:
 
             elif key == "E":
                 if teleop_state in (State.READY, State.IDLE):
+                    # Safety: if no actuator positions have been read since
+                    # the app opened, briefly hold the arm idle (zero kp/kd/
+                    # torque) so telemetry can populate q_actual.  Without
+                    # this, engage_q_cmd / held_target fall back to zeros
+                    # and the PD loop snaps the arm toward 0 on every joint.
+                    if q_actual is None:
+                        _send(cmd_sock, {"type": "enable",
+                                         "motor_ids": _BASE_MOTORS + list(ARM_JOINTS)})
+                        _send(cmd_sock, {
+                            "type": "arm_joints",
+                            "positions":  [0.0] * NUM_JOINTS,
+                            "velocities": [0.0] * NUM_JOINTS,
+                            "kp": [0.0] * NUM_JOINTS, "kd": [0.0] * NUM_JOINTS,
+                            "torques":    [0.0] * NUM_JOINTS,
+                        })
+                        _wait_deadline = time.time() + 1.5
+                        while time.time() < _wait_deadline:
+                            with _telem_lock:
+                                _tm = _telem_cache["msg"]
+                                _tt = _telem_cache["time"]
+                            if _tm is not None and _tt > _telem_last_time:
+                                _q = _qpos(_tm)
+                                if _q is not None:
+                                    q_actual         = _q
+                                    _telem_last_time = _tt
+                                    last_telem_time  = t0
+                                    robot_ok         = True
+                                    break
+                            time.sleep(0.05)
                     _send(cmd_sock, {"type": "enable",
                                      "motor_ids": _BASE_MOTORS + list(ARM_JOINTS)})
                     if leader is not None:
