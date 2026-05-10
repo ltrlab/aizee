@@ -76,6 +76,12 @@ class EpisodeDataset(Dataset):
         dataset_stats: If provided, skip stat computation and use these. Used
                        for the validation set so its normalization matches the
                        training set exactly.
+        future_offset: If > 0, the sample dict also contains
+                       obs["future_images"]["left"|"right"] at index
+                       t + future_offset (clamped to T-1 near episode end).
+                       Used by the JEPA world-model objective in ACT-JEPA —
+                       the predictor learns to predict the future stereo
+                       image representations from the current ones.
     """
 
     def __init__(
@@ -88,6 +94,7 @@ class EpisodeDataset(Dataset):
         cache: bool = False,
         episode_paths: Optional[List[Path]] = None,
         dataset_stats: Optional[Dict] = None,
+        future_offset: int = 0,
     ):
         if state_mode not in STATE_MODES:
             raise ValueError(f"state_mode must be in {STATE_MODES}, got {state_mode!r}")
@@ -99,6 +106,7 @@ class EpisodeDataset(Dataset):
         self.action_mode = action_mode
         self.augment = augment
         self.cache = cache
+        self.future_offset = max(0, int(future_offset))
         self._k = _state_mode_k(state_mode)
 
         # Resolve episode paths
@@ -239,10 +247,17 @@ class EpisodeDataset(Dataset):
                 })
 
     def _read_frame(self, ep_idx: int, t: int, t_end: int) -> Dict:
-        """Return per-frame arrays for (ep_idx, t) plus action chunk [t:t_end]."""
+        """Return per-frame arrays for (ep_idx, t) plus action chunk [t:t_end].
+
+        If `future_offset > 0`, also returns `future_left` and `future_right`
+        at index `min(t + future_offset, T-1)` for the JEPA target encoder.
+        """
+        T = self._episode_lengths[ep_idx]
+        t_future = min(t + self.future_offset, T - 1) if self.future_offset > 0 else None
+
         if self._cache_data is not None:
             ep = self._cache_data[ep_idx]
-            return {
+            out = {
                 "qpos": ep["qpos"][t],
                 "left": ep["left"][t],
                 "right": ep["right"][t],
@@ -250,6 +265,10 @@ class EpisodeDataset(Dataset):
                 "qcmd": ep["qcmd"][t],
                 "torques": ep["torques"][t],
             }
+            if t_future is not None:
+                out["future_left"] = ep["left"][t_future]
+                out["future_right"] = ep["right"][t_future]
+            return out
         path = self._episode_paths[ep_idx]
         with h5py.File(path, "r") as f:
             qpos = f["observations/qpos"][t]
@@ -262,6 +281,9 @@ class EpisodeDataset(Dataset):
                 "torques": (f["observations/torques"][t]
                             if "observations/torques" in f else np.zeros_like(qpos)),
             }
+            if t_future is not None:
+                out["future_left"] = f["observations/images/left"][t_future]
+                out["future_right"] = f["observations/images/right"][t_future]
         return out
 
     # ------------------------------------------------------------------
@@ -319,14 +341,25 @@ class EpisodeDataset(Dataset):
     def _augment_and_normalize(
         self, left_u8: np.ndarray, right_u8: np.ndarray, rng: random.Random
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Train-time augmentation + ImageNet normalization for a camera pair.
+        """Train-time augmentation for the standard ACT stereo pair."""
+        out = self._augment_batch_and_normalize([left_u8, right_u8], rng)
+        return out[0], out[1]
 
-        - Same geometric crop on left and right (they're a stereo rig).
-        - Independent color jitter per camera (simulates differing exposure / WB).
+    def _augment_batch_and_normalize(
+        self, imgs_u8: List[np.ndarray], rng: random.Random
+    ) -> List[np.ndarray]:
+        """Augment a batch of co-registered images.
+
+        - SHARED geometric crop across every image in the batch (so the
+          stereo pair stays aligned, and current/future frames stay spatially
+          consistent for the JEPA prediction task).
+        - INDEPENDENT color jitter and blur per image (simulates differing
+          exposure / WB between cameras and frames).
+        - ImageNet normalization at the end.
         """
-        H, W = left_u8.shape[:2]
+        assert len(imgs_u8) > 0
+        H, W = imgs_u8[0].shape[:2]
 
-        # Shared random-resized crop (scale 0.88–1.0, small aspect variation)
         scale = rng.uniform(0.88, 1.00)
         ar = rng.uniform(0.95, 1.05)
         crop_h = int(round(H * scale))
@@ -338,49 +371,36 @@ class EpisodeDataset(Dataset):
 
         def geom(img: np.ndarray) -> np.ndarray:
             cropped = img[top:top + crop_h, left:left + crop_w]
-            # Resize back to H×W using torch (no PIL dependency on uint8 HWC)
             t = torch.from_numpy(cropped).permute(2, 0, 1).unsqueeze(0).float()
             t = F.interpolate(t, size=(H, W), mode="bilinear", align_corners=False)
             return t.squeeze(0).permute(1, 2, 0).clamp(0, 255).to(torch.uint8).numpy()
 
         def color_jitter(img_u8: np.ndarray) -> np.ndarray:
             img = img_u8.astype(np.float32) / 255.0
-            # Brightness
             img = img * rng.uniform(0.80, 1.20)
-            # Contrast
             m = img.mean()
             img = (img - m) * rng.uniform(0.80, 1.20) + m
-            # Saturation
             gray = img.mean(axis=2, keepdims=True)
             img = gray + (img - gray) * rng.uniform(0.80, 1.20)
-            # Hue — cheap channel shuffle-ish perturbation
             shift = rng.uniform(-0.05, 0.05)
             img = img + np.array([shift, 0, -shift], dtype=np.float32)[None, None, :]
             return np.clip(img * 255.0, 0, 255).astype(np.uint8)
 
-        # Geometric
-        left_aug = geom(left_u8)
-        right_aug = geom(right_u8)
-
-        # Color jitter (independent)
-        if rng.random() < 0.8:
-            left_aug = color_jitter(left_aug)
-        if rng.random() < 0.8:
-            right_aug = color_jitter(right_aug)
-
-        # Small-prob Gaussian blur (very mild)
         def maybe_blur(img: np.ndarray) -> np.ndarray:
             if rng.random() >= 0.1:
                 return img
             t = torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0).float()
-            # Lightweight 3×3 box blur via avg_pool with padding
             t = F.avg_pool2d(t, kernel_size=3, stride=1, padding=1)
             return t.squeeze(0).permute(1, 2, 0).clamp(0, 255).to(torch.uint8).numpy()
 
-        left_aug = maybe_blur(left_aug)
-        right_aug = maybe_blur(right_aug)
-
-        return self._imagenet_normalize(left_aug), self._imagenet_normalize(right_aug)
+        outs: List[np.ndarray] = []
+        for img in imgs_u8:
+            x = geom(img)
+            if rng.random() < 0.8:
+                x = color_jitter(x)
+            x = maybe_blur(x)
+            outs.append(self._imagenet_normalize(x))
+        return outs
 
     # ------------------------------------------------------------------
     # Dataset interface
@@ -415,13 +435,28 @@ class EpisodeDataset(Dataset):
                 self.normalize_torques(torque_raw),
             ]).astype(np.float32)
 
-        # Image augmentation / normalization
+        # Future-frame pair (JEPA target). Only present when future_offset > 0.
+        future_left_raw = frame.get("future_left")
+        future_right_raw = frame.get("future_right")
+        has_future = future_left_raw is not None
+
+        # Image augmentation / normalization. When future frames are present
+        # the same geometric crop is shared across all 4 images so the JEPA
+        # prediction task remains spatially consistent.
         if self.augment:
             rng = random.Random((ep_idx * 1_000_003 + t) ^ torch.randint(0, 2**31 - 1, (1,)).item())
-            left_n, right_n = self._augment_and_normalize(left_raw, right_raw, rng)
+            if has_future:
+                left_n, right_n, fleft_n, fright_n = self._augment_batch_and_normalize(
+                    [left_raw, right_raw, future_left_raw, future_right_raw], rng
+                )
+            else:
+                left_n, right_n = self._augment_and_normalize(left_raw, right_raw, rng)
+                fleft_n = fright_n = None
         else:
             left_n = self._imagenet_normalize(left_raw)
             right_n = self._imagenet_normalize(right_raw)
+            fleft_n = self._imagenet_normalize(future_left_raw) if has_future else None
+            fright_n = self._imagenet_normalize(future_right_raw) if has_future else None
 
         # Action chunk — pad with last action if near episode end
         chunk = chunk_raw.astype(np.float32)
@@ -439,6 +474,11 @@ class EpisodeDataset(Dataset):
                 "right": torch.from_numpy(right_n),
             },
         }
+        if has_future:
+            obs["future_images"] = {
+                "left": torch.from_numpy(fleft_n),
+                "right": torch.from_numpy(fright_n),
+            }
         return obs, torch.from_numpy(chunk_n)
 
     # ------------------------------------------------------------------
