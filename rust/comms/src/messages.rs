@@ -81,6 +81,19 @@ pub enum CommandMessage {
     ZeroPosition {
         motor_ids: Vec<String>,
     },
+    /// Hardware mechanical zero: send CAN `ZeroPos` (msg type 6) to the named
+    /// motors so they rewrite their mechanical zero in firmware. With `save`,
+    /// follow up with `SaveConfig` (msg type 22) so the new zero persists
+    /// across power cycle.
+    ///
+    /// WARNING per Robstride docs: this command can produce a torque spike.
+    /// The handler refuses unless every named motor is currently disabled.
+    #[serde(rename = "mech_zero")]
+    MechZero {
+        motor_ids: Vec<String>,
+        #[serde(default)]
+        save: bool,
+    },
     #[serde(rename = "clear_fault")]
     ClearFault {
         motor_ids: Vec<String>,

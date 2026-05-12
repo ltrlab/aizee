@@ -3334,6 +3334,10 @@ class _MainWindow(QMainWindow):
         _tbtn(0, 0, "Z", "Zero Leader (Z)", "Set current leader pose as zero")
         _tbtn(0, 1, "M", "Mirror (M)",      "Align leader zero to robot")
         _tbtn(0, 2, "P", "Save Ready (P)",  "Write ready_pose.json")
+        _tbtn(1, 0, "K", "Mech Zero (K)",
+              "Write Robstride mechanical zero + SaveConfig to all arm joints. "
+              "Arm must be disabled (press Shutdown first) and physically held at "
+              "the desired zero pose. Persists across power cycle.")
         v.addLayout(tg)
 
         v.addStretch(1)
@@ -3577,9 +3581,11 @@ class _MainWindow(QMainWindow):
             sc.activated.connect(self._toggle_fullscreen)
 
         # Replay hotkeys — gated by mode inside _on_replay_shortcut.
+        # NOTE: "K" is intentionally absent from this list. It is shared with
+        # COLLECT mode (mech-zero) and dispatched mode-aware below to avoid
+        # Qt ambiguous-shortcut activation.
         replay_bindings = [
             ("Space", lambda: self._playback.toggle_play()),
-            ("K",     lambda: self._playback.toggle_play()),
             ("J",     lambda: self._playback.step(-1)),
             ("L",     lambda: self._playback.step(+1)),
             (",",     lambda: self._playback.step(-10)),
@@ -3591,6 +3597,12 @@ class _MainWindow(QMainWindow):
             sc = QShortcut(QKeySequence(seq), self)
             sc.setContext(Qt.ApplicationShortcut)
             sc.activated.connect(lambda cb=cb: self._on_replay_shortcut(cb))
+
+        # Shared "K": mech-zero in COLLECT, toggle-play in REPLAY. Single
+        # QShortcut so Qt does not flag the binding as ambiguous.
+        sc_k = QShortcut(QKeySequence("K"), self)
+        sc_k.setContext(Qt.ApplicationShortcut)
+        sc_k.activated.connect(self._on_k_shortcut)
 
     def _on_shortcut(self, key: str) -> None:
         fw = QApplication.focusWidget()
@@ -3609,6 +3621,15 @@ class _MainWindow(QMainWindow):
         if self._current_mode != MODE_REPLAY:
             return
         cb()
+
+    def _on_k_shortcut(self) -> None:
+        fw = QApplication.focusWidget()
+        if isinstance(fw, QLineEdit):
+            return
+        if self._current_mode == MODE_REPLAY:
+            self._playback.toggle_play()
+        elif self._current_mode == MODE_COLLECT:
+            self._send_key("K")
 
     def _toggle_fullscreen(self) -> None:
         if self.isFullScreen():

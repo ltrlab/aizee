@@ -1104,6 +1104,71 @@ impl ControlSystem {
                     }
                 }
             }
+            CommandMessage::MechZero { motor_ids, save } => {
+                // Hardware mechanical zero per Robstride protocol (msg type 6).
+                // Refuses unless every named motor is currently disabled — the
+                // ZeroPos command is documented to produce a torque spike on a
+                // running motor, and silently rewriting the zero under load is
+                // unsafe.
+                let mut blocked: Vec<String> = Vec::new();
+                for motor_id in &motor_ids {
+                    match self.find_motor_mut(motor_id) {
+                        Some(motor) if motor.state != MotorState::Idle
+                            && motor.state != MotorState::Disabled => {
+                            blocked.push(format!("{}={}", motor_id, motor.state.as_str()));
+                        }
+                        None => blocked.push(format!("{}=unknown", motor_id)),
+                        _ => {}
+                    }
+                }
+                if !blocked.is_empty() {
+                    warn!("MechZero refused — disable motors first. Active: {}", blocked.join(", "));
+                } else {
+                    info!("MechZero: writing hardware zero to {} motor(s){}",
+                          motor_ids.len(),
+                          if save { " (will SaveConfig)" } else { "" });
+                    for motor_id in &motor_ids {
+                        let can_id = match self.find_motor_mut(motor_id).map(|m| m.config.can_id) {
+                            Some(id) => id,
+                            None => continue,
+                        };
+                        let bus_name = match self.motor_bus_map.get(motor_id).cloned() {
+                            Some(b) => b,
+                            None => {
+                                warn!("MechZero: no bus mapping for {}", motor_id);
+                                continue;
+                            }
+                        };
+                        let pos_before = self
+                            .find_motor_mut(motor_id)
+                            .and_then(|m| m.feedback.as_ref().map(|f| f.position));
+                        let socket = match self.can_sockets.get(&bus_name) {
+                            Some(s) => s,
+                            None => {
+                                warn!("MechZero: no CAN socket for bus {}", bus_name);
+                                continue;
+                            }
+                        };
+                        let zero_frame = robstride::build_zero_pos_frame(can_id);
+                        if let Err(e) = self.safe_write_frame(socket, &zero_frame, &bus_name) {
+                            error!("MechZero: write ZeroPos to {} failed: {}", motor_id, e);
+                            continue;
+                        }
+                        std::thread::sleep(Duration::from_millis(20));
+                        if save {
+                            let save_frame = robstride::build_save_config_frame(can_id);
+                            if let Err(e) = self.safe_write_frame(socket, &save_frame, &bus_name) {
+                                error!("MechZero: write SaveConfig to {} failed: {}", motor_id, e);
+                                continue;
+                            }
+                            std::thread::sleep(Duration::from_millis(10));
+                        }
+                        info!("MechZero {}: ok (pos_before={:?}){}",
+                              motor_id, pos_before,
+                              if save { " saved" } else { "" });
+                    }
+                }
+            }
             CommandMessage::ClearFault { motor_ids } => {
                 for motor_id in &motor_ids {
                     if let Some(motor) = self.find_motor_mut(motor_id) {

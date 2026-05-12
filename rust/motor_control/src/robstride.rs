@@ -270,6 +270,13 @@ pub fn build_zero_pos_frame(motor_id: u8) -> CanFrame {
     CanFrame::new(socketcan::Id::Extended(arb_id), &data).expect("Failed to create frame")
 }
 
+/// Build SaveConfig command frame — persists current parameter set (including
+/// the mechanical zero just written) to motor flash.
+pub fn build_save_config_frame(motor_id: u8) -> CanFrame {
+    let arb_id = build_arb_id(motor_id, MotorMsg::SaveConfig);
+    CanFrame::new(socketcan::Id::Extended(arb_id), &[0u8; 8]).expect("Failed to create frame")
+}
+
 /// Build read parameter frame
 pub fn build_read_param_frame(motor_id: u8, param_id: u16) -> CanFrame {
     let arb_id = build_arb_id(motor_id, MotorMsg::ReadParam);

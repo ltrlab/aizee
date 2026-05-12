@@ -22,6 +22,8 @@ Controls:
     Z    zero — capture current SO-101 pose as zero reference
     M    mirror — set zero so current leader maps to current actual
     P    save current arm position as ready pose (config/ready_pose.json)
+    K    mechanical zero — write Robstride hardware zero + SaveConfig to all
+         arm joints (motors must be disabled; persists across power cycle)
     Q    quit  (Ctrl-C also works)
     WASD drive wheels (W=fwd S=back A=left D=right; wheels enable with arm)
 
@@ -2941,6 +2943,27 @@ def main() -> None:
                     zero_msg       = "[P] no telemetry — cannot save"
                     zero_msg_until = t0 + 2.0
 
+            elif key == "K":
+                # Hardware mechanical zero — sends Robstride CAN ZeroPos + SaveConfig
+                # to every arm joint. Refused unless motors are fully disabled
+                # (motor_control gates the same way), since a running motor may
+                # produce a torque spike when zeroed.
+                if teleop_state != State.READY:
+                    zero_msg       = "[K] disable arm first (X), then press K"
+                    zero_msg_until = t0 + 3.0
+                else:
+                    pre = (", ".join(f"{j}={q_actual[i]:+.3f}"
+                                     for i, j in enumerate(ARM_JOINTS))
+                           if q_actual is not None else "no telemetry")
+                    _send(cmd_sock, {
+                        "type": "mech_zero",
+                        "motor_ids": list(ARM_JOINTS),
+                        "save": True,
+                    })
+                    print(f"[K] mech_zero sent — pre: {pre}")
+                    zero_msg       = "[K] mech zero sent — saved to flash"
+                    zero_msg_until = t0 + 4.0
+
             elif key == "CANCEL_SHUTDOWN" and teleop_state == State.SHUTDOWN:
                 teleop_state = State.HOLD
                 held_target  = q_actual.copy() if q_actual is not None else held_target
@@ -3328,9 +3351,9 @@ def main() -> None:
             if teleop_state == State.READY:
                 status = "[ ] ready — motors off"
                 if leader is not None:
-                    hint = "E=track · I=idle · Z=zero · M=mirror · Q=quit"
+                    hint = "E=track · I=idle · Z=zero · M=mirror · K=mech-zero · Q=quit"
                 else:
-                    hint = "E=hold · I=idle · Q=quit"
+                    hint = "E=hold · I=idle · K=mech-zero · Q=quit"
 
             elif teleop_state == State.IDLE:
                 status = "[I] idle — zero torque (arm free)"
