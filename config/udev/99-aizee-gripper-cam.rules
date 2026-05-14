@@ -1,0 +1,31 @@
+# Udev rule for AIZEE gripper-mounted ELP-USBFHD01M-L21 (UVC color).
+#
+# Creates a stable /dev/aizee_gripper_cam symlink to the camera's V4L2
+# capture node (the first /dev/video* the kernel registers for this
+# device) and a corresponding systemd device unit so
+# aizee-gripper-cam.service auto-starts on plug-in.
+#
+# SETUP: Run scripts/deploy_gripper_camera.sh from the dev machine, or
+# manually:
+#     sudo cp config/udev/99-aizee-gripper-cam.rules /etc/udev/rules.d/
+#     sudo udevadm control --reload-rules && sudo udevadm trigger
+#
+# The ELP-USBFHD01M-L21 in our lab reports as USB ID 05a3:9230 (ARC
+# International / Sonix UVC chipset; lsusb labels it "ARC International
+# Camera"). Other ELP variants may report 32e4:9230. If your unit
+# reports a different ID, run
+#     lsusb
+# and update idVendor/idProduct below to match.
+#
+# Notes:
+#   - The UVC driver creates two /dev/video* nodes per camera (one
+#     capture node, one metadata sibling). Only the capture node has
+#     ID_V4L_CAPABILITIES containing ":capture:" — match on that so the
+#     symlink + SYSTEMD_ALIAS only attach to the streamable node.
+
+SUBSYSTEM=="video4linux", \
+    ATTRS{idVendor}=="05a3", ATTRS{idProduct}=="9230", \
+    KERNEL=="video[0-9]*", \
+    ENV{ID_V4L_CAPABILITIES}=="*:capture:*", \
+    SYMLINK+="aizee_gripper_cam", \
+    TAG+="systemd", ENV{SYSTEMD_ALIAS}+="/dev/aizee_gripper_cam"

@@ -61,8 +61,7 @@ if $LOCAL_MODE; then
         --checkpoint "$CHECKPOINT" \
         --device cpu \
         --telem "tcp://$JETSON_IP:5556" \
-        --cam-left "tcp://$JETSON_IP:5563" \
-        --cam-right "tcp://$JETSON_IP:5564" \
+        --gripper-cam "tcp://$JETSON_IP:5563" \
         --cmd "tcp://$JETSON_IP:5555" \
         "${EXTRA_ARGS[@]}"
 else

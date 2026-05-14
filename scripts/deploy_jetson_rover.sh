@@ -95,6 +95,20 @@ systemctl daemon-reload
 systemctl restart aizee-motor-control-rover
 sleep 2
 systemctl status aizee-motor-control-rover --no-pager -l
+
+# Retire the old stereo RealSense arm-camera services. The platform now
+# uses a single ELP UVC gripper camera (see deploy_gripper_camera.sh).
+# Mask so a stray plug-in event cannot revive the D435 pipeline. To bring
+# them back: systemctl unmask aizee-arm-cam-left aizee-arm-cam-right.
+for svc in aizee-arm-cam-left aizee-arm-cam-right; do
+    if systemctl list-unit-files | grep -q "^${svc}.service"; then
+        systemctl stop ${svc}.service 2>/dev/null || true
+        systemctl disable ${svc}.service 2>/dev/null || true
+        systemctl mask ${svc}.service 2>/dev/null || true
+    fi
+done
+rm -f /etc/udev/rules.d/99-aizee-realsense.rules
+udevadm control --reload-rules
 SUDO_CMDS
 } | $SSH "$TARGET" "sudo -S bash -s 2>/dev/null"
 echo ""

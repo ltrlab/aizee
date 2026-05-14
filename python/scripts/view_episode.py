@@ -60,11 +60,7 @@ def build_blueprint(show_images: bool, has_sync: bool) -> rrb.Blueprint:
     info_col = rrb.TextDocumentView(name="Episode Info", origin="episode/info")
 
     if show_images:
-        cam_col = rrb.Vertical(
-            rrb.Spatial2DView(name="Left camera",  origin="cameras/left"),
-            rrb.Spatial2DView(name="Right camera", origin="cameras/right"),
-            row_shares=[1, 1],
-        )
+        cam_col = rrb.Spatial2DView(name="Gripper camera", origin="cameras/gripper")
         return rrb.Blueprint(
             rrb.Horizontal(
                 cam_col,
@@ -85,25 +81,23 @@ def build_blueprint(show_images: bool, has_sync: bool) -> rrb.Blueprint:
 
 def load_episode(path: Path):
     with h5py.File(path, "r") as f:
-        qpos    = f["observations/qpos"][:]           # [T, 6]
-        left    = f["observations/images/left"][:]    # [T, 240, 320, 3]
-        right   = f["observations/images/right"][:]   # [T, 240, 320, 3]
-        actions = f["actions"][:]                     # [T, 6]
+        qpos    = f["observations/qpos"][:]                # [T, J]
+        gripper = f["observations/images/gripper"][:]      # [T, 768, 1024, 3]
+        actions = f["actions"][:]                          # [T, J]
 
         hz     = float(f.attrs.get("hz", 20))
         joints = f.attrs.get("arm_joints", ",".join(ARM_JOINTS))
         joint_names = [j.strip() for j in joints.split(",")]
 
-        ts_telem = ts_left = ts_right = None
+        ts_telem = ts_gripper = None
         if "timestamps" in f:
-            ts_telem = f["timestamps/telem"][:]
-            ts_left  = f["timestamps/camera_left"][:]
-            ts_right = f["timestamps/camera_right"][:]
+            ts_telem   = f["timestamps/telem"][:]
+            ts_gripper = f["timestamps/camera_gripper"][:]
 
     return {
-        "qpos": qpos, "left": left, "right": right, "actions": actions,
+        "qpos": qpos, "gripper": gripper, "actions": actions,
         "hz": hz, "joint_names": joint_names,
-        "ts_telem": ts_telem, "ts_left": ts_left, "ts_right": ts_right,
+        "ts_telem": ts_telem, "ts_gripper": ts_gripper,
     }
 
 
@@ -121,25 +115,18 @@ def print_stats(path: Path, ep: dict) -> str:
 
     if ep["ts_telem"] is not None:
         ts_t = ep["ts_telem"]
-        ts_l = ep["ts_left"]
-        ts_r = ep["ts_right"]
+        ts_g = ep["ts_gripper"]
 
         # Drop NaN frames
-        valid = ~(np.isnan(ts_t) | np.isnan(ts_l) | np.isnan(ts_r))
+        valid = ~(np.isnan(ts_t) | np.isnan(ts_g))
         n_valid = valid.sum()
 
-        skew_lt = np.abs(ts_l[valid] - ts_t[valid]) * 1000
-        skew_rt = np.abs(ts_r[valid] - ts_t[valid]) * 1000
-        skew_lr = np.abs(ts_l[valid] - ts_r[valid]) * 1000
-        worst   = np.maximum(np.maximum(skew_lt, skew_rt), skew_lr)
+        skew_gt = np.abs(ts_g[valid] - ts_t[valid]) * 1000
 
         lines += [
             f"",
             f"**Sync ({n_valid}/{T} frames with timestamps)**",
-            f"- L-telem: mean {skew_lt.mean():.1f} ms, max {skew_lt.max():.1f} ms",
-            f"- R-telem: mean {skew_rt.mean():.1f} ms, max {skew_rt.max():.1f} ms",
-            f"- L-R:     mean {skew_lr.mean():.1f} ms, max {skew_lr.max():.1f} ms",
-            f"- Worst overall: {worst.mean():.1f} ms mean, {worst.max():.1f} ms max",
+            f"- gripper-telem: mean {skew_gt.mean():.1f} ms, max {skew_gt.max():.1f} ms",
         ]
     else:
         lines.append("")
@@ -165,9 +152,8 @@ def log_episode(ep: dict, show_images: bool, speed: float) -> None:
                rr.SeriesLines(colors=_ACTION_COLOR, names=name), static=True)
 
     if has_sync:
-        rr.log("episode/sync/L_telem_ms", rr.SeriesLines(colors=[255,  80,  80, 200], names="L-telem"), static=True)
-        rr.log("episode/sync/R_telem_ms", rr.SeriesLines(colors=[ 80, 200,  80, 200], names="R-telem"), static=True)
-        rr.log("episode/sync/L_R_ms",     rr.SeriesLines(colors=[200, 200,  80, 200], names="L-R"),     static=True)
+        rr.log("episode/sync/gripper_telem_ms",
+               rr.SeriesLines(colors=[255, 80, 80, 200], names="gripper-telem"), static=True)
 
     t0 = time.monotonic()
 
@@ -187,17 +173,13 @@ def log_episode(ep: dict, show_images: bool, speed: float) -> None:
         # Sync skew
         if has_sync:
             ts_t = ep["ts_telem"][t]
-            ts_l = ep["ts_left"][t]
-            ts_r = ep["ts_right"][t]
-            if not (np.isnan(ts_t) or np.isnan(ts_l) or np.isnan(ts_r)):
-                rr.log("episode/sync/L_telem_ms", rr.Scalars(abs(ts_l - ts_t) * 1000))
-                rr.log("episode/sync/R_telem_ms", rr.Scalars(abs(ts_r - ts_t) * 1000))
-                rr.log("episode/sync/L_R_ms",     rr.Scalars(abs(ts_l - ts_r) * 1000))
+            ts_g = ep["ts_gripper"][t]
+            if not (np.isnan(ts_t) or np.isnan(ts_g)):
+                rr.log("episode/sync/gripper_telem_ms", rr.Scalars(abs(ts_g - ts_t) * 1000))
 
-        # Camera images
+        # Camera image
         if show_images:
-            rr.log("cameras/left",  rr.Image(ep["left"][t],  color_model="RGB"))
-            rr.log("cameras/right", rr.Image(ep["right"][t], color_model="RGB"))
+            rr.log("cameras/gripper", rr.Image(ep["gripper"][t], color_model="RGB"))
 
         # Pace to real-time (or scaled)
         elapsed  = time.monotonic() - t0

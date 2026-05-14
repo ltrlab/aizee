@@ -1,0 +1,80 @@
+# AIZEE Hardware Configuration - Gripper Camera (ELP-USBFHD01M-L21)
+#
+# Single USB UVC color camera mounted on the gripper, looking at the
+# workspace. Replaces the previous stereo D435 arm-camera pair
+# (arm_cam_left + arm_cam_right). Publishes color-only over a single
+# ZMQ PUB endpoint on the Jetson's WiFi interface.
+#
+# ELP-USBFHD01M-L21 supported modes (queried 2026-05-13 via v4l2-ctl on
+# our physical unit, USB ID 05a3:9230):
+#   MJPG:  1920x1080@30, 1280x1024@30, 1280x720@60, 1024x768@30,
+#          800x600@60, 640x480@120, 320x240@120
+#   YUYV:  much slower at all sizes (USB 2.0 uncompressed bandwidth cap)
+# Pipeline runs entirely at 1024x768 — capture, wire, recording, training
+# and inference all see the same resolution. No publisher-side downscale.
+
+camera:
+  id: gripper_cam
+  model: ELP-USBFHD01M-L21
+  # Stable symlink installed by config/udev/99-aizee-gripper-cam.rules.
+  # Fallback raw /dev/videoN paths can also be used (e.g. /dev/video0).
+  device: /dev/aizee_gripper_cam
+  # UVC pixel format requested at capture. "MJPG" gives 1080p/30 on USB 2.0;
+  # "YUYV" is uncompressed but maxes out near 640x480@30.
+  fourcc: MJPG
+
+  streams:
+    color:
+      enabled: true
+      width: 1024
+      height: 768
+      fps: 30
+      compression: JPEG
+      quality: 85
+      # No publisher-side downscale: the full 1024x768 frame is JPEG-
+      # encoded and sent on the wire so recording, training, and inference
+      # all share the same resolution. If you want a smaller wire payload,
+      # set output_width/output_height below (consumers downscale by
+      # decoding the JPEG, so the savings are bandwidth-only).
+      # output_width: 1024
+      # output_height: 768
+      # Camera is mounted upright on the gripper — adjust to "180" /
+      # "horizontal" / "vertical" if the physical orientation is off.
+      flip: "none"
+
+  # V4L2 controls applied via `v4l2-ctl --set-ctrl name=value` after the
+  # device is opened. List `auto_exposure` first — `exposure_time_absolute`
+  # becomes writable only when auto_exposure=1 (Manual). Inspect available
+  # knobs with: v4l2-ctl --device /dev/aizee_gripper_cam --list-ctrls
+  #
+  # Tuned 2026-05-13 for typical indoor lab lighting on USB ID 05a3:9230.
+  # auto_exposure=3 (Aperture Priority) consistently underexposed this
+  # scene to mean~44/255 — manual mode + fixed exposure recovers it to
+  # mean~83/255 with p95~230 (highlights have headroom, shadows aren't
+  # crushed).
+  v4l2_controls:
+    auto_exposure: 1               # 1=Manual, 3=Aperture Priority
+    exposure_time_absolute: 150    # in 100µs units (≈15 ms here); range [1, 5000]
+    gain: 30                       # [0, 100] — modest amplification, low noise
+    brightness: 0                  # [-64, 64] — AE/setpoint shift; manual mode mostly ignores it
+    saturation: 60                 # [0, 128] — default
+    backlight_compensation: 2      # [0, 2] — max, helps when bright bg is behind the workspace
+
+network:
+  device:
+    ip: 192.168.0.27          # Jetson WiFi
+    hostname: aizee-jetson
+    zmq:
+      camera_pub:  "tcp://*:5563"   # PUB — same port the old arm_cam_left used
+      camera_ctrl: "tcp://*:5573"   # REP — runtime V4L2 control changes (GUI sliders)
+
+# Position and orientation of the camera sensor relative to the wrist_roll
+# joint. NOTE: measure and update once the camera is physically mounted.
+# Coordinate frame of joint_wrist_roll: +X toward gripper tip, +Z up.
+spatial:
+  parent_joint: wrist_roll
+  position: [0.02, 0.0, 0.04]      # [x, y, z] metres — above + slightly forward
+  orientation: [0.0, 0.0, 0.0]     # [roll, pitch, yaw] — placeholder
+
+logging:
+  level: INFO

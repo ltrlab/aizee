@@ -5,7 +5,9 @@ Based on the original ACT paper (Zhao et al., 2023).
 No dependency on lerobot or external ACT libraries.
 
 Architecture:
-  - Image encoder: ResNet18 (shared across cameras, FrozenBatchNorm2d) -> feature maps
+  - Image encoder: ResNet18 (FrozenBatchNorm2d) -> feature map for the
+    single gripper camera. (Originally shared across a stereo D435 pair;
+    the platform was retired in favor of a single ELP UVC camera.)
   - State encoder: 2-layer MLP (state_dim -> d_model) for extended state vector
   - CVAE encoder (training only): transformer encodes [CLS, qpos, actions]
     -> latent z (dim=32)
@@ -14,11 +16,11 @@ Architecture:
 
 Forward signatures:
     # Training
-    loss_dict = policy(qpos, state, images_left, images_right, actions)
+    loss_dict = policy(qpos, state, images_gripper, actions)
     # -> {"l1": tensor, "kl": tensor, "total": tensor}
 
     # Inference
-    action_chunk = policy.select_action(qpos, state, images_left, images_right)
+    action_chunk = policy.select_action(qpos, state, images_gripper)
     # -> [B, chunk_size, num_joints]
 """
 
@@ -111,10 +113,10 @@ class ImageEncoder(nn.Module):
     """ResNet18 backbone — strips avgpool and fc, returns feature map.
 
     Uses FrozenBatchNorm2d to stabilize training with small batch sizes.
-    Shared across all cameras (single backbone instance).
+    Single backbone instance — the platform has one gripper camera.
 
     Output shape: [B, 512, H', W'] where H' = ceil(H/32), W' = ceil(W/32).
-    For 240x320 input: [B, 512, 8, 10] -> 80 spatial tokens.
+    For 768x1024 input: [B, 512, 24, 32] -> 768 spatial tokens.
     """
 
     def __init__(self, pretrained: bool = True):
@@ -337,7 +339,7 @@ class ACTPolicy(nn.Module):
         self.num_joints = num_joints
         self.state_dim = state_dim
 
-        # Single shared image encoder for all cameras
+        # Image encoder for the single gripper camera
         self.img_encoder = ImageEncoder(pretrained=pretrained_encoder)
         self.state_encoder = StateEncoder(input_dim=state_dim, d_model=d_model)
 
@@ -398,28 +400,21 @@ class ACTPolicy(nn.Module):
         return [p for p in self.parameters() if id(p) not in backbone_ids]
 
     def _encode_images(
-        self, images_left: torch.Tensor, images_right: torch.Tensor
+        self, images_gripper: torch.Tensor
     ) -> torch.Tensor:
-        """Encode both camera images into a flat sequence of tokens.
+        """Encode the gripper camera image into a flat sequence of tokens.
 
-        Uses a single shared backbone for both cameras.
-
-        images_left/right: [B, 3, H, W]
-        Returns: [B, 2*H'*W', d_model]
+        images_gripper: [B, 3, H, W]
+        Returns: [B, H'*W', d_model]
         """
-        feat_l = self.img_encoder(images_left)    # [B, 512, H', W']
-        feat_r = self.img_encoder(images_right)   # [B, 512, H', W']
+        feat = self.img_encoder(images_gripper)    # [B, 512, H', W']
 
-        B, C, Hp, Wp = feat_l.shape
+        B, C, Hp, Wp = feat.shape
         # Flatten spatial -> tokens
-        feat_l = feat_l.permute(0, 2, 3, 1).reshape(B, Hp * Wp, C)  # [B, H'W', 512]
-        feat_r = feat_r.permute(0, 2, 3, 1).reshape(B, Hp * Wp, C)
+        feat = feat.permute(0, 2, 3, 1).reshape(B, Hp * Wp, C)  # [B, H'W', 512]
 
         # Project to d_model
-        feat_l = self.img_proj(feat_l)  # [B, H'W', d_model]
-        feat_r = self.img_proj(feat_r)
-
-        return torch.cat([feat_l, feat_r], dim=1)  # [B, 2*H'W', d_model]
+        return self.img_proj(feat)  # [B, H'W', d_model]
 
     def _reparameterize(
         self, mu: torch.Tensor, log_var: torch.Tensor
@@ -432,20 +427,19 @@ class ACTPolicy(nn.Module):
     def _build_memory(
         self,
         state: torch.Tensor,
-        images_left: torch.Tensor,
-        images_right: torch.Tensor,
+        images_gripper: torch.Tensor,
         z: torch.Tensor,
     ) -> torch.Tensor:
         """Assemble context (memory) tokens for the decoder.
 
         Args:
             state: [B, state_dim] — extended state vector
-            images_left/right: [B, 3, H, W]
+            images_gripper: [B, 3, H, W]
             z: [B, z_dim]
 
-        Returns: [B, S, d_model] where S = 2*H'*W' + 2
+        Returns: [B, S, d_model] where S = H'*W' + 2
         """
-        img_tokens = self._encode_images(images_left, images_right)  # [B, 2*H'W', d_model]
+        img_tokens = self._encode_images(images_gripper)              # [B, H'W', d_model]
         state_token = self.state_encoder(state).unsqueeze(1)          # [B, 1, d_model]
         z_token = self.z_proj(z).unsqueeze(1)                         # [B, 1, d_model]
         return torch.cat([img_tokens, state_token, z_token], dim=1)   # [B, S, d_model]
@@ -454,8 +448,7 @@ class ACTPolicy(nn.Module):
         self,
         qpos: torch.Tensor,
         state: torch.Tensor,
-        images_left: torch.Tensor,
-        images_right: torch.Tensor,
+        images_gripper: torch.Tensor,
         actions: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         """Training forward pass.
@@ -463,8 +456,7 @@ class ACTPolicy(nn.Module):
         Args:
             qpos: [B, num_joints] normalized joint positions (for CVAE encoder)
             state: [B, state_dim] normalized state vector (for decoder context)
-            images_left: [B, 3, H, W] ImageNet-normalized
-            images_right: [B, 3, H, W] ImageNet-normalized
+            images_gripper: [B, 3, H, W] ImageNet-normalized
             actions: [B, chunk_size, num_joints] normalized target actions
 
         Returns:
@@ -477,7 +469,7 @@ class ACTPolicy(nn.Module):
         z = self._reparameterize(mu, log_var)
 
         # Build memory with extended state and decode
-        memory = self._build_memory(state, images_left, images_right, z)
+        memory = self._build_memory(state, images_gripper, z)
         decoded = self.decoder(memory)               # [B, chunk_size, d_model]
         pred_actions = self.action_head(decoded)     # [B, chunk_size, num_joints]
 
@@ -496,16 +488,14 @@ class ACTPolicy(nn.Module):
         self,
         qpos: torch.Tensor,
         state: torch.Tensor,
-        images_left: torch.Tensor,
-        images_right: torch.Tensor,
+        images_gripper: torch.Tensor,
     ) -> torch.Tensor:
         """Inference forward pass. z = zeros (deterministic).
 
         Args:
             qpos: [B, num_joints] (used for z prior dimensioning)
             state: [B, state_dim]
-            images_left: [B, 3, H, W]
-            images_right: [B, 3, H, W]
+            images_gripper: [B, 3, H, W]
 
         Returns:
             action_chunk: [B, chunk_size, num_joints]
@@ -513,6 +503,6 @@ class ACTPolicy(nn.Module):
         B = qpos.size(0)
         z = torch.zeros(B, self.z_dim, device=qpos.device, dtype=qpos.dtype)
 
-        memory = self._build_memory(state, images_left, images_right, z)
+        memory = self._build_memory(state, images_gripper, z)
         decoded = self.decoder(memory)
         return self.action_head(decoded)  # [B, chunk_size, num_joints]

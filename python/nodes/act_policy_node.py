@@ -2,9 +2,9 @@
 """
 act_policy_node.py — ACT policy inference node for AIZEE arm.
 
-Runs at 20 Hz, subscribes to arm telemetry and both wrist cameras,
-runs the ACT policy, and sends a single 7-DOF arm_joints command per tick
-(swivel is joint 0 of the unified arm).
+Runs at 20 Hz, subscribes to arm telemetry and the single gripper camera
+(ELP UVC), runs the ACT policy, and sends a single 7-DOF arm_joints command
+per tick (swivel is joint 0 of the unified arm).
 
 WARNING: Do NOT run teleop.py and this node simultaneously.
 Both push to :5555. Interleaved commands are dangerous.
@@ -172,10 +172,12 @@ def drain_camera(sock) -> Optional[dict]:
 # Image / normalization
 # ---------------------------------------------------------------------------
 
-def decode_image(msg: dict, target_size=(320, 240)) -> Optional[np.ndarray]:
+def decode_image(msg: dict, target_size=(1024, 768)) -> Optional[np.ndarray]:
     """Decode camera message to uint8 [H, W, 3]. target_size = (width, height).
 
-    Uses cv2 (libjpeg-turbo) when available; falls back to PIL.
+    Default matches the gripper-camera capture resolution so no resize fires
+    when the publisher and the policy agree. Uses cv2 (libjpeg-turbo) when
+    available; falls back to PIL.
     """
     color = msg.get("color", {})
     raw   = color.get("data_bytes")
@@ -441,8 +443,7 @@ def _ramp_to_pose(
     *,
     cmd_push,
     telem_sub,
-    left_sub,
-    right_sub,
+    gripper_sub,
     arm_kp: List[float],
     arm_kd: List[float],
     ramp_speed_rad_s: float,
@@ -458,8 +459,7 @@ def _ramp_to_pose(
     while True:
         rt0 = time.monotonic()
         t = drain_sub(telem_sub)
-        drain_camera(left_sub)
-        drain_camera(right_sub)
+        drain_camera(gripper_sub)
         qpos = extract_policy_qpos(t) if t is not None else None
         if qpos is None:
             time.sleep(tick)
@@ -486,8 +486,8 @@ def main():
     parser = argparse.ArgumentParser(description="ACT Policy Inference Node")
     parser.add_argument("--checkpoint", required=True, help="Path to .pt checkpoint")
     parser.add_argument("--telem", default="tcp://localhost:5556")
-    parser.add_argument("--cam-left", default="tcp://localhost:5563")
-    parser.add_argument("--cam-right", default="tcp://localhost:5564")
+    parser.add_argument("--gripper-cam", default="tcp://localhost:5563", dest="gripper_cam",
+                        help="Gripper camera ZMQ endpoint (single ELP UVC stream)")
     parser.add_argument("--cmd", default="tcp://localhost:5555")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--dry-run", action="store_true",
@@ -563,15 +563,10 @@ def main():
     telem_sub.setsockopt_string(zmq.SUBSCRIBE, "")
     telem_sub.connect(args.telem)
 
-    left_sub = ctx.socket(zmq.SUB)
-    left_sub.setsockopt(zmq.LINGER, 0)
-    left_sub.setsockopt_string(zmq.SUBSCRIBE, "")
-    left_sub.connect(args.cam_left)
-
-    right_sub = ctx.socket(zmq.SUB)
-    right_sub.setsockopt(zmq.LINGER, 0)
-    right_sub.setsockopt_string(zmq.SUBSCRIBE, "")
-    right_sub.connect(args.cam_right)
+    gripper_sub = ctx.socket(zmq.SUB)
+    gripper_sub.setsockopt(zmq.LINGER, 0)
+    gripper_sub.setsockopt_string(zmq.SUBSCRIBE, "")
+    gripper_sub.connect(args.gripper_cam)
 
     cmd_push = None
     if not args.dry_run:
@@ -579,9 +574,8 @@ def main():
         cmd_push.setsockopt(zmq.LINGER, 0)
         cmd_push.connect(args.cmd)
 
-    print(f"Subscribing to telem:    {args.telem}")
-    print(f"Subscribing to left cam: {args.cam_left}")
-    print(f"Subscribing to right cam:{args.cam_right}")
+    print(f"Subscribing to telem:       {args.telem}")
+    print(f"Subscribing to gripper cam: {args.gripper_cam}")
     if not args.dry_run:
         print(f"Pushing commands to:     {args.cmd}")
     print()
@@ -598,11 +592,7 @@ def main():
             rr.log(f"error/{jn}", rr.Scalars(0.0))
         rr.send_blueprint(rrb.Blueprint(
             rrb.Vertical(
-                rrb.Horizontal(
-                    rrb.Spatial2DView(name="Left", origin="cameras/left"),
-                    rrb.Spatial2DView(name="Right", origin="cameras/right"),
-                    column_shares=[1, 1],
-                ),
+                rrb.Spatial2DView(name="Gripper", origin="cameras/gripper"),
                 rrb.TimeSeriesView(
                     name="Joint Positions (qpos=amber, action=green)",
                     contents=[f"qpos/{j}" for j in POLICY_JOINTS[:num_joints]]
@@ -628,11 +618,9 @@ def main():
 
     # State
     last_telem_time = 0.0
-    last_left_time = 0.0
-    last_right_time = 0.0
+    last_gripper_time = 0.0
     latest_telem: Optional[dict] = None
-    latest_left: Optional[dict] = None
-    latest_right: Optional[dict] = None
+    latest_gripper: Optional[dict] = None
     last_action: Optional[np.ndarray] = None
 
     tick = 1.0 / 20.0   # 20 Hz
@@ -667,14 +655,10 @@ def main():
             if telem is not None:
                 latest_telem = telem
                 last_telem_time = t0
-            left_msg = drain_camera(left_sub)
-            if left_msg is not None:
-                latest_left = left_msg
-                last_left_time = t0
-            right_msg = drain_camera(right_sub)
-            if right_msg is not None:
-                latest_right = right_msg
-                last_right_time = t0
+            gripper_msg = drain_camera(gripper_sub)
+            if gripper_msg is not None:
+                latest_gripper = gripper_msg
+                last_gripper_time = t0
 
             # Keyboard
             key = get_key()
@@ -763,12 +747,10 @@ def main():
 
             # Freshness
             telem_age = t0 - last_telem_time if last_telem_time > 0 else 999.0
-            left_age = t0 - last_left_time if last_left_time > 0 else 999.0
-            right_age = t0 - last_right_time if last_right_time > 0 else 999.0
+            gripper_age = t0 - last_gripper_time if last_gripper_time > 0 else 999.0
             telem_ok = telem_age < STALE_THRESH
-            left_ok = left_age < STALE_THRESH
-            right_ok = right_age < STALE_THRESH
-            all_ok = telem_ok and left_ok and right_ok
+            gripper_ok = gripper_age < STALE_THRESH
+            all_ok = telem_ok and gripper_ok
 
             if not all_sources_ready:
                 if all_ok:
@@ -791,21 +773,19 @@ def main():
                             time.sleep(0.1)
                             _ramp_to_pose(
                                 target, cmd_push=cmd_push,
-                                telem_sub=telem_sub, left_sub=left_sub, right_sub=right_sub,
+                                telem_sub=telem_sub, gripper_sub=gripper_sub,
                                 arm_kp=arm_kp, arm_kd=arm_kd,
                                 ramp_speed_rad_s=args.ramp_speed, tick=tick,
                             )
-                            print("\nReady pose reached. Stabilising cameras...")
+                            print("\nReady pose reached. Stabilising camera...")
                             time.sleep(0.5)
-                            drain_camera(left_sub)
-                            drain_camera(right_sub)
+                            drain_camera(gripper_sub)
                             drain_sub(telem_sub)
                     print("Starting inference loop.")
                 else:
                     flags = []
                     if not telem_ok: flags.append("telem")
-                    if not left_ok: flags.append("left_cam")
-                    if not right_ok: flags.append("right_cam")
+                    if not gripper_ok: flags.append("gripper_cam")
                     print(f"\rWaiting: missing {', '.join(flags)}    ", end="", flush=True)
                     elapsed = time.monotonic() - t0
                     time.sleep(max(0, tick - elapsed))
@@ -814,8 +794,7 @@ def main():
             if not all_ok:
                 stale = []
                 if not telem_ok: stale.append(f"telem({telem_age*1000:.0f}ms)")
-                if not left_ok: stale.append(f"left_cam({left_age*1000:.0f}ms)")
-                if not right_ok: stale.append(f"right_cam({right_age*1000:.0f}ms)")
+                if not gripper_ok: stale.append(f"gripper_cam({gripper_age*1000:.0f}ms)")
                 print(f"\r[SKIP] Stale sources: {', '.join(stale)}    ", end="", flush=True)
                 if ensemble is not None:
                     ensemble.step()
@@ -825,14 +804,12 @@ def main():
 
             # Decode observations
             qpos_raw = extract_policy_qpos(latest_telem)
-            left_img = decode_image(latest_left) if latest_left else None
-            right_img = decode_image(latest_right) if latest_right else None
+            gripper_img = decode_image(latest_gripper) if latest_gripper else None
 
-            if qpos_raw is None or left_img is None or right_img is None:
+            if qpos_raw is None or gripper_img is None:
                 fails = []
                 if qpos_raw is None: fails.append("qpos")
-                if left_img is None: fails.append("left_img")
-                if right_img is None: fails.append("right_img")
+                if gripper_img is None: fails.append("gripper_img")
                 print(f"\r[SKIP] Decode failed: {','.join(fails)}    ", end="", flush=True)
                 elapsed = time.monotonic() - t0
                 time.sleep(max(0, tick - elapsed))
@@ -843,8 +820,7 @@ def main():
 
             # Normalize observations
             qpos_norm = normalize_qpos(qpos_raw, dataset_stats)
-            left_norm = normalize_image(left_img)
-            right_norm = normalize_image(right_img)
+            gripper_norm = normalize_image(gripper_img)
 
             state_vec = _build_state_vector(
                 qpos_norm, state_mode, last_action, qpos_raw, torques_raw,
@@ -853,13 +829,12 @@ def main():
 
             qpos_t = torch.from_numpy(qpos_norm).unsqueeze(0).to(device)
             state_t = torch.from_numpy(state_vec).unsqueeze(0).to(device)
-            left_t = torch.from_numpy(left_norm).unsqueeze(0).to(device)
-            right_t = torch.from_numpy(right_norm).unsqueeze(0).to(device)
+            gripper_t = torch.from_numpy(gripper_norm).unsqueeze(0).to(device)
 
             # Inference
             infer_start = time.monotonic()
             with torch.no_grad():
-                pred_chunk = policy.select_action(qpos_t, state_t, left_t, right_t)
+                pred_chunk = policy.select_action(qpos_t, state_t, gripper_t)
             infer_time = time.monotonic() - infer_start
             if infer_time > WARN_LATENCY:
                 print(f"\n[WARN] Inference took {infer_time*1000:.1f}ms "
@@ -897,8 +872,7 @@ def main():
                     rr.log(f"error/{jn}", rr.Scalars(float(abs(action[j] - qpos_raw[j]))))
                 rr.log("inference_ms", rr.Scalars(infer_time * 1000.0))
                 if rr_frame % 2 == 0:
-                    rr.log("cameras/left", rr.Image(left_img))
-                    rr.log("cameras/right", rr.Image(right_img))
+                    rr.log("cameras/gripper", rr.Image(gripper_img))
                 rr_frame += 1
 
             # Log
@@ -930,8 +904,7 @@ def main():
         print("\nInterrupted.")
     finally:
         telem_sub.close()
-        left_sub.close()
-        right_sub.close()
+        gripper_sub.close()
         if cmd_push is not None:
             cmd_push.close()
         ctx.term()

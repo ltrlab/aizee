@@ -7,8 +7,8 @@ Builds on the existing ACTPolicy by adding three training-time-only modules:
        no_grad — no EMA, no separate weights, following LeJEPA's
        heuristics-free recipe).
     2. A *JEPA predictor* — a small transformer that takes the current
-       per-camera image tokens and predicts the same tokens at a future
-       timestep, in latent space.
+       image tokens and predicts the same tokens at a future timestep,
+       in latent space.
     3. A *SIGReg* regularizer that pushes context-token embeddings toward
        an isotropic Gaussian, preventing representation collapse without
        stop-gradient / EMA / centering heuristics.
@@ -68,7 +68,9 @@ class JEPAPredictor(nn.Module):
         num_layers: int = 4,
         dim_feedforward: int = 1024,
         dropout: float = 0.1,
-        max_tokens: int = 512,
+        # 768 image tokens for 768x1024 input (ResNet18 stride-32 -> 24x32);
+        # 1024 leaves headroom if you later raise the input resolution.
+        max_tokens: int = 1024,
     ):
         super().__init__()
         self.d_model = d_model
@@ -195,24 +197,22 @@ class ACTJEPAPolicy(ACTPolicy):
         self,
         qpos: torch.Tensor,
         state: torch.Tensor,
-        images_left: torch.Tensor,
-        images_right: torch.Tensor,
+        images_gripper: torch.Tensor,
         actions: Optional[torch.Tensor] = None,
-        future_images_left: Optional[torch.Tensor] = None,
-        future_images_right: Optional[torch.Tensor] = None,
+        future_images_gripper: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         """Training forward pass.
 
         Computes the full ACT loss (L1 + KL) plus the JEPA observation loss
         and SIGReg regularizer when future images are supplied.
 
-        When future_images_* are None, falls back to the plain ACT loss
+        When future_images_gripper is None, falls back to the plain ACT loss
         with zero observation/sigreg losses (useful for warm-up / ablation).
         """
         assert actions is not None, "actions required for training forward pass"
 
-        # === Shared image encoding (context) ===
-        ctx_tokens = self._encode_images(images_left, images_right)  # [B, N, d_model]
+        # === Image encoding (context) ===
+        ctx_tokens = self._encode_images(images_gripper)  # [B, N, d_model]
 
         # === ACT action path (existing) ===
         mu, log_var = self.cvae_encoder(actions, qpos)
@@ -228,11 +228,11 @@ class ACTJEPAPolicy(ACTPolicy):
         kl_loss = -0.5 * torch.mean(1 + log_var - mu.pow(2) - log_var.exp())
 
         # === JEPA world-model path (training-only) ===
-        if future_images_left is not None and future_images_right is not None:
+        if future_images_gripper is not None:
             target_ctx = torch.no_grad() if self.target_no_grad else _NullCtx()
             with target_ctx:
                 future_tokens = self._encode_images(
-                    future_images_left, future_images_right
+                    future_images_gripper
                 )  # [B, N, d_model]
 
             pred_future = self.jepa_predictor(ctx_tokens)

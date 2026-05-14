@@ -90,17 +90,15 @@ def collate_fn(batch):
     actions = torch.stack(action_list, dim=0)
     qpos = torch.stack([o["qpos"] for o in obs_list], dim=0)
     state = torch.stack([o["state"] for o in obs_list], dim=0)
-    imgs_left = torch.stack([o["images"]["left"] for o in obs_list], dim=0)
-    imgs_right = torch.stack([o["images"]["right"] for o in obs_list], dim=0)
+    imgs_gripper = torch.stack([o["images"]["gripper"] for o in obs_list], dim=0)
     obs = {
         "qpos": qpos,
         "state": state,
-        "images": {"left": imgs_left, "right": imgs_right},
+        "images": {"gripper": imgs_gripper},
     }
     if "future_images" in obs_list[0]:
         obs["future_images"] = {
-            "left": torch.stack([o["future_images"]["left"] for o in obs_list], dim=0),
-            "right": torch.stack([o["future_images"]["right"] for o in obs_list], dim=0),
+            "gripper": torch.stack([o["future_images"]["gripper"] for o in obs_list], dim=0),
         }
     return obs, actions
 
@@ -117,19 +115,16 @@ def run_epoch(policy, loader, device, *, optimizer=None, clip_grad=0.1):
         for obs, actions in loader:
             qpos = obs["qpos"].to(device, non_blocking=True)
             state = obs["state"].to(device, non_blocking=True)
-            imgs_left = obs["images"]["left"].to(device, non_blocking=True)
-            imgs_right = obs["images"]["right"].to(device, non_blocking=True)
+            imgs_gripper = obs["images"]["gripper"].to(device, non_blocking=True)
             actions = actions.to(device, non_blocking=True)
 
-            future_left = future_right = None
+            future_gripper = None
             if "future_images" in obs:
-                future_left = obs["future_images"]["left"].to(device, non_blocking=True)
-                future_right = obs["future_images"]["right"].to(device, non_blocking=True)
+                future_gripper = obs["future_images"]["gripper"].to(device, non_blocking=True)
 
             loss_dict = policy(
-                qpos, state, imgs_left, imgs_right, actions,
-                future_images_left=future_left,
-                future_images_right=future_right,
+                qpos, state, imgs_gripper, actions,
+                future_images_gripper=future_gripper,
             )
 
             if is_train:

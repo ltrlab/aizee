@@ -1,24 +1,27 @@
 """
 dataset.py — PyTorch Dataset over AIZEE HDF5 demonstration episodes.
 
-Each HDF5 file (format_version=2) has the schema:
-    /observations/qpos           float32 [T, J]   (J = 7: swivel + 6 arm joints)
-    /observations/qcmd           float32 [T, J]   (optional — commanded positions)
-    /observations/torques        float32 [T, J]   (optional — motor torques)
-    /observations/images/left    uint8   [T, 240, 320, 3]
-    /observations/images/right   uint8   [T, 240, 320, 3]
-    /actions                     float32 [T, J]
+Each HDF5 file (format_version=4) has the schema:
+    /observations/qpos             float32 [T, J]   (J = 7: swivel + 6 arm joints)
+    /observations/qcmd             float32 [T, J]   (optional — commanded positions)
+    /observations/torques          float32 [T, J]   (optional — motor torques)
+    /observations/images/gripper   uint8   [T, 768, 1024, 3]  (single ELP UVC cam)
+    /actions                       float32 [T, J]
     attrs: hz=20, arm_joints="swivel,gantry_base,...", action_space="absolute"
+
+The previous stereo D435 schema (format_version<=3, 240x320 frames) wrote
+`/observations/images/left` and `/observations/images/right` — that data is
+no longer compatible with this loader; collect new episodes on the new
+single-camera rig (which captures and stores 1024x768).
 
 Usage:
     dataset = EpisodeDataset("episodes/", chunk_size=32, state_mode="qpos_qcmd",
                              action_mode="relative", augment=True)
     obs, action_chunk = dataset[0]
-    # obs["qpos"]             → [J]          float32 tensor (normalized)
-    # obs["state"]            → [J*k]        float32 tensor (normalized, k=1/2/3)
-    # obs["images"]["left"]   → [3,240,320]  float32 tensor (ImageNet norm)
-    # obs["images"]["right"]  → [3,240,320]  float32 tensor (ImageNet norm)
-    # action_chunk            → [chunk_size, J] float32 tensor (normalized)
+    # obs["qpos"]                 → [J]           float32 tensor (normalized)
+    # obs["state"]                → [J*k]         float32 tensor (normalized, k=1/2/3)
+    # obs["images"]["gripper"]    → [3,768,1024]  float32 tensor (ImageNet norm)
+    # action_chunk                → [chunk_size, J] float32 tensor (normalized)
 
 Action modes:
     "absolute" — predict absolute joint targets (original ACT).
@@ -77,11 +80,11 @@ class EpisodeDataset(Dataset):
                        for the validation set so its normalization matches the
                        training set exactly.
         future_offset: If > 0, the sample dict also contains
-                       obs["future_images"]["left"|"right"] at index
+                       obs["future_images"]["gripper"] at index
                        t + future_offset (clamped to T-1 near episode end).
                        Used by the JEPA world-model objective in ACT-JEPA —
-                       the predictor learns to predict the future stereo
-                       image representations from the current ones.
+                       the predictor learns to predict the future image
+                       representation from the current one.
     """
 
     def __init__(
@@ -237,8 +240,7 @@ class EpisodeDataset(Dataset):
                 qpos = f["observations/qpos"][:]
                 self._cache_data.append({
                     "qpos": qpos,
-                    "left": f["observations/images/left"][:],
-                    "right": f["observations/images/right"][:],
+                    "gripper": f["observations/images/gripper"][:],
                     "actions": f["actions"][:],
                     "qcmd": (f["observations/qcmd"][:]
                              if "observations/qcmd" in f else qpos.copy()),
@@ -249,8 +251,8 @@ class EpisodeDataset(Dataset):
     def _read_frame(self, ep_idx: int, t: int, t_end: int) -> Dict:
         """Return per-frame arrays for (ep_idx, t) plus action chunk [t:t_end].
 
-        If `future_offset > 0`, also returns `future_left` and `future_right`
-        at index `min(t + future_offset, T-1)` for the JEPA target encoder.
+        If `future_offset > 0`, also returns `future_gripper` at index
+        `min(t + future_offset, T-1)` for the JEPA target encoder.
         """
         T = self._episode_lengths[ep_idx]
         t_future = min(t + self.future_offset, T - 1) if self.future_offset > 0 else None
@@ -259,31 +261,27 @@ class EpisodeDataset(Dataset):
             ep = self._cache_data[ep_idx]
             out = {
                 "qpos": ep["qpos"][t],
-                "left": ep["left"][t],
-                "right": ep["right"][t],
+                "gripper": ep["gripper"][t],
                 "actions": ep["actions"][t:t_end],
                 "qcmd": ep["qcmd"][t],
                 "torques": ep["torques"][t],
             }
             if t_future is not None:
-                out["future_left"] = ep["left"][t_future]
-                out["future_right"] = ep["right"][t_future]
+                out["future_gripper"] = ep["gripper"][t_future]
             return out
         path = self._episode_paths[ep_idx]
         with h5py.File(path, "r") as f:
             qpos = f["observations/qpos"][t]
             out = {
                 "qpos": qpos,
-                "left": f["observations/images/left"][t],
-                "right": f["observations/images/right"][t],
+                "gripper": f["observations/images/gripper"][t],
                 "actions": f["actions"][t:t_end],
                 "qcmd": f["observations/qcmd"][t] if "observations/qcmd" in f else qpos.copy(),
                 "torques": (f["observations/torques"][t]
                             if "observations/torques" in f else np.zeros_like(qpos)),
             }
             if t_future is not None:
-                out["future_left"] = f["observations/images/left"][t_future]
-                out["future_right"] = f["observations/images/right"][t_future]
+                out["future_gripper"] = f["observations/images/gripper"][t_future]
         return out
 
     # ------------------------------------------------------------------
@@ -339,22 +337,22 @@ class EpisodeDataset(Dataset):
     normalize_image = _imagenet_normalize
 
     def _augment_and_normalize(
-        self, left_u8: np.ndarray, right_u8: np.ndarray, rng: random.Random
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Train-time augmentation for the standard ACT stereo pair."""
-        out = self._augment_batch_and_normalize([left_u8, right_u8], rng)
-        return out[0], out[1]
+        self, gripper_u8: np.ndarray, rng: random.Random
+    ) -> np.ndarray:
+        """Train-time augmentation for the gripper camera."""
+        out = self._augment_batch_and_normalize([gripper_u8], rng)
+        return out[0]
 
     def _augment_batch_and_normalize(
         self, imgs_u8: List[np.ndarray], rng: random.Random
     ) -> List[np.ndarray]:
         """Augment a batch of co-registered images.
 
-        - SHARED geometric crop across every image in the batch (so the
-          stereo pair stays aligned, and current/future frames stay spatially
-          consistent for the JEPA prediction task).
-        - INDEPENDENT color jitter and blur per image (simulates differing
-          exposure / WB between cameras and frames).
+        - SHARED geometric crop across every image in the batch (so current
+          and future frames stay spatially consistent for the JEPA prediction
+          task — a different crop would corrupt the prediction objective).
+        - INDEPENDENT color jitter and blur per image (simulates frame-to-
+          frame exposure / WB drift).
         - ImageNet normalization at the end.
         """
         assert len(imgs_u8) > 0
@@ -419,8 +417,7 @@ class EpisodeDataset(Dataset):
         qcmd_raw = frame["qcmd"]
         torque_raw = frame["torques"]
         chunk_raw = frame["actions"]
-        left_raw = frame["left"]
-        right_raw = frame["right"]
+        gripper_raw = frame["gripper"]
 
         # State vector
         qpos_n = self.normalize_qpos(qpos_raw).astype(np.float32)
@@ -435,28 +432,25 @@ class EpisodeDataset(Dataset):
                 self.normalize_torques(torque_raw),
             ]).astype(np.float32)
 
-        # Future-frame pair (JEPA target). Only present when future_offset > 0.
-        future_left_raw = frame.get("future_left")
-        future_right_raw = frame.get("future_right")
-        has_future = future_left_raw is not None
+        # Future-frame (JEPA target). Only present when future_offset > 0.
+        future_gripper_raw = frame.get("future_gripper")
+        has_future = future_gripper_raw is not None
 
-        # Image augmentation / normalization. When future frames are present
-        # the same geometric crop is shared across all 4 images so the JEPA
-        # prediction task remains spatially consistent.
+        # Image augmentation / normalization. When future frame is present
+        # the same geometric crop is shared across current + future so the
+        # JEPA prediction task remains spatially consistent.
         if self.augment:
             rng = random.Random((ep_idx * 1_000_003 + t) ^ torch.randint(0, 2**31 - 1, (1,)).item())
             if has_future:
-                left_n, right_n, fleft_n, fright_n = self._augment_batch_and_normalize(
-                    [left_raw, right_raw, future_left_raw, future_right_raw], rng
+                gripper_n, fgrip_n = self._augment_batch_and_normalize(
+                    [gripper_raw, future_gripper_raw], rng
                 )
             else:
-                left_n, right_n = self._augment_and_normalize(left_raw, right_raw, rng)
-                fleft_n = fright_n = None
+                gripper_n = self._augment_and_normalize(gripper_raw, rng)
+                fgrip_n = None
         else:
-            left_n = self._imagenet_normalize(left_raw)
-            right_n = self._imagenet_normalize(right_raw)
-            fleft_n = self._imagenet_normalize(future_left_raw) if has_future else None
-            fright_n = self._imagenet_normalize(future_right_raw) if has_future else None
+            gripper_n = self._imagenet_normalize(gripper_raw)
+            fgrip_n = self._imagenet_normalize(future_gripper_raw) if has_future else None
 
         # Action chunk — pad with last action if near episode end
         chunk = chunk_raw.astype(np.float32)
@@ -470,14 +464,12 @@ class EpisodeDataset(Dataset):
             "qpos": torch.from_numpy(qpos_n),
             "state": torch.from_numpy(state),
             "images": {
-                "left": torch.from_numpy(left_n),
-                "right": torch.from_numpy(right_n),
+                "gripper": torch.from_numpy(gripper_n),
             },
         }
         if has_future:
             obs["future_images"] = {
-                "left": torch.from_numpy(fleft_n),
-                "right": torch.from_numpy(fright_n),
+                "gripper": torch.from_numpy(fgrip_n),
             }
         return obs, torch.from_numpy(chunk_n)
 

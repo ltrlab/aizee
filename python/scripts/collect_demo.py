@@ -8,10 +8,9 @@ still get full motor control for setup.
 Usage:
     python collect_demo.py --port COM4
     python collect_demo.py --port /dev/ttyACM0 \\
-        --cmd   tcp://192.168.0.27:5555 \\
-        --telem tcp://192.168.0.27:5556 \\
-        --cam-left  tcp://192.168.0.27:5563 \\
-        --cam-right tcp://192.168.0.27:5564
+        --cmd     tcp://192.168.0.27:5555 \\
+        --telem   tcp://192.168.0.27:5556 \\
+        --gripper-cam tcp://192.168.0.27:5563
 
 Controls:
     E    enable arm motors (align to leader if --port given)
@@ -200,8 +199,7 @@ def _render(
     battery_voltage:  Optional[float]     = None,
     leader_connected: bool                = False,
     leader_age:       float               = 999.0,
-    cam_left_age:     float               = 999.0,
-    cam_right_age:    float               = 999.0,
+    cam_age:          float               = 999.0,
     rec_steps:        int                 = 0,
     recording:        bool                = False,
     dropped:          int                 = 0,
@@ -398,10 +396,9 @@ def _render(
         rst = _RST if col else ""
         return f"{lbl}:{col}{ms}{rst}", len(lbl) + 1 + len(ms)
 
-    l_s, l_v = _cam(cam_left_age,  "L")
-    r_s, r_v = _cam(cam_right_age, "R")
-    cam_part = f"cams  {l_s}  {r_s}"
-    cam_vis  = 6 + l_v + 2 + r_v
+    g_s, g_v = _cam(cam_age, "G")
+    cam_part = f"cam   {g_s}"
+    cam_vis  = 6 + g_v
 
     # E-stop indicator
     if estop_active:
@@ -490,19 +487,18 @@ def _start_rerun_thread(
     """Background thread for Rerun logging.
 
     Camera frames are pulled from the shared decoder cache (already-decoded
-    uint8 RGB, with the left camera pre-flipped) — no JPEG decode or
-    re-encode happens here.  rr.log() can still block 5-30 ms when the
-    viewer's ingestion pipe backs up, hence the dedicated thread.
+    uint8 RGB) — no JPEG decode or re-encode happens here.  rr.log() can
+    still block 5-30 ms when the viewer's ingestion pipe backs up, hence
+    the dedicated thread.
     """
     lock   = threading.Lock()
     holder: dict = {"time": 0.0, "joints": None, "leader": None}
     signal = threading.Event()
     stop   = threading.Event()
-    prev_lt = 0.0
-    prev_rt = 0.0
+    prev_gt = 0.0
 
     def _run() -> None:
-        nonlocal prev_lt, prev_rt
+        nonlocal prev_gt
         while not stop.is_set():
             if not signal.wait(timeout=0.1):
                 continue
@@ -514,18 +510,13 @@ def _start_rerun_thread(
                 holder["joints"] = None
                 holder["leader"] = None
             with dec_lock:
-                left_img  = dec_cache["left"]
-                left_t    = dec_cache["left_time"]
-                right_img = dec_cache["right"]
-                right_t   = dec_cache["right_time"]
+                gripper_img = dec_cache["gripper"]
+                gripper_t   = dec_cache["gripper_time"]
             try:
                 rr.set_time("time", timestamp=ts)
-                if left_img is not None and left_t > prev_lt:
-                    rr.log("cameras/left", rr.Image(left_img))
-                    prev_lt = left_t
-                if right_img is not None and right_t > prev_rt:
-                    rr.log("cameras/right", rr.Image(right_img))
-                    prev_rt = right_t
+                if gripper_img is not None and gripper_t > prev_gt:
+                    rr.log("cameras/gripper", rr.Image(gripper_img))
+                    prev_gt = gripper_t
                 if joints is not None:
                     for jname, val in joints.items():
                         rr.log(f"joints/{jname}", rr.Scalars(val))
@@ -553,44 +544,31 @@ def _start_image_decoder(
     decoded frames even outside recording.
     """
     lock     = threading.Lock()
-    decoded: dict = {"left": None, "right": None,
-                     "left_time": 0.0, "right_time": 0.0}
+    decoded: dict = {"gripper": None, "gripper_time": 0.0}
     rec_flag = threading.Event()
     stop     = threading.Event()
 
     def _run() -> None:
-        prev_lt = 0.0
-        prev_rt = 0.0
+        prev_gt = 0.0
         while not stop.is_set():
             if not (always_on or rec_flag.is_set()):
                 stop.wait(0.05)
                 continue
 
             with cam_lock:
-                l_msg = cam_cache["left"]
-                l_t   = cam_cache["left_time"]
-                r_msg = cam_cache["right"]
-                r_t   = cam_cache["right_time"]
+                g_msg = cam_cache["gripper"]
+                g_t   = cam_cache["gripper_time"]
 
             changed = False
-            if l_t > prev_lt and l_msg is not None:
-                # Orientation correction for the upside-down left camera
-                # is now applied at the publisher (config/hardware_jetson_arm_cam_left.yaml
-                # → streams.color.flip = "180"), so the consumer doesn't
-                # need to flip anything here.
-                img = decode_image(l_msg, img_size)
+            if g_t > prev_gt and g_msg is not None:
+                # Orientation correction is applied at the publisher
+                # (config/hardware_jetson_gripper_cam.yaml → streams.color.flip),
+                # so the consumer doesn't need to flip anything here.
+                img = decode_image(g_msg, img_size)
                 with lock:
-                    decoded["left"]      = img
-                    decoded["left_time"] = l_t
-                prev_lt = l_t
-                changed = True
-
-            if r_t > prev_rt and r_msg is not None:
-                img = decode_image(r_msg, img_size)
-                with lock:
-                    decoded["right"]      = img
-                    decoded["right_time"] = r_t
-                prev_rt = r_t
+                    decoded["gripper"]      = img
+                    decoded["gripper_time"] = g_t
+                prev_gt = g_t
                 changed = True
 
             if not changed:
@@ -1125,14 +1103,12 @@ def _start_telem_receiver(
 
 def _start_cam_receiver(
     ctx: zmq.Context,
-    left_ep: str,
-    right_ep: str,
+    gripper_ep: str,
     ups_ep: Optional[str],
 ) -> tuple[threading.Event, threading.Thread, threading.Lock, dict]:
     lock = threading.Lock()
     cache: dict = {
-        "left": None, "left_time": 0.0, "left_ts": None,
-        "right": None, "right_time": 0.0, "right_ts": None,
+        "gripper": None, "gripper_time": 0.0, "gripper_ts": None,
         "ups": None,
     }
     stop = threading.Event()
@@ -1144,17 +1120,11 @@ def _start_cam_receiver(
         # the first time a new frame arrived mid-receive.  We drop CONFLATE
         # and instead set a small RCVHWM and drain to the latest message
         # explicitly inside the recv block.
-        left_sock = ctx.socket(zmq.SUB)
-        left_sock.setsockopt(zmq.LINGER, 0)
-        left_sock.setsockopt(zmq.RCVHWM, 2)
-        left_sock.setsockopt_string(zmq.SUBSCRIBE, "")
-        left_sock.connect(left_ep)
-
-        right_sock = ctx.socket(zmq.SUB)
-        right_sock.setsockopt(zmq.LINGER, 0)
-        right_sock.setsockopt(zmq.RCVHWM, 2)
-        right_sock.setsockopt_string(zmq.SUBSCRIBE, "")
-        right_sock.connect(right_ep)
+        gripper_sock = ctx.socket(zmq.SUB)
+        gripper_sock.setsockopt(zmq.LINGER, 0)
+        gripper_sock.setsockopt(zmq.RCVHWM, 2)
+        gripper_sock.setsockopt_string(zmq.SUBSCRIBE, "")
+        gripper_sock.connect(gripper_ep)
 
         ups_sock: Optional[zmq.Socket] = None
         if ups_ep:
@@ -1165,8 +1135,7 @@ def _start_cam_receiver(
             ups_sock.connect(ups_ep)
 
         poller = zmq.Poller()
-        poller.register(left_sock, zmq.POLLIN)
-        poller.register(right_sock, zmq.POLLIN)
+        poller.register(gripper_sock, zmq.POLLIN)
         if ups_sock:
             poller.register(ups_sock, zmq.POLLIN)
 
@@ -1180,13 +1149,13 @@ def _start_cam_receiver(
                     break
                 now = time.time()
 
-                if left_sock in events:
+                if gripper_sock in events:
                     # Drain to the newest available frame (CONFLATE no longer
                     # applies; old frames would otherwise queue up to RCVHWM=2).
                     latest = None
                     while True:
                         try:
-                            latest = unpack_camera(left_sock.recv_multipart(zmq.NOBLOCK))
+                            latest = unpack_camera(gripper_sock.recv_multipart(zmq.NOBLOCK))
                         except zmq.Again:
                             break
                         except Exception:
@@ -1194,29 +1163,11 @@ def _start_cam_receiver(
                             break
                     if latest is not None:
                         with lock:
-                            cache["left"] = latest
-                            cache["left_time"] = now
+                            cache["gripper"] = latest
+                            cache["gripper_time"] = now
                             ts = latest.get("timestamp")
                             if ts is not None:
-                                cache["left_ts"] = float(ts)
-
-                if right_sock in events:
-                    latest = None
-                    while True:
-                        try:
-                            latest = unpack_camera(right_sock.recv_multipart(zmq.NOBLOCK))
-                        except zmq.Again:
-                            break
-                        except Exception:
-                            latest = None
-                            break
-                    if latest is not None:
-                        with lock:
-                            cache["right"] = latest
-                            cache["right_time"] = now
-                            ts = latest.get("timestamp")
-                            if ts is not None:
-                                cache["right_ts"] = float(ts)
+                                cache["gripper_ts"] = float(ts)
 
                 if ups_sock and ups_sock in events:
                     try:
@@ -1226,8 +1177,7 @@ def _start_cam_receiver(
                     except Exception:
                         pass
         finally:
-            left_sock.close()
-            right_sock.close()
+            gripper_sock.close()
             if ups_sock:
                 ups_sock.close()
 
@@ -1378,8 +1328,8 @@ def _qtemp(telem: Optional[dict]) -> Optional[np.ndarray]:
 # ---------------------------------------------------------------------------
 
 def save_episode(
-    output_dir, qpos_buf, left_buf, right_buf,
-    telem_ts_buf=None, left_ts_buf=None, right_ts_buf=None,
+    output_dir, qpos_buf, gripper_buf,
+    telem_ts_buf=None, gripper_ts_buf=None,
     qcmd_buf=None, torque_buf=None,
     task_tag: str = "", notes: str = "",
 ):
@@ -1392,28 +1342,29 @@ def save_episode(
 
     # Buffers are already 7-DOF (swivel-first) — qpos_buf comes straight from
     # _qpos which iterates ARM_JOINTS, and ARM_JOINTS now includes swivel.
-    qpos_arr  = np.stack(qpos_buf,  axis=0).astype(np.float32)   # [T, 7]
-    left_arr  = np.stack(left_buf,  axis=0)                       # [T, H, W, 3]
-    right_arr = np.stack(right_buf, axis=0)                       # [T, H, W, 3]
-    qcmd_arr  = (np.stack(qcmd_buf, axis=0).astype(np.float32)
-                 if qcmd_buf and len(qcmd_buf) == len(qpos_buf) else None)
-    torque_arr = (np.stack(torque_buf, axis=0).astype(np.float32)
-                  if torque_buf and len(torque_buf) == len(qpos_buf) else None)
+    qpos_arr    = np.stack(qpos_buf,    axis=0).astype(np.float32)   # [T, 7]
+    gripper_arr = np.stack(gripper_buf, axis=0)                       # [T, H, W, 3]
+    qcmd_arr    = (np.stack(qcmd_buf, axis=0).astype(np.float32)
+                   if qcmd_buf and len(qcmd_buf) == len(qpos_buf) else None)
+    torque_arr  = (np.stack(torque_buf, axis=0).astype(np.float32)
+                   if torque_buf and len(torque_buf) == len(qpos_buf) else None)
 
     # Actions derived from commanded positions (no sag) when available
     act_src  = qcmd_arr if qcmd_arr is not None else qpos_arr
     actions  = np.concatenate([act_src[1:], act_src[-1:]], axis=0).astype(np.float32)  # [T, 7]
-    H, W     = left_arr.shape[1], left_arr.shape[2]
+    H, W     = gripper_arr.shape[1], gripper_arr.shape[2]
 
     with h5py.File(path, "w") as f:
         f.attrs["hz"]           = REC_HZ
         f.attrs["arm_joints"]   = ",".join(ARM_JOINTS)
         f.attrs["action_space"] = "absolute"
-        # v3 = 7-DOF unified arm (swivel as joint 0).  v2 was also 7-DOF
-        # but post-prepend, with a sidecar swivel field in the recording
-        # buffers; v1 was 6-DOF arm + sidecar swivel.  load_recording in
-        # record_replay.py handles all three.
-        f.attrs["format_version"] = 3
+        # v4 = 7-DOF unified arm + single gripper camera (replacing the
+        # previous stereo D435 pair). v3 = 7-DOF + stereo left/right images.
+        # v2 was also 7-DOF stereo but post-prepend, with a sidecar swivel
+        # field; v1 was 6-DOF arm + sidecar swivel. load_recording in
+        # record_replay.py handles all four (older versions are dropped on
+        # the new single-camera training path).
+        f.attrs["format_version"] = 4
         f.attrs["task_tag"]     = task_tag
         f.attrs["notes"]        = notes
         f.attrs["collected_at"] = float(time.time())
@@ -1424,14 +1375,14 @@ def save_episode(
         if torque_arr is not None:
             obs.create_dataset("torques", data=torque_arr, compression="gzip", compression_opts=4)
         imgs = obs.create_group("images")
-        imgs.create_dataset("left",  data=left_arr,  compression="gzip", compression_opts=4, chunks=(1, H, W, 3))
-        imgs.create_dataset("right", data=right_arr, compression="gzip", compression_opts=4, chunks=(1, H, W, 3))
+        imgs.create_dataset("gripper", data=gripper_arr,
+                            compression="gzip", compression_opts=4,
+                            chunks=(1, H, W, 3))
         f.create_dataset("actions",  data=actions,   compression="gzip", compression_opts=4)
         if telem_ts_buf is not None:
             ts = f.create_group("timestamps")
-            ts.create_dataset("telem",        data=np.array(telem_ts_buf, dtype=np.float64))
-            ts.create_dataset("camera_left",  data=np.array(left_ts_buf,  dtype=np.float64))
-            ts.create_dataset("camera_right", data=np.array(right_ts_buf, dtype=np.float64))
+            ts.create_dataset("telem",          data=np.array(telem_ts_buf,   dtype=np.float64))
+            ts.create_dataset("camera_gripper", data=np.array(gripper_ts_buf, dtype=np.float64))
 
     return path, len(qpos_buf)
 
@@ -1895,15 +1846,18 @@ def main() -> None:
                     help="Which leader arm to use (auto = try SO-101 then OpenRB-150)")
     ap.add_argument("--cmd",             default=_ep.get("command",       "tcp://192.168.0.27:5555"))
     ap.add_argument("--telem",           default=_ep.get("telemetry",     "tcp://192.168.0.27:5556"))
-    ap.add_argument("--cam-left",        default="tcp://192.168.0.27:5563", dest="cam_left")
-    ap.add_argument("--cam-right",       default="tcp://192.168.0.27:5564", dest="cam_right")
+    ap.add_argument("--gripper-cam",     default="tcp://192.168.0.27:5563", dest="gripper_cam",
+                    help="Gripper camera ZMQ endpoint (single ELP UVC stream)")
+    ap.add_argument("--gripper-cam-ctrl", default="tcp://192.168.0.27:5573", dest="gripper_cam_ctrl",
+                    help="Gripper camera control ZMQ REP endpoint (V4L2 sliders in GUI). "
+                         "Empty string disables the camera-controls panel.")
     ap.add_argument("--ups",             default=_ep.get("ups_telemetry", "tcp://192.168.0.27:5562"),
                     help="UPS telemetry address (empty to disable)")
     ap.add_argument("--output-dir",      default="episodes",              dest="output_dir")
     ap.add_argument("--max-steps",       type=int, default=10000,           dest="max_steps",
                     help="Max steps per episode (default: 10000 = 30 s at 20 Hz)")
-    ap.add_argument("--image-size",      default="240x320",               dest="image_size",
-                    help="Image size HxW (default: 240x320)")
+    ap.add_argument("--image-size",      default="768x1024",              dest="image_size",
+                    help="Image size HxW (default: 768x1024 — matches gripper-cam capture)")
     ap.add_argument("--dry-run",         action="store_true",             dest="dry_run")
     ap.add_argument("--max-delta",       type=float, default=0.3,         dest="max_delta",
                     help="Per-step safety clamp [rad] (default 0.3)")
@@ -2289,7 +2243,7 @@ def main() -> None:
     # Camera + UPS reception runs in a background thread so that
     # JSON-parsing large JPEG frames never delays motor commands.
     _cam_stop, _cam_thread, _cam_lock, _cam_cache = _start_cam_receiver(
-        ctx, args.cam_left, args.cam_right, args.ups or None,
+        ctx, args.gripper_cam, args.ups or None,
     )
 
     # Background image decoder (base64 + JPEG + resize off main loop).
@@ -2326,11 +2280,7 @@ def main() -> None:
             rr.log(f"leader/{_jn}", rr.Scalars(0.0))
         rr.send_blueprint(rrb.Blueprint(
             rrb.Vertical(
-                rrb.Horizontal(
-                    rrb.Spatial2DView(name="Left", origin="cameras/left"),
-                    rrb.Spatial2DView(name="Right", origin="cameras/right"),
-                    column_shares=[1, 1],
-                ),
+                rrb.Spatial2DView(name="Gripper", origin="cameras/gripper"),
                 rrb.TimeSeriesView(
                     name="Joint Positions",
                     contents=[f"joints/{j}" for j in _joint_names]
@@ -2438,14 +2388,12 @@ def main() -> None:
     # Recording state.  qpos_buf / qcmd_buf / torque_buf are now 7-DOF
     # (swivel-first, matches ARM_JOINTS) — there's no separate swivel buffer.
     recording      = False
-    qpos_buf:    list = []
-    qcmd_buf:    list = []
-    torque_buf:  list = []
-    left_buf:    list = []
-    right_buf:   list = []
-    telem_ts_buf:  list = []
-    left_ts_buf:   list = []
-    right_ts_buf:  list = []
+    qpos_buf:     list = []
+    qcmd_buf:     list = []
+    torque_buf:   list = []
+    gripper_buf:  list = []
+    telem_ts_buf:   list = []
+    gripper_ts_buf: list = []
     dropped_frames = 0
     last_rec_time  = 0.0
 
@@ -2454,13 +2402,10 @@ def main() -> None:
     last_saved_path: Optional[Path] = None
 
     # Camera state
-    last_left_time   = 0.0
-    last_right_time  = 0.0
-    latest_left:  Optional[dict] = None
-    latest_right: Optional[dict] = None
+    last_gripper_time   = 0.0
+    latest_gripper: Optional[dict] = None
     latest_telem_ts: Optional[float] = None
-    latest_left_ts:  Optional[float] = None
-    latest_right_ts: Optional[float] = None
+    latest_gripper_ts:  Optional[float] = None
     latest_q_cmd: Optional[np.ndarray] = None  # last commanded position sent to motors
 
     status = "[ ] ready — motors off"
@@ -2492,6 +2437,7 @@ def main() -> None:
             meta=_meta,
             on_delete_last=_on_delete_last,
             output_dir=Path(args.output_dir),
+            camera_ctrl_endpoint=(args.gripper_cam_ctrl or None),
         )
         _disp_lock   = _qt_renderer.lock
         _disp_holder = _qt_renderer.holder
@@ -2535,11 +2481,12 @@ def main() -> None:
     _save_thread:        Optional[threading.Thread] = None
     _save_result_holder: list                       = [None]
 
-    def _start_async_save(out_dir, qb, lb, rb, tb, ltb, rtb, dur, drop_note, tag="", qcb=None, tqb=None, task_tag="", notes=""):
+    def _start_async_save(out_dir, qb, gb, tb, gtb, dur, drop_note, tag="", qcb=None, tqb=None, task_tag="", notes=""):
         def _run():
             try:
                 p, T = save_episode(
-                    out_dir, qb, lb, rb, tb, ltb, rtb,
+                    out_dir, qb, gb,
+                    telem_ts_buf=tb, gripper_ts_buf=gtb,
                     qcmd_buf=qcb, torque_buf=tqb,
                     task_tag=task_tag, notes=notes,
                 )
@@ -2581,8 +2528,8 @@ def main() -> None:
         save_msg_until         = t_now + 120.0
         _save_result_holder[0] = None
         _save_thread = _start_async_save(
-            args.output_dir, qpos_buf, left_buf, right_buf,
-            telem_ts_buf, left_ts_buf, right_ts_buf,
+            args.output_dir, qpos_buf, gripper_buf,
+            telem_ts_buf, gripper_ts_buf,
             dur, drop_note, tag=tag_txt, qcb=qcmd_buf, tqb=torque_buf,
             task_tag=_meta["task_tag"], notes=_meta["notes"],
         )
@@ -2626,28 +2573,20 @@ def main() -> None:
             # Read cached camera data (populated by background thread)
             # -----------------------------------------------------------------
             with _cam_lock:
-                if _cam_cache["left"] is not None:
-                    latest_left    = _cam_cache["left"]
-                    last_left_time = _cam_cache["left_time"]
-                    latest_left_ts = _cam_cache["left_ts"]
-                if _cam_cache["right"] is not None:
-                    latest_right    = _cam_cache["right"]
-                    last_right_time = _cam_cache["right_time"]
-                    latest_right_ts = _cam_cache["right_ts"]
+                if _cam_cache["gripper"] is not None:
+                    latest_gripper    = _cam_cache["gripper"]
+                    last_gripper_time = _cam_cache["gripper_time"]
+                    latest_gripper_ts = _cam_cache["gripper_ts"]
 
-            cam_left_age  = (t0 - last_left_time)  if last_left_time  > 0 else 999.0
-            cam_right_age = (t0 - last_right_time) if last_right_time > 0 else 999.0
+            cam_age = (t0 - last_gripper_time) if last_gripper_time > 0 else 999.0
             # End-to-end frame age (publisher capture timestamp → host now).
             # Includes any clock skew between Jetson and host; we care about
             # *drift* over time, which is skew-invariant.
-            if latest_left_ts is not None:
-                _prof.gauge("left_age_ms",  (t0 - latest_left_ts) * 1000.0)
-            if latest_right_ts is not None:
-                _prof.gauge("right_age_ms", (t0 - latest_right_ts) * 1000.0)
+            if latest_gripper_ts is not None:
+                _prof.gauge("gripper_age_ms", (t0 - latest_gripper_ts) * 1000.0)
             # Time since this loop last *received* a new cam frame (host-only,
             # no clock-skew component) — flags publisher gaps directly.
-            _prof.gauge("left_recv_age_ms",  cam_left_age * 1000.0)
-            _prof.gauge("right_recv_age_ms", cam_right_age * 1000.0)
+            _prof.gauge("gripper_recv_age_ms", cam_age * 1000.0)
 
             # Wake the Rerun thread (~15 Hz, every other frame).  Camera
             # frames are pulled from the shared decoder cache by the
@@ -2662,22 +2601,14 @@ def main() -> None:
             # when a new frame has actually arrived (last_*_time changed),
             # otherwise we'd re-feed the same JPEG every loop tick.
             if _disp_cams is not None:
-                push_l = (latest_left  is not None
-                          and last_left_time  > _disp_cams["left_ts"])
-                push_r = (latest_right is not None
-                          and last_right_time > _disp_cams["right_ts"])
-                if push_l or push_r:
-                    lj_bytes = (latest_left.get("color", {}).get("data_bytes")
-                                if push_l else None)
-                    rj_bytes = (latest_right.get("color", {}).get("data_bytes")
-                                if push_r else None)
-                    with _disp_lock:
-                        if lj_bytes is not None:
-                            _disp_cams["left"]    = lj_bytes
-                            _disp_cams["left_ts"] = last_left_time
-                        if rj_bytes is not None:
-                            _disp_cams["right"]    = rj_bytes
-                            _disp_cams["right_ts"] = last_right_time
+                push_g = (latest_gripper is not None
+                          and last_gripper_time > _disp_cams["gripper_ts"])
+                if push_g:
+                    gj_bytes = latest_gripper.get("color", {}).get("data_bytes")
+                    if gj_bytes is not None:
+                        with _disp_lock:
+                            _disp_cams["gripper"]    = gj_bytes
+                            _disp_cams["gripper_ts"] = last_gripper_time
 
             _prof.tick("cam")
 
@@ -2885,11 +2816,9 @@ def main() -> None:
                         qpos_buf       = []
                         qcmd_buf       = []
                         torque_buf     = []
-                        left_buf       = []
-                        right_buf      = []
+                        gripper_buf    = []
                         telem_ts_buf   = []
-                        left_ts_buf    = []
-                        right_ts_buf   = []
+                        gripper_ts_buf = []
                         dropped_frames = 0
                         last_rec_time  = 0.0
                     else:
@@ -3308,11 +3237,10 @@ def main() -> None:
             # -----------------------------------------------------------------
             if recording and t0 - last_rec_time >= 1.0 / REC_HZ:
                 last_rec_time = t0
-                # Read pre-decoded images from background thread (no blocking)
+                # Read pre-decoded image from background thread (no blocking)
                 with _dec_lock:
-                    left_img  = _dec_cache["left"]
-                    right_img = _dec_cache["right"]
-                cams_ok   = cam_left_age < _CAM_STALE and cam_right_age < _CAM_STALE
+                    gripper_img = _dec_cache["gripper"]
+                cams_ok   = cam_age < _CAM_STALE
                 # In TRACKING the cmd thread owns the live commanded pose;
                 # pull it from the holder so the recording captures the
                 # exact value sent on the wire.  Falls back to the main
@@ -3327,18 +3255,15 @@ def main() -> None:
                 else:
                     rec_q_cmd = None
 
-                if (q_actual is not None and left_img is not None
-                        and right_img is not None and cams_ok):
+                if (q_actual is not None and gripper_img is not None and cams_ok):
                     # qpos_buf/qcmd_buf/torque_buf are 7-DOF (swivel-first)
                     # because q_actual / latest_q_cmd / arm_torques are.
                     qpos_buf.append(q_actual.copy())
                     qcmd_buf.append(rec_q_cmd if rec_q_cmd is not None else q_actual.copy())
                     torque_buf.append(arm_torques.copy() if arm_torques is not None else np.zeros(NUM_JOINTS, dtype=np.float32))
-                    left_buf.append(left_img)
-                    right_buf.append(right_img)
+                    gripper_buf.append(gripper_img)
                     telem_ts_buf.append(latest_telem_ts if latest_telem_ts is not None else _nan)
-                    left_ts_buf.append(latest_left_ts   if latest_left_ts  is not None else _nan)
-                    right_ts_buf.append(latest_right_ts if latest_right_ts is not None else _nan)
+                    gripper_ts_buf.append(latest_gripper_ts if latest_gripper_ts is not None else _nan)
                 else:
                     dropped_frames += 1
 
@@ -3436,8 +3361,7 @@ def main() -> None:
                 battery_voltage=battery_voltage,
                 leader_connected=(leader is not None),
                 leader_age=leader_age,
-                cam_left_age=cam_left_age,
-                cam_right_age=cam_right_age,
+                cam_age=cam_age,
                 rec_steps=len(qpos_buf),
                 recording=recording,
                 dropped=dropped_frames,

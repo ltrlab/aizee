@@ -50,17 +50,16 @@ from python.nodes.act_policy_node import (
 def load_episode(path: str) -> dict:
     """Load one HDF5 episode into memory. Returns dict of numpy arrays.
 
-    Expects format_version=2 episodes (7-DOF qpos/qcmd/actions with swivel first).
+    Expects format_version=4 episodes (7-DOF qpos/qcmd/actions with swivel
+    first, single gripper camera). Older stereo episodes are not playable.
     """
     with h5py.File(path, "r") as f:
         ep = {
             "qpos": f["observations/qpos"][:],          # [T, J]
             "actions": f["actions"][:],                  # [T, J]
         }
-        if "observations/images/left" in f:
-            ep["img_left"] = f["observations/images/left"][:]
-        if "observations/images/right" in f:
-            ep["img_right"] = f["observations/images/right"][:]
+        if "observations/images/gripper" in f:
+            ep["img_gripper"] = f["observations/images/gripper"][:]
         if "observations/qcmd" in f:
             ep["qcmd"] = f["observations/qcmd"][:]
         if "observations/torques" in f:
@@ -109,11 +108,7 @@ def build_eval_blueprint(show_images: bool, joint_names: List[str]) -> rrb.Bluep
 
     if show_images:
         left_col = rrb.Vertical(
-            rrb.Horizontal(
-                rrb.Spatial2DView(name="Left", origin="cameras/left"),
-                rrb.Spatial2DView(name="Right", origin="cameras/right"),
-                column_shares=[1, 1],
-            ),
+            rrb.Spatial2DView(name="Gripper", origin="cameras/gripper"),
             info_view,
             row_shares=[3, 1],
         )
@@ -180,7 +175,7 @@ def evaluate_episode(
 
     hz = ep.get("hz", 20)
     dt = 1.0 / hz
-    has_images = "img_left" in ep and "img_right" in ep
+    has_images = "img_gripper" in ep
 
     for t in range(T):
         frame = frame_offset + t
@@ -203,20 +198,17 @@ def evaluate_episode(
         )
 
         if has_images:
-            left_norm = normalize_image(ep["img_left"][t])
-            right_norm = normalize_image(ep["img_right"][t])
+            gripper_norm = normalize_image(ep["img_gripper"][t])
         else:
-            left_norm = np.zeros((3, 240, 320), dtype=np.float32)
-            right_norm = np.zeros((3, 240, 320), dtype=np.float32)
+            gripper_norm = np.zeros((3, 768, 1024), dtype=np.float32)
 
         qpos_t = torch.from_numpy(qpos_norm).unsqueeze(0).to(device)
         state_t = torch.from_numpy(state_vec).unsqueeze(0).to(device)
-        left_t = torch.from_numpy(left_norm).unsqueeze(0).to(device)
-        right_t = torch.from_numpy(right_norm).unsqueeze(0).to(device)
+        gripper_t = torch.from_numpy(gripper_norm).unsqueeze(0).to(device)
 
         t0 = time.perf_counter()
         with torch.no_grad():
-            pred_chunk = policy.select_action(qpos_t, state_t, left_t, right_t)
+            pred_chunk = policy.select_action(qpos_t, state_t, gripper_t)
         infer_ms = (time.perf_counter() - t0) * 1000.0
 
         pred_np = pred_chunk[0].cpu().numpy()
@@ -242,8 +234,7 @@ def evaluate_episode(
         rr.log("eval/inference_ms", rr.Scalars(infer_ms))
 
         if show_images and has_images:
-            rr.log("cameras/left", rr.Image(ep["img_left"][t]))
-            rr.log("cameras/right", rr.Image(ep["img_right"][t]))
+            rr.log("cameras/gripper", rr.Image(ep["img_gripper"][t]))
 
         if speed > 0:
             time.sleep(dt / speed)

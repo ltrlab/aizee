@@ -37,7 +37,7 @@ from typing import Optional, Callable
 
 import numpy as np
 
-from PySide6.QtCore import Qt, QTimer, QUrl, QPoint, QThread, Signal
+from PySide6.QtCore import Qt, QTimer, QUrl, QPoint, QRect, QRectF, QThread, Signal
 from PySide6.QtGui import (
     QAction, QColor, QDesktopServices, QFont, QImage, QKeySequence,
     QPainter, QPainterPath, QPen, QPixmap, QShortcut,
@@ -2000,12 +2000,11 @@ class _HealthStrip(QFrame):
             "white" if robot_good else COL_MUTED,
         )
 
-        # Cameras.
-        lage = float(snap.get("cam_left_age",  999.0))
-        rage = float(snap.get("cam_right_age", 999.0))
-        cams_good = lage < 0.5 and rage < 0.5
+        # Camera.
+        gage = float(snap.get("cam_age", 999.0))
+        cams_good = gage < 0.5
         self._c_cams.set_pill(
-            f"cams  {'OK' if cams_good else 'WAIT'}",
+            f"cam  {'OK' if cams_good else 'WAIT'}",
             COL_OK if cams_good else "#333",
             "white" if cams_good else COL_MUTED,
         )
@@ -2231,10 +2230,11 @@ class _PlaybackEngine(QWidget):
             with h5py.File(path, "r") as f:
                 qpos    = f["observations/qpos"][:]
                 actions = f["actions"][:] if "actions" in f else None
-                left    = (f["observations/images/left"][:]
-                           if "observations/images/left" in f else None)
-                right   = (f["observations/images/right"][:]
-                           if "observations/images/right" in f else None)
+                # Single gripper camera (format_version >= 4). Older episodes
+                # had stereo `images/left` + `images/right` — those are not
+                # playable on the new single-camera pipeline.
+                gripper = (f["observations/images/gripper"][:]
+                           if "observations/images/gripper" in f else None)
                 hz      = float(f.attrs.get("hz", 20.0))
                 tag     = f.attrs.get("task_tag", "")
                 if isinstance(tag, bytes):
@@ -2249,7 +2249,7 @@ class _PlaybackEngine(QWidget):
 
         self._ep = {
             "qpos": qpos, "actions": actions,
-            "left": left, "right": right,
+            "gripper": gripper,
             "hz": hz, "T": int(qpos.shape[0]),
             "task_tag": str(tag).strip(),
             "collected_at": str(ca).strip(),
@@ -2338,10 +2338,12 @@ class _PlaybackEngine(QWidget):
 
 
 # ---------------------------------------------------------------------------
-# Playback cameras — two QLabels that display RGB numpy frames
+# Playback camera — single QLabel that displays RGB numpy frames
 # ---------------------------------------------------------------------------
 
 class _PlaybackCameraPair(QFrame):
+    """Single-camera playback widget (named "Pair" for historical reasons —
+    the platform used to ship stereo D435s; it is now one ELP gripper cam)."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -2352,10 +2354,8 @@ class _PlaybackCameraPair(QFrame):
         row = QHBoxLayout(self)
         row.setContentsMargins(6, 6, 6, 6)
         row.setSpacing(6)
-        self._left  = self._make_cam("Left")
-        self._right = self._make_cam("Right")
-        row.addWidget(self._left_wrap, 1)
-        row.addWidget(self._right_wrap, 1)
+        self._gripper = self._make_cam("Gripper")
+        row.addWidget(self._gripper_wrap, 1)
 
     def _make_cam(self, label: str) -> QLabel:
         wrap = QFrame()
@@ -2379,20 +2379,14 @@ class _PlaybackCameraPair(QFrame):
         cam.setStyleSheet("background: black; color: #444;")
         cam.setText("(no frame loaded)")
         v.addWidget(cam, 1)
-        if label == "Left":
-            self._left_wrap = wrap
-        else:
-            self._right_wrap = wrap
+        self._gripper_wrap = wrap
         return cam
 
-    def set_frames(self, left: Optional[np.ndarray],
-                   right: Optional[np.ndarray]) -> None:
-        self._render_to(self._left, left)
-        self._render_to(self._right, right)
+    def set_frames(self, gripper: Optional[np.ndarray]) -> None:
+        self._render_to(self._gripper, gripper)
 
     def clear(self) -> None:
-        self._left.clear();  self._left.setText("(no frame loaded)")
-        self._right.clear(); self._right.setText("(no frame loaded)")
+        self._gripper.clear();  self._gripper.setText("(no frame loaded)")
 
     def _render_to(self, lbl: QLabel, frame: Optional[np.ndarray]) -> None:
         if frame is None:
@@ -2409,8 +2403,427 @@ class _PlaybackCameraPair(QFrame):
         lbl.setPixmap(pm)
 
 
+class _CamCtrlHeader(QWidget):
+    """Clickable header / strip for the _CameraControls panel.
+
+    Two visual modes selected via setExpanded():
+      - Expanded:  horizontal title bar (32 px tall), arrow ◀, text reads
+                   left-to-right.  Click collapses the panel leftward.
+      - Collapsed: vertical strip (Expanding height, panel width), arrow ▶
+                   at top, "Camera controls" rotated 90° so the strip
+                   reads bottom-to-top.  Click expands the panel rightward.
+
+    Custom paintEvent because Qt stylesheets can't rotate text. Emits
+    `clicked` on any left-click in either mode; the parent panel owns the
+    actual collapse/expand state machine.
+    """
+
+    clicked = Signal()
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._expanded = True
+        self._hover = False
+        self.setCursor(Qt.PointingHandCursor)
+        self.setAttribute(Qt.WA_Hover, True)
+        # Initial state matches _CameraControls — horizontal bar, 32 px.
+        self.setMinimumHeight(32)
+        self.setMaximumHeight(32)
+
+    def setExpanded(self, expanded: bool) -> None:
+        if expanded == self._expanded:
+            return
+        self._expanded = expanded
+        if expanded:
+            # Horizontal bar, fixed 32 px tall — body sits below it.
+            self.setMinimumHeight(32)
+            self.setMaximumHeight(32)
+        else:
+            # Vertical strip — fill whatever parent gives us (camera-row
+            # height, usually >=280 px). Min 140 keeps it readable when
+            # the row collapses unexpectedly.
+            self.setMinimumHeight(140)
+            self.setMaximumHeight(16777215)   # QWIDGETSIZE_MAX
+        self.updateGeometry()
+        self.update()
+
+    def enterEvent(self, event) -> None:  # noqa: D401
+        self._hover = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self._hover = False
+        self.update()
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+    def paintEvent(self, _event) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.TextAntialiasing, True)
+
+        bg = QColor("#1f1f1f" if self._hover else "#161616")
+        p.fillRect(self.rect(), bg)
+
+        font = self.font()
+        font.setBold(True)
+        font.setPointSize(9)
+        p.setFont(font)
+
+        if self._expanded:
+            # Bottom border separates the header from the body.
+            p.setPen(QColor(COL_BORDER))
+            p.drawLine(0, self.height() - 1, self.width(), self.height() - 1)
+            p.setPen(QColor(COL_TEXT))
+            p.drawText(self.rect().adjusted(10, 0, -8, 0),
+                       Qt.AlignVCenter | Qt.AlignLeft,
+                       "◀  Camera controls")
+        else:
+            # No explicit right border — the panel's own 1-px border (set
+            # via stylesheet) handles the strip's right edge cleanly.
+            arrow_h = 22
+            arrow_rect = QRect(0, 4, self.width(), arrow_h - 4)
+            p.setPen(QColor(COL_TEXT))
+            p.drawText(arrow_rect, Qt.AlignTop | Qt.AlignHCenter, "▶")
+            # Rotated title fills the remainder. -90° = baseline along the
+            # right edge of the strip, text reading bottom-to-top.
+            p.save()
+            p.translate(self.width() / 2.0,
+                        (self.height() + arrow_h) / 2.0)
+            p.rotate(-90)
+            # After -90 rotation the X axis runs along the widget's
+            # height. Build the target rect in the rotated frame.
+            inner_h = self.height() - arrow_h - 8   # padding
+            inner_w = self.width() - 4
+            text_rect = QRectF(-inner_h / 2.0, -inner_w / 2.0,
+                               inner_h, inner_w)
+            p.drawText(text_rect,
+                       Qt.AlignVCenter | Qt.AlignHCenter,
+                       "Camera controls")
+            p.restore()
+
+
+class _CameraControls(QFrame):
+    """V4L2-control sliders for the gripper camera, talking REP/REQ to
+    the publisher process on the Jetson.
+
+    Each slider value change sends `{op: "set_ctrl", name, value}` to the
+    publisher; the publisher re-runs `v4l2-ctl --set-ctrl` so the change
+    affects every consumer (preview AND recording) since they all read the
+    same publisher stream. Slider events are debounced so rapid drags
+    don't flood the REP socket.
+
+    The panel queries the current control values on startup via
+    `{op: "get_ctrls"}` so sliders initialize to the publisher's actual
+    state (which is the YAML defaults on a fresh service start).
+    """
+
+    # Which controls to expose, in display order. Each tuple is
+    # (v4l2 name, display label, optional menu mapping).  Menu mapping is
+    # used for `auto_exposure` to translate between V4L2's
+    # 1=Manual / 3=Aperture and a checkbox.
+    _CTRL_SPEC = [
+        ("auto_exposure",          "Auto exposure",    None),  # rendered as toggle
+        ("exposure_time_absolute", "Exposure (×100µs)", None),
+        ("gain",                   "Gain",             None),
+        ("brightness",             "Brightness",       None),
+        ("backlight_compensation", "Backlight comp.",  None),
+    ]
+
+    # Panel pixel widths. Collapsed state shrinks to a thin vertical
+    # strip on the left so the camera widget can grow horizontally to
+    # fill the freed space.
+    _W_EXPANDED  = 280
+    _W_COLLAPSED = 28
+
+    def __init__(self, endpoint: Optional[str]) -> None:
+        super().__init__()
+        self.setStyleSheet(
+            f"_CameraControls {{ background: #0a0a0a; "
+            f"border: 1px solid {COL_BORDER}; border-radius: 6px; }}")
+        # Fixed horizontal width (toggles between EXPANDED / COLLAPSED on
+        # click). Vertical: Expanding so the panel fills the row's full
+        # height — important when collapsed, the strip should run floor
+        # to ceiling next to the camera widget.
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self.setFixedWidth(self._W_EXPANDED)
+
+        self._endpoint = endpoint
+        self._zmq_ctx = None       # lazy-init in GUI thread
+        self._zmq_sock = None
+        self._enabled = endpoint is not None and endpoint != ""
+
+        # name -> (slider, value_lbl)  for int controls
+        # name -> checkbox             for booleans (auto_exposure)
+        self._sliders: dict[str, tuple[QSlider, QLabel]] = {}
+        self._toggles: dict[str, QCheckBox] = {}
+
+        # Debounce: each control gets its own timer so rapidly dragging
+        # exposure doesn't queue 30 set_ctrl REQs.
+        self._debounce_timers: dict[str, QTimer] = {}
+        # Pending value per control (latest set during debounce window)
+        self._pending: dict[str, int] = {}
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # --- Header / strip (always visible, clickable to toggle body) ---
+        # When expanded: horizontal title bar at top of panel.
+        # When collapsed: vertical strip with rotated text, fills the
+        # panel because the body below it is hidden.
+        self._expanded = True
+        self._header = _CamCtrlHeader()
+        self._header.clicked.connect(self._toggle_body)
+        outer.addWidget(self._header)
+
+        # --- Body (sliders + reload + status, hidden when collapsed) --
+        self._body = QFrame()
+        self._body.setStyleSheet("QFrame { background: transparent; }")
+        body_layout = QVBoxLayout(self._body)
+        body_layout.setContentsMargins(8, 6, 8, 6)
+        body_layout.setSpacing(4)
+
+        # Top body row: reload button + status text
+        top_row = QHBoxLayout()
+        top_row.setContentsMargins(0, 0, 0, 0)
+        top_row.setSpacing(6)
+        self._reset_btn = QPushButton("Reload")
+        self._reset_btn.setStyleSheet(
+            "QPushButton { background: #222; color: #ccc; border: 1px solid #333; "
+            "padding: 2px 8px; border-radius: 3px; font-size: 9pt; }"
+            "QPushButton:hover { background: #2a2a2a; }")
+        self._reset_btn.clicked.connect(self._refresh_from_publisher)
+        top_row.addWidget(self._reset_btn)
+        self._status = QLabel("disabled" if not self._enabled else "connecting…")
+        self._status.setStyleSheet(f"color: {COL_MUTED}; font-size: 8pt;")
+        self._status.setWordWrap(True)
+        top_row.addWidget(self._status, 1)
+        body_layout.addLayout(top_row)
+
+        # Grid of rows: label | widget | numeric readout
+        self._grid = QGridLayout()
+        self._grid.setContentsMargins(0, 0, 0, 0)
+        self._grid.setHorizontalSpacing(8)
+        self._grid.setVerticalSpacing(2)
+        self._grid.setColumnStretch(0, 0)
+        self._grid.setColumnStretch(1, 1)
+        self._grid.setColumnStretch(2, 0)
+        body_layout.addLayout(self._grid)
+
+        # Build rows even before we know the camera's range — we'll
+        # set min/max once `get_ctrls` returns.
+        for row, (name, label, _) in enumerate(self._CTRL_SPEC):
+            lbl = QLabel(label)
+            lbl.setStyleSheet(f"color: {COL_TEXT}; font-size: 9pt;")
+            self._grid.addWidget(lbl, row, 0)
+
+            if name == "auto_exposure":
+                chk = QCheckBox()
+                chk.setStyleSheet(f"color: {COL_TEXT}; font-size: 9pt;")
+                chk.stateChanged.connect(
+                    lambda state, n=name: self._on_toggle(n, state))
+                chk.setEnabled(False)
+                self._grid.addWidget(chk, row, 1)
+                self._toggles[name] = chk
+            else:
+                sld = QSlider(Qt.Horizontal)
+                sld.setEnabled(False)
+                sld.setTracking(True)
+                sld.valueChanged.connect(
+                    lambda v, n=name: self._on_slider_changed(n, v))
+                self._grid.addWidget(sld, row, 1)
+                vlbl = QLabel("—")
+                vlbl.setStyleSheet(f"color: {COL_MUTED}; font-size: 9pt; min-width: 36px;")
+                vlbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self._grid.addWidget(vlbl, row, 2)
+                self._sliders[name] = (sld, vlbl)
+
+        # Trailing stretch keeps sliders packed at the top of the body
+        # when the panel is taller than the natural content height (the
+        # row's minHeight=280 usually leaves spare space below the grid).
+        body_layout.addStretch(1)
+
+        # stretch=1 — when expanded, body takes the remaining vertical
+        # space below the (fixed-height) header. When collapsed, the body
+        # is hidden, so the header (which becomes Expanding vertically)
+        # fills the panel column on its own.
+        outer.addWidget(self._body, 1)
+
+        # Fetch publisher's current values once the GUI is up.
+        if self._enabled:
+            QTimer.singleShot(500, self._refresh_from_publisher)
+
+    # ------------------------------------------------------------------
+    # Expand / collapse
+    # ------------------------------------------------------------------
+
+    def _toggle_body(self) -> None:
+        self._expanded = not self._expanded
+        # Order matters: hide body BEFORE shrinking width so Qt doesn't
+        # try to repaint sliders into a 28-px-wide column mid-transition.
+        self._body.setVisible(self._expanded)
+        self._header.setExpanded(self._expanded)
+        self.setFixedWidth(self._W_EXPANDED if self._expanded
+                           else self._W_COLLAPSED)
+
+    # ------------------------------------------------------------------
+    # ZMQ plumbing (lazy, GUI-thread only)
+    # ------------------------------------------------------------------
+
+    def _ensure_socket(self) -> bool:
+        """Create or recreate the REQ socket. Returns True on success.
+
+        We rebuild the socket on each timeout / error because ZMQ REQ
+        sockets enter a 'broken' state when send/recv ordering breaks —
+        recreating is the simplest robust pattern.
+        """
+        if not self._enabled:
+            return False
+        if self._zmq_ctx is None:
+            try:
+                import zmq
+                self._zmq_ctx = zmq.Context.instance()
+            except Exception as e:
+                self._status.setText(f"zmq error: {e}")
+                return False
+        if self._zmq_sock is None:
+            try:
+                import zmq
+                s = self._zmq_ctx.socket(zmq.REQ)
+                s.setsockopt(zmq.LINGER, 0)
+                s.setsockopt(zmq.RCVTIMEO, 500)
+                s.setsockopt(zmq.SNDTIMEO, 500)
+                s.connect(self._endpoint)
+                self._zmq_sock = s
+            except Exception as e:
+                self._status.setText(f"connect failed: {e}")
+                return False
+        return True
+
+    def _close_socket(self) -> None:
+        if self._zmq_sock is not None:
+            try:
+                self._zmq_sock.close(linger=0)
+            except Exception:
+                pass
+            self._zmq_sock = None
+
+    def _send_request(self, request: dict) -> Optional[dict]:
+        """Send a REQ to the publisher, return the parsed reply or None."""
+        if not self._ensure_socket():
+            return None
+        try:
+            import msgpack
+            self._zmq_sock.send(msgpack.packb(request, use_bin_type=True))
+            raw = self._zmq_sock.recv()
+            return msgpack.unpackb(raw, raw=False)
+        except Exception as e:
+            self._status.setText(f"{type(e).__name__}: {e}")
+            # REQ socket is now wedged — drop it so the next call rebuilds.
+            self._close_socket()
+            return None
+
+    # ------------------------------------------------------------------
+    # State sync
+    # ------------------------------------------------------------------
+
+    def _refresh_from_publisher(self) -> None:
+        """Query the camera node and populate slider ranges + values."""
+        if not self._enabled:
+            return
+        reply = self._send_request({"op": "get_ctrls"})
+        if reply is None or not reply.get("ok"):
+            self._status.setText(reply.get("error", "no reply") if reply else "no reply")
+            return
+        ctrls = reply.get("ctrls", {})
+
+        # Sliders
+        for name, (sld, vlbl) in self._sliders.items():
+            info = ctrls.get(name)
+            if not info:
+                sld.setEnabled(False)
+                vlbl.setText("—")
+                continue
+            mn = int(info.get("min", 0))
+            mx = int(info.get("max", 100))
+            val = int(info.get("value", info.get("default", mn)))
+            # Block signals so programmatic set doesn't trigger a feedback set_ctrl.
+            sld.blockSignals(True)
+            sld.setMinimum(mn)
+            sld.setMaximum(mx)
+            sld.setValue(val)
+            sld.blockSignals(False)
+            sld.setEnabled(True)
+            vlbl.setText(str(val))
+
+        # Toggles
+        for name, chk in self._toggles.items():
+            info = ctrls.get(name)
+            if not info:
+                chk.setEnabled(False)
+                continue
+            # auto_exposure: value 3 == "Aperture Priority Mode" (auto on)
+            #                value 1 == "Manual Mode" (auto off)
+            val = int(info.get("value", 1))
+            chk.blockSignals(True)
+            chk.setChecked(val == 3)
+            chk.blockSignals(False)
+            chk.setEnabled(True)
+
+        self._status.setText("ready")
+
+    # ------------------------------------------------------------------
+    # User events
+    # ------------------------------------------------------------------
+
+    def _on_slider_changed(self, name: str, value: int) -> None:
+        """Slider drag — debounce, then send set_ctrl."""
+        self._sliders[name][1].setText(str(value))
+        self._pending[name] = value
+        t = self._debounce_timers.get(name)
+        if t is None:
+            t = QTimer(self)
+            t.setSingleShot(True)
+            t.timeout.connect(lambda n=name: self._flush_pending(n))
+            self._debounce_timers[name] = t
+        t.start(120)   # ms — wait for slider to stop moving
+
+    def _flush_pending(self, name: str) -> None:
+        if name not in self._pending:
+            return
+        value = self._pending.pop(name)
+        reply = self._send_request({"op": "set_ctrl", "name": name, "value": value})
+        if reply is None:
+            return
+        if reply.get("ok"):
+            self._status.setText(f"{name}={value}")
+        else:
+            self._status.setText(f"err {name}: {reply.get('error', '?')}")
+
+    def _on_toggle(self, name: str, state: int) -> None:
+        """Checkbox toggled. Currently only auto_exposure: checked = 3, unchecked = 1."""
+        if name != "auto_exposure":
+            return
+        val = 3 if state == Qt.Checked else 1
+        reply = self._send_request({"op": "set_ctrl", "name": name, "value": val})
+        if reply is None:
+            return
+        if reply.get("ok"):
+            self._status.setText(f"auto_exposure={'on' if val == 3 else 'off'}")
+            # Re-pull control values — exposure_time_absolute moves
+            # between writable/read-only as auto_exposure flips.
+            QTimer.singleShot(150, self._refresh_from_publisher)
+        else:
+            self._status.setText(f"err: {reply.get('error', '?')}")
+
+
 class _LiveCameraPair(QFrame):
-    """Native Qt live camera preview — two QLabels fed raw JPEG bytes.
+    """Native Qt live camera preview — single QLabel fed raw JPEG bytes.
 
     Replaces the embedded Rerun WASM viewer in GUI mode.  Decoding happens
     in Qt's native C++ JPEG decoder, so there's no gRPC stream, no
@@ -2428,12 +2841,9 @@ class _LiveCameraPair(QFrame):
         row = QHBoxLayout(self)
         row.setContentsMargins(6, 6, 6, 6)
         row.setSpacing(6)
-        self._left  = self._make_cam("Left")
-        self._right = self._make_cam("Right")
-        row.addWidget(self._left_wrap,  1)
-        row.addWidget(self._right_wrap, 1)
-        self._left_ts:  float = 0.0
-        self._right_ts: float = 0.0
+        self._gripper = self._make_cam("Gripper")
+        row.addWidget(self._gripper_wrap, 1)
+        self._gripper_ts: float = 0.0
 
     def _make_cam(self, label: str) -> QLabel:
         wrap = QFrame()
@@ -2454,25 +2864,17 @@ class _LiveCameraPair(QFrame):
         cam.setStyleSheet("background: black; color: #444;")
         cam.setText("(waiting for camera…)")
         v.addWidget(cam, 1)
-        if label == "Left":
-            self._left_wrap = wrap
-        else:
-            self._right_wrap = wrap
+        self._gripper_wrap = wrap
         return cam
 
     def set_frames(self,
-                   left_jpeg:  Optional[bytes], left_ts:  float,
-                   right_jpeg: Optional[bytes], right_ts: float) -> None:
-        # Orientation correction for the upside-down left camera is now
-        # applied at the publisher (config/hardware_jetson_arm_cam_left.yaml
-        # → streams.color.flip = "180") so the GUI doesn't need to flip
-        # either side here — the JPEGs arrive correctly oriented.
-        if left_jpeg is not None and left_ts > self._left_ts:
-            self._left_ts = left_ts
-            self._render_jpeg(self._left, left_jpeg)
-        if right_jpeg is not None and right_ts > self._right_ts:
-            self._right_ts = right_ts
-            self._render_jpeg(self._right, right_jpeg)
+                   gripper_jpeg: Optional[bytes], gripper_ts: float) -> None:
+        # Orientation correction is applied at the publisher
+        # (config/hardware_jetson_gripper_cam.yaml → streams.color.flip)
+        # so the GUI doesn't need to flip anything here.
+        if gripper_jpeg is not None and gripper_ts > self._gripper_ts:
+            self._gripper_ts = gripper_ts
+            self._render_jpeg(self._gripper, gripper_jpeg)
 
     def _render_jpeg(self, lbl: QLabel, jpeg: bytes) -> None:
         img = QImage()
@@ -3055,12 +3457,14 @@ class _MainWindow(QMainWindow):
         meta: dict,
         on_delete_last: Callable[[Path], None],
         output_dir: Path,
+        camera_ctrl_endpoint: Optional[str] = None,
     ) -> None:
         super().__init__()
         self._cmd_queue      = cmd_queue
         self._meta           = meta
         self._on_delete_last = on_delete_last
         self._output_dir     = output_dir
+        self._camera_ctrl_endpoint = camera_ctrl_endpoint
         self._last_saved_path: Optional[Path] = None
         self._last_toasted_path: Optional[Path] = None
         self._last_snapshot: Optional[dict] = None
@@ -3178,11 +3582,22 @@ class _MainWindow(QMainWindow):
         # live-replay mode is on.
         self._collect_cam_host = QFrame()
         self._collect_cam_host.setMinimumHeight(280)
-        _ch = QVBoxLayout(self._collect_cam_host)
-        _ch.setContentsMargins(0, 0, 0, 0); _ch.setSpacing(0)
+        # Horizontal: controls panel on the left, camera widget on the right.
+        # Controls panel is a fixed-width collapsible sidebar (see
+        # _CameraControls); the camera takes all remaining horizontal space.
+        _ch = QHBoxLayout(self._collect_cam_host)
+        _ch.setContentsMargins(0, 0, 0, 0); _ch.setSpacing(4)
+        # Camera-controls panel: V4L2 sliders sent to the publisher's REP
+        # socket. Affects both live preview and recording since both read
+        # from the same publisher stream. No alignment hint — the panel's
+        # vertical sizepolicy is Expanding, so it'll fill the row height
+        # (a 28-px-wide strip when collapsed, full 280-px column when
+        # expanded).
+        self._cam_controls = _CameraControls(self._camera_ctrl_endpoint)
+        _ch.addWidget(self._cam_controls, 0)
         self._cam_pair = _LiveCameraPair()
         self._cam_pair.setMinimumHeight(280)
-        _ch.addWidget(self._cam_pair)
+        _ch.addWidget(self._cam_pair, 1)
         split.addWidget(self._collect_cam_host)
 
         # Bottom area: time-series chart in place of the joint table.
@@ -3537,9 +3952,8 @@ class _MainWindow(QMainWindow):
         hz    = ep["hz"]
         self._replay_transport.set_frame(idx, total, hz)
 
-        left  = ep["left"][idx]  if ep["left"]  is not None else None
-        right = ep["right"][idx] if ep["right"] is not None else None
-        self._replay_cams.set_frames(left, right)
+        gripper = ep["gripper"][idx] if ep["gripper"] is not None else None
+        self._replay_cams.set_frames(gripper)
 
         qpos    = ep["qpos"][idx]
         actions = ep["actions"][idx] if ep["actions"] is not None else None
@@ -3659,9 +4073,8 @@ class _MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def set_camera_frames(self,
-                          left:  Optional[bytes], left_ts:  float,
-                          right: Optional[bytes], right_ts: float) -> None:
-        self._cam_pair.set_frames(left, left_ts, right, right_ts)
+                          gripper: Optional[bytes], gripper_ts: float) -> None:
+        self._cam_pair.set_frames(gripper, gripper_ts)
 
     def apply_snapshot(self, s: dict) -> None:
         self._last_snapshot = s
@@ -3724,16 +4137,13 @@ class _MainWindow(QMainWindow):
         else:
             self.lbl_estop.set_pill("SAFE", COL_OK)
 
-        lage = float(s.get("cam_left_age",  999.0))
-        rage = float(s.get("cam_right_age", 999.0))
-        if lage < 0.5 and rage < 0.5:
-            self.lbl_cams.set_pill(
-                f"cams OK  L{lage*1000:3.0f} R{rage*1000:3.0f}ms", COL_OK)
-        elif lage > 2.0 and rage > 2.0:
-            self.lbl_cams.set_pill("cams STALE", COL_CRIT)
+        gage = float(s.get("cam_age", 999.0))
+        if gage < 0.5:
+            self.lbl_cams.set_pill(f"cam OK  {gage*1000:3.0f}ms", COL_OK)
+        elif gage > 2.0:
+            self.lbl_cams.set_pill("cam STALE", COL_CRIT)
         else:
-            side = "L" if lage > 0.5 else "R"
-            self.lbl_cams.set_pill(f"cam {side} slow", COL_WARN)
+            self.lbl_cams.set_pill("cam slow", COL_WARN)
 
         if s.get("leader_connected"):
             age = float(s.get("leader_age", 999.0))
@@ -3886,19 +4296,20 @@ class QtRenderer:
         meta: dict,
         on_delete_last: Callable[[Path], None],
         output_dir: Path,
+        camera_ctrl_endpoint: Optional[str] = None,
     ) -> None:
-        self._cmd_queue       = cmd_queue
-        self._meta            = meta
-        self._on_delete_last  = on_delete_last
-        self._output_dir      = output_dir
+        self._cmd_queue           = cmd_queue
+        self._meta                = meta
+        self._on_delete_last      = on_delete_last
+        self._output_dir          = output_dir
+        self._camera_ctrl_endpoint = camera_ctrl_endpoint
         self._lock            = threading.Lock()
         self._holder: dict    = {"args": None}
         # Separate camera holder so the main loop can push raw JPEG bytes
         # at camera-publisher cadence without rebuilding the full snapshot
         # dict.  QtRenderer._tick reads it under the same lock and forwards
         # to _LiveCameraPair, which drops stale frames by timestamp.
-        self._cam_holder: dict = {"left": None, "left_ts": 0.0,
-                                  "right": None, "right_ts": 0.0}
+        self._cam_holder: dict = {"gripper": None, "gripper_ts": 0.0}
         self._stop            = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._window: Optional[_MainWindow]      = None
@@ -3953,6 +4364,7 @@ class QtRenderer:
             meta=self._meta,
             on_delete_last=self._on_delete_last,
             output_dir=self._output_dir,
+            camera_ctrl_endpoint=self._camera_ctrl_endpoint,
         )
         self._window.show()
 
@@ -3975,13 +4387,11 @@ class QtRenderer:
 
     def _tick(self) -> None:
         with self._lock:
-            snap   = self._holder["args"]
-            l_jpg  = self._cam_holder["left"]
-            l_ts   = self._cam_holder["left_ts"]
-            r_jpg  = self._cam_holder["right"]
-            r_ts   = self._cam_holder["right_ts"]
+            snap  = self._holder["args"]
+            g_jpg = self._cam_holder["gripper"]
+            g_ts  = self._cam_holder["gripper_ts"]
         if self._window is not None:
             if snap is not None:
                 self._window.apply_snapshot(snap)
-            if l_jpg is not None or r_jpg is not None:
-                self._window.set_camera_frames(l_jpg, l_ts, r_jpg, r_ts)
+            if g_jpg is not None:
+                self._window.set_camera_frames(g_jpg, g_ts)
