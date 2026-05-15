@@ -61,8 +61,8 @@ drive:
 arm:
   # 7-DOF gain vectors, swivel-first.
   # Order: [swivel, gantry_base, gantry_mid, gantry_end, wrist_pitch, wrist_roll, gripper]
-  kp: [200.0, 200.0, 200.0, 50.0, 8.0, 3.0, 2.0]
-  kd: [15.0,   10.0,   15.0,  4.0,  1.0,  1.0, 1.0]
+  kp: [250.0, 220.0, 215.0, 50.0, 8.0, 3.0, 2.0]
+  kd: [22.0,   15.0,   17.0,  4.0,  1.0,  1.0, 1.0]
   max_velocity: 1.0       # rad/s per joint
   increment: 0.02         # rad per key press (manual jog)
   swivel_increment: 0.01  # rad per Z/C key press (swivel-only jog kept for muscle memory)
