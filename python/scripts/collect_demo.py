@@ -28,6 +28,10 @@ Controls:
 
 Gamepad: A=enable  B=shutdown/cancel  Start=hold  Back=quit
          Left stick = drive (wheels enable with arm)
+
+M5 Joystick2 (wired to OpenRB-150 leader, I2C 0x63 on D11/D12):
+         Stick = drive (overrides WASD / xbox stick when deflected)
+         Button = start/stop recording (no-op unless TRACKING or already recording)
 """
 
 from __future__ import annotations
@@ -1891,7 +1895,20 @@ def main() -> None:
     # -------------------------------------------------------------------------
     leader           = None
     _lr_lock         = threading.Lock()
-    _lr_latest: dict = {"rad": None, "vel": None, "clamped": None, "time": 0.0}
+    _lr_latest: dict = {
+        "rad": None, "vel": None, "clamped": None, "time": 0.0,
+        # M5 Joystick2 snapshot (populated by _leader_reader when an
+        # OpenRB-150 leader is installed; left at neutral defaults
+        # otherwise).  See OpenRBLeader.last_joystick for field semantics.
+        "joy": {
+            "x":             0.0,
+            "y":             0.0,
+            "button":        False,
+            "press_counter": 0,
+            "status":        1,    # JOY_STATUS_NOT_PRESENT
+            "present":       False,
+        },
+    }
     # Shared leader-to-AIZEE mapping params.  Written by main loop (Z, M
     # keys; leader install / hot-plug); read by the cmd-sender thread when
     # it computes q_cmd live from leader at 100 Hz.  Held under _lr_lock.
@@ -2002,12 +2019,17 @@ def main() -> None:
                 ema_v  = inst_v if ema_v is None else (
                     _V_ALPHA * inst_v + (1.0 - _V_ALPHA) * ema_v)
                 v = ema_v
+            # M5 Joystick2 snapshot — only OpenRBLeader exposes this; older
+            # SO-101 leader has no `last_joystick`, so we degrade silently.
+            joy_snapshot = getattr(ldr, "last_joystick", None)
             with _lr_lock:
                 if r is not None:
                     _lr_latest["rad"]     = r
                     _lr_latest["vel"]     = v
                     _lr_latest["clamped"] = ldr.clamped_joints
                     _lr_latest["time"]    = now
+                if joy_snapshot is not None:
+                    _lr_latest["joy"] = joy_snapshot
             if r is not None:
                 prev_r = r
                 prev_t = now
@@ -2385,6 +2407,14 @@ def main() -> None:
     prev_gp_b:   bool  = False
     prev_gp_start:bool = False
 
+    # M5 Joystick2 (on the OpenRB-150 leader board, I2C addr 0x63 on D11/D12).
+    # `prev_m5_press_counter` lets the 30 Hz main loop edge-detect button
+    # presses captured at ~500 Hz by the leader-reader thread without
+    # missing quick clicks.  `_m5_dz` is the analog-stick deadzone shared
+    # with the curve / ramp code below.
+    prev_m5_press_counter: int = 0
+    _m5_dz                     = 0.08
+
     # Recording state.  qpos_buf / qcmd_buf / torque_buf are now 7-DOF
     # (swivel-first, matches ARM_JOINTS) — there's no separate swivel buffer.
     recording      = False
@@ -2681,6 +2711,37 @@ def main() -> None:
             if live_replay.live and key in ("E", "I", "H", "X", "R", "Z", "M", "P"):
                 key = None
 
+            # -----------------------------------------------------------------
+            # M5 Joystick2 (on the OpenRB-150 leader, I2C 0x63 on D11/D12).
+            # Read first so it takes precedence over the xbox gamepad and
+            # the WASD path below — operator's hand-stick is the primary
+            # drive when present.  Button-press edges are detected against
+            # the leader thread's monotonic counter so quick clicks survive
+            # the 30 Hz main-loop cadence.
+            # -----------------------------------------------------------------
+            with _lr_lock:
+                m5 = dict(_lr_latest["joy"])
+            _m5_active = False
+            if m5["present"]:
+                # Map axes to drive (matches xbox convention in _read_gamepad):
+                #   Y → angular (forward/back, negated so stick-fwd = robot-fwd)
+                #   X → linear  (turn)
+                _m5_x = _apply_curve(_apply_deadzone(m5["x"], _m5_dz))
+                _m5_y = _apply_curve(_apply_deadzone(m5["y"], _m5_dz))
+                _m5_active = (abs(_m5_x) > 0.01 or abs(_m5_y) > 0.01)
+
+                # Button-press edge → toggle recording, but only when it
+                # would actually do something.  When idle / ready / engaging
+                # (or while live replay owns the arm) we silently ignore the
+                # click — matches user policy "do nothing if the arm is not
+                # tracking".  The press counter is always consumed so a
+                # silently-ignored edge can't fire later under different state.
+                if m5["press_counter"] != prev_m5_press_counter:
+                    can_toggle = (recording or teleop_state == State.TRACKING)
+                    if can_toggle and not live_replay.live:
+                        key = "R"
+                    prev_m5_press_counter = m5["press_counter"]
+
             _stick_active = False
             if joystick is not None:
                 gp = _read_gamepad(joystick, prev_gp_a, prev_gp_b, prev_gp_start,
@@ -2702,6 +2763,14 @@ def main() -> None:
                     key = "CANCEL_SHUTDOWN" if teleop_state == State.SHUTDOWN else "X"
                 if gp["quit"]:
                     key = "Q"
+
+            # M5 stick wins over xbox when deflected — operator's primary
+            # input.  When the M5 is centred, fall back to whatever the
+            # xbox stick set above (or to WASD below if neither stick is live).
+            if _m5_active:
+                drive_angular_target = -_m5_y
+                drive_linear_target  =  _m5_x
+                _stick_active        = True
 
             # -----------------------------------------------------------------
             # WASD drive input — pygame true key state (no repeat delay)
@@ -3372,6 +3441,12 @@ def main() -> None:
                     State.ENGAGING, State.SHUTDOWN),
                 drive_linear=drive_linear * _max_linear,
                 drive_angular=drive_angular * _max_angular,
+                # M5 Joystick2 snapshot for the GUI's diagnostic panel.
+                # `m5` was already read above under _lr_lock; passing it
+                # through unchanged so the GUI sees the same view as the
+                # drive / record-toggle logic.  None when no leader
+                # installed yet (so the panel shows "NO LEADER").
+                joy=(m5 if leader is not None else None),
                 state=teleop_state.value,
                 save_msg=(save_msg if t0 < save_msg_until else None),
                 action_msg=(zero_msg if t0 < zero_msg_until else None),

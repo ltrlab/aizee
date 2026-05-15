@@ -17,10 +17,17 @@ USB wire protocol (host <-> OpenRB-150):
 
     Host -> MCU:
         0x50          probe   (reply: ASCII "AIZEE-OPENRB-LEADER\\n")
-        0xA5          poll    (reply: 0xA5 [N=7] [pos x 4 bytes int32 LE]*N [crc8])
+        0xA5          poll    (reply: 0xA5 [N=7] [pos x 4 bytes int32 LE]*N
+                                       [int16 joy_x][int16 joy_y]
+                                       [uint8 joy_btn][uint8 joy_status][crc8])
 
     The MCU keeps torque disabled on every servo and sync-reads
-    Present_Position (DXL register 132, 4 bytes) on each poll.
+    Present_Position (DXL register 132, 4 bytes) on each poll.  It also
+    polls an optional M5Stack Joystick2 (I2C addr 0x63 on the firmware's
+    Wire bus) and embeds X/Y/button state in the same reply — used by
+    collect_demo.py for operator drive + recording start/stop.  When no
+    joystick is present, joy_status is non-zero and the host ignores the
+    fields.
 
 Servo mapping (mirrors SO-101 leader):
     1 shoulder_pan  -> swivel
@@ -104,6 +111,15 @@ BAUD_CODES = {0: 1_000_000, 1: 57_600, 2: 115_200, 3: 2_000_000}
 _TICKS  = 4096
 _CENTER = 2048
 
+# M5Stack Joystick2 status codes (firmware appends as last byte of POLL reply).
+JOY_STATUS_OK          = 0x00
+JOY_STATUS_NOT_PRESENT = 0x01
+JOY_STATUS_READ_ERROR  = 0x02
+
+# Joystick2 12-bit centred range — reading is int16 nominally in [-2048, +2047].
+# Divided by this to produce a [-1, +1] float for downstream consumers.
+_JOY_HALF_RANGE = 2048.0
+
 CALIB_PATH = Path("config/openrb_calibration.json")
 
 # Default AIZEE arm target range [rad_min, rad_max] per joint (matches SO-101).
@@ -180,6 +196,26 @@ class OpenRBLeader:
         self._clamped:    list[bool]               = [False] * len(self.JOINTS)
         self._last_clean: Optional[np.ndarray]     = None
         self._reject_count: int                    = 0
+        # Joystick2 state — updated each successful poll.  Consumers read
+        # `last_joystick` to get the current snapshot; the press_counter
+        # increments on every released→pressed edge so a slow main loop
+        # can never miss a quick click between samples.
+        self._joy_x:        float = 0.0    # normalised [-1, +1]
+        self._joy_y:        float = 0.0
+        self._joy_button:   bool  = False  # True while pressed (after debounce)
+        self._joy_prev_btn: bool  = False
+        self._joy_press_counter: int = 0
+        self._joy_status:   int   = JOY_STATUS_NOT_PRESENT
+        # Button debounce.  The M5 Joystick2's click switch sits under the
+        # thumb-stick and false-fires when the operator pushes sideways with
+        # any downward bias; single-sample I2C noise on the button register
+        # also lands as 0x00 occasionally.  We require N consecutive same-
+        # state reads (~30 ms at 174 Hz) to flip the public `button` state.
+        # Symmetric: filters both released→pressed and pressed→released
+        # transients, so quick legit clicks held >30 ms still come through.
+        self._JOY_DEBOUNCE_N: int = 5
+        self._joy_btn_streak: int = 0      # >0 = streak of "pressed" raw reads,
+                                            # <0 = streak of "released"
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -214,6 +250,27 @@ class OpenRBLeader:
     @property
     def clamped_joints(self) -> list[bool]:
         return list(self._clamped)
+
+    @property
+    def last_joystick(self) -> dict:
+        """Snapshot of the M5 Joystick2 state from the last successful poll.
+
+        Keys:
+            x, y           floats in [-1, +1] (0 when joystick absent)
+            button         True while currently pressed
+            press_counter  monotonic; increments on each press edge so a
+                           slow consumer never misses a quick click
+            status         JOY_STATUS_OK / NOT_PRESENT / READ_ERROR
+            present        convenience bool: status == JOY_STATUS_OK
+        """
+        return {
+            "x":             self._joy_x,
+            "y":             self._joy_y,
+            "button":        self._joy_button,
+            "press_counter": self._joy_press_counter,
+            "status":        self._joy_status,
+            "present":       self._joy_status == JOY_STATUS_OK,
+        }
 
     # ------------------------------------------------------------------
     # Encoder unwrapping (identical to SO-101)
@@ -373,8 +430,16 @@ class OpenRBLeader:
     def _sync_read_positions(self) -> Optional[dict[str, int]]:
         """Send a poll command and parse the response frame.
 
-        Frame: [0xA5][N=7][pos x 4 bytes signed LE]*N [crc8]
-        Total: 1 + 1 + 7*4 + 1 = 31 bytes.
+        Frame:
+            [0xA5][N=7][pos x 4 bytes signed LE]*N
+            [int16 LE joy_x][int16 LE joy_y][uint8 joy_btn][uint8 joy_status]
+            [crc8]
+        Total: 1 + 1 + 7*4 + 4 + 2 + 1 = 37 bytes.
+
+        Joystick fields are parsed and stashed on the instance (see
+        last_joystick) on every successful poll.  When joy_status != 0
+        the joystick state is reported as neutral so consumers don't act
+        on garbage.
         """
         if self._ser is None:
             return None
@@ -396,16 +461,70 @@ class OpenRBLeader:
                 n_byte = hdr[1]
             if n_byte != _N_SERVOS:
                 return None
-            payload = self._read_exact(_N_SERVOS * 4 + 1)
+            payload = self._read_exact(_N_SERVOS * 4 + 6 + 1)
             if payload is None:
                 return None
             data = payload[:-1]
             crc  = payload[-1]
             if _crc8(bytes([_REPLY_HDR, n_byte]) + data) != crc:
                 return None
-            positions = struct.unpack("<7i", data)
+            positions = struct.unpack("<7i", data[: _N_SERVOS * 4])
+            joy_x_raw, joy_y_raw, joy_btn, joy_status = struct.unpack(
+                "<hhBB", data[_N_SERVOS * 4 :]
+            )
         except (serial.SerialException, OSError):
             return None
+
+        # Update joystick snapshot.  Edge-detect on the released→pressed
+        # transition; press_counter is monotonic so a 30 Hz main loop can
+        # poll it without missing a quick click that happened at 500 Hz.
+        self._joy_status = int(joy_status)
+        if joy_status == JOY_STATUS_OK:
+            # X is negated so the public convention is "+x = stick pushed
+            # right" from the operator's point of view (the M5 unit's raw
+            # X reports the opposite sign as mounted on the leader board).
+            # +y already means "stick pushed forward" so it passes through.
+            self._joy_x = max(-1.0, min(1.0, -joy_x_raw / _JOY_HALF_RANGE))
+            self._joy_y = max(-1.0, min(1.0,  joy_y_raw / _JOY_HALF_RANGE))
+
+            # Debounce: walk a saturated counter toward the current raw
+            # reading; only update the public button state when the streak
+            # reaches the debounce threshold in either direction.  Filters
+            # both single-sample I2C noise and brief mechanical contact
+            # bounces from off-axis stick pressure.
+            raw_pressed = (joy_btn == 0)
+            if raw_pressed:
+                self._joy_btn_streak = min(self._joy_btn_streak + 1,
+                                            self._JOY_DEBOUNCE_N)
+            else:
+                self._joy_btn_streak = max(self._joy_btn_streak - 1,
+                                            -self._JOY_DEBOUNCE_N)
+
+            if self._joy_btn_streak >= self._JOY_DEBOUNCE_N:
+                btn_pressed = True
+            elif self._joy_btn_streak <= -self._JOY_DEBOUNCE_N:
+                btn_pressed = False
+            else:
+                # Between thresholds — hold the current debounced state.
+                btn_pressed = self._joy_button
+
+            if btn_pressed and not self._joy_prev_btn:
+                self._joy_press_counter += 1
+            self._joy_button   = btn_pressed
+            self._joy_prev_btn = btn_pressed
+        elif joy_status == JOY_STATUS_NOT_PRESENT:
+            # Only latched at boot by the firmware — true device absence.
+            # Force everything to neutral so consumers see "no joystick".
+            self._joy_x = 0.0
+            self._joy_y = 0.0
+            self._joy_button     = False
+            self._joy_prev_btn   = False
+            self._joy_btn_streak = 0
+        # JOY_STATUS_READ_ERROR: a single I2C transaction failed.  Hold the
+        # previous x / y / button / prev_btn values — on the next successful
+        # poll we re-sync.  The `present` field (status == OK) goes False
+        # for this one sample, so the main loop transparently falls back to
+        # xbox / WASD for that tick rather than acting on stale state.
 
         # XL330 in extended-position mode returns a signed multi-turn value.
         # Reduce to [0, 4095] for the calibration math (which already handles

@@ -2111,6 +2111,158 @@ def _make_button(label: str, tooltip: str, accent: str = "") -> QPushButton:
 
 
 # ---------------------------------------------------------------------------
+# M5 Joystick2 panel — live X/Y dot, button LED, status badge.
+# ---------------------------------------------------------------------------
+# The OpenRB-150 leader board exposes an optional M5Stack Joystick2 on its I2C
+# bus and ships its state (X / Y / button / status) inside every POLL reply.
+# This widget is purely diagnostic — it reads from the snapshot dict the main
+# loop already pushes to the GUI.  When no joystick is attached, the status
+# badge shows "NOT PRESENT" and the dot stays at the centre.
+
+class _JoystickXYPad(QWidget):
+    """Square pad with a moving dot; visualises the M5 stick deflection."""
+
+    def __init__(self, size: int = 140) -> None:
+        super().__init__()
+        self.setFixedSize(size, size)
+        self._x = 0.0
+        self._y = 0.0
+        self._present = False
+
+    def set_xy(self, x: float, y: float, present: bool) -> None:
+        self._x = max(-1.0, min(1.0, float(x)))
+        self._y = max(-1.0, min(1.0, float(y)))
+        self._present = bool(present)
+        self.update()
+
+    def paintEvent(self, _e) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        w = self.width(); h = self.height()
+        # Backdrop
+        p.setPen(QPen(QColor(COL_BORDER), 1))
+        p.setBrush(QColor("#161616"))
+        p.drawRoundedRect(0, 0, w - 1, h - 1, 8, 8)
+        # Crosshair + deadzone ring
+        cx, cy = w / 2.0, h / 2.0
+        p.setPen(QPen(QColor("#2a2a2a"), 1))
+        p.drawLine(int(cx), 8, int(cx), h - 8)
+        p.drawLine(8, int(cy), w - 8, int(cy))
+        # Inner deadzone visual (matches _m5_dz=0.08 in collect_demo.py)
+        dz = 0.08
+        r_dz = int((w / 2.0 - 12) * dz)
+        if r_dz > 1:
+            p.drawEllipse(QPoint(int(cx), int(cy)), r_dz, r_dz)
+        # Outer "max travel" ring
+        r_max = int(w / 2.0 - 8)
+        p.setPen(QPen(QColor("#333"), 1))
+        p.drawEllipse(QPoint(int(cx), int(cy)), r_max, r_max)
+        # Dot
+        # Y is inverted for screen coords (positive Y = up on the joystick,
+        # but down in pixel space), matching the firmware sign convention.
+        dot_x = cx + self._x * r_max
+        dot_y = cy - self._y * r_max
+        dot_color = QColor(COL_ACCENT) if self._present else QColor(COL_MUTED)
+        p.setPen(QPen(dot_color.darker(120), 1))
+        p.setBrush(dot_color)
+        p.drawEllipse(QPoint(int(dot_x), int(dot_y)), 7, 7)
+
+
+class _JoystickPanel(QFrame):
+    """Compact diagnostic panel: XY pad + button LED + readout."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setStyleSheet(
+            f"_JoystickPanel {{ background: {COL_PANEL_ALT}; "
+            f"border: 1px solid {COL_BORDER}; border-radius: 6px; }}")
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(10, 8, 10, 10); outer.setSpacing(8)
+
+        # Header row: title + status badge
+        hdr = QHBoxLayout(); hdr.setSpacing(6)
+        title = QLabel("M5 JOYSTICK2")
+        title.setStyleSheet(
+            f"color: {COL_MUTED}; font-weight: 700; font-size: 9pt; "
+            f"letter-spacing: 2px;")
+        hdr.addWidget(title)
+        hdr.addStretch(1)
+        self._lbl_status = _Pill("--", "#333", COL_MUTED, min_w=90)
+        hdr.addWidget(self._lbl_status)
+        outer.addLayout(hdr)
+
+        # Body: XY pad on the left, button LED + numeric readout on the right
+        body = QHBoxLayout(); body.setSpacing(12)
+        self._pad = _JoystickXYPad(size=140)
+        body.addWidget(self._pad, 0, Qt.AlignTop)
+
+        right = QVBoxLayout(); right.setSpacing(6)
+        # Button LED (large coloured circle that lights when pressed)
+        self._btn_led = QLabel("●")
+        self._btn_led.setAlignment(Qt.AlignCenter)
+        self._btn_led.setFixedHeight(36)
+        self._btn_led.setStyleSheet(
+            f"color: #333; font-size: 28pt; background: transparent;")
+        right.addWidget(self._btn_led)
+        self._lbl_btn_text = QLabel("button: up")
+        self._lbl_btn_text.setAlignment(Qt.AlignCenter)
+        self._lbl_btn_text.setStyleSheet(
+            f"color: {COL_MUTED}; font-size: 9pt;")
+        right.addWidget(self._lbl_btn_text)
+        right.addSpacing(4)
+        self._lbl_xy = QLabel("x +0.00\ny +0.00")
+        self._lbl_xy.setStyleSheet(
+            f"color: {COL_TEXT}; font-family: Consolas; font-size: 10pt;")
+        right.addWidget(self._lbl_xy)
+        self._lbl_presses = QLabel("presses: 0")
+        self._lbl_presses.setStyleSheet(
+            f"color: {COL_MUTED}; font-family: Consolas; font-size: 9pt;")
+        right.addWidget(self._lbl_presses)
+        right.addStretch(1)
+        body.addLayout(right, 1)
+        outer.addLayout(body)
+
+    def apply(self, joy: Optional[dict]) -> None:
+        if not joy:
+            self._lbl_status.set_pill("NO LEADER", "#333", COL_MUTED)
+            self._pad.set_xy(0.0, 0.0, False)
+            self._btn_led.setStyleSheet(
+                "color: #333; font-size: 28pt; background: transparent;")
+            self._lbl_btn_text.setText("button: --")
+            self._lbl_xy.setText("x  ----\ny  ----")
+            self._lbl_presses.setText("presses: --")
+            return
+        status  = int(joy.get("status", 1))
+        present = bool(joy.get("present", False))
+        x       = float(joy.get("x", 0.0))
+        y       = float(joy.get("y", 0.0))
+        btn     = bool(joy.get("button", False))
+        presses = int(joy.get("press_counter", 0))
+
+        if status == 0:
+            self._lbl_status.set_pill("OK", COL_OK)
+        elif status == 1:
+            self._lbl_status.set_pill("NOT PRESENT", "#444", COL_MUTED)
+        elif status == 2:
+            self._lbl_status.set_pill("READ ERR", COL_WARN)
+        else:
+            self._lbl_status.set_pill(f"STATUS {status}", COL_CRIT)
+
+        self._pad.set_xy(x, y, present)
+        if btn:
+            self._btn_led.setStyleSheet(
+                f"color: {COL_OK}; font-size: 28pt; background: transparent;")
+            self._lbl_btn_text.setText("button: DOWN")
+        else:
+            self._btn_led.setStyleSheet(
+                "color: #333; font-size: 28pt; background: transparent;")
+            self._lbl_btn_text.setText("button: up")
+        self._lbl_xy.setText(f"x {x:+.2f}\ny {y:+.2f}")
+        self._lbl_presses.setText(f"presses: {presses}")
+
+
+# ---------------------------------------------------------------------------
 # Mode switcher — large pill buttons at top: Collect | Replay | (Inference)
 # ---------------------------------------------------------------------------
 
@@ -3755,6 +3907,13 @@ class _MainWindow(QMainWindow):
               "the desired zero pose. Persists across power cycle.")
         v.addLayout(tg)
 
+        v.addWidget(_hline())
+
+        # M5 Joystick2 diagnostic panel — confirms the on-leader I2C joystick
+        # is wired correctly and shows live X/Y/button state to the operator.
+        self._joy_panel = _JoystickPanel()
+        v.addWidget(self._joy_panel)
+
         v.addStretch(1)
         return col
 
@@ -4153,6 +4312,12 @@ class _MainWindow(QMainWindow):
                 self.lbl_leader.set_pill(f"leader {age:.0f}s", COL_WARN)
         else:
             self.lbl_leader.set_pill("no leader", "#444", COL_MUTED)
+
+        # M5 Joystick2 panel — `joy` is the OpenRBLeader.last_joystick dict
+        # (or None if no leader / SO-101 leader is in use).  Panel handles
+        # the None case with a "NO LEADER" badge.
+        if hasattr(self, "_joy_panel"):
+            self._joy_panel.apply(s.get("joy"))
 
         # Collect-mode joint panel.  (Replay mode's panel is normally driven
         # by _render_replay_frame from _PlaybackEngine ticks; while live
