@@ -3,9 +3,9 @@
 
 # Single-module configuration (rover only)
 endpoints:
-  command: "tcp://192.168.0.27:5555"
-  telemetry: "tcp://192.168.0.27:5556"
-  ups_telemetry: "tcp://192.168.0.27:5562"  # UPS Power Module telemetry
+  command: "tcp://192.168.1.50:5555"
+  telemetry: "tcp://192.168.1.50:5556"
+  ups_telemetry: "tcp://192.168.1.50:5562"  # UPS Power Module telemetry
 
 motors:
   drive: ["left_wheel", "right_wheel"]

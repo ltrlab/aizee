@@ -492,15 +492,28 @@ class EpisodeDataset(Dataset):
 
 
 def split_episodes(
-    data_dir: str, val_fraction: float, seed: int = 0
+    data_dir: str,
+    val_fraction: float,
+    seed: int = 0,
+    episode_min: Optional[int] = None,
+    episode_max: Optional[int] = None,
 ) -> Tuple[List[Path], List[Path]]:
     """Split episode files into train/val sets by episode (never within an episode).
 
     A deterministic shuffle of the sorted file list is used so re-running with
     the same seed reproduces the split. At least one episode is kept in each
     subset when val_fraction > 0.
+
+    `episode_min` / `episode_max` filter by the integer suffix in the filename
+    (`episode_0068.hdf5` -> 68), inclusive on both ends.
     """
     paths = sorted(Path(data_dir).glob("episode_*.hdf5"))
+    if episode_min is not None or episode_max is not None:
+        lo = episode_min if episode_min is not None else -1
+        hi = episode_max if episode_max is not None else 10**9
+        def _idx(p: Path) -> int:
+            return int(p.stem.split("_")[-1])
+        paths = [p for p in paths if lo <= _idx(p) <= hi]
     if len(paths) == 0:
         raise FileNotFoundError(f"no episode_*.hdf5 files found in {data_dir}")
     if val_fraction <= 0:

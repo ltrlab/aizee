@@ -41,6 +41,7 @@ import base64
 import enum
 import io
 import json
+import math
 import queue
 import sys
 import threading
@@ -99,8 +100,33 @@ try:
         identify_port, LEADER_KINDS,
     )
     _leader_module_available = True
+    # FF protocol constants (OpenRB only).  Imported once at top so the
+    # FF-send block in the main loop stays cheap; getattr fallback keeps
+    # this safe if an older openrb_leader.py is on the path.
+    try:
+        from openrb_leader import FF_MAX_CURRENT_MA, FF_DISABLE_SENTINEL
+    except Exception:
+        FF_MAX_CURRENT_MA   = 200
+        FF_DISABLE_SENTINEL = -32768
 except ImportError:
     LEADER_KINDS = ("so101",)
+    FF_MAX_CURRENT_MA   = 200
+    FF_DISABLE_SENTINEL = -32768
+
+# Quest / WebXR leader (optional — kicks in only when --leader quest).
+# Pulled in lazily because it imports IK + aiohttp + cryptography which the
+# user may not have installed if they're sticking with the physical leader.
+# Imported as a top-level module via the `python/teleop/` path entry that
+# line 84 already added (same pattern as so101_leader / leader), not as a
+# subpackage of `teleop` — `teleop/teleop.py` would shadow the namespace.
+_quest_available = False
+try:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from quest_leader import QuestLeader, QuestLeaderConfig, make_quest_leader_class
+    from web import SharedState, start_server_in_thread
+    _quest_available = True
+except ImportError as _quest_imp_err:
+    _quest_imp_err_msg = str(_quest_imp_err)
 
 sys.path.insert(0, str(Path(__file__).parent))
 from record_replay import (
@@ -144,6 +170,110 @@ _LEADER_JOINTS = list(ARM_JOINTS)
 _BASE_MOTORS = ["left_wheel", "right_wheel"]
 # Swivel is now part of ARM_JOINTS (joint 0), so no separate entry here.
 _ALL_MOTORS  = _BASE_MOTORS + list(ARM_JOINTS)
+
+# ---------------------------------------------------------------------------
+# Motor ↔ URDF frame alignment
+# ---------------------------------------------------------------------------
+# `signs` is a real frame-direction correction — some motor encoders rotate
+# opposite to the URDF joint axis (mounting / cabling artefact), and the
+# control loop MUST account for that or commands move the wrong way.
+#
+# `offsets` is a PURELY VISUAL knob for the URDF mirror — used when the
+# motor's mechanical zero doesn't visually match the URDF neutral pose,
+# but the IK / control loop is otherwise correct.  Applying it in the
+# boundary would actively offset the motor command and physically shove
+# the joint — which is what just happened to gantry_end.  Offsets are
+# forwarded to the browser via telemetry; scene.js / preview.html add
+# them only when rendering the mesh.
+#
+# Boundary math (in collect_demo) is sign-only:
+#     q_urdf_ctrl  = q_motor * sign        # both in URDF *control* frame
+#     q_motor      = q_urdf_ctrl * sign    # sign² = 1
+#     v_urdf       = v_motor * sign
+#     τ_urdf       = τ_motor * sign
+#
+# Loaded from config/joint_align.json at startup; hot-reloaded via mtime.
+_ALIGN_OFFSETS = np.zeros(NUM_JOINTS, dtype=np.float32)
+_ALIGN_SIGNS   = np.ones(NUM_JOINTS,  dtype=np.float32)
+_ALIGN_PATH    = Path(__file__).resolve().parents[2] / "config" / "joint_align.json"
+_ALIGN_MTIME   = 0.0   # last mtime we loaded; reload-if-changed gate
+
+def _load_joint_align() -> None:
+    """Populate the module-level _ALIGN_* arrays from joint_align.json."""
+    global _ALIGN_OFFSETS, _ALIGN_SIGNS, _ALIGN_MTIME
+    if not _ALIGN_PATH.exists():
+        return
+    try:
+        _ALIGN_MTIME = _ALIGN_PATH.stat().st_mtime
+        data = json.loads(_ALIGN_PATH.read_text())
+    except Exception as e:
+        print(f"WARNING: joint_align.json parse failed: {e}", flush=True)
+        return
+    o = data.get("offsets")
+    if isinstance(o, list) and len(o) >= NUM_JOINTS:
+        _ALIGN_OFFSETS = np.asarray(o[:NUM_JOINTS], dtype=np.float32)
+    s = data.get("signs")
+    if isinstance(s, list) and len(s) >= NUM_JOINTS:
+        _ALIGN_SIGNS = np.asarray(
+            [1.0 if float(x) >= 0 else -1.0 for x in s[:NUM_JOINTS]],
+            dtype=np.float32,
+        )
+
+def _maybe_reload_joint_align() -> bool:
+    """Reload joint_align.json if its mtime has changed since last load.
+
+    Cheap to call (one stat per invocation); intended to be hit from the
+    main loop a few times per second so /preview Save edits take effect
+    without restarting collect_demo.  Returns True if reloaded."""
+    try:
+        m = _ALIGN_PATH.stat().st_mtime if _ALIGN_PATH.exists() else 0.0
+    except OSError:
+        return False
+    if m == _ALIGN_MTIME:
+        return False
+    _load_joint_align()
+    print(f"[joint_align] reloaded: signs={_ALIGN_SIGNS.tolist()} "
+          f"offsets={[round(float(x), 3) for x in _ALIGN_OFFSETS]}", flush=True)
+    return True
+
+def _push_visual_offsets_to_leader(leader) -> None:
+    """If the active leader exposes set_visual_offsets (QuestLeader does),
+    hand it the current _ALIGN_OFFSETS so its IK/FK operate in visual
+    frame (= mesh frame).  Physical leaders ignore this."""
+    fn = getattr(leader, "set_visual_offsets", None)
+    if fn is not None:
+        try:
+            fn(_ALIGN_OFFSETS)
+        except Exception as e:
+            print(f"[joint_align] leader.set_visual_offsets failed: {e}", flush=True)
+
+def _motor_to_urdf_pos(q_motor: np.ndarray) -> np.ndarray:
+    return np.asarray(q_motor, dtype=np.float32) * _ALIGN_SIGNS
+
+def _urdf_to_motor_pos(q_urdf: np.ndarray) -> np.ndarray:
+    # signs are ±1 → 1/sign == sign
+    return np.asarray(q_urdf, dtype=np.float32) * _ALIGN_SIGNS
+
+def _flip_sign_vec(v: np.ndarray) -> np.ndarray:
+    return np.asarray(v, dtype=np.float32) * _ALIGN_SIGNS
+
+def _urdf_to_motor_arm_payload(arm: dict) -> dict:
+    """Transform an arm_joints dict from URDF frame to motor frame.
+
+    Returns a new dict — the input is not mutated (other callers may
+    still hold a reference to it, e.g. holder['last_q_cmd'])."""
+    if not arm or "positions" not in arm:
+        return arm
+    out = dict(arm)
+    pos = np.asarray(arm["positions"], dtype=np.float32)
+    out["positions"] = _urdf_to_motor_pos(pos).tolist()
+    if "velocities" in arm and arm["velocities"] is not None:
+        vel = np.asarray(arm["velocities"], dtype=np.float32)
+        out["velocities"] = _flip_sign_vec(vel).tolist()
+    if "torques" in arm and arm["torques"] is not None:
+        tq = np.asarray(arm["torques"], dtype=np.float32)
+        out["torques"] = _flip_sign_vec(tq).tolist()
+    return out
 
 _SAT_TORQUE = {
     "swivel":      12.0,   # RS03 nominal
@@ -789,7 +919,18 @@ _cmd_sock_lock = threading.Lock()  # serialises cmd_sock.send across threads
 def _send(sock, msg: dict) -> None:
     """Send one message.  Holds `_cmd_sock_lock` so direct sends from the
     main loop (enable/disable/emergency_stop/replay) don't race with the
-    dedicated cmd-sender thread on the same PUSH socket."""
+    dedicated cmd-sender thread on the same PUSH socket.
+
+    Boundary transform: `arm_joints` messages flow in URDF frame
+    internally; convert to motor frame on the way out so callers don't
+    need to remember to do it themselves.  `bundle` messages with an
+    embedded arm_joints field get the same treatment."""
+    if isinstance(msg, dict):
+        if msg.get("type") == "arm_joints":
+            msg = _urdf_to_motor_arm_payload(msg)
+        elif msg.get("type") == "bundle" and isinstance(msg.get("arm_joints"), dict):
+            msg = dict(msg)
+            msg["arm_joints"] = _urdf_to_motor_arm_payload(msg["arm_joints"])
     try:
         with _cmd_sock_lock:
             sock.send(pack_msg(msg), zmq.NOBLOCK)
@@ -823,7 +964,12 @@ def _send_bundle(
     """Send a Bundle once, synchronously.  For one-shots (live replay) and
     shutdown paths.  The 30 Hz teleop path goes through the dedicated
     cmd-sender thread instead — see `_start_cmd_sender`.
-    """
+
+    `arm.positions` is expected in URDF frame; this function applies the
+    inverse alignment transform on the way out so the Rust driver sees
+    motor-frame values.  See _urdf_to_motor_arm_payload for the math."""
+    if arm is not None:
+        arm = _urdf_to_motor_arm_payload(arm)
     msg = _build_bundle(arm, drive)
     if msg is None:
         return
@@ -943,6 +1089,15 @@ def _start_cmd_sender(
                         holder["last_q_cmd"] = np.asarray(pos, dtype=np.float32)
 
             if msg is not None:
+                # Boundary: arm_joints flows in URDF frame internally but the
+                # Rust motor driver expects motor frame.  Apply the inverse
+                # alignment transform on a SHALLOW COPY so holder['bundle']
+                # and last_q_cmd stay in URDF frame for callers that read
+                # them.  drive/other top-level fields pass through unchanged.
+                arm = msg.get("arm_joints")
+                if arm is not None:
+                    msg = dict(msg)
+                    msg["arm_joints"] = _urdf_to_motor_arm_payload(arm)
                 try:
                     with _cmd_sock_lock:
                         sock.send(pack_msg(msg), zmq.NOBLOCK)
@@ -986,17 +1141,28 @@ def _compute_tracking_bundle(
         zero_offsets   = lr_mapping.get("zero_offsets")
         directions     = lr_mapping.get("directions")
         for_aizee      = lr_mapping.get("for_aizee")
+        emits_urdf     = lr_mapping.get("emits_urdf", False)
 
     if (leader_rad is None or zero_offsets is None
             or directions is None or for_aizee is None):
         return None
 
-    # Map leader → AIZEE target.  Same math as the old main-loop branch,
-    # just running here at 100 Hz now.
+    # Map leader → AIZEE target.  Physical leaders' `directions` array
+    # was pre-tuned to match motor-encoder direction (predating
+    # joint_align), so the raw mapped vector is in MOTOR frame.  Fold in
+    # _ALIGN_SIGNS to convert to URDF frame here; the cmd-thread boundary
+    # transform will fold the same signs back out before sending, leaving
+    # the motor command identical to the pre-joint_align behaviour while
+    # downstream (recording, holder["last_q_cmd"]) sees URDF frame.
+    # QuestLeader already emits URDF, so it skips this fold.
     mapped = directions * (leader_rad - zero_offsets)
     target = mapped[for_aizee]
+    if not emits_urdf:
+        target = target * _ALIGN_SIGNS
     if leader_vel is not None:
         vel_ff_arr = (directions * leader_vel)[for_aizee]
+        if not emits_urdf:
+            vel_ff_arr = vel_ff_arr * _ALIGN_SIGNS
     else:
         vel_ff_arr = None
 
@@ -1028,11 +1194,21 @@ def _compute_tracking_bundle(
     q_cmd    = ref + delta
 
     arm_limits = cfg.get("arm_limits")
+    clamped_mask: Optional[np.ndarray] = None
     if arm_limits:
-        q_cmd = np.array(clamp_arm_positions(q_cmd.tolist(), arm_limits))
+        q_cmd_clamped = np.array(clamp_arm_positions(q_cmd.tolist(), arm_limits))
+        clamped_mask  = q_cmd_clamped != q_cmd
+        q_cmd         = q_cmd_clamped
 
+    # Zero vel_ff on any joint pinned at its limit. Without this, the leader's
+    # trigger velocity keeps driving firmware kd·(v_cmd − v_actual) torque
+    # against the mechanical stop, and trigger chatter knocks the motor back
+    # and forth around the limit.
     if cfg.get("vel_ff", True) and vel_ff_arr is not None:
-        vel = vel_ff_arr.tolist()
+        vel_arr = vel_ff_arr.copy()
+        if clamped_mask is not None and clamped_mask.any():
+            vel_arr[clamped_mask] = 0.0
+        vel = vel_arr.tolist()
     else:
         vel = [0.0] * NUM_JOINTS
 
@@ -1286,7 +1462,30 @@ def decode_image(msg: dict, target_size: tuple, flip_v: bool = False) -> Optiona
 # ---------------------------------------------------------------------------
 
 def _qpos(telem: Optional[dict]) -> Optional[np.ndarray]:
-    """Extract 7-element arm joint positions (swivel-first).  None if no arm data."""
+    """Extract 7-element arm joint positions in URDF frame.
+
+    Motor encoders report in motor frame; we apply the per-joint sign +
+    offset from joint_align.json so the rest of collect_demo (IK, engage
+    threshold, recording, replay) all work in a single consistent frame.
+    Returns None if no arm telemetry is present."""
+    if not telem or "motors" not in telem:
+        return None
+    motors = telem["motors"]
+    if not any(j in motors for j in ARM_JOINTS):
+        return None
+    q_motor = np.array(
+        [float(motors[j].get("position", 0.0)) if j in motors else 0.0
+         for j in ARM_JOINTS],
+        dtype=np.float32,
+    )
+    return _motor_to_urdf_pos(q_motor)
+
+def _qpos_motor(telem: Optional[dict]) -> Optional[np.ndarray]:
+    """Same as _qpos but returns the RAW motor-frame positions.
+
+    Used only for the telem broadcast field `qpos_motor` so the /preview
+    calibration UI can compute live offsets/signs against the raw encoder
+    reading."""
     if not telem or "motors" not in telem:
         return None
     motors = telem["motors"]
@@ -1488,12 +1687,19 @@ class _LiveReplay:
         self.loop_mode        = False
         self.goto_start       = True
         self.vel_ff_enabled   = False
-        self.ramp_speed       = 0.4   # rad/s approach to start pose
+        self.ramp_speed       = 1.5   # rad/s approach to start pose.  0.4
+                                      # was too slow to traverse end→start
+                                      # within a reasonable window when the
+                                      # episode ended far from its beginning,
+                                      # making re-arming look stuck.
         self._ramp_step       = self.ramp_speed / LOOP_HZ
-        self._arm_max_lead    = 0.05  # rad cap on how far the command may
-                                      # lead q_actual during ARMING — keeps
-                                      # the open-loop integrator from racing
-                                      # past what the arm can physically follow
+        self._arm_max_lead    = 0.15  # rad cap on how far the command may
+                                      # lead q_actual during ARMING.  At
+                                      # kp=30 this puts peak PD torque at
+                                      # ~4.5 N·m — enough to overcome gantry
+                                      # gravity (was 0.05 / 1.5 N·m, which
+                                      # could not move the arm against load
+                                      # for re-arming from a distant pose).
 
         # Episode (set by load()).  qpos is always 7-DOF (swivel-first).
         self.ep_path:       Optional[Path]       = None
@@ -1518,6 +1724,14 @@ class _LiveReplay:
         self._shutdown_countdown:   float                = 0.0
         self._shutdown_zero_since:  float                = 0.0
         self._SHUTDOWN_TIMEOUT                           = 3.0
+
+        # Arming-phase stall detection.  ARMING used to require every joint
+        # within 0.03 rad of the start pose, which deadlocked when one joint
+        # had enough stiction to sit ~0.04 rad off under low PD authority.
+        self._arming_start_t:        float = 0.0
+        self._ARM_DONE_THRESHOLD            = 0.05   # rad — promote to PLAYING below this
+        self._ARM_STALL_ACCEPT              = 0.10   # rad — after stall timeout, accept up to this
+        self._ARM_STALL_TIMEOUT             = 4.0    # s — start accepting residual after this
 
     # -- Episode loading ---------------------------------------------------
     def load(self, path: Path) -> Optional[str]:
@@ -1585,6 +1799,7 @@ class _LiveReplay:
             # the arming step starts exactly where the arm is.
             self.current_target = q_actual.copy().astype(np.float32)
             self.phase = self.Phase.ARMING
+            self._arming_start_t = time.time()
         else:
             self.phase           = self.Phase.PLAYING
             self.last_frame_wall = time.time()
@@ -1617,10 +1832,17 @@ class _LiveReplay:
             return []
         self.frame_idx = 0
         cmds: list[dict] = []
-        if self.phase == self.Phase.READY:
+        # If we arrived from DONE/PAUSED, motors may have been left disabled
+        # by a prior stop; re-enable defensively so ARMING actually moves.
+        if self.phase != self.Phase.ARMING and self.phase != self.Phase.PLAYING:
             cmds.append({"type": "enable", "motor_ids": self._all_motor_ids})
         if self.goto_start and q_actual is not None:
+            # Reset the ramp integrator from current measured pose so we
+            # don't carry the previous run's end-frame target into ARMING
+            # (which would make ref ≈ end_pose and queue a giant delta).
+            self.current_target = q_actual.copy().astype(np.float32)
             self.phase = self.Phase.ARMING
+            self._arming_start_t = time.time()
         else:
             self.phase           = self.Phase.PLAYING
             self.last_frame_wall = time.time()
@@ -1704,7 +1926,19 @@ class _LiveReplay:
                 q_cmd = np.array(clamp_arm_positions(q_cmd.tolist(), self._arm_limits))
             cmds.append(self._arm_cmd(q_cmd, None))
             self.current_target = q_cmd
-            arm_ok = q_actual is not None and np.all(np.abs(q_actual - tgt) < 0.03)
+            arm_ok = False
+            if q_actual is not None:
+                err = float(np.max(np.abs(q_actual - tgt)))
+                arm_ok = err < self._ARM_DONE_THRESHOLD
+                # Stall escape: if a joint has stiction/PD-authority limits
+                # that prevent closing the last sliver, accept a small
+                # residual after a few seconds rather than hanging forever.
+                if (not arm_ok
+                        and self._arming_start_t > 0
+                        and t0 - self._arming_start_t > self._ARM_STALL_TIMEOUT
+                        and err < self._ARM_STALL_ACCEPT):
+                    self.message = f"armed with residual {err:.3f} rad"
+                    arm_ok = True
             if arm_ok:
                 self.phase           = self.Phase.PLAYING
                 self.last_frame_wall = t0
@@ -1834,6 +2068,7 @@ class _LiveReplay:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    _load_joint_align()  # populate _ALIGN_OFFSETS / _ALIGN_SIGNS from joint_align.json
     _ep = _load_endpoints()
     ap  = argparse.ArgumentParser(
         description="SO-101 leader arm teleop + ACT demo recorder",
@@ -1847,7 +2082,17 @@ def main() -> None:
                     help="Leader calibration JSON (defaults to per-leader-kind path)")
     ap.add_argument("--leader",          default="auto",
                     choices=("auto", *LEADER_KINDS),
-                    help="Which leader arm to use (auto = try SO-101 then OpenRB-150)")
+                    help="Which physical leader arm to use at startup (auto = try "
+                         "SO-101 then OpenRB-150).  Quest VR is added/removed at "
+                         "runtime via the GUI — not selectable here.")
+    # Quest server configuration knobs.  They take effect when the GUI
+    # toggles Quest on; ignored otherwise.
+    ap.add_argument("--quest-bind",      default="0.0.0.0", dest="quest_bind",
+                    help="Bind address for the WebXR server when activated from the GUI")
+    ap.add_argument("--quest-port",      type=int, default=8443, dest="quest_port",
+                    help="HTTPS port for the WebXR server when activated from the GUI")
+    ap.add_argument("--quest-config",    default=None, dest="quest_config",
+                    help="Path to quest_teleop.yaml (defaults to config/quest_teleop.yaml)")
     ap.add_argument("--cmd",             default=_ep.get("command",       "tcp://192.168.0.27:5555"))
     ap.add_argument("--telem",           default=_ep.get("telemetry",     "tcp://192.168.0.27:5556"))
     ap.add_argument("--gripper-cam",     default="tcp://192.168.0.27:5563", dest="gripper_cam",
@@ -1874,6 +2119,21 @@ def main() -> None:
                     help="Serial port for ESP32 e-stop receiver (e.g. /dev/estop-receiver, COM10)")
     ap.add_argument("--task-tag",      default="",                      dest="task_tag",
                     help="Task label written as episode attr (GUI can override live)")
+    # Force-feedback on the OpenRB GELLO leader (only).  Off by default —
+    # requires the dedicated 5V supply on the OpenRB rail; running on USB
+    # power alone will brown out.  Currently scoped to the gripper trigger
+    # so the operator feels follower-side gripper load (object squeeze /
+    # back-drive from a surface).  Other joints stay passive (torque off).
+    ap.add_argument("--ff-leader",     action="store_true",            dest="ff_leader",
+                    help="Enable leader force feedback (OpenRB only). "
+                         "Reflects follower gripper torque onto the trigger.")
+    ap.add_argument("--ff-gripper-gain", type=float, default=350.0,    dest="ff_gripper_gain",
+                    help="mA per N·m of follower gripper torque (signed). "
+                         "Sign flips which way the trigger pushes; tune empirically "
+                         "(default 350 → ~70 mA at typical 0.2 N·m grip load).")
+    ap.add_argument("--ff-gripper-deadband", type=float, default=0.05, dest="ff_gripper_deadband",
+                    help="N·m of follower gripper torque to ignore before "
+                         "applying FF (cancels idle holding torque).")
     args = ap.parse_args()
 
     _ansi_on()
@@ -1916,11 +2176,15 @@ def main() -> None:
         "zero_offsets": None,   # np.ndarray, leader-frame
         "directions":   None,   # np.ndarray, ±1 per leader joint
         "for_aizee":    None,   # list[int], leader-index → AIZEE-arm-index
+        "emits_urdf":   False,  # True for QuestLeader; False for physical
+                                # leaders whose `directions` was tuned to
+                                # the motor-encoder direction pre-joint_align
     }
     _lr_stop         = threading.Event()
     zero_offsets     = None
     directions       = None
     _so101_for_aizee: list[int] = []
+    _emits_urdf      = False    # set per-leader in _try_install_leader
     _arm_joint_set   = set(ARM_JOINTS)
 
     # Selected leader kind ("so101" / "openrb") and its class — set at install
@@ -1928,6 +2192,15 @@ def main() -> None:
     _leader_kind:  Optional[str] = None if args.leader == "auto" else args.leader
     _leader_cls                  = None
     _leader_calib                = args.calib
+
+    # Quest WebXR runtime state.  Lazily built when the GUI toggles Quest
+    # on for the first time; persists for the rest of the session so the
+    # /preview page stays accessible even after the operator disconnects
+    # the VR leader.  Building costs ~1.5 s (cert + URDF + server) which
+    # is why we don't do it at boot.
+    _quest_state = None
+    _quest_cfg   = None
+    _quest_server_started = False
     if args.leader != "auto" and _leader_module_available:
         _leader_cls   = get_leader_class(args.leader)
         if _leader_calib is None:
@@ -1988,9 +2261,76 @@ def main() -> None:
                 "zero_offsets": ldr.zero_offsets,
                 "directions":   ldr.directions,
                 "for_aizee":    for_aizee,
+                # See _apply_leader_to_urdf_frame in _compute_tracking_bundle
+                # / the main loop for what this gates.  Physical leaders
+                # default to False (their `directions` calibration was tuned
+                # to match motor encoder direction, predating joint_align).
+                "emits_urdf":   bool(getattr(ldr, "EMITS_URDF_FRAME", False)),
             }
+        # Hand the leader the current visual-offset vector so its FK/IK
+        # operate in mesh frame (QuestLeader only — others are no-ops).
+        _push_visual_offsets_to_leader(ldr)
         _leader_box["leader"] = ldr
         return True
+
+    # ------------------------------------------------------------------
+    # Quest WebXR — runtime install/uninstall (driven by the GUI button).
+    # The boot path no longer touches these; they're called by the dict
+    # command handler when the operator clicks "Connect Quest VR".
+    # ------------------------------------------------------------------
+
+    def _ensure_quest_runtime() -> bool:
+        """Lazily build SharedState + start the WebXR server.  Idempotent —
+        safe to call multiple times; subsequent calls are no-ops."""
+        nonlocal _quest_state, _quest_cfg, _quest_server_started
+        if not _quest_available:
+            print("[quest] support unavailable — install: "
+                  "pip install aiohttp cryptography pyyaml", flush=True)
+            return False
+        if _quest_state is None:
+            _quest_state = SharedState()
+            _cfg_path = args.quest_config or str(
+                Path(__file__).resolve().parents[2] / "config" / "quest_teleop.yaml"
+            )
+            if Path(_cfg_path).exists():
+                _quest_cfg = QuestLeaderConfig.load_yaml(_cfg_path)
+                print(f"[quest] loaded config from {_cfg_path}", flush=True)
+            else:
+                _quest_cfg = QuestLeaderConfig()
+                print(f"[quest] no config at {_cfg_path} — using defaults", flush=True)
+        if not _quest_server_started:
+            start_server_in_thread(
+                _quest_state, bind=args.quest_bind, port=args.quest_port,
+            )
+            _quest_server_started = True
+        return True
+
+    def _install_quest_leader() -> bool:
+        """Install QuestLeader as the active leader.  Replaces any existing
+        serial leader for the duration of the Quest session."""
+        nonlocal _leader_cls, _leader_kind, _leader_calib
+        if not _ensure_quest_runtime():
+            return False
+        _leader_cls   = make_quest_leader_class(_quest_state, _quest_cfg)
+        _leader_kind  = "quest"
+        _leader_calib = None
+        return _try_install_leader("webxr://")
+
+    def _uninstall_leader() -> None:
+        """Drop the currently-installed leader (no auto-recovery).  The
+        WebXR server stays running so /preview is still reachable; only
+        the leader-poll path is detached."""
+        nonlocal _leader_cls, _leader_kind
+        _leader_box["leader"] = None
+        with _lr_lock:
+            _lr_latest["rad"]     = None
+            _lr_latest["vel"]     = None
+            _lr_latest["clamped"] = None
+            _lr_mapping["zero_offsets"] = None
+            _lr_mapping["directions"]   = None
+            _lr_mapping["for_aizee"]    = None
+            _lr_mapping["emits_urdf"]   = False
+        _leader_kind = None
 
     def _leader_reader(stop: threading.Event) -> None:
         """Always-on reader thread; idles until a leader is installed in _leader_box."""
@@ -2084,12 +2424,14 @@ def main() -> None:
                 zero_offsets     = _p["zero_offsets"]
                 directions       = _p["directions"]
                 _so101_for_aizee = _p["for_aizee"]
+                _emits_urdf      = _p.get("emits_urdf", False)
                 # Publish mapping to the cmd-thread shared state so live
                 # TRACKING-mode q_cmd computation can see it.
                 with _lr_lock:
                     _lr_mapping["zero_offsets"] = zero_offsets
                     _lr_mapping["directions"]   = directions
                     _lr_mapping["for_aizee"]    = _so101_for_aizee
+                    _lr_mapping["emits_urdf"]   = _emits_urdf
         else:
             print(f"{_leader_kind or 'leader'} connect failed on {leader_port} — "
                   "continuing; will retry when port reappears")
@@ -2438,6 +2780,14 @@ def main() -> None:
     latest_gripper_ts:  Optional[float] = None
     latest_q_cmd: Optional[np.ndarray] = None  # last commanded position sent to motors
 
+    # Leader force-feedback state (OpenRB gripper only).  Smoothed copy of
+    # follower gripper torque; LPF coefficient is chosen so a noisy 0.05 N·m
+    # ripple decays to <10% within ~5 ticks (~170 ms at 30 Hz) — not so
+    # heavy that real grip events feel mushy.
+    _ff_gripper_lpf:  float = 0.0
+    _FF_LPF_ALPHA            = 0.30
+    _ff_was_active           = False   # tracks last-tick FF state for clean release
+
     status = "[ ] ready — motors off"
     hint   = ("E=hold · I=idle · Q=quit" if leader is None
               else "E=track · I=idle · Z=zero · M=mirror · Q=quit")
@@ -2580,11 +2930,13 @@ def main() -> None:
                     zero_offsets     = _p["zero_offsets"]
                     directions       = _p["directions"]
                     _so101_for_aizee = _p["for_aizee"]
+                    _emits_urdf      = _p.get("emits_urdf", False)
                     # Publish to the cmd-thread mapping state.
                     with _lr_lock:
                         _lr_mapping["zero_offsets"] = zero_offsets
                         _lr_mapping["directions"]   = directions
                         _lr_mapping["for_aizee"]    = _so101_for_aizee
+                        _lr_mapping["emits_urdf"]   = _emits_urdf
                     print(f"[hot-plug] leader installed — {len(_so101_for_aizee)} arm joints mapped",
                           flush=True)
 
@@ -2639,6 +2991,10 @@ def main() -> None:
                         with _disp_lock:
                             _disp_cams["gripper"]    = gj_bytes
                             _disp_cams["gripper_ts"] = last_gripper_time
+                        # Mirror to the WebXR client (no-op when not in quest mode).
+                        if _quest_state is not None:
+                            _quest_state.latest_cam_jpeg = gj_bytes
+                            _quest_state.latest_cam_seq += 1
 
             _prof.tick("cam")
 
@@ -2705,10 +3061,34 @@ def main() -> None:
                     live_replay.set_speed(float(key.get("speed", 1.0)))
                 elif _cmd == "replay_opts":
                     live_replay.set_opts(**{k: v for k, v in key.items() if k != "cmd"})
+                elif _cmd == "leader_quest_on":
+                    # GUI-driven Quest VR enable.  Builds server lazily on
+                    # first toggle; subsequent toggles reuse the same state.
+                    if _install_quest_leader():
+                        save_msg = f"[quest] connected on :{args.quest_port}"
+                        save_msg_until = t0 + 4.0
+                    else:
+                        save_msg = "[quest] connect failed (see console)"
+                        save_msg_until = t0 + 4.0
+                elif _cmd == "leader_quest_off":
+                    _uninstall_leader()
+                    save_msg = "[quest] disconnected"
+                    save_msg_until = t0 + 3.0
+                elif _cmd == "quest_sim_reset":
+                    if _quest_state is not None:
+                        _quest_state.pending_commands.append({"cmd": "reset_sim"})
+                        save_msg = "[quest] sim reset to home"
+                        save_msg_until = t0 + 2.0
+                elif _cmd == "quest_sim_align":
+                    if _quest_state is not None:
+                        _quest_state.pending_commands.append({"cmd": "align_to_actual"})
+                        save_msg = "[quest] sim aligned to arm"
+                        save_msg_until = t0 + 2.0
                 key = None
 
             # Block teleop motor/recording keys while live replay owns the arm
-            if live_replay.live and key in ("E", "I", "H", "X", "R", "Z", "M", "P"):
+            if live_replay.live and key in ("E", "I", "H", "X", "R", "Z", "M", "P",
+                                            "PEDAL_A", "PEDAL_B", "PEDAL_C"):
                 key = None
 
             # -----------------------------------------------------------------
@@ -2833,6 +3213,42 @@ def main() -> None:
                                          _drive_accel, _drive_decel, period)
 
             # -----------------------------------------------------------------
+            # Foot pedal (3-button USB keyboard emitting A/B/C, captured by
+            # the Qt GUI and sent through gui_cmd_queue as PEDAL_*).
+            #   A → ENABLE     (delegate to "E" handler below)
+            #   B → toggle: IDLE while active, RESUME while idle
+            #   C → SHUTDOWN   (delegate to "X" handler below)
+            # B is handled inline because the keyboard "I" handler only fires
+            # from READY/IDLE, but the pedal must reach IDLE from TRACKING /
+            # ENGAGING / HOLD too.
+            # -----------------------------------------------------------------
+            if key == "PEDAL_A":
+                key = "E"
+            elif key == "PEDAL_C":
+                key = "X"
+            elif key == "PEDAL_B":
+                if teleop_state == State.IDLE:
+                    key = "E"   # resume tracking
+                elif teleop_state in (State.TRACKING, State.ENGAGING,
+                                      State.HOLD):
+                    if recording:
+                        _finalize_recording(" (pedal idle)", t0)
+                    _send(cmd_sock, {"type": "enable",
+                                     "motor_ids": _BASE_MOTORS + list(ARM_JOINTS)})
+                    ref = (q_actual.tolist() if q_actual is not None
+                           else [0.0] * NUM_JOINTS)
+                    _send(cmd_sock, {
+                        "type": "arm_joints", "positions": ref,
+                        "velocities": [0.0] * NUM_JOINTS,
+                        "kp": [0.0] * NUM_JOINTS, "kd": [0.0] * NUM_JOINTS,
+                        "torques": [0.0] * NUM_JOINTS,
+                    })
+                    teleop_state = State.IDLE
+                    key = None
+                else:
+                    key = None  # READY / SHUTDOWN — pedal B is a no-op
+
+            # -----------------------------------------------------------------
             # Keyboard (command keys)
             # -----------------------------------------------------------------
             if key == "Q":
@@ -2897,28 +3313,45 @@ def main() -> None:
                     _finalize_recording("", t0)
 
             elif key == "Z" and leader is not None:
-                with _lr_lock:
-                    _z = _lr_latest["rad"]
-                if _z is not None:
-                    zero_offsets = _z.copy()
-                    leader.save_zero(zero_offsets)
-                    # Republish to the cmd-thread mapping so its TRACKING
-                    # compute picks up the new zero immediately.
-                    with _lr_lock:
-                        _lr_mapping["zero_offsets"] = zero_offsets
-                    zero_msg       = "[Z] zeroed — saved"
+                if not getattr(leader, "SUPPORTS_ZEROING", True):
+                    # Cartesian VR leader self-zeroes on every clutch engage;
+                    # there's no persistent offset to capture, and running
+                    # the zeroing math would corrupt the IK mapping.
+                    zero_msg       = "[Z] n/a — VR leader self-zeroes on grip"
                     zero_msg_until = t0 + 2.0
+                else:
+                    with _lr_lock:
+                        _z = _lr_latest["rad"]
+                    if _z is not None:
+                        zero_offsets = _z.copy()
+                        leader.save_zero(zero_offsets)
+                        # Republish to the cmd-thread mapping so its TRACKING
+                        # compute picks up the new zero immediately.
+                        with _lr_lock:
+                            _lr_mapping["zero_offsets"] = zero_offsets
+                        zero_msg       = "[Z] zeroed — saved"
+                        zero_msg_until = t0 + 2.0
 
             elif key == "M" and leader is not None:
-                with _lr_lock:
-                    _m = _lr_latest["rad"]
+                if not getattr(leader, "SUPPORTS_ZEROING", True):
+                    zero_msg       = "[M] n/a — VR leader self-zeroes on grip"
+                    zero_msg_until = t0 + 2.0
+                    _m = None
+                else:
+                    with _lr_lock:
+                        _m = _lr_latest["rad"]
                 if _m is not None and q_actual is not None:
                     # Mirror: pin zero so leader maps to current actual.
                     # ARM_JOINTS now includes swivel as joint 0, so a single
                     # loop covers all 7 joints.
+                    # q_actual is now URDF frame; for physical leaders the
+                    # mapped target is `directions * (leader - zero) * sign`
+                    # → solve for zero such that target == q_actual:
+                    #   zero = leader - q_actual * sign * direction
                     new_offsets = zero_offsets.copy()
                     for ai, si in enumerate(_so101_for_aizee):
-                        new_offsets[si] = _m[si] - directions[si] * q_actual[ai]
+                        s = _ALIGN_SIGNS[ai] if not _emits_urdf else 1.0
+                        new_offsets[si] = _m[si] - directions[si] * s * q_actual[ai]
                     zero_offsets = new_offsets
                     leader.save_zero(zero_offsets)
                     with _lr_lock:
@@ -3001,10 +3434,18 @@ def main() -> None:
                 if leader_rad is not None:
                     mapped = directions * (leader_rad - zero_offsets)
                     aizee_cmd = mapped[_so101_for_aizee]
+                    # Convert motor-frame leader mapping → URDF frame for
+                    # physical leaders; see _compute_tracking_bundle for
+                    # the full explanation.  QuestLeader sets _emits_urdf
+                    # so it skips this fold.
+                    if not _emits_urdf:
+                        aizee_cmd = aizee_cmd * _ALIGN_SIGNS
                 if leader_vel is not None:
                     # Velocity has the same sign-flip mapping as position
                     # (zero_offset cancels under differentiation).
                     aizee_vel_ff = (directions * leader_vel)[_so101_for_aizee]
+                    if not _emits_urdf:
+                        aizee_vel_ff = aizee_vel_ff * _ALIGN_SIGNS
 
             # Determine target (7-DOF in ARM_JOINTS order; swivel is index 0).
             if live_replay.live:
@@ -3035,6 +3476,11 @@ def main() -> None:
 
             elif live_replay.live:
                 # Live replay owns the arm — send whatever step() emits.
+                # Clear the cmd-thread holder every tick so a stale bundle
+                # left over from before replay_on can't keep getting
+                # re-emitted at 100 Hz between our 30 Hz replay sends
+                # (used to undermine ARMING with leftover kp=0 IDLE holds).
+                _clear_bundle()
                 for _c in live_replay.step(t0, q_actual, period):
                     _send(cmd_sock, _c)
 
@@ -3164,13 +3610,30 @@ def main() -> None:
                 # computes q_cmd live with rate-limiting per real-time
                 # elapsed — bounding leader→motor latency to ~10 ms instead
                 # of the ~33 ms aliasing the 30 Hz main loop used to add.
+                #
+                # Quest gets tighter limits than the physical leaders: IK
+                # near a singularity can throw a multi-radian jump in
+                # leader_rad in a single sample, and the operator has no
+                # haptic feedback to stop it.  Lower max_vel caps chase
+                # speed; lower max_lead caps PD torque during the chase
+                # (peak τ ≈ kp · max_lead = 30 · 0.20 = 6 N·m vs the
+                # previous 18 N·m).  Engage mode's 0.45 rad/s smoothing
+                # is what makes it feel safe — tracking now meets it
+                # closer to half-way while staying responsive enough for
+                # normal hand motion.
+                if _leader_kind == "quest":
+                    _tr_max_vel  = 3.0   # rad/s
+                    _tr_max_lead = 0.20  # rad
+                else:
+                    _tr_max_vel  = args.max_delta * LOOP_HZ
+                    _tr_max_lead = 2.0 * args.max_delta
                 _post_tracking(
                     drive={"linear":  drive_linear  * _max_linear,
                            "angular": drive_angular * _max_angular,
                            "kp": _drive_kp, "kd": _drive_kd},
                     kp=_kp, kd=_kd,
-                    max_vel=args.max_delta * LOOP_HZ,   # rad/s
-                    max_lead=2.0 * args.max_delta,      # rad
+                    max_vel=_tr_max_vel,
+                    max_lead=_tr_max_lead,
                     arm_limits=arm_limits,
                     vel_ff=True,
                 )
@@ -3226,12 +3689,121 @@ def main() -> None:
                 q_actual        = q_new
                 robot_ok        = True
                 last_telem_time = t0
+            # Mirror to WebXR every tick — NOT gated on fresh Jetson telem.
+            # Without this, the browser never loads the URDF mirror when no
+            # arm is connected (q_new stays None), even though the operator
+            # can still drive QuestLeader and see useful HUD state.
+            if _quest_state is not None:
+                # Use the real arm pose if we have it; otherwise the leader's
+                # last commanded q; otherwise a zeros vector so the URDF
+                # mirror still loads at home pose.
+                _q_for_telem = q_actual
+                _hud_ldr = _leader_box.get("leader")
+                if _q_for_telem is None and _hud_ldr is not None:
+                    _hud_qcmd = getattr(_hud_ldr, "_q_last", None)
+                    if _hud_qcmd is not None:
+                        _q_for_telem = np.asarray(_hud_qcmd, dtype=np.float32)
+                if _q_for_telem is None:
+                    _q_for_telem = np.zeros(NUM_JOINTS, dtype=np.float32)
+                _telem_out = {
+                    "ts":   t0,
+                    "qpos": [float(x) for x in _q_for_telem],   # URDF control frame
+                    # Per-joint visual offsets [rad].  Added BY THE BROWSER
+                    # when rendering the URDF mesh — collect_demo keeps them
+                    # OUT of the control loop on purpose (see _ALIGN_OFFSETS
+                    # comment).  Forwarded here so hot-reload from /preview
+                    # propagates to the VR mirror without a page reload.
+                    "align_offsets": [float(x) for x in _ALIGN_OFFSETS],
+                    # Camera freshness so the browser can hide the cam panel
+                    # (avoiding a big black square) when no frames are flowing.
+                    "cam_age": float(cam_age),
+                }
+                # Raw motor-frame snapshot for the /preview calibration UI.
+                # Absent when we don't have arm telem (sim mode etc.); the
+                # client falls back to displaying qpos directly in that case.
+                _q_motor_now = _qpos_motor(telem) if telem is not None else None
+                if _q_motor_now is not None:
+                    _telem_out["qpos_motor"] = [float(x) for x in _q_motor_now]
+                # Surface leader hud_snapshot (engaged / estop / workspace /
+                # qcmd / fk_ee_actual) so the in-headset overlay can render
+                # the workspace box, status pills, and the ghost URDF.
+                _hud_get = getattr(_hud_ldr, "hud_snapshot", None)
+                if _hud_get is not None:
+                    try:
+                        _hud = _hud_get()
+                        # FK marker is computed from the COMMANDED q (what
+                        # the main mirror shows) so the blue validation dot
+                        # sits on the visible arm, not the static real one.
+                        # Add _ALIGN_OFFSETS so the FK matches the visual
+                        # mesh (which renders qcmd + offsets in scene.js).
+                        _kin = getattr(_hud_ldr, "_kin", None)
+                        _cmd_q = _hud.get("qcmd")
+                        if _kin is not None and _cmd_q is not None:
+                            try:
+                                _q_vis = (np.asarray(_cmd_q[:6], dtype=np.float64)
+                                          + _ALIGN_OFFSETS[:6].astype(np.float64))
+                                _fk_pos, _ = _kin.fk_pose(_q_vis)
+                                _hud["fk_ee_actual"] = _fk_pos.tolist()
+                            except Exception:
+                                pass
+                        _telem_out["leader"] = _hud
+                        if "qcmd" in _hud:
+                            _telem_out["qcmd"] = _hud["qcmd"]
+                    except Exception:
+                        pass
+                _quest_state.latest_telem = _telem_out
+                _quest_state.latest_telem_seq += 1
             if telem and "motors" in telem:
                 # Swivel is the first joint of ARM_JOINTS, so torque/temp
                 # arrays already include it at index 0 — no separate extract.
                 tq = _qtorque(telem)
                 if tq is not None:
                     arm_torques = tq
+
+                    # Force-feedback to OpenRB leader (gripper trigger only).
+                    # Reflects follower gripper torque so the operator feels
+                    # objects in the gripper / back-drive when the gripper
+                    # hits a surface.  All other servos stay torque-OFF
+                    # (SENTINEL) — they're free to backdrive as before.
+                    if (args.ff_leader
+                            and leader is not None
+                            and hasattr(leader, "set_ff_currents")
+                            and not estop_hw_active):
+                        raw_t = float(tq[6])  # gripper is ARM_JOINTS[6]
+                        if not math.isnan(raw_t):
+                            _ff_gripper_lpf = (
+                                _FF_LPF_ALPHA * raw_t
+                                + (1.0 - _FF_LPF_ALPHA) * _ff_gripper_lpf
+                            )
+                            # Soft-knee deadband: anything below the floor
+                            # gets zeroed out; above it the response is
+                            # linear from zero (no step at the boundary).
+                            eff = _ff_gripper_lpf
+                            db  = float(args.ff_gripper_deadband)
+                            if abs(eff) <= db:
+                                eff = 0.0
+                            else:
+                                eff = eff - math.copysign(db, eff)
+                            cur_ma = int(round(args.ff_gripper_gain * eff))
+                            cur_ma = max(-FF_MAX_CURRENT_MA,
+                                          min( FF_MAX_CURRENT_MA, cur_ma))
+                            leader.set_ff_currents(
+                                [FF_DISABLE_SENTINEL] * 6 + [cur_ma]
+                            )
+                            _ff_was_active = True
+                    elif _ff_was_active:
+                        # We were sending currents and now the conditions
+                        # no longer apply (FF flag toggled, leader gone,
+                        # e-stop fired).  Send one DISABLE_ALL frame so
+                        # the trigger goes free immediately instead of
+                        # waiting the firmware's 1 s watchdog timeout.
+                        if leader is not None and hasattr(leader, "set_ff_currents"):
+                            try:
+                                leader.set_ff_currents([FF_DISABLE_SENTINEL] * 7)
+                            except Exception:
+                                pass
+                        _ff_gripper_lpf = 0.0
+                        _ff_was_active  = False
                 te = _qtemp(telem)
                 if te is not None:
                     arm_temps = te
@@ -3448,6 +4020,12 @@ def main() -> None:
                 # installed yet (so the panel shows "NO LEADER").
                 joy=(m5 if leader is not None else None),
                 state=teleop_state.value,
+                # Quest VR state for the GUI's leader panel.
+                quest_available=_quest_available,
+                quest_kind=_leader_kind,                       # "quest" | "openrb" | "so101" | None
+                quest_server_running=_quest_server_started,
+                quest_port=args.quest_port,
+                quest_bind=args.quest_bind,
                 save_msg=(save_msg if t0 < save_msg_until else None),
                 action_msg=(zero_msg if t0 < zero_msg_until else None),
                 last_saved_path=last_saved_path,
@@ -3464,6 +4042,12 @@ def main() -> None:
             _prof.end()
 
             frame_counter += 1
+            # Pick up edits to joint_align.json (made via /preview Save)
+            # roughly once per second so calibration loops without a
+            # collect_demo restart.  Stat-only; cheap enough at 1 Hz.
+            if (frame_counter % LOOP_HZ) == 0:
+                if _maybe_reload_joint_align() and leader is not None:
+                    _push_visual_offsets_to_leader(leader)
             sleep_t = period - (time.time() - t0)
             if sleep_t > 0:
                 time.sleep(sleep_t)

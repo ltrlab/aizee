@@ -57,6 +57,19 @@ from PySide6.QtWidgets import (
 JOINT_NAMES = ["swivel", "gantry_base", "gantry_mid", "gantry_end",
                "wrist_pitch", "wrist_roll", "gripper"]
 
+# Forward kinematics for the embedded 2D model preview.  Optional — if the
+# IK package isn't importable the preview degrades to a "FK unavailable"
+# placeholder rather than breaking the GUI.
+_fk_kin = None
+try:
+    import sys as _sys
+    from pathlib import Path as _Path
+    _sys.path.insert(0, str(_Path(__file__).resolve().parent.parent))
+    from ik import load_aizee_arm as _load_aizee_arm
+    _fk_kin = _load_aizee_arm()
+except Exception as _fk_exc:  # noqa: F841
+    _fk_kin = None
+
 # Approximate software limits per joint (radians).  Used only for the visual
 # bar range — doesn't affect commands.  Matches AIZEE_DEFAULTS in so101_leader.
 JOINT_LIMITS: dict[str, tuple[float, float]] = {
@@ -3601,6 +3614,139 @@ def _live_phase_colors(phase: str) -> tuple[str, str]:
 # Main window
 # ---------------------------------------------------------------------------
 
+class _ModelPreview(QFrame):
+    """Native 2D isometric stick-figure of the arm, rendered with QPainter.
+
+    Draws two skeletons from forward kinematics:
+      * grey  = commanded pose (target qpos) — where the operator is driving
+      * green = actual pose (real arm qpos)  — where the arm physically is
+
+    When they coincide the green sits on the grey; when they diverge (lag,
+    motors off, saturation) the green separates, mirroring the VR ghost.
+    Pure QPainter — no GL, no web engine, safe on the GUI worker thread.
+    The full textured 3D model lives at /preview (browser / in-VR).
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setMinimumWidth(220)
+        self.setStyleSheet(
+            f"QFrame {{ background: #0a0d12; border: 1px solid {COL_BORDER}; "
+            f"border-radius: 6px; }}")
+        self._target_pts: Optional[list] = None   # commanded joint XYZ (robot frame)
+        self._actual_pts: Optional[list] = None   # actual joint XYZ
+        self._azimuth = 0.6   # view rotation about Z (rad); operator can spin it
+        self._mouse_last: Optional[QPoint] = None
+
+    # ---- data in -------------------------------------------------------
+
+    @staticmethod
+    def _joint_xyz(q) -> Optional[list]:
+        """FK -> list of joint-origin positions (robot Z-up frame)."""
+        if _fk_kin is None or q is None:
+            return None
+        try:
+            import numpy as _np
+            frames = _fk_kin.fk_frames(_np.asarray(q[:6], dtype=float))
+            return [t.tolist() for (_R, t) in frames]
+        except Exception:
+            return None
+
+    def apply(self, target_q, actual_q) -> None:
+        self._target_pts = self._joint_xyz(target_q)
+        self._actual_pts = self._joint_xyz(actual_q)
+        self.update()
+
+    # ---- interaction: drag to spin the view ----------------------------
+
+    def mousePressEvent(self, ev) -> None:
+        self._mouse_last = ev.position().toPoint()
+
+    def mouseMoveEvent(self, ev) -> None:
+        if self._mouse_last is not None:
+            p = ev.position().toPoint()
+            self._azimuth += (p.x() - self._mouse_last.x()) * 0.01
+            self._mouse_last = p
+            self.update()
+
+    def mouseReleaseEvent(self, ev) -> None:
+        self._mouse_last = None
+
+    # ---- projection + paint --------------------------------------------
+
+    def _project_all(self, w, h):
+        """Project both skeletons to 2D screen coords, auto-fit to the widget.
+        Returns (target2d, actual2d, ee2d) or (None, None, None)."""
+        import math
+        pts3d = []
+        if self._target_pts: pts3d += self._target_pts
+        if self._actual_pts: pts3d += self._actual_pts
+        if not pts3d:
+            return None, None, None
+        ca, sa = math.cos(self._azimuth), math.sin(self._azimuth)
+        # Isometric-ish: rotate about Z by azimuth, tilt, orthographic.
+        def iso(p):
+            x, y, z = p[0], p[1], p[2]
+            xr = x * ca - y * sa
+            yr = x * sa + y * ca
+            u = xr
+            v = z - yr * 0.5     # tilt so depth reads as slight vertical offset
+            return (u, v)
+        proj = [iso(p) for p in pts3d]
+        us = [p[0] for p in proj]; vs = [p[1] for p in proj]
+        umin, umax = min(us), max(us); vmin, vmax = min(vs), max(vs)
+        span_u = max(umax - umin, 1e-3); span_v = max(vmax - vmin, 1e-3)
+        margin = 24
+        scale = min((w - 2 * margin) / span_u, (h - 2 * margin) / span_v)
+        cu = (umin + umax) / 2; cv = (vmin + vmax) / 2
+        def to_screen(p3):
+            u, v = iso(p3)
+            sx = w / 2 + (u - cu) * scale
+            sy = h / 2 - (v - cv) * scale   # screen y down, world v up
+            return QPoint(int(sx), int(sy))
+        t2d = [to_screen(p) for p in self._target_pts] if self._target_pts else None
+        a2d = [to_screen(p) for p in self._actual_pts] if self._actual_pts else None
+        ee2d = t2d[-1] if t2d else (a2d[-1] if a2d else None)
+        return t2d, a2d, ee2d
+
+    def paintEvent(self, _ev) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        w, h = self.width(), self.height()
+        # Title
+        p.setPen(QColor(COL_MUTED))
+        p.setFont(QFont("Segoe UI", 8, QFont.DemiBold))
+        p.drawText(8, 16, "KINEMATIC MODEL  (grey=cmd  green=actual)")
+        if _fk_kin is None:
+            p.setPen(QColor(COL_MUTED))
+            p.drawText(QRect(0, 0, w, h), Qt.AlignCenter, "FK unavailable")
+            return
+        t2d, a2d, ee2d = self._project_all(w, h)
+        if t2d is None and a2d is None:
+            p.setPen(QColor(COL_MUTED))
+            p.drawText(QRect(0, 0, w, h), Qt.AlignCenter, "waiting for telemetry…")
+            return
+        # Floor reference dot at the base.
+        def draw_chain(pts, color, width, dot):
+            if not pts or len(pts) < 2:
+                return
+            pen = QPen(QColor(color)); pen.setWidth(width)
+            pen.setJoinStyle(Qt.RoundJoin); pen.setCapStyle(Qt.RoundCap)
+            p.setPen(pen)
+            for i in range(len(pts) - 1):
+                p.drawLine(pts[i], pts[i + 1])
+            p.setBrush(QColor(color))
+            for pt in pts:
+                p.drawEllipse(pt, dot, dot)
+        # Actual first (so commanded draws on top where they overlap).
+        draw_chain(a2d, "#22cc44", 3, 4)   # green = real arm
+        draw_chain(t2d, "#9aa4b0", 4, 3)   # grey  = commanded
+        # EE marker on the commanded chain.
+        if ee2d is not None:
+            p.setBrush(QColor("#d29922")); p.setPen(Qt.NoPen)
+            p.drawEllipse(ee2d, 5, 5)
+
+
 class _MainWindow(QMainWindow):
 
     def __init__(
@@ -3701,9 +3847,13 @@ class _MainWindow(QMainWindow):
                                  font_family="Consolas")
         self.lbl_cams.setFixedWidth(200)
         self.lbl_leader  = _Pill("leader --", "#333",    COL_MUTED)
+        # Foot pedal (USB-keyboard, emits A/B/C). Persists last action so the
+        # operator can glance at the pill to confirm what the pedal just did.
+        self.lbl_pedal   = _Pill("pedal —",   "#333",    COL_MUTED, min_w=150)
 
         for w in (self.lbl_state, self.lbl_robot, self.lbl_battery,
-                  self.lbl_estop, self.lbl_cams, self.lbl_leader):
+                  self.lbl_estop, self.lbl_cams, self.lbl_leader,
+                  self.lbl_pedal):
             row.addWidget(w)
 
         self.btn_fullscreen = QPushButton("⛶ Fullscreen")
@@ -3747,9 +3897,26 @@ class _MainWindow(QMainWindow):
         # expanded).
         self._cam_controls = _CameraControls(self._camera_ctrl_endpoint)
         _ch.addWidget(self._cam_controls, 0)
+        # Camera | model side-by-side in a horizontal splitter so they start
+        # EQUAL and the operator can drag to rebalance.  cam_pair is also
+        # reparented into the replay center during live replay, so we
+        # re-insert it at index 0 of this splitter on return (see
+        # _set_replay_cam_source_live).
+        self._cam_model_split = QSplitter(Qt.Horizontal)
+        self._cam_model_split.setHandleWidth(6)
         self._cam_pair = _LiveCameraPair()
         self._cam_pair.setMinimumHeight(280)
-        _ch.addWidget(self._cam_pair, 1)
+        self._cam_model_split.addWidget(self._cam_pair)
+        # Kinematic model preview — commanded vs actual arm skeleton from FK.
+        # Native QPainter (no web engine on the worker thread).
+        self._model_preview = _ModelPreview()
+        self._model_preview.setMinimumHeight(280)
+        self._model_preview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._cam_model_split.addWidget(self._model_preview)
+        self._cam_model_split.setStretchFactor(0, 1)
+        self._cam_model_split.setStretchFactor(1, 1)
+        self._cam_model_split.setSizes([700, 700])   # equal initial split
+        _ch.addWidget(self._cam_model_split, 1)
         split.addWidget(self._collect_cam_host)
 
         # Bottom area: time-series chart in place of the joint table.
@@ -3810,7 +3977,11 @@ class _MainWindow(QMainWindow):
             self._replay_live_cam_host.layout().addWidget(self._cam_pair)
             self._replay_cam_stack.setCurrentIndex(1)
         else:
-            self._collect_cam_host.layout().addWidget(self._cam_pair)
+            # Re-insert the camera at the LEFT of the camera|model splitter
+            # (index 0) so it lands back beside the model preview, not
+            # appended after it.
+            self._cam_model_split.insertWidget(0, self._cam_pair)
+            self._cam_model_split.setSizes([700, 700])
             self._replay_cam_stack.setCurrentIndex(0)
 
     # ------------------------------------------------------------------
@@ -3909,13 +4080,73 @@ class _MainWindow(QMainWindow):
 
         v.addWidget(_hline())
 
+        # Quest VR leader — runtime toggle.  Starts the WebXR HTTPS server
+        # on first connect (lazy) and installs QuestLeader.  On disconnect,
+        # uninstalls the leader but leaves the server running so /preview
+        # stays reachable for desktop URDF inspection.
+        v.addWidget(_group_title("VR LEADER"))
+        self.btn_quest = _make_button(
+            "Connect Quest VR",
+            "Start the WebXR server + install the Quest VR leader.\n"
+            "Open https://<host>:8443 on the Quest Pro browser to drive the arm.",
+            COL_OK,
+        )
+        self.btn_quest.clicked.connect(self._on_quest_toggle)
+        v.addWidget(self.btn_quest)
+        # Status row: text label that shows the URL when active, "idle"
+        # otherwise.  Monospaced so the URL stays readable.
+        self.lbl_quest_status = QLabel("Quest VR: idle")
+        self.lbl_quest_status.setStyleSheet(
+            f"color: {COL_MUTED}; font-family: Consolas, monospace; font-size: 9.5pt;"
+        )
+        self.lbl_quest_status.setWordWrap(True)
+        self.lbl_quest_status.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        v.addWidget(self.lbl_quest_status)
+        # Kinematic-sim controls: reset the commanded pose to home, or snap
+        # it to the real arm (so there's no jump when motors enable).  Both
+        # forward to the QuestLeader command queue.
+        qsg = QGridLayout(); qsg.setSpacing(6)
+        b_reset = _make_button("Reset Sim", "Reset the kinematic sim (commanded pose) to home")
+        b_reset.clicked.connect(lambda: self._send_cmd({"cmd": "quest_sim_reset"}))
+        qsg.addWidget(b_reset, 0, 0)
+        b_align = _make_button("Align to Arm",
+                               "Snap the kinematic sim to the real arm's current pose "
+                               "(no jump when motors enable)")
+        b_align.clicked.connect(lambda: self._send_cmd({"cmd": "quest_sim_align"}))
+        qsg.addWidget(b_align, 0, 1)
+        v.addLayout(qsg)
+        # Cache for the toggle handler.
+        self._quest_kind: Optional[str] = None
+        self._quest_server_running: bool = False
+        self._quest_available: bool = True
+
+        v.addWidget(_hline())
+
         # M5 Joystick2 diagnostic panel — confirms the on-leader I2C joystick
         # is wired correctly and shows live X/Y/button state to the operator.
         self._joy_panel = _JoystickPanel()
         v.addWidget(self._joy_panel)
 
         v.addStretch(1)
-        return col
+
+        # Wrap in a scroll area so the stacked control sections (record /
+        # task / motion / teleop / VR leader / joystick) can never overflow
+        # the splitter pane and overlap each other — they scroll instead.
+        # Mirrors the replay-controls pattern below.
+        scroll = QScrollArea()
+        scroll.setWidget(col)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet(
+            f"QScrollArea {{ background: {COL_BG}; border: none; }}"
+            f"QScrollBar:vertical {{ background: {COL_BG}; width: 10px; margin: 0; }}"
+            f"QScrollBar::handle:vertical {{ background: {COL_BORDER}; "
+            f"border-radius: 5px; min-height: 30px; }}"
+            f"QScrollBar::handle:vertical:hover {{ background: #555; }}"
+            f"QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}"
+        )
+        return scroll
 
     def _build_replay_controls(self) -> QWidget:
         self._replay_transport = _ReplayTransport()
@@ -3997,6 +4228,17 @@ class _MainWindow(QMainWindow):
             self._cmd_queue.put_nowait(payload)
         except queue.Full:
             pass
+
+    def _on_quest_toggle(self) -> None:
+        """Toggle button handler: connect / disconnect the Quest VR leader."""
+        if not self._quest_available:
+            self.lbl_quest_status.setText("Quest VR: support unavailable "
+                                          "(pip install aiohttp cryptography pyyaml)")
+            return
+        if self._quest_kind == "quest":
+            self._send_cmd({"cmd": "leader_quest_off"})
+        else:
+            self._send_cmd({"cmd": "leader_quest_on"})
 
     # ------------------------------------------------------------------
     # Mode switching
@@ -4135,13 +4377,20 @@ class _MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _install_shortcuts(self) -> None:
+        # USB foot-pedal keys (A/B/C) are dispatched as PEDAL_* so the main
+        # loop can distinguish them from WASD. A previously mapped to the
+        # WASD turn-left fallback; pygame reads WASD straight from its hidden
+        # window, so the GUI-shortcut path was redundant in practice.
         bindings = [
             ("F2",  "R"),  ("R", "R"),
             ("Q",   "Q"),  ("Esc", "CANCEL_SHUTDOWN"),
             ("E",   "E"),  ("I",   "I"),  ("H", "H"),
             ("F",   "F"),  ("X",   "X"),
             ("Z",   "Z"),  ("M",   "M"),  ("P", "P"),
-            ("W",   "W"),  ("A",   "A"),  ("S", "S"),  ("D", "D"),
+            ("W",   "W"),  ("S", "S"),    ("D", "D"),
+            ("A",   "PEDAL_A"),
+            ("B",   "PEDAL_B"),
+            ("C",   "PEDAL_C"),
         ]
         for seq, key_str in bindings:
             sc = QShortcut(QKeySequence(seq), self)
@@ -4185,7 +4434,27 @@ class _MainWindow(QMainWindow):
         # Q always works so the operator can quit from any mode.
         if self._current_mode != MODE_COLLECT and key != "Q":
             return
+        if key in ("PEDAL_A", "PEDAL_B", "PEDAL_C"):
+            self._update_pedal_pill(key)
         self._send_key(key)
+
+    def _update_pedal_pill(self, key: str) -> None:
+        """Reflect the latest pedal press in lbl_pedal. The pill is persistent
+        (stays on the last action until the next press) so the operator always
+        sees what the pedal did, per the foot-pedal spec."""
+        state = (self._last_snapshot or {}).get("state", "ready")
+        if key == "PEDAL_A":
+            label, bg, fg = "A · ENABLE", COL_OK, "#fff"
+        elif key == "PEDAL_C":
+            label, bg, fg = "C · SHUTDOWN", COL_CRIT, "#fff"
+        elif key == "PEDAL_B":
+            if state == "idle":
+                label, bg, fg = "B · RESUME", COL_OK, "#fff"
+            else:
+                label, bg, fg = "B · IDLE", COL_WARN, "#000"
+        else:
+            return
+        self.lbl_pedal.set_pill(label, bg, fg)
 
     def _on_replay_shortcut(self, cb) -> None:
         fw = QApplication.focusWidget()
@@ -4305,13 +4574,48 @@ class _MainWindow(QMainWindow):
             self.lbl_cams.set_pill("cam slow", COL_WARN)
 
         if s.get("leader_connected"):
+            kind = s.get("quest_kind") or "leader"
             age = float(s.get("leader_age", 999.0))
+            label = "VR" if kind == "quest" else kind
             if age < 1.0:
-                self.lbl_leader.set_pill("leader OK", COL_OK)
+                self.lbl_leader.set_pill(f"{label} OK", COL_OK)
             else:
-                self.lbl_leader.set_pill(f"leader {age:.0f}s", COL_WARN)
+                self.lbl_leader.set_pill(f"{label} {age:.0f}s", COL_WARN)
         else:
             self.lbl_leader.set_pill("no leader", "#444", COL_MUTED)
+
+        # --- Quest VR button + status row.  Decoupled from the leader pill
+        # so the operator can see WebXR server state independently of the
+        # leader-poll freshness above (e.g. server up, no Quest connected).
+        if hasattr(self, "btn_quest"):
+            self._quest_available     = bool(s.get("quest_available", True))
+            self._quest_server_running = bool(s.get("quest_server_running", False))
+            self._quest_kind          = s.get("quest_kind")
+            active = (self._quest_kind == "quest")
+            if not self._quest_available:
+                self.btn_quest.setText("Quest VR unavailable")
+                self.btn_quest.setEnabled(False)
+                self.lbl_quest_status.setText(
+                    "pip install aiohttp cryptography pyyaml")
+            elif active:
+                self.btn_quest.setText("Disconnect Quest VR")
+                self.btn_quest.setEnabled(True)
+                bind = s.get("quest_bind", "0.0.0.0")
+                port = s.get("quest_port", 8443)
+                host = "<host-LAN-ip>" if bind == "0.0.0.0" else bind
+                self.lbl_quest_status.setText(
+                    f"server running  ·  open on Quest:  https://{host}:{port}\n"
+                    f"(cert fingerprint printed in console; accept once)"
+                )
+            else:
+                self.btn_quest.setText("Connect Quest VR")
+                self.btn_quest.setEnabled(True)
+                if self._quest_server_running:
+                    self.lbl_quest_status.setText(
+                        "Quest VR: idle  ·  server still up (preview reachable)"
+                    )
+                else:
+                    self.lbl_quest_status.setText("Quest VR: idle")
 
         # M5 Joystick2 panel — `joy` is the OpenRBLeader.last_joystick dict
         # (or None if no leader / SO-101 leader is in use).  Panel handles
@@ -4329,6 +4633,10 @@ class _MainWindow(QMainWindow):
             temp=s.get("temp"),
             leader=s.get("leader_mapped"),
         )
+
+        # Embedded kinematic model preview: commanded (target) vs actual.
+        if hasattr(self, "_model_preview"):
+            self._model_preview.apply(s.get("target"), s.get("actual"))
 
         rec   = bool(s.get("recording", False))
         steps = int(s.get("rec_steps", 0))

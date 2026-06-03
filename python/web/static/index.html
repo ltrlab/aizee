@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>AIZEE VR Teleop</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+        "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+        "urdf-loader": "https://cdn.jsdelivr.net/npm/urdf-loader@0.12.6/src/URDFLoader.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="lobby">
+    <h1>AIZEE VR Teleop</h1>
+    <p id="status">Initializing…</p>
+    <button id="enter-vr">Enter VR</button>
+    <button id="enter-ar" style="margin-left:8px; background:#2188ff; box-shadow:0 4px 12px rgba(33,136,255,0.35);">Enter AR (passthrough)</button>
+    <a href="/preview" style="margin-left: 8px; color: var(--muted); font-size: 14px;">
+      Open URDF preview (no VR)
+    </a>
+    <p class="hint">Open this page on the Meta Quest Pro browser. Accept the
+       certificate warning once; the host's cert fingerprint is printed on
+       the operator console.</p>
+    <details>
+      <summary>Connection diagnostics</summary>
+      <ul>
+        <li>Control WS:    <span id="ws-control">disconnected</span></li>
+        <li>Camera WebRTC: <span id="ws-cam">disconnected</span></li>
+        <li>Telem WS:      <span id="ws-telem">disconnected</span></li>
+        <li>Last controller frame: <span id="ctrl-ts">—</span></li>
+      </ul>
+    </details>
+  </div>
+  <script type="module" src="/static/main.js"></script>
+</body>
+</html>

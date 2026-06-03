@@ -136,9 +136,16 @@ struct ControlSystem {
     emergency_stop: bool,
     last_base_control: Instant,
     control_tick: u64,
-    battery_voltage: Option<f32>, // Battery voltage from VBUS register
+    battery_voltage: Option<f32>, // Avg VBUS across fresh per-motor readings
     last_vbus_request: Instant,   // Track when we last requested VBUS
     last_battery_voltage_update: Option<Instant>, // Track freshness of battery reading
+    // Per-motor VBUS readings (CAN id -> (volts, when received)).  Robstrides
+    // each report their own input voltage; we round-robin queries across
+    // ALL motors and average the fresh values for the published
+    // battery_voltage.  Used to be single-source from base_group.first(),
+    // which broke when the wheels were retired (2026-05-30).
+    motor_vbus: HashMap<u8, (f32, Instant)>,
+    vbus_query_idx: usize,        // Round-robin cursor over all motors
     dropped_frames: RefCell<HashMap<String, u64>>, // Track dropped frames per CAN bus
     last_buffer_warning: RefCell<HashMap<String, Instant>>, // Rate-limit buffer warnings
     consecutive_tx_errors: RefCell<HashMap<String, u32>>, // Track consecutive errors for recovery
@@ -251,6 +258,8 @@ impl ControlSystem {
             battery_voltage: None,
             last_vbus_request: Instant::now(),
             last_battery_voltage_update: None,
+            motor_vbus: HashMap::new(),
+            vbus_query_idx: 0,
             dropped_frames: RefCell::new(HashMap::new()),
             last_buffer_warning: RefCell::new(HashMap::new()),
             consecutive_tx_errors: RefCell::new(HashMap::new()),
@@ -1080,8 +1089,19 @@ impl ControlSystem {
                 }
             }
             CommandMessage::Disable { motor_ids } => {
+                // Don't bail on the first unknown motor — teleop sends a
+                // canonical list that may include motors absent from the
+                // active config (e.g. wheels after 2026-05-30 arm-only
+                // separation).  Log and continue so the real motors still
+                // get disabled.
                 for motor_id in motor_ids {
-                    self.disable_motor(&motor_id)?;
+                    if !self.motor_id_map.contains_key(&motor_id) {
+                        debug!("Disable: skipping unknown motor '{}' (not in config)", motor_id);
+                        continue;
+                    }
+                    if let Err(e) = self.disable_motor(&motor_id) {
+                        warn!("Disable {} failed: {} (continuing with remaining motors)", motor_id, e);
+                    }
                 }
             }
             CommandMessage::EmergencyStop => {
@@ -1313,17 +1333,29 @@ impl ControlSystem {
         // flowing, so 100 ms later the command timeout fired emergency_stop_all().
         // Enabled motors already receive zero-force keepalive frames above.
 
-        // Request battery voltage (VBUS) periodically (10Hz = every 100ms)
+        // Request battery voltage (VBUS) periodically (10Hz = every 100ms).
+        // Round-robin across ALL motors (base + arm) so the published bus
+        // voltage is an average rather than a single-motor reading.  Used to
+        // query only base_group.first(), which silently broke when the wheels
+        // were removed (2026-05-30) and left base_group empty/swivel-only.
         if self.last_vbus_request.elapsed() >= Duration::from_millis(100) {
-            if let Some(motor) = self.base_group.motors.first() {
-                let bus_name = motor.config.can_bus.clone();
-                let can_id = motor.config.can_id;
-                let motor_id = motor.config.id.clone();
+            let total = self.base_group.motors.len() + self.arm_group.motors.len();
+            if total > 0 {
+                let idx = self.vbus_query_idx % total;
+                let (bus_name, can_id, motor_id) = if idx < self.base_group.motors.len() {
+                    let m = &self.base_group.motors[idx];
+                    (m.config.can_bus.clone(), m.config.can_id, m.config.id.clone())
+                } else {
+                    let m = &self.arm_group.motors[idx - self.base_group.motors.len()];
+                    (m.config.can_bus.clone(), m.config.can_id, m.config.id.clone())
+                };
                 if let Some(socket) = self.get_can_socket_by_bus(&bus_name) {
                     let frame = robstride::build_read_param_frame(can_id, robstride::params::VBUS);
                     self.safe_write_frame(socket, &frame, &bus_name)?;
                     self.last_vbus_request = Instant::now();
-                    debug!("Requested VBUS from motor {} (CAN ID 0x{:02X})", motor_id, can_id);
+                    self.vbus_query_idx = self.vbus_query_idx.wrapping_add(1);
+                    debug!("Requested VBUS from motor {} (CAN ID 0x{:02X}) [round-robin {}/{}]",
+                           motor_id, can_id, idx, total);
                 }
             }
         }
@@ -1359,9 +1391,24 @@ impl ControlSystem {
                         match robstride::parse_read_param_response(&frame) {
                             Ok((param_id, value)) => {
                                 if param_id == robstride::params::VBUS {
-                                    self.battery_voltage = Some(value);
-                                    self.last_battery_voltage_update = Some(Instant::now());
-                                    debug!("Battery voltage: {:.2}V", value);
+                                    let now = Instant::now();
+                                    self.motor_vbus.insert(motor_can_id, (value, now));
+                                    // Average across motors with a reading in the
+                                    // last 2 s (round-robin polls every ~100ms; 2 s
+                                    // gives every motor multiple chances to be heard
+                                    // before falling out of the average).
+                                    let cutoff = Duration::from_secs(2);
+                                    let fresh: Vec<f32> = self.motor_vbus.values()
+                                        .filter(|(_, t)| now.duration_since(*t) < cutoff)
+                                        .map(|(v, _)| *v)
+                                        .collect();
+                                    if !fresh.is_empty() {
+                                        let avg = fresh.iter().sum::<f32>() / fresh.len() as f32;
+                                        self.battery_voltage = Some(avg);
+                                        self.last_battery_voltage_update = Some(now);
+                                        debug!("Battery voltage avg: {:.2}V (motor 0x{:02X}={:.2}V, n={})",
+                                               avg, motor_can_id, value, fresh.len());
+                                    }
                                 } else {
                                     debug!("Read param response: 0x{:04X} = {:.3}", param_id, value);
                                 }

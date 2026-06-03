@@ -60,6 +60,11 @@ except ImportError:
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from python.training.act_model import ACTPolicy
+from python.training.inference import (
+    _IMAGENET_MEAN, _IMAGENET_STD, _STATE_MODE_K,
+    normalize_image, normalize_qpos, normalize_qcmd, normalize_torques,
+    denormalize_actions, build_state_vector, load_checkpoint,
+)
 from python.scripts.record_replay import (
     ARM_JOINTS, POLICY_JOINTS, NUM_POLICY_JOINTS,
     extract_policy_qpos, extract_policy_torques,
@@ -104,15 +109,8 @@ def _load_gains():
             return list(kp), list(kd)
     return list(_DEFAULT_KP), list(_DEFAULT_KD)
 
-# ImageNet normalization
-_IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-_IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-
 STALE_THRESH = 0.200   # 200 ms
 WARN_LATENCY = 0.080   # 80 ms — warn if inference takes longer
-
-# State mode → per-joint feature block count
-_STATE_MODE_K = {"qpos": 1, "qpos_qcmd": 2, "qpos_qcmd_tq": 3}
 
 
 def _setup_keyboard():
@@ -195,37 +193,6 @@ def decode_image(msg: dict, target_size=(1024, 768)) -> Optional[np.ndarray]:
     if (img.width, img.height) != target_size:
         img = img.resize(target_size, Image.LANCZOS)
     return np.array(img, dtype=np.uint8)
-
-
-def normalize_image(img: np.ndarray) -> np.ndarray:
-    """uint8 [H,W,3] → float32 [3,H,W] ImageNet normalized."""
-    x = img.astype(np.float32) / 255.0
-    x = (x - _IMAGENET_MEAN) / _IMAGENET_STD
-    return x.transpose(2, 0, 1)
-
-
-def normalize_qpos(qpos, stats):    return (qpos - stats["qpos_mean"])   / stats["qpos_std"]
-def normalize_qcmd(qcmd, stats):    return (qcmd - stats["qcmd_mean"])   / stats["qcmd_std"]
-def normalize_torques(tq, stats):   return (tq   - stats["torque_mean"]) / stats["torque_std"]
-
-
-def denormalize_actions(
-    actions: np.ndarray, stats: dict, action_mode: str, qpos: Optional[np.ndarray] = None
-) -> np.ndarray:
-    """Denormalize a predicted chunk → absolute joint positions.
-
-    actions shape: [chunk_size, J] or [J]
-    action_mode = "absolute": inverse of z-score normalization.
-    action_mode = "relative": inverse z-score gives per-step delta, then add qpos.
-    """
-    if action_mode == "absolute":
-        return actions * stats["action_std"] + stats["action_mean"]
-    if qpos is None:
-        raise ValueError("qpos anchor required for relative action mode")
-    deltas = actions * stats["rel_action_std"] + stats["rel_action_mean"]
-    if deltas.ndim == 2 and qpos.ndim == 1:
-        return deltas + qpos[None, :]
-    return deltas + qpos
 
 
 def apply_safety_limits(
@@ -341,87 +308,8 @@ def _send_joint_command(
 
 
 # ---------------------------------------------------------------------------
-# Checkpoint loading
-# ---------------------------------------------------------------------------
-
-def load_checkpoint(path: str, device: torch.device):
-    """Load checkpoint, return (policy, dataset_stats, config)."""
-    ckpt = torch.load(path, map_location=device, weights_only=False)
-    config = ckpt["config"]
-    dataset_stats = ckpt["dataset_stats"]
-
-    # Convert to float32 numpy (handles both numpy arrays and torch tensors)
-    for k in dataset_stats:
-        v = dataset_stats[k]
-        if hasattr(v, "numpy"):
-            dataset_stats[k] = v.cpu().numpy().astype(np.float32)
-        elif hasattr(v, "astype"):
-            dataset_stats[k] = v.astype(np.float32)
-
-    num_joints = config.get("num_joints", NUM_POLICY_JOINTS)
-    state_mode = config.get("state_mode", "qpos_qcmd")
-    state_dim = config.get("state_dim", num_joints * _STATE_MODE_K.get(state_mode, 1))
-    action_mode = config.get("action_mode", "absolute")
-    dim_feedforward = config.get("dim_feedforward", 2048)
-
-    policy = ACTPolicy(
-        chunk_size=config["chunk_size"],
-        d_model=config["d_model"],
-        dim_feedforward=dim_feedforward,
-        z_dim=config["z_dim"],
-        nhead=config["nhead"],
-        num_encoder_layers=config["num_encoder_layers"],
-        num_decoder_layers=config["num_decoder_layers"],
-        kl_weight=config.get("kl_weight", 10.0),
-        pretrained_encoder=False,
-        num_joints=num_joints,
-        state_dim=state_dim,
-    ).to(device)
-
-    policy.load_state_dict(ckpt["model_state_dict"])
-    policy.eval()
-
-    # Annotate the derived fields onto config for the caller's convenience
-    config["num_joints"] = num_joints
-    config["state_mode"] = state_mode
-    config["state_dim"] = state_dim
-    config["action_mode"] = action_mode
-
-    return policy, dataset_stats, config
-
-
-# ---------------------------------------------------------------------------
 # State / ready-pose helpers
 # ---------------------------------------------------------------------------
-
-def _build_state_vector(
-    qpos_norm: np.ndarray,
-    state_mode: str,
-    last_action: Optional[np.ndarray],
-    qpos_raw: np.ndarray,
-    torques_raw: Optional[np.ndarray],
-    stats: dict,
-    num_joints: int,
-) -> np.ndarray:
-    """Build the extended state vector for inference.
-
-    At inference, qcmd = last predicted action (same trick ALOHA uses with leader).
-    First step uses qpos_raw as bootstrap (zero compliance = safe).
-    """
-    if state_mode == "qpos":
-        return qpos_norm.copy()
-
-    qcmd_raw = last_action if last_action is not None else qpos_raw
-    qcmd_norm = normalize_qcmd(qcmd_raw, stats)
-
-    if state_mode == "qpos_qcmd":
-        return np.concatenate([qpos_norm, qcmd_norm])
-
-    # qpos_qcmd_tq
-    tq_raw = torques_raw if torques_raw is not None else np.zeros(num_joints, dtype=np.float32)
-    tq_norm = normalize_torques(tq_raw, stats)
-    return np.concatenate([qpos_norm, qcmd_norm, tq_norm])
-
 
 def _closest_start_pose(qpos_now: np.ndarray, stats: dict) -> np.ndarray:
     """Select the training-set start pose nearest to `qpos_now`.
@@ -822,7 +710,7 @@ def main():
             qpos_norm = normalize_qpos(qpos_raw, dataset_stats)
             gripper_norm = normalize_image(gripper_img)
 
-            state_vec = _build_state_vector(
+            state_vec = build_state_vector(
                 qpos_norm, state_mode, last_action, qpos_raw, torques_raw,
                 dataset_stats, num_joints,
             )

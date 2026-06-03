@@ -222,63 +222,82 @@ def setup_keyboard():
 # Rerun helpers — extracted from rerun_bridge.py
 # ---------------------------------------------------------------------------
 
-def _log_static_arm() -> None:
-    """Log static arm link geometry (replicated from rerun_bridge.py lines 354–374)."""
+_DEFAULT_ARM_ROOT = "world/rover/arm"
+
+_DEFAULT_LINK_COLORS = (
+    (255, 180, 0),   # link_0
+    (255, 140, 0),   # link_1
+    (255, 100, 0),   # link_2
+    (255,  60, 0),   # link_3
+    (255,   0, 50),  # link_5
+)
+
+
+def _log_static_arm(
+    root: str = _DEFAULT_ARM_ROOT,
+    *,
+    color_override: Optional[Tuple[int, int, int, int]] = None,
+    include_rover_body: bool = True,
+) -> None:
+    """Log static arm link geometry.
+
+    Args:
+        root: Entity path where the swivel transform sits. Defaults to the
+            on-robot path; the episode visualizer passes
+            ``world/ghosts/h_NN/arm`` to mount independent ghost copies.
+        color_override: When set, paint every link strip with this RGBA so a
+            ghost arm reads as a single tint instead of the per-link
+            orange-gradient used for the actual robot.
+        include_rover_body: Skip the rover Boxes3D (and its parent path) for
+            ghost copies so we don't draw 16 overlapping rover bodies.
+    """
     import rerun as rr
 
-    _jb  = "world/rover/arm/joint_base"
+    _jb  = f"{root}/joint_base"
     _jm  = f"{_jb}/joint_mid"
     _je  = f"{_jm}/joint_end"
     _jwp = f"{_je}/joint_wrist_pitch"
     _jwr = f"{_jwp}/joint_wrist_roll"
 
-    # Rover body box
+    if include_rover_body:
+        rover_path = root.rsplit("/", 1)[0] if "/" in root else "world/rover"
+        rr.log(
+            rover_path,
+            rr.Boxes3D(half_sizes=[[0.3, 0.2, 0.1]], colors=[[80, 80, 80]]),
+            static=True,
+        )
+
     rr.log(
-        "world/rover",
-        rr.Boxes3D(half_sizes=[[0.3, 0.2, 0.1]], colors=[[80, 80, 80]]),
-        static=True,
-    )
-    # Arm mount offset
-    rr.log(
-        "world/rover/arm",
+        root,
         rr.Transform3D(translation=[0.0, 0.0, ARM_MOUNT_Z]),
         static=True,
     )
-    # Link strips
-    rr.log(
-        f"{_jb}/link_0",
-        rr.LineStrips3D([[[0.0, 0.0, 0.0], [L0, 0.0, 0.0]]], colors=[[255, 180, 0]]),
-        static=True,
-    )
-    rr.log(
-        f"{_jm}/link_1",
-        rr.LineStrips3D([[[0.0, 0.0, 0.0], [L1, 0.0, 0.0]]], colors=[[255, 140, 0]]),
-        static=True,
-    )
-    rr.log(
-        f"{_je}/link_2",
-        rr.LineStrips3D([[[0.0, 0.0, 0.0], [L2, 0.0, 0.0]]], colors=[[255, 100, 0]]),
-        static=True,
-    )
-    rr.log(
-        f"{_jwp}/link_3",
-        rr.LineStrips3D([[[0.0, 0.0, 0.0], [L3, 0.0, 0.0]]], colors=[[255, 60, 0]]),
-        static=True,
-    )
-    rr.log(
-        f"{_jwr}/link_5",
-        rr.LineStrips3D([[[0.0, 0.0, 0.0], [L5, 0.0, 0.0]]], colors=[[255, 0, 50]]),
-        static=True,
-    )
+
+    link_paths = [
+        (f"{_jb}/link_0",  L0),
+        (f"{_jm}/link_1",  L1),
+        (f"{_je}/link_2",  L2),
+        (f"{_jwp}/link_3", L3),
+        (f"{_jwr}/link_5", L5),
+    ]
+    for (path, length), default_color in zip(link_paths, _DEFAULT_LINK_COLORS):
+        color = color_override if color_override is not None else default_color
+        rr.log(
+            path,
+            rr.LineStrips3D([[[0.0, 0.0, 0.0], [length, 0.0, 0.0]]], colors=[color]),
+            static=True,
+        )
 
 
-def _log_arm_fk(qpos: np.ndarray) -> None:
+def _log_arm_fk(qpos: np.ndarray, root: str = _DEFAULT_ARM_ROOT) -> None:
     """Log FK transforms for the arm hierarchy.
 
     Args:
         qpos: [7] array in ARM_JOINTS order
               [swivel, base, mid, end, wrist_pitch, wrist_roll, gripper].
               The swivel transform is logged on the rover→arm link.
+        root: Entity path where the swivel transform sits. Pass a per-ghost
+              root from the visualizer to drive an independent ghost copy.
     """
     import rerun as rr
 
@@ -290,29 +309,28 @@ def _log_arm_fk(qpos: np.ndarray) -> None:
     wrist_roll_pos  = float(qpos[5])
     gripper_pos     = float(qpos[6])
 
+    _je = f"{root}/joint_base/joint_mid/joint_end"
+
     rr.log(
-        "world/rover/arm",
+        root,
         rr.Transform3D(
             translation=[0.0, 0.0, ARM_MOUNT_Z],
             rotation=rr.RotationAxisAngle([0, 0, 1], angle=swivel_pos),
         ),
     )
-
-    _je = "world/rover/arm/joint_base/joint_mid/joint_end"
-
     rr.log(
-        "world/rover/arm/joint_base",
+        f"{root}/joint_base",
         rr.Transform3D(rotation=rr.RotationAxisAngle([0, 0, 1], angle=base_pos)),
     )
     rr.log(
-        "world/rover/arm/joint_base/joint_mid",
+        f"{root}/joint_base/joint_mid",
         rr.Transform3D(
             translation=[L0, 0.0, 0.0],
             rotation=rr.RotationAxisAngle([0, 1, 0], angle=mid_pos),
         ),
     )
     rr.log(
-        "world/rover/arm/joint_base/joint_mid/joint_end",
+        f"{root}/joint_base/joint_mid/joint_end",
         rr.Transform3D(
             translation=[L1, 0.0, 0.0],
             rotation=rr.RotationAxisAngle([0, 1, 0], angle=end_pos),

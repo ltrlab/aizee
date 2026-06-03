@@ -5,7 +5,7 @@
 set -euo pipefail
 
 HOST="ltr@192.168.0.27"
-KEY="/p/Workspace/ssh-keys/aizee_rover_id"
+KEY="/c/Users/ltr/Workspace/ssh-keys/aizee_rover_id"
 PASS="$(cat "$(dirname "${BASH_SOURCE[0]}")/.jetson_password")"
 
 echo "==> Uploading reset script to $HOST ..."

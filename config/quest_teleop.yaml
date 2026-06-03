@@ -1,0 +1,25 @@
+workspace_min: [-0.1, -0.3, 0.05]
+workspace_max: [0.55, 0.3, 0.55]
+stale_drop_clutch_s: 0.1
+stale_telem_s: 0.5
+gripper_open_rad: 0.0
+gripper_closed_rad: 0.785
+max_joint_vel: 4.0
+cartesian_max_vel_m_s: 0.6
+ik_pos_weight: 1.0
+ik_ori_weight: 1.0    # was 0.3.  At 0.3 the IK weighed position 3.3x more
+                      # than orientation; when a wrist twist required effort
+                      # from the wrist joints (limits / singularities) the
+                      # solver leaked the rotation into gantry_end because
+                      # the orientation residual was cheap.  Equal weight
+                      # forces the IK to honour rotation as much as position.
+ik_damping: 0.05
+# ik_joint_weights left at default (all 1.0) — uniform damping.  A 4x
+# weight on the gantry stage was too aggressive: gantry joints are the
+# ONLY way to translate the EE, and penalising them sent the position
+# residual into the wrist as rotation chatter (and vice versa).  The
+# ori_weight=1.0 bump above is doing the work of keeping rotation honest.
+ik_max_iter: 8
+pose_lpf_alpha: 0.3
+reachable_min: [-0.8484, -0.8563, 0.1759]
+reachable_max: [0.8565, 0.8569, 1.5056]

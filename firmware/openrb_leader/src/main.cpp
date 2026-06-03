@@ -77,11 +77,40 @@ static const uint8_t  CMD_POLL         = 0xA5;
 static const uint8_t  CMD_SCAN         = 0x53;
 static const uint8_t  CMD_REID         = 0x52;
 static const uint8_t  CMD_CENTER       = 0xC0;   // payload [id]; one servo to 2048
+static const uint8_t  CMD_FF_CURRENT   = 0xCC;   // payload [N][int16 LE * N][crc8]
 static const uint8_t  REPLY_POLL_HDR   = 0xA5;
 static const uint8_t  REPLY_SCAN_HDR   = 0x53;
 static const uint8_t  REPLY_REID_HDR   = 0x52;
 static const uint8_t  REPLY_CENTER_HDR = 0xC0;
 static const char     IDENT_STR[]      = "AIZEE-OPENRB-LEADER";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Force-feedback (current-control) mode
+// ─────────────────────────────────────────────────────────────────────────────
+// Defaults to OFF — every servo starts torque-disabled so the operator can
+// backdrive the arm freely.  The host opts in per-poll by sending
+// CMD_FF_CURRENT with a vector of signed goal currents (mA).  Each entry is
+// clamped to ±MAX_FF_CURRENT_MA in firmware; the sentinel value
+// FF_DISABLE_SENTINEL means "stop applying torque on this servo, return it
+// to backdrivable".  The host MUST resend currents periodically — two-stage
+// watchdog (zero-on-stale, disable-on-very-stale) prevents a hung/crashed
+// host from leaving torque applied indefinitely.
+//
+// The 5V supply on USB is not enough to drive these currents on more than
+// one or two servos for any length of time; the user runs FF mode with an
+// external 5V supply on the OpenRB rail.
+//
+// XL330-M077-T Goal_Current unit is 1 mA / lsb.
+static const int16_t  MAX_FF_CURRENT_MA      = 200;   // hard cap per servo
+static const int16_t  FF_DISABLE_SENTINEL    = INT16_MIN; // "torque off this slot"
+static const uint32_t FF_WATCHDOG_ZERO_MS    = 200;   // stale -> goal=0 (still energised)
+static const uint32_t FF_WATCHDOG_DISABLE_MS = 1000;  // very stale -> torque off entirely
+
+// Per-slot FF state.
+static bool     ff_active[DXL_NUM_SERVOS] = {false};
+static uint32_t ff_last_update_ms         = 0;
+static bool     ff_zeroed                 = false;   // currents have been zeroed by watchdog stage 1
+static bool     ff_disabled               = true;    // post-boot state: no servo in current-control mode
 
 // REID status codes.
 static const uint8_t  STAT_OK            = 0x00;
@@ -619,9 +648,137 @@ static void handle_center(uint8_t id) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Force-feedback handlers
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Switch a single servo from torque-off (backdrive) mode into current
+// control.  Idempotent — calling again on an already-active servo is cheap
+// because Dynamixel2Arduino caches the mode internally.  Always:
+//   1) torque off (mode writes require it)
+//   2) set OPERATING_MODE = 0 (current control)
+//   3) write Goal_Current = 0 (start gentle on transition)
+//   4) torque on
+// Returns true if the servo is now under current control.
+static bool ff_enable_slot(uint8_t i) {
+    if (ff_active[i]) return true;
+    uint8_t id = DXL_IDS[i];
+    // Skip silently if the servo isn't on the bus — keeps the rest of the
+    // FF command alive even with a missing servo.
+    if (!dxl.ping(id)) return false;
+    dxl.torqueOff(id);
+    if (!dxl.writeControlTableItem(OPERATING_MODE, id, 0)) return false;
+    if (!dxl.writeControlTableItem(GOAL_CURRENT,   id, 0)) return false;
+    if (!dxl.torqueOn(id)) return false;
+    ff_active[i] = true;
+    return true;
+}
+
+// Disable FF on a single servo, returning it to backdrive.  Safe to call
+// whether the slot is currently active or not.
+static void ff_disable_slot(uint8_t i) {
+    if (!ff_active[i]) return;
+    uint8_t id = DXL_IDS[i];
+    // Best-effort: write goal current 0 first so even if torqueOff misses
+    // (e.g. servo went offline), we're not actively driving torque.
+    dxl.writeControlTableItem(GOAL_CURRENT, id, 0);
+    dxl.torqueOff(id);
+    ff_active[i] = false;
+}
+
+static void ff_disable_all() {
+    for (uint8_t i = 0; i < DXL_NUM_SERVOS; ++i) ff_disable_slot(i);
+    ff_disabled = true;
+    ff_zeroed   = false;
+}
+
+// Read a CMD_FF_CURRENT payload from Serial and apply it.  Payload layout
+// (after the 0xCC command byte):
+//     [1 byte  N]                 must equal DXL_NUM_SERVOS
+//     [int16 LE * N]              signed mA, INT16_MIN = disable that slot
+//     [1 byte  crc8]              over [CMD, N, payload]
+//
+// Invalid CRC -> drop silently (host watchdog will eventually disable FF).
+// Short payload -> drop silently.  Out-of-range currents -> clamped.
+static void handle_ff_current() {
+    // Read N with a short timeout so a stray 0xCC doesn't wedge the loop.
+    uint32_t deadline = millis() + 50;
+    while (Serial.available() == 0 && (int32_t)(millis() - deadline) < 0) { /* spin */ }
+    if (Serial.available() == 0) return;
+    int n_raw = Serial.read();
+    if (n_raw != DXL_NUM_SERVOS) {
+        // Drain any straggler bytes to keep the framing aligned.
+        deadline = millis() + 20;
+        while ((int32_t)(millis() - deadline) < 0) {
+            while (Serial.available() > 0) Serial.read();
+        }
+        return;
+    }
+    uint8_t n = (uint8_t)n_raw;
+    uint8_t buf[2 * DXL_NUM_SERVOS + 1];   // currents + crc
+    deadline = millis() + 100;
+    size_t got = 0;
+    while (got < sizeof(buf) && (int32_t)(millis() - deadline) < 0) {
+        if (Serial.available() > 0) buf[got++] = (uint8_t)Serial.read();
+    }
+    if (got < sizeof(buf)) return;
+
+    // CRC over [CMD, N, currents].  Build a small contiguous scratch.
+    uint8_t crc_in[2 + 2 * DXL_NUM_SERVOS];
+    crc_in[0] = CMD_FF_CURRENT;
+    crc_in[1] = n;
+    for (uint8_t i = 0; i < 2 * DXL_NUM_SERVOS; ++i) crc_in[2 + i] = buf[i];
+    uint8_t expected_crc = crc8(crc_in, sizeof(crc_in));
+    if (buf[2 * DXL_NUM_SERVOS] != expected_crc) return;
+
+    // Apply.  Sentinel -> disable; otherwise clamp and write goal current.
+    for (uint8_t i = 0; i < DXL_NUM_SERVOS; ++i) {
+        int16_t v = (int16_t)(buf[i * 2] | (buf[i * 2 + 1] << 8));
+        if (v == FF_DISABLE_SENTINEL) {
+            ff_disable_slot(i);
+            continue;
+        }
+        // Clamp BEFORE enabling so a malformed/oversize value never
+        // becomes the first thing the servo sees.
+        if (v >  MAX_FF_CURRENT_MA) v =  MAX_FF_CURRENT_MA;
+        if (v < -MAX_FF_CURRENT_MA) v = -MAX_FF_CURRENT_MA;
+        if (!ff_enable_slot(i)) continue;
+        dxl.writeControlTableItem(GOAL_CURRENT, DXL_IDS[i], v);
+    }
+    ff_last_update_ms = millis();
+    ff_zeroed   = false;
+    ff_disabled = false;
+}
+
+// Called every loop tick to enforce the two-stage host-liveness watchdog.
+// Stage 1 (zero currents) kicks in at FF_WATCHDOG_ZERO_MS — the servos
+// stay in current-control mode but apply no torque, so a brief host stall
+// doesn't drop FF entirely (avoids the "torque toggling on/off as you
+// stutter" feel).  Stage 2 (full disable) at FF_WATCHDOG_DISABLE_MS hard-
+// resets to backdrive in case the host has actually crashed.
+static void ff_watchdog_tick() {
+    if (ff_disabled) return;
+    uint32_t age = millis() - ff_last_update_ms;
+    if (age >= FF_WATCHDOG_DISABLE_MS) {
+        ff_disable_all();
+        return;
+    }
+    if (age >= FF_WATCHDOG_ZERO_MS && !ff_zeroed) {
+        for (uint8_t i = 0; i < DXL_NUM_SERVOS; ++i) {
+            if (ff_active[i]) dxl.writeControlTableItem(GOAL_CURRENT, DXL_IDS[i], 0);
+        }
+        ff_zeroed = true;
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main loop
 // ─────────────────────────────────────────────────────────────────────────────
 void loop() {
+    // Run the FF watchdog every tick regardless of inbound traffic so a
+    // hung host doesn't leave torque applied just because no fresh
+    // commands are arriving.
+    ff_watchdog_tick();
+
     if (Serial.available() == 0) {
         return;
     }
@@ -668,6 +825,11 @@ void loop() {
             }
             break;
         }
+        case CMD_FF_CURRENT:
+            // Fire-and-forget: no reply, no ACK.  Host owns the cadence
+            // and watchdog backstop guarantees safe state if it stops.
+            handle_ff_current();
+            break;
         default:
             // Unknown byte — drop silently to keep the protocol
             // forward-compatible.  Older firmware ignores newer commands

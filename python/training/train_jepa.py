@@ -55,6 +55,10 @@ def parse_args():
     p.add_argument("--augment", action="store_true")
     p.add_argument("--val-fraction", type=float, default=0.15)
     p.add_argument("--val-seed", type=int, default=0)
+    p.add_argument("--episode-min", type=int, default=None,
+                   help="Only include episodes with index >= this (e.g. 68)")
+    p.add_argument("--episode-max", type=int, default=None,
+                   help="Only include episodes with index <= this")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--num-workers", type=int, default=4)
     p.add_argument("--save-every", type=int, default=10)
@@ -157,9 +161,13 @@ def main():
     print(f"JEPA weights: lambda_obs={args.lambda_obs}  lambda_reg={args.lambda_reg}")
 
     train_paths, val_paths = split_episodes(
-        args.data_dir, val_fraction=args.val_fraction, seed=args.val_seed
+        args.data_dir, val_fraction=args.val_fraction, seed=args.val_seed,
+        episode_min=args.episode_min, episode_max=args.episode_max,
     )
-    print(f"Episodes: {len(train_paths)} train / {len(val_paths)} val")
+    ep_range = (f" [filter {args.episode_min if args.episode_min is not None else '*'}"
+                f"..{args.episode_max if args.episode_max is not None else '*'}]"
+                if (args.episode_min is not None or args.episode_max is not None) else "")
+    print(f"Episodes: {len(train_paths)} train / {len(val_paths)} val{ep_range}")
 
     train_set = EpisodeDataset(
         episode_paths=train_paths,
@@ -250,7 +258,7 @@ def main():
             print("No JEPA checkpoint found, starting fresh.")
         else:
             print(f"Resuming from {ckpt_path}")
-            ckpt = torch.load(ckpt_path, map_location=device)
+            ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
             policy.load_state_dict(ckpt["model_state_dict"])
             optimizer.load_state_dict(ckpt["optimizer_state_dict"])
             if "scheduler_state_dict" in ckpt:

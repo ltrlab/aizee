@@ -1,0 +1,183 @@
+generated_at: '2026-05-26T03:07:54.987838+00:00'
+urdf: C:\Users\ltr\Workspace\aizee\urdf\aizee\aizee.urdf
+use_convex: true
+samples_per_ancestor: 5
+samples_per_sweep: 41
+auto_allowed_home_pairs:
+- - part_33
+  - part_40
+- - part_22
+  - part_42
+joints:
+  swivel:
+    joint: swivel
+    urdf_lower: -3.141592653589793
+    urdf_upper: 3.141592653589793
+    effective_lower: -3.141592653589793
+    effective_upper: 3.141592653589793
+    reduction_pct: 0.0
+    ancestors: []
+    posture_grid_size: 1
+    valid_postures: 1
+    sweep_samples: 41
+    safe_sample_pct: 100.0
+    top_colliding_pairs: []
+    elapsed_s: 0.01850090001244098
+    manually_edited: true
+  gantry_base:
+    joint: gantry_base
+    urdf_lower: -3.141592653589793
+    urdf_upper: 3.141592653589793
+    effective_lower: -1.75
+    effective_upper: 0.0
+    reduction_pct: 72.14788495891831
+    ancestors:
+    - swivel
+    posture_grid_size: 5
+    valid_postures: 5
+    sweep_samples: 41
+    safe_sample_pct: 12.195121951219512
+    top_colliding_pairs:
+    - pair:
+      - part_33
+      - tophalfbase
+      fail_count: 123
+    - pair:
+      - part_40
+      - part_42
+      fail_count: 120
+    - pair:
+      - part_22
+      - tophalfbase
+      fail_count: 105
+    - pair:
+      - 1_1_02_eb571_960_stp
+      - tophalfbase
+      fail_count: 98
+    - pair:
+      - part_42
+      - tophalfbase
+      fail_count: 98
+    elapsed_s: 0.08952960011083633
+    manually_edited: true
+  gantry_mid:
+    joint: gantry_mid
+    urdf_lower: -3.141592653589793
+    urdf_upper: 3.141592653589793
+    effective_lower: 0.0
+    effective_upper: 3.141593
+    reduction_pct: 49.99999448671033
+    ancestors:
+    - swivel
+    - gantry_base
+    posture_grid_size: 25
+    valid_postures: 25
+    sweep_samples: 41
+    safe_sample_pct: 85.36585365853658
+    top_colliding_pairs:
+    - pair:
+      - part_33
+      - tophalfbase
+      fail_count: 110
+    - pair:
+      - part_42
+      - tophalfbase
+      fail_count: 93
+    - pair:
+      - 1_1_02_eb571_960_stp_2
+      - tophalfbase
+      fail_count: 90
+    - pair:
+      - 1_1_02_eb571_960_stp
+      - tophalfbase
+      fail_count: 81
+    - pair:
+      - part_40
+      - part_42
+      fail_count: 50
+    elapsed_s: 0.354007099987939
+  gantry_end:
+    joint: gantry_end
+    urdf_lower: -3.141592653589793
+    urdf_upper: 3.141592653589793
+    effective_lower: -1.0
+    effective_upper: 2.199115
+    reduction_pct: 49.08450342305712
+    ancestors:
+    - swivel
+    - gantry_base
+    - gantry_mid
+    posture_grid_size: 125
+    valid_postures: 125
+    sweep_samples: 41
+    safe_sample_pct: 36.58536585365854
+    top_colliding_pairs:
+    - pair:
+      - 1_1_02_eb571_960_stp
+      - part_33
+      fail_count: 1375
+    - pair:
+      - 1_1_02_eb571_960_stp_2
+      - part_33
+      fail_count: 875
+    - pair:
+      - 1_1_02_eb571_960_stp
+      - part_22
+      fail_count: 500
+    - pair:
+      - 1_1_02_eb571_960_stp_2
+      - part_22
+      fail_count: 400
+    - pair:
+      - part_40
+      - part_42
+      fail_count: 400
+    elapsed_s: 1.7700740000000224
+    manually_edited: true
+  wrist_pitch:
+    joint: wrist_pitch
+    urdf_lower: -3.141592653589793
+    urdf_upper: 3.141592653589793
+    effective_lower: -0.785398
+    effective_upper: 0.785398
+    reduction_pct: 75.00000520110231
+    ancestors:
+    - swivel
+    - gantry_base
+    - gantry_mid
+    - gantry_end
+    posture_grid_size: 625
+    valid_postures: 625
+    sweep_samples: 41
+    safe_sample_pct: 60.97560975609756
+    top_colliding_pairs:
+    - pair:
+      - 1_1_02_eb571_960_stp
+      - tophalfbase
+      fail_count: 48
+    - pair:
+      - 1_1_02_eb571_960_stp_2
+      - tophalfbase
+      fail_count: 12
+    elapsed_s: 8.696793800103478
+  wrist_swivel:
+    joint: wrist_swivel
+    urdf_lower: -3.141592653589793
+    urdf_upper: 3.141592653589793
+    effective_lower: -1.0
+    effective_upper: 1.0
+    reduction_pct: 68.16901138162092
+    ancestors:
+    - swivel
+    - gantry_base
+    - gantry_mid
+    - gantry_end
+    - wrist_pitch
+    posture_grid_size: 3125
+    valid_postures: 3125
+    sweep_samples: 41
+    safe_sample_pct: 100.0
+    top_colliding_pairs: []
+    elapsed_s: 49.75725819997024
+    manually_edited: true
+last_manual_edit: '2026-05-26T03:21:31.740658+00:00'

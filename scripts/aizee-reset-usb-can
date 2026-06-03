@@ -21,6 +21,25 @@ REBIND_WAIT=2
 
 echo "aizee-reset-usb-can: resetting $IFACE"
 
+# Step 0: If the target interface doesn't exist, look for ANY can* interface
+# backed by gs_usb and rename it.  This handles boots where the Tegra
+# mttcan internal CAN didn't load and the USB adapter grabbed can0 instead
+# of can1 (mttcan normally takes can0/can1, pushing USB to can1/can2).
+if ! ip link show "$IFACE" &>/dev/null; then
+    for c in /sys/class/net/can*; do
+        [[ -d "$c" ]] || continue
+        name=$(basename "$c")
+        [[ "$name" == "$IFACE" ]] && continue
+        drv=$(basename "$(readlink "$c/device/driver" 2>/dev/null || echo)" 2>/dev/null || true)
+        if [[ "$drv" == "gs_usb" ]]; then
+            echo "  Renaming $name (gs_usb) -> $IFACE"
+            ip link set "$name" down 2>/dev/null || true
+            ip link set "$name" name "$IFACE"
+            break
+        fi
+    done
+fi
+
 # Step 1: Bring interface down (ignore errors — may already be down)
 ip link set "$IFACE" down 2>/dev/null || true
 

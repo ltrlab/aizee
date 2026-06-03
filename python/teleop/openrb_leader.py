@@ -46,6 +46,7 @@ from __future__ import annotations
 import json
 import math
 import struct
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -67,6 +68,12 @@ _CMD_IDENT  = 0x50        # identify (returns ASCII line)
 _CMD_SCAN   = 0x53        # bus scan (returns list of (id, baud_code))
 _CMD_REID   = 0x52        # re-assign single-servo ID + baud (setup wizard)
 _CMD_CENTER = 0xC0        # drive single servo to encoder centre (2048)
+_CMD_FF_CURRENT = 0xCC    # force-feedback: set per-servo goal currents (mA)
+
+# FF protocol caps mirror the firmware (firmware clamps too — these are
+# only here so the host doesn't waste bandwidth on out-of-range values).
+FF_MAX_CURRENT_MA   = 200
+FF_DISABLE_SENTINEL = -32768   # = INT16_MIN — "torque off this slot"
 _REPLY_HDR  = 0xA5
 _REPLY_SCAN_HDR   = 0x53
 _REPLY_REID_HDR   = 0x52
@@ -189,6 +196,10 @@ class OpenRBLeader:
         self.port  = port
         self.baud  = baud
         self._ser: Optional[serial.Serial] = None
+        # Serialises serial I/O across threads.  poll() runs in the
+        # leader-reader thread; set_ff_currents() is called from the main
+        # loop — interleaved USB writes would corrupt the framing.
+        self._io_lock = threading.Lock()
         self._calib_path = Path(calib)
         self._calib = _load_calib(self._calib_path)
         self._prev_raw:   dict[str, Optional[int]] = {j: None for j in self.JOINTS}
@@ -240,8 +251,61 @@ class OpenRBLeader:
             return False
 
     def close(self) -> None:
+        # Best-effort: release torque on every FF-active slot before
+        # closing the port.  Cheap fire-and-forget; if it fails (port
+        # already dead, write blocked) the firmware's 1-second watchdog
+        # cleans up anyway.
+        try:
+            self.set_ff_currents([FF_DISABLE_SENTINEL] * _N_SERVOS)
+        except Exception:
+            pass
         if self._ser and self._ser.is_open:
             self._ser.close()
+
+    # ------------------------------------------------------------------
+    # Force feedback (current control)
+    # ------------------------------------------------------------------
+    def set_ff_currents(self, currents) -> bool:
+        """Send a force-feedback current vector (length 7, mA, signed).
+
+        Each entry maps to one XL330 servo in JOINTS order.  Values are
+        clamped to ±FF_MAX_CURRENT_MA in firmware AND here (so we don't
+        burn USB bandwidth on out-of-range data).  Pass FF_DISABLE_SENTINEL
+        for any slot you want returned to backdrive (torque off) — useful
+        e.g. for gripper-only feedback while the rest of the arm stays
+        passive.
+
+        Fire-and-forget: no reply, no ACK.  The caller is expected to
+        invoke this at a steady cadence (~30 Hz typical).  If it goes
+        silent the firmware first zeros currents at 200 ms (keeps mode,
+        applies no torque) then disables FF entirely at 1000 ms.
+
+        Returns True on a successful write, False on serial error / no
+        connection.  A False return doesn't mean the firmware didn't
+        apply the command (no ACK) — only that the write failed locally.
+        """
+        if not (self._ser and self._ser.is_open):
+            return False
+        if len(currents) != _N_SERVOS:
+            raise ValueError(f"set_ff_currents needs {_N_SERVOS} values, got {len(currents)}")
+        # Clamp before serialising.  Preserve the sentinel exactly so the
+        # firmware sees "disable" rather than a near-zero current.
+        clamped = []
+        for v in currents:
+            iv = int(v)
+            if iv == FF_DISABLE_SENTINEL:
+                clamped.append(iv)
+            else:
+                clamped.append(max(-FF_MAX_CURRENT_MA, min(FF_MAX_CURRENT_MA, iv)))
+        # Frame: [CMD][N][int16 LE * N][crc8 over CMD..currents]
+        payload = struct.pack(f"<B B {_N_SERVOS}h", _CMD_FF_CURRENT, _N_SERVOS, *clamped)
+        frame = payload + bytes([_crc8(payload)])
+        with self._io_lock:
+            try:
+                self._ser.write(frame)
+                return True
+            except serial.SerialException:
+                return False
 
     @property
     def connected(self) -> bool:
@@ -443,37 +507,41 @@ class OpenRBLeader:
         """
         if self._ser is None:
             return None
-        try:
-            self._ser.reset_input_buffer()
-            self._ser.write(bytes([_CMD_POLL]))
-            self._ser.flush()
-            # Find frame start (tolerates one stray byte).
-            hdr = self._read_exact(2)
-            if hdr is None:
-                return None
-            if hdr[0] != _REPLY_HDR:
-                # Try resyncing once: read one more byte and check.
-                tail = self._read_exact(1)
-                if tail is None or hdr[1] != _REPLY_HDR:
+        # Acquire the I/O lock for the whole write+read so set_ff_currents()
+        # (which writes from the main loop) can't interleave bytes into our
+        # POLL framing.
+        with self._io_lock:
+            try:
+                self._ser.reset_input_buffer()
+                self._ser.write(bytes([_CMD_POLL]))
+                self._ser.flush()
+                # Find frame start (tolerates one stray byte).
+                hdr = self._read_exact(2)
+                if hdr is None:
                     return None
-                n_byte = tail[0]
-            else:
-                n_byte = hdr[1]
-            if n_byte != _N_SERVOS:
+                if hdr[0] != _REPLY_HDR:
+                    # Try resyncing once: read one more byte and check.
+                    tail = self._read_exact(1)
+                    if tail is None or hdr[1] != _REPLY_HDR:
+                        return None
+                    n_byte = tail[0]
+                else:
+                    n_byte = hdr[1]
+                if n_byte != _N_SERVOS:
+                    return None
+                payload = self._read_exact(_N_SERVOS * 4 + 6 + 1)
+                if payload is None:
+                    return None
+                data = payload[:-1]
+                crc  = payload[-1]
+                if _crc8(bytes([_REPLY_HDR, n_byte]) + data) != crc:
+                    return None
+                positions = struct.unpack("<7i", data[: _N_SERVOS * 4])
+                joy_x_raw, joy_y_raw, joy_btn, joy_status = struct.unpack(
+                    "<hhBB", data[_N_SERVOS * 4 :]
+                )
+            except (serial.SerialException, OSError):
                 return None
-            payload = self._read_exact(_N_SERVOS * 4 + 6 + 1)
-            if payload is None:
-                return None
-            data = payload[:-1]
-            crc  = payload[-1]
-            if _crc8(bytes([_REPLY_HDR, n_byte]) + data) != crc:
-                return None
-            positions = struct.unpack("<7i", data[: _N_SERVOS * 4])
-            joy_x_raw, joy_y_raw, joy_btn, joy_status = struct.unpack(
-                "<hhBB", data[_N_SERVOS * 4 :]
-            )
-        except (serial.SerialException, OSError):
-            return None
 
         # Update joystick snapshot.  Edge-detect on the released→pressed
         # transition; press_counter is monotonic so a 30 Hz main loop can
