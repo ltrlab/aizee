@@ -36,7 +36,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # Process names we care about — extend if you add more node types.
-PROCS=(arm_camera_node camera_node camera_relay)
+PROCS=(gripper_camera_node camera_node)
 
 echo "ts pid name rss_kb vmsize_kb threads" > "${RSS}"
 while true; do

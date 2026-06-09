@@ -74,10 +74,9 @@ SERVICES = [
     ("aizee-motor-control-rover", "motors"),
     ("aizee-lidar-control",       "lidar"),
     ("aizee-ups-monitor",         "ups"),
-    ("aizee-camera-relay",        "relay"),
     ("aizee-display",             "disp"),
-    ("aizee-arm-cam-left",        "armL"),
-    ("aizee-arm-cam-right",       "armR"),
+    ("aizee-gripper-cam",         "grip"),
+    ("aizee-scene-cam",           "scene"),
 ]
 SERVICE_CHECK_INTERVAL = 5.0  # seconds — rate-limit systemctl calls
 

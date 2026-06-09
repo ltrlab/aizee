@@ -125,6 +125,6 @@ network:
       telemetry_pub: "tcp://*:5556"    # Publishes motor states
       lidar_pub: "tcp://*:5561"        # Publishes LiDAR scans
       ups_pub: "tcp://*:5562"          # Publishes UPS power telemetry
-      arm_cam_left_pub: "tcp://*:5563" # D435 arm camera left  (see hardware_jetson_arm_cam_left.yaml)
-      arm_cam_right_pub: "tcp://*:5564" # D435 arm camera right (see hardware_jetson_arm_cam_right.yaml)
+      gripper_cam_pub: "tcp://*:5563" # ELP UVC gripper camera (see hardware_jetson_gripper_cam.yaml)
+      scene_cam_pub: "tcp://*:5564"   # RealSense scene camera (see hardware_jetson_scene_cam.yaml)
       motor_telem_sub: "tcp://localhost:5556"  # Motor telemetry subscriber (display_node)

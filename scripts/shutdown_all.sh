@@ -71,7 +71,8 @@ echo "=== Stopping Jetson services ==="
 
 JETSON_SERVICES=(
     aizee-motor-control-rover
-    aizee-camera-relay
+    aizee-gripper-cam
+    aizee-scene-cam
     aizee-lidar-control
     aizee-ups-monitor
 )

@@ -17,7 +17,7 @@ End-to-end guide for collecting demonstrations, training an ACT policy, validati
 | Component | Purpose |
 |---|---|
 | Jetson running `aizee-motor-control-rover` | CAN bus motor control + ZMQ telemetry |
-| Both arm cameras streaming | Left `:5563`, right `:5564` (USB D435 on Jetson) |
+| Arm cameras streaming | gripper `:5563` (ELP UVC), scene `:5564` (RealSense), USB on Jetson |
 | SO-101 leader arm | USB serial, for teleoperation during recording |
 | `pip install -r requirements.txt` | h5py, torch, rerun-sdk, etc. |
 | `config/so101_calibration.json` | Joint-to-joint mapping (see Calibration below) |

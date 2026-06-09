@@ -8,8 +8,8 @@ without touching the real arm.
 
 Sockets (binds, matching real hardware topology):
     :5556 PUB  — arm telemetry  (matches Rust motor_control)
-    :5563 PUB  — left camera    (matches arm_camera_node.py)
-    :5564 PUB  — right camera
+    :5563 PUB  — gripper camera (matches gripper_camera_node.py)
+    :5564 PUB  — scene camera   (matches camera_node.py / RealSense)
 
 In --mode closed_loop only:
     :5555 PULL — receives arm_joints commands, applies simulated dynamics
@@ -95,8 +95,8 @@ class MockArmPublisher:
         self.mode = args.mode
         self.hz = args.hz
         self.telem_port = args.telem_port
-        self.cam_left_port = args.cam_left_port
-        self.cam_right_port = args.cam_right_port
+        self.gripper_cam_port = args.gripper_cam_port
+        self.scene_cam_port = args.scene_cam_port
         self.cmd_port = args.cmd_port
 
         # Joint state
@@ -114,13 +114,13 @@ class MockArmPublisher:
         self.telem_pub.setsockopt(zmq.SNDHWM, 10)
         self.telem_pub.bind(f"tcp://*:{self.telem_port}")
 
-        self.left_pub = self.ctx.socket(zmq.PUB)
-        self.left_pub.setsockopt(zmq.SNDHWM, 4)
-        self.left_pub.bind(f"tcp://*:{self.cam_left_port}")
+        self.gripper_pub = self.ctx.socket(zmq.PUB)
+        self.gripper_pub.setsockopt(zmq.SNDHWM, 4)
+        self.gripper_pub.bind(f"tcp://*:{self.gripper_cam_port}")
 
-        self.right_pub = self.ctx.socket(zmq.PUB)
-        self.right_pub.setsockopt(zmq.SNDHWM, 4)
-        self.right_pub.bind(f"tcp://*:{self.cam_right_port}")
+        self.scene_pub = self.ctx.socket(zmq.PUB)
+        self.scene_pub.setsockopt(zmq.SNDHWM, 4)
+        self.scene_pub.bind(f"tcp://*:{self.scene_cam_port}")
 
         self.cmd_pull = None
         if self.mode == "closed_loop":
@@ -129,9 +129,9 @@ class MockArmPublisher:
             self.cmd_pull.bind(f"tcp://*:{self.cmd_port}")
             print(f"  Bound PULL (cmd receiver) on :{self.cmd_port}")
 
-        print(f"  Bound PUB (telemetry) on :{self.telem_port}")
-        print(f"  Bound PUB (left cam)  on :{self.cam_left_port}")
-        print(f"  Bound PUB (right cam) on :{self.cam_right_port}")
+        print(f"  Bound PUB (telemetry)   on :{self.telem_port}")
+        print(f"  Bound PUB (gripper cam) on :{self.gripper_cam_port}")
+        print(f"  Bound PUB (scene cam)   on :{self.scene_cam_port}")
 
     # ------------------------------------------------------------------
     # Joint state
@@ -175,7 +175,7 @@ class MockArmPublisher:
 
         # Background: hue slowly cycles with time, slightly different per camera
         hue_base = int(t_elapsed * 20) % 256
-        offset = 80 if side == "right" else 0
+        offset = 80 if side == "scene" else 0
         bg_r = (hue_base + offset) % 256
         bg_g = (128 + hue_base // 2) % 256
         bg_b = (255 - hue_base + offset) % 256
@@ -277,11 +277,11 @@ class MockArmPublisher:
                 telem = self._build_telemetry()
                 self.telem_pub.send_string(json.dumps(telem), zmq.NOBLOCK)
 
-                left_msg = self._build_camera_msg("arm_cam_left", "left")
-                self.left_pub.send_string(json.dumps(left_msg), zmq.NOBLOCK)
+                gripper_msg = self._build_camera_msg("gripper_cam", "gripper")
+                self.gripper_pub.send_string(json.dumps(gripper_msg), zmq.NOBLOCK)
 
-                right_msg = self._build_camera_msg("arm_cam_right", "right")
-                self.right_pub.send_string(json.dumps(right_msg), zmq.NOBLOCK)
+                scene_msg = self._build_camera_msg("scene_cam", "scene")
+                self.scene_pub.send_string(json.dumps(scene_msg), zmq.NOBLOCK)
 
                 self.frame_count += 1
 
@@ -312,8 +312,8 @@ class MockArmPublisher:
                 print(f"Total arm_joints commands received: {self.cmd_count}")
         finally:
             self.telem_pub.close()
-            self.left_pub.close()
-            self.right_pub.close()
+            self.gripper_pub.close()
+            self.scene_pub.close()
             if self.cmd_pull:
                 self.cmd_pull.close()
             self.ctx.term()
@@ -330,9 +330,9 @@ def main():
         help="sinusoidal: fixed sine-wave motion (for collecting demos). "
              "closed_loop: responds to arm_joints commands on --cmd-port.",
     )
-    parser.add_argument("--telem-port",    type=int, default=5556)
-    parser.add_argument("--cam-left-port", type=int, default=5563)
-    parser.add_argument("--cam-right-port",type=int, default=5564)
+    parser.add_argument("--telem-port",       type=int, default=5556)
+    parser.add_argument("--gripper-cam-port", type=int, default=5563)
+    parser.add_argument("--scene-cam-port",   type=int, default=5564)
     parser.add_argument("--cmd-port",      type=int, default=5555,
                         help="PULL port for arm_joints commands (closed_loop only)")
     parser.add_argument("--hz", type=int, default=30,

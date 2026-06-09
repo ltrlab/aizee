@@ -109,10 +109,10 @@ ready  ──E──▶  aligning  ──auto──▶  tracking
 # ---------------------------------------------------------------------------
 
 def build_blueprint() -> rrb.Blueprint:
-    # --- Left column: gripper camera pair ---
+    # --- Left column: gripper + scene cameras ---
     cam_col = rrb.Vertical(
-        rrb.Spatial2DView(name="Gripper Left",  origin="cameras/arm_cam_left"),
-        rrb.Spatial2DView(name="Gripper Right", origin="cameras/arm_cam_right"),
+        rrb.Spatial2DView(name="Gripper", origin="cameras/gripper_cam"),
+        rrb.Spatial2DView(name="Scene",   origin="cameras/scene_cam"),
         row_shares=[1, 1],
     )
 
@@ -310,9 +310,9 @@ def process_ups(msg: dict) -> None:
 
 
 def process_camera(msg: dict) -> None:
-    """Decode and log a gripper camera JPEG frame."""
+    """Decode and log a gripper or scene camera JPEG frame."""
     camera_id = msg.get("camera_id", "")
-    if camera_id not in ("arm_cam_left", "arm_cam_right"):
+    if camera_id not in ("gripper_cam", "scene_cam"):
         return
 
     rr.set_time("time", timestamp=time.time())

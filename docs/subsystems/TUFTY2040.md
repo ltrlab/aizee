@@ -154,7 +154,7 @@ sudo journalctl -u aizee-display -f
 | `pi`  | Per-Pi reachability: `{"pi1":"u","pi2":"d",...}` — `u`=up, `d`=down, `?`=unknown |
 | `t`   | Unix timestamp |
 
-Service status is polled every 5 seconds via `systemctl is-active`. Monitored services: `aizee-motor-control-rover`, `aizee-lidar-control`, `aizee-ups-monitor`, `aizee-camera-relay`, `aizee-display`.
+Service status is polled every 5 seconds via `systemctl is-active`. Monitored services: `aizee-motor-control-rover`, `aizee-lidar-control`, `aizee-ups-monitor`, `aizee-display`, `aizee-gripper-cam`, `aizee-scene-cam`.
 
 ---
 

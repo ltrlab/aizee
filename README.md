@@ -127,8 +127,7 @@ aizee/
 All major subsystems deployed and operational:
 - ✅ Rust motor control (1kHz arm, 100Hz base)
 - ✅ Python teleop interface with gamepad + keyboard support
-- ✅ 4× RPi camera nodes (Intel RealSense D455 RGB-D)
-- ✅ 2× arm cameras (D435, USB to Jetson, udev auto-start)
+- ✅ 2× arm cameras on the Jetson (ELP UVC gripper + RealSense scene, udev auto-start)
 - ✅ 2× RPLiDAR A1M8 sensors
 - ✅ UPS battery monitoring (INA219)
 - ✅ Rerun visualization and MCAP logging
@@ -167,8 +166,9 @@ pip install -r requirements.txt
 # Deploy to Jetson
 ./scripts/deploy_jetson_rover.sh
 
-# Deploy to camera nodes
-./scripts/deploy_all_cameras.sh
+# Deploy the arm cameras (gripper + scene, both on the Jetson)
+./scripts/deploy_gripper_camera.sh
+./scripts/deploy_scene_cam.sh
 ```
 
 ### Running the System
@@ -193,10 +193,10 @@ python python/rerun_bridge.py
 ```bash
 # Record demonstrations (auto-detects SO-101 or OpenRB-150 leader on USB)
 python python/scripts/collect_demo.py \
-    --cam-left tcp://192.168.0.27:5563 --cam-right tcp://192.168.0.27:5564
+    --gripper-cam tcp://192.168.0.27:5563 --scene-cam tcp://192.168.0.27:5564
 # Force a specific leader kind:
 python python/scripts/collect_demo.py --leader openrb \
-    --cam-left tcp://192.168.0.27:5563 --cam-right tcp://192.168.0.27:5564
+    --gripper-cam tcp://192.168.0.27:5563 --scene-cam tcp://192.168.0.27:5564
 
 # Train ACT policy on collected episodes
 python python/training/train.py --data-dir episodes/ --output-dir checkpoints/
