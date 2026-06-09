@@ -151,7 +151,6 @@ sudo journalctl -u aizee-display -f
 | `ms`  | Per-motor state: `r`=running `e`=enabling `d`=disabled `x`=error `?`=unknown |
 | `sv`  | Per-service state: `a`=active `f`=failed `i`=inactive `e`=activating `?`=unknown |
 | `ip`  | Jetson WiFi IP address string (e.g. `"192.168.0.27"`), or `""` |
-| `pi`  | Per-Pi reachability: `{"pi1":"u","pi2":"d",...}` — `u`=up, `d`=down, `?`=unknown |
 | `t`   | Unix timestamp |
 
 Service status is polled every 5 seconds via `systemctl is-active`. Monitored services: `aizee-motor-control-rover`, `aizee-lidar-control`, `aizee-ups-monitor`, `aizee-display`, `aizee-gripper-cam`, `aizee-scene-cam`.

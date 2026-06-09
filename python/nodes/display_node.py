@@ -21,7 +21,6 @@ import signal
 import subprocess
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
@@ -80,12 +79,6 @@ SERVICES = [
 ]
 SERVICE_CHECK_INTERVAL = 5.0  # seconds — rate-limit systemctl calls
 
-CAMERA_PIS = [
-    ("pi1", "10.42.0.11"),
-    ("pi2", "10.42.0.12"),
-    ("pi3", "10.42.0.13"),
-    ("pi4", "10.42.0.14"),
-]
 MOTOR_FULL_V = 25.2   # 6S LiPo @ 4.2 V/cell
 MOTOR_MIN_V  = 19.8   # 6S LiPo @ 3.3 V/cell (practical empty)
 IP_CHECK_INTERVAL = 30.0   # seconds — refresh Jetson IP
@@ -133,9 +126,7 @@ class DisplayNode:
         self.service_states: dict = {}
         self.last_service_check: float = 0.0
 
-        # Cached Pi reachability and Jetson IP
-        self.pi_states: dict = {}
-        self.last_pi_check: float = 0.0
+        # Cached Jetson IP
         self.jetson_ip: str = ""
         self.last_ip_check: float = 0.0
 
@@ -256,23 +247,6 @@ class DisplayNode:
                 states[abbrev] = "?"
         return states
 
-    def _ping_host(self, ip: str) -> bool:
-        try:
-            r = subprocess.run(["ping", "-c", "1", "-W", "1", ip],
-                               capture_output=True, timeout=2.5)
-            return r.returncode == 0
-        except Exception:
-            return False
-
-    def _check_pis(self) -> dict:
-        try:
-            with ThreadPoolExecutor(max_workers=4) as ex:
-                futures = {k: ex.submit(self._ping_host, ip) for k, ip in CAMERA_PIS}
-                return {k: ("u" if f.result(timeout=3.0) else "d")
-                        for k, f in futures.items()}
-        except Exception:
-            return {k: "?" for k, _ in CAMERA_PIS}
-
     def _get_jetson_ip(self) -> str:
         try:
             r = subprocess.run(["hostname", "-I"], capture_output=True,
@@ -361,7 +335,6 @@ class DisplayNode:
             "mpos": mpos,
             "sv": self.service_states,
             "ip": self.jetson_ip,
-            "pi": self.pi_states,
             "t":  round(now, 1),
         }
 
@@ -424,7 +397,6 @@ class DisplayNode:
                 # Check service states periodically (rate-limited to avoid systemctl overhead)
                 if current_time - self.last_service_check >= SERVICE_CHECK_INTERVAL:
                     self.service_states = self._check_services()
-                    self.pi_states      = self._check_pis()
                     self.last_service_check = current_time
 
                 if current_time - self.last_ip_check >= IP_CHECK_INTERVAL:
