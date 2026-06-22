@@ -1,0 +1,61 @@
+# Udev rule for the AIZEE scene-cam Intel RealSense.
+#
+# Matches a single RealSense device by USB vendor/product, creates a
+# stable /dev/aizee_scene_cam symlink, and tags it as a systemd device
+# so aizee-scene-cam.service starts on plug-in / stops on unplug.
+#
+# librealsense enumerates devices via libusb (not /dev/video*), so the
+# symlink only needs to point at the USB control endpoint — the SDK
+# finds the streaming endpoints by itself.
+#
+# Supported products (Intel vendor 8086):
+#   0b07 -> D435 / D435i (no firmware serial via USB descriptor)
+#   0b5c -> D455
+# Add a new line for other RealSense models — find your idProduct with:
+#     lsusb | grep Intel
+#
+# SETUP: Run scripts/deploy_scene_cam.sh from the dev machine, or manually:
+#     sudo cp config/udev/99-aizee-scene-cam.rules /etc/udev/rules.d/
+#     sudo udevadm control --reload-rules && sudo udevadm trigger
+#
+# NOTE: this rule assumes ONE RealSense is connected to the Jetson at a
+# time. If multiple are needed (e.g. scene + future wrist cam), switch to
+# port-based matching like the legacy 99-aizee-realsense.rules did.
+
+# MODE / GROUP grant non-root access to every layer librealsense touches:
+#
+#   - /dev/bus/usb/*/*  → libusb (camera enumeration, control endpoint)
+#   - /dev/hidraw*      → HID descriptor read for the BMI085/BMI055 IMU
+#                          (D435i, D455). Without it, `rs2_create_device`
+#                          raises "bad optional access" because the SDK's
+#                          HID info optional is empty even though USB
+#                          enumeration succeeded.
+#   - /dev/video*       → V4L2 backend streaming endpoints (color/depth)
+#   - iio subsystem     → for librealsense builds that fall back to the
+#                          IIO/IMU node instead of HID.
+#
+# 0666 + plugdev matches upstream `99-realsense-libusb.rules` from
+# librealsense and what the retired `99-aizee-realsense.rules` used to do
+# before the gripper-cam migration deleted it.
+
+# -- generic Intel RealSense permission grant (covers IMU/V4L/hidraw) -----
+SUBSYSTEM=="usb",        ATTRS{idVendor}=="8086", MODE="0666", GROUP="plugdev"
+SUBSYSTEM=="hidraw",     ATTRS{idVendor}=="8086", MODE="0666", GROUP="plugdev"
+SUBSYSTEM=="video4linux",ATTRS{idVendor}=="8086", MODE="0666", GROUP="plugdev"
+KERNEL=="iio_device*",   SUBSYSTEM=="iio", ATTRS{idVendor}=="8086", \
+    MODE="0666", GROUP="plugdev"
+
+# -- symlink + systemd binding for the scene cam --------------------------
+# D435 / D435i
+SUBSYSTEM=="usb", \
+    ATTR{idVendor}=="8086", ATTR{idProduct}=="0b07", \
+    MODE="0666", GROUP="plugdev", \
+    SYMLINK+="aizee_scene_cam", \
+    TAG+="systemd", ENV{SYSTEMD_ALIAS}+="/dev/aizee_scene_cam"
+
+# D455
+SUBSYSTEM=="usb", \
+    ATTR{idVendor}=="8086", ATTR{idProduct}=="0b5c", \
+    MODE="0666", GROUP="plugdev", \
+    SYMLINK+="aizee_scene_cam", \
+    TAG+="systemd", ENV{SYSTEMD_ALIAS}+="/dev/aizee_scene_cam"

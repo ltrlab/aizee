@@ -21,6 +21,7 @@ from typing import Optional
 
 import numpy as np
 import pyrealsense2 as rs
+import yaml
 import zmq
 from PIL import Image
 
@@ -319,22 +320,28 @@ class CameraNode:
                     self._stat_age_ms.clear()
 
             except RuntimeError as e:
+                # IMPORTANT: do NOT try to reinit in-process. librealsense's
+                # RSUSB backend leaks worker threads holding libusb handles
+                # on every `pipeline.stop() + pipeline.start()` cycle, and
+                # those zombie threads keep poking the USB device with
+                # "usbfs: did not claim interface 0 before use", which then
+                # starves the *next* publisher of frames. Verified on the
+                # Jetson Orin Nano with D455 firmware 5.17.0.10 — each
+                # in-process reinit shortens the next stable streaming
+                # window until the timeout becomes permanent.
+                #
+                # Instead: exit non-zero so systemd's Restart=on-failure
+                # gets us a fresh process with zero zombie state.
                 logger.error(f"Frame capture error: {e}")
-                logger.info("Attempting to reinitialize camera...")
-                self.cleanup()
-                time.sleep(2)
-                try:
-                    self.initialize_camera()
-                    self.initialize_zmq()
-                except Exception as reinit_error:
-                    logger.error(f"Failed to reinitialize: {reinit_error}")
-                    self.running = False
-                    break
+                logger.error("Exiting so systemd restarts cleanly "
+                             "(avoids librealsense zombie-thread leak).")
+                self.running = False
+                raise SystemExit(1)
 
             except Exception as e:
                 logger.error(f"Unexpected error in processing loop: {e}")
                 self.running = False
-                break
+                raise SystemExit(1)
 
     def cleanup(self):
         """Clean up resources"""
@@ -381,9 +388,50 @@ def signal_handler(signum, frame):
     sys.exit(0)
 
 
+def _kwargs_from_config(config: dict) -> dict:
+    """Translate a hardware_jetson_*_cam.yaml dict into CameraNode kwargs.
+
+    Mirrors the shape used by gripper_camera_node.py so the two configs
+    look consistent on disk. Only fields the SDK pipeline actually
+    consumes are pulled out — IMU / spatial / runtime-control hints are
+    parsed by the wrapping service or future consumers, not here.
+    """
+    cam_cfg   = config.get("camera", {}) or {}
+    streams   = cam_cfg.get("streams", {}) or {}
+    color     = streams.get("color", {}) or {}
+    depth     = streams.get("depth", {}) or {}
+    zmq_cfg   = (config.get("network", {}).get("device", {}).get("zmq", {})) or {}
+
+    kwargs = {
+        "camera_id":        cam_cfg.get("id", "scene_cam"),
+        "zmq_endpoint":     zmq_cfg.get("camera_pub", "tcp://*:5564"),
+        "color_resolution": (int(color.get("width",  640)),
+                              int(color.get("height", 480))),
+        "depth_resolution": (int(depth.get("width",  640)),
+                              int(depth.get("height", 480))),
+        "fps":              int(color.get("fps", 30)),
+        "jpeg_quality":     int(color.get("quality", 85)),
+    }
+
+    out_w = color.get("output_width")
+    out_h = color.get("output_height")
+    if out_w is not None and out_h is not None:
+        kwargs["output_resolution"] = (int(out_w), int(out_h))
+
+    return kwargs
+
+
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(description='AIZEE Camera Node')
+    parser.add_argument(
+        '--config',
+        type=str,
+        default=None,
+        help='Path to a hardware_jetson_*_cam.yaml (camera.id / streams / '
+             'network.device.zmq.camera_pub). Overrides individual flags '
+             'below.'
+    )
     parser.add_argument(
         '--camera-id',
         type=str,
@@ -428,15 +476,24 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    # Create and run camera node
-    node = CameraNode(
-        camera_id=args.camera_id,
-        zmq_endpoint=args.zmq_endpoint,
-        fps=args.fps,
-        jpeg_quality=args.jpeg_quality,
-        output_resolution=output_resolution,
-    )
+    # YAML config wins over individual flags when provided — the systemd
+    # unit ships a config so all tuning lives in one file on the Jetson.
+    if args.config:
+        with open(args.config) as f:
+            cfg = yaml.safe_load(f) or {}
+        log_level = (cfg.get("logging", {}) or {}).get("level", "INFO")
+        logger.setLevel(getattr(logging, log_level, logging.INFO))
+        kwargs = _kwargs_from_config(cfg)
+    else:
+        kwargs = {
+            "camera_id":    args.camera_id,
+            "zmq_endpoint": args.zmq_endpoint,
+            "fps":          args.fps,
+            "jpeg_quality": args.jpeg_quality,
+            "output_resolution": output_resolution,
+        }
 
+    node = CameraNode(**kwargs)
     node.run()
 
 

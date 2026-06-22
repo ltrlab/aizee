@@ -1,0 +1,36 @@
+[Unit]
+Description=AIZEE Scene Camera (Intel RealSense, RGB-D fixed external)
+# Start when the RealSense USB device appears; stop on unplug.
+# The matching udev rule (config/udev/99-aizee-scene-cam.rules) tags
+# the device with SYSTEMD_ALIAS=/dev/aizee_scene_cam so this unit can
+# bind to the synthetic device unit.
+BindsTo=dev-aizee_scene_cam.device
+After=dev-aizee_scene_cam.device
+
+[Service]
+Type=simple
+User=ltr
+WorkingDirectory=/home/ltr/aizee
+Environment="PYTHONUNBUFFERED=1"
+# Lower priority — camera frames can slip; motor control cannot.
+Nice=5
+ExecStart=/usr/bin/python3 /home/ltr/aizee/python/nodes/camera_node.py \
+    --config /home/ltr/aizee/config/hardware_jetson_scene_cam.yaml
+# librealsense's RSUSB backend leaks libusb worker threads on every
+# in-process reinit, so camera_node.py exits 1 on frame timeout and lets
+# systemd start a fresh process. RestartSec=1 keeps the recovery window
+# short enough that the GUI's "(waiting for camera...)" tile barely
+# blinks. KillMode=mixed sends SIGTERM to the main proc + SIGKILL to
+# any leaked workers so they don't survive into the next start.
+Restart=on-failure
+RestartSec=1
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+# Creates /etc/systemd/system/dev-aizee_scene_cam.device.wants/ symlink.
+# Service starts automatically whenever the camera is plugged in.
+WantedBy=dev-aizee_scene_cam.device

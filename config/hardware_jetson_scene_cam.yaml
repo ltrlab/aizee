@@ -1,0 +1,88 @@
+# AIZEE Hardware Configuration - Scene Camera (Intel RealSense)
+#
+# Fixed external RGB-D camera looking at the workspace. Sits alongside the
+# gripper-cam (ELP UVC, port 5563) and publishes color JPEG + Z16 depth +
+# intrinsics on a parallel ZMQ PUB endpoint. The gripper-cam remains the
+# primary close-up observation; the scene cam adds a wider workspace view
+# with depth.
+#
+# Hardware: Intel RealSense D435 / D435i / D455. The python/nodes/camera_node.py
+# pipeline reads `pyrealsense2` device enumeration, so any model the SDK
+# recognizes will work — only the depth/color resolution caps differ.
+#
+# Mount: external (tripod / shelf / fixed rig). No parent_joint — the
+# pose is expressed in the world frame.
+
+camera:
+  id: scene_cam
+  model: realsense
+  # USB device used by udev/systemd binding only. librealsense enumerates
+  # via libusb directly, so this symlink doesn't need to be a /dev/video*
+  # node — it just lets aizee-scene-cam.service start on plug-in.
+  device: /dev/aizee_scene_cam
+
+  streams:
+    color:
+      enabled: true
+      width: 640
+      height: 480
+      # 15 fps (not 30) is a stability workaround for the Jetson Orin's
+      # tegra-xusb controller, which throws "Event TRB for slot X ep Y
+      # with no TDs queued" at sustained D455 isochronous load above
+      # ~20 fps. At 30 fps the publisher hits a `wait_for_frames` timeout
+      # every ~5 s and falls into a reinit loop. 15 fps removes the TRB
+      # warnings entirely. The GUI's 3D preview is throttled to ~6 Hz
+      # anyway, so visually this changes nothing.
+      fps: 15
+      compression: JPEG
+      quality: 85
+      # Optional wire downscale (consumer-side keeps capture resolution).
+      # output_width: 640
+      # output_height: 480
+    depth:
+      enabled: true
+      width: 640
+      height: 480
+      fps: 15
+      format: Z16
+    imu:
+      # D435i / D455 expose accel+gyro. Leaving off by default — the
+      # collect-demo recorder does not currently capture IMU, and enabling
+      # the streams forces librealsense into the global-time aligned
+      # IMU path which adds latency. Turn on once a consumer needs it.
+      enabled: false
+
+network:
+  device:
+    ip: 192.168.0.27          # Jetson WiFi
+    hostname: aizee-jetson
+    zmq:
+      # 5564 was freed when the stereo D435 wrist pair (arm_cam_right) was
+      # retired on 2026-05-13 — see aizee-gripper-camera-migration memory.
+      camera_pub:  "tcp://*:5564"
+
+spatial:
+  # Externally mounted, world-frame pose (arm base frame: +X forward,
+  # +Y left, +Z up). Camera local axes follow the robotics convention:
+  # local +X = forward (optical axis), +Y = left, +Z = up.
+  #
+  # Defaults: ~0.8 m in front of the arm, 0.6 m off the table.
+  # Orientation = [roll, pitch, yaw], intrinsic XYZ Euler (radians):
+  #   - yaw = -pi/2 (= 3*pi/2 = 4.7124): camera looks along -Y in world.
+  #   - pitch = +pi/4 (= 0.7854): optical axis tilted 45° downward.
+  #   - roll = 0.
+  # Sign reminders so the next tweak is one-liner:
+  #   - yaw  is rotation about world Z (right-hand rule, +Z up).
+  #     Increasing yaw rotates the camera CCW viewed from above.
+  #   - pitch in my Ry rotates the camera forward axis (+X local) about
+  #     +Y local. Positive pitch = camera tilts DOWNWARD (looks at floor).
+  parent_joint: null
+  position: [0.8, 0.0, 0.6]
+  orientation: [0.0, 0.7854, 4.7124]
+  # FOV used only by the GUI frustum visualization (not by the SDK).
+  # D435 / D435i / D455 RGB are all ~87° H × 58° V; tweak per model.
+  fov_horizontal_deg: 87.0
+  fov_vertical_deg:   58.0
+
+logging:
+  level: INFO
