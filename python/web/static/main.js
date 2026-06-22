@@ -25,6 +25,7 @@ let _grabOffset = [0, 0, 0];
 let _grabYawRobot0 = 0;     // robot yaw at grab start
 let _grabYawHand0 = 0;      // left-wrist yaw at grab start
 let _leftPinchPrev = false;
+let _leftSelectPrev = false;     // for rising-edge detect of pointer click (trigger / pinch)
 
 // Extract the yaw component (rotation about world +Y) from a wrist
 // quaternion using YXZ Euler decomposition.  YXZ puts yaw first so the
@@ -107,10 +108,24 @@ function readController(inputSource, frame, refSpace) {
   return null;
 }
 
+// Quat correction: gripSpace forward is -Z, hand-wrist forward is +X
+// (per WebXR spec).  Multiplying gripSpace.quat by R_y(+π/2) remaps so a
+// controller in some physical orientation reports the same quaternion as
+// a hand wrist would in the same orientation — the QuestLeader's IK math
+// was tuned for the hand-wrist convention.
+const _Y_AXIS = new THREE.Vector3(0, 1, 0);
+const _CTRL_HAND_FIX = new THREE.Quaternion().setFromAxisAngle(_Y_AXIS, Math.PI / 2);
+const _qBuf = new THREE.Quaternion();
+
 function readGamepadController(inputSource, frame, refSpace) {
   const pose = frame.getPose(inputSource.gripSpace, refSpace);
   const out = poseToObj(pose);
   if (!out) return null;
+  // Apply controller -> hand-wrist quaternion correction so the rotation
+  // delta the IK observes is consistent between input modalities (twist
+  // about controller -Z becomes twist about wrist +X, same as hands).
+  _qBuf.fromArray(out.quat).multiply(_CTRL_HAND_FIX);
+  out.quat = [_qBuf.x, _qBuf.y, _qBuf.z, _qBuf.w];
   // Buttons: gamepad mapping for Quest controllers
   //   gp.buttons: [0]trigger [1]grip [2](unused) [3]thumbstick [4]A/X [5]B/Y
   //   gp.axes:    [0]touchpad_x [1]touchpad_y [2]stick_x [3]stick_y
@@ -311,49 +326,94 @@ function onXRFrame(t, frame) {
   // Controllers (or hands, transparently)
   let right = null, left = null;
   let leftFingerWorld = null;
+  let leftRay = null;                   // targetRaySpace: { origin, direction } in scene frame
+  let leftSelectPressed = false;        // raw "trigger held" / "pinching" — pre rising-edge
+  let leftSqueezeHeld = false;          // grip button (controllers) or pinch (hands)
+  let leftIsController = false;
   for (const src of xrSession.inputSources) {
     const c = readController(src, frame, xrRefSpace);
     if (c) {
       if (c.hand === 'right') right = c;
       else if (c.hand === 'left') left = c;
     }
-    // Separately, capture the LEFT index-finger-tip world position for VR
-    // UI hit-testing.  Wrist (used as the controller-equivalent pose) is
-    // too far back to feel like "poking".
-    if (src.handedness === 'left' && src.hand && frame.getJointPose) {
-      const tipJoint = src.hand.get('index-finger-tip');
-      if (tipJoint) {
-        const tipPose = frame.getJointPose(tipJoint, xrRefSpace);
-        if (tipPose) {
-          const p = tipPose.transform.position;
-          leftFingerWorld = new THREE.Vector3(p.x, p.y, p.z);
+    if (src.handedness === 'left') {
+      // Capture the LEFT index-finger-tip world position for VR UI poking
+      // (hands only — too far back from controller body to feel right).
+      if (src.hand && frame.getJointPose) {
+        const tipJoint = src.hand.get('index-finger-tip');
+        if (tipJoint) {
+          const tipPose = frame.getJointPose(tipJoint, xrRefSpace);
+          if (tipPose) {
+            const p = tipPose.transform.position;
+            leftFingerWorld = new THREE.Vector3(p.x, p.y, p.z);
+          }
         }
+      }
+      // Unified pointer ray — WebXR exposes targetRaySpace on BOTH hands
+      // (pinch ray from the index/thumb origin) and controllers (forward
+      // aim ray).  Same code handles both.
+      if (src.targetRaySpace) {
+        const raypose = frame.getPose(src.targetRaySpace, xrRefSpace);
+        if (raypose) {
+          const p = raypose.transform.position;
+          const m = raypose.transform.matrix;   // column-major 4x4
+          // Forward axis of the controller is -Z of its frame.
+          leftRay = {
+            origin: new THREE.Vector3(p.x, p.y, p.z),
+            direction: new THREE.Vector3(-m[8], -m[9], -m[10]).normalize(),
+          };
+        }
+      }
+      // Select / squeeze state — handle controllers (gamepad) and hands
+      // (pinch state already detected by readHand) uniformly.
+      if (src.gamepad) {
+        leftIsController = true;
+        leftSelectPressed = !!src.gamepad.buttons[0]?.pressed;  // trigger
+        leftSqueezeHeld   = (src.gamepad.buttons[1]?.value ?? 0) > 0.5; // grip
+      } else if (src.hand) {
+        leftSelectPressed = !!(left && left.grip);
+        leftSqueezeHeld   = !!(left && left.grip);
       }
     }
   }
+  // Rising edge of select for the pointer click.  One-shot per press.
+  const leftClick = leftSelectPressed && !_leftSelectPrev;
+  _leftSelectPrev = leftSelectPressed;
   updateReticles(scene, right, left);
   // Per-render-frame eased URDF tween so missed telem messages don't
   // show as position jumps in the mirror.
   animateURDF();
 
-  const leftPinch = left && left.kind === 'hand' ? left.grip : false;
+  const leftPinch = left && left.kind === 'hand' ? !!left.grip : false;
 
-  // Direct grab-to-move: a left pinch that STARTS away from the UI panel
-  // grabs the robot group; while held, the robot follows the hand; release
-  // to drop.  A pinch that starts over a button is left for the UI.
-  if (leftPinch && !_leftPinchPrev && leftFingerWorld && !isPointerOverButton(leftFingerWorld)) {
+  // The "engage left grab" signal is unified: pinch for hands, grip button
+  // for controllers.  Position anchor is fingertip for hands, controller
+  // grip pose (left.pos) for controllers.
+  const leftAnchor = leftIsController
+    ? (left && left.pos ? new THREE.Vector3(left.pos[0], left.pos[1], left.pos[2]) : null)
+    : leftFingerWorld;
+  const leftEngage = leftSqueezeHeld;
+  const leftEngageEdge = leftEngage && !_leftPinchPrev;
+
+  // Direct grab-to-move: a left engage that STARTS away from any UI button
+  // grabs the robot group; while held, the robot follows the hand/controller;
+  // release to drop.  An engage that starts over a button is left for the UI.
+  if (leftEngageEdge && leftAnchor && !isPointerOverButton(leftAnchor)) {
     const rp = getRobotGroupPosition();
     if (rp) {
-      _grabOffset = [rp.x - leftFingerWorld.x, rp.y - leftFingerWorld.y, rp.z - leftFingerWorld.z];
+      _grabOffset = [rp.x - leftAnchor.x, rp.y - leftAnchor.y, rp.z - leftAnchor.z];
       _grabYawRobot0 = getRobotGroupYaw() || 0;
       _grabYawHand0  = left && left.quat ? _quatYaw(left.quat) : 0;
       _grabbing = true;
     }
   }
-  if (!leftPinch) _grabbing = false;
-  _leftPinchPrev = leftPinch;
+  if (!leftEngage) _grabbing = false;
+  _leftPinchPrev = leftEngage;
 
-  if (_grabbing && leftFingerWorld) {
+  // Build the unified pointer payload for the VR UI raycaster.
+  const pointerInput = leftRay ? { ray: leftRay, click: leftClick } : null;
+
+  if (_grabbing && leftAnchor) {
     // Apply wrist twist as world-Y yaw on the robot.  Wrap the delta to
     // [-π, π] so the robot doesn't spin the long way when the wrist
     // crosses ±π in YXZ space.
@@ -363,12 +423,12 @@ function onXRFrame(t, frame) {
       const dyaw = Math.atan2(Math.sin(dy), Math.cos(dy));
       newYaw = _grabYawRobot0 + dyaw;
     }
-    nudgeRobotGroup([leftFingerWorld.x, leftFingerWorld.y, leftFingerWorld.z], _grabOffset, newYaw);
-    tickVRUI(null, false);   // UI inert while grabbing
+    nudgeRobotGroup([leftAnchor.x, leftAnchor.y, leftAnchor.z], _grabOffset, newYaw);
+    tickVRUI(null, false, null);   // UI inert while grabbing
   } else {
-    // VR UI: poke detection.  Left-index pinch is the optional shortcut
-    // to skip the dwell timer.
-    tickVRUI(leftFingerWorld, leftPinch);
+    // VR UI: ray + pointer click for controllers, finger-poke + pinch for
+    // hands.  Both paths run; Button.update arbitrates so only one fires.
+    tickVRUI(leftFingerWorld, leftPinch, pointerInput);
   }
 
   // Render the kinematic-preview panel to its off-screen target BEFORE

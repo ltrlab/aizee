@@ -33,6 +33,7 @@ aiohttp handler).  Current qpos source is `SharedState.latest_telem`
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -76,6 +77,23 @@ def _quat_mul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 
 def _quat_conj(q: np.ndarray) -> np.ndarray:
     return np.array([-q[0], -q[1], -q[2], q[3]])
+
+
+def _R_y(theta: float) -> np.ndarray:
+    """Rotation matrix about world +Y axis (WebXR up).  Used by the
+    operator-adjustable frame-yaw offset that compensates for the operator
+    not standing aligned with WebXR's reference 'forward'."""
+    c, s = math.cos(theta), math.sin(theta)
+    return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]], dtype=np.float64)
+
+
+def _yaw_from_quat_y_up(q: np.ndarray) -> float:
+    """Extract yaw (rotation about world +Y) from an xyzw quaternion.
+    Used to capture the operator's head yaw at calibrate-forward time."""
+    x, y, z, w = float(q[0]), float(q[1]), float(q[2]), float(q[3])
+    siny = 2.0 * (w * y + z * x)
+    cosy = 1.0 - 2.0 * (x * x + y * y)
+    return math.atan2(siny, cosy)
 
 
 # -----------------------------------------------------------------------------
@@ -250,6 +268,12 @@ class QuestLeader:
         # quest_command actions without mutating the immutable cfg dataclass.
         self._workspace_min = np.asarray(self.cfg.workspace_min, dtype=np.float64).copy()
         self._workspace_max = np.asarray(self.cfg.workspace_max, dtype=np.float64).copy()
+        # Operator-adjustable yaw alignment.  Captured by the "Calibrate
+        # Forward" VR button from the current head yaw; nudged by
+        # "Rotate Frame ±X°" buttons.  Zero = WebXR forward == robot
+        # forward (the default that broke for operators not standing
+        # aligned with the Quest's local-floor reference).
+        self._frame_yaw_offset_rad: float = 0.0
 
     # ---- duck-typed leader interface ----------------------------------
 
@@ -636,6 +660,31 @@ class QuestLeader:
             self._last_target_clamped_t = None
             self._last_target_unclamped_t = None
             print("[quest] sim reset to home", flush=True)
+        elif name == "calibrate_forward":
+            # Capture the operator's current head yaw as the new "forward"
+            # reference.  After this, "push hand away from chest" produces
+            # "arm moves forward in robot base frame" regardless of which
+            # way the operator is physically facing in WebXR-world coords.
+            frame = self._state.latest_control if self._state is not None else None
+            if frame is None:
+                print("[quest] calibrate_forward: no control frame yet", flush=True)
+                return
+            head = frame.get("head") or {}
+            head_quat = np.asarray(head.get("quat", [0, 0, 0, 1]), dtype=np.float64)
+            self._frame_yaw_offset_rad = _yaw_from_quat_y_up(head_quat)
+            deg = math.degrees(self._frame_yaw_offset_rad)
+            print(f"[quest] forward calibrated  offset={deg:+.1f} deg", flush=True)
+        elif name == "rotate_frame":
+            # Nudge the yaw offset by `delta_deg` (default ±15°).
+            delta = math.radians(float(cmd.get("delta_deg", 15.0)))
+            self._frame_yaw_offset_rad += delta
+            # Wrap to (-π, π] so accumulated nudges don't go unbounded.
+            self._frame_yaw_offset_rad = math.atan2(
+                math.sin(self._frame_yaw_offset_rad),
+                math.cos(self._frame_yaw_offset_rad),
+            )
+            deg = math.degrees(self._frame_yaw_offset_rad)
+            print(f"[quest] frame yaw nudged to {deg:+.1f} deg", flush=True)
         elif name == "align_to_actual":
             # Snap the COMMANDED pose to the real arm's current position so
             # the kinematic sim matches reality — eliminates the jump when
@@ -740,19 +789,25 @@ class QuestLeader:
     def _compute_target_pose(self) -> tuple[np.ndarray, np.ndarray]:
         """Compose Δpose (XR frame) onto engage_ee (robot frame) -> target EE.
 
-        No head-yaw correction: the operator faces the robot in physical
-        space, and XR forward IS robot forward.  This makes "push your
-        hand forward" always move the arm forward in the robot's frame,
-        independent of where the visual robot model is placed in the VR
-        scene or which way the user happens to be looking when they
-        engage the clutch.
+        Applies a frame-yaw offset around world +Y BEFORE the XR→robot
+        axis remap.  The offset is captured by the "Calibrate Forward"
+        VR button (or nudged ±15° / ±45° via "Rotate Frame" buttons) so
+        the operator can stand at any angle relative to WebXR's reference
+        forward and still have "push my hand away from chest" produce
+        "arm moves away from rover" in robot frame.
         """
-        # Δ in WebXR frame, axes-remapped to robot frame.
+        # Δ in WebXR frame.
         dp_xr = self._lpf_pos - self._engage_ctrl_pos
         dq_xr = _quat_mul(self._lpf_quat, _quat_conj(self._engage_ctrl_quat))
-        dp_robot = _R_XR_TO_ROBOT @ dp_xr
+        # Rotate by -offset around Y so the operator's facing direction
+        # (captured at calibrate-forward) maps to WebXR -Z forward, then
+        # the fixed axis remap takes it to robot +X forward.
+        R_yaw_inv = _R_y(-self._frame_yaw_offset_rad)
+        dp_robot = _R_XR_TO_ROBOT @ (R_yaw_inv @ dp_xr)
         R_dq_xr = quat_to_R(dq_xr)
-        R_dq_robot = _R_XR_TO_ROBOT @ R_dq_xr @ _R_XR_TO_ROBOT.T
+        R_dq_robot = (
+            _R_XR_TO_ROBOT @ R_yaw_inv @ R_dq_xr @ R_yaw_inv.T @ _R_XR_TO_ROBOT.T
+        )
         target_t = self._engage_t_ee + dp_robot
         target_R = R_dq_robot @ self._engage_R_ee
         target_quat = R_to_quat(target_R)

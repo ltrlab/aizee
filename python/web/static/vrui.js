@@ -30,7 +30,14 @@ const _state = {
   group: null,         // THREE.Group containing the whole UI
   buttons: [],         // list of Button records
   fingerCursor: null,  // small sphere at the left index-finger-tip — visual feedback
+  laser: null,         // THREE.Line — controller / hand pointer ray
+  laserCursor: null,   // THREE.Mesh — dot on the button under the ray
+  lastHitMesh: null,   // last raycast hit mesh (for main.js diagnostics)
 };
+
+// Raycaster reused across frames — avoids per-frame allocation jitter.
+const _raycaster = new THREE.Raycaster();
+_raycaster.far = 5.0;   // 5 m max — anything past that isn't a UI poke
 
 // main.js registers handlers here for buttons whose cmd starts with `_local_`.
 const _localHandlers = {};
@@ -61,27 +68,35 @@ class Button {
     this._render(0, false, false);
   }
 
-  /** Returns true if this button just fired its click (rising edge). */
-  update(fingerWorldPos, leftPinch, scene) {
+  /** Returns true if this button just fired its click (rising edge).
+   *  `pointerHit` = true when the controller/hand RAY is over this button.
+   *  `pointerClick` = rising edge of trigger / pinch select.  Takes
+   *  priority over the finger-poke path so a controller user gets an
+   *  immediate click on trigger press without dwell. */
+  update(fingerWorldPos, leftPinch, pointerHit, pointerClick) {
     const now = performance.now();
     const dt = now - this.lastT;
     this.lastT = now;
-    let inside = false;
+    let fingerInside = false;
     if (fingerWorldPos) {
       // Simple spherical hit-test around the button's world position.
       // Works regardless of the button's orientation, doesn't depend on
       // worldToLocal matrix freshness, and is forgiving of imperfect aim.
       const buttonWorld = new THREE.Vector3();
       this.mesh.getWorldPosition(buttonWorld);
-      inside = buttonWorld.distanceTo(fingerWorldPos) < _HIT_RADIUS;
+      fingerInside = buttonWorld.distanceTo(fingerWorldPos) < _HIT_RADIUS;
     }
-    // Dwell accumulates only while finger is inside; decays fast when not.
+    const inside = fingerInside || pointerHit;
+    // Pointer click takes priority — fires immediately on trigger press,
+    // suppressing the dwell timer to avoid double-fire.
     let fired = false;
-    if (inside) {
+    if (pointerHit && pointerClick) {
+      fired = true;
+      this.dwellMs = -300;
+    } else if (fingerInside) {
+      // Finger-poke path (hands without ray aim): dwell or pinch.
       this.dwellMs += dt;
-      // Pinch path: fire on rising edge of left index pinch.
       if (leftPinch && !this.lastPinch) fired = true;
-      // Dwell path: fire when threshold reached, then cool down.
       if (this.dwellMs >= _DWELL_MS) {
         fired = true;
         this.dwellMs = -300;   // 300 ms cooldown after click — avoids retrigger
@@ -203,6 +218,27 @@ export function buildVRUI(scene) {
   _state.fingerCursor.visible = false;
   scene.add(_state.fingerCursor);
 
+  // Laser ray + hit cursor for controllers / hand pinch-aim.  Quest's
+  // standard system menu uses the same convention so it should feel
+  // familiar.  White semi-transparent line + green dot on the button.
+  const laserGeom = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1),
+  ]);
+  _state.laser = new THREE.Line(
+    laserGeom,
+    new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 }),
+  );
+  _state.laser.renderOrder = 997;
+  _state.laser.visible = false;
+  scene.add(_state.laser);
+  _state.laserCursor = new THREE.Mesh(
+    new THREE.SphereGeometry(0.014, 12, 10),
+    new THREE.MeshBasicMaterial({ color: 0x2ea043 }),
+  );
+  _state.laserCursor.renderOrder = 999;
+  _state.laserCursor.visible = false;
+  scene.add(_state.laserCursor);
+
   // Card background behind the buttons.
   const cardCanvas = document.createElement('canvas');
   cardCanvas.width = 256; cardCanvas.height = 32;
@@ -231,6 +267,9 @@ export function buildVRUI(scene) {
   // browser too (e.g. passthrough toggle).
   const defs = [
     { label: 'Re-align',          cmd: 'realign' },
+    { label: 'Calibrate forward', cmd: 'calibrate_forward' },
+    { label: 'Rotate frame +15°', cmd: 'rotate_frame',     args: { delta_deg:  15 } },
+    { label: 'Rotate frame -15°', cmd: 'rotate_frame',     args: { delta_deg: -15 } },
     { label: 'Reset sim',         cmd: 'reset_sim' },
     { label: 'Align to arm',      cmd: 'align_to_actual' },
     { label: 'Workspace +10%',    cmd: 'grow_workspace',   args: { factor: 1.10 } },
@@ -273,10 +312,9 @@ export function isPointerOverButton(fingerWorldPos) {
   return false;
 }
 
-export function tickVRUI(leftFingerWorldPos, leftPinch) {
+export function tickVRUI(leftFingerWorldPos, leftPinch, pointer = null) {
   if (!_state.group) return;
-  // Update fingertip cursor visibility/position so the operator can see
-  // where their click point is regardless of whether buttons are nearby.
+  // Fingertip cursor — visible whenever we have a left hand tip.
   if (_state.fingerCursor) {
     if (leftFingerWorldPos) {
       _state.fingerCursor.position.copy(leftFingerWorldPos);
@@ -285,8 +323,44 @@ export function tickVRUI(leftFingerWorldPos, leftPinch) {
       _state.fingerCursor.visible = false;
     }
   }
+  // Pointer raycast against all button meshes.
+  let hitBtn = null;
+  let hitPoint = null;
+  let hitDist = 0;
+  if (pointer && pointer.ray) {
+    _raycaster.set(pointer.ray.origin, pointer.ray.direction);
+    const meshes = _state.buttons.map(b => b.mesh);
+    const hits = _raycaster.intersectObjects(meshes, false);
+    if (hits.length > 0) {
+      hitBtn = _state.buttons.find(b => b.mesh === hits[0].object) || null;
+      hitPoint = hits[0].point;
+      hitDist = hits[0].distance;
+    }
+  }
+  _state.lastHitMesh = hitBtn ? hitBtn.mesh : null;
+  // Laser + cursor visibility.
+  if (_state.laser && _state.laserCursor) {
+    if (pointer && pointer.ray) {
+      const end = hitPoint
+        ? hitPoint
+        : pointer.ray.origin.clone().add(pointer.ray.direction.clone().multiplyScalar(1.5));
+      const pos = _state.laser.geometry.attributes.position.array;
+      pos[0] = pointer.ray.origin.x; pos[1] = pointer.ray.origin.y; pos[2] = pointer.ray.origin.z;
+      pos[3] = end.x;                 pos[4] = end.y;                pos[5] = end.z;
+      _state.laser.geometry.attributes.position.needsUpdate = true;
+      _state.laser.visible = true;
+      _state.laserCursor.visible = !!hitPoint;
+      if (hitPoint) _state.laserCursor.position.copy(hitPoint);
+    } else {
+      _state.laser.visible = false;
+      _state.laserCursor.visible = false;
+    }
+  }
+  // Dispatch update + fire to every button.
+  const click = !!(pointer && pointer.click);
   for (const btn of _state.buttons) {
-    if (btn.update(leftFingerWorldPos, !!leftPinch, _state.group)) {
+    const isPointed = (btn === hitBtn);
+    if (btn.update(leftFingerWorldPos, !!leftPinch, isPointed, click)) {
       btn.fire();
     }
   }
