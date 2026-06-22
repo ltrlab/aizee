@@ -1,0 +1,28 @@
+[Unit]
+Description=AIZEE Heartbeat - status/log dashboard (HTTP)
+Documentation=https://github.com/ltrlab/aizee
+After=network.target
+
+[Service]
+Type=simple
+User=ltr
+Group=ltr
+WorkingDirectory=/home/ltr/aizee
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/usr/bin/python3 /home/ltr/aizee/python/tools/heartbeat_server.py --host 0.0.0.0 --port 8088
+
+Restart=on-failure
+RestartSec=5s
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aizee-heartbeat
+
+# Read-only status dashboard: drop privileges it never needs.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target
