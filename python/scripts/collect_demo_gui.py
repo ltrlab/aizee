@@ -37,10 +37,10 @@ from typing import Optional, Callable
 
 import numpy as np
 
-from PySide6.QtCore import Qt, QTimer, QUrl, QPoint, QRect, QRectF, QThread, Signal
+from PySide6.QtCore import Qt, QTimer, QUrl, QPoint, QPointF, QRect, QRectF, QThread, Signal
 from PySide6.QtGui import (
-    QAction, QColor, QDesktopServices, QFont, QImage, QKeySequence,
-    QPainter, QPainterPath, QPen, QPixmap, QShortcut,
+    QAction, QBrush, QColor, QDesktopServices, QFont, QImage, QKeySequence,
+    QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QShortcut,
 )
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout,
@@ -69,6 +69,112 @@ try:
     _fk_kin = _load_aizee_arm()
 except Exception as _fk_exc:  # noqa: F841
     _fk_kin = None
+
+# Full-tree MeshWorld + per-link convex hull edge cache.  Used by
+# _ModelPreview to draw the URDF as a wireframe model (not just a stick
+# figure).  Lazy-loaded on first paint — adds ~1.5 s on first hit, then
+# free per-frame.  Falls back silently if trimesh / meshes / URDF are
+# unavailable; the stick-figure path still works.
+_mesh_world_gui = None
+_link_hull_verts = None      # {link_name: ndarray (E, 2, 3) in link-local frame}
+_mesh_world_init_failed = False
+# Map the 7-element arm qpos vector to the URDF joint names MeshWorld
+# wants.  Note: the URDF now uses `wrist_swivel` where the firmware /
+# leader vocab still calls it `wrist_roll`; they describe the same joint.
+_GUI_ARM_JOINT_URDF_NAMES = [
+    "swivel", "gantry_base", "gantry_mid", "gantry_end",
+    "wrist_pitch", "wrist_swivel",
+]
+# Thread-safety: MeshWorld init runs on a background thread at import
+# time so it doesn't block the GUI startup.  paintEvent only reads the
+# globals — once the load thread sets _mesh_world_gui, the next repaint
+# shows the wireframe.
+import threading as _threading
+_mw_init_lock = _threading.Lock()
+
+
+def _init_mesh_world_gui():
+    global _mesh_world_gui, _link_hull_verts, _mesh_world_init_failed
+    if _mesh_world_gui is not None or _mesh_world_init_failed:
+        return _mesh_world_gui
+    if not _mw_init_lock.acquire(blocking=False):
+        return None  # another thread is already loading
+    try:
+        # Double-check after acquiring the lock — another thread may have
+        # finished while we were waiting.
+        if _mesh_world_gui is not None or _mesh_world_init_failed:
+            return _mesh_world_gui
+        try:
+            import numpy as _np
+            from ik.mesh_world import MeshWorld as _MeshWorld
+            urdf_path = _Path(__file__).resolve().parents[2] / "urdf" / "aizee" / "aizee.urdf"
+            mw = _MeshWorld(urdf_path, use_convex=True, auto_allow_home_pairs=False)
+            edges_by_link: dict = {}
+            # Per-link wireframe = the 12 edges of the link's oriented
+            # bounding box.  Triangulated-hull edges include long diagonals
+            # across the hull surface (vertices on opposite sides connected
+            # by a single triangulation edge) — drawing those produced the
+            # spaghetti starburst look.  OBB gives a clean "link envelope"
+            # that reads as a CAD wireframe of the robot, costs 12 × 9 =
+            # 108 lines per pose, and is unambiguous about where each link
+            # sits.
+            # Cache the convex-hull VERTICES for each link.  Per paint we
+            # transform them via FK, project to 2D, take the 2D convex hull
+            # → filled silhouette polygon (looks like the link shape, not a
+            # box).  Vertex count is capped tight — the projection is the
+            # dominant per-frame cost and 24 verts is enough to outline any
+            # convex link silhouette accurately.
+            _MAX_VERTS_PER_LINK = 24
+            for name, mesh in mw._link_meshes.items():
+                try:
+                    v = _np.asarray(mesh.vertices, dtype=_np.float32)
+                    if len(v) == 0:
+                        continue
+                    if len(v) > _MAX_VERTS_PER_LINK:
+                        idx = _np.linspace(0, len(v) - 1, _MAX_VERTS_PER_LINK, dtype=_np.int64)
+                        v = v[idx]
+                    edges_by_link[name] = v  # (V, 3) vertices in link-local frame
+                except Exception:
+                    continue
+            _mesh_world_gui = mw
+            _link_hull_verts = edges_by_link
+        except Exception:
+            _mesh_world_init_failed = True
+            _mesh_world_gui = None
+            _link_hull_verts = None
+        return _mesh_world_gui
+    finally:
+        _mw_init_lock.release()
+
+
+# Kick off the MeshWorld load on a background thread at import time so the
+# GUI startup doesn't pay the ~1.5 s mesh-load latency.  When the load
+# completes, the next paint of _ModelPreview picks it up automatically.
+def _bg_mesh_world_init():
+    try:
+        _init_mesh_world_gui()
+    except Exception:
+        pass
+
+_threading.Thread(target=_bg_mesh_world_init, daemon=True, name="aizee-mesh-world-init").start()
+
+
+def _fk_link_world_T(q):
+    """Snapshot {link_name: 4x4 world T} for a 7-element arm qpos via MeshWorld.
+
+    Returns None if the mesh world failed to load or q is None.  The returned
+    dict is a fresh copy — safe to retain across subsequent set_qpos() calls
+    on the singleton.
+    """
+    if q is None:
+        return None
+    mw = _init_mesh_world_gui()
+    if mw is None:
+        return None
+    qd = {n: float(q[i]) for i, n in enumerate(_GUI_ARM_JOINT_URDF_NAMES) if i < len(q)}
+    mw.set_qpos(qd)
+    # Copy out — set_qpos mutates _world_T in place on the next call.
+    return {k: v.copy() for k, v in mw._world_T.items()}
 
 # Approximate software limits per joint (radians).  Used only for the visual
 # bar range — doesn't affect commands.  Matches AIZEE_DEFAULTS in so101_leader.
@@ -2988,13 +3094,17 @@ class _CameraControls(QFrame):
 
 
 class _LiveCameraPair(QFrame):
-    """Native Qt live camera preview — single QLabel fed raw JPEG bytes.
+    """Native Qt live camera preview — gripper + optional RealSense scene.
 
     Replaces the embedded Rerun WASM viewer in GUI mode.  Decoding happens
     in Qt's native C++ JPEG decoder, so there's no gRPC stream, no
     WASM viewer, and no Chromium compositor to back up on a slow CPU.
     Frames are timestamped — older arrivals are dropped, so a paint that
     falls behind by one tick simply skips ahead instead of accumulating.
+
+    The scene tile stays hidden until a scene frame actually arrives, so
+    sessions launched without `--scene-cam` (or with the publisher down)
+    show only the gripper tile rather than an empty placeholder.
     """
 
     def __init__(self) -> None:
@@ -3006,11 +3116,20 @@ class _LiveCameraPair(QFrame):
         row = QHBoxLayout(self)
         row.setContentsMargins(6, 6, 6, 6)
         row.setSpacing(6)
-        self._gripper = self._make_cam("Gripper")
+        self._gripper, self._gripper_wrap = self._make_cam("Gripper")
         row.addWidget(self._gripper_wrap, 1)
+        # Scene tile starts hidden and only appears once a scene frame is
+        # actually received.  The scene cam is optional (static-mount mode);
+        # in rover mode the publisher never streams, so the gripper tile just
+        # takes the full width instead of showing a dead "(waiting…)" panel.
+        # Qt layouts ignore hidden widgets, so hiding reclaims the space.
+        self._scene, self._scene_wrap = self._make_cam("Scene (RealSense)")
+        row.addWidget(self._scene_wrap, 1)
+        self._scene_wrap.hide()
         self._gripper_ts: float = 0.0
+        self._scene_ts: float = 0.0
 
-    def _make_cam(self, label: str) -> QLabel:
+    def _make_cam(self, label: str) -> tuple[QLabel, QFrame]:
         wrap = QFrame()
         wrap.setStyleSheet(
             f"QFrame {{ background: black; border: 1px solid {COL_BORDER}; "
@@ -3029,17 +3148,24 @@ class _LiveCameraPair(QFrame):
         cam.setStyleSheet("background: black; color: #444;")
         cam.setText("(waiting for camera…)")
         v.addWidget(cam, 1)
-        self._gripper_wrap = wrap
-        return cam
+        return cam, wrap
 
     def set_frames(self,
-                   gripper_jpeg: Optional[bytes], gripper_ts: float) -> None:
+                   gripper_jpeg: Optional[bytes], gripper_ts: float,
+                   scene_jpeg: Optional[bytes] = None,
+                   scene_ts: float = 0.0) -> None:
         # Orientation correction is applied at the publisher
         # (config/hardware_jetson_gripper_cam.yaml → streams.color.flip)
         # so the GUI doesn't need to flip anything here.
         if gripper_jpeg is not None and gripper_ts > self._gripper_ts:
             self._gripper_ts = gripper_ts
             self._render_jpeg(self._gripper, gripper_jpeg)
+        if scene_jpeg is not None and scene_ts > self._scene_ts:
+            # First scene frame → reveal the tile (rover mode never gets here).
+            if not self._scene_wrap.isVisible():
+                self._scene_wrap.show()
+            self._scene_ts = scene_ts
+            self._render_jpeg(self._scene, scene_jpeg)
 
     def _render_jpeg(self, lbl: QLabel, jpeg: bytes) -> None:
         img = QImage()
@@ -3615,16 +3741,22 @@ def _live_phase_colors(phase: str) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 class _ModelPreview(QFrame):
-    """Native 2D isometric stick-figure of the arm, rendered with QPainter.
+    """Native 2D isometric URDF wireframe of the arm, rendered with QPainter.
 
-    Draws two skeletons from forward kinematics:
-      * grey  = commanded pose (target qpos) — where the operator is driving
-      * green = actual pose (real arm qpos)  — where the arm physically is
+    Three poses are drawn on top of each other:
+      * green wireframe = actual pose (URDF link convex hulls @ actual qpos)
+      * yellow wireframe = leader pose (only when leader is plugged in AND VR
+        teleop is off — otherwise the leader's signal would just echo what
+        the operator's VR hand is commanding)
+      * grey thin backbone = commanded target (stick figure only; the IK is
+        the source of truth here, so the wireframe model would be redundant)
 
-    When they coincide the green sits on the grey; when they diverge (lag,
-    motors off, saturation) the green separates, mirroring the VR ghost.
-    Pure QPainter — no GL, no web engine, safe on the GUI worker thread.
-    The full textured 3D model lives at /preview (browser / in-VR).
+    The link wireframes are convex hulls of each URDF link's STL — projected
+    isometrically.  Gives a "loaded-in model" look without needing a full GL
+    context on the GUI worker thread.  Falls back to a stick figure if
+    meshes / trimesh aren't available.
+
+    The full textured 3D model still lives at /preview (browser / in-VR).
     """
 
     def __init__(self) -> None:
@@ -3635,8 +3767,110 @@ class _ModelPreview(QFrame):
             f"border-radius: 6px; }}")
         self._target_pts: Optional[list] = None   # commanded joint XYZ (robot frame)
         self._actual_pts: Optional[list] = None   # actual joint XYZ
+        self._leader_pts: Optional[list] = None   # leader joint XYZ (only when shown)
+        self._actual_world_T: Optional[dict] = None  # link -> 4x4 world T at actual_q
+        self._leader_world_T: Optional[dict] = None  # link -> 4x4 world T at leader_q
+        self._show_leader: bool = False
         self._azimuth = 0.6   # view rotation about Z (rad); operator can spin it
         self._mouse_last: Optional[QPoint] = None
+
+        # Scene-cam visualization. Pose + FOV come from the YAML so the
+        # operator can recalibrate without code changes. Loading is lazy
+        # and tolerant — a missing YAML just disables the scene-cam viz.
+        self._scene_pose: Optional[dict] = self._load_scene_cam_yaml()
+        # Latest live frame + projected pointcloud cache. Filled by
+        # set_scene_cam(); read by paintEvent.
+        self._scene_qimg:  Optional[QImage]      = None
+        self._scene_pts_world: Optional[np.ndarray] = None   # (N, 3)
+        self._scene_pts_depth: Optional[np.ndarray] = None   # (N,)  for colour ramp
+        self._scene_last_ts: float = 0.0
+
+    @staticmethod
+    def _load_scene_cam_yaml() -> Optional[dict]:
+        """Read pose + FOV from config/hardware_jetson_scene_cam.yaml.
+
+        Returns a dict {position, R (3x3), fov_h_rad, fov_v_rad} or None
+        if the YAML is missing / malformed (scene-cam viz silently
+        disables in that case).
+        """
+        try:
+            import yaml as _yaml
+            cfg_path = _Path(__file__).resolve().parents[2] / "config" \
+                / "hardware_jetson_scene_cam.yaml"
+            if not cfg_path.exists():
+                return None
+            cfg = _yaml.safe_load(cfg_path.read_text()) or {}
+            spatial = cfg.get("spatial", {}) or {}
+            pos = spatial.get("position") or [0.0, 0.0, 0.0]
+            ori = spatial.get("orientation") or [0.0, 0.0, 0.0]
+            fov_h_deg = float(spatial.get("fov_horizontal_deg", 87.0))
+            fov_v_deg = float(spatial.get("fov_vertical_deg",   58.0))
+            roll, pitch, yaw = (float(v) for v in ori)
+            import math as _math
+            cr, sr = _math.cos(roll),  _math.sin(roll)
+            cp, sp = _math.cos(pitch), _math.sin(pitch)
+            cy, sy = _math.cos(yaw),   _math.sin(yaw)
+            Rz = np.array([[cy, -sy, 0], [sy, cy, 0], [0, 0, 1]], dtype=np.float64)
+            Ry = np.array([[cp, 0, sp], [0, 1, 0], [-sp, 0, cp]], dtype=np.float64)
+            Rx = np.array([[1, 0, 0], [0, cr, -sr], [0, sr, cr]], dtype=np.float64)
+            R  = Rz @ Ry @ Rx
+            return {
+                "position":  np.asarray(pos, dtype=np.float64),
+                "R":         R,
+                "fov_h_rad": _math.radians(fov_h_deg),
+                "fov_v_rad": _math.radians(fov_v_deg),
+            }
+        except Exception:
+            return None
+
+    # ---- live scene-cam input (jpeg + pre-projected cam-frame points) --
+
+    def set_scene_cam(self, jpeg: Optional[bytes],
+                      pts_cam: Optional[np.ndarray],
+                      pts_depth: Optional[np.ndarray]) -> None:
+        """Update the floating thumbnail + world-frame pointcloud cache.
+
+        The publisher-side decoder thread has already backprojected the
+        Z16 depth into camera-frame XYZ points (librealsense convention:
+        +X right, +Y down, +Z forward), so all the GUI does here is:
+
+          1. JPEG → QImage for the thumbnail (Qt's native decoder, fast).
+          2. Convert each cam-frame point to URDF local frame
+             (forward = +Z_cv, left = -X_cv, up = -Y_cv) and apply the
+             scene-cam world pose R·p + t.
+
+        Net: one matmul + one add on ~700 points, sub-millisecond. The
+        previous architecture ran a full strided meshgrid + index-fetch
+        + per-pixel reproj inside this method on the GUI thread.
+        """
+        if self._scene_pose is None:
+            return   # YAML missing → scene-cam viz disabled
+        changed = False
+        if jpeg is not None:
+            img = QImage()
+            if img.loadFromData(jpeg, "JPEG"):
+                self._scene_qimg = img
+                changed = True
+        if pts_cam is not None and len(pts_cam) > 0:
+            # OpenCV cam frame (X right, Y down, Z forward) →
+            # URDF local cam frame (X forward, Y left, Z up).
+            # Single matrix slice is faster than building np.stack.
+            pts_local = np.empty_like(pts_cam, dtype=np.float64)
+            pts_local[:, 0] =  pts_cam[:, 2]
+            pts_local[:, 1] = -pts_cam[:, 0]
+            pts_local[:, 2] = -pts_cam[:, 1]
+            R = self._scene_pose["R"]
+            t = self._scene_pose["position"]
+            self._scene_pts_world = ((pts_local @ R.T) + t).astype(np.float32)
+            self._scene_pts_depth = pts_depth
+            changed = True
+        elif pts_cam is not None:
+            # Empty point set — clear so stale points don't render.
+            self._scene_pts_world = np.zeros((0, 3), dtype=np.float32)
+            self._scene_pts_depth = np.zeros((0,),   dtype=np.float32)
+            changed = True
+        if changed:
+            self.update()
 
     # ---- data in -------------------------------------------------------
 
@@ -3652,9 +3886,30 @@ class _ModelPreview(QFrame):
         except Exception:
             return None
 
-    def apply(self, target_q, actual_q) -> None:
+    def apply(self, target_q, actual_q, leader_q=None, show_leader: bool = False) -> None:
+        # Cache-key: skip the FK + transform copy if nothing changed since
+        # the last apply().  apply() is called from the snapshot loop every
+        # tick even when the arm is idle — without this, every paint pays
+        # the FK cost twice (actual + leader) for the same result.
+        def _qkey(q):
+            if q is None: return None
+            try: return tuple(round(float(v), 4) for v in q)
+            except Exception: return None
+        key = (_qkey(target_q), _qkey(actual_q),
+               _qkey(leader_q) if show_leader else None,
+               bool(show_leader and leader_q is not None))
+        if key == getattr(self, "_last_apply_key", None):
+            return  # nothing to update
+        self._last_apply_key = key
         self._target_pts = self._joint_xyz(target_q)
         self._actual_pts = self._joint_xyz(actual_q)
+        self._show_leader = bool(show_leader and leader_q is not None)
+        self._leader_pts = self._joint_xyz(leader_q) if self._show_leader else None
+        # Wireframe link transforms — compute LEADER first (so the actual_q
+        # snapshot is the one left in MeshWorld._world_T after we return,
+        # matching the visual we care most about).
+        self._leader_world_T = _fk_link_world_T(leader_q) if self._show_leader else None
+        self._actual_world_T = _fk_link_world_T(actual_q)
         self.update()
 
     # ---- interaction: drag to spin the view ----------------------------
@@ -3674,15 +3929,25 @@ class _ModelPreview(QFrame):
 
     # ---- projection + paint --------------------------------------------
 
-    def _project_all(self, w, h):
-        """Project both skeletons to 2D screen coords, auto-fit to the widget.
-        Returns (target2d, actual2d, ee2d) or (None, None, None)."""
+    def _project_all(self, w, h, extra_pts: Optional[list] = None):
+        """Project all skeletons + (if available) link hull bounds to 2D screen
+        coords with a shared auto-fit.  Returns (target2d, actual2d, leader2d,
+        ee2d, to_screen).  to_screen is a callable that projects any 3D robot-
+        frame point into screen pixels — used by the wireframe drawer.
+
+        `extra_pts`: list of (x, y, z) world points to widen the auto-fit
+        bounding box (camera origin, frustum corners, etc.) so they're
+        guaranteed to land inside the viewport.  Doesn't change the
+        projection itself — just the scale/centre chosen for it.
+        """
         import math
         pts3d = []
         if self._target_pts: pts3d += self._target_pts
         if self._actual_pts: pts3d += self._actual_pts
+        if self._leader_pts: pts3d += self._leader_pts
+        if extra_pts:        pts3d += list(extra_pts)
         if not pts3d:
-            return None, None, None
+            return None, None, None, None, None, None
         ca, sa = math.cos(self._azimuth), math.sin(self._azimuth)
         # Isometric-ish: rotate about Z by azimuth, tilt, orthographic.
         def iso(p):
@@ -3695,38 +3960,154 @@ class _ModelPreview(QFrame):
         proj = [iso(p) for p in pts3d]
         us = [p[0] for p in proj]; vs = [p[1] for p in proj]
         umin, umax = min(us), max(us); vmin, vmax = min(vs), max(vs)
+        # Pad the bounds by ~12 % to account for link hull vertices that
+        # extend past the joint origins (the visible meshes overhang the FK
+        # backbone in places — gantry shell, gripper jaws).
         span_u = max(umax - umin, 1e-3); span_v = max(vmax - vmin, 1e-3)
+        pad_u = span_u * 0.06; pad_v = span_v * 0.06
+        umin -= pad_u; umax += pad_u; vmin -= pad_v; vmax += pad_v
+        span_u = umax - umin; span_v = vmax - vmin
         margin = 24
         scale = min((w - 2 * margin) / span_u, (h - 2 * margin) / span_v)
         cu = (umin + umax) / 2; cv = (vmin + vmax) / 2
-        def to_screen(p3):
+        def to_screen_xy(p3):
+            """Project a 3D world-frame point to (sx, sy) floats."""
             u, v = iso(p3)
-            sx = w / 2 + (u - cu) * scale
-            sy = h / 2 - (v - cv) * scale   # screen y down, world v up
+            return (w / 2 + (u - cu) * scale, h / 2 - (v - cv) * scale)
+        def to_screen(p3):
+            sx, sy = to_screen_xy(p3)
             return QPoint(int(sx), int(sy))
+        # Vectorized version for the polygon drawer — runs once per link
+        # over its full hull vertex array, replacing a 24-element Python
+        # for-loop with batched numpy ops.
+        import numpy as _np
+        def to_screen_xy_batch(pts3):
+            """Project an (N, 3) array of world-frame points to (N, 2)
+            screen-pixel floats.  Same projection math as to_screen_xy."""
+            us = pts3[:, 0] * ca - pts3[:, 1] * sa
+            vs = pts3[:, 2] - (pts3[:, 0] * sa + pts3[:, 1] * ca) * 0.5
+            sxs = w / 2 + (us - cu) * scale
+            sys = h / 2 - (vs - cv) * scale
+            return _np.stack([sxs, sys], axis=1)
         t2d = [to_screen(p) for p in self._target_pts] if self._target_pts else None
         a2d = [to_screen(p) for p in self._actual_pts] if self._actual_pts else None
+        l2d = [to_screen(p) for p in self._leader_pts] if self._leader_pts else None
         ee2d = t2d[-1] if t2d else (a2d[-1] if a2d else None)
-        return t2d, a2d, ee2d
+        return t2d, a2d, l2d, ee2d, to_screen, to_screen_xy_batch
+
+    def _draw_wireframe(self, p, world_T_dict, color, to_screen_xy_batch,
+                        alpha_fill: int = 90, alpha_stroke: int = 230) -> None:
+        """Draw each link as a FILLED silhouette polygon (the 2D convex hull
+        of its projected mesh vertices).  Looks like a solid link shape
+        rather than a wire box.  Per pose: 9 polygons, ~2 ms total with the
+        batched projection + 24-vertex hull cap.
+        """
+        if world_T_dict is None or _link_hull_verts is None:
+            return
+        try:
+            from scipy.spatial import ConvexHull as _ConvexHull
+            from scipy.spatial.qhull import QhullError as _QhullError
+        except Exception:
+            return
+        fill = QColor(color); fill.setAlpha(alpha_fill)
+        stroke = QColor(color); stroke.setAlpha(alpha_stroke)
+        pen = QPen(stroke); pen.setWidth(2); pen.setJoinStyle(Qt.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(fill)
+        for link, verts_local in _link_hull_verts.items():
+            T = world_T_dict.get(link)
+            if T is None:
+                continue
+            R = T[:3, :3]; t = T[:3, 3]
+            verts_world = verts_local @ R.T + t        # (V, 3) batched
+            pts_2d = to_screen_xy_batch(verts_world)   # (V, 2) batched
+            if len(pts_2d) < 3:
+                continue
+            try:
+                hull = _ConvexHull(pts_2d)
+            except _QhullError:
+                continue  # degenerate (colinear / single-point); skip this link
+            ordered = pts_2d[hull.vertices]
+            poly = QPolygonF([QPointF(float(pt[0]), float(pt[1])) for pt in ordered])
+            p.drawPolygon(poly)
 
     def paintEvent(self, _ev) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
         w, h = self.width(), self.height()
-        # Title
+        # Title (kept short — legend rendered separately below).
         p.setPen(QColor(COL_MUTED))
         p.setFont(QFont("Segoe UI", 8, QFont.DemiBold))
-        p.drawText(8, 16, "KINEMATIC MODEL  (grey=cmd  green=actual)")
+        p.drawText(8, 16, "KINEMATIC MODEL")
+        # Mini legend so the colours are self-explanatory without hunting
+        # through code.  Yellow only appears when leader is being drawn.
+        p.setFont(QFont("Segoe UI", 7))
+        legend_x = 8; legend_y = 28
+        def _legend(swatch_color, label):
+            nonlocal legend_x
+            p.setBrush(QColor(swatch_color)); p.setPen(Qt.NoPen)
+            p.drawRect(legend_x, legend_y - 7, 10, 8)
+            p.setPen(QColor(COL_MUTED))
+            p.drawText(legend_x + 14, legend_y, label)
+            legend_x += 14 + p.fontMetrics().horizontalAdvance(label) + 12
+        _legend("#22cc44", "actual")
+        _legend("#9aa4b0", "cmd")
+        if self._show_leader:
+            _legend("#e3b341", "leader")
+
         if _fk_kin is None:
             p.setPen(QColor(COL_MUTED))
             p.drawText(QRect(0, 0, w, h), Qt.AlignCenter, "FK unavailable")
             return
-        t2d, a2d, ee2d = self._project_all(w, h)
-        if t2d is None and a2d is None:
+
+        # Pre-compute camera origin + frustum corners (world frame) so they
+        # contribute to the auto-fit bounds — keeps the camera + thumbnail
+        # in the viewport no matter where the rig is mounted.  near=0.4 m
+        # is used for the frustum drawing distance; the pointcloud reaches
+        # further but is excluded from the bounds to avoid the arm shrinking
+        # to a dot when the scene has long-range returns (walls / floor).
+        cam_anchors: Optional[list] = None
+        frustum_corners_world: Optional[np.ndarray] = None
+        if self._scene_pose is not None:
+            import math as _math
+            t = self._scene_pose["position"]
+            R = self._scene_pose["R"]
+            fov_h = self._scene_pose["fov_h_rad"]
+            fov_v = self._scene_pose["fov_v_rad"]
+            d_near = 0.4
+            half_w = d_near * _math.tan(fov_h * 0.5)
+            half_h = d_near * _math.tan(fov_v * 0.5)
+            # Camera local +X forward, +Y left, +Z up — see set_scene_cam.
+            fwd  = R[:, 0]; left = R[:, 1]; up = R[:, 2]
+            center = t + d_near * fwd
+            corners_local = np.array([
+                center + half_h * up   + half_w * left,    # TL
+                center + half_h * up   - half_w * left,    # TR
+                center - half_h * up   - half_w * left,    # BR
+                center - half_h * up   + half_w * left,    # BL
+            ], dtype=np.float64)
+            frustum_corners_world = corners_local
+            cam_anchors = [t.tolist()] + [c.tolist() for c in corners_local]
+
+        t2d, a2d, l2d, ee2d, to_screen, to_screen_xy = self._project_all(
+            w, h, extra_pts=cam_anchors)
+        if t2d is None and a2d is None and l2d is None:
             p.setPen(QColor(COL_MUTED))
             p.drawText(QRect(0, 0, w, h), Qt.AlignCenter, "waiting for telemetry…")
             return
-        # Floor reference dot at the base.
+
+        # Solid silhouette layer — each link rendered as a filled 2D
+        # convex hull of its projected mesh vertices.  Reads as a real
+        # model shape, not a wireframe.  Draw LEADER first so the live
+        # arm overlays on top of it.  Mesh world loads on a daemon thread
+        # at module import; while it's still loading these calls are
+        # no-ops and only the stick-figure backbone shows.
+        if self._show_leader:
+            self._draw_wireframe(p, self._leader_world_T, "#e3b341", to_screen_xy)
+        self._draw_wireframe(p, self._actual_world_T, "#22cc44", to_screen_xy)
+
+        # Thin stick-figure backbones over the wireframe — gives a clear
+        # joint chain readout when the wireframes overlap.
         def draw_chain(pts, color, width, dot):
             if not pts or len(pts) < 2:
                 return
@@ -3738,13 +4119,140 @@ class _ModelPreview(QFrame):
             p.setBrush(QColor(color))
             for pt in pts:
                 p.drawEllipse(pt, dot, dot)
-        # Actual first (so commanded draws on top where they overlap).
-        draw_chain(a2d, "#22cc44", 3, 4)   # green = real arm
-        draw_chain(t2d, "#9aa4b0", 4, 3)   # grey  = commanded
+        # Commanded target as a thin grey skeleton on top of the wireframes.
+        # Hidden when motors are off + matches actual — keeps the view clean.
+        if t2d is not None:
+            draw_chain(t2d, "#9aa4b0", 2, 2)
         # EE marker on the commanded chain.
         if ee2d is not None:
             p.setBrush(QColor("#d29922")); p.setPen(Qt.NoPen)
             p.drawEllipse(ee2d, 5, 5)
+
+        # Scene cam: pointcloud → frustum → camera body → floating thumbnail.
+        # Order matters — frustum + body draw on top of the cloud so they
+        # remain visible against bright returns; thumbnail sits on top of
+        # everything.
+        if self._scene_pose is not None and frustum_corners_world is not None:
+            self._draw_scene_cam(p, w, h,
+                                  frustum_corners_world,
+                                  to_screen, to_screen_xy)
+
+
+    # -- scene-cam draw helpers ------------------------------------------
+
+    _SCENE_CAM_COLOR = "#5ab4ff"   # matches Rerun qpos / actual chart blue
+
+    def _draw_scene_cam(self, p: QPainter, w: int, h: int,
+                        frustum_corners_world: np.ndarray,
+                        to_screen, to_screen_xy_batch) -> None:
+        """Draw the projected pointcloud, frustum, camera body, and a
+        floating thumbnail tied back to the camera by a leader line."""
+        cam_pos = self._scene_pose["position"]
+        cam_origin_2d = to_screen(cam_pos.tolist())
+
+        # ---- pointcloud -------------------------------------------------
+        # Tint each point by its source depth: nearer = brighter blue,
+        # farther = dim cyan/grey.  Cheap per-point Qt fill via drawPoint
+        # in batches of one colour at a time (grouping by depth bucket
+        # keeps pen switches down).
+        if (self._scene_pts_world is not None
+                and len(self._scene_pts_world) > 0):
+            pts_2d = to_screen_xy_batch(self._scene_pts_world)
+            depths = self._scene_pts_depth
+            # 4 depth buckets; each gets its own colour + pen switch.
+            buckets = [
+                (0.15, 0.60, QColor(120, 220, 255, 220)),
+                (0.60, 1.20, QColor( 90, 180, 240, 200)),
+                (1.20, 2.00, QColor( 70, 140, 210, 170)),
+                (2.00, 3.01, QColor( 90, 120, 160, 130)),
+            ]
+            in_view_x = (pts_2d[:, 0] >= 0) & (pts_2d[:, 0] < w)
+            in_view_y = (pts_2d[:, 1] >= 0) & (pts_2d[:, 1] < h)
+            in_view = in_view_x & in_view_y
+            for lo, hi, col in buckets:
+                m = in_view & (depths >= lo) & (depths < hi)
+                if not m.any():
+                    continue
+                p.setPen(QPen(col, 1))
+                bucket_pts = pts_2d[m]
+                # drawPoints would be ideal but PySide6 wants QPointF list;
+                # build it once and shove it through.
+                qpts = [QPointF(float(x), float(y)) for x, y in bucket_pts]
+                p.drawPoints(qpts)
+
+        # ---- frustum lines + image-plane rect --------------------------
+        corners_2d = [to_screen(c.tolist()) for c in frustum_corners_world]
+        frustum_col = QColor(self._SCENE_CAM_COLOR)
+        frustum_col.setAlpha(180)
+        p.setPen(QPen(frustum_col, 1, Qt.DashLine))
+        for c2 in corners_2d:
+            p.drawLine(cam_origin_2d, c2)
+        # Close the image-plane rectangle in a solid line so the frustum
+        # "frame" reads cleanly even against a busy pointcloud.
+        p.setPen(QPen(frustum_col, 2))
+        rect_poly = QPolygonF([QPointF(c.x(), c.y()) for c in corners_2d])
+        p.drawPolyline(rect_poly)
+        # Close the loop (drawPolyline doesn't auto-close).
+        p.drawLine(corners_2d[-1], corners_2d[0])
+
+        # ---- camera body marker (small filled square + label) ----------
+        body_col = QColor(self._SCENE_CAM_COLOR)
+        p.setBrush(body_col); p.setPen(QPen(QColor("white"), 1))
+        cx, cy = cam_origin_2d.x(), cam_origin_2d.y()
+        p.drawRect(cx - 5, cy - 5, 10, 10)
+        # Label below the marker (stays out of the frustum which projects
+        # outward; if it ever overlaps badly we can move it to the side).
+        p.setPen(QColor(self._SCENE_CAM_COLOR))
+        p.setFont(QFont("Segoe UI", 7, QFont.Bold))
+        p.drawText(cx + 8, cy - 6, "scene_cam")
+
+        # ---- floating thumbnail with leader line -----------------------
+        if self._scene_qimg is None or self._scene_qimg.isNull():
+            return
+        thumb_w, thumb_h = 128, 96      # 4:3, small enough to keep margin
+        # Offset toward the nearest corner of the viewport so the thumb
+        # doesn't cover the arm or the frustum.  Pick the quadrant of the
+        # viewport opposite the projected camera origin so the leader line
+        # has room to draw.
+        quad_x = 1 if cx < w / 2 else -1
+        quad_y = 1 if cy < h / 2 else -1
+        margin = 10
+        thumb_x = (cx + quad_x * 48) if quad_x > 0 else (cx + quad_x * 48 - thumb_w)
+        thumb_y = (cy + quad_y * 36) if quad_y > 0 else (cy + quad_y * 36 - thumb_h)
+        # Clamp to viewport so the whole thumb is visible.
+        thumb_x = max(margin, min(int(thumb_x), w - thumb_w - margin))
+        thumb_y = max(margin, min(int(thumb_y), h - thumb_h - margin))
+        thumb_rect = QRect(thumb_x, thumb_y, thumb_w, thumb_h)
+
+        # Leader: cam origin → thumb's near edge.  Compute the side of the
+        # thumb closest to (cx, cy) so the line doesn't slice through the
+        # image.
+        anchor_x = max(thumb_rect.left(), min(int(cx), thumb_rect.right()))
+        anchor_y = max(thumb_rect.top(),  min(int(cy), thumb_rect.bottom()))
+        leader_col = QColor(self._SCENE_CAM_COLOR); leader_col.setAlpha(160)
+        p.setPen(QPen(leader_col, 1, Qt.DashLine))
+        p.drawLine(int(cx), int(cy), anchor_x, anchor_y)
+
+        # Thumb background + image (KeepAspectRatio so non-4:3 publishers
+        # don't stretch).  Border in scene-cam blue so it ties to the
+        # frustum visually.
+        p.fillRect(thumb_rect, QColor("#000"))
+        scaled = self._scene_qimg.scaled(
+            thumb_w, thumb_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        # Centre the scaled image inside thumb_rect.
+        sx = thumb_rect.left() + (thumb_w - scaled.width())  // 2
+        sy = thumb_rect.top()  + (thumb_h - scaled.height()) // 2
+        p.drawImage(sx, sy, scaled)
+        p.setPen(QPen(QColor(self._SCENE_CAM_COLOR), 1))
+        p.setBrush(Qt.NoBrush)
+        p.drawRect(thumb_rect.adjusted(0, 0, -1, -1))
+        # Tiny label on the thumb.
+        p.setFont(QFont("Segoe UI", 7, QFont.Bold))
+        p.setPen(QColor("white"))
+        p.fillRect(thumb_rect.left(), thumb_rect.top(),
+                   thumb_w, 12, QColor(0, 0, 0, 160))
+        p.drawText(thumb_rect.left() + 4, thumb_rect.top() + 10,
+                   "scene cam")
 
 
 class _MainWindow(QMainWindow):
@@ -4501,8 +5009,19 @@ class _MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def set_camera_frames(self,
-                          gripper: Optional[bytes], gripper_ts: float) -> None:
-        self._cam_pair.set_frames(gripper, gripper_ts)
+                          gripper: Optional[bytes], gripper_ts: float,
+                          scene: Optional[bytes] = None,
+                          scene_ts: float = 0.0,
+                          scene_pts_cam: Optional[np.ndarray] = None,
+                          scene_pts_depth: Optional[np.ndarray] = None) -> None:
+        self._cam_pair.set_frames(gripper, gripper_ts, scene, scene_ts)
+        # Model preview gets the JPEG (for the floating thumbnail) and
+        # the pre-projected camera-frame pointcloud (from the publisher-
+        # side decoder thread). The preview only does a single R·p+t
+        # world transform per refresh, ~sub-ms on 700 points.
+        if scene is not None or scene_pts_cam is not None:
+            self._model_preview.set_scene_cam(scene, scene_pts_cam,
+                                               scene_pts_depth)
 
     def apply_snapshot(self, s: dict) -> None:
         self._last_snapshot = s
@@ -4634,9 +5153,19 @@ class _MainWindow(QMainWindow):
             leader=s.get("leader_mapped"),
         )
 
-        # Embedded kinematic model preview: commanded (target) vs actual.
+        # Embedded kinematic model preview: commanded (target) vs actual,
+        # plus a yellow wireframe for the leader pose when a physical leader
+        # is plugged in AND VR teleop is off (in VR mode the operator is the
+        # leader, so a yellow overlay would just echo the hand they can see).
         if hasattr(self, "_model_preview"):
-            self._model_preview.apply(s.get("target"), s.get("actual"))
+            leader_q = s.get("leader_mapped")
+            leader_connected = bool(s.get("leader_connected"))
+            in_vr = (s.get("quest_kind") == "quest")
+            show_leader = leader_connected and (not in_vr) and (leader_q is not None)
+            self._model_preview.apply(
+                s.get("target"), s.get("actual"),
+                leader_q=leader_q, show_leader=show_leader,
+            )
 
         rec   = bool(s.get("recording", False))
         steps = int(s.get("rec_steps", 0))
@@ -4782,7 +5311,20 @@ class QtRenderer:
         # at camera-publisher cadence without rebuilding the full snapshot
         # dict.  QtRenderer._tick reads it under the same lock and forwards
         # to _LiveCameraPair, which drops stale frames by timestamp.
-        self._cam_holder: dict = {"gripper": None, "gripper_ts": 0.0}
+        self._cam_holder: dict = {
+            "gripper":          None, "gripper_ts": 0.0,
+            "scene":            None, "scene_ts":   0.0,
+            # Pre-projected camera-frame pointcloud + per-point depth.
+            # Produced by the publisher-side decoder thread so the GUI
+            # only does a single R·p+t world transform per refresh.
+            "scene_pts_cam":    None,
+            "scene_pts_depth":  None,
+        }
+        # Last-forwarded timestamps so _tick can dedupe and skip re-feeding
+        # the same JPEG/depth at the timer rate (30 Hz). Without these,
+        # the model preview re-decoded + re-projected every tick.
+        self._last_fwd_gripper_ts: float = 0.0
+        self._last_fwd_scene_ts:   float = 0.0
         self._stop            = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._window: Optional[_MainWindow]      = None
@@ -4863,8 +5405,26 @@ class QtRenderer:
             snap  = self._holder["args"]
             g_jpg = self._cam_holder["gripper"]
             g_ts  = self._cam_holder["gripper_ts"]
+            s_jpg = self._cam_holder.get("scene")
+            s_ts  = self._cam_holder.get("scene_ts", 0.0)
+            s_pts_cam   = self._cam_holder.get("scene_pts_cam")
+            s_pts_depth = self._cam_holder.get("scene_pts_depth")
         if self._window is not None:
             if snap is not None:
                 self._window.apply_snapshot(snap)
-            if g_jpg is not None:
-                self._window.set_camera_frames(g_jpg, g_ts)
+            # Dedupe by ts — without this the model preview was decoding
+            # the same JPEG and re-projecting at 30 Hz even though new
+            # data only arrives ~6 Hz.
+            g_changed = g_jpg is not None and g_ts > self._last_fwd_gripper_ts
+            s_changed = s_jpg is not None and s_ts > self._last_fwd_scene_ts
+            if g_changed or s_changed:
+                self._window.set_camera_frames(
+                    g_jpg if g_changed else None,
+                    g_ts  if g_changed else 0.0,
+                    s_jpg if s_changed else None,
+                    s_ts  if s_changed else 0.0,
+                    scene_pts_cam=s_pts_cam   if s_changed else None,
+                    scene_pts_depth=s_pts_depth if s_changed else None,
+                )
+                if g_changed: self._last_fwd_gripper_ts = g_ts
+                if s_changed: self._last_fwd_scene_ts   = s_ts

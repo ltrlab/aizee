@@ -43,6 +43,7 @@ import io
 import json
 import math
 import queue
+import socket
 import sys
 import threading
 import time
@@ -89,6 +90,13 @@ try:
     _so101_available = True
 except ImportError:
     _CALIB_PATH = Path("so101_calibration.json")
+
+# Timeout-bounded serial open (never blocks forever on an unresponsive device
+# such as a Bluetooth serial port).  Shared with the leader-arm probes.
+try:
+    from serial_safe import open_serial as _open_serial
+except ImportError:
+    _open_serial = None
 
 # OpenRB-150 + Dynamixel XL330 leader (newer build). Same duck-typed interface
 # as So101Leader, so the runtime code below is leader-kind agnostic once
@@ -670,20 +678,90 @@ def _start_image_decoder(
     cam_cache: dict,
     img_size: tuple,
     always_on: bool = False,
+    scene_proj_stride: int = 20,
+    scene_proj_z_near: float = 0.15,
+    scene_proj_z_far:  float = 3.0,
 ) -> tuple[threading.Event, threading.Thread, threading.Lock, dict, threading.Event]:
     """Background thread that decodes + resizes camera JPEGs.
 
     Gated on *rec_flag* by default (decoding only matters for the record
     buffer).  Pass always_on=True for GUI mode where live preview needs
     decoded frames even outside recording.
+
+    Scene cam additionally has its depth backprojected to a CAMERA-FRAME
+    pointcloud right here on the worker thread, so the GUI never pays
+    that cost. The final pose transform (R·p + t to world frame) is the
+    only remaining numpy work for the GUI side — that's a single matmul
+    on ~700 points, sub-millisecond.
+
+    Each `_dec_cache["{cam}"]` is paired with `_dec_cache["{cam}_ts_pub"]`
+    (the publisher's capture timestamp of the same frame), so the recorder
+    can pull image + ts atomically — eliminates the off-by-one-frame sync
+    bug where `latest_*_ts` referred to a newer frame than the decoded
+    ndarray. Critical for training-time alignment across streams.
     """
     lock     = threading.Lock()
-    decoded: dict = {"gripper": None, "gripper_time": 0.0}
+    decoded: dict = {
+        # gripper: image (np.ndarray) + ts_pub (publisher's capture ts) +
+        # time (local arrival ts, used to drive the freshness check by
+        # callers that already do age-based gating).
+        "gripper": None, "gripper_time": 0.0, "gripper_ts_pub": None,
+        # scene: same as gripper, plus pre-projected camera-frame point
+        # cloud + per-point depth (for the GUI's 3D viz). All five fields
+        # are written under the same lock acquisition so consumers get a
+        # consistent snapshot of the same frame.
+        "scene":            None,
+        "scene_time":       0.0,
+        "scene_ts_pub":     None,
+        "scene_pts_cam":    None,   # (N, 3) float32, camera-frame XYZ
+        "scene_pts_depth":  None,   # (N,)  float32, per-point Z for color ramp
+    }
     rec_flag = threading.Event()
     stop     = threading.Event()
 
+    def _scene_depth_to_cam_points(depth_blob: dict) -> tuple:
+        """Backproject Z16 depth → (N, 3) camera-frame XYZ + (N,) depths.
+
+        Returns (None, None) if the depth payload or intrinsics are
+        missing — the decoder skips updating the pointcloud fields in
+        that case, leaving the previous cache values intact.
+
+        Camera optical frame here is the librealsense / OpenCV
+        convention: +X right, +Y down, +Z forward. The GUI applies a
+        single rotation+translation to land in URDF world frame.
+        """
+        raw   = depth_blob.get("data_bytes")
+        intr  = depth_blob.get("intrinsics")
+        scale = depth_blob.get("scale")
+        w     = depth_blob.get("width")
+        h     = depth_blob.get("height")
+        if (raw is None or intr is None or scale is None
+                or w is None or h is None):
+            return None, None
+        try:
+            depth = np.frombuffer(raw, dtype=np.uint16).reshape(int(h), int(w))
+        except Exception:
+            return None, None
+        fx = float(intr["fx"]); fy = float(intr["fy"])
+        cx = float(intr["cx"]); cy = float(intr["cy"])
+        us = np.arange(0, int(w), scene_proj_stride, dtype=np.int32)
+        vs = np.arange(0, int(h), scene_proj_stride, dtype=np.int32)
+        UU, VV = np.meshgrid(us, vs)
+        z = depth[VV, UU].astype(np.float32) * float(scale)
+        m = (z > scene_proj_z_near) & (z < scene_proj_z_far)
+        if not m.any():
+            empty = np.zeros((0, 3), dtype=np.float32)
+            return empty, np.zeros((0,), dtype=np.float32)
+        u = UU[m].astype(np.float32); v = VV[m].astype(np.float32)
+        zf = z[m]
+        X = (u - cx) / fx * zf
+        Y = (v - cy) / fy * zf
+        pts_cam = np.stack([X, Y, zf], axis=1).astype(np.float32)
+        return pts_cam, zf
+
     def _run() -> None:
         prev_gt = 0.0
+        prev_st = 0.0
         while not stop.is_set():
             if not (always_on or rec_flag.is_set()):
                 stop.wait(0.05)
@@ -692,6 +770,8 @@ def _start_image_decoder(
             with cam_lock:
                 g_msg = cam_cache["gripper"]
                 g_t   = cam_cache["gripper_time"]
+                s_msg = cam_cache.get("scene")
+                s_t   = cam_cache.get("scene_time", 0.0)
 
             changed = False
             if g_t > prev_gt and g_msg is not None:
@@ -699,10 +779,32 @@ def _start_image_decoder(
                 # (config/hardware_jetson_gripper_cam.yaml → streams.color.flip),
                 # so the consumer doesn't need to flip anything here.
                 img = decode_image(g_msg, img_size)
+                pub_ts = g_msg.get("timestamp")
                 with lock:
-                    decoded["gripper"]      = img
-                    decoded["gripper_time"] = g_t
+                    decoded["gripper"]        = img
+                    decoded["gripper_time"]   = g_t
+                    decoded["gripper_ts_pub"] = (
+                        float(pub_ts) if pub_ts is not None else None)
                 prev_gt = g_t
+                changed = True
+
+            if s_t > prev_st and s_msg is not None:
+                # Decode color + project depth, then commit both under one
+                # lock acquisition so consumers (recorder, GUI push) see a
+                # consistent (image, points, ts) triple from the same frame.
+                img = decode_image(s_msg, img_size)
+                depth_blob = s_msg.get("depth", {}) or {}
+                pts_cam, pts_depth = _scene_depth_to_cam_points(depth_blob)
+                pub_ts = s_msg.get("timestamp")
+                with lock:
+                    decoded["scene"]           = img
+                    decoded["scene_time"]      = s_t
+                    decoded["scene_ts_pub"]    = (
+                        float(pub_ts) if pub_ts is not None else None)
+                    if pts_cam is not None:
+                        decoded["scene_pts_cam"]   = pts_cam
+                        decoded["scene_pts_depth"] = pts_depth
+                prev_st = s_t
                 changed = True
 
             if not changed:
@@ -1285,10 +1387,12 @@ def _start_cam_receiver(
     ctx: zmq.Context,
     gripper_ep: str,
     ups_ep: Optional[str],
+    scene_ep: Optional[str] = None,
 ) -> tuple[threading.Event, threading.Thread, threading.Lock, dict]:
     lock = threading.Lock()
     cache: dict = {
         "gripper": None, "gripper_time": 0.0, "gripper_ts": None,
+        "scene":   None, "scene_time":   0.0, "scene_ts":   None,
         "ups": None,
     }
     stop = threading.Event()
@@ -1306,6 +1410,16 @@ def _start_cam_receiver(
         gripper_sock.setsockopt_string(zmq.SUBSCRIBE, "")
         gripper_sock.connect(gripper_ep)
 
+        scene_sock: Optional[zmq.Socket] = None
+        if scene_ep:
+            # Same multipart drain pattern as the gripper cam — the scene cam
+            # publisher (camera_node.py) also uses pack_camera() multipart.
+            scene_sock = ctx.socket(zmq.SUB)
+            scene_sock.setsockopt(zmq.LINGER, 0)
+            scene_sock.setsockopt(zmq.RCVHWM, 2)
+            scene_sock.setsockopt_string(zmq.SUBSCRIBE, "")
+            scene_sock.connect(scene_ep)
+
         ups_sock: Optional[zmq.Socket] = None
         if ups_ep:
             ups_sock = ctx.socket(zmq.SUB)
@@ -1316,6 +1430,8 @@ def _start_cam_receiver(
 
         poller = zmq.Poller()
         poller.register(gripper_sock, zmq.POLLIN)
+        if scene_sock:
+            poller.register(scene_sock, zmq.POLLIN)
         if ups_sock:
             poller.register(ups_sock, zmq.POLLIN)
 
@@ -1349,6 +1465,24 @@ def _start_cam_receiver(
                             if ts is not None:
                                 cache["gripper_ts"] = float(ts)
 
+                if scene_sock is not None and scene_sock in events:
+                    latest = None
+                    while True:
+                        try:
+                            latest = unpack_camera(scene_sock.recv_multipart(zmq.NOBLOCK))
+                        except zmq.Again:
+                            break
+                        except Exception:
+                            latest = None
+                            break
+                    if latest is not None:
+                        with lock:
+                            cache["scene"] = latest
+                            cache["scene_time"] = now
+                            ts = latest.get("timestamp")
+                            if ts is not None:
+                                cache["scene_ts"] = float(ts)
+
                 if ups_sock and ups_sock in events:
                     try:
                         msg = unpack_msg(ups_sock.recv(zmq.NOBLOCK))
@@ -1358,6 +1492,8 @@ def _start_cam_receiver(
                         pass
         finally:
             gripper_sock.close()
+            if scene_sock is not None:
+                scene_sock.close()
             if ups_sock:
                 ups_sock.close()
 
@@ -1386,9 +1522,12 @@ def _start_estop_reader(
         while not stop.is_set():
             if ser is None:
                 try:
-                    ser = _serial.Serial(port, 115200, timeout=1)
+                    if _open_serial is not None:
+                        ser = _open_serial(port, 115200, read_timeout=1)
+                    else:
+                        ser = _serial.Serial(port, 115200, timeout=1)
                     print(f"E-stop receiver connected on {port}")
-                except _serial.SerialException:
+                except (_serial.SerialException, OSError, TimeoutError):
                     stop.wait(2)
                     continue
             try:
@@ -1534,6 +1673,7 @@ def save_episode(
     output_dir, qpos_buf, gripper_buf,
     telem_ts_buf=None, gripper_ts_buf=None,
     qcmd_buf=None, torque_buf=None,
+    scene_buf=None, scene_ts_buf=None,
     task_tag: str = "", notes: str = "",
 ):
     output_dir = Path(output_dir)
@@ -1551,6 +1691,11 @@ def save_episode(
                    if qcmd_buf and len(qcmd_buf) == len(qpos_buf) else None)
     torque_arr  = (np.stack(torque_buf, axis=0).astype(np.float32)
                    if torque_buf and len(torque_buf) == len(qpos_buf) else None)
+    # Scene cam is optional — a session without --scene-cam (or with the
+    # service down) produces v4 episodes; a populated scene_buf upgrades
+    # to v5 with `observations/images/scene` + `timestamps/camera_scene`.
+    scene_arr   = (np.stack(scene_buf, axis=0)
+                   if scene_buf and len(scene_buf) == len(qpos_buf) else None)
 
     # Actions derived from commanded positions (no sag) when available
     act_src  = qcmd_arr if qcmd_arr is not None else qpos_arr
@@ -1561,13 +1706,16 @@ def save_episode(
         f.attrs["hz"]           = REC_HZ
         f.attrs["arm_joints"]   = ",".join(ARM_JOINTS)
         f.attrs["action_space"] = "absolute"
+        # v5 = v4 + `observations/images/scene` (RealSense color) and
+        #      `timestamps/camera_scene`. Written only when scene_arr is
+        #      populated.
         # v4 = 7-DOF unified arm + single gripper camera (replacing the
         # previous stereo D435 pair). v3 = 7-DOF + stereo left/right images.
         # v2 was also 7-DOF stereo but post-prepend, with a sidecar swivel
         # field; v1 was 6-DOF arm + sidecar swivel. load_recording in
         # record_replay.py handles all four (older versions are dropped on
         # the new single-camera training path).
-        f.attrs["format_version"] = 4
+        f.attrs["format_version"] = 5 if scene_arr is not None else 4
         f.attrs["task_tag"]     = task_tag
         f.attrs["notes"]        = notes
         f.attrs["collected_at"] = float(time.time())
@@ -1581,11 +1729,19 @@ def save_episode(
         imgs.create_dataset("gripper", data=gripper_arr,
                             compression="gzip", compression_opts=4,
                             chunks=(1, H, W, 3))
+        if scene_arr is not None:
+            sH, sW = scene_arr.shape[1], scene_arr.shape[2]
+            imgs.create_dataset("scene", data=scene_arr,
+                                compression="gzip", compression_opts=4,
+                                chunks=(1, sH, sW, 3))
         f.create_dataset("actions",  data=actions,   compression="gzip", compression_opts=4)
         if telem_ts_buf is not None:
             ts = f.create_group("timestamps")
             ts.create_dataset("telem",          data=np.array(telem_ts_buf,   dtype=np.float64))
             ts.create_dataset("camera_gripper", data=np.array(gripper_ts_buf, dtype=np.float64))
+            if scene_ts_buf is not None and len(scene_ts_buf) == len(qpos_buf):
+                ts.create_dataset("camera_scene",
+                                  data=np.array(scene_ts_buf, dtype=np.float64))
 
     return path, len(qpos_buf)
 
@@ -1608,6 +1764,63 @@ def _load_teleop_yaml() -> dict:
 
 def _load_endpoints() -> dict:
     return _load_teleop_yaml().get("endpoints", {})
+
+
+# ---------------------------------------------------------------------------
+# Rover host resolution
+#
+# The rover (Jetson) is reachable on different networks depending on how the
+# operator is connected.  Probe them in priority order and point every rover
+# ZMQ endpoint at the first one that answers:
+#   1. the configured IP (config/teleop.yaml, default 192.168.0.27 — POE/LAN)
+#   2. 10.42.0.1    — direct USB-C ethernet adapter (NetworkManager shared link)
+#   3. 192.168.50.1 — the rover's own WiFi access point ("aizee" AP mode)
+# ---------------------------------------------------------------------------
+
+# Fallback rover IPs appended after the configured address, in priority order.
+_ROVER_FALLBACK_HOSTS = ["10.42.0.1", "192.168.50.1"]
+
+
+def _split_tcp_endpoint(ep: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    """'tcp://host:port' -> ('host', 'port').  Returns (None, None) for an
+    empty / non-tcp:// endpoint, and (host, None) when no port is present."""
+    if not ep or "://" not in ep:
+        return None, None
+    rest = ep.split("://", 1)[1]
+    host, sep, port = rest.rpartition(":")
+    if not sep:
+        return (rest or None), None
+    return (host or None), (port or None)
+
+
+def _host_reachable(host: str, ports, timeout: float = 0.6) -> bool:
+    """True if a TCP connection to `host` succeeds on any of `ports`."""
+    for port in ports:
+        try:
+            with socket.create_connection((host, int(port)), timeout=timeout):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def _resolve_rover_host(primary_host: str, cmd_port: Optional[str],
+                        timeout: float = 0.6) -> tuple[str, list]:
+    """Probe configured IP -> USB-C ethernet -> WiFi AP and return the first
+    reachable host plus the ordered candidate list that was tried.  Falls back
+    to `primary_host` if nothing answers.
+
+    Probes both the ZMQ command port (what we actually use) and ssh (22, which
+    is always up) so host selection works even before rover services start."""
+    candidates: list = []
+    for h in [primary_host, *_ROVER_FALLBACK_HOSTS]:
+        if h and h not in candidates:
+            candidates.append(h)
+    ports = [p for p in (cmd_port, "22") if p]
+    for h in candidates:
+        if _host_reachable(h, ports, timeout):
+            return h, candidates
+    return primary_host, candidates
 
 
 # ---------------------------------------------------------------------------
@@ -2100,6 +2313,9 @@ def main() -> None:
     ap.add_argument("--gripper-cam-ctrl", default="tcp://192.168.0.27:5573", dest="gripper_cam_ctrl",
                     help="Gripper camera control ZMQ REP endpoint (V4L2 sliders in GUI). "
                          "Empty string disables the camera-controls panel.")
+    ap.add_argument("--scene-cam",       default="tcp://192.168.0.27:5564", dest="scene_cam",
+                    help="Scene camera ZMQ endpoint (Intel RealSense RGB-D). "
+                         "Empty string disables scene-cam subscribe / record / preview.")
     ap.add_argument("--ups",             default=_ep.get("ups_telemetry", "tcp://192.168.0.27:5562"),
                     help="UPS telemetry address (empty to disable)")
     ap.add_argument("--output-dir",      default="episodes",              dest="output_dir")
@@ -2137,6 +2353,24 @@ def main() -> None:
     args = ap.parse_args()
 
     _ansi_on()
+
+    # Resolve which network the rover is actually reachable on and repoint every
+    # rover ZMQ endpoint accordingly: configured IP → USB-C ethernet → WiFi AP.
+    _primary_host, _cmd_port = _split_tcp_endpoint(args.cmd)
+    if _primary_host:
+        _sel_host, _cands = _resolve_rover_host(_primary_host, _cmd_port)
+        _tried = " → ".join(_cands)
+        if _sel_host != _primary_host:
+            print(f"[net] {_primary_host} unreachable; rover found at {_sel_host} "
+                  f"(tried {_tried})", flush=True)
+            for _name in ("cmd", "telem", "gripper_cam", "gripper_cam_ctrl",
+                          "scene_cam", "ups"):
+                _h, _p = _split_tcp_endpoint(getattr(args, _name, None))
+                if _h == _primary_host and _p:
+                    setattr(args, _name, f"tcp://{_sel_host}:{_p}")
+        else:
+            print(f"[net] rover reachable at {_sel_host} (priority: {_tried})",
+                  flush=True)
 
     h_s, w_s = args.image_size.split("x")
     img_size  = (int(w_s), int(h_s))   # PIL: (width, height)
@@ -2606,8 +2840,17 @@ def main() -> None:
 
     # Camera + UPS reception runs in a background thread so that
     # JSON-parsing large JPEG frames never delays motor commands.
+    # Scene cam is optional (static-mount mode); in rover mode the publisher
+    # never streams.  We always subscribe when an endpoint is configured, but
+    # treat the scene cam as *present* only once a frame actually arrives
+    # (`_scene_cam_seen`, latched below in the main loop).  That keeps rover
+    # sessions from (a) showing a dead UI tile and (b) dropping every recorded
+    # frame waiting for a scene image that never comes.
+    _scene_cam_configured = bool(args.scene_cam)
+    _scene_cam_seen       = False   # latched True on first fresh scene frame
     _cam_stop, _cam_thread, _cam_lock, _cam_cache = _start_cam_receiver(
         ctx, args.gripper_cam, args.ups or None,
+        scene_ep=(args.scene_cam or None),
     )
 
     # Background image decoder (base64 + JPEG + resize off main loop).
@@ -2759,13 +3002,17 @@ def main() -> None:
 
     # Recording state.  qpos_buf / qcmd_buf / torque_buf are now 7-DOF
     # (swivel-first, matches ARM_JOINTS) — there's no separate swivel buffer.
+    # scene_buf / scene_ts_buf are populated only when --scene-cam is set
+    # AND a frame actually decoded — see the recording append below.
     recording      = False
     qpos_buf:     list = []
     qcmd_buf:     list = []
     torque_buf:   list = []
     gripper_buf:  list = []
+    scene_buf:    list = []
     telem_ts_buf:   list = []
     gripper_ts_buf: list = []
+    scene_ts_buf:   list = []
     dropped_frames = 0
     last_rec_time  = 0.0
 
@@ -2775,10 +3022,23 @@ def main() -> None:
 
     # Camera state
     last_gripper_time   = 0.0
+    last_scene_time     = 0.0
     latest_gripper: Optional[dict] = None
+    latest_scene:   Optional[dict] = None
     latest_telem_ts: Optional[float] = None
     latest_gripper_ts:  Optional[float] = None
+    latest_scene_ts:    Optional[float] = None
     latest_q_cmd: Optional[np.ndarray] = None  # last commanded position sent to motors
+    # Scene cam push to the GUI is rate-capped (separate from publisher
+    # rate / recording rate). The publisher runs at 30 Hz and the
+    # decoder thread keeps _dec_cache fresh at that rate for recording.
+    # The GUI feed is dropped to ~6 Hz because the 3D model preview's
+    # paint cost (hull projection + pointcloud + frustum + thumbnail)
+    # dominates the QtRenderer thread; visually 6 Hz is plenty for a
+    # fixed workspace cam and frees ~80% of the per-second paint budget
+    # compared to 30 Hz.
+    _SCENE_GUI_PERIOD = 0.18
+    _last_scene_gui_push = 0.0
 
     # Leader force-feedback state (OpenRB gripper only).  Smoothed copy of
     # follower gripper torque; LPF coefficient is chosen so a noisy 0.05 N·m
@@ -2861,13 +3121,16 @@ def main() -> None:
     _save_thread:        Optional[threading.Thread] = None
     _save_result_holder: list                       = [None]
 
-    def _start_async_save(out_dir, qb, gb, tb, gtb, dur, drop_note, tag="", qcb=None, tqb=None, task_tag="", notes=""):
+    def _start_async_save(out_dir, qb, gb, tb, gtb, dur, drop_note, tag="",
+                          qcb=None, tqb=None, sb=None, stb=None,
+                          task_tag="", notes=""):
         def _run():
             try:
                 p, T = save_episode(
                     out_dir, qb, gb,
                     telem_ts_buf=tb, gripper_ts_buf=gtb,
                     qcmd_buf=qcb, torque_buf=tqb,
+                    scene_buf=sb, scene_ts_buf=stb,
                     task_tag=task_tag, notes=notes,
                 )
                 _save_result_holder[0] = (p, f"[SAVED {p.name}  {T} steps  {dur:.1f}s{drop_note}]{tag}")
@@ -2911,6 +3174,7 @@ def main() -> None:
             args.output_dir, qpos_buf, gripper_buf,
             telem_ts_buf, gripper_ts_buf,
             dur, drop_note, tag=tag_txt, qcb=qcmd_buf, tqb=torque_buf,
+            sb=scene_buf, stb=scene_ts_buf,
             task_tag=_meta["task_tag"], notes=_meta["notes"],
         )
 
@@ -2959,6 +3223,10 @@ def main() -> None:
                     latest_gripper    = _cam_cache["gripper"]
                     last_gripper_time = _cam_cache["gripper_time"]
                     latest_gripper_ts = _cam_cache["gripper_ts"]
+                if _cam_cache.get("scene") is not None:
+                    latest_scene    = _cam_cache["scene"]
+                    last_scene_time = _cam_cache["scene_time"]
+                    latest_scene_ts = _cam_cache.get("scene_ts")
 
             cam_age = (t0 - last_gripper_time) if last_gripper_time > 0 else 999.0
             # End-to-end frame age (publisher capture timestamp → host now).
@@ -2969,6 +3237,17 @@ def main() -> None:
             # Time since this loop last *received* a new cam frame (host-only,
             # no clock-skew component) — flags publisher gaps directly.
             _prof.gauge("gripper_recv_age_ms", cam_age * 1000.0)
+            if _scene_cam_configured:
+                scene_age = (t0 - last_scene_time) if last_scene_time > 0 else 999.0
+                if latest_scene_ts is not None:
+                    _prof.gauge("scene_age_ms", (t0 - latest_scene_ts) * 1000.0)
+                _prof.gauge("scene_recv_age_ms", scene_age * 1000.0)
+                # Latch presence the first time a fresh scene frame arrives —
+                # distinguishes static mode (scene present) from rover mode.
+                if not _scene_cam_seen and scene_age < _CAM_STALE:
+                    _scene_cam_seen = True
+            else:
+                scene_age = 999.0
 
             # Wake the Rerun thread (~15 Hz, every other frame).  Camera
             # frames are pulled from the shared decoder cache by the
@@ -2995,6 +3274,36 @@ def main() -> None:
                         if _quest_state is not None:
                             _quest_state.latest_cam_jpeg = gj_bytes
                             _quest_state.latest_cam_seq += 1
+                # Scene cam: rate-cap to _SCENE_GUI_PERIOD so the GUI
+                # thread isn't slammed by 30 Hz × (paint + pointcloud).
+                # Recording continues at REC_HZ through _dec_cache — this
+                # throttle ONLY affects the 3D model preview + scene-tile
+                # refresh rate.
+                #
+                # The GUI gets pre-projected camera-frame points from the
+                # decoder thread (heavy numpy already done there), the
+                # paired publisher ts, and the raw JPEG bytes for the
+                # tile + thumbnail (Qt's native decoder is fast). No depth
+                # bytes / intrinsics travel through here anymore.
+                push_s = (latest_scene is not None
+                          and last_scene_time > _disp_cams.get("scene_ts", 0.0)
+                          and (t0 - _last_scene_gui_push) >= _SCENE_GUI_PERIOD)
+                if push_s:
+                    with _dec_lock:
+                        sj_img       = _dec_cache.get("scene")
+                        sj_ts_pub    = _dec_cache.get("scene_ts_pub")
+                        s_pts_cam    = _dec_cache.get("scene_pts_cam")
+                        s_pts_depth  = _dec_cache.get("scene_pts_depth")
+                    sj_bytes = latest_scene.get("color", {}).get("data_bytes")
+                    if sj_bytes is not None and sj_img is not None:
+                        with _disp_lock:
+                            _disp_cams["scene"]           = sj_bytes
+                            _disp_cams["scene_ts"]        = (
+                                sj_ts_pub if sj_ts_pub is not None
+                                else last_scene_time)
+                            _disp_cams["scene_pts_cam"]   = s_pts_cam
+                            _disp_cams["scene_pts_depth"] = s_pts_depth
+                        _last_scene_gui_push = t0
 
             _prof.tick("cam")
 
@@ -3302,8 +3611,10 @@ def main() -> None:
                         qcmd_buf       = []
                         torque_buf     = []
                         gripper_buf    = []
+                        scene_buf      = []
                         telem_ts_buf   = []
                         gripper_ts_buf = []
+                        scene_ts_buf   = []
                         dropped_frames = 0
                         last_rec_time  = 0.0
                     else:
@@ -3878,10 +4189,24 @@ def main() -> None:
             # -----------------------------------------------------------------
             if recording and t0 - last_rec_time >= 1.0 / REC_HZ:
                 last_rec_time = t0
-                # Read pre-decoded image from background thread (no blocking)
+                # Pull image + its publisher capture-time atomically from
+                # the decoder cache. Using the paired ts (not
+                # latest_*_ts) is what keeps the recorded HDF5 actually
+                # synchronized — latest_*_ts could be from a frame that
+                # arrived AFTER the decoded image was committed,
+                # producing an off-by-one ts in the file.
                 with _dec_lock:
-                    gripper_img = _dec_cache["gripper"]
+                    gripper_img    = _dec_cache["gripper"]
+                    gripper_ts_rec = _dec_cache.get("gripper_ts_pub")
+                    scene_img      = _dec_cache.get("scene")
+                    scene_ts_rec   = _dec_cache.get("scene_ts_pub")
                 cams_ok   = cam_age < _CAM_STALE
+                # When scene cam is enabled it must also be fresh — a stale
+                # scene frame would desync from the gripper / qpos timeline.
+                # When disabled, scene_img is None and we skip the scene
+                # append entirely (episode stays format_version=4).
+                scene_ok  = (not _scene_cam_seen) or (
+                    scene_img is not None and scene_age < _CAM_STALE)
                 # In TRACKING the cmd thread owns the live commanded pose;
                 # pull it from the holder so the recording captures the
                 # exact value sent on the wire.  Falls back to the main
@@ -3896,7 +4221,8 @@ def main() -> None:
                 else:
                     rec_q_cmd = None
 
-                if (q_actual is not None and gripper_img is not None and cams_ok):
+                if (q_actual is not None and gripper_img is not None and cams_ok
+                        and scene_ok):
                     # qpos_buf/qcmd_buf/torque_buf are 7-DOF (swivel-first)
                     # because q_actual / latest_q_cmd / arm_torques are.
                     qpos_buf.append(q_actual.copy())
@@ -3904,7 +4230,12 @@ def main() -> None:
                     torque_buf.append(arm_torques.copy() if arm_torques is not None else np.zeros(NUM_JOINTS, dtype=np.float32))
                     gripper_buf.append(gripper_img)
                     telem_ts_buf.append(latest_telem_ts if latest_telem_ts is not None else _nan)
-                    gripper_ts_buf.append(latest_gripper_ts if latest_gripper_ts is not None else _nan)
+                    gripper_ts_buf.append(
+                        gripper_ts_rec if gripper_ts_rec is not None else _nan)
+                    if _scene_cam_seen and scene_img is not None:
+                        scene_buf.append(scene_img)
+                        scene_ts_buf.append(
+                            scene_ts_rec if scene_ts_rec is not None else _nan)
                 else:
                     dropped_frames += 1
 
