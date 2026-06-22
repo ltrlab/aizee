@@ -1,16 +1,28 @@
-# AIZEE Hardware Configuration - Jetson (arm-only mount, no rover wheels)
-# 2026-05-30: arm separated from rover. left_wheel / right_wheel removed —
-# the motor_control Rust binary was hanging during CAN init trying to
-# enumerate the absent wheel motors (Tufty showed yellow, no telem on :5556).
-# Swivel + 6-DoF gantry remain on the same CAN bus.
+# AIZEE Hardware Configuration - Jetson (rover wheels + swivel + 6-DoF gantry)
+# History:
+#   2026-05-30: arm separated from rover — left_wheel / right_wheel removed
+#               because motor_control hung during CAN init enumerating the
+#               absent wheel motors (Tufty yellow, no telem on :5556).
+#   2026-06-21: wheels re-added (drive controls back). NOTE: both wheel motors
+#               MUST be physically present on the CAN bus or motor_control will
+#               wedge during init again — only deploy this with wheels wired.
 # File name kept as "rover" so the systemd unit (aizee-motor-control-rover)
-# and deploy scripts don't need re-wiring; can be renamed later if desired.
+# and deploy scripts don't need re-wiring.
 
 motors:
-  # No wheels — arm-only mount (2026-05-30).  Field kept (empty) because the
-  # motor_control Rust binary's serde deserializer requires it; removing the
-  # key entirely produces: Error: motors: missing field `wheels`.
-  wheels: []
+  # Drive wheels - ROBSTRIDE 04 Series
+  wheels:
+    - id: left_wheel
+      can_id: 0x02
+      type: ROBSTRIDE04
+      max_velocity: 10.0  # rad/s
+      max_torque: 12.0    # Nm
+
+    - id: right_wheel
+      can_id: 0x04
+      type: ROBSTRIDE04
+      max_velocity: 10.0
+      max_torque: 12.0
 
   # Base swivel - ROBSTRIDE 03 Series
   swivel:
