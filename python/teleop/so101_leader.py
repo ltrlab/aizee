@@ -29,6 +29,8 @@ try:
 except ImportError:
     serial = None  # type: ignore
 
+from serial_safe import open_serial
+
 # ---------------------------------------------------------------------------
 # Feetech STS3215 protocol constants
 # ---------------------------------------------------------------------------
@@ -127,7 +129,7 @@ class So101Leader:
     def connect(self) -> bool:
         """Open serial port.  Returns True on success."""
         try:
-            self._ser = serial.Serial(self.port, self.baud, timeout=0.05)
+            self._ser = open_serial(self.port, self.baud, read_timeout=0.05)
             time.sleep(0.1)
             # Reset unwrap state so seeding runs again on first read.
             for j in self.JOINTS:
@@ -137,7 +139,7 @@ class So101Leader:
             self._last_clean = None
             self._reject_count = 0
             return True
-        except serial.SerialException as exc:
+        except (serial.SerialException, OSError, TimeoutError) as exc:
             print(f"[SO-101] connect failed on {self.port}: {exc}")
             return False
 
@@ -486,7 +488,9 @@ def _probe_so101(device: str, baud: int = _BAUD, timeout: float = 0.2) -> tuple[
     if serial is None:
         return False, "pyserial not installed"
     try:
-        ser = serial.Serial(device, baud, timeout=timeout)
+        ser = open_serial(device, baud, read_timeout=timeout)
+    except TimeoutError:
+        return False, "open timed out (unresponsive device)"
     except (serial.SerialException, OSError) as exc:
         return False, f"open failed ({exc.__class__.__name__})"
     try:

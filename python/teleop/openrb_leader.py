@@ -59,6 +59,8 @@ try:
 except ImportError:
     serial = None  # type: ignore
 
+from serial_safe import open_serial
+
 # ---------------------------------------------------------------------------
 # Wire protocol constants  (must match firmware/openrb_leader/src/main.cpp)
 # ---------------------------------------------------------------------------
@@ -234,7 +236,7 @@ class OpenRBLeader:
 
     def connect(self) -> bool:
         try:
-            self._ser = serial.Serial(self.port, self.baud, timeout=0.05)
+            self._ser = open_serial(self.port, self.baud, read_timeout=0.05)
             # OpenRB-150 USB-CDC resets the MCU on port open; give the
             # bootloader and sketch time to come up before the first poll.
             time.sleep(0.5)
@@ -246,7 +248,7 @@ class OpenRBLeader:
             self._last_clean = None
             self._reject_count = 0
             return True
-        except serial.SerialException as exc:
+        except (serial.SerialException, OSError, TimeoutError) as exc:
             print(f"[OpenRB] connect failed on {self.port}: {exc}")
             return False
 
@@ -678,7 +680,9 @@ def _probe_openrb(device: str, baud: int = _BAUD, timeout: float = 0.4) -> tuple
     if serial is None:
         return False, "pyserial not installed"
     try:
-        ser = serial.Serial(device, baud, timeout=timeout)
+        ser = open_serial(device, baud, read_timeout=timeout)
+    except TimeoutError:
+        return False, "open timed out (unresponsive device)"
     except (serial.SerialException, OSError) as exc:
         return False, f"open failed ({exc.__class__.__name__})"
     try:
