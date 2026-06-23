@@ -203,6 +203,6 @@ cargo build --release
 ## Related Documentation
 
 - Main project: `../README.md`
-- Development guide: `../CLAUDE.md`
+- Documentation hub: `../docs/README.md`
 - Implementation phases: `../docs/PHASES.md`
 - Hardware config: `../config/hardware_two_motors.yaml`

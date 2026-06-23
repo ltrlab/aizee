@@ -151,7 +151,7 @@ aizee/
 ├── firmware/            # Tufty2040 display, wireless e-stop, OpenRB-150 leader
 ├── urdf/                # Robot URDF (from OnShape)
 ├── episodes/            # Recorded demonstrations (HDF5)
-├── docs/                # Subsystem, deployment, and quick-start docs
+├── docs/                # Quick-start, subsystem, and learning-pipeline docs
 └── tests/               # Test suite
 ```
 
@@ -259,9 +259,9 @@ See [docs/PHASES.md](docs/PHASES.md) for the full roadmap.
 ---
 
 ## Documentation
-- [docs/quickstart/](docs/quickstart/) — setup & post-reboot guides
-- [docs/deployment/](docs/deployment/) — multi-device deployment
-- [docs/subsystems/](docs/subsystems/) — camera, LiDAR, UPS notes
+- [docs/quickstart/](docs/quickstart/) — connect, run, and post-reboot guides
+- [docs/subsystems/](docs/subsystems/) — motors, cameras, leaders, UPS, display, LiDAR
+- [docs/LEARNING_PIPELINE.md](docs/LEARNING_PIPELINE.md) — calibration → collection → training → deployment
 - [docs/PHASES.md](docs/PHASES.md) — implementation roadmap
 
 ## License

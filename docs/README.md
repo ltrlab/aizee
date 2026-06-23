@@ -1,48 +1,33 @@
 # AIZEE Documentation
 
-This directory contains all technical documentation for the AIZEE robotics platform.
+Technical documentation for the AIZEE mobile manipulation platform.
 
-## Quick Navigation
+## Getting started
+- **[quickstart/JETSON_QUICK_START.md](quickstart/JETSON_QUICK_START.md)** — connect to the robot and run teleop / data collection (daily reference)
+- **[quickstart/QUICK_START_AFTER_REBOOT.md](quickstart/QUICK_START_AFTER_REBOOT.md)** — post-reboot verification, service management, troubleshooting
 
-### Getting Started
-- **[quickstart/](quickstart/)**: Quick start guides
-  - [QUICK_START_AFTER_REBOOT.md](quickstart/QUICK_START_AFTER_REBOOT.md): Post-reboot startup (primary daily reference)
-  - [JETSON_QUICK_START.md](quickstart/JETSON_QUICK_START.md): Teleop quick commands on Jetson
-  - [QUICK_START_MULTIDEVICE.md](quickstart/QUICK_START_MULTIDEVICE.md): Optional RPi4 arm module deployment
+> First check after connecting: the **heartbeat dashboard** at `http://<jetson-ip>:8088`
+> (e.g. `http://10.42.0.1:8088` over USB-C, `http://192.168.50.1:8088` over the `aizee` AP) —
+> service status, recent logs, host metrics, and live robot telemetry on one page.
 
-### Deployment
-- **[deployment/](deployment/)**: System deployment documentation
-  - [MULTI_DEVICE_DEPLOYMENT.md](deployment/MULTI_DEVICE_DEPLOYMENT.md): Multi-module architecture (Jetson rover + RPi4 arm split)
+## Subsystems
+- **[subsystems/MOTORS.md](subsystems/MOTORS.md)** — 9× ROBSTRIDE on `can1`; roster/CAN IDs, control loops, parameter read/write protocol
+- **[subsystems/CAMERAS.md](subsystems/CAMERAS.md)** — gripper UVC (primary) + optional RealSense scene cam, both on the Jetson
+- **[subsystems/OPENRB_LEADER.md](subsystems/OPENRB_LEADER.md)** — OpenRB-150 + Dynamixel XL330 leader: firmware, setup, wire protocol
+- **[subsystems/UPS.md](subsystems/UPS.md)** — INA219 battery monitoring
+- **[subsystems/TUFTY2040.md](subsystems/TUFTY2040.md)** — Tufty2040 status display
+- **[subsystems/LIDAR.md](subsystems/LIDAR.md)** — 2× RPLiDAR A1M8 (optional)
 
-### Subsystems
-- **[subsystems/](subsystems/)**: Component-specific documentation
-  - [CAMERAS.md](subsystems/CAMERAS.md): Intel RealSense D455 camera system (4 RPi nodes + 2 arm cameras)
-  - [LIDAR.md](subsystems/LIDAR.md): RPLiDAR A1M8 dual sensor integration
-  - [MOTORS.md](subsystems/MOTORS.md): ROBSTRIDE motor parameter config — CAN read/write, LIMIT_TORQUE/LIMIT_CUR
-  - [OPENRB_LEADER.md](subsystems/OPENRB_LEADER.md): OpenRB-150 + Dynamixel XL330 leader arm — firmware, setup wizard, wire protocol
-  - [UPS.md](subsystems/UPS.md): INA219 battery monitoring system
-  - [TUFTY2040.md](subsystems/TUFTY2040.md): Tufty2040 status display — firmware deploy & layout
+## Learning
+- **[LEARNING_PIPELINE.md](LEARNING_PIPELINE.md)** — end-to-end guide: calibration → data collection → training → evaluation → deployment
+- **[learning/RESEARCH_PLAN.md](learning/RESEARCH_PLAN.md)** — research direction and experiment plan
 
-### Learning Pipeline
-- **[LEARNING_PIPELINE.md](LEARNING_PIPELINE.md)**: Full guide — calibration, data collection, training, evaluation, deployment
-- SO-101 leader arm calibration: `config/so101_calibration.json` — run `python/scripts/so101_calibrate.py`
-- Demo collection: `python python/scripts/collect_demo.py` — records HDF5 episodes with camera sync
-- ACT training: `python python/training/train.py --data-dir episodes/ --output-dir checkpoints/`
-- Offline evaluation: `python python/scripts/evaluate_policy.py --checkpoint ckpt.pt --episode-dir episodes/`
-- Policy inference: `python python/nodes/act_policy_node.py --checkpoint checkpoints/act_epoch_XXXX.pt`
-- Episode replay: `python python/scripts/episode_replay_live.py episodes/episode_XXXX.hdf5`
-- Episode viewer (Rerun): `python python/scripts/view_episode.py episodes/episode_XXXX.hdf5`
+## Roadmap
+- **[PHASES.md](PHASES.md)** — implementation status and roadmap
 
-
-## External Documentation
-
-Component-specific READMEs in subdirectories:
-- [../rust/motor_control/README.md](../rust/motor_control/README.md): Motor control system
-- [../rust/lidar_control/README.md](../rust/lidar_control/README.md): LiDAR control implementation
-- [../scripts/README_CAMERA_SCRIPTS.md](../scripts/README_CAMERA_SCRIPTS.md): Camera deployment scripts
-- [../tests/README.md](../tests/README.md): Testing framework
-
-## Root-Level Documentation
-
-- [../CLAUDE.md](../CLAUDE.md): **PRIMARY REFERENCE** for Claude Code - comprehensive system guide
-- [../README.md](../README.md): Project overview and hardware specifications
+## Reference
+- ROBSTRIDE motor manuals: `RS00`/`RS02`/`RS03`/`RS04` User Manual PDFs (this directory)
+- [../rust/motor_control/README.md](../rust/motor_control/README.md) — motor control crate
+- [../rust/lidar_control/README.md](../rust/lidar_control/README.md) — LiDAR control crate
+- [../tests/README.md](../tests/README.md) — test suite
+- [../README.md](../README.md) — project overview & hardware specs

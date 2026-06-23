@@ -5,11 +5,11 @@ End-to-end guide for collecting demonstrations, training an ACT policy, validati
 ## Overview
 
 ```
-1. Calibrate        so101_calibrate.py          (one-time, per leader arm)
-2. Collect demos    collect_demo.py             (record HDF5 episodes via SO-101 leader)
-3. Train            train.py                    (ACT model on collected episodes)
-4. Evaluate         evaluate_policy.py          (offline replay through model, compare to GT)
-5. Deploy           act_policy_node.py          (live 20 Hz inference loop on Jetson)
+1. Calibrate        so101_calibrate.py / openrb_calibrate.py   (one-time, per leader)
+2. Collect demos    collect_demo.py --gui                       (record HDF5 episodes via a leader)
+3. Train            train.py                                    (ACT model on collected episodes)
+4. Evaluate         evaluate_policy.py                          (offline replay through model, compare to GT)
+5. Deploy           act_policy_node.py                          (live 20 Hz inference loop on Jetson)
 ```
 
 ## Prerequisites
@@ -17,32 +17,51 @@ End-to-end guide for collecting demonstrations, training an ACT policy, validati
 | Component | Purpose |
 |---|---|
 | Jetson running `aizee-motor-control-rover` | CAN bus motor control + ZMQ telemetry |
-| Arm cameras streaming | gripper `:5563` (ELP UVC), scene `:5564` (RealSense), USB on Jetson |
-| SO-101 leader arm | USB serial, for teleoperation during recording |
+| Gripper camera streaming | ELP UVC `:5563` — primary training observation (1024×768 color) |
+| Scene camera (optional) | Intel RealSense `:5564` — wider RGB-D view, auto-detected |
+| A leader device | SO-101, OpenRB-150, or Quest VR — for teleoperation during recording |
 | `pip install -r requirements.txt` | h5py, torch, rerun-sdk, etc. |
-| `config/so101_calibration.json` | Joint-to-joint mapping (see Calibration below) |
+| Leader calibration in `config/` | e.g. `so101_calibration.json`, `openrb_calibration.json` |
+
+The robot is reachable on three network paths (probed in priority order):
+`192.168.0.27` (LAN/WiFi) → `10.42.0.1` (USB-C ethernet) → `192.168.50.1` (the robot's WiFi AP).
+SSH with `ssh -i ssh-keys/aizee_rover_id ltr@<ip>`. The heartbeat dashboard is at `:8088`.
+
+Both cameras run on the Jetson. The previous stereo D435 wrist pair and the
+RPi4 D455 camera nodes have been retired — episodes and the model are
+single-camera (gripper), with the scene cam recorded as an optional extra.
 
 ---
 
 ## 1. Calibration
 
-The SO-101 leader arm must be calibrated once so its joint angles map correctly to the AIZEE arm joints. Re-calibrate if the leader is physically modified or the mapping drifts.
+The leader arm must be calibrated once so its joint angles map correctly to the
+AIZEE arm joints. Re-calibrate if the leader is physically modified or the
+mapping drifts. Use the calibrator that matches your leader:
 
 ```bash
-python python/scripts/so101_calibrate.py --port COM4
+# SO-101 (Feetech STS3215)
+python python/scripts/so101_calibrate.py --port COM4      # writes config/so101_calibration.json
+
+# OpenRB-150 + Dynamixel XL330
+python python/scripts/openrb_calibrate.py --port COM4     # writes config/openrb_calibration.json
 ```
 
-This walks through each joint interactively and writes `config/so101_calibration.json`. The file contains per-joint:
+(The Quest VR leader is driven by WebXR/IK and does not use a per-joint
+servo calibration file.)
+
+Each calibrator walks through each joint interactively and writes a per-leader
+calibration JSON containing per-joint:
 
 | Field | Meaning |
 |---|---|
-| `id` | Dynamixel servo ID on the SO-101 |
+| `id` | Servo ID on the leader |
 | `aizee` | Corresponding AIZEE joint name |
 | `rad_min` / `rad_max` | Joint travel range in radians |
 | `zero_offset` | Radians subtracted before direction multiply |
-| `direction` | `+1` or `-1` sign flip between SO-101 and AIZEE conventions |
+| `direction` | `+1` or `-1` sign flip between leader and AIZEE conventions |
 
-**SO-101 → AIZEE joint mapping:**
+**Leader → AIZEE joint mapping (SO-101 example):**
 
 | SO-101 | AIZEE |
 |---|---|
@@ -54,7 +73,15 @@ This walks through each joint interactively and writes `config/so101_calibration
 | wrist_roll | wrist_roll |
 | gripper | gripper |
 
-**Quick check:** after calibrating, use `python python/scripts/so101_teleop.py --port COM4` to verify the mapping looks correct before recording episodes.
+The AIZEE arm is **7-DoF, swivel-first**:
+`swivel, gantry_base, gantry_mid, gantry_end, wrist_pitch, wrist_roll, gripper`.
+
+The follower motors themselves can be zeroed/gravity-tuned separately with
+`python python/scripts/robstride_calibrate.py` (writes `config/robstride_calibration.json`).
+
+**Quick check:** after calibrating, use `python python/scripts/so101_teleop.py --port COM4`
+or `python python/scripts/leader_monitor.py` to verify the mapping looks correct
+before recording episodes.
 
 ---
 
@@ -62,89 +89,113 @@ This walks through each joint interactively and writes `config/so101_calibration
 
 ### Starting the recorder
 
+The recommended entry point is the GUI, with the leader, rover IP, and scene
+camera all auto-detected:
+
 ```bash
-# Full command with SO-101 leader arm
-python python/scripts/collect_demo.py --port COM4
+# Auto-detect everything (leader on USB, rover IP, scene cam)
+python python/scripts/collect_demo.py --gui
+
+# Force a specific leader kind (otherwise auto: SO-101 then OpenRB-150)
+python python/scripts/collect_demo.py --gui --leader openrb
+python python/scripts/collect_demo.py --gui --leader so101
 
 # Specify output directory
-python python/scripts/collect_demo.py --port COM4 --output-dir episodes/pick_task
+python python/scripts/collect_demo.py --gui --output-dir episodes/pick_task
 
 # Dry-run (no files saved)
-python python/scripts/collect_demo.py --port COM4 --dry-run
+python python/scripts/collect_demo.py --gui --dry-run
 
-# Without leader arm (hold mode only — useful for testing cameras)
+# Terminal renderer instead of the Qt GUI (omit --gui)
 python python/scripts/collect_demo.py
 ```
 
-All CLI arguments:
+Leader selection (`--leader`) defaults to `auto`, which probes for an SO-101
+then an OpenRB-150 on USB. The Quest VR leader is added/removed at runtime from
+the GUI. The rover ZMQ endpoints auto-resolve across the three network paths,
+and the scene cam is subscribed/recorded only when present.
+
+Commonly used CLI arguments:
 
 | Argument | Default | Description |
 |---|---|---|
-| `--port` | None | SO-101 serial port (e.g. `COM4`, `/dev/ttyACM0`). Without it, leader tracking is disabled. |
-| `--baud` | 1000000 | SO-101 baud rate |
-| `--calib` | `config/so101_calibration.json` | Calibration file |
-| `--cmd` | from `teleop.yaml` | ZMQ command endpoint |
-| `--telem` | from `teleop.yaml` | ZMQ telemetry endpoint |
-| `--cam-left` | `tcp://192.168.0.27:5563` | Left arm camera |
-| `--cam-right` | `tcp://192.168.0.27:5564` | Right arm camera |
+| `--gui` | off | Launch the PySide6 control panel (embeds the Rerun web viewer) |
+| `--leader` | `auto` | `auto` \| `so101` \| `openrb` — which physical leader to start with |
+| `--port` | None | Leader serial port (optional; auto-detected when omitted) |
+| `--baud` | 1000000 | Leader baud rate |
+| `--calib` | per-leader default | Leader calibration JSON |
+| `--cmd` / `--telem` | rover defaults | ZMQ command / telemetry endpoints (auto-repointed across networks) |
+| `--gripper-cam` | `tcp://192.168.0.27:5563` | Gripper camera (ELP UVC) endpoint |
+| `--scene-cam` | `tcp://192.168.0.27:5564` | Scene camera (RealSense RGB-D); empty string disables it |
 | `--output-dir` | `episodes` | Output directory |
-| `--max-steps` | 10000 | Max frames per episode (at 20 Hz = 500 s) |
-| `--image-size` | `240x320` | Image resolution H×W |
+| `--max-steps` | 10000 | Max frames per episode |
+| `--image-size` | `768x1024` | Image resolution H×W (matches gripper-cam capture) |
 | `--max-delta` | 0.3 | Per-step safety clamp (rad) |
+| `--task-tag` | `""` | Task label written as an episode attr |
+| `--no-rerun` | off | Disable the Rerun live preview |
 | `--dry-run` | off | Don't save anything |
 
-### Controls
+### Controls (terminal mode)
 
 | Key | Action |
 |---|---|
 | **E** | Enable motors — starts TRACKING (with leader) or HOLD (without) |
 | **I** | Idle — enable with zero torque, arm floats freely |
-| **H** | Toggle TRACKING ↔ HOLD |
-| **R** | Toggle recording on/off |
-| **X** | Soft shutdown — hold 1 s, ramp to zero, disable |
-| **Z** | Capture current SO-101 pose as zero reference |
+| **H** | Hold — freeze target at current actual position |
+| **R** | Toggle recording on/off (TRACKING only) |
+| **X** | Soft shutdown — hold 1 s, return to zero, disable |
+| **Z** | Capture current leader pose as zero reference |
 | **M** | Mirror — set zero offset so current leader pose → current arm pose |
-| **Q** | Quit |
+| **P** | Save current arm position as ready pose (`config/ready_pose.json`) |
+| **Q** | Quit (Ctrl-C also works) |
+| **WASD** | Drive wheels (wheels enable with the arm) |
 
-Gamepad: A=enable, B=shutdown, Start=hold, Back=quit.
+Gamepad: A=enable, B=shutdown/cancel, Start=hold, Back=quit, left stick=drive.
+The M5Stack Joystick2 on the OpenRB-150 leader also drives the wheels and its
+button toggles recording.
 
 ### Recording workflow
 
 1. **Position the arm** — press **I** to idle (arm floats), physically place it at the task starting pose.
-2. **Enable tracking** — press **E**. The arm now follows the SO-101 leader.
+2. **Enable tracking** — press **E**. The arm now follows the leader.
 3. **Start recording** — press **R**. The status line shows `[REC]` and the frame counter.
 4. **Perform the task** — move the leader through the desired motion.
 5. **Stop recording** — press **R** again. The episode is auto-saved as `episode_XXXX.hdf5`.
 6. **Repeat** — record as many episodes as needed. Files are auto-numbered.
 
-Recording samples at **20 Hz** (the main control loop runs at 30 Hz but sub-samples). A frame is only captured when both cameras are fresh (< 500 ms old) and telemetry is available. Stale frames are dropped and counted.
+Recording samples at **20 Hz** (the main control loop runs at 30 Hz but sub-samples). A frame is only captured when the gripper camera is fresh (< 500 ms old) and telemetry is available. Stale frames are dropped and counted.
 
 Camera images are decoded in a background thread so JPEG parsing doesn't delay motor commands. Episode saving is also backgrounded so gzip compression doesn't block the UI.
 
-### Episode HDF5 format (format_version=2)
+### Episode HDF5 format (v4 / v5)
+
+Episodes are written with `format_version=4`, or `format_version=5` when the
+scene camera is present (the extra scene fields below are appended). v4 episodes
+remain fully loadable by the training/eval tools.
 
 ```
 episode_XXXX.hdf5
 ├── attrs:
 │     hz=20
-│     format_version=2
+│     format_version=4            # 5 when the scene cam is recorded
 │     arm_joints="swivel,gantry_base,gantry_mid,gantry_end,wrist_pitch,wrist_roll,gripper"
 │     action_space="absolute"
+│     task_tag, notes, collected_at
 ├── observations/
 │   ├── qpos          float32  [T, 7]    actual motor positions (swivel = column 0)
-│   ├── qcmd          float32  [T, 7]    commanded positions
-│   ├── torques       float32  [T, 7]    motor torques
+│   ├── qcmd          float32  [T, 7]    commanded positions (optional)
+│   ├── torques       float32  [T, 7]    motor torques (optional)
 │   └── images/
-│       ├── left      uint8    [T, 240, 320, 3]
-│       └── right     uint8    [T, 240, 320, 3]
-├── actions           float32  [T, 7]    = qcmd[1:] padded (next-step target)
+│       ├── gripper   uint8    [T, 768, 1024, 3]   ELP UVC (primary observation)
+│       └── scene     uint8    [T, 480, 640, 3]    RealSense color — v5 only
+├── actions           float32  [T, 7]    = qcmd shifted one step (next-step target)
 └── timestamps/
-    ├── telem         float64  [T]
-    ├── camera_left   float64  [T]
-    └── camera_right  float64  [T]
+    ├── telem          float64  [T]
+    ├── camera_gripper float64  [T]
+    └── camera_scene   float64  [T]      v5 only
 ```
 
-**Actions** are derived as one-step-ahead commanded positions: `actions[t] = qcmd[t+1]`. This is what the controller actually targeted next, not the raw leader position — avoids gravity sag artifacts.
+**Actions** are derived from one-step-ahead commanded positions (`qcmd` shifted by one, last step repeated). This is what the controller actually targeted next, not the raw leader position — avoids gravity sag artifacts. When `qcmd` is unavailable, `qpos` is used as the action source.
 
 **Swivel is column 0** of every 7-dim vector (qpos, qcmd, torques, actions). This lets the policy learn a single joint vector end-to-end instead of treating the swivel as a separate channel that must be wired up at deploy time.
 
@@ -163,12 +214,16 @@ python python/scripts/view_episode.py episodes/episode_0000.hdf5 --save episode.
 - **Consistency** — start and end each episode at the same pose if possible.
 - **Slow, smooth motions** — jerky leader movements produce noisy actions.
 - **10-30 episodes** is a reasonable starting point for simple tasks; complex tasks may need 50+.
-- **Verify cameras** — check `view_episode.py` output to confirm both cameras captured the workspace clearly.
+- **Verify the camera** — check `view_episode.py` output to confirm the gripper camera captured the workspace clearly.
 - **Discard bad episodes** — simply delete the `.hdf5` file before training.
 
 ---
 
 ## 3. Training
+
+ACT (Action Chunking with Transformers) is the production training path. It
+trains on the **single gripper camera** plus joint state — the scene camera is
+recorded into v5 episodes but is not yet consumed by training or inference.
 
 ### Basic training
 
@@ -205,13 +260,14 @@ python python/training/train.py --data-dir episodes/ --output-dir checkpoints/
 | `--save-every` | 10 | Save periodic checkpoint every N epochs |
 | `--resume` | off | Resume from latest periodic checkpoint in output-dir |
 | `--cache` | off | Cache all episodes in RAM (faster, more memory) |
+| `--no-tensorboard` | off | Disable TensorBoard logging |
 
 ### What happens during training
 
-1. **Train/val split** — episodes are split by file (never within an episode). Validation uses the training set's statistics so normalization is identical.
+1. **Train/val split** — episodes are split by file (never within an episode). Validation reuses the training set's statistics so normalization is identical.
 2. **Dataset init** — all episodes are discovered, a flat `(episode, timestep)` index is built, and normalization statistics (per-joint mean/std for qpos, qcmd, torques, absolute-actions, and relative-actions; per-joint min/max of absolute and relative actions for safety clamping) are computed across the full training subset. Per-episode start poses are also captured so deploy-time can pick the closest one.
-3. **Each sample** — at index `(ep, t)`: load `qpos[t]`, both images at `t`, and `actions[t:t+chunk_size]`. Normalize everything (z-score for positions/actions, ImageNet for images). Build the state vector based on `state_mode`. If `--action-mode relative`, each action is converted to `(action − qpos[t])` before normalization. If `--augment`, train images get geometric crop + per-camera color jitter.
-4. **Forward pass** — CVAE encodes `(qpos, actions)` → latent `z`, decoder predicts action chunk from `(images, state, z)`. Loss = L1 on actions + `kl_weight × KL`.
+3. **Each sample** — at index `(ep, t)`: load `qpos[t]`, the gripper image at `t`, and `actions[t:t+chunk_size]`. Normalize everything (z-score for positions/actions, ImageNet for the image). Build the state vector based on `state_mode`. If `--action-mode relative`, each action is converted to `(action − qpos[t])` before normalization. If `--augment`, the train image gets geometric crop + color jitter.
+4. **Forward pass** — CVAE encodes `(qpos, actions)` → latent `z`, decoder predicts the action chunk from `(image, state, z)`. Loss = L1 on actions + `kl_weight × KL`.
 5. **Optimizer** — AdamW with two param groups (backbone gets `lr_backbone`), gradient clipping at `max_norm=0.1`, cosine annealing to `lr × 0.01`.
 6. **Checkpoints** — periodic saves every `save_every` epochs as `act_epoch_XXXX.pt`. The checkpoint with the lowest validation total-loss is additionally saved to `act_best.pt`.
 
@@ -266,14 +322,33 @@ Finds the latest `act_epoch_*.pt` in the output directory and continues from `ep
 - **Start with defaults** — `state_mode=qpos_qcmd`, `action_mode=relative`, `chunk_size=32`. Relative actions generalize much better on small datasets because the model only has to learn motion shapes, not absolute poses.
 - **Turn on `--augment`** whenever you have fewer than ~100 episodes. Geometric crop + color jitter is cheap insurance against overfitting to lighting / framing.
 - **Watch `val/total` in TensorBoard** — if it diverges from `train/total`, you're overfitting (add more episodes or augmentation). The `act_best.pt` saved at the lowest `val/total` is usually the best one to deploy.
-- **`--cache`** speeds up training significantly if episodes fit in RAM. Each 500-frame episode with images is ~264 MB.
+- **`--cache`** speeds up training significantly if episodes fit in RAM.
 - **Train for 200-400 epochs** for most tasks. Check `act_best.pt` with `evaluate_policy.py` before committing to longer runs.
+
+### ACT-JEPA (experimental)
+
+`python/training/train_jepa.py` is an experimental variant that adds a
+self-supervised world-model objective on top of ACT: a predictor learns the
+future gripper-image representation, regularized by SIGReg. It shares the ACT
+hyperparameters above plus JEPA-specific knobs (`--future-offset`,
+`--lambda-obs`, `--lambda-reg`, predictor/SIGReg sizes).
+
+```bash
+python -m python.training.train_jepa \
+    --data-dir episodes/ --output-dir checkpoints/jepa \
+    --augment --future-offset 32 --lambda-obs 0.5 --lambda-reg 0.05
+```
+
+Checkpoints are drop-in compatible with the plain ACT loader at inference time —
+the JEPA modules are training-only, so `act_policy_node.py` and
+`evaluate_policy.py` load a JEPA checkpoint unchanged. Like ACT, JEPA training
+uses the gripper camera only.
 
 ---
 
 ## 4. Offline Evaluation
 
-Before deploying on hardware, validate that the policy learned the task by replaying episodes through the model in open-loop.
+Before deploying on hardware, validate that the policy learned the task by replaying episodes through the model in open-loop. Evaluation uses the gripper camera (the same single-camera observation as training/inference).
 
 ### Basic usage
 
@@ -322,8 +397,8 @@ python python/scripts/evaluate_policy.py \
 ### What it does
 
 For each frame in each episode:
-1. Feeds ground-truth observations (qpos, images, qcmd, torques) through the model.
-2. Gets predicted action (first action from chunk, or temporal ensemble).
+1. Feeds ground-truth observations (qpos, gripper image, qcmd, torques) through the model.
+2. Gets the predicted action (first action from chunk, or temporal ensemble).
 3. Compares to ground-truth action via L1 error.
 
 This is **open-loop** — ground truth observations are fed at every step, not the model's own predictions. This isolates prediction quality from compounding error.
@@ -331,7 +406,7 @@ This is **open-loop** — ground truth observations are fed at every step, not t
 ### Rerun visualization
 
 The viewer shows:
-- **Left/right camera images** from the episode (unless `--no-images`)
+- **Gripper camera image** from the episode (unless `--no-images`)
 - **GT vs predicted actions** overlaid per joint (amber = GT, green = predicted)
 - **Per-joint L1 error** over time (red)
 - **Inference time** in milliseconds
@@ -368,6 +443,9 @@ OVERALL          0.0147   0.0789
 
 ## 5. Deployment
 
+The inference node subscribes to arm telemetry and the **single gripper camera**
+and sends one 7-DoF `arm_joints` command per tick (swivel is joint 0).
+
 ### Dry-run first
 
 Always test with `--dry-run` before sending commands to hardware:
@@ -378,8 +456,8 @@ python python/nodes/act_policy_node.py \
     --dry-run
 ```
 
-This runs the full inference pipeline (subscribes to telemetry + cameras, runs the model at 20 Hz) but does **not** send any motor commands. Verify on the console that:
-- All three sources (telem, left cam, right cam) become ready.
+This runs the full inference pipeline (subscribes to telemetry + gripper camera, runs the model at 20 Hz) but does **not** send any motor commands. Verify on the console that:
+- Both sources (telem, gripper cam) become ready.
 - Inference time is well under 80 ms.
 - Predicted positions look physically reasonable.
 
@@ -412,8 +490,7 @@ python python/nodes/act_policy_node.py \
 |---|---|---|
 | `--checkpoint` | **required** | Path to `.pt` checkpoint |
 | `--telem` | `tcp://localhost:5556` | ZMQ telemetry SUB endpoint |
-| `--cam-left` | `tcp://localhost:5563` | Left arm camera SUB endpoint |
-| `--cam-right` | `tcp://localhost:5564` | Right arm camera SUB endpoint |
+| `--gripper-cam` | `tcp://localhost:5563` | Gripper camera SUB endpoint (single ELP UVC stream) |
 | `--cmd` | `tcp://localhost:5555` | ZMQ command PUSH endpoint |
 | `--device` | cuda/cpu | PyTorch device |
 | `--dry-run` | off | Inference only, no commands sent |
@@ -423,11 +500,14 @@ python python/nodes/act_policy_node.py \
 | `--ramp-speed` | 1.5 | Ramp speed to ready pose in rad/s |
 | `--no-rerun` | off | Disable Rerun visualization |
 
+Live controls: **SPACE** = pause/resume (holds position), **Q** = quit (press
+twice to confirm; ramps to zero and disables).
+
 ### Safety features
 
 | Feature | Details |
 |---|---|
-| **Source readiness** | Waits for all 3 streams (telemetry, left cam, right cam) before sending any command. |
+| **Source readiness** | Waits for both streams (telemetry, gripper cam) before sending any command. |
 | **Closest-start ready pose** | Before inference, the node picks the training-set start pose nearest to the arm's current position and ramps to it, so the first observation is on-distribution. |
 | **Staleness check** | Skips the tick if any source is > 200 ms old. |
 | **Position bounds** | Absolute mode clamps actions to `[action_min, action_max]`. Relative mode clamps `(action − qpos)` to `[rel_action_min, rel_action_max]`. Both ranges come from the training data. |
@@ -436,18 +516,15 @@ python python/nodes/act_policy_node.py \
 
 ### Command dispatch
 
-The policy outputs a 7-dim action each tick. The node splits it into two ZMQ messages every step:
-
-- `{"type": "swivel", "position": action[0], ...}` — routes to the swivel base controller.
-- `{"type": "arm_joints", "positions": action[1:7], ...}` — routes to the 6-DOF gantry/wrist controller.
-
-This matches the original firmware interface; the policy-level 7-DOF vector is purely a training-side convenience so the model learns whole-body coordination.
+The policy outputs a 7-dim action each tick and sends it as a single
+`arm_joints` command (swivel is joint 0 of the unified arm). The model learns
+whole-body coordination across all 7 joints in one vector.
 
 ### Important warnings
 
 - **Do NOT run `teleop.py` and `act_policy_node.py` simultaneously.** Both push to `:5555`. Interleaved commands are dangerous.
 - **`state_mode` / `action_mode` must match training.** The checkpoint carries these in `config` and the node uses them automatically. For old checkpoints without these fields, the node falls back to `state_mode=qpos_qcmd`, `action_mode=absolute`.
-- **Arm gains** are loaded from `config/teleop.yaml` (the `gantry.kp` and `gantry.kd` values). Make sure these match what was used during data collection. Swivel gains (`SWIVEL_KP`, `SWIVEL_KD`) are defined in `record_replay.py`.
+- **Arm gains** are loaded from `config/teleop.yaml` (the `arm.kp` / `arm.kd` values; older split `gantry.*` + `drive.swivel_*` layouts are stitched into a swivel-first 7-element vector). Make sure these match what was used during data collection.
 
 ---
 
@@ -456,14 +533,14 @@ This matches the original firmware interface; the policy-level 7-DOF vector is p
 For debugging or verifying episodes, you can replay a recorded episode directly on hardware (sending the recorded commands without any model):
 
 ```bash
-# Live replay
+# Live replay (moves to the start pose first by default)
 python python/scripts/episode_replay_live.py episodes/episode_0000.hdf5
 
 # Dry-run (no commands sent)
 python python/scripts/episode_replay_live.py episodes/episode_0000.hdf5 --dry-run
 
-# Move to start pose first, then play
-python python/scripts/episode_replay_live.py episodes/episode_0000.hdf5 --goto-start
+# Skip the goto-start ramp
+python python/scripts/episode_replay_live.py episodes/episode_0000.hdf5 --no-goto-start
 
 # Loop indefinitely
 python python/scripts/episode_replay_live.py episodes/episode_0000.hdf5 --loop
@@ -472,7 +549,7 @@ python python/scripts/episode_replay_live.py episodes/episode_0000.hdf5 --loop
 python python/scripts/episode_replay_live.py episodes/episode_0000.hdf5 --speed 0.5
 ```
 
-Controls: SPACE = play/pause, R = restart, X = abort + shutdown, Q = quit.
+Controls: SPACE/P = play/pause/resume, R = restart, X = abort + shutdown, Q = quit.
 
 The replay prefers `observations/qcmd` (commanded positions) over `observations/qpos` (actual positions) when available, since commanded positions avoid gravity sag.
 
@@ -484,8 +561,8 @@ The replay prefers `observations/qcmd` (commanded positions) over `observations/
 # 1. One-time: calibrate the leader arm
 python python/scripts/so101_calibrate.py --port COM4
 
-# 2. Collect 20 demonstrations of the task
-python python/scripts/collect_demo.py --port COM4 --output-dir episodes/pick_cup
+# 2. Collect 20 demonstrations of the task (auto-detect leader / rover / scene cam)
+python python/scripts/collect_demo.py --gui --output-dir episodes/pick_cup
 
 # 3. Inspect a few episodes visually
 python python/scripts/view_episode.py episodes/pick_cup/episode_0005.hdf5

@@ -14,7 +14,7 @@ The companion document [LEARNING_PIPELINE.md](../LEARNING_PIPELINE.md) is the op
 
 ### 1.1 Current baseline (production)
 
-- **Robot:** AIZEE mobile manipulator. 7-DOF effective control: `swivel + gantry_base + gantry_mid + gantry_end + wrist_pitch + wrist_roll + gripper`. Base wheels separate (100 Hz loop). Arm joints at 1 kHz.
+- **Robot:** AIZEE mobile manipulator. 7-DOF effective control: `swivel + gantry_base + gantry_mid + gantry_end + wrist_pitch + wrist_roll + gripper`. Base wheels separate (100 Hz loop). Arm joints at 400 Hz (CAN-bus limited).
 - **Sensing:** 1× ELP UVC gripper camera + 1× Intel RealSense scene camera (USB to Jetson, RGB used for policy; scene cam also provides depth). The stereo D435 wrist pair and the 4× D455 PoE rover cameras have been retired. Motor torques available.
 - **Demos:** Teleoperation via SO-101 leader arm or OpenRB-150 + Dynamixel XL330 leader. Recorded as HDF5 at 20 Hz with `qpos`, `qcmd`, `torques`, `images/{gripper,scene}`. ~40 episodes on disk today.
 - **Policy:** ACT (Zhao et al., 2023). ResNet18 (FrozenBN, ImageNet-pretrained) + DETR-style transformer decoder + CVAE prior. `chunk_size=32`, `d_model=256`, `z_dim=32`. Trained with L1 + KL. ~30–50M params.
