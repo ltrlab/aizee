@@ -100,8 +100,8 @@ secrets/
 scripts/.jetson_password
 .env
 
-# URDF export generated meshes (large STL files)
-urdf/*/meshes/
+# URDF meshes (large STL) are tracked via Git LFS — see .gitattributes.
+# .part files are tiny OnShape provenance metadata, tracked as normal git.
 
 # PlatformIO
 .pio/
