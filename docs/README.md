@@ -3,6 +3,7 @@
 Technical documentation for the AIZEE mobile manipulation platform.
 
 ## Getting started
+- **[quickstart/FRESH_JETSON_SETUP.md](quickstart/FRESH_JETSON_SETUP.md)** — blank Orin Nano → validated robot (`scripts/bootstrap_jetson.sh` + the `/setup` wizard)
 - **[quickstart/JETSON_QUICK_START.md](quickstart/JETSON_QUICK_START.md)** — connect to the robot and run teleop / data collection (daily reference)
 - **[quickstart/QUICK_START_AFTER_REBOOT.md](quickstart/QUICK_START_AFTER_REBOOT.md)** — post-reboot verification, service management, troubleshooting
 
