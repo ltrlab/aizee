@@ -28,8 +28,8 @@ Typical test workflows
 #    Terminal B:
         python python/scripts/collect_demo.py \\
             --telem tcp://localhost:5556 \\
-            --cam-left tcp://localhost:5563 \\
-            --cam-right tcp://localhost:5564
+            --gripper-cam tcp://localhost:5563 \\
+            --scene-cam tcp://localhost:5564
 
 # 2. Train on those demos
         python python/training/train.py --data-dir episodes/ --epochs 5 --batch-size 4
@@ -41,8 +41,7 @@ Typical test workflows
         python python/nodes/act_policy_node.py \\
             --checkpoint checkpoints/act_epoch_0005.pt \\
             --telem tcp://localhost:5556 \\
-            --cam-left tcp://localhost:5563 \\
-            --cam-right tcp://localhost:5564 \\
+            --gripper-cam tcp://localhost:5563 \\
             --cmd tcp://localhost:5555 \\
             --dry-run   # remove this flag once you're confident
 
@@ -52,9 +51,7 @@ Typical test workflows
 """
 
 import argparse
-import base64
 import io
-import json
 import math
 import sys
 import time
@@ -72,6 +69,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from common.arm_constants import ARM_JOINTS, KP, KD
+from common.wire import pack_msg, pack_camera, unpack_msg
 
 NUM_JOINTS = len(ARM_JOINTS)
 
@@ -170,7 +168,12 @@ class MockArmPublisher:
                 "error":       None,
                 "state":       "running",
             }
-        return {"timestamp": time.time(), "motors": motors}
+        return {
+            "timestamp": time.time(),
+            "motors": motors,
+            "emergency_stop": False,
+            "battery_voltage": 29.5,   # plausible 6S pack, keeps dashboards green
+        }
 
     def _build_camera_msg(self, camera_id: str, side: str) -> dict:
         """Build a camera message with a PIL image encoded as base64 JPEG.
@@ -220,38 +223,50 @@ class MockArmPublisher:
         img.save(buf, format="JPEG", quality=70)
         jpeg_bytes = buf.getvalue()
 
-        return {
+        header = {
             "camera_id": camera_id,
             "timestamp": time.time(),
             "frame_number": self.frame_count,
             "color": {
-                "data":   base64.b64encode(jpeg_bytes).decode("ascii"),
                 "format": "jpeg",
                 "width":  640,
                 "height": 480,
             },
         }
+        return pack_camera(header, color_bytes=jpeg_bytes)
 
     # ------------------------------------------------------------------
     # Command draining (closed_loop mode)
     # ------------------------------------------------------------------
 
     def _drain_commands(self):
-        """Drain :5555, apply latest arm_joints command to simulation."""
+        """Drain :5555 (msgpack wire format), apply latest command to simulation.
+
+        Accepts both message shapes the host sends:
+          {"type": "bundle", "arm_joints": {"positions": [...]}, "drive": ...}
+          {"type": "arm_joints", "positions": [...]}              (legacy)
+        """
         if self.cmd_pull is None:
             return
         latest = None
         while True:
             try:
-                raw = self.cmd_pull.recv_string(zmq.NOBLOCK)
-                latest = json.loads(raw)
+                latest = unpack_msg(self.cmd_pull.recv(zmq.NOBLOCK))
             except zmq.Again:
                 break
-            except json.JSONDecodeError:
+            except Exception:
                 break
 
-        if latest is not None and latest.get("type") == "arm_joints":
+        if latest is None or not isinstance(latest, dict):
+            return
+        if latest.get("type") == "bundle":
+            arm = latest.get("arm_joints") or {}
+            positions = arm.get("positions", [])
+        elif latest.get("type") == "arm_joints":
             positions = latest.get("positions", [])
+        else:
+            positions = []
+        if positions:
             if len(positions) == NUM_JOINTS:
                 self.q_cmd = np.array(positions, dtype=np.float32)
                 self.cmd_count += 1
@@ -284,15 +299,15 @@ class MockArmPublisher:
                     self._drain_commands()
                     self._step_dynamics()
 
-                # Build and send messages
+                # Build and send messages (msgpack wire format — common.wire)
                 telem = self._build_telemetry()
-                self.telem_pub.send_string(json.dumps(telem), zmq.NOBLOCK)
+                self.telem_pub.send(pack_msg(telem), zmq.NOBLOCK)
 
-                gripper_msg = self._build_camera_msg("gripper_cam", "gripper")
-                self.gripper_pub.send_string(json.dumps(gripper_msg), zmq.NOBLOCK)
+                gripper_frames = self._build_camera_msg("gripper_cam", "gripper")
+                self.gripper_pub.send_multipart(gripper_frames, zmq.NOBLOCK)
 
-                scene_msg = self._build_camera_msg("scene_cam", "scene")
-                self.scene_pub.send_string(json.dumps(scene_msg), zmq.NOBLOCK)
+                scene_frames = self._build_camera_msg("scene_cam", "scene")
+                self.scene_pub.send_multipart(scene_frames, zmq.NOBLOCK)
 
                 self.frame_count += 1
 
