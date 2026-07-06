@@ -1,1 +1,7 @@
 urdf/*/meshes/*.stl filter=lfs diff=lfs merge=lfs -text
+# Shell scripts and Linux-consumed configs must stay LF — they are executed on
+# the Jetson (and by git-bash); CRLF breaks shebangs and systemd parsing.
+*.sh text eol=lf
+scripts/aizee-reset-usb-can text eol=lf
+config/systemd/* text eol=lf
+config/udev/*.rules text eol=lf
