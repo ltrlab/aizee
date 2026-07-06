@@ -54,8 +54,13 @@ from PySide6.QtWidgets import (
 # Constants
 # ---------------------------------------------------------------------------
 
-JOINT_NAMES = ["swivel", "gantry_base", "gantry_mid", "gantry_end",
-               "wrist_pitch", "wrist_roll", "gripper"]
+import sys as _sys0
+from pathlib import Path as _Path0
+_sys0.path.insert(0, str(_Path0(__file__).resolve().parent.parent))          # python/
+_sys0.path.insert(0, str(_Path0(__file__).resolve().parent))                 # python/scripts/
+
+from common.arm_constants import ARM_JOINTS as JOINT_NAMES  # canonical 7-DoF order
+from collect_demo_app.alignment import _SAT_TORQUE  # single source of truth
 
 # Forward kinematics for the embedded 2D model preview.  Optional — if the
 # IK package isn't importable the preview degrades to a "FK unavailable"
@@ -194,16 +199,7 @@ TEMP_HOT      = 65.0
 TEMP_CRITICAL = 80.0
 
 # Per-joint saturation torque (N·m) — used to color torque values by load
-# fraction.  Mirrors _SAT_TORQUE in collect_demo.py.
-_SAT_TORQUE: dict[str, float] = {
-    "swivel":      12.0,
-    "gantry_base": 24.0,
-    "gantry_mid":  12.0,
-    "gantry_end":   5.0,
-    "wrist_pitch":  5.0,
-    "wrist_roll":   0.5,
-    "gripper":      0.5,
-}
+# fraction.  Imported above from collect_demo_app.alignment (one source of truth).
 TORQUE_WARN_FRAC = 0.60
 TORQUE_HOT_FRAC  = 0.85
 
