@@ -40,11 +40,11 @@ import zmq
 # Import shared helpers from record_replay (co-deployed in the same directory)
 # ---------------------------------------------------------------------------
 sys.path.insert(0, str(Path(__file__).parent))
-from record_replay import (
+from common.arm_constants import (
     ARM_JOINTS, RECORD_HZ, KP, KD,
-    save_recording, _next_recording_path,
     setup_keyboard, load_arm_limits, clamp_arm_positions,
 )
+from record_replay import save_recording, _next_recording_path
 
 # ---------------------------------------------------------------------------
 # Constants

@@ -31,7 +31,7 @@ import zmq
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from record_replay import ARM_JOINTS, KP, KD, setup_keyboard, load_arm_limits, clamp_arm_positions
+from common.arm_constants import ARM_JOINTS, KP, KD, setup_keyboard, load_arm_limits, clamp_arm_positions
 from control.gravity_comp import ArmGravityModel
 from common.wire import pack_msg, unpack_msg
 

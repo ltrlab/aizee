@@ -25,7 +25,8 @@ import numpy as np
 import rerun as rr
 import rerun.blueprint as rrb
 
-ARM_JOINTS = ["gantry_base", "gantry_mid", "gantry_end", "wrist_pitch", "wrist_roll", "gripper"]
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from common.arm_constants import ARM_JOINTS  # canonical 7-DoF fallback joint names
 
 # Per-joint colors (RGBA 0-255)
 _QPOS_COLOR   = [80,  180, 255, 255]   # blue  — recorded position

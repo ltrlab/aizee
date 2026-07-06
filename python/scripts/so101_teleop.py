@@ -49,7 +49,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "teleop"))
 from so101_leader import So101Leader, CALIB_PATH
 
 sys.path.insert(0, str(Path(__file__).parent))
-from record_replay import ARM_JOINTS, KP, KD, setup_keyboard, load_arm_limits, clamp_arm_positions
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from common.arm_constants import ARM_JOINTS, KP, KD, setup_keyboard, load_arm_limits, clamp_arm_positions
 
 TELEOP_HZ = 30   # main loop rate (independent of recording rate)
 

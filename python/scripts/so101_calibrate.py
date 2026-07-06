@@ -28,7 +28,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "teleop"))
 from so101_leader import So101Leader, ticks_to_rad, AIZEE_DEFAULTS, CALIB_PATH
 
 sys.path.insert(0, str(Path(__file__).parent))
-from record_replay import setup_keyboard
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from common.arm_constants import setup_keyboard
 
 ROBSTRIDE_CALIB_PATH = Path(__file__).parent.parent.parent / "config" / "robstride_calibration.json"
 

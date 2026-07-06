@@ -45,7 +45,7 @@ import zmq
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from record_replay import (
+from common.arm_constants import (
     ARM_JOINTS,
     GANTRY_JOINTS,
     NUM_GANTRY_JOINTS,

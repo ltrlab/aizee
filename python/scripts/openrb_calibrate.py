@@ -28,13 +28,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "teleop"))
 from openrb_leader import OpenRBLeader, find_openrb_port, CALIB_PATH
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # Reuse the SO-101 wizard verbatim — it operates on the duck-typed leader
 # interface (arm.JOINTS / arm.AIZEE_JOINTS / arm.read_unwrapped) so it works
 # unchanged with OpenRBLeader.
 from so101_calibrate import (
     run_monitor, run_calibration, save_calibration, _ansi_on,
 )
-from record_replay import setup_keyboard
+from common.arm_constants import setup_keyboard
 
 
 def main() -> None:

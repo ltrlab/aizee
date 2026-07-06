@@ -64,14 +64,21 @@ import zmq
 from PIL import Image, ImageDraw, ImageFont
 
 # ---------------------------------------------------------------------------
-# Joint configuration
+# Joint configuration — canonical 7-DoF vocabulary (swivel first). The old
+# local 6-joint copy made collect_demo's telemetry extractor reject every
+# message (it requires all of ARM_JOINTS to be present).
 # ---------------------------------------------------------------------------
-ARM_JOINTS = ["gantry_base", "gantry_mid", "gantry_end",
-              "wrist_pitch", "wrist_roll", "gripper"]
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from common.arm_constants import ARM_JOINTS, KP, KD
+
+NUM_JOINTS = len(ARM_JOINTS)
 
 # Sinusoidal motion parameters: (amplitude_rad, frequency_hz, phase_offset_rad)
 # Chosen to look like a plausible slow pick-and-place trajectory.
 JOINT_SINUSOIDS = [
+    (0.35, 0.06, 0.52),  # swivel       ±0.35 rad
     (0.30, 0.12, 0.0),   # gantry_base  ±0.30 rad
     (0.40, 0.10, 1.05),  # gantry_mid   ±0.40 rad
     (0.20, 0.15, 2.09),  # gantry_end   ±0.20 rad
@@ -79,12 +86,12 @@ JOINT_SINUSOIDS = [
     (0.10, 0.22, 4.19),  # wrist_roll   ±0.10 rad
     (0.25, 0.08, 5.24),  # gripper      ±0.25 rad
 ]
+assert len(JOINT_SINUSOIDS) == NUM_JOINTS
 
 # Simulation dynamics: fraction of error closed per step (per-joint).
-# Derived from kd/kp time constants in teleop.yaml. Capped at 0.8 to avoid
+# Derived from the canonical kd/kp time constants. Capped at 0.8 to avoid
 # overshoot in this simple Euler approximation.
-# kp=[75,65,10,5,10,10], kd=[7,5.5,0.2,0.2,2.0,2.0] → τ=kd/kp
-_TAU = np.array([7/75, 5.5/65, 0.2/10, 0.2/5, 2.0/10, 2.0/10], dtype=np.float32)
+_TAU = np.array([kd / kp for kp, kd in zip(KP, KD)], dtype=np.float32)
 _SIM_DT = 1.0 / 30.0
 _SIM_ALPHA = np.minimum(0.8, _SIM_DT / np.maximum(_TAU, 1e-3))  # per-joint convergence
 
@@ -100,8 +107,8 @@ class MockArmPublisher:
         self.cmd_port = args.cmd_port
 
         # Joint state
-        self.q = np.zeros(6, dtype=np.float32)   # current simulated positions
-        self.q_cmd = np.zeros(6, dtype=np.float32)  # last received command
+        self.q = np.zeros(NUM_JOINTS, dtype=np.float32)   # current simulated positions
+        self.q_cmd = np.zeros(NUM_JOINTS, dtype=np.float32)  # last received command
 
         self.t_start = time.monotonic()
         self.frame_count = 0
@@ -139,7 +146,7 @@ class MockArmPublisher:
 
     def _sinusoidal_q(self, t: float) -> np.ndarray:
         """Compute joint positions for sinusoidal mode at time t."""
-        q = np.zeros(6, dtype=np.float32)
+        q = np.zeros(NUM_JOINTS, dtype=np.float32)
         for i, (amp, freq, phase) in enumerate(JOINT_SINUSOIDS):
             q[i] = amp * math.sin(2 * math.pi * freq * t + phase)
         return q
@@ -245,8 +252,12 @@ class MockArmPublisher:
 
         if latest is not None and latest.get("type") == "arm_joints":
             positions = latest.get("positions", [])
-            if len(positions) == 6:
+            if len(positions) == NUM_JOINTS:
                 self.q_cmd = np.array(positions, dtype=np.float32)
+                self.cmd_count += 1
+            elif len(positions) == NUM_JOINTS - 1:
+                # legacy 6-DoF (no swivel) command — apply to joints 1..6
+                self.q_cmd[1:] = np.array(positions, dtype=np.float32)
                 self.cmd_count += 1
 
     # ------------------------------------------------------------------

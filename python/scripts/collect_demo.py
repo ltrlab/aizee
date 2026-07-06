@@ -137,7 +137,7 @@ except ImportError as _quest_imp_err:
     _quest_imp_err_msg = str(_quest_imp_err)
 
 sys.path.insert(0, str(Path(__file__).parent))
-from record_replay import (
+from common.arm_constants import (
     ARM_JOINTS, POLICY_JOINTS, KP, KD,
     setup_keyboard, load_arm_limits, clamp_arm_positions,
 )
