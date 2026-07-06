@@ -44,9 +44,9 @@ fi
 echo "Connected."
 echo ""
 
-echo "1. Copying heartbeat_server.py to Jetson..."
-$SCP python/tools/heartbeat_server.py \
-    "$TARGET:/home/ltr/$REMOTE_DIR/python/tools/heartbeat_server.py"
+echo "1. Copying heartbeat_server.py + setup_checks.py to Jetson..."
+$SCP python/tools/heartbeat_server.py python/tools/setup_checks.py \
+    "$TARGET:/home/ltr/$REMOTE_DIR/python/tools/"
 echo ""
 
 echo "2. Restarting aizee-heartbeat service..."
@@ -69,5 +69,6 @@ echo ""
 
 LAN_IP="${TARGET#*@}"
 echo "=== Deploy complete ==="
-echo "Open: http://$LAN_IP:$PORT/"
+echo "Open: http://$LAN_IP:$PORT/        (dashboard)"
+echo "      http://$LAN_IP:$PORT/setup  (guided setup + validation)"
 echo "Tail logs:  ssh -i $SSH_KEY $TARGET 'journalctl -u aizee-heartbeat -f'"

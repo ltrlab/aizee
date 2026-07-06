@@ -499,6 +499,15 @@ class Handler(BaseHTTPRequestHandler):
                 lines = q.get("lines", ["80"])[0]
                 self._send(200, json.dumps({"unit": unit,
                            "log": service_logs(unit, lines)}), "application/json")
+            elif u.path == "/setup":
+                self._send(200, SETUP_PAGE, "text/html; charset=utf-8")
+            elif u.path == "/api/checks":
+                # setup_checks.py sits next to this file; the script dir is on
+                # sys.path when run as `python3 .../heartbeat_server.py`.
+                import setup_checks
+                snap = self.poller.snapshot() if self.poller is not None else None
+                self._send(200, json.dumps(setup_checks.run_all(snap)),
+                           "application/json")
             elif u.path == "/healthz":
                 self._send(200, "ok", "text/plain")
             else:
@@ -602,6 +611,7 @@ PAGE = r"""<!DOCTYPE html>
   <span class="pill" id="uptime"></span>
   <span class="pill" id="clock"></span>
   <span class="spacer"></span>
+  <a href="/setup" style="color:var(--blue);font-size:12px;text-decoration:none">Setup wizard &rarr;</a>
   <span class="pill" id="apinfo"></span>
   <label class="toggle"><input type="checkbox" id="auto" checked> auto-refresh 3s</label>
   <button onclick="refresh()" style="background:#21262d;color:var(--txt);border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer">Refresh</button>
@@ -827,6 +837,169 @@ function loop(){ if(document.getElementById("auto").checked) refresh(); }
 document.getElementById("auto").addEventListener("change",()=>{});
 refresh();
 setInterval(loop,3000);
+</script>
+</body>
+</html>"""
+
+
+SETUP_PAGE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIZEE Setup Wizard</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --txt:#c9d1d9;
+          --muted:#8b949e; --green:#3fb950; --red:#f85149; --yellow:#d29922;
+          --grey:#6e7681; --blue:#58a6ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt);
+         font:14px/1.55 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+  header { display:flex; align-items:center; gap:16px; padding:14px 20px;
+           border-bottom:1px solid var(--border); background:var(--panel); }
+  header h1 { font-size:18px; margin:0; color:#fff; }
+  header a { color:var(--blue); font-size:12px; text-decoration:none; margin-left:auto; }
+  main { padding:20px; max-width:940px; margin:0 auto; }
+  .step { background:var(--panel); border:1px solid var(--border); border-radius:10px;
+          margin-bottom:14px; overflow:hidden; }
+  .step > summary { padding:13px 16px; cursor:pointer; font-weight:600; color:#fff;
+          display:flex; align-items:center; gap:10px; list-style:none; }
+  .step > summary::-webkit-details-marker { display:none; }
+  .step .n { display:inline-flex; align-items:center; justify-content:center;
+          width:24px; height:24px; border-radius:50%; background:#21262d;
+          border:1px solid var(--border); font-size:12px; color:var(--blue); flex:none; }
+  .step .body { padding:2px 18px 16px 50px; color:var(--txt); font-size:13.5px; }
+  .step .body p { margin:8px 0; }
+  code, pre { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12.5px; }
+  code { background:#21262d; border:1px solid var(--border); border-radius:4px; padding:1px 6px; }
+  pre { background:#010409; border:1px solid var(--border); border-radius:8px;
+        padding:12px 14px; overflow-x:auto; margin:8px 0; }
+  .muted { color:var(--muted); }
+  .tag { font-size:10px; font-weight:700; border-radius:10px; padding:1px 8px;
+         text-transform:uppercase; letter-spacing:.5px; }
+  .tag.host { background:rgba(88,166,255,.15); color:var(--blue); }
+  .tag.robot { background:rgba(63,185,80,.15); color:var(--green); }
+  .tag.hands { background:rgba(210,153,34,.15); color:var(--yellow); }
+  /* --- checks --- */
+  #checkbar { display:flex; align-items:center; gap:12px; margin:6px 0 12px; }
+  #checkbar button { background:#238636; color:#fff; border:0; border-radius:6px;
+        padding:8px 18px; font-size:14px; font-weight:600; cursor:pointer; }
+  #checkbar button:disabled { opacity:.6; cursor:wait; }
+  #summary { font-size:13px; color:var(--muted); }
+  .grp { margin:14px 0 4px; font-size:12px; text-transform:uppercase;
+         letter-spacing:.6px; color:var(--muted); font-weight:600; }
+  .chk { display:flex; gap:10px; padding:8px 10px; border-bottom:1px solid var(--border);
+         align-items:baseline; }
+  .chk:last-child { border-bottom:none; }
+  .chk .ic { width:18px; flex:none; text-align:center; font-weight:700; }
+  .chk.pass .ic { color:var(--green); } .chk.fail .ic { color:var(--red); }
+  .chk.warn .ic { color:var(--yellow); } .chk.skip .ic { color:var(--grey); }
+  .chk .t { min-width:230px; font-weight:600; color:#fff; }
+  .chk .d { color:var(--muted); }
+  .chk .hint { display:block; color:var(--yellow); font-size:12px; margin-top:2px; }
+  .chkwrap { background:var(--panel); border:1px solid var(--border); border-radius:10px;
+             padding:4px 8px; }
+  .bignum { font-weight:700; }
+  .ok-banner { border:1px solid rgba(63,185,80,.5); background:rgba(63,185,80,.08);
+       color:var(--green); border-radius:10px; padding:12px 16px; font-weight:600;
+       margin-bottom:14px; display:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>AIZEE Setup Wizard</h1>
+  <a href="/">&larr; Heartbeat dashboard</a>
+</header>
+<main>
+  <p class="muted">Bring up a fresh Jetson Orin Nano and validate the whole robot, step by
+  step. Tags: <span class="tag hands">hands</span> physical action,
+  <span class="tag host">dev&nbsp;pc</span> run on your computer,
+  <span class="tag robot">jetson</span> runs here on the robot.</p>
+
+  <details class="step" open><summary><span class="n">1</span> Flash JetPack <span class="tag hands">hands</span></summary>
+  <div class="body">
+    <p>Flash JetPack 6.x onto the Orin Nano (SD image or SDK Manager). During first-boot
+    <b>oem-config</b>, create user <code>ltr</code> and connect it to your WiFi or plug in
+    ethernet — the bootstrap needs internet on the device for apt/rustup/pip.</p>
+    <p class="muted">USB-C to your PC also gives a fallback link at <code>192.168.55.1</code>
+    (JetPack device-mode).</p>
+  </div></details>
+
+  <details class="step" open><summary><span class="n">2</span> Bootstrap from the dev machine <span class="tag host">dev&nbsp;pc</span></summary>
+  <div class="body">
+    <p>From the repo root in git-bash — installs your SSH key, syncs the repo, then runs
+    the on-device setup (apt, Rust, python deps, udev, systemd, CAN helper, cargo build,
+    WiFi AP):</p>
+    <pre>./scripts/bootstrap_jetson.sh ltr@192.168.55.1 -- --ap-pass '&lt;wifi-ap-password&gt;' --hostname aizee-jetson</pre>
+    <p>Re-running is safe — the setup script is idempotent. To refresh code later without
+    the full setup: <code>./scripts/deploy_jetson_rover.sh</code>.</p>
+  </div></details>
+
+  <details class="step"><summary><span class="n">3</span> Wire up the hardware <span class="tag hands">hands</span></summary>
+  <div class="body">
+    <p><b>CAN:</b> plug the USB-CAN adapter (it has a physical power switch — on), motors
+    daisy-chained on the bus, 30&nbsp;V pack on. Every motor in
+    <code>config/hardware_jetson_rover.yaml</code> must be physically present or
+    motor_control wedges during init — if the wheels are off the robot, set
+    <code>motors.wheels: []</code> (keep the key!).</p>
+    <p><b>USB:</b> gripper cam (ELP), scene cam (RealSense, optional), Tufty display
+    (optional), e-stop receiver (optional), OpenRB leader arm stays on the dev PC.</p>
+    <p><b>UPS:</b> INA219 on i2c bus 7 (0x41).</p>
+    <p class="muted">Each USB device gets a udev symlink and auto-starts its service when
+    plugged in — order doesn't matter.</p>
+  </div></details>
+
+  <details class="step" open><summary><span class="n">4</span> Validate <span class="tag robot">jetson</span></summary>
+  <div class="body">
+    <div class="ok-banner" id="okbanner">All required checks pass — the robot is good to go.</div>
+    <div id="checkbar">
+      <button id="runbtn" onclick="runChecks()">Run all checks</button>
+      <span id="summary"></span>
+    </div>
+    <div id="checks" class="muted">Checks haven&rsquo;t run yet.</div>
+    <p class="muted" style="margin-top:10px">Same checks over SSH:
+    <code>python3 python/tools/setup_checks.py</code> (exit code 1 on failure).</p>
+  </div></details>
+
+  <details class="step"><summary><span class="n">5</span> Teleop smoke test <span class="tag host">dev&nbsp;pc</span></summary>
+  <div class="body">
+    <p>With everything green above, plug the leader arm into the dev PC and run the
+    collection app against the robot:</p>
+    <pre>python python/scripts/collect_demo.py --gui</pre>
+    <p>Press <code>E</code> to engage, verify the arm mirrors the leader, <code>R</code> to
+    record a short episode, <code>Q</code> to quit. The episode lands in
+    <code>data/episodes/</code>.</p>
+  </div></details>
+</main>
+<script>
+const icons = {pass:"✓", warn:"!", fail:"✗", skip:"–"};
+async function runChecks(){
+  const btn=document.getElementById("runbtn"), box=document.getElementById("checks"),
+        sum=document.getElementById("summary");
+  btn.disabled=true; sum.textContent="running… (a few seconds)";
+  try{
+    const d=await (await fetch("/api/checks")).json();
+    const groups={};
+    d.checks.forEach(c=>{(groups[c.group]=groups[c.group]||[]).push(c);});
+    let html="";
+    for(const g in groups){
+      html+='<div class="grp">'+g+'</div><div class="chkwrap">';
+      html+=groups[g].map(c=>'<div class="chk '+c.status+'"><span class="ic">'+icons[c.status]+
+        '</span><span class="t">'+c.title+'</span><span class="d">'+(c.detail||c.status)+
+        ((c.status==="fail"||c.status==="warn")&&c.hint?'<span class="hint">&rarr; '+c.hint+'</span>':"")+
+        '</span></div>').join("");
+      html+='</div>';
+    }
+    box.classList.remove("muted"); box.innerHTML=html;
+    const n=d.counts;
+    sum.innerHTML='<span class="bignum" style="color:var(--green)">'+n.pass+' pass</span> · '+
+      '<span class="bignum" style="color:var(--yellow)">'+n.warn+' warn</span> · '+
+      '<span class="bignum" style="color:var(--red)">'+n.fail+' fail</span> · '+d.generated;
+    document.getElementById("okbanner").style.display = n.fail===0 ? "block":"none";
+  } catch(e){ sum.textContent="check run failed: "+e; }
+  btn.disabled=false;
+}
+runChecks();
 </script>
 </body>
 </html>"""
