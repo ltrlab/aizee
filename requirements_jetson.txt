@@ -1,0 +1,27 @@
+# AIZEE on-device (Jetson) Python dependencies.
+#
+# Installed into the SYSTEM python3 (services run /usr/bin/python3, no venv)
+# by scripts/setup_jetson.sh via `python3 -m pip install --user`.
+#
+# NOT listed here on purpose:
+#   opencv       -> use JetPack's apt package `python3-opencv` (CUDA build;
+#                   a pip opencv-python would shadow it and pull numpy 2.x)
+#   smbus        -> apt package `python3-smbus` (UPS/INA219 on i2c bus 7)
+#   pyrealsense2 -> tried separately by setup_jetson.sh; pip wheels for
+#                   aarch64 are hit-or-miss. Fallback: scripts/build_librealsense_rsusb.sh
+
+# Core communication (every node + heartbeat telemetry)
+pyzmq>=25.0.0
+msgpack>=1.0.5
+
+# JetPack's apt python3-opencv is built against numpy 1.x -- keep below 2.
+numpy>=1.24.0,<2
+
+# Gripper camera node (JPEG encode) + camera_node
+Pillow>=10.0.0
+
+# Tufty display node + e-stop bridge + OpenRB serial
+pyserial>=3.5
+
+# Config loading (hardware_*.yaml)
+pyyaml>=6.0

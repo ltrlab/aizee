@@ -12,13 +12,13 @@
 # The gripper-cam pipeline is untouched — both cameras run side by side
 # (gripper on tcp://*:5563, scene on tcp://*:5564).
 #
-# Usage: ./scripts/deploy_scene_cam.sh [ltr@192.168.0.27]
+# Usage: ./scripts/deploy_scene_cam.sh [user@host]   (default: auto-detected via deploy_common.sh)
 
 set -e
 
-TARGET="${1:-ltr@192.168.0.27}"
+source "$(dirname "$0")/deploy_common.sh"
+TARGET="${1:-$AIZEE_TARGET}"
 REMOTE_DIR="aizee"
-SSH_KEY="${SSH_KEY:-/p/Workspace/ssh-keys/aizee_rover_id}"
 SSH="ssh -i $SSH_KEY"
 SCP="scp -i $SSH_KEY"
 TARBALL="/tmp/aizee_scene_cam_deploy.tar.gz"

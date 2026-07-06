@@ -12,8 +12,9 @@
 #
 set -euo pipefail
 
-HOST="ltr@192.168.0.27"
-KEY="${SSH_KEY:-/p/Workspace/ssh-keys/aizee_rover_id}"
+source "$(dirname "${BASH_SOURCE[0]}")/deploy_common.sh"
+HOST="${1:-$AIZEE_TARGET}"
+KEY="$SSH_KEY"
 SERVICE="aizee-display"
 DEVICE="/dev/tufty_display"
 PASS="$(cat "$(dirname "${BASH_SOURCE[0]}")/.jetson_password")"

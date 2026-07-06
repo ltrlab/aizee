@@ -18,8 +18,8 @@ echo
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
 
-# Check if motor_control binary exists
-MOTOR_CONTROL_BIN="$PROJECT_ROOT/rust/motor_control/target/release/motor_control"
+# Check if motor_control binary exists (cargo workspace builds into rust/target/)
+MOTOR_CONTROL_BIN="$PROJECT_ROOT/rust/target/release/motor_control"
 
 if [ ! -f "$MOTOR_CONTROL_BIN" ]; then
     echo -e "${YELLOW}Motor control binary not found. Building...${NC}"
@@ -33,7 +33,7 @@ fi
 # Check if CAN interface is up
 if ! ip link show can1 &>/dev/null; then
     echo -e "${RED}✗ CAN interface 'can1' not found${NC}"
-    echo "Run: sudo $SCRIPT_DIR/setup_can.sh"
+    echo "Run: sudo /usr/local/bin/aizee-reset-usb-can can1"
     exit 1
 fi
 
@@ -46,7 +46,7 @@ fi
 echo -e "${GREEN}✓ CAN interface ready${NC}"
 
 # Set config path
-export AIZEE_CONFIG="${AIZEE_CONFIG:-$PROJECT_ROOT/config/hardware.yaml}"
+export AIZEE_CONFIG="${AIZEE_CONFIG:-$PROJECT_ROOT/config/hardware_jetson_rover.yaml}"
 
 if [ ! -f "$AIZEE_CONFIG" ]; then
     echo -e "${RED}✗ Config file not found: $AIZEE_CONFIG${NC}"

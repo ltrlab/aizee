@@ -1,6 +1,6 @@
 #!/bin/bash
 # Deploy AIZEE rover module to Jetson Orin Nano
-# Usage: ./deploy_jetson_rover.sh [ltr@192.168.0.27]
+# Usage: ./deploy_jetson_rover.sh [user@host]   (default: auto-detected via deploy_common.sh)
 #
 # Transfer method: tar + scp (rsync not required)
 #   1. Pack rust/ and config/ into a local tarball (excluding build artifacts)
@@ -12,9 +12,10 @@
 
 set -e
 
-TARGET="${1:-ltr@192.168.0.27}"
+source "$(dirname "$0")/deploy_common.sh"
+TARGET="${1:-$AIZEE_TARGET}"
 REMOTE_DIR="aizee"
-SSH_KEY="${SSH_KEY:-/p/Workspace/ssh-keys/aizee_rover_id}"
+# SSH_KEY + target auto-detected by deploy_common.sh (env overrides win)
 SSH="ssh -i $SSH_KEY"
 SCP="scp -i $SSH_KEY"
 TARBALL="/tmp/aizee_deploy.tar.gz"

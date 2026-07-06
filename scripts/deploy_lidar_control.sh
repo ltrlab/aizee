@@ -4,10 +4,10 @@
 set -e
 
 # Configuration
-JETSON_IP="192.168.0.27"
-JETSON_USER="ltr"
-SSH_KEY="/p/Workspace/ssh-keys/aizee_rover_id"
-WORKSPACE_DIR="/p/Workspace/aizee"
+source "$(dirname "$0")/deploy_common.sh"
+JETSON_IP="${AIZEE_TARGET#*@}"
+JETSON_USER="${AIZEE_TARGET%%@*}"
+WORKSPACE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "========================================"
 echo "AIZEE LiDAR Control Deployment"

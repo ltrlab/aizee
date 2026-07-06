@@ -14,13 +14,13 @@
 # present under /usr/bin/python3 (the ups/display nodes use them); if they were
 # missing the telemetry section would degrade gracefully.
 #
-# Usage: ./scripts/deploy_heartbeat.sh [ltr@10.42.0.1]
+# Usage: ./scripts/deploy_heartbeat.sh [user@host]   (default: auto-detected via deploy_common.sh)
 
 set -e
 
-TARGET="${1:-ltr@10.42.0.1}"
+source "$(dirname "$0")/deploy_common.sh"
+TARGET="${1:-$AIZEE_TARGET}"
 REMOTE_DIR="aizee"
-SSH_KEY="${SSH_KEY:-/c/Users/ltr/Workspace/ssh-keys/aizee_rover_id}"
 SSH="ssh -i $SSH_KEY -o StrictHostKeyChecking=accept-new"
 SCP="scp -i $SSH_KEY -o StrictHostKeyChecking=accept-new"
 PORT=8088

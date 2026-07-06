@@ -1,10 +1,13 @@
 #!/bin/bash
-# Check status of AIZEE rover module only
+# Check status of the AIZEE Jetson: network, CAN, motor service, telemetry.
+# Usage: ./check_rover_status.sh [user@host]   (auto-detects the target otherwise)
 
 set -e
 
-SSH_KEY="/p/Workspace/ssh-keys/aizee_rover_id"
-ROVER="ltr@192.168.0.27"
+source "$(dirname "$0")/deploy_common.sh"
+ROVER="${1:-$AIZEE_TARGET}"
+HOST="${ROVER#*@}"
+SSH="ssh -i $SSH_KEY"
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -16,23 +19,22 @@ echo "  AIZEE Rover Status"
 echo "======================================"
 echo ""
 
-# Check Rover Module (Jetson)
-echo "--- Rover Module (Jetson 192.168.0.27) ---"
-if ping -c 1 -W 2 192.168.0.27 > /dev/null 2>&1; then
+echo "--- Jetson ($HOST) ---"
+if $SSH -o ConnectTimeout=3 -o BatchMode=yes "$ROVER" true 2>/dev/null; then
     echo -e "${GREEN}✓ Network: Online${NC}"
 
-    # Check CAN interface
-    CAN_STATUS=$(ssh -i "$SSH_KEY" "$ROVER" "ip link show can0 2>/dev/null | grep 'state UP' || echo 'DOWN'" 2>/dev/null || echo "ERROR")
+    # Check CAN interface (the motors live on can1; ExecStartPre renames strays)
+    CAN_STATUS=$($SSH "$ROVER" "ip link show can1 2>/dev/null | grep 'state UP' || echo 'DOWN'" 2>/dev/null || echo "ERROR")
     if [[ "$CAN_STATUS" == *"UP"* ]]; then
-        echo -e "${GREEN}✓ CAN Interface: UP${NC}"
-        ssh -i "$SSH_KEY" "$ROVER" "ip link show can0 | grep -E 'can0|bitrate'"
+        echo -e "${GREEN}✓ CAN Interface (can1): UP${NC}"
+        $SSH "$ROVER" "ip link show can1 | grep -E 'can1|bitrate'"
     else
-        echo -e "${RED}✗ CAN Interface: DOWN${NC}"
-        echo "  Run: ssh -i $SSH_KEY $ROVER 'sudo ip link set can0 type can bitrate 1000000 && sudo ip link set can0 up'"
+        echo -e "${RED}✗ CAN Interface (can1): DOWN${NC}"
+        echo "  Run: ssh -i $SSH_KEY $ROVER 'sudo /usr/local/bin/aizee-reset-usb-can can1'"
     fi
 
     # Check service
-    SERVICE_STATUS=$(ssh -i "$SSH_KEY" "$ROVER" "sudo systemctl is-active aizee-motor-control-rover 2>/dev/null || echo 'inactive'")
+    SERVICE_STATUS=$($SSH "$ROVER" "systemctl is-active aizee-motor-control-rover 2>/dev/null || echo 'inactive'")
     if [ "$SERVICE_STATUS" == "active" ]; then
         echo -e "${GREEN}✓ Motor Control Service: Running${NC}"
     else
@@ -40,16 +42,28 @@ if ping -c 1 -W 2 192.168.0.27 > /dev/null 2>&1; then
         echo "  Run: ssh -i $SSH_KEY $ROVER sudo systemctl start aizee-motor-control-rover"
     fi
 
-    # Check if telemetry is publishing
+    # Check if telemetry is publishing (msgpack wire format on :5556)
     echo ""
     echo "Testing telemetry (5 second timeout)..."
-    if python3 -c "import zmq, json; ctx = zmq.Context(); s = ctx.socket(zmq.SUB); s.connect('tcp://192.168.0.27:5556'); s.setsockopt(zmq.SUBSCRIBE, b''); s.setsockopt(zmq.RCVTIMEO, 5000); data = json.loads(s.recv_string()); print(f\"✓ Telemetry OK: {len(data.get('motors', {}))} motors\")" 2>/dev/null; then
+    if python3 -c "
+import sys, zmq, msgpack
+ctx = zmq.Context(); s = ctx.socket(zmq.SUB)
+s.connect('tcp://$HOST:5556'); s.setsockopt(zmq.SUBSCRIBE, b''); s.setsockopt(zmq.RCVTIMEO, 5000)
+data = msgpack.unpackb(s.recv(), raw=False)
+print('✓ Telemetry OK: %d motors' % len(data.get('motors', {})))" 2>/dev/null; then
         :
     else
-        echo -e "${RED}✗ No telemetry received${NC}"
+        echo -e "${RED}✗ No telemetry received on :5556${NC}"
+    fi
+
+    # Heartbeat dashboard
+    if curl -fsS -m 3 "http://$HOST:8088/healthz" >/dev/null 2>&1; then
+        echo -e "${GREEN}✓ Heartbeat dashboard: http://$HOST:8088${NC}"
+    else
+        echo -e "${YELLOW}– Heartbeat dashboard not responding on :8088${NC}"
     fi
 else
-    echo -e "${RED}✗ Network: Offline${NC}"
+    echo -e "${RED}✗ Network: Offline (tried $HOST)${NC}"
 fi
 echo ""
 
@@ -57,6 +71,6 @@ echo "======================================"
 echo "To view logs:"
 echo "  ssh -i $SSH_KEY $ROVER sudo journalctl -u aizee-motor-control-rover -f"
 echo ""
-echo "To start teleop once rover is ready:"
-echo "  python python/teleop/teleop.py --config config/teleop_rover_only.yaml"
+echo "Guided validation checklist:"
+echo "  http://$HOST:8088/setup"
 echo "======================================"

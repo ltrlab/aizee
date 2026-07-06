@@ -1,15 +1,15 @@
 #!/bin/bash
 # Deploy e-stop bridge to Jetson Orin Nano
-# Usage: ./deploy_estop_bridge.sh [ltr@192.168.0.27]
+# Usage: ./deploy_estop_bridge.sh [user@host]   (default: auto-detected via deploy_common.sh)
 #
 # Copies bridge.py, installs udev rule for persistent /dev/estop-receiver
 # symlink, installs and starts the systemd service.
 
 set -e
 
-TARGET="${1:-ltr@192.168.0.27}"
+source "$(dirname "$0")/deploy_common.sh"
+TARGET="${1:-$AIZEE_TARGET}"
 REMOTE_DIR="aizee"
-SSH_KEY="/p/Workspace/ssh-keys/aizee_rover_id"
 SSH="ssh -i $SSH_KEY"
 SCP="scp -i $SSH_KEY"
 
