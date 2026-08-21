@@ -1,0 +1,105 @@
+# Minerva Configuration — bimanual humanoid torso (17-DoF, 3 cameras)
+#
+# Minerva reuses AIZEE actuators in a humanoid-torso form: two 6-DoF arms +
+# 2 grippers + a 2-DoF head (pan/tilt) carrying a RealSense + a 1-DoF linear
+# lift, on the AIZEE rover. The rover base is positioned manually and is NOT in
+# the policy action space. Joint limits/gains are seeded from AIZEE's single arm
+# (python/common/minerva_constants.py) — re-derive from Minerva's URDF before
+# trusting on hardware (PLACEHOLDER values are marked there).
+
+# ---------------------------------------------------------------------------
+# Morphology — canonical 17-DoF order (grippers adjacent to their arm)
+# ---------------------------------------------------------------------------
+morphology:
+  num_joints: 17
+  joint_order:
+    - left_arm_j1
+    - left_arm_j2
+    - left_arm_j3
+    - left_arm_j4
+    - left_arm_j5
+    - left_arm_j6
+    - left_gripper
+    - right_arm_j1
+    - right_arm_j2
+    - right_arm_j3
+    - right_arm_j4
+    - right_arm_j5
+    - right_arm_j6
+    - right_gripper
+    - head_pan
+    - head_tilt
+    - lift
+  groups:
+    left_arm:  [0, 1, 2, 3, 4, 5]
+    left_gripper: [6]
+    right_arm: [7, 8, 9, 10, 11, 12]
+    right_gripper: [13]
+    head:      [14, 15]
+    lift:      [16]
+
+# ---------------------------------------------------------------------------
+# ZMQ endpoints (one SUB socket per camera stream + telemetry/command)
+# ---------------------------------------------------------------------------
+endpoints:
+  command:    "tcp://localhost:5555"
+  telemetry:  "tcp://localhost:5556"
+  cameras:
+    left_wrist:  "tcp://localhost:5563"   # ELP UVC on the left wrist
+    right_wrist: "tcp://localhost:5565"   # ELP UVC on the right wrist
+    head:        "tcp://localhost:5564"   # RealSense on the 2-DoF head
+
+cameras:
+  # Resolution the policy consumes. Wrist cams full-res for fine manipulation;
+  # the head/scene cam can run lower to save token budget on the Jetson.
+  left_wrist:  { width: 640, height: 480 }
+  right_wrist: { width: 640, height: 480 }
+  head:        { width: 424, height: 240 }
+
+# ---------------------------------------------------------------------------
+# Control
+# ---------------------------------------------------------------------------
+control:
+  rate_hz: 20
+  stale_threshold_ms: 200
+  # Receding-horizon open-loop execution: predict a chunk, execute this many
+  # steps, then replan. (execute < chunk_size)
+  execute_steps: 16
+  flow_steps: 8          # Euler integration steps for the flow-matching sampler
+
+# ---------------------------------------------------------------------------
+# Model hyperparameters (must match the trained checkpoint)
+# ---------------------------------------------------------------------------
+model:
+  d_model: 512
+  nhead: 8
+  head_layers: 6
+  head_ff: 2048
+  chunk_size: 32
+  camera_dropout: 0.15     # training only
+  state_mode: qpos_qcmd    # qpos | qpos_qcmd | qpos_qcmd_tq
+  action_mode: absolute    # absolute | relative
+  # JEPA auxiliary (training only — stripped at inference)
+  lambda_obs: 0.3
+  lambda_reg: 0.05
+  predictor_layers: 3
+
+language:
+  enabled: true
+  model: "sentence-transformers/all-MiniLM-L6-v2"
+  cache: "checkpoints/minerva/task_embeddings.npz"
+  # Default instruction if none is supplied at deploy time.
+  default_instruction: ""
+
+# ---------------------------------------------------------------------------
+# Deploy-time safety (see minerva_constants.apply_safety_limits)
+# ---------------------------------------------------------------------------
+safety:
+  max_delta_arm: 0.30      # rad/step
+  max_delta_gripper: 0.50  # normalized/step
+  max_delta_head: 0.15     # rad/step
+  max_delta_lift: 0.01     # m/step
+  ramp_speed_rad_s: 1.0    # ramp to closest training start-pose on startup
+
+logging:
+  level: INFO

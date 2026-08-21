@@ -1,0 +1,26 @@
+[Unit]
+Description=Minerva Left Arm Motor Control (7-DoF, canL)
+After=network.target
+# Don't flap: after 5 failed starts in 60s, stop restarting. A rapid restart
+# loop stresses the shared USB hub and drops the gs_usb adapters off the bus.
+# Recover with `systemctl reset-failed && systemctl start` once the bus is stable.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=ltr
+WorkingDirectory=/home/ltr/aizee
+Environment="AIZEE_CONFIG=/home/ltr/aizee/config/hardware_minerva_left.yaml"
+Environment="RUST_LOG=info"
+# Higher priority than camera nodes so the CAN control loop is never starved.
+Nice=-5
+# Bring up this arm's USB-CAN bus (canL = USB 1-2.1.2, pinned by udev). No
+# unbind/rebind — bouncing gs_usb scrambles left<->right with two identical adapters.
+ExecStartPre=/usr/bin/sudo /usr/local/bin/aizee-can-up canL
+ExecStart=/home/ltr/aizee/rust/target/release/motor_control
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

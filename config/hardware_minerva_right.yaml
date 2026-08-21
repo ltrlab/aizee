@@ -1,0 +1,96 @@
+# Minerva RIGHT arm — motor_control follower config (Path A: one instance per arm)
+#
+# Identical to config/hardware_minerva_left.yaml except: right_ joint names, a
+# different CAN interface, and ZMQ ports 5557/5558. The motor CAN ids (4..10)
+# are intentionally the SAME as the left arm — the two arms are distinguished
+# only by living on separate CAN buses.
+#
+# Launch:  AIZEE_CONFIG=config/hardware_minerva_right.yaml ./motor_control
+#
+# See the left file's header for the full CONFIRM-BEFORE-ENERGIZING checklist
+# (CAN interface name, per-joint motor model, placeholder position limits).
+
+motors:
+  wheels: []
+
+  swivel:
+    id: right_arm_j1
+    can_id: 0x04
+    can_bus: arm
+    type: ROBSTRIDE03      # ASSUMED — confirm the id-4 shoulder model
+    min_position: -3.5
+    max_position: 3.5
+    max_velocity: 10.0
+    max_torque: 40.0
+
+  arm:
+    - id: right_arm_j2     # id 5  (AIZEE gantry_base)
+      can_id: 0x05
+      can_bus: arm
+      type: ROBSTRIDE04
+      min_position: -2.5
+      max_position: 2.5
+      max_velocity: 10.0
+      max_torque: 60.0
+    - id: right_arm_j3     # id 6  (AIZEE gantry_mid)
+      can_id: 0x06
+      can_bus: arm
+      type: ROBSTRIDE03
+      min_position: -3.2
+      max_position: 3.2
+      max_velocity: 5.0
+      max_torque: 40.0
+    - id: right_arm_j4     # id 7  (AIZEE gantry_end)
+      can_id: 0x07
+      can_bus: arm
+      type: ROBSTRIDE02
+      min_position: -4.5
+      max_position: 4.5
+      max_velocity: 10.0
+      max_torque: 12.0
+    - id: right_arm_j5     # id 8  (AIZEE wrist_pitch)
+      can_id: 0x08
+      can_bus: arm
+      type: ROBSTRIDE02
+      min_position: -3.5
+      max_position: 3.5
+      max_velocity: 10.0
+      max_torque: 12.0
+    - id: right_arm_j6     # id 9  (AIZEE wrist_roll)
+      can_id: 0x09
+      can_bus: arm
+      type: ROBSTRIDE00
+      min_position: -3.2
+      max_position: 3.2
+      max_velocity: 30.0
+      max_torque: 1.5
+    - id: right_gripper    # id 10 (AIZEE gripper)
+      can_id: 0x0A
+      can_bus: arm
+      type: ROBSTRIDE00
+      min_position: -0.5
+      max_position: 5.0
+      max_velocity: 30.0
+      max_torque: 1.5
+
+control:
+  arm_frequency: 400.0
+  base_frequency: 100.0
+  telemetry_rate: 50.0
+  watchdog_timeout: 0.5
+
+can:
+  # RIGHT arm = canR (udev-pinned to USB 1-2.1.4). LEFT arm = canL (USB 1-2.1.2).
+  # If the adapters are reversed, swap the NAME= lines in the udev rule
+  # (config/udev/80-minerva-can.rules).
+  interfaces:
+    arm: canR
+
+network:
+  device:
+    ip: 192.168.0.27
+    hostname: aizee-jetson
+    zmq:
+      # 5575/5576 — 5557-5560 are taken by aizee-camera-relay on this Jetson.
+      command_sub: "tcp://*:5575"      # PULL — receives commands
+      telemetry_pub: "tcp://*:5576"    # PUB  — publishes motor states

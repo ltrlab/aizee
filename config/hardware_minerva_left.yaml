@@ -1,0 +1,115 @@
+# Minerva LEFT arm — motor_control follower config (Path A: one instance per arm)
+#
+# A 7-DoF arm (6 + gripper) reusing the AIZEE arm actuators. This instance drives
+# it as its "arm group" = swivel(index 0) + arm[] = 7 motors, commanded by a
+# single positional `arm_joints` vector [j1 j2 j3 j4 j5 j6 gripper].
+#
+# The RIGHT arm is an identical file (config/hardware_minerva_right.yaml) with
+# left_→right_ joint names, a different CAN interface, and ZMQ ports 5557/5558.
+# The motor CAN ids (4..10) are the SAME on both arms — the two arms are told
+# apart purely by living on two separate CAN buses.
+#
+# Launch on the Jetson (one process per arm):
+#   AIZEE_CONFIG=config/hardware_minerva_left.yaml  ./motor_control   # ports 5555/5556
+#   AIZEE_CONFIG=config/hardware_minerva_right.yaml ./motor_control   # ports 5557/5558
+#
+# === CONFIRM BEFORE ENERGIZING ============================================
+#  1. can.interfaces.arm below matches the kernel interface THIS arm is wired
+#     to (verify: `ip -details link show | grep can`). Left and right MUST be
+#     different interfaces.
+#  2. Each joint's `type` matches the real RobStride model on that id. ids
+#     5..10 are copied from the AIZEE arm; id 4 (shoulder) is ASSUMED RS03.
+#     A wrong model mis-scales position/torque in the MIT frame.
+#  3. min_position/max_position here are WIDE placeholders (from AIZEE) so
+#     calibration can reach true travel. Tighten them from
+#     config/minerva_calibration.json after running minerva_calibrate.py.
+# ==========================================================================
+
+motors:
+  # No wheels on Minerva. Empty list => the base motor group has zero motors.
+  wheels: []
+
+  # Shoulder (j1) occupies the "swivel" slot = arm-group index 0.
+  swivel:
+    id: left_arm_j1
+    can_id: 0x04
+    can_bus: arm
+    type: ROBSTRIDE03      # ASSUMED — confirm the id-4 shoulder model
+    min_position: -3.5
+    max_position: 3.5
+    max_velocity: 10.0
+    max_torque: 40.0
+
+  # j2..j6 + gripper (ids 5..10) = arm-group indices 1..6, in order.
+  arm:
+    - id: left_arm_j2      # id 5  (AIZEE gantry_base)
+      can_id: 0x05
+      can_bus: arm
+      type: ROBSTRIDE04
+      min_position: -2.5
+      max_position: 2.5
+      max_velocity: 10.0
+      max_torque: 60.0
+    - id: left_arm_j3      # id 6  (AIZEE gantry_mid)
+      can_id: 0x06
+      can_bus: arm
+      type: ROBSTRIDE03
+      min_position: -3.2
+      max_position: 3.2
+      max_velocity: 5.0
+      max_torque: 40.0
+    - id: left_arm_j4      # id 7  (AIZEE gantry_end)
+      can_id: 0x07
+      can_bus: arm
+      type: ROBSTRIDE02
+      min_position: -4.5
+      max_position: 4.5
+      max_velocity: 10.0
+      max_torque: 12.0
+    - id: left_arm_j5      # id 8  (AIZEE wrist_pitch)
+      can_id: 0x08
+      can_bus: arm
+      type: ROBSTRIDE02
+      min_position: -3.5
+      max_position: 3.5
+      max_velocity: 10.0
+      max_torque: 12.0
+    - id: left_arm_j6      # id 9  (AIZEE wrist_roll)
+      can_id: 0x09
+      can_bus: arm
+      type: ROBSTRIDE00
+      min_position: -3.2
+      max_position: 3.2
+      max_velocity: 30.0
+      max_torque: 1.5
+    - id: left_gripper     # id 10 (AIZEE gripper)
+      can_id: 0x0A
+      can_bus: arm
+      type: ROBSTRIDE00
+      min_position: -0.5
+      max_position: 5.0
+      max_velocity: 30.0
+      max_torque: 1.5
+
+control:
+  arm_frequency: 400.0     # Hz — 7 motors on one bus
+  base_frequency: 100.0    # unused (no wheels) but required by the schema
+  telemetry_rate: 50.0     # Hz — published motor states
+  watchdog_timeout: 0.5    # s  — hold position if no command for 500 ms
+
+can:
+  # Logical bus "arm" -> kernel CAN interface. Names are pinned to physical USB
+  # ports by udev (config/udev/80-minerva-can.rules): canL = USB 1-2.1.2 (LEFT),
+  # canR = USB 1-2.1.4 (RIGHT). Verify which physical adapter drives which arm
+  # (move one joint, watch which bus's telemetry changes); if reversed, swap the
+  # two NAME= lines in the udev rule.
+  interfaces:
+    arm: canL
+
+network:
+  device:
+    ip: 192.168.0.27
+    hostname: aizee-jetson
+    zmq:
+      command_sub: "tcp://*:5555"      # PULL — receives commands
+      telemetry_pub: "tcp://*:5556"    # PUB  — publishes motor states

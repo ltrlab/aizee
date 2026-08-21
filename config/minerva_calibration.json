@@ -1,0 +1,114 @@
+{
+  "calibrated_at": "2026-08-20T03:22:02.871342+00:00",
+  "wire": "msgpack",
+  "arms": {
+    "left": {
+      "cmd": "tcp://10.42.0.1:5555",
+      "telem": "tcp://10.42.0.1:5556"
+    },
+    "right": {
+      "cmd": "tcp://10.42.0.1:5575",
+      "telem": "tcp://10.42.0.1:5576"
+    }
+  },
+  "joints": {
+    "left_arm_j1": {
+      "arm": "left",
+      "can_id": 4,
+      "model": "ROBSTRIDE03",
+      "min_rad": 0.6555957794189453,
+      "max_rad": -1.6933488845825195
+    },
+    "left_arm_j2": {
+      "arm": "left",
+      "can_id": 5,
+      "model": "ROBSTRIDE04",
+      "min_rad": -1.5491533279418945,
+      "max_rad": 1.6162643432617188
+    },
+    "left_arm_j3": {
+      "arm": "left",
+      "can_id": 6,
+      "model": "ROBSTRIDE03",
+      "min_rad": 2.0891218185424805,
+      "max_rad": -2.035048484802246
+    },
+    "left_arm_j4": {
+      "arm": "left",
+      "can_id": 7,
+      "model": "ROBSTRIDE02",
+      "min_rad": -1.6753244400024414,
+      "max_rad": 1.5522212982177734
+    },
+    "left_arm_j5": {
+      "arm": "left",
+      "can_id": 8,
+      "model": "ROBSTRIDE02",
+      "min_rad": -1.467850685119629,
+      "max_rad": 1.626236915588379
+    },
+    "left_arm_j6": {
+      "arm": "left",
+      "can_id": 9,
+      "model": "ROBSTRIDE00",
+      "min_rad": -1.0908689498901367,
+      "max_rad": 1.2358331680297852
+    },
+    "left_gripper": {
+      "arm": "left",
+      "can_id": 10,
+      "model": "ROBSTRIDE00",
+      "min_rad": -0.026269912719726562,
+      "max_rad": 4.731827735900879
+    },
+    "right_arm_j1": {
+      "arm": "right",
+      "can_id": 4,
+      "model": "ROBSTRIDE03",
+      "min_rad": -0.7928886413574219,
+      "max_rad": 1.3754262924194336
+    },
+    "right_arm_j2": {
+      "arm": "right",
+      "can_id": 5,
+      "model": "ROBSTRIDE04",
+      "min_rad": 1.5852012634277344,
+      "max_rad": -1.545701026916504
+    },
+    "right_arm_j3": {
+      "arm": "right",
+      "can_id": 6,
+      "model": "ROBSTRIDE03",
+      "min_rad": -2.1431961059570312,
+      "max_rad": 2.023159980773926
+    },
+    "right_arm_j4": {
+      "arm": "right",
+      "can_id": 7,
+      "model": "ROBSTRIDE02",
+      "min_rad": 1.6108951568603516,
+      "max_rad": -1.6971845626831055
+    },
+    "right_arm_j5": {
+      "arm": "right",
+      "can_id": 8,
+      "model": "ROBSTRIDE02",
+      "min_rad": -1.7351503372192383,
+      "max_rad": 1.3604698181152344
+    },
+    "right_arm_j6": {
+      "arm": "right",
+      "can_id": 9,
+      "model": "ROBSTRIDE00",
+      "min_rad": -0.9428367614746094,
+      "max_rad": 1.1510791778564453
+    },
+    "right_gripper": {
+      "arm": "right",
+      "can_id": 10,
+      "model": "ROBSTRIDE00",
+      "min_rad": -0.005177497863769531,
+      "max_rad": 4.999510765075684
+    }
+  }
+}

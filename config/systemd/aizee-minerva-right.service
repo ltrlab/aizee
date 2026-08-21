@@ -1,0 +1,27 @@
+[Unit]
+Description=Minerva Right Arm Motor Control (7-DoF, canR)
+# Order after the left arm just for tidy, sequential startup. udev pins canL/canR
+# to physical USB ports so there is no reset race; the ordering is only cosmetic
+# and the right arm still starts if the left one fails.
+After=network.target aizee-minerva-left.service
+# Don't flap: after 5 failed starts in 60s, stop restarting (a restart loop
+# stresses the shared USB hub and drops the gs_usb adapters). Recover with
+# `systemctl reset-failed && systemctl start` once the bus is stable.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=ltr
+WorkingDirectory=/home/ltr/aizee
+Environment="AIZEE_CONFIG=/home/ltr/aizee/config/hardware_minerva_right.yaml"
+Environment="RUST_LOG=info"
+Nice=-5
+# Bring up this arm's USB-CAN bus (canR = USB 1-2.1.4, pinned by udev).
+ExecStartPre=/usr/bin/sudo /usr/local/bin/aizee-can-up canR
+ExecStart=/home/ltr/aizee/rust/target/release/motor_control
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
