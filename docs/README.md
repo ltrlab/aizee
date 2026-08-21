@@ -27,6 +27,7 @@ Technical documentation for the AIZEE mobile manipulation platform.
 - **[PHASES.md](PHASES.md)** — implementation status and roadmap
 
 ## Reference
+- **[MINERVA_ACTUATORS.md](MINERVA_ACTUATORS.md)** — Cubemars actuator plan for the Minerva humanoid torso + cost/weight comparison vs the AIZEE Robstrides
 - ROBSTRIDE motor manuals: `RS00`/`RS02`/`RS03`/`RS04` User Manual PDFs (this directory)
 - [../rust/motor_control/README.md](../rust/motor_control/README.md) — motor control crate
 - [../rust/lidar_control/README.md](../rust/lidar_control/README.md) — LiDAR control crate
