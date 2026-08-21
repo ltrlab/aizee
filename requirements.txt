@@ -23,6 +23,12 @@ msgpack>=1.0.5
 # Optional GUI
 # PyQt6>=6.5.0  # Uncomment if using Qt for teleop GUI
 
+# GUI kinematic-model preview: one-time build of the decimated display-mesh
+# cache (ik.mesh_world.load_display_meshes). Without these the preview falls
+# back to convex-hull silhouettes.
+fast-simplification>=0.1.7
+scikit-image>=0.22
+
 # Display node (Tufty2040 USB CDC serial)
 pyserial>=3.5
 

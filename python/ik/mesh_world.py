@@ -185,6 +185,117 @@ def _parse_urdf_full(urdf_path: Path) -> tuple[dict[str, _Link], dict[str, _Join
     return links, joints
 
 
+def _remesh_for_display(merged: "trimesh.Trimesh", max_faces: int) -> "trimesh.Trimesh":
+    """Reduce a raw CAD export to <= max_faces for preview rendering.
+
+    Quadric decimation alone stalls at ~40% on these onshape exports — they
+    contain coincident duplicate shells whose collapses always flip a
+    triangle, so the algorithm locks (fast_simplification and pyfqmr both
+    floor at the identical face count). Voxelizing + marching cubes first
+    produces one clean manifold shell (and drops interior junk like screw
+    threads), which then decimates straight to the target.
+
+    Needs scikit-image (marching cubes) + fast-simplification; on failure
+    falls back to plain decimation, then to the convex hull.
+    """
+    try:
+        pitch = float(max(merged.extents) / 70.0)
+        mc = merged.voxelized(pitch).marching_cubes
+        # marching_cubes vertex units/origin vary across trimesh versions —
+        # skip the guesswork and fit the shell to the source bounding box
+        # (worst-case error is half a voxel, invisible at preview scale).
+        span_mc = np.maximum(mc.bounds[1] - mc.bounds[0], 1e-9)
+        span_src = merged.bounds[1] - merged.bounds[0]
+        verts = ((mc.vertices - mc.bounds[0]) / span_mc) * span_src + merged.bounds[0]
+        remeshed = trimesh.Trimesh(vertices=verts, faces=mc.faces, process=False)
+        return remeshed.simplify_quadric_decimation(
+            face_count=max_faces, aggression=7)
+    except BaseException:
+        pass
+    try:
+        return merged.simplify_quadric_decimation(face_count=max_faces)
+    except BaseException:
+        pass
+    try:
+        return merged.convex_hull
+    except Exception:
+        return merged
+
+
+def load_display_meshes(
+    urdf_path: "Path | str",
+    max_faces_per_link: int = 350,
+    cache_path: Optional[Path] = None,
+) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """Per-link REAL visual meshes, decimated for fast software rendering.
+
+    Returns {link_name: (verts float32 (V, 3), faces int32 (F, 3))} in
+    link-local frame (visual origins applied), quadric-decimated to at most
+    `max_faces_per_link` faces. Unlike MeshWorld(use_convex=True) this keeps
+    concavities — the arm looks like the arm, not like soap bubbles — while
+    being ~100x lighter than the raw CAD exports.
+
+    Decimation prefers trimesh's quadric path (needs the `fast-simplification`
+    wheel); a link falls back to its convex hull if that path is unavailable.
+    The result is cached as an .npz next to the URDF, keyed on the URDF mtime,
+    so only the first run after a model change pays the decimation cost.
+    """
+    urdf_path = Path(urdf_path)
+    if cache_path is None:
+        cache_path = urdf_path.parent / f".display_meshes_{max_faces_per_link}.npz"
+    stamp = urdf_path.stat().st_mtime
+
+    try:
+        z = np.load(cache_path, allow_pickle=False)
+        if abs(float(z["_urdf_mtime"][0]) - stamp) < 1e-6:
+            names = [str(n) for n in z["_names"]]
+            return {n: (z[f"v_{i}"], z[f"f_{i}"]) for i, n in enumerate(names)}
+    except Exception:
+        pass  # missing/stale/corrupt cache -> rebuild
+
+    links, _ = _parse_urdf_full(urdf_path)
+    out: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for name, link in links.items():
+        parts: list["trimesh.Trimesh"] = []
+        for v in link.visuals:
+            try:
+                m = trimesh.load(v.mesh_path, force="mesh")
+            except Exception:
+                continue
+            if not isinstance(m, trimesh.Trimesh) or len(m.vertices) == 0:
+                continue
+            if not np.allclose(v.scale, 1.0):
+                m = m.copy()
+                m.apply_scale(v.scale)
+            T = _T(v.R_origin, v.t_origin)
+            if not np.allclose(T, np.eye(4)):
+                m = m.copy()
+                m.apply_transform(T)
+            parts.append(m)
+        if not parts:
+            continue
+        merged = trimesh.util.concatenate(parts)
+        if len(merged.faces) > max_faces_per_link:
+            merged = _remesh_for_display(merged, max_faces_per_link)
+        out[name] = (
+            np.asarray(merged.vertices, dtype=np.float32),
+            np.asarray(merged.faces, dtype=np.int32),
+        )
+
+    try:
+        arrs: dict[str, np.ndarray] = {
+            "_urdf_mtime": np.array([stamp]),
+            "_names": np.array(list(out.keys())),
+        }
+        for i, (v, f) in enumerate(out.values()):
+            arrs[f"v_{i}"] = v
+            arrs[f"f_{i}"] = f
+        np.savez_compressed(cache_path, **arrs)
+    except Exception:
+        pass  # cache write is best-effort
+    return out
+
+
 # -----------------------------------------------------------------------------
 # MeshWorld
 # -----------------------------------------------------------------------------

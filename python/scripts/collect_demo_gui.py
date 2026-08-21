@@ -82,6 +82,9 @@ except Exception as _fk_exc:  # noqa: F841
 # unavailable; the stick-figure path still works.
 _mesh_world_gui = None
 _link_hull_verts = None      # {link_name: ndarray (E, 2, 3) in link-local frame}
+_link_display_meshes = None  # {link_name: (verts (V,3) f32, faces (F,3) i32)} — real
+                             # decimated meshes for the shaded preview; hull
+                             # silhouettes remain the fallback when absent
 _mesh_world_init_failed = False
 # Map the 7-element arm qpos vector to the URDF joint names MeshWorld
 # wants.  Note: the URDF now uses `wrist_swivel` where the firmware /
@@ -99,7 +102,7 @@ _mw_init_lock = _threading.Lock()
 
 
 def _init_mesh_world_gui():
-    global _mesh_world_gui, _link_hull_verts, _mesh_world_init_failed
+    global _mesh_world_gui, _link_hull_verts, _link_display_meshes, _mesh_world_init_failed
     if _mesh_world_gui is not None or _mesh_world_init_failed:
         return _mesh_world_gui
     if not _mw_init_lock.acquire(blocking=False):
@@ -147,6 +150,16 @@ def _init_mesh_world_gui():
             _mesh_world_init_failed = True
             _mesh_world_gui = None
             _link_hull_verts = None
+        # Shaded-preview meshes: REAL link geometry, voxel-remeshed +
+        # decimated to ~350 faces/link (disk-cached next to the URDF, so
+        # only the first run after a model change pays the ~1 min build).
+        # Failure here just leaves the hull-silhouette fallback.
+        if _mesh_world_gui is not None:
+            try:
+                from ik.mesh_world import load_display_meshes as _ldm
+                _link_display_meshes = _ldm(urdf_path)
+            except Exception:
+                _link_display_meshes = None
         return _mesh_world_gui
     finally:
         _mw_init_lock.release()
@@ -289,7 +302,7 @@ class _Pill(QLabel):
                   if self._font_family else "")
         self.setStyleSheet(
             f"background: {bg}; color: {fg}; "
-            f"padding: 6px 14px; border-radius: 12px; "
+            f"padding: 6px 14px; border-radius: 0px; "
             f"font-weight: 600; font-size: 10pt; {family}"
         )
 
@@ -453,7 +466,7 @@ class _TempBadge(QLabel):
             bg = "#ff4040"
         self.setStyleSheet(
             f"background: {bg}; color: {fg}; "
-            f"padding: 3px 6px; border-radius: 8px; "
+            f"padding: 3px 6px; border-radius: 0px; "
             f"font-weight: 700; font-size: 9pt;"
         )
 
@@ -601,7 +614,7 @@ class _TrackingCell(QFrame):
             else:                    border = COL_OK
         self.setStyleSheet(
             f"_TrackingCell {{ background: {COL_PANEL_ALT}; "
-            f"border: 1px solid {border}; border-radius: 5px; }}")
+            f"border: 1px solid {border}; border-radius: 0px; }}")
 
 
 class _ErrorFill(QWidget):
@@ -686,7 +699,7 @@ class _JointPanel(QFrame):
         super().__init__()
         self.setStyleSheet(
             f"_JointPanel {{ background: {COL_PANEL}; "
-            f"border: 1px solid {COL_BORDER}; border-radius: 6px; }}")
+            f"border: 1px solid {COL_BORDER}; border-radius: 0px; }}")
         root = QVBoxLayout(self)
         root.setContentsMargins(6, 6, 6, 6)
         root.setSpacing(2)
@@ -701,7 +714,7 @@ class _JointPanel(QFrame):
         self.hot_banner.setAlignment(Qt.AlignCenter)
         self.hot_banner.setStyleSheet(
             f"background: {COL_CRIT}; color: white; font-weight: 800; "
-            f"font-size: 11pt; border-radius: 6px; padding: 6px;")
+            f"font-size: 11pt; border-radius: 0px; padding: 6px;")
         self.hot_banner.hide()
         root.addWidget(self.hot_banner)
 
@@ -738,7 +751,7 @@ class _JointPanel(QFrame):
             row = _JointRow(name)
             if i % 2 == 0:
                 row.setStyleSheet(f"_JointRow {{ background: {COL_PANEL_ALT}; "
-                                  f"border-radius: 4px; }}")
+                                  f"border-radius: 0px; }}")
             self._rows[name] = row
             root.addWidget(row)
 
@@ -767,7 +780,7 @@ class _JointPanel(QFrame):
             bg = COL_CRIT if hottest[0] >= TEMP_CRITICAL else COL_HOT
             self.hot_banner.setStyleSheet(
                 f"background: {bg}; color: white; font-weight: 800; "
-                f"font-size: 11pt; border-radius: 6px; padding: 6px;")
+                f"font-size: 11pt; border-radius: 0px; padding: 6px;")
             self.hot_banner.show()
         else:
             self.hot_banner.hide()
@@ -817,7 +830,7 @@ class _LiveTimeSeriesPanel(QFrame):
         self.setObjectName("liveTSPanel")
         self.setStyleSheet(
             f"QFrame#liveTSPanel {{ background: {COL_PANEL}; "
-            f"border: 1px solid {COL_BORDER}; border-radius: 6px; }}")
+            f"border: 1px solid {COL_BORDER}; border-radius: 0px; }}")
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setMinimumHeight(260)
 
@@ -1469,7 +1482,7 @@ class _RecordButton(QPushButton):
                 QPushButton {{
                     background: {bg}; color: white;
                     font-weight: 900; font-size: 16pt;
-                    border: 3px solid {border}; border-radius: 10px;
+                    border: 3px solid {border}; border-radius: 0px;
                     padding: 10px;
                     letter-spacing: 1px;
                 }}
@@ -1480,7 +1493,7 @@ class _RecordButton(QPushButton):
                 QPushButton {{
                     background: #3a3a3a; color: #ddd;
                     font-weight: 900; font-size: 15pt;
-                    border: 2px solid {COL_BORDER}; border-radius: 10px;
+                    border: 2px solid {COL_BORDER}; border-radius: 0px;
                     padding: 10px;
                     letter-spacing: 1px;
                 }}
@@ -1504,7 +1517,7 @@ class _TaskTagCombo(QComboBox):
         self.setStyleSheet(f"""
             QComboBox {{
                 background: {COL_PANEL_ALT}; color: {COL_TEXT};
-                border: 1px solid {COL_BORDER}; border-radius: 4px;
+                border: 1px solid {COL_BORDER}; border-radius: 0px;
                 padding: 4px 8px; font-size: 11pt;
             }}
             QComboBox:focus {{ border: 1px solid {COL_ACCENT}; }}
@@ -1656,7 +1669,7 @@ class _EpisodeList(QFrame):
         self._output_dir = output_dir
         self.setStyleSheet(
             f"_EpisodeList {{ background: {COL_PANEL}; "
-            f"border: 1px solid {COL_BORDER}; border-radius: 6px; }}")
+            f"border: 1px solid {COL_BORDER}; border-radius: 0px; }}")
         v = QVBoxLayout(self)
         v.setContentsMargins(6, 6, 6, 6)
         v.setSpacing(3)
@@ -1684,7 +1697,7 @@ class _EpisodeList(QFrame):
         self._list.setStyleSheet(f"""
             QListWidget {{
                 background: {COL_BG}; color: {COL_TEXT};
-                border: 1px solid {COL_BORDER}; border-radius: 4px;
+                border: 1px solid {COL_BORDER}; border-radius: 0px;
                 font-size: 9pt; padding: 2px;
             }}
             QListWidget::item {{ padding: 4px 6px; border-bottom: 1px solid #222; }}
@@ -1860,13 +1873,13 @@ class _SaveToast(QFrame):
         self.setStyleSheet(f"""
             #saveToast {{
                 background: #1e4a1e; border: 2px solid #4abf4a;
-                border-radius: 10px;
+                border-radius: 0px;
             }}
             QLabel {{ color: white; font-size: 11pt; background: transparent;
                 padding: 0 6px; }}
             QPushButton {{
                 background: #666; color: white; font-weight: 700;
-                border: 1px solid #888; border-radius: 4px;
+                border: 1px solid #888; border-radius: 0px;
                 padding: 4px 14px;
             }}
             QPushButton:hover {{ background: #888; }}
@@ -1985,7 +1998,7 @@ class _ActionToast(QFrame):
         self.setStyleSheet(f"""
             #actionToast {{
                 background: {bg}; border: 2px solid {border};
-                border-radius: 14px;
+                border-radius: 0px;
             }}
         """)
         self.lbl_icon.setText(icon)
@@ -2019,7 +2032,7 @@ class _EventLog(QFrame):
         super().__init__()
         self.setStyleSheet(
             f"_EventLog {{ background: {COL_PANEL}; "
-            f"border: 1px solid {COL_BORDER}; border-radius: 6px; }}")
+            f"border: 1px solid {COL_BORDER}; border-radius: 0px; }}")
         v = QVBoxLayout(self)
         v.setContentsMargins(6, 6, 6, 6)
         v.setSpacing(3)
@@ -2037,7 +2050,7 @@ class _EventLog(QFrame):
         self._list.setStyleSheet(f"""
             QListWidget {{
                 background: {COL_BG}; color: {COL_TEXT};
-                border: 1px solid {COL_BORDER}; border-radius: 4px;
+                border: 1px solid {COL_BORDER}; border-radius: 0px;
                 font-family: Consolas, monospace; font-size: 9pt;
                 padding: 2px;
             }}
@@ -2066,7 +2079,7 @@ class _HealthStrip(QFrame):
         super().__init__()
         self.setStyleSheet(
             f"_HealthStrip {{ background: {COL_PANEL}; "
-            f"border: 1px solid {COL_BORDER}; border-radius: 6px; }}")
+            f"border: 1px solid {COL_BORDER}; border-radius: 0px; }}")
         self._dismissed = False
         self._all_ok_time: Optional[float] = None
 
@@ -2162,6 +2175,9 @@ class _ShortcutLegend(QLabel):
         super().__init__()
         self.setAlignment(Qt.AlignCenter)
         self.setTextFormat(Qt.RichText)
+        # Word wrap so the legend never dictates the window's minimum width
+        # (unwrapped, this single line demands ~1870px).
+        self.setWordWrap(True)
         self.setStyleSheet(
             f"background: {COL_PANEL}; color: {COL_MUTED}; "
             f"border-top: 1px solid {COL_BORDER}; "
@@ -2174,13 +2190,12 @@ class _ShortcutLegend(QLabel):
     def _render(self, state: str, recording: bool = False) -> None:
         def kb(k, d):
             return (f"<span style='color:{COL_ACCENT}; font-weight:700; "
-                    f"background:#222; padding:1px 6px; border-radius:3px;'>{k}</span>"
+                    f"background:#222; padding:1px 6px;'>{k}</span>"
                     f" <span style='color:#aaa;'>{d}</span>")
         parts: list[str] = []
         parts.append(kb("E", "enable"))
         parts.append(kb("I", "idle"))
         parts.append(kb("H", "hold"))
-        parts.append(kb("F", "wheels"))
         parts.append(kb("X", "shutdown"))
         if state == "shutdown":
             parts.append(kb("Esc", "cancel"))
@@ -2188,6 +2203,7 @@ class _ShortcutLegend(QLabel):
         parts.append(kb("Z", "zero"))
         parts.append(kb("M", "mirror"))
         parts.append(kb("P", "save ready"))
+        parts.append(kb("K", "mech zero"))
         parts.append(kb("WASD", "drive"))
         parts.append(kb("F11", "fullscreen"))
         parts.append(kb("Q", "quit"))
@@ -2216,7 +2232,7 @@ def _make_button(label: str, tooltip: str, accent: str = "") -> QPushButton:
     b.setStyleSheet(f"""
         QPushButton {{
             background: {COL_PANEL_ALT}; color: {COL_TEXT};
-            border: 1px solid {accent_border}; border-radius: 6px;
+            border: 1px solid {accent_border}; border-radius: 0px;
             font-weight: 600; font-size: 10pt; padding: 6px 8px;
         }}
         QPushButton:hover {{ background: #333; border-color: {accent_hover}; }}
@@ -2257,7 +2273,7 @@ class _JoystickXYPad(QWidget):
         # Backdrop
         p.setPen(QPen(QColor(COL_BORDER), 1))
         p.setBrush(QColor("#161616"))
-        p.drawRoundedRect(0, 0, w - 1, h - 1, 8, 8)
+        p.drawRect(0, 0, w - 1, h - 1)
         # Crosshair + deadzone ring
         cx, cy = w / 2.0, h / 2.0
         p.setPen(QPen(QColor("#2a2a2a"), 1))
@@ -2290,7 +2306,7 @@ class _JoystickPanel(QFrame):
         super().__init__()
         self.setStyleSheet(
             f"_JoystickPanel {{ background: {COL_PANEL_ALT}; "
-            f"border: 1px solid {COL_BORDER}; border-radius: 6px; }}")
+            f"border: 1px solid {COL_BORDER}; border-radius: 0px; }}")
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(10, 8, 10, 10); outer.setSpacing(8)
@@ -2414,7 +2430,7 @@ class _ModeSwitch(QFrame):
             b.setStyleSheet(f"""
                 QPushButton {{
                     background: {COL_PANEL}; color: {COL_MUTED};
-                    border: 2px solid {COL_BORDER}; border-radius: 10px;
+                    border: 2px solid {COL_BORDER}; border-radius: 0px;
                     padding: 6px 24px; font-weight: 700; font-size: 11pt;
                     letter-spacing: 2px;
                 }}
@@ -2616,7 +2632,7 @@ class _PlaybackCameraPair(QFrame):
         super().__init__()
         self.setStyleSheet(
             f"_PlaybackCameraPair {{ background: #0a0a0a; "
-            f"border: 1px solid {COL_BORDER}; border-radius: 6px; }}")
+            f"border: 1px solid {COL_BORDER}; border-radius: 0px; }}")
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         row = QHBoxLayout(self)
         row.setContentsMargins(6, 6, 6, 6)
@@ -2628,7 +2644,7 @@ class _PlaybackCameraPair(QFrame):
         wrap = QFrame()
         wrap.setStyleSheet(
             f"QFrame {{ background: black; border: 1px solid {COL_BORDER}; "
-            f"border-radius: 4px; }}")
+            f"border-radius: 0px; }}")
         v = QVBoxLayout(wrap)
         v.setContentsMargins(0, 0, 0, 0); v.setSpacing(0)
         hdr = QLabel(f"  {label}")
@@ -2811,7 +2827,7 @@ class _CameraControls(QFrame):
         super().__init__()
         self.setStyleSheet(
             f"_CameraControls {{ background: #0a0a0a; "
-            f"border: 1px solid {COL_BORDER}; border-radius: 6px; }}")
+            f"border: 1px solid {COL_BORDER}; border-radius: 0px; }}")
         # Fixed horizontal width (toggles between EXPANDED / COLLAPSED on
         # click). Vertical: Expanding so the panel fills the row's full
         # height — important when collapsed, the strip should run floor
@@ -2862,7 +2878,7 @@ class _CameraControls(QFrame):
         self._reset_btn = QPushButton("Reload")
         self._reset_btn.setStyleSheet(
             "QPushButton { background: #222; color: #ccc; border: 1px solid #333; "
-            "padding: 2px 8px; border-radius: 3px; font-size: 9pt; }"
+            "padding: 2px 8px; border-radius: 0px; font-size: 9pt; }"
             "QPushButton:hover { background: #2a2a2a; }")
         self._reset_btn.clicked.connect(self._refresh_from_publisher)
         top_row.addWidget(self._reset_btn)
@@ -3107,7 +3123,7 @@ class _LiveCameraPair(QFrame):
         super().__init__()
         self.setStyleSheet(
             f"_LiveCameraPair {{ background: #0a0a0a; "
-            f"border: 1px solid {COL_BORDER}; border-radius: 6px; }}")
+            f"border: 1px solid {COL_BORDER}; border-radius: 0px; }}")
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         row = QHBoxLayout(self)
         row.setContentsMargins(6, 6, 6, 6)
@@ -3129,7 +3145,7 @@ class _LiveCameraPair(QFrame):
         wrap = QFrame()
         wrap.setStyleSheet(
             f"QFrame {{ background: black; border: 1px solid {COL_BORDER}; "
-            f"border-radius: 4px; }}")
+            f"border-radius: 0px; }}")
         v = QVBoxLayout(wrap)
         v.setContentsMargins(0, 0, 0, 0); v.setSpacing(0)
         hdr = QLabel(f"  {label}")
@@ -3200,7 +3216,7 @@ class _ReplayTransport(QFrame):
         super().__init__()
         self.setStyleSheet(
             f"QFrame {{ background: {COL_PANEL}; "
-            f"border: 1px solid {COL_BORDER}; border-radius: 8px; }}")
+            f"border: 1px solid {COL_BORDER}; border-radius: 0px; }}")
         v = QVBoxLayout(self)
         v.setContentsMargins(14, 14, 14, 14)
         v.setSpacing(10)
@@ -3233,7 +3249,7 @@ class _ReplayTransport(QFrame):
         self.lbl_live_warn.setWordWrap(True)
         self.lbl_live_warn.setStyleSheet(
             f"QLabel {{ color: #e0c070; background: rgba(184,135,16,0.10); "
-            f"border: 1px solid rgba(184,135,16,0.35); border-radius: 4px; "
+            f"border: 1px solid rgba(184,135,16,0.35); border-radius: 0px; "
             f"padding: 6px 8px; font-size: 9pt; }}")
         lv.addWidget(self.lbl_live_warn)
 
@@ -3274,7 +3290,7 @@ class _ReplayTransport(QFrame):
         self._live_progress_box = QFrame()
         self._live_progress_box.setStyleSheet(
             "QFrame { background: rgba(0,0,0,0.25); border: none; "
-            "border-radius: 4px; }")
+            "border-radius: 0px; }")
         pgv = QVBoxLayout(self._live_progress_box)
         pgv.setContentsMargins(8, 6, 8, 6); pgv.setSpacing(4)
 
@@ -3285,10 +3301,10 @@ class _ReplayTransport(QFrame):
         self.live_progress_bar.setFixedHeight(5)
         self.live_progress_bar.setStyleSheet(f"""
             QProgressBar {{
-                background: #1a1a1a; border: none; border-radius: 2px;
+                background: #1a1a1a; border: none; border-radius: 0px;
             }}
             QProgressBar::chunk {{
-                background: {COL_ACCENT}; border-radius: 2px;
+                background: {COL_ACCENT}; border-radius: 0px;
             }}
         """)
         pgv.addWidget(self.live_progress_bar)
@@ -3326,7 +3342,7 @@ class _ReplayTransport(QFrame):
             c.setStyleSheet(f"""
                 QCheckBox {{ color: {COL_TEXT}; font-size: 9pt; spacing: 6px; }}
                 QCheckBox::indicator {{
-                    width: 14px; height: 14px; border-radius: 3px;
+                    width: 14px; height: 14px; border-radius: 0px;
                     background: #1a1a1a; border: 1px solid {COL_BORDER};
                 }}
                 QCheckBox::indicator:hover {{ border-color: {COL_ACCENT}; }}
@@ -3396,14 +3412,14 @@ class _ReplayTransport(QFrame):
         self.slider.setTracking(True)
         self.slider.setStyleSheet(f"""
             QSlider::groove:horizontal {{
-                background: #1e1e1e; height: 8px; border-radius: 4px;
+                background: #1e1e1e; height: 8px; border-radius: 0px;
             }}
             QSlider::handle:horizontal {{
                 background: {COL_ACCENT}; width: 16px; margin: -5px 0;
-                border-radius: 8px;
+                border-radius: 0px;
             }}
             QSlider::sub-page:horizontal {{
-                background: {COL_ACCENT}; border-radius: 4px;
+                background: {COL_ACCENT}; border-radius: 0px;
             }}
         """)
         self.slider.sliderMoved.connect(self.seekTo.emit)
@@ -3437,7 +3453,7 @@ class _ReplayTransport(QFrame):
             b.setStyleSheet(f"""
                 QPushButton {{
                     background: {COL_PANEL_ALT}; color: {COL_TEXT};
-                    border: 1px solid {COL_BORDER}; border-radius: 4px;
+                    border: 1px solid {COL_BORDER}; border-radius: 0px;
                     font-weight: 700; font-size: 10pt;
                 }}
                 QPushButton:hover {{ background: #333; }}
@@ -3512,7 +3528,7 @@ class _ReplayTransport(QFrame):
             QPushButton {{
                 background: {bg}; color: white;
                 font-weight: 900; font-size: 14pt;
-                border: 2px solid {border}; border-radius: 8px;
+                border: 2px solid {border}; border-radius: 0px;
                 padding: 8px;
             }}
             QPushButton:hover {{ background: {border}; color: black; }}
@@ -3531,7 +3547,7 @@ class _ReplayTransport(QFrame):
         border = COL_CRIT if on else COL_BORDER
         self._live_box.setStyleSheet(
             f"QFrame#liveBox {{ background: {COL_PANEL_ALT}; "
-            f"border: 1px solid {border}; border-radius: 8px; }}")
+            f"border: 1px solid {border}; border-radius: 0px; }}")
 
     def _apply_live_title_style(self) -> None:
         on = getattr(self, "_live_on", False)
@@ -3550,7 +3566,7 @@ class _ReplayTransport(QFrame):
         btn.setStyleSheet(f"""
             QPushButton {{
                 background: {COL_PANEL_ALT}; color: {COL_TEXT};
-                border: 1px solid {accent_border}; border-radius: 6px;
+                border: 1px solid {accent_border}; border-radius: 0px;
                 font-weight: 600; font-size: 10pt; padding: 6px 8px;
             }}
             QPushButton:hover {{ background: #333; border-color: {accent_hover}; }}
@@ -3624,7 +3640,7 @@ class _ReplayTransport(QFrame):
             QPushButton {{
                 background: {bg}; color: {fg};
                 font-weight: 900; font-size: 11pt;
-                border: 2px solid {border}; border-radius: 6px;
+                border: 2px solid {border}; border-radius: 0px;
                 padding: 6px;
             }}
             QPushButton:hover {{ background: {border}; color: black; }}
@@ -3760,7 +3776,7 @@ class _ModelPreview(QFrame):
         self.setMinimumWidth(220)
         self.setStyleSheet(
             f"QFrame {{ background: #0a0d12; border: 1px solid {COL_BORDER}; "
-            f"border-radius: 6px; }}")
+            f"border-radius: 0px; }}")
         self._target_pts: Optional[list] = None   # commanded joint XYZ (robot frame)
         self._actual_pts: Optional[list] = None   # actual joint XYZ
         self._leader_pts: Optional[list] = None   # leader joint XYZ (only when shown)
@@ -3943,7 +3959,7 @@ class _ModelPreview(QFrame):
         if self._leader_pts: pts3d += self._leader_pts
         if extra_pts:        pts3d += list(extra_pts)
         if not pts3d:
-            return None, None, None, None, None, None
+            return None, None, None, None, None, None, None
         ca, sa = math.cos(self._azimuth), math.sin(self._azimuth)
         # Isometric-ish: rotate about Z by azimuth, tilt, orthographic.
         def iso(p):
@@ -3985,11 +4001,21 @@ class _ModelPreview(QFrame):
             sxs = w / 2 + (us - cu) * scale
             sys = h / 2 - (vs - cv) * scale
             return _np.stack([sxs, sys], axis=1)
+        def to_screen_xyz_batch(pts3):
+            """Like to_screen_xy_batch but returns (N, 3): sx, sy, depth.
+            Depth is the rotated-Y axis (increases into the screen) — used
+            by the shaded-model painter's-algorithm sort."""
+            depth = pts3[:, 0] * sa + pts3[:, 1] * ca
+            us = pts3[:, 0] * ca - pts3[:, 1] * sa
+            vs = pts3[:, 2] - depth * 0.5
+            sxs = w / 2 + (us - cu) * scale
+            sys = h / 2 - (vs - cv) * scale
+            return _np.stack([sxs, sys, depth], axis=1)
         t2d = [to_screen(p) for p in self._target_pts] if self._target_pts else None
         a2d = [to_screen(p) for p in self._actual_pts] if self._actual_pts else None
         l2d = [to_screen(p) for p in self._leader_pts] if self._leader_pts else None
         ee2d = t2d[-1] if t2d else (a2d[-1] if a2d else None)
-        return t2d, a2d, l2d, ee2d, to_screen, to_screen_xy_batch
+        return t2d, a2d, l2d, ee2d, to_screen, to_screen_xy_batch, to_screen_xyz_batch
 
     def _draw_wireframe(self, p, world_T_dict, color, to_screen_xy_batch,
                         alpha_fill: int = 90, alpha_stroke: int = 230) -> None:
@@ -4026,6 +4052,76 @@ class _ModelPreview(QFrame):
             ordered = pts_2d[hull.vertices]
             poly = QPolygonF([QPointF(float(pt[0]), float(pt[1])) for pt in ordered])
             p.drawPolygon(poly)
+
+    def _draw_shaded_model(self, p, world_T_dict, color,
+                           to_screen_xyz_batch) -> None:
+        """Draw the arm as flat-shaded real link meshes (painter's algorithm).
+
+        Uses the decimated display meshes (~350 faces/link); per pose:
+        vectorized transform + projection, backface cull, depth sort, then
+        one filled triangle per visible face (~1.5k draws).  Falls back to
+        the hull-silhouette wireframe when the meshes aren't loaded yet.
+        """
+        import math as _math
+        if world_T_dict is None:
+            return
+        ca, sa = _math.cos(self._azimuth), _math.sin(self._azimuth)
+        # Orthographic view ray of the oblique projection (into the screen):
+        # keeps u and v constant while depth increases — see _project_all.
+        view = np.array([sa, ca, 0.5])
+        view /= np.linalg.norm(view)
+
+        tris, shades, depths = [], [], []
+        for link, (v, f) in _link_display_meshes.items():
+            T = world_T_dict.get(link)
+            if T is None:
+                continue
+            R = T[:3, :3]; t = T[:3, 3]
+            vw = v @ R.T + t                        # (V, 3) world
+            s = to_screen_xyz_batch(vw)             # (V, 3) screen + depth
+            tri3 = vw[f]                            # (F, 3, 3) world tris
+            n = np.cross(tri3[:, 1] - tri3[:, 0], tri3[:, 2] - tri3[:, 0])
+            n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+            facing = n @ view
+            keep = facing < 0.0                     # outward normal toward viewer
+            if not keep.any():
+                continue
+            stri = s[f[keep]]                       # (K, 3, 3) screen tris
+            # Headlight + top-light mix keeps the model readable at any
+            # drag azimuth.
+            shade = (0.30
+                     + 0.50 * np.clip(-facing[keep], 0.0, 1.0)
+                     + 0.20 * np.clip(n[keep, 2], 0.0, 1.0))
+            tris.append(stri)
+            shades.append(shade)
+            depths.append(stri[:, :, 2].mean(axis=1))
+        if not tris:
+            return
+        tris = np.concatenate(tris)
+        shades = np.clip(np.concatenate(shades), 0.0, 1.0)
+        depths = np.concatenate(depths)
+        order = np.argsort(-depths)                 # far first
+
+        base = QColor(color)
+        br, bgc, bb = base.red(), base.green(), base.blue()
+        # Quantize shade into 24 brushes so consecutive faces reuse them.
+        buckets = np.minimum((shades * 24).astype(np.int32), 23)
+        palette = [QColor(int(br * (0.25 + 0.75 * i / 23)),
+                          int(bgc * (0.25 + 0.75 * i / 23)),
+                          int(bb * (0.25 + 0.75 * i / 23)))
+                   for i in range(24)]
+        pts2 = tris[:, :, :2].tolist()              # one C-level conversion
+        p.setPen(Qt.NoPen)
+        last_b = -1
+        for i in order:
+            b = buckets[i]
+            if b != last_b:
+                p.setBrush(palette[b])
+                last_b = b
+            t3 = pts2[i]
+            p.drawConvexPolygon(QPolygonF([QPointF(t3[0][0], t3[0][1]),
+                                           QPointF(t3[1][0], t3[1][1]),
+                                           QPointF(t3[2][0], t3[2][1])]))
 
     def paintEvent(self, _ev) -> None:
         p = QPainter(self)
@@ -4085,22 +4181,27 @@ class _ModelPreview(QFrame):
             frustum_corners_world = corners_local
             cam_anchors = [t.tolist()] + [c.tolist() for c in corners_local]
 
-        t2d, a2d, l2d, ee2d, to_screen, to_screen_xy = self._project_all(
-            w, h, extra_pts=cam_anchors)
+        (t2d, a2d, l2d, ee2d, to_screen, to_screen_xy,
+         to_screen_xyz) = self._project_all(w, h, extra_pts=cam_anchors)
         if t2d is None and a2d is None and l2d is None:
             p.setPen(QColor(COL_MUTED))
             p.drawText(QRect(0, 0, w, h), Qt.AlignCenter, "waiting for telemetry…")
             return
 
-        # Solid silhouette layer — each link rendered as a filled 2D
-        # convex hull of its projected mesh vertices.  Reads as a real
-        # model shape, not a wireframe.  Draw LEADER first so the live
-        # arm overlays on top of it.  Mesh world loads on a daemon thread
-        # at module import; while it's still loading these calls are
-        # no-ops and only the stick-figure backbone shows.
+        # Model layer.  The live arm draws as flat-shaded REAL link meshes
+        # (decimated at load); the leader ghost stays a translucent hull
+        # silhouette so it reads as a ghost, not a second robot.  While the
+        # display meshes are still building (first run) the live arm falls
+        # back to the hull silhouette too.  Mesh world loads on a daemon
+        # thread at import; before it's ready these calls are no-ops and
+        # only the stick-figure backbone shows.
         if self._show_leader:
             self._draw_wireframe(p, self._leader_world_T, "#e3b341", to_screen_xy)
-        self._draw_wireframe(p, self._actual_world_T, "#22cc44", to_screen_xy)
+        if _link_display_meshes is not None:
+            self._draw_shaded_model(p, self._actual_world_T, "#2fd657",
+                                    to_screen_xyz)
+        else:
+            self._draw_wireframe(p, self._actual_world_T, "#22cc44", to_screen_xy)
 
         # Thin stick-figure backbones over the wireframe — gives a clear
         # joint chain readout when the wireframes overlap.
@@ -4274,7 +4375,10 @@ class _MainWindow(QMainWindow):
         self._current_mode   = MODE_COLLECT
 
         self.setWindowTitle("AIZEE Demo Collector")
-        self.resize(1760, 1000)
+        # Fit the available screen — a hardcoded 1760x1000 used to clip the
+        # status pills and the whole right column on smaller displays.
+        _avail = QApplication.primaryScreen().availableGeometry()
+        self.resize(min(1760, _avail.width() - 24), min(1000, _avail.height() - 48))
         self.setStyleSheet(f"""
             QMainWindow, QWidget {{ background: {COL_BG}; color: {COL_TEXT}; }}
             QLabel {{ color: {COL_TEXT}; }}
@@ -4295,15 +4399,21 @@ class _MainWindow(QMainWindow):
         self._mode_switch = _ModeSwitch()
         self._mode_switch.modeChanged.connect(self._on_mode_changed)
 
+        # Row 1: mode switch + fullscreen. Row 2: status pills. The pills
+        # used to share row 1, which pushed the window's minimum width to
+        # ~1830px and clipped the right column on smaller displays. Row 2
+        # occupies the slot freed by the removed "Startup checks" strip
+        # (which duplicated these same pills).
         top_row = QHBoxLayout()
         top_row.setSpacing(10)
         top_row.addWidget(self._mode_switch)
         top_row.addStretch(1)
-        self._build_status_bar(top_row)
         root.addLayout(top_row)
 
-        self._health = _HealthStrip()
-        root.addWidget(self._health)
+        status_row = QHBoxLayout()
+        self._build_status_bar(status_row, top_row)
+        root.addLayout(status_row)
+        self._health = None
 
         main_row = QHBoxLayout()
         main_row.setSpacing(10)
@@ -4329,16 +4439,27 @@ class _MainWindow(QMainWindow):
         self._install_shortcuts()
         self._apply_mode_visibility()
 
+    def showEvent(self, ev) -> None:
+        super().showEvent(ev)
+        # Initial splitter proportions must be applied after the first real
+        # layout pass — setSizes() during __init__ is overridden by it.
+        if not getattr(self, "_split_init_done", False):
+            self._split_init_done = True
+            def _apply_split_sizes() -> None:
+                h = self._center_stack.height()
+                if h > 200:
+                    cam_h = max(300, int(h * 0.45))
+                    self._collect_split.setSizes([cam_h, h - cam_h])
+            QTimer.singleShot(0, _apply_split_sizes)
+
     # ------------------------------------------------------------------
     # Status bar
     # ------------------------------------------------------------------
 
-    def _build_status_bar(self, row: QHBoxLayout) -> None:
-        """Append status pills + fullscreen button to *row* (called from __init__).
-
-        The pills sit on the top-right of the window, in line with the
-        fullscreen button and the mode switch (which is on the top-left).
-        """
+    def _build_status_bar(self, row: QHBoxLayout,
+                          top_row: QHBoxLayout) -> None:
+        """Build the status-pill row; the fullscreen button goes to *top_row*
+        (next to the mode switch) so the pill row stays slim."""
         row.setSpacing(8)
 
         self.lbl_state   = _Pill("READY",     "#444",    "#bbb", min_w=110)
@@ -4349,7 +4470,7 @@ class _MainWindow(QMainWindow):
         # nudge adjacent pills as values fluctuate.
         self.lbl_cams    = _Pill("cams --",   "#333",    COL_MUTED,
                                  font_family="Consolas")
-        self.lbl_cams.setFixedWidth(200)
+        self.lbl_cams.setMinimumWidth(120)  # was a fixed 200 px — let it shrink
         self.lbl_leader  = _Pill("leader --", "#333",    COL_MUTED)
         # Foot pedal (USB-keyboard, emits A/B/C). Persists last action so the
         # operator can glance at the pill to confirm what the pedal just did.
@@ -4359,6 +4480,7 @@ class _MainWindow(QMainWindow):
                   self.lbl_estop, self.lbl_cams, self.lbl_leader,
                   self.lbl_pedal):
             row.addWidget(w)
+        row.addStretch(1)
 
         self.btn_fullscreen = QPushButton("⛶ Fullscreen")
         self.btn_fullscreen.setCursor(Qt.PointingHandCursor)
@@ -4366,13 +4488,13 @@ class _MainWindow(QMainWindow):
         self.btn_fullscreen.setStyleSheet(f"""
             QPushButton {{
                 background: {COL_PANEL_ALT}; color: {COL_TEXT};
-                border: 1px solid {COL_BORDER}; border-radius: 12px;
+                border: 1px solid {COL_BORDER}; border-radius: 0px;
                 padding: 6px 14px; font-weight: 600; font-size: 10pt;
             }}
             QPushButton:hover {{ background: #333; border-color: {COL_ACCENT}; }}
         """)
         self.btn_fullscreen.clicked.connect(self._toggle_fullscreen)
-        row.addWidget(self.btn_fullscreen)
+        top_row.addWidget(self.btn_fullscreen)
 
     # ------------------------------------------------------------------
     # Center pages (Collect / Replay)
@@ -4425,16 +4547,18 @@ class _MainWindow(QMainWindow):
 
         # Bottom area: time-series chart in place of the joint table.
         # Rolls while idle, accumulates while recording so each take's full
-        # trajectory is captured.  _joints_collect is kept as an orphan
-        # widget (never added to any layout) so apply_snapshot's existing
-        # call still has a target — it's effectively a no-op sink.
+        # trajectory is captured.
         self._collect_chart  = _LiveTimeSeriesPanel(
             title="TARGET vs ACTUAL — last 10s")
-        self._joints_collect = _JointPanel()
         split.addWidget(self._collect_chart)
-        split.setStretchFactor(0, 3)
-        split.setStretchFactor(1, 4)
-        split.setSizes([520, 380])
+        # Camera tiles are 4:3 aspect-fit; a ~45% cam row keeps the video
+        # nearly full-bleed instead of floating in letterbox bars, and the
+        # chart gets the reclaimed height. Actual sizes are applied in
+        # showEvent — setSizes() before the first layout pass is discarded
+        # by Qt (which is why the old chart pane collapsed to its header).
+        split.setStretchFactor(0, 2)
+        split.setStretchFactor(1, 3)
+        self._collect_split = split
         return split
 
     def _build_replay_center(self) -> QWidget:
@@ -4447,7 +4571,7 @@ class _MainWindow(QMainWindow):
         self._replay_live_cam_host = QFrame()
         self._replay_live_cam_host.setStyleSheet(
             f"QFrame {{ background: #0a0a0a; border: 1px solid {COL_BORDER}; "
-            f"border-radius: 6px; }}")
+            f"border-radius: 0px; }}")
         _lh = QVBoxLayout(self._replay_live_cam_host)
         _lh.setContentsMargins(0, 0, 0, 0); _lh.setSpacing(0)
         self._replay_cam_stack = QStackedWidget()
@@ -4460,9 +4584,6 @@ class _MainWindow(QMainWindow):
         # is driving the physical arm.
         # Page 0: static episode timeline (full recording with playback
         # cursor).  Page 1: live time-series while live mode drives the arm.
-        # _joints_replay is kept as an orphan so existing apply() calls in
-        # _render_replay_frame remain valid no-ops.
-        self._joints_replay  = _JointPanel()
         self._episode_chart  = _LiveTimeSeriesPanel(
             title="EPISODE TIMELINE — load an episode to view")
         self._live_chart     = _LiveTimeSeriesPanel()
@@ -4529,7 +4650,7 @@ class _MainWindow(QMainWindow):
         col = QFrame()
         col.setStyleSheet(
             f"QFrame {{ background: {COL_PANEL}; "
-            f"border: 1px solid {COL_BORDER}; border-radius: 8px; }}")
+            f"border: 1px solid {COL_BORDER}; border-radius: 0px; }}")
         v = QVBoxLayout(col)
         v.setContentsMargins(14, 14, 14, 14)
         v.setSpacing(10)
@@ -4646,7 +4767,7 @@ class _MainWindow(QMainWindow):
             f"QScrollArea {{ background: {COL_BG}; border: none; }}"
             f"QScrollBar:vertical {{ background: {COL_BG}; width: 10px; margin: 0; }}"
             f"QScrollBar::handle:vertical {{ background: {COL_BORDER}; "
-            f"border-radius: 5px; min-height: 30px; }}"
+            f"border-radius: 0px; min-height: 30px; }}"
             f"QScrollBar::handle:vertical:hover {{ background: #555; }}"
             f"QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}"
         )
@@ -4684,7 +4805,7 @@ class _MainWindow(QMainWindow):
             f"QScrollArea {{ background: {COL_BG}; border: none; }}"
             f"QScrollBar:vertical {{ background: {COL_BG}; width: 10px; margin: 0; }}"
             f"QScrollBar::handle:vertical {{ background: {COL_BORDER}; "
-            f"border-radius: 5px; min-height: 30px; }}"
+            f"border-radius: 0px; min-height: 30px; }}"
             f"QScrollBar::handle:vertical:hover {{ background: #555; }}"
             f"QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}"
         )
@@ -4859,21 +4980,6 @@ class _MainWindow(QMainWindow):
 
         gripper = ep["gripper"][idx] if ep["gripper"] is not None else None
         self._replay_cams.set_frames(gripper)
-
-        qpos    = ep["qpos"][idx]
-        actions = ep["actions"][idx] if ep["actions"] is not None else None
-        # Replay target: swivel passes through from qpos; arm joints use
-        # the recorded action.  Falls back to qpos if layout differs.
-        if actions is not None and len(qpos) == 7 and len(actions) == 6:
-            target = np.concatenate([[qpos[0]], actions])
-        elif actions is not None and len(qpos) == len(actions):
-            target = actions
-        else:
-            target = qpos
-        self._joints_replay.apply(
-            target=target, actual=qpos,
-            torque=None, temp=None, leader=None,
-        )
         self._episode_chart.set_cursor_frame(idx)
 
     # ------------------------------------------------------------------
@@ -4881,15 +4987,16 @@ class _MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _install_shortcuts(self) -> None:
-        # USB foot-pedal keys (A/B/C) are dispatched as PEDAL_* so the main
-        # loop can distinguish them from WASD. A previously mapped to the
-        # WASD turn-left fallback; pygame reads WASD straight from its hidden
-        # window, so the GUI-shortcut path was redundant in practice.
+        # The USB foot pedal is a 3-button keyboard emitting A/B/C; the GUI
+        # captures those and dispatches PEDAL_* so main() can tell them from
+        # WASD (pygame reads real WASD drive keys from its own window, so the
+        # turn-left "A" is not lost). The old "F" (wheels toggle) binding is
+        # gone — wheels enable automatically with the arm now.
         bindings = [
             ("F2",  "R"),  ("R", "R"),
             ("Q",   "Q"),  ("Esc", "CANCEL_SHUTDOWN"),
             ("E",   "E"),  ("I",   "I"),  ("H", "H"),
-            ("F",   "F"),  ("X",   "X"),
+            ("X",   "X"),
             ("Z",   "Z"),  ("M",   "M"),  ("P", "P"),
             ("W",   "W"),  ("S", "S"),    ("D", "D"),
             ("A",   "PEDAL_A"),
@@ -5138,17 +5245,6 @@ class _MainWindow(QMainWindow):
         if hasattr(self, "_joy_panel"):
             self._joy_panel.apply(s.get("joy"))
 
-        # Collect-mode joint panel.  (Replay mode's panel is normally driven
-        # by _render_replay_frame from _PlaybackEngine ticks; while live
-        # replay is on, the snapshot below takes over.)
-        self._joints_collect.apply(
-            target=s.get("target"),
-            actual=s.get("actual"),
-            torque=s.get("torque"),
-            temp=s.get("temp"),
-            leader=s.get("leader_mapped"),
-        )
-
         # Embedded kinematic model preview: commanded (target) vs actual,
         # plus a yellow wireframe for the leader pose when a physical leader
         # is plugged in AND VR teleop is off (in VR mode the operator is the
@@ -5240,7 +5336,6 @@ class _MainWindow(QMainWindow):
                 self._event_log.add_event("💾", f"saved {p.name}", COL_OK)
                 self._episode_list.add_or_update(p)
 
-        self._health.apply(s)
         self._legend.set_state(state, rec)
 
     @staticmethod

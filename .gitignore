@@ -102,6 +102,8 @@ scripts/.jetson_password
 
 # URDF meshes (large STL) are tracked via Git LFS — see .gitattributes.
 # .part files are tiny OnShape provenance metadata, tracked as normal git.
+# Decimated display-mesh cache generated on demand by ik.mesh_world (per face budget).
+.display_meshes_*.npz
 
 # PlatformIO
 .pio/
