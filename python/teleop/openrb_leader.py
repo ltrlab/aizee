@@ -148,6 +148,43 @@ def ticks_to_rad(ticks: int) -> float:
     return (ticks - _CENTER) * (2.0 * math.pi / _TICKS)
 
 
+def _frac_from_calib(jc: dict, u: int) -> float:
+    """Raw fraction of value `u` within a joint's calibrated range (may be <0 or >1,
+    meaning out of range). Two mappings:
+
+    * CENTER-ANCHORED (preferred) — when the calib has `ref_raw`/`lo_off`/`hi_off` from
+      a SWEEP calibration: take the physical position's SIGNED offset from the range
+      centre, wrapped into [-2048, 2048], and interpolate across [lo_off, hi_off]. This
+      is unambiguous across the 0/4096 encoder seam — the sweep measured the true arc, so
+      there is NO wrap GUESS. Fixes joints whose range is a wide (>180°) descending sweep
+      OR genuinely wraps: the old heuristic mis-guessed both and pinned them dead.
+    * LEGACY two-endpoint — `min_raw`/`max_raw` only (AIZEE SO-101 calibs): the historical
+      ascending / descending / heuristic-wrap interpretation.
+    """
+    if "ref_raw" in jc:
+        raw = u % _TICKS
+        off = raw - int(jc["ref_raw"])
+        if off > _TICKS // 2:
+            off -= _TICKS
+        elif off < -_TICKS // 2:
+            off += _TICKS
+        lo = float(jc.get("lo_off", -(_TICKS // 2)))
+        hi = float(jc.get("hi_off", _TICKS // 2))
+        span = hi - lo
+        return (off - lo) / span if span else 0.5
+    mn = jc.get("min_raw", 0)
+    mx = jc.get("max_raw", _TICKS - 1)
+    if mn <= mx:
+        span = mx - mn
+        return (u - mn) / span if span else 0.5
+    if (mn - mx) > _TICKS // 2:
+        mx_u = mn + (_TICKS - mn + mx)
+        span = mx_u - mn
+        return (u - mn) / span if span else 0.5
+    span = mn - mx
+    return (mn - u) / span if span else 0.5
+
+
 def _crc8(data: bytes) -> int:
     """Dallas/Maxim CRC-8 (polynomial 0x31).  Matches the firmware implementation."""
     crc = 0
@@ -378,20 +415,9 @@ class OpenRBLeader:
             u = unwrapped[joint]
             if self._calib:
                 jc    = self._calib["joints"].get(joint, {})
-                mn    = jc.get("min_raw",  0)
-                mx    = jc.get("max_raw",  _TICKS - 1)
-                r_min = jc.get("rad_min",  AIZEE_DEFAULTS[i][0])
-                r_max = jc.get("rad_max",  AIZEE_DEFAULTS[i][1])
-                if mn <= mx:
-                    span = mx - mn
-                    raw_frac = (u - mn) / span if span else 0.5
-                elif (mn - mx) > _TICKS // 2:
-                    mx_u = mn + (_TICKS - mn + mx)
-                    span = mx_u - mn
-                    raw_frac = (u - mn) / span if span else 0.5
-                else:
-                    span = mn - mx
-                    raw_frac = (mn - u) / span if span else 0.5
+                r_min = jc.get("rad_min", AIZEE_DEFAULTS[i][0])
+                r_max = jc.get("rad_max", AIZEE_DEFAULTS[i][1])
+                raw_frac = _frac_from_calib(jc, u)
                 self._clamped[i] = (raw_frac < 0.0 or raw_frac > 1.0)
                 frac = max(0.0, min(1.0, raw_frac))
                 out[i] = r_min + frac * (r_max - r_min)

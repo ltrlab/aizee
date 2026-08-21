@@ -1,0 +1,84 @@
+{
+  "calibrated_at": "2026-08-20T03:56:06.673175+00:00",
+  "baud": 1000000,
+  "mapping": "center-anchored-sweep",
+  "joints": {
+    "shoulder_pan": {
+      "id": 1,
+      "aizee": "swivel",
+      "ref_raw": 2851,
+      "lo_off": -777.0,
+      "hi_off": 777.0,
+      "rad_min": 0.0,
+      "rad_max": 1.0,
+      "zero_offset": 1.5012,
+      "direction": -1
+    },
+    "shoulder_lift": {
+      "id": 2,
+      "aizee": "gantry_base",
+      "ref_raw": 1962,
+      "lo_off": -1086.0,
+      "hi_off": 1086.0,
+      "rad_min": 0.0,
+      "rad_max": 1.0,
+      "zero_offset": 1.724,
+      "direction": -1
+    },
+    "elbow_flex": {
+      "id": 3,
+      "aizee": "gantry_mid",
+      "ref_raw": 1969,
+      "lo_off": -1720.0,
+      "hi_off": 1720.0,
+      "rad_min": 0.0,
+      "rad_max": 1.0,
+      "zero_offset": 2.7671,
+      "direction": -1
+    },
+    "wrist_flex": {
+      "id": 4,
+      "aizee": "gantry_end",
+      "ref_raw": 3456,
+      "lo_off": -1699.5,
+      "hi_off": 1699.5,
+      "rad_min": 0.0,
+      "rad_max": 1.0,
+      "zero_offset": 2.657,
+      "direction": -1
+    },
+    "wrist_yaw": {
+      "id": 5,
+      "aizee": "wrist_pitch",
+      "ref_raw": 888,
+      "lo_off": -1116.5,
+      "hi_off": 1116.5,
+      "rad_min": 0.0,
+      "rad_max": 1.0,
+      "zero_offset": 1.8809,
+      "direction": -1
+    },
+    "wrist_roll": {
+      "id": 6,
+      "aizee": "wrist_roll",
+      "ref_raw": 2938,
+      "lo_off": -622.5,
+      "hi_off": 622.5,
+      "rad_min": 0.0,
+      "rad_max": 1.0,
+      "zero_offset": 0.8159,
+      "direction": -1
+    },
+    "gripper": {
+      "id": 7,
+      "aizee": "gripper",
+      "ref_raw": 2957,
+      "lo_off": -261.0,
+      "hi_off": 261.0,
+      "rad_min": 0.0,
+      "rad_max": 1.0,
+      "zero_offset": 0.0144,
+      "direction": 1
+    }
+  }
+}
