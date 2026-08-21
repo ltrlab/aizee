@@ -242,11 +242,13 @@ except Exception:  # pragma: no cover - depends on host env
 MOTOR_FULL_V = 25.2
 MOTOR_MIN_V = 19.8
 
-# Preferred motor display order (arm-only topology since the wheels were
-# retired 2026-05-30); any motor not listed is appended alphabetically.
+# Preferred motor display order — Minerva bimanual (7-DoF per arm, ids 4..10).
+# Each arm is its own motor_control instance; names disambiguate left/right.
 MOTOR_ORDER = [
-    "swivel", "gantry_base", "gantry_mid", "gantry_end",
-    "wrist_pitch", "wrist_roll", "gripper", "left_wheel", "right_wheel",
+    "left_arm_j1", "left_arm_j2", "left_arm_j3", "left_arm_j4",
+    "left_arm_j5", "left_arm_j6", "left_gripper",
+    "right_arm_j1", "right_arm_j2", "right_arm_j3", "right_arm_j4",
+    "right_arm_j5", "right_arm_j6", "right_gripper",
 ]
 
 # A stream older than this (seconds) is treated as stale / offline.
@@ -272,13 +274,14 @@ class TelemetryPoller:
     — it never sends a command, so it's safe to run alongside live teleop.
     """
 
-    def __init__(self, motor_ep, ups_ep, cam_eps):
-        self.motor_ep = motor_ep
+    def __init__(self, motor_eps, ups_ep, cam_eps):
+        # motor_eps: list of (arm_label, endpoint) — one motor_control per arm.
+        self.motor_eps = motor_eps
         self.ups_ep = ups_ep
         self.cam_eps = cam_eps  # list of (name, endpoint)
         self._lock = threading.Lock()
-        self._motor = None
-        self._motor_t = 0.0
+        self._motor = {label: None for label, _ in motor_eps}
+        self._motor_t = {label: 0.0 for label, _ in motor_eps}
         self._ups = None
         self._ups_t = 0.0
         self._cams = {
@@ -302,12 +305,12 @@ class TelemetryPoller:
             s.connect(ep)
             return s
 
-        motor = _sub(self.motor_ep, 10)
+        motor_socks = {_sub(ep, 10): label for label, ep in self.motor_eps}
         ups = _sub(self.ups_ep, 10)
         cam_socks = {_sub(ep, 4): name for name, ep in self.cam_eps}
 
         poller = zmq.Poller()
-        for s in [motor, ups, *cam_socks]:
+        for s in [*motor_socks, ups, *cam_socks]:
             poller.register(s, zmq.POLLIN)
 
         while True:
@@ -317,11 +320,13 @@ class TelemetryPoller:
                 time.sleep(0.5)
                 continue
             now = time.monotonic()
-            if socks.get(motor) == zmq.POLLIN:
-                latest = self._drain_msg(motor)
-                if latest is not None:
-                    with self._lock:
-                        self._motor, self._motor_t = latest, time.time()
+            for s, label in motor_socks.items():
+                if socks.get(s) == zmq.POLLIN:
+                    latest = self._drain_msg(s)
+                    if latest is not None:
+                        with self._lock:
+                            self._motor[label] = latest
+                            self._motor_t[label] = time.time()
             if socks.get(ups) == zmq.POLLIN:
                 latest = self._drain_msg(ups)
                 if latest is not None:
@@ -375,7 +380,8 @@ class TelemetryPoller:
 
         now_wall, now_mono = time.time(), time.monotonic()
         with self._lock:
-            motor, motor_t = self._motor, self._motor_t
+            motor = dict(self._motor)
+            motor_t = dict(self._motor_t)
             ups, ups_t = self._ups, self._ups_t
             cams_raw = {
                 n: {"header": c["header"], "t": c["t"],
@@ -383,31 +389,48 @@ class TelemetryPoller:
                 for n, c in self._cams.items()
             }
 
-        # --- motors ---
-        m_age = (now_wall - motor_t) if motor_t else None
-        m_stale = m_age is None or m_age > MOTOR_STALE_S
-        motors_out, estop, batt_v = [], None, None
-        if motor and not m_stale:
-            estop = bool(motor.get("emergency_stop", False))
-            batt_v = _rnd(motor.get("battery_voltage"), 2)
-            mdict = motor.get("motors", {}) or {}
+        # --- motors (one motor_control instance per arm; merge + per-arm status) ---
+        def _key(name):
+            idx = MOTOR_ORDER.index(name) if name in MOTOR_ORDER else len(MOTOR_ORDER)
+            return (idx, name)
 
-            def _key(name):
-                idx = MOTOR_ORDER.index(name) if name in MOTOR_ORDER else len(MOTOR_ORDER)
-                return (idx, name)
-
-            for name in sorted(mdict.keys(), key=_key):
-                md = mdict[name] or {}
-                motors_out.append({
-                    "name": name,
-                    "state": md.get("state", ""),
-                    "mode": md.get("mode", ""),
-                    "position": _rnd(md.get("position"), 3),
-                    "velocity": _rnd(md.get("velocity"), 3),
-                    "torque": _rnd(md.get("torque"), 3),
-                    "temperature": _rnd(md.get("temperature"), 1),
-                    "error": md.get("error"),
-                })
+        motors_out, arms_out = [], []
+        estops, batt_vs, all_stale = [], [], True
+        for label, _ep in self.motor_eps:
+            msg, t = motor.get(label), motor_t.get(label, 0.0)
+            age = (now_wall - t) if t else None
+            stale = age is None or age > MOTOR_STALE_S
+            running = present = 0
+            if msg and not stale:
+                all_stale = False
+                estops.append(bool(msg.get("emergency_stop", False)))
+                bv = _rnd(msg.get("battery_voltage"), 2)
+                if bv is not None:
+                    batt_vs.append(bv)
+                mdict = msg.get("motors", {}) or {}
+                for name in sorted(mdict.keys(), key=_key):
+                    md = mdict[name] or {}
+                    present += 1
+                    if md.get("state") == "running":
+                        running += 1
+                    motors_out.append({
+                        "arm": label,
+                        "name": name,
+                        "state": md.get("state", ""),
+                        "mode": md.get("mode", ""),
+                        "position": _rnd(md.get("position"), 3),
+                        "velocity": _rnd(md.get("velocity"), 3),
+                        "torque": _rnd(md.get("torque"), 3),
+                        "temperature": _rnd(md.get("temperature"), 1),
+                        "error": md.get("error"),
+                    })
+            arms_out.append({"arm": label, "stale": stale, "age_s": _rnd(age, 1),
+                             "present": present, "running": running})
+        estop = None if not estops else any(estops)
+        batt_v = batt_vs[0] if batt_vs else None
+        m_stale = all_stale
+        _ages = [a["age_s"] for a in arms_out if a["age_s"] is not None]
+        m_age = min(_ages) if _ages else None
         batt_pct = None
         if batt_v is not None:
             batt_pct = int(max(0, min(100,
@@ -459,6 +482,7 @@ class TelemetryPoller:
                 "age_s": _rnd(m_age, 1),
                 "battery_voltage": batt_v,
                 "battery_percent": batt_pct,
+                "arms": arms_out,
                 "list": motors_out,
             },
             "ups": ups_out,
@@ -523,7 +547,7 @@ PAGE = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AIZEE Heartbeat</title>
+<title>Minerva Heartbeat</title>
 <style>
   :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --txt:#c9d1d9;
           --muted:#8b949e; --green:#3fb950; --red:#f85149; --yellow:#d29922;
@@ -606,7 +630,7 @@ PAGE = r"""<!DOCTYPE html>
 </head>
 <body>
 <header>
-  <h1>AIZEE <span style="color:var(--green)">&#9829;</span> Heartbeat</h1>
+  <h1>Minerva <span style="color:var(--green)">&#9829;</span> Heartbeat</h1>
   <span class="host" id="host">&hellip;</span>
   <span class="pill" id="uptime"></span>
   <span class="pill" id="clock"></span>
@@ -672,7 +696,7 @@ function metricCard(k,v,sub,pct,color){
 // ---- robot telemetry rendering ----
 const fmtNum = v => (v==null||v==="")?"&mdash;":(typeof v==="number"?v.toFixed(3):v);
 const kv = (k,v) => '<div class="kv"><span class="vk">'+k+'</span><span class="vv">'+v+'</span></div>';
-const camTitle = n => n.charAt(0).toUpperCase()+n.slice(1)+" Cam";
+const camTitle = n => n.replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase())+" Cam";
 function tile(k,v,sub,cls){
   return '<div class="tile '+(cls||"")+'"><span class="accent"></span>'+
     '<div class="tk">'+k+'</div><div class="tv">'+v+'</div>'+
@@ -715,11 +739,13 @@ function renderTelemetry(t){
   if(t.estop===true) tiles.push(tile("E-Stop","ENGAGED","emergency stop active","bad"));
   else if(t.estop===false) tiles.push(tile("E-Stop","CLEAR","motors armed","ok"));
   else tiles.push(tile("E-Stop","&mdash;","motor telemetry stale","warn"));
+  const arms=ms.arms||[];
+  const armSub=arms.map(a=>a.arm.charAt(0).toUpperCase()+" "+(a.stale?"stale":a.running+"/"+a.present)).join(" · ");
   tiles.push(tile("Motors", ms.stale?"stale":(running+"/"+list.length),
-      ms.stale?"no telemetry":(faulted?faulted+" faulted":(list.length?"all running":"none")),
+      armSub||(faulted?faulted+" faulted":"none"),
       ms.stale?"warn":(faulted?"bad":(running?"ok":""))));
   tiles.push(tile("Motor Battery", mp==null?"&mdash;":mp+"%",
-      ms.battery_voltage==null?"6S LiPo pack":(ms.battery_voltage+" V"),
+      ms.battery_voltage==null?"motor bus":(ms.battery_voltage+" V"),
       ms.stale?"warn":battClass(mp)));
   tiles.push(tile("UPS Battery", (u.stale||upct==null)?"&mdash;":Math.round(upct)+"%",
       u.voltage==null?"logic UPS":(u.voltage+" V"),
@@ -729,29 +755,45 @@ function renderTelemetry(t){
       cl.length&&online===cl.length?"ok":(online?"warn":"bad")));
   hero.innerHTML=tiles.join("");
 
-  // motor detail table
-  if(list.length){
-    const rows=list.map(m=>'<tr>'+
-      '<td><span class="mono">'+m.name+'</span></td>'+
-      '<td>'+motorBadge(m.state)+'</td>'+
-      '<td class="num">'+fmtNum(m.position)+'</td>'+
-      '<td class="num">'+fmtNum(m.velocity)+'</td>'+
-      '<td class="num">'+fmtNum(m.torque)+'</td>'+
-      '<td class="num" style="color:'+tempColor(m.temperature)+'">'+
-        (m.temperature==null?"&mdash;":m.temperature+"&deg;")+'</td>'+
-      '<td class="muted">'+(m.mode||"&mdash;")+'</td>'+
-      '<td class="'+(m.error?"err":"muted")+'">'+(m.error||"&mdash;")+'</td></tr>').join("");
+  // motor detail table, grouped by arm (one motor_control instance each)
+  if(list.length || arms.length){
+    let rows="";
+    (arms.length?arms:[{arm:null,stale:ms.stale}]).forEach(a=>{
+      const mine=list.filter(m=>a.arm==null||m.arm===a.arm);
+      if(a.arm!=null){
+        const st=a.stale
+          ? '<span class="stale-tag">stale / offline</span>'
+          : '<span class="muted">'+a.running+"/"+a.present+" running"+(a.age_s!=null?" &middot; "+a.age_s+"s":"")+'</span>';
+        rows+='<tr><td colspan="8" style="background:#1c2330;font-weight:600;letter-spacing:.5px">'+
+          a.arm.toUpperCase()+' ARM &nbsp; '+st+'</td></tr>';
+      }
+      rows+=mine.map(m=>'<tr>'+
+        '<td><span class="mono">'+m.name+'</span></td>'+
+        '<td>'+motorBadge(m.state)+'</td>'+
+        '<td class="num">'+fmtNum(m.position)+'</td>'+
+        '<td class="num">'+fmtNum(m.velocity)+'</td>'+
+        '<td class="num">'+fmtNum(m.torque)+'</td>'+
+        '<td class="num" style="color:'+tempColor(m.temperature)+'">'+
+          (m.temperature==null?"&mdash;":m.temperature+"&deg;")+'</td>'+
+        '<td class="muted">'+(m.mode||"&mdash;")+'</td>'+
+        '<td class="'+(m.error?"err":"muted")+'">'+(m.error||"&mdash;")+'</td></tr>').join("");
+      if(a.arm!=null && !mine.length){
+        rows+='<tr><td colspan="8" class="muted">'+
+          (a.stale?"no telemetry — is aizee-minerva-"+a.arm+" running and its bus up?":"no motors reporting")+
+          '</td></tr>';
+      }
+    });
     motorwrap.innerHTML='<table><thead><tr><th>Motor</th><th>State</th>'+
       '<th class="num">Pos (rad)</th><th class="num">Vel</th><th class="num">Torque</th>'+
       '<th class="num">Temp</th><th>Mode</th><th>Error</th></tr></thead><tbody>'+rows+'</tbody></table>';
   } else {
     motorwrap.innerHTML='<div class="empty">'+
-      (ms.stale?"Motor telemetry stale or publisher offline.":"No motors reporting.")+'</div>';
+      (ms.stale?"Both arms stale or offline.":"No motors reporting.")+'</div>';
   }
 
   // battery cards
   batt.innerHTML=
-    battCard("Motor Pack &middot; 6S LiPo", mp,
+    battCard("Motor Pack", mp,
       [["Voltage", ms.battery_voltage==null?"&mdash;":ms.battery_voltage+" V"]], ms.stale)+
     battCard("Logic UPS", upct==null?null:Math.round(upct),
       [["Voltage", u.voltage==null?"&mdash;":u.voltage+" V"],
@@ -847,7 +889,7 @@ SETUP_PAGE = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AIZEE Setup Wizard</title>
+<title>Minerva Setup Wizard</title>
 <style>
   :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --txt:#c9d1d9;
           --muted:#8b949e; --green:#3fb950; --red:#f85149; --yellow:#d29922;
@@ -907,7 +949,7 @@ SETUP_PAGE = r"""<!DOCTYPE html>
 </head>
 <body>
 <header>
-  <h1>AIZEE Setup Wizard</h1>
+  <h1>Minerva Setup Wizard</h1>
   <a href="/">&larr; Heartbeat dashboard</a>
 </header>
 <main>
@@ -931,22 +973,23 @@ SETUP_PAGE = r"""<!DOCTYPE html>
     the on-device setup (apt, Rust, python deps, udev, systemd, CAN helper, cargo build,
     WiFi AP):</p>
     <pre>./scripts/bootstrap_jetson.sh ltr@192.168.55.1 -- --ap-pass '&lt;wifi-ap-password&gt;' --hostname aizee-jetson</pre>
-    <p>Re-running is safe — the setup script is idempotent. To refresh code later without
-    the full setup: <code>./scripts/deploy_jetson_rover.sh</code>.</p>
+    <p>Re-running is safe — the setup script is idempotent. To refresh the arm stack later
+    without the full setup: <code>./scripts/deploy_minerva_arms.sh</code>.</p>
   </div></details>
 
   <details class="step"><summary><span class="n">3</span> Wire up the hardware <span class="tag hands">hands</span></summary>
   <div class="body">
-    <p><b>CAN:</b> plug the USB-CAN adapter (it has a physical power switch — on), motors
-    daisy-chained on the bus, 30&nbsp;V pack on. Every motor in
-    <code>config/hardware_jetson_rover.yaml</code> must be physically present or
-    motor_control wedges during init — if the wheels are off the robot, set
-    <code>motors.wheels: []</code> (keep the key!).</p>
-    <p><b>USB:</b> gripper cam (ELP), scene cam (RealSense, optional), Tufty display
-    (optional), e-stop receiver (optional), OpenRB leader arm stays on the dev PC.</p>
+    <p><b>CAN (two buses):</b> each arm has its own USB-CAN adapter (physical power switch
+    on) — LEFT arm on <code>can1</code>, RIGHT arm on <code>can2</code> (the internal
+    mttcan owns the unused <code>can0</code>). Motor ids 4..10 (shoulder&rarr;gripper) on
+    each bus, motor pack on. Every motor in
+    <code>config/hardware_minerva_{left,right}.yaml</code> must be present or that arm's
+    motor_control wedges during init — start the arm services only with the bus powered.</p>
+    <p><b>USB:</b> wrist cams (ELP, optional), head RealSense (optional). The two OpenRB
+    GELLO leaders stay on the dev PC.</p>
     <p><b>UPS:</b> INA219 on i2c bus 7 (0x41).</p>
-    <p class="muted">Each USB device gets a udev symlink and auto-starts its service when
-    plugged in — order doesn't matter.</p>
+    <p class="muted">Start the arms (bus powered):
+    <code>sudo systemctl start aizee-minerva-left aizee-minerva-right</code></p>
   </div></details>
 
   <details class="step" open><summary><span class="n">4</span> Validate <span class="tag robot">jetson</span></summary>
@@ -963,12 +1006,13 @@ SETUP_PAGE = r"""<!DOCTYPE html>
 
   <details class="step"><summary><span class="n">5</span> Teleop smoke test <span class="tag host">dev&nbsp;pc</span></summary>
   <div class="body">
-    <p>With everything green above, plug the leader arm into the dev PC and run the
-    collection app against the robot:</p>
-    <pre>python python/scripts/collect_demo.py --gui</pre>
-    <p>Press <code>E</code> to engage, verify the arm mirrors the leader, <code>R</code> to
-    record a short episode, <code>Q</code> to quit. The episode lands in
-    <code>data/episodes/</code>.</p>
+    <p>With everything green above, plug the two OpenRB GELLO leaders into the dev PC and
+    run the Minerva collector (or the terminal teleop) against the robot:</p>
+    <pre>python python/scripts/collect_minerva.py --host 10.42.0.1</pre>
+    <p>Register the leaders with <code>Z</code> (leader-zero) or <code>M</code> (mirror),
+    <code>E</code> to track, <code>K</code> for RobStride mechanical zero (disable first),
+    <code>R</code> to record, <code>Q</code> to quit. Details in
+    <code>docs/MINERVA_BRINGUP.md</code>.</p>
   </div></details>
 </main>
 <script>
@@ -1009,23 +1053,29 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8088)
-    ap.add_argument("--motor-telem", default="tcp://localhost:5556",
-                    help="ZMQ motor telemetry endpoint (PUB from motor_control)")
+    ap.add_argument("--left-telem", default="tcp://localhost:5556",
+                    help="ZMQ motor telemetry — LEFT arm (aizee-minerva-left)")
+    ap.add_argument("--right-telem", default="tcp://localhost:5576",
+                    help="ZMQ motor telemetry — RIGHT arm (aizee-minerva-right)")
     ap.add_argument("--ups", default="tcp://localhost:5562",
                     help="ZMQ UPS telemetry endpoint")
-    ap.add_argument("--gripper-cam", default="tcp://localhost:5563",
-                    help="ZMQ gripper-camera endpoint")
-    ap.add_argument("--scene-cam", default="tcp://localhost:5564",
-                    help="ZMQ scene-camera endpoint")
+    ap.add_argument("--left-wrist-cam", default="tcp://localhost:5563",
+                    help="ZMQ left-wrist camera endpoint")
+    ap.add_argument("--right-wrist-cam", default="tcp://localhost:5565",
+                    help="ZMQ right-wrist camera endpoint")
+    ap.add_argument("--head-cam", default="tcp://localhost:5564",
+                    help="ZMQ head (RealSense) camera endpoint")
     ap.add_argument("--no-telemetry", action="store_true",
                     help="disable the ZMQ telemetry subscribers")
     args = ap.parse_args()
 
     if not args.no_telemetry:
         poller = TelemetryPoller(
-            motor_ep=args.motor_telem,
+            motor_eps=[("left", args.left_telem), ("right", args.right_telem)],
             ups_ep=args.ups,
-            cam_eps=[("gripper", args.gripper_cam), ("scene", args.scene_cam)],
+            cam_eps=[("left_wrist", args.left_wrist_cam),
+                     ("right_wrist", args.right_wrist_cam),
+                     ("head", args.head_cam)],
         )
         poller.start()
         Handler.poller = poller

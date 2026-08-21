@@ -4,10 +4,10 @@
 #
 # The dashboard now subscribes (read-only) to the robot's ZMQ telemetry
 # streams and renders motors, batteries, and cameras at a glance:
-#   motor telemetry  tcp://localhost:5556   (E-stop, per-motor state, 6S pack)
+#   left  arm telem  tcp://localhost:5556   (aizee-minerva-left,  E-stop, motors)
+#   right arm telem  tcp://localhost:5558   (aizee-minerva-right)
 #   UPS telemetry    tcp://localhost:5562   (logic battery)
-#   gripper camera   tcp://localhost:5563
-#   scene camera     tcp://localhost:5564
+#   wrist cams       tcp://localhost:5563 / 5565    head cam  tcp://localhost:5564
 #
 # The systemd unit is unchanged (endpoints default to localhost), so this just
 # copies the script and restarts the service.  pyzmq + msgpack are already
