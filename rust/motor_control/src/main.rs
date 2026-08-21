@@ -518,11 +518,78 @@ impl ControlSystem {
         }
     }
 
+    /// Level 2 recovery: USB port reset (USBDEVFS_RESET via `aizee-can-reset`).
+    ///
+    /// `ip link down/up` (Level 1) cannot revive a gs_usb adapter whose firmware has
+    /// wedged — the link-up fails with EPIPE ("Broken pipe"). A USB *port* reset is
+    /// hub-driven, so it resets the adapter even when its own control endpoint is
+    /// locked up — the ONLY software path that recovers a wedge, provided the adapter
+    /// is still enumerated (we never deauthorize it, precisely so this stays possible).
+    /// `aizee-can-reset` targets the interface's udev-pinned USB port, so the OTHER
+    /// arm's adapter is never touched. Reopens the socket on success.
+    fn usb_reset_link(&mut self, bus_name: &str) -> bool {
+        let interface_name = match self.can_interfaces.get(bus_name) {
+            Some(name) => name.clone(),
+            None => return false,
+        };
+        warn!("CAN {} Level 2 recovery: USB port reset (aizee-can-reset {})", bus_name, interface_name);
+
+        // Close the socket so the interface can re-enumerate cleanly.
+        self.can_sockets.remove(bus_name);
+        std::thread::sleep(Duration::from_millis(50));
+
+        match Command::new("sudo").args(["aizee-can-reset", &interface_name]).output() {
+            Ok(output) if output.status.success() => {
+                info!("CAN {} aizee-can-reset ok: {}", bus_name,
+                      String::from_utf8_lossy(&output.stdout).trim());
+            }
+            Ok(output) => {
+                warn!("CAN {} aizee-can-reset failed (adapter may need a physical re-plug): {}",
+                      bus_name, String::from_utf8_lossy(&output.stderr).trim());
+                return false;
+            }
+            Err(e) => {
+                error!("CAN {} could not run aizee-can-reset: {}", bus_name, e);
+                return false;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(300));
+
+        // Reopen the socket on the freshly reset interface.
+        match CanSocket::open(&interface_name) {
+            Ok(socket) => {
+                if let Err(e) = socket.set_nonblocking(true) {
+                    error!("Failed to set reset socket {} non-blocking: {}", bus_name, e);
+                    return false;
+                }
+                let _ = socket.set_loopback(false);
+                self.can_sockets.insert(bus_name.to_string(), socket);
+                self.consecutive_tx_errors.borrow_mut().insert(bus_name.to_string(), 0);
+                for motor in self.base_group.motors.iter_mut()
+                    .chain(self.arm_group.motors.iter_mut())
+                {
+                    if motor.config.can_bus == bus_name {
+                        motor.state = MotorState::Disabled;
+                        motor.feedback = None;
+                    }
+                }
+                info!("CAN {} Level 2 (USB reset) recovery complete — motors set to Disabled", bus_name);
+                true
+            }
+            Err(e) => {
+                error!("Failed to reopen CAN socket {} after USB reset: {}", bus_name, e);
+                false
+            }
+        }
+    }
+
     /// Escalating CAN recovery for stuck TX errors.
     ///
     /// Level 0 — Socket reopen (transient issues): 2 attempts, 10s cooldown.
     /// Level 1 — ip link down/up (gs_usb echo corruption): 2 attempts, 30s cooldown.
-    /// Level 2 — Exit (USB-level corruption): process exits, systemd restarts with USB reset.
+    /// Level 2 — Degraded: stay alive, slow-retry link recovery. NEVER exit — a
+    ///           restart storm hammers the shared USB hub and drops both gs_usb
+    ///           adapters (one arm's failure must not knock the other offline).
     ///
     /// KEY INSIGHT: If we reach this function again after a "successful" recovery, it means
     /// the fix didn't actually work (ENOBUFS resumed). So attempts always increment —
@@ -546,11 +613,22 @@ impl ControlSystem {
             let level = self.can_recovery_level.get(&bus_name).copied().unwrap_or(0);
             let attempts = self.can_recovery_attempts.get(&bus_name).copied().unwrap_or(0);
 
-            // Level 2+ = exit immediately
+            // Level 2+ = DEGRADED (persistent failure: no motors on the bus, or the
+            // USB-CAN adapter dropped off). Do NOT exit — exiting triggers a systemd
+            // restart storm that stresses the shared USB hub and can knock the OTHER
+            // arm's adapter offline too. Stay alive, keep serving, and slow-retry link
+            // recovery so the bus rejoins automatically if it comes back.
             if level >= 2 {
-                error!("CAN {} recovery exhausted (level={}) — exiting for systemd restart with USB reset",
-                       bus_name, level);
-                std::process::exit(1);
+                const DEGRADED_COOLDOWN: Duration = Duration::from_secs(30);
+                if self.last_link_recovery.elapsed() >= DEGRADED_COOLDOWN {
+                    // By now plain ip-link recovery (Level 1) has already failed, so the
+                    // adapter is most likely firmware-wedged. Retry with a USB PORT RESET
+                    // (the only thing that clears a wedge), not another futile link cycle.
+                    warn!("CAN {} degraded — USB port reset retry", bus_name);
+                    self.usb_reset_link(&bus_name);
+                    self.last_link_recovery = Instant::now();
+                }
+                continue;
             }
 
             // Check cooldown for current level
@@ -588,11 +666,14 @@ impl ControlSystem {
                     }
                 }
                 1 if attempts >= MAX_LINK_ATTEMPTS => {
-                    warn!("CAN {} Level 1 exhausted ({} attempts), escalating to Level 2 (exit)",
+                    warn!("CAN {} Level 1 exhausted ({} attempts) — USB port reset, then DEGRADED slow-retry",
                           bus_name, attempts);
                     self.can_recovery_level.insert(bus_name.clone(), 2);
-                    error!("CAN {} recovery exhausted — exiting for systemd restart with USB reset", bus_name);
-                    std::process::exit(1);
+                    // Try a USB port reset NOW (while the adapter is still enumerated and
+                    // recoverable) rather than waiting a full degraded cooldown. If it
+                    // fails, the degraded handler keeps retrying it every 30s. No exit.
+                    self.usb_reset_link(&bus_name);
+                    self.last_link_recovery = Instant::now();
                 }
                 0 => {
                     // Level 0: socket reopen
@@ -691,11 +772,15 @@ impl ControlSystem {
                 .ok_or_else(|| anyhow::anyhow!("Bus name not found for motor {}", motor_id))?
                 .clone(); // Clone to avoid borrow conflict
 
-            // First send disable to clear any existing fault state
-            let disable_frame = robstride::build_disable_frame(can_id);
-            self.safe_write_frame(socket, &disable_frame, &bus_name)?;
+            // First send a fault-CLEAR (type-4 stop with data[0]=1) to clear any
+            // latched fault. A plain disable (data[0]=0) is only a stop — it does NOT
+            // clear latched faults, so a fault-locked motor (e.g. after an overcurrent
+            // trip) would never re-enter Run mode and would look "dead" while still
+            // ACKing on the bus. build_clear_fault_frame actually unlatches it.
+            let clear_frame = robstride::build_clear_fault_frame(can_id);
+            self.safe_write_frame(socket, &clear_frame, &bus_name)?;
             self.sleep_with_keepalives(50);
-            info!("Sent disable (fault clear) for motor {}", motor_id);
+            info!("Sent fault-clear (stop+clear) for motor {}", motor_id);
 
             // Drain any pending CAN frames
             loop {
@@ -852,12 +937,12 @@ impl ControlSystem {
                         break;
                     } else {
                         warn!("Motor {} faulted after enable (attempt {}), retrying...", motor_id, attempt);
-                        self.tracked_write_frame(socket, &disable_frame, &bus_name);
+                        self.tracked_write_frame(socket, &clear_frame, &bus_name);
                         self.sleep_with_keepalives(100);
                     }
                 } else {
                     warn!("Motor {} did NOT enter Run mode on attempt {}", motor_id, attempt);
-                    self.tracked_write_frame(socket, &disable_frame, &bus_name);
+                    self.tracked_write_frame(socket, &clear_frame, &bus_name);
                     self.sleep_with_keepalives(50);
                 }
             }
@@ -868,6 +953,13 @@ impl ControlSystem {
 
             if let Some(motor) = self.find_motor_mut(motor_id) {
                 motor.state = if enabled { MotorState::Enabled } else { MotorState::Error };
+                if enabled {
+                    // Clear any stale latched fault now that the motor is cleanly in Run.
+                    // Otherwise fault_info persists in-process and telemetry keeps
+                    // reporting a ghost "fault: ..." (via the fault_info fallback in
+                    // publish_telemetry) long after the motor recovered.
+                    motor.fault_info = None;
+                }
                 motor.last_command_time = Instant::now();
                 // Reset feedback timestamp — enable_motor reads CAN frames directly
                 // without calling update_feedback(), so last_feedback_time goes stale

@@ -1,0 +1,29 @@
+#!/bin/bash
+# Configure + bring up a CAN interface at 1 Mbps for Minerva.
+# Deployed to /usr/local/bin/aizee-can-up; called by the arm services' ExecStartPre.
+#
+# Usage: aizee-can-up <iface>   (e.g. canL, canR)
+#
+# Unlike aizee-reset-usb-can this does NO unbind/rebind and NO rename — the
+# interface is already named deterministically by udev (config/udev/
+# 80-minerva-can.rules pins canL/canR to physical USB ports). Bouncing the
+# gs_usb driver with two identical adapters is what scrambled left<->right, so
+# startup must not do it.
+set -e
+
+IFACE="${1:?usage: aizee-can-up <iface>}"
+BITRATE=1000000
+RESTART_MS=100
+TXQUEUELEN=128
+
+if ! ip link show "$IFACE" &>/dev/null; then
+    echo "ERROR: $IFACE not present. Is the adapter plugged in and the udev rule installed?" >&2
+    echo "  gs_usb interfaces: $(ls -d /sys/class/net/can* /sys/class/net/canL /sys/class/net/canR 2>/dev/null | xargs -n1 basename 2>/dev/null | tr '\n' ' ')" >&2
+    exit 1
+fi
+
+ip link set "$IFACE" down 2>/dev/null || true
+ip link set "$IFACE" type can bitrate "$BITRATE" restart-ms "$RESTART_MS"
+ip link set "$IFACE" txqueuelen "$TXQUEUELEN"
+ip link set "$IFACE" up
+echo "aizee-can-up: $IFACE up @ ${BITRATE} (restart-ms=$RESTART_MS, txqueuelen=$TXQUEUELEN)"

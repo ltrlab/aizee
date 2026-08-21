@@ -262,6 +262,18 @@ pub fn build_disable_frame(motor_id: u8) -> CanFrame {
     CanFrame::new(socketcan::Id::Extended(arb_id), &[0u8; 8]).expect("Failed to create frame")
 }
 
+/// Build a fault-CLEAR frame — the RobStride/CyberGear type-4 "stop" with
+/// `data[0] = 0x01`. The plain disable (data[0]=0) is a stop that does NOT clear
+/// latched faults, so a motor that has tripped (e.g. overcurrent) stays fault-locked
+/// and refuses to re-enter Run mode until a real clear or a power-cycle. This variant
+/// clears the latch. It leaves the motor disabled — re-enable afterward.
+pub fn build_clear_fault_frame(motor_id: u8) -> CanFrame {
+    let arb_id = build_arb_id(motor_id, MotorMsg::Disable);
+    let mut data = [0u8; 8];
+    data[0] = 0x01; // clear-fault flag on the stop frame
+    CanFrame::new(socketcan::Id::Extended(arb_id), &data).expect("Failed to create frame")
+}
+
 /// Build zero position command frame
 pub fn build_zero_pos_frame(motor_id: u8) -> CanFrame {
     let arb_id = build_arb_id(motor_id, MotorMsg::ZeroPos);

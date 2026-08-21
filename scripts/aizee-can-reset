@@ -1,0 +1,91 @@
+#!/bin/bash
+# aizee-can-reset <canL|canR> — recover a wedged gs_usb USB-CAN adapter WITHOUT a
+# physical re-plug, by issuing a USB PORT RESET (USBDEVFS_RESET) and then bringing
+# the CAN interface back up.
+#
+# Why this and not the alternatives:
+#   * `ip link down/up` (aizee-can-up / recover_link Level 1) canNOT revive a
+#     firmware-wedged adapter — the link-up fails with EPIPE ("Broken pipe").
+#   * The retired `aizee-reset-usb-can` did a DRIVER unbind/rebind, which (a) does not
+#     clear a firmware wedge and (b) with two identical adapters renamed the wrong one.
+#   * USBDEVFS_RESET is a HUB-driven port reset: it resets the adapter's USB state
+#     machine even when the adapter's own control endpoint is locked up. It works as
+#     long as the device is still ENUMERATED — so nothing here ever deauthorizes it.
+#
+# Targeted strictly by the interface's udev-pinned USB port (canL=1-2.1.2,
+# canR=1-2.1.4), so the OTHER adapter is never disturbed.
+#
+# NOTE: if the adapter has already fully dropped OFF the USB bus (no device node at
+# its port), no software reset can bring it back — only a VBUS power-cycle can, which
+# on this onboard hub (no per-port power switching) means a physical re-plug. This
+# script detects that and exits 2 so the caller can surface it.
+set -u
+
+IFACE="${1:?usage: aizee-can-reset <canL|canR>}"
+
+# interface -> udev-pinned USB port (fallback used when the netdev is already gone)
+case "$IFACE" in
+    canL) PORT="1-2.1.2" ;;
+    canR) PORT="1-2.1.4" ;;
+    *)    echo "aizee-can-reset: unknown interface '$IFACE' (expected canL|canR)" >&2; exit 64 ;;
+esac
+
+# Prefer the live netdev's USB device path; fall back to the pinned port path.
+SYS="$(readlink -f "/sys/class/net/$IFACE/device" 2>/dev/null || true)"   # .../1-2.1.2/1-2.1.2:1.0
+if [ -n "$SYS" ] && [ -e "$SYS" ]; then
+    USBDEV="$(dirname "$SYS")"                                            # .../1-2.1.2
+else
+    USBDEV="/sys/bus/usb/devices/$PORT"
+fi
+
+if [ ! -e "$USBDEV/busnum" ] || [ ! -e "$USBDEV/devnum" ]; then
+    echo "aizee-can-reset: $IFACE (USB port $PORT) is not enumerated — the adapter has" \
+         "dropped off the bus and needs a physical re-plug (no software VBUS control on" \
+         "this hub)." >&2
+    exit 2
+fi
+
+BUS="$(cat "$USBDEV/busnum")"; DEV="$(cat "$USBDEV/devnum")"
+NODE="$(printf '/dev/bus/usb/%03d/%03d' "$BUS" "$DEV")"
+echo "aizee-can-reset: USBDEVFS_RESET $IFACE at $NODE (port $(basename "$USBDEV"))"
+
+# Issue USBDEVFS_RESET (_IO('U',20) = 0x5514) on the device node.
+python3 - "$NODE" <<'PY'
+import fcntl, os, sys
+node = sys.argv[1]
+try:
+    fd = os.open(node, os.O_WRONLY)
+except OSError as e:
+    print(f"  open {node} failed: {e}"); sys.exit(3)
+try:
+    fcntl.ioctl(fd, 0x5514, 0)   # USBDEVFS_RESET
+    print("  USBDEVFS_RESET ok")
+except OSError as e:
+    print(f"  USBDEVFS_RESET failed: {e}"); sys.exit(3)
+finally:
+    os.close(fd)
+PY
+rc=$?
+[ "$rc" -ne 0 ] && { echo "aizee-can-reset: port reset failed (rc=$rc)" >&2; exit "$rc"; }
+
+# After a port reset the device re-enumerates; udev re-applies the pinned name.
+# Wait (up to ~5s) for the interface to reappear.
+for _ in $(seq 1 20); do
+    ip link show "$IFACE" >/dev/null 2>&1 && break
+    sleep 0.25
+done
+if ! ip link show "$IFACE" >/dev/null 2>&1; then
+    echo "aizee-can-reset: $IFACE did not reappear after reset" >&2
+    exit 1
+fi
+
+# Bring the bus back up at 1 Mbps (same params as aizee-can-up).
+ip link set "$IFACE" down 2>/dev/null || true
+ip link set "$IFACE" type can bitrate 1000000 restart-ms 100 2>/dev/null || true
+ip link set "$IFACE" txqueuelen 128 2>/dev/null || true
+if ip link set "$IFACE" up; then
+    echo "aizee-can-reset: $IFACE up @ 1000000 (recovered via USB port reset)"
+else
+    echo "aizee-can-reset: $IFACE failed to come up after reset" >&2
+    exit 1
+fi
