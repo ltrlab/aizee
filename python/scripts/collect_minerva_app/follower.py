@@ -145,6 +145,28 @@ class DualArmTransport:
         """17-vec of per-joint temperature (°C); missing arm = NaN, head/lift = 0."""
         return self._merged_partial("temperature")
 
+    def battery_voltage(self) -> Optional[float]:
+        """Lowest motor-pack voltage (V) reported across the fresh arms, or None."""
+        vals = []
+        for side in ("left", "right"):
+            msg, t = self._msg(side)
+            if msg and t and (time.time() - t) <= self._STALE_S:
+                v = msg.get("battery_voltage")
+                if isinstance(v, (int, float)):
+                    vals.append(float(v))
+        return min(vals) if vals else None
+
+    def estop(self) -> Optional[bool]:
+        """True if EITHER fresh arm reports emergency_stop; None if no fresh telem."""
+        seen = False
+        for side in ("left", "right"):
+            msg, t = self._msg(side)
+            if msg and t and (time.time() - t) <= self._STALE_S:
+                seen = True
+                if bool(msg.get("emergency_stop")):
+                    return True
+        return False if seen else None
+
     def telem_age(self, now: Optional[float] = None) -> Dict[str, float]:
         now = time.time() if now is None else now
         out = {}
@@ -182,9 +204,14 @@ class DualArmTransport:
         self._raw_send("left", {"type": "mech_zero", "motor_ids": LEFT_NAMES, "save": save})
         self._raw_send("right", {"type": "mech_zero", "motor_ids": RIGHT_NAMES, "save": save})
 
-    def set_target(self, q17: np.ndarray, kp17=None, kd17=None) -> None:
+    def set_target(self, q17: np.ndarray, kp17=None, kd17=None, tau17=None) -> None:
         """Split a 17-vector target into two 7-joint arm_joints commands (head/lift
         dropped) and hand them to the 100 Hz re-emitter.
+
+        `tau17` is an optional 17-vector of feedforward torques (Nm) — e.g. gravity
+        compensation — applied on-motor as tau_ff in the MIT PD loop
+        (torque = kp·err + kd·(0−vel) + tau_ff). Omitted → zeros (plain PD, today's
+        behaviour). The re-emitter reuses whatever tau was latched here.
 
         RESILIENT: an arm whose telemetry is absent (dropped bus) is NOT commanded
         — its holder is cleared so the re-emitter goes quiet — and it resumes
@@ -193,6 +220,8 @@ class DualArmTransport:
         q = np.asarray(q17, dtype=np.float32)
         kp = list(kp17) if kp17 is not None else list(KP)
         kd = list(kd17) if kd17 is not None else list(KD)
+        tau = (np.asarray(tau17, dtype=np.float32) if tau17 is not None
+               else np.zeros(NUM_MINERVA_JOINTS, dtype=np.float32))
         present = self.arm_ok()
         bundles = {}
         for side, lo in (("left", 0), ("right", 7)):
@@ -200,9 +229,12 @@ class DualArmTransport:
             if not present[side] or not np.all(np.isfinite(pos)):
                 bundles[side] = None      # don't command a dropped / NaN arm
             else:
+                tau_side = tau[lo:lo + 7]
+                tau_side = np.where(np.isfinite(tau_side), tau_side, 0.0)  # never send NaN FF
                 bundles[side] = {"type": "arm_joints", "positions": pos.tolist(),
                                  "velocities": [0.0] * 7,
-                                 "kp": kp[lo:lo + 7], "kd": kd[lo:lo + 7]}
+                                 "kp": kp[lo:lo + 7], "kd": kd[lo:lo + 7],
+                                 "torques": tau_side.tolist()}
         with self._holder_lock:
             self._holder.update(bundles)
         for side, b in bundles.items():

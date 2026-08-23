@@ -108,8 +108,15 @@ assert JOINT_LIMITS.shape == (NUM_MINERVA_JOINTS, 2)
 # Head/lift gains are PLACEHOLDER — tune on hardware.
 # ---------------------------------------------------------------------------
 
-_ARM_KP_6DOF = [250.0, 220.0, 215.0, 50.0, 8.0, 3.0]
-_ARM_KD_6DOF = [22.0,  15.0,  17.0,  4.0,  1.0, 1.0]
+# j1 kp lowered 250->180->150: the shoulder still rang a little at FULL EXTENSION, where
+# its inertia (and so the effective damping demand) is highest. Lowering kp raises the
+# damping ratio (zeta ~ kd/sqrt(kp)) WITHOUT costing tracking speed (which is set by
+# motor_torque/kd, independent of kp) and even loosens lead_cap=SAT/kp -> stays fast.
+_ARM_KP_6DOF = [150.0, 220.0, 215.0, 50.0, 8.0, 3.0]
+# j1 kd 18->20 for a little extra margin at full extension; j3 stays 14. (Big kd hikes
+# are avoided — they cap velocity at ~motor_torque/kd, which is what made j1 sluggish
+# originally; the damping is bought mostly with the kp drop above instead.)
+_ARM_KD_6DOF = [20.0,  15.0,  14.0,  4.0,  1.0, 1.0]
 _GRIPPER_KP, _GRIPPER_KD = 2.0, 1.0
 _HEAD_KP, _HEAD_KD = [8.0, 8.0], [1.0, 1.0]                # PLACEHOLDER
 _LIFT_KP, _LIFT_KD = 80.0, 5.0                            # PLACEHOLDER (holds torso weight)
@@ -130,8 +137,15 @@ assert len(KP) == len(KD) == NUM_MINERVA_JOINTS
 # actuator model (NOT the hard max). Used to bound the engage/tracking LEAD so PD
 # torque (kp·lead) stays within a joint's safe range. Mirrors collect_demo's
 # _SAT_TORQUE table, duplicated per arm:
-#   j1 RS03=12 · j2 RS04=24 · j3 RS03=12 · j4 RS02=5 · j5 RS02=5 · j6 RS00=0.5 · grip RS00=0.5
-_ARM_SAT_6DOF = [12.0, 24.0, 12.0, 5.0, 5.0, 0.5]
+#   j1 RS03 · j2 RS04=24 · j3 RS03=12 · j4 RS02=5 · j5 RS02=5 · j6 RS00=0.5 · grip RS00=0.5
+# j1 raised 12->20, j3 12->18: their high kp made lead_cap=SAT/kp the tightest of any
+# joint, capping shoulder+elbow tracking; the RS03s easily handle the bump (kp unchanged).
+# j4 raised 5->8: the wrist felt slow going UP — a gravity-comp shortfall there (its fit
+# was taken at one base pose; wrist gravity shifts with shoulder/elbow angle), so the PD
+# was torque-starved fighting gravity upward. More headroom lets it push up (and lifts
+# j4's ceiling 3.0 -> ~4 rad/s). The proper fix for the up/down asymmetry is re-fitting
+# the wrist (coupling) or a per-joint gravity trim.
+_ARM_SAT_6DOF = [20.0, 24.0, 18.0, 8.0, 5.0, 0.5]
 _GRIPPER_SAT = 0.5
 _HEAD_SAT = [5.0, 5.0]     # PLACEHOLDER
 _LIFT_SAT = 40.0           # PLACEHOLDER (holds torso weight)
@@ -151,6 +165,30 @@ MAX_DELTA_HEAD: float = 0.15      # rad/step
 MAX_DELTA_LIFT: float = 0.01      # m/step    (slow prismatic)
 
 RECORD_HZ: int = 20               # control / record rate
+
+# ---------------------------------------------------------------------------
+# Gripper force-feedback (leader haptics)
+# ---------------------------------------------------------------------------
+# The leader gripper servo (XL330 in current-control mode) can render the
+# follower's grasp force back to the operator's hand: we map the follower
+# gripper's MEASURED torque (Nm) to a leader "resist" current (mA), sent over
+# the OpenRB FF path (OpenRBLeader.set_ff_currents).
+#
+# Deliberately conservative for first bring-up:
+#   * OPEN-ONLY — the current only ever pushes the leader gripper toward OPEN
+#     (resisting a squeeze); it can never yank the operator's hand closed.
+#   * DEADBANDED — grasp torque below GRIP_FF_DEADBAND_NM (free-air friction /
+#     hold torque) produces no feedback, so the leader stays freely backdrivable
+#     until the follower actually pushes on something.
+#   * The current SIGN that "opens" the leader gripper is hardware-specific
+#     (servo wiring + mount); GRIP_FF_SIGN is the default — flip it on the bench
+#     (the GUI's Invert toggle) if the feedback assists a squeeze instead of
+#     resisting it.
+GRIP_FF_GAIN_MA_PER_NM: float = 400.0   # leader mA per Nm of follower grasp torque
+GRIP_FF_DEADBAND_NM: float = 0.02       # ignore hold/friction torque below this (Nm)
+GRIP_FF_CAP_MA: int = 200               # max leader resist current = firmware hard cap (USB-power limited)
+GRIP_FF_SIGN: int = -1                  # +1/-1: current sign that OPENS the leader gripper
+GRIP_FF_SMOOTH: float = 0.4             # EMA factor on the output current (1=raw, →0 smoother)
 
 # Camera stream identities feeding the policy (order matters — used for the
 # learned camera-identity embedding in minerva_model.py).
@@ -176,16 +214,41 @@ def max_delta_vector(arm: float = MAX_DELTA_ARM, gripper: float = MAX_DELTA_GRIP
     return v
 
 
-def lead_cap_vector(kp: Sequence[float], max_delta: np.ndarray) -> np.ndarray:
-    """Per-joint LEAD cap [17] = min(max_delta, SAT_TORQUE / kp): the largest
-    command-minus-actual error whose PD torque (kp·lead) stays within the joint's
-    nominal saturation. Bounds engage + tracking torque — much tighter than the flat
-    velocity guard on high-kp joints (0.30 rad on an RS03 at kp≈250 would demand
-    ~22 Nm vs a safe ~12) — and auto-tightens as kp rises (e.g. kp_scale up)."""
+def lead_cap_vector(kp: Sequence[float], max_delta: np.ndarray,
+                    sat: Sequence[float] | None = None) -> np.ndarray:
+    """Per-joint LEAD cap [17] = min(max_delta, SAT / kp): the largest command-minus-
+    actual error whose PD torque (kp·lead) stays within the joint's saturation. Bounds
+    engage + tracking torque — much tighter than the flat velocity guard on high-kp
+    joints — and auto-tightens as kp rises (e.g. kp_scale up). `sat` overrides the module
+    SAT_TORQUE (used when the operator tunes per-joint SAT live from Settings)."""
     kp = np.asarray(kp, dtype=np.float32)
     md = np.asarray(max_delta, dtype=np.float32)
-    torque_lead = np.where(kp > 1e-6, SAT_TORQUE / np.maximum(kp, 1e-6), md)
+    st = SAT_TORQUE if sat is None else np.asarray(sat, dtype=np.float32)
+    torque_lead = np.where(kp > 1e-6, st / np.maximum(kp, 1e-6), md)
     return np.minimum(md, torque_lead).astype(np.float32)
+
+
+def grip_ff_current(
+    torque_nm: float,
+    *,
+    gain: float = GRIP_FF_GAIN_MA_PER_NM,
+    deadband: float = GRIP_FF_DEADBAND_NM,
+    cap: int = GRIP_FF_CAP_MA,
+    sign: int = GRIP_FF_SIGN,
+) -> int:
+    """Map a follower gripper torque (Nm) to a leader gripper RESIST current (mA).
+
+    OPEN-ONLY: returns a current in the `sign` ("open") direction with magnitude
+    proportional to |torque| ABOVE `deadband`, clamped to [0, cap]. Torque at or
+    below the deadband (or non-finite) yields 0 — the leader gripper stays freely
+    backdrivable in free air. The magnitude is what the operator feels as grasp
+    resistance; the direction is fixed to "open" so feedback can only push back
+    against a squeeze, never pull the hand closed."""
+    t = abs(float(torque_nm))
+    if not np.isfinite(t) or t <= deadband:
+        return 0
+    mag = min(float(cap), gain * (t - deadband))
+    return int(round((1 if sign >= 0 else -1) * mag))
 
 
 def build_qpos(joint_values: Dict[str, float]) -> np.ndarray:
@@ -246,6 +309,8 @@ __all__ = [
     "JOINT_LIMITS", "KP", "KD", "SAT_TORQUE", "RECORD_HZ",
     "CAMERAS", "WRIST_CAMERAS", "SCENE_CAMERA",
     "MAX_DELTA_ARM", "MAX_DELTA_GRIPPER", "MAX_DELTA_HEAD", "MAX_DELTA_LIFT",
+    "GRIP_FF_GAIN_MA_PER_NM", "GRIP_FF_DEADBAND_NM", "GRIP_FF_CAP_MA",
+    "GRIP_FF_SIGN", "GRIP_FF_SMOOTH", "grip_ff_current",
     "max_delta_vector", "lead_cap_vector", "build_qpos", "clamp_positions",
     "apply_safety_limits",
 ]

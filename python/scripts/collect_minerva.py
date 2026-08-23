@@ -31,7 +31,9 @@ import json
 import os
 import queue
 import sys
+import threading
 import time
+import urllib.request
 from enum import Enum
 from pathlib import Path
 from typing import Dict, Optional
@@ -45,9 +47,11 @@ sys.path.insert(0, str(_HERE))                 # python/scripts/ -> collect_*_ap
 sys.path.insert(0, str(_HERE.parent / "teleop"))  # python/teleop/ -> openrb_leader
 
 from common.minerva_constants import (
-    CAMERAS, KD, KP, MINERVA_JOINTS, NUM_MINERVA_JOINTS,
+    CAMERAS, KD, KP, SAT_TORQUE, MINERVA_JOINTS, NUM_MINERVA_JOINTS, GRIPPER_INDICES,
     apply_safety_limits, lead_cap_vector, max_delta_vector,
+    GRIP_FF_GAIN_MA_PER_NM, GRIP_FF_DEADBAND_NM, GRIP_FF_CAP_MA, GRIP_FF_SIGN,
 )
+from control.minerva_gravity import MinervaGravityModel
 from collect_minerva_app import config as mcfg
 from collect_minerva_app.follower import DualArmTransport
 from collect_minerva_app.images import start_image_decoder, raw_jpeg
@@ -76,6 +80,59 @@ class State(Enum):
 ENGAGE_RAMP_S = 0.3
 
 
+class HeartbeatPoller:
+    """Background poller for the Jetson heartbeat server (/api/status on :8088).
+
+    Surfaces host metrics (CPU / mem / disk / WiFi) and the logic-UPS battery that
+    aren't in the motor telemetry. Polled slowly on its own daemon thread with a
+    short timeout, so it never blocks the control loop; host() returns the latest
+    compact dict (or None when the server is unreachable / stale)."""
+
+    def __init__(self, host: str, port: int = 8088, period: float = 2.0):
+        self._url = f"http://{host}:{port}/api/status"
+        self._period = period
+        self._lock = threading.Lock()
+        self._data = None
+        self._t = 0.0
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True, name="HeartbeatPoll")
+
+    def start(self) -> "HeartbeatPoller":
+        self._thread.start()
+        return self
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                with urllib.request.urlopen(self._url, timeout=1.5) as r:
+                    d = json.loads(r.read().decode())
+                with self._lock:
+                    self._data, self._t = d, time.time()
+            except Exception:
+                pass   # server down / not deployed — host() reports None
+            self._stop.wait(self._period)
+
+    def host(self) -> Optional[dict]:
+        with self._lock:
+            d, t = self._data, self._t
+        if not d or (time.time() - t) > 10.0:
+            return None
+        h = d.get("host") or {}
+        ups = ((d.get("telemetry") or {}).get("ups")) or {}
+        u_ok = not ups.get("stale")
+        return {
+            "cpu": h.get("cpu_percent"),
+            "mem": (h.get("mem") or {}).get("percent"),
+            "disk": (h.get("disk") or {}).get("percent"),
+            "wifi": ((h.get("network") or {}).get("ap") or {}).get("connection"),
+            "ups_pct": ups.get("percentage") if u_ok else None,
+            "ups_v": ups.get("voltage") if u_ok else None,
+        }
+
+    def close(self) -> None:
+        self._stop.set()
+
+
 def parse_args():
     p = argparse.ArgumentParser(description="Minerva teleop + data collection")
     p.add_argument("--config", default=None)
@@ -89,6 +146,21 @@ def parse_args():
     p.add_argument("--dry-run", action="store_true", help="never send motor commands")
     p.add_argument("--kp-scale", type=float, default=0.3,
                    help="scale on the arm KP (start low for first motion; raise once trusted)")
+    p.add_argument("--grip-strength", type=float, default=1.5,
+                   help="gripper KP multiplier, DECOUPLED from --kp-scale so the gripper grips "
+                        "firmly regardless of arm speed; contact force bounded by the motor")
+    # gripper force feedback (leader haptics) — off by default; enable + tune in the GUI.
+    p.add_argument("--grip-ff", dest="grip_ff", action="store_true",
+                   help="start with leader gripper force-feedback ON (default off)")
+    p.add_argument("--grip-ff-gain", type=float, default=GRIP_FF_GAIN_MA_PER_NM,
+                   help="leader mA per Nm of follower grasp torque")
+    # gravity feedforward — off by default; enable + trim the scale live in the GUI.
+    p.add_argument("--grav-comp", dest="grav_comp", action="store_true",
+                   help="start with arm gravity feedforward ON (default off)")
+    p.add_argument("--grav-scale", type=float, default=1.0,
+                   help="global multiplier on the gravity feedforward (ramp up while validating)")
+    p.add_argument("--grav-file", default="config/minerva_gravity.json",
+                   help="gravity model from minerva_gravity_calibrate.py")
     # leader ports (auto-detected if omitted)
     p.add_argument("--left-port", default=None)
     p.add_argument("--right-port", default=None)
@@ -177,6 +249,7 @@ def main():
     cfg = mcfg.load_config(args.config)
     ep = cfg["endpoints"]
     host = mcfg.resolve_jetson_host(args.host or "192.168.0.27")
+    heartbeat = HeartbeatPoller(host).start()   # Jetson host metrics + logic-UPS (background)
     arms_ep = ep.get("arms", {})
 
     def _arm_ep(side: str, kind: str, port: int) -> str:
@@ -189,7 +262,11 @@ def main():
     left_telem = _arm_ep("left", "telemetry", 5556)
     right_cmd = _arm_ep("right", "command", 5575)   # 5557-5560 = aizee-camera-relay
     right_telem = _arm_ep("right", "telemetry", 5576)
-    cam_eps = mcfg.camera_endpoints(cfg)
+    # Camera endpoints in the config are tcp://localhost:PORT; rewrite the host to
+    # the resolved Jetson (same as the arms) so we subscribe to the Jetson's camera
+    # publishers, not the laptop's localhost (which is why no camera showed up).
+    cam_eps = {name: url.replace("localhost", host).replace("127.0.0.1", host)
+               for name, url in mcfg.camera_endpoints(cfg).items()}
     cam_sizes = mcfg.camera_sizes(cfg)
     safe = mcfg.safety(cfg)
     max_delta = max_delta_vector(
@@ -197,15 +274,89 @@ def main():
         gripper=float(safe.get("max_delta_gripper", 0.50)),
         head=float(safe.get("max_delta_head", 0.15)),
         lift=float(safe.get("max_delta_lift", 0.01)))
-    kp_cmd = [float(k) * args.kp_scale for k in KP]   # scaled-down gains for first motion
-    # Per-joint torque-based LEAD cap: bounds (command − actual) so PD torque never
-    # exceeds each joint's nominal saturation. Used for both the engage ramp and live
-    # tracking — tighter than the flat velocity guard on the high-kp joints.
-    lead_cap = lead_cap_vector(kp_cmd, max_delta)
-    # Live speed: the GUI slider writes gui_params["kp_scale"]; the loop rebuilds kp_cmd +
-    # lead_cap when it changes (lead_cap auto-tightens as kp rises, so torque stays safe).
-    gui_params = {"kp_scale": float(args.kp_scale)}
-    cur_kp_scale = float(args.kp_scale)
+    # ---- persistent user preferences (Settings dialog) override the CLI defaults ----
+    # A pref is None until the operator sets it in Settings, so CLI flags still work until
+    # then. Arm gains are 6-vectors (j1..j6, applied to both arms) or None = constants.
+    _settings = CollectorSettings()
+
+    def _pref(key, fallback):
+        v = _settings.get(key)
+        return fallback if v is None else v
+
+    def _splat_arm(arm6, base17):
+        """Put a 6-vec (j1..j6) onto both arms of a 17-vec; keep gripper/head/lift."""
+        out = [float(x) for x in base17]
+        for lo in (0, 7):                       # left arm 0..5, right arm 7..12
+            for k in range(6):
+                out[lo + k] = float(arm6[k])
+        return out
+
+    # Live per-joint base gains (mutable — the loop re-splats these when the Settings
+    # dialog bumps gui_params["gains_rev"]).
+    arm_kp6 = list(_pref("arm_kp", [float(x) for x in KP[0:6]]))
+    arm_kd6 = list(_pref("arm_kd", [float(x) for x in KD[0:6]]))
+    arm_sat6 = list(_pref("arm_sat", [float(x) for x in SAT_TORQUE[0:6]]))
+    base_kp = _splat_arm(arm_kp6, KP)
+    base_kd = _splat_arm(arm_kd6, KD)
+    base_sat = np.array(_splat_arm(arm_sat6, SAT_TORQUE), dtype=np.float32)
+
+    # Arm gains scale with kp_scale (the Speed slider); the GRIPPER gets its own
+    # strength (grip_strength), decoupled from arm speed so it can grip firmly.
+    cur_grip_strength = float(_pref("grip_strength", args.grip_strength))
+    cur_kp_scale = float(_pref("kp_scale", args.kp_scale))
+
+    def _build_gains(ks: float, gs: float):
+        """Return (kp_cmd[17], lead_cap[17]) from the LIVE base gains. Arms: kp=base_kp*ks,
+        lead capped to base_sat/kp (torque-bounded, so a fast move can't spike torque).
+        GRIPPER: kp=base_kp*gs, lead = FULL max_delta so it snaps to the trigger (contact
+        force bounded by the motor's own torque saturation)."""
+        kc = [float(k) * ks for k in base_kp]
+        for gi in GRIPPER_INDICES:
+            kc[gi] = float(base_kp[gi]) * gs
+        lc = lead_cap_vector(kc, max_delta, sat=base_sat)
+        for gi in GRIPPER_INDICES:
+            lc[gi] = max_delta[gi]     # gripper tracks the trigger fast; motor caps the force
+        return kc, lc
+
+    kp_cmd, lead_cap = _build_gains(cur_kp_scale, cur_grip_strength)
+    _ff_invert = _pref("grip_ff_invert", None)
+    _ff_sign = (1 if _ff_invert else -1) if _ff_invert is not None else int(GRIP_FF_SIGN)
+    # Live params: GUI sliders/dialog write here; the loop reads them each tick and
+    # rebuilds gains when kp_scale / grip_strength / gains_rev change.
+    gui_params = {
+        "kp_scale": cur_kp_scale,
+        "grip_strength": cur_grip_strength,           # gripper KP mult (GUI slider, live)
+        # Gripper force-feedback (leader haptics): GUI toggles/invert/gain write here.
+        "grip_ff": bool(_pref("grip_ff", args.grip_ff)),
+        "grip_ff_gain": float(_pref("grip_ff_gain", args.grip_ff_gain)),
+        "grip_ff_sign": _ff_sign,
+        # Gravity feedforward (arm droop cancellation): GUI toggles grav_comp + trims
+        # grav_scale live; grav_ok tells the GUI whether a calibration file was found.
+        "grav_comp": bool(_pref("grav_comp", args.grav_comp)),
+        "grav_scale": float(_pref("grav_scale", args.grav_scale)),
+        "grav_ok": False,
+        # Live arm tuning: the Settings dialog writes these 6-vecs then bumps gains_rev.
+        "arm_kp": list(arm_kp6), "arm_kd": list(arm_kd6), "arm_sat": list(arm_sat6),
+        "gains_rev": 0,
+    }
+    _cur_gains_rev = 0
+
+    # Gravity feedforward model (from minerva_gravity_calibrate.py). Optional — if the
+    # file is missing the collector runs exactly as before (grav_comp stays inert).
+    grav_model = None
+    try:
+        _gpath = _repo_config(Path(args.grav_file).name) if not Path(args.grav_file).is_absolute() \
+            else Path(args.grav_file)
+        if _gpath and Path(_gpath).exists():
+            grav_model = MinervaGravityModel.from_json(_gpath)
+            gui_params["grav_ok"] = True
+            print(f"[grav] loaded {len(grav_model.fits)} joint fits from {_gpath} "
+                  f"(feedforward {'ON' if args.grav_comp else 'off'}, scale={args.grav_scale})")
+        else:
+            print(f"[grav] no gravity model at {args.grav_file} — run "
+                  f"minerva_gravity_calibrate.py; feedforward disabled")
+    except Exception as _exc:
+        print(f"[grav] could not load gravity model ({_exc}); feedforward disabled")
     # Follower joint limits: override the seeded placeholder JOINT_LIMITS with the REAL
     # measured travel from minerva_calibrate.py (if present) so the diff bars and the
     # safety clamp use true ranges. Mutates the shared array before the GUI/loop read it.
@@ -216,7 +367,10 @@ def main():
     Path(out_dir).mkdir(parents=True, exist_ok=True)
 
     meta = {"language_instruction": args.instruction, "notes": args.notes,
-            "task_id": args.task_id}
+            "task_id": args.task_id,
+            # Camera stream endpoints (host-rewritten) + configured sizes, so the GUI
+            # camera tiles can show the source port and target resolution.
+            "cam_endpoints": cam_eps, "cam_sizes": cam_sizes}
 
     print("=" * 64)
     print("Minerva collector — teleop + record  (dual-arm, Path A)")
@@ -409,9 +563,24 @@ def main():
     print("Controls (IDLE-FIRST): [I]dle=read+zero-torque  [E]nable-gains(only from Idle)  "
           "[T]eleop  [H]disable [R]ec | [Z]leader-zero [M]irror [K]mech-zero [P]ready [X]shutdown [Q]uit")
 
+    # Optional loop profiler (set AIZEE_PROFILE=1). Every ~2 s it prints where each
+    # 30 Hz tick's wall time went — telemetry read, target (incl. leader poll read),
+    # command send, snapshot+camera push — plus the actual loop rate and worst-case
+    # period. Lets us see whether a stutter is the loop blocking (and where) vs. the
+    # leader/telemetry arriving late. Zero cost when the env var is unset.
+    _profile = bool(os.environ.get("AIZEE_PROFILE"))
+    _prof = {"period": [], "tel": [], "tgt": [], "cmd": [], "snap": []}
+    _prof_last = time.monotonic()
+    _prev_t0 = None
+
     try:
         while True:
             t0 = time.monotonic()
+            if _profile:
+                if _prev_t0 is not None:
+                    _prof["period"].append(t0 - _prev_t0)
+                _prev_t0 = t0
+                _tstamp = [t0]   # section boundary timestamps
 
             # ---- inputs (GUI key queue; joystick record edges) ----
             key = None
@@ -441,15 +610,28 @@ def main():
             temp_c = follower.temps_partial()        # per-joint temperature (°C)
             qpos_both = follower.qpos()              # strict (both present) — required for recording
             present = follower.arm_ok()              # {left, right} bools
-            # live speed (GUI slider) — rebuild gains + torque cap when it changes
+            # live speed + grip strength (GUI sliders) — rebuild gains + torque cap on change
             ks = float(gui_params.get("kp_scale", cur_kp_scale))
-            if ks != cur_kp_scale:
+            gs = float(gui_params.get("grip_strength", cur_grip_strength))
+            rev = int(gui_params.get("gains_rev", _cur_gains_rev))
+            if rev != _cur_gains_rev:
+                # Settings dialog edited per-joint kp/kd/SAT — re-splat the base gains
+                # (both arms) and rebuild the commanded gains + torque-bounded lead.
+                _cur_gains_rev = rev
+                base_kp = _splat_arm(gui_params.get("arm_kp", arm_kp6), KP)
+                base_kd = _splat_arm(gui_params.get("arm_kd", arm_kd6), KD)
+                base_sat = np.array(_splat_arm(gui_params.get("arm_sat", arm_sat6), SAT_TORQUE),
+                                    dtype=np.float32)
+                cur_kp_scale, cur_grip_strength = ks, gs
+                kp_cmd, lead_cap = _build_gains(ks, gs)
+            elif ks != cur_kp_scale or gs != cur_grip_strength:
                 cur_kp_scale = ks
-                kp_cmd = [float(k) * ks for k in KP]
-                lead_cap = lead_cap_vector(kp_cmd, max_delta)
+                cur_grip_strength = gs
+                kp_cmd, lead_cap = _build_gains(ks, gs)
             # Control math must never see NaN; set_target skips any dropped arm, so
             # 0-filling the missing slots here is harmless (they're never commanded).
             q_ctrl = None if qpos_actual is None else np.nan_to_num(qpos_actual, nan=0.0)
+            if _profile: _tstamp.append(time.monotonic())   # after telemetry read
 
             # ---- target ----
             if state == State.ENGAGING and q_ctrl is not None:
@@ -480,14 +662,49 @@ def main():
                 if np.all(np.abs(q_ctrl[:14]) < 0.05):
                     disable()
 
+            if _profile: _tstamp.append(time.monotonic())   # after target (incl. leader read)
+
+            # ---- gravity feedforward (arm droop cancellation) ----
+            # tau_ff from the identified per-joint gravity model, evaluated at the
+            # MEASURED pose (the model zeros NaN/uncalibrated joints; set_target zeros
+            # any dropped arm). Only when a model is loaded AND the GUI toggle is on;
+            # grav_scale trims it live (ramp 0->1 while validating). None => plain PD.
+            tau_ff = None
+            grav_ma = 0.0
+            if (grav_model is not None and gui_params.get("grav_comp")
+                    and qpos_actual is not None
+                    and state in (State.HOLD, State.ENGAGING, State.TELEOP, State.SHUTDOWN)):
+                tau_ff = grav_model.gravity_torques(
+                    qpos_actual, scale=float(gui_params.get("grav_scale", 1.0)))
+                grav_ma = float(np.nanmax(np.abs(tau_ff))) if tau_ff is not None else 0.0
+
             # ---- command (set_target skips whichever arm's bus is down) ----
             if not args.dry_run:
                 if state in (State.HOLD, State.ENGAGING, State.TELEOP, State.SHUTDOWN) and q_target is not None:
-                    follower.set_target(q_target, kp_cmd, KD)
+                    follower.set_target(q_target, kp_cmd, base_kd, tau17=tau_ff)
                 elif state == State.IDLE and q_ctrl is not None:
                     # zero-torque backdrive: command the measured pose with kp=kd=0
                     follower.set_target(q_ctrl, [0.0] * NUM_MINERVA_JOINTS,
                                         [0.0] * NUM_MINERVA_JOINTS)
+
+            # ---- leader gripper force feedback (haptics) ----
+            # ONLY while actively teleoperating: render each follower gripper's
+            # grasp torque back onto the leader gripper it drives, so the operator
+            # feels the squeeze. Every other state (and the GUI toggle off) releases
+            # the leader grippers to free backdrive. The OpenRB firmware watchdog is
+            # the backstop that drops leader torque if this loop ever stalls.
+            grip_ff_ma = {"left": 0, "right": 0}
+            if (not args.dry_run and state == State.TELEOP
+                    and gui_params.get("grip_ff") and torque is not None):
+                grip_ff_ma = teleop.apply_gripper_ff(
+                    torque,
+                    gain=float(gui_params.get("grip_ff_gain", GRIP_FF_GAIN_MA_PER_NM)),
+                    deadband=GRIP_FF_DEADBAND_NM,
+                    cap=GRIP_FF_CAP_MA,
+                    sign=int(gui_params.get("grip_ff_sign", GRIP_FF_SIGN)))
+            else:
+                teleop.release_gripper_ff()
+            if _profile: _tstamp.append(time.monotonic())   # after command + FF
 
             # ---- recording (subsampled; needs BOTH arms — never record half data) ----
             if recording and (t0 - last_rec) >= (1.0 / REC_HZ):
@@ -526,6 +743,13 @@ def main():
                 "torque": None if torque is None else torque.tolist(),
                 "temp": None if temp_c is None else temp_c.tolist(),
                 "kp_scale": cur_kp_scale,
+                "grip_ff_ma": grip_ff_ma,   # {left,right} applied leader current (mA)
+                "grav_on": bool(grav_model is not None and gui_params.get("grav_comp")),
+                "grav_peak": grav_ma,        # peak |gravity FF| applied this tick (Nm)
+                "battery": follower.battery_voltage(),   # motor-pack V (min of arms)
+                "estop": follower.estop(),               # True/False/None
+                "jetson": host,                          # resolved Jetson address
+                "host": heartbeat.host(),                # Jetson CPU/mem/disk/wifi + UPS (or None)
                 "telem_age": max(follower.telem_age().values()), "cam_ages": cam_ages,
                 "arm_ages": follower.telem_age(),
                 "present": present,          # {left, right} — which arms are reporting
@@ -564,11 +788,33 @@ def main():
                       f"drop={session.dropped} L={'Y' if led['left'] else 'n'} "
                       f"R={'Y' if led['right'] else 'n'} arm0:[{qs}]   ", end="", flush=True)
 
+            if _profile and len(_tstamp) >= 4:
+                _te = time.monotonic()
+                _prof["tel"].append(_tstamp[1] - _tstamp[0])
+                _prof["tgt"].append(_tstamp[2] - _tstamp[1])
+                _prof["cmd"].append(_tstamp[3] - _tstamp[2])
+                _prof["snap"].append(_te - _tstamp[3])
+                if _te - _prof_last >= 2.0:
+                    _prof_last = _te
+                    def _mm(x):   # (mean_ms, max_ms)
+                        return (sum(x) / len(x) * 1e3, max(x) * 1e3) if x else (0.0, 0.0)
+                    pm = _prof["period"]
+                    hz = (len(pm) / sum(pm)) if pm and sum(pm) > 0 else 0.0
+                    pmax = max(pm) * 1e3 if pm else 0.0
+                    tel, tgt, cmd, snap = (_mm(_prof[k]) for k in ("tel", "tgt", "cmd", "snap"))
+                    print(f"\n[perf] {hz:4.1f}Hz  period_max={pmax:6.1f}ms | "
+                          f"tel {tel[0]:4.1f}/{tel[1]:5.1f}  tgt {tgt[0]:4.1f}/{tgt[1]:6.1f}  "
+                          f"cmd {cmd[0]:4.1f}/{cmd[1]:5.1f}  snap {snap[0]:4.1f}/{snap[1]:6.1f}  "
+                          f"(mean/max ms)  telem_age={max(follower.telem_age().values())*1e3:.0f}ms", flush=True)
+                    for _k in _prof:
+                        _prof[_k].clear()
+
             time.sleep(max(0.0, period - (time.monotonic() - t0)))
     except KeyboardInterrupt:
         print("\nInterrupted.")
     finally:
         print("\nShutting down...")
+        heartbeat.close()
         if recording:
             finalize_recording("(shutdown)")
         # Disable both arms (follower.disable clears each re-emit holder before

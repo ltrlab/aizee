@@ -24,6 +24,7 @@ cleanly to jog-only.
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from pathlib import Path
@@ -33,9 +34,28 @@ import numpy as np
 
 from common.minerva_constants import (
     NUM_MINERVA_JOINTS, HEAD_INDICES, LIFT_INDEX, JOINT_LIMITS, clamp_positions,
+    GRIP_FF_GAIN_MA_PER_NM, GRIP_FF_DEADBAND_NM, GRIP_FF_CAP_MA, GRIP_FF_SIGN,
+    GRIP_FF_SMOOTH, grip_ff_current,
 )
 
 _N = NUM_MINERVA_JOINTS
+
+# Leader servo slot (OpenRBLeader.JOINTS order) of the gripper, and the follower
+# 17-vec gripper torque index per follower side. Force feedback only touches the
+# gripper slot; the other 6 slots stay in backdrive (FF_DISABLE_SENTINEL).
+_LEADER_GRIP_SLOT = 6                      # 7th servo (ID 7) on each OpenRB leader
+_N_LEADER_SERVOS = 7
+_FOLLOWER_GRIP_IDX = {"left": 6, "right": 13}
+# Mirror of openrb_leader.FF_DISABLE_SENTINEL (= INT16_MIN) so this module needs
+# no hard dependency on the (pyserial-gated) driver import.
+_FF_DISABLE_SENTINEL = -32768
+# FF send throttle. The leader FF write shares the same USB-CDC port as the
+# high-rate position poll, so writing every control tick (~30 Hz) stutters
+# teleop. Instead: only write when the current changed meaningfully, OR to
+# refresh a NONZERO current before the firmware's 200 ms zero-watchdog fires.
+# In free air the current is 0 and we go completely silent — no contention.
+_FF_MIN_RESEND_S = 0.12   # refresh a held nonzero current at ~8 Hz (< 200 ms watchdog)
+_FF_SEND_DELTA_MA = 4     # write immediately if the target moved at least this many mA
 
 
 def _import_openrb():
@@ -107,6 +127,15 @@ class MinervaTeleop:
         self._last_press = {"left": 0, "right": 0}
         self._pending_record_edges = 0
 
+        # Gripper force-feedback state (per PHYSICAL leader). `_grip_ff_ma` is the
+        # EMA-smoothed output current; `_ff_engaged` tracks whether we've put a
+        # leader's gripper slot into current-control so release() only fires when
+        # needed. Written only from the main-loop thread (apply/release).
+        self._grip_ff_ma = {"left": 0.0, "right": 0.0}
+        self._ff_engaged = {"left": False, "right": False}
+        self._ff_last_sent = {"left": None, "right": None}    # last mA actually written
+        self._ff_last_send_t = {"left": 0.0, "right": 0.0}    # monotonic time of that write
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -172,10 +201,22 @@ class MinervaTeleop:
             return
 
         def _run():
+            # Optional leader-poll profiler (AIZEE_PROFILE=1): every ~2 s prints each
+            # leader's actual poll RATE, dropped-frame count, and worst-case poll
+            # duration. A slow/stalling leader poll leaves the loop timing smooth but
+            # makes the arm stutter (target uses stale leader data) — the one thing the
+            # main-loop [perf] line can't see. [polls, none, dur_max_s]
+            _prof = bool(os.environ.get("AIZEE_PROFILE"))
+            _st = {"left": [0, 0, 0.0], "right": [0, 0, 0.0]}
+            _last = time.monotonic()
             while not self._reader_stop.is_set():
                 did = False
                 if self._left is not None:
+                    _t = time.monotonic() if _prof else 0.0
                     r = self._left.poll()
+                    if _prof:
+                        _st["left"][0] += 1; _st["left"][2] = max(_st["left"][2], time.monotonic() - _t)
+                        if r is None: _st["left"][1] += 1
                     joy = self._left.last_joystick
                     with self._lock:
                         if r is not None:
@@ -184,7 +225,11 @@ class MinervaTeleop:
                     self._note_press("left", joy)
                     did = True
                 if self._right is not None:
+                    _t = time.monotonic() if _prof else 0.0
                     r = self._right.poll()
+                    if _prof:
+                        _st["right"][0] += 1; _st["right"][2] = max(_st["right"][2], time.monotonic() - _t)
+                        if r is None: _st["right"][1] += 1
                     joy = self._right.last_joystick
                     with self._lock:
                         if r is not None:
@@ -192,6 +237,12 @@ class MinervaTeleop:
                         self._right_joy = joy
                     self._note_press("right", joy)
                     did = True
+                if _prof and (time.monotonic() - _last) >= 2.0:
+                    el = time.monotonic() - _last; _last = time.monotonic()
+                    def _fmt(k):
+                        n, none, dm = _st[k]; _st[k][:] = [0, 0, 0.0]
+                        return f"{k} {n/el:5.1f}poll/s none={none:<3d} max={dm*1e3:5.1f}ms"
+                    print(f"[leader] {_fmt('left')} | {_fmt('right')}", flush=True)
                 if not did:
                     self._reader_stop.wait(0.02)   # jog-only: nothing to poll
 
@@ -269,6 +320,87 @@ class MinervaTeleop:
         f = np.clip(np.asarray(frac[:7], dtype=np.float32), 0.0, 1.0)
         span = hi - lo
         return np.where(np.asarray(dr[:7]) >= 0, lo + f * span, hi - f * span).astype(np.float32)
+
+    # ------------------------------------------------------------------
+    # Gripper force feedback (leader haptics)
+    # ------------------------------------------------------------------
+    # Routing note: this is the INVERSE of _arm_source. There we ask "which
+    # leader drives this follower arm"; here "which follower arm does this
+    # physical leader feel". For the gripper that inverse is symmetric — leader
+    # `k` feels follower `k` when not swapped, the opposite side when swapped.
+    def apply_gripper_ff(
+        self,
+        follower_torque,
+        *,
+        gain: float = GRIP_FF_GAIN_MA_PER_NM,
+        deadband: float = GRIP_FF_DEADBAND_NM,
+        cap: int = GRIP_FF_CAP_MA,
+        sign: int = GRIP_FF_SIGN,
+        smooth: float = GRIP_FF_SMOOTH,
+    ) -> dict:
+        """Render the follower grippers' grasp torque as a resist current on the
+        two leader grippers (XL330 slot 6). Swap-aware: each physical leader feels
+        the follower arm it actually drives. `follower_torque` is the 17-vec of
+        measured motor torques (Nm); NaN / missing-arm slots yield no feedback.
+
+        Call every main-loop tick WHILE teleoperating; call release_gripper_ff()
+        in every other state. Returns {'left': mA, 'right': mA} actually applied
+        (smoothed, 0 when released) for display. Cheap fire-and-forget writes; the
+        OpenRB firmware watchdog releases torque if these stop arriving."""
+        result = {"left": 0, "right": 0}
+        if follower_torque is None:
+            self.release_gripper_ff()
+            return result
+        tq = np.asarray(follower_torque, dtype=np.float32)
+        swapped = self._swapped   # plain bool read; no lock needed for a snapshot
+        now = time.monotonic()
+        for leader_key, dev in (("left", self._left), ("right", self._right)):
+            if dev is None:
+                continue
+            side = leader_key if not swapped else ("right" if leader_key == "left" else "left")
+            gidx = _FOLLOWER_GRIP_IDX[side]
+            raw = grip_ff_current(tq[gidx] if gidx < tq.size else float("nan"),
+                                  gain=gain, deadband=deadband, cap=cap, sign=sign)
+            # EMA smooth the output so a noisy torque estimate doesn't buzz the
+            # servo; snaps to 0 promptly because raw is already 0 in free air.
+            prev = self._grip_ff_ma[leader_key]
+            cur = (1.0 - smooth) * prev + smooth * float(raw)
+            self._grip_ff_ma[leader_key] = cur
+            ma = int(round(cur))
+            result[leader_key] = ma
+            # THROTTLE the actual serial write (see _FF_MIN_RESEND_S). Write when
+            # the target moved by >= _FF_SEND_DELTA_MA, or to refresh a nonzero
+            # current before the firmware watchdog zeros it. A steady 0 (free air)
+            # sends nothing after the first — so FF never stutters the poll while
+            # you're just moving the arm around.
+            last = self._ff_last_sent[leader_key]
+            changed = last is None or abs(ma - last) >= _FF_SEND_DELTA_MA
+            refresh = ma != 0 and (now - self._ff_last_send_t[leader_key]) >= _FF_MIN_RESEND_S
+            if changed or refresh:
+                vec = [_FF_DISABLE_SENTINEL] * _N_LEADER_SERVOS
+                vec[_LEADER_GRIP_SLOT] = ma
+                try:
+                    dev.set_ff_currents(vec)
+                    self._ff_engaged[leader_key] = True
+                    self._ff_last_sent[leader_key] = ma
+                    self._ff_last_send_t[leader_key] = now
+                except Exception:
+                    pass
+        return result
+
+    def release_gripper_ff(self) -> None:
+        """Return both leader grippers to free backdrive (disable-sentinel on every
+        slot). Idempotent and cheap; only actually writes to a leader that had FF
+        engaged. The firmware also auto-releases after ~1 s of command silence."""
+        for leader_key, dev in (("left", self._left), ("right", self._right)):
+            self._grip_ff_ma[leader_key] = 0.0
+            self._ff_last_sent[leader_key] = None     # re-enable starts fresh
+            if dev is not None and self._ff_engaged.get(leader_key):
+                try:
+                    dev.set_ff_currents([_FF_DISABLE_SENTINEL] * _N_LEADER_SERVOS)
+                except Exception:
+                    pass
+                self._ff_engaged[leader_key] = False
 
     # ------------------------------------------------------------------
     # Engage / target
