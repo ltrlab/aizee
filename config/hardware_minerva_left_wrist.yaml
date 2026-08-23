@@ -1,0 +1,36 @@
+# Minerva LEFT-WRIST camera — USB UVC color, published for the collector's
+# left_wrist stream (tcp://<jetson>:5563). Run with gripper_camera_node.py.
+#
+# NOTE: `device` is a raw /dev/videoN for bring-up. It is NOT stable across
+# reboots/replugs — once the two wrist cameras are both healthy, pin stable
+# names with a udev rule (by USB port, or by VID:PID while the two cams differ)
+# and point `device` at the symlink.
+camera:
+  id: left_wrist
+  device: /dev/video0            # HD USB Camera (32e4:9230) — the one that opens cleanly
+  usb_id: "32e4:9230"            # USB VID:PID — lets the node re-find this cam after a
+                                 # replug that renumbers /dev/videoN (video0 -> videoN)
+  fourcc: MJPG
+  streams:
+    color:
+      enabled: true
+      width: 640                 # matches minerva.yaml cameras.left_wrist
+      height: 480
+      fps: 30
+      compression: JPEG
+      quality: 85
+      flip: "none"
+  # v4l2-ctl is not installed on this Jetson yet, so leave controls empty and
+  # use the camera's own auto-exposure for now (install v4l-utils to tune).
+  v4l2_controls: {}
+
+network:
+  device:
+    ip: 10.42.0.1
+    hostname: aizee-rover
+    zmq:
+      camera_pub:  "tcp://*:5563"   # Minerva left_wrist stream
+      camera_ctrl: "tcp://*:5573"   # runtime V4L2 control REP (unused until v4l-utils installed)
+
+logging:
+  level: INFO

@@ -56,6 +56,10 @@ class GripperCameraNode:
         self.camera_id: str = cam_cfg.get("id", "gripper_cam")
         # /dev/videoN device path. Prefer the stable symlink set by udev.
         self.device: str = str(cam_cfg.get("device", "/dev/aizee_gripper_cam"))
+        # Optional USB VID:PID ("32e4:9230"). When set, the node can re-find THIS
+        # camera by identity after an unplug/replug that renumbers /dev/videoN
+        # (video0 -> video4), instead of being stuck on a now-dead path.
+        self.usb_id: str = str(cam_cfg.get("usb_id", "")).strip().lower()
         self.fourcc: str = str(cam_cfg.get("fourcc", "MJPG")).upper()
 
         self.capture_w: int = int(color_cfg.get("width", 1024))
@@ -97,6 +101,9 @@ class GripperCameraNode:
         logger.setLevel(getattr(logging, log_level, logging.INFO))
 
         self.cap: Optional[cv2.VideoCapture] = None
+        # The device path we actually opened (may differ from self.device after a
+        # replug renumber); v4l2-ctl targets this so runtime controls hit the live node.
+        self._active_device: str = self.device
         self.zmq_context: Optional[zmq.Context] = None
         self.zmq_socket: Optional[zmq.Socket] = None
         self.ctrl_socket: Optional[zmq.Socket] = None
@@ -107,15 +114,90 @@ class GripperCameraNode:
         self._stat_encode_ms: list = []
         self._stat_send_ms: list = []
 
+    # --- reconnect tuning ---
+    _READ_FAIL_LIMIT = 30            # consecutive failed reads => device lost (~0.6s @ 50Hz)
+    _REOPEN_BACKOFF_S = (0.5, 1.0, 2.0, 3.0)   # escalating wait between reopen attempts
+
+    @staticmethod
+    def _node_usb_id(dev_path: str) -> str:
+        """'vvvv:pppp' (lowercase) USB VID:PID for a /dev/videoN (following symlinks)
+        via sysfs, or '' if it can't be determined."""
+        import os
+        try:
+            node = os.path.basename(os.path.realpath(dev_path))
+            d = os.path.realpath(f"/sys/class/video4linux/{node}/device")
+        except OSError:
+            return ""
+        for _ in range(6):            # walk interface dir up to the usb_device dir
+            iv, ip = os.path.join(d, "idVendor"), os.path.join(d, "idProduct")
+            if os.path.exists(iv) and os.path.exists(ip):
+                try:
+                    with open(iv) as f:
+                        v = f.read().strip().lower()
+                    with open(ip) as f:
+                        p = f.read().strip().lower()
+                    return f"{v}:{p}"
+                except OSError:
+                    return ""
+            nd = os.path.dirname(d)
+            if nd == d:
+                break
+            d = nd
+        return ""
+
+    def _find_video_by_usb_id(self, usb_id: str) -> Optional[str]:
+        """Lowest-numbered /dev/video* whose USB identity matches `usb_id` AND that
+        actually delivers a frame (skips a camera's metadata-only nodes). None if the
+        camera isn't present."""
+        import glob
+        import os
+
+        def _num(p: str) -> int:
+            digits = "".join(ch for ch in os.path.basename(p) if ch.isdigit())
+            return int(digits) if digits else 0
+
+        matches = [d for d in sorted(glob.glob("/dev/video*"), key=_num)
+                   if self._node_usb_id(d) == usb_id]
+        for dev in matches:
+            cap = cv2.VideoCapture(dev, cv2.CAP_V4L2)
+            try:
+                if cap.isOpened() and cap.read()[0]:
+                    return dev
+            finally:
+                cap.release()
+        return matches[0] if matches else None
+
+    def _resolve_device(self) -> Optional[str]:
+        """Device path to open. Prefer the configured path, but if a usb_id is set,
+        verify it still points at THIS camera and otherwise rescan by identity — so a
+        replug that renumbers the node is transparently recovered. None if not found."""
+        import os
+        if not self.usb_id:
+            return self.device if os.path.exists(self.device) else None
+        # usb_id known: trust the configured path only if it still IS this camera
+        if os.path.exists(self.device) and self._node_usb_id(self.device) == self.usb_id:
+            return self.device
+        found = self._find_video_by_usb_id(self.usb_id)
+        if found and found != self.device:
+            logger.info(f"{self.camera_id}: {self.usb_id} is now {found} "
+                        f"(configured {self.device})")
+        return found
+
     def initialize_camera(self):
+        dev = self._resolve_device()
+        if dev is None:
+            raise RuntimeError(
+                f"camera not found (device={self.device} usb_id={self.usb_id or 'n/a'})")
         logger.info(
-            f"Opening UVC camera: id={self.camera_id} dev={self.device} "
+            f"Opening UVC camera: id={self.camera_id} dev={dev} "
             f"{self.capture_w}x{self.capture_h}@{self.fps} fourcc={self.fourcc}"
         )
 
-        cap = cv2.VideoCapture(self.device, cv2.CAP_V4L2)
+        cap = cv2.VideoCapture(dev, cv2.CAP_V4L2)
         if not cap.isOpened():
-            raise RuntimeError(f"Failed to open camera at {self.device}")
+            cap.release()
+            raise RuntimeError(f"Failed to open camera at {dev}")
+        self._active_device = dev
 
         # FOURCC must be set BEFORE width/height/fps for many UVC drivers.
         fourcc = _FOURCC.get(self.fourcc)
@@ -148,7 +230,7 @@ class GripperCameraNode:
         if not self.v4l2_controls:
             return
         for name, value in self.v4l2_controls.items():
-            cmd = ["v4l2-ctl", "--device", self.device,
+            cmd = ["v4l2-ctl", "--device", self._active_device,
                    f"--set-ctrl={name}={value}"]
             try:
                 r = subprocess.run(cmd, capture_output=True, text=True, timeout=2.0)
@@ -202,7 +284,7 @@ class GripperCameraNode:
 
     def _v4l2_set(self, name: str, value) -> tuple[bool, str]:
         """Run `v4l2-ctl --set-ctrl name=value`. Returns (ok, message)."""
-        cmd = ["v4l2-ctl", "--device", self.device, f"--set-ctrl={name}={value}"]
+        cmd = ["v4l2-ctl", "--device", self._active_device, f"--set-ctrl={name}={value}"]
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=2.0)
         except FileNotFoundError:
@@ -223,7 +305,7 @@ class GripperCameraNode:
         """
         try:
             r = subprocess.run(
-                ["v4l2-ctl", "--device", self.device, "--list-ctrls"],
+                ["v4l2-ctl", "--device", self._active_device, "--list-ctrls"],
                 capture_output=True, text=True, timeout=2.0,
             )
         except (FileNotFoundError, subprocess.TimeoutExpired) as e:
@@ -337,20 +419,33 @@ class GripperCameraNode:
         return buf.tobytes(), bgr.shape[1], bgr.shape[0]
 
     def process_frames(self):
-        logger.info("Starting frame capture loop")
-        self.running = True
+        """Capture + publish until the device disappears (or we're told to stop).
+
+        Returns to the supervisor (run) on device loss so it can reconnect — it does
+        NOT loop forever on a dead handle or exit the process. ZMQ stays bound across
+        reconnects, so the collector's subscriber just resumes when frames return."""
+        logger.info(f"{self.camera_id}: capture loop started ({self._active_device})")
 
         # Warm up — first few frames are typically junk on UVC.
         for _ in range(5):
             self.cap.read()
 
+        read_fails = 0
         while self.running:
             try:
                 ok, frame_bgr = self.cap.read()
                 if not ok or frame_bgr is None:
-                    logger.warning("Failed to read frame; retrying...")
+                    # A UVC unplug usually surfaces as steady read failures (NOT an
+                    # exception), so count them and treat a run of them as device loss.
+                    read_fails += 1
+                    if read_fails >= self._READ_FAIL_LIMIT:
+                        logger.warning(f"{self.camera_id}: {read_fails} consecutive read "
+                                       f"failures — camera unplugged? reconnecting...")
+                        self._release_capture()
+                        return
                     time.sleep(0.02)
                     continue
+                read_fails = 0
 
                 timestamp = time.time()
 
@@ -404,18 +499,14 @@ class GripperCameraNode:
                     self._stat_send_ms.clear()
 
             except KeyboardInterrupt:
-                break
+                self.running = False
+                return
             except Exception as e:
-                logger.error(f"Capture error: {e}", exc_info=True)
-                # Try to reopen the device — covers transient USB hiccups.
+                # Some drivers DO raise on unplug — hand back to the supervisor to
+                # reconnect rather than dying or busy-looping on a dead handle.
+                logger.error(f"{self.camera_id}: capture error: {e}", exc_info=True)
                 self._release_capture()
-                time.sleep(2)
-                try:
-                    self.initialize_camera()
-                except Exception as reinit_err:
-                    logger.error(f"Reinitialization failed: {reinit_err}")
-                    self.running = False
-                    break
+                return
 
     def _release_capture(self):
         if self.cap is not None:
@@ -435,13 +526,40 @@ class GripperCameraNode:
         if self.zmq_context:
             self.zmq_context.term()
 
+    def _open_with_retry(self) -> bool:
+        """Block until the camera opens (returns True) or we're shutting down (False).
+        Retries forever with backoff — this is what lets a replug recover on its own."""
+        attempt = 0
+        while self.running:
+            try:
+                self.initialize_camera()
+                logger.info(f"{self.camera_id}: camera online ({self._active_device})")
+                return True
+            except Exception as e:
+                self._release_capture()
+                wait = self._REOPEN_BACKOFF_S[min(attempt, len(self._REOPEN_BACKOFF_S) - 1)]
+                if attempt == 0:
+                    logger.warning(f"{self.camera_id}: camera unavailable ({e}); "
+                                   f"retrying until it's (re)plugged...")
+                elif attempt % 15 == 0:
+                    logger.info(f"{self.camera_id}: still waiting for camera ({e})")
+                attempt += 1
+                slept = 0.0
+                while slept < wait and self.running:   # responsive to shutdown
+                    time.sleep(0.1)
+                    slept += 0.1
+        return False
+
     def run(self):
+        self.running = True
         try:
-            self.initialize_camera()
-            self.initialize_zmq()
-            time.sleep(1)
+            self.initialize_zmq()          # bind ONCE; survives camera reconnects
             logger.info(f"Gripper camera node ready: {self.camera_id}")
-            self.process_frames()
+            while self.running:
+                if not self._open_with_retry():
+                    break
+                time.sleep(0.3)            # let the freshly-opened device settle
+                self.process_frames()      # returns on device loss -> loop reopens
         except KeyboardInterrupt:
             logger.info("Interrupted")
         except Exception as e:
@@ -462,10 +580,16 @@ def main():
     with open(args.config) as f:
         config = yaml.safe_load(f)
 
-    signal.signal(signal.SIGINT, lambda s, f: sys.exit(0))
-    signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
+    node = GripperCameraNode(config)
 
-    GripperCameraNode(config).run()
+    def _stop(signum, _frame):
+        logger.info(f"signal {signum} — shutting down {node.camera_id}")
+        node.running = False
+
+    signal.signal(signal.SIGINT, _stop)
+    signal.signal(signal.SIGTERM, _stop)
+
+    node.run()
 
 
 if __name__ == "__main__":
