@@ -265,8 +265,13 @@ def _test_gui(tel, tmp):
 
     # settings: dialog builds, values complete, and apply reconfigures the STT
     from collect_minerva_gui import _SettingsDialog
-    dlg = _SettingsDialog(win.settings)
-    assert set(dlg.values()) == {"mic_device", "voice_model", "voice_seconds"}
+    dlg = _SettingsDialog(win.settings, win.params)
+    _vals = dlg.values()
+    assert {"mic_device", "voice_model", "voice_seconds"} <= set(_vals)
+    # new tunables round-trip through the tabbed dialog
+    assert {"kp_scale", "grip_strength", "grav_comp", "grav_scale", "grip_ff",
+            "grip_ff_gain", "grip_ff_invert", "arm_kp", "arm_kd", "arm_sat"} <= set(_vals)
+    assert len(_vals["arm_kp"]) == 6 and len(_vals["arm_kd"]) == 6 and len(_vals["arm_sat"]) == 6
     win.settings.update({"voice_seconds": 3.0, "voice_model": "tiny.en"})
     win._voice_seconds = float(win.settings.get("voice_seconds"))
     win._reload_stt()
