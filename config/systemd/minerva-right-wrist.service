@@ -1,0 +1,18 @@
+[Unit]
+Description=Minerva Right Wrist Camera (UVC, self-recovering by USB id)
+After=network.target
+
+[Service]
+Type=simple
+User=ltr
+WorkingDirectory=/home/ltr/aizee
+Environment="PYTHONUNBUFFERED=1"
+Nice=5
+ExecStart=/usr/bin/python3 /home/ltr/aizee/python/nodes/gripper_camera_node.py --config /home/ltr/aizee/config/hardware_minerva_right_wrist.yaml
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
