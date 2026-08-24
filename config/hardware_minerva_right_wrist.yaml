@@ -6,9 +6,10 @@
 # and point `device` at the symlink.
 camera:
   id: right_wrist
-  device: /dev/video2            # USB 2.0 Camera / ELP (05a3:9230) — revived after cable swap
-  usb_id: "05a3:9230"            # USB VID:PID — lets the node re-find this cam after a
-                                 # replug that renumbers /dev/videoN (video2 -> videoN)
+  device: /dev/video0            # HD USB Camera (32e4:9230) — the physical RIGHT wrist cam
+  usb_id: "32e4:9230"            # USB VID:PID — resolves the physical RIGHT-arm camera regardless
+                                 # of /dev/videoN (renumbers on replug). NOTE: 05a3/32e4 swapped
+                                 # from bring-up — 32e4 is the right arm, 05a3 the left.
   fourcc: MJPG
   streams:
     color:
