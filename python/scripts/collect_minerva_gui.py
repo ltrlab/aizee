@@ -171,10 +171,10 @@ class _StatBox(QFrame):
 
 
 # GUI panel layout order (left -> right). The canonical CAMERAS order is kept for
-# recording/policy; this only arranges the on-screen panels: head/scene camera in the
-# CENTER, and the two wrist views swapped so they match the operator's physical
-# perspective facing the robot. Cameras not listed here trail in their given order.
-_CAM_DISPLAY_ORDER = ("right_wrist", "head", "left_wrist")
+# recording/policy; this only arranges the on-screen panels: natural left->right with the
+# head/scene camera in the CENTER, so each wrist feed sits on its physical side (left arm
+# left, right arm right). Cameras not listed here trail in their given order.
+_CAM_DISPLAY_ORDER = ("left_wrist", "head", "right_wrist")
 
 
 def _cam_display_order(cameras):
@@ -259,15 +259,14 @@ class _CameraPanel(QLabel):
 # the canonical camera name — the accent tints the title chip + the divider under the
 # feed, giving each viewport a recognisable signature the operator learns at a glance.
 #
-# NOTE the deliberate cross-labelling: the on-screen order is mirror-swapped
-# (_CAM_DISPLAY_ORDER) so each feed sits on the operator's matching side while they face
-# the robot. The label therefore names the OPERATOR'S side (which screen half it's on),
-# not the hardware wrist producing the feed — so the `right_wrist` camera, shown on the
-# operator's left, reads "LEFT WRIST", and vice-versa. Positions right, names match.
+# STRAIGHT labelling: each tile names the HARDWARE wrist that produces the feed, so the
+# left-arm camera always reads "LEFT WRIST" regardless of which screen half it sits in.
+# (_CAM_DISPLAY_ORDER still mirror-swaps the on-screen POSITIONS for the operator, so the
+# left camera reads "LEFT WRIST" while sitting on the operator's matching side.)
 _CAM_META = {
-    "right_wrist": ("LEFT WRIST",  "gripper", "#4ad8ff"),   # operator-left  → cyan
-    "left_wrist":  ("RIGHT WRIST", "gripper", "#7ee787"),   # operator-right → green
-    "head":        ("SCENE",       "overhead", "#ffcf4a"),  # centre         → amber
+    "left_wrist":  ("LEFT WRIST",  "gripper", "#4ad8ff"),   # cyan
+    "right_wrist": ("RIGHT WRIST", "gripper", "#7ee787"),   # green
+    "head":        ("SCENE",       "overhead", "#ffcf4a"),  # amber
 }
 _CAM_META_DEFAULT = ("CAMERA", "stream", "#9aa0a6")
 
