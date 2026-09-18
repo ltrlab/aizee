@@ -1,5 +1,5 @@
 {
-  "head": "fee7d6e6bf050ac5fa173a7ae8369fff309371ad",
+  "head": "3b551be9ec402493c7f4a2cc2d9fbecbbb4d0be2",
   "branch": "overhaul",
   "scope": "Present Git-tracked paths, working-tree contents; excludes untracked/ignored files. Generated inventory sizes omitted to avoid self-reference.",
   "import_method": "AST candidate imports resolved against known repository roots; includes conditional/test imports; not a runtime call graph. Dynamic imports, shell/config references and cross-language edges are not resolved.",
@@ -52,10 +52,6 @@
       "description": "Kinematic algorithms with Aizee model assumptions",
       "proposed_area": "src/robot_platform/kinematics/ + robots/aizee/ (split)"
     },
-    "minerva_writer": {
-      "description": "Compatibility import for the shared Minerva episode writer",
-      "proposed_area": "src/robot_platform/data/formats/minerva.py (implemented)"
-    },
     "aizee_app": {
       "description": "Aizee collector and supporting application code",
       "proposed_area": "src/robot_platform/apps/collect/aizee/ (extract shared services)"
@@ -97,15 +93,15 @@
       "proposed_area": "src/robot_platform/apps/ (classify by function before moving)"
     },
     "tests": {
-      "description": "Automated tests and hardware exercises currently mixed",
-      "proposed_area": "tests/unit/ + contract/ + integration/ + hardware/ (triage)"
+      "description": "Offline unit, contract, GUI and learning checks",
+      "proposed_area": "tests/unit/ + contract/ + ml/; remaining python/tests/ checks"
     },
     "deployment": {
       "description": "Deployment and host administration",
       "proposed_area": "deploy/"
     },
     "calibration": {
-      "description": "Calibration, alignment, ready-pose and gravity snapshots",
+      "description": "Active calibration, alignment and gravity inputs",
       "proposed_area": "robots/<robot>/calibration/examples/; active values in local state"
     },
     "profiles": {
@@ -146,7 +142,7 @@
       "path": ".gitignore",
       "area": "repo",
       "present": true,
-      "working_tree_bytes": 1576
+      "working_tree_bytes": 1491
     },
     {
       "path": "Cargo.lock",
@@ -176,13 +172,7 @@
       "path": "config/README.md",
       "area": "profiles",
       "present": true,
-      "working_tree_bytes": 3147
-    },
-    {
-      "path": "config/calibration_poses.json",
-      "area": "calibration",
-      "present": true,
-      "working_tree_bytes": 1218
+      "working_tree_bytes": 4941
     },
     {
       "path": "config/hardware_jetson_gripper_cam.yaml",
@@ -236,7 +226,7 @@
       "path": "config/joint_limits.yaml",
       "area": "profiles",
       "present": true,
-      "working_tree_bytes": 4395
+      "working_tree_bytes": 1630
     },
     {
       "path": "config/minerva.yaml",
@@ -279,12 +269,6 @@
       "area": "profiles",
       "present": true,
       "working_tree_bytes": 1193
-    },
-    {
-      "path": "config/ready_pose.json",
-      "area": "calibration",
-      "present": true,
-      "working_tree_bytes": 347
     },
     {
       "path": "config/robstride_calibration.json",
@@ -386,7 +370,7 @@
       "path": "config/teleop.yaml",
       "area": "profiles",
       "present": true,
-      "working_tree_bytes": 3056
+      "working_tree_bytes": 2568
     },
     {
       "path": "config/udev/80-minerva-can.rules",
@@ -428,7 +412,7 @@
       "path": "docs/LEARNING_PIPELINE.md",
       "area": "docs",
       "present": true,
-      "working_tree_bytes": 27458
+      "working_tree_bytes": 27379
     },
     {
       "path": "docs/MINERVA_ACTUATORS.md",
@@ -440,7 +424,7 @@
       "path": "docs/MINERVA_BRINGUP.md",
       "area": "docs",
       "present": true,
-      "working_tree_bytes": 9086
+      "working_tree_bytes": 9021
     },
     {
       "path": "docs/PHASES.md",
@@ -488,13 +472,13 @@
       "path": "docs/architecture/MONOREPO_PLAN.md",
       "area": "docs",
       "present": true,
-      "working_tree_bytes": 20152
+      "working_tree_bytes": 20194
     },
     {
       "path": "docs/architecture/REPOSITORY_CLEANUP.md",
       "area": "docs",
       "present": true,
-      "working_tree_bytes": 5078
+      "working_tree_bytes": 8490
     },
     {
       "path": "docs/architecture/REPOSITORY_INVENTORY.md",
@@ -505,7 +489,7 @@
       "path": "docs/architecture/REPOSITORY_MAP.md",
       "area": "docs",
       "present": true,
-      "working_tree_bytes": 6184
+      "working_tree_bytes": 6208
     },
     {
       "path": "docs/architecture/SESSION_BACKEND_MIGRATION.md",
@@ -523,7 +507,7 @@
       "path": "docs/architecture/SIMULATION_VALIDATION_PLAN.md",
       "area": "docs",
       "present": true,
-      "working_tree_bytes": 33563
+      "working_tree_bytes": 33533
     },
     {
       "path": "docs/architecture/repository_inventory.json",
@@ -2144,8 +2128,8 @@
       "path": "python/ik/collision_sweep.py",
       "area": "kinematics",
       "present": true,
-      "working_tree_bytes": 11965,
-      "lines": 297,
+      "working_tree_bytes": 12102,
+      "lines": 298,
       "sys_path_mutation_lines": []
     },
     {
@@ -2160,8 +2144,8 @@
       "path": "python/ik/kinematics.py",
       "area": "kinematics",
       "present": true,
-      "working_tree_bytes": 15956,
-      "lines": 385,
+      "working_tree_bytes": 16021,
+      "lines": 386,
       "sys_path_mutation_lines": []
     },
     {
@@ -2257,14 +2241,6 @@
       ]
     },
     {
-      "path": "python/nodes/query_motors.py",
-      "area": "python_tools",
-      "present": true,
-      "working_tree_bytes": 2424,
-      "lines": 88,
-      "sys_path_mutation_lines": []
-    },
-    {
       "path": "python/nodes/ups_node.py",
       "area": "services",
       "present": true,
@@ -2288,7 +2264,7 @@
       "path": "python/scripts/actuator_char/__init__.py",
       "area": "bench",
       "present": true,
-      "working_tree_bytes": 851,
+      "working_tree_bytes": 843,
       "lines": 19,
       "sys_path_mutation_lines": []
     },
@@ -2320,7 +2296,7 @@
       "path": "python/scripts/actuator_char/robstride_mit.py",
       "area": "bench",
       "present": true,
-      "working_tree_bytes": 6928,
+      "working_tree_bytes": 6894,
       "lines": 182,
       "sys_path_mutation_lines": []
     },
@@ -2338,13 +2314,13 @@
       "path": "python/scripts/collect_demo.py",
       "area": "aizee_app",
       "present": true,
-      "working_tree_bytes": 118999,
-      "lines": 2353,
+      "working_tree_bytes": 115891,
+      "lines": 2337,
       "sys_path_mutation_lines": [
-        75,
-        114,
-        121,
-        127
+        74,
+        113,
+        120,
+        126
       ]
     },
     {
@@ -2393,14 +2369,6 @@
       "present": true,
       "working_tree_bytes": 8501,
       "lines": 194,
-      "sys_path_mutation_lines": []
-    },
-    {
-      "path": "python/scripts/collect_demo_app/minerva_recording.py",
-      "area": "minerva_writer",
-      "present": true,
-      "working_tree_bytes": 168,
-      "lines": 5,
       "sys_path_mutation_lines": []
     },
     {
@@ -2471,8 +2439,8 @@
       "path": "python/scripts/collect_demo_gui.py",
       "area": "aizee_app",
       "present": true,
-      "working_tree_bytes": 238228,
-      "lines": 5521,
+      "working_tree_bytes": 232441,
+      "lines": 5517,
       "sys_path_mutation_lines": [
         72
       ]
@@ -2481,8 +2449,8 @@
       "path": "python/scripts/collect_minerva.py",
       "area": "minerva_app",
       "present": true,
-      "working_tree_bytes": 43715,
-      "lines": 868,
+      "working_tree_bytes": 42291,
+      "lines": 856,
       "sys_path_mutation_lines": [
         45,
         46,
@@ -2573,7 +2541,7 @@
       "path": "python/scripts/collect_minerva_gui.py",
       "area": "minerva_app",
       "present": true,
-      "working_tree_bytes": 105802,
+      "working_tree_bytes": 103424,
       "lines": 2342,
       "sys_path_mutation_lines": []
     },
@@ -2628,7 +2596,7 @@
       "path": "python/scripts/gravity_calibrate.py",
       "area": "python_tools",
       "present": true,
-      "working_tree_bytes": 47281,
+      "working_tree_bytes": 45999,
       "lines": 1318,
       "sys_path_mutation_lines": [
         46,
@@ -2693,12 +2661,12 @@
       "path": "python/scripts/minerva_teleop.py",
       "area": "python_tools",
       "present": true,
-      "working_tree_bytes": 18267,
-      "lines": 441,
+      "working_tree_bytes": 17347,
+      "lines": 422,
       "sys_path_mutation_lines": [
+        50,
         51,
-        52,
-        53
+        52
       ]
     },
     {
@@ -2817,7 +2785,7 @@
       "path": "python/teleop/quest_leader.py",
       "area": "leaders",
       "present": true,
-      "working_tree_bytes": 42433,
+      "working_tree_bytes": 42389,
       "lines": 857,
       "sys_path_mutation_lines": []
     },
@@ -2882,7 +2850,7 @@
       "path": "python/tests/ml/test_minerva_segments.py",
       "area": "tests",
       "present": true,
-      "working_tree_bytes": 3150,
+      "working_tree_bytes": 3151,
       "lines": 98,
       "sys_path_mutation_lines": [
         24,
@@ -2916,7 +2884,7 @@
       "path": "python/tests/ml/test_minerva_smoke.py",
       "area": "tests",
       "present": true,
-      "working_tree_bytes": 5005,
+      "working_tree_bytes": 4991,
       "lines": 123,
       "sys_path_mutation_lines": [
         31,
@@ -3121,8 +3089,8 @@
       "path": "python/web/server.py",
       "area": "webxr",
       "present": true,
-      "working_tree_bytes": 21083,
-      "lines": 483,
+      "working_tree_bytes": 21064,
+      "lines": 482,
       "sys_path_mutation_lines": [
         112
       ]
@@ -3478,10 +3446,10 @@
       "path": "scripts/repo_inventory.py",
       "area": "deployment",
       "present": true,
-      "working_tree_bytes": 13091,
-      "lines": 215,
+      "working_tree_bytes": 12817,
+      "lines": 212,
       "sys_path_mutation_lines": [
-        145
+        142
       ]
     },
     {
@@ -3833,7 +3801,7 @@
       "path": "tests/README.md",
       "area": "tests",
       "present": true,
-      "working_tree_bytes": 3278
+      "working_tree_bytes": 3304
     },
     {
       "path": "tests/contract/test_aizee_session_adapter.py",
@@ -3911,8 +3879,8 @@
       "path": "tests/contract/test_shared_recording.py",
       "area": "tests",
       "present": true,
-      "working_tree_bytes": 6994,
-      "lines": 150,
+      "working_tree_bytes": 6893,
+      "lines": 149,
       "sys_path_mutation_lines": []
     },
     {
@@ -3938,32 +3906,6 @@
       "working_tree_bytes": 2739,
       "lines": 64,
       "sys_path_mutation_lines": []
-    },
-    {
-      "path": "tests/direct_can/motor_control_test.py",
-      "area": "tests",
-      "present": true,
-      "working_tree_bytes": 4327,
-      "lines": 137,
-      "sys_path_mutation_lines": []
-    },
-    {
-      "path": "tests/direct_can/sine_wave_test.py",
-      "area": "tests",
-      "present": true,
-      "working_tree_bytes": 5632,
-      "lines": 181,
-      "sys_path_mutation_lines": []
-    },
-    {
-      "path": "tests/direct_can/test_actuator_char.py",
-      "area": "tests",
-      "present": true,
-      "working_tree_bytes": 6061,
-      "lines": 159,
-      "sys_path_mutation_lines": [
-        25
-      ]
     },
     {
       "path": "tests/fixtures/simulation/telemetry_v2.json",
@@ -4014,6 +3956,16 @@
       ]
     },
     {
+      "path": "tests/unit/test_actuator_char.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 6091,
+      "lines": 160,
+      "sys_path_mutation_lines": [
+        26
+      ]
+    },
+    {
       "path": "tests/unit/test_characterization_measurements.py",
       "area": "tests",
       "present": true,
@@ -4035,46 +3987,6 @@
       "present": true,
       "working_tree_bytes": 4856,
       "lines": 109,
-      "sys_path_mutation_lines": []
-    },
-    {
-      "path": "tests/utils/can_diagnostics.py",
-      "area": "tests",
-      "present": true,
-      "working_tree_bytes": 10257,
-      "lines": 295,
-      "sys_path_mutation_lines": []
-    },
-    {
-      "path": "tests/utils/scan_all_motors.py",
-      "area": "tests",
-      "present": true,
-      "working_tree_bytes": 1309,
-      "lines": 37,
-      "sys_path_mutation_lines": []
-    },
-    {
-      "path": "tests/utils/send_zmq_command.py",
-      "area": "tests",
-      "present": true,
-      "working_tree_bytes": 2725,
-      "lines": 88,
-      "sys_path_mutation_lines": []
-    },
-    {
-      "path": "tests/utils/test_bitrates.py",
-      "area": "tests",
-      "present": true,
-      "working_tree_bytes": 4139,
-      "lines": 116,
-      "sys_path_mutation_lines": []
-    },
-    {
-      "path": "tests/utils/test_motor_enable.py",
-      "area": "tests",
-      "present": true,
-      "working_tree_bytes": 2019,
-      "lines": 59,
       "sys_path_mutation_lines": []
     },
     {
@@ -5237,7 +5149,7 @@
     },
     {
       "source": "python/ik/collision_sweep.py",
-      "line": 45,
+      "line": 46,
       "target": "python/ik/mesh_world.py"
     },
     {
@@ -5432,117 +5344,117 @@
     },
     {
       "source": "python/scripts/collect_demo.py",
-      "line": 76,
+      "line": 75,
       "target": "python/teleop/so101_leader.py"
     },
     {
       "source": "python/scripts/collect_demo.py",
-      "line": 88,
+      "line": 87,
       "target": "python/teleop/leader.py"
     },
     {
       "source": "python/scripts/collect_demo.py",
-      "line": 97,
+      "line": 96,
       "target": "python/teleop/openrb_leader.py"
     },
     {
       "source": "python/scripts/collect_demo.py",
-      "line": 115,
+      "line": 114,
       "target": "python/teleop/quest_leader.py"
     },
     {
       "source": "python/scripts/collect_demo.py",
-      "line": 116,
+      "line": 115,
       "target": "python/web/__init__.py"
     },
     {
       "source": "python/scripts/collect_demo.py",
-      "line": 122,
+      "line": 121,
       "target": "python/common/arm_constants.py"
     },
     {
       "source": "python/scripts/collect_demo.py",
-      "line": 129,
+      "line": 128,
       "target": "python/scripts/collect_demo_app/__init__.py"
     },
     {
       "source": "python/scripts/collect_demo.py",
+      "line": 128,
+      "target": "python/scripts/collect_demo_app/alignment.py"
+    },
+    {
+      "source": "python/scripts/collect_demo.py",
       "line": 129,
       "target": "python/scripts/collect_demo_app/alignment.py"
     },
     {
       "source": "python/scripts/collect_demo.py",
-      "line": 130,
-      "target": "python/scripts/collect_demo_app/alignment.py"
-    },
-    {
-      "source": "python/scripts/collect_demo.py",
-      "line": 134,
+      "line": 133,
       "target": "python/scripts/collect_demo_app/config.py"
     },
     {
       "source": "python/scripts/collect_demo.py",
-      "line": 138,
+      "line": 137,
       "target": "python/scripts/collect_demo_app/display.py"
     },
     {
       "source": "python/scripts/collect_demo.py",
-      "line": 142,
+      "line": 141,
       "target": "python/scripts/collect_demo_app/gamepad.py"
     },
     {
       "source": "python/scripts/collect_demo.py",
-      "line": 146,
+      "line": 145,
       "target": "python/scripts/collect_demo_app/images.py"
     },
     {
       "source": "python/scripts/collect_demo.py",
-      "line": 147,
+      "line": 146,
       "target": "python/scripts/collect_demo_app/profiler.py"
     },
     {
       "source": "python/scripts/collect_demo.py",
-      "line": 148,
+      "line": 147,
       "target": "python/scripts/collect_demo_app/receivers.py"
     },
     {
       "source": "python/scripts/collect_demo.py",
-      "line": 151,
+      "line": 150,
       "target": "python/scripts/collect_demo_app/recording.py"
     },
     {
       "source": "python/scripts/collect_demo.py",
-      "line": 152,
+      "line": 151,
       "target": "python/scripts/collect_demo_app/replay.py"
     },
     {
       "source": "python/scripts/collect_demo.py",
-      "line": 153,
+      "line": 152,
       "target": "python/scripts/collect_demo_app/runtime.py"
     },
     {
       "source": "python/scripts/collect_demo.py",
-      "line": 156,
+      "line": 155,
       "target": "python/scripts/collect_demo_app/telem.py"
     },
     {
       "source": "python/scripts/collect_demo.py",
-      "line": 157,
+      "line": 156,
       "target": "python/scripts/collect_demo_app/zmq_io.py"
     },
     {
       "source": "python/scripts/collect_demo.py",
-      "line": 158,
+      "line": 157,
       "target": "python/scripts/collect_demo_app/session.py"
     },
     {
       "source": "python/scripts/collect_demo.py",
-      "line": 599,
+      "line": 598,
       "target": "python/teleop/leader.py"
     },
     {
       "source": "python/scripts/collect_demo.py",
-      "line": 952,
+      "line": 951,
       "target": "python/scripts/collect_demo_gui.py"
     },
     {
@@ -5564,11 +5476,6 @@
       "source": "python/scripts/collect_demo_app/display.py",
       "line": 17,
       "target": "python/scripts/collect_demo_app/runtime.py"
-    },
-    {
-      "source": "python/scripts/collect_demo_app/minerva_recording.py",
-      "line": 3,
-      "target": "src/robot_platform/data/formats/minerva.py"
     },
     {
       "source": "python/scripts/collect_demo_app/receivers.py",
@@ -5937,32 +5844,32 @@
     },
     {
       "source": "python/scripts/minerva_teleop.py",
-      "line": 55,
+      "line": 54,
       "target": "python/common/arm_constants.py"
     },
     {
       "source": "python/scripts/minerva_teleop.py",
-      "line": 56,
+      "line": 55,
       "target": "python/common/wire.py"
     },
     {
       "source": "python/scripts/minerva_teleop.py",
-      "line": 57,
+      "line": 56,
       "target": "python/common/minerva_constants.py"
     },
     {
       "source": "python/scripts/minerva_teleop.py",
-      "line": 58,
+      "line": 57,
       "target": "python/scripts/minerva_calibrate.py"
     },
     {
       "source": "python/scripts/minerva_teleop.py",
-      "line": 61,
+      "line": 60,
       "target": "python/scripts/collect_minerva_app/config.py"
     },
     {
       "source": "python/scripts/minerva_teleop.py",
-      "line": 76,
+      "line": 75,
       "target": "python/teleop/openrb_leader.py"
     },
     {
@@ -6173,7 +6080,7 @@
     {
       "source": "python/tests/ml/test_minerva_segments.py",
       "line": 30,
-      "target": "python/scripts/collect_demo_app/minerva_recording.py"
+      "target": "src/robot_platform/data/formats/minerva.py"
     },
     {
       "source": "python/tests/ml/test_minerva_segments.py",
@@ -6223,7 +6130,7 @@
     {
       "source": "python/tests/ml/test_minerva_smoke.py",
       "line": 34,
-      "target": "python/scripts/collect_demo_app/minerva_recording.py"
+      "target": "src/robot_platform/data/formats/minerva.py"
     },
     {
       "source": "python/tests/ml/test_minerva_smoke.py",
@@ -6823,11 +6730,6 @@
     {
       "source": "tests/contract/test_shared_recording.py",
       "line": 131,
-      "target": "python/scripts/collect_demo_app/minerva_recording.py"
-    },
-    {
-      "source": "tests/contract/test_shared_recording.py",
-      "line": 131,
       "target": "python/scripts/collect_demo_app/recording.py"
     },
     {
@@ -6941,36 +6843,6 @@
       "target": "src/robot_platform/control/__init__.py"
     },
     {
-      "source": "tests/direct_can/test_actuator_char.py",
-      "line": 29,
-      "target": "python/scripts/actuator_char/__init__.py"
-    },
-    {
-      "source": "tests/direct_can/test_actuator_char.py",
-      "line": 29,
-      "target": "python/scripts/actuator_char/analysis.py"
-    },
-    {
-      "source": "tests/direct_can/test_actuator_char.py",
-      "line": 30,
-      "target": "python/scripts/actuator_char/__init__.py"
-    },
-    {
-      "source": "tests/direct_can/test_actuator_char.py",
-      "line": 30,
-      "target": "python/scripts/actuator_char/robstride_mit.py"
-    },
-    {
-      "source": "tests/direct_can/test_actuator_char.py",
-      "line": 31,
-      "target": "python/scripts/actuator_char/external_encoder.py"
-    },
-    {
-      "source": "tests/direct_can/test_actuator_char.py",
-      "line": 32,
-      "target": "python/scripts/actuator_char/harness.py"
-    },
-    {
       "source": "tests/ml/test_pipeline.py",
       "line": 25,
       "target": "python/training/dataset.py"
@@ -6989,6 +6861,36 @@
       "source": "tests/ml/test_record_replay.py",
       "line": 16,
       "target": "python/scripts/record_replay.py"
+    },
+    {
+      "source": "tests/unit/test_actuator_char.py",
+      "line": 30,
+      "target": "python/scripts/actuator_char/__init__.py"
+    },
+    {
+      "source": "tests/unit/test_actuator_char.py",
+      "line": 30,
+      "target": "python/scripts/actuator_char/analysis.py"
+    },
+    {
+      "source": "tests/unit/test_actuator_char.py",
+      "line": 31,
+      "target": "python/scripts/actuator_char/__init__.py"
+    },
+    {
+      "source": "tests/unit/test_actuator_char.py",
+      "line": 31,
+      "target": "python/scripts/actuator_char/robstride_mit.py"
+    },
+    {
+      "source": "tests/unit/test_actuator_char.py",
+      "line": 32,
+      "target": "python/scripts/actuator_char/external_encoder.py"
+    },
+    {
+      "source": "tests/unit/test_actuator_char.py",
+      "line": 33,
+      "target": "python/scripts/actuator_char/harness.py"
     },
     {
       "source": "tests/unit/test_characterization_measurements.py",

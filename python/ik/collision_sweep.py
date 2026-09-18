@@ -19,8 +19,9 @@ upper)` is the largest contiguous safe interval containing q=0 — i.e. the
 range the operator can drive that joint to from home without the IK ever
 producing a colliding pose, regardless of where the other joints are.
 
-Writes `config/joint_limits.yaml`, which the IK overlay loads to clamp
-solutions tighter than the raw URDF.
+Writes `calibration_runs/aizee/joint_limit_sweep.yaml`. Review the report
+before copying accepted bounds into `config/joint_limits.yaml`, which the
+IK overlay loads. A sweep does not overwrite configured limits by default.
 
 Usage:
     python -m ik.collision_sweep                                 # defaults
@@ -58,7 +59,7 @@ _DEFAULT_SWEEP_JOINTS = [
 ]
 
 _DEFAULT_URDF = Path(__file__).resolve().parents[2] / "urdf" / "aizee" / "aizee.urdf"
-_DEFAULT_OUTPUT = Path(__file__).resolve().parents[2] / "config" / "joint_limits.yaml"
+_DEFAULT_OUTPUT = Path(__file__).resolve().parents[2] / "calibration_runs" / "aizee" / "joint_limit_sweep.yaml"
 
 
 def _samples_with_zero(lo: float, hi: float, n: int) -> list[float]:

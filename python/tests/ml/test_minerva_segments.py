@@ -27,7 +27,7 @@ sys.path.insert(0, str(_PY / "scripts"))
 
 import h5py
 
-from collect_demo_app.minerva_recording import save_minerva_episode
+from robot_platform.data.formats.minerva import save_minerva_episode
 from collect_minerva_app.recording import RecordingSession
 from python.training.language import TextConditioner
 from python.training.minerva_dataset import MinervaEpisodeDataset, parse_segments

@@ -1936,13 +1936,13 @@ class _SaveToast(QFrame):
 
 
 # ---------------------------------------------------------------------------
-# Action toast — top-center confirmation for Z / M / P (zero / mirror / save)
+# Action toast — top-center confirmation for Z / M (zero / mirror)
 # ---------------------------------------------------------------------------
 
 class _ActionToast(QFrame):
     """Big floating banner at top-center for momentary action confirmations.
 
-    Used for [Z] zero leader, [M] mirror, [P] save ready pose.  Distinct
+    Used for [Z] zero leader and [M] mirror.  Distinct
     from the bottom-right save toast: this one is bigger, accent-colored,
     and dismisses faster (the action is instantaneous so the operator just
     needs a moment of "yes, that worked").
@@ -1953,7 +1953,6 @@ class _ActionToast(QFrame):
     _STYLES = {
         "[Z]": ("#2a4a8a", "#6aa0ff", "◎"),  # blue — zero
         "[M]": ("#2a6ab0", "#6ac0ff", "⇄"),  # cyan — mirror
-        "[P]": ("#1e6a2a", "#6abf6a", "✓"),  # green — save
     }
     _DEFAULT_STYLE = ("#2a2a2a", COL_ACCENT, "ℹ")
 
@@ -2014,13 +2013,13 @@ class _ActionToast(QFrame):
 
 
 # ---------------------------------------------------------------------------
-# Event log — scrolling, timestamped record of Z/M/P/save/delete events
+# Event log — scrolling, timestamped record of Z/M/save/delete events
 # ---------------------------------------------------------------------------
 
 class _EventLog(QFrame):
     """Compact scrolling log shown in the right column.
 
-    Mirrors the action-toast events (Z / M / P) and save/delete activity
+    Mirrors the action-toast events (Z / M) and save/delete activity
     into a persistent, timestamped list so the operator has a running
     record of what happened this session without having to rely on toasts
     that disappear.
@@ -2202,7 +2201,6 @@ class _ShortcutLegend(QLabel):
         parts.append(kb("R / F2", "stop rec" if recording else "record"))
         parts.append(kb("Z", "zero"))
         parts.append(kb("M", "mirror"))
-        parts.append(kb("P", "save ready"))
         parts.append(kb("K", "mech zero"))
         parts.append(kb("WASD", "drive"))
         parts.append(kb("F11", "fullscreen"))
@@ -4696,8 +4694,7 @@ class _MainWindow(QMainWindow):
             return b
         _tbtn(0, 0, "Z", "Zero Leader (Z)", "Set current leader pose as zero")
         _tbtn(0, 1, "M", "Mirror (M)",      "Align leader zero to robot")
-        _tbtn(0, 2, "P", "Save Ready (P)",  "Write ready_pose.json")
-        _tbtn(1, 0, "K", "Mech Zero (K)",
+        _tbtn(0, 2, "K", "Mech Zero (K)",
               "Write Robstride mechanical zero + SaveConfig to all arm joints. "
               "Arm must be disabled (press Shutdown first) and physically held at "
               "the desired zero pose. Persists across power cycle.")
@@ -4997,7 +4994,7 @@ class _MainWindow(QMainWindow):
             ("Q",   "Q"),  ("Esc", "CANCEL_SHUTDOWN"),
             ("E",   "E"),  ("I",   "I"),  ("H", "H"),
             ("X",   "X"),
-            ("Z",   "Z"),  ("M",   "M"),  ("P", "P"),
+            ("Z",   "Z"),  ("M",   "M"),
             ("W",   "W"),  ("S", "S"),    ("D", "D"),
             ("A",   "PEDAL_A"),
             ("B",   "PEDAL_B"),
@@ -5344,7 +5341,6 @@ class _MainWindow(QMainWindow):
         for prefix, (icon, color) in (
             ("[Z]", ("◎", "#6aa0ff")),
             ("[M]", ("⇄", "#6ac0ff")),
-            ("[P]", ("✓", "#6abf6a")),
         ):
             if msg.startswith(prefix):
                 return (icon, color, msg[len(prefix):].strip(" —-:"))

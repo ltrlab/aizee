@@ -1,6 +1,7 @@
 """
 test_actuator_char.py — validates the ROBSTRIDE codec + Phase-0 analysis math
-WITHOUT hardware. Runnable on any box: `python tests/direct_can/test_actuator_char.py`.
+WITHOUT hardware. Included in default pytest discovery; also runnable with
+`python tests/unit/test_actuator_char.py`.
 
 Checks:
   1. build_control byte/arb layout matches the Rust driver (hand-computed).

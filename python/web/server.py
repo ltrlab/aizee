@@ -175,7 +175,7 @@ class QuestWebServer:
     async def _joint_limits(self, _req: web.Request) -> web.Response:
         if not _JOINT_LIMITS_YAML.exists():
             return web.json_response(
-                {"error": "joint_limits.yaml not found — run python -m ik.collision_sweep"},
+                {"error": "config/joint_limits.yaml not found — restore the configured limits or review a collision-sweep report before creating it"},
                 status=404,
             )
         import yaml as _yaml
@@ -184,8 +184,8 @@ class QuestWebServer:
 
     async def _save_joint_limits(self, req: web.Request) -> web.Response:
         """Patch the effective_lower/effective_upper of selected joints in
-        joint_limits.yaml.  Preserves all other sweep metadata (urdf bounds,
-        colliding pairs, etc.) so subsequent sweeps + manual edits coexist.
+        joint_limits.yaml. Preserves other configured metadata, including
+        URDF bounds and manual-edit provenance.
         """
         try:
             payload = await req.json()
@@ -218,8 +218,7 @@ class QuestWebServer:
                 eff_span  = entry["effective_upper"] - entry["effective_lower"]
                 if urdf_span > 0:
                     entry["reduction_pct"] = float(100.0 * (1.0 - eff_span / urdf_span))
-            # Tag the entry as hand-edited so a future sweep can decide
-            # whether to overwrite or preserve.
+            # Record manual-edit provenance; sweep reports are separate files.
             entry["manually_edited"] = True
         data["last_manual_edit"] = _dt_now_iso()
         _JOINT_LIMITS_YAML.parent.mkdir(parents=True, exist_ok=True)

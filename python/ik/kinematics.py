@@ -246,7 +246,8 @@ class Kinematics:
 
     def apply_limits_overlay(self, yaml_path: Path | str, *, verbose: bool = True) -> None:
         """Tighten self.lower / self.upper using effective limits from a
-        collision-sweep YAML (produced by `python -m ik.collision_sweep`).
+        configured joint-limit YAML. Sweep reports use the same bounds schema
+        but must be reviewed before replacing the configured limits.
 
         Only tightens — never loosens past the URDF.  Missing joints in the
         YAML are left at URDF limits.  Re-run safely; idempotent.
@@ -268,7 +269,7 @@ class Kinematics:
                 self.lower[i] = new_lo
                 self.upper[i] = new_hi
         if verbose and changed:
-            print(f"[ik] applied collision-sweep limits to {len(changed)} joints: {changed}")
+            print(f"[ik] applied configured limits to {len(changed)} joints: {changed}")
 
     # ---- accessors -----------------------------------------------------
 

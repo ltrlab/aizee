@@ -70,7 +70,7 @@ robot. Head/lift slots are inactive and have no shared-session command routes.
 | `scripts/` | Build, deploy, maintenance, inventory and live validation runners |
 | `firmware/` | Embedded projects; OpenRB vendor BSP is required by its build |
 | `urdf/aizee/` | Existing CAD export, meshes and source metadata; no Minerva model yet |
-| `tests/`, `python/tests/` | Offline tests, GUI/ML checks, explicitly invoked hardware exercises |
+| `tests/`, `python/tests/` | Offline unit/contract tests and optional GUI/ML checks |
 
 ## What has been consolidated
 
@@ -96,7 +96,7 @@ robot. Head/lift slots are inactive and have no shared-session command routes.
 
 ## Local artifacts
 
-`episodes/`, `checkpoints/`, `simulation_runs/`, `logs/`, `viz/`, `dist/` and
+`episodes/`, `checkpoints/`, `simulation_runs/`, `calibration_runs/`, `phase0_runs/`, `logs/`, `viz/`, `dist/` and
 build caches are ignored runtime outputs. The old checkpoints and their plots
 were removed on request; recorded episodes and simulation evidence remain.
 New training/analysis runs recreate their output directories.

@@ -109,7 +109,6 @@ applying any gains. **Enable is gated: it only works from Idle.**
 | `Z` | **leader zero** — snapshot each leader pose as its zero; save to calib |
 | `M` | **mirror** — set each leader zero so it maps to the arm's current pose; save |
 | `K` | **RobStride mechanical zero** + SaveConfig, both arms (disable first) |
-| `P` | save current pose → `config/minerva_ready_pose.json` |
 | `X` | soft shutdown — ramp both arms to zero, then disable |
 | `Q` | quit |
 

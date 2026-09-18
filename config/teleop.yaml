@@ -1,24 +1,12 @@
 # AIZEE Teleop Configuration
 # Input mappings, scaling, and ZMQ endpoints
 
-# Single-module configuration for dual-CAN Jetson
+# Aizee single-bus configuration on the Jetson
 # All motors (rover + gantry) on one motor_control instance
 endpoints:
   command: "tcp://192.168.0.27:5555"
   telemetry: "tcp://192.168.0.27:5556"
   ups_telemetry: "tcp://192.168.0.27:5562"  # UPS Power Module telemetry
-
-# Multi-module configuration (distributed system)
-# Comment out to use multi-module mode
-# modules:
-#   rover:
-#     command: "tcp://192.168.0.27:5555"
-#     telemetry: "tcp://192.168.0.27:5556"
-#     motors: ["left_wheel", "right_wheel", "swivel"]
-#   arm:
-#     command: "tcp://192.168.0.28:5557"
-#     telemetry: "tcp://192.168.0.28:5558"
-#     motors: ["gantry_base", "gantry_mid", "gantry_end"]
 
 motors:
   drive: ["left_wheel", "right_wheel"]

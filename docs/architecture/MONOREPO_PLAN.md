@@ -162,7 +162,7 @@ Current Aizee and Minerva services conflict on shared resources. Preserve mutual
 |---|---|---|
 | `python/common/wire.py` | `transport/wire.py` | Both robots already use it; keep byte compatibility. |
 | `_resolve_rover_host` in `collect_demo_app/config.py` | `transport/discovery.py` | Removes Minerva's private dependency on Aizee. Keep address ordering configurable. |
-| `collect_demo_app/minerva_recording.py` | `data/formats/minerva.py` | Writer belongs to a data contract, not another collector. |
+| Former `collect_demo_app/minerva_recording.py` | `data/formats/minerva.py` (implemented; unused shim removed) | Writer belongs to a data contract, not another collector. |
 | `collect_demo_app/recording.py` | `data/formats/aizee.py` plus collection buffer code | Separate serialization from application state. |
 | `common/arm_constants.py`, `common/minerva_constants.py` | Robot definitions plus extracted utilities | Remove the ambiguous `common` bucket. Avoid independently editable Python/YAML copies of the same defaults. |
 | `collect_minerva_app/follower.py` | `robots/minerva/session.py` | Let policy, teleop and replay share actual dual-arm routing. |

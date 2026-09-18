@@ -16,7 +16,6 @@ Controls (IDLE-FIRST — always Idle to read state + zero before applying gains)
                         current actual pose; save to calib
     K   RobStride mechanical zero -> CAN ZeroPos + SaveConfig to BOTH arms
                         (arms must be DISABLED first — press X, then K)
-    P   save current pose as ready pose (config/minerva_ready_pose.json)
     X   soft shutdown -> ramp both arms to zero, then disable
     Q   quit
 
@@ -218,10 +217,6 @@ class ArmLink:
             return f"{self.side}: mirrored (save failed: {e})"
         return f"{self.side}: mirrored + saved"
 
-    def ready_pose(self) -> Optional[Dict[str, float]]:
-        q = self.qpos()
-        return None if q is None else {j: float(q[i]) for i, j in enumerate(self.joints)}
-
     # -- per-tick command ------------------------------------------------
     def step(self) -> None:
         if self.mode == DISABLED:
@@ -289,7 +284,6 @@ def main() -> None:
     ap.add_argument("--right-calib", default="config/openrb_right.json")
     ap.add_argument("--calibration", default="config/minerva_calibration.json",
                     help="follower min/max for target clamping")
-    ap.add_argument("--ready-pose", default="config/minerva_ready_pose.json")
     ap.add_argument("--kp-scale", type=float, default=0.3,
                     help="scale on the arm KP (start low; raise once trusted)")
     ap.add_argument("--dry-run", action="store_true", help="never enable/command motors")
@@ -339,7 +333,7 @@ def main() -> None:
     print(f"[teleop] KP x{args.kp_scale}. {'DRY-RUN.' if args.dry_run else ''}")
     print("=" * 64)
     print("  I idle=read+zero-torque (ALWAYS FIRST)   E enable-gains (from Idle only)   H hold/track   Z leader-zero   M mirror")
-    print("  K robstride mech-zero (disable first)   P ready-pose   X shutdown   Q quit")
+    print("  K robstride mech-zero (disable first)   X shutdown   Q quit")
     print("=" * 64)
 
     get_key = setup_keyboard()
@@ -379,19 +373,6 @@ def main() -> None:
                 announce(" | ".join(lk.mirror() for lk in links.values()))
             elif key == "K" and not args.dry_run:
                 announce(" | ".join(lk.mech_zero() for lk in links.values()))
-            elif key == "P":
-                pose: Dict[str, float] = {}
-                for lk in links.values():
-                    rp = lk.ready_pose()
-                    if rp:
-                        pose.update(rp)
-                if pose:
-                    p = Path(args.ready_pose)
-                    p.parent.mkdir(parents=True, exist_ok=True)
-                    p.write_text(json.dumps({"positions": pose}, indent=2))
-                    announce(f"ready pose saved -> {p}")
-                else:
-                    announce("no telemetry — ready pose not saved")
             elif key == "X" and not args.dry_run:
                 for lk in links.values():
                     lk.begin_shutdown()

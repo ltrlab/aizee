@@ -153,7 +153,6 @@ Commonly used CLI arguments:
 | **X** | Soft shutdown — hold 1 s, return to zero, disable |
 | **Z** | Capture current leader pose as zero reference |
 | **M** | Mirror — set zero offset so current leader pose → current arm pose |
-| **P** | Save current arm position as ready pose (`config/ready_pose.json`) |
 | **Q** | Quit (Ctrl-C also works) |
 | **WASD** | Drive wheels (wheels enable with the arm) |
 

@@ -31,7 +31,6 @@ AREAS = {
     "robot_definition": ("Robot-specific constants mixed with reusable helpers", "src/robot_platform/robots/ + shared helpers (split)"),
     "gravity": ("Robot-specific gravity models and reusable fitting math", "src/robot_platform/control/ + robots/ (split)"),
     "kinematics": ("Kinematic algorithms with Aizee model assumptions", "src/robot_platform/kinematics/ + robots/aizee/ (split)"),
-    "minerva_writer": ("Compatibility import for the shared Minerva episode writer", "src/robot_platform/data/formats/minerva.py (implemented)"),
     "aizee_app": ("Aizee collector and supporting application code", "src/robot_platform/apps/collect/aizee/ (extract shared services)"),
     "minerva_app": ("Minerva collector and supporting application code", "src/robot_platform/apps/collect/minerva/ (extract shared services)"),
     "leaders": ("Leader drivers mixed with Aizee joint mapping", "src/robot_platform/devices/leaders/ + robots/aizee/ (split)"),
@@ -42,9 +41,9 @@ AREAS = {
     "operations": ("Heartbeat/setup operations with machine and robot assumptions", "src/robot_platform/apps/operations/ + deploy/ (split)"),
     "bench": ("Actuator characterization tooling", "src/robot_platform/apps/bench/ + devices/ (split)"),
     "python_tools": ("Calibration, teleop, replay and diagnostic entry points", "src/robot_platform/apps/ (classify by function before moving)"),
-    "tests": ("Automated tests and hardware exercises currently mixed", "tests/unit/ + contract/ + integration/ + hardware/ (triage)"),
+    "tests": ("Offline unit, contract, GUI and learning checks", "tests/unit/ + contract/ + ml/; remaining python/tests/ checks"),
     "deployment": ("Deployment and host administration", "deploy/"),
-    "calibration": ("Calibration, alignment, ready-pose and gravity snapshots", "robots/<robot>/calibration/examples/; active values in local state"),
+    "calibration": ("Active calibration, alignment and gravity inputs", "robots/<robot>/calibration/examples/; active values in local state"),
     "profiles": ("Robot, camera and teleop configuration", "robots/<robot>/profiles/ + deploy/machines/ (split)"),
     "firmware": ("Embedded device projects", "firmware/ (retain device ownership)"),
     "docs": ("Documentation and actuator reference material", "docs/ (organize platform, robots, operations, research)"),
@@ -80,8 +79,6 @@ def area(p: str) -> str:
         return "gravity"
     if p.startswith("python/ik/"):
         return "kinematics"
-    if p.endswith("/collect_demo_app/minerva_recording.py"):
-        return "minerva_writer"
     if p.startswith("python/scripts/collect_demo"):
         return "aizee_app"
     if p.startswith("python/scripts/collect_minerva"):
@@ -94,7 +91,7 @@ def area(p: str) -> str:
         return "learning"
     if p.endswith(("/act_policy_node.py", "/minerva_policy_node.py")):
         return "policy"
-    if p.endswith(("/find_motors.py", "/query_motors.py")):
+    if p.endswith("/find_motors.py"):
         return "python_tools"
     if p.startswith("python/nodes/"):
         return "services"

@@ -31,7 +31,7 @@ _AIZEE = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_AIZEE))
 sys.path.insert(0, str(_AIZEE / "python"))
 
-from python.scripts.collect_demo_app.minerva_recording import save_minerva_episode
+from robot_platform.data.formats.minerva import save_minerva_episode
 from python.training.language import TextConditioner
 from python.training.minerva_dataset import MinervaEpisodeDataset, collate_minerva
 from python.training.minerva_model import MinervaPolicy

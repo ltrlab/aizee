@@ -18,7 +18,7 @@ Usage:
     python gravity_calibrate.py --record-poses
 
     # Step 2: Run calibration with recorded poses
-    python gravity_calibrate.py --poses config/calibration_poses.json
+    python gravity_calibrate.py --poses calibration_runs/aizee/calibration_poses.json
 
     # Or run with built-in poses (skip pose recording)
     python gravity_calibrate.py --skip-load-test
@@ -825,7 +825,7 @@ def record_poses_mode(args) -> None:
     and presses SPACE or ENTER to snapshot the current pose.
     """
     output_path = Path(args.output) if args.output else (
-        Path(__file__).resolve().parent.parent.parent / "config" / "calibration_poses.json"
+        Path(__file__).resolve().parent.parent.parent / "calibration_runs" / "aizee" / "calibration_poses.json"
     )
 
     ctx = zmq.Context()

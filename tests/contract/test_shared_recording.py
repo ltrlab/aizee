@@ -128,11 +128,10 @@ def test_minerva_rejects_missing_cameras_and_wrong_joint_count(tmp_path):
 
 
 def test_legacy_writers_reexport_shared_functions():
-    from python.scripts.collect_demo_app import minerva_recording, recording
+    from python.scripts.collect_demo_app import recording
     from python.scripts.collect_minerva_app import recording as minerva_session
 
     assert recording.save_episode is aizee.save_episode
-    assert minerva_recording.save_minerva_episode is minerva.save_minerva_episode
     assert minerva_session.save_minerva_episode is minerva.save_minerva_episode
 
 

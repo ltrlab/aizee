@@ -31,7 +31,7 @@ deleted at the user's request; they are not backed up by that commit.
 - Recorded episodes and recent simulation reports/traces: unique data and
   validation evidence, not obsolete source.
 - Active `python/` application, learning, calibration, replay and diagnostic
-  CLIs, including compatibility imports used by scripts and tests.
+  CLIs, including compatibility imports still used by applications.
 - Hardware calibration snapshots, firmware, the required OpenRB BSP, and
   Aizee CAD/meshes. No audited Minerva CAD model replaces these yet.
 - `requirements_jetson.txt`: device-specific NumPy/OpenCV installation
@@ -72,3 +72,44 @@ environment variables, and remote arguments retain quoting.
 The existing 12-case simulation report remains the 2026-09-17 baseline; it was
 not rerun as a separate matrix for this cleanup. No hardware was deployed or
 powered. Build warnings about existing unused Rust members remain.
+
+## Follow-up audit: readers, writers and generated state
+
+The first cleanup (`3b551be`) incorrectly counted write references as evidence
+that `config/ready_pose.json` was used. The follow-up traced reads separately
+from writes and checked application callers instead of relying on test imports.
+
+| Removed or changed | Evidence / replacement |
+|---|---|
+| `config/ready_pose.json` and Aizee/Minerva Save Ready controls | No reader; only P-key handlers wrote these files. Removed handlers, UI controls, shortcuts and CLI option so they cannot recreate unused state. Policy poses in datasets/checkpoints remain active. |
+| `config/calibration_poses.json` | Old manually selected capture, not a default input. New captures go to ignored `calibration_runs/aizee/` and are selected explicitly with `--poses`. |
+| Generated fields in `config/joint_limits.yaml` | Collision counts, sampled postures, timings and an absolute workstation path had no runtime consumer. Preserved every configured effective/URDF bound and manual-edit marker. New sweeps default to an ignored report rather than overwriting configured limits. |
+| `tests/direct_can/{motor_control_test,sine_wave_test}.py` | Obsolete two-motor experiments with duplicate, unverified codecs. The retained characterization codec/analysis suite moved to `tests/unit/test_actuator_char.py` for default discovery. |
+| Remaining `tests/utils/` scripts and `python/nodes/query_motors.py` | Old command formats, hardcoded prototype IDs and duplicate active scans, including an enable-on-import scan. Retained passive discovery, targeted Minerva diagnosis and the verified-profile characterization CLI. |
+| `collect_demo_app/minerva_recording.py` | Test-only compatibility shim; production Minerva uses its own adapter to the shared writer. Tests now import the shared writer directly. |
+| Old commented distributed topology in `config/teleop.yaml` | Obsolete secondary host example, superseded by shared robot settings. |
+
+The [configuration reader audit](../../config/README.md#calibration-status)
+documents why each remaining calibration/alignment file is retained. Active
+hardware values were preserved. Guides, shortcuts and the inventory now match
+the remaining source tree.
+
+Follow-up verification:
+
+- 248 offline regressions passed, including both collector subprocesses and
+  the characterization tests now discovered under `tests/unit/`.
+- Minerva offscreen recording/GUI checks passed. The Aizee window constructed
+  offscreen; retained calibration controls queued the expected actions, and
+  the removed P shortcut/button were absent. No commands reached hardware.
+- All retained calibration/alignment JSON matched the prior commit. Loading
+  both old and cleaned joint-limit YAML through the actual IK implementation
+  produced identical lower/upper bounds. The existing FK/IK check also passed
+  all 50 warm-start cases (cold-start diagnostic: 14/20, informational).
+- All 22 config/settings JSON/YAML files parsed; the collision-sweep CLI
+  advertised the new report path. Updated Python files parsed successfully.
+- All 466 local Markdown links resolved. The inventory regenerated without
+  parse errors, and all 11 deleted tracked files were absent on disk.
+
+No Rust source changed in this follow-up; the preceding Rust tests and Jetson
+build remain applicable. The full CAD collision sweep and physical calibration
+were not run as part of cleanup.

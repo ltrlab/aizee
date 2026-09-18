@@ -11,14 +11,15 @@ python -m pytest
 
 Default discovery covers `tests/unit/` and `tests/contract/`. These exercise
 robot/settings contracts, shared sessions, freshness and command leases, real
-loopback transport, collector subprocesses, and recording formats. They do not
-open physical robot interfaces. Optional dependencies are required for the
+loopback transport, collector subprocesses, recording formats, and actuator
+codec/analysis checks. They do not open physical robot interfaces. Optional
+dependencies are required for the
 collector process tests; absent dependencies are reported as skips.
 
 Additional regression checks:
 
 ```sh
-python -m pytest tests/direct_can/test_actuator_char.py tests/ml/test_record_replay.py python/tests/ml/test_minerva_autosegment.py python/tests/ml/test_minerva_settings.py python/tests/ml/test_minerva_segments.py::test_minerva_segments
+python -m pytest tests/ml/test_record_replay.py python/tests/ml/test_minerva_autosegment.py python/tests/ml/test_minerva_settings.py python/tests/ml/test_minerva_segments.py::test_minerva_segments
 python python/tests/ml/test_minerva_collector_smoke.py
 python python/tests/ml/test_minerva_shutdown.py
 cargo test --locked -p comms
@@ -47,19 +48,20 @@ and stop/clear behavior. This is a short functional matrix, not the planned
 |---|---|
 | `unit/`, `contract/`, `fixtures/` | Default offline validation and wire fixtures |
 | `ml/` | Explicit learning and replay regression checks |
-| `python/tests/ml/` | Existing Minerva model/GUI/recording checks |
-| `direct_can/` | Explicit hardware experiments, plus offline `test_actuator_char.py` |
-| `utils/` | Manual CAN/command diagnostics; not automatic tests |
+| `../python/tests/ml/` | Existing Minerva model/GUI/recording checks |
 
-Old two-motor integration scripts and JSON-only telemetry exercises were
-removed. They referenced absent configs or obsolete robot names. The shared
-simulator replaces the old mock publisher. Production Rust + virtual CAN
+Old two-motor scripts, unverified duplicate CAN codecs, enable-on-import scans
+and JSON-only command exercises were removed. The retained actuator codec and
+analysis cases now live in `unit/test_actuator_char.py`. The shared simulator
+replaces the old mock publisher. Production Rust + virtual CAN
 integration is the next implementation stage and is not available yet.
 
 ## Physical characterization
 
-Hardware diagnostics are separate, explicitly invoked tools. Their old example
-motor IDs and gains are not an approved test envelope. Use the
+Hardware diagnostics are separate, explicitly invoked tools: passive discovery
+in `python/nodes/find_motors.py`, targeted diagnosis in
+`python/scripts/minerva_motor_probe.py`, and acquisition through
+`python/scripts/characterize_actuator.py`. Use the
 [measurement plan](../docs/architecture/SIMULATION_VALIDATION_PLAN.md) and
 `settings/examples/bench-profile.template.json` to establish the actual device,
 firmware, codec, limits, and stop behavior first. The template intentionally

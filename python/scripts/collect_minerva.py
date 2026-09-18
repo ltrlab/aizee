@@ -504,16 +504,6 @@ def main():
         msg_text, msg_until = text, time.monotonic() + 3.0
         print(f"\n{text}")
 
-    def _save_ready_pose(q):
-        if q is None:
-            _announce("[P] no telemetry — ready pose not saved")
-            return
-        p = Path(__file__).resolve().parents[2] / "config" / "minerva_ready_pose.json"
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(
-            {"joint_names": list(MINERVA_JOINTS), "positions": [float(x) for x in q]}, indent=2))
-        _announce(f"[P] ready pose saved -> {p.name}")
-
     def handle_key(key: str):
         nonlocal state, q_target, engage_t0
         if key == "E":                         # enable gains (HOLD) — ONLY from IDLE
@@ -554,8 +544,6 @@ def main():
             elif not args.dry_run:
                 follower.mech_zero(save=True)
                 _announce("[K] mech_zero sent to both arms — saved to flash")
-        elif key == "P":                       # save ready pose
-            _save_ready_pose(follower.qpos())
         elif key == "X":                       # soft shutdown: ramp to zero, disable
             if state in (State.IDLE, State.HOLD, State.TELEOP):
                 if recording:
@@ -567,7 +555,7 @@ def main():
                 _announce("[X] soft shutdown — ramping to zero")
 
     print("Controls (IDLE-FIRST): [I]dle=read+zero-torque  [E]nable-gains(only from Idle)  "
-          "[T]eleop  [H]disable [R]ec | [Z]leader-zero [M]irror [K]mech-zero [P]ready [X]shutdown [Q]uit")
+          "[T]eleop  [H]disable [R]ec | [Z]leader-zero [M]irror [K]mech-zero [X]shutdown [Q]uit")
 
     # Optional loop profiler (set AIZEE_PROFILE=1). Every ~2 s it prints where each
     # 30 Hz tick's wall time went — telemetry read, target (incl. leader poll read),

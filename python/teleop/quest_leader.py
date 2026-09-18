@@ -197,9 +197,9 @@ class QuestLeader:
         self.cfg = config or QuestLeaderConfig()
         self._state = shared_state         # caller wires this up in the factory
         self._kin: Kinematics = load_aizee_arm(urdf_path)
-        # Tighten kin.lower/upper using the collision-sweep results so the
-        # IK can never solve into a self-colliding pose.  Falls back silently
-        # if the YAML isn't present yet (e.g. fresh repo without a sweep).
+        # Tighten kin.lower/upper using configured bounds. Independent joint
+        # bounds do not guarantee collision-free motion. Keep URDF bounds if
+        # no overlay is present.
         if joint_limits_path is None:
             joint_limits_path = (
                 Path(__file__).resolve().parents[2] / "config" / "joint_limits.yaml"

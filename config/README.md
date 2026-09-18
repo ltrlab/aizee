@@ -15,9 +15,9 @@ all interchangeable schemas.
 | `hardware_minerva_left_wrist.yaml`, `hardware_minerva_right_wrist.yaml` | Minerva wrist UVC publishers |
 | `minerva.yaml` | Minerva inference controls, camera sizing and direct-launch camera endpoints |
 | `teleop.yaml`, `quest_teleop.yaml` | Active standalone Aizee teleop, tracking gains and Quest/IK options |
-| `joint_limits.yaml` | Existing Aizee IK/workspace inputs and Minerva placeholder derivation |
-| `*_calibration.json`, `openrb_left.json`, `openrb_right.json` | Existing leader/follower coordinate calibration snapshots |
-| `joint_align.json`, `ready_pose.json`, `calibration_poses.json` | Collector alignment, ready pose and gravity-calibration inputs |
+| `joint_limits.yaml` | Configured Aizee IK/workspace bounds; raw sweep reports are separate |
+| `*_calibration.json`, `openrb_left.json`, `openrb_right.json` | Active leader/follower calibration inputs; reader audit below |
+| `joint_align.json` | Aizee collector coordinate alignment and WebXR preview editing |
 | `minerva_gravity.json` | Existing empirical gravity model; not a validated simulator profile |
 | `systemd/`, `udev/` | Deployment templates and device identities |
 
@@ -40,12 +40,42 @@ shared settings also describe the robot.
 
 ## Calibration status
 
-Calibration snapshots are retained because active collectors and tools load
-them. They do not establish approved limits for new hardware. The simulation
+The following files have runtime readers, beyond tools that merely write them:
+
+| File | Runtime reader |
+|---|---|
+| `openrb_calibration.json` | Default calibration in `python/teleop/openrb_leader.py` for the Aizee leader |
+| `openrb_left.json`, `openrb_right.json` | Per-arm leader selection in `collect_minerva.py` and `minerva_teleop.py` |
+| `so101_calibration.json` | Default calibration in `python/teleop/so101_leader.py` |
+| `robstride_calibration.json` | Aizee follower limits in `python/common/arm_constants.py` and standalone teleop/replay |
+| `minerva_calibration.json` | Follower limits in `collect_minerva.py`, standalone teleop and the hardware audit |
+| `minerva_gravity.json` | Gravity feedforward model loaded by `collect_minerva.py` |
+| `joint_align.json` | `collect_demo_app/alignment.py` loads and hot-reloads offsets/signs; `python/web/server.py` reads and edits them |
+| `joint_limits.yaml` | `python/teleop/quest_leader.py`, `python/ik/workspace.py` and the web preview load configured bounds |
+
+These inputs do not establish approved limits for new hardware. The simulation
 audit identifies unresolved actuator scales and reversed directional bounds;
 see [measurement requirements](../docs/architecture/SIMULATION_IMPLEMENTATION.md).
 Head/lift slots are inactive in Minerva's shared definition.
 
 Use `config/local_hardware.yaml` for a local hardware override (Git-ignored).
-Large data, trained weights and generated plots belong in ignored output
-directories, not in `config/`.
+
+## Generated output
+
+`gravity_calibrate.py --record-poses` writes raw captures to
+`calibration_runs/aizee/calibration_poses.json`; pass that path to `--poses`
+when using a capture. The checked-in old capture was removed.
+
+`python -m python.ik.collision_sweep` writes its full report to
+`calibration_runs/aizee/joint_limit_sweep.yaml`. Review the report and promote
+accepted bounds into `joint_limits.yaml` explicitly. Sweep counts, collision
+statistics, timings and workstation paths are not active configuration.
+Existing effective/URDF bounds and manual-edit provenance remain unchanged.
+
+The obsolete `ready_pose.json` and its save controls were removed: no runtime
+loaded the file. Minerva's equivalent save controls also had no reader.
+Policy ready/start poses still come from recorded episodes and checkpoint
+statistics; those are active inputs.
+
+`calibration_runs/` is ignored. Large data, trained weights and generated plots
+also belong in ignored output directories, not in `config/`.

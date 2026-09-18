@@ -18,6 +18,7 @@ develop-eggs/
 dist/
 simulation_runs/
 phase0_runs/
+calibration_runs/
 downloads/
 eggs/
 .eggs/

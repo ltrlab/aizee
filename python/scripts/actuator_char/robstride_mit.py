@@ -2,8 +2,8 @@
 robstride_mit.py — faithful Python port of the ROBSTRIDE MIT-mode CAN codec
 from ``rust/motor_control/src/robstride.rs`` (the deployed driver, RS03-EN spec).
 
-WHY NOT REUSE ``tests/direct_can/sine_wave_test.py``:
-That script uses the T-Motor / AK "MIT-Cheetah" 8-byte packing
+PROTOCOL OWNERSHIP:
+T-Motor / AK "MIT-Cheetah" codecs use different 8-byte packing
 (pos16 | vel12 | kp12 | kd12 | tau12, torque in the DATA) with fixed ±18 Nm /
 ±30 rad·s⁻¹ scaling. ROBSTRIDE's native control frame is different:
     * DATA[0:8] = four big-endian u16: position | velocity | kp | kd

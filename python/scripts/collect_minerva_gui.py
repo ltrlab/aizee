@@ -2031,9 +2031,9 @@ class MinervaMainWindow(QMainWindow):
             ("E", lambda: self._key("E")), ("I", lambda: self._key("I")),
             ("H", lambda: self._key("H")), ("T", lambda: self._key("T")),
             ("R", lambda: self._key("R")), ("Q", self._quit),
-            # Zero functions + pose + soft shutdown (collect_demo parity).
+            # Zero functions and soft shutdown (collect_demo parity).
             ("Z", lambda: self._key("Z")), ("M", lambda: self._key("M")),
-            ("K", lambda: self._key("K")), ("P", lambda: self._key("P")),
+            ("K", lambda: self._key("K")),
             ("X", lambda: self._key("X")),
             ("]", lambda: self._cycle_phase(1)), ("[", lambda: self._cycle_phase(-1)),
         ]

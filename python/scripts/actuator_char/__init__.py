@@ -5,7 +5,7 @@ ROBSTRIDE joints (RS00/RS02/RS03/RS04) over Jetson CAN.
 Modules:
   robstride_mit    faithful Python port of the ROBSTRIDE MIT-mode CAN codec
                    (mirrors rust/motor_control/src/robstride.rs — the deployed,
-                   RS03-EN-spec driver; NOT sine_wave_test.py's AK packing).
+                   RS03-EN-spec driver, with model-specific ranges).
   external_encoder pluggable output-shaft ground-truth encoder (Null / Serial).
   analysis         capability-sheet metrics (pure numpy, unit-tested off-robot).
   harness          python-can I/O + safe sweep routines + CSV logging.
