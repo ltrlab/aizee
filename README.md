@@ -1,4 +1,37 @@
-# AIZEE — open-source mobile manipulation platform
+# Aizee / Minerva — shared robotics monorepo
+
+One Python package (`robot_platform`) and one root Cargo workspace serve the
+Aizee mobile manipulator and Minerva dual-arm torso. Robot definitions,
+deployment settings, and application adapters are selected independently.
+
+```bash
+python -m pip install -e ".[operator,dev]"
+robot-platform list
+robot-platform run collect --robot minerva --host 10.42.0.1 --plan
+robot-platform run collect --robot aizee --host 10.42.0.1 --plan
+```
+
+`--plan` shows the resolved launch without starting the application. See the
+[implemented monorepo guide](docs/architecture/MONOREPO_IMPLEMENTATION.md) for
+settings, installation roles, shared APIs, and migration status. The existing
+application implementations remain under `python/` behind compatibility adapters.
+Both collectors and Minerva inference use the [shared session backend](docs/architecture/SESSION_BACKEND_MIGRATION.md)
+for arm routing, telemetry freshness and command transport.
+
+The [shared simulator](docs/architecture/SIMULATION_IMPLEMENTATION.md) now runs
+both collectors against loopback motors and synthetic camera streams:
+
+```sh
+robot-platform sim run --robot minerva --output simulation_runs/minerva-001
+# In a second terminal:
+robot-platform run collect --robot minerva --settings simulation_runs/minerva-001/settings.json
+```
+
+Use `--robot aizee` in both commands for Aizee. Current dynamics are synthetic;
+real-world calibration and the Linux production-controller simulation tier are
+still pending.
+
+## Original AIZEE platform
 
 ![AIZEE preview](image.png)
 
@@ -170,6 +203,7 @@ aizee/
 git clone https://github.com/ltrlab/aizee.git
 cd aizee
 pip install -r requirements.txt
+pip install -e .                  # shared robot_platform package
 
 # Deploy to the Jetson (motor control + services)
 ./scripts/deploy_jetson_rover.sh
@@ -259,6 +293,8 @@ See [docs/PHASES.md](docs/PHASES.md) for the full roadmap.
 ---
 
 ## Documentation
+- [Repository map](docs/architecture/REPOSITORY_MAP.md) — Aizee / Minerva ownership, runtime architecture, and dependency tangles
+- [Monorepo organization plan](docs/architecture/MONOREPO_PLAN.md) — shared platform layout and staged migration
 - [docs/quickstart/](docs/quickstart/) — connect, run, and post-reboot guides
 - [docs/subsystems/](docs/subsystems/) — motors, cameras, leaders, UPS, display, LiDAR
 - [docs/LEARNING_PIPELINE.md](docs/LEARNING_PIPELINE.md) — calibration → collection → training → deployment

@@ -1,0 +1,23 @@
+{
+  "telemetry_schema_version": 2,
+  "producer_id": "fixture-controller-1",
+  "timestamp": 1234.5,
+  "motors": {
+    "left_arm_j1": {
+      "position": 0.25,
+      "velocity": 0.1,
+      "torque": 1.25,
+      "temperature": 25.0,
+      "state": "running",
+      "mode": "run",
+      "error": null,
+      "feedback": {
+        "sequence": 42,
+        "age_s": 0.025,
+        "valid": true,
+        "provenance": "can"
+      }
+    }
+  },
+  "emergency_stop": false
+}

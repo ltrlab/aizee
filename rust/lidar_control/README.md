@@ -99,12 +99,14 @@ network:
 ## Building
 
 ```bash
-# Build release binary
+# Build release binary from the repository root
 cargo build --release -p lidar_control
 
 # Binary location
-./target/release/lidar_control
+./rust/target/release/lidar_control
 ```
+
+This crate belongs to the root [shared Cargo workspace](../README.md).
 
 ## Running
 
@@ -116,7 +118,7 @@ export AIZEE_CONFIG=/path/to/config/hardware_jetson_rover.yaml
 export RUST_LOG=info
 
 # Run
-./target/release/lidar_control
+./rust/target/release/lidar_control
 ```
 
 ## Dependencies

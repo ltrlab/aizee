@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "robot": "aizee",
+  "host": "192.168.0.27",
+  "endpoints": {
+    "arms": {
+      "main": {
+        "command": "tcp://{host}:5555",
+        "telemetry": "tcp://{host}:5556",
+        "joints": ["swivel", "gantry_base", "gantry_mid", "gantry_end", "wrist_pitch", "wrist_roll", "gripper"]
+      }
+    },
+    "cameras": {"gripper": "tcp://{host}:5563", "scene": "tcp://{host}:5564"},
+    "services": {"ups": "tcp://{host}:5562", "gripper_camera_control": "tcp://{host}:5573"}
+  },
+  "control": {"stale_after_s": 0.5},
+  "applications": {
+    "collect": {"adapter": "aizee.collect", "gui": true, "output_dir": "episodes/aizee", "options": []},
+    "train": {"adapter": "aizee.train", "data_dir": "episodes/aizee", "output_dir": "checkpoints/aizee", "options": []}
+  }
+}

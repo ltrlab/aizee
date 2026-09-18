@@ -32,13 +32,27 @@ def _drain(sock) -> Optional[dict]:
     return latest
 
 
-_cmd_sock_lock = threading.Lock()  # serialises cmd_sock.send across threads
+_cmd_sock_lock = threading.Lock()  # compatibility for legacy socket callers
+
+
+def _send_motor_message(sock, message: dict) -> None:
+    """Submit to a session worker, or use the historical socket interface.
+
+    Collector callers use the session path: its worker is the sole ZMQ owner.
+    Calibration is applied before this boundary, exactly once.
+    """
+    submit = getattr(sock, "send_message", None)
+    if submit is not None:
+        submit(message)
+        return
+    with _cmd_sock_lock:
+        sock.send(pack_msg(message), zmq.NOBLOCK)
 
 
 def _send(sock, msg: dict) -> None:
-    """Send one message.  Holds `_cmd_sock_lock` so direct sends from the
-    main loop (enable/disable/emergency_stop/replay) don't race with the
-    dedicated cmd-sender thread on the same PUSH socket.
+    """Send one message through the session's socket-owning worker.
+
+    Legacy socket callers retain the lock-protected compatibility path.
 
     Boundary transform: `arm_joints` messages flow in URDF frame
     internally; convert to motor frame on the way out so callers don't
@@ -51,8 +65,7 @@ def _send(sock, msg: dict) -> None:
             msg = dict(msg)
             msg["arm_joints"] = _urdf_to_motor_arm_payload(msg["arm_joints"])
     try:
-        with _cmd_sock_lock:
-            sock.send(pack_msg(msg), zmq.NOBLOCK)
+        _send_motor_message(sock, msg)
     except zmq.Again:
         pass
 
@@ -93,8 +106,7 @@ def _send_bundle(
     if msg is None:
         return
     try:
-        with _cmd_sock_lock:
-            sock.send(pack_msg(msg), zmq.NOBLOCK)
+        _send_motor_message(sock, msg)
     except zmq.Again:
         pass
 
@@ -218,8 +230,17 @@ def _start_cmd_sender(
                     msg = dict(msg)
                     msg["arm_joints"] = _urdf_to_motor_arm_payload(arm)
                 try:
-                    with _cmd_sock_lock:
-                        sock.send(pack_msg(msg), zmq.NOBLOCK)
+                    # A mode may have been cleared while tracking math ran.
+                    # Serialize the final submit with holder changes so an
+                    # old tick cannot repopulate a cleared session queue.
+                    with lock:
+                        current = holder.get("mode") == mode
+                        if mode == "tracking":
+                            current = current and holder.get("tracking") is tracking
+                        elif mode == "static":
+                            current = current and holder.get("bundle") is bundle
+                        if current:
+                            _send_motor_message(sock, msg)
                 except zmq.Again:
                     pass
                 except Exception:

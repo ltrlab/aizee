@@ -34,27 +34,20 @@ from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
 
+from robot_platform.robots import load_robot
+
 # ---------------------------------------------------------------------------
 # Joint layout
 # ---------------------------------------------------------------------------
 
-LEFT_ARM_JOINTS: List[str] = [
-    "left_arm_j1", "left_arm_j2", "left_arm_j3",
-    "left_arm_j4", "left_arm_j5", "left_arm_j6",
-]
-RIGHT_ARM_JOINTS: List[str] = [
-    "right_arm_j1", "right_arm_j2", "right_arm_j3",
-    "right_arm_j4", "right_arm_j5", "right_arm_j6",
-]
-HEAD_JOINTS: List[str] = ["head_pan", "head_tilt"]
-LIFT_JOINTS: List[str] = ["lift"]
+_ROBOT_SPEC = load_robot("minerva")
+LEFT_ARM_JOINTS: List[str] = list(_ROBOT_SPEC.groups["left"][:-1])
+RIGHT_ARM_JOINTS: List[str] = list(_ROBOT_SPEC.groups["right"][:-1])
+HEAD_JOINTS: List[str] = list(_ROBOT_SPEC.groups["head"])
+LIFT_JOINTS: List[str] = list(_ROBOT_SPEC.groups["lift"])
 
 # Full canonical order — this IS the policy action/qpos ordering.
-MINERVA_JOINTS: List[str] = (
-    LEFT_ARM_JOINTS + ["left_gripper"]
-    + RIGHT_ARM_JOINTS + ["right_gripper"]
-    + HEAD_JOINTS + LIFT_JOINTS
-)
+MINERVA_JOINTS: List[str] = list(_ROBOT_SPEC.joint_names)
 NUM_MINERVA_JOINTS: int = len(MINERVA_JOINTS)          # 17
 assert NUM_MINERVA_JOINTS == 17, MINERVA_JOINTS
 
@@ -192,7 +185,7 @@ GRIP_FF_SMOOTH: float = 0.4             # EMA factor on the output current (1=ra
 
 # Camera stream identities feeding the policy (order matters — used for the
 # learned camera-identity embedding in minerva_model.py).
-CAMERAS: List[str] = ["left_wrist", "right_wrist", "head"]
+CAMERAS: List[str] = [camera.name for camera in _ROBOT_SPEC.cameras]
 WRIST_CAMERAS: List[str] = ["left_wrist", "right_wrist"]
 SCENE_CAMERA: str = "head"
 

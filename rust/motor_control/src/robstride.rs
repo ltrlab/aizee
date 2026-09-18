@@ -216,7 +216,7 @@ pub fn parse_feedback(frame: &CanFrame, model: MotorModel) -> Result<MotorFeedba
 
     // In responses, motor swaps fields: motor_id is bits 15:8, host_id is bits 7:0
     let motor_id = ((arb_id_raw >> 8) & 0xFF) as u8;
-    let error_bits = ((arb_id_raw >> 16) & 0x1F) as u8;
+    let error_bits = ((arb_id_raw >> 16) & 0x3F) as u8;
     let mode_bits = ((arb_id_raw >> 22) & 0x03) as u8;
     let mode = MotorMode::from_bits(mode_bits);
 

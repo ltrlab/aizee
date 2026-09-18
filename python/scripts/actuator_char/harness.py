@@ -6,8 +6,8 @@ actuator characterization. Runs headless on the Jetson (python-can / socketcan).
 modules stay importable (and unit-testable) on a machine with no CAN stack.
 
 Safety model: enable -> soft-ramp into the profile -> always disable on exit
-(finally + SIGINT/SIGTERM). Position sweeps use low kp/kd by default; torque
-sweeps set kp=kd=0. Per-model clamping is handled inside the codec.
+(finally + SIGINT; abrupt termination cannot guarantee delivery). A verified
+device envelope bounds commands, slew rate, and feedback before each write.
 """
 from __future__ import annotations
 
@@ -21,12 +21,13 @@ from typing import Callable, Optional
 from . import robstride_mit as rs
 from .external_encoder import ExternalEncoder, NullEncoder
 
-DEFAULT_LOOP_HZ = 200          # command + log rate (feedback arrives ~50 Hz; we oversample)
+DEFAULT_LOOP_HZ = 200          # command rate; feedback sample rate is measured separately
 CmdFn = Callable[[float], "tuple[float, float, float, float, float]"]  # t -> (pos,vel,kp,kd,tau)
 
 LOG_FIELDS = [
     "t", "cmd_pos", "cmd_vel", "cmd_kp", "cmd_kd", "cmd_tau",
     "fb_pos", "fb_vel", "fb_tau", "fb_temp", "fb_mode", "fb_err", "ext_angle",
+    "fb_sequence", "fb_received_at", "fb_t", "fb_age_s", "fb_new", "ext_received_at", "ext_sequence",
 ]
 
 
@@ -41,13 +42,19 @@ class Joint:
 class MotorBus:
     """socketcan wrapper speaking the ROBSTRIDE native frame (via robstride_mit)."""
 
-    def __init__(self, joint: Joint):
+    def __init__(self, joint: Joint, *, profile=None, trace=None):
+        from robot_platform.characterization.audit import validate_bench_profile
+        self.limits = validate_bench_profile(profile or {}, joint)
+        self.trace = trace
+        self.sequence = 0
         import can  # deferred: only needed on the robot
         self.joint = joint
         self._can = can
         self.bus = can.Bus(interface="socketcan", channel=joint.bus, bitrate=1_000_000)
 
     def _send(self, arb: int, data: bytes) -> None:
+        if self.trace:
+            self.trace.record("can_tx_submit", {"bus": self.joint.bus, "arbitration_id": arb, "data_hex": data.hex()})
         self.bus.send(self._can.Message(arbitration_id=arb, is_extended_id=True, data=data))
 
     def enable(self) -> None:  self._send(*rs.build_enable(self.joint.can_id))
@@ -59,19 +66,33 @@ class MotorBus:
         self._send(*rs.build_control(self.joint.model, self.joint.can_id, pos, vel, kp, kd, tau))
 
     def read_feedback(self, timeout: float = 0.001) -> Optional[rs.Feedback]:
-        msg = self.bus.recv(timeout=timeout)
-        if msg is None or not rs.is_feedback_frame(msg.arbitration_id):
-            return None
-        try:
-            return rs.decode_feedback(msg.arbitration_id, bytes(msg.data), self.joint.model)
-        except Exception:
-            return None
+        latest = None
+        deadline = time.perf_counter() + timeout
+        for _ in range(256):
+            msg = self.bus.recv(timeout=max(0.0, deadline - time.perf_counter()) if latest is None else 0.0)
+            if msg is None:
+                break
+            received_at = time.perf_counter()
+            if self.trace:
+                self.trace.record("can_rx", {"bus": self.joint.bus, "arbitration_id": msg.arbitration_id,
+                                  "data_hex": bytes(msg.data).hex(), "kernel_timestamp": msg.timestamp}, time_s=received_at)
+            if (not msg.is_extended_id or not rs.is_feedback_frame(msg.arbitration_id)
+                    or ((msg.arbitration_id >> 8) & 0xFF) != self.joint.can_id):
+                continue
+            try:
+                latest = rs.decode_feedback(msg.arbitration_id, bytes(msg.data), self.joint.model)
+            except ValueError:
+                continue
+            self.sequence += 1
+            latest.received_at, latest.sequence = received_at, self.sequence
+            latest.kernel_timestamp, latest.raw_hex = msg.timestamp, bytes(msg.data).hex()
+        return latest
 
     def shutdown(self) -> None:
         try:
             self.disable()
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[bench] disable submission failed: {exc}")
         try:
             self.bus.shutdown()
         except Exception:
@@ -98,7 +119,7 @@ def chirp_profile(amp: float, f0: float, f1: float, dur: float, kp: float, kd: f
 
 
 def triangle_profile(amp: float, period: float, kp: float, kd: float) -> CmdFn:
-    """Slow triangle across a reversal — for backlash. Keep ``period`` large."""
+    """Slow reversal trajectory; backlash inference needs independent sensors."""
     def fn(t):
         frac = (t % period) / period
         tri = 4.0 * abs(frac - 0.5) - 1.0           # -1 .. 1
@@ -107,7 +128,7 @@ def triangle_profile(amp: float, period: float, kp: float, kd: float) -> CmdFn:
 
 
 def torque_ramp_profile(tau_max: float, dur: float) -> CmdFn:
-    """kp=kd=0, ramp commanded torque 0->tau_max — for stiction/breakaway + Kt."""
+    """kp=kd=0, ramp drive torque demand; this does not measure torque constant."""
     return lambda t: (0.0, 0.0, 0.0, 0.0, tau_max * min(1.0, t / dur))
 
 
@@ -124,6 +145,9 @@ def run_profile(bus: MotorBus, cmd_fn: CmdFn, duration: float,
     Always disables on exception / SIGINT. ``clock``/``sleep`` are injectable so
     the loop can be dry-run in tests without real time."""
     ext = ext or NullEncoder()
+    if not math.isfinite(duration) or duration <= 0 or not math.isfinite(loop_hz) or loop_hz <= 0:
+        raise ValueError("positive finite duration and loop_hz required")
+    limits = getattr(bus, "limits", None)
     rows: list[dict] = []
     dt = 1.0 / loop_hz
     stop = {"v": False}
@@ -140,26 +164,66 @@ def run_profile(bus: MotorBus, cmd_fn: CmdFn, duration: float,
 
     try:
         bus.enable()
+        origin = 0.0
+        if limits:
+            initial = bus.read_feedback(timeout=limits["feedback_timeout_s"])
+            if initial is None or initial.error_bits:
+                raise RuntimeError("fresh fault-free feedback required before a bench trajectory")
+            origin = initial.position
+            if not limits["min_position"] <= origin <= limits["max_position"]:
+                raise RuntimeError("initial pose is outside the verified bench envelope")
+        last_pos = origin
+
+        def send(values):
+            nonlocal last_pos
+            pos, vel, kp, kd, tau = values
+            pos += origin
+            if limits:
+                if (not all(math.isfinite(v) for v in (pos, vel, kp, kd, tau))
+                        or not limits["min_position"] <= pos <= limits["max_position"]
+                        or abs(vel) > limits["max_velocity"] or abs(tau) > limits["max_feedforward"]
+                        or not 0 <= kp <= limits["max_kp"] or not 0 <= kd <= limits["max_kd"]):
+                    raise ValueError("trajectory exceeds verified bench envelope")
+                delta = limits["max_velocity"] * dt
+                pos = max(last_pos - delta, min(last_pos + delta, pos))
+            bus.control(pos, vel, kp, kd, tau)
+            last_pos = pos
+            return pos, vel, kp, kd, tau
+
+        def check_feedback(feedback):
+            if limits and (feedback is None or feedback.error_bits or
+                           feedback.received_at is None or
+                           not all(math.isfinite(v) for v in (feedback.position, feedback.velocity, feedback.torque, feedback.received_at)) or
+                           clock() - feedback.received_at > limits["feedback_timeout_s"] or
+                           not limits["min_position"] <= feedback.position <= limits["max_position"] or
+                           abs(feedback.torque) > limits["max_reported_torque"] or
+                           abs(feedback.velocity) > limits["max_velocity"]):
+                raise RuntimeError("bench feedback lost, faulted, or outside verified envelope")
         # Soft start: hold the profile's initial command so we don't jerk on enable.
-        p0, v0, kp0, kd0, tau0 = cmd_fn(0.0)
+        fb = initial if limits else None
         t0 = clock()
         while clock() - t0 < settle_s and not stop["v"]:
-            bus.control(p0, v0, kp0, kd0, tau0)
-            bus.read_feedback()
+            check_feedback(fb)
+            send(cmd_fn(0.0))
+            fb = bus.read_feedback() or fb
+            check_feedback(fb)
             sleep(dt)
 
-        fb: Optional[rs.Feedback] = None
+        fb_time = fb.received_at if fb and fb.received_at is not None else None
+        fb_sequence = fb.sequence if fb else 0
         t0 = clock()
         i = 0
         while not stop["v"]:
             t = clock() - t0
             if t >= duration:
                 break
-            pos, vel, kp, kd, tau = cmd_fn(t)
-            bus.control(pos, vel, kp, kd, tau)
+            check_feedback(fb)
+            pos, vel, kp, kd, tau = send(cmd_fn(t))
             got = bus.read_feedback()
             if got is not None:
                 fb = got
+                fb_time = got.received_at if got.received_at is not None else clock()
+                fb_sequence = got.sequence or fb_sequence + 1
             ext_angle = ext.read_angle_rad()
             rows.append(dict(
                 t=t, cmd_pos=pos, cmd_vel=vel, cmd_kp=kp, cmd_kd=kd, cmd_tau=tau,
@@ -170,6 +234,11 @@ def run_profile(bus: MotorBus, cmd_fn: CmdFn, duration: float,
                 fb_mode=(int(fb.mode) if fb else -1),
                 fb_err=(fb.error_bits if fb else -1),
                 ext_angle=ext_angle,
+                fb_sequence=fb_sequence, fb_received_at=fb_time,
+                fb_t=fb_time - t0 if fb_time is not None else math.nan,
+                fb_age_s=clock() - fb_time if fb_time is not None else math.nan,
+                fb_new=got is not None,
+                ext_received_at=getattr(ext, "received_at", None), ext_sequence=getattr(ext, "sequence", None),
             ))
             i += 1
             nap = (t0 + i * dt) - clock()

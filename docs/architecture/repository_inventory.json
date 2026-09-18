@@ -1,0 +1,6013 @@
+{
+  "head": "8a2634b0e1800c1ac7c1ef364c32ccaaf6ff5a6d",
+  "branch": "overhaul",
+  "scope": "Git-tracked paths, working-tree contents; excludes untracked/ignored files.",
+  "import_method": "AST candidate imports resolved against known repository roots; includes conditional/test imports; not a runtime call graph. Dynamic imports, shell/config references and cross-language edges are not resolved.",
+  "areas": {
+    "vendor": {
+      "description": "Vendored OpenRB board support",
+      "proposed_area": "third_party/openrb150_bsp/"
+    },
+    "robot_assets": {
+      "description": "Aizee robot model and meshes",
+      "proposed_area": "robots/aizee/assets/"
+    },
+    "rust_control": {
+      "description": "Shared Rust motor backend; morphology assumptions remain",
+      "proposed_area": "crates/motor_control/"
+    },
+    "rust_comms": {
+      "description": "Shared Rust wire protocol",
+      "proposed_area": "crates/comms/"
+    },
+    "rust_lidar": {
+      "description": "Reusable LiDAR driver; optional rover service",
+      "proposed_area": "crates/lidar_control/"
+    },
+    "rust_bindings": {
+      "description": "Reserved Python bindings; placeholder",
+      "proposed_area": "crates/bindings/ (deferred)"
+    },
+    "rust_workspace": {
+      "description": "Rust workspace metadata",
+      "proposed_area": "Cargo.toml at repository root"
+    },
+    "wire": {
+      "description": "Shared Python wire protocol",
+      "proposed_area": "src/robot_platform/transport/"
+    },
+    "robot_definition": {
+      "description": "Robot-specific constants mixed with reusable helpers",
+      "proposed_area": "src/robot_platform/robots/ + shared helpers (split)"
+    },
+    "gravity": {
+      "description": "Robot-specific gravity models and reusable fitting math",
+      "proposed_area": "src/robot_platform/control/ + robots/ (split)"
+    },
+    "kinematics": {
+      "description": "Kinematic algorithms with Aizee model assumptions",
+      "proposed_area": "src/robot_platform/kinematics/ + robots/aizee/ (split)"
+    },
+    "minerva_writer": {
+      "description": "Minerva episode writer misplaced in Aizee collector",
+      "proposed_area": "src/robot_platform/data/formats/minerva.py"
+    },
+    "aizee_app": {
+      "description": "Aizee collector and supporting application code",
+      "proposed_area": "src/robot_platform/apps/collect/aizee/ (extract shared services)"
+    },
+    "minerva_app": {
+      "description": "Minerva collector and supporting application code",
+      "proposed_area": "src/robot_platform/apps/collect/minerva/ (extract shared services)"
+    },
+    "leaders": {
+      "description": "Leader drivers mixed with Aizee joint mapping",
+      "proposed_area": "src/robot_platform/devices/leaders/ + robots/aizee/ (split)"
+    },
+    "webxr": {
+      "description": "WebXR transport/UI with Aizee IK integration",
+      "proposed_area": "src/robot_platform/apps/webxr/ + devices/leaders/ (split)"
+    },
+    "learning": {
+      "description": "Learning algorithms, datasets, training and analysis CLIs",
+      "proposed_area": "src/robot_platform/learning/ + data/ + apps/train/ (split)"
+    },
+    "policy": {
+      "description": "Robot-specific inference applications",
+      "proposed_area": "src/robot_platform/apps/policy/"
+    },
+    "services": {
+      "description": "Device service candidates with deployment defaults",
+      "proposed_area": "src/robot_platform/devices/ + apps/services/ (split)"
+    },
+    "operations": {
+      "description": "Heartbeat/setup operations with machine and robot assumptions",
+      "proposed_area": "src/robot_platform/apps/operations/ + deploy/ (split)"
+    },
+    "bench": {
+      "description": "Actuator characterization tooling",
+      "proposed_area": "src/robot_platform/apps/bench/ + devices/ (split)"
+    },
+    "python_tools": {
+      "description": "Calibration, teleop, replay and diagnostic entry points",
+      "proposed_area": "src/robot_platform/apps/ (classify by function before moving)"
+    },
+    "tests": {
+      "description": "Automated tests and hardware exercises currently mixed",
+      "proposed_area": "tests/unit/ + contract/ + integration/ + hardware/ (triage)"
+    },
+    "deployment": {
+      "description": "Deployment and host administration",
+      "proposed_area": "deploy/"
+    },
+    "calibration": {
+      "description": "Calibration, alignment, ready-pose and gravity snapshots",
+      "proposed_area": "robots/<robot>/calibration/examples/; active values in local state"
+    },
+    "profiles": {
+      "description": "Robot, camera and teleop configuration",
+      "proposed_area": "robots/<robot>/profiles/ + deploy/machines/ (split)"
+    },
+    "firmware": {
+      "description": "Embedded device projects",
+      "proposed_area": "firmware/ (retain device ownership)"
+    },
+    "docs": {
+      "description": "Documentation and actuator reference material",
+      "proposed_area": "docs/ (organize platform, robots, operations, research)"
+    },
+    "assets": {
+      "description": "Repository illustrations and research output images",
+      "proposed_area": "docs/assets/; future generated plots outside source"
+    },
+    "repo": {
+      "description": "Repository metadata and dependency declarations",
+      "proposed_area": "repository root; role-specific packaging"
+    }
+  },
+  "files": [
+    {
+      "path": ".gitattributes",
+      "area": "repo",
+      "present": true,
+      "working_tree_bytes": 330
+    },
+    {
+      "path": ".gitignore",
+      "area": "repo",
+      "present": true,
+      "working_tree_bytes": 1411
+    },
+    {
+      "path": "LICENSE",
+      "area": "repo",
+      "present": true,
+      "working_tree_bytes": 1084
+    },
+    {
+      "path": "README.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 11982
+    },
+    {
+      "path": "config/calibration_poses.json",
+      "area": "calibration",
+      "present": true,
+      "working_tree_bytes": 1218
+    },
+    {
+      "path": "config/hardware.yaml",
+      "area": "profiles",
+      "present": true,
+      "working_tree_bytes": 4112
+    },
+    {
+      "path": "config/hardware_jetson_gripper_cam.yaml",
+      "area": "profiles",
+      "present": true,
+      "working_tree_bytes": 3751
+    },
+    {
+      "path": "config/hardware_jetson_rover.yaml",
+      "area": "profiles",
+      "present": true,
+      "working_tree_bytes": 5341
+    },
+    {
+      "path": "config/hardware_jetson_scene_cam.yaml",
+      "area": "profiles",
+      "present": true,
+      "working_tree_bytes": 3587
+    },
+    {
+      "path": "config/hardware_minerva_left.yaml",
+      "area": "profiles",
+      "present": true,
+      "working_tree_bytes": 4227
+    },
+    {
+      "path": "config/hardware_minerva_left_wrist.yaml",
+      "area": "profiles",
+      "present": true,
+      "working_tree_bytes": 1497
+    },
+    {
+      "path": "config/hardware_minerva_right.yaml",
+      "area": "profiles",
+      "present": true,
+      "working_tree_bytes": 2759
+    },
+    {
+      "path": "config/hardware_minerva_right_wrist.yaml",
+      "area": "profiles",
+      "present": true,
+      "working_tree_bytes": 1328
+    },
+    {
+      "path": "config/joint_align.json",
+      "area": "calibration",
+      "present": true,
+      "working_tree_bytes": 175
+    },
+    {
+      "path": "config/joint_limits.yaml",
+      "area": "profiles",
+      "present": true,
+      "working_tree_bytes": 4395
+    },
+    {
+      "path": "config/minerva.yaml",
+      "area": "profiles",
+      "present": true,
+      "working_tree_bytes": 3821
+    },
+    {
+      "path": "config/minerva_calibration.json",
+      "area": "calibration",
+      "present": true,
+      "working_tree_bytes": 2841
+    },
+    {
+      "path": "config/minerva_gravity.json",
+      "area": "calibration",
+      "present": true,
+      "working_tree_bytes": 3113
+    },
+    {
+      "path": "config/openrb_calibration.json",
+      "area": "calibration",
+      "present": true,
+      "working_tree_bytes": 1665
+    },
+    {
+      "path": "config/openrb_left.json",
+      "area": "calibration",
+      "present": true,
+      "working_tree_bytes": 1870
+    },
+    {
+      "path": "config/openrb_right.json",
+      "area": "calibration",
+      "present": true,
+      "working_tree_bytes": 1867
+    },
+    {
+      "path": "config/quest_teleop.yaml",
+      "area": "profiles",
+      "present": true,
+      "working_tree_bytes": 1193
+    },
+    {
+      "path": "config/ready_pose.json",
+      "area": "calibration",
+      "present": true,
+      "working_tree_bytes": 347
+    },
+    {
+      "path": "config/robstride_calibration.json",
+      "area": "calibration",
+      "present": true,
+      "working_tree_bytes": 938
+    },
+    {
+      "path": "config/so101_calibration.json",
+      "area": "calibration",
+      "present": true,
+      "working_tree_bytes": 1658
+    },
+    {
+      "path": "config/systemd/aizee-can-sudoers",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 491
+    },
+    {
+      "path": "config/systemd/aizee-display.service",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 696
+    },
+    {
+      "path": "config/systemd/aizee-estop-bridge.service",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 510
+    },
+    {
+      "path": "config/systemd/aizee-gripper-cam.service",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 1018
+    },
+    {
+      "path": "config/systemd/aizee-heartbeat.service",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 635
+    },
+    {
+      "path": "config/systemd/aizee-lidar-control.service",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 721
+    },
+    {
+      "path": "config/systemd/aizee-minerva-left.service",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 976
+    },
+    {
+      "path": "config/systemd/aizee-minerva-right.service",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 1038
+    },
+    {
+      "path": "config/systemd/aizee-motor-control-rover.service",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 535
+    },
+    {
+      "path": "config/systemd/aizee-scene-cam.service",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 1425
+    },
+    {
+      "path": "config/systemd/aizee-ups-monitor.service",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 715
+    },
+    {
+      "path": "config/systemd/minerva-left-wrist.service",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 459
+    },
+    {
+      "path": "config/systemd/minerva-right-wrist.service",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 461
+    },
+    {
+      "path": "config/teleop.yaml",
+      "area": "profiles",
+      "present": true,
+      "working_tree_bytes": 3056
+    },
+    {
+      "path": "config/teleop_rover_only.yaml",
+      "area": "profiles",
+      "present": true,
+      "working_tree_bytes": 1791
+    },
+    {
+      "path": "config/udev/80-minerva-can.rules",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 1377
+    },
+    {
+      "path": "config/udev/99-aizee-display.rules",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 930
+    },
+    {
+      "path": "config/udev/99-aizee-estop.rules",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 905
+    },
+    {
+      "path": "config/udev/99-aizee-gripper-cam.rules",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 1417
+    },
+    {
+      "path": "config/udev/99-aizee-scene-cam.rules",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 2923
+    },
+    {
+      "path": "config/udev/99-rplidar.rules",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 753
+    },
+    {
+      "path": "docs/LEARNING_PIPELINE.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 26950
+    },
+    {
+      "path": "docs/MINERVA_ACTUATORS.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 4573
+    },
+    {
+      "path": "docs/MINERVA_BRINGUP.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 9086
+    },
+    {
+      "path": "docs/PHASES.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 8635
+    },
+    {
+      "path": "docs/README.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 2903
+    },
+    {
+      "path": "docs/RS00User Manual260112.pdf",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 1727655
+    },
+    {
+      "path": "docs/RS02User Manual260112.pdf",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 1725413
+    },
+    {
+      "path": "docs/RS03User Manual260112.pdf",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 1761488
+    },
+    {
+      "path": "docs/RS04User Manual260112.pdf",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 1850224
+    },
+    {
+      "path": "docs/learning/RESEARCH_PLAN.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 38429
+    },
+    {
+      "path": "docs/quickstart/FRESH_JETSON_SETUP.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 4533
+    },
+    {
+      "path": "docs/quickstart/JETSON_QUICK_START.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 4894
+    },
+    {
+      "path": "docs/quickstart/QUICK_START_AFTER_REBOOT.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 5129
+    },
+    {
+      "path": "docs/subsystems/CAMERAS.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 4372
+    },
+    {
+      "path": "docs/subsystems/LIDAR.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 4173
+    },
+    {
+      "path": "docs/subsystems/MOTORS.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 7743
+    },
+    {
+      "path": "docs/subsystems/OPENRB_LEADER.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 7359
+    },
+    {
+      "path": "docs/subsystems/TUFTY2040.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 6725
+    },
+    {
+      "path": "docs/subsystems/UPS.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 4119
+    },
+    {
+      "path": "firmware/estop/.gitignore",
+      "area": "firmware",
+      "present": true,
+      "working_tree_bytes": 7
+    },
+    {
+      "path": "firmware/estop/bridge.py",
+      "area": "firmware",
+      "present": true,
+      "working_tree_bytes": 2786,
+      "lines": 90,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "firmware/estop/include/protocol.h",
+      "area": "firmware",
+      "present": true,
+      "working_tree_bytes": 465,
+      "lines": 13
+    },
+    {
+      "path": "firmware/estop/platformio.ini",
+      "area": "firmware",
+      "present": true,
+      "working_tree_bytes": 825
+    },
+    {
+      "path": "firmware/estop/src/receiver/main.cpp",
+      "area": "firmware",
+      "present": true,
+      "working_tree_bytes": 3216,
+      "lines": 85
+    },
+    {
+      "path": "firmware/estop/src/station/main.cpp",
+      "area": "firmware",
+      "present": true,
+      "working_tree_bytes": 4362,
+      "lines": 116
+    },
+    {
+      "path": "firmware/lift_actuator/include/protocol.h",
+      "area": "firmware",
+      "present": true,
+      "working_tree_bytes": 4073,
+      "lines": 83
+    },
+    {
+      "path": "firmware/lift_actuator/platformio.ini",
+      "area": "firmware",
+      "present": true,
+      "working_tree_bytes": 563
+    },
+    {
+      "path": "firmware/lift_actuator/src/main.cpp",
+      "area": "firmware",
+      "present": true,
+      "working_tree_bytes": 11682,
+      "lines": 272
+    },
+    {
+      "path": "firmware/openrb_leader/README.md",
+      "area": "firmware",
+      "present": true,
+      "working_tree_bytes": 1381
+    },
+    {
+      "path": "firmware/openrb_leader/boards/openrb150.json",
+      "area": "firmware",
+      "present": true,
+      "working_tree_bytes": 1001
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/LICENSE",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 11356
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/boards.txt",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1352
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/bootloaders/openrb-150_bootloader.bin",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 7328
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/Arduino.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 2806
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/Reset.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 2170
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/Reset.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 987
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/RingBuffer.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 3096
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/SERCOM.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 17935
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/SERCOM.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 5957
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/SafeRingBuffer.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1693
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/Tone.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 5568
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/USB/CDC.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 8918
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/USB/CDC.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1759
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/USB/SAMD21_USBDevice.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 15094
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/USB/USBAPI.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 5217
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/USB/USBCore.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 21864
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/USB/USBCore.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 7506
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/USB/USBDesc.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1182
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/USB/USB_host.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 2305
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/USB/samd21_host.c",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 14544
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/USB/samd21_host.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 6739
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/Uart.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 6065
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/Uart.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 2224
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/Udp.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 4363
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/WInterrupts.c",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 5746
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/WMath.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1204
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/WVariant.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 7698
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/abi.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1240
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/ArduinoAPI.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1467
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/Binary.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 22593
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/Client.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1505
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/Common.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 301
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/Common.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 4283
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/Compat.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 277
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/HardwareI2C.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1466
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/HardwareSPI.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 3545
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/HardwareSerial.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 5596
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/IPAddress.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 3227
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/IPAddress.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 3080
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/Interrupts.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1217
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/PluggableUSB.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 2404
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/PluggableUSB.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 2240
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/Print.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 7669
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/Print.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 3043
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/Printable.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1249
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/RingBuffer.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 3049
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/Server.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 962
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/Stream.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 8874
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/Stream.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 6215
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/String.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 17728
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/String.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 11683
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/USBAPI.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1982
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/Udp.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 4384
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/WCharacter.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 4521
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/deprecated-avr-comp/avr/dtostrf.c.impl",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1356
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/deprecated-avr-comp/avr/dtostrf.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1044
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/deprecated-avr-comp/avr/interrupt.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 910
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/deprecated-avr-comp/avr/pgmspace.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 5156
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/deprecated/Client.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 995
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/deprecated/HardwareSerial.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1011
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/deprecated/IPAddress.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1001
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/deprecated/Print.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 992
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/deprecated/Printable.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1000
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/deprecated/Server.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 995
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/deprecated/Stream.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 995
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/deprecated/Udp.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 989
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/deprecated/WString.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 993
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/api/itoa.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1285
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/compact/dtostrf.c",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 56
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/cortex_handlers.c",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 7421
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/delay.c",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 3638
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/hooks.c",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1704
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/itoa.c",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 2190
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/main.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1407
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/new.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1028
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/pulse.c",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 2245
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/pulse_asm.S",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 8555
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/startup.c",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 11661
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/sync.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 566
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/wiring.c",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 4795
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/wiring_analog.c",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 9985
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/wiring_digital.c",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 4081
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/wiring_private.c",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 4289
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/wiring_private.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1045
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/cores/arduino/wiring_shift.c",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1773
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/installed.json",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 265022
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/keywords.txt",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 207
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/HID/HID.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 4279
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/HID/HID.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 3217
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/HID/keywords.txt",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 520
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/HID/library.properties",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 271
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/OpenRB-150/OpenRB-150.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 741
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/OpenRB-150/examples/usb_to_dynamixel/usb_to_dynamixel.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 2059
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/OpenRB-150/library.properties",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 263
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/RC100/RC100.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 3649
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/RC100/RC100.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 2585
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SAMD_AnalogCorrection/examples/CorrectADCResponse/CorrectADCResponse.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 5573
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SAMD_AnalogCorrection/library.properties",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 262
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SAMD_AnalogCorrection/src/SAMD_AnalogCorrection.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1118
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SAMD_AnalogCorrection/src/SAMD_AnalogCorrection.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 876
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SAMD_BootloaderUpdater/examples/UpdateBootloader/UpdateBootloader.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1997
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SAMD_BootloaderUpdater/keywords.txt",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 579
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SAMD_BootloaderUpdater/library.properties",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 228
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SAMD_BootloaderUpdater/src/SAMD_BootloaderUpdater.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 3573
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SAMD_BootloaderUpdater/src/SAMD_BootloaderUpdater.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1127
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SAMD_BootloaderUpdater/src/bootloaders/mkrvidor4000.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 50295
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SBU/examples/SBU_LoadBinary/SBU_LoadBinary.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 2363
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SBU/examples/SBU_LoadLZSS/SBU_LoadLZSS.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1624
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SBU/examples/SBU_LoadLZSS/lzssEncode.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 4874
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SBU/examples/SBU_LoadLZSS/lzssEncode.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 549
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SBU/examples/SBU_Usage/SBU_Usage.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1458
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SBU/keywords.txt",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 448
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SBU/library.properties",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 201
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SBU/src/SBU.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1014
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SBU/src/SBU.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 883
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SBU/src/boot/mkrnb1500.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 197605
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SDU/examples/Usage/Usage.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1917
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SDU/keywords.txt",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 448
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SDU/library.properties",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 239
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SDU/src/SDU.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1538
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SDU/src/SDU.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 860
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SDU/src/boot/mkr1000.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 91415
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SDU/src/boot/mkrfox1200.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 91415
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SDU/src/boot/mkrgsm1400.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 91415
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SDU/src/boot/mkrnb1500.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 91415
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SDU/src/boot/mkrwan1300.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 91859
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SDU/src/boot/mkrwifi1010.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 91415
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SDU/src/boot/mkrzero.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 91415
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SDU/src/boot/mzero.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 88133
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SDU/src/boot/zero.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 86037
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SFU/examples/SFU_LoadBinary/Binary.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 0
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SFU/examples/SFU_LoadBinary/SFU_LoadBinary.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1850
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SFU/examples/SFU_Usage/SFU_Usage.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1500
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SFU/keywords.txt",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 448
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SFU/library.properties",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 268
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SFU/src/SFU.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1497
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SFU/src/SFU.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 883
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SFU/src/boot/mkr1000.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 160875
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SFU/src/boot/mkrfox1200.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 160875
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SFU/src/boot/mkrgsm1400.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 162455
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SFU/src/boot/mkrnb1500.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 160875
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SFU/src/boot/mkrvidor4000.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 160875
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SFU/src/boot/mkrwan1310.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 0
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SFU/src/boot/mkrwifi1010.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 162455
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SFU/src/boot/mkrzero.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 160875
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SNU/examples/Usage/Usage.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 3012
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SNU/examples/Usage/arduino_secrets.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 126
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SNU/keywords.txt",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 448
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SNU/library.properties",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 284
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SNU/src/SNU.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1160
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SNU/src/SNU.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 860
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SNU/src/boot/mkrvidor4000.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 101035
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SNU/src/boot/mkrwifi1010.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 92129
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SNU/src/boot/nano33iot.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 93191
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SPI/SPI.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 7965
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SPI/SPI.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 3505
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SPI/examples/BarometricPressureSensor/BarometricPressureSensor.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 4544
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SPI/examples/DigitalPotControl/DigitalPotControl.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1995
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SPI/keywords.txt",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 688
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SPI/library.properties",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 343
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SSU/examples/SSU_HttpOta/SSU_HttpOta.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 6931
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SSU/examples/SSU_HttpOta/arduino_secrets.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 243
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SSU/examples/SSU_LZSS_HttpOta/SSU_LZSS_HttpOta.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 7075
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SSU/examples/SSU_LZSS_HttpOta/arduino_secrets.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 243
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SSU/examples/SSU_LoadBinary/Binary.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 0
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SSU/examples/SSU_LoadBinary/SSU_LoadBinary.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1408
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SSU/examples/SSU_Usage/SSU_Usage.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1517
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SSU/keywords.txt",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 448
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SSU/library.properties",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 239
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SSU/src/SSU.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1016
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SSU/src/SSU.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 883
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/SSU/src/boot/mkrgsm1400.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 197703
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/examples/ADKTerminalTest/ADKTerminalTest.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 2057
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/examples/KeyboardController/KeyboardController.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 2204
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/examples/MouseController/MouseController.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 2482
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/examples/USB_desc/USB_desc.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 11741
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/examples/USB_desc/pgmstrings.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 2803
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/keywords.txt",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 770
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/library.properties",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 554
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/KeyboardController.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1352
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/KeyboardController.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1556
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/MouseController.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 2319
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/MouseController.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1730
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/Usb.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 30596
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/Usb.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1175
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/UsbCore.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 12337
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/address.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 7714
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/adk.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 12439
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/adk.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 4710
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/confdescparser.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 9419
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/hexdump.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 2120
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/hid.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 4880
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/hid.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 6195
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/hidboot.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 8939
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/hidboot.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 19334
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/hidescriptorparser.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 59395
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/hidescriptorparser.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 6747
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/hiduniversal.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 13116
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/hiduniversal.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 3513
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/hidusagestr.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 54717
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/macros.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 3990
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/message.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 3016
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/message.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 2678
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/parsetools.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1695
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/parsetools.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 3454
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/printhex.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 2283
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/sink_parser.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1193
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/usb_ch9.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 9583
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/usbhub.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 14155
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/USBHost/src/usbhub.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 11873
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/Wire/Wire.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 7989
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/Wire/Wire.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 3028
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/Wire/examples/SFRRanger_reader/SFRRanger_reader.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 2818
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/Wire/examples/digital_potentiometer/digital_potentiometer.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 975
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/Wire/examples/master_reader/master_reader.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 735
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/Wire/examples/master_writer/master_writer.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 648
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/Wire/examples/slave_receiver/slave_receiver.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 978
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/Wire/examples/slave_sender/slave_sender.ino",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 723
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/Wire/keywords.txt",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 697
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/libraries/Wire/library.properties",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 344
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/package.json",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 451
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/platform.txt",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 14295
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/programmers.txt",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1562
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/variants/OpenRB-150/debug_scripts/variant.gdb",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1075
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/variants/OpenRB-150/linker_scripts/gcc/flash_with_bootloader.ld",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 4990
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/variants/OpenRB-150/linker_scripts/gcc/flash_without_bootloader.ld",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 4913
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/variants/OpenRB-150/openocd_scripts/arduino_zero.cfg",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 1009
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/variants/OpenRB-150/pins_arduino.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 823
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/variants/OpenRB-150/variant.cpp",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 20798
+    },
+    {
+      "path": "firmware/openrb_leader/openrb150_bsp/variants/OpenRB-150/variant.h",
+      "area": "vendor",
+      "present": true,
+      "working_tree_bytes": 6840
+    },
+    {
+      "path": "firmware/openrb_leader/platformio.ini",
+      "area": "firmware",
+      "present": true,
+      "working_tree_bytes": 973
+    },
+    {
+      "path": "firmware/openrb_leader/src/main.cpp",
+      "area": "firmware",
+      "present": true,
+      "working_tree_bytes": 39371,
+      "lines": 839
+    },
+    {
+      "path": "firmware/tufty2040/main.py",
+      "area": "firmware",
+      "present": true,
+      "working_tree_bytes": 23240,
+      "lines": 641,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "image.png",
+      "area": "assets",
+      "present": true,
+      "working_tree_bytes": 473002
+    },
+    {
+      "path": "python/common/__init__.py",
+      "area": "robot_definition",
+      "present": true,
+      "working_tree_bytes": 0,
+      "lines": 0,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/common/arm_constants.py",
+      "area": "robot_definition",
+      "present": true,
+      "working_tree_bytes": 7235,
+      "lines": 215,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/common/minerva_constants.py",
+      "area": "robot_definition",
+      "present": true,
+      "working_tree_bytes": 14897,
+      "lines": 316,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/common/wire.py",
+      "area": "wire",
+      "present": true,
+      "working_tree_bytes": 2712,
+      "lines": 86,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/control/__init__.py",
+      "area": "gravity",
+      "present": true,
+      "working_tree_bytes": 0,
+      "lines": 0,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/control/gravity_comp.py",
+      "area": "gravity",
+      "present": true,
+      "working_tree_bytes": 14347,
+      "lines": 381,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/control/minerva_gravity.py",
+      "area": "gravity",
+      "present": true,
+      "working_tree_bytes": 11657,
+      "lines": 263,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/ik/__init__.py",
+      "area": "kinematics",
+      "present": true,
+      "working_tree_bytes": 418,
+      "lines": 11,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/ik/collision_sweep.py",
+      "area": "kinematics",
+      "present": true,
+      "working_tree_bytes": 11965,
+      "lines": 297,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/ik/dls_ik.py",
+      "area": "kinematics",
+      "present": true,
+      "working_tree_bytes": 6232,
+      "lines": 155,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/ik/kinematics.py",
+      "area": "kinematics",
+      "present": true,
+      "working_tree_bytes": 15956,
+      "lines": 385,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/ik/mesh_world.py",
+      "area": "kinematics",
+      "present": true,
+      "working_tree_bytes": 21013,
+      "lines": 510,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/ik/test_ik.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 4806,
+      "lines": 122,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/ik/workspace.py",
+      "area": "kinematics",
+      "present": true,
+      "working_tree_bytes": 6839,
+      "lines": 151,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/nodes/act_policy_node.py",
+      "area": "policy",
+      "present": true,
+      "working_tree_bytes": 33378,
+      "lines": 803,
+      "sys_path_mutation_lines": [
+        49,
+        60
+      ]
+    },
+    {
+      "path": "python/nodes/camera_node.py",
+      "area": "services",
+      "present": true,
+      "working_tree_bytes": 19214,
+      "lines": 501,
+      "sys_path_mutation_lines": [
+        28
+      ]
+    },
+    {
+      "path": "python/nodes/display_node.py",
+      "area": "services",
+      "present": true,
+      "working_tree_bytes": 19932,
+      "lines": 562,
+      "sys_path_mutation_lines": [
+        32
+      ]
+    },
+    {
+      "path": "python/nodes/find_motors.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 4829,
+      "lines": 160,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/nodes/gripper_camera_node.py",
+      "area": "services",
+      "present": true,
+      "working_tree_bytes": 25683,
+      "lines": 596,
+      "sys_path_mutation_lines": [
+        31
+      ]
+    },
+    {
+      "path": "python/nodes/ina219.py",
+      "area": "services",
+      "present": true,
+      "working_tree_bytes": 6825,
+      "lines": 220,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/nodes/minerva_policy_node.py",
+      "area": "policy",
+      "present": true,
+      "working_tree_bytes": 15878,
+      "lines": 375,
+      "sys_path_mutation_lines": [
+        47,
+        50
+      ]
+    },
+    {
+      "path": "python/nodes/query_motors.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 2424,
+      "lines": 88,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/nodes/ups_node.py",
+      "area": "services",
+      "present": true,
+      "working_tree_bytes": 11102,
+      "lines": 352,
+      "sys_path_mutation_lines": [
+        31
+      ]
+    },
+    {
+      "path": "python/rerun_bridge.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 33453,
+      "lines": 862,
+      "sys_path_mutation_lines": [
+        42
+      ]
+    },
+    {
+      "path": "python/scripts/actuator_char/__init__.py",
+      "area": "bench",
+      "present": true,
+      "working_tree_bytes": 851,
+      "lines": 19,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/actuator_char/analysis.py",
+      "area": "bench",
+      "present": true,
+      "working_tree_bytes": 6062,
+      "lines": 136,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/actuator_char/external_encoder.py",
+      "area": "bench",
+      "present": true,
+      "working_tree_bytes": 2504,
+      "lines": 70,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/actuator_char/harness.py",
+      "area": "bench",
+      "present": true,
+      "working_tree_bytes": 7230,
+      "lines": 191,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/actuator_char/robstride_mit.py",
+      "area": "bench",
+      "present": true,
+      "working_tree_bytes": 6626,
+      "lines": 176,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/characterize_actuator.py",
+      "area": "bench",
+      "present": true,
+      "working_tree_bytes": 8003,
+      "lines": 183,
+      "sys_path_mutation_lines": [
+        36
+      ]
+    },
+    {
+      "path": "python/scripts/collect_demo.py",
+      "area": "aizee_app",
+      "present": true,
+      "working_tree_bytes": 118031,
+      "lines": 2340,
+      "sys_path_mutation_lines": [
+        74,
+        113,
+        120,
+        126
+      ]
+    },
+    {
+      "path": "python/scripts/collect_demo_app/__init__.py",
+      "area": "aizee_app",
+      "present": true,
+      "working_tree_bytes": 83,
+      "lines": 1,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_demo_app/alignment.py",
+      "area": "aizee_app",
+      "present": true,
+      "working_tree_bytes": 5301,
+      "lines": 123,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_demo_app/config.py",
+      "area": "aizee_app",
+      "present": true,
+      "working_tree_bytes": 3277,
+      "lines": 84,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_demo_app/display.py",
+      "area": "aizee_app",
+      "present": true,
+      "working_tree_bytes": 14187,
+      "lines": 396,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_demo_app/gamepad.py",
+      "area": "aizee_app",
+      "present": true,
+      "working_tree_bytes": 3773,
+      "lines": 108,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_demo_app/images.py",
+      "area": "aizee_app",
+      "present": true,
+      "working_tree_bytes": 8501,
+      "lines": 194,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_demo_app/minerva_recording.py",
+      "area": "minerva_writer",
+      "present": true,
+      "working_tree_bytes": 6516,
+      "lines": 145,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_demo_app/profiler.py",
+      "area": "aizee_app",
+      "present": true,
+      "working_tree_bytes": 3653,
+      "lines": 91,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_demo_app/receivers.py",
+      "area": "aizee_app",
+      "present": true,
+      "working_tree_bytes": 9638,
+      "lines": 251,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_demo_app/recording.py",
+      "area": "aizee_app",
+      "present": true,
+      "working_tree_bytes": 4719,
+      "lines": 92,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_demo_app/replay.py",
+      "area": "aizee_app",
+      "present": true,
+      "working_tree_bytes": 21372,
+      "lines": 466,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_demo_app/runtime.py",
+      "area": "aizee_app",
+      "present": true,
+      "working_tree_bytes": 1474,
+      "lines": 40,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_demo_app/telem.py",
+      "area": "aizee_app",
+      "present": true,
+      "working_tree_bytes": 2652,
+      "lines": 78,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_demo_app/zmq_io.py",
+      "area": "aizee_app",
+      "present": true,
+      "working_tree_bytes": 13685,
+      "lines": 347,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_demo_gui.py",
+      "area": "aizee_app",
+      "present": true,
+      "working_tree_bytes": 238228,
+      "lines": 5521,
+      "sys_path_mutation_lines": [
+        72
+      ]
+    },
+    {
+      "path": "python/scripts/collect_minerva.py",
+      "area": "minerva_app",
+      "present": true,
+      "working_tree_bytes": 42925,
+      "lines": 858,
+      "sys_path_mutation_lines": [
+        45,
+        46,
+        47
+      ]
+    },
+    {
+      "path": "python/scripts/collect_minerva_app/__init__.py",
+      "area": "minerva_app",
+      "present": true,
+      "working_tree_bytes": 235,
+      "lines": 5,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_minerva_app/autosegment.py",
+      "area": "minerva_app",
+      "present": true,
+      "working_tree_bytes": 2586,
+      "lines": 76,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_minerva_app/cmd_sender.py",
+      "area": "minerva_app",
+      "present": true,
+      "working_tree_bytes": 2907,
+      "lines": 85,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_minerva_app/config.py",
+      "area": "minerva_app",
+      "present": true,
+      "working_tree_bytes": 2706,
+      "lines": 72,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_minerva_app/follower.py",
+      "area": "minerva_app",
+      "present": true,
+      "working_tree_bytes": 11588,
+      "lines": 260,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_minerva_app/images.py",
+      "area": "minerva_app",
+      "present": true,
+      "working_tree_bytes": 3648,
+      "lines": 106,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_minerva_app/receivers.py",
+      "area": "minerva_app",
+      "present": true,
+      "working_tree_bytes": 4754,
+      "lines": 134,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_minerva_app/recording.py",
+      "area": "minerva_app",
+      "present": true,
+      "working_tree_bytes": 4904,
+      "lines": 133,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_minerva_app/settings.py",
+      "area": "minerva_app",
+      "present": true,
+      "working_tree_bytes": 3551,
+      "lines": 91,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_minerva_app/speech.py",
+      "area": "minerva_app",
+      "present": true,
+      "working_tree_bytes": 5366,
+      "lines": 130,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_minerva_app/telem.py",
+      "area": "minerva_app",
+      "present": true,
+      "working_tree_bytes": 2283,
+      "lines": 68,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_minerva_app/teleop.py",
+      "area": "minerva_app",
+      "present": true,
+      "working_tree_bytes": 26019,
+      "lines": 528,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/collect_minerva_gui.py",
+      "area": "minerva_app",
+      "present": true,
+      "working_tree_bytes": 105802,
+      "lines": 2342,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/episode_replay_live.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 34945,
+      "lines": 852,
+      "sys_path_mutation_lines": [
+        32,
+        33
+      ]
+    },
+    {
+      "path": "python/scripts/episode_visualizer.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 9458,
+      "lines": 234,
+      "sys_path_mutation_lines": [
+        36
+      ]
+    },
+    {
+      "path": "python/scripts/estop_monitor.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 6819,
+      "lines": 200,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/evaluate_policy.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 15216,
+      "lines": 398,
+      "sys_path_mutation_lines": [
+        32
+      ]
+    },
+    {
+      "path": "python/scripts/flip_leader_dir.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 2042,
+      "lines": 52,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/gravity_calibrate.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 47281,
+      "lines": 1318,
+      "sys_path_mutation_lines": [
+        46,
+        47
+      ]
+    },
+    {
+      "path": "python/scripts/leader_diag.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 2586,
+      "lines": 62,
+      "sys_path_mutation_lines": [
+        18,
+        19
+      ]
+    },
+    {
+      "path": "python/scripts/leader_monitor.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 14422,
+      "lines": 383,
+      "sys_path_mutation_lines": [
+        28
+      ]
+    },
+    {
+      "path": "python/scripts/minerva_calibrate.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 14633,
+      "lines": 389,
+      "sys_path_mutation_lines": [
+        48,
+        49
+      ]
+    },
+    {
+      "path": "python/scripts/minerva_gravity_calibrate.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 25951,
+      "lines": 633,
+      "sys_path_mutation_lines": [
+        60,
+        61
+      ]
+    },
+    {
+      "path": "python/scripts/minerva_motor_probe.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 8140,
+      "lines": 206,
+      "sys_path_mutation_lines": [
+        34,
+        35
+      ]
+    },
+    {
+      "path": "python/scripts/minerva_teleop.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 18267,
+      "lines": 441,
+      "sys_path_mutation_lines": [
+        51,
+        52,
+        53
+      ]
+    },
+    {
+      "path": "python/scripts/mock_arm_publisher.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 15115,
+      "lines": 375,
+      "sys_path_mutation_lines": [
+        70
+      ]
+    },
+    {
+      "path": "python/scripts/openrb_calibrate.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 8296,
+      "lines": 192,
+      "sys_path_mutation_lines": [
+        39,
+        42,
+        43
+      ]
+    },
+    {
+      "path": "python/scripts/openrb_setup_arm.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 8825,
+      "lines": 250,
+      "sys_path_mutation_lines": [
+        44
+      ]
+    },
+    {
+      "path": "python/scripts/record_replay.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 27042,
+      "lines": 742,
+      "sys_path_mutation_lines": [
+        26
+      ]
+    },
+    {
+      "path": "python/scripts/robstride_calibrate.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 18757,
+      "lines": 572,
+      "sys_path_mutation_lines": [
+        33,
+        34
+      ]
+    },
+    {
+      "path": "python/scripts/so101_calibrate.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 12510,
+      "lines": 350,
+      "sys_path_mutation_lines": [
+        27,
+        30,
+        31
+      ]
+    },
+    {
+      "path": "python/scripts/so101_rerun.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 16620,
+      "lines": 514,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/scripts/so101_teleop.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 43260,
+      "lines": 982,
+      "sys_path_mutation_lines": [
+        48,
+        51,
+        52
+      ]
+    },
+    {
+      "path": "python/scripts/teleop_record.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 13328,
+      "lines": 376,
+      "sys_path_mutation_lines": [
+        32,
+        42
+      ]
+    },
+    {
+      "path": "python/scripts/view_episode.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 7489,
+      "lines": 227,
+      "sys_path_mutation_lines": [
+        28
+      ]
+    },
+    {
+      "path": "python/teleop/detailed_motor_test.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 5414,
+      "lines": 160,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/teleop/leader.py",
+      "area": "leaders",
+      "present": true,
+      "working_tree_bytes": 3652,
+      "lines": 109,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/teleop/openrb_leader.py",
+      "area": "leaders",
+      "present": true,
+      "working_tree_bytes": 35136,
+      "lines": 838,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/teleop/quest_leader.py",
+      "area": "leaders",
+      "present": true,
+      "working_tree_bytes": 42433,
+      "lines": 857,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/teleop/serial_safe.py",
+      "area": "leaders",
+      "present": true,
+      "working_tree_bytes": 3441,
+      "lines": 87,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/teleop/simple_test.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 7565,
+      "lines": 233,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/teleop/so101_leader.py",
+      "area": "leaders",
+      "present": true,
+      "working_tree_bytes": 24949,
+      "lines": 582,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/teleop/teleop.py",
+      "area": "python_tools",
+      "present": true,
+      "working_tree_bytes": 93001,
+      "lines": 2125,
+      "sys_path_mutation_lines": [
+        33
+      ]
+    },
+    {
+      "path": "python/teleop/test_quest_leader.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 5297,
+      "lines": 126,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/tests/ml/test_minerva_autosegment.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 2023,
+      "lines": 61,
+      "sys_path_mutation_lines": [
+        23,
+        24
+      ]
+    },
+    {
+      "path": "python/tests/ml/test_minerva_collector_smoke.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 12848,
+      "lines": 304,
+      "sys_path_mutation_lines": [
+        36,
+        37,
+        167
+      ]
+    },
+    {
+      "path": "python/tests/ml/test_minerva_segments.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 3150,
+      "lines": 98,
+      "sys_path_mutation_lines": [
+        24,
+        25,
+        26
+      ]
+    },
+    {
+      "path": "python/tests/ml/test_minerva_settings.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 1450,
+      "lines": 52,
+      "sys_path_mutation_lines": [
+        18,
+        19
+      ]
+    },
+    {
+      "path": "python/tests/ml/test_minerva_shutdown.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 3246,
+      "lines": 101,
+      "sys_path_mutation_lines": [
+        29,
+        30
+      ]
+    },
+    {
+      "path": "python/tests/ml/test_minerva_smoke.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 5005,
+      "lines": 123,
+      "sys_path_mutation_lines": [
+        31,
+        32
+      ]
+    },
+    {
+      "path": "python/tools/heartbeat_server.py",
+      "area": "operations",
+      "present": true,
+      "working_tree_bytes": 49874,
+      "lines": 1095,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/tools/setup_checks.py",
+      "area": "operations",
+      "present": true,
+      "working_tree_bytes": 21688,
+      "lines": 466,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/training/act_model.py",
+      "area": "learning",
+      "present": true,
+      "working_tree_bytes": 18502,
+      "lines": 508,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/training/build_lang_cache.py",
+      "area": "learning",
+      "present": true,
+      "working_tree_bytes": 2531,
+      "lines": 68,
+      "sys_path_mutation_lines": [
+        26
+      ]
+    },
+    {
+      "path": "python/training/compare_runs.py",
+      "area": "learning",
+      "present": true,
+      "working_tree_bytes": 8745,
+      "lines": 218,
+      "sys_path_mutation_lines": [
+        34
+      ]
+    },
+    {
+      "path": "python/training/dataset.py",
+      "area": "learning",
+      "present": true,
+      "working_tree_bytes": 23707,
+      "lines": 530,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/training/flow_matching_head.py",
+      "area": "learning",
+      "present": true,
+      "working_tree_bytes": 10849,
+      "lines": 263,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/training/inference.py",
+      "area": "learning",
+      "present": true,
+      "working_tree_bytes": 6980,
+      "lines": 188,
+      "sys_path_mutation_lines": [
+        18
+      ]
+    },
+    {
+      "path": "python/training/jepa_model.py",
+      "area": "learning",
+      "present": true,
+      "working_tree_bytes": 9824,
+      "lines": 270,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/training/language.py",
+      "area": "learning",
+      "present": true,
+      "working_tree_bytes": 8871,
+      "lines": 207,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/training/minerva_dataset.py",
+      "area": "learning",
+      "present": true,
+      "working_tree_bytes": 16379,
+      "lines": 383,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/training/minerva_model.py",
+      "area": "learning",
+      "present": true,
+      "working_tree_bytes": 15073,
+      "lines": 322,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/training/probe_jepa.py",
+      "area": "learning",
+      "present": true,
+      "working_tree_bytes": 10171,
+      "lines": 246,
+      "sys_path_mutation_lines": [
+        43
+      ]
+    },
+    {
+      "path": "python/training/sigreg.py",
+      "area": "learning",
+      "present": true,
+      "working_tree_bytes": 4796,
+      "lines": 120,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/training/train.py",
+      "area": "learning",
+      "present": true,
+      "working_tree_bytes": 14768,
+      "lines": 359,
+      "sys_path_mutation_lines": [
+        40
+      ]
+    },
+    {
+      "path": "python/training/train_jepa.py",
+      "area": "learning",
+      "present": true,
+      "working_tree_bytes": 15362,
+      "lines": 361,
+      "sys_path_mutation_lines": [
+        29
+      ]
+    },
+    {
+      "path": "python/training/train_minerva.py",
+      "area": "learning",
+      "present": true,
+      "working_tree_bytes": 10935,
+      "lines": 239,
+      "sys_path_mutation_lines": [
+        31
+      ]
+    },
+    {
+      "path": "python/training/validate_deploy.py",
+      "area": "learning",
+      "present": true,
+      "working_tree_bytes": 23558,
+      "lines": 577,
+      "sys_path_mutation_lines": [
+        38
+      ]
+    },
+    {
+      "path": "python/training/visualize_embeddings.py",
+      "area": "learning",
+      "present": true,
+      "working_tree_bytes": 10288,
+      "lines": 272,
+      "sys_path_mutation_lines": [
+        37
+      ]
+    },
+    {
+      "path": "python/web/__init__.py",
+      "area": "webxr",
+      "present": true,
+      "working_tree_bytes": 684,
+      "lines": 21,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/web/cert.py",
+      "area": "webxr",
+      "present": true,
+      "working_tree_bytes": 4628,
+      "lines": 124,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/web/fake_quest.py",
+      "area": "webxr",
+      "present": true,
+      "working_tree_bytes": 5613,
+      "lines": 132,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "python/web/server.py",
+      "area": "webxr",
+      "present": true,
+      "working_tree_bytes": 21083,
+      "lines": 483,
+      "sys_path_mutation_lines": [
+        112
+      ]
+    },
+    {
+      "path": "python/web/sim_visual_ik.py",
+      "area": "webxr",
+      "present": true,
+      "working_tree_bytes": 9052,
+      "lines": 214,
+      "sys_path_mutation_lines": [
+        37
+      ]
+    },
+    {
+      "path": "python/web/static/cam.js",
+      "area": "webxr",
+      "present": true,
+      "working_tree_bytes": 3898,
+      "lines": 114
+    },
+    {
+      "path": "python/web/static/index.html",
+      "area": "webxr",
+      "present": true,
+      "working_tree_bytes": 1795
+    },
+    {
+      "path": "python/web/static/main.js",
+      "area": "webxr",
+      "present": true,
+      "working_tree_bytes": 20155,
+      "lines": 465
+    },
+    {
+      "path": "python/web/static/preview.html",
+      "area": "webxr",
+      "present": true,
+      "working_tree_bytes": 41532
+    },
+    {
+      "path": "python/web/static/scene.js",
+      "area": "webxr",
+      "present": true,
+      "working_tree_bytes": 38698,
+      "lines": 896
+    },
+    {
+      "path": "python/web/static/style.css",
+      "area": "webxr",
+      "present": true,
+      "working_tree_bytes": 1417
+    },
+    {
+      "path": "python/web/static/vrui.js",
+      "area": "webxr",
+      "present": true,
+      "working_tree_bytes": 14962,
+      "lines": 367
+    },
+    {
+      "path": "python/web/static/ws.js",
+      "area": "webxr",
+      "present": true,
+      "working_tree_bytes": 1969,
+      "lines": 56
+    },
+    {
+      "path": "python/web/webrtc.py",
+      "area": "webxr",
+      "present": true,
+      "working_tree_bytes": 6168,
+      "lines": 160,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "requirements.txt",
+      "area": "repo",
+      "present": true,
+      "working_tree_bytes": 1172
+    },
+    {
+      "path": "requirements_jetson.txt",
+      "area": "repo",
+      "present": true,
+      "working_tree_bytes": 975
+    },
+    {
+      "path": "requirements_training.txt",
+      "area": "repo",
+      "present": true,
+      "working_tree_bytes": 1540
+    },
+    {
+      "path": "rust/Cargo.toml",
+      "area": "rust_workspace",
+      "present": true,
+      "working_tree_bytes": 881
+    },
+    {
+      "path": "rust/bindings/Cargo.toml",
+      "area": "rust_bindings",
+      "present": true,
+      "working_tree_bytes": 318
+    },
+    {
+      "path": "rust/bindings/src/lib.rs",
+      "area": "rust_bindings",
+      "present": true,
+      "working_tree_bytes": 415,
+      "lines": 15
+    },
+    {
+      "path": "rust/comms/Cargo.toml",
+      "area": "rust_comms",
+      "present": true,
+      "working_tree_bytes": 421
+    },
+    {
+      "path": "rust/comms/src/lib.rs",
+      "area": "rust_comms",
+      "present": true,
+      "working_tree_bytes": 296,
+      "lines": 10
+    },
+    {
+      "path": "rust/comms/src/messages.rs",
+      "area": "rust_comms",
+      "present": true,
+      "working_tree_bytes": 7381,
+      "lines": 234
+    },
+    {
+      "path": "rust/comms/src/zmq_bridge.rs",
+      "area": "rust_comms",
+      "present": true,
+      "working_tree_bytes": 4396,
+      "lines": 127
+    },
+    {
+      "path": "rust/lidar_control/Cargo.toml",
+      "area": "rust_lidar",
+      "present": true,
+      "working_tree_bytes": 547
+    },
+    {
+      "path": "rust/lidar_control/README.md",
+      "area": "rust_lidar",
+      "present": true,
+      "working_tree_bytes": 5398
+    },
+    {
+      "path": "rust/lidar_control/src/main.rs",
+      "area": "rust_lidar",
+      "present": true,
+      "working_tree_bytes": 6739,
+      "lines": 216
+    },
+    {
+      "path": "rust/lidar_control/src/scanner.rs",
+      "area": "rust_lidar",
+      "present": true,
+      "working_tree_bytes": 9409,
+      "lines": 270
+    },
+    {
+      "path": "rust/motor_control/Cargo.toml",
+      "area": "rust_control",
+      "present": true,
+      "working_tree_bytes": 533
+    },
+    {
+      "path": "rust/motor_control/README.md",
+      "area": "rust_control",
+      "present": true,
+      "working_tree_bytes": 6590
+    },
+    {
+      "path": "rust/motor_control/src/main.rs",
+      "area": "rust_control",
+      "present": true,
+      "working_tree_bytes": 87375,
+      "lines": 1768
+    },
+    {
+      "path": "rust/motor_control/src/motor.rs",
+      "area": "rust_control",
+      "present": true,
+      "working_tree_bytes": 15030,
+      "lines": 439
+    },
+    {
+      "path": "rust/motor_control/src/robstride.rs",
+      "area": "rust_control",
+      "present": true,
+      "working_tree_bytes": 14766,
+      "lines": 417
+    },
+    {
+      "path": "scripts/aizee-can-reset",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 3801
+    },
+    {
+      "path": "scripts/aizee-can-up",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 1241
+    },
+    {
+      "path": "scripts/aizee-reset-usb-can",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 3934
+    },
+    {
+      "path": "scripts/bootstrap_jetson.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 3690,
+      "lines": 91
+    },
+    {
+      "path": "scripts/build_librealsense_rsusb.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 3992,
+      "lines": 109
+    },
+    {
+      "path": "scripts/check_rover_status.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 2784,
+      "lines": 76
+    },
+    {
+      "path": "scripts/check_system_status.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 1726,
+      "lines": 51
+    },
+    {
+      "path": "scripts/deploy_common.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 1711,
+      "lines": 38
+    },
+    {
+      "path": "scripts/deploy_estop_bridge.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 2470,
+      "lines": 73
+    },
+    {
+      "path": "scripts/deploy_gripper_camera.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 4057,
+      "lines": 111
+    },
+    {
+      "path": "scripts/deploy_heartbeat.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 2914,
+      "lines": 74
+    },
+    {
+      "path": "scripts/deploy_jetson_rover.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 4597,
+      "lines": 119
+    },
+    {
+      "path": "scripts/deploy_lidar_control.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 3372,
+      "lines": 103
+    },
+    {
+      "path": "scripts/deploy_minerva_arms.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 5144,
+      "lines": 123
+    },
+    {
+      "path": "scripts/deploy_scene_cam.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 3603,
+      "lines": 112
+    },
+    {
+      "path": "scripts/deploy_tufty2040.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 1402,
+      "lines": 40
+    },
+    {
+      "path": "scripts/fix_can1_on_jetson.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 1798,
+      "lines": 53
+    },
+    {
+      "path": "scripts/install_itmux.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 5597,
+      "lines": 169
+    },
+    {
+      "path": "scripts/install_lidar_service.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 901,
+      "lines": 33
+    },
+    {
+      "path": "scripts/install_lidar_udev.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 915,
+      "lines": 30
+    },
+    {
+      "path": "scripts/jetson_camera_monitor.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 1825,
+      "lines": 57
+    },
+    {
+      "path": "scripts/launch_motor_control.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 1938,
+      "lines": 77
+    },
+    {
+      "path": "scripts/reset_display.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 451,
+      "lines": 11
+    },
+    {
+      "path": "scripts/reset_usb_can_adapter.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 2153,
+      "lines": 63
+    },
+    {
+      "path": "scripts/restart_motor_service.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 459,
+      "lines": 11
+    },
+    {
+      "path": "scripts/run_policy.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 3075,
+      "lines": 89
+    },
+    {
+      "path": "scripts/set_gantry_end_torque_limit.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 1684,
+      "lines": 48
+    },
+    {
+      "path": "scripts/setup_jetson.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 10684,
+      "lines": 250
+    },
+    {
+      "path": "scripts/setup_ssh_keys.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 540,
+      "lines": 17
+    },
+    {
+      "path": "scripts/shutdown_all.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 1917,
+      "lines": 64
+    },
+    {
+      "path": "scripts/start_so101_teleop.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 10383,
+      "lines": 272
+    },
+    {
+      "path": "scripts/start_teleop_record.sh",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 3273,
+      "lines": 84
+    },
+    {
+      "path": "scripts/test_realsense.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 10087,
+      "lines": 258,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "tests/README.md",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 5112
+    },
+    {
+      "path": "tests/direct_can/motor_control_test.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 4327,
+      "lines": 137,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "tests/direct_can/sine_wave_test.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 5632,
+      "lines": 181,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "tests/direct_can/test_actuator_char.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 6061,
+      "lines": 159,
+      "sys_path_mutation_lines": [
+        25
+      ]
+    },
+    {
+      "path": "tests/integration/sine_wave_test.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 8701,
+      "lines": 265,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "tests/integration/test_both_motors.sh",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 1721,
+      "lines": 41
+    },
+    {
+      "path": "tests/integration/test_individual.sh",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 2357,
+      "lines": 34
+    },
+    {
+      "path": "tests/ml/__init__.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 0,
+      "lines": 0,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "tests/ml/conftest.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 303,
+      "lines": 9,
+      "sys_path_mutation_lines": [
+        9
+      ]
+    },
+    {
+      "path": "tests/ml/test_pipeline.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 18040,
+      "lines": 468,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "tests/ml/test_record_replay.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 9287,
+      "lines": 234,
+      "sys_path_mutation_lines": [
+        14
+      ]
+    },
+    {
+      "path": "tests/utils/can_diagnostics.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 10257,
+      "lines": 295,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "tests/utils/capture_can_frames.sh",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 1058,
+      "lines": 51
+    },
+    {
+      "path": "tests/utils/debug_motor.sh",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 3811,
+      "lines": 129
+    },
+    {
+      "path": "tests/utils/scan_all_motors.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 1309,
+      "lines": 37,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "tests/utils/send_zmq_command.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 2725,
+      "lines": 88,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "tests/utils/test_bitrates.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 4139,
+      "lines": 116,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "tests/utils/test_motor_enable.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 2019,
+      "lines": 59,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "urdf/aizee/aizee.urdf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 52212
+    },
+    {
+      "path": "urdf/aizee/config.json",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 365
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_02_eb1201_501_1_1_1.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 403
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_02_eb1201_501_1_1_1.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1027684
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_02_eb1201_501_1_1_1__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 402
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_02_eb1201_501_1_1_1__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1028384
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_02_eb1201_501_1_1_1__3.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 402
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_02_eb1201_501_1_1_1__3.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1028384
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_02_eb571_960_stp.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 400
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_02_eb571_960_stp.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 368584
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_02_eb571_960_stp__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 400
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_02_eb571_960_stp__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 368584
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_02_eb671_502_1_stp.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 402
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_02_eb671_502_1_stp.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 222384
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_02_eb901_547_1.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 398
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_02_eb901_547_1.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 474184
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_04_eb572_5105_stp.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 401
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_04_eb572_5105_stp.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 774684
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_04_eb572_5105_stp__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 401
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_04_eb572_5105_stp__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 774684
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_04_eb672_503_1_stp.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 402
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_04_eb672_503_1_stp.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 799684
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb1203_503_1_1_1.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 402
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb1203_503_1_1_1.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 4448284
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb1203_503_1_1_1__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 403
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb1203_503_1_1_1__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 4438484
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb1203_503_1_1_1__3.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 402
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb1203_503_1_1_1__3.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 4448284
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb1203_504_1_1_1.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 402
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb1203_504_1_1_1.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 789784
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb573_642_stp.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 400
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb573_642_stp.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 299584
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb573_642_stp__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 400
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb573_642_stp__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 299584
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb573_643_stp.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 400
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb573_643_stp.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 500884
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb573_643_stp__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 400
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb573_643_stp__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 500884
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb673_516_1_stp.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 402
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb673_516_1_stp.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 754184
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb673_516_1_stp__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 402
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb673_516_1_stp__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 754184
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb673_524_1_stp.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 402
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb673_524_1_stp.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1522884
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb673_524_1_stp__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 402
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb673_524_1_stp__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1522884
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb903_537_1_1.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 400
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_06_eb903_537_1_1.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 703084
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_31_qt_942_1.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/aizee/meshes/1_1_31_qt_942_1.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 874884
+    },
+    {
+      "path": "urdf/aizee/meshes/bottomhalfbase.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 394
+    },
+    {
+      "path": "urdf/aizee/meshes/bottomhalfbase.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 2640284
+    },
+    {
+      "path": "urdf/aizee/meshes/elp_usbfhd01m_l21.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 396
+    },
+    {
+      "path": "urdf/aizee/meshes/elp_usbfhd01m_l21.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1079684
+    },
+    {
+      "path": "urdf/aizee/meshes/gantry_end_output_rb02.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 402
+    },
+    {
+      "path": "urdf/aizee/meshes/gantry_end_output_rb02.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 222384
+    },
+    {
+      "path": "urdf/aizee/meshes/gantry_end_rb02.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/aizee/meshes/gantry_end_rb02.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 799684
+    },
+    {
+      "path": "urdf/aizee/meshes/gyos72_17_93_i__1_1_1.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 401
+    },
+    {
+      "path": "urdf/aizee/meshes/gyos72_17_93_i__1_1_1.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 344784
+    },
+    {
+      "path": "urdf/aizee/meshes/linearrail_lwl7b_100mm.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 401
+    },
+    {
+      "path": "urdf/aizee/meshes/linearrail_lwl7b_100mm.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 186684
+    },
+    {
+      "path": "urdf/aizee/meshes/linearrail_lwl7b_100mm__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 401
+    },
+    {
+      "path": "urdf/aizee/meshes/linearrail_lwl7b_100mm__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 186684
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060311_6.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 391
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060311_6.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 379084
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060311_6__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 392
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060311_6__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 379084
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060311_6__3.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 391
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060311_6__3.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 379084
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060311_6__4.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 391
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060311_6__4.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 379084
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060313_2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 391
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060313_2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 29484
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060313_2__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 391
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060313_2__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 29484
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060313_2__3.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 391
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060313_2__3.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 29484
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060313_2__4.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 392
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060313_2__4.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 29484
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060316_8.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 391
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060316_8.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1386384
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060316_8__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 391
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060316_8__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1389484
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060316_8__3.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 392
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060316_8__3.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1389484
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060316_8__4.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 391
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060316_8__4.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1386384
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060318_11.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 392
+    },
+    {
+      "path": "urdf/aizee/meshes/mec060318_11.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1178784
+    },
+    {
+      "path": "urdf/aizee/meshes/part_1.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 386
+    },
+    {
+      "path": "urdf/aizee/meshes/part_1.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1194184
+    },
+    {
+      "path": "urdf/aizee/meshes/part_11.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/aizee/meshes/part_11.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 631984
+    },
+    {
+      "path": "urdf/aizee/meshes/part_1__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 386
+    },
+    {
+      "path": "urdf/aizee/meshes/part_1__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1193984
+    },
+    {
+      "path": "urdf/aizee/meshes/part_1__3.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 386
+    },
+    {
+      "path": "urdf/aizee/meshes/part_1__3.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 192284
+    },
+    {
+      "path": "urdf/aizee/meshes/part_1__4.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 386
+    },
+    {
+      "path": "urdf/aizee/meshes/part_1__4.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 192284
+    },
+    {
+      "path": "urdf/aizee/meshes/part_2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 386
+    },
+    {
+      "path": "urdf/aizee/meshes/part_2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 2874584
+    },
+    {
+      "path": "urdf/aizee/meshes/part_22.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/aizee/meshes/part_22.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 61684
+    },
+    {
+      "path": "urdf/aizee/meshes/part_23.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/aizee/meshes/part_23.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 350084
+    },
+    {
+      "path": "urdf/aizee/meshes/part_23__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/aizee/meshes/part_23__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 61684
+    },
+    {
+      "path": "urdf/aizee/meshes/part_24.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/aizee/meshes/part_24.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 972384
+    },
+    {
+      "path": "urdf/aizee/meshes/part_25.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/aizee/meshes/part_25.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387984
+    },
+    {
+      "path": "urdf/aizee/meshes/part_26.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/aizee/meshes/part_26.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 490384
+    },
+    {
+      "path": "urdf/aizee/meshes/part_27.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/aizee/meshes/part_27.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 444884
+    },
+    {
+      "path": "urdf/aizee/meshes/part_28.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/aizee/meshes/part_28.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 456384
+    },
+    {
+      "path": "urdf/aizee/meshes/part_29.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/aizee/meshes/part_29.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 579684
+    },
+    {
+      "path": "urdf/aizee/meshes/part_2__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 386
+    },
+    {
+      "path": "urdf/aizee/meshes/part_2__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 2874584
+    },
+    {
+      "path": "urdf/aizee/meshes/part_30.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/aizee/meshes/part_30.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 531484
+    },
+    {
+      "path": "urdf/aizee/meshes/part_30__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/aizee/meshes/part_30__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 603584
+    },
+    {
+      "path": "urdf/aizee/meshes/part_31.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/aizee/meshes/part_31.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 580684
+    },
+    {
+      "path": "urdf/aizee/meshes/part_31__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/aizee/meshes/part_31__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 429384
+    },
+    {
+      "path": "urdf/aizee/meshes/part_32.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/aizee/meshes/part_32.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 531784
+    },
+    {
+      "path": "urdf/aizee/meshes/part_33.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/aizee/meshes/part_33.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/aizee/meshes/part_39.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 386
+    },
+    {
+      "path": "urdf/aizee/meshes/part_39.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 971284
+    },
+    {
+      "path": "urdf/aizee/meshes/part_40.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/aizee/meshes/part_40.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 803984
+    },
+    {
+      "path": "urdf/aizee/meshes/part_40__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 386
+    },
+    {
+      "path": "urdf/aizee/meshes/part_40__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 978084
+    },
+    {
+      "path": "urdf/aizee/meshes/part_41.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/aizee/meshes/part_41.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 384084
+    },
+    {
+      "path": "urdf/aizee/meshes/part_41__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 386
+    },
+    {
+      "path": "urdf/aizee/meshes/part_41__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 978084
+    },
+    {
+      "path": "urdf/aizee/meshes/part_42.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/aizee/meshes/part_42.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 525284
+    },
+    {
+      "path": "urdf/aizee/meshes/part_42__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 386
+    },
+    {
+      "path": "urdf/aizee/meshes/part_42__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 566884
+    },
+    {
+      "path": "urdf/aizee/meshes/part_43.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 386
+    },
+    {
+      "path": "urdf/aizee/meshes/part_43.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 193484
+    },
+    {
+      "path": "urdf/aizee/meshes/part_44.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 386
+    },
+    {
+      "path": "urdf/aizee/meshes/part_44.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 948984
+    },
+    {
+      "path": "urdf/aizee/meshes/part_64.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/aizee/meshes/part_64.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 189184
+    },
+    {
+      "path": "urdf/aizee/meshes/part_69.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/aizee/meshes/part_69.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 187084
+    },
+    {
+      "path": "urdf/aizee/meshes/part_70.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/aizee/meshes/part_70.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 350284
+    },
+    {
+      "path": "urdf/aizee/meshes/part_71.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/aizee/meshes/part_71.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 116084
+    },
+    {
+      "path": "urdf/aizee/meshes/part_73.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/aizee/meshes/part_73.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 518184
+    },
+    {
+      "path": "urdf/aizee/meshes/part_74.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/aizee/meshes/part_74.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 192084
+    },
+    {
+      "path": "urdf/aizee/meshes/part_78.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/aizee/meshes/part_78.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 493784
+    },
+    {
+      "path": "urdf/aizee/meshes/part_79.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/aizee/meshes/part_79.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 151884
+    },
+    {
+      "path": "urdf/aizee/meshes/part_80.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/aizee/meshes/part_80.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 91884
+    },
+    {
+      "path": "urdf/aizee/meshes/part_81.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/aizee/meshes/part_81.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 228784
+    },
+    {
+      "path": "urdf/aizee/meshes/part_82.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/aizee/meshes/part_82.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 192084
+    },
+    {
+      "path": "urdf/aizee/meshes/part_92.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/aizee/meshes/part_92.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 317584
+    },
+    {
+      "path": "urdf/aizee/meshes/part_93.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/aizee/meshes/part_93.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 191984
+    },
+    {
+      "path": "urdf/aizee/meshes/part_94.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/aizee/meshes/part_94.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 207384
+    },
+    {
+      "path": "urdf/aizee/meshes/rplidar_a1m8.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 392
+    },
+    {
+      "path": "urdf/aizee/meshes/rplidar_a1m8.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 161084
+    },
+    {
+      "path": "urdf/aizee/meshes/rplidar_a1m8__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 392
+    },
+    {
+      "path": "urdf/aizee/meshes/rplidar_a1m8__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 160684
+    },
+    {
+      "path": "urdf/aizee/meshes/tophalfbase.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 391
+    },
+    {
+      "path": "urdf/aizee/meshes/tophalfbase.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 2637484
+    },
+    {
+      "path": "viz/embeddings.png",
+      "area": "assets",
+      "present": true,
+      "working_tree_bytes": 284104
+    },
+    {
+      "path": "viz/probe.png",
+      "area": "assets",
+      "present": true,
+      "working_tree_bytes": 46956
+    }
+  ],
+  "python_import_edges": [
+    {
+      "source": "python/common/arm_constants.py",
+      "line": 117,
+      "target": "python/common/wire.py"
+    },
+    {
+      "source": "python/control/minerva_gravity.py",
+      "line": 57,
+      "target": "python/common/minerva_constants.py"
+    },
+    {
+      "source": "python/ik/__init__.py",
+      "line": 8,
+      "target": "python/ik/kinematics.py"
+    },
+    {
+      "source": "python/ik/__init__.py",
+      "line": 9,
+      "target": "python/ik/dls_ik.py"
+    },
+    {
+      "source": "python/ik/collision_sweep.py",
+      "line": 45,
+      "target": "python/ik/mesh_world.py"
+    },
+    {
+      "source": "python/ik/dls_ik.py",
+      "line": 20,
+      "target": "python/ik/kinematics.py"
+    },
+    {
+      "source": "python/ik/test_ik.py",
+      "line": 24,
+      "target": "python/ik/__init__.py"
+    },
+    {
+      "source": "python/ik/test_ik.py",
+      "line": 25,
+      "target": "python/ik/kinematics.py"
+    },
+    {
+      "source": "python/ik/workspace.py",
+      "line": 32,
+      "target": "python/ik/__init__.py"
+    },
+    {
+      "source": "python/ik/workspace.py",
+      "line": 33,
+      "target": "python/ik/kinematics.py"
+    },
+    {
+      "source": "python/nodes/act_policy_node.py",
+      "line": 50,
+      "target": "python/common/wire.py"
+    },
+    {
+      "source": "python/nodes/act_policy_node.py",
+      "line": 62,
+      "target": "python/training/act_model.py"
+    },
+    {
+      "source": "python/nodes/act_policy_node.py",
+      "line": 63,
+      "target": "python/training/inference.py"
+    },
+    {
+      "source": "python/nodes/act_policy_node.py",
+      "line": 68,
+      "target": "python/scripts/record_replay.py"
+    },
+    {
+      "source": "python/nodes/camera_node.py",
+      "line": 29,
+      "target": "python/common/wire.py"
+    },
+    {
+      "source": "python/nodes/display_node.py",
+      "line": 33,
+      "target": "python/common/wire.py"
+    },
+    {
+      "source": "python/nodes/gripper_camera_node.py",
+      "line": 32,
+      "target": "python/common/wire.py"
+    },
+    {
+      "source": "python/nodes/minerva_policy_node.py",
+      "line": 48,
+      "target": "python/common/wire.py"
+    },
+    {
+      "source": "python/nodes/minerva_policy_node.py",
+      "line": 51,
+      "target": "python/common/minerva_constants.py"
+    },
+    {
+      "source": "python/nodes/minerva_policy_node.py",
+      "line": 55,
+      "target": "python/training/language.py"
+    },
+    {
+      "source": "python/nodes/minerva_policy_node.py",
+      "line": 56,
+      "target": "python/training/minerva_dataset.py"
+    },
+    {
+      "source": "python/nodes/minerva_policy_node.py",
+      "line": 57,
+      "target": "python/training/minerva_model.py"
+    },
+    {
+      "source": "python/nodes/ups_node.py",
+      "line": 32,
+      "target": "python/common/wire.py"
+    },
+    {
+      "source": "python/nodes/ups_node.py",
+      "line": 36,
+      "target": "python/nodes/ina219.py"
+    },
+    {
+      "source": "python/rerun_bridge.py",
+      "line": 43,
+      "target": "python/common/wire.py"
+    },
+    {
+      "source": "python/scripts/actuator_char/__init__.py",
+      "line": 17,
+      "target": "python/scripts/actuator_char/__init__.py"
+    },
+    {
+      "source": "python/scripts/actuator_char/__init__.py",
+      "line": 17,
+      "target": "python/scripts/actuator_char/analysis.py"
+    },
+    {
+      "source": "python/scripts/actuator_char/__init__.py",
+      "line": 17,
+      "target": "python/scripts/actuator_char/external_encoder.py"
+    },
+    {
+      "source": "python/scripts/actuator_char/__init__.py",
+      "line": 17,
+      "target": "python/scripts/actuator_char/robstride_mit.py"
+    },
+    {
+      "source": "python/scripts/actuator_char/harness.py",
+      "line": 21,
+      "target": "python/scripts/actuator_char/__init__.py"
+    },
+    {
+      "source": "python/scripts/actuator_char/harness.py",
+      "line": 21,
+      "target": "python/scripts/actuator_char/robstride_mit.py"
+    },
+    {
+      "source": "python/scripts/actuator_char/harness.py",
+      "line": 22,
+      "target": "python/scripts/actuator_char/external_encoder.py"
+    },
+    {
+      "source": "python/scripts/characterize_actuator.py",
+      "line": 38,
+      "target": "python/scripts/actuator_char/__init__.py"
+    },
+    {
+      "source": "python/scripts/characterize_actuator.py",
+      "line": 38,
+      "target": "python/scripts/actuator_char/analysis.py"
+    },
+    {
+      "source": "python/scripts/characterize_actuator.py",
+      "line": 38,
+      "target": "python/scripts/actuator_char/robstride_mit.py"
+    },
+    {
+      "source": "python/scripts/characterize_actuator.py",
+      "line": 39,
+      "target": "python/scripts/actuator_char/external_encoder.py"
+    },
+    {
+      "source": "python/scripts/characterize_actuator.py",
+      "line": 40,
+      "target": "python/scripts/actuator_char/harness.py"
+    },
+    {
+      "source": "python/scripts/collect_demo.py",
+      "line": 75,
+      "target": "python/teleop/so101_leader.py"
+    },
+    {
+      "source": "python/scripts/collect_demo.py",
+      "line": 87,
+      "target": "python/teleop/leader.py"
+    },
+    {
+      "source": "python/scripts/collect_demo.py",
+      "line": 96,
+      "target": "python/teleop/openrb_leader.py"
+    },
+    {
+      "source": "python/scripts/collect_demo.py",
+      "line": 114,
+      "target": "python/teleop/quest_leader.py"
+    },
+    {
+      "source": "python/scripts/collect_demo.py",
+      "line": 115,
+      "target": "python/web/__init__.py"
+    },
+    {
+      "source": "python/scripts/collect_demo.py",
+      "line": 121,
+      "target": "python/common/arm_constants.py"
+    },
+    {
+      "source": "python/scripts/collect_demo.py",
+      "line": 128,
+      "target": "python/scripts/collect_demo_app/__init__.py"
+    },
+    {
+      "source": "python/scripts/collect_demo.py",
+      "line": 128,
+      "target": "python/scripts/collect_demo_app/alignment.py"
+    },
+    {
+      "source": "python/scripts/collect_demo.py",
+      "line": 129,
+      "target": "python/scripts/collect_demo_app/alignment.py"
+    },
+    {
+      "source": "python/scripts/collect_demo.py",
+      "line": 133,
+      "target": "python/scripts/collect_demo_app/config.py"
+    },
+    {
+      "source": "python/scripts/collect_demo.py",
+      "line": 137,
+      "target": "python/scripts/collect_demo_app/display.py"
+    },
+    {
+      "source": "python/scripts/collect_demo.py",
+      "line": 141,
+      "target": "python/scripts/collect_demo_app/gamepad.py"
+    },
+    {
+      "source": "python/scripts/collect_demo.py",
+      "line": 145,
+      "target": "python/scripts/collect_demo_app/images.py"
+    },
+    {
+      "source": "python/scripts/collect_demo.py",
+      "line": 146,
+      "target": "python/scripts/collect_demo_app/profiler.py"
+    },
+    {
+      "source": "python/scripts/collect_demo.py",
+      "line": 147,
+      "target": "python/scripts/collect_demo_app/receivers.py"
+    },
+    {
+      "source": "python/scripts/collect_demo.py",
+      "line": 150,
+      "target": "python/scripts/collect_demo_app/recording.py"
+    },
+    {
+      "source": "python/scripts/collect_demo.py",
+      "line": 151,
+      "target": "python/scripts/collect_demo_app/replay.py"
+    },
+    {
+      "source": "python/scripts/collect_demo.py",
+      "line": 152,
+      "target": "python/scripts/collect_demo_app/runtime.py"
+    },
+    {
+      "source": "python/scripts/collect_demo.py",
+      "line": 155,
+      "target": "python/scripts/collect_demo_app/telem.py"
+    },
+    {
+      "source": "python/scripts/collect_demo.py",
+      "line": 156,
+      "target": "python/scripts/collect_demo_app/zmq_io.py"
+    },
+    {
+      "source": "python/scripts/collect_demo.py",
+      "line": 594,
+      "target": "python/teleop/leader.py"
+    },
+    {
+      "source": "python/scripts/collect_demo.py",
+      "line": 949,
+      "target": "python/scripts/collect_demo_gui.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_app/alignment.py",
+      "line": 9,
+      "target": "python/scripts/collect_demo_app/runtime.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_app/display.py",
+      "line": 16,
+      "target": "python/scripts/collect_demo_app/alignment.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_app/display.py",
+      "line": 17,
+      "target": "python/scripts/collect_demo_app/runtime.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_app/minerva_recording.py",
+      "line": 40,
+      "target": "python/common/minerva_constants.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_app/minerva_recording.py",
+      "line": 42,
+      "target": "python/common/minerva_constants.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_app/receivers.py",
+      "line": 20,
+      "target": "python/teleop/serial_safe.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_app/receivers.py",
+      "line": 24,
+      "target": "python/common/wire.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_app/recording.py",
+      "line": 10,
+      "target": "python/common/arm_constants.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_app/recording.py",
+      "line": 12,
+      "target": "python/scripts/collect_demo_app/runtime.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_app/replay.py",
+      "line": 12,
+      "target": "python/common/arm_constants.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_app/replay.py",
+      "line": 14,
+      "target": "python/scripts/collect_demo_app/runtime.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_app/runtime.py",
+      "line": 6,
+      "target": "python/common/arm_constants.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_app/telem.py",
+      "line": 8,
+      "target": "python/common/arm_constants.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_app/telem.py",
+      "line": 10,
+      "target": "python/scripts/collect_demo_app/alignment.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_app/zmq_io.py",
+      "line": 11,
+      "target": "python/common/arm_constants.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_app/zmq_io.py",
+      "line": 12,
+      "target": "python/common/wire.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_app/zmq_io.py",
+      "line": 14,
+      "target": "python/scripts/collect_demo_app/__init__.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_app/zmq_io.py",
+      "line": 14,
+      "target": "python/scripts/collect_demo_app/alignment.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_app/zmq_io.py",
+      "line": 15,
+      "target": "python/scripts/collect_demo_app/alignment.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_app/zmq_io.py",
+      "line": 16,
+      "target": "python/scripts/collect_demo_app/runtime.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_app/zmq_io.py",
+      "line": 17,
+      "target": "python/scripts/collect_demo_app/telem.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_gui.py",
+      "line": 62,
+      "target": "python/common/arm_constants.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_gui.py",
+      "line": 63,
+      "target": "python/scripts/collect_demo_app/alignment.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_gui.py",
+      "line": 73,
+      "target": "python/ik/__init__.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_gui.py",
+      "line": 117,
+      "target": "python/ik/mesh_world.py"
+    },
+    {
+      "source": "python/scripts/collect_demo_gui.py",
+      "line": 159,
+      "target": "python/ik/mesh_world.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva.py",
+      "line": 49,
+      "target": "python/common/minerva_constants.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva.py",
+      "line": 54,
+      "target": "python/control/minerva_gravity.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva.py",
+      "line": 55,
+      "target": "python/scripts/collect_minerva_app/__init__.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva.py",
+      "line": 55,
+      "target": "python/scripts/collect_minerva_app/config.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva.py",
+      "line": 56,
+      "target": "python/scripts/collect_minerva_app/follower.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva.py",
+      "line": 57,
+      "target": "python/scripts/collect_minerva_app/images.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva.py",
+      "line": 58,
+      "target": "python/scripts/collect_minerva_app/receivers.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva.py",
+      "line": 59,
+      "target": "python/scripts/collect_minerva_app/recording.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva.py",
+      "line": 60,
+      "target": "python/scripts/collect_minerva_app/teleop.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva.py",
+      "line": 61,
+      "target": "python/scripts/collect_minerva_app/settings.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva.py",
+      "line": 220,
+      "target": "python/common/minerva_constants.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva.py",
+      "line": 413,
+      "target": "python/scripts/collect_minerva_gui.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva_app/autosegment.py",
+      "line": 21,
+      "target": "python/common/minerva_constants.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva_app/cmd_sender.py",
+      "line": 18,
+      "target": "python/common/minerva_constants.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva_app/cmd_sender.py",
+      "line": 19,
+      "target": "python/common/wire.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva_app/config.py",
+      "line": 58,
+      "target": "python/scripts/collect_demo_app/config.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva_app/follower.py",
+      "line": 27,
+      "target": "python/common/minerva_constants.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva_app/follower.py",
+      "line": 28,
+      "target": "python/common/wire.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva_app/follower.py",
+      "line": 29,
+      "target": "python/scripts/collect_minerva_app/receivers.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva_app/receivers.py",
+      "line": 20,
+      "target": "python/common/wire.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva_app/recording.py",
+      "line": 16,
+      "target": "python/scripts/collect_demo_app/minerva_recording.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva_app/telem.py",
+      "line": 19,
+      "target": "python/common/minerva_constants.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva_app/teleop.py",
+      "line": 35,
+      "target": "python/common/minerva_constants.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva_app/teleop.py",
+      "line": 63,
+      "target": "python/teleop/openrb_leader.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva_gui.py",
+      "line": 49,
+      "target": "python/scripts/collect_minerva_app/settings.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva_gui.py",
+      "line": 57,
+      "target": "python/common/minerva_constants.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva_gui.py",
+      "line": 1143,
+      "target": "python/scripts/collect_minerva_app/autosegment.py"
+    },
+    {
+      "source": "python/scripts/collect_minerva_gui.py",
+      "line": 1907,
+      "target": "python/scripts/collect_minerva_app/speech.py"
+    },
+    {
+      "source": "python/scripts/episode_replay_live.py",
+      "line": 34,
+      "target": "python/common/arm_constants.py"
+    },
+    {
+      "source": "python/scripts/episode_replay_live.py",
+      "line": 35,
+      "target": "python/control/gravity_comp.py"
+    },
+    {
+      "source": "python/scripts/episode_replay_live.py",
+      "line": 36,
+      "target": "python/common/wire.py"
+    },
+    {
+      "source": "python/scripts/episode_visualizer.py",
+      "line": 41,
+      "target": "python/scripts/record_replay.py"
+    },
+    {
+      "source": "python/scripts/episode_visualizer.py",
+      "line": 42,
+      "target": "python/training/inference.py"
+    },
+    {
+      "source": "python/scripts/evaluate_policy.py",
+      "line": 34,
+      "target": "python/nodes/act_policy_node.py"
+    },
+    {
+      "source": "python/scripts/gravity_calibrate.py",
+      "line": 48,
+      "target": "python/common/arm_constants.py"
+    },
+    {
+      "source": "python/scripts/gravity_calibrate.py",
+      "line": 58,
+      "target": "python/common/wire.py"
+    },
+    {
+      "source": "python/scripts/gravity_calibrate.py",
+      "line": 59,
+      "target": "python/control/gravity_comp.py"
+    },
+    {
+      "source": "python/scripts/leader_diag.py",
+      "line": 20,
+      "target": "python/teleop/openrb_leader.py"
+    },
+    {
+      "source": "python/scripts/leader_monitor.py",
+      "line": 29,
+      "target": "python/teleop/leader.py"
+    },
+    {
+      "source": "python/scripts/leader_monitor.py",
+      "line": 272,
+      "target": "python/teleop/leader.py"
+    },
+    {
+      "source": "python/scripts/leader_monitor.py",
+      "line": 317,
+      "target": "python/teleop/openrb_leader.py"
+    },
+    {
+      "source": "python/scripts/minerva_calibrate.py",
+      "line": 50,
+      "target": "python/common/arm_constants.py"
+    },
+    {
+      "source": "python/scripts/minerva_calibrate.py",
+      "line": 51,
+      "target": "python/common/wire.py"
+    },
+    {
+      "source": "python/scripts/minerva_calibrate.py",
+      "line": 52,
+      "target": "python/scripts/collect_minerva_app/config.py"
+    },
+    {
+      "source": "python/scripts/minerva_gravity_calibrate.py",
+      "line": 62,
+      "target": "python/common/arm_constants.py"
+    },
+    {
+      "source": "python/scripts/minerva_gravity_calibrate.py",
+      "line": 63,
+      "target": "python/common/wire.py"
+    },
+    {
+      "source": "python/scripts/minerva_gravity_calibrate.py",
+      "line": 64,
+      "target": "python/common/minerva_constants.py"
+    },
+    {
+      "source": "python/scripts/minerva_gravity_calibrate.py",
+      "line": 65,
+      "target": "python/scripts/collect_minerva_app/config.py"
+    },
+    {
+      "source": "python/scripts/minerva_gravity_calibrate.py",
+      "line": 66,
+      "target": "python/control/minerva_gravity.py"
+    },
+    {
+      "source": "python/scripts/minerva_motor_probe.py",
+      "line": 36,
+      "target": "python/common/wire.py"
+    },
+    {
+      "source": "python/scripts/minerva_motor_probe.py",
+      "line": 37,
+      "target": "python/scripts/minerva_calibrate.py"
+    },
+    {
+      "source": "python/scripts/minerva_motor_probe.py",
+      "line": 38,
+      "target": "python/scripts/collect_minerva_app/config.py"
+    },
+    {
+      "source": "python/scripts/minerva_teleop.py",
+      "line": 55,
+      "target": "python/common/arm_constants.py"
+    },
+    {
+      "source": "python/scripts/minerva_teleop.py",
+      "line": 56,
+      "target": "python/common/wire.py"
+    },
+    {
+      "source": "python/scripts/minerva_teleop.py",
+      "line": 57,
+      "target": "python/common/minerva_constants.py"
+    },
+    {
+      "source": "python/scripts/minerva_teleop.py",
+      "line": 58,
+      "target": "python/scripts/minerva_calibrate.py"
+    },
+    {
+      "source": "python/scripts/minerva_teleop.py",
+      "line": 61,
+      "target": "python/scripts/collect_minerva_app/config.py"
+    },
+    {
+      "source": "python/scripts/minerva_teleop.py",
+      "line": 76,
+      "target": "python/teleop/openrb_leader.py"
+    },
+    {
+      "source": "python/scripts/mock_arm_publisher.py",
+      "line": 71,
+      "target": "python/common/arm_constants.py"
+    },
+    {
+      "source": "python/scripts/mock_arm_publisher.py",
+      "line": 72,
+      "target": "python/common/wire.py"
+    },
+    {
+      "source": "python/scripts/openrb_calibrate.py",
+      "line": 40,
+      "target": "python/teleop/openrb_leader.py"
+    },
+    {
+      "source": "python/scripts/openrb_calibrate.py",
+      "line": 44,
+      "target": "python/scripts/so101_calibrate.py"
+    },
+    {
+      "source": "python/scripts/openrb_calibrate.py",
+      "line": 45,
+      "target": "python/common/arm_constants.py"
+    },
+    {
+      "source": "python/scripts/openrb_setup_arm.py",
+      "line": 45,
+      "target": "python/teleop/openrb_leader.py"
+    },
+    {
+      "source": "python/scripts/record_replay.py",
+      "line": 27,
+      "target": "python/common/wire.py"
+    },
+    {
+      "source": "python/scripts/record_replay.py",
+      "line": 34,
+      "target": "python/common/arm_constants.py"
+    },
+    {
+      "source": "python/scripts/robstride_calibrate.py",
+      "line": 35,
+      "target": "python/common/arm_constants.py"
+    },
+    {
+      "source": "python/scripts/so101_calibrate.py",
+      "line": 28,
+      "target": "python/teleop/so101_leader.py"
+    },
+    {
+      "source": "python/scripts/so101_calibrate.py",
+      "line": 32,
+      "target": "python/common/arm_constants.py"
+    },
+    {
+      "source": "python/scripts/so101_teleop.py",
+      "line": 49,
+      "target": "python/teleop/so101_leader.py"
+    },
+    {
+      "source": "python/scripts/so101_teleop.py",
+      "line": 53,
+      "target": "python/common/arm_constants.py"
+    },
+    {
+      "source": "python/scripts/teleop_record.py",
+      "line": 33,
+      "target": "python/common/wire.py"
+    },
+    {
+      "source": "python/scripts/teleop_record.py",
+      "line": 43,
+      "target": "python/common/arm_constants.py"
+    },
+    {
+      "source": "python/scripts/teleop_record.py",
+      "line": 47,
+      "target": "python/scripts/record_replay.py"
+    },
+    {
+      "source": "python/scripts/view_episode.py",
+      "line": 29,
+      "target": "python/common/arm_constants.py"
+    },
+    {
+      "source": "python/teleop/leader.py",
+      "line": 32,
+      "target": "python/teleop/so101_leader.py"
+    },
+    {
+      "source": "python/teleop/leader.py",
+      "line": 33,
+      "target": "python/teleop/so101_leader.py"
+    },
+    {
+      "source": "python/teleop/leader.py",
+      "line": 34,
+      "target": "python/teleop/openrb_leader.py"
+    },
+    {
+      "source": "python/teleop/leader.py",
+      "line": 35,
+      "target": "python/teleop/openrb_leader.py"
+    },
+    {
+      "source": "python/teleop/openrb_leader.py",
+      "line": 62,
+      "target": "python/teleop/serial_safe.py"
+    },
+    {
+      "source": "python/teleop/quest_leader.py",
+      "line": 47,
+      "target": "python/ik/__init__.py"
+    },
+    {
+      "source": "python/teleop/quest_leader.py",
+      "line": 48,
+      "target": "python/ik/kinematics.py"
+    },
+    {
+      "source": "python/teleop/quest_leader.py",
+      "line": 50,
+      "target": "python/ik/__init__.py"
+    },
+    {
+      "source": "python/teleop/quest_leader.py",
+      "line": 51,
+      "target": "python/ik/kinematics.py"
+    },
+    {
+      "source": "python/teleop/so101_leader.py",
+      "line": 32,
+      "target": "python/teleop/serial_safe.py"
+    },
+    {
+      "source": "python/teleop/teleop.py",
+      "line": 34,
+      "target": "python/common/wire.py"
+    },
+    {
+      "source": "python/teleop/test_quest_leader.py",
+      "line": 14,
+      "target": "python/ik/__init__.py"
+    },
+    {
+      "source": "python/teleop/test_quest_leader.py",
+      "line": 15,
+      "target": "python/ik/kinematics.py"
+    },
+    {
+      "source": "python/teleop/test_quest_leader.py",
+      "line": 16,
+      "target": "python/teleop/quest_leader.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_autosegment.py",
+      "line": 26,
+      "target": "python/scripts/collect_minerva_app/autosegment.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_collector_smoke.py",
+      "line": 42,
+      "target": "python/common/minerva_constants.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_collector_smoke.py",
+      "line": 43,
+      "target": "python/common/wire.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_collector_smoke.py",
+      "line": 44,
+      "target": "python/scripts/collect_minerva_app/cmd_sender.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_collector_smoke.py",
+      "line": 45,
+      "target": "python/scripts/collect_minerva_app/images.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_collector_smoke.py",
+      "line": 46,
+      "target": "python/scripts/collect_minerva_app/receivers.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_collector_smoke.py",
+      "line": 47,
+      "target": "python/scripts/collect_minerva_app/recording.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_collector_smoke.py",
+      "line": 48,
+      "target": "python/scripts/collect_minerva_app/teleop.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_collector_smoke.py",
+      "line": 49,
+      "target": "python/scripts/collect_minerva_app/telem.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_collector_smoke.py",
+      "line": 168,
+      "target": "python/training/minerva_dataset.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_collector_smoke.py",
+      "line": 178,
+      "target": "python/scripts/collect_minerva_gui.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_collector_smoke.py",
+      "line": 227,
+      "target": "python/training/minerva_dataset.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_collector_smoke.py",
+      "line": 263,
+      "target": "python/scripts/collect_minerva_app/speech.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_collector_smoke.py",
+      "line": 267,
+      "target": "python/scripts/collect_minerva_gui.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_segments.py",
+      "line": 30,
+      "target": "python/scripts/collect_demo_app/minerva_recording.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_segments.py",
+      "line": 31,
+      "target": "python/scripts/collect_minerva_app/recording.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_segments.py",
+      "line": 32,
+      "target": "python/training/language.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_segments.py",
+      "line": 33,
+      "target": "python/training/minerva_dataset.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_settings.py",
+      "line": 21,
+      "target": "python/scripts/collect_minerva_app/settings.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_shutdown.py",
+      "line": 34,
+      "target": "python/common/minerva_constants.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_shutdown.py",
+      "line": 35,
+      "target": "python/scripts/collect_minerva_app/images.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_shutdown.py",
+      "line": 36,
+      "target": "python/scripts/collect_minerva_app/receivers.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_shutdown.py",
+      "line": 37,
+      "target": "python/scripts/collect_minerva_app/teleop.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_shutdown.py",
+      "line": 69,
+      "target": "python/scripts/collect_minerva_gui.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_smoke.py",
+      "line": 34,
+      "target": "python/scripts/collect_demo_app/minerva_recording.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_smoke.py",
+      "line": 35,
+      "target": "python/training/language.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_smoke.py",
+      "line": 36,
+      "target": "python/training/minerva_dataset.py"
+    },
+    {
+      "source": "python/tests/ml/test_minerva_smoke.py",
+      "line": 37,
+      "target": "python/training/minerva_model.py"
+    },
+    {
+      "source": "python/training/build_lang_cache.py",
+      "line": 27,
+      "target": "python/training/language.py"
+    },
+    {
+      "source": "python/training/compare_runs.py",
+      "line": 36,
+      "target": "python/training/validate_deploy.py"
+    },
+    {
+      "source": "python/training/compare_runs.py",
+      "line": 44,
+      "target": "python/training/act_model.py"
+    },
+    {
+      "source": "python/training/compare_runs.py",
+      "line": 45,
+      "target": "python/training/jepa_model.py"
+    },
+    {
+      "source": "python/training/inference.py",
+      "line": 20,
+      "target": "python/training/act_model.py"
+    },
+    {
+      "source": "python/training/jepa_model.py",
+      "line": 39,
+      "target": "python/training/act_model.py"
+    },
+    {
+      "source": "python/training/jepa_model.py",
+      "line": 47,
+      "target": "python/training/sigreg.py"
+    },
+    {
+      "source": "python/training/minerva_dataset.py",
+      "line": 48,
+      "target": "python/training/language.py"
+    },
+    {
+      "source": "python/training/minerva_model.py",
+      "line": 49,
+      "target": "python/training/act_model.py"
+    },
+    {
+      "source": "python/training/minerva_model.py",
+      "line": 50,
+      "target": "python/training/flow_matching_head.py"
+    },
+    {
+      "source": "python/training/minerva_model.py",
+      "line": 51,
+      "target": "python/training/sigreg.py"
+    },
+    {
+      "source": "python/training/probe_jepa.py",
+      "line": 45,
+      "target": "python/training/dataset.py"
+    },
+    {
+      "source": "python/training/probe_jepa.py",
+      "line": 46,
+      "target": "python/training/validate_deploy.py"
+    },
+    {
+      "source": "python/training/probe_jepa.py",
+      "line": 52,
+      "target": "python/training/jepa_model.py"
+    },
+    {
+      "source": "python/training/train.py",
+      "line": 42,
+      "target": "python/training/dataset.py"
+    },
+    {
+      "source": "python/training/train.py",
+      "line": 43,
+      "target": "python/training/act_model.py"
+    },
+    {
+      "source": "python/training/train_jepa.py",
+      "line": 31,
+      "target": "python/training/dataset.py"
+    },
+    {
+      "source": "python/training/train_jepa.py",
+      "line": 32,
+      "target": "python/training/jepa_model.py"
+    },
+    {
+      "source": "python/training/train_minerva.py",
+      "line": 33,
+      "target": "python/training/language.py"
+    },
+    {
+      "source": "python/training/train_minerva.py",
+      "line": 34,
+      "target": "python/training/minerva_dataset.py"
+    },
+    {
+      "source": "python/training/train_minerva.py",
+      "line": 37,
+      "target": "python/training/minerva_model.py"
+    },
+    {
+      "source": "python/training/validate_deploy.py",
+      "line": 40,
+      "target": "python/training/act_model.py"
+    },
+    {
+      "source": "python/training/validate_deploy.py",
+      "line": 41,
+      "target": "python/training/jepa_model.py"
+    },
+    {
+      "source": "python/training/visualize_embeddings.py",
+      "line": 39,
+      "target": "python/training/dataset.py"
+    },
+    {
+      "source": "python/training/visualize_embeddings.py",
+      "line": 40,
+      "target": "python/training/validate_deploy.py"
+    },
+    {
+      "source": "python/training/visualize_embeddings.py",
+      "line": 46,
+      "target": "python/training/act_model.py"
+    },
+    {
+      "source": "python/training/visualize_embeddings.py",
+      "line": 47,
+      "target": "python/training/jepa_model.py"
+    },
+    {
+      "source": "python/web/__init__.py",
+      "line": 15,
+      "target": "python/web/server.py"
+    },
+    {
+      "source": "python/web/server.py",
+      "line": 35,
+      "target": "python/web/cert.py"
+    },
+    {
+      "source": "python/web/server.py",
+      "line": 36,
+      "target": "python/web/webrtc.py"
+    },
+    {
+      "source": "python/web/server.py",
+      "line": 113,
+      "target": "python/ik/mesh_world.py"
+    },
+    {
+      "source": "python/web/sim_visual_ik.py",
+      "line": 39,
+      "target": "python/teleop/quest_leader.py"
+    },
+    {
+      "source": "python/web/sim_visual_ik.py",
+      "line": 44,
+      "target": "python/web/server.py"
+    },
+    {
+      "source": "python/web/sim_visual_ik.py",
+      "line": 49,
+      "target": "python/ik/__init__.py"
+    },
+    {
+      "source": "tests/direct_can/test_actuator_char.py",
+      "line": 29,
+      "target": "python/scripts/actuator_char/__init__.py"
+    },
+    {
+      "source": "tests/direct_can/test_actuator_char.py",
+      "line": 29,
+      "target": "python/scripts/actuator_char/analysis.py"
+    },
+    {
+      "source": "tests/direct_can/test_actuator_char.py",
+      "line": 30,
+      "target": "python/scripts/actuator_char/__init__.py"
+    },
+    {
+      "source": "tests/direct_can/test_actuator_char.py",
+      "line": 30,
+      "target": "python/scripts/actuator_char/robstride_mit.py"
+    },
+    {
+      "source": "tests/direct_can/test_actuator_char.py",
+      "line": 31,
+      "target": "python/scripts/actuator_char/external_encoder.py"
+    },
+    {
+      "source": "tests/direct_can/test_actuator_char.py",
+      "line": 32,
+      "target": "python/scripts/actuator_char/harness.py"
+    },
+    {
+      "source": "tests/ml/test_pipeline.py",
+      "line": 25,
+      "target": "python/training/dataset.py"
+    },
+    {
+      "source": "tests/ml/test_pipeline.py",
+      "line": 26,
+      "target": "python/training/act_model.py"
+    },
+    {
+      "source": "tests/ml/test_pipeline.py",
+      "line": 28,
+      "target": "python/nodes/act_policy_node.py"
+    },
+    {
+      "source": "tests/ml/test_record_replay.py",
+      "line": 16,
+      "target": "python/scripts/record_replay.py"
+    }
+  ],
+  "parse_errors": []
+}

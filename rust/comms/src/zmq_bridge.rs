@@ -113,10 +113,13 @@ mod tests {
         msg.add_motor(
             "test".to_string(),
             MotorTelemetry {
+                feedback: None,
                 position: 0.0,
                 velocity: 0.0,
                 torque: 0.0,
                 temperature: 25.0,
+                state: "running".to_string(),
+                mode: "run".to_string(),
                 error: None,
             },
         );

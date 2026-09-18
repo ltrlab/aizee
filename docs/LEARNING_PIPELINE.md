@@ -20,7 +20,7 @@ End-to-end guide for collecting demonstrations, training an ACT policy, validati
 | Gripper camera streaming | ELP UVC `:5563` — primary training observation (1024×768 color) |
 | Scene camera (optional) | Intel RealSense `:5564` — wider RGB-D view, auto-detected |
 | A leader device | SO-101, OpenRB-150, or Quest VR — for teleoperation during recording |
-| `pip install -r requirements.txt` | h5py, torch, rerun-sdk, etc. |
+| `pip install -e ".[operator,learning]"` | Shared package, h5py, torch, rerun-sdk and operator dependencies; retain the platform-specific Torch installation guidance below. |
 | Leader calibration in `config/` | e.g. `so101_calibration.json`, `openrb_calibration.json` |
 
 The robot is reachable on three network paths (probed in priority order):

@@ -29,7 +29,8 @@ def step_metrics(t, y, y0: float, y_target: float, settle_band: float = 0.02) ->
     rise = (t90 - t10) if np.isfinite(t10) and np.isfinite(t90) else np.nan
     overshoot = max(0.0, float(np.nanmax(norm)) - 1.0) * 100.0
     outside = np.where(np.abs(norm - 1.0) > settle_band)[0]
-    settle = float(t[outside[-1]] - t[0]) if outside.size else 0.0
+    settle = (float("inf") if outside.size and outside[-1] == t.size - 1 else
+              float(t[outside[-1] + 1] - t[0]) if outside.size else 0.0)
     sse = float(y_target - y[-1])
     return dict(rise_s=float(rise), overshoot_pct=float(overshoot), settle_s=settle, sse=sse)
 

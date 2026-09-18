@@ -11,17 +11,19 @@ That script uses the T-Motor / AK "MIT-Cheetah" 8-byte packing
     * scaling is PER-MODEL (RS02 ≠ RS03 ≠ RS04 ≠ RS00)
 Using the AK packing / fixed scaling mis-drives RS03/RS04 (a 120 Nm shoulder
 clips at ±18 Nm) and garbles telemetry. This module reproduces the Rust codec
-exactly so the characterization numbers are trustworthy.
+for compatibility. Matching the deployed codec does not validate physical units.
 
-Per-model MIT ranges (source of truth: robstride.rs MotorModel::mit_* methods):
+Legacy deployed ranges (robstride.rs MotorModel::mit_* methods):
     model  vel_max(rad/s)  torque_max(Nm)  kp_max   kd_max
     RS04   15              120             5000     100
     RS03   50              60              5000     100
     RS02   44              17              500      5
     RS00   30              2  (!)          100      5
-Position range is ±4π for every model. The RS00 ±2 Nm torque scale is far below
-its ~14 Nm spec peak — small-joint (gripper/wrist-roll/head) torque telemetry
-may saturate; VERIFY against the Robstride manual (see harness Stage 1e).
+Position range is ±4π for every model. The bundled manuals' 29-bit protocol
+chapter instead gives RS00 velocity/torque/Kp = 33/14/500 and RS03 velocity = 20.
+These are unresolved protocol-scale conflicts, not evidence of saturation.
+Run robot-platform sim audit and verify installed firmware/captured frames
+before interpreting measurements. A verified bench profile is required for CAN.
 """
 from __future__ import annotations
 
@@ -64,7 +66,7 @@ class Param(IntEnum):
     LOC_REF = 0x7016
     LIMIT_SPD = 0x7017
     LIMIT_CUR = 0x7018
-    MECHPOS = 0x7019        # motor-side (PRE-gearbox) mechanical position
+    MECHPOS = 0x7019        # manual: load-side angle; confirm installed firmware/reference
     IQF = 0x701A            # filtered iq (current) — proxy for the Kt fit
     MECHVEL = 0x701B
     VBUS = 0x701C           # bus voltage (affects torque/speed headroom)
@@ -146,11 +148,15 @@ def build_read_param(motor_id: int, param: int) -> tuple[int, bytes]:
 class Feedback:
     motor_id: int
     mode: MotorMode
-    position: float     # rad, MOTOR-SIDE (pre-gearbox) — do not trust as output angle
+    position: float     # reported rad; physical reference must be verified per firmware
     velocity: float     # rad/s
     torque: float       # Nm (from current * Kt, i.e. what we validate externally)
     temperature: float  # °C
     error_bits: int
+    received_at: float | None = None
+    sequence: int = 0
+    kernel_timestamp: float | None = None
+    raw_hex: str = ""
 
 
 def is_feedback_frame(arb_id: int) -> bool:
@@ -163,7 +169,7 @@ def decode_feedback(arb_id: int, data: bytes, model: str) -> Feedback:
         raise ValueError(f"feedback needs 8 data bytes, got {len(data)}")
     m = MODELS[model]
     motor_id = (arb_id >> 8) & 0xFF
-    error_bits = (arb_id >> 16) & 0x1F
+    error_bits = (arb_id >> 16) & 0x3F
     mode = MotorMode((arb_id >> 22) & 0x03)
     angle_raw = (data[0] << 8) | data[1]
     position = angle_raw / 65535.0 * (8.0 * math.pi) - (4.0 * math.pi)

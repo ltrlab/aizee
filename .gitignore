@@ -1,8 +1,11 @@
 # Rust
+/target/
 /rust/target/
 /rust/**/target/
 **/*.rs.bk
-Cargo.lock
+# Applications share the root lockfile; obsolete per-crate lockfiles are ignored.
+**/Cargo.lock
+!/Cargo.lock
 
 # Python
 __pycache__/
@@ -13,6 +16,8 @@ __pycache__/
 build/
 develop-eggs/
 dist/
+simulation_runs/
+phase0_runs/
 downloads/
 eggs/
 .eggs/
@@ -27,6 +32,7 @@ wheels/
 *.egg
 MANIFEST
 venv/
+/.venv-platform/
 env/
 ENV/
 

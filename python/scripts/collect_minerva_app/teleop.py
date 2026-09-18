@@ -80,12 +80,14 @@ class MinervaTeleop:
         jog_step_head: float = 0.02,
         jog_step_lift: float = 0.005,
         swap: bool = False,
+        hardware_enabled: bool = True,
     ):
         # Leader→arm routing. False: LEFT leader→left arm, RIGHT leader→right arm.
         # True (swapped): LEFT leader→right arm, RIGHT leader→left arm. Persisted by
         # the caller (collect_minerva.py loads it from CollectorSettings, the GUI's
         # Swap button saves it) — the teleop just holds the live flag.
         self._swapped = bool(swap)
+        self._hardware_enabled = hardware_enabled
         self.left_port = left_port
         self.right_port = right_port
         self.left_calib = left_calib
@@ -142,6 +144,10 @@ class MinervaTeleop:
     def connect(self, verbose: bool = True) -> Tuple[bool, bool]:
         """Best-effort connect both leaders. Returns (left_ok, right_ok).
         Missing hardware is fine — the app runs jog-only."""
+        if not self._hardware_enabled:
+            if verbose:
+                print("[teleop] simulation — hardware leaders disabled; jog-only mode")
+            return (False, False)
         OpenRBLeader, find_openrb_port = _import_openrb()
         if OpenRBLeader is None:
             if verbose:

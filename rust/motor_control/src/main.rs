@@ -2,6 +2,7 @@
 
 mod motor;
 mod robstride;
+mod trace;
 
 use anyhow::{Context, Result};
 use comms::{
@@ -125,6 +126,8 @@ fn yaml_to_motor_config(yaml: &MotorConfigYaml) -> MotorConfig {
 }
 
 struct ControlSystem {
+    trace: trace::TraceRecorder,
+    producer_id: String,
     can_sockets: HashMap<String, CanSocket>,  // bus_name -> socket
     can_interfaces: HashMap<String, String>,  // bus_name -> interface_name (for socket recovery)
     base_group: MotorGroup,
@@ -160,6 +163,7 @@ struct ControlSystem {
 
 impl ControlSystem {
     fn new(config: Config) -> Result<Self> {
+        let trace = trace::TraceRecorder::from_env()?;
         // Initialize CAN sockets (supports multiple buses)
         let mut can_sockets = HashMap::new();
 
@@ -244,6 +248,9 @@ impl ControlSystem {
 
         info!("Control system initialized");
         Ok(Self {
+            trace,
+            producer_id: format!("{}-{}", std::process::id(),
+                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_nanos()),
             can_sockets,
             can_interfaces,
             base_group,
@@ -312,18 +319,23 @@ impl ControlSystem {
     /// Only truly unrecoverable errors (persistent after all retries) increment the
     /// consecutive error counter for escalating recovery.
     fn safe_write_frame(&self, socket: &CanSocket, frame: &socketcan::CanFrame, bus_name: &str) -> Result<()> {
+        self.trace.can("can_tx_submit", frame, bus_name);
         const MAX_RETRIES: u32 = 10;
         const RETRY_BACKOFF_US: u64 = 150; // ~1 CAN frame time at 1Mbps
 
         for attempt in 0..=MAX_RETRIES {
             match socket.write_frame(frame) {
                 Ok(_) => {
+                    self.trace.can("can_tx_accepted", frame, bus_name);
                     // Success — reset consecutive error counter
                     self.consecutive_tx_errors.borrow_mut().insert(bus_name.to_string(), 0);
                     return Ok(());
                 }
                 Err(e) => {
                     let errno = e.raw_os_error().unwrap_or(0);
+                    if self.trace.enabled() {
+                        self.trace.record("can_tx_error", serde_json::json!({"bus": bus_name, "attempt": attempt, "errno": errno}));
+                    }
                     // ENOBUFS (105) or EAGAIN (11) — TX queue full, retry after backoff
                     if (errno == 105 || errno == 11) && attempt < MAX_RETRIES {
                         std::thread::sleep(Duration::from_micros(RETRY_BACKOFF_US));
@@ -822,6 +834,7 @@ impl ControlSystem {
                 while poll_start.elapsed() < Duration::from_millis(50) && !got_run_mode {
                     match socket.read_frame() {
                         Ok(frame) => {
+                            self.trace.can("can_rx", &frame, &bus_name);
                             let arb_id_raw = match frame.id() {
                                 socketcan::Id::Extended(id) => id.as_raw(),
                                 _ => continue,
@@ -886,7 +899,8 @@ impl ControlSystem {
                         loop {
                             match socket.read_frame() {
                                 Ok(frame) => {
-                                            let arb_id_raw = match frame.id() {
+                                    self.trace.can("can_rx", &frame, &bus_name);
+                                    let arb_id_raw = match frame.id() {
                                         socketcan::Id::Extended(id) => id.as_raw(),
                                         _ => continue,
                                     };
@@ -911,6 +925,7 @@ impl ControlSystem {
                     loop {
                         match socket.read_frame() {
                             Ok(frame) => {
+                                self.trace.can("can_rx", &frame, &bus_name);
                                 let arb_id_raw = match frame.id() {
                                     socketcan::Id::Extended(id) => id.as_raw(),
                                     _ => continue,
@@ -979,6 +994,7 @@ impl ControlSystem {
                 // a circular dependency: teleop only sends Swivel commands after seeing the
                 // motor as "enabled" in telemetry, but it never appears without feedback.
                 if enabled {
+                    motor.feedback_is_measured = false;
                     motor.feedback = Some(robstride::MotorFeedback {
                         motor_id: can_id,
                         mode: robstride::MotorMode::Run,
@@ -1019,6 +1035,9 @@ impl ControlSystem {
     }
 
     fn handle_command(&mut self, cmd: CommandMessage) -> Result<()> {
+        if self.trace.enabled() {
+            self.trace.record("command_handle", serde_json::to_value(&cmd)?);
+        }
         debug!("Handling command: {:?}", cmd);
 
         // Allow ClearFault, ClearEmergencyStop, and TriggerFault through even during e-stop
@@ -1459,10 +1478,11 @@ impl ControlSystem {
         // Read all available CAN frames from all buses
         let mut frame_count = 0;
 
-        for (_bus_name, socket) in &self.can_sockets {
+        for (bus_name, socket) in &self.can_sockets {
             loop {
                 match socket.read_frame() {
                 Ok(frame) => {
+                    self.trace.can("can_rx", &frame, &bus_name);
                     frame_count += 1;
 
                     // Extract motor ID from arbitration ID
@@ -1570,6 +1590,8 @@ impl ControlSystem {
 
     fn publish_telemetry(&mut self) -> Result<()> {
         let mut msg = TelemetryMessage::new();
+        msg.telemetry_schema_version = Some(2);
+        msg.producer_id = Some(self.producer_id.clone());
 
         let all_motors = self.base_group.motors.iter().chain(self.arm_group.motors.iter());
         for motor in all_motors {
@@ -1586,6 +1608,12 @@ impl ControlSystem {
                 msg.add_motor(
                     motor.config.id.clone(),
                     MotorTelemetry {
+                        feedback: Some(comms::FeedbackMetadata {
+                            sequence: motor.feedback_sequence,
+                            age_s: feedback.timestamp.elapsed().as_secs_f64(),
+                            valid: motor.feedback_is_measured && !feedback.error.has_error() && motor.state != MotorState::Error,
+                            provenance: if motor.feedback_is_measured { "can" } else { "synthetic" }.to_string(),
+                        }),
                         position: feedback.position,
                         velocity: feedback.velocity,
                         torque: feedback.torque,
@@ -1606,6 +1634,9 @@ impl ControlSystem {
         msg.emergency_stop = self.emergency_stop;
 
         self.telemetry_pub.publish(&msg)?;
+        if self.trace.enabled() {
+            self.trace.record("telemetry_publish", serde_json::to_value(&msg)?);
+        }
         Ok(())
     }
 
@@ -1717,6 +1748,8 @@ async fn main() -> Result<()> {
     info!("Entering main control loop...");
 
     let mut loop_counter = 0u64;
+    let shutdown = tokio::signal::ctrl_c();
+    tokio::pin!(shutdown);
     loop {
         loop_counter += 1;
         if loop_counter == 1 {
@@ -1726,6 +1759,11 @@ async fn main() -> Result<()> {
             info!("Main loop heartbeat: {} iterations", loop_counter);
         }
         tokio::select! {
+            result = &mut shutdown => {
+                result?;
+                // Flush optional traces on SIGINT. Firmware owns command-loss behavior.
+                return Ok(());
+            }
             _ = arm_interval.tick() => {
                 // Arm control loop (1 kHz) - arm motors only
                 if let Err(e) = system.read_feedback() {

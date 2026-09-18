@@ -39,7 +39,7 @@ on the device, which does — idempotently:
 | apt | `can-utils i2c-tools v4l-utils python3-pip python3-dev python3-opencv python3-smbus build-essential pkg-config libzmq3-dev curl git` |
 | groups | adds `ltr` to `i2c dialout video` |
 | rust | rustup (minimal) if `cargo` is missing |
-| python | `pip install --user -r requirements_jetson.txt`; tries `pyrealsense2` (warn-only) |
+| python | Device requirements plus editable `robot_platform` package; tries `pyrealsense2` (warn-only) |
 | CAN | `/usr/local/bin/aizee-reset-usb-can` + `/etc/sudoers.d/aizee-can` |
 | udev | all of `config/udev/` (lidar rules only with `--with-lidar`) |
 | systemd | installs **all** `aizee-*` units, enables boot + device-bound services |

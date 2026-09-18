@@ -3,25 +3,27 @@
 # Same Jetson as the AIZEE rover — this RETIRES the single-arm rover service and
 # installs two instances (one motor_control per arm, one CAN bus each):
 #
-#     aizee-minerva-left   AIZEE_CONFIG=hardware_minerva_left.yaml   can1  :5555/:5556
-#     aizee-minerva-right  AIZEE_CONFIG=hardware_minerva_right.yaml  can2  :5557/:5558
+#     aizee-minerva-left   AIZEE_CONFIG=hardware_minerva_left.yaml   canL  :5555/:5556
+#     aizee-minerva-right  AIZEE_CONFIG=hardware_minerva_right.yaml  canR  :5575/:5576
 #
-# IMPORTANT: the services are installed but NOT started/enabled. motor_control
-# wedges at init if its configured motors aren't on the bus, so start the arms
-# only AFTER the motor bus is powered (this script prints how).
+# Services are installed and enabled for boot, but not started by this script.
+# The Minerva e-stop drop-in routes to both controllers; restart an existing
+# bridge after deployment when ready to verify the physical stop path.
 #
 # Usage: ./deploy_minerva_arms.sh [user@host]   (default: auto-detected)
 
 set -e
 
 source "$(dirname "$0")/deploy_common.sh"
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_DIR"
 TARGET="${1:-$AIZEE_TARGET}"
 REMOTE_DIR="aizee"
 SSH="ssh -i $SSH_KEY"
 SCP="scp -i $SSH_KEY"
 TARBALL="/tmp/aizee_minerva_deploy.tar.gz"
 
-PASS_FILE="$(dirname "$0")/.jetson_password"
+PASS_FILE="$REPO_DIR/scripts/.jetson_password"
 if [[ ! -f "$PASS_FILE" ]]; then
     echo "ERROR: $PASS_FILE not found. Create it with the Jetson sudo password."
     exit 1
@@ -40,13 +42,15 @@ fi
 echo "Connected."
 echo ""
 
-echo "1. Packing rust/, config/, and the USB-CAN reset helper ..."
+echo "1. Packing the shared Rust workspace, config/, and CAN helpers ..."
+WORKSPACE_FILES=(Cargo.toml .cargo)
+[[ -f Cargo.lock ]] && WORKSPACE_FILES+=(Cargo.lock)
 tar czf "$TARBALL" \
     --exclude='rust/target' \
     --exclude='*.pyc' \
     --exclude='__pycache__' \
     --exclude='logs' \
-    rust/ config/ scripts/aizee-reset-usb-can scripts/aizee-can-up scripts/aizee-can-reset
+    "${WORKSPACE_FILES[@]}" rust/ config/ pyproject.toml README.md src/ firmware/estop/ scripts/aizee-reset-usb-can scripts/aizee-can-up scripts/aizee-can-reset
 echo "   $(du -h $TARBALL | cut -f1) packed."
 echo ""
 
@@ -56,11 +60,12 @@ rm -f "$TARBALL"
 echo ""
 
 echo "3. Extracting on Jetson..."
-$SSH "$TARGET" "mkdir -p ~/$REMOTE_DIR && cd ~/$REMOTE_DIR && tar xzf /tmp/aizee_minerva_deploy.tar.gz && rm /tmp/aizee_minerva_deploy.tar.gz"
+$SSH "$TARGET" "mkdir -p ~/$REMOTE_DIR && cd ~/$REMOTE_DIR && tar xzf /tmp/aizee_minerva_deploy.tar.gz && rm -f rust/Cargo.toml && rm /tmp/aizee_minerva_deploy.tar.gz"
+$SSH "$TARGET" "cd ~/$REMOTE_DIR && python3 -m pip install --user --no-deps --no-build-isolation -e ."
 echo ""
 
 echo "4. Building motor_control on Jetson (cached — usually a no-op)..."
-$SSH "$TARGET" "cd ~/$REMOTE_DIR/rust/motor_control && source ~/.cargo/env && cargo build --release 2>&1 | tail -3"
+$SSH "$TARGET" "cd ~/$REMOTE_DIR && source ~/.cargo/env && cargo build --release -p motor_control"
 echo ""
 
 echo "5. Installing helper, sudoers, and BOTH arm services (not started)..."
@@ -102,6 +107,10 @@ systemctl disable aizee-motor-control-rover 2>/dev/null || true
 for svc in aizee-minerva-left aizee-minerva-right; do
     sed 's/\r$//' /home/ltr/aizee/config/systemd/${svc}.service > /etc/systemd/system/${svc}.service
 done
+# The bridge uses the shared MessagePack implementation and independent PUSH sockets.
+sed 's/\r$//' /home/ltr/aizee/config/systemd/aizee-estop-bridge.service > /etc/systemd/system/aizee-estop-bridge.service
+mkdir -p /etc/systemd/system/aizee-estop-bridge.service.d
+sed 's/\r$//' /home/ltr/aizee/config/systemd/aizee-estop-bridge.service.d/minerva.conf > /etc/systemd/system/aizee-estop-bridge.service.d/minerva.conf
 systemctl daemon-reload
 # Enable boot-start. Safe now: motor_control degrades (stays alive) instead of
 # wedging/flapping if it boots with the motor bus unpowered.

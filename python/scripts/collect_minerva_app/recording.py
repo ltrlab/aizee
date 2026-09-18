@@ -13,7 +13,7 @@ from typing import Dict, Optional, Sequence
 
 import numpy as np
 
-from collect_demo_app.minerva_recording import save_minerva_episode
+from robot_platform.data.formats.minerva import save_minerva_episode
 
 
 class RecordingSession:

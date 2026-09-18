@@ -40,6 +40,7 @@ import argparse
 import enum
 import json
 import math
+import os
 import queue
 import sys
 import threading
@@ -145,7 +146,7 @@ from collect_demo_app.gamepad import (
 from collect_demo_app.images import _start_image_decoder
 from collect_demo_app.profiler import _LoopProfiler
 from collect_demo_app.receivers import (
-    _start_cam_receiver, _start_estop_reader, _start_telem_receiver,
+    _start_cam_receiver, _start_estop_reader,
 )
 from collect_demo_app.recording import save_episode
 from collect_demo_app.replay import _LiveReplay
@@ -154,6 +155,7 @@ from collect_demo_app.runtime import (
 )
 from collect_demo_app.telem import _qpos, _qpos_motor, _qtemp, _qtorque
 from collect_demo_app.zmq_io import _build_bundle, _send, _start_cmd_sender
+from collect_demo_app.session import AizeeSessionTransport, start_telem_cache
 
 
 # ---------------------------------------------------------------------------
@@ -231,13 +233,14 @@ def main() -> None:
                     help="N·m of follower gripper torque to ignore before "
                          "applying FF (cancels idle holding torque).")
     args = ap.parse_args()
+    simulation_mode = bool(json.loads(os.environ.get("ROBOT_PLATFORM_SETTINGS_JSON", "{}")).get("simulation"))
 
     _ansi_on()
 
     # Resolve which network the rover is actually reachable on and repoint every
     # rover ZMQ endpoint accordingly: configured IP → USB-C ethernet → WiFi AP.
     _primary_host, _cmd_port = _split_tcp_endpoint(args.cmd)
-    if _primary_host:
+    if _primary_host and not os.environ.get("ROBOT_PLATFORM_SETTINGS_JSON"):
         _sel_host, _cands = _resolve_rover_host(_primary_host, _cmd_port)
         _tried = " → ".join(_cands)
         if _sel_host != _primary_host:
@@ -345,6 +348,8 @@ def main() -> None:
         currently-bound _leader_cls / _leader_kind / _leader_calib.
         """
         nonlocal _leader_cls, _leader_kind, _leader_calib
+        if simulation_mode:
+            return False
         if kind is not None and _leader_module_available:
             _leader_cls   = get_leader_class(kind)
             _leader_kind  = kind
@@ -491,8 +496,8 @@ def main() -> None:
     _lr_thread = threading.Thread(target=_leader_reader, args=(_lr_stop,), daemon=True)
     _lr_thread.start()
 
-    leader_port = args.port
-    if leader_port is None and _leader_module_available:
+    leader_port = None if simulation_mode else args.port
+    if not simulation_mode and leader_port is None and _leader_module_available:
         _excl = [args.estop_port] if args.estop_port else []
         if args.leader == "auto":
             print("Searching for any leader arm...", flush=True)
@@ -514,7 +519,7 @@ def main() -> None:
         else:
             print("Leader not detected — continuing without leader tracking "
                   "(plug it in any time, or pass --port to force)")
-    elif leader_port is None and _so101_available:
+    elif not simulation_mode and leader_port is None and _so101_available:
         # Fallback path when leader.py is missing — original SO-101-only code.
         _excl = [args.estop_port] if args.estop_port else []
         print("Searching for SO-101 leader arm...", flush=True)
@@ -610,7 +615,7 @@ def main() -> None:
                     return  # one-shot install; future unplug/replug not supported
 
     _hp_thread: Optional[threading.Thread] = None
-    if _pyserial_available and (_leader_module_available or _so101_available):
+    if not simulation_mode and _pyserial_available and (_leader_module_available or _so101_available):
         _hp_thread = threading.Thread(target=_leader_hotplug_watcher, daemon=True,
                                       name="LeaderHotPlug")
         _hp_thread.start()
@@ -655,17 +660,14 @@ def main() -> None:
     # -------------------------------------------------------------------------
     ctx = zmq.Context()
 
-    cmd_sock = ctx.socket(zmq.PUSH)
-    cmd_sock.setsockopt(zmq.SNDHWM, 4)
-    cmd_sock.setsockopt(zmq.LINGER,  0)
-    cmd_sock.connect(args.cmd)
+    cmd_sock = AizeeSessionTransport(ctx, command=args.cmd, telemetry=args.telem)
 
     # Telemetry parsing runs in its own thread (json.loads of multi-motor
     # state was a 6-10 ms p99 spike when done in the main loop).  Started
     # before the cmd-sender thread because the cmd-sender consumes
     # _telem_cache for the lead-clamp in TRACKING mode.
     _telem_stop, _telem_thread, _telem_lock, _telem_cache = \
-        _start_telem_receiver(ctx, args.telem)
+        start_telem_cache(cmd_sock.client)
     _telem_last_time = 0.0  # last cache["time"] consumed by main loop
 
     # Dedicated cmd-sender thread.  Re-emits the latest Bundle at 100 Hz
@@ -717,6 +719,7 @@ def main() -> None:
             _cmd_holder["mode"]     = None
             _cmd_holder["bundle"]   = None
             _cmd_holder["tracking"] = None
+            cmd_sock.client.clear_target(drop_drive=True)
 
     # Camera + UPS reception runs in a background thread so that
     # JSON-parsing large JPEG frames never delays motor commands.
@@ -745,7 +748,7 @@ def main() -> None:
     _estop_flag = threading.Event()   # set = e-stop active
     _estop_stop = threading.Event()
     _estop_thread: Optional[threading.Thread] = None
-    if args.estop_port:
+    if args.estop_port and not simulation_mode:
         _estop_thread = _start_estop_reader(args.estop_port, _estop_stop, _estop_flag)
 
     # -------------------------------------------------------------------------
@@ -948,7 +951,6 @@ def main() -> None:
     if args.gui:
         from collect_demo_gui import QtRenderer
 
-        import os
         def _on_delete_last(path: Path) -> None:
             os.remove(path)
 
@@ -1692,7 +1694,7 @@ def main() -> None:
             # Send motor commands
             # -----------------------------------------------------------------
             if estop_hw_active:
-                pass  # watchdog holds position
+                _clear_bundle()  # stop background sends; watchdog holds position
 
             elif live_replay.live:
                 # Live replay owns the arm — send whatever step() emits.
@@ -1907,8 +1909,8 @@ def main() -> None:
             q_new = _qpos(telem)
             if q_new is not None:
                 q_actual        = q_new
-                robot_ok        = True
-                last_telem_time = t0
+                last_telem_time = _t_time
+            robot_ok = cmd_sock.client.arm_ready()["main"]
             # Mirror to WebXR every tick — NOT gated on fresh Jetson telem.
             # Without this, the browser never loads the URDF mirror when no
             # arm is connected (q_new stays None), even though the operator
@@ -2131,7 +2133,7 @@ def main() -> None:
                     rec_q_cmd = None
 
                 if (q_actual is not None and gripper_img is not None and cams_ok
-                        and scene_ok):
+                        and scene_ok and cmd_sock.client.arm_ready()["main"]):
                     # qpos_buf/qcmd_buf/torque_buf are 7-DOF (swivel-first)
                     # because q_actual / latest_q_cmd / arm_torques are.
                     qpos_buf.append(q_actual.copy())
@@ -2308,11 +2310,22 @@ def main() -> None:
         _cmd_tx_stop.set()
         _cmd_tx_thread.join(timeout=1.0)
         # Disable all motors before closing (prevents motors staying enabled after quit)
-        _send(cmd_sock, {"type": "drive", "linear": 0.0, "angular": 0.0,
-                         "kp": 0.0, "kd": 3.0})
-        _send(cmd_sock, {"type": "disable", "motor_ids": _ALL_MOTORS})
+        for shutdown_command in (
+            {"type": "drive", "linear": 0.0, "angular": 0.0, "kp": 0.0, "kd": 3.0},
+            {"type": "disable", "motor_ids": _ALL_MOTORS},
+        ):
+            try:
+                _send(cmd_sock, shutdown_command)
+            except Exception as exc:
+                print(f"\n[transport shutdown] {shutdown_command['type']}: {exc}",
+                      file=sys.stderr, flush=True)
         time.sleep(0.1)  # let ZMQ flush the disable command
-        cmd_sock.close()
+        try:
+            cmd_sock.close()
+        except Exception as exc:
+            # Shared transport reports unconfirmed shutdown delivery. Camera,
+            # serial and UI cleanup must still run when that report is raised.
+            print(f"\n[transport shutdown] {exc}", file=sys.stderr, flush=True)
         _telem_stop.set()
         _telem_thread.join(timeout=1.0)
         _rec_flag.clear()

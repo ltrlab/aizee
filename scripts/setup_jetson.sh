@@ -5,7 +5,7 @@
 #   1. apt packages        (CAN tools, i2c, python, build deps for rust/zmq)
 #   2. device groups       (ltr -> i2c, dialout, video)
 #   3. Rust toolchain      (rustup, if cargo is missing)
-#   4. Python packages     (requirements_jetson.txt into system python3 --user)
+#   4. Python packages     (device requirements + editable shared package)
 #   5. pyrealsense2        (pip attempt; warns + points at the source build on failure)
 #   6. CAN helper + sudoers (/usr/local/bin/aizee-reset-usb-can)
 #   7. udev rules          (all of config/udev/)
@@ -83,7 +83,7 @@ step_ok "line endings normalized"
 # ------------------------------------------------------------------- 1. apt
 echo "[1/10] Installing apt packages..."
 APT_PKGS=(can-utils i2c-tools v4l-utils python3-pip python3-dev python3-opencv
-          python3-smbus build-essential pkg-config libzmq3-dev curl git)
+          python3-smbus build-essential pkg-config libzmq3-dev libudev-dev curl git)
 if $SUDO apt-get update -qq && $SUDO apt-get install -y -qq "${APT_PKGS[@]}"; then
     step_ok "apt packages (${APT_PKGS[*]})"
 else
@@ -119,6 +119,12 @@ if python3 -m pip install --user -q -r "$REPO_DIR/requirements_jetson.txt"; then
     step_ok "requirements_jetson.txt"
 else
     step_fail "pip install -r requirements_jetson.txt"
+fi
+if python3 -m pip install --user 'setuptools>=68' wheel && \
+   python3 -m pip install --user --no-deps --no-build-isolation -e "$REPO_DIR"; then
+    step_ok "shared robot_platform package (editable)"
+else
+    step_fail "pip install editable robot_platform package"
 fi
 
 # ----------------------------------------------------------- 5. pyrealsense2
@@ -185,13 +191,13 @@ fi
 # --------------------------------------------------------------- 9. build
 if [[ $SKIP_BUILD -eq 0 ]] && command -v cargo >/dev/null 2>&1; then
     echo "[9/10] Building motor_control (first build takes several minutes)..."
-    if (cd "$REPO_DIR/rust/motor_control" && cargo build --release); then
+    if (cd "$REPO_DIR" && cargo build --release -p motor_control); then
         step_ok "motor_control built"
     else
         step_fail "cargo build motor_control"
     fi
     if [[ $WITH_LIDAR -eq 1 ]]; then
-        if (cd "$REPO_DIR/rust" && cargo build --release -p lidar_control); then
+        if (cd "$REPO_DIR" && cargo build --release -p lidar_control); then
             step_ok "lidar_control built"
         else
             step_fail "cargo build lidar_control"

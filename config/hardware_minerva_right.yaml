@@ -1,7 +1,7 @@
 # Minerva RIGHT arm — motor_control follower config (Path A: one instance per arm)
 #
 # Identical to config/hardware_minerva_left.yaml except: right_ joint names, a
-# different CAN interface, and ZMQ ports 5557/5558. The motor CAN ids (4..10)
+# different CAN interface, and ZMQ ports 5575/5576. The motor CAN ids (4..10)
 # are intentionally the SAME as the left arm — the two arms are distinguished
 # only by living on separate CAN buses.
 #

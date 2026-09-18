@@ -248,7 +248,11 @@ def main():
     args = parse_args()
     cfg = mcfg.load_config(args.config)
     ep = cfg["endpoints"]
-    host = mcfg.resolve_jetson_host(args.host or "192.168.0.27")
+    # The package launcher supplies validated endpoint settings. Preserve them
+    # exactly; legacy direct launches retain automatic network discovery.
+    platform_settings = os.environ.get("ROBOT_PLATFORM_SETTINGS_JSON")
+    simulation_mode = bool(json.loads(platform_settings or "{}").get("simulation"))
+    host = (args.host or "192.168.0.27") if platform_settings else mcfg.resolve_jetson_host(args.host or "192.168.0.27")
     heartbeat = HeartbeatPoller(host).start()   # Jetson host metrics + logic-UPS (background)
     arms_ep = ep.get("arms", {})
 
@@ -265,8 +269,9 @@ def main():
     # Camera endpoints in the config are tcp://localhost:PORT; rewrite the host to
     # the resolved Jetson (same as the arms) so we subscribe to the Jetson's camera
     # publishers, not the laptop's localhost (which is why no camera showed up).
-    cam_eps = {name: url.replace("localhost", host).replace("127.0.0.1", host)
-               for name, url in mcfg.camera_endpoints(cfg).items()}
+    cam_eps = (mcfg.camera_endpoints(cfg) if platform_settings else
+               {name: url.replace("localhost", host).replace("127.0.0.1", host)
+                for name, url in mcfg.camera_endpoints(cfg).items()})
     cam_sizes = mcfg.camera_sizes(cfg)
     safe = mcfg.safety(cfg)
     max_delta = max_delta_vector(
@@ -383,7 +388,7 @@ def main():
     ctx = zmq.Context()
     follower = DualArmTransport(
         ctx, left_cmd=left_cmd, left_telem=left_telem,
-        right_cmd=right_cmd, right_telem=right_telem)
+        right_cmd=right_cmd, right_telem=right_telem, receive_only=args.dry_run)
 
     cam_stop, cam_thread, cam_lock, cam_cache = start_cam_receiver(ctx, cam_eps)
     dec_stop, dec_thread, dec_lock, dec_cache = start_image_decoder(
@@ -396,7 +401,8 @@ def main():
         left_port=args.left_port, right_port=args.right_port,
         left_calib=_resolve_leader_calib("left", args.left_calib),
         right_calib=_resolve_leader_calib("right", args.right_calib),
-        swap=bool(collector_settings.get("leader_swap")))
+        swap=bool(collector_settings.get("leader_swap")),
+        hardware_enabled=not simulation_mode)
     teleop.connect(verbose=True)
 
     session = RecordingSession(CAMERAS)
@@ -608,7 +614,6 @@ def main():
             qpos_actual = follower.qpos_partial()   # 17-vec, NaN for a dropped arm; None only if BOTH down
             torque = follower.torques_partial()
             temp_c = follower.temps_partial()        # per-joint temperature (°C)
-            qpos_both = follower.qpos()              # strict (both present) — required for recording
             present = follower.arm_ok()              # {left, right} bools
             # live speed + grip strength (GUI sliders) — rebuild gains + torque cap on change
             ks = float(gui_params.get("kp_scale", cur_kp_scale))
@@ -666,8 +671,8 @@ def main():
 
             # ---- gravity feedforward (arm droop cancellation) ----
             # tau_ff from the identified per-joint gravity model, evaluated at the
-            # MEASURED pose (the model zeros NaN/uncalibrated joints; set_target zeros
-            # any dropped arm). Only when a model is loaded AND the GUI toggle is on;
+            # MEASURED pose (the model zeros NaN/uncalibrated joints; the shared
+            # transport skips an unavailable or nonfinite arm). Only when a model is loaded AND the GUI toggle is on;
             # grav_scale trims it live (ramp 0->1 while validating). None => plain PD.
             tau_ff = None
             grav_ma = 0.0
@@ -710,9 +715,11 @@ def main():
             if recording and (t0 - last_rec) >= (1.0 / REC_HZ):
                 last_rec = t0
                 decoded = _read_decoded(dec_lock, dec_cache, time.time())
-                if qpos_both is not None and decoded is not None:
+                sample = follower.recording_sample()  # fresh positions; missing torque remains NaN
+                if sample is not None and decoded is not None:
                     frames, cam_ts = decoded
-                    session.append(qpos_both, q_target, torque, frames,
+                    record_qpos, record_torque = sample
+                    session.append(record_qpos, q_target, record_torque, frames,
                                    telem_ts=time.time(), cam_ts=cam_ts)
                     if session.steps >= args.max_steps:
                         finalize_recording("(max steps)")
@@ -759,7 +766,7 @@ def main():
                 "current_label": current_label,
                 "seg_count": len(session.segments) + (1 if session._seg is not None else 0),
                 "robot_ok": qpos_actual is not None,   # at least one arm present
-                "both_ok": qpos_both is not None,       # both arms (recording-ready)
+                "both_ok": all(present.values()),     # both arms have fresh positions
             }
             if qt is not None:
                 # snapshot holder
@@ -822,8 +829,8 @@ def main():
         try:
             if not args.dry_run:
                 follower.disable()
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[motor] Could not queue shutdown disable: {exc}", file=sys.stderr)
         # Wait for in-flight episode saves to finish writing (gzip can take
         # seconds) so the final episode is never truncated on exit.
         for t in save_threads:
@@ -834,7 +841,10 @@ def main():
             if "error" in save_result:
                 print(f"[rec] SAVE ERROR: {save_result['error']}")
         teleop.close()
-        follower.close()          # stops the re-emitter + both telemetry receivers
+        try:
+            follower.close()     # drain stops/disable, then close worker-owned sockets
+        except Exception as exc:
+            print(f"[motor] Shutdown command delivery failed: {exc}", file=sys.stderr)
         for st in (dec_stop, cam_stop):
             st.set()
         # Join the receiver threads so their SUB sockets are CLOSED before

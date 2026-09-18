@@ -18,14 +18,13 @@ echo
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
 
-# Check if motor_control binary exists (cargo workspace builds into rust/target/)
+# The root Cargo workspace preserves the deployed rust/target/ binary path.
 MOTOR_CONTROL_BIN="$PROJECT_ROOT/rust/target/release/motor_control"
 
 if [ ! -f "$MOTOR_CONTROL_BIN" ]; then
     echo -e "${YELLOW}Motor control binary not found. Building...${NC}"
-    cd "$PROJECT_ROOT/rust/motor_control"
-    cargo build --release
     cd "$PROJECT_ROOT"
+    cargo build --release -p motor_control
     echo -e "${GREEN}✓ Build complete${NC}"
     echo
 fi

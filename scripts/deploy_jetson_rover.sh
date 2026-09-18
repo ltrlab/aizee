@@ -3,7 +3,7 @@
 # Usage: ./deploy_jetson_rover.sh [user@host]   (default: auto-detected via deploy_common.sh)
 #
 # Transfer method: tar + scp (rsync not required)
-#   1. Pack rust/ and config/ into a local tarball (excluding build artifacts)
+#   1. Pack the root Rust workspace and config/ (excluding build artifacts)
 #   2. scp tarball to Jetson /tmp/
 #   3. Extract into ~/aizee/ on Jetson
 #   4. Build motor_control (cargo)
@@ -13,6 +13,8 @@
 set -e
 
 source "$(dirname "$0")/deploy_common.sh"
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_DIR"
 TARGET="${1:-$AIZEE_TARGET}"
 REMOTE_DIR="aizee"
 # SSH_KEY + target auto-detected by deploy_common.sh (env overrides win)
@@ -21,7 +23,7 @@ SCP="scp -i $SSH_KEY"
 TARBALL="/tmp/aizee_deploy.tar.gz"
 
 # Password for sudo on the Jetson — stored in scripts/.jetson_password (gitignored)
-PASS_FILE="$(dirname "$0")/.jetson_password"
+PASS_FILE="$REPO_DIR/scripts/.jetson_password"
 if [[ ! -f "$PASS_FILE" ]]; then
     echo "ERROR: $PASS_FILE not found. Create it with the Jetson sudo password."
     exit 1
@@ -43,13 +45,15 @@ echo "Connected."
 echo ""
 
 # Pack sources into a tarball, excluding build artifacts and repo metadata
-echo "1. Packing rust/, config/, and scripts/ ..."
+echo "1. Packing the shared Rust workspace, config/, and scripts/ ..."
+WORKSPACE_FILES=(Cargo.toml .cargo)
+[[ -f Cargo.lock ]] && WORKSPACE_FILES+=(Cargo.lock)
 tar czf "$TARBALL" \
     --exclude='rust/target' \
     --exclude='*.pyc' \
     --exclude='__pycache__' \
     --exclude='logs' \
-    rust/ config/ scripts/aizee-reset-usb-can
+    "${WORKSPACE_FILES[@]}" rust/ config/ scripts/aizee-reset-usb-can
 echo "   $(du -h $TARBALL | cut -f1) packed."
 echo ""
 
@@ -61,12 +65,12 @@ echo ""
 
 # Extract on Jetson (preserves existing files not in the archive, e.g. logs/)
 echo "3. Extracting on Jetson..."
-$SSH "$TARGET" "mkdir -p ~/$REMOTE_DIR && cd ~/$REMOTE_DIR && tar xzf /tmp/aizee_deploy.tar.gz && rm /tmp/aizee_deploy.tar.gz"
+$SSH "$TARGET" "mkdir -p ~/$REMOTE_DIR && cd ~/$REMOTE_DIR && tar xzf /tmp/aizee_deploy.tar.gz && rm -f rust/Cargo.toml && rm /tmp/aizee_deploy.tar.gz"
 echo ""
 
 # Build motor_control on Jetson
 echo "4. Building motor_control on Jetson (this takes a minute)..."
-$SSH "$TARGET" "cd ~/$REMOTE_DIR/rust/motor_control && source ~/.cargo/env && cargo build --release 2>&1"
+$SSH "$TARGET" "cd ~/$REMOTE_DIR && source ~/.cargo/env && cargo build --release -p motor_control"
 echo ""
 
 # Install helper scripts, service file, sudoers, reload, restart, and show status.

@@ -13,9 +13,12 @@ Low-level CAN bus motor control for ROBSTRIDE actuators with deterministic contr
 ## Building
 
 ```bash
-cd rust/motor_control
-cargo build --release
+# From the repository root (Linux/Jetson)
+cargo build --release -p motor_control
 ```
+
+The root [Cargo workspace](../README.md) is shared by Aizee and Minerva.
+Build output remains in `rust/target/` for compatibility with deployed services.
 
 ## CAN Interface Setup
 
@@ -57,7 +60,7 @@ ip link show can1
 export AIZEE_CONFIG=config/hardware.yaml
 
 # Run motor controller
-./target/release/motor_control
+./rust/target/release/motor_control
 ```
 
 ## Configuration
@@ -170,7 +173,7 @@ ls /dev/ttyACM*
 sudo usermod -a -G dialout $USER
 
 # Or run with sudo (not recommended for production)
-sudo ./target/release/motor_control
+sudo ./rust/target/release/motor_control
 ```
 
 ### Motor Not Responding

@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "name": "minerva",
+  "joints": [
+    {"name": "left_arm_j1", "unit": "rad"},
+    {"name": "left_arm_j2", "unit": "rad"},
+    {"name": "left_arm_j3", "unit": "rad"},
+    {"name": "left_arm_j4", "unit": "rad"},
+    {"name": "left_arm_j5", "unit": "rad"},
+    {"name": "left_arm_j6", "unit": "rad"},
+    {"name": "left_gripper", "unit": "rad"},
+    {"name": "right_arm_j1", "unit": "rad"},
+    {"name": "right_arm_j2", "unit": "rad"},
+    {"name": "right_arm_j3", "unit": "rad"},
+    {"name": "right_arm_j4", "unit": "rad"},
+    {"name": "right_arm_j5", "unit": "rad"},
+    {"name": "right_arm_j6", "unit": "rad"},
+    {"name": "right_gripper", "unit": "rad"},
+    {"name": "head_pan", "unit": "rad", "active": false},
+    {"name": "head_tilt", "unit": "rad", "active": false},
+    {"name": "lift", "unit": "m", "active": false}
+  ],
+  "groups": {
+    "left": ["left_arm_j1", "left_arm_j2", "left_arm_j3", "left_arm_j4", "left_arm_j5", "left_arm_j6", "left_gripper"],
+    "right": ["right_arm_j1", "right_arm_j2", "right_arm_j3", "right_arm_j4", "right_arm_j5", "right_arm_j6", "right_gripper"],
+    "head": ["head_pan", "head_tilt"],
+    "lift": ["lift"]
+  },
+  "cameras": [{"name": "left_wrist"}, {"name": "right_wrist"}, {"name": "head"}],
+  "capabilities": ["arm", "gripper", "bimanual"]
+}

@@ -40,6 +40,8 @@ fi
 echo "Connected."
 echo ""
 
+bash "$(dirname "$0")/deploy_python_package.sh" "$TARGET"
+
 echo "1. Packing files..."
 tar czf "$TARBALL" \
     python/nodes/gripper_camera_node.py \

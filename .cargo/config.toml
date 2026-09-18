@@ -1,0 +1,3 @@
+[build]
+# Keep deployed systemd ExecStart paths stable while sharing one root workspace.
+target-dir = "rust/target"

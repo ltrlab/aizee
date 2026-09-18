@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "robot": "minerva",
+  "host": "192.168.0.27",
+  "endpoints": {
+    "arms": {
+      "left": {
+        "command": "tcp://{host}:5555",
+        "telemetry": "tcp://{host}:5556",
+        "joints": ["left_arm_j1", "left_arm_j2", "left_arm_j3", "left_arm_j4", "left_arm_j5", "left_arm_j6", "left_gripper"]
+      },
+      "right": {
+        "command": "tcp://{host}:5575",
+        "telemetry": "tcp://{host}:5576",
+        "joints": ["right_arm_j1", "right_arm_j2", "right_arm_j3", "right_arm_j4", "right_arm_j5", "right_arm_j6", "right_gripper"]
+      }
+    },
+    "cameras": {"left_wrist": "tcp://{host}:5563", "right_wrist": "tcp://{host}:5565", "head": "tcp://{host}:5564"},
+    "services": {}
+  },
+  "control": {"stale_after_s": 0.5},
+  "applications": {
+    "collect": {"adapter": "minerva.collect", "gui": true, "output_dir": "episodes/minerva", "options": []},
+    "train": {"adapter": "minerva.train", "data_dir": "episodes/minerva", "output_dir": "checkpoints/minerva", "options": []}
+  }
+}

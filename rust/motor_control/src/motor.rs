@@ -54,6 +54,8 @@ pub struct Motor {
     pub config: MotorConfig,
     pub state: MotorState,
     pub feedback: Option<MotorFeedback>,
+    pub feedback_sequence: u64,
+    pub feedback_is_measured: bool,
     pub last_command_time: Instant,
     pub command_timeout: Duration,
     pub target_position: f32,
@@ -73,6 +75,8 @@ impl Motor {
             config,
             state: MotorState::Idle,
             feedback: None,
+            feedback_sequence: 0,
+            feedback_is_measured: false,
             last_command_time: Instant::now(),
             command_timeout,
             target_position: 0.0,
@@ -89,6 +93,8 @@ impl Motor {
 
     /// Update motor state with new feedback
     pub fn update_feedback(&mut self, feedback: MotorFeedback) {
+        self.feedback_sequence = self.feedback_sequence.saturating_add(1);
+        self.feedback_is_measured = true;
         self.last_feedback_time = Instant::now();
 
         // Mode transition detection: Run → Reset means the motor faulted

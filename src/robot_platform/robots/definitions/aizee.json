@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "name": "aizee",
+  "joints": [
+    {"name": "swivel", "unit": "rad"},
+    {"name": "gantry_base", "unit": "rad"},
+    {"name": "gantry_mid", "unit": "rad"},
+    {"name": "gantry_end", "unit": "rad"},
+    {"name": "wrist_pitch", "unit": "rad"},
+    {"name": "wrist_roll", "unit": "rad"},
+    {"name": "gripper", "unit": "rad"}
+  ],
+  "groups": {
+    "main": ["swivel", "gantry_base", "gantry_mid", "gantry_end", "wrist_pitch", "wrist_roll", "gripper"]
+  },
+  "cameras": [{"name": "gripper", "required": true}, {"name": "scene", "required": false}],
+  "capabilities": ["arm", "gripper", "drive"]
+}

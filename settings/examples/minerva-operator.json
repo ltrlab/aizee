@@ -1,0 +1,13 @@
+{
+  "robot": "minerva",
+  "applications": {
+    "collect": {
+      "gui": true,
+      "output_dir": "episodes/minerva",
+      "options": ["--kp-scale", "0.3"]
+    },
+    "train": {
+      "options": ["--epochs", "300", "--batch-size", "16"]
+    }
+  }
+}

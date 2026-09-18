@@ -2,6 +2,17 @@
 
 Technical documentation for the AIZEE mobile manipulation platform.
 
+## Repository architecture
+
+- **[Implemented monorepo guide](architecture/MONOREPO_IMPLEMENTATION.md)** — package installation, interchangeable profiles/settings, application launchers, shared backend APIs, and current migration status
+- **[Session backend migration](architecture/SESSION_BACKEND_MIGRATION.md)** — collector/inference integration, command lifecycle, freshness and remaining legacy tools
+- **[Simulation and hardware validation plan](architecture/SIMULATION_VALIDATION_PLAN.md)** — staged simulator design, actuator measurements, real-world calibration, and acceptance gates
+- **[Simulation implementation](architecture/SIMULATION_IMPLEMENTATION.md)** — runnable loopback simulator, launch commands, measurement safeguards, gap disposition, and remaining hardware evidence
+
+- **[Aizee / Minerva repository map](architecture/REPOSITORY_MAP.md)** — current ownership, runtime topology, dependency tangles, and source evidence
+- **[Monorepo organization plan](architecture/MONOREPO_PLAN.md)** — proposed shared-platform layout, dependency rules, and staged migration gates
+- **[Complete file inventory](architecture/REPOSITORY_INVENTORY.md)** — generated tracked-file catalogue and proposed destination areas
+
 ## Getting started
 - **[quickstart/FRESH_JETSON_SETUP.md](quickstart/FRESH_JETSON_SETUP.md)** — blank Orin Nano → validated robot (`scripts/bootstrap_jetson.sh` + the `/setup` wizard)
 - **[quickstart/JETSON_QUICK_START.md](quickstart/JETSON_QUICK_START.md)** — connect to the robot and run teleop / data collection (daily reference)
@@ -30,6 +41,7 @@ Technical documentation for the AIZEE mobile manipulation platform.
 - **[MINERVA_ACTUATORS.md](MINERVA_ACTUATORS.md)** — Cubemars actuator plan for the Minerva humanoid torso + cost/weight comparison vs the AIZEE Robstrides
 - ROBSTRIDE motor manuals: `RS00`/`RS02`/`RS03`/`RS04` User Manual PDFs (this directory)
 - [../rust/motor_control/README.md](../rust/motor_control/README.md) — motor control crate
+- [../rust/JETSON_CROSS_BUILD.md](../rust/JETSON_CROSS_BUILD.md) — local Windows-to-Jetson builds, verified ARM64 artifacts and toolchain setup
 - [../rust/lidar_control/README.md](../rust/lidar_control/README.md) — LiDAR control crate
 - [../tests/README.md](../tests/README.md) — test suite
 - [../README.md](../README.md) — project overview & hardware specs

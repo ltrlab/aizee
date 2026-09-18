@@ -35,15 +35,16 @@ scp_copy() {
 echo "Step 1: Deploying code..."
 cd "$WORKSPACE_DIR"
 
-# Deploy rust code
-echo "  - Deploying rust/lidar_control..."
-scp_copy -r rust/lidar_control "${JETSON_USER}@${JETSON_IP}:~/aizee/rust/"
-
-echo "  - Deploying rust/comms (updated with LidarScan)..."
-scp_copy -r rust/comms "${JETSON_USER}@${JETSON_IP}:~/aizee/rust/"
-
-echo "  - Deploying workspace Cargo.toml..."
-scp_copy rust/Cargo.toml "${JETSON_USER}@${JETSON_IP}:~/aizee/rust/"
+# Cargo resolves every member's manifest, even when building only lidar_control.
+# Copy the whole shared workspace without build artifacts.
+echo "  - Deploying the shared Rust workspace..."
+WORKSPACE_FILES=(Cargo.toml .cargo)
+[[ -f Cargo.lock ]] && WORKSPACE_FILES+=(Cargo.lock)
+TARBALL="$(mktemp "${TMPDIR:-/tmp}/aizee_lidar_deploy.XXXXXX.tar.gz")"
+trap 'rm -f "$TARBALL"' EXIT
+tar czf "$TARBALL" --exclude='rust/target' "${WORKSPACE_FILES[@]}" rust/
+scp_copy "$TARBALL" "${JETSON_USER}@${JETSON_IP}:/tmp/aizee_lidar_deploy.tar.gz"
+ssh_exec "mkdir -p ~/aizee/config/systemd ~/aizee/python && cd ~/aizee && tar xzf /tmp/aizee_lidar_deploy.tar.gz && rm -f rust/Cargo.toml && rm /tmp/aizee_lidar_deploy.tar.gz"
 
 # Deploy config
 echo "  - Deploying config files..."
@@ -54,13 +55,9 @@ scp_copy config/systemd/aizee-lidar-control.service "${JETSON_USER}@${JETSON_IP}
 ssh_exec "mkdir -p ~/aizee/config/udev"
 scp_copy config/udev/99-rplidar.rules "${JETSON_USER}@${JETSON_IP}:~/aizee/config/udev/"
 
-# Deploy test script
-echo "  - Deploying test script..."
-scp_copy python/test_lidar_telemetry.py "${JETSON_USER}@${JETSON_IP}:~/aizee/python/"
-
 echo ""
 echo "Step 2: Building on Jetson..."
-ssh_exec "source ~/.cargo/env && cd ~/aizee/rust && cargo build --release -p lidar_control"
+ssh_exec "source ~/.cargo/env && cd ~/aizee && cargo build --release -p lidar_control"
 
 echo ""
 echo "Step 3: Checking USB devices..."
@@ -98,6 +95,6 @@ echo "   sudo systemctl daemon-reload"
 echo "   sudo systemctl enable aizee-lidar-control"
 echo "   sudo systemctl start aizee-lidar-control"
 echo ""
-echo "4. Test from dev machine:"
-echo "   python python/test_lidar_telemetry.py --host ${JETSON_IP}"
+echo "4. Inspect service output:"
+echo "   journalctl -u aizee-lidar-control -n 50 --no-pager"
 echo ""

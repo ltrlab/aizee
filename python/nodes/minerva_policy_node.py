@@ -17,7 +17,12 @@ Safety:
   - skips a tick if any source is > stale_threshold_ms old,
   - clamps to the training action range + physical joint limits + a per-step
     velocity guard (minerva_constants.apply_safety_limits),
-  - ramps to the closest training start pose on startup.
+  - requires fresh telemetry from both arm controllers,
+  - treats inactive head/lift slots as historical model placeholders; nonzero
+    predictions for those slots are rejected before sending.
+
+The policy does not enable motors or perform a startup ramp. Its commands use
+the same shared session/backend as collection, with one endpoint per arm.
 
 WARNING: do not run a teleop node and this node simultaneously (both push
 commands). Interleaved commands are dangerous.
@@ -27,10 +32,13 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
+import os
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Optional
+from urllib.parse import urlsplit
 
 import numpy as np
 import torch
@@ -45,11 +53,14 @@ except ImportError:
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common.wire import pack_msg, unpack_camera, unpack_msg
+from robot_platform.transport.wire import unpack_camera
+from robot_platform.control import Observation, RobotSession, StaleTelemetryError, ZmqRobotClient
+from robot_platform.robots import load_robot
+from robot_platform.settings import load_settings, merge_settings
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from python.common.minerva_constants import (
-    MINERVA_JOINTS, NUM_MINERVA_JOINTS, KP, KD, apply_safety_limits, build_qpos,
+    MINERVA_JOINTS, NUM_MINERVA_JOINTS, KP, KD, apply_safety_limits,
     max_delta_vector,
 )
 from python.training.language import TextConditioner
@@ -93,18 +104,6 @@ def load_minerva_checkpoint(path: str, device: torch.device, *, use_ema: bool = 
 # ZMQ + image helpers
 # ---------------------------------------------------------------------------
 
-def drain_sub(sock) -> Optional[dict]:
-    latest = None
-    while True:
-        try:
-            latest = unpack_msg(sock.recv(zmq.NOBLOCK))
-        except zmq.Again:
-            break
-        except Exception:
-            break
-    return latest
-
-
 def drain_camera(sock) -> Optional[dict]:
     latest = None
     while True:
@@ -136,40 +135,87 @@ def decode_image(msg: dict, size_wh) -> Optional[np.ndarray]:
     return np.array(img, dtype=np.uint8)
 
 
-def extract_qpos(telem: Optional[dict]) -> Optional[np.ndarray]:
-    """Pull a 17-vector from telemetry. Accepts {'joints': {name: pos}} (ALL 17
-    canonical joints must be present) or a 'positions' list already in
-    MINERVA_JOINTS order. Returns None on incomplete telemetry so the tick is
-    SKIPPED — never silently zero-fills a missing safety-critical joint (a
-    zero-filled qpos would anchor the velocity guard at the zero pose and drag
-    the arms toward it). Adapt to motor_control's actual schema on the robot."""
-    if telem is None:
+def model_observation(observation: Observation, state_mode: str):
+    """Adapt a shared observation to the historical Minerva model input.
+
+    Only explicitly inactive slots become zero, matching collected v6/v7 data.
+    An absent/stale active joint always rejects the entire observation. Torque
+    is required only for models whose state actually includes torque.
+    """
+    if observation.joint_names != tuple(MINERVA_JOINTS):
+        raise ValueError("Minerva checkpoint requires the canonical 17-joint order")
+    if state_mode not in ("qpos", "qpos_qcmd", "qpos_qcmd_tq"):
+        raise ValueError(f"Unsupported checkpoint state_mode: {state_mode!r}")
+    active = np.asarray(observation.active_mask, dtype=bool)
+    if not all(valid for enabled, valid in zip(active, observation.position_valid_mask) if enabled):
         return None
-    joints = telem.get("joints")
-    if isinstance(joints, dict):
-        if all(name in joints for name in MINERVA_JOINTS):
-            return build_qpos(joints)
-        return None
-    pos = telem.get("positions")
-    if pos is not None and len(pos) == NUM_MINERVA_JOINTS:
-        return np.asarray(pos, dtype=np.float32)
-    return None
+    qpos = np.where(active, observation.positions, 0.0).astype(np.float32)
+    torques = None
+    if state_mode == "qpos_qcmd_tq":
+        if not all(valid for enabled, valid in zip(active, observation.torque_valid_mask) if enabled):
+            return None
+        torques = np.where(active, observation.torques, 0.0).astype(np.float32)
+    return qpos, torques
 
 
-def extract_torques(telem: Optional[dict]) -> Optional[np.ndarray]:
-    """Pull a 17-vector of joint torques (only for state_mode 'qpos_qcmd_tq').
-    Returns None when torque telemetry is unavailable/incomplete so the caller
-    skips the tick rather than feeding an out-of-distribution zero vector."""
-    if telem is None:
-        return None
-    tq = telem.get("torques")
-    if isinstance(tq, dict):
-        return build_qpos(tq) if all(n in tq for n in MINERVA_JOINTS) else None
-    for key in ("torques", "efforts"):
-        v = telem.get(key)
-        if isinstance(v, (list, tuple)) and len(v) == NUM_MINERVA_JOINTS:
-            return np.asarray(v, dtype=np.float32)
-    return None
+def policy_settings(cfg: dict, *, settings_paths=(), host=None, endpoint_overrides=None):
+    """Resolve legacy policy YAML and shared settings without network access.
+
+    YAML supplies the old left endpoint/cameras and control timeout. The second
+    arm uses the packaged 5575/5576 defaults unless explicitly configured. JSON
+    overlays, launcher settings, then explicit CLI flags have increasing priority.
+    Matching YAML hostnames become placeholders so a host overlay moves both
+    arms and cameras together while preserving explicitly separate camera hosts.
+    """
+    spec = load_robot("minerva")
+    ep = cfg.get("endpoints", {})
+    primary = ep.get("arms", {}).get("left", {}).get("command", ep.get("command", "tcp://localhost:5555"))
+    yaml_host = urlsplit(primary).hostname or "localhost"
+
+    def template(value):
+        if isinstance(value, dict):
+            return {key: template(item) for key, item in value.items()}
+        if isinstance(value, str) and value.startswith("tcp://"):
+            parsed = urlsplit(value)
+            if parsed.hostname == yaml_host and parsed.port is not None:
+                return f"tcp://{{host}}:{parsed.port}"
+        return value
+
+    overrides = {"host": yaml_host, "endpoints": {"cameras": template(ep.get("cameras", {}))},
+                 "control": {"stale_after_s": float(cfg["control"]["stale_threshold_ms"]) / 1000.0}}
+    if "arms" in ep:
+        overrides["endpoints"]["arms"] = template(ep["arms"])
+    else:
+        left = {key: template(ep[key]) for key in ("command", "telemetry") if key in ep}
+        overrides["endpoints"]["arms"] = {"left": left}
+    for filename in settings_paths:
+        overlay = json.loads(Path(filename).expanduser().read_text(encoding="utf-8"))
+        if not isinstance(overlay, dict):
+            raise ValueError(f"Settings must be an object: {filename}")
+        overrides = merge_settings(overrides, overlay)
+    launcher = os.environ.get("ROBOT_PLATFORM_SETTINGS_JSON")
+    if launcher:
+        overlay = json.loads(launcher)
+        if not isinstance(overlay, dict):
+            raise ValueError("ROBOT_PLATFORM_SETTINGS_JSON must be an object")
+        overrides = merge_settings(overrides, overlay)
+    if host is not None:
+        old_host = overrides["host"]
+
+        def retarget(value):
+            if isinstance(value, dict):
+                return {key: retarget(item) for key, item in value.items()}
+            if isinstance(value, str) and value.startswith("tcp://"):
+                parsed = urlsplit(value)
+                if parsed.hostname == old_host and parsed.port is not None:
+                    return f"tcp://{{host}}:{parsed.port}"
+            return value
+
+        overrides["endpoints"] = retarget(overrides["endpoints"])
+        overrides["host"] = host
+    if endpoint_overrides:
+        overrides = merge_settings(overrides, {"endpoints": {"arms": endpoint_overrides}})
+    return spec, load_settings(spec, overrides=overrides)
 
 
 def build_state(qpos_raw, last_action, torques_raw, state_mode, stats) -> np.ndarray:
@@ -185,34 +231,59 @@ def build_state(qpos_raw, last_action, torques_raw, state_mode, stats) -> np.nda
     return np.concatenate([qpos_n, qcmd_n, tq_n]).astype(np.float32)
 
 
-def send_command(cmd_push, action: np.ndarray):
-    try:
-        cmd_push.send(pack_msg({
-            "type": "arm_joints",
-            "joint_names": list(MINERVA_JOINTS),
-            "positions": action.astype(np.float32).tolist(),
-            "velocities": [0.0] * NUM_MINERVA_JOINTS,
-            "kp": list(KP), "kd": list(KD),
-        }), zmq.NOBLOCK)
-    except zmq.Again:
-        print("\n[WARN] command queue full, skipped")
+def policy_target(action: np.ndarray, session: RobotSession) -> np.ndarray:
+    """Reject unsupported motion and normalize only floating-point residue.
+
+    Zero-range action denormalization can leave tiny residuals in inactive
+    placeholder slots; values within 1e-5 are rounded to zero. Material head or
+    lift predictions require a robot definition/backend that supports them.
+    """
+    action = np.asarray(action, dtype=np.float32).copy()
+    if action.shape != (len(session.joint_names),) or not np.isfinite(action).all():
+        raise ValueError("Policy action must be a finite canonical joint vector")
+    active = np.asarray(session.active_mask, dtype=bool)
+    unsupported = np.flatnonzero(~active & (np.abs(action) > 1e-5))
+    if unsupported.size:
+        names = [session.joint_names[index] for index in unsupported]
+        raise ValueError(f"Policy predicts motion for inactive joints: {names}")
+    action[~active] = 0.0
+    return action
+
+
+def send_command(client: ZmqRobotClient, action: np.ndarray, *, require_torque: bool = True):
+    """Route one canonical target to the two real arm controllers."""
+    action = policy_target(action, client.session)
+    active = np.asarray(client.session.active_mask, dtype=bool)
+    client.send_target(action, kp=np.where(active, KP, 0.0), kd=np.where(active, KD, 0.0),
+                       require_torque=require_torque)
 
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser(description="Minerva Policy Inference Node")
     ap.add_argument("--config", default="config/minerva.yaml")
     ap.add_argument("--checkpoint", required=True)
     ap.add_argument("--instruction", default=None, help="task string for language conditioning")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--dry-run", action="store_true")
-    args = ap.parse_args()
+    ap.add_argument("--settings", action="append", default=[], help="shared deployment JSON overlay (repeatable)")
+    ap.add_argument("--host", help="override the robot host")
+    for side in ("left", "right"):
+        ap.add_argument(f"--{side}-cmd", help=f"{side} arm command endpoint")
+        ap.add_argument(f"--{side}-telem", help=f"{side} arm telemetry endpoint")
+    args = ap.parse_args(argv)
 
     cfg = yaml.safe_load(Path(args.config).read_text())
-    ep, cam_cfg, ctl, safe = cfg["endpoints"], cfg["cameras"], cfg["control"], cfg["safety"]
+    endpoint_overrides = {}
+    for side in ("left", "right"):
+        values = {key: getattr(args, f"{side}_{flag}") for key, flag in (("command", "cmd"), ("telemetry", "telem"))}
+        endpoint_overrides[side] = {key: value for key, value in values.items() if value is not None}
+    spec, settings = policy_settings(cfg, settings_paths=args.settings, host=args.host,
+                                     endpoint_overrides=endpoint_overrides)
+    ep, cam_cfg, ctl, safe = settings["endpoints"], cfg["cameras"], cfg["control"], cfg["safety"]
     device = torch.device(args.device)
 
     print(f"Loading {args.checkpoint} on {device} ...")
@@ -222,12 +293,21 @@ def main():
     action_mode = mcfg["action_mode"]
     chunk_size = mcfg["chunk_size"]
     execute_steps = min(int(ctl["execute_steps"]), chunk_size)
+    if execute_steps < 1 or mcfg["num_joints"] != len(spec.joints):
+        raise ValueError("Checkpoint must use the Minerva 17-joint layout and positive execution steps")
     flow_steps = int(ctl["flow_steps"])
     tick = 1.0 / float(ctl["rate_hz"])
-    stale = float(ctl["stale_threshold_ms"]) / 1000.0
+    stale = float(settings["control"]["stale_after_s"])
     cam_size = {c: (cam_cfg[c]["width"], cam_cfg[c]["height"]) for c in cameras}
     print(f"cameras={cameras} state_mode={state_mode} action_mode={action_mode} "
           f"chunk={chunk_size} execute={execute_steps} flow_steps={flow_steps}")
+    if state_mode not in ("qpos", "qpos_qcmd", "qpos_qcmd_tq"):
+        raise ValueError(f"Unsupported checkpoint state_mode: {state_mode!r}")
+    require_torque = state_mode == "qpos_qcmd_tq"
+    action_range = (stats["action_lo"], stats["action_hi"]) if action_mode == "absolute" else (None, None)
+    max_delta = max_delta_vector(
+        arm=float(safe["max_delta_arm"]), gripper=float(safe["max_delta_gripper"]),
+        head=float(safe["max_delta_head"]), lift=float(safe["max_delta_lift"]))
 
     # Language conditioning — REQUIRED whenever the checkpoint has lang_dim>0
     # (the flow head's cond_proj expects state_dim+lang_dim), independent of the
@@ -249,19 +329,25 @@ def main():
             f"language embedding dim {vec.shape[-1]} != checkpoint lang_dim {mcfg['lang_dim']}")
         lang_vec_t = torch.from_numpy(vec).unsqueeze(0).to(device)
 
-    # ZMQ
+    # The shared backend owns both arm transports; cameras remain policy inputs.
+    session = RobotSession(spec, settings, max_age_s=stale)
     ctx = zmq.Context()
-    telem_sub = ctx.socket(zmq.SUB); telem_sub.setsockopt(zmq.LINGER, 0)
-    telem_sub.setsockopt_string(zmq.SUBSCRIBE, ""); telem_sub.connect(ep["telemetry"])
+    client = ZmqRobotClient(session, context=ctx, receive_only=args.dry_run)
     cam_subs = {}
-    for c in cameras:
-        s = ctx.socket(zmq.SUB); s.setsockopt(zmq.LINGER, 0)
-        s.setsockopt_string(zmq.SUBSCRIBE, ""); s.connect(ep["cameras"][c])
-        cam_subs[c] = s
-    cmd_push = None
-    if not args.dry_run:
-        cmd_push = ctx.socket(zmq.PUSH); cmd_push.setsockopt(zmq.LINGER, 0)
-        cmd_push.connect(ep["command"])
+    try:
+        client.connect()
+        for c in cameras:
+            s = ctx.socket(zmq.SUB)
+            cam_subs[c] = s
+            s.setsockopt(zmq.LINGER, 0)
+            s.setsockopt_string(zmq.SUBSCRIBE, "")
+            s.connect(ep["cameras"][c])
+    except BaseException:
+        client.close()
+        for s in cam_subs.values():
+            s.close()
+        ctx.term()
+        raise
 
     print("=" * 60)
     print("WARNING: do NOT run a teleop node simultaneously (both push commands).")
@@ -269,64 +355,48 @@ def main():
     if args.dry_run:
         print("[DRY RUN — inference only, no commands sent]")
 
-    last_telem_t = 0.0
     cam_last_t = {c: 0.0 for c in cameras}
-    latest_telem = None
     latest_cam: Dict[str, dict] = {}
     last_action: Optional[np.ndarray] = None
     chunk_buf: Optional[np.ndarray] = None      # [K, 17] absolute positions
     chunk_idx = 0
     ready = False
-    action_range = (stats["action_lo"], stats["action_hi"]) if action_mode == "absolute" else (None, None)
-    max_delta = max_delta_vector(
-        arm=float(safe["max_delta_arm"]), gripper=float(safe["max_delta_gripper"]),
-        head=float(safe["max_delta_head"]), lift=float(safe["max_delta_lift"]))
 
     print("Waiting for telemetry + all cameras ...")
     try:
         while True:
             t0 = time.monotonic()
-            telem = drain_sub(telem_sub)
-            if telem is not None:
-                latest_telem, last_telem_t = telem, t0
+            observation = client.poll()
+            measured = model_observation(observation, state_mode)
             for c in cameras:
                 m = drain_camera(cam_subs[c])
                 if m is not None:
                     latest_cam[c], cam_last_t[c] = m, t0
 
-            fresh = (t0 - last_telem_t < stale if last_telem_t else False) and all(
+            fresh = measured is not None and all(
                 (t0 - cam_last_t[c] < stale if cam_last_t[c] else False) for c in cameras)
             if not fresh:
+                chunk_buf, last_action = None, None
                 if not ready:
-                    missing = ([] if last_telem_t else ["telem"]) + [c for c in cameras if not cam_last_t[c]]
+                    missing = ([] if measured is not None else ["arm telemetry"]) + [c for c in cameras if not cam_last_t[c]]
                     print(f"\rWaiting: {missing}   ", end="", flush=True)
                 time.sleep(max(0, tick - (time.monotonic() - t0)))
                 continue
             if not ready:
                 ready = True
                 print("\nAll sources ready. Starting inference loop.")
-                # (start-pose ramp omitted here for brevity — add via a shared
-                #  ramp helper before commanding on hardware.)
 
-            qpos_raw = extract_qpos(latest_telem)
+            qpos_raw, torques_raw = measured
             imgs = {}
             for c in cameras:
                 img = decode_image(latest_cam[c], cam_size[c])
                 if img is not None:
                     imgs[c] = img
-            if qpos_raw is None or len(imgs) != len(cameras):
+            if len(imgs) != len(cameras):
+                chunk_buf, last_action = None, None
                 print("\r[SKIP] decode/telem incomplete   ", end="", flush=True)
                 time.sleep(max(0, tick - (time.monotonic() - t0)))
                 continue
-
-            torques_raw = None
-            if state_mode == "qpos_qcmd_tq":
-                torques_raw = extract_torques(latest_telem)
-                if torques_raw is None:
-                    print("\r[SKIP] state_mode qpos_qcmd_tq requires torque telemetry   ",
-                          end="", flush=True)
-                    time.sleep(max(0, tick - (time.monotonic() - t0)))
-                    continue
 
             # (Re)plan when the current chunk is exhausted.
             if chunk_buf is None or chunk_idx >= execute_steps:
@@ -345,16 +415,34 @@ def main():
                     print(f"\n[WARN] planning {infer_ms:.0f}ms > execution window "
                           f"{1000*tick*execute_steps:.0f}ms")
 
-            action = chunk_buf[chunk_idx]
+            # Inference can outlast the stale threshold. Drain fresh telemetry
+            # again, then clamp against the measured pose at command time.
+            measured = model_observation(client.poll(), state_mode)
+            camera_stale = any(time.monotonic() - cam_last_t[c] >= stale for c in cameras)
+            if measured is None or camera_stale:
+                chunk_buf, last_action = None, None
+                print("\r[SKIP] observations expired during inference   ", end="", flush=True)
+                time.sleep(max(0, tick - (time.monotonic() - t0)))
+                continue
+            qpos_raw, _ = measured
+            action = policy_target(chunk_buf[chunk_idx], session)
             action, clamped = apply_safety_limits(
                 action, qpos_raw,
                 dataset_action_min=action_range[0], dataset_action_max=action_range[1],
                 max_delta=max_delta)
+            action = policy_target(action, session)
+            try:
+                if args.dry_run:
+                    session.route_target(action, require_torque=require_torque)
+                else:
+                    send_command(client, action, require_torque=require_torque)
+            except StaleTelemetryError:
+                chunk_buf, last_action = None, None
+                print("\r[SKIP] arm telemetry expired before sending   ", end="", flush=True)
+                time.sleep(max(0, tick - (time.monotonic() - t0)))
+                continue
             last_action = action.copy()
             chunk_idx += 1
-
-            if not args.dry_run and cmd_push is not None:
-                send_command(cmd_push, action)
 
             flag = " [CLAMP]" if clamped.any() else ""
             print(f"\r[{'DRY' if args.dry_run else 'CMD'}] step {chunk_idx}/{execute_steps} "
@@ -363,11 +451,9 @@ def main():
     except KeyboardInterrupt:
         print("\nInterrupted.")
     finally:
-        telem_sub.close()
+        client.close()
         for s in cam_subs.values():
             s.close()
-        if cmd_push is not None:
-            cmd_push.close()
         ctx.term()
 
 

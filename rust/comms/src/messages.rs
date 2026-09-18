@@ -108,7 +108,18 @@ pub enum CommandMessage {
 
 /// Individual motor telemetry
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeedbackMetadata {
+    pub sequence: u64,
+    pub age_s: f64,
+    pub valid: bool,
+    pub provenance: String,
+}
+
+/// Individual motor telemetry
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MotorTelemetry {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feedback: Option<FeedbackMetadata>,
     pub position: f32,
     pub velocity: f32,
     pub torque: f32,
@@ -134,6 +145,10 @@ pub struct LidarScan {
 /// Telemetry message published to ZeroMQ
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelemetryMessage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub telemetry_schema_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub producer_id: Option<String>,
     pub timestamp: f64,
     pub motors: HashMap<String, MotorTelemetry>,
     #[serde(default)]
@@ -147,6 +162,8 @@ pub struct TelemetryMessage {
 impl TelemetryMessage {
     pub fn new() -> Self {
         Self {
+            telemetry_schema_version: None,
+            producer_id: None,
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -178,6 +195,8 @@ mod tests {
         let cmd = CommandMessage::Drive {
             linear: 0.5,
             angular: 0.2,
+            kp: 0.0,
+            kd: 0.0,
         };
         let json = serde_json::to_string(&cmd).unwrap();
         assert!(json.contains("\"type\":\"drive\""));
@@ -219,6 +238,7 @@ mod tests {
         msg.add_motor(
             "test_motor".to_string(),
             MotorTelemetry {
+                feedback: None,
                 position: 1.5,
                 velocity: 0.5,
                 torque: 2.1,
@@ -230,5 +250,24 @@ mod tests {
         );
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("test_motor"));
+    }
+
+    #[test]
+    fn test_legacy_motor_telemetry_remains_readable() {
+        let motor: MotorTelemetry = serde_json::from_str(r#"{"position":0.0,"velocity":0.0,"torque":0.0,"temperature":25.0,"state":"disabled","mode":"reset","error":null}"#).unwrap();
+        assert!(motor.feedback.is_none());
+    }
+
+    #[test]
+    fn test_python_metadata_fixture() {
+        let bytes = include_bytes!("../../../tests/fixtures/simulation/telemetry_v2.msgpack");
+        let message: TelemetryMessage = rmp_serde::from_slice(bytes).unwrap();
+        assert_eq!(message.telemetry_schema_version, Some(2));
+        assert_eq!(message.producer_id.as_deref(), Some("fixture-controller-1"));
+        let feedback = message.motors["left_arm_j1"].feedback.as_ref().unwrap();
+        assert_eq!(feedback.sequence, 42);
+        assert_eq!(feedback.age_s, 0.025);
+        assert_eq!(feedback.provenance, "can");
+        assert!(feedback.valid);
     }
 }

@@ -1,9 +1,9 @@
 """
 external_encoder.py — pluggable OUTPUT-shaft ground-truth encoder.
 
-The ROBSTRIDE internal encoder (MECHPOS) sits BEFORE the gearbox, so it cannot
-see gearbox backlash or the true output angle. Phase 0 therefore needs an
-independent absolute encoder on the output shaft. This abstraction lets the
+The bundled manuals describe MECHPOS as a load-side angle. Verify the installed
+firmware and reference before interpreting it. Independent output measurements
+are still required to validate backlash and angle accuracy. This abstraction lets the
 harness run and log ``NaN`` before the rig exists (NullEncoder), then swap to a
 real serial encoder (e.g. an AS5048A read by an RP2040/Arduino) with no code
 change.
@@ -11,6 +11,7 @@ change.
 from __future__ import annotations
 
 import math
+import time
 from abc import ABC, abstractmethod
 
 
@@ -47,6 +48,8 @@ class SerialEncoder(ExternalEncoder):
         self.offset_rad = offset_rad
         self.sign = -1.0 if invert else 1.0
         self._last = math.nan
+        self.received_at = None
+        self.sequence = 0
 
     def read_angle_rad(self) -> float:
         # Drain to the newest line so we log the freshest sample, not a backlog.
@@ -59,6 +62,8 @@ class SerialEncoder(ExternalEncoder):
         if text:
             try:
                 self._last = self.sign * (float(text) - self.offset_rad)
+                self.received_at = time.perf_counter()  # host receive, not device sampling time
+                self.sequence += 1
             except ValueError:
                 pass
         return self._last

@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ltrlab-robot-platform"
+version = "0.1.0"
+description = "Shared control, data, and application platform for Aizee and Minerva"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "LTRLAB"}]
+dependencies = ["msgpack>=1.0.5"]
+
+[project.optional-dependencies]
+control = ["numpy>=1.24", "pyzmq>=25"]
+data = ["numpy>=1.24", "h5py>=3.9"]
+operator = ["numpy>=1.24", "pyzmq>=25", "h5py>=3.9", "PyYAML>=6", "Pillow>=10", "pyserial>=3.5", "PySide6>=6.5", "pygame>=2.5", "rerun-sdk>=0.15", "opencv-python>=4.8"]
+learning = ["numpy>=1.24", "h5py>=3.9", "torch>=2.1", "torchvision>=0.16", "einops>=0.6", "tensorboard>=2.14", "PyYAML>=6", "Pillow>=10"]
+language = ["sentence-transformers>=2.2"]
+webxr = ["aiohttp>=3.9", "cryptography>=41", "aiortc>=1.14", "av>=11"]
+dev = ["pytest>=7.4", "wheel"]
+simulation = ["numpy>=1.24", "pyzmq>=25", "h5py>=3.9", "Pillow>=10", "PyYAML>=6"]
+
+[project.scripts]
+robot-platform = "robot_platform.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["robot_platform*"]
+
+[tool.setuptools.package-data]
+"robot_platform.robots" = ["definitions/*.json"]
+"robot_platform.settings" = ["defaults/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit", "tests/contract"]
+addopts = "--import-mode=importlib"
+markers = ["hardware: requires explicit physical robot access", "integration: offline process or application integration"]

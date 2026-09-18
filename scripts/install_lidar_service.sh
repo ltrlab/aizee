@@ -15,7 +15,7 @@ sudo systemctl enable aizee-lidar-control
 # Check if lidar_control binary exists
 if [ ! -f ~/aizee/rust/target/release/lidar_control ]; then
     echo "ERROR: lidar_control binary not found!"
-    echo "Please build it first: cd ~/aizee/rust/lidar_control && cargo build --release"
+    echo "Please build it first: cd ~/aizee && cargo build --release -p lidar_control"
     exit 1
 fi
 

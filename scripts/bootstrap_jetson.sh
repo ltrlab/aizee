@@ -4,7 +4,7 @@
 # Takes a freshly flashed Jetson Orin Nano (JetPack 6.x, user created during
 # oem-config, reachable over the network) all the way to a running robot:
 #   1. Installs your SSH public key (one password prompt on the first run)
-#   2. Syncs the repo (tar+scp: rust/, config/, scripts/, python/, firmware/)
+#   2. Syncs the repo (tar+scp: shared packages, legacy apps, settings, firmware)
 #   3. Runs scripts/setup_jetson.sh on the device (apt, rustup, pip, udev,
 #      systemd, cargo build, WiFi AP) — sudo will prompt once via the TTY
 #
@@ -66,19 +66,21 @@ echo ""
 
 # --- 2. sync the repo subset the device needs
 echo "2. Packing and syncing repo..."
+WORKSPACE_FILES=(Cargo.toml .cargo)
+[[ -f "$REPO_DIR/Cargo.lock" ]] && WORKSPACE_FILES+=(Cargo.lock)
 tar czf "$TARBALL" -C "$REPO_DIR" \
     --exclude='rust/target' \
     --exclude='__pycache__' \
     --exclude='*.pyc' \
     --exclude='logs' \
-    --exclude='data' \
     --exclude='checkpoints' \
-    rust config scripts python firmware requirements_jetson.txt
+    "${WORKSPACE_FILES[@]}" rust config scripts python firmware requirements_jetson.txt \
+    pyproject.toml README.md src settings
 echo "   $(du -h "$TARBALL" | cut -f1) packed."
 scp "${SSH_OPTS[@]}" "$TARBALL" "$TARGET:/tmp/aizee_bootstrap.tar.gz"
 rm -f "$TARBALL"
 ssh "${SSH_OPTS[@]}" "$TARGET" \
-    "mkdir -p ~/aizee && cd ~/aizee && tar xzf /tmp/aizee_bootstrap.tar.gz && rm /tmp/aizee_bootstrap.tar.gz \
+    "mkdir -p ~/aizee && cd ~/aizee && tar xzf /tmp/aizee_bootstrap.tar.gz && rm -f rust/Cargo.toml && rm /tmp/aizee_bootstrap.tar.gz \
      && sed -i 's/\r$//' scripts/setup_jetson.sh && chmod +x scripts/setup_jetson.sh"
 echo "   Synced to ~/aizee."
 echo ""

@@ -20,6 +20,8 @@ from typing import Optional, Tuple
 
 import numpy as np
 
+from robot_platform.robots import load_robot
+
 # ---------------------------------------------------------------------------
 # Joint vocabulary
 # ---------------------------------------------------------------------------
@@ -28,15 +30,7 @@ import numpy as np
 # ARM_JOINTS now matches the 7-DOF representation the policy pipeline always
 # used.  POLICY_JOINTS is kept as an alias to ease the migration of training
 # code that still imports it; new code should prefer ARM_JOINTS.
-ARM_JOINTS = [
-    "swivel",
-    "gantry_base",
-    "gantry_mid",
-    "gantry_end",
-    "wrist_pitch",
-    "wrist_roll",
-    "gripper",
-]
+ARM_JOINTS = list(load_robot("aizee").joint_names)
 NUM_ARM_JOINTS = len(ARM_JOINTS)            # 7
 
 POLICY_JOINTS = ARM_JOINTS

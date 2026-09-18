@@ -6,7 +6,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-comms = { path = "../comms" }
+comms.workspace = true
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -19,4 +19,6 @@ zmq.workspace = true
 
 # RPLiDAR driver
 rplidar_driver = { git = "https://github.com/dmweis/rplidar_driver.git" }
-serialport = "4.2"
+# Devices are opened by their configured path; USB port enumeration is unused.
+# Match the driver's feature set and avoid a libudev link dependency.
+serialport = { version = "4.2", default-features = false }

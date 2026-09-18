@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "name": "REPLACE_WITH_JOINT_NAME",
+  "model": "RS00",
+  "can_id": null,
+  "bus": "REPLACE_WITH_VERIFIED_BUS",
+  "protocol": "legacy_deployed",
+  "firmware": "",
+  "coordinate_reference": "",
+  "verification": {
+    "identity": {"verified": false, "evidence": ""},
+    "protocol": {"verified": false, "evidence": ""},
+    "limits": {"verified": false, "evidence": ""},
+    "stop": {"verified": false, "evidence": ""}
+  },
+  "limits": {
+    "min_position": null,
+    "max_position": null,
+    "max_velocity": null,
+    "max_reported_torque": null,
+    "max_feedforward": null,
+    "max_kp": null,
+    "max_kd": null,
+    "feedback_timeout_s": null
+  }
+}

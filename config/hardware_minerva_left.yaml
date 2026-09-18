@@ -5,13 +5,13 @@
 # single positional `arm_joints` vector [j1 j2 j3 j4 j5 j6 gripper].
 #
 # The RIGHT arm is an identical file (config/hardware_minerva_right.yaml) with
-# left_→right_ joint names, a different CAN interface, and ZMQ ports 5557/5558.
+# left_→right_ joint names, a different CAN interface, and ZMQ ports 5575/5576.
 # The motor CAN ids (4..10) are the SAME on both arms — the two arms are told
 # apart purely by living on two separate CAN buses.
 #
 # Launch on the Jetson (one process per arm):
 #   AIZEE_CONFIG=config/hardware_minerva_left.yaml  ./motor_control   # ports 5555/5556
-#   AIZEE_CONFIG=config/hardware_minerva_right.yaml ./motor_control   # ports 5557/5558
+#   AIZEE_CONFIG=config/hardware_minerva_right.yaml ./motor_control   # ports 5575/5576
 #
 # === CONFIRM BEFORE ENERGIZING ============================================
 #  1. can.interfaces.arm below matches the kernel interface THIS arm is wired

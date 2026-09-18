@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 # Local dependencies
-comms = { path = "../comms" }
+comms.workspace = true
 
 # Workspace dependencies
 tokio.workspace = true
@@ -21,4 +21,4 @@ tracing-subscriber.workspace = true
 chrono.workspace = true
 
 # Additional dependencies
-serde_yaml = "0.9"
+serde_yaml.workspace = true
