@@ -1,29 +1,18 @@
-#!/bin/bash
-# Run ACT policy inference.
-#
-# Default: runs on the Jetson via SSH with --no-rerun.
-# With --local: runs on the dev machine (CPU) with Rerun visualization,
-#               connecting to the Jetson's ZMQ streams over the network.
-#
-# Usage:
-#   ./scripts/run_policy.sh                          # Jetson, no rerun
-#   ./scripts/run_policy.sh --dry-run                # Jetson dry run
-#   ./scripts/run_policy.sh --local                  # dev machine + rerun
-#   ./scripts/run_policy.sh --local --dry-run        # dev machine dry run + rerun
-#   ./scripts/run_policy.sh act_epoch_0200.pt        # specific checkpoint
-
+#!/usr/bin/env bash
+# Aizee ACT inference with an explicitly selected compatible checkpoint.
+# Local:  ./scripts/run_policy.sh --local checkpoints/aizee/act_best.pt --dry-run
+# Jetson: ./scripts/run_policy.sh checkpoints/aizee/act_best.pt --dry-run
+# Set JETSON=user@host, JETSON_IP=host and SSH_KEY=path for your deployment.
 set -euo pipefail
 
-JETSON="ltr@192.168.0.27"
-JETSON_IP="192.168.0.27"
-SSH_KEY="/p/Workspace/ssh-keys/aizee_rover_id"
-REMOTE_DIR="aizee"
 LOCAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
+JETSON="${JETSON:-ltr@192.168.0.27}"
+JETSON_IP="${JETSON_IP:-${JETSON#*@}}"
+SSH_KEY="${SSH_KEY:-$LOCAL_DIR/../ssh-keys/aizee_rover_id}"
+REMOTE_DIR="${AIZEE_REMOTE_DIR:-aizee}"
 LOCAL_MODE=false
 CHECKPOINT=""
 EXTRA_ARGS=()
-
 for arg in "$@"; do
     if [[ "$arg" == "--local" ]]; then
         LOCAL_MODE=true
@@ -34,56 +23,27 @@ for arg in "$@"; do
     fi
 done
 
-echo "=== AIZEE Policy Inference ==="
-echo ""
-echo "Controls:"
-echo "  SPACE  — pause/resume (hold current position)"
-echo "  Q      — quit (press twice to confirm, ramps to zero)"
-echo ""
+if [[ -z "$CHECKPOINT" ]]; then
+    echo "Usage: $0 [--local] path/to/checkpoint.pt [policy options]" >&2
+    echo "Train or supply a compatible checkpoint; old weights are no longer bundled locally." >&2
+    exit 2
+fi
 
 if $LOCAL_MODE; then
-    # Run locally with Rerun, connecting to Jetson ZMQ over network
-    if [[ -z "$CHECKPOINT" ]]; then
-        if [[ -f "$LOCAL_DIR/checkpoints/act_best.pt" ]]; then
-            CHECKPOINT="$LOCAL_DIR/checkpoints/act_best.pt"
-        else
-            CHECKPOINT=$(ls -t "$LOCAL_DIR"/checkpoints/act_epoch_*.pt 2>/dev/null | head -1)
-            if [[ -z "$CHECKPOINT" ]]; then
-                echo "ERROR: No checkpoints found in $LOCAL_DIR/checkpoints/"
-                exit 1
-            fi
-        fi
+    if [[ ! -f "$CHECKPOINT" ]]; then
+        echo "Checkpoint not found: $CHECKPOINT" >&2
+        exit 2
     fi
-    echo "Mode: LOCAL (dev machine + Rerun)"
-    echo "Checkpoint: $CHECKPOINT"
-    echo ""
     exec python "$LOCAL_DIR/python/nodes/act_policy_node.py" \
-        --checkpoint "$CHECKPOINT" \
-        --device cpu \
+        --checkpoint "$CHECKPOINT" --device cpu \
         --telem "tcp://$JETSON_IP:5556" \
         --gripper-cam "tcp://$JETSON_IP:5563" \
-        --cmd "tcp://$JETSON_IP:5555" \
-        "${EXTRA_ARGS[@]}"
+        --cmd "tcp://$JETSON_IP:5555" "${EXTRA_ARGS[@]}"
 else
-    # Run on Jetson via SSH
-    if [[ -z "$CHECKPOINT" ]]; then
-        echo "Finding best checkpoint on Jetson..."
-        CHECKPOINT=$(ssh -i "$SSH_KEY" "$JETSON" \
-            "if [[ -f ~/$REMOTE_DIR/checkpoints/act_best.pt ]]; then \
-                echo ~/$REMOTE_DIR/checkpoints/act_best.pt; \
-            else \
-                ls -t ~/$REMOTE_DIR/checkpoints/act_epoch_*.pt 2>/dev/null | head -1; \
-            fi")
-        if [[ -z "$CHECKPOINT" ]]; then
-            echo "ERROR: No checkpoints found on Jetson"
-            exit 1
-        fi
-    fi
-    echo "Mode: JETSON (GPU inference, no Rerun)"
-    echo "Checkpoint: $CHECKPOINT"
-    echo ""
-    exec ssh -t -i "$SSH_KEY" "$JETSON" \
-        "cd ~/$REMOTE_DIR && python3 python/nodes/act_policy_node.py \
-            --checkpoint $CHECKPOINT --device cuda --no-rerun \
-            ${EXTRA_ARGS[*]+${EXTRA_ARGS[*]}}"
+    # Preserve argument boundaries through the remote shell, including spaces
+    # in checkpoint paths. Remote checkpoint paths are relative to the checkout.
+    printf -v remote_dir '%q' "$REMOTE_DIR"
+    printf -v remote_command '%q ' python3 python/nodes/act_policy_node.py \
+        --checkpoint "$CHECKPOINT" --device cuda --no-rerun "${EXTRA_ARGS[@]}"
+    exec ssh -t -i "$SSH_KEY" "$JETSON" "cd \"\$HOME\"/$remote_dir && $remote_command"
 fi

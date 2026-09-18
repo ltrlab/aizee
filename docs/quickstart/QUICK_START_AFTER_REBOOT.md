@@ -4,6 +4,9 @@ Verify the robot came up cleanly after a reboot, manage its services, and
 troubleshoot. For everyday connect-and-run, see
 [JETSON_QUICK_START.md](JETSON_QUICK_START.md).
 
+This runbook describes installed Aizee robot services. A development-only Jetson
+does not need them; Minerva's service set is in [Minerva bring-up](../MINERVA_BRINGUP.md).
+
 ## What happens on boot
 
 On-robot subsystems run as systemd services and **auto-start on boot**, so a
@@ -22,8 +25,8 @@ reboot normally needs no manual setup:
 `aizee-lidar-control` is often disabled. Optional camera subsystems auto-detect
 their hardware, so missing devices degrade gracefully.
 
-The motor control service runs CAN init + control loops: arm @ 400 Hz, base @
-100 Hz, telemetry @ 50 Hz.
+The motor control service runs CAN init with configured loop targets of 400 Hz
+arm, 100 Hz base and 50 Hz telemetry. Verify achieved rates from traces.
 
 ## 1. First check — the dashboard
 

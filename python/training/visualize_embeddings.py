@@ -15,10 +15,12 @@ If the JEPA objective captured useful semantics, you should see tighter,
 more separated clusters in the JEPA panel relative to ACT - even though
 the backbones started from the same ImageNet weights.
 
+Checkpoint paths are examples; no pretrained weights are bundled.
+
 Usage:
     python -m python.training.visualize_embeddings \\
         --data-dir episodes/ \\
-        --checkpoint act:checkpoints/act_v2/act_best.pt \\
+        --checkpoint act:checkpoints/aizee/act_best.pt \\
         --checkpoint jepa:checkpoints/jepa/act_jepa_best.pt \\
         --output viz/embeddings.png
 """

@@ -1,5 +1,11 @@
 # Minerva Actuator Selection & Sourcing
 
+> Historical CubeMars procurement/design proposal. This is not the installed
+> Minerva motor inventory. Current hardware profiles use ROBSTRIDE; use
+> [Minerva bring-up](MINERVA_BRINGUP.md) and the checked-in hardware profiles for
+> deployment. Prices, specifications and outreach status below are historical.
+
+
 Actuator plan for the **Minerva** humanoid torso (a sibling build to AIZEE). Minerva is
 an 18-DoF platform: a 2-DoF waist (swivel + forward/back lean), a 2-DoF neck, and two
 6-DoF arms each with a gripper. Drive is dual CAN bus chains, MIT-mode control, 48 V.

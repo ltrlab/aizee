@@ -61,7 +61,6 @@ aizee/                              # repository name can stay
 │   ├── comms/
 │   ├── motor_control/
 │   ├── lidar_control/
-│   └── bindings/                   # explicitly reserved until needed
 ├── robots/
 │   ├── aizee/
 │   │   ├── robot.yaml              # joint order, units, capabilities, camera roles
@@ -258,6 +257,6 @@ Keep hardware tests out of default discovery. Run the offline matrix on Windows 
 - Teleop, replay and policy inference use the same session contract for a selected robot.
 - Operator, device-service and training installs have clear dependency boundaries.
 - Config paths, USB identities, calibration state and service selection have explicit owners.
-- Episodes, checkpoints, firmware and deployed launch commands survive the migration or have documented compatibility paths.
+- Episodes, firmware and deployed launch commands survive the migration or have documented compatibility paths. Old local checkpoints were explicitly removed in the 2026-09-18 cleanup; new outputs remain ignored.
 
 **Recommended first implementation slice:** Stage 1's packaging plus wire, discovery and episode-writer extraction. It removes real cross-application dependencies immediately and establishes the pattern for the rest of the monorepo.

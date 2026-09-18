@@ -1,6 +1,13 @@
 # Learning Pipeline
 
-End-to-end guide for collecting demonstrations, training an ACT policy, validating it offline, and deploying it on the robot.
+Aizee-specific guide for collecting demonstrations, training ACT, evaluating it
+offline, and deploying it. For shared Aizee/Minerva launch commands, start with
+the [package guide](architecture/MONOREPO_IMPLEMENTATION.md).
+
+Old local checkpoints were removed on 2026-09-18. Checkpoint filenames below
+are examples of newly trained outputs, not bundled assets. Shared launchers use
+`episodes/aizee` and `checkpoints/aizee`; the direct legacy commands below keep
+their explicit paths. Use the same data/output paths consistently.
 
 ## Overview
 

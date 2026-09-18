@@ -5,17 +5,19 @@ Replays the same recorded episodes through each checkpoint open-loop and
 prints a per-joint MAE table so you can see whether the JEPA objective
 actually helps on your data.
 
+Checkpoint paths are examples; no pretrained weights are bundled.
+
 Usage:
     python -m python.training.compare_runs \\
         --data-dir episodes/ \\
-        --checkpoint act:checkpoints/act_v2/act_best.pt \\
+        --checkpoint act:checkpoints/aizee/act_best.pt \\
         --checkpoint jepa:checkpoints/jepa/act_jepa_best.pt
 
-    # Add a third reference (e.g. the older 40-epoch baseline):
+    # Add another explicitly trained reference:
     python -m python.training.compare_runs \\
         --data-dir episodes/ \\
-        --checkpoint act_v1:checkpoints/act_best.pt \\
-        --checkpoint act_v2:checkpoints/act_v2/act_best.pt \\
+        --checkpoint baseline:checkpoints/baseline/act_best.pt \\
+        --checkpoint act:checkpoints/aizee/act_best.pt \\
         --checkpoint jepa:checkpoints/jepa/act_jepa_best.pt
 """
 

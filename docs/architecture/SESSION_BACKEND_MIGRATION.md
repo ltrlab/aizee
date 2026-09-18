@@ -80,7 +80,7 @@ repository root after installing the package:
 python -m pytest
 ```
 
-This migration passed **206 offline tests**, including selected existing
+The initial session migration passed **206 offline tests**, including selected existing
 recording/settings/segmentation regressions. Both collector launchers and the
 Minerva policy `--help` entry points loaded successfully. The rebuilt wheel
 loads definitions, settings and all shared client classes in an isolated
@@ -88,6 +88,11 @@ interpreter without NumPy, Torch, Qt or ZMQ imports during offline construction.
 
 The same work also produced locally cross-compiled `motor_control` and
 `lidar_control` ARM64 Linux binaries; see the [Rust guide](../../rust/README.md).
+
+The subsequent simulation stage passed 248 regressions and 12 live scenarios;
+see [current validation](SIMULATION_IMPLEMENTATION.md). Superseded Minerva
+command/telemetry helpers were removed during cleanup; the shared-session
+contract tests cover that path.
 
 This stage migrates the active collector transports and Minerva inference.
 Standalone `act_policy_node.py`, `episode_replay_live.py` and older diagnostic

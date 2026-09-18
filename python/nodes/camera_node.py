@@ -6,7 +6,7 @@ Captures RGB-D data and IMU from RealSense D455 camera and publishes
 via ZeroMQ for consumption by the Rerun bridge and other nodes.
 
 Usage:
-    python camera_node.py --config config/hardware.yaml
+    python camera_node.py --config config/hardware_jetson_scene_cam.yaml
 """
 
 import argparse

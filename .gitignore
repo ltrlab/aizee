@@ -49,6 +49,8 @@ ENV/
 # Training data
 episodes/
 checkpoints/
+/viz/
+/test_models/
 
 # Logs and recordings
 logs/

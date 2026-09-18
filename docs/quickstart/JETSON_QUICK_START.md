@@ -3,6 +3,10 @@
 Daily-driver reference for connecting to the AIZEE robot and running teleop or
 data collection. Run all dev-machine commands from the repo root.
 
+For Minerva use [Minerva bring-up](../MINERVA_BRINGUP.md). For the new dedicated
+development device use [development setup](FRESH_JETSON_SETUP.md). These service
+instructions describe an already-provisioned Aizee robot host.
+
 The on-robot brain is a **Jetson Orin Nano** (JetPack 6.x). All robot
 subsystems run as systemd services that auto-start on boot, so after power-up
 you usually just connect, glance at the dashboard, and run.
@@ -89,13 +93,17 @@ A leader arm (SO-101, OpenRB-150, or Quest VR) drives the arm while episodes
 are recorded. From the dev machine, repo root:
 
 ```bash
-python python/scripts/collect_demo.py --gui
+robot-platform run collect --robot aizee --settings settings/examples/usb-tether.json
 ```
 
-The rover IP, leader device, and scene camera are all **auto-detected**:
+The shared launcher uses the selected endpoints explicitly; edit the settings
+or pass `--host` for another address. Leader and optional scene-camera handling
+remain in the collector. Direct `python python/scripts/collect_demo.py --gui`
+launches retain the older automatic host discovery.
 
-- `--gui` opens the Qt viewer (omit for the terminal renderer).
-- `--leader openrb|so101|quest` forces a specific leader kind (default `auto`).
+- The shared profile opens the Qt viewer; set `applications.collect.gui=false`
+  for terminal rendering.
+- Pass `-- --leader openrb` (or `so101` / `quest`) to select a leader; default is `auto`.
 
 Common recording controls:
 

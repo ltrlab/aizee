@@ -1,8 +1,40 @@
 # Fresh Jetson Orin Nano Setup
 
-From a blank SD card to a fully validated robot brain. The interactive version
-of this checklist lives on the robot itself once the heartbeat service is up:
-**http://\<jetson\>:8088/setup**.
+Choose the device's role before installing services. The new dedicated Orin
+Nano is a **development/build host first**; Minerva keeps its existing compute
+unit. The Aizee bootstrap below installs robot services and changes networking.
+
+## Development/build host
+
+After flashing a board-compatible JetPack image, complete first boot, connect
+Ethernet/Wi-Fi, and enable SSH. Record the JetPack/OS release and SSH address.
+Current prebuilt ARM64 artifacts target the JetPack 6 / Ubuntu 22.04 baseline;
+verify compatibility if selecting a different OS.
+
+Clone this repository and set up a Python environment on the device:
+
+```sh
+sudo apt update
+sudo apt install git build-essential pkg-config python3-dev python3-venv can-utils
+git clone https://github.com/ltrlab/aizee.git
+cd aizee
+python3 -m venv --system-site-packages .venv
+. .venv/bin/activate
+python -m pip install -e ".[simulation,dev]"
+python -m robot_platform sim run --robot minerva --output simulation_runs/jetson-smoke --duration 10
+```
+
+Check out the intended revision before installing. This command set installs
+no motor services. Use the [Rust guide](../../rust/README.md) for native builds
+or the [cross-build guide](../../rust/JETSON_CROSS_BUILD.md) for local Windows
+builds. Virtual-CAN integration is still being implemented. GUI collector tests
+need operator dependencies on the machine running those applications.
+
+## Aizee robot-service provisioning
+
+The remaining checklist is for an Aizee robot host. Its dashboard setup checks
+run at **http://<jetson>:8088/setup** once the heartbeat service is installed.
+For Minerva's per-arm deployment, use [Minerva bring-up](../MINERVA_BRINGUP.md).
 
 ## 0. What you need
 
@@ -85,7 +117,8 @@ python python/scripts/collect_demo.py --gui
 ```
 
 `E` engage → arm mirrors the leader → `R` record a short episode → `Q` quit.
-Episode lands in `data/episodes/`. If the arm doesn't engage, check the
+Direct-launch episodes land in `episodes/`; the shared Aizee launcher defaults
+to `episodes/aizee/`. If the arm doesn't engage, check the
 heartbeat dashboard first: E-stop tile, motor table, then service logs.
 
 ## Known sharp edges

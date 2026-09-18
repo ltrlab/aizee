@@ -8,7 +8,6 @@ same backend binaries with different hardware configuration files.
 | `comms` | Shared command/telemetry types, MessagePack, and ZeroMQ transport |
 | `motor_control` | ROBSTRIDE CAN control; configuration selects an arm or rover |
 | `lidar_control` | RPLiDAR acquisition and telemetry |
-| `aizee_bindings` (`bindings/`) | Optional Python extension |
 
 ## Build from the repository root
 
@@ -21,8 +20,7 @@ cargo test -p comms
 `motor_control` requires Linux SocketCAN. Native Linux builds need Rust and a
 C/C++ toolchain; `zmq-sys` builds its bundled ZeroMQ sources. LiDAR opens the
 configured serial-device paths and disables the unused `serialport` enumeration
-feature, so it does not require linking `libudev`. The optional Python extension
-requires Python development headers. `scripts/setup_jetson.sh` installs the
+feature, so it does not require linking `libudev`. `scripts/setup_jetson.sh` installs the
 device build dependencies.
 
 ## Cross-compile locally for Jetson
@@ -55,7 +53,7 @@ valid. Run Cargo from inside this checkout so it loads the root Cargo config.
 
 ## Deployment and dependency locking
 
-Deployments must copy the root `Cargo.toml`, `.cargo/config.toml`, and all four
+Deployments must copy the root `Cargo.toml`, `.cargo/config.toml`, and all three
 workspace members, even when building one package. Cargo loads every member's
 manifest while resolving the workspace. Deployment scripts also remove the
 obsolete remote `rust/Cargo.toml` when upgrading an existing checkout.

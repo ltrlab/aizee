@@ -1,6 +1,8 @@
 # AIZEE Learning Pipeline — Research & Execution Plan (V2)
 
-Status: **Draft, learning-dev branch**, 2026-04-30
+Status: **Historical Aizee research draft**, 2026-04-30. Retained for experiment
+rationale; dataset counts, checkpoints, timing claims and priorities describe
+that date. The current shared-platform roadmap is [PHASES.md](../PHASES.md).
 Author: Claude (revising user-supplied plan after literature review)
 Scope: forward-looking research plan for the AIZEE manipulator's learning stack.
 

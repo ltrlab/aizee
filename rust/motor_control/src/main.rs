@@ -92,7 +92,9 @@ struct ZmqConfig {
 }
 
 fn load_config() -> Result<Config> {
-    let config_path = std::env::var("AIZEE_CONFIG").unwrap_or_else(|_| "config/hardware.yaml".to_string());
+    let config_path = std::env::var("AIZEE_CONFIG").context(
+        "Set AIZEE_CONFIG to a robot hardware profile, e.g. config/hardware_jetson_rover.yaml or config/hardware_minerva_left.yaml",
+    )?;
     let config_str = std::fs::read_to_string(&config_path)
         .with_context(|| format!("Failed to read config from {}", config_path))?;
     let config: Config = serde_yaml::from_str(&config_str)?;

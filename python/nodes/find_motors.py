@@ -113,7 +113,7 @@ def print_results(motors_found: Set[int], motor_data: Dict):
 
     print("=" * 60)
     print()
-    print("Add these to config/hardware.yaml:")
+    print("Compare these with the selected config/hardware_<robot>.yaml profile:")
     print()
 
     for motor_id in sorted(motors_found):

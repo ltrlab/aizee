@@ -2,7 +2,6 @@
 members = [
     "rust/motor_control",
     "rust/comms",
-    "rust/bindings",
     "rust/lidar_control",
 ]
 resolver = "2"
@@ -41,9 +40,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Configuration
 serde_yaml = "0.9"
-
-# Python bindings
-pyo3 = { version = "0.20", features = ["extension-module"] }
 
 # Time
 chrono = "0.4"

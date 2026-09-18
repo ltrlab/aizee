@@ -2,9 +2,8 @@
 test_minerva_collector_smoke.py — headless end-to-end test for the Minerva
 data-collection app (collect_minerva.py + collect_minerva_app + GUI).
 
-Uses real in-process ZMQ (inproc PUB/SUB) with fake telemetry + camera
-publishers, exercises every backend thread, the jog-only teleop, the command
-sender, the recording→save round-trip, and constructs the PySide6 GUI offscreen
+Uses real in-process ZMQ (inproc PUB/SUB) with fake camera publishers, exercises camera receiver/decoder threads,
+jog-only teleop, the recording→save round-trip, and constructs the PySide6 GUI offscreen
 to verify snapshot application + raw-JPEG painting.
 
 Run:    python python/tests/ml/test_minerva_collector_smoke.py
@@ -22,6 +21,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
@@ -39,14 +39,12 @@ sys.path.insert(0, str(_PY / "scripts"))     # collect_minerva_app.*, collect_de
 import cv2
 import zmq
 
-from common.minerva_constants import CAMERAS, JOINT_LIMITS, MINERVA_JOINTS, NUM_MINERVA_JOINTS
-from common.wire import pack_camera, pack_msg, unpack_msg
-from collect_minerva_app.cmd_sender import build_arm_command, start_cmd_sender
+from common.minerva_constants import CAMERAS, JOINT_LIMITS, NUM_MINERVA_JOINTS
+from common.wire import pack_camera
 from collect_minerva_app.images import start_image_decoder
-from collect_minerva_app.receivers import start_cam_receiver, start_telem_receiver
+from collect_minerva_app.receivers import start_cam_receiver
 from collect_minerva_app.recording import RecordingSession, start_async_save
 from collect_minerva_app.teleop import MinervaTeleop
-from collect_minerva_app.telem import extract_qpos, extract_torques
 
 _CAM_WH = (80, 60)   # (w, h) published; decoder resizes to _SIZE
 _SIZE = {c: (64, 48) for c in CAMERAS}
@@ -59,19 +57,12 @@ def _jpeg(w=_CAM_WH[0], h=_CAM_WH[1]) -> bytes:
     return buf.tobytes()
 
 
-def _telem_msg() -> dict:
-    return {"motors": {j: {"position": 0.05 * i, "torque": 0.01 * i}
-                       for i, j in enumerate(MINERVA_JOINTS)}}
-
-
 def _test_receivers_and_decoder(ctx):
     print("running: receivers+decoder", flush=True)
-    telem_pub = ctx.socket(zmq.PUB); telem_pub.bind("inproc://telem")
     cam_pubs = {c: ctx.socket(zmq.PUB) for c in CAMERAS}
     for c, p in cam_pubs.items():
         p.bind(f"inproc://{c}")
 
-    telem_stop, _, telem_lock, telem_cache = start_telem_receiver(ctx, "inproc://telem")
     cam_stop, _, cam_lock, cam_cache = start_cam_receiver(
         ctx, {c: f"inproc://{c}" for c in CAMERAS})
     dec_stop, _, dec_lock, dec_cache = start_image_decoder(
@@ -79,7 +70,6 @@ def _test_receivers_and_decoder(ctx):
 
     time.sleep(0.3)  # SUB slow-joiner
     for _ in range(25):
-        telem_pub.send(pack_msg(_telem_msg()))
         for c, p in cam_pubs.items():
             hdr = {"color": {"format": "jpeg", "width": _CAM_WH[0], "height": _CAM_WH[1]},
                    "timestamp": time.time()}
@@ -87,12 +77,6 @@ def _test_receivers_and_decoder(ctx):
         time.sleep(0.02)
     time.sleep(0.25)
 
-    with telem_lock:
-        assert telem_cache["msg"] is not None, "no telemetry received"
-        q = extract_qpos(telem_cache["msg"])
-        tq = extract_torques(telem_cache["msg"])
-    assert q is not None and q.shape == (NUM_MINERVA_JOINTS,), q
-    assert tq is not None and tq.shape == (NUM_MINERVA_JOINTS,)
     with cam_lock:
         assert all(cam_cache[c] is not None for c in CAMERAS), "camera(s) not received"
     with dec_lock:
@@ -100,18 +84,17 @@ def _test_receivers_and_decoder(ctx):
             img = dec_cache[c]
             assert img is not None and img.shape == (_SIZE[c][1], _SIZE[c][0], 3), (c, None if img is None else img.shape)
 
-    for st in (dec_stop, cam_stop, telem_stop):
+    for st in (dec_stop, cam_stop):
         st.set()
     time.sleep(0.1)  # let receiver threads close their SUB sockets
-    telem_pub.close(linger=0)
     for p in cam_pubs.values():
         p.close(linger=0)
-    print("  ✓ receivers + decoder (telem 17-D, 3 cams decoded/resized)")
+    print("  ✓ receivers + decoder (3 cams decoded/resized)")
 
 
 def _test_teleop():
-    tel = MinervaTeleop()
-    tel.connect(verbose=False)   # jog-only (teleop/ not on path -> no leaders)
+    tel = MinervaTeleop(hardware_enabled=False)
+    tel.connect(verbose=False)   # explicit hardware isolation
     assert tel.status == {"left": False, "right": False}
     q0 = np.zeros(NUM_MINERVA_JOINTS, dtype=np.float32)
     assert tel.target(q0) is None, "target before engage must be None"
@@ -125,23 +108,6 @@ def _test_teleop():
     assert tel.take_record_edges() == 0
     print("  ✓ teleop jog-only (engage/target/jog, clamped to limits)")
     return tel
-
-
-def _test_cmd_sender(ctx):
-    print("running: cmd_sender", flush=True)
-    pull = ctx.socket(zmq.PULL); pull.bind("inproc://cmd"); pull.setsockopt(zmq.RCVTIMEO, 2000)
-    push = ctx.socket(zmq.PUSH); push.connect("inproc://cmd")
-    stop, _, hlock, holder, _sl = start_cmd_sender(push, hz=100)
-    time.sleep(0.05)
-    with hlock:
-        holder["bundle"] = build_arm_command(np.linspace(0, 1, NUM_MINERVA_JOINTS))
-    got = unpack_msg(pull.recv())
-    stop.set()
-    time.sleep(0.05)
-    pull.close(linger=0); push.close(linger=0)
-    assert got["type"] == "arm_joints" and len(got["positions"]) == NUM_MINERVA_JOINTS
-    assert got["joint_names"] == list(MINERVA_JOINTS)
-    print("  ✓ command sender (100 Hz re-emit received, 17-D arm_joints)")
 
 
 def _test_recording_save():
@@ -287,9 +253,12 @@ def run_smoke():
     try:
         _test_receivers_and_decoder(ctx)
         tel = _test_teleop()
-        _test_cmd_sender(ctx)
         tmp = _test_recording_save()
-        _test_gui(tel, tmp)
+        # GUI tests must not load operator preferences, enumerate speech
+        # backends or download a model on machines that have STT installed.
+        with patch("collect_minerva_app.settings._DEFAULT_PATH", Path(tmp) / "settings.json"), \
+             patch("collect_minerva_app.speech._have", return_value=False):
+            _test_gui(tel, tmp)
         tel.close()
     finally:
         ctx.destroy(linger=0)   # force-close ALL sockets so we never deadlock on term()

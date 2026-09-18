@@ -18,6 +18,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -33,29 +34,26 @@ import zmq
 
 from common.minerva_constants import CAMERAS
 from collect_minerva_app.images import start_image_decoder
-from collect_minerva_app.receivers import start_cam_receiver, start_telem_receiver
+from collect_minerva_app.receivers import start_cam_receiver
 from collect_minerva_app.teleop import MinervaTeleop
 
 
 def test_backend_shutdown():
     ctx = zmq.Context()
-    telem_pub = ctx.socket(zmq.PUB); telem_pub.bind("inproc://t")
     cam_pubs = {c: ctx.socket(zmq.PUB) for c in CAMERAS}
     for c, p in cam_pubs.items():
         p.bind(f"inproc://c_{c}")
-    ts, tt, _, _ = start_telem_receiver(ctx, "inproc://t")
     cs, ct, cl, cc = start_cam_receiver(ctx, {c: f"inproc://c_{c}" for c in CAMERAS})
     ds, dt, _, _ = start_image_decoder(cl, cc, CAMERAS, {c: (64, 48) for c in CAMERAS},
                                        always_on=True)
     time.sleep(0.3)
 
-    for st in (ds, cs, ts):
+    for st in (ds, cs):
         st.set()
-    for th in (dt, ct, tt):
+    for th in (dt, ct):
         th.join(timeout=1.5)
-    assert not any(th.is_alive() for th in (dt, ct, tt)), "receiver threads did not stop"
+    assert not any(th.is_alive() for th in (dt, ct)), "receiver threads did not stop"
 
-    telem_pub.close(linger=0)
     for p in cam_pubs.values():
         p.close(linger=0)
     # ctx.term() must not hang now that every socket is closed.
@@ -67,19 +65,26 @@ def test_backend_shutdown():
 
 def test_qt_shutdown():
     from collect_minerva_gui import QtRenderer
-    tel = MinervaTeleop()
+    tel = MinervaTeleop(hardware_enabled=False)
     tel.connect(verbose=False)
     qt = QtRenderer(cmd_queue=queue.Queue(),
                     meta={"language_instruction": "", "notes": "", "task_id": None},
                     teleop=tel, cameras=CAMERAS,
                     output_dir=tempfile.mkdtemp(prefix="minerva_sd_"),
                     label_queue=queue.Queue())
-    qt.start()
-    time.sleep(1.0)   # let the QApplication + window come up
-    assert qt._thread is not None and qt._thread.is_alive()
-    qt.request_quit()
-    qt.join(timeout=5.0)
-    assert not qt._thread.is_alive(), "QtRenderer thread did not stop on request_quit"
+    with patch("collect_minerva_app.settings._DEFAULT_PATH", Path(qt.output_dir) / "settings.json"), \
+         patch("collect_minerva_app.speech._have", return_value=False):
+        qt.start()
+        deadline = time.monotonic() + 15.0
+        while qt._win is None and not qt.should_quit() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        try:
+            assert qt._win is not None, "QtRenderer did not finish initialization"
+            assert qt._thread is not None and qt._thread.is_alive()
+        finally:
+            qt.request_quit()
+            qt.join(timeout=5.0)
+        assert not qt._thread.is_alive(), "QtRenderer thread did not stop on request_quit"
     tel.close()
     print("  OK: QtRenderer QApplication thread stops on request_quit")
 

@@ -19,6 +19,7 @@ operator = ["numpy>=1.24", "pyzmq>=25", "h5py>=3.9", "PyYAML>=6", "Pillow>=10", 
 learning = ["numpy>=1.24", "h5py>=3.9", "torch>=2.1", "torchvision>=0.16", "einops>=0.6", "tensorboard>=2.14", "PyYAML>=6", "Pillow>=10"]
 language = ["sentence-transformers>=2.2"]
 webxr = ["aiohttp>=3.9", "cryptography>=41", "aiortc>=1.14", "av>=11"]
+preview = ["fast-simplification>=0.1.7", "scikit-image>=0.22"]
 dev = ["pytest>=7.4", "wheel"]
 simulation = ["numpy>=1.24", "pyzmq>=25", "h5py>=3.9", "Pillow>=10", "PyYAML>=6"]
 

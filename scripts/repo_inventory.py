@@ -24,13 +24,14 @@ AREAS = {
     "rust_control": ("Shared Rust motor backend; morphology assumptions remain", "crates/motor_control/"),
     "rust_comms": ("Shared Rust wire protocol", "crates/comms/"),
     "rust_lidar": ("Reusable LiDAR driver; optional rover service", "crates/lidar_control/"),
-    "rust_bindings": ("Reserved Python bindings; placeholder", "crates/bindings/ (deferred)"),
     "rust_workspace": ("Rust workspace metadata", "Cargo.toml at repository root"),
+    "platform": ("Implemented shared Python package", "src/robot_platform/ (current)"),
+    "settings": ("Shared application and bench settings examples", "settings/examples/ (current)"),
     "wire": ("Shared Python wire protocol", "src/robot_platform/transport/"),
     "robot_definition": ("Robot-specific constants mixed with reusable helpers", "src/robot_platform/robots/ + shared helpers (split)"),
     "gravity": ("Robot-specific gravity models and reusable fitting math", "src/robot_platform/control/ + robots/ (split)"),
     "kinematics": ("Kinematic algorithms with Aizee model assumptions", "src/robot_platform/kinematics/ + robots/aizee/ (split)"),
-    "minerva_writer": ("Minerva episode writer misplaced in Aizee collector", "src/robot_platform/data/formats/minerva.py"),
+    "minerva_writer": ("Compatibility import for the shared Minerva episode writer", "src/robot_platform/data/formats/minerva.py (implemented)"),
     "aizee_app": ("Aizee collector and supporting application code", "src/robot_platform/apps/collect/aizee/ (extract shared services)"),
     "minerva_app": ("Minerva collector and supporting application code", "src/robot_platform/apps/collect/minerva/ (extract shared services)"),
     "leaders": ("Leader drivers mixed with Aizee joint mapping", "src/robot_platform/devices/leaders/ + robots/aizee/ (split)"),
@@ -53,17 +54,23 @@ AREAS = {
 
 
 def area(p: str) -> str:
+    if p.startswith("src/robot_platform/"):
+        return "platform"
+    if p.startswith("settings/"):
+        return "settings"
+    if p in ("Cargo.toml", "Cargo.lock", ".cargo/config.toml"):
+        return "rust_workspace"
     if "/openrb150_bsp/" in p:
         return "vendor"
     if p.startswith("urdf/"):
         return "robot_assets"
     if p.startswith("rust/"):
         for name, key in (("motor_control", "rust_control"), ("comms", "rust_comms"),
-                          ("lidar_control", "rust_lidar"), ("bindings", "rust_bindings")):
+                          ("lidar_control", "rust_lidar")):
             if p.startswith(f"rust/{name}/"):
                 return key
         return "rust_workspace"
-    if p.startswith(("tests/", "python/tests/")) or Path(p).name.startswith("test_") or p.endswith(("/simple_test.py", "/detailed_motor_test.py")):
+    if p.startswith(("tests/", "python/tests/")) or Path(p).name.startswith("test_"):
         return "tests"
     if p == "python/common/wire.py":
         return "wire"
@@ -114,10 +121,10 @@ def main() -> None:
     def git(*args: str) -> str:
         return subprocess.check_output(["git", "-C", str(ROOT), *args]).decode("utf-8")
 
-    paths = sorted(p for p in git("ls-files", "-z").split("\0") if p)
+    paths = sorted(p for p in git("ls-files", "-z").split("\0") if p and (ROOT / p).is_file())
     path_set = set(paths)
     entries, edges, parse_errors = [], [], []
-    roots = ("", "python/", "python/scripts/", "python/teleop/")
+    roots = ("", "src/", "python/", "python/scripts/", "python/teleop/")
 
     def resolve(module: str) -> list[str]:
         stem = module.replace(".", "/")
@@ -128,7 +135,7 @@ def main() -> None:
     for p in paths:
         f = ROOT / p
         entry = {"path": p, "area": area(p), "present": f.is_file()}
-        if f.is_file():
+        if f.is_file() and p not in ("docs/architecture/repository_inventory.json", "docs/architecture/REPOSITORY_INVENTORY.md"):
             entry["working_tree_bytes"] = f.stat().st_size
         if f.is_file() and f.suffix in (".py", ".rs", ".cpp", ".h", ".sh", ".js") and area(p) != "vendor":
             source = f.read_text(encoding="utf-8-sig")
@@ -159,7 +166,7 @@ def main() -> None:
 
     edges.sort(key=lambda e: (e["source"], e["line"], e["target"]))
     snapshot = {"head": git("rev-parse", "HEAD").strip(), "branch": git("branch", "--show-current").strip(),
-                "scope": "Git-tracked paths, working-tree contents; excludes untracked/ignored files.",
+                "scope": "Present Git-tracked paths, working-tree contents; excludes untracked/ignored files. Generated inventory sizes omitted to avoid self-reference.",
                 "import_method": "AST candidate imports resolved against known repository roots; includes conditional/test imports; not a runtime call graph. Dynamic imports, shell/config references and cross-language edges are not resolved.",
                 "areas": {k: {"description": v[0], "proposed_area": v[1]} for k, v in AREAS.items()},
                 "files": entries, "python_import_edges": edges, "parse_errors": parse_errors}

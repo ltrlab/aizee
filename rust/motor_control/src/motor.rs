@@ -36,7 +36,7 @@ pub struct FaultInfo {
     pub recovery_attempts: u32,
 }
 
-/// Motor configuration from hardware.yaml
+/// Motor configuration from the selected robot hardware profile.
 #[derive(Debug, Clone)]
 pub struct MotorConfig {
     pub id: String,

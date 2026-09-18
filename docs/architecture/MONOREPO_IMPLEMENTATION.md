@@ -17,12 +17,13 @@ This is the first implementation stage of the [organization plan](MONOREPO_PLAN.
 | `src/robot_platform/data/formats/` | Aizee v4/v5 and Minerva v6/v7 HDF5 writers |
 | `src/robot_platform/apps/` | Validated collection/training launch adapters |
 | `settings/examples/` | Machine/operator overlays independent of application source |
-| `Cargo.toml` | Four existing Rust crates in one root workspace |
+| `Cargo.toml` | Three active Rust crates in one root workspace |
 | `.cargo/config.toml` | Build output remains `rust/target` to preserve deployed service paths |
 | `python/` | Legacy application implementations and compatibility import shims |
 | `tests/unit/`, `tests/contract/` | Default offline tests, including both robot profiles |
 
-The historical [repository map](REPOSITORY_MAP.md) and inventory describe the pre-migration baseline. This document describes the changes since that baseline.
+The [repository map](REPOSITORY_MAP.md) and inventory describe the current checkout.
+The [cleanup record](REPOSITORY_CLEANUP.md) lists retired source and local artifacts.
 
 ## Install
 
@@ -34,6 +35,10 @@ robot-platform list
 ```
 
 Use `.[learning]` for model training and `.[language]` when real sentence-transformer embeddings are needed. `.[control,data]` installs the shared runtime/data dependencies without GUI or training dependencies. Device-specific RealSense/Jetson GPU packages retain their existing platform-specific installation instructions; they are not forced into the base package.
+
+Use `.[preview]` for optional mesh simplification and `.[webxr]` for Quest
+transport. The old workstation/training requirements files were removed;
+`pyproject.toml` owns these dependency selections.
 
 The base package supports profile inspection and launch-plan generation without Torch, Qt, NumPy or camera SDKs. Data writers require the `data` extra. The explicit ZMQ client requires the `control` extra. The session's pure routing/observation code uses only the standard library.
 
@@ -174,19 +179,12 @@ Default discovery is restricted to `tests/unit` and `tests/contract`; existing m
 
 The implementation checks cover profile precedence, compatibility rejection, immutable launch plans, seven-/17-slot routing, missing/stale telemetry, fake ZMQ sockets, camera envelopes, discovery and v4–v7 recording contracts. Application `--help` is used to verify imports without starting the control loop. Wheel checks verify robot/settings resources are included.
 
-Validation recorded for this foundation:
-
-- **145 offline tests passed**, including the new unit/contract suite and selected legacy recording, settings and segmentation checks.
-- Editable installation and wheel build succeeded. An isolated `python -I -S` process loaded both definitions/settings, created both sessions and generated both collection plans directly from the wheel without optional dependencies or source imports.
-- Both collector `--help` entry points loaded through the launcher. Ten changed/new shell scripts passed `bash -n`.
-- Root Cargo manifest/member paths and inherited settings were checked statically. Rust compilation and hardware behavior were not verified on this host.
-
-The subsequent session integration passed **206 offline Python tests**, built
-and isolated-tested a fresh package wheel, and passed both collector and Minerva
-policy import/help checks. Both Rust services now compile locally for Linux
-AArch64; native `comms` tests pass (four tests, one existing ignored socket test).
-See the [session migration guide](SESSION_BACKEND_MIGRATION.md) and
-[Jetson build report](../../rust/JETSON_CROSS_BUILD.md) for the current results.
+The simulation baseline passed **248 Python tests** and **12 live process
+scenarios** on 2026-09-17. Both Rust services cross-compile for Linux AArch64;
+`comms` has six passing tests and one pre-existing ignored socket test. Current
+simulation evidence and remaining physical gates are maintained in the
+[simulation guide](SIMULATION_IMPLEMENTATION.md). Cleanup verification is
+recorded in the [cleanup report](REPOSITORY_CLEANUP.md).
 
 Still to migrate:
 

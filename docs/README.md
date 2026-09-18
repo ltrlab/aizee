@@ -1,6 +1,6 @@
-# AIZEE Documentation
+# Aizee / Minerva documentation
 
-Technical documentation for the AIZEE mobile manipulation platform.
+Guides for the shared platform, robot applications and device deployments.
 
 ## Repository architecture
 
@@ -12,9 +12,12 @@ Technical documentation for the AIZEE mobile manipulation platform.
 - **[Aizee / Minerva repository map](architecture/REPOSITORY_MAP.md)** — current ownership, runtime topology, dependency tangles, and source evidence
 - **[Monorepo organization plan](architecture/MONOREPO_PLAN.md)** — proposed shared-platform layout, dependency rules, and staged migration gates
 - **[Complete file inventory](architecture/REPOSITORY_INVENTORY.md)** — generated tracked-file catalogue and proposed destination areas
+- **[Configuration ownership](../config/README.md)** — active hardware/calibration files and their consumers
+- **[Cleanup record](architecture/REPOSITORY_CLEANUP.md)** — removed files, replacements and retained assets
 
 ## Getting started
-- **[quickstart/FRESH_JETSON_SETUP.md](quickstart/FRESH_JETSON_SETUP.md)** — blank Orin Nano → validated robot (`scripts/bootstrap_jetson.sh` + the `/setup` wizard)
+- **[quickstart/FRESH_JETSON_SETUP.md](quickstart/FRESH_JETSON_SETUP.md)** — development-host setup, then separate Aizee robot provisioning
+- **[MINERVA_BRINGUP.md](MINERVA_BRINGUP.md)** — existing Minerva deployment, buses, leaders and calibration
 - **[quickstart/JETSON_QUICK_START.md](quickstart/JETSON_QUICK_START.md)** — connect to the robot and run teleop / data collection (daily reference)
 - **[quickstart/QUICK_START_AFTER_REBOOT.md](quickstart/QUICK_START_AFTER_REBOOT.md)** — post-reboot verification, service management, troubleshooting
 
@@ -32,13 +35,13 @@ Technical documentation for the AIZEE mobile manipulation platform.
 
 ## Learning
 - **[LEARNING_PIPELINE.md](LEARNING_PIPELINE.md)** — end-to-end guide: calibration → data collection → training → evaluation → deployment
-- **[learning/RESEARCH_PLAN.md](learning/RESEARCH_PLAN.md)** — research direction and experiment plan
+- **[learning/RESEARCH_PLAN.md](learning/RESEARCH_PLAN.md)** — dated Aizee learning research proposal; not the current migration roadmap
 
 ## Roadmap
 - **[PHASES.md](PHASES.md)** — implementation status and roadmap
 
 ## Reference
-- **[MINERVA_ACTUATORS.md](MINERVA_ACTUATORS.md)** — Cubemars actuator plan for the Minerva humanoid torso + cost/weight comparison vs the AIZEE Robstrides
+- **[MINERVA_ACTUATORS.md](MINERVA_ACTUATORS.md)** — historical CubeMars proposal; current Minerva profiles use ROBSTRIDE
 - ROBSTRIDE motor manuals: `RS00`/`RS02`/`RS03`/`RS04` User Manual PDFs (this directory)
 - [../rust/motor_control/README.md](../rust/motor_control/README.md) — motor control crate
 - [../rust/JETSON_CROSS_BUILD.md](../rust/JETSON_CROSS_BUILD.md) — local Windows-to-Jetson builds, verified ARM64 artifacts and toolchain setup

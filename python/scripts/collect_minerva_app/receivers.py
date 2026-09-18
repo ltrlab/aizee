@@ -1,4 +1,4 @@
-"""receivers.py — background telemetry + multi-camera receiver threads.
+"""receivers.py — background multi-camera receiver threads.
 
 Generalizes AIZEE's collect_demo_app/receivers.py from a fixed
 gripper(+scene) pair to an arbitrary dict of named camera streams (Minerva:
@@ -17,48 +17,7 @@ from typing import Dict, Tuple
 
 import zmq
 
-from common.wire import unpack_camera, unpack_msg
-
-
-# ---------------------------------------------------------------------------
-# Telemetry
-# ---------------------------------------------------------------------------
-
-def start_telem_receiver(
-    ctx: zmq.Context, endpoint: str,
-) -> Tuple[threading.Event, threading.Thread, threading.Lock, dict]:
-    lock = threading.Lock()
-    cache: dict = {"msg": None, "time": 0.0}
-    stop = threading.Event()
-
-    def _run() -> None:
-        sock = ctx.socket(zmq.SUB)
-        sock.setsockopt(zmq.LINGER, 0)
-        sock.setsockopt(zmq.CONFLATE, 1)
-        sock.setsockopt_string(zmq.SUBSCRIBE, "")
-        sock.connect(endpoint)
-        poller = zmq.Poller()
-        poller.register(sock, zmq.POLLIN)
-        try:
-            while not stop.is_set():
-                try:
-                    events = dict(poller.poll(timeout=30))
-                except zmq.ZMQError:
-                    break
-                if sock in events:
-                    try:
-                        msg = unpack_msg(sock.recv(zmq.NOBLOCK))
-                    except Exception:
-                        continue
-                    with lock:
-                        cache["msg"] = msg
-                        cache["time"] = time.time()
-        finally:
-            sock.close()
-
-    thread = threading.Thread(target=_run, daemon=True, name="TelemRx")
-    thread.start()
-    return stop, thread, lock, cache
+from common.wire import unpack_camera
 
 
 # ---------------------------------------------------------------------------
@@ -131,4 +90,4 @@ def start_cam_receiver(
     return stop, thread, lock, cache
 
 
-__all__ = ["start_telem_receiver", "start_cam_receiver"]
+__all__ = ["start_cam_receiver"]
