@@ -518,6 +518,11 @@ once the instrumentation and inventory are ready; it need not wait for a full
 mechanical geometry and M3 response models. Independent sensors do not block
 M0-M4, but their absence limits physical torque/backlash claims.
 
+The [Minerva CAD preparation guide](../MINERVA_CAD.md) records the supplied
+Onshape source and the user's API/export constraint. Its sliding jaws need
+distance-valued mates and a motor-angle-to-jaw mapping; naming and physical
+stroke remain prerequisites for M4, not for the current fast simulator or M2.
+
 Every milestone delivers a runnable command, bounded tests, versioned fixtures,
 and a machine-readable report plus comparison plots. The simulator is ready for
 routine use once M1/M2 pass. It is ready to support calibrated controller tuning

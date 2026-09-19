@@ -1,5 +1,5 @@
 {
-  "head": "3b551be9ec402493c7f4a2cc2d9fbecbbb4d0be2",
+  "head": "c8c8e8fdd99bcf57d354c9ec662f38069bafb248",
   "branch": "overhaul",
   "scope": "Present Git-tracked paths, working-tree contents; excludes untracked/ignored files. Generated inventory sizes omitted to avoid self-reference.",
   "import_method": "AST candidate imports resolved against known repository roots; includes conditional/test imports; not a runtime call graph. Dynamic imports, shell/config references and cross-language edges are not resolved.",
@@ -427,16 +427,22 @@
       "working_tree_bytes": 9021
     },
     {
+      "path": "docs/MINERVA_CAD.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 6967
+    },
+    {
       "path": "docs/PHASES.md",
       "area": "docs",
       "present": true,
-      "working_tree_bytes": 2616
+      "working_tree_bytes": 2703
     },
     {
       "path": "docs/README.md",
       "area": "docs",
       "present": true,
-      "working_tree_bytes": 4143
+      "working_tree_bytes": 4262
     },
     {
       "path": "docs/RS00User Manual260112.pdf",
@@ -507,7 +513,7 @@
       "path": "docs/architecture/SIMULATION_VALIDATION_PLAN.md",
       "area": "docs",
       "present": true,
-      "working_tree_bytes": 33533
+      "working_tree_bytes": 33839
     },
     {
       "path": "docs/architecture/repository_inventory.json",

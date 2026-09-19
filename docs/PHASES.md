@@ -18,8 +18,9 @@ claim that the latest changes have been deployed to a robot.
 1. Build and validate the virtual-CAN tier using the actual Rust controller.
 2. Bring the dedicated Jetson online as a development/build host and exercise
    both cross-built and native binaries there.
-3. Prepare a versioned Minerva simulation assembly in Onshape. Audit the 14
-   active arm/gripper coordinates before integrating its dynamics.
+3. Prepare a versioned Minerva simulation assembly in Onshape using the
+   [CAD preparation guide](MINERVA_CAD.md). Name the arm mates, set sliding-jaw
+   travel and map the 14 active actuator coordinates to the mechanical model.
 4. Collect real Minerva traces on the existing robot compute unit. Establish
    signs, bounds, firmware and torque encoding before powered characterization.
 5. Fit actuator response and test against separate held-out runs; then validate

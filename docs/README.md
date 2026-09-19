@@ -18,6 +18,7 @@ Guides for the shared platform, robot applications and device deployments.
 ## Getting started
 - **[quickstart/FRESH_JETSON_SETUP.md](quickstart/FRESH_JETSON_SETUP.md)** — development-host setup, then separate Aizee robot provisioning
 - **[MINERVA_BRINGUP.md](MINERVA_BRINGUP.md)** — existing Minerva deployment, buses, leaders and calibration
+- **[MINERVA_CAD.md](MINERVA_CAD.md)** — Onshape source, export constraints, joint names and sliding-jaw limit setup
 - **[quickstart/JETSON_QUICK_START.md](quickstart/JETSON_QUICK_START.md)** — connect to the robot and run teleop / data collection (daily reference)
 - **[quickstart/QUICK_START_AFTER_REBOOT.md](quickstart/QUICK_START_AFTER_REBOOT.md)** — post-reboot verification, service management, troubleshooting
 
