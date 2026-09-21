@@ -1,0 +1,139 @@
+{
+  "started_at": "2026-09-21T00:50:43.554491+00:00",
+  "checkout": "/home/ltr/robot-platform-dev/checkouts/checkout-20260921T003916Z",
+  "platform": "Linux-5.15.148-tegra-aarch64-with-glibc2.35",
+  "machine": "aarch64",
+  "python": "3.10.12",
+  "source_archive_sha256": "8a3538b6579006877115cd5afb8e68afeef96899ceb5a9c9b3550617309f9f0b",
+  "hardware_services_started": false,
+  "physical_validation": false,
+  "steps": [
+    {
+      "name": "python-environment",
+      "command": [
+        "python",
+        "-m",
+        "pip",
+        "freeze"
+      ],
+      "returncode": 0,
+      "elapsed_s": 0.6733109540000441,
+      "log": "/home/ltr/robot-platform-dev/checkouts/checkout-20260921T003916Z/simulation_runs/jetson-bringup-20260920/python-environment.log"
+    },
+    {
+      "name": "rust-tests",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "--locked",
+        "-p",
+        "comms",
+        "-p",
+        "robot_collision",
+        "-j",
+        "2"
+      ],
+      "returncode": 0,
+      "elapsed_s": 190.57975004799982,
+      "log": "/home/ltr/robot-platform-dev/checkouts/checkout-20260921T003916Z/simulation_runs/jetson-bringup-20260920/rust-tests.log"
+    },
+    {
+      "name": "simulation-smoke",
+      "command": [
+        "python",
+        "-m",
+        "robot_platform",
+        "sim",
+        "run",
+        "--robot",
+        "minerva",
+        "--output",
+        "/home/ltr/robot-platform-dev/checkouts/checkout-20260921T003916Z/simulation_runs/jetson-bringup-20260920/smoke",
+        "--duration",
+        "10"
+      ],
+      "returncode": 0,
+      "elapsed_s": 10.663842081999974,
+      "log": "/home/ltr/robot-platform-dev/checkouts/checkout-20260921T003916Z/simulation_runs/jetson-bringup-20260920/simulation-smoke.log"
+    },
+    {
+      "name": "python-tests",
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/unit/test_compose_collision_model.py",
+        "tests/unit/test_model_viewer.py",
+        "tests/unit/test_runtime_collision.py",
+        "tests/contract/test_session_inproc.py",
+        "tests/contract/test_session_transport.py"
+      ],
+      "returncode": 0,
+      "elapsed_s": 6.100975935999941,
+      "log": "/home/ltr/robot-platform-dev/checkouts/checkout-20260921T003916Z/simulation_runs/jetson-bringup-20260920/python-tests.log"
+    },
+    {
+      "name": "collision-benchmark",
+      "command": [
+        "python",
+        "scripts/benchmark_collision.py",
+        "--model",
+        "urdf/minerva/model.json",
+        "--output",
+        "/home/ltr/robot-platform-dev/checkouts/checkout-20260921T003916Z/simulation_runs/jetson-bringup-20260920/collision-benchmark.json",
+        "--samples",
+        "1000",
+        "--reference-samples",
+        "100",
+        "--audit-samples",
+        "100"
+      ],
+      "returncode": 0,
+      "elapsed_s": 154.40326186500033,
+      "log": "/home/ltr/robot-platform-dev/checkouts/checkout-20260921T003916Z/simulation_runs/jetson-bringup-20260920/collision-benchmark.log"
+    }
+  ],
+  "power_mode": "NV Power Mode: 25W\n1",
+  "l4t_release": "# R36 (release), REVISION: 4.4, GCID: 41062509, BOARD: generic, EABI: aarch64, DATE: Mon Jun 16 16:07:13 UTC 2025",
+  "temperature_start_millicelsius": 43937,
+  "temperature_end_millicelsius": 43812,
+  "completed_at": "2026-09-21T00:56:46.004476+00:00",
+  "artifacts": {
+    "motor_control": {
+      "bytes": 4089504,
+      "sha256": "39e9220556fafa2277899fdfd28eef475fca4000ebf550edf02660c1e0a08da3"
+    },
+    "lidar_control": {
+      "bytes": 3473944,
+      "sha256": "b6acfba81037b58a0ca3dc57879a8ce209d3ca4f270c2bb239f203378da0e7d1"
+    },
+    "librobot_collision.so": {
+      "bytes": 911968,
+      "sha256": "a8b12ad28fb1e0770f0d2b5c78166fc745b633bdc43f5e5f7e629ef8e60a93c6"
+    }
+  },
+  "collision_summary": {
+    "native": {
+      "samples": 1000,
+      "p50_ms": 54.07142600006409,
+      "p95_ms": 63.22656880008708,
+      "p99_ms": 72.61967462007306,
+      "maximum_ms": 127.91292299971246,
+      "over_10ms": 1000
+    },
+    "native_compact": {
+      "samples": 1000,
+      "p50_ms": 53.76954999996997,
+      "p95_ms": 63.07384474994249,
+      "p99_ms": 72.47753527025452,
+      "maximum_ms": 81.77150900019114,
+      "over_10ms": 1000
+    },
+    "reference_disagreements": [],
+    "missed_source_contacts": [],
+    "extra_source_contacts": [],
+    "over_40ms": 1000
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "id": "minerva",
+  "title": "Minerva",
+  "urdf": "minerva.urdf",
+  "collision_model": "collision/broadphase-v1.2.json",
+  "collision_branches": {
+    "left": "left_arm_j1",
+    "right": "right_arm_j1"
+  },
+  "keepout_ignored_links": {
+    "carriage_lwl7b": "Right finger A: user permits close finger interaction; omitted from coarse keep-out checks only.",
+    "carriage_lwl7b_2": "Right finger B (coupled): user permits close finger interaction; omitted from coarse keep-out checks only.",
+    "carriage_lwl7b_3": "Left finger A: user permits close finger interaction; omitted from coarse keep-out checks only.",
+    "carriage_lwl7b_4": "Left finger B (coupled): user permits close finger interaction; omitted from coarse keep-out checks only."
+  },
+  "front_direction": [
+    0,
+    -1,
+    0
+  ],
+  "groups": {
+    "Left arm": [
+      "left_arm_j1",
+      "left_arm_j2",
+      "left_arm_j3",
+      "left_arm_j4",
+      "left_arm_j5",
+      "left_arm_j6"
+    ],
+    "Left gripper": [
+      "left_gripper_finger_a_slide"
+    ],
+    "Right arm": [
+      "right_arm_j1",
+      "right_arm_j2",
+      "right_arm_j3",
+      "right_arm_j4",
+      "right_arm_j5",
+      "right_arm_j6"
+    ],
+    "Right gripper": [
+      "right_gripper_finger_a_slide"
+    ]
+  },
+  "provisional_limits": [
+    "left_arm_j1",
+    "left_arm_j2",
+    "left_arm_j3",
+    "left_arm_j4",
+    "left_arm_j5",
+    "left_arm_j6",
+    "right_arm_j1",
+    "right_arm_j2",
+    "right_arm_j3",
+    "right_arm_j4",
+    "right_arm_j5",
+    "right_arm_j6"
+  ],
+  "notes": [
+    "Detailed visuals: 3DP URDF Version 1.1. Collision geometry: URDF 1.2 No Holes. Joint frames are unchanged; viewer ranges were reswept and remain provisional.",
+    "Gripper sliders move the CAD jaws in metres; both jaws follow the exported coupling. Motor-to-jaw calibration is not applied.",
+    "Source mass properties are missing. This is a kinematic view, not validated physics.",
+    "Simplified collision CAD has 91 shapes. CAD modes confirm actual mesh contacts. Keep-out mode enforces enclosing convex boundaries and omits the four finger links by explicit policy."
+  ],
+  "limit_review": "limits/collision-v1.2.json"
+}

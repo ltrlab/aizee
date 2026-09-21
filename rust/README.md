@@ -8,6 +8,7 @@ same backend binaries with different hardware configuration files.
 | `comms` | Shared command/telemetry types, MessagePack, and ZeroMQ transport |
 | `motor_control` | ROBSTRIDE CAN control; configuration selects an arm or rover |
 | `lidar_control` | RPLiDAR acquisition and telemetry |
+| `robot_collision` (`rust/collision`) | Persistent collision bounds and a shared-library interface for CAD-confirmed checks |
 
 ## Build from the repository root
 
@@ -53,7 +54,7 @@ valid. Run Cargo from inside this checkout so it loads the root Cargo config.
 
 ## Deployment and dependency locking
 
-Deployments must copy the root `Cargo.toml`, `.cargo/config.toml`, and all three
+Deployments must copy the root `Cargo.toml`, `.cargo/config.toml`, and all four
 workspace members, even when building one package. Cargo loads every member's
 manifest while resolving the workspace. Deployment scripts also remove the
 obsolete remote `rust/Cargo.toml` when upgrading an existing checkout.

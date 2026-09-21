@@ -37,7 +37,12 @@ robot-platform list
 Use `.[learning]` for model training and `.[language]` when real sentence-transformer embeddings are needed. `.[control,data]` installs the shared runtime/data dependencies without GUI or training dependencies. Device-specific RealSense/Jetson GPU packages retain their existing platform-specific installation instructions; they are not forced into the base package.
 
 Use `.[preview]` for optional mesh simplification and `.[webxr]` for Quest
-transport. The old workstation/training requirements files were removed;
+transport. Use `.[viewer,collision]` for the shared robot model viewer and FCL
+inspection; [mechanical profiles](../MODEL_VIEWER.md) keep model selection
+independent of motor/recording contracts. The legacy `/preview` route embeds
+this shared viewer.
+
+The old workstation/training requirements files were removed;
 `pyproject.toml` owns these dependency selections.
 
 The base package supports profile inspection and launch-plan generation without Torch, Qt, NumPy or camera SDKs. Data writers require the `data` extra. The explicit ZMQ client requires the `control` extra. The session's pure routing/observation code uses only the standard library.
@@ -192,6 +197,6 @@ Still to migrate:
 2. Extract collector acquisition/UI services and move legacy application implementations into the package. Current launch adapters require an editable checkout or `--repo`/`ROBOT_PLATFORM_REPO`; standalone wheels provide shared libraries and profiles, not all legacy assets/apps.
 3. Move gains, calibrated limits, camera dimensions and tuning preferences into a unified validated configuration model. Current settings cover endpoints, app selection, paths/options and the session's freshness threshold; the migrated collectors now apply that threshold.
 4. Consolidate machine/service configuration, runtime calibration storage, learning resources and additional test tiers.
-5. Validate the compiled Rust services and migrated applications on the dedicated Jetson after provisioning. Local cross-compilation is complete; device runtime and motion checks remain.
+5. Extend the dedicated Jetson's native collision builds/tests and scoped 25 Hz replay to production motor-service and full application validation. The development host is provisioned; physical motion and intended deployment-host checks remain. See [device log](../devices/JETSON_DEV_01.md).
 
 No hardware deployment is performed by package installation, plan generation or the offline suite.

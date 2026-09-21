@@ -10,7 +10,7 @@ Builds locally; never connects to a robot or installs services.
 param(
     [switch]$Bootstrap,
     [switch]$Offline,
-    [ValidateSet('motor_control', 'lidar_control')]
+    [ValidateSet('motor_control', 'lidar_control', 'robot_collision')]
     [string[]]$Package = @('motor_control', 'lidar_control')
 )
 
@@ -113,7 +113,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Jetson cross-build failed (exit $LASTEXITCODE)." }
 
     foreach ($item in $Package) {
-        $binary = Join-Path $env:CARGO_TARGET_DIR "aarch64-unknown-linux-gnu/release/$item"
+        $artifact = if ($item -eq 'robot_collision') { 'librobot_collision.so' } else { $item }
+        $binary = Join-Path $env:CARGO_TARGET_DIR "aarch64-unknown-linux-gnu/release/$artifact"
         $bytes = [IO.File]::ReadAllBytes($binary)
         if ($bytes.Length -lt 64 -or $bytes[0] -ne 127 -or [Text.Encoding]::ASCII.GetString($bytes, 1, 3) -ne 'ELF' -or $bytes[4] -ne 2 -or $bytes[5] -ne 1 -or [BitConverter]::ToUInt16($bytes, 18) -ne 183) {
             throw "Build output is not a 64-bit little-endian AArch64 ELF: $binary"

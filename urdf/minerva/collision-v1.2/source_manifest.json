@@ -1,0 +1,1011 @@
+{
+  "schema_version": 1,
+  "robot": "minerva",
+  "purpose": "collision_geometry_only",
+  "physical_model_validated": false,
+  "source": {
+    "provider": "Onshape",
+    "version_name": "URDF 1.2 No Holes",
+    "version_url": "https://cad.onshape.com/documents/359ad50fa475851ee9487588/v/0e3aef4a909ae5843d82a11a/e/f4466d56fce7b6028aae0a06",
+    "assembly": "minerva_urdf",
+    "exporter": "onshape-to-robot",
+    "exporter_version": "1.8.2"
+  },
+  "retrieval": {
+    "network_requests": 185,
+    "completed": true,
+    "attempts": 1,
+    "mass_properties_requested": false,
+    "part_colors_requested": false,
+    "subsequent_processing": "offline"
+  },
+  "conversion": {
+    "mesh_references_normalized": 182,
+    "raw_urdf_sha256": "9fc3232a55d86589c4e18dff447eb0fa3671b9e87f543604c0b333dcd7835519",
+    "no_dynamics": true
+  },
+  "structure": {
+    "links": 17,
+    "revolute_joints": 12,
+    "prismatic_joints": 4,
+    "mimic_relations": 2,
+    "joint_frames_unchanged": true,
+    "link_renames": {
+      "1_1_02_eb571_960_stp": "linearrail_lwl7b_100mm",
+      "1_1_02_eb571_960_stp_2": "linearrail_lwl7b_100mm_2"
+    }
+  },
+  "geometry": {
+    "previous_shapes": 129,
+    "shapes": 91,
+    "previous_triangles": 2437466,
+    "triangles": 916832,
+    "retained_instance_count": 91,
+    "removed_instances": [
+      "SCXXKL.stp <1>",
+      "1_1_04_EB572-5105.stp <1>",
+      "Part 7 <4>",
+      "Part 6 <4>",
+      "SOLID-17_CON_P4_11_438X3_2_HD_3.stp <1>",
+      "RB04 MOTOR BODY <1>",
+      "Part 6 <3>",
+      "RS04 Loop Wire Cover <1>",
+      "1_1_02_EB571-960.stp <2>",
+      "1_1_02_EB571-960.stp <1>",
+      "1_1_06_EB573-642.stp <1>",
+      "SOLID-17_CON_P4_11_438X3_2_HD_2.stp <2>",
+      "1_1_04_EB572-5105.stp <2>",
+      "RB04 MOTOR BODY <2>",
+      "RB03 BODY <4>",
+      "RB03 BODY <2>",
+      "SOLID-17_CON_P4_11_438X3_2_HD_3.stp <2>",
+      "1_1_06_EB573-643.stp <2>",
+      "BOARD_3D_KMMV03_2024-10-21_2__2.stp <2>",
+      "RS04 Loop Wire Cover <2>",
+      "RB04 COVER <1>",
+      "BOARD_3D_KMMV03_2024-10-21_2__2.stp <1>",
+      "Part 6 <1>",
+      "SOLID-17_CON_P4_11_438X3_2_HD_2.stp <1>",
+      "RS04 Passthrough Wire Cover <2>",
+      "SGQZC__35.stp <1>",
+      "RB04 COVER <2>",
+      "SGQZC__35.stp <2>",
+      "Part 7 <3>",
+      "1_1_06_EB573-643.stp <1>",
+      "1_1_06_EB573-642.stp <2>",
+      "RS04 Passthrough Wire Cover <1>",
+      "SCXXKL.stp <2>",
+      "Part 7 <1>",
+      "RB03 BODY <1>",
+      "RB03 BODY <3>",
+      "Part 6 <2>",
+      "Part 7 <2>"
+    ]
+  },
+  "limitations": [
+    "Mass and inertia were not requested; zero exported inertials are not a physical model.",
+    "Geometry simplification is user-authored CAD and remains subject to clearance review."
+  ],
+  "files": [
+    {
+      "path": "config.json",
+      "bytes": 461,
+      "sha256": "6fab8ae1fb92715073df9ba6525882e6ace2001df480082ee27331cf03140a24"
+    },
+    {
+      "path": "minerva.urdf",
+      "bytes": 57563,
+      "sha256": "f3e0d91ec1b0ef2628f3028c6579172d8cb4ca778b40f5010e15e1e4668ff663"
+    },
+    {
+      "path": "meshes/42x30x7mm_bearing.part",
+      "bytes": 397,
+      "sha256": "b6598fb980693b59bba6f3bc86e4112b7dd7dbc200a2dc27e7cb825dd5d56709"
+    },
+    {
+      "path": "meshes/42x30x7mm_bearing.stl",
+      "bytes": 57684,
+      "sha256": "a855474d122d863508fdac4a5b10239feed8bacd28e7f8f978eb6819fae8704d"
+    },
+    {
+      "path": "meshes/42x30x7mm_bearing__2.part",
+      "bytes": 397,
+      "sha256": "e59d23f3c36330ec63348c2134ad6aad5fea0b56c382664391d8375f8cba61f4"
+    },
+    {
+      "path": "meshes/42x30x7mm_bearing__2.stl",
+      "bytes": 57684,
+      "sha256": "768a244aac3563064d3d34b47af8f2fa3844c02170e59b21456c91cb6ea8e8cb"
+    },
+    {
+      "path": "meshes/bearing.part",
+      "bytes": 387,
+      "sha256": "1aa336765af66dea86754f8262489f7387028704dd2f3fd7509a3d3f2c03310a"
+    },
+    {
+      "path": "meshes/bearing.stl",
+      "bytes": 57684,
+      "sha256": "bec5992fb099e4b4bb3849b39841dcc70742d4467a7b0bfc99380a2e3fadc0a7"
+    },
+    {
+      "path": "meshes/bearing__10.part",
+      "bytes": 388,
+      "sha256": "d08ee0fff79d89e81fc87d9ee07677ec692a866385640a8adac9a14920bf1451"
+    },
+    {
+      "path": "meshes/bearing__10.stl",
+      "bytes": 57684,
+      "sha256": "397d494cd9cc279b4f1d510022ba491a173bddb5a88dc9ecc94fe63ff3d35530"
+    },
+    {
+      "path": "meshes/bearing__2.part",
+      "bytes": 388,
+      "sha256": "cb0aade88b29e396e32fe254fd20eaeb814b444ddbc138a3170930525f0f3d71"
+    },
+    {
+      "path": "meshes/bearing__2.stl",
+      "bytes": 57684,
+      "sha256": "46896e7cadb151bc03dfe6753d303dd3863628b23068170dd336152e4fea4969"
+    },
+    {
+      "path": "meshes/bearing__3.part",
+      "bytes": 387,
+      "sha256": "c92de81b3fc80150cb099767cbcf2d6ce76355dee9f62ef018bc8bc8926d490c"
+    },
+    {
+      "path": "meshes/bearing__3.stl",
+      "bytes": 57684,
+      "sha256": "5eb2e1a22d623fbfea5f28214d9567332193762f01f3ad7f055273498f3730bc"
+    },
+    {
+      "path": "meshes/bearing__4.part",
+      "bytes": 388,
+      "sha256": "791c5aebc69ada52d5897355685e6fcd7d77fb9f4df7ca4b686a0beea6528eaa"
+    },
+    {
+      "path": "meshes/bearing__4.stl",
+      "bytes": 57684,
+      "sha256": "a91d2c01e0e0357470419a04f40ded7d70b0d22f05062f45ed02766f4026586c"
+    },
+    {
+      "path": "meshes/bearing__5.part",
+      "bytes": 387,
+      "sha256": "218e9279794597f6d1667d4b4e8100d0213ba75cb15a1039b0ff30c5ad0d8de4"
+    },
+    {
+      "path": "meshes/bearing__5.stl",
+      "bytes": 57684,
+      "sha256": "95c3ec4ce8920ca7c0f84127ea713c59697a8d3ebe8ada6765bf4dcbc87f94e0"
+    },
+    {
+      "path": "meshes/bearing__6.part",
+      "bytes": 386,
+      "sha256": "ac9fcc291fcf705b82ae4f564bf1da6941eda97687b74f975390165f60b1bf52"
+    },
+    {
+      "path": "meshes/bearing__6.stl",
+      "bytes": 57684,
+      "sha256": "fe800b54ec51ade8600009297b3a7a76d093fc0f88b13e73f92ef094133a3940"
+    },
+    {
+      "path": "meshes/bearing__7.part",
+      "bytes": 387,
+      "sha256": "6963d83ba95eb596a751308919cbc71374cc82df76ef5e4e944826d7c66a4ec7"
+    },
+    {
+      "path": "meshes/bearing__7.stl",
+      "bytes": 57684,
+      "sha256": "6a739805ee46494d7ca9ebedaaecbb6ce7027db55916dd30d7079bcb6867305d"
+    },
+    {
+      "path": "meshes/bearing__8.part",
+      "bytes": 387,
+      "sha256": "bf3ce2259d5abfeaf2551e03785ce01e6764e253389dd74ab3d67b15936716ec"
+    },
+    {
+      "path": "meshes/bearing__8.stl",
+      "bytes": 57684,
+      "sha256": "3875341593b79fe36faf56e926a196bbbfaedff77ca64ed83a52fbb2de3cfaf7"
+    },
+    {
+      "path": "meshes/bearing__9.part",
+      "bytes": 387,
+      "sha256": "b52c1007e1aecb2510996989f2bbe2b131d09792b7b007f36e782abb3434b61b"
+    },
+    {
+      "path": "meshes/bearing__9.stl",
+      "bytes": 57684,
+      "sha256": "c1e3e9e0a47053f41d54e3967ba5ee5b6b12c1bf77bf965fdfb5d062d169f9e8"
+    },
+    {
+      "path": "meshes/carriage_lwl7b.part",
+      "bytes": 395,
+      "sha256": "4b561b577d98a02f6c8d39088d20c4b06920de57a7ed7a91f6cd96fb8d342399"
+    },
+    {
+      "path": "meshes/carriage_lwl7b.stl",
+      "bytes": 19084,
+      "sha256": "2d397458284efce9da04a9a6ef70cb3c5f02270f446806196c87983aab0ca261"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__10.part",
+      "bytes": 396,
+      "sha256": "d86f733c4eb7bf1a86030cbf749649e76758d58b6ecdee5305719d5b5c6689f2"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__10.stl",
+      "bytes": 77084,
+      "sha256": "a5dd0969c36287f8190c984fd05f6a9add9140011041b8df4d4947e9b26d8290"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__11.part",
+      "bytes": 395,
+      "sha256": "feb5a8c80a85403452d3c3ff91a5c55e11c130cac06946f9348f0bae3859e65f"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__11.stl",
+      "bytes": 19084,
+      "sha256": "14be5489e6c12bfa2bc07d34ca3561ef4b3f4b17520776fad2c426d724c6c67e"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__12.part",
+      "bytes": 395,
+      "sha256": "0fbe54d43af9a2847e42419ba25e94bb62b52dc6761853aeb7bee027bd559842"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__12.stl",
+      "bytes": 19084,
+      "sha256": "f36d43d7cbfdb505348ef0726d701e28621f5e53602e2fb50718092199bb544b"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__13.part",
+      "bytes": 395,
+      "sha256": "1fa038236e8dbc01d20d891cf5bf95dc3b0549a337dda96a8b07954c1358479d"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__13.stl",
+      "bytes": 19084,
+      "sha256": "9e6260553cb8cdc172d3c6b2c0625c04a498c63bc0e95bc50ff83551119b884d"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__14.part",
+      "bytes": 395,
+      "sha256": "daf3b15a4f568ff1ee11b38c6d24c366fc33f85e46fec0d57f01aea705fafc64"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__14.stl",
+      "bytes": 19084,
+      "sha256": "b5ddac3e1ebad5abc2dc99dfb77d99b051a63961f43e35ef8ee45aa651fd20f0"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__15.part",
+      "bytes": 395,
+      "sha256": "f1572ff6cf5c6affaee3106f36f31045195940e8fa70ac35eb47962118b136de"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__15.stl",
+      "bytes": 77084,
+      "sha256": "26326bee3d41d954e3c0f7fcb29ae310043575b738a0de74f860aa1d29235f66"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__16.part",
+      "bytes": 395,
+      "sha256": "f00a1181cd0849c6116c77e120a1c805cdf50f4334686746be9db1852fa768f6"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__16.stl",
+      "bytes": 19084,
+      "sha256": "8c27abd146d0938bf8839e948bdcf0c83c8b6fb32508ba95a0703d66697b56dd"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__17.part",
+      "bytes": 395,
+      "sha256": "e9e4b3cfef5ccbacc3c2b0f77b802a11585066a023e18ed9df0ee6f8781a7937"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__17.stl",
+      "bytes": 19084,
+      "sha256": "a8bacfa42b39d9a9ee75c2b352c50d9a8ef86e45b4d9b0083e9e1f10c16e9162"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__18.part",
+      "bytes": 395,
+      "sha256": "8df336f584f422d4f53b02437eccce4b8430f0108ce2a03cf4347022f06a92b1"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__18.stl",
+      "bytes": 19084,
+      "sha256": "50c00167239a92d56b99cac2dce1917c8f72ba256ba64f3266580709fa9ad3fa"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__19.part",
+      "bytes": 395,
+      "sha256": "2f9ce9a1201ba63a8813909e8ba6c3c8597697fc927e666ec11dc4dce53dcc7a"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__19.stl",
+      "bytes": 19084,
+      "sha256": "df39a319f1db88fdd82338c0074c101bdbca9e3da7a1df46cef9110740b691ab"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__2.part",
+      "bytes": 395,
+      "sha256": "cefe882f2363ba88873e44d6dd040f719fa3550fa857e50f44d259fb29aec2fd"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__2.stl",
+      "bytes": 19084,
+      "sha256": "5c049e7c6d201485ab0ae00338fdb2b03859020e405f0c6941986fdb7860f12b"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__20.part",
+      "bytes": 395,
+      "sha256": "6d2a8b85672d20ae7c1f5aea57678ff38df61e3aed974955d5cf93f1838dbe1b"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__20.stl",
+      "bytes": 77084,
+      "sha256": "8bded102b08983c259efcccefa15d4c7bd0ec5cd42ba0c512f3b96095676336a"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__3.part",
+      "bytes": 395,
+      "sha256": "fb010ca79366aac5cbbca1cf6500c2cc83c024a03a8e310cd3d00fb0f6b6f6e5"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__3.stl",
+      "bytes": 19084,
+      "sha256": "8ec3a793719996b2bb10fcde28956a96f537c88e8043810083a697b4b5bb2c62"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__4.part",
+      "bytes": 395,
+      "sha256": "f5dbbdeafd1a687c0f671bf66ed75b9a7ef404614fec94f927f93ba02cb02614"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__4.stl",
+      "bytes": 19084,
+      "sha256": "b1bb54d1276477b020b4aa7e02b2bd6d50b13cc910bc392295449768cde41cee"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__5.part",
+      "bytes": 395,
+      "sha256": "ca2e5d45eb2a95b5a9f31e89222502225be0faa5c30bbc0a80b210f7138de527"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__5.stl",
+      "bytes": 77084,
+      "sha256": "654eafc2c44e7df24c3ae113f5bb627d752d167e78a22ba398147ee1097c6545"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__6.part",
+      "bytes": 396,
+      "sha256": "2237a4079e9624cffe0503e12c4a43870a25d7799c5851fe3b03cc22f48d19d2"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__6.stl",
+      "bytes": 19084,
+      "sha256": "90a5aa56bb2e4799107372a73e2de2a9109fb685c2fc24e6682fbf66ecd8bf26"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__7.part",
+      "bytes": 396,
+      "sha256": "dccc07f1ae5809e92f017cc53c4882d341cd45e460aebe5a31fafcaafaaa22e0"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__7.stl",
+      "bytes": 19084,
+      "sha256": "cdd59e0b8b2379e30e7cbd878102fdf929d4adeaf4cd2918bffd2582c096c6c9"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__8.part",
+      "bytes": 396,
+      "sha256": "1eeea98af8d24961c7050cc20aada1e9553e762334c72c132e488a6beefc6e04"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__8.stl",
+      "bytes": 19084,
+      "sha256": "2c0c80689fa589dbd77daca90afda46308cc6c0ecf2bfd3cf4e778dd6d2327ae"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__9.part",
+      "bytes": 396,
+      "sha256": "ea6fac7a6caa69573c74a990d7b036f54dc4cf07a9d412b59b652c03311c9750"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__9.stl",
+      "bytes": 19084,
+      "sha256": "a5e54d978d4793195bf2ef790804f5307b65ad513f7054303b44d10297b92d4d"
+    },
+    {
+      "path": "meshes/ikea_desk_leg.part",
+      "bytes": 392,
+      "sha256": "50f1833a90654f4e33a8e93eff5937d1260abd1058b984873cd2163bfaa33310"
+    },
+    {
+      "path": "meshes/ikea_desk_leg.stl",
+      "bytes": 29584,
+      "sha256": "c5775302117d2bb0df62ca3b8f398b1c2bf059017ac27a86fb7c088c5525677c"
+    },
+    {
+      "path": "meshes/linearrail_lwl7b_100mm.part",
+      "bytes": 403,
+      "sha256": "652dba42f235f2869be4f47f0721f2dc21128505905006d3e1219506fac761cc"
+    },
+    {
+      "path": "meshes/linearrail_lwl7b_100mm.stl",
+      "bytes": 186684,
+      "sha256": "c25f4224c3adc8b007efa17040abc3eb06cdfabebf5a1b03465d2cd5988e4604"
+    },
+    {
+      "path": "meshes/linearrail_lwl7b_100mm__2.part",
+      "bytes": 403,
+      "sha256": "96f257bf81a7702e045eb882f33f85c72724ebd69645473ef3f12d8a24285c1c"
+    },
+    {
+      "path": "meshes/linearrail_lwl7b_100mm__2.stl",
+      "bytes": 186684,
+      "sha256": "740c05a677ca106dd80c34bff48ea1f861c97a8411a24c080b703deb5e504e92"
+    },
+    {
+      "path": "meshes/linearrail_lwl7b_100mm__3.part",
+      "bytes": 402,
+      "sha256": "e6e5e1867142ac9b48042307f3aee254a20d69d73646692b5ee17c10959607d4"
+    },
+    {
+      "path": "meshes/linearrail_lwl7b_100mm__3.stl",
+      "bytes": 186684,
+      "sha256": "f2cffff11fa1310ec1d01557a5323b88866f746353472aa4a3f75156f89457b8"
+    },
+    {
+      "path": "meshes/linearrail_lwl7b_100mm__4.part",
+      "bytes": 402,
+      "sha256": "086aeaf3b1fa263935ff815ddf811ad1877a00a7fbf605675eb1caf2c0e5449f"
+    },
+    {
+      "path": "meshes/linearrail_lwl7b_100mm__4.stl",
+      "bytes": 186684,
+      "sha256": "594c3852845962ebddc975e967954472c1ac9825da6d9c39894a29741ad7674b"
+    },
+    {
+      "path": "meshes/part_148.part",
+      "bytes": 387,
+      "sha256": "304202634a2b89d30c911ae441b4cd1f12c00f284efa538823ef5cc3a1431b57"
+    },
+    {
+      "path": "meshes/part_148.stl",
+      "bytes": 313884,
+      "sha256": "d2a780acf3eafc820cf3dcd37a3779b585bf4b3700c92ef04630f377771b8644"
+    },
+    {
+      "path": "meshes/part_149.part",
+      "bytes": 387,
+      "sha256": "b5ba9a3db1383fc423eb122a5b82f328b2a9f054bbb0ce6f1840cca9852ce5cb"
+    },
+    {
+      "path": "meshes/part_149.stl",
+      "bytes": 300084,
+      "sha256": "12154e057274a804d5ba7a5f03dc2033ee402a58c514b6a0403d2776e3cef75d"
+    },
+    {
+      "path": "meshes/part_150.part",
+      "bytes": 387,
+      "sha256": "19b441556effbcd3cfedc061a4b7d1a7b7538199b7e9cb67242a12a6368cefd0"
+    },
+    {
+      "path": "meshes/part_150.stl",
+      "bytes": 313884,
+      "sha256": "a4666ef2f5028598762b1aed7a1c0424f65b700438bc64057a35e42bdd7cf807"
+    },
+    {
+      "path": "meshes/part_151.part",
+      "bytes": 387,
+      "sha256": "e3a357f679d9ea3cb638a6457321737e464c61ba5d3ea2845f35bb1788951501"
+    },
+    {
+      "path": "meshes/part_151.stl",
+      "bytes": 300084,
+      "sha256": "5a031c2204e441755695c8c64618ded6a34e57baca7a8679296ac30d69a94bef"
+    },
+    {
+      "path": "meshes/part_152.part",
+      "bytes": 387,
+      "sha256": "d620a0193fe0313d489d0eb5e8958352ca51019b52ada1778b8d087935ef6d8e"
+    },
+    {
+      "path": "meshes/part_152.stl",
+      "bytes": 257084,
+      "sha256": "891eda136a8ae014e20fecf98c56db8f88792378298a3ae84352cc9aac6f4111"
+    },
+    {
+      "path": "meshes/part_153.part",
+      "bytes": 387,
+      "sha256": "994abd945737f507e5d438f8186370ab5f4ccd44268e0973a0c2be373c6ad6c3"
+    },
+    {
+      "path": "meshes/part_153.stl",
+      "bytes": 244284,
+      "sha256": "eb6e6034888c4b71f68fc3ee86b1ac4758568061dc7466b71e584a9ded334184"
+    },
+    {
+      "path": "meshes/part_39.part",
+      "bytes": 388,
+      "sha256": "8109dfca443287c88bf0fa2aef940644594839324e758b31e5198e761d3090a4"
+    },
+    {
+      "path": "meshes/part_39.stl",
+      "bytes": 140784,
+      "sha256": "0a2f4f589e40a391a3e53b4845e85e153faf47fb4cecc5e095e01157399200e6"
+    },
+    {
+      "path": "meshes/part_39__2.part",
+      "bytes": 387,
+      "sha256": "485ac2cad0bf58377727cdada293864ccf609b36b44368833f6408268b140591"
+    },
+    {
+      "path": "meshes/part_39__2.stl",
+      "bytes": 140784,
+      "sha256": "3316d77b9cbc64c7ba86acf7ba5b9e2ec135b49cafd42986e4e23e0b423171f9"
+    },
+    {
+      "path": "meshes/part_40.part",
+      "bytes": 388,
+      "sha256": "37724a6f4e0692de9130056967925405c67cd18f5bc11dc3b924cdb8779dd531"
+    },
+    {
+      "path": "meshes/part_40.stl",
+      "bytes": 978084,
+      "sha256": "812da143a28e655cd1a69659c560245111201e3109becbc94222dfa74401359b"
+    },
+    {
+      "path": "meshes/part_40__2.part",
+      "bytes": 387,
+      "sha256": "d206ae252569b75193d86b2b28e5df90e216b400c30ef1658f65572e55c3f416"
+    },
+    {
+      "path": "meshes/part_40__2.stl",
+      "bytes": 978084,
+      "sha256": "db9adb8b01849ec3e9ec8f94d0abc4d284804b4245162598bba606ecedd5df3d"
+    },
+    {
+      "path": "meshes/part_41.part",
+      "bytes": 388,
+      "sha256": "bf56ade9e28dd876c58d50898c6216e60bf29b43f20d57f67471eaff84b031ba"
+    },
+    {
+      "path": "meshes/part_41.stl",
+      "bytes": 978084,
+      "sha256": "a1e5de57f5c790318636918132db93d665bd8c41e94f71aad3812d181039fcfe"
+    },
+    {
+      "path": "meshes/part_41__2.part",
+      "bytes": 387,
+      "sha256": "b0a094b0088699b7468c9b3c2d21b31fe32df61fff9705a74840ccdad71bc248"
+    },
+    {
+      "path": "meshes/part_41__2.stl",
+      "bytes": 978084,
+      "sha256": "619972c9a0d9f3a054d7c1bb8d33bdf565edad1cd2a774532d39a1c71d31d2e6"
+    },
+    {
+      "path": "meshes/part_42.part",
+      "bytes": 388,
+      "sha256": "0ca3808fe64a42f3146ff9138114deb719a830ff6a75553795405bcf1ca65641"
+    },
+    {
+      "path": "meshes/part_42.stl",
+      "bytes": 561884,
+      "sha256": "de09f3ce38dd09e3c5227d17653f1cb82d73215f1e9fccd18160c3233abadd2e"
+    },
+    {
+      "path": "meshes/part_42__2.part",
+      "bytes": 387,
+      "sha256": "7fc5c6acbe1fb94984bc34be0cf34d7ccded4e3ad0e4be778d54741610dc5316"
+    },
+    {
+      "path": "meshes/part_42__2.stl",
+      "bytes": 561284,
+      "sha256": "c24f623387bdc92cb4e9684ca2313f9ca45de27ff4dadd55da98014bd00dbd13"
+    },
+    {
+      "path": "meshes/part_43.part",
+      "bytes": 388,
+      "sha256": "19dd120c10e01115ebaea472807bd8ac3d52043af98dfa97869f36d629c3d3b7"
+    },
+    {
+      "path": "meshes/part_43.stl",
+      "bytes": 193484,
+      "sha256": "b2be2cf4500b12e268b5f04287f0dace52312a9efb33767b220a33b70ae54870"
+    },
+    {
+      "path": "meshes/part_43__2.part",
+      "bytes": 387,
+      "sha256": "27d61eaf91b3dc1b1abda1ec10ded5bdd33624e9d5a0ae1119feee4392ec1ec9"
+    },
+    {
+      "path": "meshes/part_43__2.stl",
+      "bytes": 192784,
+      "sha256": "87baa27271526950171889182339c30d2ee3fe413eeb28e10b346a538b94b341"
+    },
+    {
+      "path": "meshes/part_44.part",
+      "bytes": 388,
+      "sha256": "b283c65ff612907d523c18cba79977af366774e7ce6f266d9dbbd79b47eaeeb5"
+    },
+    {
+      "path": "meshes/part_44.stl",
+      "bytes": 948984,
+      "sha256": "d024272547dd7a13047b15d8cd5ec009f7509ba69fb156754c60291c9e257f98"
+    },
+    {
+      "path": "meshes/part_44__2.part",
+      "bytes": 387,
+      "sha256": "2f4165aaec6eb168d88a5a349325e04e0e63d0394aafaa84544b275259f52f16"
+    },
+    {
+      "path": "meshes/part_44__2.stl",
+      "bytes": 950284,
+      "sha256": "89a55dbd8872c914098aec7e5263308abfc4b06e1ef87c6d1c1d165cc4bd3e27"
+    },
+    {
+      "path": "meshes/part_66.part",
+      "bytes": 388,
+      "sha256": "a1b3f345cd2dfdd1e236bf361c39f682b6df2a97d3db12fcfa19f257eb7159a7"
+    },
+    {
+      "path": "meshes/part_66.stl",
+      "bytes": 74784,
+      "sha256": "93606d85eff92b954fb257b26c130eb7a223a251456475a3054ab2377940b4dd"
+    },
+    {
+      "path": "meshes/part_66__2.part",
+      "bytes": 387,
+      "sha256": "404d3d834211be06e114bdd85fbd0aa4f8fc948dbb2e2b3acfe52ae36e17c117"
+    },
+    {
+      "path": "meshes/part_66__2.stl",
+      "bytes": 74784,
+      "sha256": "8a899a7c03d0f402b22d33d6f83905a3ad5c7a5daf59dcf4b6ddfcbdc0d7ff03"
+    },
+    {
+      "path": "meshes/part_69.part",
+      "bytes": 388,
+      "sha256": "405d84bb455bbda4bf07e8b1655d0d06d985cf9f5edf09afc787832f48aabd54"
+    },
+    {
+      "path": "meshes/part_69.stl",
+      "bytes": 25384,
+      "sha256": "3072cc09290e1464e02f6b63eec34209c4f8591b51e8fb7ce1af1a8c98101aba"
+    },
+    {
+      "path": "meshes/part_69__2.part",
+      "bytes": 387,
+      "sha256": "b8b87323bd820c2c4bf2a28e333f36791350616428b7538b9f636d5392c64d9c"
+    },
+    {
+      "path": "meshes/part_69__2.stl",
+      "bytes": 25384,
+      "sha256": "44add9084e9eb4272794ada57202299746493ae677d596cb1dbc47f7472a6a0a"
+    },
+    {
+      "path": "meshes/part_70.part",
+      "bytes": 388,
+      "sha256": "9e50bdbe21ecf825e8eed8f9db93adb57f7f84dfd142bf4a07f458dfa1153e12"
+    },
+    {
+      "path": "meshes/part_70.stl",
+      "bytes": 187084,
+      "sha256": "0f673e8acdb30c245213e2b958694b0b74db3e23a0d1614b5f018d93f5cfc98a"
+    },
+    {
+      "path": "meshes/part_70__2.part",
+      "bytes": 387,
+      "sha256": "00abefa9bfb5be1e3f0c52af01a0c5f434780e804acf5f7d70d88410608f7b9b"
+    },
+    {
+      "path": "meshes/part_70__2.stl",
+      "bytes": 187084,
+      "sha256": "43f5fd682fa0f2b347c02c2f1d9991d660413655404b35d1f06d0679d147f852"
+    },
+    {
+      "path": "meshes/part_71.part",
+      "bytes": 388,
+      "sha256": "fc5dc84aedcb40ae594cccb797b7f24028fef9a3e44b04e00eccd8a8a43bb686"
+    },
+    {
+      "path": "meshes/part_71.stl",
+      "bytes": 52684,
+      "sha256": "7333aeeb5ab95f283fee64e4b5855b13baec450931fcdf6a0032d58a8b1d60ef"
+    },
+    {
+      "path": "meshes/part_71__2.part",
+      "bytes": 387,
+      "sha256": "245c32b77d2110d4d871a42bd6d221ded0bb2e486c13b96aa6570cfa9db5dc51"
+    },
+    {
+      "path": "meshes/part_71__2.stl",
+      "bytes": 52684,
+      "sha256": "00fed8b686902b888a3ebf2d0f90211c86c40d7fe6e6d8483255037b74ed9e6d"
+    },
+    {
+      "path": "meshes/part_73.part",
+      "bytes": 388,
+      "sha256": "130c5fb37031f1c27287d3608c29afdf927de7d678eaeee453fe1d959a488327"
+    },
+    {
+      "path": "meshes/part_73.stl",
+      "bytes": 503084,
+      "sha256": "9d2dead7cc62be74afeba2d83a0b03d4f0cad9707452c04125a19afb8a9b349f"
+    },
+    {
+      "path": "meshes/part_73__2.part",
+      "bytes": 387,
+      "sha256": "b493aff4047873853507ed64b4638571aa6f9c01f94838299367de2bdbeaa1f3"
+    },
+    {
+      "path": "meshes/part_73__2.stl",
+      "bytes": 503484,
+      "sha256": "035b1c230409bf137b655d93c2770f9af8ad7eb3b6bd5b6e01d7c296e594b421"
+    },
+    {
+      "path": "meshes/rb03_output.part",
+      "bytes": 390,
+      "sha256": "b8f173df97e2a10e70d1aea0a1fd58065130da6a2871cf2ab1bc509f12a9dbec"
+    },
+    {
+      "path": "meshes/rb03_output.stl",
+      "bytes": 1072184,
+      "sha256": "2b42d550286d6254c2f3ef0127abf5b0d15d8d2cc98cb533a0be33e5628d8f65"
+    },
+    {
+      "path": "meshes/rb03_output__2.part",
+      "bytes": 391,
+      "sha256": "e627f95187e664c8244cf47201bfd705d21b9ccd0ac5bba92ee80e7578c9f011"
+    },
+    {
+      "path": "meshes/rb03_output__2.stl",
+      "bytes": 1072184,
+      "sha256": "b11e125a55d0a9d0a84bae438078bb59b249663f487258b0c42dc702802e76c5"
+    },
+    {
+      "path": "meshes/rb03_output__3.part",
+      "bytes": 390,
+      "sha256": "40d7cd122f70309641be5989e72dc0c32d80aeffbb932d619d009b95de8df814"
+    },
+    {
+      "path": "meshes/rb03_output__3.stl",
+      "bytes": 1071584,
+      "sha256": "869d8bb22323461d6dc71c8b203f6874f96e59451865d31318a322bacd92b79b"
+    },
+    {
+      "path": "meshes/rb03_output__4.part",
+      "bytes": 391,
+      "sha256": "c4621479a66df1b8cc8406d30fa6eb37283fe3e70ec8e27df14d3a5f90ef8107"
+    },
+    {
+      "path": "meshes/rb03_output__4.stl",
+      "bytes": 1071584,
+      "sha256": "e4df1b67a7a425eed55a6fc1fa5e1d23c800d2bbd50967ba80de304f556eeb8d"
+    },
+    {
+      "path": "meshes/rb03_wire_bearing_mount.part",
+      "bytes": 403,
+      "sha256": "37ad41de012fc49fe3e343194e19e1b0612b071d87f84bd6df8f0434fc8be568"
+    },
+    {
+      "path": "meshes/rb03_wire_bearing_mount.stl",
+      "bytes": 1913584,
+      "sha256": "fcbef71b45553ada8225e8c1d5421184cd595b46a3c3f92498b6fe696642f5fc"
+    },
+    {
+      "path": "meshes/rb03_wire_bearing_mount__2.part",
+      "bytes": 403,
+      "sha256": "8c9b78e1dd3dcfc0310cf81515a4420ece91014215546b93f43cd8f7b4952b3d"
+    },
+    {
+      "path": "meshes/rb03_wire_bearing_mount__2.stl",
+      "bytes": 1913984,
+      "sha256": "16c73ebba8d2b0cb7263e3778d28c52caa989133611a737d8b9a6ddecbea6880"
+    },
+    {
+      "path": "meshes/rb03_wire_bearing_output_mount.part",
+      "bytes": 410,
+      "sha256": "85b4e62fa9e302199837fc9153f082150be2fce473b92005cd3a24de61aa507c"
+    },
+    {
+      "path": "meshes/rb03_wire_bearing_output_mount.stl",
+      "bytes": 53884,
+      "sha256": "04a207f828578e3a53463596712ce458a9df53b461f2f6d19e813194908ab768"
+    },
+    {
+      "path": "meshes/rb03_wire_bearing_output_mount__2.part",
+      "bytes": 410,
+      "sha256": "1b2727e9dcb577997023f31965594b259ee23b9c5fb78e2f9bec1db3e57ab752"
+    },
+    {
+      "path": "meshes/rb03_wire_bearing_output_mount__2.stl",
+      "bytes": 382284,
+      "sha256": "64766e1f21520edb5875bbd4f27361773745332a51a1ab48e318617fc341548b"
+    },
+    {
+      "path": "meshes/rb03_wire_bearing_output_mount__3.part",
+      "bytes": 410,
+      "sha256": "735c71c59c966d0b8c5395d7a1bc52e9da9778695f028d9ed87e1af0e435a526"
+    },
+    {
+      "path": "meshes/rb03_wire_bearing_output_mount__3.stl",
+      "bytes": 53884,
+      "sha256": "0b03bb985ec706d0c9f99419b1b673a73c528bbc64d7b019527492be0e76e2ea"
+    },
+    {
+      "path": "meshes/rb03_wire_bearing_output_mount__4.part",
+      "bytes": 410,
+      "sha256": "424326d8c1fad9125fd7ae615faa386bb673051ca98f5919837da1d153ebf858"
+    },
+    {
+      "path": "meshes/rb03_wire_bearing_output_mount__4.stl",
+      "bytes": 382284,
+      "sha256": "4fdd100519c693f5594f21b24b5742f465a6a5f3351d84365de6eb20e006e633"
+    },
+    {
+      "path": "meshes/rb04_motor_output.part",
+      "bytes": 397,
+      "sha256": "780045c665758656f8df8f1052997ec8475cbe06f0b4c62a5417501564260d7d"
+    },
+    {
+      "path": "meshes/rb04_motor_output.stl",
+      "bytes": 1465084,
+      "sha256": "938f44d4d00e5a2de3446fcfdcbebb2594f889e9b4697cd8e5d4a5fad0801f02"
+    },
+    {
+      "path": "meshes/rb04_motor_output__2.part",
+      "bytes": 397,
+      "sha256": "97f06fa4004566fee3fc9f024011ab6a9c8f27d02160dbb4210cfe0f78030f9e"
+    },
+    {
+      "path": "meshes/rb04_motor_output__2.stl",
+      "bytes": 1465084,
+      "sha256": "4e1aa518e4d853cb59b3874167bd944b886dc3621c9ad71fd62eb72b6fd63099"
+    },
+    {
+      "path": "meshes/rb04_wire_bearing_mount.part",
+      "bytes": 404,
+      "sha256": "ff1bcb80f0a72c719f0dddb482bf8f9de172066ff7c210679726809cf47e8c0f"
+    },
+    {
+      "path": "meshes/rb04_wire_bearing_mount.stl",
+      "bytes": 3546784,
+      "sha256": "308ecaa757c7dfc72807488361fe0895832ee96b5ed977f2a8d8bbf79d266e7f"
+    },
+    {
+      "path": "meshes/rb04_wire_bearing_mount__2.part",
+      "bytes": 403,
+      "sha256": "db2df2b605453a7e93647cf4386ad6191dab6b6a0ea6cecb10ec3015a69c949c"
+    },
+    {
+      "path": "meshes/rb04_wire_bearing_mount__2.stl",
+      "bytes": 3547684,
+      "sha256": "a6c52965af5b251a584bf5a0e63d9994db08e633974da10e71cb9efc9a7b752b"
+    },
+    {
+      "path": "meshes/rs00.part",
+      "bytes": 384,
+      "sha256": "e07a81bb038f5bb1214d42596ccd6dcf76bbce0d30c0a321ae035dc147075786"
+    },
+    {
+      "path": "meshes/rs00.stl",
+      "bytes": 4589084,
+      "sha256": "6ee7bf345e8e2425962cc4e38093ee6c3275d90eddfbd258a89df155d0e579de"
+    },
+    {
+      "path": "meshes/rs00__2.part",
+      "bytes": 384,
+      "sha256": "aad1033c459db200ee3f62308db91d6c25fb45adbb48850d9ff747ae358ebdf3"
+    },
+    {
+      "path": "meshes/rs00__2.stl",
+      "bytes": 4589084,
+      "sha256": "ad532f65763d5cfc7bef4070eb3efb4f6e1d022e5e9fea9c570b765c059525de"
+    },
+    {
+      "path": "meshes/rs02.part",
+      "bytes": 384,
+      "sha256": "4532296be4ca0ad69bfd3df4c47d68db3424940595126bd193629e65f805bd0b"
+    },
+    {
+      "path": "meshes/rs02.stl",
+      "bytes": 655384,
+      "sha256": "603d6c502acd9b28059b87c6d8ff08d1d0b7c98f044e8a791e42666c3cfbb8a9"
+    },
+    {
+      "path": "meshes/rs02__2.part",
+      "bytes": 384,
+      "sha256": "522051f7ef14fb7cd84d4b60d524c75eb0e96584662b7d4e633c79f8fcd69aaf"
+    },
+    {
+      "path": "meshes/rs02__2.stl",
+      "bytes": 655384,
+      "sha256": "982f0f0ef5473fd6fd546a5ea3d00929acbdf642e8bb343a8b7278616747c39a"
+    },
+    {
+      "path": "meshes/rs02__3.part",
+      "bytes": 384,
+      "sha256": "b1de7ba50f3cadf4f6c40206f336d173d161ac3ee543d32d14788cfef339d43f"
+    },
+    {
+      "path": "meshes/rs02__3.stl",
+      "bytes": 658384,
+      "sha256": "0abd732b84c669818724288b89921b19c2d1d964272f173e700d2de7e21db9dc"
+    },
+    {
+      "path": "meshes/rs02__4.part",
+      "bytes": 384,
+      "sha256": "4b7eb777cd07f8826c60dc4580cea893c2405cec34c95de754de018f9fe6444f"
+    },
+    {
+      "path": "meshes/rs02__4.stl",
+      "bytes": 658384,
+      "sha256": "0587e3e8284349b6eeb666b68d10f35f454c2011bd56ca811214c53a0d68ecd0"
+    },
+    {
+      "path": "meshes/rs02_base_mount.part",
+      "bytes": 395,
+      "sha256": "ebe95d3987704867aff41f9e38824709f0d263671503c3fdc8cfdde5ad9d5c75"
+    },
+    {
+      "path": "meshes/rs02_base_mount.stl",
+      "bytes": 314984,
+      "sha256": "5dcf3d47c0fc502f80adc679f57f0fa048cab208fa4987a51319a4444cee57e5"
+    },
+    {
+      "path": "meshes/rs02_base_mount__2.part",
+      "bytes": 395,
+      "sha256": "65369040fa30cc547cf314724d8e55aab65c43ef784711aa614be8ca995d9b8b"
+    },
+    {
+      "path": "meshes/rs02_base_mount__2.stl",
+      "bytes": 315384,
+      "sha256": "6665770ae4126e6c3d0cf1847ca0ffa3c0dc1044ba7f1ec5f6632e1828047c05"
+    },
+    {
+      "path": "meshes/rs02_bearing_mount.part",
+      "bytes": 398,
+      "sha256": "3d37771c04b4618899922bdc294dadd66e2d6fbf452233e842a6bdc9b8cde8ac"
+    },
+    {
+      "path": "meshes/rs02_bearing_mount.stl",
+      "bytes": 279684,
+      "sha256": "3c611608608eeabaf773630e57cd7372c7330487beccdee8c2cae3f2ffe3ff53"
+    },
+    {
+      "path": "meshes/rs02_bearing_mount__2.part",
+      "bytes": 398,
+      "sha256": "bc24b606d010992c281f2527e023826f5e55410d64912a6fad8ef1c28d5e5350"
+    },
+    {
+      "path": "meshes/rs02_bearing_mount__2.stl",
+      "bytes": 372184,
+      "sha256": "79b2a4ae9685084b56033e187c454bc11571fad8e79f652b6cea3da4cc58f8b2"
+    },
+    {
+      "path": "meshes/rs02_bearing_mount__3.part",
+      "bytes": 398,
+      "sha256": "f53dd16b415753de0e37777a61ccd5ad596381d5eb4dd0a72665521d9be28602"
+    },
+    {
+      "path": "meshes/rs02_bearing_mount__3.stl",
+      "bytes": 280084,
+      "sha256": "f94cfadbfa0991637fcfd484c1b6803949ab9f37fd480677c5c9abd60a87547b"
+    },
+    {
+      "path": "meshes/rs02_bearing_mount__4.part",
+      "bytes": 398,
+      "sha256": "3b55a1d270705d59eaa3a2eff92f0572513ea7c255d8d176ff48994c67bfc9a1"
+    },
+    {
+      "path": "meshes/rs02_bearing_mount__4.stl",
+      "bytes": 368584,
+      "sha256": "e09be0758bf486f50df6cc52fe471df178974042b3d3ee730d9869c026711704"
+    }
+  ]
+}

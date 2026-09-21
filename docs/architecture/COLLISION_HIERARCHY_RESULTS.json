@@ -1,0 +1,855 @@
+{
+  "schema_version": 1,
+  "recorded_date": "2026-09-20 EDT",
+  "seed": 20260920,
+  "identical_baseline_poses_verified": true,
+  "physical_validation": false,
+  "real_time_qualified": false,
+  "tests": {
+    "desktop_python": 92,
+    "jetson_python": 92,
+    "rust_each_host": 5,
+    "javascript": 6
+  },
+  "jetson_validation": {
+    "asset": "jetson-dev-01",
+    "serial": "1421225029686",
+    "platform": "Linux-5.15.148-tegra-aarch64-with-glibc2.35",
+    "started_at": "2026-09-21T01:28:19.863316+00:00",
+    "checkout": "/home/ltr/robot-platform-dev/checkouts/checkout-20260921T003916Z",
+    "source_update_sha256": "1d6ed756a94aa27b708461748cb25adfefaf21620086eff7afa75761f171f8d2",
+    "collision_library_sha256": "9efc22fcb963561f358451d71b0b0ee64599eb92010f84941479872fbf3691b6",
+    "cpu_temp_start_millic": "42718",
+    "hardware_services_started": false,
+    "physical_validation": false,
+    "steps": [
+      {
+        "name": "python-tests",
+        "returncode": 0,
+        "elapsed_s": 7.715210571000171,
+        "command": [
+          "/home/ltr/robot-platform-dev/.venv/bin/python",
+          "-m",
+          "pytest",
+          "tests/unit/test_runtime_collision.py",
+          "tests/unit/test_model_viewer.py",
+          "tests/unit/test_collision.py",
+          "tests/contract/test_session_inproc.py",
+          "tests/contract/test_session_transport.py",
+          "-q"
+        ]
+      },
+      {
+        "name": "all",
+        "returncode": 0,
+        "elapsed_s": 144.79317738699956,
+        "command": [
+          "/home/ltr/robot-platform-dev/.venv/bin/python",
+          "scripts/benchmark_collision.py",
+          "--model",
+          "urdf/minerva/model.json",
+          "--output",
+          "/home/ltr/robot-platform-dev/checkouts/checkout-20260921T003916Z/simulation_runs/collision-hierarchy-20260921/all.json",
+          "--scope",
+          "all",
+          "--samples",
+          "1000",
+          "--threshold",
+          "0",
+          "--reference-samples",
+          "100",
+          "--audit-samples",
+          "100"
+        ]
+      },
+      {
+        "name": "inter-branch",
+        "returncode": 0,
+        "elapsed_s": 38.61604326500037,
+        "command": [
+          "/home/ltr/robot-platform-dev/.venv/bin/python",
+          "scripts/benchmark_collision.py",
+          "--model",
+          "urdf/minerva/model.json",
+          "--output",
+          "/home/ltr/robot-platform-dev/checkouts/checkout-20260921T003916Z/simulation_runs/collision-hierarchy-20260921/inter-branch.json",
+          "--scope",
+          "inter_branch",
+          "--samples",
+          "1000",
+          "--threshold",
+          "0",
+          "--reference-samples",
+          "100",
+          "--audit-samples",
+          "100"
+        ]
+      },
+      {
+        "name": "inter-branch-clearance",
+        "returncode": 0,
+        "elapsed_s": 22.529210404999503,
+        "command": [
+          "/home/ltr/robot-platform-dev/.venv/bin/python",
+          "scripts/benchmark_collision.py",
+          "--model",
+          "urdf/minerva/model.json",
+          "--output",
+          "/home/ltr/robot-platform-dev/checkouts/checkout-20260921T003916Z/simulation_runs/collision-hierarchy-20260921/inter-branch-clearance.json",
+          "--scope",
+          "inter_branch",
+          "--samples",
+          "100",
+          "--threshold",
+          "0.005",
+          "--reference-samples",
+          "100",
+          "--audit-samples",
+          "0"
+        ]
+      }
+    ],
+    "finished_at": "2026-09-21T01:31:53.527362+00:00",
+    "cpu_temp_end_millic": "43437",
+    "power_mode": "NV Power Mode: 25W\n1"
+  },
+  "runs": {
+    "desktop_all": {
+      "model_revision": "5e38f13e4e1882cc352df2078f57f94edf2e6aa3b999f0e8d983fdc27f43c2e9",
+      "collision_policy_revision": "e47e2676835408ee539241a497e8b5308eb6f468cb6c86b34a00b3afcd2ca03c",
+      "query_scope": "all",
+      "whole_robot_checked": true,
+      "threshold_m": 0.0,
+      "native": {
+        "samples": 1000,
+        "p50_ms": 16.36960000905674,
+        "p95_ms": 22.11310000711819,
+        "p99_ms": 26.310809990682166,
+        "maximum_ms": 54.46070001926273,
+        "over_10ms": 1000,
+        "over_40ms": 3
+      },
+      "native_compact": {
+        "samples": 1000,
+        "p50_ms": 16.28004999656696,
+        "p95_ms": 22.04905999242328,
+        "p99_ms": 27.501314995752182,
+        "maximum_ms": 84.31489998474717,
+        "over_10ms": 1000,
+        "over_40ms": 1
+      },
+      "fcl_reference": {
+        "samples": 100,
+        "p50_ms": 19.59559999522753,
+        "p95_ms": 23.991699979524128,
+        "p99_ms": 26.226254998473465,
+        "maximum_ms": 28.756200015777722,
+        "over_10ms": 100,
+        "over_40ms": 0
+      },
+      "source_audit": {
+        "samples": 100,
+        "p50_ms": 24.082449992420152,
+        "p95_ms": 31.786164990626276,
+        "p99_ms": 34.6751529959147,
+        "maximum_ms": 37.04649998690002,
+        "over_10ms": 100,
+        "over_40ms": 0
+      },
+      "stage_timings": {
+        "transforms": {
+          "samples": 1000,
+          "p50_ms": 0.6379499973263592,
+          "p95_ms": 1.116730003559496,
+          "p99_ms": 1.473490014031995,
+          "maximum_ms": 2.4519000144209713,
+          "over_10ms": 0,
+          "over_40ms": 0
+        },
+        "coarse": {
+          "samples": 1000,
+          "p50_ms": 0.3873000096064061,
+          "p95_ms": 0.6887099778396077,
+          "p99_ms": 0.8475390195962971,
+          "maximum_ms": 3.8803000061307102,
+          "over_10ms": 0,
+          "over_40ms": 0
+        },
+        "fine": {
+          "samples": 1000,
+          "p50_ms": 15.120850002858788,
+          "p95_ms": 20.46479497657856,
+          "p99_ms": 25.059003002243116,
+          "maximum_ms": 52.9343000089284,
+          "over_10ms": 1000,
+          "over_40ms": 3
+        }
+      },
+      "counters": {
+        "eligible_pairs": {
+          "mean": 3864.0,
+          "maximum": 3864
+        },
+        "group_tests": {
+          "mean": 5.0,
+          "maximum": 5
+        },
+        "group_rejections": {
+          "mean": 0.527,
+          "maximum": 1
+        },
+        "link_tests": {
+          "mean": 102.272,
+          "maximum": 136
+        },
+        "link_rejections": {
+          "mean": 74.59,
+          "maximum": 113
+        },
+        "part_aabb_tests": {
+          "mean": 727.385,
+          "maximum": 1494
+        },
+        "convex_tests": {
+          "mean": 219.756,
+          "maximum": 352
+        },
+        "candidate_pairs": {
+          "mean": 111.494,
+          "maximum": 189
+        },
+        "fcl_collision_tests": {
+          "mean": 111.493,
+          "maximum": 189
+        },
+        "fcl_distance_tests": {
+          "mean": 0.0,
+          "maximum": 0
+        }
+      },
+      "reference_pose_by_scope": {
+        "inter_branch": {
+          "candidates": 0,
+          "contacts": 0
+        },
+        "within_branch": {
+          "candidates": 92,
+          "contacts": 39
+        },
+        "body": {
+          "candidates": 12,
+          "contacts": 3
+        },
+        "environment": {
+          "candidates": 0,
+          "contacts": 0
+        }
+      },
+      "reference_pose_counters": {
+        "eligible_pairs": 3864,
+        "group_tests": 5,
+        "group_rejections": 1,
+        "link_tests": 72,
+        "link_rejections": 50,
+        "part_aabb_tests": 562,
+        "convex_tests": 148,
+        "candidate_pairs": 104,
+        "fcl_collision_tests": 103,
+        "fcl_distance_tests": 0
+      },
+      "raw_report": "simulation_runs/collision-hierarchy/desktop-all.json",
+      "report_sha256": "037dcb82a49645d35e201ef96e5080aef14e1f4e424870dd27a568e5952408de",
+      "reference_disagreements": 0,
+      "missed_source_contacts": 0,
+      "extra_source_contacts": 0
+    },
+    "desktop_inter_branch": {
+      "model_revision": "5e38f13e4e1882cc352df2078f57f94edf2e6aa3b999f0e8d983fdc27f43c2e9",
+      "collision_policy_revision": "e47e2676835408ee539241a497e8b5308eb6f468cb6c86b34a00b3afcd2ca03c",
+      "query_scope": "inter_branch",
+      "whole_robot_checked": false,
+      "threshold_m": 0.0,
+      "native": {
+        "samples": 1000,
+        "p50_ms": 0.4975500050932169,
+        "p95_ms": 1.2925599934533225,
+        "p99_ms": 2.0690640059183347,
+        "maximum_ms": 19.765700009884313,
+        "over_10ms": 1,
+        "over_40ms": 0
+      },
+      "native_compact": {
+        "samples": 1000,
+        "p50_ms": 0.4886999959126115,
+        "p95_ms": 1.3708649828913613,
+        "p99_ms": 2.2402630021679215,
+        "maximum_ms": 4.538599983789027,
+        "over_10ms": 0,
+        "over_40ms": 0
+      },
+      "fcl_reference": {
+        "samples": 100,
+        "p50_ms": 1.1922500125365332,
+        "p95_ms": 2.4231199975474733,
+        "p99_ms": 2.7695239961031004,
+        "maximum_ms": 4.940000013448298,
+        "over_10ms": 0,
+        "over_40ms": 0
+      },
+      "source_audit": {
+        "samples": 100,
+        "p50_ms": 3.258500000811182,
+        "p95_ms": 5.61137999029597,
+        "p99_ms": 7.490797001228219,
+        "maximum_ms": 10.816900001373142,
+        "over_10ms": 1,
+        "over_40ms": 0
+      },
+      "stage_timings": {
+        "transforms": {
+          "samples": 1000,
+          "p50_ms": 0.43960000039078295,
+          "p95_ms": 0.5773649972979906,
+          "p99_ms": 0.894227995013352,
+          "maximum_ms": 3.81659998674877,
+          "over_10ms": 0,
+          "over_40ms": 0
+        },
+        "coarse": {
+          "samples": 1000,
+          "p50_ms": 0.03239999932702631,
+          "p95_ms": 0.09002501465147358,
+          "p99_ms": 0.1297469981363974,
+          "maximum_ms": 0.8712999988347292,
+          "over_10ms": 0,
+          "over_40ms": 0
+        },
+        "fine": {
+          "samples": 1000,
+          "p50_ms": 0.008300004992634058,
+          "p95_ms": 0.6814599779318082,
+          "p99_ms": 1.2829110148595642,
+          "maximum_ms": 19.112300011329353,
+          "over_10ms": 1,
+          "over_40ms": 0
+        }
+      },
+      "counters": {
+        "eligible_pairs": {
+          "mean": 1764.0,
+          "maximum": 1764
+        },
+        "group_tests": {
+          "mean": 1.0,
+          "maximum": 1
+        },
+        "group_rejections": {
+          "mean": 0.527,
+          "maximum": 1
+        },
+        "link_tests": {
+          "mean": 30.272,
+          "maximum": 64
+        },
+        "link_rejections": {
+          "mean": 29.063,
+          "maximum": 64
+        },
+        "part_aabb_tests": {
+          "mean": 38.219,
+          "maximum": 559
+        },
+        "convex_tests": {
+          "mean": 4.821,
+          "maximum": 116
+        },
+        "candidate_pairs": {
+          "mean": 2.14,
+          "maximum": 79
+        },
+        "fcl_collision_tests": {
+          "mean": 2.14,
+          "maximum": 79
+        },
+        "fcl_distance_tests": {
+          "mean": 0.0,
+          "maximum": 0
+        }
+      },
+      "reference_pose_by_scope": {
+        "inter_branch": {
+          "candidates": 0,
+          "contacts": 0
+        },
+        "within_branch": {
+          "candidates": 0,
+          "contacts": 0
+        },
+        "body": {
+          "candidates": 0,
+          "contacts": 0
+        },
+        "environment": {
+          "candidates": 0,
+          "contacts": 0
+        }
+      },
+      "reference_pose_counters": {
+        "eligible_pairs": 1764,
+        "group_tests": 1,
+        "group_rejections": 1,
+        "link_tests": 0,
+        "link_rejections": 0,
+        "part_aabb_tests": 0,
+        "convex_tests": 0,
+        "candidate_pairs": 0,
+        "fcl_collision_tests": 0,
+        "fcl_distance_tests": 0
+      },
+      "raw_report": "simulation_runs/collision-hierarchy/desktop-inter-branch.json",
+      "report_sha256": "a2f9c385f97bcb8a9cc17c639ebaa7e9cf9067efa9d2229b2a668e6cf3b30024",
+      "reference_disagreements": 0,
+      "missed_source_contacts": 0,
+      "extra_source_contacts": 0
+    },
+    "jetson_all": {
+      "model_revision": "5e38f13e4e1882cc352df2078f57f94edf2e6aa3b999f0e8d983fdc27f43c2e9",
+      "collision_policy_revision": "e47e2676835408ee539241a497e8b5308eb6f468cb6c86b34a00b3afcd2ca03c",
+      "query_scope": "all",
+      "whole_robot_checked": true,
+      "threshold_m": 0.0,
+      "native": {
+        "samples": 1000,
+        "p50_ms": 48.73719599981996,
+        "p95_ms": 57.671218049654264,
+        "p99_ms": 67.17789004992483,
+        "maximum_ms": 76.7244339995159,
+        "over_10ms": 1000,
+        "over_40ms": 1000
+      },
+      "native_compact": {
+        "samples": 1000,
+        "p50_ms": 48.39281599970491,
+        "p95_ms": 57.45294854996245,
+        "p99_ms": 67.13597206013219,
+        "maximum_ms": 76.87655900008394,
+        "over_10ms": 1000,
+        "over_40ms": 1000
+      },
+      "fcl_reference": {
+        "samples": 100,
+        "p50_ms": 58.365022000089084,
+        "p95_ms": 66.72199270064993,
+        "p99_ms": 69.80120404059566,
+        "maximum_ms": 78.34025499960262,
+        "over_10ms": 100,
+        "over_40ms": 100
+      },
+      "source_audit": {
+        "samples": 100,
+        "p50_ms": 75.38842550047775,
+        "p95_ms": 83.20767079976576,
+        "p99_ms": 86.68240051027175,
+        "maximum_ms": 96.94043500076077,
+        "over_10ms": 100,
+        "over_40ms": 100
+      },
+      "stage_timings": {
+        "transforms": {
+          "samples": 1000,
+          "p50_ms": 2.397892499629961,
+          "p95_ms": 2.488594250189635,
+          "p99_ms": 2.767462600249928,
+          "maximum_ms": 3.0276930001491564,
+          "over_10ms": 0,
+          "over_40ms": 0
+        },
+        "coarse": {
+          "samples": 1000,
+          "p50_ms": 1.2147429997639847,
+          "p95_ms": 1.4042076993973749,
+          "p99_ms": 1.5325201504674624,
+          "maximum_ms": 1.8832570003723959,
+          "over_10ms": 0,
+          "over_40ms": 0
+        },
+        "fine": {
+          "samples": 1000,
+          "p50_ms": 44.64326349989278,
+          "p95_ms": 53.60681400002249,
+          "p99_ms": 63.19074179004019,
+          "maximum_ms": 72.63187300031859,
+          "over_10ms": 1000,
+          "over_40ms": 926
+        }
+      },
+      "counters": {
+        "eligible_pairs": {
+          "mean": 3864.0,
+          "maximum": 3864
+        },
+        "group_tests": {
+          "mean": 5.0,
+          "maximum": 5
+        },
+        "group_rejections": {
+          "mean": 0.527,
+          "maximum": 1
+        },
+        "link_tests": {
+          "mean": 102.272,
+          "maximum": 136
+        },
+        "link_rejections": {
+          "mean": 74.59,
+          "maximum": 113
+        },
+        "part_aabb_tests": {
+          "mean": 727.385,
+          "maximum": 1494
+        },
+        "convex_tests": {
+          "mean": 219.756,
+          "maximum": 352
+        },
+        "candidate_pairs": {
+          "mean": 111.494,
+          "maximum": 189
+        },
+        "fcl_collision_tests": {
+          "mean": 111.493,
+          "maximum": 189
+        },
+        "fcl_distance_tests": {
+          "mean": 0.0,
+          "maximum": 0
+        }
+      },
+      "reference_pose_by_scope": {
+        "inter_branch": {
+          "candidates": 0,
+          "contacts": 0
+        },
+        "within_branch": {
+          "candidates": 92,
+          "contacts": 39
+        },
+        "body": {
+          "candidates": 12,
+          "contacts": 3
+        },
+        "environment": {
+          "candidates": 0,
+          "contacts": 0
+        }
+      },
+      "reference_pose_counters": {
+        "eligible_pairs": 3864,
+        "group_tests": 5,
+        "group_rejections": 1,
+        "link_tests": 72,
+        "link_rejections": 50,
+        "part_aabb_tests": 562,
+        "convex_tests": 148,
+        "candidate_pairs": 104,
+        "fcl_collision_tests": 103,
+        "fcl_distance_tests": 0
+      },
+      "raw_report": "simulation_runs/collision-hierarchy/collision-hierarchy-20260921/all.json",
+      "report_sha256": "4e69fc56e941e44e6dd6b42637febcfd359ea4d9c938b80871144aea0f033852",
+      "reference_disagreements": 0,
+      "missed_source_contacts": 0,
+      "extra_source_contacts": 0
+    },
+    "jetson_inter_branch": {
+      "model_revision": "5e38f13e4e1882cc352df2078f57f94edf2e6aa3b999f0e8d983fdc27f43c2e9",
+      "collision_policy_revision": "e47e2676835408ee539241a497e8b5308eb6f468cb6c86b34a00b3afcd2ca03c",
+      "query_scope": "inter_branch",
+      "whole_robot_checked": false,
+      "threshold_m": 0.0,
+      "native": {
+        "samples": 1000,
+        "p50_ms": 1.955916000497382,
+        "p95_ms": 4.372673550005857,
+        "p99_ms": 6.659364150727924,
+        "maximum_ms": 70.23540399950434,
+        "over_10ms": 3,
+        "over_40ms": 1
+      },
+      "native_compact": {
+        "samples": 1000,
+        "p50_ms": 1.9309110002723173,
+        "p95_ms": 4.261973049506194,
+        "p99_ms": 6.304314729923134,
+        "maximum_ms": 11.680290999720455,
+        "over_10ms": 2,
+        "over_40ms": 0
+      },
+      "fcl_reference": {
+        "samples": 100,
+        "p50_ms": 4.185945500012167,
+        "p95_ms": 6.527178199894478,
+        "p99_ms": 9.685290579773232,
+        "maximum_ms": 14.292609999756678,
+        "over_10ms": 1,
+        "over_40ms": 0
+      },
+      "source_audit": {
+        "samples": 100,
+        "p50_ms": 12.384053499772563,
+        "p95_ms": 15.18235554972307,
+        "p99_ms": 18.15370556031669,
+        "maximum_ms": 23.122274000343168,
+        "over_10ms": 100,
+        "over_40ms": 0
+      },
+      "stage_timings": {
+        "transforms": {
+          "samples": 1000,
+          "p50_ms": 1.7283234997194086,
+          "p95_ms": 1.8465117999312497,
+          "p99_ms": 1.90124788949106,
+          "maximum_ms": 69.49404100032552,
+          "over_10ms": 1,
+          "over_40ms": 1
+        },
+        "coarse": {
+          "samples": 1000,
+          "p50_ms": 0.1454235002711357,
+          "p95_ms": 0.31114360044739436,
+          "p99_ms": 0.3959212995687267,
+          "maximum_ms": 0.5519240003195591,
+          "over_10ms": 0,
+          "over_40ms": 0
+        },
+        "fine": {
+          "samples": 1000,
+          "p50_ms": 0.03293899953860091,
+          "p95_ms": 2.215752199344933,
+          "p99_ms": 4.203468480491208,
+          "maximum_ms": 9.905701999741723,
+          "over_10ms": 0,
+          "over_40ms": 0
+        }
+      },
+      "counters": {
+        "eligible_pairs": {
+          "mean": 1764.0,
+          "maximum": 1764
+        },
+        "group_tests": {
+          "mean": 1.0,
+          "maximum": 1
+        },
+        "group_rejections": {
+          "mean": 0.527,
+          "maximum": 1
+        },
+        "link_tests": {
+          "mean": 30.272,
+          "maximum": 64
+        },
+        "link_rejections": {
+          "mean": 29.063,
+          "maximum": 64
+        },
+        "part_aabb_tests": {
+          "mean": 38.219,
+          "maximum": 559
+        },
+        "convex_tests": {
+          "mean": 4.821,
+          "maximum": 116
+        },
+        "candidate_pairs": {
+          "mean": 2.14,
+          "maximum": 79
+        },
+        "fcl_collision_tests": {
+          "mean": 2.14,
+          "maximum": 79
+        },
+        "fcl_distance_tests": {
+          "mean": 0.0,
+          "maximum": 0
+        }
+      },
+      "reference_pose_by_scope": {
+        "inter_branch": {
+          "candidates": 0,
+          "contacts": 0
+        },
+        "within_branch": {
+          "candidates": 0,
+          "contacts": 0
+        },
+        "body": {
+          "candidates": 0,
+          "contacts": 0
+        },
+        "environment": {
+          "candidates": 0,
+          "contacts": 0
+        }
+      },
+      "reference_pose_counters": {
+        "eligible_pairs": 1764,
+        "group_tests": 1,
+        "group_rejections": 1,
+        "link_tests": 0,
+        "link_rejections": 0,
+        "part_aabb_tests": 0,
+        "convex_tests": 0,
+        "candidate_pairs": 0,
+        "fcl_collision_tests": 0,
+        "fcl_distance_tests": 0
+      },
+      "raw_report": "simulation_runs/collision-hierarchy/collision-hierarchy-20260921/inter-branch.json",
+      "report_sha256": "aad0978397a18537f1ad6e10fbeee2afef3cb661477f1b65ffb9751c1c37d66f",
+      "reference_disagreements": 0,
+      "missed_source_contacts": 0,
+      "extra_source_contacts": 0
+    },
+    "jetson_inter_branch_clearance_5mm": {
+      "model_revision": "5e38f13e4e1882cc352df2078f57f94edf2e6aa3b999f0e8d983fdc27f43c2e9",
+      "collision_policy_revision": "e47e2676835408ee539241a497e8b5308eb6f468cb6c86b34a00b3afcd2ca03c",
+      "query_scope": "inter_branch",
+      "whole_robot_checked": false,
+      "threshold_m": 0.005,
+      "native": {
+        "samples": 100,
+        "p50_ms": 1.9925100000364182,
+        "p95_ms": 13.91687070058651,
+        "p99_ms": 41.76153961994737,
+        "maximum_ms": 85.2538849994744,
+        "over_10ms": 6,
+        "over_40ms": 2
+      },
+      "native_compact": {
+        "samples": 100,
+        "p50_ms": 2.0010864996038435,
+        "p95_ms": 13.577441950110366,
+        "p99_ms": 39.63911919970997,
+        "maximum_ms": 39.873075999821594,
+        "over_10ms": 6,
+        "over_40ms": 0
+      },
+      "fcl_reference": {
+        "samples": 100,
+        "p50_ms": 4.583828500017262,
+        "p95_ms": 67.68269975013935,
+        "p99_ms": 127.69213218977754,
+        "maximum_ms": 211.54544799992436,
+        "over_10ms": 19,
+        "over_40ms": 13
+      },
+      "source_audit": null,
+      "stage_timings": {
+        "transforms": {
+          "samples": 100,
+          "p50_ms": 1.766063500326709,
+          "p95_ms": 2.01691774941537,
+          "p99_ms": 2.4654335803370517,
+          "maximum_ms": 3.098695000517182,
+          "over_10ms": 0,
+          "over_40ms": 0
+        },
+        "coarse": {
+          "samples": 100,
+          "p50_ms": 0.1497210005254601,
+          "p95_ms": 0.3903133494532085,
+          "p99_ms": 0.4302947103496999,
+          "maximum_ms": 0.598467000600067,
+          "over_10ms": 0,
+          "over_40ms": 0
+        },
+        "fine": {
+          "samples": 100,
+          "p50_ms": 0.03317700020488701,
+          "p95_ms": 11.424402749616997,
+          "p99_ms": 39.07176349919632,
+          "maximum_ms": 82.80288500009192,
+          "over_10ms": 6,
+          "over_40ms": 1
+        }
+      },
+      "counters": {
+        "eligible_pairs": {
+          "mean": 1764.0,
+          "maximum": 1764
+        },
+        "group_tests": {
+          "mean": 1.0,
+          "maximum": 1
+        },
+        "group_rejections": {
+          "mean": 0.47,
+          "maximum": 1
+        },
+        "link_tests": {
+          "mean": 33.92,
+          "maximum": 64
+        },
+        "link_rejections": {
+          "mean": 32.52,
+          "maximum": 64
+        },
+        "part_aabb_tests": {
+          "mean": 42.41,
+          "maximum": 559
+        },
+        "convex_tests": {
+          "mean": 5.65,
+          "maximum": 110
+        },
+        "candidate_pairs": {
+          "mean": 2.06,
+          "maximum": 40
+        },
+        "fcl_collision_tests": {
+          "mean": 2.06,
+          "maximum": 40
+        },
+        "fcl_distance_tests": {
+          "mean": 0.76,
+          "maximum": 18
+        }
+      },
+      "reference_pose_by_scope": {
+        "inter_branch": {
+          "candidates": 0,
+          "contacts": 0
+        },
+        "within_branch": {
+          "candidates": 0,
+          "contacts": 0
+        },
+        "body": {
+          "candidates": 0,
+          "contacts": 0
+        },
+        "environment": {
+          "candidates": 0,
+          "contacts": 0
+        }
+      },
+      "reference_pose_counters": {
+        "eligible_pairs": 1764,
+        "group_tests": 1,
+        "group_rejections": 1,
+        "link_tests": 0,
+        "link_rejections": 0,
+        "part_aabb_tests": 0,
+        "convex_tests": 0,
+        "candidate_pairs": 0,
+        "fcl_collision_tests": 0,
+        "fcl_distance_tests": 0
+      },
+      "raw_report": "simulation_runs/collision-hierarchy/collision-hierarchy-20260921/inter-branch-clearance.json",
+      "report_sha256": "e54ac523cf0e59c8e2b84a391f89f57c78ad10b012740978af2dbe58ac1fa91f",
+      "reference_disagreements": 0,
+      "missed_source_contacts": 0,
+      "extra_source_contacts": 0
+    }
+  }
+}

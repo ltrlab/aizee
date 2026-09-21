@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "version_name": "URDF 1.2 No Holes",
+  "kinematic_structure_passed": true,
+  "physical_model_validated": false,
+  "joint_changes": [],
+  "link_mapping": {
+    "ikea_desk_leg": "ikea_desk_leg",
+    "carriage_lwl7b": "carriage_lwl7b",
+    "carriage_lwl7b_2": "carriage_lwl7b_2",
+    "1_1_02_eb571_960_stp": "linearrail_lwl7b_100mm",
+    "part_42": "part_42",
+    "part_73": "part_73",
+    "42x30x7mm_bearing": "42x30x7mm_bearing",
+    "part_66": "part_66",
+    "bearing": "bearing",
+    "carriage_lwl7b_3": "carriage_lwl7b_3",
+    "carriage_lwl7b_4": "carriage_lwl7b_4",
+    "1_1_02_eb571_960_stp_2": "linearrail_lwl7b_100mm_2",
+    "part_42_2": "part_42_2",
+    "part_73_2": "part_73_2",
+    "42x30x7mm_bearing_2": "42x30x7mm_bearing_2",
+    "part_66_2": "part_66_2",
+    "bearing_2": "bearing_2"
+  },
+  "poses_compared": 100,
+  "missing_nonadjacent_link_cases": 0,
+  "missing_retained_part_contact_cases": 1,
+  "extra_retained_part_contact_cases": 0,
+  "changed_contact": {
+    "sample": 49,
+    "parts": [
+      "RB03 OUTPUT <2>",
+      "Part 66 <2>"
+    ],
+    "new_gap_m": 0.0006309590917674036,
+    "positions": {
+      "right_gripper_finger_a_slide": -0.04626661629978561,
+      "right_arm_j6": -0.8360527059483567,
+      "right_arm_j5": -0.18804903202363077,
+      "right_arm_j4": 1.6215527508489584,
+      "right_arm_j3": 1.7053453934875025,
+      "right_arm_j2": -1.4068215524608343,
+      "right_arm_j1": -1.5419185986052721,
+      "left_gripper_finger_a_slide": 0.021440069975648658,
+      "left_arm_j6": -0.45774509188965473,
+      "left_arm_j5": -1.0307045434334112,
+      "left_arm_j4": 0.3269849389472017,
+      "left_arm_j3": 0.37378679177989804,
+      "left_arm_j2": 1.4085104557081483,
+      "left_arm_j1": -0.4476671358871904
+    }
+  },
+  "changed_contact_note": "Other shape contacts retain the colliding link pair in this pose. This is a geometry review item, not proof of conservatism.",
+  "limit_sweep": {
+    "samples": 2994,
+    "intervals_unchanged": 14,
+    "status": "awaiting_visual_review"
+  },
+  "benchmark": {
+    "model_id": "minerva",
+    "model_revision": "5e38f13e4e1882cc352df2078f57f94edf2e6aa3b999f0e8d983fdc27f43c2e9",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "processor": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel",
+    "seed": 20260920,
+    "threshold_m": 0.0,
+    "geometry_basis": "source_cad",
+    "backend": "parry-bounds+fcl-cad",
+    "source_triangles": 916832,
+    "proxy_triangles": 8372,
+    "native": {
+      "samples": 1000,
+      "p50_ms": 23.167599996668287,
+      "p95_ms": 30.709069984732196,
+      "p99_ms": 35.21255799889332,
+      "maximum_ms": 54.54349998035468,
+      "over_10ms": 1000
+    },
+    "native_compact": {
+      "samples": 1000,
+      "p50_ms": 23.900200001662597,
+      "p95_ms": 31.346239999402314,
+      "p99_ms": 35.739748988999054,
+      "maximum_ms": 46.7787999950815,
+      "over_10ms": 1000
+    },
+    "fcl_reference": {
+      "samples": 100,
+      "p50_ms": 28.48844999971334,
+      "p95_ms": 37.1514900092734,
+      "p99_ms": 39.47668099455769,
+      "maximum_ms": 40.82120000384748,
+      "over_10ms": 100
+    },
+    "reference_disagreements": [],
+    "missed_source_contacts": [],
+    "extra_source_contacts": [],
+    "source_audit": {
+      "samples": 100,
+      "p50_ms": 26.050350003060885,
+      "p95_ms": 34.86394999054028,
+      "p99_ms": 40.20653101120843,
+      "maximum_ms": 41.694600018672645,
+      "over_10ms": 100
+    },
+    "reference_pose_candidates": 104,
+    "reference_pose_contacts": 42,
+    "physical_validation": false
+  },
+  "same_benchmark_poses_as_previous": true
+}

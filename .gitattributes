@@ -1,7 +1,22 @@
 urdf/*/meshes/*.stl filter=lfs diff=lfs merge=lfs -text
+urdf/*/meshes/*.gltf filter=lfs diff=lfs merge=lfs -text
+urdf/minerva/onshape-to-robot/meshes/*.stl filter=lfs diff=lfs merge=lfs -text
+urdf/minerva/collision-v1.2/meshes/*.stl filter=lfs diff=lfs merge=lfs -text
+# Model revisions/manifests hash exact CAD bytes on Windows and Linux.
+urdf/**/*.urdf -text whitespace=cr-at-eol
+urdf/**/*.part -text whitespace=cr-at-eol
+urdf/minerva/collision-v1.2/config.json -text
+# Preserve raw export bytes used by the Minerva source manifest.
+urdf/minerva/urdf/minerva_urdf.urdf -text
+urdf/minerva/launch/minerva_urdf.launch -text
+urdf/minerva/onshape-to-robot/minerva.urdf -text whitespace=cr-at-eol
+urdf/minerva/onshape-to-robot/config.json -text
+urdf/minerva/onshape-to-robot/expected_joints.json -text
 # Shell scripts and Linux-consumed configs must stay LF — they are executed on
 # the Jetson (and by git-bash); CRLF breaks shebangs and systemd parsing.
 *.sh text eol=lf
 scripts/aizee-reset-usb-can text eol=lf
 config/systemd/* text eol=lf
 config/udev/*.rules text eol=lf
+# Preserve the vendored upstream source checksums across Windows checkouts.
+src/robot_platform/viewer/static/vendor/* text eol=lf -whitespace

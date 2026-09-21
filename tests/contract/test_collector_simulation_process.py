@@ -55,7 +55,11 @@ def test_real_collector_connects_without_hardware_and_shuts_down(robot, tmp_path
     monkeypatch.setattr("robot_platform.simulation.server.source_identity", lambda: {"test": True})
     with ProtocolServer(robot, tmp_path / robot) as server:
         server.settings["applications"]["collect"]["gui"] = False
-        plan = build_launch_plan(server.spec, server.settings, "collect", repo=REPO)
+        # The Aizee collector otherwise starts a Rerun viewer even with GUI off.
+        # This smoke test exercises the session lifecycle without an external UI.
+        extra_args = ["--no-rerun"] if robot == "aizee" else []
+        plan = build_launch_plan(server.spec, server.settings, "collect", repo=REPO,
+                                 extra_args=extra_args)
         env = {**os.environ, "ROBOT_PLATFORM_SETTINGS_JSON": plan.settings_json,
                "SMOKE_ARGV": json.dumps(plan.argv[1:]), "PYTHONIOENCODING": "utf-8",
                "SDL_VIDEODRIVER": "dummy", "SDL_AUDIODRIVER": "dummy"}

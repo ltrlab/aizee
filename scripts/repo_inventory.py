@@ -20,10 +20,12 @@ OUT = ROOT / "docs" / "architecture"
 # Order matters: specific exceptions precede directory-wide classifications.
 AREAS = {
     "vendor": ("Vendored OpenRB board support", "third_party/openrb150_bsp/"),
-    "robot_assets": ("Aizee robot model and meshes", "robots/aizee/assets/"),
+    "viewer_vendor": ("Pinned Three.js browser rendering dependency", "src/robot_platform/viewer/static/vendor/ (current)"),
+    "robot_assets": ("Robot model sources, meshes and import audits", "urdf/<robot>/ (current)"),
     "rust_control": ("Shared Rust motor backend; morphology assumptions remain", "crates/motor_control/"),
     "rust_comms": ("Shared Rust wire protocol", "crates/comms/"),
     "rust_lidar": ("Reusable LiDAR driver; optional rover service", "crates/lidar_control/"),
+    "rust_collision": ("Shared native collision and keep-out queries", "rust/collision/ (current)"),
     "rust_workspace": ("Rust workspace metadata", "Cargo.toml at repository root"),
     "platform": ("Implemented shared Python package", "src/robot_platform/ (current)"),
     "settings": ("Shared application and bench settings examples", "settings/examples/ (current)"),
@@ -53,6 +55,8 @@ AREAS = {
 
 
 def area(p: str) -> str:
+    if p.startswith("src/robot_platform/viewer/static/vendor/"):
+        return "viewer_vendor"
     if p.startswith("src/robot_platform/"):
         return "platform"
     if p.startswith("settings/"):
@@ -65,7 +69,7 @@ def area(p: str) -> str:
         return "robot_assets"
     if p.startswith("rust/"):
         for name, key in (("motor_control", "rust_control"), ("comms", "rust_comms"),
-                          ("lidar_control", "rust_lidar")):
+                          ("lidar_control", "rust_lidar"), ("collision", "rust_collision")):
             if p.startswith(f"rust/{name}/"):
                 return key
         return "rust_workspace"
@@ -134,7 +138,7 @@ def main() -> None:
         entry = {"path": p, "area": area(p), "present": f.is_file()}
         if f.is_file() and p not in ("docs/architecture/repository_inventory.json", "docs/architecture/REPOSITORY_INVENTORY.md"):
             entry["working_tree_bytes"] = f.stat().st_size
-        if f.is_file() and f.suffix in (".py", ".rs", ".cpp", ".h", ".sh", ".js") and area(p) != "vendor":
+        if f.is_file() and f.suffix in (".py", ".rs", ".cpp", ".h", ".sh", ".js") and area(p) not in ("vendor", "viewer_vendor"):
             source = f.read_text(encoding="utf-8-sig")
             entry["lines"] = len(source.splitlines())
             if f.suffix == ".py":
@@ -196,7 +200,7 @@ def main() -> None:
         if not members:
             continue
         md += ["", f"### {desc}", "", f"Proposed area: `{target}`", ""]
-        if key in ("vendor", "robot_assets"):
+        if key in ("vendor", "viewer_vendor", "robot_assets"):
             md += [f"{len(members)} tracked files. See the JSON inventory for all paths."]
         else:
             for e in members:

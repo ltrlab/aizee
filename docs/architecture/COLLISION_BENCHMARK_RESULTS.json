@@ -1,0 +1,170 @@
+{
+  "date": "2026-09-19",
+  "test_environment": "Development Windows desktop; not a real-time-qualified host. Query timing excludes one-time geometry load.",
+  "tests": {
+    "python": 231,
+    "rust": 3,
+    "javascript": 5
+  },
+  "reports": [
+    {
+      "model_id": "minerva",
+      "model_revision": "dd575e4142f7daeefb788388f0d9cc15402b60ad1016293e5e504f43fac6c1b1",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "processor": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel",
+      "seed": 20260920,
+      "threshold_m": 0.0,
+      "geometry_basis": "source_cad",
+      "backend": "parry-bounds+fcl-cad",
+      "source_triangles": 2437466,
+      "proxy_triangles": 11868,
+      "native": {
+        "samples": 1000,
+        "p50_ms": 39.00564998912159,
+        "p95_ms": 58.94366001884918,
+        "p99_ms": 67.15338099777,
+        "maximum_ms": 76.3755000079982,
+        "over_10ms": 1000
+      },
+      "native_compact": {
+        "samples": 1000,
+        "p50_ms": 35.071999998763204,
+        "p95_ms": 50.808855005016085,
+        "p99_ms": 61.79854698304552,
+        "maximum_ms": 74.67110001016408,
+        "over_10ms": 1000
+      },
+      "fcl_reference": {
+        "samples": 100,
+        "p50_ms": 40.96840000420343,
+        "p95_ms": 57.677569991210476,
+        "p99_ms": 74.13795701984785,
+        "maximum_ms": 81.01419999729842,
+        "over_10ms": 100
+      },
+      "source_audit": {
+        "samples": 100,
+        "p50_ms": 41.048750004847534,
+        "p95_ms": 59.06719000049633,
+        "p99_ms": 65.44942401378653,
+        "maximum_ms": 74.59939998807386,
+        "over_10ms": 100
+      },
+      "reference_pose_candidates": 140,
+      "reference_pose_contacts": 42,
+      "reference_disagreements": [],
+      "missed_source_contacts": [],
+      "extra_source_contacts": [],
+      "physical_validation": false,
+      "collision_cad_version": "3DP URDF Version 1.1",
+      "active": false
+    },
+    {
+      "model_id": "aizee",
+      "model_revision": "1b68b571679ff0f6062539a5afb3795cf6d77f4b19d0f419e15825305b04eaec",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "processor": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel",
+      "seed": 20260920,
+      "threshold_m": 0.0,
+      "geometry_basis": "source_cad",
+      "backend": "parry-bounds+fcl-cad",
+      "source_triangles": 1380354,
+      "proxy_triangles": 8280,
+      "native": {
+        "samples": 1000,
+        "p50_ms": 21.13264999934472,
+        "p95_ms": 34.289175005687866,
+        "p99_ms": 42.50855299818795,
+        "maximum_ms": 50.23380002239719,
+        "over_10ms": 998
+      },
+      "native_compact": {
+        "samples": 1000,
+        "p50_ms": 17.008799986797385,
+        "p95_ms": 27.81207998486934,
+        "p99_ms": 34.275477983755984,
+        "maximum_ms": 40.74009999749251,
+        "over_10ms": 991
+      },
+      "fcl_reference": {
+        "samples": 100,
+        "p50_ms": 26.64199998253025,
+        "p95_ms": 38.47703999781515,
+        "p99_ms": 44.96745201089653,
+        "maximum_ms": 46.30909999832511,
+        "over_10ms": 100
+      },
+      "source_audit": {
+        "samples": 100,
+        "p50_ms": 17.312900017714128,
+        "p95_ms": 32.24834499269491,
+        "p99_ms": 34.223601007834155,
+        "maximum_ms": 49.25189999630675,
+        "over_10ms": 99
+      },
+      "reference_pose_candidates": 65,
+      "reference_pose_contacts": 8,
+      "reference_disagreements": [],
+      "missed_source_contacts": [],
+      "extra_source_contacts": [],
+      "physical_validation": false
+    },
+    {
+      "model_id": "minerva",
+      "model_revision": "5e38f13e4e1882cc352df2078f57f94edf2e6aa3b999f0e8d983fdc27f43c2e9",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "processor": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel",
+      "seed": 20260920,
+      "threshold_m": 0.0,
+      "geometry_basis": "source_cad",
+      "backend": "parry-bounds+fcl-cad",
+      "source_triangles": 916832,
+      "proxy_triangles": 8372,
+      "native": {
+        "samples": 1000,
+        "p50_ms": 23.167599996668287,
+        "p95_ms": 30.709069984732196,
+        "p99_ms": 35.21255799889332,
+        "maximum_ms": 54.54349998035468,
+        "over_10ms": 1000
+      },
+      "native_compact": {
+        "samples": 1000,
+        "p50_ms": 23.900200001662597,
+        "p95_ms": 31.346239999402314,
+        "p99_ms": 35.739748988999054,
+        "maximum_ms": 46.7787999950815,
+        "over_10ms": 1000
+      },
+      "fcl_reference": {
+        "samples": 100,
+        "p50_ms": 28.48844999971334,
+        "p95_ms": 37.1514900092734,
+        "p99_ms": 39.47668099455769,
+        "maximum_ms": 40.82120000384748,
+        "over_10ms": 100
+      },
+      "reference_disagreements": [],
+      "missed_source_contacts": [],
+      "extra_source_contacts": [],
+      "source_audit": {
+        "samples": 100,
+        "p50_ms": 26.050350003060885,
+        "p95_ms": 34.86394999054028,
+        "p99_ms": 40.20653101120843,
+        "maximum_ms": 41.694600018672645,
+        "over_10ms": 100
+      },
+      "reference_pose_candidates": 104,
+      "reference_pose_contacts": 42,
+      "physical_validation": false,
+      "collision_cad_version": "URDF 1.2 No Holes",
+      "active": true
+    }
+  ],
+  "latest_cad_validation": {
+    "python_tests": 45,
+    "scope": "composition, model viewer and runtime collisions",
+    "cad_version": "URDF 1.2 No Holes"
+  }
+}

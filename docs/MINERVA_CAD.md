@@ -1,41 +1,96 @@
-# Minerva CAD preparation
+# Minerva CAD handoff
 
-Updated 2026-09-19. This records preparation decisions, not an imported or
-validated mechanical model.
+Updated 2026-09-19. The active viewer now combines detailed 1.1 visuals with
+**URDF 1.2 No Holes collision geometry**. The 1.2 import used 185 requests in one
+retrieval; subsequent work ran offline. It reduces collision triangles from
+2,437,466 to 916,832 with unchanged joint coordinates. See the
+[1.2 import and validation](../urdf/minerva/collision-v1.2/README.md).
+
+The native export is retained as audited reference geometry.
+The intended `onshape-to-robot` export succeeded: 17 links, 12 arm revolutes,
+four jaw slides and two mimic relations. Native-export failures did not
+require rebuilding the source CAD joints or rigid groups.
 
 ## Source and export constraint
 
 [Minerva Onshape document](https://cad.onshape.com/documents/359ad50fa475851ee9487588/w/4683cfa4b62fbd0f36348cf6/e/f4466d56fce7b6028aae0a06)
-is the user-supplied source. Its `/w/` URL identifies a workspace; a specific
-export version has not been selected. The assembly has not been inspected or
-downloaded in this preparation step.
+is the user-supplied workspace. The detailed visual snapshot is
+[3DP URDF Version 1.1](https://cad.onshape.com/documents/359ad50fa475851ee9487588/v/38a2716bb2c6c1ebbe27c900/e/f4466d56fce7b6028aae0a06),
+assembly `minerva_urdf`. The 1.1 version was resolved by an authenticated version
+lookup and imported once after the user's left shoulder correction. The user
+supplied an earlier GLTF-based export in `urdf/minerva/` and confirmed it came
+from **1.0**. This historical native export is separate from
+the earlier STL export request. All 131 supplied files have source hashes;
+mesh resolution and the original archive checksum are unknown. See the
+[native import audit and exporter comparison](../urdf/minerva/README.md) and
+[source manifest](../urdf/minerva/source_manifest.json).
 
-The user has a free Onshape account and requested restraint with API access.
-Do not bulk-fetch the document, start background synchronization, or repeatedly
-run an API-backed exporter. Prefer user-provided manual exports where practical.
-Before a future API export, establish its scope and request budget; account
-quotas and exporter request counts have not been verified. Cache source files
-locally and perform subsequent mesh/model work offline.
+The user has a free Onshape account and explicitly authorized the intended
+API-backed `onshape-to-robot` workflow. Detailed 1.1 and simplified collision 1.2
+retrievals are complete. The latter is pinned to version
+`0e3aef4a909ae5843d82a11a`; its assembly element is unchanged. Preserve both caches
+and perform subsequent conversion and model work offline. Do not start background synchronization or
+repeat retrieval unnecessarily. The 1.1 retrieval used 519 network requests,
+plus one version lookup; account quotas have not been assumed. See the
+[export workflow](../urdf/minerva/onshape-to-robot/README.md).
 
-Current user-reported state:
+Current state:
 
-- Joint DOFs have not yet been named.
-- Gripper fingers are straight sliding jaws; their limits are not set.
-- Jaw stroke, coupling, drive ratio, motor zero and CAD-to-motor signs remain
-  unknown. Straight travel alone does not establish a symmetric mechanism.
+- The user reports CAD preparation complete and selected the version above.
+- All 129 GLTF meshes are available locally and load successfully.
+- The native-exported tree has 64 movable coordinates, six missing intended arm
+  names and six arm names exported as translation-plus-rotation pairs.
+  Native export did not preserve the intended articulated mechanism.
+- The user confirmed physical materials and mass overrides are not assigned.
+  Exported masses total only 25 g and imply density approximately 1 kg/m³.
+- Gripper fingers are straight sliding jaws, with 48.2 mm exported stroke per
+  jaw. Coupling, aperture, drive ratio, motor zero and CAD-to-motor signs remain
+  unverified. Straight travel alone does not establish a symmetric mechanism.
+
+## Intended export: onshape-to-robot
+
+To render and jog the local model, run `robot-platform view --robot minerva`.
+The [shared model viewer](MODEL_VIEWER.md) uses the same implementation for
+other robots; mechanical sliders do not command motors or apply calibration.
+
+Use the installed `onshape-to-robot` 1.8.2 against the selected frozen version,
+following the [export workflow](../urdf/minerva/onshape-to-robot/README.md).
+Retrieval and offline conversion are complete. The structural audit passes
+with zero errors/warnings. Source masses/inertias are all zero, and 12 source
+arm limits are absent; numerical exporter defaults are not physical values.
+The two jaw mimic relations are preserved. See the
+[manifest](../urdf/minerva/onshape-to-robot/source_manifest.json).
+
+The user selected independent measured limits for each arm and whole-robot
+collision checking during operation. Follow the
+[collision and limit calibration plan](architecture/COLLISION_AND_LIMIT_CALIBRATION.md)
+instead of treating the exporter's angular bounds as approved travel.
+
+The native URDF and `onshape-to-robot` interpret the assembly differently.
+The latter recognizes the `dof_` naming convention, treats Cylindrical mates
+as revolute joints, and merges rigid mate groups. Compare its output with the
+intended joint contract before requiring any source mate changes. The earlier
+blanket recommendation to rebuild the CAD mate graph is withdrawn.
+
+Retain the native GLTF export and audit as a separate reference. Preserve source
+checksums, export settings and tool versions for both outputs. Verify actual
+joint names, limits, frame signs and jaw coupling after conversion. Missing
+source materials/mass overrides remain an independent blocker for physical
+dynamics regardless of exporter. A STEP or mesh-only export does not supply
+the articulated joint model required for this handoff.
 
 ## Mate names
 
 Use these names on the moving mate features. The `dof_` convention is for the
 existing `onshape-to-robot` workflow: it produces robot joint names without that
-prefix; Slider mates produce prismatic joints and Revolute mates produce
-revolute joints. This is preparation only; no exporter is being run.
+prefix; Slider mates produce prismatic joints and Revolute or Cylindrical mates
+produce revolute joints. Native Onshape export must be checked separately.
 [Exporter naming reference](https://onshape-to-robot.readthedocs.io/en/latest/design.html).
 
 | CAD mate | Type | Meaning |
 |---|---|---|
-| `dof_left_arm_j1` through `dof_left_arm_j6` | Revolute | Left arm, matched to existing motor IDs 4 through 9 |
-| `dof_right_arm_j1` through `dof_right_arm_j6` | Revolute | Right arm, matched to existing motor IDs 4 through 9 |
+| `dof_left_arm_j1` through `dof_left_arm_j6` | Revolute or Cylindrical | Left arm rotation, matched to existing motor IDs 4 through 9 |
+| `dof_right_arm_j1` through `dof_right_arm_j6` | Revolute or Cylindrical | Right arm rotation, matched to existing motor IDs 4 through 9 |
 | `dof_left_gripper_finger_a_slide`, `dof_left_gripper_finger_b_slide` | Slider | Proposed names for the left gripper's two moving jaws |
 | `dof_right_gripper_finger_a_slide`, `dof_right_gripper_finger_b_slide` | Slider | Proposed names for the right gripper's two moving jaws |
 
@@ -54,6 +109,16 @@ coordinates are internal mechanics, not extra independently commanded motors.
 
 Reserved `head_pan`, `head_tilt` and `lift` remain inactive in software. Their
 presence in CAD must not activate routes or alter the 17-slot recording schema.
+
+### Rigid link groups
+
+Group mates are appropriate for parts that form one rigid link. Keep separate
+groups on opposite sides of every moving joint; grouping across a joint would
+remove its intended motion. The locally inspected `onshape-to-robot` 1.8.2
+implementation merges unsuppressed root-assembly mate groups into bodies.
+There is no need to rebuild working rigid groups solely because the design
+guide illustrates part/subassembly instances. Verify the actual export's link
+tree and aggregated mass properties, especially for nested assemblies.
 
 ## Setting limits for sliding fingers
 
@@ -91,22 +156,38 @@ specify motor zero/sign, transmission, jaw displacement and total aperture;
 convert CAD millimetres to model metres at that boundary. CAD travel alone does
 not validate grip force or actuator timing.
 
-## Before the first mechanical-model export
+## Local audit before physics integration
 
-- Name and verify each moving mate, its axis, zero and units. Attach rigid
-  components consistently; keep moving mechanisms articulated.
+The native Minerva import provides plausible geometry scale, but its masses
+and exported joint graph failed the [intake audit](../urdf/minerva/README.md).
+This result does not diagnose the source mate graph for `onshape-to-robot`.
+The saved gravity fits are empirical joint-torque models, and the fast simulator's
+parameters are synthetic. Neither is an independent mechanical reference.
+The legacy Aizee kinematics helper assumes revolute joints and must not be
+used unchanged for Minerva's sliding jaws.
+
+- Verify each exported moving joint's name, axis, zero and units. Check that
+  rigid components stay attached and moving mechanisms remain articulated.
 - Record jaw endpoints and coupling for each gripper separately. Preserve the
   relation explicitly in the simulator and check it after export; do not assume
   the selected exporter/engine preserves an Onshape Linear relation.
 - Audit link masses, centres of mass and inertia, including motors and attached
   hardware. Record camera/tool frames and collision-geometry simplifications.
-- Create a named Onshape version such as `minerva-sim-v1` after preparation,
-  and record its version URL, assembly/configuration and export tool version.
-  Versions are immutable snapshots.
+- Preserve the selected `3DP URDF Version 1.0` URL, assembly/configuration,
+  export settings and tool version with the downloaded files. Revisions require
+  a new source version; keep the provenance of each import.
   [Onshape version instructions](https://cad.onshape.com/help/Content/Document/versions_and_history.htm).
-- Export once within the agreed scope, preserve source files/checksums locally,
-  and audit scale, kinematic tree, axes, jaw coupling and mass before dynamics.
+- Check mesh paths resolve locally, metre/radian units are consistent, and the
+  joint graph has a single intended base with no disconnected or duplicate links.
+- Map all 12 arm joints and both gripper motor inputs explicitly. Verify finite
+  joint limits, zero poses, axis signs, jaw endpoints and coupling; preserve the
+  distinction between motor radians and finger metres.
+- Check positive physical masses, centres of mass and valid inertia tensors;
+  identify missing hardware and separate visual meshes from collision shapes.
+- Load the audited model, exercise joint endpoints and intermediate poses,
+  then check gravity, contacts and coupled motion before physical claims.
 
 The current synthetic simulator and upcoming Rust/virtual-CAN work can proceed
-while these CAD details are completed. Coupled contact/geometry validation is a
-later gate in the [simulation plan](architecture/SIMULATION_VALIDATION_PLAN.md).
+while exporter comparison and physical-property work proceed. Coupled contact
+and geometry validation are later gates in the
+[simulation plan](architecture/SIMULATION_VALIDATION_PLAN.md).

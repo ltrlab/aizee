@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "aizee",
+  "title": "Aizee",
+  "urdf": "aizee.urdf",
+  "collision_model": "collision/broadphase-v1.json",
+  "front_direction": [1, 0, 0],
+  "packages": {"meshes": "meshes"},
+  "groups": {
+    "Arm": ["swivel", "gantry_base", "gantry_mid", "gantry_end", "wrist_pitch", "wrist_swivel"],
+    "Drive": ["left_wheel", "right_wheel"]
+  },
+  "notes": ["Mechanical CAD coordinates. The controller's wrist_roll maps to wrist_swivel; this viewer does not apply motor calibration.", "The current CAD has no articulated gripper. URDF bounds are displayed without claiming hardware validation."]
+}

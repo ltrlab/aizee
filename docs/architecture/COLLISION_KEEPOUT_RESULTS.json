@@ -1,0 +1,403 @@
+{
+  "schema_version": 1,
+  "updated": "2026-09-20 EDT",
+  "native_abi": 3,
+  "seed": 20260920,
+  "purpose": "Explicit conservative keep-out policy; Minerva sliding fingers excluded from every coarse pair. CAD modes unchanged.",
+  "source_overlays": [
+    {
+      "path": "updates/keepout-20260921",
+      "sha256": "58a2ca8f0338105dc99a8c3ab0f032df31d7e2149fc736949b85e34a07c8d80a"
+    },
+    {
+      "path": "updates/keepout-cache-20260921",
+      "sha256": "5112b8305fe7c0b10eb38b9ce7f4a81e555c94185f483f743234305b6b8c5011"
+    }
+  ],
+  "validation": {
+    "asset": "jetson-dev-01",
+    "serial": "1421225029686",
+    "platform": "Linux-5.15.148-tegra-aarch64-with-glibc2.35",
+    "started_at": "2026-09-21T02:12:13.444915+00:00",
+    "source_update_sha256": "5112b8305fe7c0b10eb38b9ce7f4a81e555c94185f483f743234305b6b8c5011",
+    "cpu_temp_start_millic": "42593",
+    "hardware_services_started": false,
+    "physical_validation": false,
+    "steps": [
+      {
+        "name": "rust-tests",
+        "returncode": 0,
+        "elapsed_s": 0.2928142780001508,
+        "command": [
+          "/home/ltr/.cargo/bin/cargo",
+          "test",
+          "--release",
+          "--locked",
+          "--offline",
+          "-p",
+          "robot_collision",
+          "-j",
+          "2"
+        ]
+      },
+      {
+        "name": "rust-build",
+        "returncode": 0,
+        "elapsed_s": 0.17307980500027043,
+        "command": [
+          "/home/ltr/.cargo/bin/cargo",
+          "build",
+          "--release",
+          "--locked",
+          "--offline",
+          "-p",
+          "robot_collision",
+          "-j",
+          "2"
+        ]
+      },
+      {
+        "name": "python-tests",
+        "returncode": 0,
+        "elapsed_s": 6.101914916000169,
+        "command": [
+          "/home/ltr/robot-platform-dev/.venv/bin/python",
+          "-m",
+          "pytest",
+          "tests/unit/test_runtime_collision.py",
+          "tests/unit/test_model_viewer.py",
+          "tests/unit/test_collision.py",
+          "tests/contract/test_session_inproc.py",
+          "tests/contract/test_session_transport.py",
+          "-q"
+        ]
+      },
+      {
+        "name": "inter-branch",
+        "returncode": 0,
+        "elapsed_s": 63.95585189600024,
+        "command": [
+          "/home/ltr/robot-platform-dev/.venv/bin/python",
+          "scripts/benchmark_keepout.py",
+          "--model",
+          "urdf/minerva/model.json",
+          "--output",
+          "/home/ltr/robot-platform-dev/checkouts/checkout-20260921T003916Z/simulation_runs/keepout-cache-20260921/inter-branch.json",
+          "--scope",
+          "inter_branch",
+          "--samples",
+          "1000",
+          "--audit-samples",
+          "100",
+          "--rate",
+          "25"
+        ]
+      },
+      {
+        "name": "all",
+        "returncode": 0,
+        "elapsed_s": 136.90936334399976,
+        "command": [
+          "/home/ltr/robot-platform-dev/.venv/bin/python",
+          "scripts/benchmark_keepout.py",
+          "--model",
+          "urdf/minerva/model.json",
+          "--output",
+          "/home/ltr/robot-platform-dev/checkouts/checkout-20260921T003916Z/simulation_runs/keepout-cache-20260921/all.json",
+          "--scope",
+          "all",
+          "--samples",
+          "1000",
+          "--audit-samples",
+          "100",
+          "--rate",
+          "0"
+        ]
+      }
+    ],
+    "finished_at": "2026-09-21T02:15:40.886508+00:00",
+    "cpu_temp_end_millic": "43687",
+    "power_mode": "NV Power Mode: 25W\n1",
+    "library_sha256": "0c62bd934c5db72373b78c0553f4a43e6efa58f457ef4bf4173ff1cefebf4657"
+  },
+  "tests": {
+    "jetson_python": 98,
+    "jetson_rust": 6,
+    "desktop_javascript": 7
+  },
+  "runs": [
+    {
+      "model_id": "minerva",
+      "model_revision": "5e38f13e4e1882cc352df2078f57f94edf2e6aa3b999f0e8d983fdc27f43c2e9",
+      "policy_revision": "0a919cc71e0853d7cc23cbc4708737bea6f24f34a5587103a51614498d118441",
+      "query_scope": "inter_branch",
+      "whole_robot_checked": false,
+      "full_geometry_coverage": false,
+      "geometry_basis": "conservative_envelope",
+      "native_library_sha256": "bfc070c74d04d3a4810092d1fb07a04990de4a0fed454964caea373cda988fd0",
+      "threshold_m": 0.005,
+      "pose": {
+        "samples": 1000,
+        "p50_ms": 0.5739500047639012,
+        "p99_ms": 1.60957899672212,
+        "maximum_ms": 2.160500007448718,
+        "over_40ms": 0
+      },
+      "motion_replay": {
+        "samples": 1000,
+        "p50_ms": 12.092949997168034,
+        "p99_ms": 20.31703598535387,
+        "maximum_ms": 44.90989999612793,
+        "over_40ms": 1
+      },
+      "accepted_cycles": 850,
+      "rejected_cycles": 150,
+      "maximum_queries": 9,
+      "rate_hz": 0.0,
+      "scheduled_deadline_misses": null,
+      "cad_audit_samples": 100,
+      "missed_nonexcluded_cad_pairs": [],
+      "additional_envelope_pairs": 39,
+      "intentionally_excluded_cad_pairs": 34,
+      "ignored_links": {
+        "carriage_lwl7b": "Right finger A: user permits close finger interaction; omitted from coarse keep-out checks only.",
+        "carriage_lwl7b_2": "Right finger B (coupled): user permits close finger interaction; omitted from coarse keep-out checks only.",
+        "carriage_lwl7b_3": "Left finger A: user permits close finger interaction; omitted from coarse keep-out checks only.",
+        "carriage_lwl7b_4": "Left finger B (coupled): user permits close finger interaction; omitted from coarse keep-out checks only."
+      },
+      "physical_validation": false,
+      "label": "desktop_before_cache",
+      "report_path": "simulation_runs/keepout/desktop-inter-branch-v2.json",
+      "report_sha256": "cc4aa16cd47e1e3bfce7f0e4dd9da6f9bb27806d63ad52a182551317732bd5d4"
+    },
+    {
+      "model_id": "minerva",
+      "model_revision": "5e38f13e4e1882cc352df2078f57f94edf2e6aa3b999f0e8d983fdc27f43c2e9",
+      "policy_revision": "0a919cc71e0853d7cc23cbc4708737bea6f24f34a5587103a51614498d118441",
+      "query_scope": "inter_branch",
+      "whole_robot_checked": false,
+      "full_geometry_coverage": false,
+      "geometry_basis": "conservative_envelope",
+      "native_library_sha256": "bfc070c74d04d3a4810092d1fb07a04990de4a0fed454964caea373cda988fd0",
+      "threshold_m": 0.005,
+      "pose": {
+        "samples": 1000,
+        "p50_ms": 0.7225500157801434,
+        "p99_ms": 2.6514079910703003,
+        "maximum_ms": 5.819300014991313,
+        "over_40ms": 0
+      },
+      "motion_replay": {
+        "samples": 1000,
+        "p50_ms": 8.053700003074482,
+        "p99_ms": 12.54590300959535,
+        "maximum_ms": 15.786800009664148,
+        "over_40ms": 0
+      },
+      "accepted_cycles": 851,
+      "rejected_cycles": 149,
+      "maximum_queries": 9,
+      "rate_hz": 0.0,
+      "scheduled_deadline_misses": null,
+      "cad_audit_samples": 100,
+      "missed_nonexcluded_cad_pairs": [],
+      "additional_envelope_pairs": 39,
+      "intentionally_excluded_cad_pairs": 34,
+      "ignored_links": {
+        "carriage_lwl7b": "Right finger A: user permits close finger interaction; omitted from coarse keep-out checks only.",
+        "carriage_lwl7b_2": "Right finger B (coupled): user permits close finger interaction; omitted from coarse keep-out checks only.",
+        "carriage_lwl7b_3": "Left finger A: user permits close finger interaction; omitted from coarse keep-out checks only.",
+        "carriage_lwl7b_4": "Left finger B (coupled): user permits close finger interaction; omitted from coarse keep-out checks only."
+      },
+      "physical_validation": false,
+      "label": "desktop_cached",
+      "report_path": "simulation_runs/keepout/desktop-inter-branch-cached.json",
+      "report_sha256": "3c8406edd05962390b05a55879ea833a503f6aec6eb7b41845bd043c5cf7e233"
+    },
+    {
+      "model_id": "minerva",
+      "model_revision": "5e38f13e4e1882cc352df2078f57f94edf2e6aa3b999f0e8d983fdc27f43c2e9",
+      "policy_revision": "0a919cc71e0853d7cc23cbc4708737bea6f24f34a5587103a51614498d118441",
+      "query_scope": "inter_branch",
+      "whole_robot_checked": false,
+      "full_geometry_coverage": false,
+      "geometry_basis": "conservative_envelope",
+      "native_library_sha256": "0c62bd934c5db72373b78c0553f4a43e6efa58f457ef4bf4173ff1cefebf4657",
+      "threshold_m": 0.005,
+      "pose": {
+        "samples": 1000,
+        "p50_ms": 1.9042470003114431,
+        "p99_ms": 2.3524396404627623,
+        "maximum_ms": 3.9033150005707284,
+        "over_40ms": 0
+      },
+      "motion_replay": {
+        "samples": 1000,
+        "p50_ms": 37.7266334999149,
+        "p99_ms": 40.44724699046128,
+        "maximum_ms": 43.937307999840414,
+        "over_40ms": 17
+      },
+      "accepted_cycles": 835,
+      "rejected_cycles": 165,
+      "maximum_queries": 9,
+      "rate_hz": 25.0,
+      "scheduled_deadline_misses": 18,
+      "cad_audit_samples": 100,
+      "missed_nonexcluded_cad_pairs": [],
+      "additional_envelope_pairs": 39,
+      "intentionally_excluded_cad_pairs": 34,
+      "ignored_links": {
+        "carriage_lwl7b": "Right finger A: user permits close finger interaction; omitted from coarse keep-out checks only.",
+        "carriage_lwl7b_2": "Right finger B (coupled): user permits close finger interaction; omitted from coarse keep-out checks only.",
+        "carriage_lwl7b_3": "Left finger A: user permits close finger interaction; omitted from coarse keep-out checks only.",
+        "carriage_lwl7b_4": "Left finger B (coupled): user permits close finger interaction; omitted from coarse keep-out checks only."
+      },
+      "physical_validation": false,
+      "label": "jetson_before_cache_inter_branch",
+      "report_path": "simulation_runs/keepout/keepout-20260921/inter-branch.json",
+      "report_sha256": "847ecf2d6a4331858633d683927970ea799183dc00465ad9f51bc0848518c4b5"
+    },
+    {
+      "model_id": "minerva",
+      "model_revision": "5e38f13e4e1882cc352df2078f57f94edf2e6aa3b999f0e8d983fdc27f43c2e9",
+      "policy_revision": "0a919cc71e0853d7cc23cbc4708737bea6f24f34a5587103a51614498d118441",
+      "query_scope": "all",
+      "whole_robot_checked": true,
+      "full_geometry_coverage": false,
+      "geometry_basis": "conservative_envelope",
+      "native_library_sha256": "0c62bd934c5db72373b78c0553f4a43e6efa58f457ef4bf4173ff1cefebf4657",
+      "threshold_m": 0.005,
+      "pose": {
+        "samples": 1000,
+        "p50_ms": 2.6955925000038405,
+        "p99_ms": 3.221391960823894,
+        "maximum_ms": 4.182669000329042,
+        "over_40ms": 0
+      },
+      "motion_replay": {
+        "samples": 1000,
+        "p50_ms": 10.810527999637998,
+        "p99_ms": 11.587408450086514,
+        "maximum_ms": 14.024484999936249,
+        "over_40ms": 0
+      },
+      "accepted_cycles": 0,
+      "rejected_cycles": 1000,
+      "maximum_queries": 1,
+      "rate_hz": 0.0,
+      "scheduled_deadline_misses": null,
+      "cad_audit_samples": 100,
+      "missed_nonexcluded_cad_pairs": [],
+      "additional_envelope_pairs": 3174,
+      "intentionally_excluded_cad_pairs": 6885,
+      "ignored_links": {
+        "carriage_lwl7b": "Right finger A: user permits close finger interaction; omitted from coarse keep-out checks only.",
+        "carriage_lwl7b_2": "Right finger B (coupled): user permits close finger interaction; omitted from coarse keep-out checks only.",
+        "carriage_lwl7b_3": "Left finger A: user permits close finger interaction; omitted from coarse keep-out checks only.",
+        "carriage_lwl7b_4": "Left finger B (coupled): user permits close finger interaction; omitted from coarse keep-out checks only."
+      },
+      "physical_validation": false,
+      "label": "jetson_before_cache_all",
+      "report_path": "simulation_runs/keepout/keepout-20260921/all.json",
+      "report_sha256": "c72967705663ee47b229745e70030e0335b7180540b38e2be40f40e0a13ac3cc"
+    },
+    {
+      "model_id": "minerva",
+      "model_revision": "5e38f13e4e1882cc352df2078f57f94edf2e6aa3b999f0e8d983fdc27f43c2e9",
+      "policy_revision": "0a919cc71e0853d7cc23cbc4708737bea6f24f34a5587103a51614498d118441",
+      "query_scope": "inter_branch",
+      "whole_robot_checked": false,
+      "full_geometry_coverage": false,
+      "geometry_basis": "conservative_envelope",
+      "native_library_sha256": "0c62bd934c5db72373b78c0553f4a43e6efa58f457ef4bf4173ff1cefebf4657",
+      "threshold_m": 0.005,
+      "pose": {
+        "samples": 1000,
+        "p50_ms": 1.908958999592869,
+        "p99_ms": 2.335874049767881,
+        "maximum_ms": 3.914974000508664,
+        "over_40ms": 0
+      },
+      "motion_replay": {
+        "samples": 1000,
+        "p50_ms": 26.151942500291625,
+        "p99_ms": 34.74604448011632,
+        "maximum_ms": 36.67385199969431,
+        "over_40ms": 0
+      },
+      "accepted_cycles": 851,
+      "rejected_cycles": 149,
+      "maximum_queries": 9,
+      "rate_hz": 25.0,
+      "scheduled_deadline_misses": 0,
+      "cad_audit_samples": 100,
+      "missed_nonexcluded_cad_pairs": [],
+      "additional_envelope_pairs": 39,
+      "intentionally_excluded_cad_pairs": 34,
+      "ignored_links": {
+        "carriage_lwl7b": "Right finger A: user permits close finger interaction; omitted from coarse keep-out checks only.",
+        "carriage_lwl7b_2": "Right finger B (coupled): user permits close finger interaction; omitted from coarse keep-out checks only.",
+        "carriage_lwl7b_3": "Left finger A: user permits close finger interaction; omitted from coarse keep-out checks only.",
+        "carriage_lwl7b_4": "Left finger B (coupled): user permits close finger interaction; omitted from coarse keep-out checks only."
+      },
+      "physical_validation": false,
+      "label": "jetson_cached_inter_branch",
+      "report_path": "simulation_runs/keepout/keepout-cache-20260921/inter-branch.json",
+      "report_sha256": "d6a412c3e396bc2306bd9977d93f6d7662f030898a23c66710ecd40a855e67d6"
+    },
+    {
+      "model_id": "minerva",
+      "model_revision": "5e38f13e4e1882cc352df2078f57f94edf2e6aa3b999f0e8d983fdc27f43c2e9",
+      "policy_revision": "0a919cc71e0853d7cc23cbc4708737bea6f24f34a5587103a51614498d118441",
+      "query_scope": "all",
+      "whole_robot_checked": true,
+      "full_geometry_coverage": false,
+      "geometry_basis": "conservative_envelope",
+      "native_library_sha256": "0c62bd934c5db72373b78c0553f4a43e6efa58f457ef4bf4173ff1cefebf4657",
+      "threshold_m": 0.005,
+      "pose": {
+        "samples": 1000,
+        "p50_ms": 2.6942844997392967,
+        "p99_ms": 3.2242465594208625,
+        "maximum_ms": 4.107899000700854,
+        "over_40ms": 0
+      },
+      "motion_replay": {
+        "samples": 1000,
+        "p50_ms": 4.755983999984892,
+        "p99_ms": 5.57036475042878,
+        "maximum_ms": 13.479811999786762,
+        "over_40ms": 0
+      },
+      "accepted_cycles": 0,
+      "rejected_cycles": 1000,
+      "maximum_queries": 1,
+      "rate_hz": 0.0,
+      "scheduled_deadline_misses": null,
+      "cad_audit_samples": 100,
+      "missed_nonexcluded_cad_pairs": [],
+      "additional_envelope_pairs": 3174,
+      "intentionally_excluded_cad_pairs": 6885,
+      "ignored_links": {
+        "carriage_lwl7b": "Right finger A: user permits close finger interaction; omitted from coarse keep-out checks only.",
+        "carriage_lwl7b_2": "Right finger B (coupled): user permits close finger interaction; omitted from coarse keep-out checks only.",
+        "carriage_lwl7b_3": "Left finger A: user permits close finger interaction; omitted from coarse keep-out checks only.",
+        "carriage_lwl7b_4": "Left finger B (coupled): user permits close finger interaction; omitted from coarse keep-out checks only."
+      },
+      "physical_validation": false,
+      "label": "jetson_cached_all",
+      "report_path": "simulation_runs/keepout/keepout-cache-20260921/all.json",
+      "report_sha256": "d437d7aedf0abea0195470bdaa3a79eea9a9057226671016e744cfdb8d99b53b"
+    }
+  ],
+  "limitations": [
+    "The 1000-cycle 25 Hz run is partial inter-arm coverage, not a full hardware supervisor qualification.",
+    "The synthetic short paths do not represent calibrated physical braking.",
+    "Same-arm/body assembly overlaps reject all whole-robot replay cycles.",
+    "Excluded finger links have no keep-out protection, including finger-to-arm.",
+    "Additional envelope restrictions are expected; audits count pair occurrences over sampled poses.",
+    "No camera/controller/transport load, physical actuation, or 30-minute acceptance run.",
+    "An earlier desktop report using a low-resolution monotonic timer is superseded by the retained perf_counter reports here."
+  ]
+}

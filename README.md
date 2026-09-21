@@ -35,6 +35,27 @@ suppresses physical leader/serial discovery. See the
 [simulation guide](docs/architecture/SIMULATION_IMPLEMENTATION.md) for faults,
 recording, trace reports, and current limitations.
 
+### View and jog a robot model
+
+```sh
+python -m pip install -e ".[viewer,collision]"
+robot-platform view --robot minerva
+```
+
+Open `http://127.0.0.1:8765`. The same viewer selects Aizee, Minerva or an
+external URDF/model profile. It provides joint jogging, coupled jaws, pose
+files and collision inspection without connecting to hardware. See the
+[model tools guide](docs/MODEL_VIEWER.md) to add another robot.
+
+Build the optional native collision library with
+`./scripts/build_collision.ps1 -Test` on the configured Windows development
+host, or `cargo build --locked --release -p robot_collision` on Linux.
+**Conservative keep-out** checks enclosing arm boundaries without CAD refinement;
+Minerva's four finger links are explicitly excluded in its model profile.
+**Source CAD** and **Accelerated CAD** retain finger geometry. These viewer
+checks do not drive or stop hardware. See the
+[collision status and evidence](docs/architecture/COLLISION_RUNTIME_IMPLEMENTATION.md).
+
 ### Train
 
 ```sh
@@ -56,6 +77,8 @@ pyproject.toml                Python package, dependency extras, CLI, offline te
 Cargo.toml / Cargo.lock      Shared Rust workspace and locked dependencies
 src/robot_platform/
   robots/                   Aizee / Minerva joint and camera definitions
+  models/                   Mechanical model profiles, URDF metadata and assets
+  viewer/                   Shared browser rendering, joint jogging, pose files
   settings/                 Packaged defaults and overlay validation
   control/                  Shared sessions, freshness, command leases, e-stop
   transport/                MessagePack, ZMQ, discovery
@@ -63,12 +86,13 @@ src/robot_platform/
   simulation/               Synthetic plant, loopback server, fault scenarios
   characterization/         Protocol/config audit and bench-profile validation
   apps/                     Collection/training launch adapters
-rust/                       comms, motor_control, lidar_control
+rust/                       comms, motor_control, lidar_control, robot_collision
 python/                     Active collector UIs, learning, devices, IK, tools
 settings/examples/          Operator/machine overlays and bench-profile template
 config/                     Hardware profiles, calibration, systemd/udev
 firmware/                   Leaders, e-stop, display, lift; required vendor BSP
-urdf/aizee/                 Existing Onshape export and Git LFS meshes
+urdf/aizee/                 Existing Aizee Onshape export and Git LFS meshes
+urdf/minerva/               Composed 1.1 visuals / 1.2 collision CAD, profiles, audits, limits
 scripts/                    Build, deploy, inventory, simulation validation
 tests/                      Offline tests, fixtures, explicit hardware tools
 docs/                       Current guides, plans, subsystem references
@@ -117,9 +141,14 @@ python scripts/validate_simulation.py --output simulation_runs/validation-new
 Default pytest discovery covers offline unit/contract tests. See
 [tests/README.md](tests/README.md) for additional suites and hardware tooling.
 The simulation baseline passed 248 Python tests and 12 live scenarios on
-2026-09-17. ARM64 services cross-compile locally. Jetson runtime validation,
-the virtual-CAN controller tier, CAD dynamics, and measured actuator calibration
-remain open. Configured loop rates are targets, not measured guarantees.
+2026-09-17. ARM64 services cross-compile locally. The identified development
+Jetson now builds and tests the native collision backend. Its 1,000-cycle
+synthetic arm-to-arm keep-out replay completed at 25 Hz without deadline misses;
+this is partial coverage with finger exclusions. Whole-robot motion, virtual
+CAN, CAD dynamics and measured actuator calibration remain open. See the
+[25 Hz acceptance plan](docs/architecture/COLLISION_25HZ_HARDWARE_PLAN.md),
+[device log](docs/devices/JETSON_DEV_01.md) and
+[September 21 checkpoint](docs/architecture/DEVELOPMENT_CHECKPOINT_2026-09-21.md).
 
 ## Documentation
 

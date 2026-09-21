@@ -1,0 +1,1907 @@
+{
+  "schema_version": 1,
+  "urdf_path": "C:\\Users\\ltr\\Workspace\\aizee\\urdf\\minerva\\urdf\\minerva_urdf.urdf",
+  "package_root": "C:\\Users\\ltr\\Workspace\\aizee\\urdf\\minerva",
+  "input_sha256": "69e4fc1b6720e724674aaf9916372d7b34867c0d0b48cbc9df859b7d2277c40e",
+  "robot_name": "minerva_urdf",
+  "summary": {
+    "links": 178,
+    "joints": 177,
+    "joint_types": {
+      "prismatic": 42,
+      "continuous": 22,
+      "fixed": 113
+    },
+    "moving_joints": 64,
+    "total_mass_kg": 0.025004524509599987,
+    "visual_links": 129,
+    "collision_links": 0,
+    "inertial_links": 139,
+    "mimic_joints": 0,
+    "root_links": [
+      "root"
+    ],
+    "error_count": 66,
+    "warning_count": 168
+  },
+  "scope": "Static structure and numeric checks only; geometry, mass scale, coordinate calibration, contact and real dynamics remain unvalidated.",
+  "physical_model_validated": false,
+  "findings": [
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "1_1_02_eb571_960_stp"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "1_1_02_eb571_960_stp_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "1_1_04_eb572_5105_stp"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "1_1_04_eb572_5105_stp_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "1_1_06_eb573_642_stp"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "1_1_06_eb573_642_stp_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "1_1_06_eb573_643_stp"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "1_1_06_eb573_643_stp_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "42x30x7mm_bearing"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "42x30x7mm_bearing_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "bearing"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "bearing_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "bearing_2"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "bearing_3"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "bearing_4"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "bearing_5"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "bearing_6"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "bearing_7"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "bearing_8"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "bearing_9"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "board_3d_kmmv03_2024_10_21_2__2_stp"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "board_3d_kmmv03_2024_10_21_2__2_stp_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "carriage_lwl7b"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "carriage_lwl7b_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "carriage_lwl7b_10"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "carriage_lwl7b_11"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "carriage_lwl7b_12"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "carriage_lwl7b_13"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "carriage_lwl7b_14"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "carriage_lwl7b_15"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "carriage_lwl7b_16"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "carriage_lwl7b_17"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "carriage_lwl7b_18"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "carriage_lwl7b_19"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "carriage_lwl7b_2"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "carriage_lwl7b_3"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "carriage_lwl7b_4"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "carriage_lwl7b_5"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "carriage_lwl7b_6"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "carriage_lwl7b_7"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "carriage_lwl7b_8"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "carriage_lwl7b_9"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "ikea_desk_leg"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "linearrail_lwl7b_100mm"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "linearrail_lwl7b_100mm_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "linearrail_lwl7b_100mm_2"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "linearrail_lwl7b_100mm_3"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_148"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_149"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_150"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_151"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_152"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_153"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_39"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_39_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_40"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_40_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_41"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_41_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_42"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_42_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_43"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_43_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_44"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_44_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_6"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_66"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_66_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_69"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_69_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_6_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_6_2"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_6_3"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_7"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_70"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_70_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_71"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_71_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_73"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_73_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_7_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_7_2"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "part_7_3"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rb03_body"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rb03_body_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rb03_body_2"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rb03_body_3"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rb03_output"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rb03_output_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rb03_output_2"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rb03_output_3"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rb03_wire_bearing_mount"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rb03_wire_bearing_mount_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rb03_wire_bearing_output_mount"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rb03_wire_bearing_output_mount_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rb03_wire_bearing_output_mount_2"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rb03_wire_bearing_output_mount_3"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rb04_cover"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rb04_cover_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rb04_motor_body"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rb04_motor_body_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rb04_motor_output"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rb04_motor_output_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rb04_wire_bearing_mount"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rb04_wire_bearing_mount_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rs00"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rs00_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rs02"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rs02_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rs02_2"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rs02_3"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rs02_base_mount"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rs02_base_mount_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rs02_bearing_mount"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rs02_bearing_mount_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rs02_bearing_mount_2"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rs02_bearing_mount_3"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rs04_loop_wire_cover"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rs04_loop_wire_cover_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rs04_passthrough_wire_cover"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "rs04_passthrough_wire_cover_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "scxxkl_stp"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "scxxkl_stp_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "sgqzc__35_stp"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "sgqzc__35_stp_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "solid_17_con_p4_11_438x3_2_hd_2_stp"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "solid_17_con_p4_11_438x3_2_hd_2_stp_1"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "solid_17_con_p4_11_438x3_2_hd_3_stp"
+      ]
+    },
+    {
+      "code": "missing_collision",
+      "severity": "warning",
+      "message": "Visual link has no collision geometry.",
+      "affected_names": [
+        "solid_17_con_p4_11_438x3_2_hd_3_stp_1"
+      ]
+    },
+    {
+      "code": "missing_expected_joint",
+      "severity": "error",
+      "message": "Expected revolute joint is absent.",
+      "affected_names": [
+        "dof_left_arm_j1"
+      ]
+    },
+    {
+      "code": "wrong_joint_type",
+      "severity": "error",
+      "message": "Expected revolute, found 'prismatic'.",
+      "affected_names": [
+        "dof_left_arm_j2"
+      ]
+    },
+    {
+      "code": "wrong_joint_type",
+      "severity": "error",
+      "message": "Expected revolute, found 'prismatic'.",
+      "affected_names": [
+        "dof_left_arm_j3"
+      ]
+    },
+    {
+      "code": "wrong_joint_type",
+      "severity": "error",
+      "message": "Expected revolute, found 'prismatic'.",
+      "affected_names": [
+        "dof_left_arm_j4"
+      ]
+    },
+    {
+      "code": "missing_expected_joint",
+      "severity": "error",
+      "message": "Expected revolute joint is absent.",
+      "affected_names": [
+        "dof_left_arm_j5"
+      ]
+    },
+    {
+      "code": "missing_expected_joint",
+      "severity": "error",
+      "message": "Expected revolute joint is absent.",
+      "affected_names": [
+        "dof_left_arm_j6"
+      ]
+    },
+    {
+      "code": "missing_expected_joint",
+      "severity": "error",
+      "message": "Expected revolute joint is absent.",
+      "affected_names": [
+        "dof_right_arm_j1"
+      ]
+    },
+    {
+      "code": "wrong_joint_type",
+      "severity": "error",
+      "message": "Expected revolute, found 'prismatic'.",
+      "affected_names": [
+        "dof_right_arm_j2"
+      ]
+    },
+    {
+      "code": "missing_expected_joint",
+      "severity": "error",
+      "message": "Expected revolute joint is absent.",
+      "affected_names": [
+        "dof_right_arm_j3"
+      ]
+    },
+    {
+      "code": "wrong_joint_type",
+      "severity": "error",
+      "message": "Expected revolute, found 'prismatic'.",
+      "affected_names": [
+        "dof_right_arm_j4"
+      ]
+    },
+    {
+      "code": "missing_expected_joint",
+      "severity": "error",
+      "message": "Expected revolute joint is absent.",
+      "affected_names": [
+        "dof_right_arm_j5"
+      ]
+    },
+    {
+      "code": "wrong_joint_type",
+      "severity": "error",
+      "message": "Expected revolute, found 'prismatic'.",
+      "affected_names": [
+        "dof_right_arm_j6"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "dof_left_arm_j2"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "dof_left_arm_j2_1"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "dof_left_arm_j3"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "dof_left_arm_j3_1"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "dof_left_arm_j4"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "dof_left_arm_j4_1"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "dof_right_arm_j2"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "dof_right_arm_j2_1"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "dof_right_arm_j4"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "dof_right_arm_j4_1"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "dof_right_arm_j6"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "dof_right_arm_j6_1"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_1"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_1"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_10"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_10"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_10_1"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_10_1"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_10_2"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_11"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_11"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_11_1"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_11_1"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_11_2"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_12"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_12"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_12_1"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_12_1"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_12_2"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_13"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_13"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_13_1"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_13_1"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_13_2"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_14"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_14"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_14_1"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_14_1"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_14_2"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_15"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_15"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_15_1"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_15_1"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_15_2"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_16"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_16"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_16_1"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_16_1"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_16_2"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_1_1"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_1_1"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_1_2"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_2"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_2"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_2_1"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_2_1"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_2_2"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_3"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_3"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_3_1"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_3_1"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_3_2"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_4"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_4"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_4_1"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_4_1"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_4_2"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_5"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_5"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_5_1"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_5_1"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_5_2"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_6_loop_closure"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_6_loop_closure"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_6_loop_closure_1"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_6_loop_closure_1"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_6_loop_closure_2"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_7"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_7"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_7_1"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_7_1"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_7_2"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_8"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_8"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_8_1"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_8_1"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_8_2"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_9"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_9"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_9_1"
+      ]
+    },
+    {
+      "code": "large_slider_limits",
+      "severity": "warning",
+      "message": "Slider bounds/travel exceed 1 metre; verify CAD units and offsets.",
+      "affected_names": [
+        "planar_9_1"
+      ]
+    },
+    {
+      "code": "unexpected_moving_joint",
+      "severity": "error",
+      "message": "Moving joint is outside the expected mechanical joint set.",
+      "affected_names": [
+        "planar_9_2"
+      ]
+    },
+    {
+      "code": "missing_slider_coupling",
+      "severity": "warning",
+      "message": "Expected sliders have no mimic relation; verify whether their coupling requires explicit modeling.",
+      "affected_names": [
+        "dof_left_gripper_finger_a_slide",
+        "dof_left_gripper_finger_b_slide",
+        "dof_right_gripper_finger_a_slide",
+        "dof_right_gripper_finger_b_slide"
+      ]
+    }
+  ],
+  "static_checks_passed": false
+}

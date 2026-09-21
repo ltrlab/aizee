@@ -94,27 +94,6 @@ _URDF_FILE = _URDF_DIR / "aizee.urdf"
 _JOINT_LIMITS_YAML = Path(__file__).resolve().parents[2] / "config" / "joint_limits.yaml"
 _JOINT_ALIGN_JSON = Path(__file__).resolve().parents[2] / "config" / "joint_align.json"
 
-# Lazy: only built when /api/collision_check is first hit (1.5 s mesh load
-# would otherwise slow down operator-mode startup that doesn't need it).
-_mesh_world_singleton = None
-_mesh_world_lock = None
-
-
-def _get_mesh_world():
-    """Lazy construct + cache a MeshWorld for the collision-check API."""
-    global _mesh_world_singleton, _mesh_world_lock
-    if _mesh_world_lock is None:
-        import threading as _th
-        _mesh_world_lock = _th.Lock()
-    with _mesh_world_lock:
-        if _mesh_world_singleton is None:
-            import sys as _sys
-            _sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-            from ik.mesh_world import MeshWorld  # noqa: WPS433
-            _mesh_world_singleton = MeshWorld(_URDF_FILE, use_convex=True)
-    return _mesh_world_singleton
-
-
 class QuestWebServer:
     def __init__(
         self,
@@ -146,13 +125,16 @@ class QuestWebServer:
         app = web.Application(client_max_size=4 * 1024 * 1024)
         app.router.add_get("/", self._index)
         app.router.add_get("/preview", self._preview)
+        from robot_platform.models import discover_models
+        from robot_platform.viewer.server import create_app
+        app.add_subapp("/preview", create_app(
+            discover_models(Path(__file__).resolve().parents[2] / "urdf"), local_only=False))
         app.router.add_static("/static/", path=str(_STATIC_DIR), show_index=False)
         app.router.add_get("/aizee.urdf", self._urdf)
         app.router.add_get("/api/joint_limits", self._joint_limits)
         app.router.add_post("/api/joint_limits", self._save_joint_limits)
         app.router.add_get("/api/joint_align", self._joint_align)
         app.router.add_post("/api/joint_align", self._save_joint_align)
-        app.router.add_post("/api/collision_check", self._collision_check)
         app.router.add_post("/api/quest_command", self._quest_command)
         if _MESH_DIR.exists():
             app.router.add_static("/meshes/", path=str(_MESH_DIR), show_index=False)
@@ -165,7 +147,7 @@ class QuestWebServer:
         return web.FileResponse(_STATIC_DIR / "index.html")
 
     async def _preview(self, _req: web.Request) -> web.Response:
-        return web.FileResponse(_STATIC_DIR / "preview.html")
+        raise web.HTTPFound("/preview/")
 
     async def _urdf(self, _req: web.Request) -> web.Response:
         if not _URDF_FILE.exists():
@@ -285,27 +267,6 @@ class QuestWebServer:
             return web.json_response({"error": "missing 'cmd' string"}, status=400)
         self.state.pending_commands.append(payload)
         return web.json_response({"ok": True, "queued": cmd})
-
-    async def _collision_check(self, req: web.Request) -> web.Response:
-        try:
-            payload = await req.json()
-        except Exception:
-            return web.json_response({"error": "invalid JSON"}, status=400)
-        qpos = payload.get("qpos") or {}
-        # Run the FCL check on the event loop's default executor so the
-        # ~150 us call doesn't block other handlers if many requests stack.
-        import asyncio as _aio
-        loop = _aio.get_running_loop()
-        def _do_check():
-            world = _get_mesh_world()
-            world.set_qpos({k: float(v) for k, v in qpos.items()})
-            pairs = world.colliding_pairs()
-            return [sorted(list(p)) for p in pairs]
-        try:
-            pairs = await loop.run_in_executor(None, _do_check)
-        except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
-        return web.json_response({"collision": bool(pairs), "pairs": pairs})
 
     # ---- WS: control (browser -> host) ---------------------------------
 

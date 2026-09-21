@@ -1,0 +1,2983 @@
+{
+  "schema_version": 1,
+  "robot": "minerva",
+  "status": "kinematics_only_unvalidated_physics",
+  "physical_model_validated": false,
+  "source": {
+    "provider": "Onshape",
+    "version_name": "3DP URDF Version 1.1",
+    "version_url": "https://cad.onshape.com/documents/359ad50fa475851ee9487588/v/38a2716bb2c6c1ebbe27c900/e/f4466d56fce7b6028aae0a06",
+    "assembly": "minerva_urdf",
+    "exporter": "onshape-to-robot",
+    "exporter_version": "1.8.2",
+    "geometry_format": "stl",
+    "conversion": "Offline --convert --safe from this retrieval's trusted local robot.pkl; no retrieval repeated for conversion or audit.",
+    "physical_materials_assigned": false
+  },
+  "urdf": "minerva.urdf",
+  "package_root": ".",
+  "mesh_uri_format": "relative POSIX paths",
+  "expected_joints": {
+    "revolute": [
+      "left_arm_j1",
+      "left_arm_j2",
+      "left_arm_j3",
+      "left_arm_j4",
+      "left_arm_j5",
+      "left_arm_j6",
+      "right_arm_j1",
+      "right_arm_j2",
+      "right_arm_j3",
+      "right_arm_j4",
+      "right_arm_j5",
+      "right_arm_j6"
+    ],
+    "prismatic": [
+      "left_gripper_finger_a_slide",
+      "left_gripper_finger_b_slide",
+      "right_gripper_finger_a_slide",
+      "right_gripper_finger_b_slide"
+    ]
+  },
+  "local_normalization": {
+    "raw_generated_urdf_sha256": "1da3ec9b833afcfefb2597e052496f10f868093e82ba4c61cd4f458f88944705",
+    "change": "Replaced exporter-generated package://meshes\\file.stl references with relative meshes/file.stl paths; no numeric, graph, limit or dynamics edits.",
+    "mesh_references_changed": 258
+  },
+  "control_contract": {
+    "active_actuators": 14,
+    "arm_joints": 12,
+    "gripper_motor_unit": "rad",
+    "jaw_slide_unit": "m",
+    "jaw_coupling_in_cad": true,
+    "motor_to_jaw_mapping_verified": false
+  },
+  "source_properties": {
+    "part_count": 129,
+    "zero_mass_part_count": 129,
+    "zero_inertia_part_count": 129,
+    "source_total_mass_kg": 0.0,
+    "closures": 0,
+    "joints": [
+      {
+        "name": "right_arm_j1",
+        "type": "revolute",
+        "position_limits": null,
+        "position_limit_unit": "rad",
+        "max_effort": null,
+        "max_velocity": null
+      },
+      {
+        "name": "right_arm_j2",
+        "type": "revolute",
+        "position_limits": null,
+        "position_limit_unit": "rad",
+        "max_effort": null,
+        "max_velocity": null
+      },
+      {
+        "name": "right_arm_j3",
+        "type": "revolute",
+        "position_limits": null,
+        "position_limit_unit": "rad",
+        "max_effort": null,
+        "max_velocity": null
+      },
+      {
+        "name": "right_arm_j4",
+        "type": "revolute",
+        "position_limits": null,
+        "position_limit_unit": "rad",
+        "max_effort": null,
+        "max_velocity": null
+      },
+      {
+        "name": "right_arm_j5",
+        "type": "revolute",
+        "position_limits": null,
+        "position_limit_unit": "rad",
+        "max_effort": null,
+        "max_velocity": null
+      },
+      {
+        "name": "right_arm_j6",
+        "type": "revolute",
+        "position_limits": null,
+        "position_limit_unit": "rad",
+        "max_effort": null,
+        "max_velocity": null
+      },
+      {
+        "name": "right_gripper_finger_a_slide",
+        "type": "prismatic",
+        "position_limits": [
+          -0.04820000000000006,
+          -5.551115123125783e-17
+        ],
+        "position_limit_unit": "m",
+        "max_effort": null,
+        "max_velocity": null
+      },
+      {
+        "name": "right_gripper_finger_b_slide",
+        "type": "prismatic",
+        "position_limits": [
+          -0.04820000000000017,
+          -1.6653345369377348e-16
+        ],
+        "position_limit_unit": "m",
+        "max_effort": null,
+        "max_velocity": null,
+        "relation": {
+          "source_joint": "right_gripper_finger_a_slide",
+          "ratio": 1.0
+        }
+      },
+      {
+        "name": "left_arm_j1",
+        "type": "revolute",
+        "position_limits": null,
+        "position_limit_unit": "rad",
+        "max_effort": null,
+        "max_velocity": null
+      },
+      {
+        "name": "left_arm_j2",
+        "type": "revolute",
+        "position_limits": null,
+        "position_limit_unit": "rad",
+        "max_effort": null,
+        "max_velocity": null
+      },
+      {
+        "name": "left_arm_j3",
+        "type": "revolute",
+        "position_limits": null,
+        "position_limit_unit": "rad",
+        "max_effort": null,
+        "max_velocity": null
+      },
+      {
+        "name": "left_arm_j4",
+        "type": "revolute",
+        "position_limits": null,
+        "position_limit_unit": "rad",
+        "max_effort": null,
+        "max_velocity": null
+      },
+      {
+        "name": "left_arm_j5",
+        "type": "revolute",
+        "position_limits": null,
+        "position_limit_unit": "rad",
+        "max_effort": null,
+        "max_velocity": null
+      },
+      {
+        "name": "left_arm_j6",
+        "type": "revolute",
+        "position_limits": null,
+        "position_limit_unit": "rad",
+        "max_effort": null,
+        "max_velocity": null
+      },
+      {
+        "name": "left_gripper_finger_a_slide",
+        "type": "prismatic",
+        "position_limits": [
+          6.522560269672795e-16,
+          0.04820000000000066
+        ],
+        "position_limit_unit": "m",
+        "max_effort": null,
+        "max_velocity": null
+      },
+      {
+        "name": "left_gripper_finger_b_slide",
+        "type": "prismatic",
+        "position_limits": [
+          3.469446951953614e-16,
+          0.048200000000000354
+        ],
+        "position_limit_unit": "m",
+        "max_effort": null,
+        "max_velocity": null,
+        "relation": {
+          "source_joint": "left_gripper_finger_a_slide",
+          "ratio": 1.0
+        }
+      }
+    ]
+  },
+  "exporter_defaults": {
+    "arm_position_bounds_rad": [
+      -3.141592653589793,
+      3.141592653589793
+    ],
+    "arm_position_bounds_are_source_limits": false,
+    "joint_effort": 10,
+    "joint_velocity": 10,
+    "effort_velocity_are_measured": false,
+    "link_mass_floor_kg": 1e-09,
+    "link_inertia_diagonal_floor_kg_m2": 1e-09
+  },
+  "blocking_findings": [
+    "All 129 retrieved parts have zero mass and inertia; generated positive link properties are numerical floors, not physical measurements.",
+    "All 12 source arm position limits are missing; exported +/-pi bounds are defaults and must not be used as validated hardware travel limits.",
+    "All effort and velocity limits are exporter defaults, not validated actuator limits.",
+    "CAD-to-controller coordinate signs, offsets and measured limit calibration remain unverified.",
+    "Jaw-to-jaw mimic relations exist, but gripper motor-radian-to-jaw-metre transmission is unverified.",
+    "Collision elements reuse detailed visual meshes; contact behavior and the collision model remain unvalidated."
+  ],
+  "static_audit": {
+    "path": "audit.json",
+    "static_checks_passed": true,
+    "scope": "Structural/numeric checks only. Positive default inertias and fallback bounds do not pass physical validation."
+  },
+  "raw_files": [
+    {
+      "path": "config.json",
+      "bytes": 426,
+      "sha256": "2187a2dd2b01e44b2b902d288bf209b92d09d7ed5b5d12748ed802ab21b19aa0"
+    },
+    {
+      "path": "expected_joints.json",
+      "bytes": 372,
+      "sha256": "0a0026fcfa045d5568a1306188e8b16149e8bb60ef6302e5cd3df083f9fd897f"
+    },
+    {
+      "path": "minerva.urdf",
+      "bytes": 79713,
+      "sha256": "10ed9f337563cce77eab3d14f624fcb0fa0631110193b920012c624bbfc2e6bc"
+    },
+    {
+      "path": "meshes/1_1_02_eb571_960_stp.stl",
+      "bytes": 368584,
+      "sha256": "8d0c4d577278e2667f400afc2ec94637c5dda2a1f7ac3dacbe9a0f3e2271b316"
+    },
+    {
+      "path": "meshes/1_1_02_eb571_960_stp__2.stl",
+      "bytes": 368584,
+      "sha256": "c0cd74d77039e569d50792196c0f99cdab1995f3c987bc03295b5686afd33198"
+    },
+    {
+      "path": "meshes/1_1_04_eb572_5105_stp.stl",
+      "bytes": 774684,
+      "sha256": "42a08abcaa23ab105743d075674e47af469cb93cafffaf66761bbac843eff5af"
+    },
+    {
+      "path": "meshes/1_1_04_eb572_5105_stp__2.stl",
+      "bytes": 774084,
+      "sha256": "0b2e3463de19e0f2ac90c0f3501a18149f92940260d5a648d9f4076e67ee09e2"
+    },
+    {
+      "path": "meshes/1_1_06_eb573_642_stp.stl",
+      "bytes": 299584,
+      "sha256": "3830d23e864f5941661738122afee428d5e9ffbb3ac35725ba27e84d902a18ab"
+    },
+    {
+      "path": "meshes/1_1_06_eb573_642_stp__2.stl",
+      "bytes": 299584,
+      "sha256": "d6d2b75efa0b79765f3aa81d6c1579bded02452e11dcea9de816e72221493b45"
+    },
+    {
+      "path": "meshes/1_1_06_eb573_643_stp.stl",
+      "bytes": 500884,
+      "sha256": "b6cfbad13b2bc2459860a794344eb991ad0ad6786f3659171bfa3258fcf5f8be"
+    },
+    {
+      "path": "meshes/1_1_06_eb573_643_stp__2.stl",
+      "bytes": 500884,
+      "sha256": "f27043a7a9df0f8df9101def38fe4c55feb37888c286d043ea4f2aed66423126"
+    },
+    {
+      "path": "meshes/42x30x7mm_bearing.stl",
+      "bytes": 57684,
+      "sha256": "a855474d122d863508fdac4a5b10239feed8bacd28e7f8f978eb6819fae8704d"
+    },
+    {
+      "path": "meshes/42x30x7mm_bearing__2.stl",
+      "bytes": 57684,
+      "sha256": "768a244aac3563064d3d34b47af8f2fa3844c02170e59b21456c91cb6ea8e8cb"
+    },
+    {
+      "path": "meshes/bearing.stl",
+      "bytes": 57684,
+      "sha256": "bec5992fb099e4b4bb3849b39841dcc70742d4467a7b0bfc99380a2e3fadc0a7"
+    },
+    {
+      "path": "meshes/bearing__10.stl",
+      "bytes": 57684,
+      "sha256": "397d494cd9cc279b4f1d510022ba491a173bddb5a88dc9ecc94fe63ff3d35530"
+    },
+    {
+      "path": "meshes/bearing__2.stl",
+      "bytes": 57684,
+      "sha256": "46896e7cadb151bc03dfe6753d303dd3863628b23068170dd336152e4fea4969"
+    },
+    {
+      "path": "meshes/bearing__3.stl",
+      "bytes": 57684,
+      "sha256": "5eb2e1a22d623fbfea5f28214d9567332193762f01f3ad7f055273498f3730bc"
+    },
+    {
+      "path": "meshes/bearing__4.stl",
+      "bytes": 57684,
+      "sha256": "a91d2c01e0e0357470419a04f40ded7d70b0d22f05062f45ed02766f4026586c"
+    },
+    {
+      "path": "meshes/bearing__5.stl",
+      "bytes": 57684,
+      "sha256": "95c3ec4ce8920ca7c0f84127ea713c59697a8d3ebe8ada6765bf4dcbc87f94e0"
+    },
+    {
+      "path": "meshes/bearing__6.stl",
+      "bytes": 57684,
+      "sha256": "fe800b54ec51ade8600009297b3a7a76d093fc0f88b13e73f92ef094133a3940"
+    },
+    {
+      "path": "meshes/bearing__7.stl",
+      "bytes": 57684,
+      "sha256": "6a739805ee46494d7ca9ebedaaecbb6ce7027db55916dd30d7079bcb6867305d"
+    },
+    {
+      "path": "meshes/bearing__8.stl",
+      "bytes": 57684,
+      "sha256": "3875341593b79fe36faf56e926a196bbbfaedff77ca64ed83a52fbb2de3cfaf7"
+    },
+    {
+      "path": "meshes/bearing__9.stl",
+      "bytes": 57684,
+      "sha256": "c1e3e9e0a47053f41d54e3967ba5ee5b6b12c1bf77bf965fdfb5d062d169f9e8"
+    },
+    {
+      "path": "meshes/board_3d_kmmv03_2024_10_21_2__2_stp.stl",
+      "bytes": 197884,
+      "sha256": "009683240d54217534ee40d6cbba0effb52231a0d5a3fa13f1e067d183b4cb5c"
+    },
+    {
+      "path": "meshes/board_3d_kmmv03_2024_10_21_2__2_stp__2.stl",
+      "bytes": 197884,
+      "sha256": "8386b5da1605f4956e5e986ad8bddb13d27d03e4a5a67943fb2dde32a63697d2"
+    },
+    {
+      "path": "meshes/carriage_lwl7b.stl",
+      "bytes": 19084,
+      "sha256": "2d397458284efce9da04a9a6ef70cb3c5f02270f446806196c87983aab0ca261"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__10.stl",
+      "bytes": 77084,
+      "sha256": "a5dd0969c36287f8190c984fd05f6a9add9140011041b8df4d4947e9b26d8290"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__11.stl",
+      "bytes": 19084,
+      "sha256": "14be5489e6c12bfa2bc07d34ca3561ef4b3f4b17520776fad2c426d724c6c67e"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__12.stl",
+      "bytes": 19084,
+      "sha256": "f36d43d7cbfdb505348ef0726d701e28621f5e53602e2fb50718092199bb544b"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__13.stl",
+      "bytes": 19084,
+      "sha256": "9e6260553cb8cdc172d3c6b2c0625c04a498c63bc0e95bc50ff83551119b884d"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__14.stl",
+      "bytes": 19084,
+      "sha256": "b5ddac3e1ebad5abc2dc99dfb77d99b051a63961f43e35ef8ee45aa651fd20f0"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__15.stl",
+      "bytes": 77084,
+      "sha256": "26326bee3d41d954e3c0f7fcb29ae310043575b738a0de74f860aa1d29235f66"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__16.stl",
+      "bytes": 19084,
+      "sha256": "8c27abd146d0938bf8839e948bdcf0c83c8b6fb32508ba95a0703d66697b56dd"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__17.stl",
+      "bytes": 19084,
+      "sha256": "a8bacfa42b39d9a9ee75c2b352c50d9a8ef86e45b4d9b0083e9e1f10c16e9162"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__18.stl",
+      "bytes": 19084,
+      "sha256": "50c00167239a92d56b99cac2dce1917c8f72ba256ba64f3266580709fa9ad3fa"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__19.stl",
+      "bytes": 19084,
+      "sha256": "df39a319f1db88fdd82338c0074c101bdbca9e3da7a1df46cef9110740b691ab"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__2.stl",
+      "bytes": 19084,
+      "sha256": "5c049e7c6d201485ab0ae00338fdb2b03859020e405f0c6941986fdb7860f12b"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__20.stl",
+      "bytes": 77084,
+      "sha256": "8bded102b08983c259efcccefa15d4c7bd0ec5cd42ba0c512f3b96095676336a"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__3.stl",
+      "bytes": 19084,
+      "sha256": "8ec3a793719996b2bb10fcde28956a96f537c88e8043810083a697b4b5bb2c62"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__4.stl",
+      "bytes": 19084,
+      "sha256": "b1bb54d1276477b020b4aa7e02b2bd6d50b13cc910bc392295449768cde41cee"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__5.stl",
+      "bytes": 77084,
+      "sha256": "654eafc2c44e7df24c3ae113f5bb627d752d167e78a22ba398147ee1097c6545"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__6.stl",
+      "bytes": 19084,
+      "sha256": "90a5aa56bb2e4799107372a73e2de2a9109fb685c2fc24e6682fbf66ecd8bf26"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__7.stl",
+      "bytes": 19084,
+      "sha256": "cdd59e0b8b2379e30e7cbd878102fdf929d4adeaf4cd2918bffd2582c096c6c9"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__8.stl",
+      "bytes": 19084,
+      "sha256": "2c0c80689fa589dbd77daca90afda46308cc6c0ecf2bfd3cf4e778dd6d2327ae"
+    },
+    {
+      "path": "meshes/carriage_lwl7b__9.stl",
+      "bytes": 19084,
+      "sha256": "a5e54d978d4793195bf2ef790804f5307b65ad513f7054303b44d10297b92d4d"
+    },
+    {
+      "path": "meshes/ikea_desk_leg.stl",
+      "bytes": 29584,
+      "sha256": "c5775302117d2bb0df62ca3b8f398b1c2bf059017ac27a86fb7c088c5525677c"
+    },
+    {
+      "path": "meshes/linearrail_lwl7b_100mm.stl",
+      "bytes": 186684,
+      "sha256": "c25f4224c3adc8b007efa17040abc3eb06cdfabebf5a1b03465d2cd5988e4604"
+    },
+    {
+      "path": "meshes/linearrail_lwl7b_100mm__2.stl",
+      "bytes": 186684,
+      "sha256": "740c05a677ca106dd80c34bff48ea1f861c97a8411a24c080b703deb5e504e92"
+    },
+    {
+      "path": "meshes/linearrail_lwl7b_100mm__3.stl",
+      "bytes": 186684,
+      "sha256": "f2cffff11fa1310ec1d01557a5323b88866f746353472aa4a3f75156f89457b8"
+    },
+    {
+      "path": "meshes/linearrail_lwl7b_100mm__4.stl",
+      "bytes": 186684,
+      "sha256": "594c3852845962ebddc975e967954472c1ac9825da6d9c39894a29741ad7674b"
+    },
+    {
+      "path": "meshes/part_148.stl",
+      "bytes": 313884,
+      "sha256": "d2a780acf3eafc820cf3dcd37a3779b585bf4b3700c92ef04630f377771b8644"
+    },
+    {
+      "path": "meshes/part_149.stl",
+      "bytes": 300084,
+      "sha256": "12154e057274a804d5ba7a5f03dc2033ee402a58c514b6a0403d2776e3cef75d"
+    },
+    {
+      "path": "meshes/part_150.stl",
+      "bytes": 313884,
+      "sha256": "a4666ef2f5028598762b1aed7a1c0424f65b700438bc64057a35e42bdd7cf807"
+    },
+    {
+      "path": "meshes/part_151.stl",
+      "bytes": 300084,
+      "sha256": "5a031c2204e441755695c8c64618ded6a34e57baca7a8679296ac30d69a94bef"
+    },
+    {
+      "path": "meshes/part_152.stl",
+      "bytes": 257084,
+      "sha256": "891eda136a8ae014e20fecf98c56db8f88792378298a3ae84352cc9aac6f4111"
+    },
+    {
+      "path": "meshes/part_153.stl",
+      "bytes": 244284,
+      "sha256": "eb6e6034888c4b71f68fc3ee86b1ac4758568061dc7466b71e584a9ded334184"
+    },
+    {
+      "path": "meshes/part_39.stl",
+      "bytes": 140784,
+      "sha256": "0a2f4f589e40a391a3e53b4845e85e153faf47fb4cecc5e095e01157399200e6"
+    },
+    {
+      "path": "meshes/part_39__2.stl",
+      "bytes": 140784,
+      "sha256": "3316d77b9cbc64c7ba86acf7ba5b9e2ec135b49cafd42986e4e23e0b423171f9"
+    },
+    {
+      "path": "meshes/part_40.stl",
+      "bytes": 978084,
+      "sha256": "f2f32674ad5c036d7791ef79debd2dbb668fc9fb98f5f743ad7830e1e77de166"
+    },
+    {
+      "path": "meshes/part_40__2.stl",
+      "bytes": 978084,
+      "sha256": "db9adb8b01849ec3e9ec8f94d0abc4d284804b4245162598bba606ecedd5df3d"
+    },
+    {
+      "path": "meshes/part_41.stl",
+      "bytes": 978084,
+      "sha256": "40eb75cc777e51b143e84f16e52c9c85330402b5b2792641b4c8d6793bb1aa5b"
+    },
+    {
+      "path": "meshes/part_41__2.stl",
+      "bytes": 978084,
+      "sha256": "619972c9a0d9f3a054d7c1bb8d33bdf565edad1cd2a774532d39a1c71d31d2e6"
+    },
+    {
+      "path": "meshes/part_42.stl",
+      "bytes": 561884,
+      "sha256": "cf1b2cea0bf3ea58feb659d29f24c48f98160effd68f400965354b561f68444a"
+    },
+    {
+      "path": "meshes/part_42__2.stl",
+      "bytes": 561284,
+      "sha256": "8af752f9be2998155cf2a354b3ab7f4706e8c9e1f0ba544357e20f8a12404255"
+    },
+    {
+      "path": "meshes/part_43.stl",
+      "bytes": 193484,
+      "sha256": "b2be2cf4500b12e268b5f04287f0dace52312a9efb33767b220a33b70ae54870"
+    },
+    {
+      "path": "meshes/part_43__2.stl",
+      "bytes": 192784,
+      "sha256": "87baa27271526950171889182339c30d2ee3fe413eeb28e10b346a538b94b341"
+    },
+    {
+      "path": "meshes/part_44.stl",
+      "bytes": 948984,
+      "sha256": "bcdea088aed7d4bcfdc1448f9ac23082a65ba700a3293f0b66d81ff5fab5f31c"
+    },
+    {
+      "path": "meshes/part_44__2.stl",
+      "bytes": 950284,
+      "sha256": "89a55dbd8872c914098aec7e5263308abfc4b06e1ef87c6d1c1d165cc4bd3e27"
+    },
+    {
+      "path": "meshes/part_6.stl",
+      "bytes": 162784,
+      "sha256": "9b031fd7a22a8585329f39ef081ec16bba6ce07343d59331f1cfec04942ad3f2"
+    },
+    {
+      "path": "meshes/part_66.stl",
+      "bytes": 424284,
+      "sha256": "bb74806c82fa89edba0d371624d0efb424d6ce6c29fb90bc220965430208e196"
+    },
+    {
+      "path": "meshes/part_66__2.stl",
+      "bytes": 424584,
+      "sha256": "d78860929d6489108b6b22c74885877267a6d0d5ca0171ccde9a8b75f2cc9220"
+    },
+    {
+      "path": "meshes/part_69.stl",
+      "bytes": 421784,
+      "sha256": "c7c5c9a1e42303f2bbf7df62426cca051b2a70f6a2cae5208dc5dd7795cab6d0"
+    },
+    {
+      "path": "meshes/part_69__2.stl",
+      "bytes": 421784,
+      "sha256": "d8e62c411335f59b2c415d246b3f38797ddfcac817bc7059ec2c04895410123e"
+    },
+    {
+      "path": "meshes/part_6__2.stl",
+      "bytes": 162784,
+      "sha256": "b5828a6016750491e353fb1ff984eb1115d376859297f061ccb3de6e2e7de2e7"
+    },
+    {
+      "path": "meshes/part_6__3.stl",
+      "bytes": 162784,
+      "sha256": "5a69e0d83435a8f95db4a5d617e1d8e0f094784f562366263f0f80778e9b0b01"
+    },
+    {
+      "path": "meshes/part_6__4.stl",
+      "bytes": 162784,
+      "sha256": "207cc272d3e194dc86fe8bc22504b3b5c2c6963b91847cffd89ac967ccadeae0"
+    },
+    {
+      "path": "meshes/part_7.stl",
+      "bytes": 185984,
+      "sha256": "b6d97bb87a3be5b32a6fdf736c166fa90465aab02bdf0020e2471ac7e50595c0"
+    },
+    {
+      "path": "meshes/part_70.stl",
+      "bytes": 366084,
+      "sha256": "6053dba62a6dcc06231e6b1947842f59e5812a297389ecf247f0a25dca84a856"
+    },
+    {
+      "path": "meshes/part_70__2.stl",
+      "bytes": 365884,
+      "sha256": "da7005f9cf0efe8a379a72d301f901dcc7b898777255040631e6300dfabe6bc1"
+    },
+    {
+      "path": "meshes/part_71.stl",
+      "bytes": 169584,
+      "sha256": "eb641dc774543e168fb3c96e3be167c4f880dba8d17f2d4534259ceb0d8b9b58"
+    },
+    {
+      "path": "meshes/part_71__2.stl",
+      "bytes": 169584,
+      "sha256": "09f449c4b05f97ccc11a0f141ee97fa3207d2d0379b69b4c40fb3b7c11e7b352"
+    },
+    {
+      "path": "meshes/part_73.stl",
+      "bytes": 602084,
+      "sha256": "738c969100caa6bc65b31e5f6e8533ef9d0e099d07d21d1d3a57651c96a2fb8a"
+    },
+    {
+      "path": "meshes/part_73__2.stl",
+      "bytes": 602484,
+      "sha256": "8d3c7d3068e2449191f13df4f16ad522b17770baddb830a5c279c0a0a01e2c46"
+    },
+    {
+      "path": "meshes/part_7__2.stl",
+      "bytes": 185984,
+      "sha256": "12da9f2d50c227da07d8e0ce30f49edfa3fae502fe15779475efea7d061073e0"
+    },
+    {
+      "path": "meshes/part_7__3.stl",
+      "bytes": 185984,
+      "sha256": "77ced6a4f0f07a7566fb9399b739123072cd8788aef74290b50cada43c900146"
+    },
+    {
+      "path": "meshes/part_7__4.stl",
+      "bytes": 185984,
+      "sha256": "8380364955ecf525e6bd97cf7e8424e0dbbed54fba39b6dbbe9ac32ba6c0a1e1"
+    },
+    {
+      "path": "meshes/rb03_body.stl",
+      "bytes": 3506884,
+      "sha256": "26f78fe5d6615c695bfdfe69ebb20e2a3707276826a7d994442c9c0373735bd6"
+    },
+    {
+      "path": "meshes/rb03_body__2.stl",
+      "bytes": 3506884,
+      "sha256": "3793ed1fd11604fd29c214a5e83b296cb34b4c4e11f95c4537f10294c365e7e0"
+    },
+    {
+      "path": "meshes/rb03_body__3.stl",
+      "bytes": 3507784,
+      "sha256": "d86bdf33a959ad59e349d95eb2448a9e47f1ff51b7355adfd4096e24deca0cad"
+    },
+    {
+      "path": "meshes/rb03_body__4.stl",
+      "bytes": 3507784,
+      "sha256": "71fb23abf44c67d1dc838c2dc649945b431b01f95212f020e78bbd35cdf87375"
+    },
+    {
+      "path": "meshes/rb03_output.stl",
+      "bytes": 1072184,
+      "sha256": "2b42d550286d6254c2f3ef0127abf5b0d15d8d2cc98cb533a0be33e5628d8f65"
+    },
+    {
+      "path": "meshes/rb03_output__2.stl",
+      "bytes": 1072184,
+      "sha256": "b11e125a55d0a9d0a84bae438078bb59b249663f487258b0c42dc702802e76c5"
+    },
+    {
+      "path": "meshes/rb03_output__3.stl",
+      "bytes": 1071584,
+      "sha256": "869d8bb22323461d6dc71c8b203f6874f96e59451865d31318a322bacd92b79b"
+    },
+    {
+      "path": "meshes/rb03_output__4.stl",
+      "bytes": 1071584,
+      "sha256": "e4df1b67a7a425eed55a6fc1fa5e1d23c800d2bbd50967ba80de304f556eeb8d"
+    },
+    {
+      "path": "meshes/rb03_wire_bearing_mount.stl",
+      "bytes": 2010384,
+      "sha256": "add89f8dfb4dad4c5be4c93eb08416bc4a4b31cc0f4578a758684b940fea1cb9"
+    },
+    {
+      "path": "meshes/rb03_wire_bearing_mount__2.stl",
+      "bytes": 2010784,
+      "sha256": "9d6c3f10fe9462f6ee02d608d52a14316693c535c9a3db93c2c2f5b4c45c0ace"
+    },
+    {
+      "path": "meshes/rb03_wire_bearing_output_mount.stl",
+      "bytes": 769784,
+      "sha256": "b3ce5a2375fc2faac73c3dc3e580108b04e8ac20ceaa416a2d78d1a617c95629"
+    },
+    {
+      "path": "meshes/rb03_wire_bearing_output_mount__2.stl",
+      "bytes": 382284,
+      "sha256": "64766e1f21520edb5875bbd4f27361773745332a51a1ab48e318617fc341548b"
+    },
+    {
+      "path": "meshes/rb03_wire_bearing_output_mount__3.stl",
+      "bytes": 769984,
+      "sha256": "0f548a705c59f4920419fa654b5a845d7bc496eb838d6218fb46acf135a55382"
+    },
+    {
+      "path": "meshes/rb03_wire_bearing_output_mount__4.stl",
+      "bytes": 382284,
+      "sha256": "4fdd100519c693f5594f21b24b5742f465a6a5f3351d84365de6eb20e006e633"
+    },
+    {
+      "path": "meshes/rb04_cover.stl",
+      "bytes": 9545884,
+      "sha256": "a7a88f05818c08c6902da39437ec7b5c6feab2ef872666eb035603bbebe75f66"
+    },
+    {
+      "path": "meshes/rb04_cover__2.stl",
+      "bytes": 9547384,
+      "sha256": "daacee53d7cc046c28a14c07b9940cfecdb0e5d450fa075b076dadf336f471d6"
+    },
+    {
+      "path": "meshes/rb04_motor_body.stl",
+      "bytes": 13424684,
+      "sha256": "57049f29788aca1447dbc5f3b1ce4940040fc0a9965cbd2d8b13619268717701"
+    },
+    {
+      "path": "meshes/rb04_motor_body__2.stl",
+      "bytes": 13462184,
+      "sha256": "4076cf459b35d688c7a2afcd5063510c6dff1999092ea6b83a063c0c2366dc4f"
+    },
+    {
+      "path": "meshes/rb04_motor_output.stl",
+      "bytes": 1465084,
+      "sha256": "938f44d4d00e5a2de3446fcfdcbebb2594f889e9b4697cd8e5d4a5fad0801f02"
+    },
+    {
+      "path": "meshes/rb04_motor_output__2.stl",
+      "bytes": 1465084,
+      "sha256": "4e1aa518e4d853cb59b3874167bd944b886dc3621c9ad71fd62eb72b6fd63099"
+    },
+    {
+      "path": "meshes/rb04_wire_bearing_mount.stl",
+      "bytes": 3785484,
+      "sha256": "3ca830275acf981421df658412f019e9eb9a0fcd4c97e00f107a393d817b2161"
+    },
+    {
+      "path": "meshes/rb04_wire_bearing_mount__2.stl",
+      "bytes": 3786684,
+      "sha256": "c7097d37097408b6e58227e2dda3bccc781a48db5ed92299c5f084873d9a6ded"
+    },
+    {
+      "path": "meshes/rs00.stl",
+      "bytes": 4589084,
+      "sha256": "6ee7bf345e8e2425962cc4e38093ee6c3275d90eddfbd258a89df155d0e579de"
+    },
+    {
+      "path": "meshes/rs00__2.stl",
+      "bytes": 4589084,
+      "sha256": "ad532f65763d5cfc7bef4070eb3efb4f6e1d022e5e9fea9c570b765c059525de"
+    },
+    {
+      "path": "meshes/rs02.stl",
+      "bytes": 656684,
+      "sha256": "406ac1fe6ae192457715fbdb476976650d4fc623e0532359d60522476b4a23f2"
+    },
+    {
+      "path": "meshes/rs02__2.stl",
+      "bytes": 658084,
+      "sha256": "2d92dd1cb8550a5be09b2b84589786ca7cdb8fb608a9d9f79342ea205f0004d2"
+    },
+    {
+      "path": "meshes/rs02__3.stl",
+      "bytes": 658384,
+      "sha256": "0abd732b84c669818724288b89921b19c2d1d964272f173e700d2de7e21db9dc"
+    },
+    {
+      "path": "meshes/rs02__4.stl",
+      "bytes": 658384,
+      "sha256": "0587e3e8284349b6eeb666b68d10f35f454c2011bd56ca811214c53a0d68ecd0"
+    },
+    {
+      "path": "meshes/rs02_base_mount.stl",
+      "bytes": 344184,
+      "sha256": "c40ff8096313edb2684c076714c9bfafcdf82e1cfde1a30a5a838cfdfec16b6f"
+    },
+    {
+      "path": "meshes/rs02_base_mount__2.stl",
+      "bytes": 344584,
+      "sha256": "9e49a4186fba9b797921fcb4cf47874f77ce83c0669cb83b7aed9a2d11db06d5"
+    },
+    {
+      "path": "meshes/rs02_bearing_mount.stl",
+      "bytes": 309384,
+      "sha256": "3cd1d8467fbef0b0047c8d31889e14e1ff5c6e1802ee9f6b16f85c14c93d62b9"
+    },
+    {
+      "path": "meshes/rs02_bearing_mount__2.stl",
+      "bytes": 612884,
+      "sha256": "752e8aac4a8e228d9881fca48fb30c731d5e904ce9bdf9f097b0eae29ea6a2d5"
+    },
+    {
+      "path": "meshes/rs02_bearing_mount__3.stl",
+      "bytes": 309784,
+      "sha256": "03e25dc10201f6902eb834c49b9d15c1bfdbd04eeb38e99e900822fbf161c99c"
+    },
+    {
+      "path": "meshes/rs02_bearing_mount__4.stl",
+      "bytes": 609184,
+      "sha256": "f042d9ebc5e9cf35dcdc864777d880ffa83d825d329621f405040d13f9e3a018"
+    },
+    {
+      "path": "meshes/rs04_loop_wire_cover.stl",
+      "bytes": 123284,
+      "sha256": "61a53860a9647b91e421a1a8dead649106a45155998264213e00e6faf95e1628"
+    },
+    {
+      "path": "meshes/rs04_loop_wire_cover__2.stl",
+      "bytes": 123284,
+      "sha256": "c637a80c2e68f5fab8556fa06565e0ef8b2b3a9d9f8535cd321359328518a4ac"
+    },
+    {
+      "path": "meshes/rs04_passthrough_wire_cover.stl",
+      "bytes": 331284,
+      "sha256": "909bfca8ba8fc17a65b332b4692d7c825b96b84c61a802239da5c3de4d01e423"
+    },
+    {
+      "path": "meshes/rs04_passthrough_wire_cover__2.stl",
+      "bytes": 331284,
+      "sha256": "e165bb69227cd86005acef36715d31c0217cc18657370a04a7a24f2684fb05f8"
+    },
+    {
+      "path": "meshes/scxxkl_stp.stl",
+      "bytes": 412384,
+      "sha256": "19e991f4ae353db7aead0d050979744da885d10306d3899be228fba293923632"
+    },
+    {
+      "path": "meshes/scxxkl_stp__2.stl",
+      "bytes": 412384,
+      "sha256": "901684dcfbe36bb28b7dde256621b8254c0951fad191daf24100e15007721658"
+    },
+    {
+      "path": "meshes/sgqzc__35_stp.stl",
+      "bytes": 627084,
+      "sha256": "b57fffb841f90d44be4b4e358b20959d988125380d648d8dfa083439b0fda2c1"
+    },
+    {
+      "path": "meshes/sgqzc__35_stp__2.stl",
+      "bytes": 627084,
+      "sha256": "f75a25fd1b02ebc21b0fb65622c74fe939c1167143c01f6c9d2dceb872fd6aa5"
+    },
+    {
+      "path": "meshes/solid_17_con_p4_11_438x3_2_hd_2_stp.stl",
+      "bytes": 593484,
+      "sha256": "e00f617291bb1c083f28ee0b394681d4ff4300cfd9d8f4005e8288a7c3ac0c94"
+    },
+    {
+      "path": "meshes/solid_17_con_p4_11_438x3_2_hd_2_stp__2.stl",
+      "bytes": 591784,
+      "sha256": "8b7ba133549b45d7952b43feccd3622709d1a57e3a92fe617d349a571031ba84"
+    },
+    {
+      "path": "meshes/solid_17_con_p4_11_438x3_2_hd_3_stp.stl",
+      "bytes": 593984,
+      "sha256": "260986c54b808c6c8131b8c322f55a2418e9e6a8a95c942b0bbd9a6958cb3139"
+    },
+    {
+      "path": "meshes/solid_17_con_p4_11_438x3_2_hd_3_stp__2.stl",
+      "bytes": 592284,
+      "sha256": "d3de1661072ad8d29f5de2f4cb3dcb6e18445793bd8a511820e58dad38864aca"
+    }
+  ],
+  "retrieval": {
+    "version_lookup_requests": 1,
+    "network_requests": 519,
+    "responses": [
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 307
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      },
+      {
+        "method": "get",
+        "status": 200
+      }
+    ],
+    "previous_version": "3DP URDF Version 1.0",
+    "previous_urdf_sha256": "15444414c4a65841e48bd32ebe8d75ff4f4ef034bfa7e2ad05b7bedade91ceb6"
+  }
+}

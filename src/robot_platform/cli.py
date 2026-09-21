@@ -36,6 +36,7 @@ def parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("list", help="list built-in robots and application adapters")
     sub.add_parser("sim", help="loopback simulation and hardware audit (sim --help)")
+    sub.add_parser("view", help="robot-independent URDF viewer and joint jogging (view --help)")
     for command in ("describe", "config", "run"):
         s = sub.add_parser(command, help={"describe": "show a robot definition", "config": "print validated resolved settings", "run": "launch an application or inspect its plan"}[command])
         s.add_argument("--robot", required=True, help="built-in robot name or definition JSON path")
@@ -53,6 +54,9 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "view":
+        from robot_platform.viewer.cli import main as viewer_main
+        return viewer_main(argv[1:])
     if argv and argv[0] == "sim":
         from robot_platform.simulation.cli import main as sim_main
         return sim_main(argv[1:])

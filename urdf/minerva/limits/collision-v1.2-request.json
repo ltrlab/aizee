@@ -1,0 +1,415 @@
+{
+  "schema_version": 1,
+  "urdf_sha256": "792f32da597821bbab4d7e65365618519159ecbc657744133196325eaafddcf8",
+  "reference_positions": {
+    "right_gripper_finger_a_slide": -0.024,
+    "right_arm_j6": 0.0,
+    "right_arm_j5": 0.0,
+    "right_arm_j4": 0.0,
+    "right_arm_j3": 0.0,
+    "right_arm_j2": 0.0,
+    "right_arm_j1": 0.0,
+    "left_gripper_finger_a_slide": 0.024,
+    "left_arm_j6": 0.0,
+    "left_arm_j5": 0.0,
+    "left_arm_j4": 0.0,
+    "left_arm_j3": 0.0,
+    "left_arm_j2": 0.0,
+    "left_arm_j1": 0.0
+  },
+  "groups": [
+    {
+      "name": "Left arm",
+      "root_joint": "left_arm_j1",
+      "joints": [
+        "left_arm_j1",
+        "left_arm_j2",
+        "left_arm_j3",
+        "left_arm_j4",
+        "left_arm_j5",
+        "left_arm_j6",
+        "left_gripper_finger_a_slide"
+      ]
+    },
+    {
+      "name": "Right arm",
+      "root_joint": "right_arm_j1",
+      "joints": [
+        "right_arm_j1",
+        "right_arm_j2",
+        "right_arm_j3",
+        "right_arm_j4",
+        "right_arm_j5",
+        "right_arm_j6",
+        "right_gripper_finger_a_slide"
+      ]
+    }
+  ],
+  "resolution": {
+    "rad": {
+      "step": 0.017453292519943295,
+      "tolerance": 0.000545415391248228,
+      "margin": 0.017453292519943295
+    },
+    "m": {
+      "step": 0.0005,
+      "tolerance": 1.5625e-05,
+      "margin": 0.0005
+    }
+  },
+  "assembly_interfaces": [
+    {
+      "shapes": [
+        "ikea_desk_leg/2",
+        "bearing/6"
+      ],
+      "reason": "Right shoulder support / bearing seat interface.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "ikea_desk_leg/3",
+        "bearing_2/1"
+      ],
+      "reason": "Left shoulder support / bearing seat: exported overlap needs visual inspection.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "bearing/1",
+        "part_66/3"
+      ],
+      "reason": "Right upper-arm bearing seat.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "bearing/2",
+        "part_66/3"
+      ],
+      "reason": "Right upper-arm bearing seat.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "bearing/3",
+        "part_66/2"
+      ],
+      "reason": "Right upper-arm motor output mounting interface.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "part_66/1",
+        "42x30x7mm_bearing/5"
+      ],
+      "reason": "Right elbow bearing seat.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "part_66/1",
+        "42x30x7mm_bearing/6"
+      ],
+      "reason": "Right elbow bearing seat.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "42x30x7mm_bearing/1",
+        "part_73/1"
+      ],
+      "reason": "Right forearm motor / bearing mount interface.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "42x30x7mm_bearing/8",
+        "part_73/2"
+      ],
+      "reason": "Right forearm bearing seat.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "part_73/0",
+        "part_42/2"
+      ],
+      "reason": "Right wrist motor / output bracket interface.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "part_42/1",
+        "1_1_02_eb571_960_stp/0"
+      ],
+      "reason": "Right tool motor / output mount interface.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "bearing_2/2",
+        "part_66_2/2"
+      ],
+      "reason": "Left upper-arm bearing seat.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "bearing_2/4",
+        "part_66_2/2"
+      ],
+      "reason": "Left upper-arm bearing seat.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "bearing_2/6",
+        "part_66_2/3"
+      ],
+      "reason": "Left upper-arm motor output mounting interface.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "part_66_2/0",
+        "42x30x7mm_bearing_2/3"
+      ],
+      "reason": "Left elbow motor output mounting interface.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "part_66_2/1",
+        "42x30x7mm_bearing_2/0"
+      ],
+      "reason": "Left elbow bearing seat.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "part_66_2/1",
+        "42x30x7mm_bearing_2/6"
+      ],
+      "reason": "Left elbow bearing seat.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "42x30x7mm_bearing_2/5",
+        "part_73_2/2"
+      ],
+      "reason": "Left forearm bearing seat.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "42x30x7mm_bearing_2/8",
+        "part_73_2/1"
+      ],
+      "reason": "Left forearm motor / bearing mount interface.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "part_73_2/0",
+        "part_42_2/1"
+      ],
+      "reason": "Left wrist motor / output bracket interface.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "part_42_2/0",
+        "1_1_02_eb571_960_stp_2/1"
+      ],
+      "reason": "Left tool motor / output mount interface.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "1_1_02_eb571_960_stp/1",
+        "carriage_lwl7b_2/0"
+      ],
+      "reason": "Linear rail / mating carriage interface; jaw plates remain checked.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "1_1_02_eb571_960_stp/1",
+        "carriage_lwl7b_2/1"
+      ],
+      "reason": "Linear rail / mating carriage interface; jaw plates remain checked.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "1_1_02_eb571_960_stp/1",
+        "carriage_lwl7b_2/2"
+      ],
+      "reason": "Linear rail / mating carriage interface; jaw plates remain checked.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "1_1_02_eb571_960_stp/1",
+        "carriage_lwl7b_2/3"
+      ],
+      "reason": "Linear rail / mating carriage interface; jaw plates remain checked.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "1_1_02_eb571_960_stp/1",
+        "carriage_lwl7b_2/5"
+      ],
+      "reason": "Linear rail / mating carriage interface; jaw plates remain checked.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "1_1_02_eb571_960_stp/3",
+        "carriage_lwl7b/0"
+      ],
+      "reason": "Linear rail / mating carriage interface; jaw plates remain checked.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "1_1_02_eb571_960_stp/3",
+        "carriage_lwl7b/1"
+      ],
+      "reason": "Linear rail / mating carriage interface; jaw plates remain checked.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "1_1_02_eb571_960_stp/3",
+        "carriage_lwl7b/2"
+      ],
+      "reason": "Linear rail / mating carriage interface; jaw plates remain checked.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "1_1_02_eb571_960_stp/3",
+        "carriage_lwl7b/3"
+      ],
+      "reason": "Linear rail / mating carriage interface; jaw plates remain checked.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "1_1_02_eb571_960_stp/3",
+        "carriage_lwl7b/4"
+      ],
+      "reason": "Linear rail / mating carriage interface; jaw plates remain checked.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "1_1_02_eb571_960_stp_2/0",
+        "carriage_lwl7b_3/0"
+      ],
+      "reason": "Linear rail / mating carriage interface; jaw plates remain checked.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "1_1_02_eb571_960_stp_2/0",
+        "carriage_lwl7b_3/1"
+      ],
+      "reason": "Linear rail / mating carriage interface; jaw plates remain checked.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "1_1_02_eb571_960_stp_2/0",
+        "carriage_lwl7b_3/2"
+      ],
+      "reason": "Linear rail / mating carriage interface; jaw plates remain checked.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "1_1_02_eb571_960_stp_2/0",
+        "carriage_lwl7b_3/4"
+      ],
+      "reason": "Linear rail / mating carriage interface; jaw plates remain checked.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "1_1_02_eb571_960_stp_2/0",
+        "carriage_lwl7b_3/5"
+      ],
+      "reason": "Linear rail / mating carriage interface; jaw plates remain checked.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "1_1_02_eb571_960_stp_2/3",
+        "carriage_lwl7b_4/0"
+      ],
+      "reason": "Linear rail / mating carriage interface; jaw plates remain checked.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "1_1_02_eb571_960_stp_2/3",
+        "carriage_lwl7b_4/1"
+      ],
+      "reason": "Linear rail / mating carriage interface; jaw plates remain checked.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "1_1_02_eb571_960_stp_2/3",
+        "carriage_lwl7b_4/2"
+      ],
+      "reason": "Linear rail / mating carriage interface; jaw plates remain checked.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "1_1_02_eb571_960_stp_2/3",
+        "carriage_lwl7b_4/3"
+      ],
+      "reason": "Linear rail / mating carriage interface; jaw plates remain checked.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "1_1_02_eb571_960_stp_2/3",
+        "carriage_lwl7b_4/4"
+      ],
+      "reason": "Linear rail / mating carriage interface; jaw plates remain checked.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "bearing_2/5",
+        "ikea_desk_leg/0"
+      ],
+      "reason": "Corrected left shoulder motor output flange / stationary support interface.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "bearing/4",
+        "ikea_desk_leg/4"
+      ],
+      "reason": "Right shoulder motor output flange / stationary support interface; contact appears with tiny rotation.",
+      "review_status": "provisional"
+    },
+    {
+      "shapes": [
+        "42x30x7mm_bearing/7",
+        "part_66/0"
+      ],
+      "reason": "Right elbow motor output flange / mounting bracket interface; contact appears with tiny rotation.",
+      "review_status": "provisional"
+    }
+  ],
+  "source_version": "3DP URDF Version 1.1"
+}

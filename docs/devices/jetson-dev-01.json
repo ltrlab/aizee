@@ -1,0 +1,276 @@
+{
+  "schema_version": 1,
+  "asset_id": "jetson-dev-01",
+  "role": "development_build_and_simulation",
+  "collected_at": "2026-09-21T00:46:23.894248+00:00",
+  "hostname": "minerva",
+  "ssh_user": "ltr",
+  "observed_ssh_address": "192.168.8.118",
+  "board_model": "NVIDIA Jetson Orin Nano Engineering Reference Developer Kit Super",
+  "board_serial": "1421225029686",
+  "os_machine_id": "5dbfb12414a3456d9014d88183e338b1",
+  "architecture": "aarch64",
+  "kernel": "5.15.148-tegra",
+  "os_release": "PRETTY_NAME=\"Ubuntu 22.04.5 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"22.04\"\nVERSION=\"22.04.5 LTS (Jammy Jellyfish)\"\nVERSION_CODENAME=jammy\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=jammy",
+  "l4t_release": "# R36 (release), REVISION: 4.4, GCID: 41062509, BOARD: generic, EABI: aarch64, DATE: Mon Jun 16 16:07:13 UTC 2025\n# KERNEL_VARIANT: oot\nTARGET_USERSPACE_LIB_DIR=nvidia\nTARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia",
+  "physical_network_interfaces": [
+    {
+      "interface": "can0",
+      "kind": "ethernet_or_other",
+      "current_mac": "",
+      "permanent_mac_report": "Permanent address: not set",
+      "address_assignment_type": "0",
+      "device_path": "/sys/devices/platform/bus@0/c310000.mttcan",
+      "link_state": "down"
+    },
+    {
+      "interface": "enP8p1s0",
+      "kind": "ethernet_or_other",
+      "current_mac": "3c:6d:66:1e:be:d3",
+      "permanent_mac_report": "Permanent address: 3c:6d:66:1e:be:d3",
+      "address_assignment_type": "0",
+      "device_path": "/sys/devices/platform/bus@0/140a0000.pcie/pci0008:00/0008:00:00.0/0008:01:00.0",
+      "link_state": "down"
+    },
+    {
+      "interface": "usb0",
+      "kind": "ethernet_or_other",
+      "current_mac": "ee:b0:fc:b4:b9:b5",
+      "permanent_mac_report": "Permanent address: not set",
+      "address_assignment_type": "3",
+      "device_path": "/sys/devices/platform/bus@0/3550000.usb/gadget",
+      "link_state": "down"
+    },
+    {
+      "interface": "usb1",
+      "kind": "ethernet_or_other",
+      "current_mac": "ee:b0:fc:b4:b9:b7",
+      "permanent_mac_report": "Permanent address: not set",
+      "address_assignment_type": "3",
+      "device_path": "/sys/devices/platform/bus@0/3550000.usb/gadget",
+      "link_state": "down"
+    },
+    {
+      "interface": "wlP1p1s0",
+      "kind": "wifi",
+      "current_mac": "a8:e2:91:d9:9b:39",
+      "permanent_mac_report": "Permanent address: a8:e2:91:d9:9b:39",
+      "address_assignment_type": "0",
+      "device_path": "/sys/devices/platform/bus@0/14100000.pcie/pci0001:00/0001:00:00.0/0001:01:00.0",
+      "link_state": "up"
+    }
+  ],
+  "network_addresses": [
+    {
+      "ifindex": 1,
+      "ifname": "lo",
+      "flags": [
+        "LOOPBACK",
+        "UP",
+        "LOWER_UP"
+      ],
+      "mtu": 65536,
+      "qdisc": "noqueue",
+      "operstate": "UNKNOWN",
+      "group": "default",
+      "txqlen": 1000,
+      "link_type": "loopback",
+      "address": "00:00:00:00:00:00",
+      "broadcast": "00:00:00:00:00:00",
+      "addr_info": [
+        {
+          "family": "inet",
+          "local": "127.0.0.1",
+          "prefixlen": 8,
+          "scope": "host",
+          "label": "lo",
+          "valid_life_time": 4294967295,
+          "preferred_life_time": 4294967295
+        },
+        {
+          "family": "inet6",
+          "local": "::1",
+          "prefixlen": 128,
+          "scope": "host",
+          "valid_life_time": 4294967295,
+          "preferred_life_time": 4294967295
+        }
+      ]
+    },
+    {
+      "ifindex": 2,
+      "ifname": "can0",
+      "flags": [
+        "NOARP",
+        "ECHO"
+      ],
+      "mtu": 16,
+      "qdisc": "noop",
+      "operstate": "DOWN",
+      "group": "default",
+      "txqlen": 10,
+      "link_type": "can",
+      "addr_info": []
+    },
+    {
+      "ifindex": 3,
+      "ifname": "wlP1p1s0",
+      "flags": [
+        "BROADCAST",
+        "MULTICAST",
+        "UP",
+        "LOWER_UP"
+      ],
+      "mtu": 1500,
+      "qdisc": "mq",
+      "operstate": "UP",
+      "group": "default",
+      "txqlen": 1000,
+      "link_type": "ether",
+      "address": "a8:e2:91:d9:9b:39",
+      "broadcast": "ff:ff:ff:ff:ff:ff",
+      "addr_info": [
+        {
+          "family": "inet",
+          "local": "192.168.8.118",
+          "prefixlen": 24,
+          "broadcast": "192.168.8.255",
+          "scope": "global",
+          "dynamic": true,
+          "noprefixroute": true,
+          "label": "wlP1p1s0",
+          "valid_life_time": 41540,
+          "preferred_life_time": 41540
+        },
+        {
+          "family": "inet6",
+          "local": "fe80::aa31:eca2:5fb:f99a",
+          "prefixlen": 64,
+          "scope": "link",
+          "noprefixroute": true,
+          "valid_life_time": 4294967295,
+          "preferred_life_time": 4294967295
+        }
+      ]
+    },
+    {
+      "ifindex": 4,
+      "ifname": "enP8p1s0",
+      "flags": [
+        "NO-CARRIER",
+        "BROADCAST",
+        "MULTICAST",
+        "UP"
+      ],
+      "mtu": 1500,
+      "qdisc": "mq",
+      "operstate": "DOWN",
+      "group": "default",
+      "txqlen": 1000,
+      "link_type": "ether",
+      "address": "3c:6d:66:1e:be:d3",
+      "broadcast": "ff:ff:ff:ff:ff:ff",
+      "addr_info": []
+    },
+    {
+      "ifindex": 8,
+      "ifname": "docker0",
+      "flags": [
+        "NO-CARRIER",
+        "BROADCAST",
+        "MULTICAST",
+        "UP"
+      ],
+      "mtu": 1500,
+      "qdisc": "noqueue",
+      "operstate": "DOWN",
+      "group": "default",
+      "link_type": "ether",
+      "address": "42:f4:3b:6a:4c:af",
+      "broadcast": "ff:ff:ff:ff:ff:ff",
+      "addr_info": [
+        {
+          "family": "inet",
+          "local": "172.17.0.1",
+          "prefixlen": 16,
+          "broadcast": "172.17.255.255",
+          "scope": "global",
+          "label": "docker0",
+          "valid_life_time": 4294967295,
+          "preferred_life_time": 4294967295
+        }
+      ]
+    },
+    {
+      "ifindex": 9,
+      "ifname": "l4tbr0",
+      "flags": [
+        "BROADCAST",
+        "MULTICAST"
+      ],
+      "mtu": 1500,
+      "qdisc": "noop",
+      "operstate": "DOWN",
+      "group": "default",
+      "txqlen": 1000,
+      "link_type": "ether",
+      "address": "3e:c7:e7:79:f3:87",
+      "broadcast": "ff:ff:ff:ff:ff:ff",
+      "addr_info": []
+    },
+    {
+      "ifindex": 10,
+      "ifname": "usb0",
+      "flags": [
+        "NO-CARRIER",
+        "BROADCAST",
+        "MULTICAST",
+        "UP"
+      ],
+      "mtu": 1500,
+      "qdisc": "pfifo_fast",
+      "master": "l4tbr0",
+      "operstate": "DOWN",
+      "group": "default",
+      "txqlen": 1000,
+      "link_type": "ether",
+      "address": "ee:b0:fc:b4:b9:b5",
+      "broadcast": "ff:ff:ff:ff:ff:ff",
+      "addr_info": []
+    },
+    {
+      "ifindex": 11,
+      "ifname": "usb1",
+      "flags": [
+        "NO-CARRIER",
+        "BROADCAST",
+        "MULTICAST",
+        "UP"
+      ],
+      "mtu": 1500,
+      "qdisc": "pfifo_fast",
+      "master": "l4tbr0",
+      "operstate": "DOWN",
+      "group": "default",
+      "txqlen": 1000,
+      "link_type": "ether",
+      "address": "ee:b0:fc:b4:b9:b7",
+      "broadcast": "ff:ff:ff:ff:ff:ff",
+      "addr_info": []
+    }
+  ],
+  "ssh_host_ed25519_fingerprint": "256 SHA256:TKFnMn4zf9eKCL7iiOF8QVjCebjoAssMmU6uzCTOpVE root@minerva (ED25519)",
+  "root_storage": "/dev/mmcblk0p1 ext4   752d27c0-5370-43a2-9666-6f6c7e937dce",
+  "sd_card_cid": "0353445344313238852a34d503014b00",
+  "power_mode": "NV Power Mode: 25W\n1",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "python": "3.10.12",
+  "notes": [
+    "Inventory name does not change the hostname.",
+    "IP addresses may change; match board serial and SSH host fingerprint before deployment.",
+    "OS machine ID and SSH host keys can change after reimaging.",
+    "Current MAC may be randomized; prefer a reported permanent MAC when available.",
+    "SD CID identifies removable storage, not the Jetson module.",
+    "This is the new development host, not the existing Minerva robot host."
+  ]
+}

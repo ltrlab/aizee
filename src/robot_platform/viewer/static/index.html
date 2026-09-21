@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Robot model viewer</title>
+  <link rel="stylesheet" href="static/viewer.css">
+  <script type="importmap">{"imports":{"three":"./static/vendor/three.module.js"}}</script>
+</head>
+<body>
+  <header><div class="brand"><span class="mark">◈</span><div>Robot model viewer<small>Inspect · articulate · compare</small></div></div>
+    <label class="model-picker">Model <select id="model" aria-label="Robot model"></select></label>
+    <span class="mode">● Model only</span>
+  </header>
+  <main>
+    <section id="viewport" aria-label="3D robot viewport">
+      <div class="viewport-head"><div class="view-tools"><button id="fit">Fit model</button><button id="front">Front</button><button id="top">Top</button>
+        <label><input id="axes" type="checkbox"> Link axes</label>
+        <label><input id="collision-geometry" type="checkbox"> <span id="geometry-label">Collision geometry</span></label>
+        <label><input id="live-collisions" type="checkbox" checked> Live collisions</label>
+      </div>
+      <div id="loading" role="status">Starting renderer…</div></div>
+      <div id="live-collision-status" role="status">Loading collision model…</div>
+      <div class="viewport-foot"><span>Drag to orbit · Right-drag to pan · Scroll to zoom</span><span>Z up · metres</span></div>
+      <div id="render-error" role="alert" hidden></div>
+    </section>
+    <aside>
+      <div class="side-head"><div class="eyebrow">MECHANICAL MODEL</div><h1 id="model-title">Loading</h1><p id="summary"></p></div>
+      <div class="actions"><button id="reset">Reset pose</button><button id="export">Export pose</button><button id="import">Load pose</button><input id="pose-file" type="file" accept=".json" hidden></div>
+      <p id="notice" role="status"></p>
+      <details id="notes"><summary>Model notes &amp; ranges</summary><div id="notes-body"></div></details>
+      <section id="limit-review" hidden>
+        <h2>Collision limits · pending review</h2>
+        <p id="limit-review-summary" class="hint"></p>
+        <p class="hint">Lower / Upper restores the sweep reference pose and moves one joint to its candidate limit. Other joints are held at that reference; combined poses still need collision checks.</p>
+        <button id="sweep-reference">Sweep reference pose</button>
+        <a id="sweep-report" target="_blank" rel="noopener">Full sweep report</a>
+      </section>
+      <div id="joints"></div>
+      <section class="collision-section"><div class="section-title"><h2>Collision inspection</h2><button id="check">Check pose</button></div>
+        <label>Check with <select id="collision-mode"><option value="source">Source CAD</option><option value="runtime" disabled>Accelerated CAD</option><option value="keepout" disabled>Conservative keep-out</option></select></label>
+        <label id="keepout-gap-row" hidden>Inspection gap (mm) <input id="keepout-gap" type="number" min="0" max="1000" step="1" value="5"></label>
+        <p id="keepout-policy" class="hint" hidden></p>
+        <label>Check scope <select id="collision-scope"><option value="all">Whole robot</option><option value="inter_branch">Between branches / arms</option><option value="within_branch">Within each branch / arm</option><option value="body">Body contacts</option><option value="environment">Environment contacts</option></select></label>
+        <p id="runtime-summary" class="hint"></p>
+        <p id="collision-status">Pose not checked</p><p class="hint" id="collision-hint">A pose check is a diagnostic. Jogging remains free; no hardware is connected.</p>
+        <div id="pairs"></div>
+      </section>
+      <details><summary>Coupled joints</summary><div id="mimics"></div></details>
+    </aside>
+  </main>
+  <script type="module" src="static/viewer.js"></script>
+  <script>window.addEventListener('error', () => {const e=document.getElementById('render-error');e.hidden=false;e.textContent='The viewer could not initialize. Reload or inspect the server log.';});</script>
+</body>
+</html>

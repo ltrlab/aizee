@@ -1,5 +1,5 @@
 {
-  "head": "c8c8e8fdd99bcf57d354c9ec662f38069bafb248",
+  "head": "50114809fc7cbfbb0294ea8162afabf8921c78ed",
   "branch": "overhaul",
   "scope": "Present Git-tracked paths, working-tree contents; excludes untracked/ignored files. Generated inventory sizes omitted to avoid self-reference.",
   "import_method": "AST candidate imports resolved against known repository roots; includes conditional/test imports; not a runtime call graph. Dynamic imports, shell/config references and cross-language edges are not resolved.",
@@ -8,9 +8,13 @@
       "description": "Vendored OpenRB board support",
       "proposed_area": "third_party/openrb150_bsp/"
     },
+    "viewer_vendor": {
+      "description": "Pinned Three.js browser rendering dependency",
+      "proposed_area": "src/robot_platform/viewer/static/vendor/ (current)"
+    },
     "robot_assets": {
-      "description": "Aizee robot model and meshes",
-      "proposed_area": "robots/aizee/assets/"
+      "description": "Robot model sources, meshes and import audits",
+      "proposed_area": "urdf/<robot>/ (current)"
     },
     "rust_control": {
       "description": "Shared Rust motor backend; morphology assumptions remain",
@@ -23,6 +27,10 @@
     "rust_lidar": {
       "description": "Reusable LiDAR driver; optional rover service",
       "proposed_area": "crates/lidar_control/"
+    },
+    "rust_collision": {
+      "description": "Shared native collision and keep-out queries",
+      "proposed_area": "rust/collision/ (current)"
     },
     "rust_workspace": {
       "description": "Rust workspace metadata",
@@ -136,25 +144,25 @@
       "path": ".gitattributes",
       "area": "repo",
       "present": true,
-      "working_tree_bytes": 330
+      "working_tree_bytes": 1213
     },
     {
       "path": ".gitignore",
       "area": "repo",
       "present": true,
-      "working_tree_bytes": 1491
+      "working_tree_bytes": 1618
     },
     {
       "path": "Cargo.lock",
       "area": "rust_workspace",
       "present": true,
-      "working_tree_bytes": 36706
+      "working_tree_bytes": 42490
     },
     {
       "path": "Cargo.toml",
       "area": "rust_workspace",
       "present": true,
-      "working_tree_bytes": 831
+      "working_tree_bytes": 853
     },
     {
       "path": "LICENSE",
@@ -166,7 +174,7 @@
       "path": "README.md",
       "area": "docs",
       "present": true,
-      "working_tree_bytes": 6418
+      "working_tree_bytes": 8029
     },
     {
       "path": "config/README.md",
@@ -430,19 +438,25 @@
       "path": "docs/MINERVA_CAD.md",
       "area": "docs",
       "present": true,
-      "working_tree_bytes": 6967
+      "working_tree_bytes": 12307
+    },
+    {
+      "path": "docs/MODEL_VIEWER.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 13621
     },
     {
       "path": "docs/PHASES.md",
       "area": "docs",
       "present": true,
-      "working_tree_bytes": 2703
+      "working_tree_bytes": 3568
     },
     {
       "path": "docs/README.md",
       "area": "docs",
       "present": true,
-      "working_tree_bytes": 4262
+      "working_tree_bytes": 6055
     },
     {
       "path": "docs/RS00User Manual260112.pdf",
@@ -469,10 +483,64 @@
       "working_tree_bytes": 1850224
     },
     {
+      "path": "docs/architecture/COLLISION_25HZ_HARDWARE_PLAN.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 12181
+    },
+    {
+      "path": "docs/architecture/COLLISION_AND_LIMIT_CALIBRATION.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 20471
+    },
+    {
+      "path": "docs/architecture/COLLISION_BENCHMARK_RESULTS.json",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 5558
+    },
+    {
+      "path": "docs/architecture/COLLISION_HIERARCHY_RESULTS.json",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 25037
+    },
+    {
+      "path": "docs/architecture/COLLISION_KEEPOUT_RESULTS.json",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 16932
+    },
+    {
+      "path": "docs/architecture/COLLISION_RUNTIME_IMPLEMENTATION.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 17710
+    },
+    {
+      "path": "docs/architecture/COLLISION_RUNTIME_RESEARCH.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 16066
+    },
+    {
+      "path": "docs/architecture/DEVELOPMENT_CHECKPOINT_2026-09-21.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 5314
+    },
+    {
+      "path": "docs/architecture/KNOWN_LOAD_CALIBRATION.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 6329
+    },
+    {
       "path": "docs/architecture/MONOREPO_IMPLEMENTATION.md",
       "area": "docs",
       "present": true,
-      "working_tree_bytes": 13375
+      "working_tree_bytes": 13721
     },
     {
       "path": "docs/architecture/MONOREPO_PLAN.md",
@@ -495,7 +563,7 @@
       "path": "docs/architecture/REPOSITORY_MAP.md",
       "area": "docs",
       "present": true,
-      "working_tree_bytes": 6208
+      "working_tree_bytes": 7141
     },
     {
       "path": "docs/architecture/SESSION_BACKEND_MIGRATION.md",
@@ -507,18 +575,36 @@
       "path": "docs/architecture/SIMULATION_IMPLEMENTATION.md",
       "area": "docs",
       "present": true,
-      "working_tree_bytes": 15871
+      "working_tree_bytes": 16566
     },
     {
       "path": "docs/architecture/SIMULATION_VALIDATION_PLAN.md",
       "area": "docs",
       "present": true,
-      "working_tree_bytes": 33839
+      "working_tree_bytes": 35721
     },
     {
       "path": "docs/architecture/repository_inventory.json",
       "area": "docs",
       "present": true
+    },
+    {
+      "path": "docs/devices/JETSON_DEV_01.md",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 14512
+    },
+    {
+      "path": "docs/devices/jetson-dev-01-validation.json",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 4396
+    },
+    {
+      "path": "docs/devices/jetson-dev-01.json",
+      "area": "docs",
+      "present": true,
+      "working_tree_bytes": 8179
     },
     {
       "path": "docs/learning/RESEARCH_PLAN.md",
@@ -530,7 +616,7 @@
       "path": "docs/quickstart/FRESH_JETSON_SETUP.md",
       "area": "docs",
       "present": true,
-      "working_tree_bytes": 6079
+      "working_tree_bytes": 8078
     },
     {
       "path": "docs/quickstart/JETSON_QUICK_START.md",
@@ -2064,7 +2150,7 @@
       "path": "pyproject.toml",
       "area": "repo",
       "present": true,
-      "working_tree_bytes": 1581
+      "working_tree_bytes": 1855
     },
     {
       "path": "python/common/__init__.py",
@@ -3095,11 +3181,9 @@
       "path": "python/web/server.py",
       "area": "webxr",
       "present": true,
-      "working_tree_bytes": 21064,
-      "lines": 482,
-      "sys_path_mutation_lines": [
-        112
-      ]
+      "working_tree_bytes": 19425,
+      "lines": 443,
+      "sys_path_mutation_lines": []
     },
     {
       "path": "python/web/sim_visual_ik.py",
@@ -3130,12 +3214,6 @@
       "present": true,
       "working_tree_bytes": 20155,
       "lines": 465
-    },
-    {
-      "path": "python/web/static/preview.html",
-      "area": "webxr",
-      "present": true,
-      "working_tree_bytes": 41532
     },
     {
       "path": "python/web/static/scene.js",
@@ -3188,7 +3266,26 @@
       "path": "rust/README.md",
       "area": "rust_workspace",
       "present": true,
-      "working_tree_bytes": 2809
+      "working_tree_bytes": 2935
+    },
+    {
+      "path": "rust/collision/Cargo.toml",
+      "area": "rust_collision",
+      "present": true,
+      "working_tree_bytes": 240
+    },
+    {
+      "path": "rust/collision/README.md",
+      "area": "rust_collision",
+      "present": true,
+      "working_tree_bytes": 1928
+    },
+    {
+      "path": "rust/collision/src/lib.rs",
+      "area": "rust_collision",
+      "present": true,
+      "working_tree_bytes": 16265,
+      "lines": 335
     },
     {
       "path": "rust/comms/Cargo.toml",
@@ -3309,6 +3406,22 @@
       "working_tree_bytes": 3934
     },
     {
+      "path": "scripts/benchmark_collision.py",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 6637,
+      "lines": 107,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "scripts/benchmark_keepout.py",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 6629,
+      "lines": 105,
+      "sys_path_mutation_lines": []
+    },
+    {
       "path": "scripts/bootstrap_jetson.sh",
       "area": "deployment",
       "present": true,
@@ -3316,17 +3429,23 @@
       "lines": 93
     },
     {
+      "path": "scripts/build_collision.ps1",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 1079
+    },
+    {
       "path": "scripts/build_jetson.ps1",
       "area": "deployment",
       "present": true,
-      "working_tree_bytes": 6648
+      "working_tree_bytes": 6767
     },
     {
       "path": "scripts/build_jetson_verify.py",
       "area": "deployment",
       "present": true,
-      "working_tree_bytes": 3356,
-      "lines": 80,
+      "working_tree_bytes": 3749,
+      "lines": 84,
       "sys_path_mutation_lines": []
     },
     {
@@ -3342,6 +3461,14 @@
       "present": true,
       "working_tree_bytes": 2784,
       "lines": 76
+    },
+    {
+      "path": "scripts/compose_collision_model.py",
+      "area": "deployment",
+      "present": true,
+      "working_tree_bytes": 4792,
+      "lines": 88,
+      "sys_path_mutation_lines": []
     },
     {
       "path": "scripts/deploy_common.sh",
@@ -3452,10 +3579,10 @@
       "path": "scripts/repo_inventory.py",
       "area": "deployment",
       "present": true,
-      "working_tree_bytes": 12817,
-      "lines": 212,
+      "working_tree_bytes": 13232,
+      "lines": 216,
       "sys_path_mutation_lines": [
-        142
+        146
       ]
     },
     {
@@ -3604,11 +3731,19 @@
       "sys_path_mutation_lines": []
     },
     {
+      "path": "src/robot_platform/characterization/limit_probe.py",
+      "area": "platform",
+      "present": true,
+      "working_tree_bytes": 9435,
+      "lines": 196,
+      "sys_path_mutation_lines": []
+    },
+    {
       "path": "src/robot_platform/cli.py",
       "area": "platform",
       "present": true,
-      "working_tree_bytes": 4253,
-      "lines": 90,
+      "working_tree_bytes": 4488,
+      "lines": 94,
       "sys_path_mutation_lines": []
     },
     {
@@ -3631,8 +3766,16 @@
       "path": "src/robot_platform/control/background.py",
       "area": "platform",
       "present": true,
-      "working_tree_bytes": 15590,
-      "lines": 336,
+      "working_tree_bytes": 16855,
+      "lines": 358,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "src/robot_platform/control/collision_guard.py",
+      "area": "platform",
+      "present": true,
+      "working_tree_bytes": 13872,
+      "lines": 236,
       "sys_path_mutation_lines": []
     },
     {
@@ -3655,8 +3798,8 @@
       "path": "src/robot_platform/control/session.py",
       "area": "platform",
       "present": true,
-      "working_tree_bytes": 27322,
-      "lines": 558,
+      "working_tree_bytes": 28877,
+      "lines": 585,
       "sys_path_mutation_lines": []
     },
     {
@@ -3705,6 +3848,22 @@
       "present": true,
       "working_tree_bytes": 4073,
       "lines": 102,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "src/robot_platform/models/__init__.py",
+      "area": "platform",
+      "present": true,
+      "working_tree_bytes": 197,
+      "lines": 4,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "src/robot_platform/models/urdf.py",
+      "area": "platform",
+      "present": true,
+      "working_tree_bytes": 20046,
+      "lines": 337,
       "sys_path_mutation_lines": []
     },
     {
@@ -3759,8 +3918,48 @@
       "path": "src/robot_platform/simulation/cli.py",
       "area": "platform",
       "present": true,
-      "working_tree_bytes": 2143,
-      "lines": 42,
+      "working_tree_bytes": 11359,
+      "lines": 170,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "src/robot_platform/simulation/collision.py",
+      "area": "platform",
+      "present": true,
+      "working_tree_bytes": 27576,
+      "lines": 521,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "src/robot_platform/simulation/collision_groups.py",
+      "area": "platform",
+      "present": true,
+      "working_tree_bytes": 2576,
+      "lines": 58,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "src/robot_platform/simulation/limit_sweep.py",
+      "area": "platform",
+      "present": true,
+      "working_tree_bytes": 9772,
+      "lines": 175,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "src/robot_platform/simulation/model_audit.py",
+      "area": "platform",
+      "present": true,
+      "working_tree_bytes": 14956,
+      "lines": 266,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "src/robot_platform/simulation/native_collision.py",
+      "area": "platform",
+      "present": true,
+      "working_tree_bytes": 7398,
+      "lines": 129,
       "sys_path_mutation_lines": []
     },
     {
@@ -3769,6 +3968,14 @@
       "present": true,
       "working_tree_bytes": 9196,
       "lines": 186,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "src/robot_platform/simulation/runtime_model.py",
+      "area": "platform",
+      "present": true,
+      "working_tree_bytes": 17402,
+      "lines": 275,
       "sys_path_mutation_lines": []
     },
     {
@@ -3804,10 +4011,84 @@
       "sys_path_mutation_lines": []
     },
     {
+      "path": "src/robot_platform/viewer/__init__.py",
+      "area": "platform",
+      "present": true,
+      "working_tree_bytes": 74,
+      "lines": 1,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "src/robot_platform/viewer/cli.py",
+      "area": "platform",
+      "present": true,
+      "working_tree_bytes": 2213,
+      "lines": 43,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "src/robot_platform/viewer/server.py",
+      "area": "platform",
+      "present": true,
+      "working_tree_bytes": 10931,
+      "lines": 198,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "src/robot_platform/viewer/static/collision-checks.js",
+      "area": "platform",
+      "present": true,
+      "working_tree_bytes": 1775,
+      "lines": 45
+    },
+    {
+      "path": "src/robot_platform/viewer/static/index.html",
+      "area": "platform",
+      "present": true,
+      "working_tree_bytes": 4153
+    },
+    {
+      "path": "src/robot_platform/viewer/static/vendor/LICENSE.three",
+      "area": "viewer_vendor",
+      "present": true,
+      "working_tree_bytes": 1081
+    },
+    {
+      "path": "src/robot_platform/viewer/static/vendor/OrbitControls.js",
+      "area": "viewer_vendor",
+      "present": true,
+      "working_tree_bytes": 29868
+    },
+    {
+      "path": "src/robot_platform/viewer/static/vendor/sources.json",
+      "area": "viewer_vendor",
+      "present": true,
+      "working_tree_bytes": 628
+    },
+    {
+      "path": "src/robot_platform/viewer/static/vendor/three.module.js",
+      "area": "viewer_vendor",
+      "present": true,
+      "working_tree_bytes": 1272972
+    },
+    {
+      "path": "src/robot_platform/viewer/static/viewer.css",
+      "area": "platform",
+      "present": true,
+      "working_tree_bytes": 6308
+    },
+    {
+      "path": "src/robot_platform/viewer/static/viewer.js",
+      "area": "platform",
+      "present": true,
+      "working_tree_bytes": 24818,
+      "lines": 243
+    },
+    {
       "path": "tests/README.md",
       "area": "tests",
       "present": true,
-      "working_tree_bytes": 3304
+      "working_tree_bytes": 6492
     },
     {
       "path": "tests/contract/test_aizee_session_adapter.py",
@@ -3829,8 +4110,8 @@
       "path": "tests/contract/test_collector_simulation_process.py",
       "area": "tests",
       "present": true,
-      "working_tree_bytes": 3337,
-      "lines": 81,
+      "working_tree_bytes": 3620,
+      "lines": 85,
       "sys_path_mutation_lines": []
     },
     {
@@ -3980,11 +4261,75 @@
       "sys_path_mutation_lines": []
     },
     {
+      "path": "tests/unit/test_collision.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 10901,
+      "lines": 215,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "tests/unit/test_collision_cli.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 2850,
+      "lines": 69,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "tests/unit/test_compose_collision_model.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 3044,
+      "lines": 57,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "tests/unit/test_limit_probe.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 3685,
+      "lines": 92,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "tests/unit/test_limit_sweep.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 5549,
+      "lines": 115,
+      "sys_path_mutation_lines": []
+    },
+    {
       "path": "tests/unit/test_minerva_policy_session.py",
       "area": "tests",
       "present": true,
       "working_tree_bytes": 13598,
       "lines": 293,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "tests/unit/test_model_audit.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 6677,
+      "lines": 141,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "tests/unit/test_model_audit_cli.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 2039,
+      "lines": 52,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "tests/unit/test_model_viewer.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 14411,
+      "lines": 269,
       "sys_path_mutation_lines": []
     },
     {
@@ -3996,10 +4341,30 @@
       "sys_path_mutation_lines": []
     },
     {
+      "path": "tests/unit/test_runtime_collision.py",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 25755,
+      "lines": 464,
+      "sys_path_mutation_lines": []
+    },
+    {
+      "path": "tests/viewer/collision-checks.test.mjs",
+      "area": "tests",
+      "present": true,
+      "working_tree_bytes": 4829
+    },
+    {
       "path": "urdf/aizee/aizee.urdf",
       "area": "robot_assets",
       "present": true,
       "working_tree_bytes": 52212
+    },
+    {
+      "path": "urdf/aizee/collision/broadphase-v1.json",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387412
     },
     {
       "path": "urdf/aizee/config.json",
@@ -5110,6 +5475,3594 @@
       "area": "robot_assets",
       "present": true,
       "working_tree_bytes": 2637484
+    },
+    {
+      "path": "urdf/aizee/model.json",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 632
+    },
+    {
+      "path": "urdf/minerva/README.md",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 8358
+    },
+    {
+      "path": "urdf/minerva/audit.json",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 50988
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/README.md",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 4973
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/audit.json",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 8714
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/composition.json",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 35656
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/config.json",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 461
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/42x30x7mm_bearing.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 397
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/42x30x7mm_bearing.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/42x30x7mm_bearing__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 397
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/42x30x7mm_bearing__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/bearing.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/bearing.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/bearing__10.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/bearing__10.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/bearing__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/bearing__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/bearing__3.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/bearing__3.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/bearing__4.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/bearing__4.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/bearing__5.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/bearing__5.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/bearing__6.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 386
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/bearing__6.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/bearing__7.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/bearing__7.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/bearing__8.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/bearing__8.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/bearing__9.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/bearing__9.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__10.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 396
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__10.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 77084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__11.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__11.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__12.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__12.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__13.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__13.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__14.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__14.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__15.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__15.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 77084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__16.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__16.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__17.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__17.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__18.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__18.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__19.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__19.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__20.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__20.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 77084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__3.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__3.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__4.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__4.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__5.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__5.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 77084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__6.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 396
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__6.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__7.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 396
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__7.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__8.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 396
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__8.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__9.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 396
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/carriage_lwl7b__9.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/ikea_desk_leg.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 392
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/ikea_desk_leg.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 29584
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/linearrail_lwl7b_100mm.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 403
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/linearrail_lwl7b_100mm.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 186684
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/linearrail_lwl7b_100mm__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 403
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/linearrail_lwl7b_100mm__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 186684
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/linearrail_lwl7b_100mm__3.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 402
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/linearrail_lwl7b_100mm__3.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 186684
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/linearrail_lwl7b_100mm__4.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 402
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/linearrail_lwl7b_100mm__4.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 186684
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_148.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_148.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 313884
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_149.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_149.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 300084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_150.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_150.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 313884
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_151.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_151.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 300084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_152.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_152.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 257084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_153.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_153.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 244284
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_39.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_39.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 140784
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_39__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_39__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 140784
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_40.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_40.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 978084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_40__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_40__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 978084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_41.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_41.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 978084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_41__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_41__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 978084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_42.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_42.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 561884
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_42__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_42__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 561284
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_43.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_43.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 193484
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_43__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_43__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 192784
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_44.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_44.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 948984
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_44__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_44__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 950284
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_66.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_66.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 74784
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_66__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_66__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 74784
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_69.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_69.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 25384
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_69__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_69__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 25384
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_70.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_70.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 187084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_70__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_70__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 187084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_71.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_71.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 52684
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_71__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_71__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 52684
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_73.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_73.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 503084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_73__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/part_73__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 503484
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb03_output.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 390
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb03_output.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1072184
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb03_output__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 391
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb03_output__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1072184
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb03_output__3.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 390
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb03_output__3.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1071584
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb03_output__4.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 391
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb03_output__4.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1071584
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb03_wire_bearing_mount.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 403
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb03_wire_bearing_mount.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1913584
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb03_wire_bearing_mount__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 403
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb03_wire_bearing_mount__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1913984
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb03_wire_bearing_output_mount.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 410
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb03_wire_bearing_output_mount.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 53884
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb03_wire_bearing_output_mount__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 410
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb03_wire_bearing_output_mount__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 382284
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb03_wire_bearing_output_mount__3.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 410
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb03_wire_bearing_output_mount__3.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 53884
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb03_wire_bearing_output_mount__4.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 410
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb03_wire_bearing_output_mount__4.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 382284
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb04_motor_output.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 397
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb04_motor_output.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1465084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb04_motor_output__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 397
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb04_motor_output__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1465084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb04_wire_bearing_mount.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 404
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb04_wire_bearing_mount.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 3546784
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb04_wire_bearing_mount__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 403
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rb04_wire_bearing_mount__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 3547684
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rs00.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 384
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rs00.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 4589084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rs00__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 384
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rs00__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 4589084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rs02.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 384
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rs02.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 655384
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rs02__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 384
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rs02__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 655384
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rs02__3.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 384
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rs02__3.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 658384
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rs02__4.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 384
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rs02__4.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 658384
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rs02_base_mount.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rs02_base_mount.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 314984
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rs02_base_mount__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rs02_base_mount__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 315384
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rs02_bearing_mount.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 398
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rs02_bearing_mount.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 279684
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rs02_bearing_mount__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 398
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rs02_bearing_mount__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 372184
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rs02_bearing_mount__3.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 398
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rs02_bearing_mount__3.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 280084
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rs02_bearing_mount__4.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 398
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/meshes/rs02_bearing_mount__4.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 368584
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/minerva.urdf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57563
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/source_manifest.json",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 33348
+    },
+    {
+      "path": "urdf/minerva/collision-v1.2/validation.json",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 3731
+    },
+    {
+      "path": "urdf/minerva/collision/broadphase-v1.2.json",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 391367
+    },
+    {
+      "path": "urdf/minerva/collision/broadphase-v1.json",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 555571
+    },
+    {
+      "path": "urdf/minerva/launch/minerva_urdf.launch",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 692
+    },
+    {
+      "path": "urdf/minerva/limits/README.md",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 3062
+    },
+    {
+      "path": "urdf/minerva/limits/collision-round-1-request.json",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 10979
+    },
+    {
+      "path": "urdf/minerva/limits/collision-round-1.json",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 336033
+    },
+    {
+      "path": "urdf/minerva/limits/collision-v1.2-request.json",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 10964
+    },
+    {
+      "path": "urdf/minerva/limits/collision-v1.2.json",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 346537
+    },
+    {
+      "path": "urdf/minerva/meshes/BOARD_3D_KMMV03_2024_10_21_2__2_stp.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 321465
+    },
+    {
+      "path": "urdf/minerva/meshes/BOARD_3D_KMMV03_2024_10_21_2__2_stp_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 321962
+    },
+    {
+      "path": "urdf/minerva/meshes/Bearing.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 67806
+    },
+    {
+      "path": "urdf/minerva/meshes/Bearing_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 67850
+    },
+    {
+      "path": "urdf/minerva/meshes/Bearing_2.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 67741
+    },
+    {
+      "path": "urdf/minerva/meshes/Bearing_3.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 67725
+    },
+    {
+      "path": "urdf/minerva/meshes/Bearing_4.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 67869
+    },
+    {
+      "path": "urdf/minerva/meshes/Bearing_5.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 67873
+    },
+    {
+      "path": "urdf/minerva/meshes/Bearing_6.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 67885
+    },
+    {
+      "path": "urdf/minerva/meshes/Bearing_7.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 67889
+    },
+    {
+      "path": "urdf/minerva/meshes/Bearing_8.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 67854
+    },
+    {
+      "path": "urdf/minerva/meshes/Bearing_9.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 67866
+    },
+    {
+      "path": "urdf/minerva/meshes/Carriage_LWL7B.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 154832
+    },
+    {
+      "path": "urdf/minerva/meshes/Carriage_LWL7B_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 84988
+    },
+    {
+      "path": "urdf/minerva/meshes/Carriage_LWL7B_10.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 85185
+    },
+    {
+      "path": "urdf/minerva/meshes/Carriage_LWL7B_11.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 155485
+    },
+    {
+      "path": "urdf/minerva/meshes/Carriage_LWL7B_12.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 85229
+    },
+    {
+      "path": "urdf/minerva/meshes/Carriage_LWL7B_13.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 85188
+    },
+    {
+      "path": "urdf/minerva/meshes/Carriage_LWL7B_14.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 85276
+    },
+    {
+      "path": "urdf/minerva/meshes/Carriage_LWL7B_15.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 85314
+    },
+    {
+      "path": "urdf/minerva/meshes/Carriage_LWL7B_16.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 85250
+    },
+    {
+      "path": "urdf/minerva/meshes/Carriage_LWL7B_17.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 85296
+    },
+    {
+      "path": "urdf/minerva/meshes/Carriage_LWL7B_18.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 85161
+    },
+    {
+      "path": "urdf/minerva/meshes/Carriage_LWL7B_19.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 85244
+    },
+    {
+      "path": "urdf/minerva/meshes/Carriage_LWL7B_2.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 85091
+    },
+    {
+      "path": "urdf/minerva/meshes/Carriage_LWL7B_3.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 84993
+    },
+    {
+      "path": "urdf/minerva/meshes/Carriage_LWL7B_4.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 84968
+    },
+    {
+      "path": "urdf/minerva/meshes/Carriage_LWL7B_5.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 155295
+    },
+    {
+      "path": "urdf/minerva/meshes/Carriage_LWL7B_6.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 155416
+    },
+    {
+      "path": "urdf/minerva/meshes/Carriage_LWL7B_7.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 85267
+    },
+    {
+      "path": "urdf/minerva/meshes/Carriage_LWL7B_8.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 85221
+    },
+    {
+      "path": "urdf/minerva/meshes/Carriage_LWL7B_9.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 85266
+    },
+    {
+      "path": "urdf/minerva/meshes/Ikea_Desk_Leg.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 50496
+    },
+    {
+      "path": "urdf/minerva/meshes/LinearRail_LWL7B_100mm.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 239547
+    },
+    {
+      "path": "urdf/minerva/meshes/LinearRail_LWL7B_100mm_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 239914
+    },
+    {
+      "path": "urdf/minerva/meshes/LinearRail_LWL7B_100mm_2.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 239846
+    },
+    {
+      "path": "urdf/minerva/meshes/LinearRail_LWL7B_100mm_3.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 239948
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_148.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 290287
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_149.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 334773
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_150.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 290211
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_151.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 334673
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_152.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 385521
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_153.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 376749
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_39.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 254029
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_39_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 254874
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_40.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1246909
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_40_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1250763
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_41.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1251307
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_41_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1251267
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_42.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 638705
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_42_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 640498
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_43.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 243445
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_43_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 244558
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_44.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 924153
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_44_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 922924
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_6.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 190992
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_66.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 495115
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_66_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 495405
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_69.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 496552
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_69_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 496424
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_6_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 191918
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_6_2.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 190946
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_6_3.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 192009
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_7.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 241403
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_70.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 353646
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_70_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 353670
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_71.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 210427
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_71_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 210361
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_73.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 498083
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_73_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 497961
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_7_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 243112
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_7_2.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 243090
+    },
+    {
+      "path": "urdf/minerva/meshes/Part_7_3.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 241860
+    },
+    {
+      "path": "urdf/minerva/meshes/RB03_BODY.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 13581080
+    },
+    {
+      "path": "urdf/minerva/meshes/RB03_BODY_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 13606147
+    },
+    {
+      "path": "urdf/minerva/meshes/RB03_BODY_2.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 13603218
+    },
+    {
+      "path": "urdf/minerva/meshes/RB03_BODY_3.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 13628312
+    },
+    {
+      "path": "urdf/minerva/meshes/RB03_OUTPUT.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 910079
+    },
+    {
+      "path": "urdf/minerva/meshes/RB03_OUTPUT_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 909050
+    },
+    {
+      "path": "urdf/minerva/meshes/RB03_OUTPUT_2.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 908941
+    },
+    {
+      "path": "urdf/minerva/meshes/RB03_OUTPUT_3.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 910958
+    },
+    {
+      "path": "urdf/minerva/meshes/RB03_WIRE_BEARING_MOUNT.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1856642
+    },
+    {
+      "path": "urdf/minerva/meshes/RB03_WIRE_BEARING_MOUNT_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1855434
+    },
+    {
+      "path": "urdf/minerva/meshes/RB03_WIRE_BEARING_OUTPUT_MOUNT.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 394134
+    },
+    {
+      "path": "urdf/minerva/meshes/RB03_WIRE_BEARING_OUTPUT_MOUNT_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 825367
+    },
+    {
+      "path": "urdf/minerva/meshes/RB03_WIRE_BEARING_OUTPUT_MOUNT_2.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 825146
+    },
+    {
+      "path": "urdf/minerva/meshes/RB03_WIRE_BEARING_OUTPUT_MOUNT_3.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 394670
+    },
+    {
+      "path": "urdf/minerva/meshes/RB04_COVER.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 12060564
+    },
+    {
+      "path": "urdf/minerva/meshes/RB04_COVER_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 12058821
+    },
+    {
+      "path": "urdf/minerva/meshes/RB04_MOTOR_BODY.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 49104984
+    },
+    {
+      "path": "urdf/minerva/meshes/RB04_MOTOR_BODY_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 49160524
+    },
+    {
+      "path": "urdf/minerva/meshes/RB04_MOTOR_OUTPUT.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1216276
+    },
+    {
+      "path": "urdf/minerva/meshes/RB04_MOTOR_OUTPUT_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1217681
+    },
+    {
+      "path": "urdf/minerva/meshes/RB04_WIRE_BEARING_MOUNT.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 3432203
+    },
+    {
+      "path": "urdf/minerva/meshes/RB04_WIRE_BEARING_MOUNT_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 3433236
+    },
+    {
+      "path": "urdf/minerva/meshes/RS00.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 3061961
+    },
+    {
+      "path": "urdf/minerva/meshes/RS00_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 3063705
+    },
+    {
+      "path": "urdf/minerva/meshes/RS02.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 3103160
+    },
+    {
+      "path": "urdf/minerva/meshes/RS02_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 3110989
+    },
+    {
+      "path": "urdf/minerva/meshes/RS02_2.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 3110415
+    },
+    {
+      "path": "urdf/minerva/meshes/RS02_3.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 3111668
+    },
+    {
+      "path": "urdf/minerva/meshes/RS02_Base_Mount.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 380805
+    },
+    {
+      "path": "urdf/minerva/meshes/RS02_Base_Mount_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 380447
+    },
+    {
+      "path": "urdf/minerva/meshes/RS02_Bearing_Mount.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 754597
+    },
+    {
+      "path": "urdf/minerva/meshes/RS02_Bearing_Mount_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 756384
+    },
+    {
+      "path": "urdf/minerva/meshes/RS02_Bearing_Mount_2.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387597
+    },
+    {
+      "path": "urdf/minerva/meshes/RS02_Bearing_Mount_3.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387707
+    },
+    {
+      "path": "urdf/minerva/meshes/RS04_Loop_Wire_Cover.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 186630
+    },
+    {
+      "path": "urdf/minerva/meshes/RS04_Loop_Wire_Cover_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 186749
+    },
+    {
+      "path": "urdf/minerva/meshes/RS04_Passthrough_Wire_Cover.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 311179
+    },
+    {
+      "path": "urdf/minerva/meshes/RS04_Passthrough_Wire_Cover_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 311287
+    },
+    {
+      "path": "urdf/minerva/meshes/SCXXKL_stp.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 598748
+    },
+    {
+      "path": "urdf/minerva/meshes/SCXXKL_stp_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 600340
+    },
+    {
+      "path": "urdf/minerva/meshes/SGQZC__35_stp.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 338949
+    },
+    {
+      "path": "urdf/minerva/meshes/SGQZC__35_stp_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 339111
+    },
+    {
+      "path": "urdf/minerva/meshes/SOLID_17_CON_P4_11_438X3_2_HD_2_stp.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1204320
+    },
+    {
+      "path": "urdf/minerva/meshes/SOLID_17_CON_P4_11_438X3_2_HD_2_stp_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1208820
+    },
+    {
+      "path": "urdf/minerva/meshes/SOLID_17_CON_P4_11_438X3_2_HD_3_stp.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1204805
+    },
+    {
+      "path": "urdf/minerva/meshes/SOLID_17_CON_P4_11_438X3_2_HD_3_stp_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1209555
+    },
+    {
+      "path": "urdf/minerva/meshes/_1_1_02_EB571_960_stp.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 534473
+    },
+    {
+      "path": "urdf/minerva/meshes/_1_1_02_EB571_960_stp_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 535433
+    },
+    {
+      "path": "urdf/minerva/meshes/_1_1_04_EB572_5105_stp.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1044787
+    },
+    {
+      "path": "urdf/minerva/meshes/_1_1_04_EB572_5105_stp_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1046790
+    },
+    {
+      "path": "urdf/minerva/meshes/_1_1_06_EB573_642_stp.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 452433
+    },
+    {
+      "path": "urdf/minerva/meshes/_1_1_06_EB573_642_stp_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 452319
+    },
+    {
+      "path": "urdf/minerva/meshes/_1_1_06_EB573_643_stp.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 678713
+    },
+    {
+      "path": "urdf/minerva/meshes/_1_1_06_EB573_643_stp_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 678908
+    },
+    {
+      "path": "urdf/minerva/meshes/_42x30x7mm_Bearing.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 67856
+    },
+    {
+      "path": "urdf/minerva/meshes/_42x30x7mm_Bearing_1.gltf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 67872
+    },
+    {
+      "path": "urdf/minerva/minerva.urdf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 68563
+    },
+    {
+      "path": "urdf/minerva/model.json",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 2249
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/README.md",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 6183
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/audit.json",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 979
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/config.json",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 426
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/expected_joints.json",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 372
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/1_1_02_eb571_960_stp.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 401
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/1_1_02_eb571_960_stp.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 368584
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/1_1_02_eb571_960_stp__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 400
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/1_1_02_eb571_960_stp__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 368584
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/1_1_04_eb572_5105_stp.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 402
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/1_1_04_eb572_5105_stp.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 774684
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/1_1_04_eb572_5105_stp__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 401
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/1_1_04_eb572_5105_stp__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 774084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/1_1_06_eb573_642_stp.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 401
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/1_1_06_eb573_642_stp.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 299584
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/1_1_06_eb573_642_stp__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 400
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/1_1_06_eb573_642_stp__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 299584
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/1_1_06_eb573_643_stp.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 401
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/1_1_06_eb573_643_stp.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 500884
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/1_1_06_eb573_643_stp__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 400
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/1_1_06_eb573_643_stp__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 500884
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/42x30x7mm_bearing.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 397
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/42x30x7mm_bearing.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/42x30x7mm_bearing__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 397
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/42x30x7mm_bearing__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/bearing.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/bearing.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/bearing__10.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/bearing__10.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/bearing__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/bearing__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/bearing__3.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/bearing__3.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/bearing__4.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/bearing__4.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/bearing__5.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/bearing__5.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/bearing__6.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 386
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/bearing__6.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/bearing__7.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/bearing__7.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/bearing__8.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/bearing__8.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/bearing__9.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/bearing__9.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 57684
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/board_3d_kmmv03_2024_10_21_2__2_stp.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 416
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/board_3d_kmmv03_2024_10_21_2__2_stp.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 197884
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/board_3d_kmmv03_2024_10_21_2__2_stp__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 415
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/board_3d_kmmv03_2024_10_21_2__2_stp__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 197884
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__10.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 396
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__10.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 77084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__11.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__11.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__12.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__12.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__13.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__13.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__14.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__14.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__15.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__15.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 77084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__16.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__16.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__17.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__17.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__18.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__18.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__19.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__19.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__20.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__20.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 77084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__3.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__3.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__4.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__4.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__5.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__5.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 77084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__6.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 396
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__6.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__7.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 396
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__7.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__8.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 396
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__8.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__9.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 396
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__9.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 19084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/ikea_desk_leg.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 392
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/ikea_desk_leg.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 29584
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/linearrail_lwl7b_100mm.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 403
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/linearrail_lwl7b_100mm.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 186684
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/linearrail_lwl7b_100mm__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 403
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/linearrail_lwl7b_100mm__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 186684
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/linearrail_lwl7b_100mm__3.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 402
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/linearrail_lwl7b_100mm__3.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 186684
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/linearrail_lwl7b_100mm__4.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 402
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/linearrail_lwl7b_100mm__4.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 186684
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_148.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_148.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 313884
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_149.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_149.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 300084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_150.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_150.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 313884
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_151.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_151.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 300084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_152.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_152.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 257084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_153.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_153.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 244284
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_39.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_39.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 140784
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_39__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_39__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 140784
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_40.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_40.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 978084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_40__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_40__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 978084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_41.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_41.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 978084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_41__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_41__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 978084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_42.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_42.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 561884
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_42__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_42__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 561284
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_43.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_43.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 193484
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_43__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_43__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 192784
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_44.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_44.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 948984
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_44__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_44__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 950284
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_6.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 386
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_6.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 162784
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_66.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_66.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 424284
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_66__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_66__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 424584
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_69.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_69.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 421784
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_69__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_69__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 421784
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_6__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 386
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_6__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 162784
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_6__3.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 386
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_6__3.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 162784
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_6__4.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 386
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_6__4.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 162784
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_7.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 386
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_7.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 185984
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_70.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_70.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 366084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_70__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_70__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 365884
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_71.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_71.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 169584
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_71__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_71__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 169584
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_73.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_73.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 602084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_73__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 387
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_73__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 602484
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_7__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 386
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_7__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 185984
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_7__3.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 386
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_7__3.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 185984
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_7__4.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 386
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/part_7__4.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 185984
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_body.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_body.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 3506884
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_body__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 389
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_body__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 3506884
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_body__3.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 388
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_body__3.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 3507784
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_body__4.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 389
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_body__4.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 3507784
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_output.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 390
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_output.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1072184
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_output__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 391
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_output__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1072184
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_output__3.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 390
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_output__3.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1071584
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_output__4.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 391
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_output__4.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1071584
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_wire_bearing_mount.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 403
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_wire_bearing_mount.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 2010384
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_wire_bearing_mount__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 403
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_wire_bearing_mount__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 2010784
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_wire_bearing_output_mount.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 410
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_wire_bearing_output_mount.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 769784
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_wire_bearing_output_mount__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 410
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_wire_bearing_output_mount__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 382284
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_wire_bearing_output_mount__3.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 410
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_wire_bearing_output_mount__3.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 769984
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_wire_bearing_output_mount__4.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 410
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb03_wire_bearing_output_mount__4.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 382284
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb04_cover.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 390
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb04_cover.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 9545884
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb04_cover__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 390
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb04_cover__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 9547384
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb04_motor_body.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb04_motor_body.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 13424684
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb04_motor_body__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb04_motor_body__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 13462184
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb04_motor_output.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 397
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb04_motor_output.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1465084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb04_motor_output__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 397
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb04_motor_output__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1465084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb04_wire_bearing_mount.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 404
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb04_wire_bearing_mount.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 3785484
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb04_wire_bearing_mount__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 403
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rb04_wire_bearing_mount__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 3786684
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs00.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 384
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs00.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 4589084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs00__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 384
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs00__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 4589084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs02.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 384
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs02.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 656684
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs02__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 384
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs02__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 658084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs02__3.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 384
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs02__3.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 658384
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs02__4.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 384
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs02__4.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 658384
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs02_base_mount.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs02_base_mount.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 344184
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs02_base_mount__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 395
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs02_base_mount__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 344584
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs02_bearing_mount.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 398
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs02_bearing_mount.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 309384
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs02_bearing_mount__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 398
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs02_bearing_mount__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 612884
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs02_bearing_mount__3.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 398
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs02_bearing_mount__3.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 309784
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs02_bearing_mount__4.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 398
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs02_bearing_mount__4.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 609184
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs04_loop_wire_cover.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 400
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs04_loop_wire_cover.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 123284
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs04_loop_wire_cover__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 400
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs04_loop_wire_cover__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 123284
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs04_passthrough_wire_cover.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 407
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs04_passthrough_wire_cover.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 331284
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs04_passthrough_wire_cover__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 407
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/rs04_passthrough_wire_cover__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 331284
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/scxxkl_stp.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 391
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/scxxkl_stp.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 412384
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/scxxkl_stp__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 390
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/scxxkl_stp__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 412384
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/sgqzc__35_stp.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 394
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/sgqzc__35_stp.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 627084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/sgqzc__35_stp__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 393
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/sgqzc__35_stp__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 627084
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/solid_17_con_p4_11_438x3_2_hd_2_stp.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 416
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/solid_17_con_p4_11_438x3_2_hd_2_stp.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 593484
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/solid_17_con_p4_11_438x3_2_hd_2_stp__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 415
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/solid_17_con_p4_11_438x3_2_hd_2_stp__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 591784
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/solid_17_con_p4_11_438x3_2_hd_3_stp.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 416
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/solid_17_con_p4_11_438x3_2_hd_3_stp.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 593984
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/solid_17_con_p4_11_438x3_2_hd_3_stp__2.part",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 415
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/meshes/solid_17_con_p4_11_438x3_2_hd_3_stp__2.stl",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 592284
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/minerva.urdf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 79713
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/model.json",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 1426
+    },
+    {
+      "path": "urdf/minerva/onshape-to-robot/source_manifest.json",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 65138
+    },
+    {
+      "path": "urdf/minerva/source_manifest.json",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 23376
+    },
+    {
+      "path": "urdf/minerva/urdf/minerva_urdf.urdf",
+      "area": "robot_assets",
+      "present": true,
+      "working_tree_bytes": 146834
     }
   ],
   "python_import_edges": [
@@ -6305,8 +10258,13 @@
     },
     {
       "source": "python/web/server.py",
-      "line": 113,
-      "target": "python/ik/mesh_world.py"
+      "line": 128,
+      "target": "src/robot_platform/models/__init__.py"
+    },
+    {
+      "source": "python/web/server.py",
+      "line": 129,
+      "target": "src/robot_platform/viewer/server.py"
     },
     {
       "source": "python/web/sim_visual_ik.py",
@@ -6322,6 +10280,61 @@
       "source": "python/web/sim_visual_ik.py",
       "line": 49,
       "target": "python/ik/__init__.py"
+    },
+    {
+      "source": "scripts/benchmark_collision.py",
+      "line": 14,
+      "target": "src/robot_platform/models/__init__.py"
+    },
+    {
+      "source": "scripts/benchmark_collision.py",
+      "line": 15,
+      "target": "src/robot_platform/simulation/runtime_model.py"
+    },
+    {
+      "source": "scripts/benchmark_collision.py",
+      "line": 16,
+      "target": "src/robot_platform/simulation/native_collision.py"
+    },
+    {
+      "source": "scripts/benchmark_collision.py",
+      "line": 17,
+      "target": "src/robot_platform/simulation/collision_groups.py"
+    },
+    {
+      "source": "scripts/benchmark_collision.py",
+      "line": 74,
+      "target": "src/robot_platform/simulation/collision.py"
+    },
+    {
+      "source": "scripts/benchmark_keepout.py",
+      "line": 15,
+      "target": "src/robot_platform/models/__init__.py"
+    },
+    {
+      "source": "scripts/benchmark_keepout.py",
+      "line": 16,
+      "target": "src/robot_platform/simulation/runtime_model.py"
+    },
+    {
+      "source": "scripts/benchmark_keepout.py",
+      "line": 17,
+      "target": "src/robot_platform/simulation/native_collision.py"
+    },
+    {
+      "source": "scripts/benchmark_keepout.py",
+      "line": 18,
+      "target": "src/robot_platform/control/collision_guard.py"
+    },
+    {
+      "source": "scripts/benchmark_keepout.py",
+      "line": 19,
+      "target": "src/robot_platform/simulation/collision_groups.py"
+    },
+    {
+      "source": "scripts/compose_collision_model.py",
+      "line": 14,
+      "target": "src/robot_platform/models/__init__.py"
     },
     {
       "source": "scripts/validate_simulation.py",
@@ -6400,7 +10413,12 @@
     },
     {
       "source": "src/robot_platform/cli.py",
-      "line": 57,
+      "line": 58,
+      "target": "src/robot_platform/viewer/cli.py"
+    },
+    {
+      "source": "src/robot_platform/cli.py",
+      "line": 61,
       "target": "src/robot_platform/simulation/cli.py"
     },
     {
@@ -6425,17 +10443,17 @@
     },
     {
       "source": "src/robot_platform/control/session.py",
-      "line": 22,
+      "line": 23,
       "target": "src/robot_platform/control/freshness.py"
     },
     {
       "source": "src/robot_platform/control/session.py",
-      "line": 486,
+      "line": 500,
       "target": "src/robot_platform/transport/wire.py"
     },
     {
       "source": "src/robot_platform/control/session.py",
-      "line": 533,
+      "line": 553,
       "target": "src/robot_platform/transport/wire.py"
     },
     {
@@ -6447,6 +10465,11 @@
       "source": "src/robot_platform/data/formats/minerva.py",
       "line": 34,
       "target": "src/robot_platform/data/provenance.py"
+    },
+    {
+      "source": "src/robot_platform/models/__init__.py",
+      "line": 2,
+      "target": "src/robot_platform/models/urdf.py"
     },
     {
       "source": "src/robot_platform/robots/__init__.py",
@@ -6470,13 +10493,98 @@
     },
     {
       "source": "src/robot_platform/simulation/cli.py",
-      "line": 25,
+      "line": 49,
+      "target": "src/robot_platform/models/__init__.py"
+    },
+    {
+      "source": "src/robot_platform/simulation/cli.py",
+      "line": 50,
+      "target": "src/robot_platform/simulation/runtime_model.py"
+    },
+    {
+      "source": "src/robot_platform/simulation/cli.py",
+      "line": 56,
+      "target": "src/robot_platform/models/__init__.py"
+    },
+    {
+      "source": "src/robot_platform/simulation/cli.py",
+      "line": 57,
+      "target": "src/robot_platform/simulation/limit_sweep.py"
+    },
+    {
+      "source": "src/robot_platform/simulation/cli.py",
+      "line": 72,
+      "target": "src/robot_platform/models/__init__.py"
+    },
+    {
+      "source": "src/robot_platform/simulation/cli.py",
+      "line": 82,
+      "target": "src/robot_platform/simulation/collision.py"
+    },
+    {
+      "source": "src/robot_platform/simulation/cli.py",
+      "line": 121,
+      "target": "src/robot_platform/characterization/limit_probe.py"
+    },
+    {
+      "source": "src/robot_platform/simulation/cli.py",
+      "line": 130,
+      "target": "src/robot_platform/simulation/model_audit.py"
+    },
+    {
+      "source": "src/robot_platform/simulation/cli.py",
+      "line": 153,
       "target": "src/robot_platform/characterization/audit.py"
+    },
+    {
+      "source": "src/robot_platform/simulation/collision_groups.py",
+      "line": 2,
+      "target": "src/robot_platform/simulation/collision.py"
+    },
+    {
+      "source": "src/robot_platform/simulation/limit_sweep.py",
+      "line": 14,
+      "target": "src/robot_platform/models/__init__.py"
+    },
+    {
+      "source": "src/robot_platform/simulation/limit_sweep.py",
+      "line": 15,
+      "target": "src/robot_platform/simulation/collision.py"
+    },
+    {
+      "source": "src/robot_platform/simulation/native_collision.py",
+      "line": 15,
+      "target": "src/robot_platform/simulation/collision.py"
+    },
+    {
+      "source": "src/robot_platform/simulation/native_collision.py",
+      "line": 16,
+      "target": "src/robot_platform/simulation/collision_groups.py"
     },
     {
       "source": "src/robot_platform/simulation/plant.py",
       "line": 10,
       "target": "src/robot_platform/control/__init__.py"
+    },
+    {
+      "source": "src/robot_platform/simulation/runtime_model.py",
+      "line": 15,
+      "target": "src/robot_platform/models/__init__.py"
+    },
+    {
+      "source": "src/robot_platform/simulation/runtime_model.py",
+      "line": 16,
+      "target": "src/robot_platform/simulation/collision.py"
+    },
+    {
+      "source": "src/robot_platform/simulation/runtime_model.py",
+      "line": 175,
+      "target": "src/robot_platform/simulation/collision_groups.py"
+    },
+    {
+      "source": "src/robot_platform/simulation/runtime_model.py",
+      "line": 203,
+      "target": "src/robot_platform/simulation/collision_groups.py"
     },
     {
       "source": "src/robot_platform/simulation/server.py",
@@ -6507,6 +10615,46 @@
       "source": "src/robot_platform/transport/__init__.py",
       "line": 3,
       "target": "src/robot_platform/transport/wire.py"
+    },
+    {
+      "source": "src/robot_platform/viewer/cli.py",
+      "line": 6,
+      "target": "src/robot_platform/models/__init__.py"
+    },
+    {
+      "source": "src/robot_platform/viewer/cli.py",
+      "line": 37,
+      "target": "src/robot_platform/viewer/server.py"
+    },
+    {
+      "source": "src/robot_platform/viewer/server.py",
+      "line": 11,
+      "target": "src/robot_platform/models/__init__.py"
+    },
+    {
+      "source": "src/robot_platform/viewer/server.py",
+      "line": 35,
+      "target": "src/robot_platform/simulation/collision.py"
+    },
+    {
+      "source": "src/robot_platform/viewer/server.py",
+      "line": 61,
+      "target": "src/robot_platform/simulation/runtime_model.py"
+    },
+    {
+      "source": "src/robot_platform/viewer/server.py",
+      "line": 79,
+      "target": "src/robot_platform/simulation/collision.py"
+    },
+    {
+      "source": "src/robot_platform/viewer/server.py",
+      "line": 80,
+      "target": "src/robot_platform/simulation/collision_groups.py"
+    },
+    {
+      "source": "src/robot_platform/viewer/server.py",
+      "line": 92,
+      "target": "src/robot_platform/simulation/native_collision.py"
     },
     {
       "source": "tests/contract/test_aizee_session_adapter.py",
@@ -6939,6 +11087,56 @@
       "target": "python/scripts/actuator_char/analysis.py"
     },
     {
+      "source": "tests/unit/test_collision.py",
+      "line": 9,
+      "target": "src/robot_platform/simulation/collision.py"
+    },
+    {
+      "source": "tests/unit/test_collision_cli.py",
+      "line": 6,
+      "target": "src/robot_platform/simulation/cli.py"
+    },
+    {
+      "source": "tests/unit/test_collision_cli.py",
+      "line": 57,
+      "target": "src/robot_platform/simulation/collision.py"
+    },
+    {
+      "source": "tests/unit/test_collision_cli.py",
+      "line": 65,
+      "target": "src/robot_platform/characterization/__init__.py"
+    },
+    {
+      "source": "tests/unit/test_collision_cli.py",
+      "line": 65,
+      "target": "src/robot_platform/characterization/limit_probe.py"
+    },
+    {
+      "source": "tests/unit/test_compose_collision_model.py",
+      "line": 8,
+      "target": "src/robot_platform/models/__init__.py"
+    },
+    {
+      "source": "tests/unit/test_limit_probe.py",
+      "line": 5,
+      "target": "src/robot_platform/characterization/limit_probe.py"
+    },
+    {
+      "source": "tests/unit/test_limit_sweep.py",
+      "line": 7,
+      "target": "src/robot_platform/models/__init__.py"
+    },
+    {
+      "source": "tests/unit/test_limit_sweep.py",
+      "line": 8,
+      "target": "src/robot_platform/simulation/limit_sweep.py"
+    },
+    {
+      "source": "tests/unit/test_limit_sweep.py",
+      "line": 80,
+      "target": "src/robot_platform/simulation/collision.py"
+    },
+    {
       "source": "tests/unit/test_minerva_policy_session.py",
       "line": 15,
       "target": "src/robot_platform/control/__init__.py"
@@ -6959,6 +11157,71 @@
       "target": "src/robot_platform/transport/wire.py"
     },
     {
+      "source": "tests/unit/test_model_audit.py",
+      "line": 6,
+      "target": "src/robot_platform/simulation/model_audit.py"
+    },
+    {
+      "source": "tests/unit/test_model_audit_cli.py",
+      "line": 5,
+      "target": "src/robot_platform/simulation/cli.py"
+    },
+    {
+      "source": "tests/unit/test_model_viewer.py",
+      "line": 9,
+      "target": "src/robot_platform/models/__init__.py"
+    },
+    {
+      "source": "tests/unit/test_model_viewer.py",
+      "line": 102,
+      "target": "src/robot_platform/viewer/server.py"
+    },
+    {
+      "source": "tests/unit/test_model_viewer.py",
+      "line": 122,
+      "target": "src/robot_platform/viewer/server.py"
+    },
+    {
+      "source": "tests/unit/test_model_viewer.py",
+      "line": 145,
+      "target": "src/robot_platform/viewer/server.py"
+    },
+    {
+      "source": "tests/unit/test_model_viewer.py",
+      "line": 169,
+      "target": "src/robot_platform/simulation/cli.py"
+    },
+    {
+      "source": "tests/unit/test_model_viewer.py",
+      "line": 195,
+      "target": "src/robot_platform/viewer/server.py"
+    },
+    {
+      "source": "tests/unit/test_model_viewer.py",
+      "line": 212,
+      "target": "src/robot_platform/viewer/server.py"
+    },
+    {
+      "source": "tests/unit/test_model_viewer.py",
+      "line": 230,
+      "target": "src/robot_platform/viewer/server.py"
+    },
+    {
+      "source": "tests/unit/test_model_viewer.py",
+      "line": 253,
+      "target": "src/robot_platform/simulation/native_collision.py"
+    },
+    {
+      "source": "tests/unit/test_model_viewer.py",
+      "line": 254,
+      "target": "src/robot_platform/simulation/runtime_model.py"
+    },
+    {
+      "source": "tests/unit/test_model_viewer.py",
+      "line": 255,
+      "target": "src/robot_platform/viewer/server.py"
+    },
+    {
       "source": "tests/unit/test_profiles.py",
       "line": 6,
       "target": "src/robot_platform/contracts.py"
@@ -6972,6 +11235,106 @@
       "source": "tests/unit/test_profiles.py",
       "line": 8,
       "target": "src/robot_platform/settings/__init__.py"
+    },
+    {
+      "source": "tests/unit/test_runtime_collision.py",
+      "line": 10,
+      "target": "src/robot_platform/models/__init__.py"
+    },
+    {
+      "source": "tests/unit/test_runtime_collision.py",
+      "line": 11,
+      "target": "src/robot_platform/simulation/collision.py"
+    },
+    {
+      "source": "tests/unit/test_runtime_collision.py",
+      "line": 12,
+      "target": "src/robot_platform/simulation/runtime_model.py"
+    },
+    {
+      "source": "tests/unit/test_runtime_collision.py",
+      "line": 13,
+      "target": "src/robot_platform/simulation/native_collision.py"
+    },
+    {
+      "source": "tests/unit/test_runtime_collision.py",
+      "line": 127,
+      "target": "src/robot_platform/control/session.py"
+    },
+    {
+      "source": "tests/unit/test_runtime_collision.py",
+      "line": 128,
+      "target": "src/robot_platform/control/collision_guard.py"
+    },
+    {
+      "source": "tests/unit/test_runtime_collision.py",
+      "line": 210,
+      "target": "src/robot_platform/control/collision_guard.py"
+    },
+    {
+      "source": "tests/unit/test_runtime_collision.py",
+      "line": 221,
+      "target": "src/robot_platform/control/session.py"
+    },
+    {
+      "source": "tests/unit/test_runtime_collision.py",
+      "line": 222,
+      "target": "src/robot_platform/transport/wire.py"
+    },
+    {
+      "source": "tests/unit/test_runtime_collision.py",
+      "line": 242,
+      "target": "src/robot_platform/control/background.py"
+    },
+    {
+      "source": "tests/unit/test_runtime_collision.py",
+      "line": 243,
+      "target": "src/robot_platform/transport/wire.py"
+    },
+    {
+      "source": "tests/unit/test_runtime_collision.py",
+      "line": 261,
+      "target": "src/robot_platform/simulation/collision.py"
+    },
+    {
+      "source": "tests/unit/test_runtime_collision.py",
+      "line": 285,
+      "target": "src/robot_platform/simulation/collision.py"
+    },
+    {
+      "source": "tests/unit/test_runtime_collision.py",
+      "line": 286,
+      "target": "src/robot_platform/control/collision_guard.py"
+    },
+    {
+      "source": "tests/unit/test_runtime_collision.py",
+      "line": 303,
+      "target": "src/robot_platform/simulation/collision.py"
+    },
+    {
+      "source": "tests/unit/test_runtime_collision.py",
+      "line": 352,
+      "target": "src/robot_platform/simulation/collision_groups.py"
+    },
+    {
+      "source": "tests/unit/test_runtime_collision.py",
+      "line": 364,
+      "target": "src/robot_platform/control/collision_guard.py"
+    },
+    {
+      "source": "tests/unit/test_runtime_collision.py",
+      "line": 414,
+      "target": "src/robot_platform/control/collision_guard.py"
+    },
+    {
+      "source": "tests/unit/test_runtime_collision.py",
+      "line": 439,
+      "target": "src/robot_platform/models/__init__.py"
+    },
+    {
+      "source": "tests/unit/test_runtime_collision.py",
+      "line": 450,
+      "target": "src/robot_platform/control/collision_guard.py"
     }
   ],
   "parse_errors": []

@@ -3,7 +3,8 @@
 The routing and observation APIs use only the standard library. A session never
 opens a socket. ``ZmqRobotClient.connect()`` opts into networking; callers own the
 poll/send cadence. There is no enable, background resend, position hold, clipping,
-or limit enforcement here. Applications retain responsibility for those policies.
+or default limit enforcement here. An optional command gate can observe commands
+or enforce the separately validated simulation policy at transport dispatch.
 
 Joint vectors follow the robot definition; each endpoint's ``joints`` lists the
 Rust controller's positional wire order. Telemetry uses Rust's ``motors`` map.
@@ -193,7 +194,8 @@ def route_joint_target(
 class RobotSession:
     """Pure in-memory routing and observation state for any robot definition."""
 
-    def __init__(self, spec: Any, settings: Mapping[str, Any], *, max_age_s: float | None = None) -> None:
+    def __init__(self, spec: Any, settings: Mapping[str, Any], *, max_age_s: float | None = None,
+                 command_gate=None) -> None:
         arms = settings.get("endpoints", {}).get("arms", {})
         self.joint_names, self.active_mask, endpoints = _layout(spec, arms)
         self.spec = spec
@@ -214,6 +216,14 @@ class RobotSession:
             raise ValueError("target_lease_s must be positive and at most 60")
         self._source_trackers = {arm: SourceFreshness() for arm in self.arms}
         self._source_origins = {}
+        self.state_sequence = 0
+        self.command_gate = command_gate
+        from urllib.parse import urlsplit
+        self.simulation_only = (settings.get("simulation", {}).get("evidence") == "synthetic"
+            and all(urlsplit(ep.command).hostname == "127.0.0.1" and urlsplit(ep.telemetry).hostname == "127.0.0.1"
+                    for ep in self.arms.values()))
+        if command_gate is not None:
+            command_gate._require_simulation(self)
 
     def ingest_telemetry(self, arm: str, message: Mapping[str, Any], *, received_at: float | None = None) -> None:
         """Snapshot a Rust motors map; missing or invalid fields become NaN.
@@ -245,6 +255,7 @@ class RobotSession:
         self._messages[arm] = deepcopy(dict(message)) if isinstance(message, Mapping) else {}
         self._source_origins[arm] = self._source_trackers[arm].ingest(
             self._messages[arm], endpoint.joints, received_at, required=self.require_source_freshness)
+        self.state_sequence += 1
 
     def telemetry_sample(self, arm: str) -> tuple[dict[str, Any] | None, float | None]:
         """Defensive raw frame copy and its original local monotonic receive time."""
@@ -375,6 +386,9 @@ class RobotSession:
         if require_torque:
             torque_ready = self.arm_ready("torque", now=now)
             ready = {arm: value and torque_ready[arm] for arm, value in ready.items()}
+        if self.command_gate is not None and self.command_gate.mode == "enforce_simulation" and not all(ready.values()):
+            if self.command_gate._motion(result):
+                return self.command_gate.stops(self)
         for arm, command in list(result.items()):
             if ready[arm]:
                 continue
@@ -517,7 +531,13 @@ class ZmqRobotClient:
         # the pure session tests, not on a transport path that can move hardware.
         if "now" in kwargs:
             raise TypeError("send_target does not accept a clock override")
-        commands = self.session.route_target(positions, **kwargs)
+        try:
+            commands = self.session.route_target(positions, **kwargs)
+        except StaleTelemetryError:
+            gate = self.session.command_gate
+            if gate is not None and gate.mode == "enforce_simulation":
+                self._send_prepared(gate.stops(self.session))
+            raise
         self._send_prepared(commands)
 
     def send_commands(self, commands: Mapping[str, Mapping[str, Any]]) -> None:
@@ -532,9 +552,16 @@ class ZmqRobotClient:
     def _send_prepared(self, commands: Mapping[str, Mapping[str, Any]]) -> None:
         from robot_platform.transport.wire import pack_msg
 
+        gate = self.session.command_gate
+        if gate is not None:
+            commands = gate.filter_commands(self.session, commands)
         frames = {arm: pack_msg(command) for arm, command in commands.items()}
         sent = []
         for arm, frame in frames.items():
+            if gate is not None and not gate.dispatch_valid(self.session, commands):
+                gate.last_verdict.update(clear=False, reason="expired_before_dispatch")
+                self._send_prepared(gate.stops(self.session))
+                raise RuntimeError("Collision verdict expired before dispatch; simulation stopped")
             try:
                 self._push[arm].send(frame, flags=self._zmq.NOBLOCK)
             except Exception as exc:

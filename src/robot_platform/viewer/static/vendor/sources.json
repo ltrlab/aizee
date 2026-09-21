@@ -1,0 +1,14 @@
+{
+  "three.module.js": {
+    "source": "https://raw.githubusercontent.com/mrdoob/three.js/r160/build/three.module.js",
+    "sha256": "76dea8151bc9352aef3528b4262e249b2604f62543828328db978d060d61a495"
+  },
+  "OrbitControls.js": {
+    "source": "https://raw.githubusercontent.com/mrdoob/three.js/r160/examples/jsm/controls/OrbitControls.js",
+    "sha256": "5a44a9e86a2a0fb11933eed69bc2cd33c76a496854c1aed6ed776efa87d7b064"
+  },
+  "LICENSE.three": {
+    "source": "https://raw.githubusercontent.com/mrdoob/three.js/r160/LICENSE",
+    "sha256": "852e0e8699169bf9f6fdc6bda3e682d078dcbc738b5d33e74df594721bff271d"
+  }
+}

@@ -7,6 +7,13 @@ Guides for the shared platform, robot applications and device deployments.
 - **[Implemented monorepo guide](architecture/MONOREPO_IMPLEMENTATION.md)** — package installation, interchangeable profiles/settings, application launchers, shared backend APIs, and current migration status
 - **[Session backend migration](architecture/SESSION_BACKEND_MIGRATION.md)** — collector/inference integration, command lifecycle, freshness and remaining legacy tools
 - **[Simulation and hardware validation plan](architecture/SIMULATION_VALIDATION_PLAN.md)** — staged simulator design, actuator measurements, real-world calibration, and acceptance gates
+- **[Collision and limit calibration](architecture/COLLISION_AND_LIMIT_CALIBRATION.md)** — independent arm limits, shared inter-arm scene checks and powered-probe prerequisites
+- **[Real-time collision research](architecture/COLLISION_RUNTIME_RESEARCH.md)** — MoveIt internals, measured bottlenecks, standalone backend options and the proposed runtime collision path
+- **[Collision implementation status](architecture/COLLISION_RUNTIME_IMPLEMENTATION.md)** — CAD and conservative keep-out modes, finger exclusions, native hierarchy, simulation command gate and benchmark evidence
+- **[September 21 development checkpoint](architecture/DEVELOPMENT_CHECKPOINT_2026-09-21.md)** — accumulated implementation, CAD sources, validation and remaining hardware gates
+- **[Keep-out results](architecture/COLLISION_KEEPOUT_RESULTS.json)** — desktop/Jetson timings, 25 Hz scoped replay, audits and source/binary hashes
+- **[25 Hz supervisor and hardware plan](architecture/COLLISION_25HZ_HARDWARE_PLAN.md)** — intermediate timing milestone, controller/calibration blockers, observation-only hardware tests and staged powered validation
+- **[Known-load calibration plan](architecture/KNOWN_LOAD_CALIBRATION.md)** — paired poses and calibration masses, motor-reported torque and later independent measurements
 - **[Simulation implementation](architecture/SIMULATION_IMPLEMENTATION.md)** — runnable loopback simulator, launch commands, measurement safeguards, gap disposition, and remaining hardware evidence
 
 - **[Aizee / Minerva repository map](architecture/REPOSITORY_MAP.md)** — current ownership, runtime topology, dependency tangles, and source evidence
@@ -16,9 +23,12 @@ Guides for the shared platform, robot applications and device deployments.
 - **[Cleanup record](architecture/REPOSITORY_CLEANUP.md)** — removed files, replacements and retained assets
 
 ## Getting started
+- **[Jetson development device 01](devices/JETSON_DEV_01.md)** — hardware identity, permanent MAC addresses, software inventory and provisioning/change log
+- **[MODEL_VIEWER.md](MODEL_VIEWER.md)** — unified URDF rendering/jogging, collision inspection and adding arbitrary robot models
 - **[quickstart/FRESH_JETSON_SETUP.md](quickstart/FRESH_JETSON_SETUP.md)** — development-host setup, then separate Aizee robot provisioning
 - **[MINERVA_BRINGUP.md](MINERVA_BRINGUP.md)** — existing Minerva deployment, buses, leaders and calibration
-- **[MINERVA_CAD.md](MINERVA_CAD.md)** — Onshape source, export constraints, joint names and sliding-jaw limit setup
+- **[MINERVA_CAD.md](MINERVA_CAD.md)** — frozen Onshape source, intended onshape-to-robot workflow and CAD preparation
+- **[Minerva import audit](../urdf/minerva/README.md)** — native-export findings, successful intended export and physical-property checks
 - **[quickstart/JETSON_QUICK_START.md](quickstart/JETSON_QUICK_START.md)** — connect to the robot and run teleop / data collection (daily reference)
 - **[quickstart/QUICK_START_AFTER_REBOOT.md](quickstart/QUICK_START_AFTER_REBOOT.md)** — post-reboot verification, service management, troubleshooting
 

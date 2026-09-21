@@ -52,7 +52,7 @@ Extrapolation is flagged; missing evidence never becomes a passing result.
 | [Characterization harness](../../python/scripts/actuator_char/harness.py), [analysis](../../python/scripts/actuator_char/analysis.py), and [CLI](../../python/scripts/characterize_actuator.py) | Extend and migrate reusable parts into the package; retain compatibility entry points. Audit existing assumptions before running on hardware. |
 | [Existing characterization tests](../../tests/unit/test_actuator_char.py) | Included in normal discovery. Extend tests to irregular sampling, missing samples, wrong motor IDs, and incomplete responses. |
 | [Minerva gravity model](../../python/control/minerva_gravity.py) and [fit](../../config/minerva_gravity.json) | Use as a prior for the poses covered by its data, not as a validated full-arm dynamics model. |
-| [Aizee URDF](../../urdf/aizee/aizee.urdf) | Starting geometry/inertia asset to audit. No Minerva URDF is currently present under `urdf/`. |
+| [Aizee URDF](../../urdf/aizee/aizee.urdf) and [Minerva import](../../urdf/minerva/README.md) | Geometry sources to audit. Minerva's native import fails joint/mass checks; compare the intended onshape-to-robot output before diagnosing source mates. Missing physical materials remain a blocker. |
 
 Specific gaps to resolve:
 
@@ -330,6 +330,12 @@ This stage validates motion in the reported coordinate system and torque
 torque, gearbox backlash, or torque constant. Existing gravity fits can help
 choose tests, but training-fit scores are not held-out physical validation.
 
+Known calibration weights provide an optional independent **static load**
+reference during this stage. See the [known-load procedure](KNOWN_LOAD_CALIBRATION.md)
+for paired baseline/load trials, observability, friction uncertainty and held-out
+validation. This can constrain effective effort scale without CAD link masses;
+it does not by itself validate dynamic torque or uniquely identify inertia.
+
 ### Stage C: whole-arm validation
 
 Validate unseen multi-joint trajectories and poses with different payloads and
@@ -518,10 +524,19 @@ once the instrumentation and inventory are ready; it need not wait for a full
 mechanical geometry and M3 response models. Independent sensors do not block
 M0-M4, but their absence limits physical torque/backlash claims.
 
-The [Minerva CAD preparation guide](../MINERVA_CAD.md) records the supplied
-Onshape source and the user's API/export constraint. Its sliding jaws need
-distance-valued mates and a motor-angle-to-jaw mapping; naming and physical
-stroke remain prerequisites for M4, not for the current fast simulator or M2.
+The [Minerva CAD handoff guide](../MINERVA_CAD.md) records the user's report of
+completed CAD preparation and the verified `minerva_urdf` assembly in
+[3DP URDF Version 1.0](https://cad.onshape.com/documents/359ad50fa475851ee9487588/v/b17483f38edc0b337da34858/e/f4466d56fce7b6028aae0a06).
+The user-supplied native GLTF export is present locally with source hashes and
+an [import audit](../../urdf/minerva/README.md). Its joint-graph failures are
+exporter-specific evidence, not proof that source CAD mates need rebuilding.
+The intended `onshape-to-robot` export now has the correct 17-link, 16-joint
+graph with two jaw mimic relations. A single retrieval and offline conversion
+completed; no source mate rebuild is indicated by the native-export failures.
+See [independent arm limits and runtime collision checking](COLLISION_AND_LIMIT_CALIBRATION.md).
+Unassigned physical materials/mass overrides remain an independent M4 blocker.
+Audit the resulting model, jaw coupling, motor-angle mapping and collision
+shapes before M4; this does not block the fast simulator or M2.
 
 Every milestone delivers a runnable command, bounded tests, versioned fixtures,
 and a machine-readable report plus comparison plots. The simulator is ready for

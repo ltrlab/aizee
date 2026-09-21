@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "urdf_path": "C:\\Users\\ltr\\Workspace\\aizee\\urdf\\minerva\\onshape-to-robot\\minerva.urdf",
+  "package_root": "C:\\Users\\ltr\\Workspace\\aizee\\urdf\\minerva\\onshape-to-robot",
+  "input_sha256": "10ed9f337563cce77eab3d14f624fcb0fa0631110193b920012c624bbfc2e6bc",
+  "robot_name": "minerva",
+  "summary": {
+    "links": 17,
+    "joints": 16,
+    "joint_types": {
+      "prismatic": 4,
+      "revolute": 12
+    },
+    "moving_joints": 16,
+    "total_mass_kg": 1.7000000000000003e-08,
+    "visual_links": 17,
+    "collision_links": 17,
+    "inertial_links": 17,
+    "mimic_joints": 2,
+    "root_links": [
+      "ikea_desk_leg"
+    ],
+    "error_count": 0,
+    "warning_count": 0
+  },
+  "scope": "Static structure and numeric checks only; geometry, mass scale, coordinate calibration, contact and real dynamics remain unvalidated.",
+  "physical_model_validated": false,
+  "findings": [],
+  "static_checks_passed": true
+}

@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "id": "minerva",
+  "title": "Minerva",
+  "urdf": "minerva.urdf",
+  "collision_model": "../collision/broadphase-v1.json",
+  "front_direction": [
+    0,
+    -1,
+    0
+  ],
+  "groups": {
+    "Left arm": [
+      "left_arm_j1",
+      "left_arm_j2",
+      "left_arm_j3",
+      "left_arm_j4",
+      "left_arm_j5",
+      "left_arm_j6"
+    ],
+    "Left gripper": [
+      "left_gripper_finger_a_slide"
+    ],
+    "Right arm": [
+      "right_arm_j1",
+      "right_arm_j2",
+      "right_arm_j3",
+      "right_arm_j4",
+      "right_arm_j5",
+      "right_arm_j6"
+    ],
+    "Right gripper": [
+      "right_gripper_finger_a_slide"
+    ]
+  },
+  "provisional_limits": [
+    "left_arm_j1",
+    "left_arm_j2",
+    "left_arm_j3",
+    "left_arm_j4",
+    "left_arm_j5",
+    "left_arm_j6",
+    "right_arm_j1",
+    "right_arm_j2",
+    "right_arm_j3",
+    "right_arm_j4",
+    "right_arm_j5",
+    "right_arm_j6"
+  ],
+  "notes": [
+    "3DP URDF Version 1.1. Corrected left shoulder. Viewer ranges are collision-sweep candidates awaiting visual review, not measured mechanical limits.",
+    "Gripper sliders move the CAD jaws in metres; both jaws follow the exported coupling. Motor-to-jaw calibration is not applied.",
+    "Source mass properties are missing. This is a kinematic view, not validated physics."
+  ],
+  "limit_review": "../limits/collision-round-1.json"
+}

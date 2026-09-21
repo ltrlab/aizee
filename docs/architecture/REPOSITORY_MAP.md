@@ -1,6 +1,6 @@
 # Aizee / Minerva repository map
 
-Updated 2026-09-18 after the shared-package migration and repository cleanup.
+Updated 2026-09-21 after the shared viewer, CAD imports and collision runtime work.
 The [generated inventory](REPOSITORY_INVENTORY.md) enumerates tracked files;
 the [implementation guide](MONOREPO_IMPLEMENTATION.md) explains installation.
 
@@ -47,18 +47,20 @@ robot. Head/lift slots are inactive and have no shared-session command routes.
 | Location | Responsibility |
 |---|---|
 | `pyproject.toml` | One Python distribution, extras, CLI, default test selection |
-| `Cargo.toml`, `Cargo.lock`, `.cargo/` | One three-crate Rust workspace; output under `rust/target` |
+| `Cargo.toml`, `Cargo.lock`, `.cargo/` | One four-crate Rust workspace; output under `rust/target` |
 | `src/robot_platform/robots/` | Canonical robot joint order, groups, camera roles, capabilities |
 | `src/robot_platform/settings/` | Defaults, layered JSON overrides, endpoint/config validation |
-| `src/robot_platform/control/` | Routing, observations, source freshness, command leases, socket lifecycle, e-stop fanout |
+| `src/robot_platform/control/` | Routing, freshness, leases, lifecycle, e-stop fanout and opt-in simulation collision gate |
 | `src/robot_platform/transport/` | Shared wire envelopes and discovery |
 | `src/robot_platform/data/` | Aizee/Minerva HDF5 writers, synthetic provenance, event traces |
 | `src/robot_platform/apps/` | Validated collection/training launch plans and compatibility execution |
-| `src/robot_platform/simulation/` | Seeded synthetic joint model, loopback server, cameras, scenarios |
+| `src/robot_platform/simulation/` | Synthetic plant/loopback, model audit, limit sweeps, FCL CAD queries and native keep-out adapter |
+| `src/robot_platform/models/`, `viewer/` | Robot-independent mechanical profiles, shared URDF viewer/jogging, model catalog and pose files; same profiles feed audit/collision |
 | `src/robot_platform/characterization/` | Manual/protocol audit and verified bench-profile requirements |
 | `rust/comms/` | Shared wire schemas and ZMQ primitives |
 | `rust/motor_control/` | ROBSTRIDE codec, CAN lifecycle, controller/watchdog, raw trace hooks |
 | `rust/lidar_control/` | Optional LiDAR service |
+| `rust/collision/` | Persistent Parry f64 hierarchy, enclosing distances and explicit link exclusions; C ABI 3 |
 | `python/scripts/collect_*` | Active collector loops, robot-specific UI/workflows, calibration adapters |
 | `python/common/` | Compatibility imports plus robot-specific gains/helpers still being migrated |
 | `python/control/`, `python/ik/` | Gravity fitting/models, Aizee URDF/IK/collision tools |
@@ -69,7 +71,8 @@ robot. Head/lift slots are inactive and have no shared-session command routes.
 | `settings/examples/`, `config/` | Operator overlays, hardware profiles, calibration, service definitions |
 | `scripts/` | Build, deploy, maintenance, inventory and live validation runners |
 | `firmware/` | Embedded projects; OpenRB vendor BSP is required by its build |
-| `urdf/aizee/` | Existing CAD export, meshes and source metadata; no Minerva model yet |
+| `urdf/aizee/`, `urdf/minerva/` | Mechanical profiles and enclosing artifacts; Minerva uses composed 1.1 visuals / 1.2 collision CAD, preserving raw imports and provenance |
+| `docs/devices/` | Identified development Jetson, permanent MACs, provisioning/update log and benchmark evidence |
 | `tests/`, `python/tests/` | Offline unit/contract tests and optional GUI/ML checks |
 
 ## What has been consolidated
@@ -93,6 +96,10 @@ robot. Head/lift slots are inactive and have no shared-session command routes.
    application code and config files. See [config ownership](../../config/README.md).
 4. The production-controller simulation tier, measured actuator profiles and
    coupled CAD model remain planned work. See [validation plan](SIMULATION_VALIDATION_PLAN.md).
+5. CAD and keep-out are explicit geometry policies. The 25 Hz Jetson replay
+   covers inter-arm motion with fingers omitted. Unapproved assembly contacts,
+   receiver-side expiry and measured stopping still block hardware enforcement.
+   See [collision status](COLLISION_RUNTIME_IMPLEMENTATION.md).
 
 ## Local artifacts
 

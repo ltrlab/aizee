@@ -250,3 +250,15 @@ M3 needs actual Minerva traces and held-out fits; M4 needs audited Minerva
 geometry and coupled dynamics. Independent torque instruments remain the later
 M5 phase. No current model may be labelled telemetry-calibrated or externally
 validated.
+
+## Offline collision and limit-probe foundation
+
+The intended Minerva export now has the correct 17-link graph, 12 arm rotations,
+four jaw slides and two mimic relations. Source mass properties and arm limits
+remain absent; exporter numerical defaults are not operating limits.
+
+`sim check-collision` checks complete robot states and sampled synchronized
+paths using FCL, including jaw mimic and explicit obstacle/exclusion data.
+`sim validate-limit-probe` exercises torque/stall candidate detection on
+synthetic signals. These commands do not drive motors or enforce a runtime
+motion gate. See [commands, current controller blockers and acceptance stages](COLLISION_AND_LIMIT_CALIBRATION.md).

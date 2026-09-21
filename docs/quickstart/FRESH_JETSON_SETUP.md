@@ -11,6 +11,26 @@ Ethernet/Wi-Fi, and enable SSH. Record the JetPack/OS release and SSH address.
 Current prebuilt ARM64 artifacts target the JetPack 6 / Ubuntu 22.04 baseline;
 verify compatibility if selecting a different OS.
 
+For a monitor-attached first boot, insert the SD card with power disconnected,
+connect DisplayPort, keyboard/mouse and preferably Ethernet, then connect the
+supplied power adapter and complete Ubuntu setup. On the Jetson, enable SSH and
+install the base development dependencies:
+
+```sh
+sudo apt update
+sudo apt install openssh-server git rsync build-essential pkg-config python3-dev python3-venv can-utils
+sudo systemctl enable --now ssh
+whoami
+hostname -I
+head -n 1 /etc/nv_tegra_release
+```
+
+Keep the existing robot host and this development host's identities separate.
+If the active work is uncommitted, transfer a checked source snapshot including
+its local CAD instead of assuming a GitHub clone contains the current work.
+Exclude credentials, Git internals, recordings and build caches. Record the
+base commit, source hashes and transferred archive checksum.
+
 Clone this repository and set up a Python environment on the device:
 
 ```sh
@@ -20,7 +40,8 @@ git clone https://github.com/ltrlab/aizee.git
 cd aizee
 python3 -m venv --system-site-packages .venv
 . .venv/bin/activate
-python -m pip install -e ".[simulation,dev]"
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -e ".[simulation,dev,viewer,collision]"
 python -m robot_platform sim run --robot minerva --output simulation_runs/jetson-smoke --duration 10
 ```
 
@@ -29,6 +50,25 @@ no motor services. Use the [Rust guide](../../rust/README.md) for native builds
 or the [cross-build guide](../../rust/JETSON_CROSS_BUILD.md) for local Windows
 builds. Virtual-CAN integration is still being implemented. GUI collector tests
 need operator dependencies on the machine running those applications.
+
+With the Rust toolchain installed, build from the repository root:
+
+```sh
+cargo build --release --locked --workspace -j 2
+cargo test --release --locked -p comms -p robot_collision -j 2
+python -m pytest -q tests/unit/test_compose_collision_model.py tests/unit/test_model_viewer.py tests/unit/test_runtime_collision.py
+python scripts/benchmark_collision.py --model urdf/minerva/model.json --output simulation_runs/jetson-collision.json --samples 1000 --reference-samples 100 --audit-samples 100
+```
+
+The collision benchmark measures individual pose checks, not the full 25 Hz
+motion/stopping supervisor. Preserve host power mode, temperature, package
+versions and workload with its report. See the
+[25 Hz acceptance plan](../architecture/COLLISION_25HZ_HARDWARE_PLAN.md).
+
+For the isolated development layout provisioned in this session, activate with
+`source ~/robot-platform-dev/activate.sh`. The `current` symlink selects the
+verified source snapshot, and `.venv` holds its Python dependencies. Installation
+and build logs are kept in `~/robot-platform-dev/`.
 
 ## Aizee robot-service provisioning
 

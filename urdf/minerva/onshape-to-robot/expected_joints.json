@@ -1,0 +1,10 @@
+{
+  "revolute": [
+    "left_arm_j1", "left_arm_j2", "left_arm_j3", "left_arm_j4", "left_arm_j5", "left_arm_j6",
+    "right_arm_j1", "right_arm_j2", "right_arm_j3", "right_arm_j4", "right_arm_j5", "right_arm_j6"
+  ],
+  "prismatic": [
+    "left_gripper_finger_a_slide", "left_gripper_finger_b_slide",
+    "right_gripper_finger_a_slide", "right_gripper_finger_b_slide"
+  ]
+}

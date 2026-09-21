@@ -259,6 +259,28 @@ class ThreadedRobotClient:
             self._held = {arm: (cmd, require_torque) for arm, cmd in commands.items()}
             self._pending_target = None
         pending, self._pending_motion = self._pending_motion, {}
+        if self.session.command_gate is not None:
+            # One complete command batch is checked against one whole-robot state.
+            # The usual per-arm send loop would invalidate a dual-arm verdict.
+            batch = {arm: command for arm,(command,required) in self._held.items()
+                     if not required or self.session.arm_ready("torque").get(arm,False)}
+            batch.update({arm: command for arm,command in pending.items()
+                          if time.monotonic() < self._motion_deadlines.get(arm,0.)})
+            for arm in pending_controls | self._blocked | self._estopped:
+                batch.pop(arm,None)
+            for arm in list(batch):
+                telemetry = self.session.telemetry(arm)
+                if telemetry is not None and telemetry.get("emergency_stop") is True:
+                    batch.pop(arm,None)
+            if batch:
+                try:
+                    self._client.send_commands(batch)
+                except Exception as exc:
+                    self._error = exc
+                gate = self.session.command_gate
+                if gate.mode == "enforce_simulation" and gate.last_verdict and not gate.last_verdict["clear"]:
+                    self._held.clear()
+            return
         for arm, command in pending.items():
             if time.monotonic() >= self._motion_deadlines.get(arm, 0.0):
                 stop = self._drive_stop(command)

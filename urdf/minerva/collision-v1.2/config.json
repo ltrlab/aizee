@@ -1,0 +1,14 @@
+{
+  "url": "https://cad.onshape.com/documents/359ad50fa475851ee9487588/v/0e3aef4a909ae5843d82a11a/e/f4466d56fce7b6028aae0a06",
+  "assembly_name": "minerva_urdf",
+  "configuration": "default",
+  "output_format": "urdf",
+  "output_filename": "minerva",
+  "robot_name": "minerva",
+  "assets_directory": "meshes",
+  "include_configuration_suffix": false,
+  "ignore_limits": false,
+  "no_dynamics": true,
+  "color": [0.65, 0.65, 0.65, 1.0],
+  "round_decimals": 12
+}

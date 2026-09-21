@@ -1,0 +1,303 @@
+{
+  "schema_version": 1,
+  "urdf_path": "C:\\Users\\ltr\\Workspace\\aizee\\urdf\\minerva\\collision-v1.2\\minerva.urdf",
+  "package_root": "C:\\Users\\ltr\\Workspace\\aizee\\urdf\\minerva\\collision-v1.2",
+  "input_sha256": "f3e0d91ec1b0ef2628f3028c6579172d8cb4ca778b40f5010e15e1e4668ff663",
+  "robot_name": "minerva",
+  "summary": {
+    "links": 17,
+    "joints": 16,
+    "joint_types": {
+      "prismatic": 4,
+      "revolute": 12
+    },
+    "moving_joints": 16,
+    "total_mass_kg": 0.0,
+    "visual_links": 17,
+    "collision_links": 17,
+    "inertial_links": 17,
+    "mimic_joints": 2,
+    "root_links": [
+      "ikea_desk_leg"
+    ],
+    "error_count": 17,
+    "warning_count": 17
+  },
+  "scope": "Static structure and numeric checks only; geometry, mass scale, coordinate calibration, contact and real dynamics remain unvalidated.",
+  "physical_model_validated": false,
+  "findings": [
+    {
+      "code": "invalid_mass",
+      "severity": "error",
+      "message": "Physical masses must be finite and positive; frame masses may be zero.",
+      "affected_names": [
+        "ikea_desk_leg"
+      ]
+    },
+    {
+      "code": "degenerate_inertia",
+      "severity": "warning",
+      "message": "Physical link has a zero or nearly degenerate principal inertia.",
+      "affected_names": [
+        "ikea_desk_leg"
+      ]
+    },
+    {
+      "code": "invalid_mass",
+      "severity": "error",
+      "message": "Physical masses must be finite and positive; frame masses may be zero.",
+      "affected_names": [
+        "bearing"
+      ]
+    },
+    {
+      "code": "degenerate_inertia",
+      "severity": "warning",
+      "message": "Physical link has a zero or nearly degenerate principal inertia.",
+      "affected_names": [
+        "bearing"
+      ]
+    },
+    {
+      "code": "invalid_mass",
+      "severity": "error",
+      "message": "Physical masses must be finite and positive; frame masses may be zero.",
+      "affected_names": [
+        "part_66"
+      ]
+    },
+    {
+      "code": "degenerate_inertia",
+      "severity": "warning",
+      "message": "Physical link has a zero or nearly degenerate principal inertia.",
+      "affected_names": [
+        "part_66"
+      ]
+    },
+    {
+      "code": "invalid_mass",
+      "severity": "error",
+      "message": "Physical masses must be finite and positive; frame masses may be zero.",
+      "affected_names": [
+        "42x30x7mm_bearing"
+      ]
+    },
+    {
+      "code": "degenerate_inertia",
+      "severity": "warning",
+      "message": "Physical link has a zero or nearly degenerate principal inertia.",
+      "affected_names": [
+        "42x30x7mm_bearing"
+      ]
+    },
+    {
+      "code": "invalid_mass",
+      "severity": "error",
+      "message": "Physical masses must be finite and positive; frame masses may be zero.",
+      "affected_names": [
+        "part_73"
+      ]
+    },
+    {
+      "code": "degenerate_inertia",
+      "severity": "warning",
+      "message": "Physical link has a zero or nearly degenerate principal inertia.",
+      "affected_names": [
+        "part_73"
+      ]
+    },
+    {
+      "code": "invalid_mass",
+      "severity": "error",
+      "message": "Physical masses must be finite and positive; frame masses may be zero.",
+      "affected_names": [
+        "part_42"
+      ]
+    },
+    {
+      "code": "degenerate_inertia",
+      "severity": "warning",
+      "message": "Physical link has a zero or nearly degenerate principal inertia.",
+      "affected_names": [
+        "part_42"
+      ]
+    },
+    {
+      "code": "invalid_mass",
+      "severity": "error",
+      "message": "Physical masses must be finite and positive; frame masses may be zero.",
+      "affected_names": [
+        "linearrail_lwl7b_100mm"
+      ]
+    },
+    {
+      "code": "degenerate_inertia",
+      "severity": "warning",
+      "message": "Physical link has a zero or nearly degenerate principal inertia.",
+      "affected_names": [
+        "linearrail_lwl7b_100mm"
+      ]
+    },
+    {
+      "code": "invalid_mass",
+      "severity": "error",
+      "message": "Physical masses must be finite and positive; frame masses may be zero.",
+      "affected_names": [
+        "carriage_lwl7b"
+      ]
+    },
+    {
+      "code": "degenerate_inertia",
+      "severity": "warning",
+      "message": "Physical link has a zero or nearly degenerate principal inertia.",
+      "affected_names": [
+        "carriage_lwl7b"
+      ]
+    },
+    {
+      "code": "invalid_mass",
+      "severity": "error",
+      "message": "Physical masses must be finite and positive; frame masses may be zero.",
+      "affected_names": [
+        "carriage_lwl7b_2"
+      ]
+    },
+    {
+      "code": "degenerate_inertia",
+      "severity": "warning",
+      "message": "Physical link has a zero or nearly degenerate principal inertia.",
+      "affected_names": [
+        "carriage_lwl7b_2"
+      ]
+    },
+    {
+      "code": "invalid_mass",
+      "severity": "error",
+      "message": "Physical masses must be finite and positive; frame masses may be zero.",
+      "affected_names": [
+        "bearing_2"
+      ]
+    },
+    {
+      "code": "degenerate_inertia",
+      "severity": "warning",
+      "message": "Physical link has a zero or nearly degenerate principal inertia.",
+      "affected_names": [
+        "bearing_2"
+      ]
+    },
+    {
+      "code": "invalid_mass",
+      "severity": "error",
+      "message": "Physical masses must be finite and positive; frame masses may be zero.",
+      "affected_names": [
+        "part_66_2"
+      ]
+    },
+    {
+      "code": "degenerate_inertia",
+      "severity": "warning",
+      "message": "Physical link has a zero or nearly degenerate principal inertia.",
+      "affected_names": [
+        "part_66_2"
+      ]
+    },
+    {
+      "code": "invalid_mass",
+      "severity": "error",
+      "message": "Physical masses must be finite and positive; frame masses may be zero.",
+      "affected_names": [
+        "42x30x7mm_bearing_2"
+      ]
+    },
+    {
+      "code": "degenerate_inertia",
+      "severity": "warning",
+      "message": "Physical link has a zero or nearly degenerate principal inertia.",
+      "affected_names": [
+        "42x30x7mm_bearing_2"
+      ]
+    },
+    {
+      "code": "invalid_mass",
+      "severity": "error",
+      "message": "Physical masses must be finite and positive; frame masses may be zero.",
+      "affected_names": [
+        "part_73_2"
+      ]
+    },
+    {
+      "code": "degenerate_inertia",
+      "severity": "warning",
+      "message": "Physical link has a zero or nearly degenerate principal inertia.",
+      "affected_names": [
+        "part_73_2"
+      ]
+    },
+    {
+      "code": "invalid_mass",
+      "severity": "error",
+      "message": "Physical masses must be finite and positive; frame masses may be zero.",
+      "affected_names": [
+        "part_42_2"
+      ]
+    },
+    {
+      "code": "degenerate_inertia",
+      "severity": "warning",
+      "message": "Physical link has a zero or nearly degenerate principal inertia.",
+      "affected_names": [
+        "part_42_2"
+      ]
+    },
+    {
+      "code": "invalid_mass",
+      "severity": "error",
+      "message": "Physical masses must be finite and positive; frame masses may be zero.",
+      "affected_names": [
+        "linearrail_lwl7b_100mm_2"
+      ]
+    },
+    {
+      "code": "degenerate_inertia",
+      "severity": "warning",
+      "message": "Physical link has a zero or nearly degenerate principal inertia.",
+      "affected_names": [
+        "linearrail_lwl7b_100mm_2"
+      ]
+    },
+    {
+      "code": "invalid_mass",
+      "severity": "error",
+      "message": "Physical masses must be finite and positive; frame masses may be zero.",
+      "affected_names": [
+        "carriage_lwl7b_3"
+      ]
+    },
+    {
+      "code": "degenerate_inertia",
+      "severity": "warning",
+      "message": "Physical link has a zero or nearly degenerate principal inertia.",
+      "affected_names": [
+        "carriage_lwl7b_3"
+      ]
+    },
+    {
+      "code": "invalid_mass",
+      "severity": "error",
+      "message": "Physical masses must be finite and positive; frame masses may be zero.",
+      "affected_names": [
+        "carriage_lwl7b_4"
+      ]
+    },
+    {
+      "code": "degenerate_inertia",
+      "severity": "warning",
+      "message": "Physical link has a zero or nearly degenerate principal inertia.",
+      "affected_names": [
+        "carriage_lwl7b_4"
+      ]
+    }
+  ],
+  "static_checks_passed": false
+}

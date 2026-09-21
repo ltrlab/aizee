@@ -1,0 +1,619 @@
+{
+  "schema_version": 1,
+  "kind": "composed_collision_model",
+  "visual_urdf_sha256": "10ed9f337563cce77eab3d14f624fcb0fa0631110193b920012c624bbfc2e6bc",
+  "collision_urdf_sha256": "f3e0d91ec1b0ef2628f3028c6579172d8cb4ca778b40f5010e15e1e4668ff663",
+  "composed_urdf_sha256": "792f32da597821bbab4d7e65365618519159ecbc657744133196325eaafddcf8",
+  "link_mapping": {
+    "ikea_desk_leg": "ikea_desk_leg",
+    "carriage_lwl7b": "carriage_lwl7b",
+    "carriage_lwl7b_2": "carriage_lwl7b_2",
+    "1_1_02_eb571_960_stp": "linearrail_lwl7b_100mm",
+    "part_42": "part_42",
+    "part_73": "part_73",
+    "42x30x7mm_bearing": "42x30x7mm_bearing",
+    "part_66": "part_66",
+    "bearing": "bearing",
+    "carriage_lwl7b_3": "carriage_lwl7b_3",
+    "carriage_lwl7b_4": "carriage_lwl7b_4",
+    "1_1_02_eb571_960_stp_2": "linearrail_lwl7b_100mm_2",
+    "part_42_2": "part_42_2",
+    "part_73_2": "part_73_2",
+    "42x30x7mm_bearing_2": "42x30x7mm_bearing_2",
+    "part_66_2": "part_66_2",
+    "bearing_2": "bearing_2"
+  },
+  "collision_shape_mapping": [
+    {
+      "source": "ikea_desk_leg/0",
+      "composed": "ikea_desk_leg/0"
+    },
+    {
+      "source": "ikea_desk_leg/1",
+      "composed": "ikea_desk_leg/1"
+    },
+    {
+      "source": "ikea_desk_leg/2",
+      "composed": "ikea_desk_leg/2"
+    },
+    {
+      "source": "ikea_desk_leg/3",
+      "composed": "ikea_desk_leg/3"
+    },
+    {
+      "source": "ikea_desk_leg/4",
+      "composed": "ikea_desk_leg/4"
+    },
+    {
+      "source": "ikea_desk_leg/5",
+      "composed": "ikea_desk_leg/5"
+    },
+    {
+      "source": "ikea_desk_leg/6",
+      "composed": "ikea_desk_leg/6"
+    },
+    {
+      "source": "bearing/0",
+      "composed": "bearing/0"
+    },
+    {
+      "source": "bearing/1",
+      "composed": "bearing/1"
+    },
+    {
+      "source": "bearing/2",
+      "composed": "bearing/2"
+    },
+    {
+      "source": "bearing/3",
+      "composed": "bearing/3"
+    },
+    {
+      "source": "bearing/4",
+      "composed": "bearing/4"
+    },
+    {
+      "source": "bearing/5",
+      "composed": "bearing/5"
+    },
+    {
+      "source": "bearing/6",
+      "composed": "bearing/6"
+    },
+    {
+      "source": "part_66/0",
+      "composed": "part_66/0"
+    },
+    {
+      "source": "part_66/1",
+      "composed": "part_66/1"
+    },
+    {
+      "source": "part_66/2",
+      "composed": "part_66/2"
+    },
+    {
+      "source": "part_66/3",
+      "composed": "part_66/3"
+    },
+    {
+      "source": "42x30x7mm_bearing/0",
+      "composed": "42x30x7mm_bearing/0"
+    },
+    {
+      "source": "42x30x7mm_bearing/1",
+      "composed": "42x30x7mm_bearing/1"
+    },
+    {
+      "source": "42x30x7mm_bearing/2",
+      "composed": "42x30x7mm_bearing/2"
+    },
+    {
+      "source": "42x30x7mm_bearing/3",
+      "composed": "42x30x7mm_bearing/3"
+    },
+    {
+      "source": "42x30x7mm_bearing/4",
+      "composed": "42x30x7mm_bearing/4"
+    },
+    {
+      "source": "42x30x7mm_bearing/5",
+      "composed": "42x30x7mm_bearing/5"
+    },
+    {
+      "source": "42x30x7mm_bearing/6",
+      "composed": "42x30x7mm_bearing/6"
+    },
+    {
+      "source": "42x30x7mm_bearing/7",
+      "composed": "42x30x7mm_bearing/7"
+    },
+    {
+      "source": "42x30x7mm_bearing/8",
+      "composed": "42x30x7mm_bearing/8"
+    },
+    {
+      "source": "part_73/0",
+      "composed": "part_73/0"
+    },
+    {
+      "source": "part_73/1",
+      "composed": "part_73/1"
+    },
+    {
+      "source": "part_73/2",
+      "composed": "part_73/2"
+    },
+    {
+      "source": "part_42/0",
+      "composed": "part_42/0"
+    },
+    {
+      "source": "part_42/1",
+      "composed": "part_42/1"
+    },
+    {
+      "source": "part_42/2",
+      "composed": "part_42/2"
+    },
+    {
+      "source": "linearrail_lwl7b_100mm/0",
+      "composed": "1_1_02_eb571_960_stp/0"
+    },
+    {
+      "source": "linearrail_lwl7b_100mm/1",
+      "composed": "1_1_02_eb571_960_stp/1"
+    },
+    {
+      "source": "linearrail_lwl7b_100mm/2",
+      "composed": "1_1_02_eb571_960_stp/2"
+    },
+    {
+      "source": "linearrail_lwl7b_100mm/3",
+      "composed": "1_1_02_eb571_960_stp/3"
+    },
+    {
+      "source": "carriage_lwl7b/0",
+      "composed": "carriage_lwl7b/0"
+    },
+    {
+      "source": "carriage_lwl7b/1",
+      "composed": "carriage_lwl7b/1"
+    },
+    {
+      "source": "carriage_lwl7b/2",
+      "composed": "carriage_lwl7b/2"
+    },
+    {
+      "source": "carriage_lwl7b/3",
+      "composed": "carriage_lwl7b/3"
+    },
+    {
+      "source": "carriage_lwl7b/4",
+      "composed": "carriage_lwl7b/4"
+    },
+    {
+      "source": "carriage_lwl7b/5",
+      "composed": "carriage_lwl7b/5"
+    },
+    {
+      "source": "carriage_lwl7b_2/0",
+      "composed": "carriage_lwl7b_2/0"
+    },
+    {
+      "source": "carriage_lwl7b_2/1",
+      "composed": "carriage_lwl7b_2/1"
+    },
+    {
+      "source": "carriage_lwl7b_2/2",
+      "composed": "carriage_lwl7b_2/2"
+    },
+    {
+      "source": "carriage_lwl7b_2/3",
+      "composed": "carriage_lwl7b_2/3"
+    },
+    {
+      "source": "carriage_lwl7b_2/4",
+      "composed": "carriage_lwl7b_2/4"
+    },
+    {
+      "source": "carriage_lwl7b_2/5",
+      "composed": "carriage_lwl7b_2/5"
+    },
+    {
+      "source": "bearing_2/0",
+      "composed": "bearing_2/0"
+    },
+    {
+      "source": "bearing_2/1",
+      "composed": "bearing_2/1"
+    },
+    {
+      "source": "bearing_2/2",
+      "composed": "bearing_2/2"
+    },
+    {
+      "source": "bearing_2/3",
+      "composed": "bearing_2/3"
+    },
+    {
+      "source": "bearing_2/4",
+      "composed": "bearing_2/4"
+    },
+    {
+      "source": "bearing_2/5",
+      "composed": "bearing_2/5"
+    },
+    {
+      "source": "bearing_2/6",
+      "composed": "bearing_2/6"
+    },
+    {
+      "source": "part_66_2/0",
+      "composed": "part_66_2/0"
+    },
+    {
+      "source": "part_66_2/1",
+      "composed": "part_66_2/1"
+    },
+    {
+      "source": "part_66_2/2",
+      "composed": "part_66_2/2"
+    },
+    {
+      "source": "part_66_2/3",
+      "composed": "part_66_2/3"
+    },
+    {
+      "source": "42x30x7mm_bearing_2/0",
+      "composed": "42x30x7mm_bearing_2/0"
+    },
+    {
+      "source": "42x30x7mm_bearing_2/1",
+      "composed": "42x30x7mm_bearing_2/1"
+    },
+    {
+      "source": "42x30x7mm_bearing_2/2",
+      "composed": "42x30x7mm_bearing_2/2"
+    },
+    {
+      "source": "42x30x7mm_bearing_2/3",
+      "composed": "42x30x7mm_bearing_2/3"
+    },
+    {
+      "source": "42x30x7mm_bearing_2/4",
+      "composed": "42x30x7mm_bearing_2/4"
+    },
+    {
+      "source": "42x30x7mm_bearing_2/5",
+      "composed": "42x30x7mm_bearing_2/5"
+    },
+    {
+      "source": "42x30x7mm_bearing_2/6",
+      "composed": "42x30x7mm_bearing_2/6"
+    },
+    {
+      "source": "42x30x7mm_bearing_2/7",
+      "composed": "42x30x7mm_bearing_2/7"
+    },
+    {
+      "source": "42x30x7mm_bearing_2/8",
+      "composed": "42x30x7mm_bearing_2/8"
+    },
+    {
+      "source": "part_73_2/0",
+      "composed": "part_73_2/0"
+    },
+    {
+      "source": "part_73_2/1",
+      "composed": "part_73_2/1"
+    },
+    {
+      "source": "part_73_2/2",
+      "composed": "part_73_2/2"
+    },
+    {
+      "source": "part_42_2/0",
+      "composed": "part_42_2/0"
+    },
+    {
+      "source": "part_42_2/1",
+      "composed": "part_42_2/1"
+    },
+    {
+      "source": "part_42_2/2",
+      "composed": "part_42_2/2"
+    },
+    {
+      "source": "linearrail_lwl7b_100mm_2/0",
+      "composed": "1_1_02_eb571_960_stp_2/0"
+    },
+    {
+      "source": "linearrail_lwl7b_100mm_2/1",
+      "composed": "1_1_02_eb571_960_stp_2/1"
+    },
+    {
+      "source": "linearrail_lwl7b_100mm_2/2",
+      "composed": "1_1_02_eb571_960_stp_2/2"
+    },
+    {
+      "source": "linearrail_lwl7b_100mm_2/3",
+      "composed": "1_1_02_eb571_960_stp_2/3"
+    },
+    {
+      "source": "carriage_lwl7b_3/0",
+      "composed": "carriage_lwl7b_3/0"
+    },
+    {
+      "source": "carriage_lwl7b_3/1",
+      "composed": "carriage_lwl7b_3/1"
+    },
+    {
+      "source": "carriage_lwl7b_3/2",
+      "composed": "carriage_lwl7b_3/2"
+    },
+    {
+      "source": "carriage_lwl7b_3/3",
+      "composed": "carriage_lwl7b_3/3"
+    },
+    {
+      "source": "carriage_lwl7b_3/4",
+      "composed": "carriage_lwl7b_3/4"
+    },
+    {
+      "source": "carriage_lwl7b_3/5",
+      "composed": "carriage_lwl7b_3/5"
+    },
+    {
+      "source": "carriage_lwl7b_4/0",
+      "composed": "carriage_lwl7b_4/0"
+    },
+    {
+      "source": "carriage_lwl7b_4/1",
+      "composed": "carriage_lwl7b_4/1"
+    },
+    {
+      "source": "carriage_lwl7b_4/2",
+      "composed": "carriage_lwl7b_4/2"
+    },
+    {
+      "source": "carriage_lwl7b_4/3",
+      "composed": "carriage_lwl7b_4/3"
+    },
+    {
+      "source": "carriage_lwl7b_4/4",
+      "composed": "carriage_lwl7b_4/4"
+    },
+    {
+      "source": "carriage_lwl7b_4/5",
+      "composed": "carriage_lwl7b_4/5"
+    }
+  ],
+  "assets": {
+    "onshape-to-robot/meshes/part_151.stl": "5a031c2204e441755695c8c64618ded6a34e57baca7a8679296ac30d69a94bef",
+    "onshape-to-robot/meshes/part_153.stl": "eb6e6034888c4b71f68fc3ee86b1ac4758568061dc7466b71e584a9ded334184",
+    "onshape-to-robot/meshes/part_148.stl": "d2a780acf3eafc820cf3dcd37a3779b585bf4b3700c92ef04630f377771b8644",
+    "onshape-to-robot/meshes/part_150.stl": "a4666ef2f5028598762b1aed7a1c0424f65b700438bc64057a35e42bdd7cf807",
+    "onshape-to-robot/meshes/part_149.stl": "12154e057274a804d5ba7a5f03dc2033ee402a58c514b6a0403d2776e3cef75d",
+    "onshape-to-robot/meshes/part_152.stl": "891eda136a8ae014e20fecf98c56db8f88792378298a3ae84352cc9aac6f4111",
+    "onshape-to-robot/meshes/ikea_desk_leg.stl": "c5775302117d2bb0df62ca3b8f398b1c2bf059017ac27a86fb7c088c5525677c",
+    "collision-v1.2/meshes/part_151.stl": "5a031c2204e441755695c8c64618ded6a34e57baca7a8679296ac30d69a94bef",
+    "collision-v1.2/meshes/part_153.stl": "eb6e6034888c4b71f68fc3ee86b1ac4758568061dc7466b71e584a9ded334184",
+    "collision-v1.2/meshes/part_148.stl": "d2a780acf3eafc820cf3dcd37a3779b585bf4b3700c92ef04630f377771b8644",
+    "collision-v1.2/meshes/part_150.stl": "a4666ef2f5028598762b1aed7a1c0424f65b700438bc64057a35e42bdd7cf807",
+    "collision-v1.2/meshes/part_149.stl": "12154e057274a804d5ba7a5f03dc2033ee402a58c514b6a0403d2776e3cef75d",
+    "collision-v1.2/meshes/part_152.stl": "891eda136a8ae014e20fecf98c56db8f88792378298a3ae84352cc9aac6f4111",
+    "collision-v1.2/meshes/ikea_desk_leg.stl": "c5775302117d2bb0df62ca3b8f398b1c2bf059017ac27a86fb7c088c5525677c",
+    "onshape-to-robot/meshes/rb04_motor_body.stl": "57049f29788aca1447dbc5f3b1ce4940040fc0a9965cbd2d8b13619268717701",
+    "onshape-to-robot/meshes/rb04_wire_bearing_mount.stl": "3ca830275acf981421df658412f019e9eb9a0fcd4c97e00f107a393d817b2161",
+    "onshape-to-robot/meshes/rs04_loop_wire_cover.stl": "61a53860a9647b91e421a1a8dead649106a45155998264213e00e6faf95e1628",
+    "onshape-to-robot/meshes/bearing.stl": "bec5992fb099e4b4bb3849b39841dcc70742d4467a7b0bfc99380a2e3fadc0a7",
+    "onshape-to-robot/meshes/rb04_cover.stl": "a7a88f05818c08c6902da39437ec7b5c6feab2ef872666eb035603bbebe75f66",
+    "onshape-to-robot/meshes/bearing__2.stl": "46896e7cadb151bc03dfe6753d303dd3863628b23068170dd336152e4fea4969",
+    "onshape-to-robot/meshes/part_6.stl": "9b031fd7a22a8585329f39ef081ec16bba6ce07343d59331f1cfec04942ad3f2",
+    "onshape-to-robot/meshes/rb04_motor_output.stl": "938f44d4d00e5a2de3446fcfdcbebb2594f889e9b4697cd8e5d4a5fad0801f02",
+    "onshape-to-robot/meshes/rb03_output.stl": "2b42d550286d6254c2f3ef0127abf5b0d15d8d2cc98cb533a0be33e5628d8f65",
+    "onshape-to-robot/meshes/rs04_passthrough_wire_cover.stl": "909bfca8ba8fc17a65b332b4692d7c825b96b84c61a802239da5c3de4d01e423",
+    "onshape-to-robot/meshes/rb03_wire_bearing_output_mount.stl": "b3ce5a2375fc2faac73c3dc3e580108b04e8ac20ceaa416a2d78d1a617c95629",
+    "onshape-to-robot/meshes/part_7.stl": "b6d97bb87a3be5b32a6fdf736c166fa90465aab02bdf0020e2471ac7e50595c0",
+    "onshape-to-robot/meshes/rb03_body.stl": "26f78fe5d6615c695bfdfe69ebb20e2a3707276826a7d994442c9c0373735bd6",
+    "onshape-to-robot/meshes/bearing__3.stl": "5eb2e1a22d623fbfea5f28214d9567332193762f01f3ad7f055273498f3730bc",
+    "collision-v1.2/meshes/rb04_wire_bearing_mount.stl": "308ecaa757c7dfc72807488361fe0895832ee96b5ed977f2a8d8bbf79d266e7f",
+    "collision-v1.2/meshes/bearing.stl": "bec5992fb099e4b4bb3849b39841dcc70742d4467a7b0bfc99380a2e3fadc0a7",
+    "collision-v1.2/meshes/bearing__2.stl": "46896e7cadb151bc03dfe6753d303dd3863628b23068170dd336152e4fea4969",
+    "collision-v1.2/meshes/rb04_motor_output.stl": "938f44d4d00e5a2de3446fcfdcbebb2594f889e9b4697cd8e5d4a5fad0801f02",
+    "collision-v1.2/meshes/rb03_output.stl": "2b42d550286d6254c2f3ef0127abf5b0d15d8d2cc98cb533a0be33e5628d8f65",
+    "collision-v1.2/meshes/rb03_wire_bearing_output_mount.stl": "04a207f828578e3a53463596712ce458a9df53b461f2f6d19e813194908ab768",
+    "collision-v1.2/meshes/bearing__3.stl": "5eb2e1a22d623fbfea5f28214d9567332193762f01f3ad7f055273498f3730bc",
+    "onshape-to-robot/meshes/part_69.stl": "c7c5c9a1e42303f2bbf7df62426cca051b2a70f6a2cae5208dc5dd7795cab6d0",
+    "onshape-to-robot/meshes/part_71.stl": "eb641dc774543e168fb3c96e3be167c4f880dba8d17f2d4534259ceb0d8b9b58",
+    "onshape-to-robot/meshes/part_66.stl": "bb74806c82fa89edba0d371624d0efb424d6ce6c29fb90bc220965430208e196",
+    "onshape-to-robot/meshes/part_70.stl": "6053dba62a6dcc06231e6b1947842f59e5812a297389ecf247f0a25dca84a856",
+    "collision-v1.2/meshes/part_69.stl": "3072cc09290e1464e02f6b63eec34209c4f8591b51e8fb7ce1af1a8c98101aba",
+    "collision-v1.2/meshes/part_71.stl": "7333aeeb5ab95f283fee64e4b5855b13baec450931fcdf6a0032d58a8b1d60ef",
+    "collision-v1.2/meshes/part_66.stl": "93606d85eff92b954fb257b26c130eb7a223a251456475a3054ab2377940b4dd",
+    "collision-v1.2/meshes/part_70.stl": "0f673e8acdb30c245213e2b958694b0b74db3e23a0d1614b5f018d93f5cfc98a",
+    "onshape-to-robot/meshes/rs02_bearing_mount.stl": "3cd1d8467fbef0b0047c8d31889e14e1ff5c6e1802ee9f6b16f85c14c93d62b9",
+    "onshape-to-robot/meshes/rs02.stl": "406ac1fe6ae192457715fbdb476976650d4fc623e0532359d60522476b4a23f2",
+    "onshape-to-robot/meshes/rb03_body__2.stl": "3793ed1fd11604fd29c214a5e83b296cb34b4c4e11f95c4537f10294c365e7e0",
+    "onshape-to-robot/meshes/rs02_base_mount.stl": "c40ff8096313edb2684c076714c9bfafcdf82e1cfde1a30a5a838cfdfec16b6f",
+    "onshape-to-robot/meshes/rb03_wire_bearing_output_mount__2.stl": "64766e1f21520edb5875bbd4f27361773745332a51a1ab48e318617fc341548b",
+    "onshape-to-robot/meshes/rb03_wire_bearing_mount.stl": "add89f8dfb4dad4c5be4c93eb08416bc4a4b31cc0f4578a758684b940fea1cb9",
+    "onshape-to-robot/meshes/bearing__4.stl": "a91d2c01e0e0357470419a04f40ded7d70b0d22f05062f45ed02766f4026586c",
+    "onshape-to-robot/meshes/bearing__5.stl": "95c3ec4ce8920ca7c0f84127ea713c59697a8d3ebe8ada6765bf4dcbc87f94e0",
+    "onshape-to-robot/meshes/rb03_output__2.stl": "b11e125a55d0a9d0a84bae438078bb59b249663f487258b0c42dc702802e76c5",
+    "onshape-to-robot/meshes/42x30x7mm_bearing.stl": "a855474d122d863508fdac4a5b10239feed8bacd28e7f8f978eb6819fae8704d",
+    "onshape-to-robot/meshes/part_6__2.stl": "b5828a6016750491e353fb1ff984eb1115d376859297f061ccb3de6e2e7de2e7",
+    "onshape-to-robot/meshes/part_7__2.stl": "12da9f2d50c227da07d8e0ce30f49edfa3fae502fe15779475efea7d061073e0",
+    "collision-v1.2/meshes/rs02_bearing_mount.stl": "3c611608608eeabaf773630e57cd7372c7330487beccdee8c2cae3f2ffe3ff53",
+    "collision-v1.2/meshes/rs02.stl": "603d6c502acd9b28059b87c6d8ff08d1d0b7c98f044e8a791e42666c3cfbb8a9",
+    "collision-v1.2/meshes/rs02_base_mount.stl": "5dcf3d47c0fc502f80adc679f57f0fa048cab208fa4987a51319a4444cee57e5",
+    "collision-v1.2/meshes/rb03_wire_bearing_output_mount__2.stl": "64766e1f21520edb5875bbd4f27361773745332a51a1ab48e318617fc341548b",
+    "collision-v1.2/meshes/rb03_wire_bearing_mount.stl": "fcbef71b45553ada8225e8c1d5421184cd595b46a3c3f92498b6fe696642f5fc",
+    "collision-v1.2/meshes/bearing__4.stl": "a91d2c01e0e0357470419a04f40ded7d70b0d22f05062f45ed02766f4026586c",
+    "collision-v1.2/meshes/bearing__5.stl": "95c3ec4ce8920ca7c0f84127ea713c59697a8d3ebe8ada6765bf4dcbc87f94e0",
+    "collision-v1.2/meshes/rb03_output__2.stl": "b11e125a55d0a9d0a84bae438078bb59b249663f487258b0c42dc702802e76c5",
+    "collision-v1.2/meshes/42x30x7mm_bearing.stl": "a855474d122d863508fdac4a5b10239feed8bacd28e7f8f978eb6819fae8704d",
+    "onshape-to-robot/meshes/rs02__2.stl": "2d92dd1cb8550a5be09b2b84589786ca7cdb8fb608a9d9f79342ea205f0004d2",
+    "onshape-to-robot/meshes/rs02_bearing_mount__2.stl": "752e8aac4a8e228d9881fca48fb30c731d5e904ce9bdf9f097b0eae29ea6a2d5",
+    "onshape-to-robot/meshes/part_73.stl": "738c969100caa6bc65b31e5f6e8533ef9d0e099d07d21d1d3a57651c96a2fb8a",
+    "collision-v1.2/meshes/rs02__2.stl": "982f0f0ef5473fd6fd546a5ea3d00929acbdf642e8bb343a8b7278616747c39a",
+    "collision-v1.2/meshes/rs02_bearing_mount__2.stl": "79b2a4ae9685084b56033e187c454bc11571fad8e79f652b6cea3da4cc58f8b2",
+    "collision-v1.2/meshes/part_73.stl": "9d2dead7cc62be74afeba2d83a0b03d4f0cad9707452c04125a19afb8a9b349f",
+    "onshape-to-robot/meshes/part_43.stl": "b2be2cf4500b12e268b5f04287f0dace52312a9efb33767b220a33b70ae54870",
+    "onshape-to-robot/meshes/rs00.stl": "6ee7bf345e8e2425962cc4e38093ee6c3275d90eddfbd258a89df155d0e579de",
+    "onshape-to-robot/meshes/part_42.stl": "cf1b2cea0bf3ea58feb659d29f24c48f98160effd68f400965354b561f68444a",
+    "collision-v1.2/meshes/part_43.stl": "b2be2cf4500b12e268b5f04287f0dace52312a9efb33767b220a33b70ae54870",
+    "collision-v1.2/meshes/rs00.stl": "6ee7bf345e8e2425962cc4e38093ee6c3275d90eddfbd258a89df155d0e579de",
+    "collision-v1.2/meshes/part_42.stl": "de09f3ce38dd09e3c5227d17653f1cb82d73215f1e9fccd18160c3233abadd2e",
+    "onshape-to-robot/meshes/scxxkl_stp.stl": "19e991f4ae353db7aead0d050979744da885d10306d3899be228fba293923632",
+    "onshape-to-robot/meshes/1_1_04_eb572_5105_stp.stl": "42a08abcaa23ab105743d075674e47af469cb93cafffaf66761bbac843eff5af",
+    "onshape-to-robot/meshes/solid_17_con_p4_11_438x3_2_hd_3_stp.stl": "260986c54b808c6c8131b8c322f55a2418e9e6a8a95c942b0bbd9a6958cb3139",
+    "onshape-to-robot/meshes/part_44.stl": "bcdea088aed7d4bcfdc1448f9ac23082a65ba700a3293f0b66d81ff5fab5f31c",
+    "onshape-to-robot/meshes/1_1_02_eb571_960_stp.stl": "8d0c4d577278e2667f400afc2ec94637c5dda2a1f7ac3dacbe9a0f3e2271b316",
+    "onshape-to-robot/meshes/1_1_06_eb573_642_stp.stl": "3830d23e864f5941661738122afee428d5e9ffbb3ac35725ba27e84d902a18ab",
+    "onshape-to-robot/meshes/board_3d_kmmv03_2024_10_21_2__2_stp.stl": "009683240d54217534ee40d6cbba0effb52231a0d5a3fa13f1e067d183b4cb5c",
+    "onshape-to-robot/meshes/linearrail_lwl7b_100mm.stl": "c25f4224c3adc8b007efa17040abc3eb06cdfabebf5a1b03465d2cd5988e4604",
+    "onshape-to-robot/meshes/solid_17_con_p4_11_438x3_2_hd_2_stp.stl": "e00f617291bb1c083f28ee0b394681d4ff4300cfd9d8f4005e8288a7c3ac0c94",
+    "onshape-to-robot/meshes/sgqzc__35_stp.stl": "b57fffb841f90d44be4b4e358b20959d988125380d648d8dfa083439b0fda2c1",
+    "onshape-to-robot/meshes/1_1_06_eb573_643_stp.stl": "b6cfbad13b2bc2459860a794344eb991ad0ad6786f3659171bfa3258fcf5f8be",
+    "onshape-to-robot/meshes/part_39.stl": "0a2f4f589e40a391a3e53b4845e85e153faf47fb4cecc5e095e01157399200e6",
+    "onshape-to-robot/meshes/linearrail_lwl7b_100mm__2.stl": "740c05a677ca106dd80c34bff48ea1f861c97a8411a24c080b703deb5e504e92",
+    "collision-v1.2/meshes/part_44.stl": "d024272547dd7a13047b15d8cd5ec009f7509ba69fb156754c60291c9e257f98",
+    "collision-v1.2/meshes/linearrail_lwl7b_100mm.stl": "c25f4224c3adc8b007efa17040abc3eb06cdfabebf5a1b03465d2cd5988e4604",
+    "collision-v1.2/meshes/part_39.stl": "0a2f4f589e40a391a3e53b4845e85e153faf47fb4cecc5e095e01157399200e6",
+    "collision-v1.2/meshes/linearrail_lwl7b_100mm__2.stl": "740c05a677ca106dd80c34bff48ea1f861c97a8411a24c080b703deb5e504e92",
+    "onshape-to-robot/meshes/carriage_lwl7b.stl": "2d397458284efce9da04a9a6ef70cb3c5f02270f446806196c87983aab0ca261",
+    "onshape-to-robot/meshes/carriage_lwl7b__2.stl": "5c049e7c6d201485ab0ae00338fdb2b03859020e405f0c6941986fdb7860f12b",
+    "onshape-to-robot/meshes/carriage_lwl7b__3.stl": "8ec3a793719996b2bb10fcde28956a96f537c88e8043810083a697b4b5bb2c62",
+    "onshape-to-robot/meshes/carriage_lwl7b__4.stl": "b1bb54d1276477b020b4aa7e02b2bd6d50b13cc910bc392295449768cde41cee",
+    "onshape-to-robot/meshes/carriage_lwl7b__5.stl": "654eafc2c44e7df24c3ae113f5bb627d752d167e78a22ba398147ee1097c6545",
+    "onshape-to-robot/meshes/part_41.stl": "40eb75cc777e51b143e84f16e52c9c85330402b5b2792641b4c8d6793bb1aa5b",
+    "collision-v1.2/meshes/carriage_lwl7b.stl": "2d397458284efce9da04a9a6ef70cb3c5f02270f446806196c87983aab0ca261",
+    "collision-v1.2/meshes/carriage_lwl7b__2.stl": "5c049e7c6d201485ab0ae00338fdb2b03859020e405f0c6941986fdb7860f12b",
+    "collision-v1.2/meshes/carriage_lwl7b__3.stl": "8ec3a793719996b2bb10fcde28956a96f537c88e8043810083a697b4b5bb2c62",
+    "collision-v1.2/meshes/carriage_lwl7b__4.stl": "b1bb54d1276477b020b4aa7e02b2bd6d50b13cc910bc392295449768cde41cee",
+    "collision-v1.2/meshes/carriage_lwl7b__5.stl": "654eafc2c44e7df24c3ae113f5bb627d752d167e78a22ba398147ee1097c6545",
+    "collision-v1.2/meshes/part_41.stl": "a1e5de57f5c790318636918132db93d665bd8c41e94f71aad3812d181039fcfe",
+    "onshape-to-robot/meshes/carriage_lwl7b__6.stl": "90a5aa56bb2e4799107372a73e2de2a9109fb685c2fc24e6682fbf66ecd8bf26",
+    "onshape-to-robot/meshes/carriage_lwl7b__7.stl": "cdd59e0b8b2379e30e7cbd878102fdf929d4adeaf4cd2918bffd2582c096c6c9",
+    "onshape-to-robot/meshes/carriage_lwl7b__8.stl": "2c0c80689fa589dbd77daca90afda46308cc6c0ecf2bfd3cf4e778dd6d2327ae",
+    "onshape-to-robot/meshes/carriage_lwl7b__9.stl": "a5e54d978d4793195bf2ef790804f5307b65ad513f7054303b44d10297b92d4d",
+    "onshape-to-robot/meshes/part_40.stl": "f2f32674ad5c036d7791ef79debd2dbb668fc9fb98f5f743ad7830e1e77de166",
+    "onshape-to-robot/meshes/carriage_lwl7b__10.stl": "a5dd0969c36287f8190c984fd05f6a9add9140011041b8df4d4947e9b26d8290",
+    "collision-v1.2/meshes/carriage_lwl7b__6.stl": "90a5aa56bb2e4799107372a73e2de2a9109fb685c2fc24e6682fbf66ecd8bf26",
+    "collision-v1.2/meshes/carriage_lwl7b__7.stl": "cdd59e0b8b2379e30e7cbd878102fdf929d4adeaf4cd2918bffd2582c096c6c9",
+    "collision-v1.2/meshes/carriage_lwl7b__8.stl": "2c0c80689fa589dbd77daca90afda46308cc6c0ecf2bfd3cf4e778dd6d2327ae",
+    "collision-v1.2/meshes/carriage_lwl7b__9.stl": "a5e54d978d4793195bf2ef790804f5307b65ad513f7054303b44d10297b92d4d",
+    "collision-v1.2/meshes/part_40.stl": "812da143a28e655cd1a69659c560245111201e3109becbc94222dfa74401359b",
+    "collision-v1.2/meshes/carriage_lwl7b__10.stl": "a5dd0969c36287f8190c984fd05f6a9add9140011041b8df4d4947e9b26d8290",
+    "onshape-to-robot/meshes/rb03_wire_bearing_output_mount__3.stl": "0f548a705c59f4920419fa654b5a845d7bc496eb838d6218fb46acf135a55382",
+    "onshape-to-robot/meshes/part_6__3.stl": "5a69e0d83435a8f95db4a5d617e1d8e0f094784f562366263f0f80778e9b0b01",
+    "onshape-to-robot/meshes/rb04_motor_body__2.stl": "4076cf459b35d688c7a2afcd5063510c6dff1999092ea6b83a063c0c2366dc4f",
+    "onshape-to-robot/meshes/bearing__6.stl": "fe800b54ec51ade8600009297b3a7a76d093fc0f88b13e73f92ef094133a3940",
+    "onshape-to-robot/meshes/bearing__7.stl": "6a739805ee46494d7ca9ebedaaecbb6ce7027db55916dd30d7079bcb6867305d",
+    "onshape-to-robot/meshes/rb04_wire_bearing_mount__2.stl": "c7097d37097408b6e58227e2dda3bccc781a48db5ed92299c5f084873d9a6ded",
+    "onshape-to-robot/meshes/rs04_loop_wire_cover__2.stl": "c637a80c2e68f5fab8556fa06565e0ef8b2b3a9d9f8535cd321359328518a4ac",
+    "onshape-to-robot/meshes/rs04_passthrough_wire_cover__2.stl": "e165bb69227cd86005acef36715d31c0217cc18657370a04a7a24f2684fb05f8",
+    "onshape-to-robot/meshes/rb04_cover__2.stl": "daacee53d7cc046c28a14c07b9940cfecdb0e5d450fa075b076dadf336f471d6",
+    "onshape-to-robot/meshes/part_7__3.stl": "77ced6a4f0f07a7566fb9399b739123072cd8788aef74290b50cada43c900146",
+    "onshape-to-robot/meshes/bearing__8.stl": "3875341593b79fe36faf56e926a196bbbfaedff77ca64ed83a52fbb2de3cfaf7",
+    "onshape-to-robot/meshes/rb03_output__3.stl": "869d8bb22323461d6dc71c8b203f6874f96e59451865d31318a322bacd92b79b",
+    "onshape-to-robot/meshes/rb03_body__3.stl": "d86bdf33a959ad59e349d95eb2448a9e47f1ff51b7355adfd4096e24deca0cad",
+    "onshape-to-robot/meshes/rb04_motor_output__2.stl": "4e1aa518e4d853cb59b3874167bd944b886dc3621c9ad71fd62eb72b6fd63099",
+    "collision-v1.2/meshes/rb03_wire_bearing_output_mount__3.stl": "0b03bb985ec706d0c9f99419b1b673a73c528bbc64d7b019527492be0e76e2ea",
+    "collision-v1.2/meshes/bearing__6.stl": "fe800b54ec51ade8600009297b3a7a76d093fc0f88b13e73f92ef094133a3940",
+    "collision-v1.2/meshes/bearing__7.stl": "6a739805ee46494d7ca9ebedaaecbb6ce7027db55916dd30d7079bcb6867305d",
+    "collision-v1.2/meshes/rb04_wire_bearing_mount__2.stl": "a6c52965af5b251a584bf5a0e63d9994db08e633974da10e71cb9efc9a7b752b",
+    "collision-v1.2/meshes/bearing__8.stl": "3875341593b79fe36faf56e926a196bbbfaedff77ca64ed83a52fbb2de3cfaf7",
+    "collision-v1.2/meshes/rb03_output__3.stl": "869d8bb22323461d6dc71c8b203f6874f96e59451865d31318a322bacd92b79b",
+    "collision-v1.2/meshes/rb04_motor_output__2.stl": "4e1aa518e4d853cb59b3874167bd944b886dc3621c9ad71fd62eb72b6fd63099",
+    "onshape-to-robot/meshes/part_69__2.stl": "d8e62c411335f59b2c415d246b3f38797ddfcac817bc7059ec2c04895410123e",
+    "onshape-to-robot/meshes/part_71__2.stl": "09f449c4b05f97ccc11a0f141ee97fa3207d2d0379b69b4c40fb3b7c11e7b352",
+    "onshape-to-robot/meshes/part_70__2.stl": "da7005f9cf0efe8a379a72d301f901dcc7b898777255040631e6300dfabe6bc1",
+    "onshape-to-robot/meshes/part_66__2.stl": "d78860929d6489108b6b22c74885877267a6d0d5ca0171ccde9a8b75f2cc9220",
+    "collision-v1.2/meshes/part_69__2.stl": "44add9084e9eb4272794ada57202299746493ae677d596cb1dbc47f7472a6a0a",
+    "collision-v1.2/meshes/part_71__2.stl": "00fed8b686902b888a3ebf2d0f90211c86c40d7fe6e6d8483255037b74ed9e6d",
+    "collision-v1.2/meshes/part_70__2.stl": "43f5fd682fa0f2b347c02c2f1d9991d660413655404b35d1f06d0679d147f852",
+    "collision-v1.2/meshes/part_66__2.stl": "8a899a7c03d0f402b22d33d6f83905a3ad5c7a5daf59dcf4b6ddfcbdc0d7ff03",
+    "onshape-to-robot/meshes/bearing__9.stl": "c1e3e9e0a47053f41d54e3967ba5ee5b6b12c1bf77bf965fdfb5d062d169f9e8",
+    "onshape-to-robot/meshes/part_7__4.stl": "8380364955ecf525e6bd97cf7e8424e0dbbed54fba39b6dbbe9ac32ba6c0a1e1",
+    "onshape-to-robot/meshes/part_6__4.stl": "207cc272d3e194dc86fe8bc22504b3b5c2c6963b91847cffd89ac967ccadeae0",
+    "onshape-to-robot/meshes/rs02_bearing_mount__3.stl": "03e25dc10201f6902eb834c49b9d15c1bfdbd04eeb38e99e900822fbf161c99c",
+    "onshape-to-robot/meshes/rb03_wire_bearing_mount__2.stl": "9d6c3f10fe9462f6ee02d608d52a14316693c535c9a3db93c2c2f5b4c45c0ace",
+    "onshape-to-robot/meshes/rb03_output__4.stl": "e4df1b67a7a425eed55a6fc1fa5e1d23c800d2bbd50967ba80de304f556eeb8d",
+    "onshape-to-robot/meshes/rs02_base_mount__2.stl": "9e49a4186fba9b797921fcb4cf47874f77ce83c0669cb83b7aed9a2d11db06d5",
+    "onshape-to-robot/meshes/rb03_body__4.stl": "71fb23abf44c67d1dc838c2dc649945b431b01f95212f020e78bbd35cdf87375",
+    "onshape-to-robot/meshes/42x30x7mm_bearing__2.stl": "768a244aac3563064d3d34b47af8f2fa3844c02170e59b21456c91cb6ea8e8cb",
+    "onshape-to-robot/meshes/bearing__10.stl": "397d494cd9cc279b4f1d510022ba491a173bddb5a88dc9ecc94fe63ff3d35530",
+    "onshape-to-robot/meshes/rb03_wire_bearing_output_mount__4.stl": "4fdd100519c693f5594f21b24b5742f465a6a5f3351d84365de6eb20e006e633",
+    "onshape-to-robot/meshes/rs02__3.stl": "0abd732b84c669818724288b89921b19c2d1d964272f173e700d2de7e21db9dc",
+    "collision-v1.2/meshes/bearing__9.stl": "c1e3e9e0a47053f41d54e3967ba5ee5b6b12c1bf77bf965fdfb5d062d169f9e8",
+    "collision-v1.2/meshes/rs02_bearing_mount__3.stl": "f94cfadbfa0991637fcfd484c1b6803949ab9f37fd480677c5c9abd60a87547b",
+    "collision-v1.2/meshes/rb03_wire_bearing_mount__2.stl": "16c73ebba8d2b0cb7263e3778d28c52caa989133611a737d8b9a6ddecbea6880",
+    "collision-v1.2/meshes/rb03_output__4.stl": "e4df1b67a7a425eed55a6fc1fa5e1d23c800d2bbd50967ba80de304f556eeb8d",
+    "collision-v1.2/meshes/rs02_base_mount__2.stl": "6665770ae4126e6c3d0cf1847ca0ffa3c0dc1044ba7f1ec5f6632e1828047c05",
+    "collision-v1.2/meshes/42x30x7mm_bearing__2.stl": "768a244aac3563064d3d34b47af8f2fa3844c02170e59b21456c91cb6ea8e8cb",
+    "collision-v1.2/meshes/bearing__10.stl": "397d494cd9cc279b4f1d510022ba491a173bddb5a88dc9ecc94fe63ff3d35530",
+    "collision-v1.2/meshes/rb03_wire_bearing_output_mount__4.stl": "4fdd100519c693f5594f21b24b5742f465a6a5f3351d84365de6eb20e006e633",
+    "collision-v1.2/meshes/rs02__3.stl": "0abd732b84c669818724288b89921b19c2d1d964272f173e700d2de7e21db9dc",
+    "onshape-to-robot/meshes/rs02__4.stl": "0587e3e8284349b6eeb666b68d10f35f454c2011bd56ca811214c53a0d68ecd0",
+    "onshape-to-robot/meshes/rs02_bearing_mount__4.stl": "f042d9ebc5e9cf35dcdc864777d880ffa83d825d329621f405040d13f9e3a018",
+    "onshape-to-robot/meshes/part_73__2.stl": "8d3c7d3068e2449191f13df4f16ad522b17770baddb830a5c279c0a0a01e2c46",
+    "collision-v1.2/meshes/rs02__4.stl": "0587e3e8284349b6eeb666b68d10f35f454c2011bd56ca811214c53a0d68ecd0",
+    "collision-v1.2/meshes/rs02_bearing_mount__4.stl": "e09be0758bf486f50df6cc52fe471df178974042b3d3ee730d9869c026711704",
+    "collision-v1.2/meshes/part_73__2.stl": "035b1c230409bf137b655d93c2770f9af8ad7eb3b6bd5b6e01d7c296e594b421",
+    "onshape-to-robot/meshes/rs00__2.stl": "ad532f65763d5cfc7bef4070eb3efb4f6e1d022e5e9fea9c570b765c059525de",
+    "onshape-to-robot/meshes/part_42__2.stl": "8af752f9be2998155cf2a354b3ab7f4706e8c9e1f0ba544357e20f8a12404255",
+    "onshape-to-robot/meshes/part_43__2.stl": "87baa27271526950171889182339c30d2ee3fe413eeb28e10b346a538b94b341",
+    "collision-v1.2/meshes/rs00__2.stl": "ad532f65763d5cfc7bef4070eb3efb4f6e1d022e5e9fea9c570b765c059525de",
+    "collision-v1.2/meshes/part_42__2.stl": "c24f623387bdc92cb4e9684ca2313f9ca45de27ff4dadd55da98014bd00dbd13",
+    "collision-v1.2/meshes/part_43__2.stl": "87baa27271526950171889182339c30d2ee3fe413eeb28e10b346a538b94b341",
+    "onshape-to-robot/meshes/linearrail_lwl7b_100mm__3.stl": "f2cffff11fa1310ec1d01557a5323b88866f746353472aa4a3f75156f89457b8",
+    "onshape-to-robot/meshes/part_44__2.stl": "89a55dbd8872c914098aec7e5263308abfc4b06e1ef87c6d1c1d165cc4bd3e27",
+    "onshape-to-robot/meshes/1_1_02_eb571_960_stp__2.stl": "c0cd74d77039e569d50792196c0f99cdab1995f3c987bc03295b5686afd33198",
+    "onshape-to-robot/meshes/solid_17_con_p4_11_438x3_2_hd_2_stp__2.stl": "8b7ba133549b45d7952b43feccd3622709d1a57e3a92fe617d349a571031ba84",
+    "onshape-to-robot/meshes/1_1_04_eb572_5105_stp__2.stl": "0b2e3463de19e0f2ac90c0f3501a18149f92940260d5a648d9f4076e67ee09e2",
+    "onshape-to-robot/meshes/solid_17_con_p4_11_438x3_2_hd_3_stp__2.stl": "d3de1661072ad8d29f5de2f4cb3dcb6e18445793bd8a511820e58dad38864aca",
+    "onshape-to-robot/meshes/1_1_06_eb573_643_stp__2.stl": "f27043a7a9df0f8df9101def38fe4c55feb37888c286d043ea4f2aed66423126",
+    "onshape-to-robot/meshes/board_3d_kmmv03_2024_10_21_2__2_stp__2.stl": "8386b5da1605f4956e5e986ad8bddb13d27d03e4a5a67943fb2dde32a63697d2",
+    "onshape-to-robot/meshes/part_39__2.stl": "3316d77b9cbc64c7ba86acf7ba5b9e2ec135b49cafd42986e4e23e0b423171f9",
+    "onshape-to-robot/meshes/sgqzc__35_stp__2.stl": "f75a25fd1b02ebc21b0fb65622c74fe939c1167143c01f6c9d2dceb872fd6aa5",
+    "onshape-to-robot/meshes/1_1_06_eb573_642_stp__2.stl": "d6d2b75efa0b79765f3aa81d6c1579bded02452e11dcea9de816e72221493b45",
+    "onshape-to-robot/meshes/scxxkl_stp__2.stl": "901684dcfbe36bb28b7dde256621b8254c0951fad191daf24100e15007721658",
+    "onshape-to-robot/meshes/linearrail_lwl7b_100mm__4.stl": "594c3852845962ebddc975e967954472c1ac9825da6d9c39894a29741ad7674b",
+    "collision-v1.2/meshes/linearrail_lwl7b_100mm__3.stl": "f2cffff11fa1310ec1d01557a5323b88866f746353472aa4a3f75156f89457b8",
+    "collision-v1.2/meshes/part_44__2.stl": "89a55dbd8872c914098aec7e5263308abfc4b06e1ef87c6d1c1d165cc4bd3e27",
+    "collision-v1.2/meshes/part_39__2.stl": "3316d77b9cbc64c7ba86acf7ba5b9e2ec135b49cafd42986e4e23e0b423171f9",
+    "collision-v1.2/meshes/linearrail_lwl7b_100mm__4.stl": "594c3852845962ebddc975e967954472c1ac9825da6d9c39894a29741ad7674b",
+    "onshape-to-robot/meshes/carriage_lwl7b__11.stl": "14be5489e6c12bfa2bc07d34ca3561ef4b3f4b17520776fad2c426d724c6c67e",
+    "onshape-to-robot/meshes/carriage_lwl7b__12.stl": "f36d43d7cbfdb505348ef0726d701e28621f5e53602e2fb50718092199bb544b",
+    "onshape-to-robot/meshes/carriage_lwl7b__13.stl": "9e6260553cb8cdc172d3c6b2c0625c04a498c63bc0e95bc50ff83551119b884d",
+    "onshape-to-robot/meshes/part_40__2.stl": "db9adb8b01849ec3e9ec8f94d0abc4d284804b4245162598bba606ecedd5df3d",
+    "onshape-to-robot/meshes/carriage_lwl7b__14.stl": "b5ddac3e1ebad5abc2dc99dfb77d99b051a63961f43e35ef8ee45aa651fd20f0",
+    "onshape-to-robot/meshes/carriage_lwl7b__15.stl": "26326bee3d41d954e3c0f7fcb29ae310043575b738a0de74f860aa1d29235f66",
+    "collision-v1.2/meshes/carriage_lwl7b__11.stl": "14be5489e6c12bfa2bc07d34ca3561ef4b3f4b17520776fad2c426d724c6c67e",
+    "collision-v1.2/meshes/carriage_lwl7b__12.stl": "f36d43d7cbfdb505348ef0726d701e28621f5e53602e2fb50718092199bb544b",
+    "collision-v1.2/meshes/carriage_lwl7b__13.stl": "9e6260553cb8cdc172d3c6b2c0625c04a498c63bc0e95bc50ff83551119b884d",
+    "collision-v1.2/meshes/part_40__2.stl": "db9adb8b01849ec3e9ec8f94d0abc4d284804b4245162598bba606ecedd5df3d",
+    "collision-v1.2/meshes/carriage_lwl7b__14.stl": "b5ddac3e1ebad5abc2dc99dfb77d99b051a63961f43e35ef8ee45aa651fd20f0",
+    "collision-v1.2/meshes/carriage_lwl7b__15.stl": "26326bee3d41d954e3c0f7fcb29ae310043575b738a0de74f860aa1d29235f66",
+    "onshape-to-robot/meshes/carriage_lwl7b__16.stl": "8c27abd146d0938bf8839e948bdcf0c83c8b6fb32508ba95a0703d66697b56dd",
+    "onshape-to-robot/meshes/carriage_lwl7b__17.stl": "a8bacfa42b39d9a9ee75c2b352c50d9a8ef86e45b4d9b0083e9e1f10c16e9162",
+    "onshape-to-robot/meshes/carriage_lwl7b__18.stl": "50c00167239a92d56b99cac2dce1917c8f72ba256ba64f3266580709fa9ad3fa",
+    "onshape-to-robot/meshes/carriage_lwl7b__19.stl": "df39a319f1db88fdd82338c0074c101bdbca9e3da7a1df46cef9110740b691ab",
+    "onshape-to-robot/meshes/carriage_lwl7b__20.stl": "8bded102b08983c259efcccefa15d4c7bd0ec5cd42ba0c512f3b96095676336a",
+    "onshape-to-robot/meshes/part_41__2.stl": "619972c9a0d9f3a054d7c1bb8d33bdf565edad1cd2a774532d39a1c71d31d2e6",
+    "collision-v1.2/meshes/carriage_lwl7b__16.stl": "8c27abd146d0938bf8839e948bdcf0c83c8b6fb32508ba95a0703d66697b56dd",
+    "collision-v1.2/meshes/carriage_lwl7b__17.stl": "a8bacfa42b39d9a9ee75c2b352c50d9a8ef86e45b4d9b0083e9e1f10c16e9162",
+    "collision-v1.2/meshes/carriage_lwl7b__18.stl": "50c00167239a92d56b99cac2dce1917c8f72ba256ba64f3266580709fa9ad3fa",
+    "collision-v1.2/meshes/carriage_lwl7b__19.stl": "df39a319f1db88fdd82338c0074c101bdbca9e3da7a1df46cef9110740b691ab",
+    "collision-v1.2/meshes/carriage_lwl7b__20.stl": "8bded102b08983c259efcccefa15d4c7bd0ec5cd42ba0c512f3b96095676336a",
+    "collision-v1.2/meshes/part_41__2.stl": "619972c9a0d9f3a054d7c1bb8d33bdf565edad1cd2a774532d39a1c71d31d2e6"
+  },
+  "joint_frames_unchanged": true,
+  "visuals_unchanged": true,
+  "collision_geometry_reviewed": false,
+  "physical_validation": false,
+  "inertial_source": "Detailed source retained; no physical dynamics validation implied"
+}

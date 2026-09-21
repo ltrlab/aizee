@@ -3,6 +3,7 @@ members = [
     "rust/motor_control",
     "rust/comms",
     "rust/lidar_control",
+    "rust/collision",
 ]
 resolver = "2"
 
