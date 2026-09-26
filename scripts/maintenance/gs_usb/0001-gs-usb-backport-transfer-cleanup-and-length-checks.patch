@@ -1,0 +1,89 @@
+--- a/gs_usb.c
++++ b/gs_usb.c
+@@ -137,6 +137,9 @@
+ } __packed;
+ 
+ #define GS_CAN_FLAG_OVERFLOW 1
++
++/* All other echo IDs identify a host transmit context. */
++#define GS_HOST_FRAME_ECHO_ID_RX 0xffffffff
+ 
+ struct gs_host_frame {
+ 	u32 echo_id;
+@@ -307,6 +310,7 @@
+ 	struct gs_tx_context *txc;
+ 	struct can_frame *cf;
+ 	struct sk_buff *skb;
++	unsigned int minimum_length, data_length = 0;
+ 
+ 	BUG_ON(!usbcan);
+ 
+@@ -321,6 +325,14 @@
+ 		return;
+ 	}
+ 
++	minimum_length = offsetof(struct gs_host_frame, data);
++	if (urb->actual_length < minimum_length) {
++		dev_err_ratelimited(&usbcan->udev->dev,
++				    "short read (actual_length=%u, minimum_length=%u)\n",
++				    urb->actual_length, minimum_length);
++		goto resubmit_urb;
++	}
++
+ 	/* device reports out of range channel id */
+ 	if (hf->channel >= GS_MAX_INTF)
+ 		goto device_detach;
+@@ -333,7 +345,22 @@
+ 	if (!netif_device_present(netdev))
+ 		return;
+ 
+-	if (hf->echo_id == -1) { /* normal rx */
++	/* This 5.15 driver supports Classical CAN without timestamps only. */
++	if (hf->echo_id == GS_HOST_FRAME_ECHO_ID_RX &&
++	    !(hf->can_id & cpu_to_le32(CAN_RTR_FLAG)))
++		data_length = min_t(unsigned int, hf->can_dlc, CAN_MAX_DLEN);
++	minimum_length += data_length;
++	if (urb->actual_length < minimum_length) {
++		stats->rx_errors++;
++		stats->rx_length_errors++;
++		if (net_ratelimit())
++			netdev_err(netdev,
++				   "short read (actual_length=%u, minimum_length=%u)\n",
++				   urb->actual_length, minimum_length);
++		goto resubmit_urb;
++	}
++
++	if (hf->echo_id == GS_HOST_FRAME_ECHO_ID_RX) { /* normal rx */
+ 		skb = alloc_can_skb(dev->netdev, &cf);
+ 		if (!skb)
+ 			return;
+@@ -341,7 +368,7 @@
+ 		cf->can_id = le32_to_cpu(hf->can_id);
+ 
+ 		can_frame_set_cc_len(cf, hf->can_dlc, dev->can.ctrlmode);
+-		memcpy(cf->data, hf->data, 8);
++		memcpy(cf->data, hf->data, data_length);
+ 
+ 		/* ERROR frames tell us information about the controller */
+ 		if (le32_to_cpu(hf->can_id) & CAN_ERR_FLAG)
+@@ -461,8 +488,18 @@
+ 	struct gs_can *dev = txc->dev;
+ 	struct net_device *netdev = dev->netdev;
+ 
+-	if (urb->status)
+-		netdev_info(netdev, "usb xmit fail %d\n", txc->echo_id);
++	if (urb->status) {
++		if (urb->status != -ESHUTDOWN && net_ratelimit())
++			netdev_info(netdev, "failed to xmit URB %u: %pe\n",
++				    txc->echo_id, ERR_PTR(urb->status));
++
++		netdev->stats.tx_dropped++;
++		netdev->stats.tx_errors++;
++		can_free_echo_skb(netdev, txc->echo_id, NULL);
++		gs_free_tx_context(txc);
++		atomic_dec(&dev->active_tx_urbs);
++		netif_wake_queue(netdev);
++	}
+ 
+ 	usb_free_coherent(urb->dev,
+ 			  urb->transfer_buffer_length,

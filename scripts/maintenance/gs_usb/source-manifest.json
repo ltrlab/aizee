@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "installed_module_sha256": "8ff2f6fadea5b591a20976fa7114b2823e4c10aa048a979b347f9356acc0105e",
+  "baseline_url": "https://raw.githubusercontent.com/gregkh/linux/v5.15.185/drivers/net/can/usb/gs_usb.c",
+  "source_match": "All 1410 instruction records and 201 relocation records match installed binary; see baseline-comparison.json",
+  "license": "GPL-2.0-only; original SPDX and copyright notices retained",
+  "applied_upstream_changes": [
+    "516a0cd1c03fa266bb67dd87940a209fd4e53ce7",
+    "6fe9f3279f7d",
+    "395d988f93861101ec89d0dd9e3b876ae9392a5b"
+  ],
+  "lifecycle_upstream_changes": [
+    "7352e1d5932a0e777e39fa4b619801191f57e603",
+    "79a6d1bfe1148bc921b8d7f3371a7fbce44e30f7"
+  ],
+  "berr_protocol_source": "candleLight_fw 85e5b3352db7f051aa879eeb71555dfce664c44c include/gs_usb.h bit12 and src/can_common.c",
+  "hardware_modified": false,
+  "candidate_loaded": false,
+  "files": {
+    "0001-gs-usb-backport-transfer-cleanup-and-length-checks.patch": "bc922093ba7609b329260623be8c100d667db5011d62c0905b70aa4cf942d5d0",
+    "0002-gs-usb-add-bounded-anomaly-diagnostics.patch": "0a1485a1a16d63a7a2c50ffc4b301044fd42838ef2ae686efcd8a1bf0f2bd6ba",
+    "0003-gs-usb-balance-receive-urb-anchoring.patch": "17d1973199b77a22dfbdf978728d75318a4b04b033086ecef96783e274ceb9c8",
+    "0004-gs-usb-expose-advertised-candlelight-bus-errors.patch": "40a91eace91729bf3e70dea7eafb1b09145f08349a9334b9057d00a6df5ed5e1",
+    "0005-gs-usb-add-opt-in-bounded-usb-header-trace.patch": "4f394976026d1c9b09911c88c08c301aa8ae1b74e7e283f7a3debd57855bd749",
+    "baseline/gs_usb.c": "d1ee028fd35e29f1c120577f62d1c3d670731b3b5104f4107278d061a7e5ac06",
+    "candidate/gs_usb.c": "50ea088793fb6cdb20f56fcce9c5e7b20b8b1e4140992798d975aa7f3109adab",
+    "candidate-berr/gs_usb.c": "354c4111f331ccb570aa98d6681fcd0214ac6d479763a49d6af536b494cc212a",
+    "candidate-full/gs_usb.c": "b5ce09c3435ae69cb833dce655a8c1efd9df6e42da206d0e0d17fd671efb7a32",
+    "candidate-lifecycle/gs_usb.c": "0ebe2bdf1f7ab1995ed9588d2ed96f7439b9e8919f7804a5e3beead03cb5139a",
+    "fixes/gs_usb.c": "95ac7841c458a314dd1ec202488b6b7bed1c69795f74080bd6801c1a91f09787",
+    "gs_usb.v5.15.185.c": "d1ee028fd35e29f1c120577f62d1c3d670731b3b5104f4107278d061a7e5ac06",
+    "gs_usb.v5.15.203.c": "10fc970e4f367e74572f5175eb6360fabd0861beffda47f2f9a710b2373b5164",
+    "upstream-395d988.patch": "eecc220a87490cdb81f80b4c52d003ac3ee5894bda285bb1f87a8775685c2782",
+    "upstream-516a0cd.patch": "2cf4f760a0a602e4602dcf274e7521b2fc79f4c96b465dd37952b91d8f74775f",
+    "upstream-6fe9f32.patch": "73a7ea70f9e5726ce08c0821cf6ea344faa09f6ddaa0db6bbd9f0ec16effe7e3",
+    "upstream-7352e1d5932a.patch": "5650d012ec2b42714abb3b96f076cdd3456dea02a494ecba4886129f5d71634c",
+    "upstream-79a6d1bfe114.patch": "5c0b7bd02c9218bac9a882aa70217e9aa52888de9783b1ed64d709e9298cbd59"
+  },
+  "independent_review": "No actionable findings in patches0001-0005, candidate source b5ce09c3435ae69cb833dce655a8c1efd9df6e42da206d0e0d17fd671efb7a32",
+  "full_candidate_build_success": true,
+  "full_candidate_module_sha256": "e3153247afcc9c2468c353015fc01f5821fc6bef430c1e6d2d79eae210269323"
+}

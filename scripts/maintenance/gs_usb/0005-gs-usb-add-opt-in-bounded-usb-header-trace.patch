@@ -1,0 +1,86 @@
+--- a/gs_usb.c
++++ b/gs_usb.c
+@@ -19,6 +19,12 @@
+ #include <linux/can.h>
+ #include <linux/can/dev.h>
+ #include <linux/can/error.h>
++
++/* Diagnostic metadata trace, opt-in and bounded per CAN channel/open. */
++static unsigned int diag_frames;
++module_param(diag_frames, uint, 0644);
++MODULE_PARM_DESC(diag_frames,
++		"Trace first N USB TX/RX headers per channel/open (0=off, max 16384)");
+ 
+ /* Device specific constants */
+ #define USB_GSUSB_1_VENDOR_ID      0x1d50
+@@ -190,6 +196,7 @@
+ 
+ 	struct usb_anchor tx_submitted;
+ 	atomic_t active_tx_urbs;
++	atomic_t diag_remaining;
+ 	void *rxbuf[GS_MAX_RX_URBS];
+ 	dma_addr_t rxbuf_dma[GS_MAX_RX_URBS];
+ };
+@@ -201,6 +208,24 @@
+ 	struct usb_device *udev;
+ 	u8 active_channels;
+ };
++
++static void gs_usb_diag_frame(struct gs_can *dev, const char *event, bool rx,
++			      const struct gs_host_frame *hf, unsigned int length,
++			      int status)
++{
++	if (!diag_frames || atomic_dec_if_positive(&dev->diag_remaining) < 0)
++		return;
++
++	/* The caller has validated the RX header; TX storage is a full frame.
++	 * Do not read payload bytes or uninitialized baseline TX flags here.
++	 */
++	netdev_info(dev->netdev,
++		    "gs_usb trace: %s status=%d length=%u echo=%u can_id=%08x channel=%u dlc=%u rx_flags=%02x active=%d remaining=%d\n",
++		    event, status, length, hf->echo_id,
++		    le32_to_cpu(hf->can_id), hf->channel, hf->can_dlc,
++		    rx ? hf->flags : 0, atomic_read(&dev->active_tx_urbs),
++		    atomic_read(&dev->diag_remaining));
++}
+ 
+ /* 'allocate' a tx context.
+  * returns a valid tx context or NULL if there is no space.
+@@ -354,6 +379,9 @@
+ 	if (!netif_device_present(netdev))
+ 		return;
+ 
++	gs_usb_diag_frame(dev, "rx-complete", true, hf, urb->actual_length,
++			  urb->status);
++
+ 	/* This 5.15 driver supports Classical CAN without timestamps only. */
+ 	if (hf->echo_id == GS_HOST_FRAME_ECHO_ID_RX &&
+ 	    !(hf->can_id & cpu_to_le32(CAN_RTR_FLAG)))
+@@ -519,6 +547,9 @@
+ 	struct net_device *netdev = dev->netdev;
+ 	const struct gs_host_frame *hf = urb->transfer_buffer;
+ 
++	gs_usb_diag_frame(dev, "tx-complete", false, hf, urb->actual_length,
++			  urb->status);
++
+ 	if (urb->status) {
+ 		if (urb->status != -ESHUTDOWN && net_ratelimit())
+ 			netdev_info(netdev,
+@@ -591,6 +622,8 @@
+ 	hf->can_dlc = can_get_cc_dlc(cf, dev->can.ctrlmode);
+ 
+ 	memcpy(hf->data, cf->data, cf->len);
++
++	gs_usb_diag_frame(dev, "tx-submit", false, hf, sizeof(*hf), 0);
+ 
+ 	usb_fill_bulk_urb(urb, dev->udev,
+ 			  usb_sndbulkpipe(dev->udev, GSUSB_ENDPOINT_OUT),
+@@ -663,6 +696,8 @@
+ 	rc = open_candev(netdev);
+ 	if (rc)
+ 		return rc;
++
++	atomic_set(&dev->diag_remaining, min(diag_frames, 16384U));
+ 
+ 	if (!parent->active_channels) {
+ 		for (i = 0; i < GS_MAX_RX_URBS; i++) {

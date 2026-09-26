@@ -1,0 +1,82 @@
+--- a/gs_usb.c
++++ b/gs_usb.c
+@@ -319,9 +319,13 @@
+ 		break;
+ 	case -ENOENT:
+ 	case -ESHUTDOWN:
++	case -ECONNRESET:
+ 		return;
+ 	default:
+-		/* do not resubmit aborted urbs. eg: when device goes down */
++		dev_err_ratelimited(&usbcan->udev->dev,
++				    "gs_usb diag: RX completion status=%d actual=%u\n",
++				    urb->status, urb->actual_length);
++		/* Preserve the baseline behavior for failed receive transfers. */
+ 		return;
+ 	}
+ 
+@@ -355,8 +359,10 @@
+ 		stats->rx_length_errors++;
+ 		if (net_ratelimit())
+ 			netdev_err(netdev,
+-				   "short read (actual_length=%u, minimum_length=%u)\n",
+-				   urb->actual_length, minimum_length);
++				   "short read actual=%u minimum=%u echo=%u can_id=%08x dlc=%u flags=%02x active=%d\n",
++				   urb->actual_length, minimum_length, hf->echo_id,
++				   le32_to_cpu(hf->can_id), hf->can_dlc, hf->flags,
++				   atomic_read(&dev->active_tx_urbs));
+ 		goto resubmit_urb;
+ 	}
+ 
+@@ -380,9 +386,13 @@
+ 		netif_rx(skb);
+ 	} else { /* echo_id == hf->echo_id */
+ 		if (hf->echo_id >= GS_MAX_TX_URBS) {
+-			netdev_err(netdev,
+-				   "Unexpected out of range echo id %d\n",
+-				   hf->echo_id);
++			if (net_ratelimit())
++				netdev_err(netdev,
++					   "Unexpected out of range echo id %u actual=%u can_id=%08x channel=%u dlc=%u flags=%02x active=%d\n",
++					   hf->echo_id, urb->actual_length,
++					   le32_to_cpu(hf->can_id), hf->channel,
++					   hf->can_dlc, hf->flags,
++					   atomic_read(&dev->active_tx_urbs));
+ 			goto resubmit_urb;
+ 		}
+ 
+@@ -393,9 +403,13 @@
+ 
+ 		/* bad devices send bad echo_ids. */
+ 		if (!txc) {
+-			netdev_err(netdev,
+-				   "Unexpected unused echo id %d\n",
+-				   hf->echo_id);
++			if (net_ratelimit())
++				netdev_err(netdev,
++					   "Unexpected unused echo id %u actual=%u can_id=%08x channel=%u dlc=%u flags=%02x active=%d\n",
++					   hf->echo_id, urb->actual_length,
++					   le32_to_cpu(hf->can_id), hf->channel,
++					   hf->can_dlc, hf->flags,
++					   atomic_read(&dev->active_tx_urbs));
+ 			goto resubmit_urb;
+ 		}
+ 
+@@ -487,11 +501,15 @@
+ 	struct gs_tx_context *txc = urb->context;
+ 	struct gs_can *dev = txc->dev;
+ 	struct net_device *netdev = dev->netdev;
++	const struct gs_host_frame *hf = urb->transfer_buffer;
+ 
+ 	if (urb->status) {
+ 		if (urb->status != -ESHUTDOWN && net_ratelimit())
+-			netdev_info(netdev, "failed to xmit URB %u: %pe\n",
+-				    txc->echo_id, ERR_PTR(urb->status));
++			netdev_info(netdev,
++				    "failed to xmit URB context_echo=%u frame_echo=%u status=%d actual=%u can_id=%08x active=%d\n",
++				    txc->echo_id, hf->echo_id, urb->status,
++				    urb->actual_length, le32_to_cpu(hf->can_id),
++				    atomic_read(&dev->active_tx_urbs));
+ 
+ 		netdev->stats.tx_dropped++;
+ 		netdev->stats.tx_errors++;

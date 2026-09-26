@@ -1,0 +1,37 @@
+--- a/gs_usb.c
++++ b/gs_usb.c
+@@ -338,7 +338,7 @@
+ 	}
+ 
+ 	/* device reports out of range channel id */
+-	if (hf->channel >= GS_MAX_INTF)
++	if (hf->channel >= GS_MAX_INTF || !usbcan->canch[hf->channel])
+ 		goto device_detach;
+ 
+ 	dev = usbcan->canch[hf->channel];
+@@ -446,7 +446,14 @@
+ 			  usbcan
+ 			  );
+ 
++	/* Completion unanchors the URB; keep resubmissions visible to close. */
++	usb_anchor_urb(urb, &usbcan->rx_submitted);
+ 	rc = usb_submit_urb(urb, GFP_ATOMIC);
++	if (!rc)
++		return;
++
++	/* A failed submission must not remain on the anchor's kill list. */
++	usb_unanchor_urb(urb);
+ 
+ 	/* USB failure take down all interfaces */
+ 	if (rc == -ENODEV) {
+@@ -455,6 +462,10 @@
+ 			if (usbcan->canch[rc])
+ 				netif_device_detach(usbcan->canch[rc]->netdev);
+ 		}
++	} else if (rc != -ESHUTDOWN) {
++		/* A short header can reach here before a CAN netdev is selected. */
++		dev_err_ratelimited(&usbcan->udev->dev,
++				    "failed to re-submit IN URB: %pe\n", ERR_PTR(rc));
+ 	}
+ }
+ 
