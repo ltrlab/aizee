@@ -76,6 +76,8 @@ def check_linear_motion(backend, start, end, *, clearance_m=0.005,
     if not hasattr(backend, '_motion_bound_plan'):
         backend._motion_bound_plan = _compile_motion_bounds(runtime.scene, getattr(backend,'motion_corners',None))
     travel = motion_bounds(runtime.scene, start, end, plan=backend._motion_bound_plan)
+    if not hasattr(backend, '_motion_shape_indices'):
+        backend._motion_shape_indices = {shape['id']: index for index, shape in enumerate(runtime.shapes)}
     largest = max((travel[i]+travel[j] for i,j in selected),default=0.)
     # Without subdivision the single midpoint bound covers the entire joint
     # coordinate box, including joints stopping at different times.
@@ -89,16 +91,22 @@ def check_linear_motion(backend, start, end, *, clearance_m=0.005,
             return report(clear=False,reason="collision_deadline",queries=index)
         t = (index+.5)/count
         q = {name:(1-t)*start[name]+t*end[name] for name in start}
-        result = backend.proximity(q,threshold=threshold,max_pairs=1,scope=scope)
+        # Request every candidate under the global broad-phase threshold. The
+        # nearest pair is not necessarily the pair with the least swept clearance.
+        result = backend.proximity(q,threshold=threshold,scope=scope)
         if result.get("whole_robot_checked") is not (scope=='all') or result.get("query_scope") != scope:
             return report(clear=False, reason="incomplete_collision_scope", queries=index+1)
         if (result.get('collision_policy_revision') != backend.policy_revision
                 or result.get('geometry_basis') != backend.geometry_basis):
             return report(clear=False, reason="collision_policy_mismatch", queries=index+1)
+        if result.get('pairs_truncated', False):
+            return report(clear=False, reason="incomplete_collision_pairs", queries=index+1)
         for pair in result["near_pairs"]:
             key = tuple(sorted(pair["shapes"]))
-            # Global relative-motion bound also protects any unreported pair.
-            separation = pair["distance_m"]-largest/(2*count)-2e-6
+            i, j = (backend._motion_shape_indices[name] for name in key)
+            # Use this pair's actual ancestry bound. The global query threshold
+            # still protects every unreported pair, including asynchronous motion.
+            separation = pair["distance_m"]-(travel[i]+travel[j])/(2*count)-2e-6
             lower = min(lower,separation)
             if separation <= clearance_m:
                 return report(clear=False,reason="insufficient_swept_clearance",queries=index+1,
