@@ -1649,3 +1649,38 @@ authenticated UDP leader link. End to end with the real leaders (25 Hz, 60 s):
 1497 of 1500 cycles fresh, 3 skipped (never more than 2 in a row), sample age
 p50 18.6 / p99 36.6 / max 50 ms, no faults. The Jetson's Wi-Fi power saving was
 left unchanged.
+
+### 2026-09-26 — first release deploys and Minerva Check
+
+The guarded runtime now reaches the Jetson as verified releases under
+`~/minerva/releases/` (user space, no sudo). Release `20260926T203521Z-2c39fb2`
+is current: 104 files, 2.3 MB. Its smoke test loads the collision model in
+0.8–0.9 s, with keep-out query p50 1.5 ms.
+
+The first Minerva Check (20:32 UTC) found two problems:
+
+- **Health probe crash.** An unreadable thermal zone crashed the Jetson health
+  probe, so the motor stage was skipped. Fixed.
+- **Late leader replies.** With the real leaders, 121 of 125 link cycles were
+  fresh. Some PC replies missed the robot's 20 ms timeout because the PC end ran
+  as a thread of a normally scheduled process. It now runs in its own process
+  that opts out of Windows throttling.
+
+The second check (20:35 UTC) passed every Operator PC and Link and Jetson check:
+
+- **Leader link.** 124 of 125 cycles fresh from the real leaders. Sample age
+  p50 21.5 / p99 39.8 ms (limit 50 ms), never more than one cycle skipped in a
+  row, and the PC side skipped nothing.
+- **Jetson.** 37.6 GB disk free, 6.7 GB memory available, hottest zone
+  44.2 °C, 25W power mode with the performance governor, clock within 0.1 s of
+  the PC.
+- **CAN.** The helpers and serial pinning are installed. Both adapters were on
+  their pinned serials and down, and no motor service was running.
+
+The stopped scan then found **no motor answering on either bus**. Both CAN
+controllers went error-passive (no node acknowledged a frame), so motor power
+was off or the foot switch was pressed. CAN links were confirmed down afterwards,
+and no motor was enabled.
+
+Evidence: `calibration_runs/minerva-check/20260926T203544Z.json` on the PC and
+`~/minerva/evidence/check-motors-20260926T203544Z.json` on the Jetson.
