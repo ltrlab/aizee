@@ -493,8 +493,13 @@ def scan_findings(ctx, report):
             buses = {}
             for motor in reference['motors']:
                 buses.setdefault(motor['bus'], []).append(motor['name'])
+            states = {bus: (row.get('linkinfo') or {}).get('info_data', {}).get('state')
+                      for bus, row in (report.get('before_cleanup') or {}).items()}
+            unacknowledged = states and all(state in ('ERROR-PASSIVE', 'BUS-OFF') for state in states.values())
             if len(silent) == len(reference['motors']):
-                detail = 'No motor answered. Motor power is off or the foot switch (e-stop) is pressed.'
+                detail = ('No motor answered' + (f", and nothing on {' or '.join(sorted(states))} acknowledged a "
+                                                 'frame' if unacknowledged else '')
+                          + '. Motor power is off or the foot switch (e-stop) is pressed.')
             elif any(set(names) <= set(silent) for names in buses.values()):
                 bus = next(bus for bus, names in buses.items() if set(names) <= set(silent))
                 detail = (f"Every motor on {bus} is silent ({_names(ctx, silent)}): check that arm's power "

@@ -246,7 +246,11 @@ def test_scan_findings_name_silent_motors_arms_and_latched_faults():
     left = [m['name'] for m in REFERENCE['motors'] if m['bus'] == 'canL']
     assert findings(scan())[0] == 'pass'
     status, detail = findings(scan(success=False, error_code='motors_unresponsive', unresponsive=names))
-    assert status == 'fail' and 'foot switch' in detail
+    assert status == 'fail' and 'foot switch' in detail and 'acknowledged' not in detail
+    passive = {bus: {'flags': ['UP'], 'linkinfo': {'info_data': {'state': 'ERROR-PASSIVE'}}} for bus in ('canL', 'canR')}
+    status, detail = findings(scan(success=False, error_code='motors_unresponsive', unresponsive=names,
+                                   before_cleanup=passive))
+    assert 'nothing on canL or canR acknowledged a frame. Motor power is off' in detail
     status, detail = findings(scan(success=False, error_code='motors_unresponsive', unresponsive=left))
     assert 'Every motor on canL' in detail
     status, detail = findings(scan(success=False, error_code='motors_unresponsive', unresponsive=left[-2:]))
