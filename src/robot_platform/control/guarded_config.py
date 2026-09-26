@@ -11,8 +11,10 @@ CAD slide's closed limit, so the model's range would stop them short), with no
 margin and no reserve, since the receiver keeps their last target on a stop
 instead of braking, and their command may lead the measured position by their
 whole range (a grasp pushes past contact). Their CAD values are clamped into the
-model's range wherever they meet the model (`cad_limits`). Motion values come
-from a teleop profile and are not qualified by this derivation.
+model's range wherever they meet the model (`cad_limits`). A closed gripper rests
+on its hand-swept end, so the receiver's fault interval for a gripper extends
+GRIPPER_TOLERANCE_RAD past each end; its targets (`usable`) stay within the swept travel.
+Motion values come from a teleop profile and are not qualified by this derivation.
 """
 from fnmatch import fnmatchcase
 import math
@@ -22,6 +24,12 @@ from .collision_envelope import calibration_revision
 RECEIVER_KEYS = ('max_velocity', 'max_effort', 'max_kp', 'max_kd', 'stop_acceleration',
                  'hold_kp', 'hold_kd', 'max_tracking_error', 'max_temperature')
 LIFECYCLE_KEYS = ('align_speed', 'shutdown_speed', 'tolerance', 'settled_velocity')
+# A jaw resting on its stop reads at or just past its hand-swept end (encoder noise
+# and 16-bit feedback steps of ~0.0004 rad), and a fast close flexes it a little
+# further. The receiver faults on any reading outside its interval, even disarmed,
+# so a gripper's interval extends this far past each swept end (about 0.5 mm of jaw
+# travel). The stops keep the jaws from going further; targets stay swept.
+GRIPPER_TOLERANCE_RAD = .05
 
 
 def _finite(value):
@@ -116,17 +124,21 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
         if settings['max_tracking_error'] <= 0 or settings['max_velocity'] <= 0 or settings['stop_acceleration'] <= 0:
             raise ValueError(f'{name}: speed, tracking and stopping bounds must be positive')
         home = min(max(motor.get('raw_reference_rad', 0.), usable[0]), usable[1])
-        joints.append({'name': name, 'unit': 'radians', 'lower': lower, 'upper': upper,
+        tolerance = GRIPPER_TOLERANCE_RAD if gripper else 0.
+        bounds = {'lower': lower - tolerance, 'upper': upper + tolerance}  # Receiver and lifecycle share these.
+        joints.append({'name': name, 'unit': 'radians', **bounds,
                        **{key: float(settings[key]) for key in RECEIVER_KEYS}, **({'gripper': True} if gripper else {})})
-        lifecycle.append({'name': name, 'lower': lower, 'upper': upper,
+        lifecycle.append({'name': name, **bounds,
                           **{key: float(settings[key]) for key in ('hold_kp', 'hold_kd', 'max_velocity')},
                           **{key: float(settings[key]) for key in LIFECYCLE_KEYS},
-                          'max_lead': upper - lower if gripper else float(settings['max_tracking_error']),
+                          'max_lead': bounds['upper'] - bounds['lower'] if gripper
+                          else float(settings['max_tracking_error']),
                           'zero_position': home})
         initial.append(home)
         report.append({'motor': name, 'cad_joint': cad_joint, 'scale': row['scale'], 'offset': row['offset'],
                        'swept': [saved['min_rad'], saved['max_rad']], 'cad': cad_motor,
                        'operational': [lower, upper], 'usable': list(usable), 'reserve': reserve + padding,
+                       'receiver': [bounds['lower'], bounds['upper']],
                        'binding': ['swept', 'swept'] if gripper else [
                            'cad' if cad_motor[0] > saved['min_rad'] else 'swept',
                            'cad' if cad_motor[1] < saved['max_rad'] else 'swept'],

@@ -2,7 +2,7 @@
 import pytest
 
 from robot_platform.control.collision_envelope import calibration_revision
-from robot_platform.control.guarded_config import cad_map, derive_receiver, motion_settings, to_cad
+from robot_platform.control.guarded_config import GRIPPER_TOLERANCE_RAD, cad_map, derive_receiver, motion_settings, to_cad
 
 REFERENCE = {'motors': [{'name': 'arm_j1', 'raw_reference_rad': .9}, {'name': 'gripper', 'raw_reference_rad': 0.}]}
 STEPS = [{'joint': 'shoulder', 'motor': 'arm_j1'}]
@@ -138,7 +138,16 @@ def test_a_gripper_gets_its_whole_physical_range_without_margin_reserve_or_lead_
     assert arm['reserve'] > 0  # Arm joints keep their margin and reserve.
     joints = derived['config']['joints']
     assert joints[1]['gripper'] is True and 'gripper' not in joints[0]
-    assert derived['lifecycle'][1]['max_lead'] == pytest.approx(2.5)  # A grasp may push past contact.
+    # A closed jaw rests on its swept end and reads a step past it: the receiver's
+    # fault interval extends past each end, while targets stay within the swept travel.
+    assert (joints[1]['lower'], joints[1]['upper']) == pytest.approx((-.5 - GRIPPER_TOLERANCE_RAD,
+                                                                       2. + GRIPPER_TOLERANCE_RAD))
+    assert grip['receiver'] == pytest.approx([joints[1]['lower'], joints[1]['upper']])
+    lifecycle = derived['lifecycle'][1]
+    assert (lifecycle['lower'], lifecycle['upper']) == (joints[1]['lower'], joints[1]['upper'])
+    assert (joints[0]['lower'], joints[0]['upper']) == pytest.approx(arm['operational'])  # Arms: no tolerance.
+    # A grasp may push past contact: the command may lead by the whole interval.
+    assert lifecycle['max_lead'] == pytest.approx(2.5 + 2 * GRIPPER_TOLERANCE_RAD)
     # Wherever it meets the model, the slide is clamped into its CAD range.
     assert derived['cad_limits'] == {'slide': (0., .03)}
     assert to_cad(derived['joint_map'], {'arm_j1': 0., 'gripper': -.5}, derived['cad_limits'])['slide'] == 0.
