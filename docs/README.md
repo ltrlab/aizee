@@ -6,6 +6,8 @@ Guides for the shared platform, robot applications and device deployments.
 
 - **[Implemented monorepo guide](architecture/MONOREPO_IMPLEMENTATION.md)** — package installation, interchangeable profiles/settings, application launchers, shared backend APIs, and current migration status
 - **[Session backend migration](architecture/SESSION_BACKEND_MIGRATION.md)** — collector/inference integration, command lifecycle, freshness and remaining legacy tools
+- **[Guarded controller core](architecture/GUARDED_CONTROLLER.md)** — receiver-owned permits, explicit recovery, CAN adapter, Linux commissioning service and protocol/fault tests
+- **[Existing GUI teleop integration](architecture/TELEOP_GUI_INTEGRATION.md)** — preserve Idle, Enable, Engage/Align and slow Shutdown while migrating shared input and collision checks
 - **[Simulation and hardware validation plan](architecture/SIMULATION_VALIDATION_PLAN.md)** — staged simulator design, actuator measurements, real-world calibration, and acceptance gates
 - **[Collision and limit calibration](architecture/COLLISION_AND_LIMIT_CALIBRATION.md)** — independent arm limits, shared inter-arm scene checks and powered-probe prerequisites
 - **[Real-time collision research](architecture/COLLISION_RUNTIME_RESEARCH.md)** — MoveIt internals, measured bottlenecks, standalone backend options and the proposed runtime collision path
@@ -23,6 +25,20 @@ Guides for the shared platform, robot applications and device deployments.
 - **[Cleanup record](architecture/REPOSITORY_CLEANUP.md)** — removed files, replacements and retained assets
 
 ## Getting started
+- **[Helm](HELM.md)** — the robot operator web UI: live model, stopped-only robot connection, hand-swept joint limits and leader ranges, and virtual-receiver teleop
+- **[Dual GELLO setup](GELLO_TELEOP.md)** — live leader schematics, display reference/direction controls, virtual collision-checked teleop and the path to Quest Pro input
+- **[Guarded teleoperation](GUARDED_TELEOP.md)** — shared leader inputs, collision expiry, measured 25 Hz vcan result and physical readiness gaps
+- **[Mechanical reference](MECHANICAL_REFERENCE.md)** — disabled-only hardware zero, persistence checks and startup reference validation
+- **[Live joint calibration](JOINT_CALIBRATION.md)** — move disabled joints by hand, compare live CAD, correct signs/offsets and resume saved checks
+- **[Minerva mechanical-zero evidence](devices/MINERVA_MECHANICAL_ZERO_20260924.json)** — one zero/save attempt per motor, reference readback and pending power-cycle check
+- **[Powered commissioning](POWERED_COMMISSIONING.md)** — 14-motor diagnostics, command-loss results, bounded gripper trials and remaining movement gates
+- **[Gripper transmission calibration](GRIPPER_TRANSMISSION_CALIBRATION.md)** — stopped encoder/caliper pairs, directional fits, interpolation candidates and remaining CAD/force mapping
+- **[Minerva motor evidence](devices/MINERVA_MOTOR_COMMISSIONING_20260924.json)** — motor UID/firmware roster, watchdog traces, jog measurements and final stopped state
+- **[Left RS00 firmware retest](devices/MINERVA_RS00_FIRMWARE_RETEST_20260924.json)** — updated j6/gripper identities and successful command-loss tests
+- **[Left RS02 firmware retest](devices/MINERVA_RS02_FIRMWARE_RETEST_20260924.json)** — updated j4/j5 and all 14 individual watchdog behavior tests passed
+- **[Watchdog startup and gripper trials](devices/MINERVA_WATCHDOG_GATE_GRIPPER_20260924.json)** — mandatory startup gate, first measured gripper motion, reverse post-stop failure and latest stopped state
+- **[Damped gripper trials](devices/MINERVA_DAMPED_GRIPPER_20260924.json)** — four passing bounded trials, gradual drive/damping removal, raw traces and latest stopped state
+- **[Minerva production computer 01](devices/MINERVA_PRODUCTION_01.md)** — verified identity of `aizee-rover`, confirmed CAN arm mapping, service state and deployment log
 - **[Jetson development device 01](devices/JETSON_DEV_01.md)** — hardware identity, permanent MAC addresses, software inventory and provisioning/change log
 - **[MODEL_VIEWER.md](MODEL_VIEWER.md)** — unified URDF rendering/jogging, collision inspection and adding arbitrary robot models
 - **[quickstart/FRESH_JETSON_SETUP.md](quickstart/FRESH_JETSON_SETUP.md)** — development-host setup, then separate Aizee robot provisioning

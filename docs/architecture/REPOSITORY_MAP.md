@@ -1,8 +1,15 @@
 # Aizee / Minerva repository map
 
-Updated 2026-09-21 after the shared viewer, CAD imports and collision runtime work.
+Updated 2026-09-24 after the guarded controller core and native fault harness work.
 The [generated inventory](REPOSITORY_INVENTORY.md) enumerates tracked files;
 the [implementation guide](MONOREPO_IMPLEMENTATION.md) explains installation.
+
+Shared guarded teleoperation now lives in `src/robot_platform/teleop/` (OpenRB
+input/bridge, profile-driven mapping and collision supervisor), with the envelope
+compiler in `control/collision_envelope.py` and receiver enforcement in
+`rust/control_core/src/collision.rs`. Mechanical-reference maintenance is in
+`control/mechanical_zero.py`; the physical adapter startup gate is in
+`rust/control_core/src/reference.rs`. See [current status](../GUARDED_TELEOP.md).
 
 ## Runtime
 
@@ -28,7 +35,16 @@ The same Rust motor binary serves Aizee's bus or either Minerva arm. Minerva
 uses one process per arm. Motor commands are MessagePack over ZMQ PUSH/PULL;
 telemetry is MessagePack PUB/SUB; cameras use multipart headers and image bytes.
 The current simulator substitutes a synthetic server for the controller/motor
-path. It does not yet execute the Rust controller or load CAD geometry.
+path. It does not yet execute the production Rust/CAN controller or load CAD geometry.
+A separate [guarded native harness](GUARDED_CONTROLLER.md) now runs the new Rust
+control core with an ideal hardware adapter and the existing Python session.
+The `guarded_controller` entry point also runs the core through SocketCAN and
+acknowledged ZMQ on loopback port 5590. It has passed virtual-CAN tests on Minerva;
+physical network movement remains blocked during commissioning. The adapter now
+requires fresh watchdog verification before physical enable. The separate finite
+trial tool has passed four small right-gripper trials with damped stops. Manual
+caliper/encoder pairs provide a coarse unloaded aperture estimate; powered jaw
+accuracy and CAD mapping remain open. See [powered commissioning](../POWERED_COMMISSIONING.md).
 
 | Deployment | CAN bus | Command / telemetry | Cameras |
 |---|---|---|---|
@@ -47,10 +63,10 @@ robot. Head/lift slots are inactive and have no shared-session command routes.
 | Location | Responsibility |
 |---|---|
 | `pyproject.toml` | One Python distribution, extras, CLI, default test selection |
-| `Cargo.toml`, `Cargo.lock`, `.cargo/` | One four-crate Rust workspace; output under `rust/target` |
+| `Cargo.toml`, `Cargo.lock`, `.cargo/` | One five-crate Rust workspace; output under `rust/target` |
 | `src/robot_platform/robots/` | Canonical robot joint order, groups, camera roles, capabilities |
 | `src/robot_platform/settings/` | Defaults, layered JSON overrides, endpoint/config validation |
-| `src/robot_platform/control/` | Routing, freshness, leases, lifecycle, e-stop fanout and opt-in simulation collision gate |
+| `src/robot_platform/control/` | Routing, freshness, leases, guarded commissioning transport, offline transmission calibration, software stop and opt-in simulation collision gate |
 | `src/robot_platform/transport/` | Shared wire envelopes and discovery |
 | `src/robot_platform/data/` | Aizee/Minerva HDF5 writers, synthetic provenance, event traces |
 | `src/robot_platform/apps/` | Validated collection/training launch plans and compatibility execution |
@@ -58,6 +74,7 @@ robot. Head/lift slots are inactive and have no shared-session command routes.
 | `src/robot_platform/models/`, `viewer/` | Robot-independent mechanical profiles, shared URDF viewer/jogging, model catalog and pose files; same profiles feed audit/collision |
 | `src/robot_platform/characterization/` | Manual/protocol audit and verified bench-profile requirements |
 | `rust/comms/` | Shared wire schemas and ZMQ primitives |
+| `rust/control_core/` | Guarded ownership/expiry, mandatory watchdog startup, CAN adapter, local stopping, Linux commissioning, finite gripper trials and native harness |
 | `rust/motor_control/` | ROBSTRIDE codec, CAN lifecycle, controller/watchdog, raw trace hooks |
 | `rust/lidar_control/` | Optional LiDAR service |
 | `rust/collision/` | Persistent Parry f64 hierarchy, enclosing distances and explicit link exclusions; C ABI 3 |

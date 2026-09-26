@@ -20,7 +20,6 @@ reboot normally needs no manual setup:
 | `aizee-ups-monitor`           | UPS battery telemetry (`:5562`)         |
 | `aizee-heartbeat`             | Dashboard on `:8088`                    |
 | `aizee-display`               | Tufty2040 status display                |
-| `aizee-estop-bridge`          | Hardware E-stop bridge                  |
 
 `aizee-lidar-control` is often disabled. Optional camera subsystems auto-detect
 their hardware, so missing devices degrade gracefully.

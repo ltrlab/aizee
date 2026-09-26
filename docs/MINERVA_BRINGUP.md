@@ -1,5 +1,15 @@
 # Minerva Arms Bring-Up (Path A — two instances, dual GELLO)
 
+**2026-09-24 bring-up:** the existing production computer is now reachable as
+`ltr@192.168.8.180` (`aizee-rover`). Serial-based CAN naming is installed and both
+adapters are verified as `canL`/`canR` after reconnecting the left adapter.
+Both legacy motor services are stopped and disabled for boot. The ESP-NOW/serial
+stop bridge has been retired at the user's request. The test stand tolerates
+support loss; no programmatic power cutoff is available. Use the
+[guarded commissioning procedure](POWERED_COMMISSIONING.md) for current tests.
+The legacy procedures below are historical and do not use the new guarded service.
+See the [production device record](devices/MINERVA_PRODUCTION_01.md).
+
 Bring up the two 6+1-DoF Minerva arms for **calibration + dual-GELLO teleop**, with
 no head/lift/URDF/cameras. Each arm is a self-contained motor_control instance on
 its own CAN bus and ZMQ port pair; the two arms are identical (motor ids 4..10) and
@@ -12,10 +22,11 @@ same way collect_demo does — LAN `192.168.0.27` → USB-C direct `10.42.0.1` �
 | left  | `canL`  | 5555     | 5556       | `hardware_minerva_left.yaml`  / `aizee-minerva-left`  |
 | right | `canR`  | 5575     | 5576       | `hardware_minerva_right.yaml` / `aizee-minerva-right` |
 
-- **CAN names are udev-pinned by physical USB port** (`config/udev/80-minerva-can.rules`):
-  `canL`=USB 1-2.1.2, `canR`=USB 1-2.1.4. The internal Tegra mttcan owns the unused
-  `can0`. Distinct names (not canN) avoid rename-swap between the two identical gs_usb
-  adapters.
+- **CAN names are udev-pinned by adapter serial** (`config/udev/80-minerva-can.rules`):
+  `canL`=`004D002C4730511520303650`, `canR`=`0021002F4D53530920303937`.
+  These assignments were confirmed by unplugging the left adapter. Names follow
+  the adapters across USB ports; the internal Tegra mttcan is unused. Reconfirm
+  the mapping if adapters are replaced or switched between arms.
 - **Right ports are 5575/5576** (not 5557–5560 — those are held by `aizee-camera-relay`).
 - Joint order per arm (arm-group = swivel idx0 + arm[]):
   `j1(id4) j2(id5) j3(id6) j4(id7) j5(id8) j6(id9) gripper(id10)`. Shoulder id-4 = **RS03**
@@ -31,10 +42,9 @@ same way collect_demo does — LAN `192.168.0.27` → USB-C direct `10.42.0.1` �
                                           # sudoers; retires the rover service; does
                                           # NOT start (start only with the bus powered)
 ```
-Services install **enabled for boot** (validated on hardware). They auto-start on boot;
-the degraded-mode recovery makes a boot with motors off safe (idles, doesn't wedge). To
-start now without rebooting, use step 1. To opt out of boot-start:
-`sudo systemctl disable aizee-minerva-left aizee-minerva-right`.
+The script installs legacy services **disabled for boot** and does not start them.
+It no longer installs the retired stop bridge. Follow the guarded commissioning
+procedure above before considering a manual legacy-service start.
 
 ## 1. Start the follower instances (Jetson, motors POWERED)
 
@@ -45,24 +55,25 @@ Each runs `aizee-can-up` (brings its udev-named bus up at 1 Mbps — **no** USB 
 rebind) then motor_control. A healthy bus shows balanced RX≈TX and `state ERROR-ACTIVE`
 with 0 bus-off (`ip -s -d link show canL`).
 
-## 2. Mechanically zero the RobStrides (once per new build)
+## 2. Establish the mechanical reference
 
-Sets each motor's firmware mechanical zero + SaveConfig so encoder zero is
-repeatable across power cycles. Run the teleop tool, keep arms **DISABLED**, press **K**:
-```bash
-python python/scripts/minerva_teleop.py --host <jetson-ip> --dry-run
-# press K  (mech_zero sent to both arms), then Q
+Use the [stopped mechanical-reference procedure](MECHANICAL_REFERENCE.md),
+including pinned identities and an actual power-cycle readback. A save response
+alone does not prove persistence. Minerva's 2026-09-24 reference is already
+recorded; do not repeat zero writes as part of routine calibration or startup.
+
+## 3. Calibrate motor-to-CAD directions and alignment
+
+```powershell
+.\scripts\calibrate_minerva.ps1
 ```
-(`--dry-run` still sends K; it only blocks enable/motion.) Power-cycle-safe afterward.
 
-## 3. Calibrate the follower min/max
-
-Move each joint to its physical min then max; positions are recorded under
-zero-impedance. Writes `config/minerva_calibration.json`.
-```bash
-python python/scripts/minerva_calibrate.py --host <jetson-ip>
-# per arm:  E (enable free-move) -> C (start) -> SPACE at each min/max
-```
+Move the disabled arms by hand and compare the live CAD viewer at port 8766.
+Use terminal `flip`, `align`, and `accept` commands to save candidate corrections.
+See [live calibration](JOINT_CALIBRATION.md) for the guided capture alternative,
+resume and evidence. The old enable/free-move min/max script is retired.
+Physical limits and loaded stopping require separate commissioning; this preview
+does not qualify the legacy teleoperation paths documented below.
 
 ## 4. Calibrate the two GELLO leaders
 
@@ -120,7 +131,7 @@ per-step velocity guard bounds every command so engaging never snaps.
 - `config/hardware_minerva_{left,right}.yaml` — follower instance configs
 - `config/minerva_calibration.json` — follower min/max (step 3)
 - `config/openrb_{left,right}.json` — per-leader calibration (step 4)
-- `python/scripts/minerva_calibrate.py` — follower min/max wizard
+- `python/scripts/minerva_calibrate.py` — compatibility entry point for shared stopped live calibration
 - `python/scripts/minerva_teleop.py` — terminal dual-GELLO teleop + zero functions
 - `python/scripts/collect_minerva.py` (+ `collect_minerva_gui.py`) — GUI collector
 - `collect_minerva_app/follower.py` — `DualArmTransport` (two instances → one 17-vec)
@@ -147,8 +158,8 @@ fix below).
 
 ## Hardware gotchas (learned on the bench)
 
-- **Two identical gs_usb (candleLight 1d50:606f) adapters.** They're order-dependent,
-  so we pin names by USB port via udev (above). Do **not** unbind/rebind them to recover
+- **Two gs_usb (candleLight 1d50:606f) adapters.** Kernel enumeration is order-dependent,
+  so we pin names by their unique serials via udev (above). Do **not** unbind/rebind them to recover
   (the old `aizee-reset-usb-can` path) — with two adapters it renames the wrong one and
   can drop an adapter off USB. `aizee-can-up` only does `ip link` up, never a USB reset.
 - **Adapter drops off the bus under stress** (gone from `lsusb`, `ip link set … → "No such

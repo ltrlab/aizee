@@ -80,7 +80,7 @@ timeout/hold behavior is approximate until the production-controller tier runs.
 | CLI | `src/robot_platform/simulation/cli.py` |
 | Source-sample validity and age | `src/robot_platform/control/freshness.py`, `session.py` |
 | Producer leases and queued-command lifecycle | `src/robot_platform/control/background.py` |
-| Dual-destination e-stop bridge | `src/robot_platform/control/estop.py` |
+| Software stop | Shared session and guarded controller; hardware bridge retired 2026-09-24 |
 | HDF5 trace writer/reader and episode provenance | `src/robot_platform/data/traces/`, `data/provenance.py` |
 | Repository audit and bench-profile validation | `src/robot_platform/characterization/audit.py` |
 | Existing bench compatibility tool | `python/scripts/characterize_actuator.py`, `actuator_char/` |
@@ -97,7 +97,7 @@ timeout/hold behavior is approximate until the production-controller tier runs.
 | Producer could stall while worker resent forever | A target lease defaults to 0.5 s and requires producer renewal; worker sends and incoming telemetry do not renew it | Measure downstream watchdog response, including queues; lease expiry does not itself disable motors |
 | Encoder/reference and torque-scale assumptions | Manual audit with hashes/pages; old pre-gearbox claims corrected; deployed conflicting scales preserved and flagged | Device model/firmware/shaft-reference/captured-frame evidence |
 | Placeholder model/position limits and reversed calibration bounds | Audit reports affected entries; powered bench runs require a per-device verified profile with increasing limits | Determine physical sign, zero, travel, limits, payload, and safe test envelope |
-| Single-destination e-stop example | Independent nonblocking MessagePack sends to both Minerva endpoints; failed peer does not block healthy peer; retry asserted stop; clear never enables | Deploy/restart bridge and verify both physical arm responses and recovery |
+| Single-destination e-stop example | ESP-NOW/serial design retired by user on 2026-09-24; software stop remains | Replacement power-cutoff design deferred; supervised test stand only |
 | Bench faults could be misinterpreted | Filter target CAN ID; preserve sixth error bit; check fresh feedback and envelope; slew-limit from measured starting pose | Physical stop and bounded trajectory verification |
 | Synthetic data could appear to be real evidence | Separate run directories, manifests, episode attributes, and strict synthetic label | Real measurements and held-out fits before promoting any channel |
 | Invalid analysis could report success | Never-settled step returns infinity; no independent torque/backlash/Kt claim; irregular sample times withhold frequency metrics | Measurement uncertainty and valid independent instrumentation later |
@@ -189,15 +189,14 @@ ends with `trace_end` and zero dropped events. Ctrl-C performs trace finalizatio
 abrupt exit/SIGTERM/power loss can leave an incomplete file, which is not valid
 measurement evidence. The Python HDF5 reader rejects incomplete/dropped traces.
 
-### Dual-arm e-stop deployment
+### Retired hardware stop bridge
 
-The Minerva deployment script now installs
-`config/systemd/aizee-estop-bridge.service.d/minerva.conf`, targeting ports 5555
-and 5575. It installs the shared package used by the compatibility bridge.
-Installation/daemon reload does not restart an already running bridge. During
-the controlled hardware setup, restart the bridge and inspect its effective
-command and both arm responses before powered tests. Queue acceptance is not an
-acknowledgement of physical stopping. No deployment was run in this work.
+The ESP-NOW receiver, serial bridge, service, udev rule and deployment helper
+were removed at the user's request on 2026-09-24. The installed production
+bridge was stopped and uninstalled with backups. Software emergency-stop
+commands and fault latching remain. They do not cut electrical power. See the
+[current commissioning procedure](../POWERED_COMMISSIONING.md) and
+[device log](../devices/MINERVA_PRODUCTION_01.md).
 
 ## Validation and next stages
 

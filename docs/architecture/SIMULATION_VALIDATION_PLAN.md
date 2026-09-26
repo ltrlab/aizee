@@ -77,8 +77,10 @@ Specific gaps to resolve:
   limits as placeholders. The calibration snapshot includes directional bounds
   that are not always numerically ordered. Resolve their meaning and approved
   limits explicitly; do not copy them blindly into a dynamics or test profile.
-- The deployed e-stop bridge example targets only `5555`; Minerva's right arm
-  uses `5575`. Dual-arm stop coverage is a prerequisite for powered dual-arm tests.
+- The ESP-NOW/serial stop bridge was retired by user request on 2026-09-24.
+  Software stop remains; a replacement power-cutoff design is deferred. Current
+  commissioning uses a supervised test stand that tolerates loss of arm support;
+  autonomous dual-arm motion remains unqualified.
 
 ## 3. Architecture: two execution paths, shared models and scenarios
 

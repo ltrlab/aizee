@@ -17,7 +17,8 @@ This is the first implementation stage of the [organization plan](MONOREPO_PLAN.
 | `src/robot_platform/data/formats/` | Aizee v4/v5 and Minerva v6/v7 HDF5 writers |
 | `src/robot_platform/apps/` | Validated collection/training launch adapters |
 | `settings/examples/` | Machine/operator overlays independent of application source |
-| `Cargo.toml` | Three active Rust crates in one root workspace |
+| `Cargo.toml` | Five Rust crates in one root workspace: motor, comms, lidar, collision and guarded control core |
+| `rust/control_core/` | Robot-independent guarded controller, CAN adapter, Linux commissioning service and native fault harness |
 | `.cargo/config.toml` | Build output remains `rust/target` to preserve deployed service paths |
 | `python/` | Legacy application implementations and compatibility import shims |
 | `tests/unit/`, `tests/contract/` | Default offline tests, including both robot profiles |

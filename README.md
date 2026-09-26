@@ -35,6 +35,15 @@ suppresses physical leader/serial discovery. See the
 [simulation guide](docs/architecture/SIMULATION_IMPLEMENTATION.md) for faults,
 recording, trace reports, and current limitations.
 
+The [guarded controller harness](docs/architecture/GUARDED_CONTROLLER.md) separately
+tests the new Rust command ownership, expiry and stopping core through the shared
+Python session. Build it with `./scripts/test_control_core.ps1` on the configured
+Windows host, then run `python -m pytest tests/contract/test_guarded_controller.py -q`.
+The Linux commissioning entry point now runs that core through SocketCAN and
+acknowledged ZMQ. See [powered commissioning](docs/POWERED_COMMISSIONING.md) for
+virtual-CAN results, all 14 motor watchdog passes, mandatory startup verification
+and bounded gripper trials. General physical motion remains blocked pending commissioning.
+
 ### View and jog a robot model
 
 ```sh
@@ -56,7 +65,15 @@ Minerva's four finger links are explicitly excluded in its model profile.
 checks do not drive or stop hardware. See the
 [collision status and evidence](docs/architecture/COLLISION_RUNTIME_IMPLEMENTATION.md).
 
+### View the GELLO leaders
+
+For the dual GELLO inputs, run `./scripts/view_leaders.ps1` and open
+`http://127.0.0.1:8767/`. The shared leader viewer provides live encoder positions,
+schematic arms and software direction/reference controls. See
+[dual GELLO setup](docs/GELLO_TELEOP.md) for virtual teleop testing and hardware gates.
+
 ### Train
+
 
 ```sh
 python -m pip install -e ".[learning]"
@@ -80,17 +97,17 @@ src/robot_platform/
   models/                   Mechanical model profiles, URDF metadata and assets
   viewer/                   Shared browser rendering, joint jogging, pose files
   settings/                 Packaged defaults and overlay validation
-  control/                  Shared sessions, freshness, command leases, e-stop
+  control/                  Shared sessions, freshness, guarded commands, software stop
   transport/                MessagePack, ZMQ, discovery
   data/                     Recording formats, provenance, measurement traces
   simulation/               Synthetic plant, loopback server, fault scenarios
   characterization/         Protocol/config audit and bench-profile validation
   apps/                     Collection/training launch adapters
-rust/                       comms, motor_control, lidar_control, robot_collision
+rust/                       comms, motor_control, lidar_control, robot_collision, robot_control
 python/                     Active collector UIs, learning, devices, IK, tools
 settings/examples/          Operator/machine overlays and bench-profile template
 config/                     Hardware profiles, calibration, systemd/udev
-firmware/                   Leaders, e-stop, display, lift; required vendor BSP
+firmware/                   Leaders, display, lift; required vendor BSP
 urdf/aizee/                 Existing Aizee Onshape export and Git LFS meshes
 urdf/minerva/               Composed 1.1 visuals / 1.2 collision CAD, profiles, audits, limits
 scripts/                    Build, deploy, inventory, simulation validation

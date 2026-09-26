@@ -131,8 +131,8 @@ address). For code-only refreshes use `./scripts/deploy_jetson_rover.sh`.
   wedges during init. Wheels physically absent → set `motors.wheels: []`
   (keep the key — the Rust config parser requires it).
 - **USB**: gripper cam (ELP), scene cam (RealSense, optional — its absence just
-  means "rover mode" v4 episodes), Tufty display (optional), e-stop receiver
-  (optional). Order doesn't matter; udev symlinks + starts services on plug-in.
+  means "rover mode" v4 episodes), Tufty display (optional).
+  Order doesn't matter; udev symlinks + starts services on plug-in.
 - **UPS**: INA219 on i2c bus 7, addr 0x41.
 
 ## 4. Validate

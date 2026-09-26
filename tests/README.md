@@ -1,10 +1,70 @@
 # Tests and hardware tools
 
+GELLO viewer/input increment (September 26 UTC): **110 focused Python tests
+passed** across leader input, concurrent board reads, source bridge, display
+calibration and virtual teleop. They cover partial-pair rejection, original
+timestamp preservation, transient display staleness without controller rearm,
+calibration identity binding, loopback request boundaries, full-cycle deadlines
+and late/lost registration acknowledgement reporting. The short actual-leader
+25 Hz virtual receiver run passed 250 cycles; see
+[GELLO evidence](../docs/devices/MINERVA_GELLO_VIEWER_20260926.json).
+
+Live calibration increment: **541 Python unit/contract tests passed**, followed
+by **56 calibration/viewer tests** after the final live-feed changes.
+Direction/offset candidates, rejected
+partial or stale reads, identity mismatches, return-to-reference, resumable steps,
+Windows file replacement and live viewer revision checks are covered in
+`unit/test_joint_calibration.py`. The stopped reader was also exercised on all
+14 Minerva motors. See [calibration workflow](../docs/JOINT_CALIBRATION.md).
+
+September 24 guarded teleop/reference increment: **512 Python unit/contract
+tests and 47 portable Rust tests passed**, including collision-envelope expiry,
+per-pair swept bounds, source-aged OpenRB/bridge input, raw encoder reference
+checks and disabled-only mechanical-zero failure handling. ARM64 control binaries
+cross-compiled; Clippy passed with warnings denied. The production-host vcan
+collision run passed 1,000 cycles at 25 Hz. USB/network timing failures remain
+recorded and do not qualify live hardware teleoperation. See
+[current evidence and limits](../docs/GUARDED_TELEOP.md).
+
 Collision-limit review tests in `unit/test_limit_sweep.py` cover independent
 branches versus the shared body, coupled jaw motion, first-contact refinement,
 inward margins, unresolved-contact locking, and revision-bound viewer ranges.
 
 ## Offline regression suite
+
+### Native guarded controller
+
+The Linux commissioning tier also runs the actual SocketCAN/ZMQ receiver:
+`scripts/guarded_vcan_bench.py` exercises startup gates, expiry, stale feedback,
+replay, invalid batches, scheduler stalls, SIGTERM and restart epochs on vcan.
+See [commissioning instructions](../docs/POWERED_COMMISSIONING.md). It never opens
+a physical bus for motor emulation. These are synthetic protocol/timing tests,
+not motor-dynamics or collision-supervisor qualification.
+
+Portable CAN tests require fresh pinned watchdog proof before physical enable
+and reject changed identity/readback, stale replies, receive failures and reused
+proof. Finite trial tests cover bounded breakaway in both directions, no motion,
+effort/pose failures and post-stop overspeed. A movement detection alone cannot
+pass a trial that exceeds its stop bounds. Staged damping tests also cover reply
+loss, unexpected Reset, excess speed/travel, failure to settle and command gaps.
+Latest local checks: 40 Rust tests and
+452 Python unit/contract tests; physical outcomes are in the device log.
+
+Build and test the portable Rust core with `cargo test --locked -p robot_control`
+and `cargo build --locked -p robot_control --bin control_harness`, or run
+`./scripts/test_control_core.ps1` on the configured Windows development host.
+Then run `python -m pytest tests/contract/test_guarded_controller.py -q`.
+These contract tests execute Rust through MessagePack and cover Aizee/Minerva
+session routing and faults. They skip explicitly if the binary is absent.
+See the [protocol and limitations](../docs/architecture/GUARDED_CONTROLLER.md).
+
+### Python suite
+
+`unit/test_transmission_calibration.py` checks offline encoder/aperture fitting:
+both transmission signs, direction-dependent error, small/one-direction datasets,
+uncertainty, ambiguous or faulted diagnostics, source/identity consistency,
+interpolation bounds and preservation of existing output. Synthetic test data
+does not establish hardware calibration.
 
 From the repository root with the shared package installed:
 
