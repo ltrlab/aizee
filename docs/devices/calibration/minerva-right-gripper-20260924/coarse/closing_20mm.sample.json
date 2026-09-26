@@ -1,0 +1,308 @@
+{
+  "schema": "robot-platform.aperture-sample.v1",
+  "identity": {
+    "name": "right_gripper",
+    "bus": "canR",
+    "can_id": 10,
+    "mcu_uid_hex": "632f93c79c90b00e",
+    "firmware": "0.0.3.32"
+  },
+  "source": {
+    "path": "run_diagnostics_aperture_closing_20mm.json",
+    "sha256": "8cc4464e32994609293b78b613a36ce478535e0678fd9db80fb17afebfc4c372",
+    "captured_at": "2026-09-24T20:26:11.804588+00:00",
+    "remote_trial": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/stopped-motors-20260924T202611Z"
+  },
+  "measurement": {
+    "total_aperture_m": 0.02,
+    "approach": "closing",
+    "instrument": "operator calipers (model unspecified)",
+    "uncertainty_m": 0.001,
+    "pairing_confirmed": true,
+    "note": "Reassessed as an approximate gap after the operator confirmed finger flex and caliper variation and requested use of the existing measurements. +/-1 mm measurement allowance is provisional, not a caliper specification. Original measurement and uncertainty assessment are preserved in the source sample."
+  },
+  "motor_position_rad": 0.9446253776550293,
+  "reported_velocity_rad_s": -0.027020372450351715,
+  "diagnostics": {
+    "evidence": "hardware-stopped-motor-diagnostics",
+    "enable_requested": false,
+    "stop_requested": true,
+    "parameter_writes_requested": false,
+    "motors": [
+      {
+        "name": "right_gripper",
+        "can_id": 10,
+        "bus": "canR",
+        "parameters": {
+          "run_mode": {
+            "value": 0,
+            "received_at_ms": 1173,
+            "raw": {
+              "bus": 1,
+              "id": 285215402,
+              "data": [
+                5,
+                112,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "received_at_ms": 1173
+            }
+          },
+          "torque_limit_nm": {
+            "value": 14.0,
+            "received_at_ms": 1178,
+            "raw": {
+              "bus": 1,
+              "id": 285215402,
+              "data": [
+                11,
+                112,
+                0,
+                0,
+                0,
+                0,
+                96,
+                65
+              ],
+              "received_at_ms": 1178
+            }
+          },
+          "speed_limit_rad_s": {
+            "value": 33.0,
+            "received_at_ms": 1183,
+            "raw": {
+              "bus": 1,
+              "id": 285215402,
+              "data": [
+                23,
+                112,
+                0,
+                0,
+                0,
+                0,
+                4,
+                66
+              ],
+              "received_at_ms": 1183
+            }
+          },
+          "current_limit_a": {
+            "value": 16.0,
+            "received_at_ms": 1188,
+            "raw": {
+              "bus": 1,
+              "id": 285215402,
+              "data": [
+                24,
+                112,
+                0,
+                0,
+                0,
+                0,
+                128,
+                65
+              ],
+              "received_at_ms": 1188
+            }
+          },
+          "motor_position_rad": {
+            "value": 0.9446253776550293,
+            "received_at_ms": 1193,
+            "raw": {
+              "bus": 1,
+              "id": 285215402,
+              "data": [
+                25,
+                112,
+                0,
+                0,
+                248,
+                210,
+                113,
+                63
+              ],
+              "received_at_ms": 1193
+            }
+          },
+          "filtered_iq_a": {
+            "value": 0.0,
+            "received_at_ms": 1198,
+            "raw": {
+              "bus": 1,
+              "id": 285215402,
+              "data": [
+                26,
+                112,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "received_at_ms": 1198
+            }
+          },
+          "motor_velocity_rad_s": {
+            "value": -0.027020372450351715,
+            "received_at_ms": 1203,
+            "raw": {
+              "bus": 1,
+              "id": 285215402,
+              "data": [
+                27,
+                112,
+                0,
+                0,
+                212,
+                89,
+                221,
+                188
+              ],
+              "received_at_ms": 1203
+            }
+          },
+          "bus_voltage_v": {
+            "value": 23.439584732055664,
+            "received_at_ms": 1208,
+            "raw": {
+              "bus": 1,
+              "id": 285215402,
+              "data": [
+                28,
+                112,
+                0,
+                0,
+                69,
+                132,
+                187,
+                65
+              ],
+              "received_at_ms": 1208
+            }
+          },
+          "report_interval_setting": {
+            "value": 0,
+            "received_at_ms": 1213,
+            "raw": {
+              "bus": 1,
+              "id": 285215402,
+              "data": [
+                38,
+                112,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "received_at_ms": 1213
+            }
+          },
+          "can_timeout_ticks": {
+            "value": 0,
+            "received_at_ms": 1218,
+            "raw": {
+              "bus": 1,
+              "id": 285215402,
+              "data": [
+                40,
+                112,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "received_at_ms": 1218
+            }
+          }
+        },
+        "identity": {
+          "mcu_uid_hex": "632f93c79c90b00e",
+          "received_at_ms": 1158,
+          "raw": {
+            "bus": 1,
+            "id": 2814,
+            "data": [
+              99,
+              47,
+              147,
+              199,
+              156,
+              144,
+              176,
+              14
+            ],
+            "received_at_ms": 1158
+          }
+        },
+        "stop_feedback": {
+          "mode": 0,
+          "error_bits": 0,
+          "position_u16": 35229,
+          "velocity_u16": 32731,
+          "effort_u16": 32767,
+          "temperature_c": 25.0,
+          "received_at_ms": 1163,
+          "raw": {
+            "bus": 1,
+            "id": 33557162,
+            "data": [
+              137,
+              157,
+              127,
+              219,
+              127,
+              255,
+              0,
+              250
+            ],
+            "received_at_ms": 1163
+          }
+        },
+        "version": {
+          "firmware": "0.0.3.32",
+          "mode": 0,
+          "error_bits": 0,
+          "received_at_ms": 1168,
+          "raw": {
+            "bus": 1,
+            "id": 33557162,
+            "data": [
+              0,
+              196,
+              86,
+              0,
+              0,
+              3,
+              32,
+              7
+            ],
+            "received_at_ms": 1168
+          }
+        },
+        "reset_confirmed": true
+      }
+    ],
+    "tx_frames": 182,
+    "rx_frames": 182,
+    "timing": {
+      "ticks": 468,
+      "overruns": 0,
+      "maximum_lateness_us": 204,
+      "maximum_work_us": 284,
+      "rejected_frames": 0,
+      "deadline_misses": 0
+    },
+    "complete": true
+  },
+  "assessment_source_sample": "closing_20mm.sample.json"
+}

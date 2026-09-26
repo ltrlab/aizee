@@ -1,0 +1,50 @@
+{
+  "schema": "robot-platform.aperture-fit.v1",
+  "status": "rejected",
+  "identity": {
+    "name": "right_gripper",
+    "bus": "canR",
+    "can_id": 10,
+    "mcu_uid_hex": "632f93c79c90b00e",
+    "firmware": "0.0.3.32"
+  },
+  "sample_count": 7,
+  "source_sha256": [
+    "067d21f83370f0b7ad7f480bfbd817cd7b01aa15f8b10135a38ac433fb0b85d6",
+    "37e3d9bcde01920ead05f75f2fab6abae9461c4077ffe216bb92fd10279bbabe",
+    "49887bf95b2aff640ff773ae335b4e61a09e91ef9f4904d796572e689c6a96ab",
+    "4be91eda88f12f5ad35da94101aa73b0fbc398946e8925629aaabe07923fd36f",
+    "6c86030721543dafa041b9ef8affde579798afab4ec52660c71b06dad0ba4b96",
+    "8cc4464e32994609293b78b613a36ce478535e0678fd9db80fb17afebfc4c372",
+    "ebfab614b4f58ef02fec3d74b54090a364246c5485b6717628000edba3c21748"
+  ],
+  "criteria": {
+    "minimum_aperture_span_m": 0.01,
+    "maximum_error_m": 0.001,
+    "samples_per_direction": 3,
+    "minimum_encoder_span_rad": 0.1
+  },
+  "issues": [
+    "Affine model residual or held-out error exceeds tolerance",
+    "Opening/closing separation exceeds the backlash criterion"
+  ],
+  "candidate": null,
+  "fit": {
+    "scale_m_per_rad": 0.01825276169652858,
+    "offset_m": 0.0027584833103869444,
+    "max_residual_m": 0.0011715716779555872,
+    "rms_residual_m": 0.0006926300687303053,
+    "max_leave_one_out_error_m": 0.001576542301236477,
+    "direction_separation_m": 0.0010644898932161283,
+    "direction_fits": {
+      "opening": {
+        "scale_m_per_rad": 0.01841956507346466,
+        "offset_m": 0.001958059813215819
+      },
+      "closing": {
+        "scale_m_per_rad": 0.01856218603970755,
+        "offset_m": 0.002734446652448628
+      }
+    }
+  }
+}
