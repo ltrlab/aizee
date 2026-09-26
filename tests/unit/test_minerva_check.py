@@ -237,6 +237,27 @@ def test_robot_problems_are_named(runs, loopback):
     assert checks['leaders']['status'] == 'warn' and 'outside the saved sweep' in checks['leaders']['detail']
 
 
+def test_what_would_stop_a_live_session_at_once_is_caught_before_one_starts(runs, loopback):
+    def hanging(**positions):
+        report = scan()
+        for row in report['motors']:
+            name = row['name']
+            # Arms hang in the reference pose; closed grippers rest on their swept ends.
+            row['position_rad'] = positions.get(name, LIMITS['joints'][name]['min_rad'] if 'gripper' in name
+                                                else next(m['raw_reference_rad'] for m in REFERENCE['motors']
+                                                          if m['name'] == name))
+        return report
+
+    _report, checks, _ = run(runs, FakeRobot(motors_report=hanging()))
+    assert checks['live_pose']['status'] == 'pass', checks['live_pose']['detail']
+    grip = LIMITS['joints']['right_gripper']['min_rad']
+    _report, checks, _ = run(runs, FakeRobot(motors_report=hanging(right_gripper=grip - .0495)))
+    assert checks['live_pose']['status'] == 'fail'
+    assert "live receiver's limits" in checks['live_pose']['detail'] and 'Right gripper' in checks['live_pose']['detail']
+    _report, checks, _ = run(runs, FakeRobot(motors_report=hanging(left_arm_j2=.3)))
+    assert checks['live_pose']['status'] == 'warn' and 'left arm: Left shoulder hinge (J2) +0.30 rad' in checks['live_pose']['detail']
+
+
 def test_unconfirmed_calibration_fails_before_anything_is_derived(runs, loopback):
     path = next(runs.glob('*-directions/session.json'))
     state = json.loads(path.read_text())

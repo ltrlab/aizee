@@ -581,6 +581,37 @@ def _pose(ctx):
                   f'{ctx.label(farthest)} by {abs(positions[farthest] - raw[farthest]):.2f} rad')
 
 
+@check('motors', 'live_pose', "Live start: reference pose, clear of the receiver's limits",
+       requires=('scan', 'receiver'))
+def _live_pose(ctx):
+    """What a live session's own pre-scan checks, for each arm: the receiver faults on a reading
+    outside its limits even disarmed, so a joint at a limit (a closed gripper on its swept end)
+    would stop the session at once."""
+    from robot_platform.control.live_receiver import FEEDBACK_MARGIN_RAD, outside_limits
+    positions = ctx.facts['positions']
+    raw = {m['name']: m['raw_reference_rad'] for m in ctx.facts['reference']['motors']}
+    tolerance = ctx.facts['teleop'].get('live', {}).get('reference_tolerance_rad', .1)
+    blocked, away = [], []
+    for arm in ('left', 'right'):
+        controller = _derive(ctx, arm)['config']
+        names = [joint['name'] for joint in controller['joints']]
+        for motor, q, lower, upper in outside_limits({name: positions[name] for name in names}, controller,
+                                                     margin=FEEDBACK_MARGIN_RAD):
+            blocked.append(f'{ctx.label(motor)} reads {q:+.4f} rad (receiver limits {lower:+.4f} to {upper:+.4f})')
+        off = [f'{ctx.label(name)} {positions[name] - raw[name]:+.2f} rad' for name in names
+               if abs(positions[name] - raw[name]) > tolerance]
+        if off:
+            away.append(f'{arm} arm: ' + ', '.join(off))
+    if blocked:
+        return FAIL, ("At or next to the live receiver's limits, which would fault it at once: "
+                      + '; '.join(blocked) + '. Re-sweep that joint in Limits.')
+    if away:
+        return WARN, ('Away from the reference pose, which a live session requires at its start: '
+                      + '; '.join(away) + f' (tolerance {tolerance:g} rad). Let that arm hang straight down.')
+    return PASS, (f"Both arms within {tolerance:g} rad of their reference pose and clear of the live receiver's "
+                  'limits')
+
+
 # -- Stage 4: live joint sweep --------------------------------------------------
 
 @check('sweep', 'sweep', 'Automated live joint sweep')
