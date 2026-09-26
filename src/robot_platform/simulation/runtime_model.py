@@ -13,11 +13,12 @@ import time
 import numpy as np
 
 from robot_platform.models import UrdfModel
+from robot_platform.models.urdf import asset_digest, verified_asset, verified_release_active
 from .collision import CollisionError, CollisionScene, _read_asset, _validate_gltf
 
 
 def digest(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    return asset_digest(path)
 
 
 def build_runtime_model(profile, output):
@@ -134,8 +135,13 @@ class RuntimeCollisionModel:
         for index, sha in data["assets"].items():
             if digest(self.model.assets[int(index)]) != sha:
                 raise CollisionError("Runtime collision source mesh revision changed; regenerate proxies")
-        import trimesh
-        from scipy.spatial import ConvexHull
+        # A verified release checked every enclosure on the build PC and ships no
+        # meshes: check transforms and primitives here, then load kinematics only.
+        kinematics_only = verified_release_active() and all(
+            verified_asset(self.model.assets[int(index)]) for index in data["assets"])
+        if not kinematics_only:
+            import trimesh
+            from scipy.spatial import ConvexHull
         source_points = {}
         for shape in shapes:
             desc = descriptors[shape["id"]]
@@ -144,6 +150,8 @@ class RuntimeCollisionModel:
             if desc["shape"] == "mesh":
                 if shape["shape"] != "convex":
                     raise CollisionError("Mesh proxy must be a convex solid")
+                if kinematics_only:
+                    continue
                 key=(data['assets'][str(desc['asset'])],tuple(desc['scale']))
                 if key not in source_points:
                     mesh=trimesh.load_scene(self.model.assets[desc['asset']],process=False,
@@ -163,8 +171,13 @@ class RuntimeCollisionModel:
                 raise CollisionError("Primitive proxy differs from source")
         if data.get("allowed_shape_pairs"):
             raise CollisionError("Contact-policy approval is not implemented; runtime exclusions must be empty")
+        self.kinematics_only = kinematics_only
+        # Proxy hulls enclose their meshes, so hull bounds are conservative stand-ins.
+        hull_bounds = {s["id"]: np.array([np.min(s["vertices"], axis=0), np.max(s["vertices"], axis=0)])
+                       for s in shapes if s["shape"] == "convex"}
         self.scene = CollisionScene.from_urdf(profile.urdf, profile.package_root,
-                         mesh_resolver=profile.resolve_mesh, environment=environment)
+                         mesh_resolver=profile.resolve_mesh, environment=environment,
+                         mesh_bounds=hull_bounds.__getitem__ if kinematics_only else None)
         order = {s["id"]: s for s in shapes}
         for box in environment:
             key=f"environment:{box.name}"
@@ -224,6 +237,8 @@ class RuntimeCollisionModel:
         if any(pair not in self._pair_set for pair in pairs):
             raise CollisionError("Unknown narrow-phase pair")
         scene = self.scene
+        if scene._objects is None:
+            raise CollisionError("Loaded for kinematics only (verified release); CAD refinement needs source meshes")
         with scene._query_lock:
             # Reuse the same pose snapshot as the native hierarchy. Batch the
             # source bounds instead of recomputing FK and 91 Python reductions.

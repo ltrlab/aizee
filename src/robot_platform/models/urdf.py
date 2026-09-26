@@ -2,6 +2,11 @@
 
 Mechanical coordinates are separate from actuator/recording RobotSpec slots.
 No model/profile operation opens a device or changes a calibration file.
+
+A deployed release may register verified mesh digests: meshes hashed and checked
+on the build PC but not shipped (a robot-side loop needs kinematics and the
+collision proxies, not CAD). Those paths then resolve and hash from the
+registry instead of the file system; every other path is read as usual.
 """
 from dataclasses import dataclass, field
 import hashlib
@@ -11,6 +16,30 @@ from pathlib import Path, PureWindowsPath
 import re
 from urllib.parse import unquote, urlsplit
 import xml.etree.ElementTree as ET
+
+
+_VERIFIED_ASSETS = {}
+
+
+def register_verified_assets(digests):
+    """Replace the registry with {mesh path: sha256} vouched for by a verified release."""
+    _VERIFIED_ASSETS.clear()
+    _VERIFIED_ASSETS.update({Path(path).resolve(): sha for path, sha in digests.items()})
+
+
+def verified_asset(path):
+    return Path(path).resolve() in _VERIFIED_ASSETS
+
+
+def verified_release_active():
+    """True only in a process that activated a verified release (never on the build PC)."""
+    return bool(_VERIFIED_ASSETS)
+
+
+def asset_digest(path):
+    """sha256 of a mesh: from a verified release when registered, otherwise from its bytes."""
+    path = Path(path).resolve()
+    return _VERIFIED_ASSETS.get(path) or hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def numbers(value, count, label, positive=False):
@@ -119,6 +148,8 @@ class ModelProfile:
             raise ValueError("Mesh escapes its configured asset directory")
         if candidate.suffix.lower() not in {".stl", ".obj", ".ply", ".gltf", ".glb"}:
             raise ValueError(f"Unsupported mesh format: {candidate.suffix}")
+        if candidate in _VERIFIED_ASSETS:
+            return candidate  # Hashed and checked on the build PC; not shipped.
         with candidate.open("rb") as stream:
             header = stream.read(64)
         if not header or header.startswith(b"version https://git-lfs.github.com/spec/v1"):
@@ -288,7 +319,7 @@ class UrdfModel:
                     or review.get("urdf_sha256") != self.sha256 or review.get("model_id") != profile.id):
                 raise ValueError("Limit review does not match this model/URDF revision")
             assets = review.get("assets", [])
-            if len(assets) != len(self.assets) or any(item.get("sha256") != hashlib.sha256(p.read_bytes()).hexdigest()
+            if len(assets) != len(self.assets) or any(item.get("sha256") != asset_digest(p)
                                                     for item, p in zip(assets, self.assets)):
                 raise ValueError("Limit review mesh revision mismatch; rerun the sweep")
             reference = review["reference_positions"]

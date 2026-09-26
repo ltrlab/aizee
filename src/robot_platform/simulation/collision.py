@@ -105,6 +105,13 @@ def _origin(element) -> np.ndarray:
                                                      nodes[0].get("rpy", "0 0 0"))
 
 
+def _corners(bounds) -> np.ndarray:
+    """The eight corners of an axis-aligned box (trimesh.bounds.corners order)."""
+    (x0, y0, z0), (x1, y1, z1) = np.asarray(bounds, dtype=float)
+    return np.array([[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0],
+                     [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]])
+
+
 def _read_asset(path: Path) -> bytes:
     try:
         raw = path.read_bytes()
@@ -178,12 +185,16 @@ class CollisionScene:
 
     @classmethod
     def from_urdf(cls, urdf_path: str | Path, package_root: str | Path | None = None,
-                  *, allowed_pairs=(), environment=(), mesh_resolver=None) -> "CollisionScene":
-        try:
-            import fcl
-            import trimesh
-        except ImportError as exc:
-            raise CollisionError("Collision checks require python-fcl and trimesh") from exc
+                  *, allowed_pairs=(), environment=(), mesh_resolver=None, mesh_bounds=None) -> "CollisionScene":
+        """Parse the scene. With `mesh_bounds` ({shape id: [min, max]} lookup) meshes
+        are neither read nor built: kinematics and bounds only, no FCL queries."""
+        fcl = trimesh = None
+        if mesh_bounds is None:
+            try:
+                import fcl
+                import trimesh
+            except ImportError as exc:
+                raise CollisionError("Collision checks require python-fcl and trimesh") from exc
         scene = cls()
         scene._fcl = fcl
         path = Path(urdf_path).resolve()
@@ -289,7 +300,7 @@ class CollisionScene:
             ordinal = shape_counts.get(link, 0)
             shape_counts[link] = ordinal + 1
             scene.shape_metadata.append({"id": f"{link}/{ordinal}", "link": link, "source": source})
-            scene._shapes.append(_Shape(link, geometry, origin, trimesh.bounds.corners(bounds), obstacle))
+            scene._shapes.append(_Shape(link, geometry, origin, _corners(bounds), obstacle))
 
         for link in link_elements:
             name = link.get("name")
@@ -302,7 +313,10 @@ class CollisionScene:
                     raise CollisionError(f"Collision needs one geometry shape: {name}")
                 shape = geometry_elements[0][0]
                 transform = _origin(collision)
-                if shape.tag == "mesh":
+                if shape.tag == "mesh" and mesh_bounds is not None:
+                    geometry = None
+                    bounds = np.asarray(mesh_bounds(f"{name}/{shape_counts.get(name, 0)}"), dtype=float)
+                elif shape.tag == "mesh":
                     mesh_path = (mesh_resolver(shape.get("filename", "")) if mesh_resolver else
                                  _mesh_path(shape.get("filename", ""), path, base, package_name))
                     raw = _read_asset(mesh_path)
@@ -328,14 +342,14 @@ class CollisionScene:
                         raise CollisionError(f"Cannot load collision mesh {mesh_path}: {exc}") from exc
                 elif shape.tag == "box":
                     size = _numbers(shape.get("size", ""), 3, f"box size {name}", positive=True)
-                    geometry, bounds = fcl.Box(*size), np.array([-size / 2, size / 2])
+                    geometry, bounds = fcl and fcl.Box(*size), np.array([-size / 2, size / 2])
                 elif shape.tag in {"sphere", "cylinder"}:
                     radius = _numbers([shape.get("radius")], 1, f"radius {name}", positive=True)[0]
                     if shape.tag == "sphere":
-                        geometry, half = fcl.Sphere(radius), np.full(3, radius)
+                        geometry, half = fcl and fcl.Sphere(radius), np.full(3, radius)
                     else:
                         length = _numbers([shape.get("length")], 1, f"length {name}", positive=True)[0]
-                        geometry, half = fcl.Cylinder(radius, length), np.array([radius, radius, length / 2])
+                        geometry, half = fcl and fcl.Cylinder(radius, length), np.array([radius, radius, length / 2])
                     bounds = np.array([-half, half])
                 else:
                     raise CollisionError(f"Unsupported collision geometry {shape.tag}: {name}")
@@ -351,7 +365,7 @@ class CollisionScene:
                 raise CollisionError(f"Duplicate environment obstacle: {name}")
             environment_names.add(name)
             size = _numbers(obstacle.size, 3, f"obstacle size {name}", positive=True)
-            add_shape(name, fcl.Box(*size), _transform(obstacle.xyz, obstacle.rpy),
+            add_shape(name, fcl and fcl.Box(*size), _transform(obstacle.xyz, obstacle.rpy),
                       np.array([-size / 2, size / 2]), True)
         scene._allowed = set()
         available = set(names) | environment_names
@@ -368,7 +382,7 @@ class CollisionScene:
                                and tuple(sorted((a.link, b.link))) not in scene._allowed]
         # Objects belong to shape instances, not shared geometry identities.
         # Constructing an FCL object recomputes the mesh's expensive local AABB.
-        scene._objects = [fcl.CollisionObject(shape.geometry) for shape in scene._shapes]
+        scene._objects = [fcl.CollisionObject(shape.geometry) for shape in scene._shapes] if fcl else None
         scene._query_lock = threading.RLock()
         return scene
 
@@ -440,6 +454,8 @@ class CollisionScene:
             return self._check_pairs_locked(q, indices, detailed=detailed)
 
     def _check_pairs_locked(self, q, indices, *, detailed):
+        if self._objects is None:
+            raise CollisionError("This scene was loaded for kinematics only; CAD contact checks are unavailable")
         transforms = self.link_transforms(q)
         try:
             worlds, lows, highs = [], [], []
