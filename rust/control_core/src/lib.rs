@@ -416,7 +416,9 @@ impl Controller {
                 .iter()
                 .zip(&self.commands)
                 .zip(&self.config.joints)
-                .any(|((f, c), l)| !l.gripper && (f.position - c.position).abs() > l.max_tracking_error)
+                .any(|((f, c), l)| {
+                    !l.gripper && (f.position - c.position).abs() > l.max_tracking_error
+                })
         {
             self.fault(Reason::TrackingError, hardware);
             return;
@@ -753,7 +755,8 @@ impl Controller {
                 }
                 // Idle already consumed the adapter's enable permit; never re-enable.
                 let enabling = self.state == State::Disarmed;
-                if (enabling && hardware.enable().is_err()) || hardware.apply(&self.commands).is_err()
+                if (enabling && hardware.enable().is_err())
+                    || hardware.apply(&self.commands).is_err()
                 {
                     self.fault(Reason::HardwareFault, hardware);
                     return Err(Reason::HardwareFault);

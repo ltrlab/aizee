@@ -809,7 +809,11 @@ fn idle_from_hold_drops_gains_now_and_clears_collision_bounds() {
     assert!(reply.accepted);
     assert_eq!(reply.status.state, State::Idle);
     assert!(reply.status.collision_expires_at_ms.is_none());
-    assert!(reply.status.joints.iter().all(|j| j.kp == 0.0 && j.kd == 0.0));
+    assert!(reply
+        .status
+        .joints
+        .iter()
+        .all(|j| j.kp == 0.0 && j.kd == 0.0));
     assert_eq!(h.writes, writes + 1);
     assert_eq!(h.enables, 1);
     // Hand motion outside the former collision box is not a collision fault.
@@ -836,7 +840,11 @@ fn disable_removes_torque_immediately_and_releases_ownership() {
         assert_eq!(reply.status.state, State::Disarmed);
         assert!(reply.status.lease.is_none());
         assert!(reply.status.command_expires_at_ms.is_none());
-        assert!(reply.status.joints.iter().all(|j| j.kp == 0.0 && j.kd == 0.0));
+        assert!(reply
+            .status
+            .joints
+            .iter()
+            .all(|j| j.kp == 0.0 && j.kd == 0.0));
         assert!(!h.enabled);
         let writes = h.writes;
         c.tick(4, &mut h);
@@ -989,7 +997,10 @@ fn a_gripper_stalled_on_an_object_does_not_fault_but_an_arm_joint_does() {
         if gripper_stalled {
             assert_eq!(status.state, State::Executing);
         } else {
-            assert_eq!((status.state, status.reason), (State::Faulted, Reason::TrackingError));
+            assert_eq!(
+                (status.state, status.reason),
+                (State::Faulted, Reason::TrackingError)
+            );
         }
     }
 }
