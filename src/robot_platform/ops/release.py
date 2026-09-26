@@ -131,6 +131,22 @@ def build(out_dir, root=ROOT, *, robot='minerva-production-01', now=None):
     return manifest, archive
 
 
+def release_drift(manifest, root=ROOT):
+    """Release files whose content differs between a deployed manifest and this tree.
+
+    Mesh digests are not compared (meshes stay here); a file missing locally,
+    such as an unbuilt binary, is left to check_binaries.
+    """
+    listed = collect(root)
+    files = {key: path for key, path in listed.items() if path.is_file()}
+    deployed = {key: entry['sha256'] for key, entry in manifest['files'].items() if key != LOCK}
+    return sorted([f'changed {key}' for key in files.keys() & deployed.keys()
+                   if _sha(files[key].read_bytes()) != deployed[key]]
+                  + [f'new {key}' for key in files.keys() - deployed.keys()]
+                  + [f'removed {key}' for key in deployed.keys() - listed.keys()],
+                  key=lambda item: item.split(' ', 1)[1])
+
+
 def verify_tree(root):
     """Problems with an unpacked release (empty when every file matches the manifest)."""
     root = Path(root)

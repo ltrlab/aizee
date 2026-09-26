@@ -41,6 +41,7 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("leaders", help="read-only leader arm viewer and display calibration (leaders --help)")
     sub.add_parser("calibrate", help="stopped motor-to-CAD direction wizard (calibrate --help)")
     sub.add_parser("deploy", help="build a verified release and make it current on the robot (deploy --help)")
+    sub.add_parser("check", help="Minerva Check: go/no-go for live operation, motors stay disabled (check --help)")
     for command in ("describe", "config", "run"):
         s = sub.add_parser(command, help={"describe": "show a robot definition", "config": "print validated resolved settings", "run": "launch an application or inspect its plan"}[command])
         s.add_argument("--robot", required=True, help="built-in robot name or definition JSON path")
@@ -70,6 +71,9 @@ def main(argv: list[str] | None = None) -> int:
     if argv and argv[0] == "deploy":
         from robot_platform.ops.cli import deploy_main
         return deploy_main(argv[1:])
+    if argv and argv[0] == "check":
+        from robot_platform.ops.cli import check_main
+        return check_main(argv[1:])
     if argv and argv[0] == "view":
         from robot_platform.viewer.cli import main as viewer_main
         return viewer_main(argv[1:])
