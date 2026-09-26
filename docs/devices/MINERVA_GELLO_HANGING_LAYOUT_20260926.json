@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "at_utc": "2026-09-26T01:04:06.617735+00:00",
+  "source": "Operator photo and confirmation that both GELLO leaders still hang in that pose.",
+  "profile_path": "config/devices/gello-dual-viewer.json",
+  "profile_sha256": "24974a87c6383d00deb3046d5dd3a145ec9d60a7a2c42bd6669f3cb3a4ed8f5e",
+  "previous_profile_sha256": "a92c58c0a5fef4a1982595ca3d4f205958092abe7f358b5fae442418e2147e32",
+  "reference_capture_utc": "2026-09-26T00:59:14.381784+00:00",
+  "raw_reference_ticks": {
+    "left": [
+      3045,
+      2004,
+      2029,
+      2596,
+      3152,
+      3116,
+      2701
+    ],
+    "right": [
+      1100,
+      3103,
+      4091,
+      3384,
+      1047,
+      2038,
+      1677
+    ]
+  },
+  "display_calibration_path": "calibration_runs/gello-dual/display.json",
+  "display_calibration_sha256": "f8aed74263e180fd77bc9725d79694aabc63bd188d38cd4250f1eb3fc7f5fca9",
+  "display_only": true,
+  "runtime_approved": false,
+  "physical_commands_sent": false,
+  "changes": [
+    "Overhead shoulder mounting and center stand; downward upper and lower arm links.",
+    "Explicit mirrored lateral shoulder, elbow and wrist offsets.",
+    "Minerva-style vertical/width/depth joint-axis topology in flattened home frames.",
+    "User-confirmed hanging photo pose supplies software encoder reference offsets. USB side identities and existing +1 direction settings retained."
+  ],
+  "limitations": [
+    "Schematic dimensions are approximate, not measurements from the photo.",
+    "Joint encoder directions still require movement verification.",
+    "Reference capture does not modify motor zero or follower calibration."
+  ],
+  "validation": {
+    "focused_viewer_tests": 49,
+    "javascript_syntax": "passed",
+    "front_end_compound_transform_checks": 7,
+    "browser": "Both leaders streaming at 100 Hz target, approximately 54 Hz display, all 14 display angles within one encoder tick of captured zero at visual check."
+  },
+  "active_viewer_exec_session": 48839
+}

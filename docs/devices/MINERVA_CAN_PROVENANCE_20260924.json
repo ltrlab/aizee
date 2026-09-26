@@ -1,0 +1,1605 @@
+{
+  "recorded_at_utc": "2026-09-25T03:03:07.634232+00:00",
+  "asset_id": "minerva-production-01",
+  "scope": "Sixty-second stopped-only receive-provenance and detailed CAN error diagnostic",
+  "motor_enable_requested": false,
+  "motor_parameter_writes_requested": false,
+  "runtime_approved": false,
+  "long_endurance_test_performed": false,
+  "report": {
+    "schema": 1,
+    "asset_id": "minerva-production-01",
+    "success": true,
+    "started_at": "2026-09-25T03:01:46.035577+00:00",
+    "enable_requested": false,
+    "parameter_writes_requested": false,
+    "before": {
+      "canL": {
+        "ifindex": 23,
+        "ifname": "canL",
+        "flags": [
+          "NOARP",
+          "ECHO"
+        ],
+        "mtu": 16,
+        "qdisc": "pfifo_fast",
+        "operstate": "DOWN",
+        "linkmode": "DEFAULT",
+        "group": "default",
+        "txqlen": 128,
+        "link_type": "can",
+        "promiscuity": 0,
+        "min_mtu": 0,
+        "max_mtu": 0,
+        "linkinfo": {
+          "info_kind": "can",
+          "info_data": {
+            "state": "STOPPED",
+            "restart_ms": 100,
+            "bittiming": {
+              "bitrate": 1000000,
+              "sample_point": 0.75,
+              "tq": 62,
+              "prop_seg": 5,
+              "phase_seg1": 6,
+              "phase_seg2": 4,
+              "sjw": 1
+            },
+            "bittiming_const": {
+              "name": "gs_usb",
+              "tseg1": {
+                "min": 1,
+                "max": 16
+              },
+              "tseg2": {
+                "min": 1,
+                "max": 8
+              },
+              "sjw": {
+                "min": 1,
+                "max": 4
+              },
+              "brp": {
+                "min": 1,
+                "max": 1024
+              },
+              "brp_inc": 1
+            },
+            "clock": 48000000
+          },
+          "info_xstats": {
+            "restarts": 0,
+            "bus_error": 0,
+            "arbitration_lost": 0,
+            "error_warning": 0,
+            "error_passive": 0,
+            "bus_off": 0
+          }
+        },
+        "num_tx_queues": 1,
+        "num_rx_queues": 1,
+        "gso_max_size": 65536,
+        "gso_max_segs": 65535,
+        "parentbus": "usb",
+        "parentdev": "1-2.4:1.0",
+        "stats64": {
+          "rx": {
+            "bytes": 10896,
+            "packets": 1362,
+            "errors": 0,
+            "dropped": 0,
+            "over_errors": 0,
+            "multicast": 0
+          },
+          "tx": {
+            "bytes": 10736,
+            "packets": 1342,
+            "errors": 0,
+            "dropped": 10,
+            "carrier_errors": 0,
+            "collisions": 0
+          }
+        }
+      },
+      "canR": {
+        "ifindex": 24,
+        "ifname": "canR",
+        "flags": [
+          "NOARP",
+          "ECHO"
+        ],
+        "mtu": 16,
+        "qdisc": "pfifo_fast",
+        "operstate": "DOWN",
+        "linkmode": "DEFAULT",
+        "group": "default",
+        "txqlen": 128,
+        "link_type": "can",
+        "promiscuity": 0,
+        "min_mtu": 0,
+        "max_mtu": 0,
+        "linkinfo": {
+          "info_kind": "can",
+          "info_data": {
+            "state": "STOPPED",
+            "restart_ms": 100,
+            "bittiming": {
+              "bitrate": 1000000,
+              "sample_point": 0.75,
+              "tq": 62,
+              "prop_seg": 5,
+              "phase_seg1": 6,
+              "phase_seg2": 4,
+              "sjw": 1
+            },
+            "bittiming_const": {
+              "name": "gs_usb",
+              "tseg1": {
+                "min": 1,
+                "max": 16
+              },
+              "tseg2": {
+                "min": 1,
+                "max": 8
+              },
+              "sjw": {
+                "min": 1,
+                "max": 4
+              },
+              "brp": {
+                "min": 1,
+                "max": 1024
+              },
+              "brp_inc": 1
+            },
+            "clock": 48000000
+          },
+          "info_xstats": {
+            "restarts": 0,
+            "bus_error": 0,
+            "arbitration_lost": 0,
+            "error_warning": 0,
+            "error_passive": 0,
+            "bus_off": 0
+          }
+        },
+        "num_tx_queues": 1,
+        "num_rx_queues": 1,
+        "gso_max_size": 65536,
+        "gso_max_segs": 65535,
+        "parentbus": "usb",
+        "parentdev": "1-2.1:1.0",
+        "stats64": {
+          "rx": {
+            "bytes": 10752,
+            "packets": 1344,
+            "errors": 0,
+            "dropped": 0,
+            "over_errors": 0,
+            "multicast": 0
+          },
+          "tx": {
+            "bytes": 10752,
+            "packets": 1344,
+            "errors": 0,
+            "dropped": 0,
+            "carrier_errors": 0,
+            "collisions": 0
+          }
+        }
+      }
+    },
+    "events": [],
+    "identity_verified": true,
+    "reconnections": 0,
+    "rejected_scans": 0,
+    "requested_duration_seconds": 60.0,
+    "raw_frames": "/home/ltr/aizee/device-maintenance/joint-calibration-da9e5b461f2b1151/captures/rh02-provenance-20260925T030145Z/frames.jsonl",
+    "frames": 211,
+    "elapsed_seconds": 60.134987263001676,
+    "median_scan_ms": 284.4439410037012,
+    "max_scan_ms": 294.25500499928603,
+    "before_cleanup": {
+      "canL": {
+        "ifindex": 23,
+        "ifname": "canL",
+        "flags": [
+          "NOARP",
+          "UP",
+          "LOWER_UP",
+          "ECHO"
+        ],
+        "mtu": 16,
+        "qdisc": "pfifo_fast",
+        "operstate": "UP",
+        "linkmode": "DEFAULT",
+        "group": "default",
+        "txqlen": 128,
+        "link_type": "can",
+        "promiscuity": 0,
+        "min_mtu": 0,
+        "max_mtu": 0,
+        "linkinfo": {
+          "info_kind": "can",
+          "info_data": {
+            "state": "ERROR-ACTIVE",
+            "restart_ms": 100,
+            "bittiming": {
+              "bitrate": 1000000,
+              "sample_point": 0.75,
+              "tq": 62,
+              "prop_seg": 5,
+              "phase_seg1": 6,
+              "phase_seg2": 4,
+              "sjw": 1
+            },
+            "bittiming_const": {
+              "name": "gs_usb",
+              "tseg1": {
+                "min": 1,
+                "max": 16
+              },
+              "tseg2": {
+                "min": 1,
+                "max": 8
+              },
+              "sjw": {
+                "min": 1,
+                "max": 4
+              },
+              "brp": {
+                "min": 1,
+                "max": 1024
+              },
+              "brp_inc": 1
+            },
+            "clock": 48000000
+          },
+          "info_xstats": {
+            "restarts": 0,
+            "bus_error": 0,
+            "arbitration_lost": 0,
+            "error_warning": 0,
+            "error_passive": 0,
+            "bus_off": 0
+          }
+        },
+        "num_tx_queues": 1,
+        "num_rx_queues": 1,
+        "gso_max_size": 65536,
+        "gso_max_segs": 65535,
+        "parentbus": "usb",
+        "parentdev": "1-2.4:1.0",
+        "stats64": {
+          "rx": {
+            "bytes": 34792,
+            "packets": 4349,
+            "errors": 0,
+            "dropped": 0,
+            "over_errors": 0,
+            "multicast": 0
+          },
+          "tx": {
+            "bytes": 34552,
+            "packets": 4319,
+            "errors": 0,
+            "dropped": 10,
+            "carrier_errors": 0,
+            "collisions": 0
+          }
+        }
+      },
+      "canR": {
+        "ifindex": 24,
+        "ifname": "canR",
+        "flags": [
+          "NOARP",
+          "UP",
+          "LOWER_UP",
+          "ECHO"
+        ],
+        "mtu": 16,
+        "qdisc": "pfifo_fast",
+        "operstate": "UP",
+        "linkmode": "DEFAULT",
+        "group": "default",
+        "txqlen": 128,
+        "link_type": "can",
+        "promiscuity": 0,
+        "min_mtu": 0,
+        "max_mtu": 0,
+        "linkinfo": {
+          "info_kind": "can",
+          "info_data": {
+            "state": "ERROR-ACTIVE",
+            "restart_ms": 100,
+            "bittiming": {
+              "bitrate": 1000000,
+              "sample_point": 0.75,
+              "tq": 62,
+              "prop_seg": 5,
+              "phase_seg1": 6,
+              "phase_seg2": 4,
+              "sjw": 1
+            },
+            "bittiming_const": {
+              "name": "gs_usb",
+              "tseg1": {
+                "min": 1,
+                "max": 16
+              },
+              "tseg2": {
+                "min": 1,
+                "max": 8
+              },
+              "sjw": {
+                "min": 1,
+                "max": 4
+              },
+              "brp": {
+                "min": 1,
+                "max": 1024
+              },
+              "brp_inc": 1
+            },
+            "clock": 48000000
+          },
+          "info_xstats": {
+            "restarts": 0,
+            "bus_error": 0,
+            "arbitration_lost": 0,
+            "error_warning": 0,
+            "error_passive": 0,
+            "bus_off": 0
+          }
+        },
+        "num_tx_queues": 1,
+        "num_rx_queues": 1,
+        "gso_max_size": 65536,
+        "gso_max_segs": 65535,
+        "parentbus": "usb",
+        "parentdev": "1-2.1:1.0",
+        "stats64": {
+          "rx": {
+            "bytes": 34632,
+            "packets": 4329,
+            "errors": 0,
+            "dropped": 0,
+            "over_errors": 0,
+            "multicast": 0
+          },
+          "tx": {
+            "bytes": 34584,
+            "packets": 4323,
+            "errors": 0,
+            "dropped": 0,
+            "carrier_errors": 0,
+            "collisions": 0
+          }
+        }
+      }
+    },
+    "after": {
+      "canL": {
+        "ifindex": 23,
+        "ifname": "canL",
+        "flags": [
+          "NOARP",
+          "ECHO"
+        ],
+        "mtu": 16,
+        "qdisc": "pfifo_fast",
+        "operstate": "DOWN",
+        "linkmode": "DEFAULT",
+        "group": "default",
+        "txqlen": 128,
+        "link_type": "can",
+        "promiscuity": 0,
+        "min_mtu": 0,
+        "max_mtu": 0,
+        "linkinfo": {
+          "info_kind": "can",
+          "info_data": {
+            "state": "STOPPED",
+            "restart_ms": 100,
+            "bittiming": {
+              "bitrate": 1000000,
+              "sample_point": 0.75,
+              "tq": 62,
+              "prop_seg": 5,
+              "phase_seg1": 6,
+              "phase_seg2": 4,
+              "sjw": 1
+            },
+            "bittiming_const": {
+              "name": "gs_usb",
+              "tseg1": {
+                "min": 1,
+                "max": 16
+              },
+              "tseg2": {
+                "min": 1,
+                "max": 8
+              },
+              "sjw": {
+                "min": 1,
+                "max": 4
+              },
+              "brp": {
+                "min": 1,
+                "max": 1024
+              },
+              "brp_inc": 1
+            },
+            "clock": 48000000
+          },
+          "info_xstats": {
+            "restarts": 0,
+            "bus_error": 0,
+            "arbitration_lost": 0,
+            "error_warning": 0,
+            "error_passive": 0,
+            "bus_off": 0
+          }
+        },
+        "num_tx_queues": 1,
+        "num_rx_queues": 1,
+        "gso_max_size": 65536,
+        "gso_max_segs": 65535,
+        "parentbus": "usb",
+        "parentdev": "1-2.4:1.0",
+        "stats64": {
+          "rx": {
+            "bytes": 34792,
+            "packets": 4349,
+            "errors": 0,
+            "dropped": 0,
+            "over_errors": 0,
+            "multicast": 0
+          },
+          "tx": {
+            "bytes": 34552,
+            "packets": 4319,
+            "errors": 0,
+            "dropped": 15,
+            "carrier_errors": 0,
+            "collisions": 0
+          }
+        }
+      },
+      "canR": {
+        "ifindex": 24,
+        "ifname": "canR",
+        "flags": [
+          "NOARP",
+          "ECHO"
+        ],
+        "mtu": 16,
+        "qdisc": "pfifo_fast",
+        "operstate": "DOWN",
+        "linkmode": "DEFAULT",
+        "group": "default",
+        "txqlen": 128,
+        "link_type": "can",
+        "promiscuity": 0,
+        "min_mtu": 0,
+        "max_mtu": 0,
+        "linkinfo": {
+          "info_kind": "can",
+          "info_data": {
+            "state": "STOPPED",
+            "restart_ms": 100,
+            "bittiming": {
+              "bitrate": 1000000,
+              "sample_point": 0.75,
+              "tq": 62,
+              "prop_seg": 5,
+              "phase_seg1": 6,
+              "phase_seg2": 4,
+              "sjw": 1
+            },
+            "bittiming_const": {
+              "name": "gs_usb",
+              "tseg1": {
+                "min": 1,
+                "max": 16
+              },
+              "tseg2": {
+                "min": 1,
+                "max": 8
+              },
+              "sjw": {
+                "min": 1,
+                "max": 4
+              },
+              "brp": {
+                "min": 1,
+                "max": 1024
+              },
+              "brp_inc": 1
+            },
+            "clock": 48000000
+          },
+          "info_xstats": {
+            "restarts": 0,
+            "bus_error": 0,
+            "arbitration_lost": 0,
+            "error_warning": 0,
+            "error_passive": 0,
+            "bus_off": 0
+          }
+        },
+        "num_tx_queues": 1,
+        "num_rx_queues": 1,
+        "gso_max_size": 65536,
+        "gso_max_segs": 65535,
+        "parentbus": "usb",
+        "parentdev": "1-2.1:1.0",
+        "stats64": {
+          "rx": {
+            "bytes": 34632,
+            "packets": 4329,
+            "errors": 0,
+            "dropped": 0,
+            "over_errors": 0,
+            "multicast": 0
+          },
+          "tx": {
+            "bytes": 34584,
+            "packets": 4323,
+            "errors": 0,
+            "dropped": 3,
+            "carrier_errors": 0,
+            "collisions": 0
+          }
+        }
+      }
+    },
+    "finished_at": "2026-09-25T03:02:47.035686+00:00",
+    "kind": "finished",
+    "runtime_approved": false,
+    "diagnostics": {
+      "modes": {
+        "canL": {
+          "before": {
+            "ifindex": 23,
+            "ifname": "canL",
+            "flags": [
+              "NOARP",
+              "UP",
+              "LOWER_UP",
+              "ECHO"
+            ],
+            "mtu": 16,
+            "qdisc": "pfifo_fast",
+            "operstate": "UP",
+            "linkmode": "DEFAULT",
+            "group": "default",
+            "txqlen": 128,
+            "link_type": "can",
+            "promiscuity": 0,
+            "min_mtu": 0,
+            "max_mtu": 0,
+            "linkinfo": {
+              "info_kind": "can",
+              "info_data": {
+                "state": "ERROR-ACTIVE",
+                "restart_ms": 100,
+                "bittiming": {
+                  "bitrate": 1000000,
+                  "sample_point": 0.75,
+                  "tq": 62,
+                  "prop_seg": 5,
+                  "phase_seg1": 6,
+                  "phase_seg2": 4,
+                  "sjw": 1
+                },
+                "bittiming_const": {
+                  "name": "gs_usb",
+                  "tseg1": {
+                    "min": 1,
+                    "max": 16
+                  },
+                  "tseg2": {
+                    "min": 1,
+                    "max": 8
+                  },
+                  "sjw": {
+                    "min": 1,
+                    "max": 4
+                  },
+                  "brp": {
+                    "min": 1,
+                    "max": 1024
+                  },
+                  "brp_inc": 1
+                },
+                "clock": 48000000
+              },
+              "info_xstats": {
+                "restarts": 0,
+                "bus_error": 0,
+                "arbitration_lost": 0,
+                "error_warning": 0,
+                "error_passive": 0,
+                "bus_off": 0
+              }
+            },
+            "num_tx_queues": 1,
+            "num_rx_queues": 1,
+            "gso_max_size": 65536,
+            "gso_max_segs": 65535,
+            "parentbus": "usb",
+            "parentdev": "1-2.4:1.0",
+            "stats64": {
+              "rx": {
+                "bytes": 10896,
+                "packets": 1362,
+                "errors": 0,
+                "dropped": 0,
+                "over_errors": 0,
+                "multicast": 0
+              },
+              "tx": {
+                "bytes": 10736,
+                "packets": 1342,
+                "errors": 0,
+                "dropped": 10,
+                "carrier_errors": 0,
+                "collisions": 0
+              }
+            }
+          },
+          "original_berr": false,
+          "enable_error": "RTNETLINK answers: Operation not supported",
+          "during": {
+            "ifindex": 23,
+            "ifname": "canL",
+            "flags": [
+              "NOARP",
+              "UP",
+              "LOWER_UP",
+              "ECHO"
+            ],
+            "mtu": 16,
+            "qdisc": "pfifo_fast",
+            "operstate": "UP",
+            "linkmode": "DEFAULT",
+            "group": "default",
+            "txqlen": 128,
+            "link_type": "can",
+            "promiscuity": 0,
+            "min_mtu": 0,
+            "max_mtu": 0,
+            "linkinfo": {
+              "info_kind": "can",
+              "info_data": {
+                "state": "ERROR-ACTIVE",
+                "restart_ms": 100,
+                "bittiming": {
+                  "bitrate": 1000000,
+                  "sample_point": 0.75,
+                  "tq": 62,
+                  "prop_seg": 5,
+                  "phase_seg1": 6,
+                  "phase_seg2": 4,
+                  "sjw": 1
+                },
+                "bittiming_const": {
+                  "name": "gs_usb",
+                  "tseg1": {
+                    "min": 1,
+                    "max": 16
+                  },
+                  "tseg2": {
+                    "min": 1,
+                    "max": 8
+                  },
+                  "sjw": {
+                    "min": 1,
+                    "max": 4
+                  },
+                  "brp": {
+                    "min": 1,
+                    "max": 1024
+                  },
+                  "brp_inc": 1
+                },
+                "clock": 48000000
+              },
+              "info_xstats": {
+                "restarts": 0,
+                "bus_error": 0,
+                "arbitration_lost": 0,
+                "error_warning": 0,
+                "error_passive": 0,
+                "bus_off": 0
+              }
+            },
+            "num_tx_queues": 1,
+            "num_rx_queues": 1,
+            "gso_max_size": 65536,
+            "gso_max_segs": 65535,
+            "parentbus": "usb",
+            "parentdev": "1-2.4:1.0",
+            "stats64": {
+              "rx": {
+                "bytes": 10896,
+                "packets": 1362,
+                "errors": 0,
+                "dropped": 0,
+                "over_errors": 0,
+                "multicast": 0
+              },
+              "tx": {
+                "bytes": 10736,
+                "packets": 1342,
+                "errors": 0,
+                "dropped": 10,
+                "carrier_errors": 0,
+                "collisions": 0
+              }
+            }
+          },
+          "berr_active": false,
+          "restored": {
+            "ifindex": 23,
+            "ifname": "canL",
+            "flags": [
+              "NOARP",
+              "ECHO"
+            ],
+            "mtu": 16,
+            "qdisc": "pfifo_fast",
+            "operstate": "DOWN",
+            "linkmode": "DEFAULT",
+            "group": "default",
+            "txqlen": 128,
+            "link_type": "can",
+            "promiscuity": 0,
+            "min_mtu": 0,
+            "max_mtu": 0,
+            "linkinfo": {
+              "info_kind": "can",
+              "info_data": {
+                "state": "STOPPED",
+                "restart_ms": 100,
+                "bittiming": {
+                  "bitrate": 1000000,
+                  "sample_point": 0.75,
+                  "tq": 62,
+                  "prop_seg": 5,
+                  "phase_seg1": 6,
+                  "phase_seg2": 4,
+                  "sjw": 1
+                },
+                "bittiming_const": {
+                  "name": "gs_usb",
+                  "tseg1": {
+                    "min": 1,
+                    "max": 16
+                  },
+                  "tseg2": {
+                    "min": 1,
+                    "max": 8
+                  },
+                  "sjw": {
+                    "min": 1,
+                    "max": 4
+                  },
+                  "brp": {
+                    "min": 1,
+                    "max": 1024
+                  },
+                  "brp_inc": 1
+                },
+                "clock": 48000000
+              },
+              "info_xstats": {
+                "restarts": 0,
+                "bus_error": 0,
+                "arbitration_lost": 0,
+                "error_warning": 0,
+                "error_passive": 0,
+                "bus_off": 0
+              }
+            },
+            "num_tx_queues": 1,
+            "num_rx_queues": 1,
+            "gso_max_size": 65536,
+            "gso_max_segs": 65535,
+            "parentbus": "usb",
+            "parentdev": "1-2.4:1.0",
+            "stats64": {
+              "rx": {
+                "bytes": 34792,
+                "packets": 4349,
+                "errors": 0,
+                "dropped": 0,
+                "over_errors": 0,
+                "multicast": 0
+              },
+              "tx": {
+                "bytes": 34552,
+                "packets": 4319,
+                "errors": 0,
+                "dropped": 15,
+                "carrier_errors": 0,
+                "collisions": 0
+              }
+            }
+          },
+          "restore_verified": true
+        },
+        "canR": {
+          "before": {
+            "ifindex": 24,
+            "ifname": "canR",
+            "flags": [
+              "NOARP",
+              "UP",
+              "LOWER_UP",
+              "ECHO"
+            ],
+            "mtu": 16,
+            "qdisc": "pfifo_fast",
+            "operstate": "UP",
+            "linkmode": "DEFAULT",
+            "group": "default",
+            "txqlen": 128,
+            "link_type": "can",
+            "promiscuity": 0,
+            "min_mtu": 0,
+            "max_mtu": 0,
+            "linkinfo": {
+              "info_kind": "can",
+              "info_data": {
+                "state": "ERROR-ACTIVE",
+                "restart_ms": 100,
+                "bittiming": {
+                  "bitrate": 1000000,
+                  "sample_point": 0.75,
+                  "tq": 62,
+                  "prop_seg": 5,
+                  "phase_seg1": 6,
+                  "phase_seg2": 4,
+                  "sjw": 1
+                },
+                "bittiming_const": {
+                  "name": "gs_usb",
+                  "tseg1": {
+                    "min": 1,
+                    "max": 16
+                  },
+                  "tseg2": {
+                    "min": 1,
+                    "max": 8
+                  },
+                  "sjw": {
+                    "min": 1,
+                    "max": 4
+                  },
+                  "brp": {
+                    "min": 1,
+                    "max": 1024
+                  },
+                  "brp_inc": 1
+                },
+                "clock": 48000000
+              },
+              "info_xstats": {
+                "restarts": 0,
+                "bus_error": 0,
+                "arbitration_lost": 0,
+                "error_warning": 0,
+                "error_passive": 0,
+                "bus_off": 0
+              }
+            },
+            "num_tx_queues": 1,
+            "num_rx_queues": 1,
+            "gso_max_size": 65536,
+            "gso_max_segs": 65535,
+            "parentbus": "usb",
+            "parentdev": "1-2.1:1.0",
+            "stats64": {
+              "rx": {
+                "bytes": 10752,
+                "packets": 1344,
+                "errors": 0,
+                "dropped": 0,
+                "over_errors": 0,
+                "multicast": 0
+              },
+              "tx": {
+                "bytes": 10752,
+                "packets": 1344,
+                "errors": 0,
+                "dropped": 0,
+                "carrier_errors": 0,
+                "collisions": 0
+              }
+            }
+          },
+          "original_berr": false,
+          "enable_error": "RTNETLINK answers: Operation not supported",
+          "during": {
+            "ifindex": 24,
+            "ifname": "canR",
+            "flags": [
+              "NOARP",
+              "UP",
+              "LOWER_UP",
+              "ECHO"
+            ],
+            "mtu": 16,
+            "qdisc": "pfifo_fast",
+            "operstate": "UP",
+            "linkmode": "DEFAULT",
+            "group": "default",
+            "txqlen": 128,
+            "link_type": "can",
+            "promiscuity": 0,
+            "min_mtu": 0,
+            "max_mtu": 0,
+            "linkinfo": {
+              "info_kind": "can",
+              "info_data": {
+                "state": "ERROR-ACTIVE",
+                "restart_ms": 100,
+                "bittiming": {
+                  "bitrate": 1000000,
+                  "sample_point": 0.75,
+                  "tq": 62,
+                  "prop_seg": 5,
+                  "phase_seg1": 6,
+                  "phase_seg2": 4,
+                  "sjw": 1
+                },
+                "bittiming_const": {
+                  "name": "gs_usb",
+                  "tseg1": {
+                    "min": 1,
+                    "max": 16
+                  },
+                  "tseg2": {
+                    "min": 1,
+                    "max": 8
+                  },
+                  "sjw": {
+                    "min": 1,
+                    "max": 4
+                  },
+                  "brp": {
+                    "min": 1,
+                    "max": 1024
+                  },
+                  "brp_inc": 1
+                },
+                "clock": 48000000
+              },
+              "info_xstats": {
+                "restarts": 0,
+                "bus_error": 0,
+                "arbitration_lost": 0,
+                "error_warning": 0,
+                "error_passive": 0,
+                "bus_off": 0
+              }
+            },
+            "num_tx_queues": 1,
+            "num_rx_queues": 1,
+            "gso_max_size": 65536,
+            "gso_max_segs": 65535,
+            "parentbus": "usb",
+            "parentdev": "1-2.1:1.0",
+            "stats64": {
+              "rx": {
+                "bytes": 10752,
+                "packets": 1344,
+                "errors": 0,
+                "dropped": 0,
+                "over_errors": 0,
+                "multicast": 0
+              },
+              "tx": {
+                "bytes": 10752,
+                "packets": 1344,
+                "errors": 0,
+                "dropped": 0,
+                "carrier_errors": 0,
+                "collisions": 0
+              }
+            }
+          },
+          "berr_active": false,
+          "restored": {
+            "ifindex": 24,
+            "ifname": "canR",
+            "flags": [
+              "NOARP",
+              "ECHO"
+            ],
+            "mtu": 16,
+            "qdisc": "pfifo_fast",
+            "operstate": "DOWN",
+            "linkmode": "DEFAULT",
+            "group": "default",
+            "txqlen": 128,
+            "link_type": "can",
+            "promiscuity": 0,
+            "min_mtu": 0,
+            "max_mtu": 0,
+            "linkinfo": {
+              "info_kind": "can",
+              "info_data": {
+                "state": "STOPPED",
+                "restart_ms": 100,
+                "bittiming": {
+                  "bitrate": 1000000,
+                  "sample_point": 0.75,
+                  "tq": 62,
+                  "prop_seg": 5,
+                  "phase_seg1": 6,
+                  "phase_seg2": 4,
+                  "sjw": 1
+                },
+                "bittiming_const": {
+                  "name": "gs_usb",
+                  "tseg1": {
+                    "min": 1,
+                    "max": 16
+                  },
+                  "tseg2": {
+                    "min": 1,
+                    "max": 8
+                  },
+                  "sjw": {
+                    "min": 1,
+                    "max": 4
+                  },
+                  "brp": {
+                    "min": 1,
+                    "max": 1024
+                  },
+                  "brp_inc": 1
+                },
+                "clock": 48000000
+              },
+              "info_xstats": {
+                "restarts": 0,
+                "bus_error": 0,
+                "arbitration_lost": 0,
+                "error_warning": 0,
+                "error_passive": 0,
+                "bus_off": 0
+              }
+            },
+            "num_tx_queues": 1,
+            "num_rx_queues": 1,
+            "gso_max_size": 65536,
+            "gso_max_segs": 65535,
+            "parentbus": "usb",
+            "parentdev": "1-2.1:1.0",
+            "stats64": {
+              "rx": {
+                "bytes": 34632,
+                "packets": 4329,
+                "errors": 0,
+                "dropped": 0,
+                "over_errors": 0,
+                "multicast": 0
+              },
+              "tx": {
+                "bytes": 34584,
+                "packets": 4323,
+                "errors": 0,
+                "dropped": 3,
+                "carrier_errors": 0,
+                "collisions": 0
+              }
+            }
+          },
+          "restore_verified": true
+        }
+      },
+      "error_frames": 0,
+      "observer_errors": [],
+      "restore_errors": []
+    },
+    "scope": "Both adapters; stopped reads; 60-second maximum; no retry; temporary BERR reporting",
+    "socket_provenance": "/home/ltr/aizee/device-maintenance/joint-calibration-da9e5b461f2b1151/captures/rh02-provenance-20260925T030145Z/socket-provenance.jsonl",
+    "raw_provenance": "/home/ltr/aizee/device-maintenance/joint-calibration-da9e5b461f2b1151/captures/rh02-provenance-20260925T030145Z/socket-provenance.jsonl",
+    "raw_errors": "/home/ltr/aizee/device-maintenance/joint-calibration-da9e5b461f2b1151/captures/rh02-provenance-20260925T030145Z/can-errors.jsonl",
+    "raw_report": "/home/ltr/aizee/device-maintenance/joint-calibration-da9e5b461f2b1151/captures/rh02-provenance-20260925T030145Z/report.json",
+    "reader_source_revision": "da9e5b461f2b11512675c8c33cc94bdbbecc99adfd4adc85be0917cada2dfd9e",
+    "worker_sha256": "cb4a0406cd80b83f29695528af3141dac2f81690ec09fd2829215f8860150c2a",
+    "usb_inventory": {
+      "canL": {
+        "usb_path": "1-2.4",
+        "idVendor": "1d50",
+        "idProduct": "606f",
+        "serial": "004D002C4730511520303650",
+        "manufacturer": "Jhoinrch",
+        "product": "RH02 gs_usb",
+        "configuration": "fw_85e5b33_2026-09-17"
+      },
+      "canR": {
+        "usb_path": "1-2.1",
+        "idVendor": "1d50",
+        "idProduct": "606f",
+        "serial": "0021002F4D53530920303937",
+        "manufacturer": "Jhoinrch",
+        "product": "RH02 gs_usb",
+        "configuration": "fw_85e5b33_2026-09-17"
+      }
+    },
+    "operator_duration_limit": "60-second diagnostic; operator explicitly declined a full 30-minute test",
+    "operator_hardware_change": "Operator removed the short USB 3.0 cable from the left adapter; right cable remains. Left termination last reported OFF.",
+    "kernel_capture_success": true,
+    "kernel_warnings": [],
+    "unexpected_outgoing_frames_received": [
+      {
+        "direction": "rx",
+        "bus": "canR",
+        "id": 2214636040,
+        "data": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "at": 39758.655273809
+      },
+      {
+        "direction": "rx",
+        "bus": "canR",
+        "id": 2214636039,
+        "data": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "at": 39770.886021634
+      },
+      {
+        "direction": "rx",
+        "bus": "canL",
+        "id": 2432739849,
+        "data": [
+          25,
+          112,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "at": 39782.483083343
+      },
+      {
+        "direction": "rx",
+        "bus": "canR",
+        "id": 2214636038,
+        "data": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "at": 39787.399811242
+      },
+      {
+        "direction": "rx",
+        "bus": "canL",
+        "id": 2432739846,
+        "data": [
+          25,
+          112,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "at": 39797.811060159
+      },
+      {
+        "direction": "rx",
+        "bus": "canL",
+        "id": 2432739847,
+        "data": [
+          25,
+          112,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "at": 39798.401270906
+      },
+      {
+        "direction": "rx",
+        "bus": "canL",
+        "id": 2432739845,
+        "data": [
+          25,
+          112,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "at": 39805.773221155
+      },
+      {
+        "direction": "rx",
+        "bus": "canL",
+        "id": 2432739845,
+        "data": [
+          25,
+          112,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "at": 39810.048670837
+      }
+    ],
+    "p99_scan_ms": 285.6957690019044,
+    "transport_clean": false
+  },
+  "counter_deltas": {
+    "canL": {
+      "during_run": {
+        "rx": {
+          "errors": 0,
+          "dropped": 0
+        },
+        "tx": {
+          "errors": 0,
+          "dropped": 0
+        },
+        "can": {
+          "restarts": 0,
+          "bus_error": 0,
+          "arbitration_lost": 0,
+          "error_warning": 0,
+          "error_passive": 0,
+          "bus_off": 0
+        }
+      },
+      "cleanup": {
+        "rx": {
+          "errors": 0,
+          "dropped": 0
+        },
+        "tx": {
+          "errors": 0,
+          "dropped": 5
+        },
+        "can": {
+          "restarts": 0,
+          "bus_error": 0,
+          "arbitration_lost": 0,
+          "error_warning": 0,
+          "error_passive": 0,
+          "bus_off": 0
+        }
+      }
+    },
+    "canR": {
+      "during_run": {
+        "rx": {
+          "errors": 0,
+          "dropped": 0
+        },
+        "tx": {
+          "errors": 0,
+          "dropped": 0
+        },
+        "can": {
+          "restarts": 0,
+          "bus_error": 0,
+          "arbitration_lost": 0,
+          "error_warning": 0,
+          "error_passive": 0,
+          "bus_off": 0
+        }
+      },
+      "cleanup": {
+        "rx": {
+          "errors": 0,
+          "dropped": 0
+        },
+        "tx": {
+          "errors": 0,
+          "dropped": 3
+        },
+        "can": {
+          "restarts": 0,
+          "bus_error": 0,
+          "arbitration_lost": 0,
+          "error_warning": 0,
+          "error_passive": 0,
+          "bus_off": 0
+        }
+      }
+    }
+  },
+  "received_command_copies": [
+    {
+      "kind": "receive",
+      "bus": "canR",
+      "phase": "transaction",
+      "at": 39758.655171629,
+      "message_flags": 0,
+      "local_origin": false,
+      "own_transmission": false,
+      "raw_hex": "08aa0084080000000000000000000000",
+      "id": 2214636040,
+      "size": 8,
+      "data": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "error_frame": false,
+      "address": [
+        "canR"
+      ]
+    },
+    {
+      "kind": "receive",
+      "bus": "canR",
+      "phase": "transaction",
+      "at": 39770.885951743,
+      "message_flags": 0,
+      "local_origin": false,
+      "own_transmission": false,
+      "raw_hex": "07aa0084080000000000000000000000",
+      "id": 2214636039,
+      "size": 8,
+      "data": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "error_frame": false,
+      "address": [
+        "canR"
+      ]
+    },
+    {
+      "kind": "receive",
+      "bus": "canL",
+      "phase": "transaction",
+      "at": 39782.48299246,
+      "message_flags": 0,
+      "local_origin": false,
+      "own_transmission": false,
+      "raw_hex": "09aa0091080000001970000000000000",
+      "id": 2432739849,
+      "size": 8,
+      "data": [
+        25,
+        112,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "error_frame": false,
+      "address": [
+        "canL"
+      ]
+    },
+    {
+      "kind": "receive",
+      "bus": "canR",
+      "phase": "transaction",
+      "at": 39787.399743112,
+      "message_flags": 0,
+      "local_origin": false,
+      "own_transmission": false,
+      "raw_hex": "06aa0084080000000000000000000000",
+      "id": 2214636038,
+      "size": 8,
+      "data": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "error_frame": false,
+      "address": [
+        "canR"
+      ]
+    },
+    {
+      "kind": "receive",
+      "bus": "canL",
+      "phase": "transaction",
+      "at": 39797.810990076,
+      "message_flags": 0,
+      "local_origin": false,
+      "own_transmission": false,
+      "raw_hex": "06aa0091080000001970000000000000",
+      "id": 2432739846,
+      "size": 8,
+      "data": [
+        25,
+        112,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "error_frame": false,
+      "address": [
+        "canL"
+      ]
+    },
+    {
+      "kind": "receive",
+      "bus": "canL",
+      "phase": "transaction",
+      "at": 39798.401200311,
+      "message_flags": 0,
+      "local_origin": false,
+      "own_transmission": false,
+      "raw_hex": "07aa0091080000001970000000000000",
+      "id": 2432739847,
+      "size": 8,
+      "data": [
+        25,
+        112,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "error_frame": false,
+      "address": [
+        "canL"
+      ]
+    },
+    {
+      "kind": "receive",
+      "bus": "canL",
+      "phase": "transaction",
+      "at": 39805.773148928,
+      "message_flags": 0,
+      "local_origin": false,
+      "own_transmission": false,
+      "raw_hex": "05aa0091080000001970000000000000",
+      "id": 2432739845,
+      "size": 8,
+      "data": [
+        25,
+        112,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "error_frame": false,
+      "address": [
+        "canL"
+      ]
+    },
+    {
+      "kind": "receive",
+      "bus": "canL",
+      "phase": "transaction",
+      "at": 39810.048599762,
+      "message_flags": 0,
+      "local_origin": false,
+      "own_transmission": false,
+      "raw_hex": "05aa0091080000001970000000000000",
+      "id": 2432739845,
+      "size": 8,
+      "data": [
+        25,
+        112,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "error_frame": false,
+      "address": [
+        "canL"
+      ]
+    }
+  ],
+  "received_command_copy_counts": {
+    "canR": 3,
+    "canL": 5
+  },
+  "provenance_counts": {
+    "(False, False)": 8
+  },
+  "can_errors": [],
+  "local_artifacts": {
+    "simulation_runs/rh02-provenance-20260925T030145Z/can-errors.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "simulation_runs/rh02-provenance-20260925T030145Z/frames.jsonl": {
+      "bytes": 1991307,
+      "sha256": "f9a162e1d824a3ef6f2dbb68112f5e958341fe720e9fa6a41eeab264ee682062"
+    },
+    "simulation_runs/rh02-provenance-20260925T030145Z/kernel.log": {
+      "bytes": 18,
+      "sha256": "3b7ce719ccb275acfc910553ac4a0f4393d9203136818f5bc7b6f459be4a2ed5"
+    },
+    "simulation_runs/rh02-provenance-20260925T030145Z/normal-boot.json": {
+      "bytes": 503,
+      "sha256": "ebce6468d6cd13f58240681aed624f8058b3fbd5cd3ceb65723977f7c9abba04"
+    },
+    "simulation_runs/rh02-provenance-20260925T030145Z/progress.jsonl": {
+      "bytes": 16913,
+      "sha256": "bc473e5726b49779186a072f88a1826851847881812437953bd4aa693dad7cc6"
+    },
+    "simulation_runs/rh02-provenance-20260925T030145Z/report.json": {
+      "bytes": 32222,
+      "sha256": "312165d7ceddbfcd7c3779ff6c9aa07462f0902608c8c9b6c39c7829dbaf10f0"
+    },
+    "simulation_runs/rh02-provenance-20260925T030145Z/socket-provenance.jsonl": {
+      "bytes": 2599036,
+      "sha256": "a2d6e71f8e64e0e69e9a5804e8f5d058e6e3f42083b123b588b5f0e0397aca0d"
+    }
+  },
+  "limitations": [
+    "Additional synchronous logging adds overhead; this is not a control-loop throughput benchmark.",
+    "No error frames in a short capture would not prove electrical integrity.",
+    "Socket receive flags do not expose USB echo ID, USB transfer length or completion status."
+  ]
+}

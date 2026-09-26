@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "at_utc": "2026-09-26T01:13:15.759030+00:00",
+  "request": "Rotate the visualization camera 180 degrees to match the operator view of the hanging arms.",
+  "profile_path": "config/devices/gello-dual-viewer.json",
+  "previous_profile_sha256": "24974a87c6383d00deb3046d5dd3a145ec9d60a7a2c42bd6669f3cb3a4ed8f5e",
+  "profile_sha256": "197dded50edfc08c91a3ae11073ab949c9aeb78bdb1afb2394c048ce3a245333",
+  "previous_front_direction": [
+    0,
+    -1,
+    0
+  ],
+  "front_direction": [
+    0,
+    1,
+    0
+  ],
+  "display_calibration_path": "calibration_runs/gello-dual/display.json",
+  "previous_display_calibration_sha256": "f8aed74263e180fd77bc9725d79694aabc63bd188d38cd4250f1eb3fc7f5fca9",
+  "display_calibration_sha256": "5781cefa1547ccadb3adcf20004fe198a08790465e6466fcaf241b70695a1226",
+  "calibration_backup_path": "calibration_runs/gello-dual/display.before-camera-180-20260926T011315.713951Z.json",
+  "profile_backup_path": "calibration_runs/gello-dual/profile.before-camera-180-20260926T011315.713951Z.json",
+  "changes": [
+    "Default and Fit derive their camera azimuth from profile.front_direction.",
+    "Front and Top derive orientation from the same profile direction.",
+    "Saved display reference profile hash migrated after verifying the only profile change is front_direction."
+  ],
+  "preserved": [
+    "All joint axes, link vectors, fixed transforms, mounting fixtures and USB identities.",
+    "All 14 saved zero_rad values and direction settings.",
+    "display_only=true and runtime_approved=false."
+  ],
+  "reference_recaptured": false,
+  "physical_commands_sent": false,
+  "hardware_or_usb_access": false,
+  "validation": {
+    "javascript_syntax": "passed",
+    "camera_geometry": "All three views exactly reverse horizontal camera components while retaining elevation; arbitrary direction normalization and legacy default passed.",
+    "profile_change_scope": "Only front_direction changed.",
+    "calibration_change_scope": "Only profile_sha256 changed."
+  },
+  "viewer_restart": "Required; root agent owns restart and browser verification."
+}

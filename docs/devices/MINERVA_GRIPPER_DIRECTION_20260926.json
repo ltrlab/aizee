@@ -1,0 +1,164 @@
+{
+  "at_utc": "2026-09-26T00:19:07.151658+00:00",
+  "operator_action": "Left gripper opened gently by hand; right left fully closed.",
+  "closed_raw_positions": {
+    "left_arm_j1": -0.08897087723016739,
+    "left_arm_j2": 0.0020879374351352453,
+    "left_arm_j3": -0.036730341613292694,
+    "left_arm_j4": -4.949877256876789e-05,
+    "left_arm_j5": 0.05789541080594063,
+    "left_arm_j6": -0.02577085606753826,
+    "left_gripper": -0.00011506080772960559,
+    "right_arm_j1": 0.24143153429031372,
+    "right_arm_j2": -0.007286409381777048,
+    "right_arm_j3": 0.013294537551701069,
+    "right_arm_j4": -0.02964044362306595,
+    "right_arm_j5": -0.17002439498901367,
+    "right_arm_j6": -0.000728607177734375,
+    "right_gripper": -0.0001533985196147114
+  },
+  "closed_sequence": 1394,
+  "opened_frame": {
+    "kind": "positions",
+    "request_id": "ef9195a8609b4b9b8f59f55f401b8c0c",
+    "sequence": 1861,
+    "request_nonce": "f81814d46648448aa26f22af0dcec192",
+    "asset_id": "minerva-production-01",
+    "scan_seconds": 0.2736515260039596,
+    "motors": [
+      {
+        "name": "left_arm_j1",
+        "bus": "canL",
+        "id": 4,
+        "uid": "3c56300214713704",
+        "firmware": "0.3.1.30",
+        "position_rad": -0.08909872174263,
+        "reset_confirmed": true
+      },
+      {
+        "name": "left_arm_j2",
+        "bus": "canL",
+        "id": 5,
+        "uid": "a5493bc000203018",
+        "firmware": "0.4.1.32",
+        "position_rad": 0.0005113283987157047,
+        "reset_confirmed": true
+      },
+      {
+        "name": "left_arm_j3",
+        "bus": "canL",
+        "id": 6,
+        "uid": "797a30020c323817",
+        "firmware": "0.3.1.42",
+        "position_rad": -0.03621901571750641,
+        "reset_confirmed": true
+      },
+      {
+        "name": "left_arm_j4",
+        "bus": "canL",
+        "id": 7,
+        "uid": "a5283b8f2450b00e",
+        "firmware": "0.2.3.34",
+        "position_rad": 0.006779209244996309,
+        "reset_confirmed": true
+      },
+      {
+        "name": "left_arm_j5",
+        "bus": "canL",
+        "id": 8,
+        "uid": "3e4330021c40b614",
+        "firmware": "0.2.3.34",
+        "position_rad": 0.04973066970705986,
+        "reset_confirmed": true
+      },
+      {
+        "name": "left_arm_j6",
+        "bus": "canL",
+        "id": 9,
+        "uid": "2f3d30031064b401",
+        "firmware": "0.0.3.32",
+        "position_rad": -0.007133007049560547,
+        "reset_confirmed": true
+      },
+      {
+        "name": "left_gripper",
+        "bus": "canL",
+        "id": 10,
+        "uid": "1057300214713506",
+        "firmware": "0.0.3.32",
+        "position_rad": 2.4869282245635986,
+        "reset_confirmed": true
+      },
+      {
+        "name": "right_arm_j1",
+        "bus": "canR",
+        "id": 4,
+        "uid": "4e8230021471b10a",
+        "firmware": "0.3.1.30",
+        "position_rad": 0.24143153429031372,
+        "reset_confirmed": true
+      },
+      {
+        "name": "right_arm_j2",
+        "bus": "canR",
+        "id": 5,
+        "uid": "4fa930020c34380b",
+        "firmware": "0.4.1.24",
+        "position_rad": -0.007243799045681953,
+        "reset_confirmed": true
+      },
+      {
+        "name": "right_arm_j3",
+        "bus": "canR",
+        "id": 6,
+        "uid": "379b93c79c90b014",
+        "firmware": "0.3.1.37",
+        "position_rad": 0.013294537551701069,
+        "reset_confirmed": true
+      },
+      {
+        "name": "right_arm_j4",
+        "bus": "canR",
+        "id": 7,
+        "uid": "3d93302110703018",
+        "firmware": "0.2.3.34",
+        "position_rad": -0.029541507363319397,
+        "reset_confirmed": true
+      },
+      {
+        "name": "right_arm_j5",
+        "bus": "canR",
+        "id": 8,
+        "uid": "0965302110703016",
+        "firmware": "0.2.3.34",
+        "position_rad": -0.17002439498901367,
+        "reset_confirmed": true
+      },
+      {
+        "name": "right_arm_j6",
+        "bus": "canR",
+        "id": 9,
+        "uid": "961430020c343701",
+        "firmware": "0.0.3.32",
+        "position_rad": -0.000728607177734375,
+        "reset_confirmed": true
+      },
+      {
+        "name": "right_gripper",
+        "bus": "canR",
+        "id": 10,
+        "uid": "632f93c79c90b00e",
+        "firmware": "0.0.3.32",
+        "position_rad": -0.0001917362242238596,
+        "reset_confirmed": true
+      }
+    ],
+    "enable_requested": false,
+    "parameter_writes_requested": false
+  },
+  "remote_journal": "/home/ltr/aizee/device-maintenance/joint-calibration-da9e5b461f2b1151/captures/20260926T001000.990192Z-frames.jsonl",
+  "delta_left_rad": 2.4870432853713282,
+  "delta_right_rad": -3.8337704609148204e-05,
+  "motor_enable_requested": false,
+  "parameter_writes_requested": false
+}

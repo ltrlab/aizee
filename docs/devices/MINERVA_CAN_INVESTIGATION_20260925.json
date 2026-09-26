@@ -1,0 +1,132 @@
+{
+  "at_utc": "2026-09-26T00:07:41.603746+00:00",
+  "asset_id": "minerva-production-01",
+  "operator_cable_state": "Left short USB cable restored; right remains attached.",
+  "resistance": {
+    "left_ohms": 60,
+    "right_ohms": 60,
+    "motor_supply_off": true,
+    "usb_power_disconnected": true,
+    "accepted_as_unpowered_measurement": true,
+    "source": "Operator confirms both remain 60 ohms each unplugged and unpowered.",
+    "interpretation": "Aggregate resistance matches two 120 ohm terminators in parallel; does not establish their placement or clear other electrical faults."
+  },
+  "runtime_state": "After the operator reseated the left gripper, all 14 motors passed checks and 211 dual stopped scans completed in 60.124 s. No echo/CAN/kernel errors, counter drops or reconnects. BERR restored OFF and links down. Clean short pass; longer-term reliability and control rate are not qualified.",
+  "new_can_traffic_performed": true,
+  "motor_enable_requested": false,
+  "motor_parameter_writes_requested": false,
+  "firmware_flashed": false,
+  "long_endurance_test_performed": false,
+  "kernel": "5.15.185-tegra",
+  "original_module_sha256": "8ff2f6fadea5b591a20976fa7114b2823e4c10aa048a979b347f9356acc0105e",
+  "candidate_module_sha256": "e3153247afcc9c2468c353015fc01f5821fc6bef430c1e6d2d79eae210269323",
+  "source_and_build_checks": {
+    "baseline_instructions_match": 1410,
+    "baseline_relocations_match": 201,
+    "reproduced_source_hash_verified": true,
+    "candidate_crc_count": 49,
+    "matching_stock_crc_count": 21,
+    "independent_source_review": "No actionable introduced defects found",
+    "installer_offline_tests_passed": 18
+  },
+  "lead_status": {
+    "driver": "Loaded candidate completed a 60-second dual stopped comparison cleanly with BERR enabled; 2,982 TX/RX per bus, no cleanup drops. Root cause and endurance remain unproven.",
+    "firmware": "Similar published races already fixed in installed revision; no new reproducible defect established.",
+    "usb": "Both recorded adapters reconnected at left1-2.4/right1-2.1, runtime autosuspend disabled. No driver warnings in brief exchange; electrical/host-controller trigger unresolved.",
+    "can_physical": "Both buses measured 60 ohms fully unpowered. Left ID 10 availability recovered after reseating; all 14 responded on repeat. No CAN errors in the 60-second BERR-enabled test; terminator placement and grounds are not independently verified."
+  },
+  "evidence": {
+    "simulation_runs/gs-usb-backport-20260925/baseline-comparison.json": "eff3d3a6a220f060a27d2de09ede0cbcb10bdc2974c4000714dd352f22483fda",
+    "simulation_runs/gs-usb-backport-20260925/kernel-abi.json": "1d337dbfd3c26f4ac0989ff860b39c6a052ee0f213ba3ddfeceb891c971389d7",
+    "simulation_runs/gs-usb-backport-20260925/staging-check.json": "ea982873755bbc8f7d86bd67adc77e5cf92547b4d98f549126d8675c76b4956c",
+    "simulation_runs/gs-usb-backport-20260925/candidate-full/build-receipt.json": "885d1479a785ea9d3c4ddc4fe42ad76d80724d51ef6e315f9a2f5bb377b7bed6",
+    "simulation_runs/rh02-leads-20260925T031025Z/inventory.json": "cd70296947a7bb066562390e1b798fed4bde2354eb728bfaf9145f080afc0f0d",
+    "simulation_runs/gs-usb-backport-20260925/operator-retry-check.json": "db8255bd31fc4492ffd380a85b5be0b0637d7010a320bd972102dff101b4dd9a",
+    "simulation_runs/gs-usb-backport-20260925/post-install-boot.json": "cf5ef45b233e4eda007e0fcf535ac67ba44c25d81c54ddd01f2fa6592dbe7a68"
+  },
+  "previous_snapshot_at_utc": "2026-09-26T00:03:09.506994+00:00",
+  "resistance_history": [
+    {
+      "left_ohms": 60,
+      "right_ohms": 60,
+      "motor_supply_off": true,
+      "usb_power_disconnected": false,
+      "accepted_as_unpowered_measurement": false,
+      "repeat_requested": "Motor supply off, both adapter USB unplugged, CAN wires and switches unchanged.",
+      "interpretation": "Initial measurement: USB remained powered; not accepted as fully unpowered."
+    }
+  ],
+  "operator_install_attempt": {
+    "result": "Preflight refused before any installation or reboot.",
+    "attached_interfaces": [
+      "1-2.4:1.0",
+      "1-2.1:1.0"
+    ],
+    "windows_ssh": "OpenSSH refused workspace key because of its ACL. Password login and sudo authentication succeeded.",
+    "retry": "Keep motor power off and adapter USB disconnected; use explicit password authentication for SSH, then the same pinned installer and clean reboot."
+  },
+  "installation": {
+    "records": {
+      "20260925T033923.485497Z-install.json": {
+        "at_utc": "20260925T033923.485497Z",
+        "action": "install",
+        "asset_id": "minerva-production-01",
+        "boot_id": "fad104c4-6ec4-4ee6-b371-8f87bbaa79b9",
+        "original_sha256": "8ff2f6fadea5b591a20976fa7114b2823e4c10aa048a979b347f9356acc0105e",
+        "candidate_sha256": "e3153247afcc9c2468c353015fc01f5821fc6bef430c1e6d2d79eae210269323",
+        "hot_module_reload_performed": false,
+        "reboot_performed": false,
+        "selected_module": "/usr/lib/modules/5.15.185-tegra/updates/aizee/gs_usb.ko",
+        "reboot_required": true
+      }
+    },
+    "post_reboot_boot_id": "b5206e44-4643-461e-a81a-f8121c8e24a3",
+    "verified_at_utc": "2026-09-25T03:40:46.108645+00:00",
+    "selected_module": "/lib/modules/5.15.185-tegra/updates/aizee/gs_usb.ko",
+    "original_and_backup_verified": true,
+    "controllers": {
+      "aizee-minerva-left": {
+        "MainPID": "0",
+        "ActiveState": "inactive",
+        "UnitFileState": "disabled"
+      },
+      "aizee-minerva-right": {
+        "MainPID": "0",
+        "ActiveState": "inactive",
+        "UnitFileState": "disabled"
+      },
+      "aizee-motor-control-rover": {
+        "MainPID": "0",
+        "ActiveState": "inactive",
+        "UnitFileState": "disabled"
+      }
+    },
+    "driver_loaded": true,
+    "hardware_qualified": false,
+    "module_load_verified_at_utc": "2026-09-26T00:01:00.916308+00:00",
+    "adapters_at_post_reboot_check": [],
+    "current_adapters": {
+      "canL": {
+        "usb_path": "1-2.4",
+        "idVendor": "1d50",
+        "idProduct": "606f",
+        "serial": "004D002C4730511520303650",
+        "manufacturer": "Jhoinrch",
+        "product": "RH02 gs_usb",
+        "configuration": "fw_85e5b33_2026-09-17"
+      },
+      "canR": {
+        "usb_path": "1-2.1",
+        "idVendor": "1d50",
+        "idProduct": "606f",
+        "serial": "0021002F4D53530920303937",
+        "manufacturer": "Jhoinrch",
+        "product": "RH02 gs_usb",
+        "configuration": "fw_85e5b33_2026-09-17"
+      }
+    },
+    "bounded_stopped_test_passed": true
+  },
+  "latest_test": "MINERVA_CAN_DRIVER_SHORT_PASS_20260926.json",
+  "short_test_passed": true
+}

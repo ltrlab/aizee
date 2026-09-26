@@ -1,0 +1,3390 @@
+{
+  "date": "2026-09-24",
+  "asset_id": "minerva-production-01",
+  "module_serial": "1421623029971",
+  "machine_id": "661607618a944c90a32de217d0c92476",
+  "scope": "Finite attended motor diagnostics, nominal-zero-gain watchdog trials and two unsuccessful right-gripper micro-jogs; not production motion qualification.",
+  "models_confirmed_by_user": true,
+  "motor_to_cad_calibration_verified": false,
+  "physical_stopping_verified": false,
+  "firmware_changed": false,
+  "flash_saved": false,
+  "watchdog_summary": {
+    "passed": 10,
+    "failed": 2,
+    "deferred": 2,
+    "setting_ticks": 600,
+    "silence_ms": 150,
+    "exact_timeout_latency_measured": false,
+    "setting_is_volatile": true
+  },
+  "diagnostic_artifacts": {
+    "directory": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z",
+    "manifest": {
+      "local_capture": "simulation_runs/minerva-production-20260924/diagnostic-manifest.json",
+      "local_capture_sha256": "d43dec3cbbec1ba6112fb4725017d2bb7c7dc60978f5754ecd1ad1da5d023bdd",
+      "remote_report": null
+    },
+    "files": {
+      "guarded_controller": "108b7b3ea81acb8db450037b5b2f660a84d1ec449209d4d53cc895c8b8f3ed7c",
+      "guarded_vcan_bench.py": "f1970d8ea18f17876c712307c3b5dc5f5db4e2048d3235de55849cd8551d9ff6",
+      "motor_diagnostics.json": "a1398f358099fb8f61deda7e06e52fd15b6218d207cc153145d1155c6afad239",
+      "src/robot_platform/control/background.py": "c87dde6572c0d8f5f0091c75732e830f7bde239729113ecb0ce05bbc34f26fc2",
+      "src/robot_platform/control/collision_guard.py": "e594bd8e1211cdba865e4f371d8a665591778f1810a481264719a34b50c8d27e",
+      "src/robot_platform/control/commissioning.py": "87511d923eb82727c27590c453e9d34f6215d3b9d0f417b8fc90e3c44b4958ec",
+      "src/robot_platform/control/freshness.py": "718a47b3556f756dd4511ae70e3c13dcd3d356ea3a6ac68f7e9c26a20327f9aa",
+      "src/robot_platform/control/guarded.py": "0a29bdd7a0bd3d2663e6910229dd7423176a367d32f8ec475bd48fcc0b3870cc",
+      "src/robot_platform/control/guarded_transport.py": "07c52dc05d020aa12568c4a52e05abb2029e33db35424f76e6f19012ac88afca",
+      "src/robot_platform/control/motor_diagnostics.py": "5467655d4fbb160d6059060eb6e5a3d9f7b689f3c8154dd279d12b438d233a54",
+      "src/robot_platform/control/parameter_probe.py": "a1babc71ead59c048c7a7be8b0a19a195d88952fb8cf76a55cc3fb8d794a5b21",
+      "src/robot_platform/control/session.py": "56e8414613734f1ccbd338a41c9521735d8c1bf1ebfae25cade811288c657b1f",
+      "src/robot_platform/control/__init__.py": "6bff6dc08066a8c00dd520aff0f13ece13d35e06f95f538ec0e4eab2a7e2c19e"
+    }
+  },
+  "diagnostic_build_synthetic_benchmark": {
+    "evidence": {
+      "local_capture": "simulation_runs/minerva-production-20260924/read_diagnostic_bench.json",
+      "local_capture_sha256": "fa7c5fde2ddb378beb66f658dce68a1444683abd1fc6f5feb8e0008172c8f279",
+      "remote_report": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/bench-100/result.json"
+    },
+    "report": {
+      "robot": "minerva",
+      "evidence": "synthetic-vcan",
+      "pid": 5927,
+      "checks": {
+        "virtual_mode_refuses_physical_can": true,
+        "probe_requires_explicit_trial_flag": true,
+        "diagnostics_require_explicit_trial_flag": true,
+        "zero_torque_rejects_multiple_motors": true,
+        "startup_disarmed": true,
+        "diagnostics_rejected_outside_explicit_mode": true,
+        "silent_producer_expires": true,
+        "replay_rejected": true,
+        "batch_rejection_is_complete": true,
+        "missing_feedback_disables": true,
+        "scheduler_stall_latches_fault": true,
+        "legacy_motion_rejected": true,
+        "sigterm_disables_virtual_motors": true,
+        "restart_rejects_old_authority": true,
+        "25hz_guarded_commands": true
+      },
+      "cycles_requested": 100,
+      "fault_trial_summary": {
+        "disable_operation_succeeded": true,
+        "disable_transmit_attempted": true,
+        "mode": "virtual_can",
+        "rx_frames": 1638,
+        "timing": {
+          "deadline_misses": 1,
+          "maximum_lateness_us": 148548,
+          "maximum_work_us": 518,
+          "overruns": 1,
+          "rejected_frames": 1,
+          "ticks": 241
+        },
+        "tx_frames": 2618
+      },
+      "cycles_completed": 100,
+      "cycle_p50_ms": 7.19297350042325,
+      "cycle_p99_ms": 7.300990000658203,
+      "cycle_max_ms": 7.300990000658203,
+      "scheduled_40ms_misses": 0,
+      "nominal_faults": 0,
+      "control_timing_before": {
+        "ticks": 78,
+        "overruns": 0,
+        "maximum_lateness_us": 72,
+        "maximum_work_us": 159,
+        "rejected_frames": 0,
+        "deadline_misses": 0
+      },
+      "control_timing_after": {
+        "ticks": 1667,
+        "overruns": 0,
+        "maximum_lateness_us": 134,
+        "maximum_work_us": 344,
+        "rejected_frames": 0,
+        "deadline_misses": 0
+      },
+      "tx_frames": 22302,
+      "rx_frames": 10927,
+      "success": true,
+      "service_stdout": "{\"disable_operation_succeeded\":true,\"disable_transmit_attempted\":false,\"mode\":\"virtual_can\",\"rx_frames\":10927,\"timing\":{\"deadline_misses\":0,\"maximum_lateness_us\":134,\"maximum_work_us\":344,\"overruns\":0,\"rejected_frames\":0,\"ticks\":1667},\"tx_frames\":22302}\n",
+      "service_stderr": "",
+      "service_exit": 0
+    }
+  },
+  "software_validation": {
+    "rust_tests_passed": 30,
+    "python_tests_passed": 432,
+    "python_seconds": 34.35,
+    "clippy_warnings_denied": true,
+    "cross_built_aarch64_binaries": [
+      "control_harness",
+      "guarded_controller",
+      "motor_watchdog_trial"
+    ],
+    "python_log_sha256": "5defd02319776483d106b18626251c7abf67a11e5d1431cf8182a62f4afbf96d"
+  },
+  "watchdog_artifacts": {
+    "directory": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/watchdog-preparation",
+    "files": {
+      "motor_watchdog_trial": "5f7bf9951ca30c15c0f60e8906e06ab6b2961f311b7120d7c67b619aa487bec6",
+      "right-gripper-watchdog.json": "f9db73d07baa62a502b8bb6946c1cd434a50c165463f2cd3e307612fa873c65a"
+    }
+  },
+  "watchdog_profile_sha256": {
+    "left_arm_j1.json": "5dd1b869d85294229044a63a95e1f6cddafeb7fb4c41eb11abc661d88c301b58",
+    "left_arm_j2.json": "02550ccdd8a5b94557ab9195166f78c293b9cca2f5e1bab230782cb1fdedcf8a",
+    "left_arm_j3.json": "154ee0f8ddbdb9ba4b3a0871c69aa6909c128253225a2f3911e291f8e45447cc",
+    "left_arm_j4.json": "85ce31380e4c7a022e73f2797b401ac64ff0210834437f6f584f575d71973d6e",
+    "left_arm_j5.json": "e359bea02b9730c54db9ab7a0dc1da5d11a294d91a381db740fbfea6e31b450e",
+    "left_arm_j6.json": "e4816adf95494af9d6a8bdffd5dcbe7fc0b494d2493bd55f37bdac072d5263b3",
+    "left_gripper.json": "a4f69906caef1873d5ef4363892cbae81096e4b396d5c7e9eb250c8ef18fb383",
+    "right_arm_j1.json": "bcace058ea81e24e19d9739c5c3a7a62a97e1ad7f81e40b01a2d507b624a4e12",
+    "right_arm_j2.json": "86d6151e790ceda9b74e3909fee774ce63f73561af7b1fc96ebb76e79e1cf446",
+    "right_arm_j3.json": "ce5e9be49213e7ddf18925c6a3d7f1cb05f1ffaabf872a51121184745c4e79b1",
+    "right_arm_j4.json": "1cdfacb8e411c9ce4133285ebba37ab6e0289a33c27ffad781830c548331dfdc",
+    "right_arm_j5.json": "fd1de61e82613ba2a5e41c42ca188c9fb9161ce41ddaa9565d11699bb944d14a",
+    "right_arm_j6.json": "db33d503b8fb8b9f28e7c9a2a5eb557ba9b9504e4d1b84ee3b07dfbd5eaecaa0"
+  },
+  "sources": [
+    {
+      "local_capture": "simulation_runs/minerva-production-20260924/run_parameter_trial.json",
+      "local_capture_sha256": "90579f427656c2f7f4b6e3d3e24a67492aa5c677b29a52b5fd317563a17d2b59",
+      "remote_report": "/home/ltr/aizee/device-maintenance/guarded-20260924T164504Z/parameter-20260924T171544Z/result.json"
+    },
+    {
+      "local_capture": "simulation_runs/minerva-production-20260924/run_diagnostics_trial.json",
+      "local_capture_sha256": "521039f4dd45572fbdd10d8b26b50b2c4659ff06f585f449fedf54290c7e96bb",
+      "remote_report": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/stopped-motors-20260924T172506Z/result.json"
+    },
+    {
+      "local_capture": "simulation_runs/minerva-production-20260924/run_diagnostics_final.json",
+      "local_capture_sha256": "c3bc966f65d667be56161fa28686b6926ef596abc364a5df2dfcca22fb90f122",
+      "remote_report": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/stopped-motors-20260924T175029Z/result.json"
+    },
+    {
+      "local_capture": "simulation_runs/minerva-production-20260924/read_final.json",
+      "local_capture_sha256": "6d7fff21feeeb0bf8fe9e586ddd3a2d395452b3423af941334f381c102bc6c03",
+      "remote_report": null
+    }
+  ],
+  "initial_diagnostics": {
+    "evidence": "hardware-stopped-motor-diagnostics",
+    "enable_requested": false,
+    "stop_requested": true,
+    "parameter_writes_requested": false,
+    "tx_frames": 182,
+    "rx_frames": 182,
+    "timing": {
+      "ticks": 470,
+      "overruns": 0,
+      "maximum_lateness_us": 83,
+      "maximum_work_us": 218,
+      "rejected_frames": 0,
+      "deadline_misses": 0
+    },
+    "complete": true
+  },
+  "final_diagnostics": {
+    "evidence": "hardware-stopped-motor-diagnostics",
+    "enable_requested": false,
+    "stop_requested": true,
+    "parameter_writes_requested": false,
+    "tx_frames": 182,
+    "rx_frames": 182,
+    "timing": {
+      "ticks": 467,
+      "overruns": 0,
+      "maximum_lateness_us": 101,
+      "maximum_work_us": 211,
+      "rejected_frames": 0,
+      "deadline_misses": 0
+    },
+    "complete": true
+  },
+  "motors": {
+    "left_arm_j1": {
+      "can_bus": "canL",
+      "can_id": 4,
+      "label_confirmed_model": "RS03",
+      "mcu_uid_hex": "3c56300214713704",
+      "firmware": "0.3.1.30",
+      "initial_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 60.0,
+        "speed_limit_rad_s": 5.0,
+        "current_limit_a": 43.0,
+        "motor_position_rad": -0.086627297103405,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": 0.0,
+        "bus_voltage_v": 24.219999313354492,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 0
+      },
+      "final_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 60.0,
+        "speed_limit_rad_s": 5.0,
+        "current_limit_a": 43.0,
+        "motor_position_rad": -0.089056096971035,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": 0.0,
+        "bus_voltage_v": 24.219999313354492,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 600
+      },
+      "final_stop_feedback": {
+        "mode": 0,
+        "error_bits": 0,
+        "position_u16": 32535,
+        "velocity_u16": 32714,
+        "effort_u16": 32767,
+        "temperature_c": 23.0,
+        "received_at_ms": 311,
+        "raw": {
+          "bus": 0,
+          "id": 33555626,
+          "data": [
+            127,
+            23,
+            127,
+            202,
+            127,
+            255,
+            0,
+            230
+          ],
+          "received_at_ms": 311
+        }
+      },
+      "watchdog_trial": {
+        "status": "passed",
+        "evidence": {
+          "local_capture": "simulation_runs/minerva-production-20260924/run_watchdog_roster.json",
+          "local_capture_sha256": "fdd52e0e752683245992a444144f279c75b7e3658cd20fe8e99ca4619abd2677",
+          "remote_report": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/watchdog-preparation/remaining-motors-20260924T173515Z/result.json"
+        },
+        "success": true,
+        "error": null,
+        "enable_requested": true,
+        "previous_watchdog_ticks": 0,
+        "written_watchdog_ticks": 600,
+        "run_confirmed": true,
+        "reset_after_silence": true,
+        "silence_ms": 151,
+        "final_stop_confirmed": true,
+        "final_stop_error": null,
+        "event_fields": [
+          "direction",
+          "at_ms",
+          "extended_can_id",
+          "data_hex"
+        ],
+        "events": [
+          [
+            "tx",
+            22,
+            "0xaa04",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            23,
+            "0x4fe",
+            "3c56300214713704"
+          ],
+          [
+            "tx",
+            24,
+            "0x400aa04",
+            "00c4000000000000"
+          ],
+          [
+            "rx",
+            25,
+            "0x20004aa",
+            "00c4560003011e07"
+          ],
+          [
+            "tx",
+            26,
+            "0x400aa04",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            27,
+            "0x20004aa",
+            "7f1d80047fff00e6"
+          ],
+          [
+            "tx",
+            29,
+            "0x1100aa04",
+            "0570000000000000"
+          ],
+          [
+            "rx",
+            29,
+            "0x110004aa",
+            "0570000000000000"
+          ],
+          [
+            "tx",
+            31,
+            "0x1100aa04",
+            "2870000000000000"
+          ],
+          [
+            "rx",
+            31,
+            "0x110004aa",
+            "2870000000000000"
+          ],
+          [
+            "tx",
+            33,
+            "0x1200aa04",
+            "2870000058020000"
+          ],
+          [
+            "tx",
+            33,
+            "0x1100aa04",
+            "2870000000000000"
+          ],
+          [
+            "rx",
+            33,
+            "0x20004aa",
+            "7f1d80387fff00e6"
+          ],
+          [
+            "rx",
+            33,
+            "0x110004aa",
+            "2870000058020000"
+          ],
+          [
+            "tx",
+            35,
+            "0x17fff04",
+            "7f1d7fff00000000"
+          ],
+          [
+            "rx",
+            35,
+            "0x20004aa",
+            "7f1d7fe57fff00e6"
+          ],
+          [
+            "tx",
+            37,
+            "0x300aa04",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            37,
+            "0x28004aa",
+            "7f1d80677fff00e6"
+          ],
+          [
+            "tx",
+            39,
+            "0x17fff04",
+            "7f1d7fff00000000"
+          ],
+          [
+            "rx",
+            39,
+            "0x28004aa",
+            "7f1d7fef7fff00e6"
+          ],
+          [
+            "tx",
+            192,
+            "0x17fff04",
+            "7f1d7fff00000000"
+          ],
+          [
+            "rx",
+            192,
+            "0x20004aa",
+            "7f1e802e7fff00dc"
+          ],
+          [
+            "tx",
+            194,
+            "0x400aa04",
+            "0000000000000000"
+          ],
+          [
+            "tx",
+            194,
+            "0x400aa04",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            194,
+            "0x20004aa",
+            "7f1d80067fff00e6"
+          ]
+        ]
+      }
+    },
+    "left_arm_j2": {
+      "can_bus": "canL",
+      "can_id": 5,
+      "label_confirmed_model": "RS04",
+      "mcu_uid_hex": "a5493bc000203018",
+      "firmware": "0.4.1.32",
+      "initial_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 115.0,
+        "speed_limit_rad_s": 20.0,
+        "current_limit_a": 97.0,
+        "motor_position_rad": 0.017257267609238625,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": -0.0004429453983902931,
+        "bus_voltage_v": 24.114999771118164,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 0
+      },
+      "final_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 115.0,
+        "speed_limit_rad_s": 20.0,
+        "current_limit_a": 97.0,
+        "motor_position_rad": 0.01734248735010624,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": -0.043606556951999664,
+        "bus_voltage_v": 24.114999771118164,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 600
+      },
+      "final_stop_feedback": {
+        "mode": 0,
+        "error_bits": 0,
+        "position_u16": 32812,
+        "velocity_u16": 32729,
+        "effort_u16": 32767,
+        "temperature_c": 23.0,
+        "received_at_ms": 376,
+        "raw": {
+          "bus": 0,
+          "id": 33555882,
+          "data": [
+            128,
+            44,
+            127,
+            217,
+            127,
+            255,
+            0,
+            230
+          ],
+          "received_at_ms": 376
+        }
+      },
+      "watchdog_trial": {
+        "status": "passed",
+        "evidence": {
+          "local_capture": "simulation_runs/minerva-production-20260924/run_watchdog_roster.json",
+          "local_capture_sha256": "fdd52e0e752683245992a444144f279c75b7e3658cd20fe8e99ca4619abd2677",
+          "remote_report": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/watchdog-preparation/remaining-motors-20260924T173515Z/result.json"
+        },
+        "success": true,
+        "error": null,
+        "enable_requested": true,
+        "previous_watchdog_ticks": 0,
+        "written_watchdog_ticks": 600,
+        "run_confirmed": true,
+        "reset_after_silence": true,
+        "silence_ms": 150,
+        "final_stop_confirmed": true,
+        "final_stop_error": null,
+        "event_fields": [
+          "direction",
+          "at_ms",
+          "extended_can_id",
+          "data_hex"
+        ],
+        "events": [
+          [
+            "tx",
+            23,
+            "0xaa05",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            23,
+            "0x5fe",
+            "a5493bc000203018"
+          ],
+          [
+            "tx",
+            25,
+            "0x400aa05",
+            "00c4000000000000"
+          ],
+          [
+            "rx",
+            25,
+            "0x20005aa",
+            "00c4560004012007"
+          ],
+          [
+            "tx",
+            27,
+            "0x400aa05",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            27,
+            "0x20005aa",
+            "802c80097fff00e6"
+          ],
+          [
+            "tx",
+            29,
+            "0x1100aa05",
+            "0570000000000000"
+          ],
+          [
+            "rx",
+            29,
+            "0x110005aa",
+            "0570000000000000"
+          ],
+          [
+            "tx",
+            31,
+            "0x1100aa05",
+            "2870000000000000"
+          ],
+          [
+            "rx",
+            32,
+            "0x110005aa",
+            "2870000000000000"
+          ],
+          [
+            "tx",
+            33,
+            "0x1200aa05",
+            "2870000058020000"
+          ],
+          [
+            "tx",
+            33,
+            "0x1100aa05",
+            "2870000000000000"
+          ],
+          [
+            "rx",
+            34,
+            "0x20005aa",
+            "802c80077fff00e6"
+          ],
+          [
+            "rx",
+            34,
+            "0x110005aa",
+            "2870000058020000"
+          ],
+          [
+            "tx",
+            35,
+            "0x17fff05",
+            "802c7fff00000000"
+          ],
+          [
+            "rx",
+            36,
+            "0x20005aa",
+            "802c801b7fff00e6"
+          ],
+          [
+            "tx",
+            37,
+            "0x300aa05",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            41,
+            "0x28005aa",
+            "802c7ffc800d00e6"
+          ],
+          [
+            "tx",
+            42,
+            "0x17fff05",
+            "802c7fff00000000"
+          ],
+          [
+            "rx",
+            42,
+            "0x28005aa",
+            "802c7fdb800e00e6"
+          ],
+          [
+            "tx",
+            194,
+            "0x17fff05",
+            "802c7fff00000000"
+          ],
+          [
+            "rx",
+            195,
+            "0x20005aa",
+            "802c7fa27fff00e6"
+          ],
+          [
+            "tx",
+            196,
+            "0x400aa05",
+            "0000000000000000"
+          ],
+          [
+            "tx",
+            196,
+            "0x400aa05",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            197,
+            "0x20005aa",
+            "802c7fc07fff00e6"
+          ]
+        ]
+      }
+    },
+    "left_arm_j3": {
+      "can_bus": "canL",
+      "can_id": 6,
+      "label_confirmed_model": "RS03",
+      "mcu_uid_hex": "797a30020c323817",
+      "firmware": "0.3.1.42",
+      "initial_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 60.0,
+        "speed_limit_rad_s": 10.0,
+        "current_limit_a": 43.0,
+        "motor_position_rad": 0.055777233093976974,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": 0.0,
+        "bus_voltage_v": 24.325000762939453,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 0
+      },
+      "final_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 60.0,
+        "speed_limit_rad_s": 10.0,
+        "current_limit_a": 43.0,
+        "motor_position_rad": 0.05586247891187668,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": 0.0,
+        "bus_voltage_v": 24.325000762939453,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 600
+      },
+      "final_stop_feedback": {
+        "mode": 0,
+        "error_bits": 0,
+        "position_u16": 32913,
+        "velocity_u16": 32981,
+        "effort_u16": 32767,
+        "temperature_c": 23.0,
+        "received_at_ms": 441,
+        "raw": {
+          "bus": 0,
+          "id": 33556138,
+          "data": [
+            128,
+            145,
+            128,
+            213,
+            127,
+            255,
+            0,
+            230
+          ],
+          "received_at_ms": 441
+        }
+      },
+      "watchdog_trial": {
+        "status": "passed",
+        "evidence": {
+          "local_capture": "simulation_runs/minerva-production-20260924/run_watchdog_roster.json",
+          "local_capture_sha256": "fdd52e0e752683245992a444144f279c75b7e3658cd20fe8e99ca4619abd2677",
+          "remote_report": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/watchdog-preparation/remaining-motors-20260924T173515Z/result.json"
+        },
+        "success": true,
+        "error": null,
+        "enable_requested": true,
+        "previous_watchdog_ticks": 0,
+        "written_watchdog_ticks": 600,
+        "run_confirmed": true,
+        "reset_after_silence": true,
+        "silence_ms": 150,
+        "final_stop_confirmed": true,
+        "final_stop_error": null,
+        "event_fields": [
+          "direction",
+          "at_ms",
+          "extended_can_id",
+          "data_hex"
+        ],
+        "events": [
+          [
+            "tx",
+            22,
+            "0xaa06",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            23,
+            "0x6fe",
+            "797a30020c323817"
+          ],
+          [
+            "tx",
+            24,
+            "0x400aa06",
+            "00c4000000000000"
+          ],
+          [
+            "rx",
+            25,
+            "0x20006aa",
+            "00c4560003012a07"
+          ],
+          [
+            "tx",
+            26,
+            "0x400aa06",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            27,
+            "0x20006aa",
+            "809181087fff00e6"
+          ],
+          [
+            "tx",
+            28,
+            "0x1100aa06",
+            "0570000000000000"
+          ],
+          [
+            "rx",
+            29,
+            "0x110006aa",
+            "0570000000000000"
+          ],
+          [
+            "tx",
+            31,
+            "0x1100aa06",
+            "2870000000000000"
+          ],
+          [
+            "rx",
+            31,
+            "0x110006aa",
+            "2870000000000000"
+          ],
+          [
+            "tx",
+            33,
+            "0x1200aa06",
+            "2870000058020000"
+          ],
+          [
+            "tx",
+            33,
+            "0x1100aa06",
+            "2870000000000000"
+          ],
+          [
+            "rx",
+            33,
+            "0x20006aa",
+            "809180867fff00e6"
+          ],
+          [
+            "rx",
+            33,
+            "0x110006aa",
+            "2870000058020000"
+          ],
+          [
+            "tx",
+            35,
+            "0x17fff06",
+            "80917fff00000000"
+          ],
+          [
+            "rx",
+            35,
+            "0x20006aa",
+            "809180187fff00e6"
+          ],
+          [
+            "tx",
+            37,
+            "0x300aa06",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            40,
+            "0x28006aa",
+            "80917feb804600e6"
+          ],
+          [
+            "tx",
+            41,
+            "0x17fff06",
+            "80917fff00000000"
+          ],
+          [
+            "rx",
+            41,
+            "0x28006aa",
+            "80918025804c00e6"
+          ],
+          [
+            "tx",
+            193,
+            "0x17fff06",
+            "80917fff00000000"
+          ],
+          [
+            "rx",
+            194,
+            "0x20006aa",
+            "80907fb87fff00e6"
+          ],
+          [
+            "tx",
+            195,
+            "0x400aa06",
+            "0000000000000000"
+          ],
+          [
+            "tx",
+            195,
+            "0x400aa06",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            196,
+            "0x20006aa",
+            "8090807a7fff00e6"
+          ]
+        ]
+      }
+    },
+    "left_arm_j4": {
+      "can_bus": "canL",
+      "can_id": 7,
+      "label_confirmed_model": "RS02",
+      "mcu_uid_hex": "a5283b8f2450b00e",
+      "firmware": "0.2.3.24",
+      "initial_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 17.0,
+        "speed_limit_rad_s": 20.0,
+        "current_limit_a": 27.0,
+        "motor_position_rad": 0.019248992204666138,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": -0.1402583122253418,
+        "bus_voltage_v": 23.474674224853516,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 0
+      },
+      "final_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 17.0,
+        "speed_limit_rad_s": 20.0,
+        "current_limit_a": 27.0,
+        "motor_position_rad": 0.019446926191449165,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": -0.008300397545099258,
+        "bus_voltage_v": 23.474674224853516,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 600
+      },
+      "final_stop_feedback": {
+        "mode": 0,
+        "error_bits": 0,
+        "position_u16": 32817,
+        "velocity_u16": 32801,
+        "effort_u16": 32767,
+        "temperature_c": 25.0,
+        "received_at_ms": 506,
+        "raw": {
+          "bus": 0,
+          "id": 33556394,
+          "data": [
+            128,
+            49,
+            128,
+            33,
+            127,
+            255,
+            0,
+            250
+          ],
+          "received_at_ms": 506
+        }
+      },
+      "watchdog_trial": {
+        "status": "failed",
+        "evidence": {
+          "local_capture": "simulation_runs/minerva-production-20260924/run_watchdog_roster.json",
+          "local_capture_sha256": "fdd52e0e752683245992a444144f279c75b7e3658cd20fe8e99ca4619abd2677",
+          "remote_report": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/watchdog-preparation/remaining-motors-20260924T173515Z/result.json"
+        },
+        "success": false,
+        "error": "motor did not enter Reset during command silence",
+        "enable_requested": true,
+        "previous_watchdog_ticks": 0,
+        "written_watchdog_ticks": 600,
+        "run_confirmed": true,
+        "reset_after_silence": false,
+        "silence_ms": 150,
+        "final_stop_confirmed": true,
+        "final_stop_error": null,
+        "event_fields": [
+          "direction",
+          "at_ms",
+          "extended_can_id",
+          "data_hex"
+        ],
+        "events": [
+          [
+            "tx",
+            22,
+            "0xaa07",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            22,
+            "0x7fe",
+            "a5283b8f2450b00e"
+          ],
+          [
+            "tx",
+            24,
+            "0x400aa07",
+            "00c4000000000000"
+          ],
+          [
+            "rx",
+            24,
+            "0x20007aa",
+            "00c4560002031807"
+          ],
+          [
+            "tx",
+            26,
+            "0x400aa07",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            27,
+            "0x20007aa",
+            "803280527fff00f0"
+          ],
+          [
+            "tx",
+            28,
+            "0x1100aa07",
+            "0570000000000000"
+          ],
+          [
+            "rx",
+            29,
+            "0x110007aa",
+            "0570000000000000"
+          ],
+          [
+            "tx",
+            30,
+            "0x1100aa07",
+            "2870000000000000"
+          ],
+          [
+            "rx",
+            31,
+            "0x110007aa",
+            "2870000000000000"
+          ],
+          [
+            "tx",
+            32,
+            "0x1200aa07",
+            "2870000058020000"
+          ],
+          [
+            "tx",
+            32,
+            "0x1100aa07",
+            "2870000000000000"
+          ],
+          [
+            "rx",
+            33,
+            "0x20007aa",
+            "80327fd07fff00f0"
+          ],
+          [
+            "rx",
+            33,
+            "0x110007aa",
+            "2870000058020000"
+          ],
+          [
+            "tx",
+            34,
+            "0x17fff07",
+            "80327fff00000000"
+          ],
+          [
+            "rx",
+            35,
+            "0x20007aa",
+            "80327fd27fff00f0"
+          ],
+          [
+            "tx",
+            36,
+            "0x300aa07",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            37,
+            "0x28007aa",
+            "80327fec7fff00f0"
+          ],
+          [
+            "tx",
+            39,
+            "0x17fff07",
+            "80327fff00000000"
+          ],
+          [
+            "rx",
+            39,
+            "0x28007aa",
+            "80317fe47fbb00f0"
+          ],
+          [
+            "tx",
+            191,
+            "0x17fff07",
+            "80327fff00000000"
+          ],
+          [
+            "rx",
+            191,
+            "0x28007aa",
+            "80317fe9802100f0"
+          ],
+          [
+            "tx",
+            193,
+            "0x400aa07",
+            "0000000000000000"
+          ],
+          [
+            "tx",
+            193,
+            "0x400aa07",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            193,
+            "0x20007aa",
+            "803280187ff000f0"
+          ]
+        ]
+      }
+    },
+    "left_arm_j5": {
+      "can_bus": "canL",
+      "can_id": 8,
+      "label_confirmed_model": "RS02",
+      "mcu_uid_hex": "3e4330021c40b614",
+      "firmware": "0.2.3.24",
+      "initial_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 17.0,
+        "speed_limit_rad_s": 2.0,
+        "current_limit_a": 27.0,
+        "motor_position_rad": -0.0533924400806427,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": 0.022562654688954353,
+        "bus_voltage_v": 23.36940574645996,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 0
+      },
+      "final_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 17.0,
+        "speed_limit_rad_s": 2.0,
+        "current_limit_a": 27.0,
+        "motor_position_rad": -0.053441938012838364,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": -0.019496552646160126,
+        "bus_voltage_v": 23.36940574645996,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 0
+      },
+      "final_stop_feedback": {
+        "mode": 0,
+        "error_bits": 0,
+        "position_u16": 32627,
+        "velocity_u16": 32717,
+        "effort_u16": 32767,
+        "temperature_c": 22.0,
+        "received_at_ms": 571,
+        "raw": {
+          "bus": 0,
+          "id": 33556650,
+          "data": [
+            127,
+            115,
+            127,
+            205,
+            127,
+            255,
+            0,
+            220
+          ],
+          "received_at_ms": 571
+        }
+      },
+      "watchdog_trial": {
+        "status": "deferred",
+        "reason": "Same firmware as a failed motor; not enabled for this test."
+      }
+    },
+    "left_arm_j6": {
+      "can_bus": "canL",
+      "can_id": 9,
+      "label_confirmed_model": "RS00",
+      "mcu_uid_hex": "2f3d30031064b401",
+      "firmware": "0.0.3.22",
+      "initial_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 14.0,
+        "speed_limit_rad_s": 33.0,
+        "current_limit_a": 16.0,
+        "motor_position_rad": 6.166564464569092,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": -0.0585155189037323,
+        "bus_voltage_v": 23.404495239257812,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 0
+      },
+      "final_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 14.0,
+        "speed_limit_rad_s": 33.0,
+        "current_limit_a": 16.0,
+        "motor_position_rad": 6.1666412353515625,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": -0.0665375143289566,
+        "bus_voltage_v": 23.404495239257812,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 600
+      },
+      "final_stop_feedback": {
+        "mode": 0,
+        "error_bits": 0,
+        "position_u16": 48842,
+        "velocity_u16": 32756,
+        "effort_u16": 32767,
+        "temperature_c": 23.0,
+        "received_at_ms": 636,
+        "raw": {
+          "bus": 0,
+          "id": 33556906,
+          "data": [
+            190,
+            202,
+            127,
+            244,
+            127,
+            255,
+            0,
+            230
+          ],
+          "received_at_ms": 636
+        }
+      },
+      "watchdog_trial": {
+        "status": "failed",
+        "evidence": {
+          "local_capture": "simulation_runs/minerva-production-20260924/run_watchdog_other_firmware.json",
+          "local_capture_sha256": "363eb5a92c1123e530ca94106cc689c2d3575e8f40b78d40ca7735cfd99ea6c8",
+          "remote_report": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/watchdog-preparation/other-firmware-20260924T173714Z/result.json"
+        },
+        "success": false,
+        "error": "motor did not enter Reset during command silence",
+        "enable_requested": true,
+        "previous_watchdog_ticks": 0,
+        "written_watchdog_ticks": 600,
+        "run_confirmed": true,
+        "reset_after_silence": false,
+        "silence_ms": 150,
+        "final_stop_confirmed": true,
+        "final_stop_error": null,
+        "event_fields": [
+          "direction",
+          "at_ms",
+          "extended_can_id",
+          "data_hex"
+        ],
+        "events": [
+          [
+            "tx",
+            25,
+            "0xaa09",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            26,
+            "0x9fe",
+            "2f3d30031064b401"
+          ],
+          [
+            "tx",
+            27,
+            "0x400aa09",
+            "00c4000000000000"
+          ],
+          [
+            "rx",
+            28,
+            "0x20009aa",
+            "00c4560000031607"
+          ],
+          [
+            "tx",
+            29,
+            "0x400aa09",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            30,
+            "0x20009aa",
+            "beca80677fff00dc"
+          ],
+          [
+            "tx",
+            31,
+            "0x1100aa09",
+            "0570000000000000"
+          ],
+          [
+            "rx",
+            32,
+            "0x110009aa",
+            "0570000000000000"
+          ],
+          [
+            "tx",
+            33,
+            "0x1100aa09",
+            "2870000000000000"
+          ],
+          [
+            "rx",
+            34,
+            "0x110009aa",
+            "2870000000000000"
+          ],
+          [
+            "tx",
+            35,
+            "0x1200aa09",
+            "2870000058020000"
+          ],
+          [
+            "tx",
+            35,
+            "0x1100aa09",
+            "2870000000000000"
+          ],
+          [
+            "rx",
+            36,
+            "0x20009aa",
+            "beca7ff37fff00dc"
+          ],
+          [
+            "rx",
+            36,
+            "0x110009aa",
+            "2870000058020000"
+          ],
+          [
+            "tx",
+            38,
+            "0x17fff09",
+            "bec97fff00000000"
+          ],
+          [
+            "rx",
+            38,
+            "0x20009aa",
+            "beca80257fff00dc"
+          ],
+          [
+            "tx",
+            40,
+            "0x300aa09",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            40,
+            "0x28009aa",
+            "beca7fa77fff00dc"
+          ],
+          [
+            "tx",
+            42,
+            "0x17fff09",
+            "bec97fff00000000"
+          ],
+          [
+            "rx",
+            42,
+            "0x28009aa",
+            "beca802c7fdf00dc"
+          ],
+          [
+            "tx",
+            194,
+            "0x17fff09",
+            "bec97fff00000000"
+          ],
+          [
+            "rx",
+            194,
+            "0x28009aa",
+            "beca7fee800900dc"
+          ],
+          [
+            "tx",
+            196,
+            "0x400aa09",
+            "0000000000000000"
+          ],
+          [
+            "tx",
+            196,
+            "0x400aa09",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            222,
+            "0x20009aa",
+            "beca800c800d00dc"
+          ]
+        ]
+      }
+    },
+    "left_gripper": {
+      "can_bus": "canL",
+      "can_id": 10,
+      "label_confirmed_model": "RS00",
+      "mcu_uid_hex": "1057300214713506",
+      "firmware": "0.0.3.22",
+      "initial_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 2.0,
+        "speed_limit_rad_s": 5.0,
+        "current_limit_a": 10.0,
+        "motor_position_rad": 0.0001150369644165039,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": 0.03412187471985817,
+        "bus_voltage_v": 23.439584732055664,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 0
+      },
+      "final_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 2.0,
+        "speed_limit_rad_s": 5.0,
+        "current_limit_a": 10.0,
+        "motor_position_rad": 0.0001150369644165039,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": 0.01584353670477867,
+        "bus_voltage_v": 23.439584732055664,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 0
+      },
+      "final_stop_feedback": {
+        "mode": 0,
+        "error_bits": 0,
+        "position_u16": 32767,
+        "velocity_u16": 32713,
+        "effort_u16": 32767,
+        "temperature_c": 23.0,
+        "received_at_ms": 701,
+        "raw": {
+          "bus": 0,
+          "id": 33557162,
+          "data": [
+            127,
+            255,
+            127,
+            201,
+            127,
+            255,
+            0,
+            230
+          ],
+          "received_at_ms": 701
+        }
+      },
+      "watchdog_trial": {
+        "status": "deferred",
+        "reason": "Same firmware as a failed motor; not enabled for this test."
+      }
+    },
+    "right_arm_j1": {
+      "can_bus": "canR",
+      "can_id": 4,
+      "label_confirmed_model": "RS03",
+      "mcu_uid_hex": "4e8230021471b10a",
+      "firmware": "0.3.1.30",
+      "initial_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 60.0,
+        "speed_limit_rad_s": 0.0,
+        "current_limit_a": 43.0,
+        "motor_position_rad": -0.010737869888544083,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": 0.0,
+        "bus_voltage_v": 23.83500099182129,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 0
+      },
+      "final_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 60.0,
+        "speed_limit_rad_s": 0.0,
+        "current_limit_a": 43.0,
+        "motor_position_rad": 0.07179883122444153,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": 0.0,
+        "bus_voltage_v": 23.83500099182129,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 600
+      },
+      "final_stop_feedback": {
+        "mode": 0,
+        "error_bits": 0,
+        "position_u16": 32954,
+        "velocity_u16": 32966,
+        "effort_u16": 32767,
+        "temperature_c": 22.0,
+        "received_at_ms": 766,
+        "raw": {
+          "bus": 1,
+          "id": 33555626,
+          "data": [
+            128,
+            186,
+            128,
+            198,
+            127,
+            255,
+            0,
+            220
+          ],
+          "received_at_ms": 766
+        }
+      },
+      "watchdog_trial": {
+        "status": "passed",
+        "evidence": {
+          "local_capture": "simulation_runs/minerva-production-20260924/run_watchdog_right_arm.json",
+          "local_capture_sha256": "6586d07b776830875ea48eceb4af3166b3060f8ab327c94695ab4a1741a7a441",
+          "remote_report": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/watchdog-preparation/right-arm-20260924T173800Z/result.json"
+        },
+        "success": true,
+        "error": null,
+        "enable_requested": true,
+        "previous_watchdog_ticks": 0,
+        "written_watchdog_ticks": 600,
+        "run_confirmed": true,
+        "reset_after_silence": true,
+        "silence_ms": 151,
+        "final_stop_confirmed": true,
+        "final_stop_error": null,
+        "event_fields": [
+          "direction",
+          "at_ms",
+          "extended_can_id",
+          "data_hex"
+        ],
+        "events": [
+          [
+            "tx",
+            24,
+            "0xaa04",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            24,
+            "0x4fe",
+            "4e8230021471b10a"
+          ],
+          [
+            "tx",
+            26,
+            "0x400aa04",
+            "00c4000000000000"
+          ],
+          [
+            "rx",
+            26,
+            "0x20004aa",
+            "00c4560003011e07"
+          ],
+          [
+            "tx",
+            28,
+            "0x400aa04",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            28,
+            "0x20004aa",
+            "7fe380ec7fff00dc"
+          ],
+          [
+            "tx",
+            30,
+            "0x1100aa04",
+            "0570000000000000"
+          ],
+          [
+            "rx",
+            31,
+            "0x110004aa",
+            "0570000000000000"
+          ],
+          [
+            "tx",
+            32,
+            "0x1100aa04",
+            "2870000000000000"
+          ],
+          [
+            "rx",
+            33,
+            "0x110004aa",
+            "2870000000000000"
+          ],
+          [
+            "tx",
+            34,
+            "0x1200aa04",
+            "2870000058020000"
+          ],
+          [
+            "tx",
+            34,
+            "0x1100aa04",
+            "2870000000000000"
+          ],
+          [
+            "rx",
+            35,
+            "0x20004aa",
+            "7fe380087fff00dc"
+          ],
+          [
+            "rx",
+            35,
+            "0x110004aa",
+            "2870000058020000"
+          ],
+          [
+            "tx",
+            36,
+            "0x17fff04",
+            "7fe37fff00000000"
+          ],
+          [
+            "rx",
+            37,
+            "0x20004aa",
+            "7fe37f7f7fff00dc"
+          ],
+          [
+            "tx",
+            38,
+            "0x300aa04",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            39,
+            "0x28004aa",
+            "7fe37fdc7fff00dc"
+          ],
+          [
+            "tx",
+            40,
+            "0x17fff04",
+            "7fe37fff00000000"
+          ],
+          [
+            "rx",
+            41,
+            "0x28004aa",
+            "7fe3804b804e00dc"
+          ],
+          [
+            "tx",
+            193,
+            "0x17fff04",
+            "7fe37fff00000000"
+          ],
+          [
+            "rx",
+            193,
+            "0x20004aa",
+            "7fe380087fff00dc"
+          ],
+          [
+            "tx",
+            195,
+            "0x400aa04",
+            "0000000000000000"
+          ],
+          [
+            "tx",
+            195,
+            "0x400aa04",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            195,
+            "0x20004aa",
+            "7fe37ef77fff00dc"
+          ]
+        ]
+      }
+    },
+    "right_arm_j2": {
+      "can_bus": "canR",
+      "can_id": 5,
+      "label_confirmed_model": "RS04",
+      "mcu_uid_hex": "4fa930020c34380b",
+      "firmware": "0.4.1.24",
+      "initial_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 115.0,
+        "speed_limit_rad_s": 0.0,
+        "current_limit_a": 90.0,
+        "motor_position_rad": -0.01589374430477619,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": 0.0,
+        "bus_voltage_v": 24.079999923706055,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 0
+      },
+      "final_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 115.0,
+        "speed_limit_rad_s": 0.0,
+        "current_limit_a": 90.0,
+        "motor_position_rad": -0.0011504888534545898,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": 0.0,
+        "bus_voltage_v": 24.079999923706055,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 600
+      },
+      "final_stop_feedback": {
+        "mode": 0,
+        "error_bits": 0,
+        "position_u16": 32764,
+        "velocity_u16": 32715,
+        "effort_u16": 32767,
+        "temperature_c": 21.0,
+        "received_at_ms": 831,
+        "raw": {
+          "bus": 1,
+          "id": 33555882,
+          "data": [
+            127,
+            252,
+            127,
+            203,
+            127,
+            255,
+            0,
+            210
+          ],
+          "received_at_ms": 831
+        }
+      },
+      "watchdog_trial": {
+        "status": "passed",
+        "evidence": {
+          "local_capture": "simulation_runs/minerva-production-20260924/run_watchdog_right_arm.json",
+          "local_capture_sha256": "6586d07b776830875ea48eceb4af3166b3060f8ab327c94695ab4a1741a7a441",
+          "remote_report": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/watchdog-preparation/right-arm-20260924T173800Z/result.json"
+        },
+        "success": true,
+        "error": null,
+        "enable_requested": true,
+        "previous_watchdog_ticks": 0,
+        "written_watchdog_ticks": 600,
+        "run_confirmed": true,
+        "reset_after_silence": true,
+        "silence_ms": 150,
+        "final_stop_confirmed": true,
+        "final_stop_error": null,
+        "event_fields": [
+          "direction",
+          "at_ms",
+          "extended_can_id",
+          "data_hex"
+        ],
+        "events": [
+          [
+            "tx",
+            23,
+            "0xaa05",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            23,
+            "0x5fe",
+            "4fa930020c34380b"
+          ],
+          [
+            "tx",
+            25,
+            "0x400aa05",
+            "00c4000000000000"
+          ],
+          [
+            "rx",
+            25,
+            "0x20005aa",
+            "00c4560004011807"
+          ],
+          [
+            "tx",
+            27,
+            "0x400aa05",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            27,
+            "0x20005aa",
+            "7fd680eb7fff00d2"
+          ],
+          [
+            "tx",
+            29,
+            "0x1100aa05",
+            "0570000000000000"
+          ],
+          [
+            "rx",
+            30,
+            "0x110005aa",
+            "0570000000000000"
+          ],
+          [
+            "tx",
+            31,
+            "0x1100aa05",
+            "2870000000000000"
+          ],
+          [
+            "rx",
+            32,
+            "0x110005aa",
+            "2870000000000000"
+          ],
+          [
+            "tx",
+            33,
+            "0x1200aa05",
+            "2870000058020000"
+          ],
+          [
+            "tx",
+            33,
+            "0x1100aa05",
+            "2870000000000000"
+          ],
+          [
+            "rx",
+            34,
+            "0x20005aa",
+            "7fd57f857fff00d2"
+          ],
+          [
+            "rx",
+            34,
+            "0x110005aa",
+            "2870000058020000"
+          ],
+          [
+            "tx",
+            35,
+            "0x17fff05",
+            "7fd67fff00000000"
+          ],
+          [
+            "rx",
+            36,
+            "0x20005aa",
+            "7fd580507fff00d2"
+          ],
+          [
+            "tx",
+            37,
+            "0x300aa05",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            38,
+            "0x28005aa",
+            "7fd680967fff00d2"
+          ],
+          [
+            "tx",
+            39,
+            "0x17fff05",
+            "7fd67fff00000000"
+          ],
+          [
+            "rx",
+            40,
+            "0x28005aa",
+            "7fd57fbf7ffd00d2"
+          ],
+          [
+            "tx",
+            192,
+            "0x17fff05",
+            "7fd67fff00000000"
+          ],
+          [
+            "rx",
+            192,
+            "0x20005aa",
+            "7fd57f497fff00d2"
+          ],
+          [
+            "tx",
+            194,
+            "0x400aa05",
+            "0000000000000000"
+          ],
+          [
+            "tx",
+            194,
+            "0x400aa05",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            195,
+            "0x20005aa",
+            "7fd57f6e7fff00d2"
+          ]
+        ]
+      }
+    },
+    "right_arm_j3": {
+      "can_bus": "canR",
+      "can_id": 6,
+      "label_confirmed_model": "RS03",
+      "mcu_uid_hex": "379b93c79c90b014",
+      "firmware": "0.3.1.37",
+      "initial_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 60.0,
+        "speed_limit_rad_s": 10.0,
+        "current_limit_a": 43.0,
+        "motor_position_rad": 0.018535614013671875,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": 0.0,
+        "bus_voltage_v": 24.2549991607666,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 0
+      },
+      "final_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 60.0,
+        "speed_limit_rad_s": 10.0,
+        "current_limit_a": 43.0,
+        "motor_position_rad": 0.018365170806646347,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": 0.0,
+        "bus_voltage_v": 24.2549991607666,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 600
+      },
+      "final_stop_feedback": {
+        "mode": 0,
+        "error_bits": 0,
+        "position_u16": 32815,
+        "velocity_u16": 32677,
+        "effort_u16": 32767,
+        "temperature_c": 23.0,
+        "received_at_ms": 896,
+        "raw": {
+          "bus": 1,
+          "id": 33556138,
+          "data": [
+            128,
+            47,
+            127,
+            165,
+            127,
+            255,
+            0,
+            230
+          ],
+          "received_at_ms": 896
+        }
+      },
+      "watchdog_trial": {
+        "status": "passed",
+        "evidence": {
+          "local_capture": "simulation_runs/minerva-production-20260924/run_watchdog_right_arm.json",
+          "local_capture_sha256": "6586d07b776830875ea48eceb4af3166b3060f8ab327c94695ab4a1741a7a441",
+          "remote_report": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/watchdog-preparation/right-arm-20260924T173800Z/result.json"
+        },
+        "success": true,
+        "error": null,
+        "enable_requested": true,
+        "previous_watchdog_ticks": 0,
+        "written_watchdog_ticks": 600,
+        "run_confirmed": true,
+        "reset_after_silence": true,
+        "silence_ms": 150,
+        "final_stop_confirmed": true,
+        "final_stop_error": null,
+        "event_fields": [
+          "direction",
+          "at_ms",
+          "extended_can_id",
+          "data_hex"
+        ],
+        "events": [
+          [
+            "tx",
+            22,
+            "0xaa06",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            22,
+            "0x6fe",
+            "379b93c79c90b014"
+          ],
+          [
+            "tx",
+            24,
+            "0x400aa06",
+            "00c4000000000000"
+          ],
+          [
+            "rx",
+            24,
+            "0x20006aa",
+            "00c4560003012507"
+          ],
+          [
+            "tx",
+            26,
+            "0x400aa06",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            26,
+            "0x20006aa",
+            "802f7f847fff00e6"
+          ],
+          [
+            "tx",
+            28,
+            "0x1100aa06",
+            "0570000000000000"
+          ],
+          [
+            "rx",
+            29,
+            "0x110006aa",
+            "0570000000000000"
+          ],
+          [
+            "tx",
+            30,
+            "0x1100aa06",
+            "2870000000000000"
+          ],
+          [
+            "rx",
+            31,
+            "0x110006aa",
+            "2870000000000000"
+          ],
+          [
+            "tx",
+            32,
+            "0x1200aa06",
+            "2870000058020000"
+          ],
+          [
+            "tx",
+            32,
+            "0x1100aa06",
+            "2870000000000000"
+          ],
+          [
+            "rx",
+            33,
+            "0x20006aa",
+            "802f7fe77fff00e6"
+          ],
+          [
+            "rx",
+            33,
+            "0x110006aa",
+            "2870000058020000"
+          ],
+          [
+            "tx",
+            34,
+            "0x17fff06",
+            "802f7fff00000000"
+          ],
+          [
+            "rx",
+            35,
+            "0x20006aa",
+            "802f7fee7fff00e6"
+          ],
+          [
+            "tx",
+            36,
+            "0x300aa06",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            37,
+            "0x28006aa",
+            "802f7fb87fff00e6"
+          ],
+          [
+            "tx",
+            38,
+            "0x17fff06",
+            "802f7fff00000000"
+          ],
+          [
+            "rx",
+            39,
+            "0x28006aa",
+            "802f7faf803400e6"
+          ],
+          [
+            "tx",
+            191,
+            "0x17fff06",
+            "802f7fff00000000"
+          ],
+          [
+            "rx",
+            191,
+            "0x20006aa",
+            "802f7f9e7fff00e6"
+          ],
+          [
+            "tx",
+            193,
+            "0x400aa06",
+            "0000000000000000"
+          ],
+          [
+            "tx",
+            193,
+            "0x400aa06",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            193,
+            "0x20006aa",
+            "802f7fcf7fff00e6"
+          ]
+        ]
+      }
+    },
+    "right_arm_j4": {
+      "can_bus": "canR",
+      "can_id": 7,
+      "label_confirmed_model": "RS02",
+      "mcu_uid_hex": "3d93302110703018",
+      "firmware": "0.2.3.34",
+      "initial_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 17.0,
+        "speed_limit_rad_s": 20.0,
+        "current_limit_a": 27.0,
+        "motor_position_rad": 0.04720703139901161,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": -0.08554019033908844,
+        "bus_voltage_v": 23.404495239257812,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 0
+      },
+      "final_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 17.0,
+        "speed_limit_rad_s": 20.0,
+        "current_limit_a": 27.0,
+        "motor_position_rad": 0.03696398437023163,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": 0.11824872344732285,
+        "bus_voltage_v": 23.404495239257812,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 600
+      },
+      "final_stop_feedback": {
+        "mode": 0,
+        "error_bits": 0,
+        "position_u16": 32863,
+        "velocity_u16": 32788,
+        "effort_u16": 32767,
+        "temperature_c": 23.0,
+        "received_at_ms": 961,
+        "raw": {
+          "bus": 1,
+          "id": 33556394,
+          "data": [
+            128,
+            95,
+            128,
+            20,
+            127,
+            255,
+            0,
+            230
+          ],
+          "received_at_ms": 961
+        }
+      },
+      "watchdog_trial": {
+        "status": "passed",
+        "evidence": {
+          "local_capture": "simulation_runs/minerva-production-20260924/run_watchdog_right_elbow.json",
+          "local_capture_sha256": "83a033c82a2e2962f37377badfe894d8aa44962398ced17bb9d71160977b9686",
+          "remote_report": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/watchdog-preparation/right-elbow-20260924T173639Z/result.json"
+        },
+        "success": true,
+        "error": null,
+        "enable_requested": true,
+        "previous_watchdog_ticks": 0,
+        "written_watchdog_ticks": 600,
+        "run_confirmed": true,
+        "reset_after_silence": true,
+        "silence_ms": 150,
+        "final_stop_confirmed": true,
+        "final_stop_error": null,
+        "event_fields": [
+          "direction",
+          "at_ms",
+          "extended_can_id",
+          "data_hex"
+        ],
+        "events": [
+          [
+            "tx",
+            22,
+            "0xaa07",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            23,
+            "0x7fe",
+            "3d93302110703018"
+          ],
+          [
+            "tx",
+            24,
+            "0x400aa07",
+            "00c4000000000000"
+          ],
+          [
+            "rx",
+            25,
+            "0x20007aa",
+            "00c4560002032207"
+          ],
+          [
+            "tx",
+            26,
+            "0x400aa07",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            27,
+            "0x20007aa",
+            "807a801b7fff00e6"
+          ],
+          [
+            "tx",
+            28,
+            "0x1100aa07",
+            "0570000000000000"
+          ],
+          [
+            "rx",
+            29,
+            "0x110007aa",
+            "0570000000000000"
+          ],
+          [
+            "tx",
+            31,
+            "0x1100aa07",
+            "2870000000000000"
+          ],
+          [
+            "rx",
+            31,
+            "0x110007aa",
+            "2870000000000000"
+          ],
+          [
+            "tx",
+            33,
+            "0x1200aa07",
+            "2870000058020000"
+          ],
+          [
+            "tx",
+            33,
+            "0x1100aa07",
+            "2870000000000000"
+          ],
+          [
+            "rx",
+            33,
+            "0x20007aa",
+            "807a7fce7fff00e6"
+          ],
+          [
+            "rx",
+            33,
+            "0x110007aa",
+            "2870000058020000"
+          ],
+          [
+            "tx",
+            35,
+            "0x17fff07",
+            "807a7fff00000000"
+          ],
+          [
+            "rx",
+            35,
+            "0x20007aa",
+            "807a7fc57fff00e6"
+          ],
+          [
+            "tx",
+            37,
+            "0x300aa07",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            40,
+            "0x28007aa",
+            "807a7f41800900e6"
+          ],
+          [
+            "tx",
+            41,
+            "0x17fff07",
+            "807a7fff00000000"
+          ],
+          [
+            "rx",
+            41,
+            "0x28007aa",
+            "807a801d801700e6"
+          ],
+          [
+            "tx",
+            193,
+            "0x17fff07",
+            "807a7fff00000000"
+          ],
+          [
+            "rx",
+            194,
+            "0x20007aa",
+            "807a80517fff00e6"
+          ],
+          [
+            "tx",
+            195,
+            "0x400aa07",
+            "0000000000000000"
+          ],
+          [
+            "tx",
+            195,
+            "0x400aa07",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            196,
+            "0x20007aa",
+            "807a7fdb7fff00e6"
+          ]
+        ]
+      }
+    },
+    "right_arm_j5": {
+      "can_bus": "canR",
+      "can_id": 8,
+      "label_confirmed_model": "RS02",
+      "mcu_uid_hex": "0965302110703016",
+      "firmware": "0.2.3.34",
+      "initial_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 17.0,
+        "speed_limit_rad_s": 20.0,
+        "current_limit_a": 27.0,
+        "motor_position_rad": -0.010440980084240437,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": -0.1404438018798828,
+        "bus_voltage_v": 23.229049682617188,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 0
+      },
+      "final_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 17.0,
+        "speed_limit_rad_s": 20.0,
+        "current_limit_a": 27.0,
+        "motor_position_rad": -0.010688381269574165,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": -0.01635594666004181,
+        "bus_voltage_v": 23.229049682617188,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 600
+      },
+      "final_stop_feedback": {
+        "mode": 0,
+        "error_bits": 0,
+        "position_u16": 32739,
+        "velocity_u16": 32749,
+        "effort_u16": 32767,
+        "temperature_c": 23.0,
+        "received_at_ms": 1026,
+        "raw": {
+          "bus": 1,
+          "id": 33556650,
+          "data": [
+            127,
+            227,
+            127,
+            237,
+            127,
+            255,
+            0,
+            230
+          ],
+          "received_at_ms": 1026
+        }
+      },
+      "watchdog_trial": {
+        "status": "passed",
+        "evidence": {
+          "local_capture": "simulation_runs/minerva-production-20260924/run_watchdog_right_arm.json",
+          "local_capture_sha256": "6586d07b776830875ea48eceb4af3166b3060f8ab327c94695ab4a1741a7a441",
+          "remote_report": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/watchdog-preparation/right-arm-20260924T173800Z/result.json"
+        },
+        "success": true,
+        "error": null,
+        "enable_requested": true,
+        "previous_watchdog_ticks": 0,
+        "written_watchdog_ticks": 600,
+        "run_confirmed": true,
+        "reset_after_silence": true,
+        "silence_ms": 150,
+        "final_stop_confirmed": true,
+        "final_stop_error": null,
+        "event_fields": [
+          "direction",
+          "at_ms",
+          "extended_can_id",
+          "data_hex"
+        ],
+        "events": [
+          [
+            "tx",
+            22,
+            "0xaa08",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            22,
+            "0x8fe",
+            "0965302110703016"
+          ],
+          [
+            "tx",
+            24,
+            "0x400aa08",
+            "00c4000000000000"
+          ],
+          [
+            "rx",
+            24,
+            "0x20008aa",
+            "00c4560002032207"
+          ],
+          [
+            "tx",
+            26,
+            "0x400aa08",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            27,
+            "0x20008aa",
+            "7fe4800b7fff00dc"
+          ],
+          [
+            "tx",
+            28,
+            "0x1100aa08",
+            "0570000000000000"
+          ],
+          [
+            "rx",
+            29,
+            "0x110008aa",
+            "0570000000000000"
+          ],
+          [
+            "tx",
+            30,
+            "0x1100aa08",
+            "2870000000000000"
+          ],
+          [
+            "rx",
+            31,
+            "0x110008aa",
+            "2870000000000000"
+          ],
+          [
+            "tx",
+            32,
+            "0x1200aa08",
+            "2870000058020000"
+          ],
+          [
+            "tx",
+            32,
+            "0x1100aa08",
+            "2870000000000000"
+          ],
+          [
+            "rx",
+            33,
+            "0x20008aa",
+            "7fe480187fff00dc"
+          ],
+          [
+            "rx",
+            33,
+            "0x110008aa",
+            "2870000058020000"
+          ],
+          [
+            "tx",
+            34,
+            "0x17fff08",
+            "7fe47fff00000000"
+          ],
+          [
+            "rx",
+            35,
+            "0x20008aa",
+            "7fe480167fff00dc"
+          ],
+          [
+            "tx",
+            36,
+            "0x300aa08",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            40,
+            "0x28008aa",
+            "7fe47ff2800f00dc"
+          ],
+          [
+            "tx",
+            41,
+            "0x17fff08",
+            "7fe47fff00000000"
+          ],
+          [
+            "rx",
+            41,
+            "0x28008aa",
+            "7fe48051800300dc"
+          ],
+          [
+            "tx",
+            193,
+            "0x17fff08",
+            "7fe47fff00000000"
+          ],
+          [
+            "rx",
+            193,
+            "0x20008aa",
+            "7fe47fd77fff00dc"
+          ],
+          [
+            "tx",
+            195,
+            "0x400aa08",
+            "0000000000000000"
+          ],
+          [
+            "tx",
+            195,
+            "0x400aa08",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            195,
+            "0x20008aa",
+            "7fe47f7f7fff00dc"
+          ]
+        ]
+      }
+    },
+    "right_arm_j6": {
+      "can_bus": "canR",
+      "can_id": 9,
+      "label_confirmed_model": "RS00",
+      "mcu_uid_hex": "961430020c343701",
+      "firmware": "0.0.3.32",
+      "initial_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 14.0,
+        "speed_limit_rad_s": 33.0,
+        "current_limit_a": 16.0,
+        "motor_position_rad": 0.07758107036352158,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": -0.018752658739686012,
+        "bus_voltage_v": 23.579940795898438,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 0
+      },
+      "final_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 14.0,
+        "speed_limit_rad_s": 33.0,
+        "current_limit_a": 16.0,
+        "motor_position_rad": 0.04329657554626465,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": -0.017431005835533142,
+        "bus_voltage_v": 23.544851303100586,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 600
+      },
+      "final_stop_feedback": {
+        "mode": 0,
+        "error_bits": 0,
+        "position_u16": 32880,
+        "velocity_u16": 32733,
+        "effort_u16": 32767,
+        "temperature_c": 24.0,
+        "received_at_ms": 1091,
+        "raw": {
+          "bus": 1,
+          "id": 33556906,
+          "data": [
+            128,
+            112,
+            127,
+            221,
+            127,
+            255,
+            0,
+            240
+          ],
+          "received_at_ms": 1091
+        }
+      },
+      "watchdog_trial": {
+        "status": "passed",
+        "evidence": {
+          "local_capture": "simulation_runs/minerva-production-20260924/run_watchdog_right_arm.json",
+          "local_capture_sha256": "6586d07b776830875ea48eceb4af3166b3060f8ab327c94695ab4a1741a7a441",
+          "remote_report": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/watchdog-preparation/right-arm-20260924T173800Z/result.json"
+        },
+        "success": true,
+        "error": null,
+        "enable_requested": true,
+        "previous_watchdog_ticks": 0,
+        "written_watchdog_ticks": 600,
+        "run_confirmed": true,
+        "reset_after_silence": true,
+        "silence_ms": 150,
+        "final_stop_confirmed": true,
+        "final_stop_error": null,
+        "event_fields": [
+          "direction",
+          "at_ms",
+          "extended_can_id",
+          "data_hex"
+        ],
+        "events": [
+          [
+            "tx",
+            22,
+            "0xaa09",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            22,
+            "0x9fe",
+            "961430020c343701"
+          ],
+          [
+            "tx",
+            24,
+            "0x400aa09",
+            "00c4000000000000"
+          ],
+          [
+            "rx",
+            24,
+            "0x20009aa",
+            "00c4560000032007"
+          ],
+          [
+            "tx",
+            26,
+            "0x400aa09",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            26,
+            "0x20009aa",
+            "80c980177fff00f0"
+          ],
+          [
+            "tx",
+            28,
+            "0x1100aa09",
+            "0570000000000000"
+          ],
+          [
+            "rx",
+            28,
+            "0x110009aa",
+            "0570000000000000"
+          ],
+          [
+            "tx",
+            30,
+            "0x1100aa09",
+            "2870000000000000"
+          ],
+          [
+            "rx",
+            31,
+            "0x110009aa",
+            "2870000000000000"
+          ],
+          [
+            "tx",
+            32,
+            "0x1200aa09",
+            "2870000058020000"
+          ],
+          [
+            "tx",
+            32,
+            "0x1100aa09",
+            "2870000000000000"
+          ],
+          [
+            "rx",
+            33,
+            "0x20009aa",
+            "80c980077fff00f0"
+          ],
+          [
+            "rx",
+            33,
+            "0x110009aa",
+            "2870000058020000"
+          ],
+          [
+            "tx",
+            34,
+            "0x17fff09",
+            "80c97fff00000000"
+          ],
+          [
+            "rx",
+            35,
+            "0x20009aa",
+            "80c980377fff00f0"
+          ],
+          [
+            "tx",
+            36,
+            "0x300aa09",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            38,
+            "0x28009aa",
+            "80c9800c7ff200f0"
+          ],
+          [
+            "tx",
+            38,
+            "0x17fff09",
+            "80c97fff00000000"
+          ],
+          [
+            "rx",
+            39,
+            "0x28009aa",
+            "80c97fec7fde00f0"
+          ],
+          [
+            "tx",
+            190,
+            "0x17fff09",
+            "80c97fff00000000"
+          ],
+          [
+            "rx",
+            191,
+            "0x20009aa",
+            "80c97fcb7fff00f0"
+          ],
+          [
+            "tx",
+            193,
+            "0x400aa09",
+            "0000000000000000"
+          ],
+          [
+            "tx",
+            193,
+            "0x400aa09",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            193,
+            "0x20009aa",
+            "80c980047fff00f0"
+          ]
+        ]
+      }
+    },
+    "right_gripper": {
+      "can_bus": "canR",
+      "can_id": 10,
+      "label_confirmed_model": "RS00",
+      "mcu_uid_hex": "632f93c79c90b00e",
+      "firmware": "0.0.3.32",
+      "initial_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 14.0,
+        "speed_limit_rad_s": 33.0,
+        "current_limit_a": 16.0,
+        "motor_position_rad": -0.022434473037719727,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": -0.04080825671553612,
+        "bus_voltage_v": 23.439584732055664,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 0
+      },
+      "final_parameters": {
+        "run_mode": 0,
+        "torque_limit_nm": 14.0,
+        "speed_limit_rad_s": 33.0,
+        "current_limit_a": 16.0,
+        "motor_position_rad": 2.462806463241577,
+        "filtered_iq_a": 0.0,
+        "motor_velocity_rad_s": -0.042088475078344345,
+        "bus_voltage_v": 23.439584732055664,
+        "report_interval_setting": 0,
+        "can_timeout_ticks": 600
+      },
+      "final_stop_feedback": {
+        "mode": 0,
+        "error_bits": 0,
+        "position_u16": 39187,
+        "velocity_u16": 32812,
+        "effort_u16": 32767,
+        "temperature_c": 25.0,
+        "received_at_ms": 1156,
+        "raw": {
+          "bus": 1,
+          "id": 33557162,
+          "data": [
+            153,
+            19,
+            128,
+            44,
+            127,
+            255,
+            0,
+            250
+          ],
+          "received_at_ms": 1156
+        }
+      },
+      "watchdog_trial": {
+        "status": "passed",
+        "evidence": {
+          "local_capture": "simulation_runs/minerva-production-20260924/run_watchdog_trial.json",
+          "local_capture_sha256": "baf17c7cdd1886265c920f04b3b5c70e6056b9f9b2a237c49a67be2f2341edfa",
+          "remote_report": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/watchdog-preparation/right-gripper-20260924T173328Z/result.json"
+        },
+        "success": true,
+        "error": null,
+        "enable_requested": true,
+        "previous_watchdog_ticks": 0,
+        "written_watchdog_ticks": 600,
+        "run_confirmed": true,
+        "reset_after_silence": true,
+        "silence_ms": 150,
+        "final_stop_confirmed": true,
+        "final_stop_error": null,
+        "event_fields": [
+          "direction",
+          "at_ms",
+          "extended_can_id",
+          "data_hex"
+        ],
+        "events": [
+          [
+            "tx",
+            24,
+            "0xaa0a",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            25,
+            "0xafe",
+            "632f93c79c90b00e"
+          ],
+          [
+            "tx",
+            26,
+            "0x400aa0a",
+            "00c4000000000000"
+          ],
+          [
+            "rx",
+            27,
+            "0x2000aaa",
+            "00c4560000032007"
+          ],
+          [
+            "tx",
+            28,
+            "0x400aa0a",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            29,
+            "0x2000aaa",
+            "7fc57ff07fff00f0"
+          ],
+          [
+            "tx",
+            31,
+            "0x1100aa0a",
+            "0570000000000000"
+          ],
+          [
+            "rx",
+            31,
+            "0x11000aaa",
+            "0570000000000000"
+          ],
+          [
+            "tx",
+            33,
+            "0x1100aa0a",
+            "2870000000000000"
+          ],
+          [
+            "rx",
+            33,
+            "0x11000aaa",
+            "2870000000000000"
+          ],
+          [
+            "tx",
+            35,
+            "0x1200aa0a",
+            "2870000058020000"
+          ],
+          [
+            "tx",
+            35,
+            "0x1100aa0a",
+            "2870000000000000"
+          ],
+          [
+            "rx",
+            35,
+            "0x2000aaa",
+            "7fc57fe97fff00f0"
+          ],
+          [
+            "rx",
+            35,
+            "0x11000aaa",
+            "2870000058020000"
+          ],
+          [
+            "tx",
+            37,
+            "0x17fff0a",
+            "7fc57fff00000000"
+          ],
+          [
+            "rx",
+            37,
+            "0x2000aaa",
+            "7fc580057fff00f0"
+          ],
+          [
+            "tx",
+            39,
+            "0x300aa0a",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            41,
+            "0x2800aaa",
+            "7fc57fe67fe100f0"
+          ],
+          [
+            "tx",
+            41,
+            "0x17fff0a",
+            "7fc57fff00000000"
+          ],
+          [
+            "rx",
+            41,
+            "0x2800aaa",
+            "7fc57ff77f7f00f0"
+          ],
+          [
+            "tx",
+            193,
+            "0x17fff0a",
+            "7fc57fff00000000"
+          ],
+          [
+            "rx",
+            194,
+            "0x2000aaa",
+            "7fc67fdf7fff00f0"
+          ],
+          [
+            "tx",
+            195,
+            "0x400aa0a",
+            "0000000000000000"
+          ],
+          [
+            "tx",
+            195,
+            "0x400aa0a",
+            "0000000000000000"
+          ],
+          [
+            "rx",
+            196,
+            "0x2000aaa",
+            "7fc67fef7fff00f0"
+          ]
+        ]
+      }
+    }
+  },
+  "right_gripper_jogs": [
+    {
+      "evidence": {
+        "local_capture": "simulation_runs/minerva-production-20260924/run_gripper_jog.json",
+        "local_capture_sha256": "e036325056dcc467571a5f0fa063f419ce61e88363db759f6e577d4ff9ff2bf6",
+        "remote_report": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/jog-preparation/right-gripper-20260924T174403Z/result.json"
+      },
+      "artifact_hashes": {
+        "motor_watchdog_trial": "5894ea0f9aad03a13597598304dae239482eb6187774b18a255de63b54bb5c5d",
+        "right-gripper-jog.json": "370227403e5498a475d140dee9757f218fbbb8a5eb670c8694bcd42611a53511"
+      },
+      "kp_nm_per_rad": 1.0,
+      "kd_nm_s_per_rad": 0.05,
+      "success": false,
+      "error": "jog completed without measurable motion; gains were not increased",
+      "enable_requested": true,
+      "previous_watchdog_ticks": 600,
+      "written_watchdog_ticks": 600,
+      "run_confirmed": true,
+      "reset_after_silence": true,
+      "silence_ms": 150,
+      "final_stop_confirmed": true,
+      "final_stop_error": null,
+      "jog": {
+        "requested_displacement_rad": 0.025,
+        "initial_position_rad": 2.4618849823416102,
+        "final_position_rad": 2.4618849823416102,
+        "maximum_displacement_rad": 0.00038350104873252633,
+        "maximum_reported_effort_nm": 0.05532921339742103,
+        "maximum_reported_velocity_rad_s": 0.08812085145342508,
+        "samples": 225,
+        "movement_observed": false
+      },
+      "raw_can_events": 481
+    },
+    {
+      "evidence": {
+        "local_capture": "simulation_runs/minerva-production-20260924/run_gripper_jog_kp2.json",
+        "local_capture_sha256": "f36bb92ce7b0bc6f74894d649176328a4c8bd1be06e17a021766f9a63492babb",
+        "remote_report": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/jog-kp2-preparation/right-gripper-20260924T174951Z/result.json"
+      },
+      "artifact_hashes": {
+        "motor_watchdog_trial": "78f4031d3f2e2a381683536ed2dbce98896de9fd82df0b9792bcd5da0b223b2f",
+        "right-gripper-jog.json": "370227403e5498a475d140dee9757f218fbbb8a5eb670c8694bcd42611a53511"
+      },
+      "kp_nm_per_rad": 2.0,
+      "kd_nm_s_per_rad": 0.05,
+      "success": false,
+      "error": "jog completed without measurable motion; gains were not increased",
+      "enable_requested": true,
+      "previous_watchdog_ticks": 600,
+      "written_watchdog_ticks": 600,
+      "run_confirmed": true,
+      "reset_after_silence": true,
+      "silence_ms": 151,
+      "final_stop_confirmed": true,
+      "final_stop_error": null,
+      "jog": {
+        "kp_nm_per_rad": 2.0,
+        "kd_nm_s_per_rad": 0.05,
+        "requested_displacement_rad": 0.025,
+        "initial_position_rad": 2.4618849823416102,
+        "final_position_rad": 2.4618849823416102,
+        "maximum_displacement_rad": 0.00038350104873252633,
+        "maximum_reported_effort_nm": 0.07284657053482846,
+        "maximum_reported_velocity_rad_s": 0.09114213778897096,
+        "samples": 225,
+        "movement_observed": false
+      },
+      "raw_can_events": 481
+    }
+  ],
+  "final_host_state": {
+    "timestamp": "2026-09-24T17:55:06.681490+00:00",
+    "services": {
+      "aizee-minerva-left": {
+        "code": 0,
+        "stdout": "MainPID=0\nLoadState=loaded\nActiveState=failed\nUnitFileState=disabled",
+        "stderr": ""
+      },
+      "aizee-minerva-right": {
+        "code": 0,
+        "stdout": "MainPID=0\nLoadState=loaded\nActiveState=failed\nUnitFileState=disabled",
+        "stderr": ""
+      },
+      "aizee-motor-control-rover": {
+        "code": 0,
+        "stdout": "MainPID=0\nLoadState=loaded\nActiveState=inactive\nUnitFileState=disabled",
+        "stderr": ""
+      },
+      "aizee-estop-bridge": {
+        "code": 0,
+        "stdout": "MainPID=0\nLoadState=not-found\nActiveState=inactive\nUnitFileState=",
+        "stderr": ""
+      }
+    },
+    "adapters": {
+      "canL": {
+        "serial": "004D002C4730511520303650",
+        "link": {
+          "ifindex": 11,
+          "ifname": "canL",
+          "flags": [
+            "NOARP",
+            "ECHO"
+          ],
+          "mtu": 16,
+          "qdisc": "pfifo_fast",
+          "operstate": "DOWN",
+          "linkmode": "DEFAULT",
+          "group": "default",
+          "txqlen": 128,
+          "link_type": "can",
+          "promiscuity": 0,
+          "min_mtu": 0,
+          "max_mtu": 0,
+          "linkinfo": {
+            "info_kind": "can",
+            "info_data": {
+              "state": "STOPPED",
+              "restart_ms": 100,
+              "bittiming": {
+                "bitrate": 1000000,
+                "sample_point": 0.75,
+                "tq": 62,
+                "prop_seg": 5,
+                "phase_seg1": 6,
+                "phase_seg2": 4,
+                "sjw": 1
+              },
+              "bittiming_const": {
+                "name": "gs_usb",
+                "tseg1": {
+                  "min": 1,
+                  "max": 16
+                },
+                "tseg2": {
+                  "min": 1,
+                  "max": 8
+                },
+                "sjw": {
+                  "min": 1,
+                  "max": 4
+                },
+                "brp": {
+                  "min": 1,
+                  "max": 1024
+                },
+                "brp_inc": 1
+              },
+              "clock": 48000000
+            },
+            "info_xstats": {
+              "restarts": 0,
+              "bus_error": 0,
+              "arbitration_lost": 0,
+              "error_warning": 0,
+              "error_passive": 0,
+              "bus_off": 0
+            }
+          },
+          "num_tx_queues": 1,
+          "num_rx_queues": 1,
+          "gso_max_size": 65536,
+          "gso_max_segs": 65535,
+          "parentbus": "usb",
+          "parentdev": "1-2.3.2:1.0",
+          "stats64": {
+            "rx": {
+              "bytes": 2064,
+              "packets": 258,
+              "errors": 0,
+              "dropped": 0,
+              "over_errors": 0,
+              "multicast": 0
+            },
+            "tx": {
+              "bytes": 2144,
+              "packets": 268,
+              "errors": 0,
+              "dropped": 0,
+              "carrier_errors": 0,
+              "collisions": 0
+            }
+          }
+        }
+      },
+      "canR": {
+        "serial": "0021002F4D53530920303937",
+        "link": {
+          "ifindex": 4,
+          "ifname": "canR",
+          "flags": [
+            "NOARP",
+            "ECHO"
+          ],
+          "mtu": 16,
+          "qdisc": "pfifo_fast",
+          "operstate": "DOWN",
+          "linkmode": "DEFAULT",
+          "group": "default",
+          "txqlen": 128,
+          "link_type": "can",
+          "promiscuity": 0,
+          "min_mtu": 0,
+          "max_mtu": 0,
+          "linkinfo": {
+            "info_kind": "can",
+            "info_data": {
+              "state": "STOPPED",
+              "restart_ms": 100,
+              "bittiming": {
+                "bitrate": 1000000,
+                "sample_point": 0.75,
+                "tq": 62,
+                "prop_seg": 5,
+                "phase_seg1": 6,
+                "phase_seg2": 4,
+                "sjw": 1
+              },
+              "bittiming_const": {
+                "name": "gs_usb",
+                "tseg1": {
+                  "min": 1,
+                  "max": 16
+                },
+                "tseg2": {
+                  "min": 1,
+                  "max": 8
+                },
+                "sjw": {
+                  "min": 1,
+                  "max": 4
+                },
+                "brp": {
+                  "min": 1,
+                  "max": 1024
+                },
+                "brp_inc": 1
+              },
+              "clock": 48000000
+            },
+            "info_xstats": {
+              "restarts": 0,
+              "bus_error": 0,
+              "arbitration_lost": 0,
+              "error_warning": 0,
+              "error_passive": 0,
+              "bus_off": 0
+            }
+          },
+          "num_tx_queues": 1,
+          "num_rx_queues": 1,
+          "gso_max_size": 65536,
+          "gso_max_segs": 65535,
+          "parentbus": "usb",
+          "parentdev": "1-2.3.4:1.0",
+          "stats64": {
+            "rx": {
+              "bytes": 6208,
+              "packets": 776,
+              "errors": 0,
+              "dropped": 0,
+              "over_errors": 0,
+              "multicast": 0
+            },
+            "tx": {
+              "bytes": 6208,
+              "packets": 776,
+              "errors": 0,
+              "dropped": 0,
+              "carrier_errors": 0,
+              "collisions": 0
+            }
+          }
+        }
+      }
+    },
+    "guarded_listener": {
+      "code": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  },
+  "limitations": [
+    "A firmware-version association does not prove the cause of watchdog failure.",
+    "Reset after a 150 ms wait is not a measured 30 ms timeout or a validated loaded stopping distance.",
+    "The 0.08 Nm threshold is checked in software from reported torque; stored motor torque/current limits were not changed.",
+    "No independent torque/force measurement; gripper motor-to-jaw mapping is uncalibrated.",
+    "Full raw captures remain at the local and remote paths listed; hashes refer to local JSON captures."
+  ]
+}

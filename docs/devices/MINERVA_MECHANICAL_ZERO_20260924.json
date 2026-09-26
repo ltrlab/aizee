@@ -1,0 +1,713 @@
+{
+  "schema": 1,
+  "device": "minerva-production-01",
+  "reference": {
+    "schema": 1,
+    "id": "minerva-mechanical-reference-20260924",
+    "asset_id": "minerva-production-01",
+    "reference_description": "Operator matched both arms to the viewer reference (all six arm joints at 0 rad) and confirmed both grippers fully closed. Mechanical zero only; arm directions, pose uncertainty and jaw CAD mapping are not yet qualified.",
+    "gripper_reference": "inner jaw faces fully closed; gap 0 mm",
+    "model_revision": "792f32da597821bbab4d7e65365618519159ecbc657744133196325eaafddcf8",
+    "recorded_at": "2026-09-24T22:17:35.625202+00:00",
+    "power_cycle_verified": true,
+    "runtime_approved": false,
+    "arm_directions_verified": false,
+    "reference_pose_uncertainty_rad": null,
+    "invalidated_calibrations": [
+      "docs/devices/calibration/minerva-right-gripper-20260924/coarse/fit.json"
+    ],
+    "motors": [
+      {
+        "name": "left_arm_j1",
+        "bus": "canL",
+        "id": 4,
+        "uid": "3c56300214713704",
+        "firmware": "0.3.1.30",
+        "raw_reference_rad": 0.0,
+        "after_save_samples_rad": [
+          0.0,
+          4.262394577381201e-05,
+          -8.522139978595078e-05,
+          4.262394577381201e-05,
+          0.00017044279957190156,
+          8.522139978595078e-05
+        ],
+        "zero_transmissions": 1,
+        "save_transmissions": 1,
+        "save_response": {
+          "kind": "identity",
+          "uid": "3c56300214713704",
+          "persistence_verified": false
+        },
+        "save_response_missing": false
+      },
+      {
+        "name": "left_arm_j2",
+        "bus": "canL",
+        "id": 5,
+        "uid": "a5493bc000203018",
+        "firmware": "0.4.1.32",
+        "raw_reference_rad": 0.0,
+        "after_save_samples_rad": [
+          -4.259745401213877e-05,
+          -8.522139978595078e-05,
+          -4.259745401213877e-05,
+          4.262394577381201e-05,
+          -4.259745401213877e-05,
+          -4.259745401213877e-05
+        ],
+        "zero_transmissions": 1,
+        "save_transmissions": 1,
+        "save_response": {
+          "kind": "identity",
+          "uid": "a5493bc000203018",
+          "persistence_verified": false
+        },
+        "save_response_missing": false
+      },
+      {
+        "name": "left_arm_j3",
+        "bus": "canL",
+        "id": 6,
+        "uid": "797a30020c323817",
+        "firmware": "0.3.1.42",
+        "raw_reference_rad": 0.0,
+        "after_save_samples_rad": [
+          -4.2650433897506446e-05,
+          -4.2650433897506446e-05,
+          8.519490802427754e-05,
+          4.259745401213877e-05,
+          -4.2650433897506446e-05,
+          -8.524789154762402e-05
+        ],
+        "zero_transmissions": 1,
+        "save_transmissions": 1,
+        "save_response": null,
+        "save_response_missing": true
+      },
+      {
+        "name": "left_arm_j4",
+        "bus": "canL",
+        "id": 7,
+        "uid": "a5283b8f2450b00e",
+        "firmware": "0.2.3.34",
+        "raw_reference_rad": 0.0,
+        "after_save_samples_rad": [
+          0.00014843478857073933,
+          0.0,
+          0.0002969003398902714,
+          0.00019793356477748603,
+          0.0002969003398902714,
+          4.946800981997512e-05
+        ],
+        "zero_transmissions": 1,
+        "save_transmissions": 1,
+        "save_response": null,
+        "save_response_missing": true
+      },
+      {
+        "name": "left_arm_j5",
+        "bus": "canL",
+        "id": 8,
+        "uid": "3e4330021c40b614",
+        "firmware": "0.2.3.34",
+        "raw_reference_rad": 0.0,
+        "after_save_samples_rad": [
+          9.896678238874301e-05,
+          -9.896678238874301e-05,
+          0.0001484655513195321,
+          9.896678238874301e-05,
+          0.00019793356477748603,
+          9.896678238874301e-05
+        ],
+        "zero_transmissions": 1,
+        "save_transmissions": 1,
+        "save_response": null,
+        "save_response_missing": true
+      },
+      {
+        "name": "left_arm_j6",
+        "bus": "canL",
+        "id": 9,
+        "uid": "2f3d30031064b401",
+        "firmware": "0.0.3.32",
+        "raw_reference_rad": 0.0,
+        "after_save_samples_rad": [
+          -7.667541649425402e-05,
+          -0.00011501312110340223,
+          -3.833770824712701e-05,
+          -7.667541649425402e-05,
+          -0.00011501312110340223,
+          0.0
+        ],
+        "zero_transmissions": 1,
+        "save_transmissions": 1,
+        "save_response": null,
+        "save_response_missing": true
+      },
+      {
+        "name": "left_gripper",
+        "bus": "canL",
+        "id": 10,
+        "uid": "1057300214713506",
+        "firmware": "0.0.3.32",
+        "raw_reference_rad": 0.0,
+        "after_save_samples_rad": [
+          7.66992598073557e-05,
+          0.0,
+          -7.66992598073557e-05,
+          -0.00011506080772960559,
+          -0.0001533985196147114,
+          -3.836155156022869e-05
+        ],
+        "zero_transmissions": 1,
+        "save_transmissions": 1,
+        "save_response": null,
+        "save_response_missing": true
+      },
+      {
+        "name": "right_arm_j1",
+        "bus": "canR",
+        "id": 4,
+        "uid": "4e8230021471b10a",
+        "firmware": "0.3.1.30",
+        "raw_reference_rad": 0.0,
+        "after_save_samples_rad": [
+          4.262394577381201e-05,
+          0.0,
+          -0.00012781885743606836,
+          0.0,
+          8.522139978595078e-05,
+          4.262394577381201e-05
+        ],
+        "zero_transmissions": 1,
+        "save_transmissions": 1,
+        "save_response": {
+          "kind": "identity",
+          "uid": "4e8230021471b10a",
+          "persistence_verified": false
+        },
+        "save_response_missing": false
+      },
+      {
+        "name": "right_arm_j2",
+        "bus": "canR",
+        "id": 5,
+        "uid": "4fa930020c34380b",
+        "firmware": "0.4.1.24",
+        "raw_reference_rad": 0.0,
+        "after_save_samples_rad": [
+          -4.261069989297539e-05,
+          0.0,
+          -8.522139978595078e-05,
+          4.261069989297539e-05,
+          0.00012783209967892617,
+          0.0
+        ],
+        "zero_transmissions": 1,
+        "save_transmissions": 1,
+        "save_response": {
+          "kind": "identity",
+          "uid": "4fa930020c34380b",
+          "persistence_verified": false
+        },
+        "save_response_missing": false
+      },
+      {
+        "name": "right_arm_j3",
+        "bus": "canR",
+        "id": 6,
+        "uid": "379b93c79c90b014",
+        "firmware": "0.3.1.37",
+        "raw_reference_rad": 0.0,
+        "after_save_samples_rad": [
+          0.0,
+          -4.259745401213877e-05,
+          0.0,
+          0.0,
+          0.00012784534192178398,
+          4.2650433897506446e-05
+        ],
+        "zero_transmissions": 1,
+        "save_transmissions": 1,
+        "save_response": {
+          "kind": "identity",
+          "uid": "379b93c79c90b014",
+          "persistence_verified": false
+        },
+        "save_response_missing": false
+      },
+      {
+        "name": "right_arm_j4",
+        "bus": "canR",
+        "id": 7,
+        "uid": "3d93302110703018",
+        "firmware": "0.2.3.34",
+        "raw_reference_rad": 0.0,
+        "after_save_samples_rad": [
+          9.899754513753578e-05,
+          -9.893601963995025e-05,
+          -9.893601963995025e-05,
+          9.899754513753578e-05,
+          -9.893601963995025e-05,
+          4.952953531756066e-05
+        ],
+        "zero_transmissions": 1,
+        "save_transmissions": 1,
+        "save_response": {
+          "kind": "identity",
+          "uid": "3d93302110703018",
+          "persistence_verified": false
+        },
+        "save_response_missing": false
+      },
+      {
+        "name": "right_arm_j5",
+        "bus": "canR",
+        "id": 8,
+        "uid": "0965302110703016",
+        "firmware": "0.2.3.34",
+        "raw_reference_rad": 0.0,
+        "after_save_samples_rad": [
+          9.899754513753578e-05,
+          9.899754513753578e-05,
+          4.952953531756066e-05,
+          -4.946800981997512e-05,
+          -4.946800981997512e-05,
+          0.0
+        ],
+        "zero_transmissions": 1,
+        "save_transmissions": 1,
+        "save_response": {
+          "kind": "identity",
+          "uid": "0965302110703016",
+          "persistence_verified": false
+        },
+        "save_response_missing": false
+      },
+      {
+        "name": "right_arm_j6",
+        "bus": "canR",
+        "id": 9,
+        "uid": "961430020c343701",
+        "firmware": "0.0.3.32",
+        "raw_reference_rad": 0.0,
+        "after_save_samples_rad": [
+          7.672310312045738e-05,
+          7.672310312045738e-05,
+          7.672310312045738e-05,
+          7.672310312045738e-05,
+          0.0001533985196147114,
+          0.00011506080772960559
+        ],
+        "zero_transmissions": 1,
+        "save_transmissions": 1,
+        "save_response": {
+          "kind": "identity",
+          "uid": "961430020c343701",
+          "persistence_verified": false
+        },
+        "save_response_missing": false
+      },
+      {
+        "name": "right_gripper",
+        "bus": "canR",
+        "id": 10,
+        "uid": "632f93c79c90b00e",
+        "firmware": "0.0.3.32",
+        "raw_reference_rad": 0.0,
+        "after_save_samples_rad": [
+          -3.833770824712701e-05,
+          -7.667541649425402e-05,
+          -0.00011501312110340223,
+          -0.00011501312110340223,
+          -0.00011501312110340223,
+          -0.0001533985196147114
+        ],
+        "zero_transmissions": 1,
+        "save_transmissions": 1,
+        "save_response": {
+          "kind": "identity",
+          "uid": "632f93c79c90b00e",
+          "persistence_verified": false
+        },
+        "save_response_missing": false
+      }
+    ],
+    "limitations": [
+      "Physical reference set visually by operator; encoder readback precision is not CAD calibration accuracy.",
+      "One physical power cycle passed for all 14 motors. Future starts still require the reference gate.",
+      "Raw offsets and old pose targets must not be reused after this reference change.",
+      "Arm signs, load response and runtime collision calibration remain unverified."
+    ],
+    "power_cycle_verification": {
+      "operator_report": "Motor power cycled with no physical pose change; Jetson left available.",
+      "capture_started_at": "2026-09-24T22:20:37.483316+00:00",
+      "capture_sha256": "c01597cba2f82eade22b06c71da465c9ad5d9984235c0443942dd6feb1056545",
+      "remote_capture": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/stopped-motors-20260924T222037Z",
+      "all_14_passed": true,
+      "max_absolute_readback_rad": 0.0002969003398902714,
+      "motors": [
+        {
+          "name": "left_arm_j1",
+          "position_rad": -8.522139978595078e-05,
+          "uid": "3c56300214713704",
+          "firmware": "0.3.1.30",
+          "mode": "Reset",
+          "fault_bits": 0
+        },
+        {
+          "name": "left_arm_j2",
+          "position_rad": 4.262394577381201e-05,
+          "uid": "a5493bc000203018",
+          "firmware": "0.4.1.32",
+          "mode": "Reset",
+          "fault_bits": 0
+        },
+        {
+          "name": "left_arm_j3",
+          "position_rad": 4.259745401213877e-05,
+          "uid": "797a30020c323817",
+          "firmware": "0.3.1.42",
+          "mode": "Reset",
+          "fault_bits": 0
+        },
+        {
+          "name": "left_arm_j4",
+          "position_rad": 0.0002969003398902714,
+          "uid": "a5283b8f2450b00e",
+          "firmware": "0.2.3.34",
+          "mode": "Reset",
+          "fault_bits": 0
+        },
+        {
+          "name": "left_arm_j5",
+          "position_rad": 9.896678238874301e-05,
+          "uid": "3e4330021c40b614",
+          "firmware": "0.2.3.34",
+          "mode": "Reset",
+          "fault_bits": 0
+        },
+        {
+          "name": "left_arm_j6",
+          "position_rad": -3.833770824712701e-05,
+          "uid": "2f3d30031064b401",
+          "firmware": "0.0.3.32",
+          "mode": "Reset",
+          "fault_bits": 0
+        },
+        {
+          "name": "left_gripper",
+          "position_rad": 0.0,
+          "uid": "1057300214713506",
+          "firmware": "0.0.3.32",
+          "mode": "Reset",
+          "fault_bits": 0
+        },
+        {
+          "name": "right_arm_j1",
+          "position_rad": 0.00017044279957190156,
+          "uid": "4e8230021471b10a",
+          "firmware": "0.3.1.30",
+          "mode": "Reset",
+          "fault_bits": 0
+        },
+        {
+          "name": "right_arm_j2",
+          "position_rad": 0.0,
+          "uid": "4fa930020c34380b",
+          "firmware": "0.4.1.24",
+          "mode": "Reset",
+          "fault_bits": 0
+        },
+        {
+          "name": "right_arm_j3",
+          "position_rad": 0.00017044279957190156,
+          "uid": "379b93c79c90b014",
+          "firmware": "0.3.1.37",
+          "mode": "Reset",
+          "fault_bits": 0
+        },
+        {
+          "name": "right_arm_j4",
+          "position_rad": 4.952953531756066e-05,
+          "uid": "3d93302110703018",
+          "firmware": "0.2.3.34",
+          "mode": "Reset",
+          "fault_bits": 0
+        },
+        {
+          "name": "right_arm_j5",
+          "position_rad": 0.0,
+          "uid": "0965302110703016",
+          "firmware": "0.2.3.34",
+          "mode": "Reset",
+          "fault_bits": 0
+        },
+        {
+          "name": "right_arm_j6",
+          "position_rad": 3.838539123535156e-05,
+          "uid": "961430020c343701",
+          "firmware": "0.0.3.32",
+          "mode": "Reset",
+          "fault_bits": 0
+        },
+        {
+          "name": "right_gripper",
+          "position_rad": -0.0001917362242238596,
+          "uid": "632f93c79c90b00e",
+          "firmware": "0.0.3.32",
+          "mode": "Reset",
+          "fault_bits": 0
+        }
+      ],
+      "scope": "One operator-reported physical power cycle; raw unwrapped positions compared against zero; no zero/save/enable commands."
+    }
+  },
+  "reference_sha256": "469979aa7ac4de95359d9f9dc78e5e6deef9a8145830397228e9b38c6d4cce5b",
+  "captures": [
+    {
+      "path": "simulation_runs/minerva-production-20260924/run_mechanical_zero.json",
+      "sha256": "0f0dddfdbdf8042333fe7ed4276c9bcb996e759ae518345f4e5f8e369545f79b",
+      "stage": "/home/ltr/aizee/device-maintenance/mechanical-zero-20260924T220526Z",
+      "source_hashes": {
+        "mechanical_zero.py": "0955ca2d7f95064a1dc08d7090b36204a135997f6019c4bb5e9cc4092f3d64ac",
+        "device.json": "8ff54b847b10d14b3056c22885f71492b927b0a0dc1fb1490195cc08bf9f9236",
+        "roster.json": "092725737b5a0356576a7a2abec46e6d1bb24e9a910283b3781e3d57bf4bc14e"
+      },
+      "success": false,
+      "error": "left_arm_j4: moving or noisy velocity; leave disabled",
+      "zero_transmissions": 0,
+      "save_transmissions": 0
+    },
+    {
+      "path": "simulation_runs/minerva-production-20260924/run_mechanical_zero_quiet.json",
+      "sha256": "a47926a8aa91c4e7a494013dd1149cfdcc1f9fe0b76b8d37974232563d3a049a",
+      "stage": "/home/ltr/aizee/device-maintenance/mechanical-zero-20260924T220526Z/quiet-window-v2",
+      "source_hashes": {
+        "mechanical_zero.py": "45b1e4b315bb0682dd3e839bd045c5d7fca610fe9c5c91bbe8470b6348d0ae79",
+        "device.json": "8ff54b847b10d14b3056c22885f71492b927b0a0dc1fb1490195cc08bf9f9236",
+        "roster.json": "092725737b5a0356576a7a2abec46e6d1bb24e9a910283b3781e3d57bf4bc14e"
+      },
+      "success": false,
+      "error": "timed out",
+      "zero_transmissions": 1,
+      "save_transmissions": 0
+    },
+    {
+      "path": "simulation_runs/minerva-production-20260924/run_mechanical_zero_resume.json",
+      "sha256": "82c2fb5df0ea2dd8f304866727f9fb965cdbd3414190d6a83e23ed205d14fb0f",
+      "stage": "/home/ltr/aizee/device-maintenance/mechanical-zero-20260924T220526Z/paced-resume-v3",
+      "source_hashes": {
+        "mechanical_zero.py": "f1db75a27d513302bb6515102e764bcb89cebc90c80607c04f86ddc8a5460b43",
+        "device.json": "8ff54b847b10d14b3056c22885f71492b927b0a0dc1fb1490195cc08bf9f9236",
+        "roster.json": "092725737b5a0356576a7a2abec46e6d1bb24e9a910283b3781e3d57bf4bc14e",
+        "resume.json": "0466fb36a4239069ee133bae8b4ed4dc5bd657d349c37745746957e203537dab"
+      },
+      "success": false,
+      "error": "timed out",
+      "zero_transmissions": 0,
+      "save_transmissions": 1
+    },
+    {
+      "path": "simulation_runs/minerva-production-20260924/run_mechanical_zero_save_response.json",
+      "sha256": "4f9c749abbcba9d3fe857ec44db71d211e0aa76869296577bf2e3f0b24e5d055",
+      "stage": "/home/ltr/aizee/device-maintenance/mechanical-zero-20260924T220526Z/save-response-v4",
+      "source_hashes": {
+        "mechanical_zero.py": "02faca097549e37d74a83c5c2695306e66028a25384b2b0dc166b0ecfa644dd0",
+        "device.json": "8ff54b847b10d14b3056c22885f71492b927b0a0dc1fb1490195cc08bf9f9236",
+        "roster.json": "092725737b5a0356576a7a2abec46e6d1bb24e9a910283b3781e3d57bf4bc14e",
+        "resume.json": "5cfa95ef543324363739b87fbd5df0a84a29fc0d8697326de31f63e07b0ac8a6"
+      },
+      "success": false,
+      "error": "timed out",
+      "zero_transmissions": 2,
+      "save_transmissions": 2
+    },
+    {
+      "path": "simulation_runs/minerva-production-20260924/run_mechanical_zero_v5.json",
+      "sha256": "aeb673138554b7163dc9310f268b172d600b8e6847e37d5112dea64f18e651ff",
+      "stage": "/home/ltr/aizee/device-maintenance/mechanical-zero-20260924T220526Z/persistence-pending-v5",
+      "source_hashes": {
+        "mechanical_zero.py": "7feb200780f8adf85dfe7fe1a99f846eb285deb7bea38483e0d6518fd111fbd7",
+        "device.json": "8ff54b847b10d14b3056c22885f71492b927b0a0dc1fb1490195cc08bf9f9236",
+        "roster.json": "092725737b5a0356576a7a2abec46e6d1bb24e9a910283b3781e3d57bf4bc14e",
+        "resume.json": "b2f8830370173d22aee30912f60da2102e5da9e7f79dc63fe12e9a8d61babda6"
+      },
+      "success": false,
+      "error": "timed out",
+      "zero_transmissions": 10,
+      "save_transmissions": 10
+    },
+    {
+      "path": "simulation_runs/minerva-production-20260924/run_mechanical_zero_v6.json",
+      "sha256": "5e3fbfaec433f20323b7fec47afa9b6c3601c915af77f3fe932c9cd4cb43e2dc",
+      "stage": "/home/ltr/aizee/device-maintenance/mechanical-zero-20260924T220526Z/final-readback-v6",
+      "source_hashes": {
+        "mechanical_zero.py": "34037f572cbd895866cfa8020076018ec7e62e84db2b0c7da6a8ce16f5149e9e",
+        "device.json": "8ff54b847b10d14b3056c22885f71492b927b0a0dc1fb1490195cc08bf9f9236",
+        "roster.json": "092725737b5a0356576a7a2abec46e6d1bb24e9a910283b3781e3d57bf4bc14e",
+        "resume.json": "5e51adbfe2e27f210378c2b1d73af0500f86856116d90c269ae86bac81701af3"
+      },
+      "success": true,
+      "error": null,
+      "zero_transmissions": 1,
+      "save_transmissions": 1
+    }
+  ],
+  "max_absolute_readback_rad": 0.0002969003398902714,
+  "save_response_missing": [
+    "left_arm_j3",
+    "left_arm_j4",
+    "left_arm_j5",
+    "left_arm_j6",
+    "left_gripper"
+  ],
+  "enable_transmissions": 0,
+  "unique_zero_transmissions": 14,
+  "unique_save_transmissions": 14,
+  "power_cycle_verified": true,
+  "final_physical_can": {
+    "canL": [
+      "NOARP",
+      "ECHO"
+    ],
+    "canR": [
+      "NOARP",
+      "ECHO"
+    ]
+  },
+  "final_services": {
+    "aizee-minerva-left": "0",
+    "aizee-minerva-right": "0",
+    "aizee-motor-control-rover": "0"
+  },
+  "final_guarded_listener": "",
+  "power_cycle_verification": {
+    "operator_report": "Motor power cycled with no physical pose change; Jetson left available.",
+    "capture_started_at": "2026-09-24T22:20:37.483316+00:00",
+    "capture_sha256": "c01597cba2f82eade22b06c71da465c9ad5d9984235c0443942dd6feb1056545",
+    "remote_capture": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/stopped-motors-20260924T222037Z",
+    "all_14_passed": true,
+    "max_absolute_readback_rad": 0.0002969003398902714,
+    "motors": [
+      {
+        "name": "left_arm_j1",
+        "position_rad": -8.522139978595078e-05,
+        "uid": "3c56300214713704",
+        "firmware": "0.3.1.30",
+        "mode": "Reset",
+        "fault_bits": 0
+      },
+      {
+        "name": "left_arm_j2",
+        "position_rad": 4.262394577381201e-05,
+        "uid": "a5493bc000203018",
+        "firmware": "0.4.1.32",
+        "mode": "Reset",
+        "fault_bits": 0
+      },
+      {
+        "name": "left_arm_j3",
+        "position_rad": 4.259745401213877e-05,
+        "uid": "797a30020c323817",
+        "firmware": "0.3.1.42",
+        "mode": "Reset",
+        "fault_bits": 0
+      },
+      {
+        "name": "left_arm_j4",
+        "position_rad": 0.0002969003398902714,
+        "uid": "a5283b8f2450b00e",
+        "firmware": "0.2.3.34",
+        "mode": "Reset",
+        "fault_bits": 0
+      },
+      {
+        "name": "left_arm_j5",
+        "position_rad": 9.896678238874301e-05,
+        "uid": "3e4330021c40b614",
+        "firmware": "0.2.3.34",
+        "mode": "Reset",
+        "fault_bits": 0
+      },
+      {
+        "name": "left_arm_j6",
+        "position_rad": -3.833770824712701e-05,
+        "uid": "2f3d30031064b401",
+        "firmware": "0.0.3.32",
+        "mode": "Reset",
+        "fault_bits": 0
+      },
+      {
+        "name": "left_gripper",
+        "position_rad": 0.0,
+        "uid": "1057300214713506",
+        "firmware": "0.0.3.32",
+        "mode": "Reset",
+        "fault_bits": 0
+      },
+      {
+        "name": "right_arm_j1",
+        "position_rad": 0.00017044279957190156,
+        "uid": "4e8230021471b10a",
+        "firmware": "0.3.1.30",
+        "mode": "Reset",
+        "fault_bits": 0
+      },
+      {
+        "name": "right_arm_j2",
+        "position_rad": 0.0,
+        "uid": "4fa930020c34380b",
+        "firmware": "0.4.1.24",
+        "mode": "Reset",
+        "fault_bits": 0
+      },
+      {
+        "name": "right_arm_j3",
+        "position_rad": 0.00017044279957190156,
+        "uid": "379b93c79c90b014",
+        "firmware": "0.3.1.37",
+        "mode": "Reset",
+        "fault_bits": 0
+      },
+      {
+        "name": "right_arm_j4",
+        "position_rad": 4.952953531756066e-05,
+        "uid": "3d93302110703018",
+        "firmware": "0.2.3.34",
+        "mode": "Reset",
+        "fault_bits": 0
+      },
+      {
+        "name": "right_arm_j5",
+        "position_rad": 0.0,
+        "uid": "0965302110703016",
+        "firmware": "0.2.3.34",
+        "mode": "Reset",
+        "fault_bits": 0
+      },
+      {
+        "name": "right_arm_j6",
+        "position_rad": 3.838539123535156e-05,
+        "uid": "961430020c343701",
+        "firmware": "0.0.3.32",
+        "mode": "Reset",
+        "fault_bits": 0
+      },
+      {
+        "name": "right_gripper",
+        "position_rad": -0.0001917362242238596,
+        "uid": "632f93c79c90b00e",
+        "firmware": "0.0.3.32",
+        "mode": "Reset",
+        "fault_bits": 0
+      }
+    ],
+    "scope": "One operator-reported physical power cycle; raw unwrapped positions compared against zero; no zero/save/enable commands."
+  },
+  "validation": {
+    "python_unit_contract_tests": 517,
+    "maintenance_tests": 15
+  }
+}

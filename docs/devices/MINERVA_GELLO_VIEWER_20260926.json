@@ -1,0 +1,196 @@
+{
+  "schema_version": 1,
+  "at_utc": "2026-09-26T00:40:45.837352+00:00",
+  "input_profile": "config/devices/gello-dual-viewer.json",
+  "follower_motion": false,
+  "leader_commands": [
+    "IDENT 0x50",
+    "FRESH_POLL 0xA6"
+  ],
+  "changes": [
+    "Independent OpenRB USB reads run concurrently in a persistent worker pool.",
+    "Complete source-valid seven-channel samples from both boards still required; no timestamp rewriting, incomplete frames or auto reconnect.",
+    "Default requested leader sampling 100 Hz; follower collision/control target remains 25 Hz."
+  ],
+  "runs": {
+    "input-check-20260926": {
+      "raw_path": "calibration_runs/gello-dual/input-check-20260926.json",
+      "sha256": "02c7f78be4b9cb3fb673ce6ab6058d2b3de2ae9d1ed5cf40c193d6fe943c8687",
+      "elapsed_s": 5.012050400000589,
+      "average_hz": 25.139412005909833,
+      "cycle_ms_median": 11.293850000129169,
+      "cycle_ms_max": 13.468799999827752,
+      "summary": {
+        "cycles": 126,
+        "max_source_age_ms": 18.39319999999134,
+        "max_pair_skew_ms": 6.975799999963783,
+        "scheduled_deadline_misses": 0,
+        "raw_range_by_board": {
+          "86AE0E865157375037202020FF110E12": [
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0
+          ],
+          "D5C58E435157375037202020FF0F2A0C": [
+            1,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "error": null
+    },
+    "input-100hz-20260926": {
+      "raw_path": "calibration_runs/gello-dual/input-100hz-20260926.json",
+      "sha256": "2cb6f0d34936278cd993180fc8671ee00f6d29664bcd030ae6dcd18c21e1eb17",
+      "elapsed_s": 10.010527499999625,
+      "average_hz": 45.65193992025067,
+      "cycle_ms_median": 11.255699999310309,
+      "cycle_ms_max": 16.83320000029198,
+      "summary": {
+        "cycles": 457,
+        "max_source_age_ms": 21.77430000028835,
+        "max_pair_skew_ms": 12.296200000491808,
+        "scheduled_deadline_misses": 457,
+        "raw_range_by_board": {
+          "86AE0E865157375037202020FF110E12": [
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0
+          ],
+          "D5C58E435157375037202020FF0F2A0C": [
+            1,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "error": null
+    },
+    "input-parallel-100hz-20260926": {
+      "raw_path": "calibration_runs/gello-dual/input-parallel-100hz-20260926.json",
+      "sha256": "b0585eccd1f3359d90cc3c2d4c2b5509f51800cceaa1978aad78e5464a9d0042",
+      "elapsed_s": 10.001851500000157,
+      "average_hz": 99.58156247370643,
+      "cycle_ms_median": 6.044550000297022,
+      "cycle_ms_max": 10.666000000128406,
+      "summary": {
+        "cycles": 996,
+        "max_source_age_ms": 15.228100000058475,
+        "max_pair_skew_ms": 1.9277000001238775,
+        "scheduled_deadline_misses": 4,
+        "raw_range_by_board": {
+          "86AE0E865157375037202020FF110E12": [
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0
+          ],
+          "D5C58E435157375037202020FF0F2A0C": [
+            1,
+            1,
+            1,
+            1,
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "error": null
+    }
+  },
+  "limitations": [
+    "Short attended bench readings, not sustained timing qualification.",
+    "Windows scheduling produced occasional >10 ms completion deadlines; no hard-real-time claim.",
+    "Display calibration and illustrative virtual routes do not approve physical teleop."
+  ],
+  "shadow_test": {
+    "report_path": "simulation_runs/minerva-gello-shadow-20260926.json",
+    "sha256": "742db0b4fa024a119aad6dc38871f3fed03c1c5f9cacace553d2aad39f44f0d2",
+    "summary": {
+      "completed_cycles": 250,
+      "accepted_cycles": 250,
+      "scheduled_deadline_misses": 0,
+      "cycle_budget_misses": 0,
+      "p50_ms": 6.89970000030371,
+      "p99_ms": 10.992620999550125,
+      "maximum_ms": 13.452600000164239,
+      "input_maximum_ms": 5.248299999948358,
+      "input_p99_ms": 4.19652099987615,
+      "maximum_source_age_ms": 42.65880000002653,
+      "collision_rejections": 0,
+      "failure": null,
+      "silent_producer_stop_verified": true
+    },
+    "maximum_source_age_at_completion_ms": 48.38800000015908,
+    "raw_tick_ranges": {
+      "left": [
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "right": [
+        1,
+        1,
+        1,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "scope": "Real stationary leaders, complete CAD keep-out checks, ideal virtual receiver; not physical arm motion or a moving-leader sweep."
+  },
+  "operator_preference": {
+    "at_utc": "2026-09-26T00:47:20.323207+00:00",
+    "hold_to_run": "deferred at operator request",
+    "powered_runner_plan": "Preserve existing GUI Idle (I), Enable (E), Engage/Align/Teleop (T), Disable (H), Shutdown slowly to zero (X). No replacement Start/Stop workflow; no hold-to-run requirement. Apply shared collision/freshness gates to alignment, tracking and shutdown."
+  },
+  "gripper_preview_operator_confirmation": "Operator accepted the Minerva finger preview before starting GELLO work; no new transmission scale measurement or runtime approval.",
+  "viewer_lifecycle": "Read-only stale cached snapshots freeze the display and may resume when original source freshness recovers; protocol/USB faults latch. No auto reconnect or controller rearm.",
+  "validation": {
+    "python_focused_tests_passed": 110,
+    "javascript_syntax": "node --check passed",
+    "ui_checks": [
+      "Live pair and all 14 joint rows rendered at about 53-56 browser deliveries/s with 100 Hz requested USB sampling.",
+      "Reference guide displays zero-pose shape while source readings continue.",
+      "Flip left base display sign and restore verified against live numbers; no saved calibration changed.",
+      "Transient cache-stale recovery and controller stop-latching covered by unit tests."
+    ],
+    "observed_at_utc": "2026-09-26T00:52:41.334222+00:00"
+  },
+  "active_preview": {
+    "url": "http://127.0.0.1:8767/",
+    "process_exec_session_id": 48839,
+    "input_rate_hz": 100,
+    "saved_display_calibration": true,
+    "follower_connected": false,
+    "minerva_stopped_viewer": "http://127.0.0.1:8766/",
+    "profile_id": "gello-dual-hanging"
+  },
+  "latest_geometry_update": "docs/devices/MINERVA_GELLO_HANGING_LAYOUT_20260926.json"
+}

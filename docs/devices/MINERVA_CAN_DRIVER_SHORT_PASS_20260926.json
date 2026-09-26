@@ -1,0 +1,235 @@
+{
+  "asset_id": "minerva-production-01",
+  "started_at": "2026-09-26T00:04:47.429423+00:00",
+  "finished_at": "2026-09-26T00:05:48.441075+00:00",
+  "success": true,
+  "identity_verified": true,
+  "frames": 211,
+  "requested_duration_seconds": 60.0,
+  "elapsed_seconds": 60.12424987500708,
+  "median_scan_ms": 284.3612989963731,
+  "p99_scan_ms": 285.9727390023181,
+  "max_scan_ms": 292.03118300938513,
+  "reconnections": 0,
+  "rejected_scans": 0,
+  "transport_clean": true,
+  "transport_checks": {
+    "capture_succeeded": true,
+    "full_duration": true,
+    "no_retries_or_rejections": true,
+    "stopped_only": true,
+    "no_command_copies": true,
+    "kernel_capture_clean": true,
+    "no_can_error_frames": true,
+    "diagnostic_cleanup_clean": true,
+    "berr_reporting_active": true,
+    "modes_restored": true,
+    "links_down": true,
+    "counters_complete_and_unchanged": true
+  },
+  "counter_deltas": {
+    "canL": {
+      "during_run": {
+        "rx": {
+          "errors": 0,
+          "dropped": 0,
+          "over_errors": 0
+        },
+        "tx": {
+          "errors": 0,
+          "dropped": 0
+        },
+        "can": {
+          "restarts": 0,
+          "bus_error": 0,
+          "arbitration_lost": 0,
+          "error_warning": 0,
+          "error_passive": 0,
+          "bus_off": 0
+        }
+      },
+      "cleanup": {
+        "rx": {
+          "errors": 0,
+          "dropped": 0,
+          "over_errors": 0
+        },
+        "tx": {
+          "errors": 0,
+          "dropped": 0
+        },
+        "can": {
+          "restarts": 0,
+          "bus_error": 0,
+          "arbitration_lost": 0,
+          "error_warning": 0,
+          "error_passive": 0,
+          "bus_off": 0
+        }
+      }
+    },
+    "canR": {
+      "during_run": {
+        "rx": {
+          "errors": 0,
+          "dropped": 0,
+          "over_errors": 0
+        },
+        "tx": {
+          "errors": 0,
+          "dropped": 0
+        },
+        "can": {
+          "restarts": 0,
+          "bus_error": 0,
+          "arbitration_lost": 0,
+          "error_warning": 0,
+          "error_passive": 0,
+          "bus_off": 0
+        }
+      },
+      "cleanup": {
+        "rx": {
+          "errors": 0,
+          "dropped": 0,
+          "over_errors": 0
+        },
+        "tx": {
+          "errors": 0,
+          "dropped": 0
+        },
+        "can": {
+          "restarts": 0,
+          "bus_error": 0,
+          "arbitration_lost": 0,
+          "error_warning": 0,
+          "error_passive": 0,
+          "bus_off": 0
+        }
+      }
+    }
+  },
+  "driver_boot_context": {
+    "kernel": "5.15.185-tegra",
+    "selected_module_path": "/lib/modules/5.15.185-tegra/updates/aizee/gs_usb.ko",
+    "selected_module_sha256": "e3153247afcc9c2468c353015fc01f5821fc6bef430c1e6d2d79eae210269323",
+    "selected_module_vermagic": "5.15.185-tegra SMP preempt mod_unload modversions aarch64",
+    "loaded_initstate": "live",
+    "loaded_diag_frames": 0,
+    "boot_id": "b5206e44-4643-461e-a81a-f8121c8e24a3",
+    "machine_id": "661607618a944c90a32de217d0c92476",
+    "hostname": "aizee-rover",
+    "module_serial": "1421623029971",
+    "uptime_seconds": 73493.56
+  },
+  "usb_inventory": {
+    "canL": {
+      "usb_path": "1-2.4",
+      "idVendor": "1d50",
+      "idProduct": "606f",
+      "serial": "004D002C4730511520303650",
+      "manufacturer": "Jhoinrch",
+      "product": "RH02 gs_usb",
+      "configuration": "fw_85e5b33_2026-09-17"
+    },
+    "canR": {
+      "usb_path": "1-2.1",
+      "idVendor": "1d50",
+      "idProduct": "606f",
+      "serial": "0021002F4D53530920303937",
+      "manufacturer": "Jhoinrch",
+      "product": "RH02 gs_usb",
+      "configuration": "fw_85e5b33_2026-09-17"
+    }
+  },
+  "kernel_capture_success": true,
+  "kernel_warnings": [],
+  "unexpected_outgoing_frames_received": [],
+  "observed_can_error_frames": 0,
+  "enable_requested": false,
+  "parameter_writes_requested": false,
+  "schema": 1,
+  "operator_action": "Reseated left gripper connections after missing ID10; gripper now passed pinned identity/firmware/run-mode checks.",
+  "qualification": "Clean bounded stopped-reader comparison only. No endurance, powered-control or 25 Hz qualification; the original echo root cause is not proven.",
+  "scope": "All 14 motor UID/firmware/run-mode checks followed by 211 full stopped-position scans; no motor enables, mechanical-zero or parameter writes.",
+  "counter_totals": {
+    "canL": {
+      "before": {
+        "tx_packets": 26,
+        "rx_packets": 24
+      },
+      "before_cleanup": {
+        "tx_packets": 3008,
+        "rx_packets": 3006
+      },
+      "after": {
+        "tx_packets": 3008,
+        "rx_packets": 3006
+      }
+    },
+    "canR": {
+      "before": {
+        "tx_packets": 0,
+        "rx_packets": 0
+      },
+      "before_cleanup": {
+        "tx_packets": 2982,
+        "rx_packets": 2982
+      },
+      "after": {
+        "tx_packets": 2982,
+        "rx_packets": 2982
+      }
+    }
+  },
+  "packet_deltas": {
+    "canL": {
+      "tx": 2982,
+      "rx": 2982
+    },
+    "canR": {
+      "tx": 2982,
+      "rx": 2982
+    }
+  },
+  "diagnostics": {
+    "error_frames": 0,
+    "observer_errors": [],
+    "restore_errors": [],
+    "modes": {
+      "canL": {
+        "original_berr": false,
+        "berr_active": true,
+        "restore_verified": true,
+        "enable_error": null
+      },
+      "canR": {
+        "original_berr": false,
+        "berr_active": true,
+        "restore_verified": true,
+        "enable_error": null
+      }
+    }
+  },
+  "after_link_flags": {
+    "canL": [
+      "NOARP",
+      "ECHO"
+    ],
+    "canR": [
+      "NOARP",
+      "ECHO"
+    ]
+  },
+  "offline_audit": "Full kernel log has no entries; no CAN error frames; 2,982 sends and 2,982 transaction replies per bus, no discarded command copies; all live and cleanup error/drop/CAN counter deltas are zero.",
+  "reader_rate_context": "Stopped maintenance spaces requests by 10 ms; full 14-motor scan median is 284 ms (about 3.5 Hz). This is not the optimized control loop or a 25 Hz benchmark.",
+  "long_endurance_test_performed": false,
+  "evidence": {
+    "simulation_runs/rh02-provenance-20260926T000448Z/report.json": "786a8290e99c66327e03ac5bcd12b66930cbde7ed4009b052381532235d3f50d",
+    "simulation_runs/rh02-provenance-20260926T000448Z/socket-provenance.jsonl": "e74b4d553de8ec07bfdc70eb90404f2f3fbaea5e3c496dc1bec15e123a134b03",
+    "simulation_runs/rh02-provenance-20260926T000448Z/frames.jsonl": "e11d1ef6d763c356af21e81bb08e9cff6e604b741c7d48975b2be780583c25c9",
+    "simulation_runs/rh02-provenance-20260926T000448Z/can-errors.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "simulation_runs/rh02-provenance-20260926T000448Z/normal-boot.json": "c53af15227d28d33e74ad4683f83f9c5ce1e0c5752ea4ea4f7f8f3a2c22bf0af",
+    "simulation_runs/rh02-provenance-20260926T000448Z/kernel.log": "3b7ce719ccb275acfc910553ac4a0f4393d9203136818f5bc7b6f459be4a2ed5"
+  }
+}

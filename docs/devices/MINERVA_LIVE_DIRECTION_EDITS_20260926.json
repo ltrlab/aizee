@@ -1,0 +1,75 @@
+{
+  "schema": 1,
+  "asset_id": "minerva-production-01",
+  "recorded_at_utc": "2026-09-26T00:14:51.460477+00:00",
+  "operator_observation": "Only the right arm joint 3 and 4 are backwards.",
+  "edits": {
+    "right_arm_j3": {
+      "previous_sign": 1,
+      "sign": -1,
+      "offset_rad": 0.0,
+      "post_edit_direction_verified": false
+    },
+    "right_arm_j4": {
+      "previous_sign": 1,
+      "sign": -1,
+      "offset_rad": 0.0,
+      "post_edit_direction_verified": false
+    }
+  },
+  "preview_edits": [
+    {
+      "command": "flip right_arm_j3",
+      "raw_positions": {
+        "left_arm_j1": -0.0878629982471466,
+        "left_arm_j2": 0.0021731588058173656,
+        "left_arm_j3": -0.03685818985104561,
+        "left_arm_j4": -0.0002474323264323175,
+        "left_arm_j5": 0.05794491246342659,
+        "left_arm_j6": -0.025655794888734818,
+        "left_gripper": -0.0001533985196147114,
+        "right_arm_j1": 0.000809616525657475,
+        "right_arm_j2": 0.0002982748846989125,
+        "right_arm_j3": 0.013678020797669888,
+        "right_arm_j4": -0.08624932169914246,
+        "right_arm_j5": -0.16146373748779297,
+        "right_arm_j6": -0.004371833987534046,
+        "right_gripper": -0.00011501312110340223
+      },
+      "sequence": 830,
+      "recorded_at": 1790381645.7001686
+    },
+    {
+      "command": "flip right_arm_j4",
+      "raw_positions": {
+        "left_arm_j1": -0.0878629982471466,
+        "left_arm_j2": 0.0021731588058173656,
+        "left_arm_j3": -0.03685818985104561,
+        "left_arm_j4": -0.0002474323264323175,
+        "left_arm_j5": 0.05794491246342659,
+        "left_arm_j6": -0.025655794888734818,
+        "left_gripper": -0.0001533985196147114,
+        "right_arm_j1": 0.000809616525657475,
+        "right_arm_j2": 0.0002982748846989125,
+        "right_arm_j3": 0.013678020797669888,
+        "right_arm_j4": -0.08624932169914246,
+        "right_arm_j5": -0.16146373748779297,
+        "right_arm_j6": -0.004371833987534046,
+        "right_gripper": -0.00011501312110340223
+      },
+      "sequence": 830,
+      "recorded_at": 1790381645.7072182
+    }
+  ],
+  "runtime_approved": false,
+  "hardware_zeros_changed": false,
+  "motor_parameter_writes_requested": false,
+  "live_controller_config_changed": false,
+  "initial_verification": "Live browser displays right_arm_j3 and right_arm_j4 with sign -1; candidate and guide values equal minus their raw motor angles. Operator confirmation of corrected display is pending.",
+  "operator_confirmation": {
+    "at_utc": "2026-09-26T00:24:09.746485+00:00",
+    "observation": "Looks good, only thing is the grippers are at 0 (closed), model does not reflect yet.",
+    "scope": "All twelve arm directions accepted in active live calibration; corrected right J3/J4 match visually. No angle-scale or precision-alignment approval."
+  },
+  "verification": "All twelve saved preview direction_verified flags are true; hardware/runtime approval remains false."
+}

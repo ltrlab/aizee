@@ -1,0 +1,107 @@
+{
+  "at_utc": "2026-09-26T00:22:52.748301+00:00",
+  "reason": "Add two display-only gripper transmissions at the existing closed mechanical reference. Preserve all confirmed arm directions and offsets.",
+  "old_bindings": {
+    "plan": "8789f543f44f83209ab95f864115928ce2e415263a39963c32dc1c4a3c51ce80",
+    "device": "f99adfb98dbfef2c5230f5bd6c0a6b759385c9faec4724175f866af0d6d87af3",
+    "reference": "469979aa7ac4de95359d9f9dc78e5e6deef9a8145830397228e9b38c6d4cce5b",
+    "model": "792f32da597821bbab4d7e65365618519159ecbc657744133196325eaafddcf8",
+    "model_profile": "1b912b96e10da8759b8633b9b31b1c5d139cef7ba647763dcd3fd937e04ee8bc"
+  },
+  "new_bindings": {
+    "plan": "f6726e70982be4f4c06cec2488d9477c378bdb81099979beae112fc19d0974e2",
+    "device": "f99adfb98dbfef2c5230f5bd6c0a6b759385c9faec4724175f866af0d6d87af3",
+    "reference": "469979aa7ac4de95359d9f9dc78e5e6deef9a8145830397228e9b38c6d4cce5b",
+    "model": "792f32da597821bbab4d7e65365618519159ecbc657744133196325eaafddcf8",
+    "model_profile": "1b912b96e10da8759b8633b9b31b1c5d139cef7ba647763dcd3fd937e04ee8bc"
+  },
+  "old_session_sha256": "1d4a5cc3391ce173e3e23ac2d3a9d8843cb8003a9d49f254111abf7065ea1c36",
+  "old_session_backup": "calibration_runs\\minerva-production-01-directions\\session-before-grippers-20260926.json",
+  "old_plan_backup": "calibration_runs\\minerva-production-01-directions\\plan-before-grippers-20260926.json",
+  "unchanged": [
+    "device",
+    "reference",
+    "URDF",
+    "model profile",
+    "rotary steps",
+    "rotary preview mapping",
+    "edit history"
+  ],
+  "runtime_approved": false,
+  "preview_transmissions": [
+    {
+      "motor": "left_gripper",
+      "joint": "left_gripper_finger_a_slide",
+      "motor_reference_rad": 0.0,
+      "joint_reference_m": 0.0,
+      "metres_per_motor_rad": 0.00920520374756997,
+      "direction_verified": true,
+      "scale_verified": false,
+      "runtime_approved": false,
+      "note": "Approximate display only. Encoder-positive opening observed on 2026-09-26; scale borrowed from the right gripper and unverified for the left. CAD zero is fully closed; no hardware limits inferred.",
+      "source": "Historical right-gripper slope only: docs/devices/calibration/minerva-right-gripper-20260924/coarse/fit.json SHA256 6d27a195b8f5f03d8b64859e6372d02cb45a3f11a017e2524d402e08288a20ef. Prior absolute mapping was invalidated by mechanical zero; closed reference is minerva-mechanical-reference-20260924. Left direction: docs/devices/MINERVA_GRIPPER_DIRECTION_20260926.json."
+    },
+    {
+      "motor": "right_gripper",
+      "joint": "right_gripper_finger_a_slide",
+      "motor_reference_rad": 0.0,
+      "joint_reference_m": 0.0,
+      "metres_per_motor_rad": -0.00920520374756997,
+      "direction_verified": false,
+      "scale_verified": false,
+      "runtime_approved": false,
+      "note": "Approximate display only. Historical encoder-positive opening and right CAD-negative opening. Reanchored at the current fully closed zero; scale and post-zero direction await live visual confirmation. No old intercept or interpolation range reused.",
+      "source": "Historical right-gripper slope only: docs/devices/calibration/minerva-right-gripper-20260924/coarse/fit.json SHA256 6d27a195b8f5f03d8b64859e6372d02cb45a3f11a017e2524d402e08288a20ef. Prior absolute mapping was invalidated by mechanical zero; closed reference is minerva-mechanical-reference-20260924."
+    }
+  ],
+  "arm_direction_confirmation": {
+    "source": "Operator live visual agreement, including corrected right J3/J4",
+    "signs": {
+      "left_arm_j1": 1,
+      "right_arm_j1": -1,
+      "left_arm_j2": 1,
+      "right_arm_j2": 1,
+      "left_arm_j3": 1,
+      "right_arm_j3": -1,
+      "left_arm_j4": 1,
+      "right_arm_j4": -1,
+      "left_arm_j5": 1,
+      "right_arm_j5": 1,
+      "left_arm_j6": 1,
+      "right_arm_j6": 1
+    },
+    "scale_verified": false,
+    "runtime_approved": false
+  },
+  "left_direction_evidence": "MINERVA_GRIPPER_DIRECTION_20260926.json",
+  "mapping_scope": "Profile-provided display-only rotary-to-linear conversion. Earlier right-gripper slope reused as approximate; absolute pre-zero offset/range remain invalid. Left magnitude borrowed; fully closed CAD/master and motor references both0.",
+  "validation": {
+    "unit_tests_passed": 85,
+    "javascript_syntax_check": "passed",
+    "independent_review": "No actionable findings",
+    "observed_at_utc": "2026-09-26T00:25:56.286138+00:00",
+    "feed_state": "reading",
+    "sequence": 332,
+    "reconnections": 0,
+    "rows": [
+      {
+        "joint": "left_gripper_finger_a_slide",
+        "raw_rad": 2.486851453781128,
+        "cad_value": 0.022891974321995866,
+        "cad_unit": "m",
+        "direction_verified": true,
+        "scale_verified": false
+      },
+      {
+        "joint": "right_gripper_finger_a_slide",
+        "raw_rad": -0.0001533985196147114,
+        "cad_value": 1.412064627629027e-06,
+        "cad_unit": "m",
+        "direction_verified": false,
+        "scale_verified": false
+      }
+    ],
+    "live_exec_session_id": 15297,
+    "user_visual_check_pending": true
+  }
+}

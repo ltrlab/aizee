@@ -1,0 +1,55 @@
+{
+  "at_utc": "2026-09-25T03:40:46.108645+00:00",
+  "observed": {
+    "hostname": "aizee-rover",
+    "machine_id": "661607618a944c90a32de217d0c92476",
+    "serial": "1421623029971",
+    "kernel": "5.15.185-tegra",
+    "boot_id": "b5206e44-4643-461e-a81a-f8121c8e24a3",
+    "uptime": "52.57 210.68",
+    "selected_module": "/lib/modules/5.15.185-tegra/updates/aizee/gs_usb.ko",
+    "selected_sha256": "e3153247afcc9c2468c353015fc01f5821fc6bef430c1e6d2d79eae210269323",
+    "original_sha256": "8ff2f6fadea5b591a20976fa7114b2823e4c10aa048a979b347f9356acc0105e",
+    "preserved_backup_sha256": "8ff2f6fadea5b591a20976fa7114b2823e4c10aa048a979b347f9356acc0105e",
+    "driver_loaded": false,
+    "diag_frames": null,
+    "adapters": [],
+    "controllers": {
+      "aizee-minerva-left": {
+        "MainPID": "0",
+        "ActiveState": "inactive",
+        "UnitFileState": "disabled"
+      },
+      "aizee-minerva-right": {
+        "MainPID": "0",
+        "ActiveState": "inactive",
+        "UnitFileState": "disabled"
+      },
+      "aizee-motor-control-rover": {
+        "MainPID": "0",
+        "ActiveState": "inactive",
+        "UnitFileState": "disabled"
+      }
+    },
+    "receiver": "",
+    "installation_records": {
+      "20260925T033923.485497Z-install.json": {
+        "at_utc": "20260925T033923.485497Z",
+        "action": "install",
+        "asset_id": "minerva-production-01",
+        "boot_id": "fad104c4-6ec4-4ee6-b371-8f87bbaa79b9",
+        "original_sha256": "8ff2f6fadea5b591a20976fa7114b2823e4c10aa048a979b347f9356acc0105e",
+        "candidate_sha256": "e3153247afcc9c2468c353015fc01f5821fc6bef430c1e6d2d79eae210269323",
+        "hot_module_reload_performed": false,
+        "reboot_performed": false,
+        "selected_module": "/usr/lib/modules/5.15.185-tegra/updates/aizee/gs_usb.ko",
+        "reboot_required": true
+      }
+    },
+    "can_links": {
+      "canL": null,
+      "canR": null
+    }
+  },
+  "can_traffic_performed": false
+}

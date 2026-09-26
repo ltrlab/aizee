@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "asset_id": "minerva-production-01",
+  "mode": "stopped live calibration preview",
+  "started_at": "2026-09-24T23:04:02.034091+00:00",
+  "finished_at": "2026-09-24T23:05:27.546240+00:00",
+  "duration_seconds": 85.512149,
+  "complete_can_scans": 292,
+  "rejected_can_scans": 0,
+  "displayed_frames": 291,
+  "late_frames_discarded_before_display": [
+    1
+  ],
+  "scan_median_ms": 273.3489179991011,
+  "scan_max_ms": 277.96512699933373,
+  "accepted_roundtrip_max_ms": 436.7136999499053,
+  "cleanup_verified": true,
+  "enable_requested": false,
+  "parameter_writes_requested": false,
+  "remote_summary": "/home/ltr/aizee/device-maintenance/joint-calibration-1ba8e1d744c0a853/captures/20260924T230401.996031Z.json",
+  "remote_raw_frames": "/home/ltr/aizee/device-maintenance/joint-calibration-1ba8e1d744c0a853/captures/20260924T230401.996031Z-frames.jsonl",
+  "local_cleanup": "calibration_runs/minerva-production-01-directions/live-cleanup-48ca7390.json",
+  "local_cleanup_sha256": "c93292bc2587857b2e6938a0c83d4957b77c824adc1e324b64c39e66c2a50e31",
+  "runtime_approved": false,
+  "validation": {
+    "full_python_suite_before_final_feed_changes": 541,
+    "final_calibration_and_viewer_tests": 56
+  },
+  "limitations": [
+    "Static/stopped read endurance and cleanup only; operator has not yet completed the visual movement comparison.",
+    "12 arm CAD coordinates use provisional 1:1 scales; only J1 signs were previously checked. Gripper CAD mapping remains pending.",
+    "Earlier 5 ms transaction spacing encountered missing CAN replies and gs_usb echo warnings; 10 ms pacing passed this finite trial. USB/CAN transport is not qualified for powered control by this test.",
+    "Earlier file replacement conflicts were replaced by an append-only live feed; failed trials remain on the device."
+  ]
+}

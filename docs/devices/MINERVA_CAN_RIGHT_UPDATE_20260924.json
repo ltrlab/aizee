@@ -1,0 +1,132 @@
+{
+  "recorded_at_utc": "2026-09-25T02:17:52.300314+00:00",
+  "asset_id": "minerva-production-01",
+  "status": "right_direct_usb_30min_passed_dual_arm_transport_still_fails",
+  "runtime_approved": false,
+  "left_adapter_changed": false,
+  "motor_firmware_changed": false,
+  "motor_parameters_or_zero_changed": false,
+  "backup": {
+    "started_at_utc": "20260925T004842Z",
+    "asset_id": "minerva-production-01",
+    "machine_id": "661607618a944c90a32de217d0c92476",
+    "module_serial": "1421623029971",
+    "remote": "/home/ltr/aizee/device-maintenance/rh02-firmware-85e5b3352db7/right-original-20260925T004842Z",
+    "local": "C:\\Users\\ltr\\Workspace\\aizee\\simulation_runs\\rh02-right-original-20260925T004842Z",
+    "usb_path": "1-2.3.4",
+    "dfu_serial": "FFFFFFFEFFFF",
+    "runtime_serial": "0021002F4D53530920303937",
+    "flash_base": "0x08000000",
+    "flash_bytes": 131072,
+    "firmware_changed": false,
+    "artifacts": {
+      "original-a.bin": {
+        "bytes": 131072,
+        "sha256": "255c18b8b3fc2d06bb2d9a87b011f701fd56f6ea253ed5f2a0f0e1e56a184998"
+      },
+      "original-b.bin": {
+        "bytes": 131072,
+        "sha256": "255c18b8b3fc2d06bb2d9a87b011f701fd56f6ea253ed5f2a0f0e1e56a184998"
+      }
+    },
+    "initial_stack_pointer": "0x20001800",
+    "reset_vector": "0x8000175",
+    "backup_verified": true
+  },
+  "update": {
+    "started_at_utc": "20260925T005002Z",
+    "asset_id": "minerva-production-01",
+    "backup_record": "simulation_runs\\rh02-right-original-20260925T004842Z\\backup.json",
+    "usb_path": "1-2.3.4",
+    "runtime_serial": "0021002F4D53530920303937",
+    "source_revision": "85e5b3352db7f051aa879eeb71555dfce664c44c",
+    "target": "RH02_fw",
+    "candidate_sha256": "1509d9ad16d87f949a74a57909b9a9c1d109bb38cacbe324f5014445c6cf400f",
+    "flash_write_started": true,
+    "readback_verified": true,
+    "runtime_approved": false,
+    "normal_boot_verified": false,
+    "programmed_bytes": 23740,
+    "erased_page_bytes": 24576,
+    "readback_sha256": "21351a24ceb62ce209670e5d1624fd99c106e4bf453c2bd042098f57af42173c",
+    "remaining_flash_unchanged": true,
+    "readback_remote": "/home/ltr/aizee/device-maintenance/rh02-firmware-85e5b3352db7/right-readback-20260925T005002Z.bin",
+    "finished_at_utc": "2026-09-25T00:50:08.594135+00:00"
+  },
+  "raw_records": {
+    "simulation_runs/rh02-right-original-20260925T004842Z/backup.json": {
+      "sha256": "f7cb94b28d37212523c0348d3628dbf9e4306352dd461dfb65441b15d01147ff"
+    },
+    "simulation_runs/rh02-right-update-20260925T005002Z/update.json": {
+      "sha256": "93f56c02236706a71978c34e3614aa57a903185a1d69bd0f44253b7781cdd578"
+    }
+  },
+  "normal_boot": {
+    "usb_serial": "0021002F4D53530920303937",
+    "interface": "canR",
+    "manufacturer": "Jhoinrch",
+    "product": "RH02 gs_usb",
+    "configuration": "fw_85e5b33_2026-09-17",
+    "power_control": "on"
+  },
+  "stopped_roster": {
+    "success": true,
+    "motor_count": 7,
+    "started_at": "2026-09-25T00:52:27.568262+00:00",
+    "finished_at": "2026-09-25T00:52:29.610463+00:00",
+    "local_report": "simulation_runs/rh02-right-update-20260925T005002Z/stopped-roster.json",
+    "sha256": "9d76c1a5e79fe8ad21b3c3f8cf673a27e2a384c5e788160aa69a6e52977e69b1"
+  },
+  "soak": {
+    "success": false,
+    "error": "Missing stopped position: right_arm_j4",
+    "started_at": "2026-09-25T00:53:54.703919+00:00",
+    "finished_at": "2026-09-25T00:54:54.912073+00:00",
+    "frames": 420,
+    "elapsed_seconds": 59.87109987099757,
+    "median_scan_ms": 141.1017525006173,
+    "max_scan_ms": 141.732560001401,
+    "rejected_scans": 1,
+    "reconnections": 0,
+    "kernel_capture_initial_error": "Failed to parse timestamp: 2026-09-25T00:53:54.556820+00:00\n",
+    "kernel_capture_recovered": true,
+    "kernel_warnings": [],
+    "raw_report": "/home/ltr/aizee/device-maintenance/joint-calibration-3a3c1bf32a472dae/captures/rh02-right-soak-20260925T005353Z/report.json",
+    "raw_frames": "/home/ltr/aizee/device-maintenance/joint-calibration-3a3c1bf32a472dae/captures/rh02-right-soak-20260925T005353Z/frames.jsonl",
+    "reader_source_revision": "3a3c1bf32a472dae73f1deaae84d63caa05a223f3ca7cc51fccee246b4724fed",
+    "soak_worker_sha256": "6fcf02393e3c8f2aa82d8e0945a9934b3cf7898d0cbf25f39f1d02a47f206378",
+    "local_report": "simulation_runs/rh02-right-soak-20260925T005353Z/report.json",
+    "sha256": "f88903ecce1d4448d465ef38b9f05d0e7842da00118aae8a55b394189490a7df",
+    "tx_dropped_after_cleanup": 10,
+    "unexpected_outgoing_requests_received": 10,
+    "can_down_after_cleanup": true
+  },
+  "next_step": "Prepare an auditable gs_usb backport with USB diagnostics and rollback; hardware cause remains unresolved.",
+  "direct_usb_soak": "docs/devices/MINERVA_DIRECT_USB_20260924.json",
+  "direct_usb_dual_trial": "docs/devices/MINERVA_DIRECT_USB_DUAL_20260924.json",
+  "latest_followup": {
+    "recorded_at_utc": "2026-09-25T03:03:07.634232+00:00",
+    "test": "docs/devices/MINERVA_CAN_PROVENANCE_20260924.json",
+    "transport_clean": false
+  },
+  "left_only_followup": "docs/devices/MINERVA_CAN_LEFT_ONLY_SHORT_20260924.json",
+  "termination_followup": "docs/devices/MINERVA_CAN_TERMINATION_SHORT_20260924.json",
+  "followup_history": [
+    {
+      "recorded_at_utc": "2026-09-25T02:37:49.404270+00:00",
+      "left_update": "docs/devices/MINERVA_CAN_LEFT_UPDATE_20260924.json",
+      "short_dual_test": "docs/devices/MINERVA_CAN_TERMINATION_SHORT_20260924.json",
+      "transport_clean": false
+    },
+    {
+      "recorded_at_utc": "2026-09-25T02:58:07.652439+00:00",
+      "test": "docs/devices/MINERVA_CAN_LEFT_CABLE_REMOVED_20260924.json",
+      "transport_clean": false
+    },
+    {
+      "recorded_at_utc": "2026-09-25T03:01:12.363407+00:00",
+      "test": "docs/devices/MINERVA_CAN_LEFT_CABLE_REMOVED_20260924.json",
+      "transport_clean": false
+    }
+  ]
+}

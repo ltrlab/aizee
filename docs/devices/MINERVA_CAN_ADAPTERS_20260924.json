@@ -1,0 +1,261 @@
+{
+  "kernel": "5.15.185-tegra",
+  "adapters": [
+    {
+      "interface": "canL",
+      "usb_path": "/sys/devices/platform/bus@0/3610000.usb/usb1/1-2/1-2.3/1-2.3.2",
+      "serial": "004D002C4730511520303650",
+      "manufacturer": "canable.io",
+      "product": "canable gs_usb",
+      "configuration": "fw_49fb001_2026-02-16",
+      "idVendor": "1d50",
+      "idProduct": "606f",
+      "bcdDevice": "0000",
+      "speed": "12",
+      "bMaxPacketSize0": "64",
+      "power/control": "on",
+      "power/autosuspend_delay_ms": "2000",
+      "power/runtime_status": "active",
+      "link": {
+        "ifindex": 15,
+        "ifname": "canL",
+        "flags": [
+          "NOARP",
+          "ECHO"
+        ],
+        "mtu": 16,
+        "qdisc": "pfifo_fast",
+        "operstate": "DOWN",
+        "linkmode": "DEFAULT",
+        "group": "default",
+        "txqlen": 128,
+        "link_type": "can",
+        "promiscuity": 0,
+        "min_mtu": 0,
+        "max_mtu": 0,
+        "linkinfo": {
+          "info_kind": "can",
+          "info_data": {
+            "state": "STOPPED",
+            "restart_ms": 100,
+            "bittiming": {
+              "bitrate": 1000000,
+              "sample_point": 0.75,
+              "tq": 62,
+              "prop_seg": 5,
+              "phase_seg1": 6,
+              "phase_seg2": 4,
+              "sjw": 1
+            },
+            "bittiming_const": {
+              "name": "gs_usb",
+              "tseg1": {
+                "min": 1,
+                "max": 16
+              },
+              "tseg2": {
+                "min": 1,
+                "max": 8
+              },
+              "sjw": {
+                "min": 1,
+                "max": 4
+              },
+              "brp": {
+                "min": 1,
+                "max": 1024
+              },
+              "brp_inc": 1
+            },
+            "clock": 48000000
+          },
+          "info_xstats": {
+            "restarts": 0,
+            "bus_error": 0,
+            "arbitration_lost": 0,
+            "error_warning": 0,
+            "error_passive": 0,
+            "bus_off": 0
+          }
+        },
+        "num_tx_queues": 1,
+        "num_rx_queues": 1,
+        "gso_max_size": 65536,
+        "gso_max_segs": 65535,
+        "parentbus": "usb",
+        "parentdev": "1-2.3.2:1.0",
+        "stats64": {
+          "rx": {
+            "bytes": 399632,
+            "packets": 49954,
+            "errors": 0,
+            "dropped": 0,
+            "over_errors": 0,
+            "multicast": 0
+          },
+          "tx": {
+            "bytes": 398544,
+            "packets": 49818,
+            "errors": 0,
+            "dropped": 86,
+            "carrier_errors": 0,
+            "collisions": 0
+          }
+        }
+      }
+    },
+    {
+      "interface": "canR",
+      "usb_path": "/sys/devices/platform/bus@0/3610000.usb/usb1/1-2/1-2.3/1-2.3.4",
+      "serial": "0021002F4D53530920303937",
+      "manufacturer": "canable.io",
+      "product": "canable gs_usb",
+      "configuration": "",
+      "idVendor": "1d50",
+      "idProduct": "606f",
+      "bcdDevice": "0000",
+      "speed": "12",
+      "bMaxPacketSize0": "64",
+      "power/control": "on",
+      "power/autosuspend_delay_ms": "2000",
+      "power/runtime_status": "active",
+      "link": {
+        "ifindex": 4,
+        "ifname": "canR",
+        "flags": [
+          "NOARP",
+          "ECHO"
+        ],
+        "mtu": 16,
+        "qdisc": "pfifo_fast",
+        "operstate": "DOWN",
+        "linkmode": "DEFAULT",
+        "group": "default",
+        "txqlen": 128,
+        "link_type": "can",
+        "promiscuity": 0,
+        "min_mtu": 0,
+        "max_mtu": 0,
+        "linkinfo": {
+          "info_kind": "can",
+          "info_data": {
+            "state": "STOPPED",
+            "restart_ms": 100,
+            "bittiming": {
+              "bitrate": 1000000,
+              "sample_point": 0.75,
+              "tq": 62,
+              "prop_seg": 5,
+              "phase_seg1": 6,
+              "phase_seg2": 4,
+              "sjw": 1
+            },
+            "bittiming_const": {
+              "name": "gs_usb",
+              "tseg1": {
+                "min": 1,
+                "max": 16
+              },
+              "tseg2": {
+                "min": 1,
+                "max": 8
+              },
+              "sjw": {
+                "min": 1,
+                "max": 4
+              },
+              "brp": {
+                "min": 1,
+                "max": 1024
+              },
+              "brp_inc": 1
+            },
+            "clock": 48000000
+          },
+          "info_xstats": {
+            "restarts": 0,
+            "bus_error": 0,
+            "arbitration_lost": 0,
+            "error_warning": 0,
+            "error_passive": 0,
+            "bus_off": 0
+          }
+        },
+        "num_tx_queues": 1,
+        "num_rx_queues": 1,
+        "gso_max_size": 65536,
+        "gso_max_segs": 65535,
+        "parentbus": "usb",
+        "parentdev": "1-2.3.4:1.0",
+        "stats64": {
+          "rx": {
+            "bytes": 422976,
+            "packets": 52872,
+            "errors": 0,
+            "dropped": 0,
+            "over_errors": 0,
+            "multicast": 0
+          },
+          "tx": {
+            "bytes": 421696,
+            "packets": 52712,
+            "errors": 0,
+            "dropped": 88,
+            "carrier_errors": 0,
+            "collisions": 0
+          }
+        }
+      }
+    }
+  ],
+  "observed_at_utc": "2026-09-25T00:04:03.007915+00:00",
+  "asset_id": "minerva-production-01",
+  "hostname": "aizee-rover",
+  "machine_id": "661607618a944c90a32de217d0c92476",
+  "module_serial": "1421623029971",
+  "ssh_host_key_verified": true,
+  "model": "Jhoinrch RH-02 (classic CAN)",
+  "model_evidence": "Operator supplied Amazon ASIN B0CRB8KXWL; matches manufacturer RH-02 listing. Actual MCU/flash geometry must be checked before flash.",
+  "source_url": "https://www.amazon.com/dp/B0CRB8KXWL",
+  "firmware_changed": false,
+  "can_opened": false,
+  "runtime_approved": false,
+  "firmware_status": "candidate built only; not hardware tested; no adapter backup yet",
+  "candidate": {
+    "repository": "https://github.com/candle-usb/candleLight_fw",
+    "revision": "85e5b3352db7f051aa879eeb71555dfce664c44c",
+    "source_modified": false,
+    "target": "RH02_fw",
+    "build_type": "Release",
+    "compiler": "arm-none-eabi-gcc (15:10.3-2021.07-4) 10.3.1 20210621 (release)",
+    "cmake": "3.22.1",
+    "firmware_version_string": "fw_85e5b33_2026-09-17",
+    "remote_stage": "/home/ltr/aizee/device-maintenance/rh02-firmware-85e5b3352db7",
+    "local_artifacts": "simulation_runs/rh02-firmware-85e5b3352db7",
+    "flash_base": "0x08000000",
+    "ram_static_bytes": 4200,
+    "stack_reserved_bytes": 2048,
+    "artifacts": {
+      "RH02_fw": {
+        "bytes": 1154628,
+        "sha256": "830e0235f7d34ac3495c645f8bf0116614eebf1a8e92a0f9af4959860f543994"
+      },
+      "RH02_fw.bin": {
+        "bytes": 23740,
+        "sha256": "1509d9ad16d87f949a74a57909b9a9c1d109bb38cacbe324f5014445c6cf400f"
+      },
+      "RH02_fw.dfu": {
+        "bytes": 23756,
+        "sha256": "3c430f87fbb6ebf76bd0b8a88c992444eaf95b59556e9f3c840facd9dc561f7e"
+      },
+      "RH02_fw.map": {
+        "bytes": 174945,
+        "sha256": "21ce0783656ff12231e44a9f6c4dcb20b99eab992b8eee47e38e2cfb6c986d78"
+      },
+      "source.bundle": {
+        "bytes": 2554829,
+        "sha256": "46ae91c0efdf58016245228af93d4653fba20cb0b7da0ea62451d972eb2a0e2f"
+      }
+    }
+  }
+}
