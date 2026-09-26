@@ -35,8 +35,11 @@ def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="robot-platform", description="Shared Aizee / Minerva robot platform")
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("list", help="list built-in robots and application adapters")
+    sub.add_parser("helm", help="Helm: the robot operator web UI (helm --help)")
     sub.add_parser("sim", help="loopback simulation and hardware audit (sim --help)")
     sub.add_parser("view", help="robot-independent URDF viewer and joint jogging (view --help)")
+    sub.add_parser("leaders", help="read-only leader arm viewer and display calibration (leaders --help)")
+    sub.add_parser("calibrate", help="stopped motor-to-CAD direction wizard (calibrate --help)")
     for command in ("describe", "config", "run"):
         s = sub.add_parser(command, help={"describe": "show a robot definition", "config": "print validated resolved settings", "run": "launch an application or inspect its plan"}[command])
         s.add_argument("--robot", required=True, help="built-in robot name or definition JSON path")
@@ -54,6 +57,15 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "helm":
+        from robot_platform.helm.cli import main as helm_main
+        return helm_main(argv[1:])
+    if argv and argv[0] == "leaders":
+        from robot_platform.teleop.leader_viewer import main as leaders_main
+        return leaders_main(argv[1:])
+    if argv and argv[0] == "calibrate":
+        from robot_platform.control.joint_calibration import main as calibrate_main
+        return calibrate_main(argv[1:])
     if argv and argv[0] == "view":
         from robot_platform.viewer.cli import main as viewer_main
         return viewer_main(argv[1:])
