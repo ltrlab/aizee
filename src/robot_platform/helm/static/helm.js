@@ -578,6 +578,9 @@ for (const button of document.querySelectorAll('#t-receiver-choice button')) {
 $('teleop-session').onclick = () => {
   const t = last?.teleop;
   if (['running', 'starting'].includes(t?.phase)) {
+    const powered = t.live && ['HOLD', 'ENGAGING', 'TELEOP', 'SHUTDOWN'].includes(t.state);
+    if (powered && !window.confirm(`The ${t.live.arm} arm is powered (${t.state}). Stopping disables it where it `
+        + 'is, and it may drop. Shutdown (X) returns it slowly to its reference first.\n\nStop anyway?')) return;
     act('/api/helm/teleop/stop', {}, 'Teleop stopped.');
     return;
   }
