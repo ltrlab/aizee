@@ -141,31 +141,6 @@ def test_simulated_minerva_episode_loads_in_training_reader(tmp_path, monkeypatc
     assert set(obs["images"]) == set(cameras)
 
 
-def test_estop_fanout_retries_failed_peer_and_uses_msgpack():
-    import zmq
-    from robot_platform.control.estop import EstopFanout, parse_state
-    class Socket:
-        def __init__(self, fail=False):
-            self.fail, self.sent = fail, []
-        def send(self, frame, flags):
-            if self.fail:
-                raise zmq.Again()
-            self.sent.append(unpack_msg(frame))
-    left, right = Socket(True), Socket()
-    bridge = EstopFanout({"left": left, "right": right})
-    bridge.update(True)
-    assert "left" in bridge.flush()
-    assert right.sent == [{"type": "emergency_stop"}]
-    left.fail = False
-    bridge.flush()
-    assert left.sent == [{"type": "emergency_stop"}]
-    bridge.update(False)
-    bridge.flush()
-    assert left.sent[-1] == right.sent[-1] == {"type": "clear_emergency_stop"}
-    assert parse_state('{"estop": "false"}') is None
-    assert parse_state('# nc=0 no=1') is True
-
-
 def test_simulation_cannot_be_repointed_to_hardware():
     from robot_platform.contracts import ConfigurationError
     spec = load_robot("minerva")

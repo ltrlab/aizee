@@ -169,7 +169,7 @@ $SUDO udevadm trigger --subsystem-match=usb --subsystem-match=video4linux --subs
 echo "[8/10] systemd units..."
 # Boot services start unconditionally; device-bound units are started by udev
 # (SYSTEMD_ALIAS + WantedBy=dev-*.device) when their hardware appears.
-BOOT_UNITS=(aizee-motor-control-rover aizee-heartbeat aizee-ups-monitor aizee-estop-bridge)
+BOOT_UNITS=(aizee-motor-control-rover aizee-heartbeat aizee-ups-monitor)
 DEVICE_UNITS=(aizee-gripper-cam aizee-scene-cam aizee-display)
 [[ $WITH_LIDAR -eq 1 ]] && BOOT_UNITS+=(aizee-lidar-control)
 
