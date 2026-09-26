@@ -286,7 +286,9 @@ pub fn build_zero_pos_frame(motor_id: u8) -> CanFrame {
 /// the mechanical zero just written) to motor flash.
 pub fn build_save_config_frame(motor_id: u8) -> CanFrame {
     let arb_id = build_arb_id(motor_id, MotorMsg::SaveConfig);
-    CanFrame::new(socketcan::Id::Extended(arb_id), &[0u8; 8]).expect("Failed to create frame")
+    // Current ROBSTRIDE type-22 protocol requires this exact unlock payload.
+    CanFrame::new(socketcan::Id::Extended(arb_id), &[1, 2, 3, 4, 5, 6, 7, 8])
+        .expect("Failed to create frame")
 }
 
 /// Build read parameter frame
