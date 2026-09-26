@@ -20,6 +20,15 @@ from datetime import datetime, timezone
 ZERO_DATA = bytes([1, 0, 0, 0, 0, 0, 0, 0])
 SAVE_DATA = bytes(range(1, 9))
 READ_PARAMETERS = {0x7005, 0x7019, 0x701B, 0x2021, 0x2024}
+# Type-2 reply: mode in arbitration bits 22-23, latched faults in bits 16-21.
+MODES = ('Reset', 'Cali', 'Run', 'unknown mode')
+FAULTS = ('undervoltage', 'overcurrent', 'overtemperature', 'magnetic encoder', 'Hall encoder', 'uncalibrated')
+
+
+def drive_state(arb):
+    """Operator-readable mode and latched faults of a type-2 reply."""
+    faults = [name for bit, name in enumerate(FAULTS) if (arb >> (16 + bit)) & 1]
+    return f"mode {MODES[(arb >> 22) & 3]}" + (f"; latched faults: {', '.join(faults)}" if faults else '')
 
 
 def maintenance_frame(motor_id, host, kind, parameter=None):
@@ -83,9 +92,12 @@ class StoppedMaintenance:
                 raise RuntimeError("Nonfinite parameter")
             return value
         if (arb >> 24 != 2 or ((arb >> 8) & 255) != motor["id"]
-                or (arb & 255) not in ((self.host, motor["id"]) if kind == "version" else (self.host,))
-                or (arb >> 22) & 3 or (arb >> 16) & 63):
+                or (arb & 255) not in ((self.host, motor["id"]) if kind == "version" else (self.host,))):
             raise RuntimeError("Drive did not confirm fault-free Reset")
+        if (arb >> 22) & 3 or (arb >> 16) & 63:
+            # Latched faults survive disable/enable; name the drive and the fault.
+            raise RuntimeError(f"Drive did not confirm fault-free Reset: {motor.get('name', motor['id'])} "
+                               f"reports {drive_state(arb)}")
         version = data[:3] == bytes([0, 0xC4, 0x56])
         if kind == "version":
             if not version:

@@ -167,3 +167,15 @@ def test_only_idempotent_diagnostics_may_repeat_once_on_timeout():
         return bus(*args)
     assert StoppedMaintenance(exchange, sleep=lambda _: None).request(roster()[0], 'read', 0x7019) == 1.5
     assert attempts == ['read', 'read']
+
+
+def test_a_faulted_or_running_drive_is_named_with_its_mode_and_latched_faults():
+    bus = Bus()
+    bus.mode = 2
+    reader = StoppedMaintenance(bus, sleep=lambda _: None)
+    with pytest.raises(RuntimeError, match='fault-free Reset: joint0 reports mode Run$'):
+        reader.request(roster()[0], 'stop')
+    bus.mode = 0
+    faulted = lambda bus_name, frame, kind, parameter: ((2 << 24) | (0b000010 << 16) | (5 << 8) | 0xAA, bytes(8))
+    with pytest.raises(RuntimeError, match='joint1 reports mode Reset; latched faults: overcurrent'):
+        StoppedMaintenance(faulted, sleep=lambda _: None).request(roster()[1], 'stop')
