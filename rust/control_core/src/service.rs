@@ -1,6 +1,7 @@
-//! Linux commissioning service. Physical motion is deliberately not exposed.
-//! The same core/CAN loop is exercised on vcan; physical modes are receive-only,
-//! parameter-read, or a bounded single-actuator zero-torque trial.
+//! Linux guarded receiver service. Physical modes are receive-only, parameter-read,
+//! a bounded single-actuator zero-torque trial, or one-arm teleop. The same
+//! core/CAN loop is exercised on vcan. Physical enable always passes the
+//! watchdog and reference-pose gates first; nothing here writes a zero or flash.
 pub mod linux_can;
 pub use crate::service_config::{Bus, Mode, ServiceConfig};
 use crate::{
@@ -100,14 +101,15 @@ pub fn run(
     )?;
     if config.mode == Mode::VirtualCan {
         hardware.allow_virtual_enable();
-    } else if config.mode == Mode::ZeroTorqueTrial {
+    } else if config.physical_enable() {
         hardware.configure_reference(config.reference_positions.clone())?;
         hardware.configure_watchdogs(config.watchdog_identities.clone())?;
         // Complete stopped preflight before exposing the command socket. The
         // core correctly rejects missing feedback; startup must not feed it
         // empty samples while identity/parameter exchanges are still pending.
         let mut feedback = vec![JointFeedback::default(); config.motors.len()];
-        let deadline = Instant::now() + Duration::from_millis(500);
+        let budget_ms = 500 + 250 * config.motors.len().saturating_sub(1) as u64;
+        let deadline = Instant::now() + Duration::from_millis(budget_ms);
         loop {
             if SHUTDOWN.load(std::sync::atomic::Ordering::Relaxed) || Instant::now() >= deadline {
                 return Err("watchdog startup interrupted or timed out".into());
@@ -169,17 +171,19 @@ pub fn run(
                             match frame.request {
                                 ServiceRequest::Core(request) => {
                                     let is_arm = matches!(request, Request::Arm { .. });
-                                    let physical_move = config.mode != Mode::VirtualCan
-                                        && matches!(request, Request::Move { .. });
+                                    // Motion and continuous Idle only in the modes built for
+                                    // them: vcan and one-arm teleop (gated, leased, enveloped).
+                                    let teleop =
+                                        matches!(config.mode, Mode::VirtualCan | Mode::Teleop);
+                                    let physical_move =
+                                        !teleop && matches!(request, Request::Move { .. });
                                     let prohibited_arm = is_arm
                                         && !matches!(
                                             config.mode,
-                                            Mode::VirtualCan | Mode::ZeroTorqueTrial
+                                            Mode::VirtualCan | Mode::ZeroTorqueTrial | Mode::Teleop
                                         );
-                                    // Continuous Idle enables every motor without the finite
-                                    // trial deadline; it waits for a whole-robot physical mode.
-                                    let prohibited_idle = config.mode != Mode::VirtualCan
-                                        && matches!(request, Request::Idle { .. });
+                                    let prohibited_idle =
+                                        !teleop && matches!(request, Request::Idle { .. });
                                     if physical_move || prohibited_arm || prohibited_idle {
                                         error = Some("operation_not_available_in_this_mode");
                                     } else {

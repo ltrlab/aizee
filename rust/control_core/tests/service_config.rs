@@ -37,7 +37,9 @@ fn parse(value: Value) -> ServiceConfig {
 }
 
 fn error(value: Value) -> String {
-    parse(value).validate().expect_err("fixture must be rejected")
+    parse(value)
+        .validate()
+        .expect_err("fixture must be rejected")
 }
 
 #[test]
@@ -46,7 +48,12 @@ fn a_zero_torque_trial_needs_one_motor_zero_gains_watchdogs_and_references() {
     assert_eq!(valid.mode, Mode::ZeroTorqueTrial);
     valid.validate().unwrap();
     assert!(error(profile("zero_torque_trial", &["left_gripper"], 2.0)).contains("zero gains"));
-    assert!(error(profile("zero_torque_trial", &["left_arm_j6", "left_gripper"], 0.0)).contains("one motor"));
+    assert!(error(profile(
+        "zero_torque_trial",
+        &["left_arm_j6", "left_gripper"],
+        0.0
+    ))
+    .contains("one motor"));
     let mut unpinned = profile("zero_torque_trial", &["left_gripper"], 0.0);
     unpinned["watchdog_identities"] = json!([]);
     assert!(error(unpinned).contains("watchdog"));
@@ -65,4 +72,52 @@ fn observation_modes_never_carry_enable_gates_and_physical_buses_need_serials() 
     parse(observe.clone()).validate().unwrap();
     observe["buses"][0]["usb_serial"] = Value::Null;
     assert!(error(observe).contains("CAN interface identity"));
+}
+
+const LEFT_ARM: [&str; 7] = [
+    "left_arm_j1",
+    "left_arm_j2",
+    "left_arm_j3",
+    "left_arm_j4",
+    "left_arm_j5",
+    "left_arm_j6",
+    "left_gripper",
+];
+
+fn teleop(names: &[&str]) -> Value {
+    let mut value = profile("teleop", names, 2.0);
+    value["controller"]["collision"] = json!({"world_revision": "w", "scope": "inter_branch", "max_verdict_ms": 80, "reaction_ms": 10});
+    value
+}
+
+#[test]
+fn teleop_drives_one_gated_arm_with_holding_gains_and_collision_envelopes() {
+    let valid = parse(teleop(&LEFT_ARM));
+    assert_eq!(valid.mode, Mode::Teleop);
+    assert!(valid.physical_enable());
+    valid.validate().unwrap();
+    let both: Vec<&str> = LEFT_ARM.iter().copied().chain(["right_arm_j1"]).collect();
+    assert!(error(teleop(&both)).contains("one arm"));
+    let mut unguarded = teleop(&LEFT_ARM);
+    unguarded["controller"]["collision"] = Value::Null;
+    assert!(error(unguarded).contains("collision policy"));
+    let mut slow = teleop(&LEFT_ARM);
+    slow["controller"]["feedback_timeout_ms"] = json!(150);
+    assert!(error(slow).contains("feedback timeout"));
+    let mut long = teleop(&LEFT_ARM);
+    long["controller"]["lease_ms"] = json!(300);
+    long["controller"]["collision"]["max_verdict_ms"] = json!(80);
+    assert!(error(long).contains("lease"));
+    let mut unpinned = teleop(&LEFT_ARM);
+    unpinned["watchdog_identities"]
+        .as_array_mut()
+        .unwrap()
+        .pop();
+    assert!(error(unpinned).contains("watchdog"));
+    let mut unreferenced = teleop(&LEFT_ARM);
+    unreferenced["reference_positions"] = json!([]);
+    assert!(error(unreferenced).contains("reference"));
+    let mut virtual_bus = teleop(&LEFT_ARM);
+    virtual_bus["buses"][0]["usb_serial"] = Value::Null;
+    assert!(error(virtual_bus).contains("CAN interface identity"));
 }

@@ -2,13 +2,14 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let path = args.next().ok_or(
-        "usage: guarded_controller CONFIG.json [--validate] [--seconds N] [--allow-powered-trial]",
+        "usage: guarded_controller CONFIG.json [--validate] [--seconds N] [--allow-powered-trial] [--allow-powered-teleop] [--confirm-reference-pose]",
     )?;
     let config: robot_control::service::ServiceConfig =
         serde_json::from_reader(std::fs::File::open(path)?)?;
     config.validate()?;
     let mut duration = None;
     let mut allow_powered = false;
+    let mut allow_teleop = false;
     let mut reference_confirmed = false;
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -24,6 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 duration = Some(value);
             }
             "--allow-powered-trial" => allow_powered = true,
+            "--allow-powered-teleop" => allow_teleop = true,
             "--confirm-reference-pose" => reference_confirmed = true,
             _ => return Err("unknown argument".into()),
         }
@@ -41,6 +43,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if config.mode == robot_control::service::Mode::ZeroTorqueTrial && !reference_confirmed {
         return Err("physical enable requires operator verification of the reference pose and --confirm-reference-pose".into());
+    }
+    if config.mode == robot_control::service::Mode::Teleop && !(allow_teleop && reference_confirmed)
+    {
+        return Err("physical teleop requires --allow-powered-teleop and --confirm-reference-pose after the operator verifies the arm's reference pose".into());
     }
     robot_control::service::run(config, duration)
 }
