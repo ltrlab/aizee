@@ -1,0 +1,140 @@
+{
+  "schema": 1,
+  "device": "minerva-production-01.json",
+  "reference": "minerva-reference-20260924.json",
+  "model": "../../urdf/minerva/model.json",
+  "connection": {
+    "username": "ltr",
+    "key_file": "../../../ssh-keys/aizee_rover_id",
+    "host_key_sha256": "SHA256:D/et9EIhRMVdrf8sA0+W4SzLtvehbpxY6GwG3FU0qqk",
+    "staging_directory": "/home/ltr/aizee/device-maintenance"
+  },
+  "reference_positions": {
+    "left_arm_j1": 0,
+    "left_arm_j2": 0,
+    "left_arm_j3": 0,
+    "left_arm_j4": 0,
+    "left_arm_j5": 0,
+    "left_arm_j6": 0,
+    "right_arm_j1": 0,
+    "right_arm_j2": 0,
+    "right_arm_j3": 0,
+    "right_arm_j4": 0,
+    "right_arm_j5": 0,
+    "right_arm_j6": 0
+  },
+  "steps": [
+    {
+      "motor": "left_arm_j1",
+      "joint": "left_arm_j1",
+      "label": "Left shoulder swivel (J1)",
+      "demonstration_rad": 0.2,
+      "view": "top",
+      "instruction": "Turn counterclockwise viewed from above, matching the viewer."
+    },
+    {
+      "motor": "right_arm_j1",
+      "joint": "right_arm_j1",
+      "label": "Right shoulder swivel (J1)",
+      "demonstration_rad": 0.2,
+      "view": "top",
+      "instruction": "Turn clockwise viewed from above, matching the viewer."
+    },
+    {
+      "motor": "left_arm_j2",
+      "joint": "left_arm_j2",
+      "label": "Left shoulder hinge (J2)",
+      "demonstration_rad": 0.2,
+      "instruction": "Lift the arm slightly forward at the shoulder hinge, matching the viewer."
+    },
+    {
+      "motor": "right_arm_j2",
+      "joint": "right_arm_j2",
+      "label": "Right shoulder hinge (J2)",
+      "demonstration_rad": 0.2,
+      "instruction": "Move the shoulder hinge in the direction shown in the viewer."
+    },
+    {
+      "motor": "left_arm_j3",
+      "joint": "left_arm_j3",
+      "label": "Left J3",
+      "demonstration_rad": 0.2,
+      "instruction": "Move only this joint's downstream section in the direction shown."
+    },
+    {
+      "motor": "right_arm_j3",
+      "joint": "right_arm_j3",
+      "label": "Right J3",
+      "demonstration_rad": 0.2,
+      "instruction": "Move only this joint's downstream section in the direction shown."
+    },
+    {
+      "motor": "left_arm_j4",
+      "joint": "left_arm_j4",
+      "label": "Left J4",
+      "demonstration_rad": 0.2,
+      "instruction": "Move only this joint's downstream section in the direction shown."
+    },
+    {
+      "motor": "right_arm_j4",
+      "joint": "right_arm_j4",
+      "label": "Right J4",
+      "demonstration_rad": 0.2,
+      "instruction": "Move only this joint's downstream section in the direction shown."
+    },
+    {
+      "motor": "left_arm_j5",
+      "joint": "left_arm_j5",
+      "label": "Left wrist J5",
+      "demonstration_rad": 0.2,
+      "instruction": "Rotate only this wrist joint in the direction shown."
+    },
+    {
+      "motor": "right_arm_j5",
+      "joint": "right_arm_j5",
+      "label": "Right wrist J5",
+      "demonstration_rad": 0.2,
+      "instruction": "Rotate only this wrist joint in the direction shown."
+    },
+    {
+      "motor": "left_arm_j6",
+      "joint": "left_arm_j6",
+      "label": "Left wrist J6",
+      "demonstration_rad": 0.2,
+      "instruction": "Move only this wrist joint in the direction shown."
+    },
+    {
+      "motor": "right_arm_j6",
+      "joint": "right_arm_j6",
+      "label": "Right wrist J6",
+      "demonstration_rad": 0.2,
+      "instruction": "Move only this wrist joint in the direction shown."
+    }
+  ],
+  "preview_transmissions": [
+    {
+      "motor": "left_gripper",
+      "joint": "left_gripper_finger_a_slide",
+      "motor_reference_rad": 0.0,
+      "joint_reference_m": 0.0,
+      "metres_per_motor_rad": 0.00920520374756997,
+      "direction_verified": true,
+      "scale_verified": false,
+      "runtime_approved": false,
+      "note": "Approximate display only. Encoder-positive opening observed on 2026-09-26; scale borrowed from the right gripper and unverified for the left. CAD zero is fully closed; no hardware limits inferred.",
+      "source": "Historical right-gripper slope only: docs/devices/calibration/minerva-right-gripper-20260924/coarse/fit.json SHA256 6d27a195b8f5f03d8b64859e6372d02cb45a3f11a017e2524d402e08288a20ef. Prior absolute mapping was invalidated by mechanical zero; closed reference is minerva-mechanical-reference-20260924. Left direction: docs/devices/MINERVA_GRIPPER_DIRECTION_20260926.json."
+    },
+    {
+      "motor": "right_gripper",
+      "joint": "right_gripper_finger_a_slide",
+      "motor_reference_rad": 0.0,
+      "joint_reference_m": 0.0,
+      "metres_per_motor_rad": -0.00920520374756997,
+      "direction_verified": false,
+      "scale_verified": false,
+      "runtime_approved": false,
+      "note": "Approximate display only. Historical encoder-positive opening and right CAD-negative opening. Reanchored at the current fully closed zero; scale and post-zero direction await live visual confirmation. No old intercept or interpolation range reused.",
+      "source": "Historical right-gripper slope only: docs/devices/calibration/minerva-right-gripper-20260924/coarse/fit.json SHA256 6d27a195b8f5f03d8b64859e6372d02cb45a3f11a017e2524d402e08288a20ef. Prior absolute mapping was invalidated by mechanical zero; closed reference is minerva-mechanical-reference-20260924."
+    }
+  ]
+}

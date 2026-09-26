@@ -1,0 +1,268 @@
+{
+  "schema": 1,
+  "id": "minerva-arm-directions-20260924",
+  "asset_id": "minerva-production-01",
+  "mechanical_reference": "minerva-mechanical-reference-20260924",
+  "model_revision": "792f32da597821bbab4d7e65365618519159ecbc657744133196325eaafddcf8",
+  "runtime_approved": false,
+  "all_arm_directions_verified": false,
+  "checks": [
+    {
+      "joint": "left_arm_j1",
+      "motor_uid": "3c56300214713704",
+      "firmware": "0.3.1.30",
+      "method": "Operator manually moved one disabled joint in the viewer positive CAD direction; finite stopped diagnostics before and after.",
+      "viewer_demonstration_rad": 0.15,
+      "positive_cad_direction": "counterclockwise viewed from above, about the vertical shoulder swivel axis",
+      "operator_report": "alright, I moved it",
+      "baseline": {
+        "local_capture": "simulation_runs/minerva-production-20260924/run_diagnostics_zero_power_cycle.json",
+        "sha256": "c01597cba2f82eade22b06c71da465c9ad5d9984235c0443942dd6feb1056545",
+        "remote_capture": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/stopped-motors-20260924T222037Z",
+        "started_at": "2026-09-24T22:20:37.483316+00:00"
+      },
+      "after_manual_movement": {
+        "local_capture": "simulation_runs/minerva-production-20260924/run_diagnostics_direction_left_j1.json",
+        "sha256": "9b33a32dca4a3b4c9d8c512efdb159c9653a92ee9587a162fe3a7aca1b9d7440",
+        "remote_capture": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/stopped-motors-20260924T222618Z",
+        "started_at": "2026-09-24T22:26:18.178604+00:00"
+      },
+      "raw_before_rad": -8.522139978595078e-05,
+      "raw_after_rad": 0.40531182289123535,
+      "raw_delta_rad": 0.4053970442910213,
+      "observed_motor_to_cad_sign": 1,
+      "direction_verified": true,
+      "scale_verified": false,
+      "physical_angle_measured": false,
+      "maximum_other_joint_delta_rad": 0.007274012255948037,
+      "positions": [
+        {
+          "name": "left_arm_j1",
+          "before_rad": -8.522139978595078e-05,
+          "after_rad": 0.40531182289123535,
+          "delta_rad": 0.4053970442910213
+        },
+        {
+          "name": "left_arm_j2",
+          "before_rad": 4.262394577381201e-05,
+          "after_rad": -0.0038775603752583265,
+          "delta_rad": -0.0039201843210321385
+        },
+        {
+          "name": "left_arm_j3",
+          "before_rad": 4.259745401213877e-05,
+          "after_rad": -4.2650433897506446e-05,
+          "delta_rad": -8.524788790964521e-05
+        },
+        {
+          "name": "left_arm_j4",
+          "before_rad": 0.0002969003398902714,
+          "after_rad": 0.007570912595838308,
+          "delta_rad": 0.007274012255948037
+        },
+        {
+          "name": "left_arm_j5",
+          "before_rad": 9.896678238874301e-05,
+          "after_rad": 0.0002474323264323175,
+          "delta_rad": 0.00014846554404357448
+        },
+        {
+          "name": "left_arm_j6",
+          "before_rad": -3.833770824712701e-05,
+          "after_rad": 7.672310312045738e-05,
+          "delta_rad": 0.00011506081136758439
+        },
+        {
+          "name": "left_gripper",
+          "before_rad": 0.0,
+          "after_rad": -0.00011506080772960559,
+          "delta_rad": -0.00011506080772960559
+        },
+        {
+          "name": "right_arm_j1",
+          "before_rad": 0.00017044279957190156,
+          "after_rad": 4.262394577381201e-05,
+          "delta_rad": -0.00012781885379808955
+        },
+        {
+          "name": "right_arm_j2",
+          "before_rad": 0.0,
+          "after_rad": -0.00017044279957190156,
+          "delta_rad": -0.00017044279957190156
+        },
+        {
+          "name": "right_arm_j3",
+          "before_rad": 0.00017044279957190156,
+          "after_rad": 0.00017044279957190156,
+          "delta_rad": 0.0
+        },
+        {
+          "name": "right_arm_j4",
+          "before_rad": 4.952953531756066e-05,
+          "after_rad": 9.899754513753578e-05,
+          "delta_rad": 4.946800981997512e-05
+        },
+        {
+          "name": "right_arm_j5",
+          "before_rad": 0.0,
+          "after_rad": 0.0,
+          "delta_rad": 0.0
+        },
+        {
+          "name": "right_arm_j6",
+          "before_rad": 3.838539123535156e-05,
+          "after_rad": 0.00019178391085006297,
+          "delta_rad": 0.0001533985196147114
+        },
+        {
+          "name": "right_gripper",
+          "before_rad": -0.0001917362242238596,
+          "after_rad": -0.0001917362242238596,
+          "delta_rad": 0.0
+        }
+      ],
+      "all_14_identity_and_firmware_matched": true,
+      "all_14_fault_free_reset": true,
+      "physical_can_down_after": true,
+      "enable_requested": false,
+      "parameter_writes_requested": false
+    },
+    {
+      "joint": "right_arm_j1",
+      "motor_uid": "4e8230021471b10a",
+      "firmware": "0.3.1.30",
+      "method": "Operator manually moved one disabled joint in the viewer positive CAD direction; finite stopped diagnostics before and after.",
+      "viewer_demonstration_rad": 0.15,
+      "positive_cad_direction": "clockwise viewed from above, about the vertical shoulder swivel axis",
+      "operator_report": "ready",
+      "baseline": {
+        "local_capture": "simulation_runs/minerva-production-20260924/run_diagnostics_zero_power_cycle.json",
+        "sha256": "c01597cba2f82eade22b06c71da465c9ad5d9984235c0443942dd6feb1056545",
+        "remote_capture": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/stopped-motors-20260924T222037Z",
+        "started_at": "2026-09-24T22:20:37.483316+00:00"
+      },
+      "after_manual_movement": {
+        "local_capture": "simulation_runs/minerva-production-20260924/run_diagnostics_direction_right_j1.json",
+        "sha256": "04906882d56a520f72517e70103630901081e579bf7920f7315d0b7f5e142a39",
+        "remote_capture": "/home/ltr/aizee/device-maintenance/diagnostics-20260924T172419Z/stopped-motors-20260924T223312Z",
+        "started_at": "2026-09-24T22:33:12.400231+00:00"
+      },
+      "raw_before_rad": 0.00017044279957190156,
+      "raw_after_rad": -0.4079110622406006,
+      "raw_delta_rad": -0.4080815050401725,
+      "observed_motor_to_cad_sign": -1,
+      "direction_verified": true,
+      "scale_verified": false,
+      "physical_angle_measured": false,
+      "maximum_other_joint_delta_rad": 0.01810953373205848,
+      "positions": [
+        {
+          "name": "left_arm_j1",
+          "before_rad": -8.522139978595078e-05,
+          "after_rad": 0.01802431233227253,
+          "delta_rad": 0.01810953373205848
+        },
+        {
+          "name": "left_arm_j2",
+          "before_rad": 4.262394577381201e-05,
+          "after_rad": 0.003920184448361397,
+          "delta_rad": 0.0038775605025875848
+        },
+        {
+          "name": "left_arm_j3",
+          "before_rad": 4.259745401213877e-05,
+          "after_rad": -0.00012784534192178398,
+          "delta_rad": -0.00017044279593392275
+        },
+        {
+          "name": "left_arm_j4",
+          "before_rad": 0.0002969003398902714,
+          "after_rad": 0.0079173119738698,
+          "delta_rad": 0.007620411633979529
+        },
+        {
+          "name": "left_arm_j5",
+          "before_rad": 9.896678238874301e-05,
+          "after_rad": 0.0002969003398902714,
+          "delta_rad": 0.0001979335575015284
+        },
+        {
+          "name": "left_arm_j6",
+          "before_rad": -3.833770824712701e-05,
+          "after_rad": 7.672310312045738e-05,
+          "delta_rad": 0.00011506081136758439
+        },
+        {
+          "name": "left_gripper",
+          "before_rad": 0.0,
+          "after_rad": 0.0001150369644165039,
+          "delta_rad": 0.0001150369644165039
+        },
+        {
+          "name": "right_arm_j1",
+          "before_rad": 0.00017044279957190156,
+          "after_rad": -0.4079110622406006,
+          "delta_rad": -0.4080815050401725
+        },
+        {
+          "name": "right_arm_j2",
+          "before_rad": 0.0,
+          "after_rad": 0.016234630718827248,
+          "delta_rad": 0.016234630718827248
+        },
+        {
+          "name": "right_arm_j3",
+          "before_rad": 0.00017044279957190156,
+          "after_rad": 0.0003408855991438031,
+          "delta_rad": 0.00017044279957190156
+        },
+        {
+          "name": "right_arm_j4",
+          "before_rad": 4.952953531756066e-05,
+          "after_rad": -0.00039586712955497205,
+          "delta_rad": -0.0004453966648725327
+        },
+        {
+          "name": "right_arm_j5",
+          "before_rad": 0.0,
+          "after_rad": -4.946800981997512e-05,
+          "delta_rad": -4.946800981997512e-05
+        },
+        {
+          "name": "right_arm_j6",
+          "before_rad": 3.838539123535156e-05,
+          "after_rad": 0.0001533985196147114,
+          "delta_rad": 0.00011501312837935984
+        },
+        {
+          "name": "right_gripper",
+          "before_rad": -0.0001917362242238596,
+          "after_rad": -0.0002300739288330078,
+          "delta_rad": -3.8337704609148204e-05
+        }
+      ],
+      "all_14_identity_and_firmware_matched": true,
+      "all_14_fault_free_reset": true,
+      "physical_can_down_after": true,
+      "enable_requested": false,
+      "parameter_writes_requested": false
+    }
+  ],
+  "pending_joints": [
+    "left_arm_j2",
+    "left_arm_j3",
+    "left_arm_j4",
+    "left_arm_j5",
+    "left_arm_j6",
+    "right_arm_j2",
+    "right_arm_j3",
+    "right_arm_j4",
+    "right_arm_j5",
+    "right_arm_j6"
+  ],
+  "limitations": [
+    "The viewer angle demonstrated direction only; the operator was explicitly told the angle need not match. Do not infer a transmission ratio from the two angles.",
+    "One positive movement verifies the observed sign only. Physical alignment uncertainty, angle scale, travel bounds and loaded behavior remain unqualified.",
+    "This evidence is separate from the unchanged mechanical-zero reference and does not approve hardware teleoperation."
+  ]
+}
