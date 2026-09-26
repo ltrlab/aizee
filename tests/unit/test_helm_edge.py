@@ -182,7 +182,8 @@ def test_a_session_on_the_robot_relays_keys_routes_and_the_zero(tmp_path, monkey
         teleop.key('E')
         wait_until(lambda: teleop.snapshot()['keys'] == ['I', 'E'])
         wait_until(lambda: teleop.snapshot()['samples'] > 3)  # Leader pairs over the loopback link.
-        assert teleop.guide() == {'sequence': 2}
+        guide = teleop.guide()
+        assert guide['sequence'] == 2 and abs(guide['updated_at'] - time.time()) < 1  # Stamped on arrival.
         teleop.route('accept', 'left_arm_j1')
         saved = json.loads(routes_path(tmp_path, ASSET).read_text(encoding='utf-8'))
         assert saved['routes'] == {'left_arm_j1': {'sign': -1, 'verified': True}}  # Helm keeps the file.

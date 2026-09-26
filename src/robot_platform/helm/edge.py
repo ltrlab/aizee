@@ -20,6 +20,7 @@ import queue
 import secrets
 import sys
 import threading
+import time
 
 from robot_platform.transport.wire import pack_msg, unpack_msg
 
@@ -79,6 +80,19 @@ class Inbox:
 
     def close(self):
         pass
+
+
+class ArrivalInbox(Inbox):
+    """Views from the robot, stamped when they reach this PC: the robot's clock is not this PC's.
+
+    The viewer ages a guide by this PC's clock, so a robot clock a little ahead
+    would make every live pose look stale. Transit over the tether is ~1 ms.
+    """
+
+    def put(self, message):
+        if isinstance(message, list) and len(message) == 3 and message[0] == 'view' and message[2]:
+            message[2]['updated_at'] = time.time()
+        super().put(message)
 
 
 def pump(stream, inbox):
@@ -207,7 +221,7 @@ class EdgeWorker:
         self.bundle, self.leader_profile, self.base_view = bundle, leader_profile, base_view
         self.address, self.profile = address or TETHER, profile or DEFAULT_PROFILE
         self.open_ssh, self.serve_link, self.real_leaders = open_ssh, serve_link, real_leaders
-        self.views, self.commands = Inbox(), _Commands(self)
+        self.views, self.commands = ArrivalInbox(), _Commands(self)
         self._lock = threading.Lock()
         self._writer = self._channel = None
         self._aborted = threading.Event()
