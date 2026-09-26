@@ -10,7 +10,8 @@ Every datagram carries an HMAC-SHA256 tag under a per-session key handed over
 the SSH session that starts the robot's loop, so no other host can inject
 samples or draw replies. The PC opens the flow with a signed hello (repeated
 each second) and the robot learns the PC's address from it, so the PC never
-has to accept unsolicited inbound traffic.
+has to accept unsolicited inbound traffic. On the PC, LeaderLinkProcess runs the
+server in its own process that Windows does not throttle, next to the leader USB.
 """
 import hashlib
 import hmac
@@ -184,3 +185,101 @@ class LeaderLinkInput(LeaderSnapshotClient):
 
     def close(self):
         self.socket.close()
+
+
+class SyntheticLeaders:
+    """A steady, always-fresh leader pair for testing the link without the leader arms."""
+
+    def __init__(self, profile, clock=time.perf_counter):
+        self.pins = {name: item['usb_serial'] for name, item in profile['leaders'].items()}
+        self.clock, self.sequence, self.skipped = clock, 0, 0
+
+    def poll(self):
+        from .openrb import LeaderSample
+        self.sequence += 1
+        now = self.clock()
+        return {name: LeaderSample((0.,) * 7, (0,) * 7, self.sequence, now, now, (0, 0, 0, 0),
+                                   10 * self.sequence, 10 * self.sequence + 1) for name in self.pins}
+
+    def close(self):
+        pass
+
+
+def _serve(connection, profile, key, robot, local, real):
+    """Child process: open the leaders, answer the robot until told to stop, then report counts."""
+    from robot_platform.control.scheduling import prefer_responsive
+    scheduling = prefer_responsive()
+    source = server = None
+    try:
+        if real:
+            from .leader_bridge import LatestLeaderInputs
+            from .openrb import OpenRBInputs
+            source = LatestLeaderInputs(OpenRBInputs(profile), rate_hz=100.)
+            source.connect()
+        else:
+            source = SyntheticLeaders(profile)
+        server = LeaderLinkServer(source, key, robot, local=local).start()
+        connection.send({'ready': True, 'scheduling': scheduling})
+        try:
+            connection.recv()  # Any message, or the parent going away, stops the server.
+        except EOFError:
+            pass
+        report = {'served': server.served, 'skipped': server.skipped, 'rejected': server.rejected,
+                  'failure': server.failure, 'usb_skipped': source.skipped}
+    except Exception as exc:
+        report = {'error': f'{type(exc).__name__}: {exc}'}
+    finally:
+        if server is not None:
+            server.close()
+        if source is not None:
+            source.close()
+    try:
+        connection.send(report)
+    except OSError:
+        pass
+
+
+class LeaderLinkProcess:
+    """The operator PC's end of the link in its own process, opted out of Windows throttling.
+
+    A reply later than the robot's timeout is a skipped sample, so the server must
+    not share a busy or background-throttled process (see control.scheduling). It
+    owns the leader USB ports (real=True) or serves a synthetic pair.
+    """
+
+    def __init__(self, profile, key, robot, *, local=('0.0.0.0', 0), real=True):
+        import multiprocessing
+        context = multiprocessing.get_context('spawn')
+        self._connection, self._child = context.Pipe()
+        self._process = context.Process(target=_serve, args=(self._child, profile, _checked_key(key), robot,
+                                                             local, real), daemon=True, name='leader-link')
+        self.scheduling, self.report = None, None
+
+    def start(self, timeout=15.):
+        self._process.start()
+        self._child.close()
+        if not self._connection.poll(timeout):
+            self.close()
+            raise TimeoutError('The leader link process did not start')
+        message = self._connection.recv()
+        if 'error' in message:
+            self._process.join(2.)
+            raise RuntimeError(message['error'])
+        self.scheduling = message['scheduling']
+        return self
+
+    def close(self, timeout=5.):
+        """Stop serving; returns the counts (served, skipped, rejected, failure, usb_skipped)."""
+        if self.report is None:
+            self.report = {}
+            try:
+                self._connection.send('stop')
+                if self._connection.poll(timeout):
+                    self.report = self._connection.recv()
+            except (OSError, EOFError):
+                pass
+            self._process.join(timeout)
+            if self._process.is_alive():
+                self._process.terminate()
+            self._connection.close()
+        return self.report

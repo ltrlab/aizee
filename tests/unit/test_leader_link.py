@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from robot_platform.teleop.leader_link import LeaderLinkInput, LeaderLinkServer, seal, unseal
+from robot_platform.teleop.leader_link import LeaderLinkInput, LeaderLinkProcess, LeaderLinkServer, seal, unseal
 from robot_platform.teleop.openrb import LeaderSample, LeaderSampleSkipped
 
 PROFILE = {'leaders': {'left': {'usb_serial': 'A1'}, 'right': {'usb_serial': 'B2'}},
@@ -91,3 +91,18 @@ def test_seal_rejects_tampering():
     assert unseal(KEY, packet[:-1] + b'x') is None and unseal(b'y' * 32, packet) is None
     with pytest.raises(ValueError, match='session key'):
         LeaderLinkInput(b'short', PROFILE)
+
+
+def test_the_pc_end_runs_in_its_own_responsive_process():
+    robot = LeaderLinkInput(KEY, PROFILE, bind=('127.0.0.1', 0), timeout_s=.5)
+    pc = LeaderLinkProcess(PROFILE, KEY, robot.address, local=('127.0.0.1', 0), real=False)
+    try:
+        pc.start()
+        robot.wait_for_pc(10.)
+        first, second = robot.poll(), robot.poll()
+        assert second['left'].sequence > first['left'].sequence and robot.fault is None
+    finally:
+        counts = pc.close()
+        robot.close()
+    assert counts['served'] == 2 and counts['failure'] is None and counts['rejected'] == 0
+    assert pc.close() is counts  # Closing twice is harmless.
