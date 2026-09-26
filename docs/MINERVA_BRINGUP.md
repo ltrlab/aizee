@@ -34,17 +34,36 @@ same way collect_demo does — LAN `192.168.0.27` → USB-C direct `10.42.0.1` �
 
 ---
 
-## 0. Deploy (from the dev machine)
+## 0. Deploy (from the operator PC)
 
 ```bash
-./scripts/deploy_minerva_arms.sh          # builds motor_control, installs both
-                                          # services + udev rule + aizee-can-up +
-                                          # sudoers; retires the rover service; does
-                                          # NOT start (start only with the bus powered)
+./scripts/deploy_minerva_arms.sh            # build, verify, switch, prune
+./scripts/deploy_minerva_arms.sh --build    # cross-compile the ARM64 binaries first
 ```
-The script installs legacy services **disabled for boot** and does not start them.
-It no longer installs the retired stop bridge. Follow the guarded commissioning
-procedure above before considering a manual legacy-service start.
+
+The script builds a verified release on the PC and installs it on the Jetson over
+the USB Ethernet tether (`10.42.0.1`):
+
+- The release holds the Python platform, device profiles, the model's core files
+  and the cross-built ARM64 receiver, harness and collision library, about 2 MB.
+- CAD meshes stay on the PC. The build checks the collision model against them
+  and ships their digests.
+- On the Jetson it becomes `~/minerva/releases/<id>`, verified file by file and
+  smoke-tested, then `~/minerva/current` switches atomically. A failed smoke test
+  rolls back.
+- Only the last three releases are kept.
+- No sudo, services or compiling on the Jetson. It uses the system Python 3.10
+  with numpy, scipy and msgpack.
+
+One-time system setup (CAN serial pinning, CAN helpers, sudoers) needs sudo, so
+run it yourself:
+
+```bash
+./scripts/setup_minerva_system.sh
+```
+
+No script installs the legacy motor_control services any more. The sections
+below are historical.
 
 ## 1. Start the follower instances (Jetson, motors POWERED)
 
