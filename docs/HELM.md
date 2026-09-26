@@ -155,7 +155,29 @@ passed by `scripts/helm.ps1`). Close the leader viewer, and disconnect the Leade
 first: a session owns the leader USB ports. A teleop session and Connect exclude
 each other.
 
-**Start session** loads the keep-out model and the receiver (about 10 s). Then:
+**Where the loop runs.** By default the loop runs on Minerva's Jetson, the head
+computer that will run the arms' control loop, from the deployed release. Helm
+starts it over pinned SSH on the USB Ethernet tether and relays keys, route edits
+and the zero. A process on this PC serves the leaders over the authenticated
+leader link. The Jetson refuses to start unless its release carries this PC's
+calibration files: deploy first (Minerva Check shows whether they match).
+**Loop runs on** switches between Minerva's Jetson and this PC while no session
+runs; `helm --loop pc` starts on this PC.
+
+Measured with the real leaders, 30 s in TELEOP, against the 40 ms budget:
+
+| Loop on | Cycle p50 / p99 / max | Overruns |
+|---|---|---|
+| Minerva's Jetson | 6.5 / 14.4 / 26.5 ms | 0 |
+| This PC | 4.7 / 5.8 / 8.6 ms | 0 |
+
+The Jetson's longest cycles are waits for a late leader reply (up to 20 ms).
+Leader samples older than the 50 ms target limit are skipped for that cycle
+(10 of about 650 on the Jetson, 18 on this PC). Those come from the leaders'
+sample age, not the link.
+
+**Start session** loads the keep-out model and the receiver: 2–3 s on the Jetson,
+whose release has no meshes to load, and about 10 s on this PC. Then:
 
 | Key | Action |
 |---|---|
