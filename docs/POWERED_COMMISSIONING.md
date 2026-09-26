@@ -73,9 +73,11 @@ transmission mapping and interface identities are configuration data.
 | `motor_diagnostics` | MCU UID, firmware, stop feedback and whitelisted typed parameter reads; no enable |
 | `zero_torque_trial` service mode | Stopped watchdog setup before socket readiness; explicit single-actuator nominal zero feedforward/P/D enable, at most 250 ms; no move commands |
 | `motor_watchdog_trial` executable | Pinned single-actuator watchdog write/readback and command-loss experiment; optional separately authorized bounded jog or breakaway ramp |
+| `teleop` service mode | One arm (one CAN bus) under leases, expiring collision envelopes and stops; the same watchdog and reference gates as `zero_torque_trial` before socket readiness; single-use enable; requires `--allow-powered-teleop --confirm-reference-pose`. Started by Helm's live teleop (see [Helm](HELM.md#live-teleop-one-arm)) |
 
 Physical service trials require `--allow-powered-trial` and a finite duration
-no longer than 30 seconds. The service rejects physical `move` requests; its
+no longer than 30 seconds. Outside the one-arm `teleop` mode, the service
+rejects physical `move` requests; its
 `bounded_jog_trial` and `breakaway_trial` profiles cannot arm through the network
 service. The finite standalone executable is the only physical movement path. The GUI
 and legacy publishers are not connected to it.

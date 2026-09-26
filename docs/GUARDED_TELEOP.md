@@ -1,9 +1,14 @@
 # Guarded teleoperation: current implementation
 
-Updated 2026-09-24. **Physical dual-arm teleoperation is not enabled.** The shared
-input, target mapping, collision-envelope compiler and independent Rust receiver
-are implemented. Hardware reference, loaded stopping, operator engagement and
-the input network still need qualification.
+Updated 2026-09-26. **Physical teleoperation of one arm is implemented but not
+yet run on motors. Dual-arm physical teleoperation is not enabled.**
+- The loop runs on Minerva's Jetson, with leader samples over the authenticated
+  tether link.
+- The receiver's `teleop` service mode drives one arm with advisory collision
+  checks. The other arm is never enabled.
+- Loaded stopping, host and CAN loss response and physical speeds still need
+  qualification in attended tests.
+- Two-arm operation needs a tighter, enforced collision bound.
 
 ## Components and ownership
 
@@ -18,6 +23,9 @@ the input network still need qualification.
 | `rust/control_core/src/collision.rs` | Receiver-local envelope validation and expiry independent of producer traffic |
 | `rust/control_core/src/reference.rs` | Single-use raw encoder reference check before physical adapter enable |
 | `control/mechanical_zero.py` | Explicit, stopped-only mechanical-zero and optional parameter-save maintenance |
+| `teleop/leader_link.py` | Authenticated UDP leader samples over the tether; the PC end in its own responsive process |
+| `helm/edge.py` | Helm's teleop loop on the robot computer, driven over one pinned SSH channel |
+| `control/live_receiver.py` | A live session's stopped pre-scan, CAN link and one-arm `teleop` service |
 
 Paths above Python modules are relative to `src/robot_platform/`. Robot joint
 names, leader roles, USB identity, routes and CAD mapping belong in profiles;
@@ -122,7 +130,8 @@ See the [device log](devices/MINERVA_PRODUCTION_01.md) and
 the real leaders into the native receiver harness, with receiver limits derived
 from the hand-swept joint limits and each leader channel's
 [hand-swept range](HELM.md#sweep-leader-ranges) mapped onto its robot joint's
-range. Collision checks there are advisory, and only for the virtual receiver.
+range. Collision checks there are advisory. On physical motors that applies only
+to [live teleop of one arm](HELM.md#live-teleop-one-arm).
 
 ## Reproduce without moving motors
 

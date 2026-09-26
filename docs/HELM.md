@@ -253,9 +253,9 @@ certifies only about ±0.011 rad per arm joint at the hanging pose, about
 0.03 rad/s at 25 Hz. So in the virtual receiver, every cycle checks the target
 pose against the same keep-out geometry and shows the result (clear, distance, or
 the contacting shapes), but does not block. The receiver still enforces its
-limits, stopping reserve and single-use offers. Advisory mode is refused for
-anything but the virtual receiver. Physical teleop needs a tighter, still-sound
-bound with enforced checks.
+limits, stopping reserve and single-use offers. The only physical use of
+advisory checks is live teleop of one arm (below); two-arm physical teleop needs
+a tighter, still-sound bound with enforced checks.
 
 **Timing.** The 25 Hz loop runs in its own process, so browser traffic cannot
 stall a cycle. On Windows it runs at high priority, and it and the receiver
@@ -265,3 +265,60 @@ three faulted. A cycle about 40 ms late lets the receiver's 80 ms collision
 verdict expire: the receiver stops itself and the session faults with the
 receiver's reason. Stop the session and start it again. The panel shows cycle
 time (p50 / p99); normal is about 5 / 6 ms.
+
+## Live teleop (one arm)
+
+Live teleop drives **one arm's real motors** through the guarded receiver on
+Minerva's Jetson. The other arm is not in the receiver and is never enabled.
+Collision checks are advisory, as agreed until a two-arm bound exists: every
+cycle checks the target pose against the keep-out geometry, with the other arm
+taken at its reference pose. Nothing stops the arm on a contact. The motion
+settings are unqualified, so these are attended tests with the foot switch in
+reach.
+
+**Before you start:**
+- Minerva Check shows GO. Its "Live receiver configuration" item has the
+  deployed receiver validate both arms' configurations.
+- The loop runs on Minerva's Jetson (live is not available on this PC).
+- The arm to drive hangs straight down in its reference pose with the gripper
+  closed. Every joint must be within 0.1 rad of its reference.
+
+Choose **Receiver: Live · left arm** (or right). The panel turns red and Start
+asks you to confirm.
+
+**Starting a session**, with the motors still disabled throughout:
+1. The stopped reader scans the arm: identity, firmware, fault-free Reset, and
+   each motor still and within tolerance of its reference. A joint out of pose
+   is named, with how far it is off.
+2. The arm's CAN link comes up.
+3. The receiver starts in its one-arm teleop mode. It repeats the identity and
+   reference checks and arms each motor's command-loss watchdog before it
+   accepts commands.
+
+**Keys** work as in virtual teleop:
+- **Idle (I)** enables the motors at zero torque, so the arm is limp: support
+  it.
+- **Enable (E)** holds the arm where it is.
+- **Engage (T)** aligns slowly to the leaders, then follows.
+- **Shutdown (X)** returns slowly to the reference pose, then disables.
+
+The receiver's enable is single-use: after Disable (H) or a completed Shutdown
+the arm is limp, and a new session, which checks the reference pose again, is
+needed to enable it. Stopping the session disables the arm where it is. If the
+arm is powered, Helm asks first, since a raised arm drops; use Shutdown (X)
+before stopping.
+
+**What happens when something is lost:**
+
+| Lost | Result |
+|---|---|
+| Leader samples (unplugged leader, PC or tether gone) | After two cycles the arm holds where it is until you Engage again. The foot switch cuts power at any time. |
+| Helm's session (closed, crashed) | The loop on the Jetson disables the arm and stops the receiver. |
+| The loop | The receiver stops the arm when its lease and collision verdict expire (150 ms and 80 ms). |
+| The receiver process | Each motor's own watchdog disables it when commands stop. |
+
+**Grippers** use their full physical range, closing past the model's closed
+limit. A stalled grasp holds about hold Kp × lead: up to 10 Nm with the current
+gains (2 Nm/rad over a 5.1 rad lead), against the gripper motor's 14 Nm peak.
+Long grasps heat the motor toward the receiver's 70 °C limit. Lower the
+gripper's `hold_kp` if that matters.
