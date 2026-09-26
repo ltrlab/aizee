@@ -36,7 +36,9 @@ DEFAULT_RUNS = ROOT / 'calibration_runs'
 TETHER_NETWORK = '10.42.0.'
 POSE_TOLERANCE_RAD = .05
 OPENRB = (0x2F5D, 0x2202)
-PASS, WARN, FAIL, SKIP, PENDING, RUNNING = 'pass', 'warn', 'fail', 'skip', 'pending', 'running'
+PASS, WARN, FAIL, SKIP = 'pass', 'warn', 'fail', 'skip'
+PENDING = 'pending'  # Not built yet (the live sweep); QUEUED and RUNNING only appear during a run.
+QUEUED, RUNNING = 'queued', 'running'
 STAGES = {'pc': 'Operator PC', 'jetson': 'Link and Jetson', 'motors': 'Motors, stopped',
           'sweep': 'Live joint sweep'}
 CHECKS = []
@@ -593,7 +595,7 @@ def run_check(*, root=ROOT, profile=DEFAULT_PROFILE, teleop=DEFAULT_TELEOP, runs
     report = {'schema': 1, 'kind': 'minerva_check', 'asset_id': None, 'address': address,
               'started_at': _now(), 'finished_at': None, 'state': 'running', 'verdict': None, 'summary': None,
               'stages': [{'id': key, 'title': title, 'checks': [
-                  {'id': c['id'], 'title': c['title'], 'status': PENDING, 'detail': '', 'seconds': None}
+                  {'id': c['id'], 'title': c['title'], 'status': QUEUED, 'detail': '', 'seconds': None}
                   for c in CHECKS if c['stage'] == key]} for key, title in STAGES.items()],
               'evidence': None}
     entries = {c['id']: c for stage in report['stages'] for c in stage['checks']}

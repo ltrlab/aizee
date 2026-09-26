@@ -95,4 +95,4 @@ body[data-teleop-state=FAULT] #t-state,#t-collision.bad{color:var(--bad)}#t-coll
 .crow[data-status=warn]{border-color:#6d5a37}.crow[data-status=warn] .cicon{color:var(--warn);border-color:#6d5a37}.crow[data-status=warn] .cdetail{color:#e7d3b3}
 .crow[data-status=fail]{border-color:#7c3a45}.crow[data-status=fail] .cicon{color:var(--bad);border-color:#7c3a45}.crow[data-status=fail] .cdetail{color:#ffd0d6}
 .crow[data-status=running] .cicon{color:var(--accent);border-color:#3f8f81}
-.crow[data-status=skip],.crow[data-status=pending]{opacity:.7}
+.crow[data-status=skip],.crow[data-status=pending],.crow[data-status=queued]{opacity:.7}

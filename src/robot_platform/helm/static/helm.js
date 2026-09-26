@@ -186,10 +186,10 @@ function render(state) {
 }
 
 // ---- Minerva Check -------------------------------------------------------------
-const CHECK_ICON = {pass: '✓', warn: '!', fail: '✕', skip: '–', pending: '·', running: '…'};
+const CHECK_ICON = {pass: '✓', warn: '!', fail: '✕', skip: '–', pending: '○', queued: '·', running: '…'};
 const VERDICT = {go: 'GO', no_go: 'NO GO', incomplete: 'INCOMPLETE'};
 const crows = new Map();
-let checkLayout = '';
+let checkLayout = '', checkRunning = null, checkWasRunning = false;
 
 function renderCheck(c) {
   const tab = document.querySelector('.tab[data-tab=check]');
@@ -199,12 +199,15 @@ function renderCheck(c) {
     return;
   }
   const report = c.report;
+  // The start note is only true while running; the verdict takes over.
+  if (checkWasRunning && !c.running) $('check-status').textContent = '';
+  checkWasRunning = c.running;
   const run = $('c-run');
   run.disabled = c.running;
   run.textContent = c.running ? 'Checking…' : 'Run check';
 
   const checks = report ? report.stages.flatMap(stage => stage.checks) : [];
-  const done = checks.filter(entry => !['pending', 'running'].includes(entry.status)).length;
+  const done = checks.filter(entry => !['queued', 'running'].includes(entry.status)).length;
   const verdict = $('c-verdict');
   const [title, detail] = verdict.children;
   if (c.error) {
@@ -255,6 +258,10 @@ function renderCheck(c) {
       row.querySelector('.cicon').textContent = CHECK_ICON[entry.status] || '?';
       row.querySelector('.cdetail').textContent = entry.status === 'running' ? 'Checking…' : entry.detail;
       row.querySelector('.ctime').textContent = entry.seconds == null ? '' : `${entry.seconds.toFixed(1)} s`;
+      if (entry.status === 'running' && checkRunning !== row) {
+        checkRunning = row;
+        row.scrollIntoView({block: 'nearest'});  // Follow the run, once per check.
+      }
     }
   }
 }

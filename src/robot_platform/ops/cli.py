@@ -56,7 +56,7 @@ def check_main(argv=None):
     def publish(report):
         for stage in report['stages']:
             for entry in stage['checks']:
-                if entry['status'] in ('pending', 'running') or entry['id'] in shown:
+                if entry['status'] in ('queued', 'running') or entry['id'] in shown:
                     continue
                 if not shown & {c['id'] for c in stage['checks']}:
                     print(f"\n{stage['title']}", flush=True)
