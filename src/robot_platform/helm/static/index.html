@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Helm</title>
+  <link rel="stylesheet" href="helm/helm.css">
+</head>
+<body data-feed="disconnected" data-tab="limits">
+  <header>
+    <div class="brand"><span class="mark" aria-hidden="true">⎈</span><div><span class="name">Helm</span><small id="robot-name">Loading robot…</small></div></div>
+    <nav aria-label="Workspaces">
+      <button class="tab" data-tab="limits" aria-current="page">Limits</button>
+      <button class="tab" data-tab="leaders">Leaders</button>
+      <button class="tab" data-tab="teleop">Teleop</button>
+    </nav>
+    <div class="link">
+      <span id="feed-pill" class="pill" role="status"><span class="dot"></span><span id="feed-text">Not connected</span></span>
+      <button id="connect" class="primary">Connect</button>
+    </div>
+  </header>
+  <p id="banner" role="status" hidden></p>
+  <main>
+    <section class="view" aria-label="Live robot model">
+      <iframe id="model-view" src="viewer?embed=1" title="Live robot model"></iframe>
+    </section>
+    <aside>
+      <section id="panel-limits" class="panel" aria-label="Joint limits">
+        <div class="panel-head">
+          <div class="eyebrow">JOINT LIMITS · MOTORS STAY DISABLED</div>
+          <h1>Sweep each joint by hand</h1>
+          <p class="lead">Move one joint at a time to each end of its travel and <strong>hold it there for a moment</strong>.
+            An end counts once two consecutive readings agree, so a bump or a flick cannot widen a limit.
+            Confirm each joint, then save.</p>
+          <p id="saved-summary" class="muted"></p>
+        </div>
+        <div id="joints" class="scroll"></div>
+        <div class="save-bar">
+          <p id="action-status" role="status"></p>
+          <button id="save" class="primary" disabled>Save limits</button>
+        </div>
+      </section>
+      <section id="panel-leaders" class="panel" aria-label="Leader ranges" hidden>
+        <div class="panel-head">
+          <div class="eyebrow">LEADER RANGES · READ ONLY</div>
+          <h1>Sweep each leader joint</h1>
+          <p class="lead">Move each leader joint, and each gripper trigger, <strong>all the way to both ends</strong>
+            of its travel, confirm it, then save. Teleop scales each leader range onto its robot joint's range from
+            the leader zero: hold the leaders in the robot's reference pose (arms straight down, triggers released)
+            and set the zero. You can set it again here or in Teleop (Z) at any time.</p>
+          <div class="leader-link">
+            <span id="l-pill" class="pill" role="status"><span class="dot"></span><span id="l-text">Not connected</span></span>
+            <button id="l-connect" class="primary">Connect leaders</button>
+            <button id="l-capture" title="The leaders' pose now becomes the zero (saved at once)">Set leader zero</button>
+          </div>
+          <p id="l-summary" class="muted"></p>
+          <p class="legend"><span class="k seen"></span>swept <span class="k held"></span>recorded range
+            <span class="k saved"></span>saved <span class="k ref"></span>zero <span class="k now"></span>now</p>
+        </div>
+        <div id="leader-joints" class="scroll"></div>
+        <div class="save-bar">
+          <p id="leaders-status" role="status"></p>
+          <button id="l-save" class="primary" disabled>Save</button>
+        </div>
+      </section>
+      <section id="panel-teleop" class="panel" aria-label="Teleoperation" hidden>
+        <div class="panel-head">
+          <div class="eyebrow warn">TELEOP · VIRTUAL RECEIVER · NO MOTORS MOVE</div>
+          <h1>Drive the arms with the leaders</h1>
+          <p class="lead">Idle (I), then Enable (E) to hold, then Engage (T) to align with the leaders and follow them.
+            T again holds; Shutdown (X) returns slowly to the reference; Disable (H) removes torque.</p>
+          <div class="teleop-status">
+            <span>Phase<b id="t-state">—</b></span><span>Receiver<b id="t-receiver">—</b></span>
+            <span>Cycle<b id="t-cycle">—</b></span><span>Collision<b id="t-collision">—</b></span>
+          </div>
+          <div class="lifecycle" role="group" aria-label="Lifecycle">
+            <button data-key="I" title="Idle: motors on, zero torque (I)">Idle <kbd>I</kbd></button>
+            <button data-key="E" title="Enable: hold the current pose (E)">Enable <kbd>E</kbd></button>
+            <button data-key="T" class="primary" id="t-engage" title="Engage: align with the leaders, then follow (T)">Engage <kbd>T</kbd></button>
+            <button data-key="H" class="danger" title="Disable: remove torque now (H)">Disable <kbd>H</kbd></button>
+            <button data-key="X" title="Shutdown: return slowly to the reference, then disable (X)">Shutdown <kbd>X</kbd></button>
+            <button id="t-zero" title="The leaders' pose now maps onto the robot's reference pose. An engaged arm holds first; engage again (T) to follow. (Z)">Set zero <kbd>Z</kbd></button>
+          </div>
+          <p id="t-message" class="muted" role="status"></p>
+        </div>
+        <div id="teleop-joints" class="scroll"></div>
+        <div class="save-bar">
+          <p id="teleop-status" role="status"></p>
+          <button id="teleop-session" class="primary">Start session</button>
+        </div>
+      </section>
+    </aside>
+  </main>
+  <script type="module" src="helm/helm.js"></script>
+</body>
+</html>
