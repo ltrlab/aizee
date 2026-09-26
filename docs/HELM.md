@@ -11,8 +11,14 @@ guarded receiver in its virtual form; no motors move).
 .\scripts\helm.ps1
 ```
 
-Helm opens without touching the robot. **Connect** starts the same stopped-only
-reader as the calibration tool: it checks the pinned host, CAN adapter serials,
+Helm opens without touching the robot. **Via** (top right) chooses how Helm
+reaches Minerva's Jetson: **Tether** (the USB Ethernet tether, 10.42.0.1, the
+default) or **Wi-Fi** (the address in the device profile). Connect, Minerva
+Check and teleop all use it. Wi-Fi is for stopped reads and virtual teleop only:
+Minerva Check fails anything but the tether, and live teleop is refused on Wi-Fi.
+The choice is locked while the reader, a check or a teleop session runs.
+
+**Connect** starts the same stopped-only reader as the calibration tool: it checks the pinned host, CAN adapter serials,
 conflicting services, every motor UID/firmware and Reset state, then reads
 positions only. Motors are never enabled; no zero, save or parameter write is
 possible over this path. **Disconnect** (or closing Helm with Ctrl+C) stops the
@@ -278,10 +284,16 @@ reach.
 
 **Before you start:**
 - Minerva Check shows GO. Its "Live receiver configuration" item has the
-  deployed receiver validate both arms' configurations.
-- The loop runs on Minerva's Jetson (live is not available on this PC).
+  deployed receiver validate both arms' configurations. "Live start" runs a
+  session's own pre-scan on both arms: within 0.1 rad of the reference pose
+  (a warning otherwise), and clear of the receiver's limits (a failure otherwise).
+- Helm is on **Via Tether**, and the loop runs on Minerva's Jetson (live is not
+  available on this PC or over Wi-Fi). The panel says why if Live is greyed out.
 - The arm to drive hangs straight down in its reference pose with the gripper
   closed. Every joint must be within 0.1 rad of its reference.
+- Keep your hands off the arm from Start until Idle: until the first enable the
+  receiver keeps auditing the motors' watchdogs, and a motor moving faster than
+  0.2 rad/s fails that audit and faults the session.
 
 Choose **Receiver: Live · left arm** (or right). The panel turns red and Start
 asks you to confirm.
@@ -289,7 +301,9 @@ asks you to confirm.
 **Starting a session**, with the motors still disabled throughout:
 1. The stopped reader scans the arm: identity, firmware, fault-free Reset, and
    each motor still and within tolerance of its reference. A joint out of pose
-   is named, with how far it is off.
+   is named, with how far it is off. So is a joint at or next to a receiver
+   limit, which would fault the receiver at once (it faults on any reading
+   outside its limits, even disarmed).
 2. The arm's CAN link comes up.
 3. The receiver starts in its one-arm teleop mode. It repeats the identity and
    reference checks and arms each motor's command-loss watchdog before it
@@ -317,8 +331,16 @@ before stopping.
 | The loop | The receiver stops the arm when its lease and collision verdict expire (150 ms and 80 ms). |
 | The receiver process | Each motor's own watchdog disables it when commands stop. |
 
+A receiver fault names what its own feedback shows (a joint outside its limits,
+too fast, over its effort or temperature, a drive fault, a failed watchdog
+audit). The receiver's last status is saved as `live-<bus>-last.json` in the
+session's `~/minerva/evidence/live-<time>` folder on the Jetson.
+
 **Grippers** use their full physical range, closing past the model's closed
-limit. A stalled grasp holds about hold Kp × lead: up to 10 Nm with the current
+limit. A closed gripper rests on its hand-swept end and its 16-bit feedback can
+read a step (~0.0004 rad) past it, so the receiver's gripper limits extend
+0.05 rad (about 0.5 mm of jaw travel) past each swept end. Gripper targets stay
+within the swept travel. A stalled grasp holds about hold Kp × lead: up to 10 Nm with the current
 gains (2 Nm/rad over a 5.1 rad lead), against the gripper motor's 14 Nm peak.
 Long grasps heat the motor toward the receiver's 70 °C limit. Lower the
 gripper's `hold_kp` if that matters.

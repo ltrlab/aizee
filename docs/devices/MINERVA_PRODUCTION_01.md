@@ -1743,3 +1743,39 @@ validating both arms' teleop configurations and 125 of 125 fresh leader
 samples. The stopped scan again found no motor answering, with both buses
 error-passive (motor power off or foot switch pressed). No motor was enabled,
 and no live session has been started.
+
+### 2026-09-26 — first live start attempts fault; gripper limits and connection choice
+
+With motor power on, Minerva Check was GO at 23:19 UTC. The operator then
+started four live sessions on the right arm (23:21–23:23 UTC). Three passed
+the stopped pre-scan and started the receiver, which faulted in about 0.1 s,
+disarmed. The fourth failed the receiver's startup watchdog check. No motor was
+enabled. The receiver logs show clean shutdowns: `disable_operation_succeeded`,
+no disable transmit needed.
+
+Cause of the faults: the receiver faults on any reading outside its joint
+limits, even disarmed. Both grippers rest closed on their hand-swept minimum:
+the right at −0.00165 rad against a −0.00176 limit, the left at −0.0202 against
+−0.0206. A 16-bit feedback step is about 0.0004 rad, so one step past the end
+is a limit violation. The new Minerva Check item shows it on the 23:19 scan:
+without the fix it fails both grippers; with it, both arms pass.
+
+The watchdog failure was not reproduced. The startup audit fails if a motor
+answers late, leaves Reset, reports a fault, or moves faster than 0.2 rad/s. It
+keeps auditing until the first enable, so the arm must hang still from Start
+until Idle.
+
+Changes:
+- **Gripper limits.** The receiver's gripper limits extend 0.05 rad past each
+  swept end (about 0.5 mm of jaw travel). Gripper targets stay within the
+  swept travel.
+- **Diagnostics.** The pre-scan names any joint at or next to a receiver limit.
+  A receiver fault names the joints whose feedback explains it. The receiver's
+  last status is saved as `live-<bus>-last.json` in the session's evidence
+  folder.
+- **Minerva Check.** A new item, "Live start", runs the live pre-scan's pose
+  and limit checks on both arms.
+- **Connection choice.** Helm's Connect reader went over Wi-Fi (the device
+  profile's address) with no way to choose. Helm now has **Via Tether / Wi-Fi**,
+  defaulting to the tether, for Connect, Minerva Check and teleop. Live teleop
+  is refused on Wi-Fi.
