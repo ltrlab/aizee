@@ -12,6 +12,7 @@ pub mod reference;
 pub mod robstride;
 #[cfg(all(target_os = "linux", feature = "linux-service"))]
 pub mod service;
+pub mod service_config;
 pub mod stop;
 pub mod watchdog;
 pub mod watchdog_trial;
