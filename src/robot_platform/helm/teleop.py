@@ -76,30 +76,36 @@ def merge_routes(routes, edits):
 
 
 class AdvisoryCompiler:
-    """Virtual receiver only: report clearance at the commanded pose, never block.
+    """Report clearance at the commanded pose; never block.
 
     The conservative swept-box check cannot certify teleop speeds (and is slow
     when it fails), so this checks the target pose itself against the same
     keep-out geometry and scope. The receiver gets its whole operational interval
     and still enforces it, the stopping reserve inside it and the single-use
-    offer. Never used with physical motors.
+    offer. Used with the virtual receiver, and with one live arm until a two-arm
+    bound exists: model joints outside this receiver (the other, disabled arm)
+    are taken at `fixed`, their parked reference pose.
     """
-    def __init__(self, compiler, *, warn_m=.05):
-        self.compiler, self.warn_m = compiler, warn_m
-        self.config, self.names = compiler.config, compiler.names
-        self.compute_budget_s = compiler.compute_budget_s
+    def __init__(self, backend, config, joint_map, *, fixed=None, cad_limits=None, clearance_m=.005,
+                 warn_m=.05, compute_budget_s=.025):
+        self.backend, self.config = backend, config
+        self.names = tuple(joint['name'] for joint in config['joints'])
+        self.joint_map, self.fixed, self.cad_limits = dict(joint_map), dict(fixed or {}), dict(cad_limits or {})
+        self.clearance_m, self.warn_m, self.compute_budget_s = clearance_m, warn_m, compute_budget_s
+        scene = getattr(getattr(backend, 'runtime_model', None), 'scene', None)
+        if scene is not None and set(self.joint_map) | set(self.fixed) != set(scene.independent_joints):
+            raise ValueError('Every model joint must follow this receiver or have a fixed pose')
         self.last_verdict = None
         self.blocked = 0
 
     def compile(self, offered, feedback, joints=None, *, started_at=None):
         target = [row['position'] for row in (joints if joints is not None else feedback)]
-        motors = dict(zip(self.names, target))
-        cad = {joint: calibration.scale * motors[calibration.actuator] + calibration.offset
-               for joint, calibration in self.compiler.mapping.items()}
+        cad = dict(self.fixed)
+        cad.update(to_cad(self.joint_map, dict(zip(self.names, target)), self.cad_limits))
         policy = self.config['collision']
-        result = self.compiler.backend.proximity(cad, threshold=self.warn_m, scope=policy['scope'])
+        result = self.backend.proximity(cad, threshold=self.warn_m, scope=policy['scope'])
         pairs = sorted(result['near_pairs'], key=lambda pair: pair['distance_m'])
-        clear = not pairs or pairs[0]['distance_m'] > self.compiler.clearance_m
+        clear = not pairs or pairs[0]['distance_m'] > self.clearance_m
         if not clear:
             self.blocked += 1
         self.last_verdict = {'advisory': True, 'clear': clear,
@@ -281,10 +287,13 @@ class TeleopCore:
         names = tuple(joint['name'] for joint in derived['config']['joints'])
         controller = GuardedControllerClient(exchange, group=derived['config']['group'],
                                              identity=derived['config']['identity'], joint_names=names)
-        compiler = CollisionEnvelopeCompiler(backend, derived['config'], derived['joint_map'],
-                                             compute_budget_s=self.profile['receiver']['compute_budget_s'])
+        budget = self.profile['receiver']['compute_budget_s']
         if self.collision_mode == 'advisory':
-            compiler = AdvisoryCompiler(compiler)
+            compiler = AdvisoryCompiler(backend, derived['config'], derived['joint_map'],
+                                        cad_limits=derived['cad_limits'], compute_budget_s=budget)
+        else:
+            compiler = CollisionEnvelopeCompiler(backend, derived['config'], derived['joint_map'],
+                                                 compute_budget_s=budget, cad_limits=derived['cad_limits'])
         lifecycle = TeleopLifecycle(derived['lifecycle'], clock=self.clock)
         session = GuardedLifecycleSession(controller, compiler, lifecycle, lambda: harness.last, clock=self.clock)
         self.derived, self.harness, self.session, self.compiler = derived, harness, session, compiler
@@ -424,7 +433,7 @@ class TeleopCore:
         if measured is None or self.phase != 'running':
             return None
         positions = dict(self.pose)
-        positions.update(to_cad(self.derived['joint_map'], measured))
+        positions.update(to_cad(self.derived['joint_map'], measured, self.derived['cad_limits']))
         return {'model': self.model.profile.id, 'urdf_sha256': self.model.sha256,
                 'positions': positions, 'live': True, 'rows': [], 'stream_id': 'helm-teleop',
                 'sequence': self.sequence, 'updated_at': time.time(), 'source_age_seconds': 0.,

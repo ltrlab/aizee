@@ -10,7 +10,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from robot_platform.control.collision_guard import JointCalibration
 from robot_platform.control.scheduling import prefer_responsive
 from robot_platform.helm.server import create_app
 from robot_platform.helm.teleop import AdvisoryCompiler, TeleopCore, TeleopSession, load_profile
@@ -47,34 +46,37 @@ class Proximity:
         return {'near_pairs': self.pairs}
 
 
-def advisory(pairs):
-    inner = SimpleNamespace(
-        backend=Proximity(pairs), clearance_m=.005, compute_budget_s=.02, names=('arm_j1', 'gripper'),
-        config={'collision': {'world_revision': 'world', 'scope': 'inter_branch'},
-                'joints': [{'name': 'arm_j1', 'lower': -1., 'upper': 1.},
-                           {'name': 'gripper', 'lower': 0., 'upper': 2.}]},
-        mapping={'shoulder': JointCalibration('arm_j1', -1., .1), 'slide': JointCalibration('gripper', .01, 0.)})
-    return AdvisoryCompiler(inner)
+def advisory(pairs, **options):
+    config = {'collision': {'world_revision': 'world', 'scope': 'inter_branch'},
+              'joints': [{'name': 'arm_j1', 'lower': -1., 'upper': 1.},
+                         {'name': 'gripper', 'lower': -.1, 'upper': 2.}]}
+    joint_map = {'shoulder': {'actuator': 'arm_j1', 'scale': -1., 'offset': .1},
+                 'slide': {'actuator': 'gripper', 'scale': .01, 'offset': 0.}}
+    return AdvisoryCompiler(Proximity(pairs), config, joint_map, compute_budget_s=.02, **options)
 
 
 def test_advisory_checks_the_target_pose_and_never_blocks_the_virtual_receiver():
     compiler = advisory([])
     feedback = [{'position': .3}, {'position': 1.}]
     envelope = compiler.compile({'offer': {'id': 7}}, feedback)
-    cad, threshold, scope = compiler.compiler.backend.calls[-1]
+    cad, threshold, scope = compiler.backend.calls[-1]
     assert cad == pytest.approx({'shoulder': -.2, 'slide': .01}) and threshold == .05 and scope == 'inter_branch'
     assert envelope == {'offer': 7, 'world_revision': 'world', 'scope': 'inter_branch',
-                        'lower': [-1., 0.], 'upper': [1., 2.]}
+                        'lower': [-1., -.1], 'upper': [1., 2.]}
     assert compiler.last_verdict['reason'] == 'target_clear' and compiler.last_verdict['clear']
     compiler.compile({'offer': {'id': 8}}, feedback, [{'position': .5}, {'position': 1.5}])
-    assert compiler.compiler.backend.calls[-1][0] == pytest.approx({'shoulder': -.4, 'slide': .015})
+    assert compiler.backend.calls[-1][0] == pytest.approx({'shoulder': -.4, 'slide': .015})
+    # One live arm: the rest of the model stays parked; a closed gripper is clamped into the model.
+    parked = advisory([], fixed={'elbow': .7}, cad_limits={'slide': (0., .02)})
+    parked.compile({'offer': {'id': 11}}, [{'position': .3}, {'position': -.05}])
+    assert parked.backend.calls[-1][0] == pytest.approx({'elbow': .7, 'shoulder': -.2, 'slide': 0.})
 
     near = advisory([{'distance_m': .004, 'shapes': ['a', 'b']}, {'distance_m': .03, 'shapes': ['c', 'd']}])
     assert near.compile({'offer': {'id': 9}}, feedback)['offer'] == 9
     assert near.last_verdict == {'advisory': True, 'clear': False, 'reason': 'target_contact',
                                  'distance_m': .004, 'shapes': ['a', 'b']}
     assert near.blocked == 1
-    near.compiler.backend.pairs = [{'distance_m': .03, 'shapes': ['c', 'd']}]
+    near.backend.pairs = [{'distance_m': .03, 'shapes': ['c', 'd']}]
     near.compile({'offer': {'id': 10}}, feedback)
     assert near.last_verdict['reason'] == 'target_near' and near.last_verdict['clear'] and near.blocked == 1
 
