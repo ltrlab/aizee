@@ -10,7 +10,7 @@ Builds locally; never connects to a robot or installs services.
 param(
     [switch]$Bootstrap,
     [switch]$Offline,
-    [ValidateSet('motor_control', 'lidar_control', 'robot_collision')]
+    [ValidateSet('motor_control', 'lidar_control', 'robot_collision', 'robot_control')]
     [string[]]$Package = @('motor_control', 'lidar_control')
 )
 
@@ -108,18 +108,25 @@ try {
     }
     $arguments = @('zigbuild', '--release', '--locked', '--target', 'aarch64-unknown-linux-gnu.2.35')
     foreach ($item in $Package) { $arguments += @('-p', $item) }
+    if ($Package -contains 'robot_control') { $arguments += @('--features', 'robot_control/linux-service') }
     if ($Offline) { $arguments += '--offline' }
     & $cargo @arguments
     if ($LASTEXITCODE -ne 0) { throw "Jetson cross-build failed (exit $LASTEXITCODE)." }
 
     foreach ($item in $Package) {
-        $artifact = if ($item -eq 'robot_collision') { 'librobot_collision.so' } else { $item }
+        $artifacts = switch ($item) {
+            'robot_collision' { 'librobot_collision.so' }
+            'robot_control' { 'control_harness'; 'guarded_controller'; 'motor_watchdog_trial' }
+            default { $item }
+        }
+        foreach ($artifact in $artifacts) {
         $binary = Join-Path $env:CARGO_TARGET_DIR "aarch64-unknown-linux-gnu/release/$artifact"
         $bytes = [IO.File]::ReadAllBytes($binary)
         if ($bytes.Length -lt 64 -or $bytes[0] -ne 127 -or [Text.Encoding]::ASCII.GetString($bytes, 1, 3) -ne 'ELF' -or $bytes[4] -ne 2 -or $bytes[5] -ne 1 -or [BitConverter]::ToUInt16($bytes, 18) -ne 183) {
             throw "Build output is not a 64-bit little-endian AArch64 ELF: $binary"
         }
         Get-FileHash -LiteralPath $binary -Algorithm SHA256
+        }
     }
 } finally {
     Set-Location -LiteralPath $oldLocation

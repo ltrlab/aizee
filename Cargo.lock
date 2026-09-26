@@ -888,6 +888,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "robot_control"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "socketcan",
+ "zmq",
+]
+
+[[package]]
 name = "robust"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

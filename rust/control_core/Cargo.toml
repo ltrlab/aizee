@@ -1,0 +1,33 @@
+[package]
+name = "robot_control"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+rmp-serde.workspace = true
+
+[features]
+linux-service = ["dep:socketcan", "dep:zmq", "dep:libc"]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+socketcan = { workspace = true, optional = true }
+zmq = { workspace = true, optional = true }
+libc = { version = "0.2", optional = true }
+
+[[bin]]
+name = "control_harness"
+path = "src/bin/control_harness.rs"
+
+[[bin]]
+name = "guarded_controller"
+path = "src/bin/guarded_controller.rs"
+required-features = ["linux-service"]
+
+[[bin]]
+name = "motor_watchdog_trial"
+path = "src/bin/motor_watchdog_trial.rs"
+required-features = ["linux-service"]

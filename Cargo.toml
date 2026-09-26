@@ -4,6 +4,7 @@ members = [
     "rust/comms",
     "rust/lidar_control",
     "rust/collision",
+    "rust/control_core",
 ]
 resolver = "2"
 

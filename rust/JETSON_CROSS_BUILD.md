@@ -37,6 +37,9 @@ From the repository root in 64-bit PowerShell:
 
 # Build one service when only that code changed.
 ./scripts/build_jetson.ps1 -Offline -Package motor_control
+
+# Guarded harness, Linux service and finite trial tool (build only; no hardware access).
+./scripts/build_jetson.ps1 -Offline -Package robot_control
 ```
 
 The equivalent Cargo operation is:
@@ -52,6 +55,9 @@ Cargo's output directory omits that suffix:
 ```text
 rust/target/aarch64-unknown-linux-gnu/release/motor_control
 rust/target/aarch64-unknown-linux-gnu/release/lidar_control
+rust/target/aarch64-unknown-linux-gnu/release/control_harness
+rust/target/aarch64-unknown-linux-gnu/release/guarded_controller
+rust/target/aarch64-unknown-linux-gnu/release/motor_watchdog_trial
 ```
 
 These ELF files cannot execute on Windows. Native builds on the Jetson still
@@ -61,7 +67,7 @@ provisioning step. This helper performs no deployment or hardware operation.
 
 ## Verify binaries without running them
 
-The build helper checks that both outputs are little-endian, 64-bit AArch64
+The build helper checks that the selected outputs are little-endian, 64-bit AArch64
 ELF files and prints their SHA-256 hashes. For a complete library/version report:
 
 ```powershell

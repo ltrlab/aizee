@@ -26,6 +26,7 @@ AREAS = {
     "rust_comms": ("Shared Rust wire protocol", "crates/comms/"),
     "rust_lidar": ("Reusable LiDAR driver; optional rover service", "crates/lidar_control/"),
     "rust_collision": ("Shared native collision and keep-out queries", "rust/collision/ (current)"),
+    "rust_guarded": ("Robot-independent guarded controller and native fault harness", "rust/control_core/ (current)"),
     "rust_workspace": ("Rust workspace metadata", "Cargo.toml at repository root"),
     "platform": ("Implemented shared Python package", "src/robot_platform/ (current)"),
     "settings": ("Shared application and bench settings examples", "settings/examples/ (current)"),
@@ -69,7 +70,8 @@ def area(p: str) -> str:
         return "robot_assets"
     if p.startswith("rust/"):
         for name, key in (("motor_control", "rust_control"), ("comms", "rust_comms"),
-                          ("lidar_control", "rust_lidar"), ("collision", "rust_collision")):
+                          ("lidar_control", "rust_lidar"), ("collision", "rust_collision"),
+                          ("control_core", "rust_guarded")):
             if p.startswith(f"rust/{name}/"):
                 return key
         return "rust_workspace"

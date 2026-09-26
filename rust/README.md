@@ -9,6 +9,7 @@ same backend binaries with different hardware configuration files.
 | `motor_control` | ROBSTRIDE CAN control; configuration selects an arm or rover |
 | `lidar_control` | RPLiDAR acquisition and telemetry |
 | `robot_collision` (`rust/collision`) | Persistent collision bounds and a shared-library interface for CAD-confirmed checks |
+| `robot_control` (`rust/control_core`) | Portable guarded core, native harness, RobStride adapter with mandatory watchdog startup, Linux SocketCAN/ZMQ service and finite watchdog/jog/breakaway trials |
 
 ## Build from the repository root
 
@@ -16,6 +17,8 @@ same backend binaries with different hardware configuration files.
 cargo build --release -p motor_control
 cargo build --release -p lidar_control
 cargo test -p comms
+cargo test --locked -p robot_control
+cargo build --locked -p robot_control --bin control_harness
 ```
 
 `motor_control` requires Linux SocketCAN. Native Linux builds need Rust and a
@@ -54,7 +57,7 @@ valid. Run Cargo from inside this checkout so it loads the root Cargo config.
 
 ## Deployment and dependency locking
 
-Deployments must copy the root `Cargo.toml`, `.cargo/config.toml`, and all four
+Deployments must copy the root `Cargo.toml`, `.cargo/config.toml`, and all five
 workspace members, even when building one package. Cargo loads every member's
 manifest while resolving the workspace. Deployment scripts also remove the
 obsolete remote `rust/Cargo.toml` when upgrading an existing checkout.
