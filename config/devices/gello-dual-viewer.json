@@ -1,0 +1,414 @@
+{
+  "schema_version": 1,
+  "id": "gello-dual-hanging",
+  "title": "Dual GELLO leaders",
+  "max_age_s": 0.05,
+  "max_skew_s": 0.02,
+  "leaders": {
+    "left": {
+      "usb_serial": "86AE0E865157375037202020FF110E12",
+      "title": "Left GELLO",
+      "color": "#52d7c5",
+      "base_xyz": [
+        -0.12,
+        0,
+        0.88
+      ],
+      "joints": [
+        {
+          "name": "channel_1",
+          "label": "Shoulder swivel",
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "offset_xyz": [
+            0,
+            0,
+            0
+          ],
+          "length_m": 0.075,
+          "zero_rad": 0.0,
+          "direction": 1,
+          "link_xyz": [
+            0,
+            0,
+            -0.075
+          ]
+        },
+        {
+          "name": "channel_2",
+          "label": "Shoulder pitch",
+          "axis": [
+            1,
+            0,
+            0
+          ],
+          "offset_xyz": [
+            -0.07,
+            0,
+            0
+          ],
+          "length_m": 0.27,
+          "zero_rad": 0.0,
+          "direction": 1,
+          "link_xyz": [
+            0,
+            0,
+            -0.27
+          ]
+        },
+        {
+          "name": "channel_3",
+          "label": "Elbow",
+          "axis": [
+            1,
+            0,
+            0
+          ],
+          "offset_xyz": [
+            0.05,
+            0,
+            0
+          ],
+          "length_m": 0.235,
+          "zero_rad": 0.0,
+          "direction": 1,
+          "link_xyz": [
+            0,
+            0,
+            -0.235
+          ]
+        },
+        {
+          "name": "channel_4",
+          "label": "Wrist pitch",
+          "axis": [
+            -1,
+            0,
+            0
+          ],
+          "offset_xyz": [
+            -0.04,
+            0,
+            0
+          ],
+          "length_m": 0.045,
+          "zero_rad": 0.0,
+          "direction": 1,
+          "link_xyz": [
+            0,
+            0,
+            -0.045
+          ]
+        },
+        {
+          "name": "channel_5",
+          "label": "Wrist swivel",
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "offset_xyz": [
+            0,
+            0,
+            0
+          ],
+          "length_m": 0.045,
+          "zero_rad": 0.0,
+          "direction": 1,
+          "link_xyz": [
+            0,
+            0,
+            -0.045
+          ]
+        },
+        {
+          "name": "channel_6",
+          "label": "Wrist bend",
+          "axis": [
+            0,
+            1,
+            0
+          ],
+          "offset_xyz": [
+            0,
+            -0.022,
+            0
+          ],
+          "length_m": 0.045,
+          "zero_rad": 0.0,
+          "direction": 1,
+          "link_xyz": [
+            0,
+            0,
+            -0.045
+          ]
+        },
+        {
+          "name": "channel_7",
+          "label": "Gripper trigger",
+          "axis": [
+            1,
+            0,
+            0
+          ],
+          "offset_xyz": [
+            0,
+            0,
+            0
+          ],
+          "length_m": 0.065,
+          "zero_rad": 0.0,
+          "direction": 1,
+          "link_xyz": [
+            0,
+            0,
+            -0.065
+          ]
+        }
+      ],
+      "mount": "overhead"
+    },
+    "right": {
+      "usb_serial": "D5C58E435157375037202020FF0F2A0C",
+      "title": "Right GELLO",
+      "color": "#f4ad66",
+      "base_xyz": [
+        0.12,
+        0,
+        0.88
+      ],
+      "joints": [
+        {
+          "name": "channel_1",
+          "label": "Shoulder swivel",
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "offset_xyz": [
+            0,
+            0,
+            0
+          ],
+          "length_m": 0.075,
+          "zero_rad": 0.0,
+          "direction": 1,
+          "link_xyz": [
+            0,
+            0,
+            -0.075
+          ]
+        },
+        {
+          "name": "channel_2",
+          "label": "Shoulder pitch",
+          "axis": [
+            -1,
+            0,
+            0
+          ],
+          "offset_xyz": [
+            0.07,
+            0,
+            0
+          ],
+          "length_m": 0.27,
+          "zero_rad": 0.0,
+          "direction": 1,
+          "link_xyz": [
+            0,
+            0,
+            -0.27
+          ]
+        },
+        {
+          "name": "channel_3",
+          "label": "Elbow",
+          "axis": [
+            1,
+            0,
+            0
+          ],
+          "offset_xyz": [
+            -0.05,
+            0,
+            0
+          ],
+          "length_m": 0.235,
+          "zero_rad": 0.0,
+          "direction": 1,
+          "link_xyz": [
+            0,
+            0,
+            -0.235
+          ]
+        },
+        {
+          "name": "channel_4",
+          "label": "Wrist pitch",
+          "axis": [
+            -1,
+            0,
+            0
+          ],
+          "offset_xyz": [
+            0.04,
+            0,
+            0
+          ],
+          "length_m": 0.045,
+          "zero_rad": 0.0,
+          "direction": 1,
+          "link_xyz": [
+            0,
+            0,
+            -0.045
+          ]
+        },
+        {
+          "name": "channel_5",
+          "label": "Wrist swivel",
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "offset_xyz": [
+            0,
+            0,
+            0
+          ],
+          "length_m": 0.045,
+          "zero_rad": 0.0,
+          "direction": 1,
+          "link_xyz": [
+            0,
+            0,
+            -0.045
+          ]
+        },
+        {
+          "name": "channel_6",
+          "label": "Wrist bend",
+          "axis": [
+            0,
+            1,
+            0
+          ],
+          "offset_xyz": [
+            0,
+            -0.022,
+            0
+          ],
+          "length_m": 0.045,
+          "zero_rad": 0.0,
+          "direction": 1,
+          "link_xyz": [
+            0,
+            0,
+            -0.045
+          ]
+        },
+        {
+          "name": "channel_7",
+          "label": "Gripper trigger",
+          "axis": [
+            1,
+            0,
+            0
+          ],
+          "offset_xyz": [
+            0,
+            0,
+            0
+          ],
+          "length_m": 0.065,
+          "zero_rad": 0.0,
+          "direction": 1,
+          "link_xyz": [
+            0,
+            0,
+            -0.065
+          ]
+        }
+      ],
+      "mount": "overhead"
+    }
+  },
+  "notes": [
+    "USB side assignment is unchanged: operator-left stays left in the front view, with the same pinned serials.",
+    "Hanging mounting, long upper/forearm links and mirrored inward-elbow/outward-wrist offsets follow the operator photo confirmed 2026-09-26 UTC.",
+    "Lengths and bracket offsets are schematic proportions, not measurements of GELLO hardware.",
+    "Rotation-axis lines follow the Minerva hanging-arm topology. Encoder directions remain separate display settings and require movement verification.",
+    "The reference shape is hanging down. Capture changes only software display offsets, never servo zeros, follower calibration or teleop routes.",
+    "Six rotary arm channels and one gripper trigger; no measured gripper aperture or robot endpoint accuracy is implied."
+  ],
+  "reference_pose_description": "Both leaders hang from the overhead shoulder mounts, upper arms and forearms down, with wrists and triggers below, as in the reference photo.",
+  "front_direction": [
+    0,
+    1,
+    0
+  ],
+  "ground_z": 0,
+  "fixture": {
+    "rods": [
+      {
+        "start_xyz": [
+          0,
+          0.055,
+          0.025
+        ],
+        "end_xyz": [
+          0,
+          0.055,
+          0.955
+        ],
+        "radius_m": 0.009
+      },
+      {
+        "start_xyz": [
+          -0.16,
+          0.055,
+          0.92
+        ],
+        "end_xyz": [
+          0.16,
+          0.055,
+          0.92
+        ],
+        "radius_m": 0.012
+      },
+      {
+        "start_xyz": [
+          -0.12,
+          0.055,
+          0.92
+        ],
+        "end_xyz": [
+          -0.12,
+          0,
+          0.88
+        ],
+        "radius_m": 0.01
+      },
+      {
+        "start_xyz": [
+          0.12,
+          0.055,
+          0.92
+        ],
+        "end_xyz": [
+          0.12,
+          0,
+          0.88
+        ],
+        "radius_m": 0.01
+      }
+    ]
+  }
+}

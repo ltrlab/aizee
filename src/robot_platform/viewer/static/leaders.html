@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Leader workbench</title>
+  <link rel="stylesheet" href="leaders.css">
+  <script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
+</head>
+<body data-feed="waiting">
+  <header class="app-header">
+    <div class="brand"><span class="brand-icon" aria-hidden="true">⌁</span><div><h1>Leader workbench</h1><p>Dual GELLO · live encoder preview</p></div></div>
+    <div class="read-only"><span aria-hidden="true">●</span> Read-only devices <small>No follower connection</small></div>
+  </header>
+  <main>
+    <section id="viewport" aria-label="Interactive schematic of both leader arms">
+      <div class="viewport-top">
+        <div class="view-tools" aria-label="Camera and overlays">
+          <button id="fit">Fit</button><button id="front">Front</button><button id="top">Top</button>
+          <label><input id="axes" type="checkbox" checked> Positive axes</label>
+          <label><input id="labels" type="checkbox" checked> Labels</label>
+          <label><input id="reference-guide" type="checkbox"> Reference guide</label>
+        </div>
+        <div id="stream-status" class="stream-status" role="status"><span class="status-dot"></span><strong id="stream-title">Connecting to leaders…</strong><span id="stream-detail">Waiting for a complete pair of readings</span></div>
+        <div id="guide-status" role="status" hidden>Reference guide — live values continue in the tables</div>
+      </div>
+      <div id="render-error" role="alert" hidden></div>
+      <div class="viewport-bottom">
+        <div class="model-note"><span class="eyebrow">SCHEMATIC · NOT CAD</span><p>Dimensions are approximate. Check joint directions by moving the leaders.</p></div>
+        <span class="orbit-hint">Drag to orbit · right-drag to pan · scroll to zoom</span>
+      </div>
+    </section>
+    <aside aria-label="Leader readings and display settings">
+      <div class="panel-heading"><span class="eyebrow">MOVE A LEADER BY HAND</span><h2>See each channel move</h2><p>Match a numbered joint to the physical motion. Flip changes its display direction only.</p></div>
+      <div id="leaders"></div>
+      <section class="display-settings">
+        <h2>Display settings</h2>
+        <p>Turn on <strong>Reference guide</strong>, match the reference shape, then capture each leader's reference. This aligns the schematic; it does not set a servo zero or calibrate the robot.</p>
+        <p id="reference-description">Match the configured reference shape.</p>
+        <div class="settings-actions"><button id="reset" disabled>Reset display</button><button id="save" class="primary" disabled>Save display settings</button></div>
+        <p id="action-status" role="status">Loading display profile…</p>
+        <details><summary>What this view means</summary><p>Six schematic arm links and a separate hinged gripper trigger show the seven encoder channels. Arrows mark positive rotation about each configured axis.</p><p>Raw values are encoder radians. Display angles are direction × (raw − reference), without wrapping. Capture and flip edit only this viewer's software mapping.</p><p>This tool cannot command leader or follower motors. It does not validate collision protection or teleoperation readiness.</p><p id="profile-id"></p></details>
+      </section>
+    </aside>
+  </main>
+  <script>
+    window.addEventListener('error', function () {
+      const box = document.getElementById('render-error');
+      box.hidden = false;
+      box.textContent = 'The viewer encountered an error. Reload the page and check the server log if it persists.';
+      document.body.dataset.feed = 'fault';
+      document.getElementById('stream-title').textContent = 'Viewer unavailable';
+    }, true);
+  </script>
+  <script type="module" src="leaders.js"></script>
+</body>
+</html>
