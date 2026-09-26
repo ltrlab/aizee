@@ -1,8 +1,16 @@
 # 25 Hz collision supervisor and hardware validation
 
-Updated 2026-09-20 EDT. The next milestone is a measured **25 Hz whole-robot
+Updated 2026-09-24 EDT. The next milestone is a measured **25 Hz whole-robot
 supervisor (40 ms period)**, followed by 50 Hz and ultimately 100 Hz. This is an
 acceptance plan, not an enabled hardware interlock.
+
+**September 24 integration:** receiver-owned collision envelope expiry and a
+profile-driven dual-leader supervisor are implemented. Minerva's production
+computer accepted 1,000/1,000 synthetic vcan cycles including real collision
+geometry at 25 Hz, p99 14.733 ms, maximum 17.227 ms, zero misses; loss of the
+producer caused the independent receiver to stop. Input-network timing, physical
+reference and loaded stopping remain unqualified. See [current implementation
+and evidence](../GUARDED_TELEOP.md). Earlier baselines below remain historical.
 
 The existing Minerva compute unit remains the deployment target. The new Orin
 Nano starts as a development/build and benchmark host. Measure both machines;
@@ -189,10 +197,20 @@ is not evidence that either timing or physical stopping improved.
 
 ## Current readiness
 
+**2026-09-24 software increment:** the [guarded controller core](GUARDED_CONTROLLER.md)
+implements receiver-owned permits, sequence/epoch checks, local stopping and
+explicit recovery in the Rust core and a Linux SocketCAN/ZMQ commissioning
+service. Python/Rust contract tests exercise both robot definitions and partial
+two-arm delivery. A 1,000-cycle 25 Hz command soak on Minerva's production host
+passed on virtual CAN with independent 400 Hz receiver ticks. It excludes
+collision queries and camera load, so it does not qualify the full supervisor
+or change the physical-movement gates below. See
+[powered commissioning](../POWERED_COMMISSIONING.md).
+
 - Geometry import, local viewer, CAD/keep-out checks and synthetic guard tests:
   available. The scoped keep-out replay above completed 1,000 cycles at 25 Hz.
 - Sustained 25 Hz full motion gate, approved contact policy, motor-to-CAD map,
-  receiver-side leases and measured physical stopping: outstanding.
+  collision authorization bound to receiver leases and measured physical stopping: outstanding.
 - Hardware enforcement: deliberately unavailable in `CollisionCommandGate`.
 - Next implementation: resolve within-arm/body contact policy, integrate the
   paced workload with full-session telemetry/fault replay and receiver leases,
