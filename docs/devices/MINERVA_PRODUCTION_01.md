@@ -1629,3 +1629,23 @@ connection. The sparking at left J4 is the likely common cause: a damaged harnes
 past J4 would drop J5, J6 and the gripper, and a short can dip the shared supply.
 Repair the left J4 harness (and check the gripper connector and the supply)
 before any powered motion.
+
+### 2026-09-26 — harness repaired, temporary stop switch, operator link measured
+
+The operator reported the left J4 harness repaired (no further sparking) and a
+foot-operated power switch in place as the temporary emergency stop. No motor
+command was sent in the work below.
+
+Operator link, PC to Jetson (60 s at 100 Hz, UDP echo, no CAN):
+
+| Path | Round trip p50 / p99 / max | Jetson arrival gap p99 / max | Lost |
+|---|---|---|---|
+| Wi-Fi (`wlP1p1s0`, 2.4 GHz channel 6, power save on) | ~20 / 457–844 / 785–1078 ms | 36 / 165 ms | 0 |
+| Wired USB Ethernet tether (`enP8p1s0` 10.42.0.1) | 0.5 / 2.9 / 21.9 ms | 11.8 / 20.6 ms | 0 |
+
+Wi-Fi is unsuitable for the control path; the tether is. The arms' control loop
+will run on the Jetson, with leader samples requested over the tether by the
+authenticated UDP leader link. End to end with the real leaders (25 Hz, 60 s):
+1497 of 1500 cycles fresh, 3 skipped (never more than 2 in a row), sample age
+p50 18.6 / p99 36.6 / max 50 ms, no faults. The Jetson's Wi-Fi power saving was
+left unchanged.
