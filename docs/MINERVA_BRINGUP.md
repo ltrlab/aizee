@@ -62,8 +62,22 @@ run it yourself:
 ./scripts/setup_minerva_system.sh
 ```
 
-No script installs the legacy motor_control services any more. The sections
-below are historical.
+No script installs the legacy motor_control services any more. Sections 1 to 5
+are historical.
+
+## Before each session: Minerva Check
+
+Run **Check** in Helm (the first tab), or from a terminal:
+
+```bash
+.venv-platform/Scripts/python.exe -m robot_platform check
+```
+
+It checks this PC's calibration and leaders, the tether, the Jetson's release and
+health, then reads every motor while it stays disabled. Operate only on **GO**.
+Keep the foot switch within reach: if no motor answers and nothing on either bus
+acknowledges a frame, motor power is off or the switch is pressed. What each
+check covers is in [HELM.md](HELM.md#minerva-check).
 
 ## 1. Start the follower instances (Jetson, motors POWERED)
 

@@ -2,9 +2,10 @@
 
 Helm is the operator web UI for the robot. It runs on the operator PC, serves
 `http://127.0.0.1:8760/` on loopback only, and combines the live 3D model with
-robot workflows: **Limits** (hand-swept joint limits on the real, disabled arms),
-**Leaders** (hand-swept leader-arm ranges) and **Teleop** (the leader arms driving
-the guarded receiver in its virtual form; no motors move).
+robot workflows: **Check** (Minerva Check, the go/no-go before a session),
+**Limits** (hand-swept joint limits on the real, disabled arms), **Leaders**
+(hand-swept leader-arm ranges) and **Teleop** (the leader arms driving the
+guarded receiver in its virtual form; no motors move).
 
 ```powershell
 .\scripts\helm.ps1
@@ -30,6 +31,43 @@ is discarded rather than mixed with the earlier readings.
 Before connecting: motor power on, both USB-CAN adapters connected, legacy motor
 services stopped, and no other calibration tool or leader/robot controller using
 the CAN links. The arms are limp; support them while moving them by hand.
+
+## Minerva Check
+
+The **Check** tab answers "is Minerva ready?" before a session. **Run check**
+works through four stages and shows each result as it lands. A check whose
+prerequisite failed is skipped, not guessed:
+
+1. **Operator PC**: the calibration profile, confirmed motor-to-model directions,
+   joint limits for every motor, leader ranges and the leader zero, confirmed
+   routes, the teleop receiver settings derived from all of them, both leader
+   arms reading inside their sweeps, fresh ARM64 builds and a route to the
+   USB Ethernet tether.
+2. **Link and Jetson**: pinned SSH over the tether; the deployed release intact
+   and identical to this PC's files (otherwise it says to deploy); its smoke test;
+   the Jetson's disk, memory, temperatures and clock; and 5 s of leader-link round
+   trips at 25 Hz with the real leaders, served from its own responsive process
+   as a session will run it.
+3. **Motors, stopped**: CAN helpers and serial pinning installed, both adapters on
+   their pinned serials and free, no motor service running, then the stopped
+   reader scans all 14 motors (identity, firmware, fault-free Reset, one position
+   each; CAN ends down) and checks every position is inside its swept range. A
+   drive with a latched fault is named with the fault. When nothing on either bus
+   answers, motor power is off or the foot switch is pressed.
+4. **Live joint sweep**: not built yet. Once the live pipeline is proven, each
+   follower joint will move slowly through its range under the guarded receiver,
+   with the foot switch in hand.
+
+The verdict is **GO** only when nothing failed or was skipped; warnings are
+listed. Nothing in the check enables a motor. It reads the motors and leaders
+itself, so it runs alone: disconnect Limits and stop teleop first (the Leaders
+tab may stay connected; the check then only confirms the leaders are plugged in).
+Every run is saved under `calibration_runs/minerva-check/`, and the last one is
+shown when Helm starts. The same check runs from a terminal:
+
+```bash
+.venv-platform/Scripts/python.exe -m robot_platform check
+```
 
 ## Sweep joint limits
 
