@@ -6,7 +6,8 @@ from types import SimpleNamespace
 import pytest
 
 from robot_platform.control.commissioning import wire_ranges
-from robot_platform.control.live_receiver import LiveReceiver, reference_offsets, service_config
+from robot_platform.control.live_receiver import (LiveReceiver, fault_detail, outside_limits, reference_offsets,
+                                                  service_config)
 
 ROOT = Path(__file__).resolve().parents[2]
 DEVICE = json.loads((ROOT / 'config/devices/minerva-production-01.json').read_text(encoding='utf-8'))
@@ -21,12 +22,17 @@ def controller(names):
     return {'group': 'g', 'identity': {'model': 'm', 'calibration': 'c', 'collision_policy': 'p'},
             'lease_ms': 150, 'feedback_timeout_ms': 30, 'settled_velocity': .15,
             'collision': {'world_revision': 'w', 'scope': 'inter_branch', 'max_verdict_ms': 80, 'reaction_ms': 10},
-            'joints': [{'name': name} for name in names]}
+            'joints': [{'name': name, 'lower': -1., 'upper': 1., 'max_velocity': 1., 'max_effort': 10.,
+                        'max_temperature': 70.} for name in names]}
 
 
-def config():
-    return service_config(controller([m['name'] for m in LEFT]), DEVICE, dict(REFERENCE, motors=LEFT), MODELS,
-                          bus='canL', tolerance_rad=.1)
+def config(**limits):
+    """limits: {motor: (lower, upper)} overrides."""
+    service = service_config(controller([m['name'] for m in LEFT]), DEVICE, dict(REFERENCE, motors=LEFT), MODELS,
+                             bus='canL', tolerance_rad=.1)
+    for joint in service['controller']['joints']:
+        joint['lower'], joint['upper'] = limits.get(joint['name'], (joint['lower'], joint['upper']))
+    return service
 
 
 def test_the_service_drives_one_pinned_arm_with_its_watchdog_identities_and_references():
@@ -72,16 +78,23 @@ class Process:
         self.returncode = -9
 
 
+def feedback(position=.02, **change):
+    return {'position': position, 'velocity': 0., 'effort': 0., 'temperature': 30., 'sequence': 3,
+            'sampled_at_ms': 10, 'fault': False, **change}
+
+
 class Transport:
+    STATES, REASON, FEEDBACK = ('starting', 'disarmed'), 'ok', {}
+
     def __init__(self, endpoint, *, timeout_ms):
-        self.endpoint, self.last, self.closed, self.states = endpoint, None, False, ['starting', 'disarmed']
+        self.endpoint, self.last, self.closed, self.states = endpoint, None, False, list(self.STATES)
 
     def request(self, request):
         if self.states[0] == 'starting':
             self.states.pop(0)
             raise TimeoutError('not bound yet')
-        self.last = {'reply': {}, 'status': {'state': self.states[0], 'reason': 'ok'},
-                     'feedback': [{'sequence': 3} for _ in LEFT]}
+        self.last = {'reply': {}, 'status': {'state': self.states[0], 'reason': self.REASON},
+                     'feedback': [self.FEEDBACK.get(m['name'], feedback()) for m in LEFT], 'watchdog': 'ready'}
         return self.last
 
     def exchange(self, request):
@@ -91,7 +104,7 @@ class Transport:
         self.closed = True
 
 
-def receiver(tmp_path, *, capture=None, process=None, commands=None):
+def receiver(tmp_path, *, capture=None, process=None, commands=None, transport=Transport, service=None):
     commands = [] if commands is None else commands
     spawned = []
 
@@ -104,9 +117,10 @@ def receiver(tmp_path, *, capture=None, process=None, commands=None):
         return process or Process()
 
     labels = {'left_arm_j2': 'Left J2'}
-    return LiveReceiver(config(), device=DEVICE, reference=REFERENCE, binary='/release/bin/guarded_controller',
-                        directory=tmp_path, labels=labels, capture=capture or (lambda device, reference: scan()),
-                        command=command, spawn=spawn, transport_factory=Transport), commands, spawned
+    return LiveReceiver(service or config(), device=DEVICE, reference=REFERENCE,
+                        binary='/release/bin/guarded_controller', directory=tmp_path, labels=labels,
+                        capture=capture or (lambda device, reference: scan()), command=command, spawn=spawn,
+                        transport_factory=transport), commands, spawned
 
 
 def test_start_scans_stopped_then_brings_the_link_up_and_waits_for_a_disarmed_arm(tmp_path):
@@ -124,6 +138,8 @@ def test_start_scans_stopped_then_brings_the_link_up_and_waits_for_a_disarmed_ar
     live.close()
     assert process.terminated and transport.closed and commands[-1] == ['sudo', '-n', '/usr/sbin/ip', 'link', 'set',
                                                                         'canL', 'down']
+    # The receiver's last status stays behind as evidence of how the session ended.
+    assert json.loads((tmp_path / 'live-canL-last.json').read_text())['status']['state'] == 'disarmed'
     live.close()  # Idempotent.
     assert len(commands) == 2
 
@@ -143,6 +159,41 @@ def test_an_arm_out_of_its_reference_pose_is_named_and_nothing_starts(tmp_path):
 def test_a_service_that_dies_while_starting_is_reported_and_the_link_goes_down(tmp_path):
     (tmp_path / 'live-canL.log').write_text('Error: "watchdog startup verification failed"')
     live, commands, spawned = receiver(tmp_path, process=Process(exits=1))
-    with pytest.raises(RuntimeError, match='stopped while starting: .*watchdog startup verification failed'):
+    with pytest.raises(RuntimeError, match='stopped while starting: .*watchdog startup verification failed'
+                                           '.*hang still'):
         live.start()
     assert commands[-1][-1] == 'down' and live.process is None and not live.can_up
+
+
+def test_a_joint_resting_at_a_receiver_limit_is_named_before_anything_starts(tmp_path):
+    # A closed gripper rests on its swept end: 16-bit feedback one step past it faults the receiver.
+    service = config(left_gripper=(-.0018, 5.2))
+    live, commands, spawned = receiver(tmp_path, service=service,
+                                       capture=lambda d, r: scan({'left_gripper': -.0017}))
+    with pytest.raises(ValueError, match=r"receiver's joint limits.*left_gripper reads -0\.0017 rad "
+                                         r'\(limits -0\.0018 to \+5\.2000\)'):
+        live.start()
+    assert commands == [] and spawned == []
+    assert outside_limits({'left_gripper': -.01}, config(left_gripper=(-.05, 5.2))['controller'], margin=.002) == []
+
+
+def test_a_startup_fault_names_what_the_receiver_saw_and_keeps_its_last_status(tmp_path):
+    class Faulted(Transport):
+        STATES, REASON = ('faulted',), 'limit_violation'
+        FEEDBACK = {'left_gripper': feedback(-.0021), 'left_arm_j2': feedback(velocity=1.5)}
+
+    live, commands, spawned = receiver(tmp_path, transport=Faulted, service=config(left_gripper=(-.0018, 5.2)))
+    with pytest.raises(RuntimeError, match=r'faulted while starting: limit_violation · Left J2 moving at \+1\.50 '
+                                           r'rad/s \(limit 1\); left_gripper at -0\.0021 rad, outside its limits '
+                                           r'-0\.0018 to \+5\.2000'):
+        live.start()
+    assert commands[-1][-1] == 'down' and spawned
+    saved = json.loads((tmp_path / 'live-canL-last.json').read_text())
+    assert saved['status'] == {'state': 'faulted', 'reason': 'limit_violation'}
+    controller_config = config()['controller']
+    assert fault_detail({'feedback': [feedback() for _ in LEFT], 'watchdog': 'failed'},
+                        controller_config).startswith('the watchdog audit failed: every motor must answer promptly')
+    assert fault_detail({'feedback': [feedback(fault=True)]}, controller_config) == 'left_arm_j1 reports a drive fault'
+    assert fault_detail(None, controller_config) == ''
+    # Called from fault handlers: an unexpected response shape never raises.
+    assert fault_detail({'feedback': [{'sequence': 1}, 'garbled']}, controller_config) == ''

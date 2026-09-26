@@ -24,6 +24,7 @@ import time
 
 from robot_platform.control.guarded_config import arm_subset, derive_receiver, to_cad
 from robot_platform.control.joint_calibration import save_json
+from robot_platform.control.live_receiver import fault_detail
 from robot_platform.control.scheduling import prefer_responsive
 from .limits import utc_now
 
@@ -454,7 +455,9 @@ class TeleopCore:
             # cycle shows up client-side only as lost ownership).
             status = getattr(exc, 'status', None) or self.session.controller.status or {}
             reason = status.get('reason')
-            self.fault = f"Receiver {status.get('state')}: {reason} · {exc}" if reason not in (None, 'ok') else str(exc)
+            detail = fault_detail(self.harness.last, self.derived['config'], self.labels) if self.harness else ''
+            self.fault = (f"Receiver {status.get('state')}: {reason}" + (f' ({detail})' if detail else '')
+                          + f' · {exc}') if reason not in (None, 'ok') else str(exc)
             self.message = (f'{self._receiver_name} FAULT · {self.fault} · The receiver stopped itself'
                             + (' and disabled the arm' if self.live_arm else '')
                             + '. Stop the session and start it again.')

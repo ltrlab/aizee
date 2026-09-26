@@ -9,10 +9,14 @@ release. Starting it:
   2. The arm's CAN link comes up through the sudo-permitted helper.
   3. guarded_controller runs in teleop mode on that one bus. It repeats the
      identity and reference checks and arms the motors' command-loss watchdogs
-     before opening its socket; its first enable spends that permit.
-Closing stops the service, which disables every motor on its bus on the way
-out, then takes the CAN link down. The service dies with this process (parent
-death signal). Nothing here writes a zero, a parameter or flash.
+     before opening its socket; its first enable spends that permit. Until then
+     it keeps auditing the watchdogs, which fails if a motor moves faster than
+     0.2 rad/s: the arm must hang still until Idle.
+The receiver faults on any reading outside its joint limits, even disarmed, so
+the pre-scan also refuses a joint at or near a limit. Closing stops the service,
+which disables every motor on its bus on the way out, saves its last status as
+evidence, then takes the CAN link down. The service dies with this process
+(parent death signal). Nothing here writes a zero, a parameter or flash.
 """
 import json
 from pathlib import Path
@@ -22,6 +26,9 @@ import time
 
 ENDPOINT = 'tcp://127.0.0.1:5590'
 HOST_ID = 0xAA  # The stopped reader's host id too.
+FEEDBACK_MARGIN_RAD = .002  # Closer to a limit than this, 16-bit feedback steps (~0.0004 rad) may cross it.
+STARTUP_HINT = ('every motor must answer promptly, hang still (under 0.2 rad/s), stay in Reset without a '
+                'fault and within tolerance of its reference. Let the arm settle, then start again.')
 
 
 def service_config(controller, device, reference, motor_models, *, bus, tolerance_rad, period_us=2500,
@@ -57,6 +64,45 @@ def reference_offsets(report, config):
         raise RuntimeError('The stopped scan did not cover every motor of the arm')
     return [(name, scanned[name] - row['raw_position_rad']) for name, row in references.items()
             if abs(scanned[name] - row['raw_position_rad']) > row['tolerance_rad']]
+
+
+def outside_limits(positions, controller, *, margin=0.):
+    """[(motor, position, lower, upper)] for positions outside the receiver's joint limits inset by `margin`."""
+    joints = {joint['name']: joint for joint in controller['joints']}
+    return [(name, value, joints[name]['lower'], joints[name]['upper']) for name, value in positions.items()
+            if name in joints and not joints[name]['lower'] + margin <= value <= joints[name]['upper'] - margin]
+
+
+def fault_detail(result, controller, labels=None):
+    """What in a receiver response explains its fault, joint by joint ('' when nothing in it does).
+
+    Diagnostic only, and called from fault handlers: it never raises."""
+    try:
+        return _fault_detail(result, controller, labels or {})
+    except Exception:
+        return ''
+
+
+def _fault_detail(result, controller, labels):
+    details = []
+    for joint, row in zip(controller['joints'], (result or {}).get('feedback') or []):
+        label = labels.get(joint['name'], joint['name'])
+        position, velocity, effort, temperature = (row.get(key) for key in
+                                                   ('position', 'velocity', 'effort', 'temperature'))
+        if row.get('fault'):
+            details.append(f'{label} reports a drive fault')
+        if position is not None and not joint['lower'] <= position <= joint['upper']:
+            details.append(f"{label} at {position:+.4f} rad, outside its limits "
+                           f"{joint['lower']:+.4f} to {joint['upper']:+.4f}")
+        if velocity is not None and abs(velocity) > joint['max_velocity']:
+            details.append(f"{label} moving at {velocity:+.2f} rad/s (limit {joint['max_velocity']:g})")
+        if effort is not None and abs(effort) > joint['max_effort']:
+            details.append(f"{label} effort {effort:+.1f} Nm (limit {joint['max_effort']:g})")
+        if temperature is not None and temperature > joint['max_temperature']:
+            details.append(f"{label} at {temperature:.0f} °C (limit {joint['max_temperature']:g})")
+    if (result or {}).get('watchdog') == 'failed':
+        details.append('the watchdog audit failed: ' + STARTUP_HINT.split('. ')[0])
+    return '; '.join(details)
 
 
 def _die_with_parent():
@@ -111,6 +157,12 @@ class LiveReceiver:
                 f'{self.labels.get(name, name)} is {offset:+.2f} rad away' for name, offset in offsets)
                 + f' (tolerance {tolerance:g} rad). Let the arm hang straight down with the gripper closed, '
                   'then start again.')
+        scanned = {row['name']: row['position_rad'] for row in report['motors']}
+        outside = outside_limits(scanned, self.config['controller'], margin=FEEDBACK_MARGIN_RAD)
+        if outside:
+            raise ValueError("At or next to the receiver's joint limits, which would fault it at once: " + ', '.join(
+                f'{self.labels.get(name, name)} reads {value:+.4f} rad (limits {lower:+.4f} to {upper:+.4f})'
+                for name, value, lower, upper in outside) + '. Re-sweep that joint in the Limits tab.')
         return report
 
     def _link(self, *, up):
@@ -144,7 +196,9 @@ class LiveReceiver:
         deadline = self.clock() + timeout_s
         while True:
             if self.process.poll() is not None:
-                raise RuntimeError(f'The live receiver stopped while starting: {self._log_tail() or "no output"}')
+                tail = self._log_tail() or 'no output'
+                hint = f' · {STARTUP_HINT}' if 'startup' in tail else ''
+                raise RuntimeError(f'The live receiver stopped while starting: {tail}{hint}')
             try:
                 result = self.transport.request({'type': 'status'})
             except TimeoutError:
@@ -152,7 +206,9 @@ class LiveReceiver:
             if result is not None:
                 status, feedback = result['status'], result.get('feedback') or []
                 if status['state'] == 'faulted':
-                    raise RuntimeError(f"The live receiver faulted while starting: {status['reason']}")
+                    detail = fault_detail(result, self.config['controller'], self.labels)
+                    raise RuntimeError(f"The live receiver faulted while starting: {status['reason']}"
+                                       + (f' · {detail}' if detail else f' · {STARTUP_HINT}'))
                 if (status['state'] == 'disarmed' and len(feedback) == len(self.config['motors'])
                         and all(row['sequence'] > 0 for row in feedback)):
                     return result
@@ -160,10 +216,21 @@ class LiveReceiver:
                 raise TimeoutError('The live receiver did not report a disarmed arm with complete feedback in time')
             time.sleep(.05)
 
+    def _save_last(self):
+        """The receiver's last status, feedback and counters, for a later look at how the session ended."""
+        if self.transport.last is None:
+            return
+        try:
+            path = self.directory / f'live-{self.bus}-last.json'
+            path.write_text(json.dumps(self.transport.last, indent=1, default=repr) + '\n', encoding='utf-8')
+        except (OSError, TypeError, ValueError):
+            pass  # Evidence only: never stands in the way of stopping the service.
+
     def close(self):
         """Stop the service (it disables the arm's motors) and take the link down; safe to repeat."""
         errors = []
         if self.transport is not None:
+            self._save_last()
             self.transport.close()
             self.transport = None
         if self.process is not None:
