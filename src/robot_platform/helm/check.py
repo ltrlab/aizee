@@ -11,9 +11,10 @@ from robot_platform.ops.check import latest_report, run_check
 
 
 class CheckWorkspace:
-    def __init__(self, *, profile, teleop, runs, limits=None, runner=run_check):
+    def __init__(self, *, profile, teleop, runs, limits=None, runner=run_check, address=None):
         self.options = dict(profile=profile, teleop=teleop, runs=runs, limits=limits)
         self.runner = runner
+        self.address = address  # () -> the robot address Helm is set to use; None: the runner's (the tether).
         self.lock = threading.Lock()
         self.report = latest_report(runs)
         self.error = None
@@ -28,7 +29,8 @@ class CheckWorkspace:
             if self.running:
                 raise ValueError('Minerva Check is already running')
             self.report, self.error = None, None
-            self._thread = threading.Thread(target=self._run, args=(leaders_busy,), daemon=True,
+            options = dict(self.options, **({'address': self.address()} if self.address else {}))
+            self._thread = threading.Thread(target=self._run, args=(options, leaders_busy), daemon=True,
                                             name='helm-minerva-check')
             self._thread.start()
 
@@ -36,9 +38,9 @@ class CheckWorkspace:
         with self.lock:
             self.report = report
 
-    def _run(self, leaders_busy):
+    def _run(self, options, leaders_busy):
         try:
-            self.runner(**self.options, leaders_busy=leaders_busy, publish=self._publish)
+            self.runner(**options, leaders_busy=leaders_busy, publish=self._publish)
         except Exception as exc:  # The runner records failed checks itself; this is a crash in it.
             with self.lock:
                 self.error = f'Minerva Check stopped: {exc}'

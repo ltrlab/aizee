@@ -15,6 +15,11 @@
       <button class="tab" data-tab="teleop">Teleop</button>
     </nav>
     <div class="link">
+      <div class="target via" id="via" role="group" aria-label="Connection to Minerva">
+        <span>Via</span>
+        <button data-connection="tether">Tether</button>
+        <button data-connection="wifi">Wi-Fi</button>
+      </div>
       <span id="feed-pill" class="pill" role="status"><span class="dot"></span><span id="feed-text">Not connected</span></span>
       <button id="connect" class="primary">Connect</button>
     </div>
@@ -95,6 +100,7 @@
             <button data-receiver="live" data-arm="left" title="The left arm's motors, collision checks advisory; the right arm stays disabled. Loop on Minerva's Jetson only.">Live · left arm</button>
             <button data-receiver="live" data-arm="right" title="The right arm's motors, collision checks advisory; the left arm stays disabled. Loop on Minerva's Jetson only.">Live · right arm</button>
           </div>
+          <p class="choice-note" id="t-choice-note" hidden></p>
           <div class="teleop-status">
             <span>Phase<b id="t-state">—</b></span><span>Receiver<b id="t-receiver">—</b></span>
             <span>Cycle<b id="t-cycle">—</b></span><span>Collision<b id="t-collision">—</b></span>

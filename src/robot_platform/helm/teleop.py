@@ -708,6 +708,8 @@ class TeleopSession:
                 raise ValueError('Stop the session before choosing the receiver')
             if mode == 'live' and ('live' not in self.profile or self.target != 'jetson'):
                 raise ValueError("Live teleop needs the profile's live block and the loop on Minerva's Jetson")
+            if mode == 'live' and getattr(self.helm, 'connection', 'tether') != 'tether':
+                raise ValueError('Live teleop runs over the wired tether: choose Tether at the top first')
             self.receiver = {'mode': 'live', 'arm': arm} if mode == 'live' else {'mode': 'virtual'}
 
     def _edge_bundle(self):
@@ -731,6 +733,8 @@ class TeleopSession:
         with self._lock:
             if self.active:
                 raise ValueError('Teleop is already running')
+            if self.receiver['mode'] == 'live' and getattr(self.helm, 'connection', 'tether') != 'tether':
+                raise ValueError('Live teleop runs over the wired tether: choose Tether at the top first')
             if self.receiver['mode'] == 'live' and confirm is not True:
                 raise ValueError(f"Confirm the live session: the {self.receiver['arm']} arm's motors will be powered, "
                                  'the foot switch is in reach and the arm hangs in its reference pose')
@@ -760,7 +764,8 @@ class TeleopSession:
                 leader_profile = json.loads((self.profile_path.parent / self.profile['leader_profile'])
                                             .read_text(encoding='utf-8'))
                 worker = (self.edge_factory or EdgeWorker)(bundle, leader_profile, base_view=dict(self._view),
-                                                           real_leaders=self.leader_factory is None)
+                                                           real_leaders=self.leader_factory is None,
+                                                           address=getattr(self.helm, 'address', None))
                 command_writer, view_reader = worker.commands, worker.views
                 message = ("Starting on Minerva's Jetson: connecting, loading the collision model and virtual "
                            'receiver, linking the leaders…') if self.receiver['mode'] == 'virtual' else (

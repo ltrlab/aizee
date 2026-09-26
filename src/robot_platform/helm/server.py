@@ -184,6 +184,21 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, token=No
         teleop.set_receiver(payload['mode'], payload.get('arm'))
         return state_response()
 
+    async def connection(request):
+        payload = await body(request)
+        if set(payload) != {'connection'}:
+            raise ValueError('Expected connection')
+        not_checking()
+        if link.running:
+            raise ValueError('Disconnect from the motors before changing the connection')
+        if teleop is not None:
+            if teleop.active:
+                raise ValueError('Stop the teleop session before changing the connection')
+            if payload['connection'] != 'tether' and teleop.receiver['mode'] == 'live':
+                raise ValueError('Live teleop runs over the wired tether; choose the virtual receiver first')
+        session.set_connection(payload['connection'])
+        return state_response()
+
     async def teleop_zero(request):
         await body(request)
         need_teleop()
@@ -213,6 +228,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, token=No
     app.router.add_get('/api/helm/state', state)
     app.router.add_post('/api/helm/connect', connect)
     app.router.add_post('/api/helm/disconnect', disconnect)
+    app.router.add_post('/api/helm/connection', connection)
     app.router.add_post('/api/helm/limits', limits)
     app.router.add_post('/api/helm/limits/save', save)
     app.router.add_post('/api/helm/direction', direction)

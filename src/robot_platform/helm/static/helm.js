@@ -135,6 +135,16 @@ function render(state) {
   token = state.action_token;
   const {feed, limits, robot, session} = state;
   $('robot-name').textContent = `${robot.model} · ${robot.asset_id} · ${robot.address}`;
+  const busy = state.link.running || ['running', 'starting'].includes(state.teleop?.phase) || !!state.check?.running;
+  for (const button of document.querySelectorAll('#via button')) {
+    const key = button.dataset.connection;
+    const option = (robot.connections || []).find(c => c.key === key);
+    button.setAttribute('aria-pressed', String(key === robot.connection));
+    button.disabled = !option || busy;
+    button.title = !option ? '' : key === 'tether'
+      ? `USB Ethernet tether · ${option.address} · required for Minerva Check and live teleop`
+      : `Minerva's Wi-Fi · ${option.address} · stopped reads and virtual teleop only`;
+  }
   document.body.dataset.feed = feed.state;
   const live = feed.state === 'reading' && feed.fresh;
   $('feed-text').textContent = {
@@ -467,6 +477,7 @@ function renderTeleop(t) {
   $('t-state').textContent = running && t.state ? t.state : {starting: 'Starting…', stopped: 'Stopped', fault: 'Fault'}[t.phase] || t.phase;
   const choice = t.receiver_choice || {mode: 'virtual'};
   const live = choice.mode === 'live';
+  const tether = last?.robot?.connection === 'tether';
   $('t-receiver').textContent = running && t.receiver
     ? t.receiver + (t.live ? (t.live.motors_enabled ? ' · motors on' : ' · motors off') : '') : '—';
   $('t-cycle').textContent = running && t.cycle_ms ? `${t.cycle_ms.p50.toFixed(1)} / ${t.cycle_ms.p99.toFixed(1)} ms` : '—';
@@ -494,8 +505,14 @@ function renderTeleop(t) {
   for (const button of document.querySelectorAll('#t-receiver-choice button')) {
     const liveButton = button.dataset.receiver === 'live';
     button.setAttribute('aria-pressed', String(liveButton ? live && choice.arm === button.dataset.arm : !live));
-    button.disabled = running || starting || (liveButton && (t.target !== 'jetson' || !t.live_available));
+    button.disabled = running || starting || (liveButton && (t.target !== 'jetson' || !t.live_available || !tether));
   }
+  // Say why live is unavailable, instead of leaving the operator to guess at greyed-out buttons.
+  const note = running || starting ? '' : !t.live_available ? 'Live teleop needs a live block in the teleop profile.'
+    : !tether ? 'Live teleop runs over the wired tether: choose Via Tether at the top.'
+    : t.target !== 'jetson' ? "Live teleop runs its loop on Minerva's Jetson." : '';
+  $('t-choice-note').textContent = note;
+  $('t-choice-note').hidden = !note;
   const session = $('teleop-session');
   session.textContent = running || starting ? 'Stop session' : live ? 'Start LIVE session' : 'Start session';
   session.className = running || starting || live ? 'danger' : 'primary';
@@ -569,6 +586,11 @@ $('t-zero').onclick = setZero;
 for (const button of document.querySelectorAll('#t-target button')) {
   button.onclick = () => act('/api/helm/teleop/target', {target: button.dataset.target},
     `The loop will run on ${button.textContent}.`);
+}
+for (const button of document.querySelectorAll('#via button')) {
+  button.onclick = () => act('/api/helm/connection', {connection: button.dataset.connection},
+    button.dataset.connection === 'tether' ? 'Helm reaches Minerva over the USB Ethernet tether.'
+      : "Helm reaches Minerva over Wi-Fi: stopped reads and virtual teleop only.");
 }
 for (const button of document.querySelectorAll('#t-receiver-choice button')) {
   const arm = button.dataset.arm;

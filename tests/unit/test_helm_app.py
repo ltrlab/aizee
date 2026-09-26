@@ -180,6 +180,31 @@ def test_web_api_requires_the_token_and_drives_the_same_session(helm):
     run_client(helm, link, scenario)
 
 
+def test_the_connection_is_the_tether_until_wifi_is_chosen_and_is_locked_while_connected(helm):
+    link = FakeLink()
+    wifi = helm.device['address']
+
+    async def scenario(client):
+        headers = {'X-Helm-Token': 'secret'}
+        state = await (await client.get('/api/helm/state')).json()
+        assert state['robot']['connection'] == 'tether' and state['robot']['address'] == '10.42.0.1'
+        assert state['robot']['connections'] == [{'key': 'tether', 'address': '10.42.0.1'},
+                                                 {'key': 'wifi', 'address': wifi}]
+        state = await (await client.post('/api/helm/connection', json={'connection': 'wifi'}, headers=headers)).json()
+        assert state['robot']['connection'] == 'wifi' and state['robot']['address'] == wifi and helm.address == wifi
+        bad = await client.post('/api/helm/connection', json={'connection': 'bluetooth'}, headers=headers)
+        assert bad.status == 422 and 'tether or Wi-Fi' in (await bad.json())['error']
+        await client.post('/api/helm/connect', json={}, headers=headers)
+        locked = await client.post('/api/helm/connection', json={'connection': 'tether'}, headers=headers)
+        assert locked.status == 422 and 'Disconnect' in (await locked.json())['error'] and helm.connection == 'wifi'
+        await client.post('/api/helm/disconnect', json={}, headers=headers)
+        state = await (await client.post('/api/helm/connection', json={'connection': 'tether'},
+                                         headers=headers)).json()
+        assert state['robot']['address'] == '10.42.0.1'
+
+    run_client(helm, link, scenario)
+
+
 class FakeClient:
     """Stopped-reader transport stub following SshCapture.stream semantics.
 

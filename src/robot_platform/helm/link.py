@@ -57,7 +57,8 @@ class LiveLink:
                 raise ValueError('Already connected or connecting')
             self._stop = threading.Event()
             self.reconnections = 0
-            self._publish('connecting', f"Connecting to {self.session.device['address']}: "
+            address = getattr(self.session, 'address', self.session.device['address'])
+            self._publish('connecting', f"Connecting to {address}: "
                           'checking host, CAN adapters, services and all motor identities.')
             self._thread = threading.Thread(target=self._run, args=(self._stop,), daemon=True, name='helm-live-link')
             self._thread.start()

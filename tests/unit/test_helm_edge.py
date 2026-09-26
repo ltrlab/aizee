@@ -156,8 +156,8 @@ def session(tmp_path, robot, stored=None):
     leaders = SimpleNamespace(saved=None, missing=lambda routes: [], store_reference=stored.append)
 
     def factory(bundle, leader_profile, **options):
-        return EdgeWorker(bundle, PROFILE, address='127.0.0.1', open_ssh=lambda *a, **k: robot,
-                          serve_link=serve_in_process, **options)
+        return EdgeWorker(bundle, PROFILE, open_ssh=lambda *a, **k: robot, serve_link=serve_in_process,
+                          **dict(options, address='127.0.0.1'))
     return TeleopSession(helm, TELEOP, runs=tmp_path, leaders=leaders, target='jetson', edge_factory=factory)
 
 
@@ -211,8 +211,8 @@ def test_a_robot_that_cannot_start_the_loop_says_why(tmp_path, monkeypatch):
     teleop.stop()
     unreachable = session(tmp_path, None)
     unreachable.edge_factory = lambda bundle, profile, **options: EdgeWorker(
-        bundle, PROFILE, address='127.0.0.1', open_ssh=lambda *a, **k: (_ for _ in ()).throw(OSError('No route to host')),
-        **options)
+        bundle, PROFILE, open_ssh=lambda *a, **k: (_ for _ in ()).throw(OSError('No route to host')),
+        **dict(options, address='127.0.0.1'))
     unreachable.start()
     wait_until(lambda: unreachable.snapshot()['phase'] == 'fault')
     assert unreachable.snapshot()['message'] == "Teleop on Minerva's Jetson stopped: No route to host"

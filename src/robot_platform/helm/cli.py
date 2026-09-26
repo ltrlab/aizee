@@ -29,7 +29,9 @@ def main(argv=None):
         print(f'Helm could not start: {exc}', file=sys.stderr)
         return 1
     try:
-        link = LiveLink(session, lambda: SshCapture(session.plan['connection'], session.device,
+        # The stopped reader goes over the connection chosen in Helm's header (tether by default).
+        link = LiveLink(session, lambda: SshCapture(session.plan['connection'], dict(session.device,
+                                                                                     address=session.address),
                                                     session.reference, session.profile_path.parent))
         teleop = leaders = None
         if args.teleop:
@@ -40,7 +42,7 @@ def main(argv=None):
         from robot_platform.ops.check import DEFAULT_TELEOP
         from .check import CheckWorkspace
         check = CheckWorkspace(profile=session.profile_path, teleop=args.teleop or DEFAULT_TELEOP,
-                               runs=args.runs, limits=session.limits_path)
+                               runs=args.runs, limits=session.limits_path, address=lambda: session.address)
         app = create_app(session, link, teleop=teleop, leaders=leaders, check=check)
         if session.stale_lock_pid:
             print(f'Took over a calibration lock left by exited process {session.stale_lock_pid}.', flush=True)
