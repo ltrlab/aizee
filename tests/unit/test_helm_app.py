@@ -160,6 +160,9 @@ def test_web_api_requires_the_token_and_drives_the_same_session(helm):
         headers = {'X-Helm-Token': 'secret'}
         state = await (await client.post('/api/helm/connect', json={}, headers=headers)).json()
         assert state['link']['running'] and link.calls == ['connect']
+        # The first guide request loads the viewer's model; the freshness check below
+        # allows only 0.45 s between the last frame and the request.
+        await client.get('/api/calibration-guide')
         helm.link_state('reading', 'live')
         sweep(helm, 'right_arm_j4', [0., -.4, -.4, .7, .7])
         guide = await (await client.get('/api/calibration-guide')).json()
