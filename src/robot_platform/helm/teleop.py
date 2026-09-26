@@ -59,6 +59,13 @@ def load_route_edits(path, profile, asset_id):
     return {motor: edit for motor, edit in data.get('routes', {}).items() if 'squeeze_sign' not in edit}
 
 
+def save_route_edits(path, profile, asset_id, edits):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    save_json(path, {'schema': 1, 'profile': profile['id'], 'asset_id': asset_id, 'runtime_approved': False,
+                     'routes': edits})
+
+
 def merge_routes(routes, edits):
     """The profile's routes with the operator's sign and verification edits applied."""
     merged = deepcopy(routes)
@@ -114,7 +121,8 @@ class TeleopCore:
         self.bundle, self.clock = deepcopy(bundle), clock
         self.profile = load_profile(bundle['teleop_profile'])
         self.collision_mode = self.profile['receiver'].get('collision_mode', 'enforced')
-        self.routes_path = Path(bundle['routes_path'])
+        # No routes_path: a loop on the robot computer, where Helm keeps the file (route_edits).
+        self.routes_path = Path(bundle['routes_path']) if bundle.get('routes_path') else None
         self.route_edits = self._load_route_edits()
         self._hold = False  # Set with the zero: the next cycle holds an engaged arm.
         if open_leaders is None and bundle.get('leader_factory'):
@@ -166,12 +174,13 @@ class TeleopCore:
     # -- route edits -----------------------------------------------------
 
     def _load_route_edits(self):
+        if self.bundle.get('route_edits') is not None:
+            return deepcopy(self.bundle['route_edits'])
         return load_route_edits(self.routes_path, self.profile, self.bundle['asset_id'])
 
     def _save_edits(self):
-        self.routes_path.parent.mkdir(parents=True, exist_ok=True)
-        save_json(self.routes_path, {'schema': 1, 'profile': self.profile['id'], 'asset_id': self.bundle['asset_id'],
-                                     'runtime_approved': False, 'routes': self.route_edits})
+        if self.routes_path is not None:
+            save_route_edits(self.routes_path, self.profile, self.bundle['asset_id'], self.route_edits)
 
     def routes(self):
         return merge_routes(self.profile['routes'], self.route_edits)
@@ -189,6 +198,7 @@ class TeleopCore:
         self._save_edits()
         if self.derived is not None:
             self.mapper = self._mapper()
+        return deepcopy(self.route_edits)
 
     def set_zero(self):
         """The leaders' pose now becomes the zero, mapping onto the robot's reference pose.
@@ -548,15 +558,25 @@ def _process_main(commands, views, bundle):
 
 
 class TeleopSession:
-    """Web-side handle: starts the loop process, relays keys, caches its views."""
+    """Web-side handle: starts the loop, relays keys, caches its views.
 
-    def __init__(self, helm, profile_path, *, runs, leaders=None, core_factory=None, leader_factory=None):
+    The loop runs in a local process (target 'pc') or on the robot computer
+    (target 'jetson', see helm.edge) with the same messages either way.
+    """
+
+    TARGETS = ('jetson', 'pc')
+
+    def __init__(self, helm, profile_path, *, runs, leaders=None, core_factory=None, leader_factory=None,
+                 target='pc', edge_factory=None):
         self.helm, self.leaders = helm, leaders  # leaders: the Leaders workspace holding saved ranges.
         self.profile_path = Path(profile_path).resolve()
         self.profile = load_profile(self.profile_path)
         self.routes_path = routes_path(runs, helm.asset_id)
         self.core_factory = core_factory  # Tests: run a core in a thread instead of a process.
         self.leader_factory = leader_factory  # Previews/tests: 'module:function' instead of USB leaders.
+        if target not in self.TARGETS:
+            raise ValueError(f'The loop runs on one of {", ".join(self.TARGETS)}')
+        self.target, self.edge_factory = target, edge_factory  # edge_factory: tests build the EdgeWorker.
         self._lock = threading.Lock()
         self._send_lock = threading.Lock()
         self._conn = self._views = self._worker = self._reader = None
@@ -581,6 +601,27 @@ class TeleopSession:
                 'asset_id': helm.asset_id, 'leader_factory': self.leader_factory,
                 'leader_ranges': deepcopy(self.leaders.saved) if self.leaders is not None else None}
 
+    def set_target(self, target):
+        if target not in self.TARGETS:
+            raise ValueError(f'The loop runs on one of {", ".join(self.TARGETS)}')
+        with self._lock:
+            if self.active:
+                raise ValueError('Stop the session before choosing where the loop runs')
+            self.target = target
+
+    def _edge_bundle(self):
+        """The bundle for the robot: release-relative profiles, and route edits Helm keeps on this PC."""
+        from robot_platform.ops.release import ROOT
+        bundle = self._bundle()
+        for key in ('calibration_profile', 'teleop_profile'):
+            path = Path(bundle[key]).resolve()
+            if not path.is_relative_to(ROOT):
+                raise ValueError(f'{path.name} is not part of the robot release')
+            bundle[key] = path.relative_to(ROOT).as_posix()
+        bundle.update(routes_path=None, leader_factory=None,
+                      route_edits=load_route_edits(self.routes_path, self.profile, self.helm.asset_id))
+        return bundle
+
     def start(self):
         with self._lock:
             if self.active:
@@ -592,23 +633,34 @@ class TeleopSession:
                 if missing:
                     raise ValueError('Sweep and save the leader ranges in the Leaders tab first; missing: '
                                      + ', '.join(missing))
-            bundle = self._bundle()
-            context = multiprocessing.get_context('spawn')
-            # One-way pipes: commands to the loop, state back from it.
-            command_reader, command_writer = context.Pipe(duplex=False)
-            view_reader, view_writer = context.Pipe(duplex=False)
-            if self.core_factory is None:
-                worker = context.Process(target=_process_main, args=(command_reader, view_writer, bundle),
-                                         daemon=True, name='helm-teleop')
+            local = self.target == 'pc' or self.core_factory is not None
+            bundle = self._bundle() if local else self._edge_bundle()
+            if local:
+                context = multiprocessing.get_context('spawn')
+                # One-way pipes: commands to the loop, state back from it.
+                command_reader, command_writer = context.Pipe(duplex=False)
+                view_reader, view_writer = context.Pipe(duplex=False)
+                if self.core_factory is None:
+                    worker = context.Process(target=_process_main, args=(command_reader, view_writer, bundle),
+                                             daemon=True, name='helm-teleop')
+                else:
+                    worker = threading.Thread(target=run_loop, daemon=True, name='helm-teleop',
+                                              args=(command_reader, view_writer, self.core_factory(bundle)))
+                message = 'Starting: loading the collision model and virtual receiver; opening the leaders…'
             else:
-                worker = threading.Thread(target=run_loop, daemon=True, name='helm-teleop',
-                                          args=(command_reader, view_writer, self.core_factory(bundle)))
-            self._view = dict(self._view, phase='starting', fault=None, joints=[],
-                              message='Starting: loading the collision model and virtual receiver; opening the leaders…')
+                from .edge import EdgeWorker
+                leader_profile = json.loads((self.profile_path.parent / self.profile['leader_profile'])
+                                            .read_text(encoding='utf-8'))
+                worker = (self.edge_factory or EdgeWorker)(bundle, leader_profile, base_view=dict(self._view),
+                                                           real_leaders=self.leader_factory is None)
+                command_writer, view_reader = worker.commands, worker.views
+                message = ("Starting on Minerva's Jetson: connecting, loading the collision model and virtual "
+                           'receiver, linking the leaders…')
+            self._view = dict(self._view, phase='starting', fault=None, joints=[], message=message)
             self._guide = None
             self._conn, self._views, self._worker = command_writer, view_reader, worker
             worker.start()
-            if self.core_factory is None:
+            if local and self.core_factory is None:
                 command_reader.close()  # The child owns its ends; EOF then means it exited.
                 view_writer.close()
             self._reader = threading.Thread(target=self._read, args=(view_reader,), daemon=True,
@@ -664,7 +716,10 @@ class TeleopSession:
         return result
 
     def route(self, action, motor, timeout=5.):
-        self._request('route', action, motor, timeout=timeout)
+        edits = self._request('route', action, motor, timeout=timeout)
+        if self.target == 'jetson' and self.core_factory is None:
+            # The loop on the robot keeps no files; Helm saves the operator's edits here.
+            save_route_edits(self.routes_path, self.profile, self.helm.asset_id, edits)
 
     def set_zero(self, timeout=5.):
         """The leaders' pose now becomes the zero; saved through the Leaders workspace."""
@@ -700,7 +755,7 @@ class TeleopSession:
 
     def snapshot(self):
         with self._lock:
-            return deepcopy(self._view)
+            return dict(deepcopy(self._view), target=self.target)
 
     def guide(self):
         with self._lock:
