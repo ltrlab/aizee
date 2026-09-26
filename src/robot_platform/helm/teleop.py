@@ -2,7 +2,9 @@
 
 Idle (I) -> Enable (E) -> Engage/Align (T) -> Teleop; T again holds; Shutdown
 (X) returns slowly to the reference; Disable (H) removes torque. The receiver is
-the virtual (native harness) receiver: nothing here talks to motors.
+the virtual (native harness) receiver, or, on the robot computer, the live
+guarded service driving one arm (control.live_receiver) with advisory collision
+checks until a two-arm bound exists.
 
 The 25 Hz loop runs in its own process and owns the leader USB, the receiver and
 the collision model. The web server only relays keys and route edits and reads
@@ -39,6 +41,13 @@ def load_profile(path):
         raise ValueError('collision_mode must be enforced or advisory')
     if mode == 'advisory' and profile['backend'] != 'virtual':
         raise ValueError('Advisory collision checks are only allowed with the virtual receiver')
+    live = profile.get('live')
+    if live is not None and (
+            set(live) - {'reference_tolerance_rad', 'period_us', 'maximum_lateness_us', 'note'}
+            or not 0 < live.get('reference_tolerance_rad', 0) <= .1
+            or not 1000 <= live.get('period_us', 0) <= 10000
+            or not live['period_us'] <= live.get('maximum_lateness_us', 0) <= 20000):
+        raise ValueError('The live block needs a reference tolerance of at most 0.1 rad and receiver timing')
     return profile
 
 
@@ -122,11 +131,18 @@ class TeleopCore:
     """The loop body, built from plain data. Openers are injectable for tests."""
     period_s = .04
 
-    def __init__(self, bundle, *, open_leaders=None, open_backend=None, open_harness=None,
+    def __init__(self, bundle, *, open_leaders=None, open_backend=None, open_harness=None, open_receiver=None,
                  clock=time.perf_counter):
         self.bundle, self.clock = deepcopy(bundle), clock
         self.profile = load_profile(bundle['teleop_profile'])
         self.collision_mode = self.profile['receiver'].get('collision_mode', 'enforced')
+        receiver = bundle.get('receiver') or {'mode': 'virtual'}
+        self.live_arm = receiver.get('arm') if receiver.get('mode') == 'live' else None
+        if receiver.get('mode') not in ('virtual', 'live') or (receiver['mode'] == 'live'
+                                                                 and self.live_arm not in ('left', 'right')):
+            raise ValueError('The receiver is virtual, or live on the left or right arm')
+        self.open_receiver = open_receiver or self._open_receiver
+        self._powered = False  # Live: the receiver's enable permit is single-use.
         # No routes_path: a loop on the robot computer, where Helm keeps the file (route_edits).
         self.routes_path = Path(bundle['routes_path']) if bundle.get('routes_path') else None
         self.route_edits = self._load_route_edits()
@@ -139,7 +155,9 @@ class TeleopCore:
         self.open_leaders = open_leaders or self._open_leaders
         self.open_backend = open_backend or self._open_backend
         self.open_harness = open_harness or self._open_harness
-        self.phase, self.message = 'starting', 'Loading the collision model and virtual receiver; opening the leaders…'
+        self.phase = 'starting'
+        self.message = ('Checking the arm, then starting the live receiver…' if self.live_arm
+                        else 'Loading the collision model and virtual receiver; opening the leaders…')
         self.derived = self.session = self.mapper = self.leaders = self.harness = self.compiler = None
         self.scales = {}
         self.fault = self.input_error = self.last_target = None
@@ -165,6 +183,18 @@ class TeleopCore:
         harness.step(0)
         harness.timeout_s = .035
         return harness
+
+    def _open_receiver(self, config, device, reference):
+        from robot_platform.control.live_receiver import LiveReceiver, service_config
+        from robot_platform.ops.release import ROOT
+        live = self.profile['live']
+        buses = {motor['bus'] for motor in reference['motors']}
+        service = service_config(config, device, reference, self.bundle['receiver']['motor_models'],
+                                 bus=buses.pop(), tolerance_rad=live['reference_tolerance_rad'],
+                                 period_us=live['period_us'], maximum_lateness_us=live['maximum_lateness_us'])
+        evidence = Path.home() / 'minerva' / 'evidence' / time.strftime('live-%Y%m%dT%H%M%SZ', time.gmtime())
+        return LiveReceiver(service, device=device, reference=reference, binary=ROOT / 'bin' / 'guarded_controller',
+                            directory=evidence, labels=self.labels).start()
 
     def _open_leaders(self, profile):
         from robot_platform.teleop.leader_bridge import LatestLeaderInputs
@@ -234,9 +264,12 @@ class TeleopCore:
         opens = {row['motor']: row['opens'] for row in report if row['opens']}
         # The leader zero lines up with the robot's reference pose.
         home = {row['motor']: row['home'] for row in report}
+        routes = {motor: route for motor, route in self.routes().items() if motor in home}
         anchors = {motor: (self.references[route['leader']][route['channel'] - 1], home[motor])
-                   for motor, route in self.routes().items() if motor in home}
-        routes = build_routes(self.routes(), self.ranges, self.derived['joint_map'], usable, opens, anchors)
+                   for motor, route in routes.items()}
+        routes = build_routes(routes, self.ranges, self.derived['joint_map'], usable, opens, anchors)
+        # One live arm routes from one leader; the mapper takes exactly the leaders it routes.
+        self.route_leaders = {route['leader'] for route in routes}
         self.scales = {route['actuator']: {key: route[key] for key in ('scale', 'reach', 'overtravel')}
                        for route in routes}
         # 20 rad/s: a quick trigger squeeze is not an encoder glitch (those jump much further).
@@ -251,7 +284,7 @@ class TeleopCore:
         from robot_platform.teleop.guarded_lifecycle import GuardedLifecycleSession
         from robot_platform.teleop.leader_ranges import range_table, reference_table, validate_ranges
         from robot_platform.teleop.lifecycle import TeleopLifecycle
-        plan, _paths, _device, reference, model, pose, bindings = load_plan(self.bundle['calibration_profile'])
+        plan, _paths, device, reference, model, pose, bindings = load_plan(self.bundle['calibration_profile'])
         if bindings != self.bundle['bindings']:
             raise ValueError('Calibration files changed since Helm started; restart Helm')
         transmissions = validate_preview_transmissions(plan.get('preview_transmissions', []), plan['steps'],
@@ -259,9 +292,22 @@ class TeleopCore:
         self.model, self.pose = model, pose
         self.labels = {s['motor']: s['label'] for s in plan['steps']}
         self.labels.update({t['motor']: t['motor'].replace('_', ' ').capitalize() for t in transmissions})
+        steps = plan['steps']
+        if self.live_arm:
+            # One arm on physical motors: the other arm is not in this receiver and is never enabled.
+            if self.collision_mode != 'advisory' or 'live' not in self.profile:
+                raise ValueError('Live teleop needs the profile\'s live block and advisory collision checks: '
+                                 'one arm, until a two-arm collision bound exists')
+            motors = [m for m in reference['motors'] if m['name'].startswith(self.live_arm + '_')]
+            if not motors or len({m['bus'] for m in motors}) != 1:
+                raise ValueError(f'The {self.live_arm} arm must be the motors of one CAN bus')
+            names = {motor['name'] for motor in motors}
+            reference = dict(reference, motors=motors)
+            steps = [step for step in steps if step['motor'] in names]
+            transmissions = [t for t in transmissions if t['motor'] in names]
         backend = self.open_backend(model)
         self._closers.append(backend.close)
-        derived = derive_receiver(reference=reference, steps=plan['steps'], directions=self.bundle['directions'],
+        derived = derive_receiver(reference=reference, steps=steps, directions=self.bundle['directions'],
                                   transmissions=transmissions, model=model, limits=self.bundle['limits'],
                                   profile=self.profile, backend=backend)
         base = Path(self.bundle['teleop_profile']).resolve().parent
@@ -276,20 +322,28 @@ class TeleopCore:
         self.leader_profile = leader_profile
         self.centers = {leader: [None if row is None else row[0] for row in rows]
                         for leader, rows in self.ranges.items()}
-        harness = self.open_harness(derived['config'], derived['initial'])
-        self._closers.append(harness.close)
-        epoch = self.clock()
+        # The receiver: the native harness (virtual) or the live service; both keep `.last`.
+        if self.live_arm:
+            harness = self.open_receiver(derived['config'], device, reference)
+            self._closers.append(harness.close)
+            exchange = harness.exchange
+        else:
+            harness = self.open_harness(derived['config'], derived['initial'])
+            self._closers.append(harness.close)
+            epoch = self.clock()
 
-        def exchange(request):
-            now_ms = max(harness.now_ms, int((self.clock() - epoch) * 1000))
-            return harness.step(now_ms, request)['reply']
+            def exchange(request):
+                now_ms = max(harness.now_ms, int((self.clock() - epoch) * 1000))
+                return harness.step(now_ms, request)['reply']
 
         names = tuple(joint['name'] for joint in derived['config']['joints'])
         controller = GuardedControllerClient(exchange, group=derived['config']['group'],
                                              identity=derived['config']['identity'], joint_names=names)
         budget = self.profile['receiver']['compute_budget_s']
         if self.collision_mode == 'advisory':
-            compiler = AdvisoryCompiler(backend, derived['config'], derived['joint_map'],
+            # Model joints outside this receiver (the other arm, if live) stay at the reference pose.
+            fixed = {name: pose[name] for name in pose if name not in derived['joint_map']}
+            compiler = AdvisoryCompiler(backend, derived['config'], derived['joint_map'], fixed=fixed,
                                         cad_limits=derived['cad_limits'], compute_budget_s=budget)
         else:
             compiler = CollisionEnvelopeCompiler(backend, derived['config'], derived['joint_map'],
@@ -307,7 +361,9 @@ class TeleopCore:
         gc.freeze()
         self._frozen = True
         self.phase = 'running'
-        self.message = 'VIRTUAL RECEIVER · no motors move. Idle (I) first, then Enable (E) and Engage (T).'
+        self.message = (f'LIVE {self.live_arm.upper()} ARM · motors are enabled from Idle (I). Keep the foot '
+                        'switch in reach; then Enable (E) and Engage (T).' if self.live_arm else
+                        'VIRTUAL RECEIVER · no motors move. Idle (I) first, then Enable (E) and Engage (T).')
 
     def close(self):
         if self.session is not None:
@@ -315,17 +371,22 @@ class TeleopCore:
                 self.session.disable()
             except Exception:
                 self.session.fault('helm_teleop_closed')
+        failures = []
         for close in reversed(self._closers):
             try:
                 close()
-            except Exception:
-                pass
+            except Exception as exc:
+                failures.append(str(exc) or type(exc).__name__)
         self._closers = []
         if self._frozen:
             gc.unfreeze()
             self._frozen = False
         if self.phase != 'fault':
-            self.phase, self.message = 'stopped', 'Teleop stopped. The virtual receiver is closed.'
+            self.phase = 'stopped'
+            self.message = ('Teleop stopped. The live receiver disabled the arm and its CAN link is down.'
+                            if self.live_arm else 'Teleop stopped. The virtual receiver is closed.')
+        if failures:
+            self.message += ' Closing reported: ' + '; '.join(failures)
 
     def fail(self, reason):
         self.phase, self.fault = 'fault', reason
@@ -344,6 +405,7 @@ class TeleopCore:
             self.mapper.reset()  # Leaders only preview outside engagement.
         try:
             samples = unwrap_samples(self.leaders.poll(), self.centers)
+            samples = {name: sample for name, sample in samples.items() if name in self.route_leaders}
             target = self.mapper.map(samples, now=self.clock())
         except Exception as exc:
             return None, str(exc) or type(exc).__name__
@@ -379,6 +441,11 @@ class TeleopCore:
         if action in allowed and previous not in allowed[action]:
             notice = f'[{key}] Not available from {previous}. Start with Idle (I), then Enable (E).'
             action = None
+        if self.live_arm and self._powered and previous == 'DISABLED' and action not in (None, 'disable'):
+            # The live receiver spent its single-use enable permit; enabling again needs a
+            # new session, which checks the reference pose and the watchdogs again.
+            notice = f'[{key}] The arm was disabled. Stop the session and start a new one to enable it again.'
+            action = None
         if action == 'engage' and target is None:
             notice = f'[{key}] Engage needs live leaders: {self.input_error or "sample arrived late; press T again"}'
             action = None
@@ -394,18 +461,26 @@ class TeleopCore:
             status = getattr(exc, 'status', None) or self.session.controller.status or {}
             reason = status.get('reason')
             self.fault = f"Receiver {status.get('state')}: {reason} · {exc}" if reason not in (None, 'ok') else str(exc)
-            self.message = (f'VIRTUAL RECEIVER FAULT · {self.fault} · The receiver stopped itself. '
-                            'Stop the session and start it again.')
+            self.message = (f'{self._receiver_name} FAULT · {self.fault} · The receiver stopped itself'
+                            + (' and disabled the arm' if self.live_arm else '')
+                            + '. Stop the session and start it again.')
             return
         self._record(record)
         self.sequence += 1
         current = lifecycle.state
+        self._powered = self._powered or current != 'DISABLED'
         if notice:
             self.message = notice
         elif current != previous:
-            self.message = f'VIRTUAL RECEIVER · {current}'
+            self.message = f'{self._receiver_name} · {current}'
             if current == 'HOLD' and engaged and lifecycle.reason:
                 self.message += f' · {lifecycle.reason} · last input problem: {self.input_error}'
+            if current == 'DISABLED' and self.live_arm:
+                self.message += ' · the arm is limp. Stop the session; a new one checks the reference pose again.'
+
+    @property
+    def _receiver_name(self):
+        return f'LIVE {self.live_arm.upper()} ARM' if self.live_arm else 'VIRTUAL RECEIVER'
 
     def _record(self, record, failure=None):
         entry = {k: record.get(k) for k in ('started_at', 'completed_at', 'accepted', 'action')}
@@ -434,19 +509,25 @@ class TeleopCore:
             return None
         positions = dict(self.pose)
         positions.update(to_cad(self.derived['joint_map'], measured, self.derived['cad_limits']))
+        state = self.session.lifecycle.state
         return {'model': self.model.profile.id, 'urdf_sha256': self.model.sha256,
                 'positions': positions, 'live': True, 'rows': [], 'stream_id': 'helm-teleop',
                 'sequence': self.sequence, 'updated_at': time.time(), 'source_age_seconds': 0.,
                 'scan_seconds': self.period_s, 'feed_state': 'reading', 'reconnections': 0, 'view': 'fit',
-                'badge': f'VIRTUAL FOLLOWER · {self.session.lifecycle.state} · no motors move',
+                'badge': (f'LIVE {self.live_arm.upper()} ARM · {state} · foot switch in reach' if self.live_arm
+                          else f'VIRTUAL FOLLOWER · {state} · no motors move'),
                 'message': self.message}
 
     def view(self):
         routes = self.routes()
         receiver = (self.harness.last or {}).get('status', {}).get('state') if self.harness else None
         verdict = getattr(self.compiler, 'last_verdict', None) or {}
+        last = (self.harness.last or {}) if self.harness else {}
         result = {'phase': self.phase, 'message': self.message, 'fault': self.fault,
                   'state': self.session.lifecycle.state if self.session else None, 'receiver': receiver,
+                  'live': {'arm': self.live_arm, 'motors_enabled': last.get('hardware_enabled'),
+                           'watchdog': last.get('watchdog'), 'reference': last.get('reference')}
+                  if self.live_arm else None,
                   'input_error': self.input_error, 'late_targets': self.late_targets,
                   'collision': {'mode': self.collision_mode, 'clear': verdict.get('clear'),
                                 'reason': verdict.get('reason'), 'distance_m': verdict.get('distance_m'),
@@ -586,6 +667,7 @@ class TeleopSession:
         if target not in self.TARGETS:
             raise ValueError(f'The loop runs on one of {", ".join(self.TARGETS)}')
         self.target, self.edge_factory = target, edge_factory  # edge_factory: tests build the EdgeWorker.
+        self.receiver = {'mode': 'virtual'}  # Or live on one arm: {'mode': 'live', 'arm': 'left'}.
         self._lock = threading.Lock()
         self._send_lock = threading.Lock()
         self._conn = self._views = self._worker = self._reader = None
@@ -607,7 +689,7 @@ class TeleopSession:
         return {'calibration_profile': str(helm.profile_path), 'bindings': deepcopy(helm.bindings),
                 'directions': deepcopy(helm.mapping), 'limits': deepcopy(helm.saved_limits),
                 'teleop_profile': str(self.profile_path), 'routes_path': str(self.routes_path),
-                'asset_id': helm.asset_id, 'leader_factory': self.leader_factory,
+                'asset_id': helm.asset_id, 'leader_factory': self.leader_factory, 'receiver': dict(self.receiver),
                 'leader_ranges': deepcopy(self.leaders.saved) if self.leaders is not None else None}
 
     def set_target(self, target):
@@ -616,7 +698,20 @@ class TeleopSession:
         with self._lock:
             if self.active:
                 raise ValueError('Stop the session before choosing where the loop runs')
+            if target != 'jetson' and self.receiver['mode'] == 'live':
+                raise ValueError("The live receiver runs on Minerva's Jetson; choose the virtual receiver first")
             self.target = target
+
+    def set_receiver(self, mode, arm=None):
+        """The virtual receiver, or the live one driving one arm's motors (Minerva's Jetson only)."""
+        if mode not in ('virtual', 'live') or (mode == 'live') != (arm in ('left', 'right')):
+            raise ValueError('Choose the virtual receiver, or live on the left or right arm')
+        with self._lock:
+            if self.active:
+                raise ValueError('Stop the session before choosing the receiver')
+            if mode == 'live' and ('live' not in self.profile or self.target != 'jetson'):
+                raise ValueError("Live teleop needs the profile's live block and the loop on Minerva's Jetson")
+            self.receiver = {'mode': 'live', 'arm': arm} if mode == 'live' else {'mode': 'virtual'}
 
     def _edge_bundle(self):
         """The bundle for the robot: release-relative profiles, and route edits Helm keeps on this PC."""
@@ -629,12 +724,19 @@ class TeleopSession:
             bundle[key] = path.relative_to(ROOT).as_posix()
         bundle.update(routes_path=None, leader_factory=None,
                       route_edits=load_route_edits(self.routes_path, self.profile, self.helm.asset_id))
+        if self.receiver['mode'] == 'live':
+            # Motor models live in the hardware profiles, which stay on this PC.
+            from robot_platform.control.commissioning import motor_models
+            bundle['receiver'] = dict(self.receiver, motor_models=motor_models(self.helm.device, ROOT))
         return bundle
 
-    def start(self):
+    def start(self, *, confirm=False):
         with self._lock:
             if self.active:
                 raise ValueError('Teleop is already running')
+            if self.receiver['mode'] == 'live' and confirm is not True:
+                raise ValueError(f"Confirm the live session: the {self.receiver['arm']} arm's motors will be powered, "
+                                 'the foot switch is in reach and the arm hangs in its reference pose')
             if self.helm.saved_limits is None:
                 raise ValueError('Save joint limits for every motor in the Limits workspace first')
             if self.leaders is not None:
@@ -664,7 +766,9 @@ class TeleopSession:
                                                            real_leaders=self.leader_factory is None)
                 command_writer, view_reader = worker.commands, worker.views
                 message = ("Starting on Minerva's Jetson: connecting, loading the collision model and virtual "
-                           'receiver, linking the leaders…')
+                           'receiver, linking the leaders…') if self.receiver['mode'] == 'virtual' else (
+                    f"Starting LIVE on the {self.receiver['arm']} arm: checking it is still and in its reference "
+                    'pose, then starting the receiver (its motors stay disabled until Idle)…')
             self._view = dict(self._view, phase='starting', fault=None, joints=[], message=message)
             self._guide = None
             self._conn, self._views, self._worker = command_writer, view_reader, worker
@@ -764,7 +868,8 @@ class TeleopSession:
 
     def snapshot(self):
         with self._lock:
-            return dict(deepcopy(self._view), target=self.target)
+            return dict(deepcopy(self._view), target=self.target, receiver_choice=dict(self.receiver),
+                        live_available='live' in self.profile)
 
     def guide(self):
         with self._lock:

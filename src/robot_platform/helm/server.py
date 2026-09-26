@@ -95,14 +95,14 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, token=No
             raise ValueError('Helm was started without a teleop profile')
 
     async def teleop_start(request):
-        await body(request)
+        payload = await body(request)
         need_teleop()
         if link.running:
             raise ValueError('Disconnect from the motors before starting teleop')
         if leaders is not None and leaders.running:
             raise ValueError('Disconnect the leaders in the Leaders tab before starting teleop')
         not_checking()
-        teleop.start()
+        teleop.start(confirm=payload.get('confirm') is True)
         return state_response()
 
     async def teleop_stop(request):
@@ -176,6 +176,14 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, token=No
         teleop.set_target(payload['target'])
         return state_response()
 
+    async def teleop_receiver(request):
+        payload = await body(request)
+        need_teleop()
+        if not set(payload) <= {'mode', 'arm'} or 'mode' not in payload:
+            raise ValueError('Expected mode and, for live, arm')
+        teleop.set_receiver(payload['mode'], payload.get('arm'))
+        return state_response()
+
     async def teleop_zero(request):
         await body(request)
         need_teleop()
@@ -214,6 +222,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, token=No
     app.router.add_post('/api/helm/teleop/route', teleop_route)
     app.router.add_post('/api/helm/teleop/zero', teleop_zero)
     app.router.add_post('/api/helm/teleop/target', teleop_target)
+    app.router.add_post('/api/helm/teleop/receiver', teleop_receiver)
     app.router.add_post('/api/helm/leaders/connect', leaders_connect)
     app.router.add_post('/api/helm/leaders/disconnect', leaders_disconnect)
     app.router.add_post('/api/helm/leaders/range', leaders_range)

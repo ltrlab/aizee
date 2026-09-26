@@ -24,6 +24,12 @@
     "collision": {"scope": "inter_branch", "max_verdict_ms": 80, "reaction_ms": 10},
     "compute_budget_s": 0.025
   },
+  "live": {
+    "reference_tolerance_rad": 0.1,
+    "period_us": 2500,
+    "maximum_lateness_us": 10000,
+    "note": "Live teleop drives one arm at a time on its physical motors, with advisory collision checks, until a two-arm collision bound exists; the other arm is never enabled. Each session starts from the reference pose (arms straight down, grippers closed). The motion settings below are unqualified: attended tests only, with the foot switch in reach."
+  },
   "motion": {
     "defaults": {
       "margin_rad": 0.05, "max_velocity": 0.8, "stop_acceleration": 4.0, "max_tracking_error": 0.08,

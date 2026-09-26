@@ -149,8 +149,9 @@ def serve_in_process(profile, key, robot, *, local, real):
 
 
 def session(tmp_path, robot, stored=None):
+    device = json.loads((ROOT / 'config/devices/minerva-production-01.json').read_text(encoding='utf-8'))
     helm = SimpleNamespace(profile_path=ROOT / 'config/devices/minerva-joint-calibration.json', bindings={},
-                           mapping={}, saved_limits={'joints': {}}, asset_id=ASSET)
+                           mapping={}, saved_limits={'joints': {}}, asset_id=ASSET, device=device)
     stored = [] if stored is None else stored
     leaders = SimpleNamespace(saved=None, missing=lambda routes: [], store_reference=stored.append)
 
@@ -216,3 +217,30 @@ def test_a_robot_that_cannot_start_the_loop_says_why(tmp_path, monkeypatch):
     wait_until(lambda: unreachable.snapshot()['phase'] == 'fault')
     assert unreachable.snapshot()['message'] == "Teleop on Minerva's Jetson stopped: No route to host"
     unreachable.stop()
+
+
+def test_a_live_session_needs_the_jetson_a_confirmation_and_carries_the_motor_models(tmp_path, monkeypatch):
+    monkeypatch.setattr(edge, 'prepare', fake_prepare)
+    teleop = session(tmp_path, Robot())
+    with pytest.raises(ValueError, match='left or right arm'):
+        teleop.set_receiver('live', 'both')
+    teleop.set_receiver('live', 'left')
+    with pytest.raises(ValueError, match='virtual receiver first'):
+        teleop.set_target('pc')
+    with pytest.raises(ValueError, match="Confirm the live session: the left arm's motors will be powered"):
+        teleop.start()
+    teleop.start(confirm=True)
+    try:
+        wait_until(lambda: teleop.snapshot()['phase'] == 'running')
+        receiver = teleop.snapshot()['bundle']['receiver']
+        assert receiver['mode'] == 'live' and receiver['arm'] == 'left'
+        assert receiver['motor_models']['left_arm_j2'] == 'ROBSTRIDE04' and len(receiver['motor_models']) == 14
+        assert teleop.snapshot()['receiver_choice'] == {'mode': 'live', 'arm': 'left'}
+        with pytest.raises(ValueError, match='Stop the session'):
+            teleop.set_receiver('virtual')
+    finally:
+        teleop.stop()
+    teleop.set_receiver('virtual')
+    teleop.set_target('pc')
+    with pytest.raises(ValueError, match="loop on Minerva's Jetson"):
+        teleop.set_receiver('live', 'right')

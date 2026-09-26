@@ -229,7 +229,7 @@ class FakeTeleop:
     def __init__(self, pose):
         self.pose, self.active, self.calls = pose, False, []
 
-    def start(self):
+    def start(self, *, confirm=False):
         self.calls.append('start')
         self.active = True
 
