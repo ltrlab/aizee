@@ -465,7 +465,10 @@ function renderTeleop(t) {
   teleopPhase = t.phase;
   document.body.dataset.teleopState = t.state || t.phase;
   $('t-state').textContent = running && t.state ? t.state : {starting: 'Starting…', stopped: 'Stopped', fault: 'Fault'}[t.phase] || t.phase;
-  $('t-receiver').textContent = running && t.receiver ? t.receiver : '—';
+  const choice = t.receiver_choice || {mode: 'virtual'};
+  const live = choice.mode === 'live';
+  $('t-receiver').textContent = running && t.receiver
+    ? t.receiver + (t.live ? (t.live.motors_enabled ? ' · motors on' : ' · motors off') : '') : '—';
   $('t-cycle').textContent = running && t.cycle_ms ? `${t.cycle_ms.p50.toFixed(1)} / ${t.cycle_ms.p99.toFixed(1)} ms` : '—';
   const c = t.collision || {};
   const collision = $('t-collision');
@@ -474,18 +477,28 @@ function renderTeleop(t) {
     : c.distance_m != null ? `${Math.round(c.distance_m * 1000)} mm to keep-out` : 'clear';
   collision.textContent = running ? `${c.mode === 'advisory' ? 'advisory · ' : ''}${detail}` : c.mode || '—';
   collision.className = c.clear === false ? 'bad' : c.distance_m != null ? 'near' : '';
-  collision.title = c.mode === 'advisory'
-    ? 'Advisory: the target pose is checked every cycle but the virtual receiver is not blocked.' : '';
+  collision.title = c.mode !== 'advisory' ? ''
+    : live ? 'Advisory: the target pose is checked every cycle, but nothing stops the arm on a contact.'
+    : 'Advisory: the target pose is checked every cycle but the virtual receiver is not blocked.';
   $('t-message').textContent = t.message || '';
   const where = t.target === 'jetson' ? "ON MINERVA'S JETSON" : 'ON THIS PC';
-  $('t-eyebrow').textContent = `TELEOP · VIRTUAL RECEIVER ${where} · NO MOTORS MOVE`;
-  for (const button of document.querySelectorAll('.target button')) {
+  const eyebrow = $('t-eyebrow');
+  eyebrow.textContent = live
+    ? `TELEOP · LIVE ${choice.arm.toUpperCase()} ARM ${where} · MOTORS MOVE · FOOT SWITCH IN REACH`
+    : `TELEOP · VIRTUAL RECEIVER ${where} · NO MOTORS MOVE`;
+  eyebrow.className = `eyebrow ${live ? 'live' : 'warn'}`;
+  for (const button of document.querySelectorAll('#t-target button')) {
     button.setAttribute('aria-pressed', String(button.dataset.target === t.target));
-    button.disabled = running || starting;
+    button.disabled = running || starting || (live && button.dataset.target !== 'jetson');
+  }
+  for (const button of document.querySelectorAll('#t-receiver-choice button')) {
+    const liveButton = button.dataset.receiver === 'live';
+    button.setAttribute('aria-pressed', String(liveButton ? live && choice.arm === button.dataset.arm : !live));
+    button.disabled = running || starting || (liveButton && (t.target !== 'jetson' || !t.live_available));
   }
   const session = $('teleop-session');
-  session.textContent = running || starting ? 'Stop session' : 'Start session';
-  session.className = running || starting ? 'danger' : 'primary';
+  session.textContent = running || starting ? 'Stop session' : live ? 'Start LIVE session' : 'Start session';
+  session.className = running || starting || live ? 'danger' : 'primary';
   session.disabled = starting;
   for (const button of document.querySelectorAll('.lifecycle button')) button.disabled = !running || !!t.fault;
   $('t-engage').innerHTML = ENGAGED.includes(t.state) ? 'Hold <kbd>T</kbd>' : 'Engage <kbd>T</kbd>';
@@ -497,6 +510,7 @@ function renderTeleop(t) {
   }
   if (!tcards.size) {
     for (const [arm, title] of [['left', 'LEFT ARM'], ['right', 'RIGHT ARM']]) {
+      if (!t.joints.some(j => j.motor.startsWith(arm))) continue;  // A live session drives one arm.
       const heading = document.createElement('div');
       heading.className = 'arm';
       heading.textContent = title;
@@ -552,14 +566,37 @@ async function setZero() {
   }
 }
 $('t-zero').onclick = setZero;
-for (const button of document.querySelectorAll('.target button')) {
+for (const button of document.querySelectorAll('#t-target button')) {
   button.onclick = () => act('/api/helm/teleop/target', {target: button.dataset.target},
     `The loop will run on ${button.textContent}.`);
 }
+for (const button of document.querySelectorAll('#t-receiver-choice button')) {
+  const arm = button.dataset.arm;
+  button.onclick = () => act('/api/helm/teleop/receiver', arm ? {mode: 'live', arm} : {mode: 'virtual'},
+    arm ? `Live on the ${arm} arm: its motors are powered once the session reaches Idle.` : 'Virtual receiver: no motors move.');
+}
 $('teleop-session').onclick = () => {
-  const running = ['running', 'starting'].includes(last?.teleop?.phase);
-  act(running ? '/api/helm/teleop/stop' : '/api/helm/teleop/start', {},
-    running ? 'Teleop stopped.' : 'Starting: loading the collision model and opening the leaders (about 10 s).');
+  const t = last?.teleop;
+  if (['running', 'starting'].includes(t?.phase)) {
+    act('/api/helm/teleop/stop', {}, 'Teleop stopped.');
+    return;
+  }
+  const choice = t?.receiver_choice || {mode: 'virtual'};
+  if (choice.mode !== 'live') {
+    act('/api/helm/teleop/start', {}, 'Starting: loading the collision model and opening the leaders.');
+    return;
+  }
+  const arm = choice.arm, other = arm === 'left' ? 'right' : 'left';
+  const confirmed = window.confirm(`Start LIVE teleop on the ${arm} arm?\n\n`
+    + `• Its motors are powered when you press Idle (I).\n`
+    + `• The foot switch (e-stop) is in reach.\n`
+    + `• The ${arm} arm hangs straight down in its reference pose, gripper closed.\n`
+    + `• The ${other} arm stays disabled.\n`
+    + '• Collision checks are advisory: nothing stops the arm from reaching the body or the other arm.');
+  if (confirmed) {
+    act('/api/helm/teleop/start', {confirm: true},
+      `Starting LIVE on the ${arm} arm: checking that it is still and in its reference pose, then the receiver.`);
+  }
 };
 
 function showTab(name) {

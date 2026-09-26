@@ -99,3 +99,5 @@ body[data-teleop-state=FAULT] #t-state,#t-collision.bad{color:var(--bad)}#t-coll
 .target{display:flex;align-items:center;gap:6px;margin:0 0 10px;font-size:11px;color:var(--muted)}
 .target span{margin-right:4px}.target button{font-size:12px;padding:4px 10px}
 .target button[aria-pressed=true]{background:#1f4b44;border-color:#3f8f81;color:#e9fffa}
+.eyebrow.live{color:var(--bad)}
+#t-receiver-choice button[data-receiver=live][aria-pressed=true]{background:#4b2530;border-color:#9a4b58;color:#ffe8eb}

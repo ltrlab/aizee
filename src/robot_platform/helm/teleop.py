@@ -673,7 +673,7 @@ class TeleopSession:
         self._conn = self._views = self._worker = self._reader = None
         self._replies, self._ids = {}, itertools.count(1)
         self._reply_ready = threading.Condition(self._lock)
-        stopped = {'phase': 'stopped', 'message': 'Teleop is not running. Start a virtual session.',
+        stopped = {'phase': 'stopped', 'message': 'Teleop is not running. Choose the receiver, then start a session.',
                    'fault': None, 'state': None, 'receiver': None, 'input_error': None, 'late_targets': 0,
                    'collision': {'mode': self.profile['receiver'].get('collision_mode', 'enforced')},
                    'cycle_ms': None, 'joints': []}
