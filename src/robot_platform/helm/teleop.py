@@ -42,6 +42,32 @@ def load_profile(path):
     return profile
 
 
+def routes_path(runs, asset_id):
+    return Path(runs).resolve() / (asset_id + '-teleop') / 'routes.json'
+
+
+def load_route_edits(path, profile, asset_id):
+    """Operator route edits ({motor: {sign, verified, history}}) saved by Helm for this profile and robot."""
+    path = Path(path)
+    if not path.is_file():
+        return {}
+    data = json.loads(path.read_text(encoding='utf-8'))
+    if data.get('profile') != profile['id'] or data.get('asset_id') != asset_id:
+        raise ValueError(f'{path} belongs to another teleop profile')
+    # Trigger edits from the old released-opens mapping ('squeeze_sign') meant
+    # something else; those grippers need verifying again.
+    return {motor: edit for motor, edit in data.get('routes', {}).items() if 'squeeze_sign' not in edit}
+
+
+def merge_routes(routes, edits):
+    """The profile's routes with the operator's sign and verification edits applied."""
+    merged = deepcopy(routes)
+    for motor, edit in edits.items():
+        if motor in merged:
+            merged[motor].update({k: v for k, v in edit.items() if k in ('sign', 'verified')})
+    return merged
+
+
 class AdvisoryCompiler:
     """Virtual receiver only: report clearance at the commanded pose, never block.
 
@@ -140,14 +166,7 @@ class TeleopCore:
     # -- route edits -----------------------------------------------------
 
     def _load_route_edits(self):
-        if not self.routes_path.is_file():
-            return {}
-        data = json.loads(self.routes_path.read_text(encoding='utf-8'))
-        if data.get('profile') != self.profile['id'] or data.get('asset_id') != self.bundle['asset_id']:
-            raise ValueError(f'{self.routes_path} belongs to another teleop profile')
-        # Trigger edits from the old released-opens mapping ('squeeze_sign') meant
-        # something else; those grippers need verifying again.
-        return {motor: edit for motor, edit in data.get('routes', {}).items() if 'squeeze_sign' not in edit}
+        return load_route_edits(self.routes_path, self.profile, self.bundle['asset_id'])
 
     def _save_edits(self):
         self.routes_path.parent.mkdir(parents=True, exist_ok=True)
@@ -155,11 +174,7 @@ class TeleopCore:
                                      'runtime_approved': False, 'routes': self.route_edits})
 
     def routes(self):
-        merged = deepcopy(self.profile['routes'])
-        for motor, edit in self.route_edits.items():
-            if motor in merged:
-                merged[motor].update({k: v for k, v in edit.items() if k in ('sign', 'verified')})
-        return merged
+        return merge_routes(self.profile['routes'], self.route_edits)
 
     def route(self, action, motor):
         if self.session is not None and self.session.lifecycle.state in ENGAGED:
@@ -539,7 +554,7 @@ class TeleopSession:
         self.helm, self.leaders = helm, leaders  # leaders: the Leaders workspace holding saved ranges.
         self.profile_path = Path(profile_path).resolve()
         self.profile = load_profile(self.profile_path)
-        self.routes_path = Path(runs).resolve() / (helm.asset_id + '-teleop') / 'routes.json'
+        self.routes_path = routes_path(runs, helm.asset_id)
         self.core_factory = core_factory  # Tests: run a core in a thread instead of a process.
         self.leader_factory = leader_factory  # Previews/tests: 'module:function' instead of USB leaders.
         self._lock = threading.Lock()
