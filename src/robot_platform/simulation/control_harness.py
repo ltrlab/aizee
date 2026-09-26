@@ -18,6 +18,8 @@ from robot_platform.transport.wire import pack_msg, unpack_msg
 
 
 def default_binary() -> Path:
+    if os.environ.get("ROBOT_CONTROL_HARNESS"):
+        return Path(os.environ["ROBOT_CONTROL_HARNESS"]).resolve()
     root = Path(__file__).resolve().parents[3]
     suffix = ".exe" if os.name == "nt" else ""
     return root / "rust" / "target" / "debug" / f"control_harness{suffix}"
