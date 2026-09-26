@@ -6,9 +6,25 @@ import json
 from pathlib import Path
 import struct
 import threading
+import math
+import time
 from xml.etree.ElementTree import ParseError
 
 from robot_platform.models import UrdfModel
+
+
+def read_guide(path):
+    path = Path(path)
+    if path.suffix != '.jsonl':
+        return json.loads(path.read_text())
+    with path.open('rb') as source:
+        source.seek(0, 2)
+        source.seek(max(0, source.tell() - 65536))
+        tail = source.read()
+    if b'\n' not in tail:
+        raise ValueError('Waiting for a complete calibration frame')
+    complete = tail.rsplit(b'\n', 1)[0]
+    return json.loads(complete.rsplit(b'\n', 1)[-1])
 
 
 class ModelStore:
@@ -125,7 +141,11 @@ class ModelStore:
                          "Provisional interfaces are labeled, not removed or approved.")}
 
 
-def create_app(profiles, selected=None, local_only=True):
+def create_app(profiles, selected=None, local_only=True, guide=None, index_html=None):
+    """`guide` is a pose-feed file or a callable returning the same dictionary.
+
+    `index_html` replaces the page at "/"; the viewer itself stays at "/viewer".
+    """
     from aiohttp import web
     store = ModelStore(profiles)
     selected = selected or profiles[0].id
@@ -151,7 +171,7 @@ def create_app(profiles, selected=None, local_only=True):
         except (ValueError, OSError, RuntimeError, ImportError, TypeError, ParseError) as exc:
             response = web.json_response({"error": str(exc)}, status=422)
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Cache-Control"] = "no-cache"
+        response.headers.setdefault("Cache-Control", "no-cache")
         return response
 
     app = web.Application(middlewares=[boundary], client_max_size=1024*1024)
@@ -163,15 +183,37 @@ def create_app(profiles, selected=None, local_only=True):
     app.on_cleanup.append(close)
 
     async def index(_request):
+        return web.FileResponse(index_html or static / "index.html")
+    async def viewer_page(_request):
         return web.FileResponse(static / "index.html")
     async def catalog(_request):
-        return web.json_response({"models": [{"id": p.id, "title": p.title} for p in profiles], "selected": selected})
+        return web.json_response({"models": [{"id": p.id, "title": p.title} for p in profiles], "selected": selected,
+                                  "calibration_guide": guide is not None})
+    async def calibration_guide(_request):
+        if guide is None:
+            raise KeyError('No calibration guide')
+        data = guide() if callable(guide) else read_guide(guide)
+        model = await offline(store.model, data['model'])
+        if data.get('urdf_sha256') != model.sha256:
+            raise ValueError('Calibration guide CAD revision mismatch')
+        positions = data['positions']
+        if set(positions) != set(model.independent) or any(type(q) not in (int, float) or not math.isfinite(q) for q in positions.values()):
+            raise ValueError('Invalid calibration guide positions')
+        if data.get('live'):
+            # Measured positions may exceed provisional viewer limits. Report
+            # them honestly; do not clamp a calibration preview to guessed bounds.
+            age = time.time() - data['updated_at'] + data['source_age_seconds']
+            data['stale'] = data.get('feed_state', 'reading') != 'reading' or not 0 <= age <= .75
+            data['age_seconds'] = age
+        else:
+            model.positions(positions)
+        return web.json_response(data, headers={'Cache-Control': 'no-store'})
     async def metadata(request):
         model = await offline(store.model, request.match_info["model"])
         return web.json_response(model.metadata())
     async def mesh(request):
         payload = await offline(store.mesh, request.match_info["model"], int(request.match_info["index"]))
-        response = web.Response(body=payload, content_type="application/octet-stream")
+        response = web.Response(body=payload, content_type="application/octet-stream", zlib_executor_size=65536)
         response.enable_compression()
         return response
     async def collision(request):
@@ -188,7 +230,9 @@ def create_app(profiles, selected=None, local_only=True):
             raise KeyError("No limit review")
         return web.FileResponse(model.profile.limit_review, headers={"Content-Type": "application/json"})
     app.router.add_get("/", index)
+    app.router.add_get("/viewer", viewer_page)
     app.router.add_get("/api/models", catalog)
+    app.router.add_get("/api/calibration-guide", calibration_guide)
     app.router.add_get("/api/models/{model}", metadata)
     app.router.add_get("/api/models/{model}/limit-review", limit_review)
     app.router.add_get("/api/models/{model}/meshes/{index}", mesh)

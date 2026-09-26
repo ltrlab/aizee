@@ -18,7 +18,7 @@ scene.add(new THREE.HemisphereLight(0xd3e8f9,0x475365,2));
 const light = new THREE.DirectionalLight(0xffffff,2.4); light.position.set(2,-3,5);scene.add(light);
 const fill = new THREE.DirectionalLight(0xaecbff,.8);fill.position.set(-2,1,3);scene.add(fill);
 let robot=null, model=null, q={}, generation=0, groups=new Map(), motions=new Map(), linkAxes=[], meshes=[], grid=null;
-let collisionReady=false, previewLinks=new Set();
+let collisionReady=false, calibrationMode=false, previewLinks=new Set();
 let linkNodes=new Map(),keepoutLoaded=false,keepoutPromise=null;
 let center=new THREE.Vector3(), radius=1;
 const resize=()=>{const w=viewport.clientWidth,h=viewport.clientHeight;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();};
@@ -45,6 +45,13 @@ function paintContacts(contacts=[]) {
   }
 }
 function collisionState({state,result,error}) {
+  if(calibrationMode){
+    paintContacts();$('check').disabled=true;
+    for(const id of ['collision-status','live-collision-status']){
+      $(id).textContent='Calibration preview · collision protection is not active';$(id).dataset.state='unchecked';
+    }
+    return;
+  }
   paintContacts(state==='checked'?result.contacts:[]);
   $('pairs').replaceChildren();
   $('runtime-summary').textContent='';
@@ -114,7 +121,7 @@ async function ensureKeepout(){
   })();
   try{await keepoutPromise;}catch(e){if(token===generation)keepoutPromise=null;throw e;}
 }
-$('collision-geometry').onchange=()=>{showCollisionGeometry();if($('collision-geometry').checked)collisionChecks.checkNow();};
+$('collision-geometry').onchange=()=>{showCollisionGeometry();if(!calibrationMode&&$('collision-geometry').checked)collisionChecks.checkNow();};
 $('collision-mode').onchange=async()=>{
   const token=generation;
   if($('collision-mode').value==='keepout')$('collision-scope').value='inter_branch';
@@ -125,15 +132,15 @@ $('collision-mode').onchange=async()=>{
 $('collision-scope').onchange=()=>{applyPose(q);collisionChecks.checkNow();};
 $('keepout-gap').onchange=()=>{applyPose(q);collisionChecks.checkNow();};
 $('live-collisions').onchange=()=>collisionChecks.setEnabled($('live-collisions').checked);
-function allPositions(positions){
+function allPositions(positions,measured=false){
   const result={...positions};
   for(const name of model.mimic_order){const m=model.joints.find(j=>j.name===name).mimic;result[name]=result[m.joint]*m.multiplier+m.offset;}
-  for(const joint of model.joints){if(joint.type==='fixed')continue;const value=result[joint.name];if(!Number.isFinite(value)||joint.bounds&&(value<joint.bounds[0]-1e-10||value>joint.bounds[1]+1e-10))throw new Error(`Pose outside URDF bounds: ${joint.name}`);}
-  for(const joint of model.joints){if(joint.limit_review&&(result[joint.name]<joint.control_bounds[0]-1e-10||result[joint.name]>joint.control_bounds[1]+1e-10))throw new Error(`Pose outside candidate viewing range: ${joint.name}`);}
+  for(const joint of model.joints){if(joint.type==='fixed')continue;const value=result[joint.name];if(!Number.isFinite(value)||!measured&&joint.bounds&&(value<joint.bounds[0]-1e-10||value>joint.bounds[1]+1e-10))throw new Error(`Pose outside URDF bounds: ${joint.name}`);}
+  for(const joint of model.joints){if(!measured&&joint.limit_review&&(result[joint.name]<joint.control_bounds[0]-1e-10||result[joint.name]>joint.control_bounds[1]+1e-10))throw new Error(`Pose outside candidate viewing range: ${joint.name}`);}
   return result;
 }
-function applyPose(positions){
-  const values=allPositions(positions);q={...positions};previewLinks.clear();
+function applyPose(positions,measured=false){
+  const values=allPositions(positions,measured);q={...positions};previewLinks.clear();
   for(const joint of model.joints){const object=motions.get(joint.name);if(joint.type==='prismatic')object.position.fromArray(joint.axis).multiplyScalar(values[joint.name]);else if(joint.type!=='fixed')object.quaternion.setFromAxisAngle(new THREE.Vector3(...joint.axis),values[joint.name]);}
   collisionChecks.setPose(collisionReady&&($('collision-mode').value!=='keepout'||keepoutLoaded)?collisionPose():null);
   for(const name of model.independent){const row=groups.get(name);if(row){row.range.value=q[name];row.number.value=q[name].toFixed(row.digits);}}
@@ -240,4 +247,59 @@ $('export').onclick=()=>{const pose={schema_version:1,model:{id:model.id,urdf_sh
 $('import').onclick=()=>$('pose-file').click();
 $('pose-file').onchange=async()=>{try{const pose=JSON.parse(await $('pose-file').files[0].text());if(pose.schema_version!==1||pose.model?.urdf_sha256!==model.urdf_sha256)throw new Error('Pose belongs to a different model revision');if(!pose.positions||Object.keys(pose.positions).sort().join('\0')!==[...model.independent].sort().join('\0')||Object.values(pose.positions).some(v=>typeof v!=='number'))throw new Error('Pose must contain every independent joint');applyPose(pose.positions);message('Pose loaded');}catch(e){message(e.message);}finally{$('pose-file').value='';}};
 $('check').onclick=()=>collisionChecks.checkNow();
-try{const catalog=await json(api);for(const entry of catalog.models){const option=document.createElement('option');option.value=entry.id;option.textContent=entry.title;$('model').append(option);}$('model').value=catalog.selected;$('model').onchange=()=>loadModel($('model').value);await loadModel(catalog.selected);}catch(e){message(e.message,true);}
+async function followCalibration(){
+  let last=null,started=false,lastGuide=null,receivedAt=0,requestStart=0;
+  $('calibration-guide').hidden=false;$('model').disabled=true;
+  $('viewer-mode').textContent='● Hand calibration';
+  $('telemetry-status').hidden=false;
+  // This watchdog also runs while an HTTP request is pending. A hung server
+  // cannot leave a green "live" badge on a frozen physical pose.
+  function status(text,stale){
+    $('calibration-age').textContent=text;$('telemetry-status').textContent=text;
+    $('calibration-guide').classList.toggle('stale',stale);
+    $('telemetry-status').classList.toggle('stale',stale);
+  }
+  function freshness(){
+    if(!lastGuide)return;
+    if(!lastGuide.live){status(lastGuide.badge||'Target pose · move by hand; capture in the terminal',false);return;}
+    const state=lastGuide.feed_state||'reading';
+    if(state!=='reading'){
+      status(lastGuide.badge||(state==='reconnecting'?'RECONNECTING — last pose held':state==='waiting'?'CONNECTING — waiting for motor positions':'FEED STOPPED — last pose held'),true);return;
+    }
+    const age=lastGuide.age_seconds+(performance.now()-receivedAt)/1000;
+    if(lastGuide.stale||!Number.isFinite(age)||age>.75||age<0){status('STALE — last pose held; waiting for fresh motor positions',true);return;}
+    const recovered=lastGuide.reconnections?` · reconnects ${lastGuide.reconnections}`:'';
+    status(`${lastGuide.badge||'LIVE · motors disabled'} · frame ${lastGuide.sequence} · age ${(age*1000).toFixed(0)} ms${recovered}`,false);
+  }
+  status('CONNECTING — waiting for motor positions',true);
+  setInterval(freshness,100);
+  for(const name of ['reset','import','sweep-reference','check'])$(name).disabled=true;
+  for(const name of ['collision-mode','collision-scope','keepout-gap'])$(name).disabled=true;
+  for(const input of $('joints').querySelectorAll('input,button'))input.disabled=true;
+  $('live-collisions').checked=false;$('live-collisions').disabled=true;collisionChecks.setEnabled(false);
+  $('live-collision-status').textContent='Calibration preview · collision protection is not active';
+  $('collision-hint').textContent='Stopped motor telemetry drives this calibration preview. The mapping is provisional; this viewer cannot command motors.';
+  async function poll(){
+    try{
+      requestStart=performance.now();
+      const guide=await json('/api/calibration-guide',{cache:'no-store',signal:AbortSignal.timeout(1500)});
+      if(!model||guide.model!==model.id||guide.urdf_sha256!==model.urdf_sha256)throw new Error('Calibration/model mismatch');
+      receivedAt=performance.now();
+      if(guide.live)guide.age_seconds+=(receivedAt-requestStart)/1000;
+      lastGuide=guide;freshness();
+      $('calibration-title').textContent=guide.live?'Live calibration preview':'Calibration target pose';
+      $('calibration-message').textContent=guide.message;
+      const identity=`${guide.stream_id||''}:${guide.sequence}`;
+      if(!guide.stale&&(!guide.live||guide.age_seconds<=.75)&&identity!==last){
+        applyPose(guide.positions,!!guide.live);
+        if(!started||!guide.live){if(guide.view==='top')$('top').click();else if(guide.view==='front')$('front').click();else frame();}
+        started=true;last=identity;
+        const body=$('calibration-values');body.replaceChildren();
+        for(const row of guide.rows||[]){const tr=document.createElement('tr');const unit=row.cad_unit??'rad',cad=row.cad_value??row.cad_rad;const displayed=unit==='m'?`${(cad*1000).toFixed(2)} mm`:`${cad.toFixed(3)} rad`;for(const value of [row.joint,row.raw_rad.toFixed(3),displayed,`${row.sign>0?'+1':'−1'}${row.direction_verified?' ✓':' ?'}`]){const td=document.createElement('td');td.textContent=value;tr.append(td);}body.append(tr);}
+      }
+    }catch(e){lastGuide=null;status('FEED UNAVAILABLE — '+e.message,true);}
+    setTimeout(poll,100);
+  }
+  await poll();
+}
+try{const catalog=await json(api);calibrationMode=!!catalog.calibration_guide;if(calibrationMode)collisionChecks.setEnabled(false);for(const entry of catalog.models){const option=document.createElement('option');option.value=entry.id;option.textContent=entry.title;$('model').append(option);}$('model').value=catalog.selected;$('model').onchange=()=>loadModel($('model').value);await loadModel(catalog.selected);if(calibrationMode)await followCalibration();}catch(e){message(e.message,true);}

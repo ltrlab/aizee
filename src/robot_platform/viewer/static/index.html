@@ -5,11 +5,12 @@
   <title>Robot model viewer</title>
   <link rel="stylesheet" href="static/viewer.css">
   <script type="importmap">{"imports":{"three":"./static/vendor/three.module.js"}}</script>
+  <script>if(new URLSearchParams(location.search).has('embed'))document.documentElement.classList.add('embed');</script>
 </head>
 <body>
   <header><div class="brand"><span class="mark">◈</span><div>Robot model viewer<small>Inspect · articulate · compare</small></div></div>
     <label class="model-picker">Model <select id="model" aria-label="Robot model"></select></label>
-    <span class="mode">● Model only</span>
+    <span class="mode" id="viewer-mode">● Model only</span>
   </header>
   <main>
     <section id="viewport" aria-label="3D robot viewport">
@@ -18,12 +19,20 @@
         <label><input id="collision-geometry" type="checkbox"> <span id="geometry-label">Collision geometry</span></label>
         <label><input id="live-collisions" type="checkbox" checked> Live collisions</label>
       </div>
-      <div id="loading" role="status">Starting renderer…</div></div>
+      <div id="loading" role="status">Starting renderer…</div>
+      <div id="telemetry-status" role="status" hidden></div></div>
       <div id="live-collision-status" role="status">Loading collision model…</div>
       <div class="viewport-foot"><span>Drag to orbit · Right-drag to pan · Scroll to zoom</span><span>Z up · metres</span></div>
       <div id="render-error" role="alert" hidden></div>
     </section>
     <aside>
+      <section id="calibration-guide" hidden aria-label="Calibration preview">
+        <h2 id="calibration-title">Calibration</h2>
+        <p id="calibration-message" role="status"></p>
+        <p id="calibration-age"></p>
+        <p>Directions and alignment can be edited in the calibration terminal. This viewer cannot command motors.</p>
+        <table><thead><tr><th>Joint</th><th>Motor rad</th><th>CAD position</th><th>Sign</th></tr></thead><tbody id="calibration-values"></tbody></table>
+      </section>
       <div class="side-head"><div class="eyebrow">MECHANICAL MODEL</div><h1 id="model-title">Loading</h1><p id="summary"></p></div>
       <div class="actions"><button id="reset">Reset pose</button><button id="export">Export pose</button><button id="import">Load pose</button><input id="pose-file" type="file" accept=".json" hidden></div>
       <p id="notice" role="status"></p>

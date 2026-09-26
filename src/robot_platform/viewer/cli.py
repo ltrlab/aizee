@@ -15,6 +15,7 @@ def main(argv=None):
     parser.add_argument("--models-dir", type=Path, help="directory of */model.json profiles")
     parser.add_argument("--package-root", type=Path, help="asset root for --urdf")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--guide", type=Path, help="Read a local calibration pose feed; no hardware commands from the viewer")
     args = parser.parse_args(argv)
     try:
         if not 1 <= args.port <= 65535:
@@ -35,7 +36,7 @@ def main(argv=None):
             profiles = discover_models(directory)
         from aiohttp import web
         from .server import create_app
-        app = create_app(profiles, args.robot)
+        app = create_app(profiles, args.robot, guide=args.guide)
         print(f"Model viewer: http://127.0.0.1:{args.port} (rendered joints only)", flush=True)
         web.run_app(app, host="127.0.0.1", port=args.port, print=None)
         return 0
