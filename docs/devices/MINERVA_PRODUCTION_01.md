@@ -1684,3 +1684,30 @@ and no motor was enabled.
 
 Evidence: `calibration_runs/minerva-check/20260926T203544Z.json` on the PC and
 `~/minerva/evidence/check-motors-20260926T203544Z.json` on the Jetson.
+
+### 2026-09-26 — teleop loop on the Jetson (virtual receiver)
+
+Helm's teleop loop now runs on the Jetson from the deployed release. It uses the
+virtual receiver (the native harness), so no motor was commanded. The real
+leaders are served from the PC over the authenticated leader link on the tether.
+
+**Session run.** Start-up took 2.3 s. The lifecycle went Idle, Enable, then
+Engage (TELEOP after about 1.3 s of alignment), followed for 30 s, then Disable,
+and the session stopped cleanly.
+
+**Cycle times, same session with the loop on each computer:**
+
+| Loop on | Cycle p50 / p99 / max | Overruns | Largest gap between cycles | Late leader targets |
+|---|---|---|---|---|
+| Jetson | 6.5 / 14.4 / 26.5 ms | 0 | 40.5 ms | 10 |
+| PC | 4.7 / 5.8 / 8.6 ms | 0 | 41.0 ms | 18 |
+
+The Jetson loop keeps the 40 ms period with no measurable jitter. Its longest
+cycles are waits for a late leader reply (timeout 20 ms). Late targets (sample
+age plus margin over 50 ms) were isolated single cycles, and the lifecycle
+stayed in TELEOP.
+
+**Clock offset.** The Jetson's clock runs about 0.1–0.2 s ahead of the PC. That
+made the 3D view mark every robot pose stale until views were stamped on arrival
+at the PC.
+
