@@ -7,11 +7,11 @@ Produces a 17-DoF follower target each tick from:
   - lift (16):             RIGHT leader joystick y   (integrated), + jog
   - record toggle:         either leader's joystick button (press edges)
 
-Mapping is RELATIVE: on engage() we snapshot each leader pose and the current
-follower qpos, then target = engage_qpos + (leader_now - leader_engage). This
-means the follower never jumps when teleop engages and needs no absolute
-leader↔follower calibration to start. Keyboard/GUI `jog()` offsets add on top,
-so the whole app is fully runnable with NO leader hardware attached (jog-only).
+Arm mapping is ABSOLUTE range-to-range: calibrated leader fractions map onto
+follower intervals, with direction and arm swapping. engage() snapshots the
+follower pose for held axes and head/lift; leader anchors do not map arm targets.
+The collector limits torque onset during ENGAGING. GUI/keyboard jog trims add
+on top, with a separate jog-only workflow when no leader hardware is attached.
 
 A background reader thread polls both leaders as fast as the USB-CDC allows and
 caches the latest poses + joystick snapshots under a lock; target() (called at

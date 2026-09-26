@@ -1397,6 +1397,7 @@ class MinervaMainWindow(QMainWindow):
         self.output_dir = output_dir
         self.label_queue = label_queue if label_queue is not None else queue.Queue()
         self.params = params if params is not None else {}
+        self.guarded_shadow = bool((meta or {}).get("guarded_shadow"))
         self.settings = CollectorSettings()
         self._voice_seconds = float(self.settings.get("voice_seconds"))
         self.setWindowTitle("Minerva Demo Collector")
@@ -1422,6 +1423,18 @@ class MinervaMainWindow(QMainWindow):
         root = QVBoxLayout(central)
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(6)
+        self.mode_banner = None
+        self.mode_message = None
+        if self.guarded_shadow:
+            self.setWindowTitle("Minerva · guarded shadow teleoperation")
+            self.mode_banner = QLabel("VIRTUAL RECEIVER · live GELLO input · no physical motor connection")
+            self.mode_banner.setStyleSheet("background:#293d4b;color:#9de5d7;padding:10px;font-weight:600;")
+            self.mode_banner.setWordWrap(True)
+            root.addWidget(self.mode_banner)
+            self.mode_message = QLabel("Idle → Enable → Engage / Align; Shutdown returns the virtual arms slowly to zero.")
+            self.mode_message.setWordWrap(True)
+            self.mode_message.setStyleSheet("color:#e2c78e;padding:5px;")
+            root.addWidget(self.mode_message)
 
         # -- top status dashboard (row 1: robot · row 2: Jetson host) --
         self.stat = {}
@@ -1548,12 +1561,16 @@ class MinervaMainWindow(QMainWindow):
         footer.addWidget(self.saved_lbl)
         root.addLayout(footer)
 
-        self._setup_voice()
+        if self.guarded_shadow:
+            self._configure_guarded_shadow()
+        else:
+            self._setup_voice()
         self._setup_shortcuts()
 
     # -- builders --
     def _build_controls(self) -> QWidget:
         w = QFrame()
+        self.control_buttons = {}
         col = QVBoxLayout(w)
         col.setContentsMargins(10, 10, 10, 10)
         col.setSpacing(7)
@@ -1614,11 +1631,12 @@ class MinervaMainWindow(QMainWindow):
                  "H": "Disable the follower motors (H)"}
         for label, key, role in (("Idle", "I", "neutral"), ("Enable", "E", "info"),
                                  ("Teleop", "T", "go"), ("Disable", "H", "warn")):
-            b = QPushButton(label)
+            b = QPushButton("Engage / Align" if self.guarded_shadow and key == "T" else label)
             b.setToolTip(_tips[key])
             b.clicked.connect(lambda _=False, k=key: self._key(k))
             _style_btn(b, role, 44, 14)
             btns.addWidget(b)
+            self.control_buttons[key] = b
         col.addLayout(btns)
 
         # Zeroing + soft shutdown (Ready removed — was unused).
@@ -1634,6 +1652,7 @@ class MinervaMainWindow(QMainWindow):
             b.clicked.connect(lambda _=False, k=key: self._key(k))
             _style_btn(b, role, 38)
             btns2.addWidget(b)
+            self.control_buttons[key] = b
         col.addLayout(btns2)
 
         # Leader↔arm routing (persists across sessions; disabled while teleop is live).
@@ -1773,6 +1792,34 @@ class MinervaMainWindow(QMainWindow):
         col.addWidget(quit_btn)
         return w
 
+    def _configure_guarded_shadow(self):
+        reason = "Unavailable in guarded shadow mode; this session only verifies live inputs and the virtual collision-checked lifecycle."
+        for control in (self.record_btn, self.settings_btn, self.instr, self.action_combo,
+                        self.phase_btn, self.voice_btn, self.swap_btn, self.speed_slider,
+                        self.grip_kp_slider, self.grip_ff_enable, self.grip_ff_invert,
+                        self.grip_ff_slider, self.grav_enable, self.grav_scale_slider):
+            control.setEnabled(False)
+            control.setToolTip(reason)
+        for key in ("Z", "M", "K"):
+            self.control_buttons[key].setEnabled(False)
+            self.control_buttons[key].setToolTip(reason)
+        self.control_buttons["I"].setToolTip("Idle: read the virtual receiver without motor torque authority (I)")
+        self.control_buttons["E"].setToolTip("Enable: collision-check and hold the virtual robot's measured pose (E)")
+        self.control_buttons["T"].setToolTip("Engage / Align: approach the leader target through the guarded virtual path; press again to hold (T)")
+        self.control_buttons["H"].setToolTip("Disable the virtual receiver (H)")
+        self.control_buttons["X"].setToolTip("Return slowly to zero through collision checks, then disable the virtual receiver (X)")
+        self.right_tabs.setTabEnabled(1, False)
+        self.right_tabs.setTabToolTip(1, reason)
+        for row in self.rows.values():
+            for button in row.findChildren(QPushButton):
+                button.setEnabled(False)
+                button.setToolTip(reason)
+            row.bar.setToolTip("Virtual leader-to-follower alignment error. Small gaps do not qualify physical motion.")
+            row.dual.setToolTip("Virtual follower position and leader gap; physical motors are not connected.")
+        self.legend.setText("VIRTUAL: I idle · E enable · T engage / align · H disable · X slow shutdown · Q quit")
+        self.grip_ff_read.setText("unavailable · no leader current commands")
+        self.grav_read.setText("unavailable · virtual receiver")
+
     @staticmethod
     def _record_qss(recording: bool) -> str:
         bg = "#1b5e20" if recording else "#b71c1c"
@@ -1814,12 +1861,17 @@ class MinervaMainWindow(QMainWindow):
 
     # -- actions --
     def _key(self, k: str):
+        if self.guarded_shadow and k not in {"I", "E", "T", "H", "X", "Q"}:
+            self.mode_message.setText("This action is unavailable in guarded shadow. Use Idle, Enable, Engage / Align, Disable or Shutdown.")
+            return
         try:
             self.cmd_queue.put_nowait(k)
         except queue.Full:
             pass
 
     def _jog(self, idx: int, direction: float):
+        if self.guarded_shadow:
+            return
         try:
             self.teleop.jog(idx, direction)
         except Exception:
@@ -1877,6 +1929,8 @@ class MinervaMainWindow(QMainWindow):
         self.grav_scale_lbl.setText(f"Scale {int(v)}%")
 
     def _set_phase(self, _=False):
+        if self.guarded_shadow:
+            return
         lbl = self.action_combo.currentText().strip()
         if not lbl:
             return
@@ -2074,8 +2128,9 @@ class MinervaMainWindow(QMainWindow):
     def _quit(self):
         r = QMessageBox.question(
             self, "Quit collector",
-            "Quit the Minerva collector?\n\nThe follower arms will be disabled and any "
-            "in-progress recording finalized.",
+            ("Quit the guarded shadow session?\n\nThe virtual receiver will stop. Physical motors are not connected."
+             if self.guarded_shadow else "Quit the Minerva collector?\n\nThe follower arms will be disabled and any "
+             "in-progress recording finalized."),
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if r != QMessageBox.Yes:
             return
@@ -2097,7 +2152,12 @@ class MinervaMainWindow(QMainWindow):
         sb["state"].set(st, _STATE_COLORS.get(st, _C_IDLE))
         # Leaders can't be re-routed while engaging/teleoping (would lunge) — grey out.
         if hasattr(self, "swap_btn"):
-            self.swap_btn.setEnabled(st not in ("TELEOP", "ENGAGING"))
+            self.swap_btn.setEnabled(not self.guarded_shadow and st not in ("TELEOP", "ENGAGING"))
+        if self.guarded_shadow:
+            self.mode_message.setText(s.get("message") or "Virtual receiver; physical motors are not connected.")
+            self.mode_message.setStyleSheet("color:#ff9fa8;padding:5px;" if st == "FAULT" else "color:#e2c78e;padding:5px;")
+            for key in ("I", "E", "T", "H", "X"):
+                self.control_buttons[key].setEnabled(st != "FAULT")
 
         estop = s.get("estop")
         if estop is None:
@@ -2183,7 +2243,7 @@ class MinervaMainWindow(QMainWindow):
         else:
             self.record_btn.setText("● RECORD")
             self.record_btn.setStyleSheet(self._record_qss(False))
-            self.rec_status.setText("not recording" if st == "TELEOP"
+            self.rec_status.setText("recording unavailable · guarded shadow" if self.guarded_shadow else "not recording" if st == "TELEOP"
                                     else "engage teleop (T) to record")
         self.seg_lbl.setText(
             f"phase: {s.get('current_label') or '—'}    segments: {s.get('seg_count', 0)}")
@@ -2202,11 +2262,11 @@ class MinervaMainWindow(QMainWindow):
             row.set(a, led, t, tc, tq)
 
         ff = s.get("grip_ff_ma") or {}
-        if hasattr(self, "grip_ff_read"):
+        if hasattr(self, "grip_ff_read") and not self.guarded_shadow:
             self.grip_ff_read.setText(
                 f"L: {int(ff.get('left', 0))} mA   R: {int(ff.get('right', 0))} mA")
 
-        if hasattr(self, "grav_read"):
+        if hasattr(self, "grav_read") and not self.guarded_shadow:
             if s.get("grav_on"):
                 self.grav_read.setText(f"peak {s.get('grav_peak', 0.0):.1f} Nm")
                 self.grav_read.setStyleSheet("color:#9c9;")

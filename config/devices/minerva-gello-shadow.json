@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "id": "minerva-gello-shadow",
+  "simulation_only": true,
+  "runtime_approved": false,
+  "routes": [
+    {
+      "actuator": "right_gripper_finger_a_slide",
+      "leader": "right",
+      "channel": 6,
+      "scale": -0.01
+    },
+    {
+      "actuator": "right_arm_j6",
+      "leader": "right",
+      "channel": 5,
+      "scale": 1.0
+    },
+    {
+      "actuator": "right_arm_j5",
+      "leader": "right",
+      "channel": 4,
+      "scale": 1.0
+    },
+    {
+      "actuator": "right_arm_j4",
+      "leader": "right",
+      "channel": 3,
+      "scale": 1.0
+    },
+    {
+      "actuator": "right_arm_j3",
+      "leader": "right",
+      "channel": 2,
+      "scale": 1.0
+    },
+    {
+      "actuator": "right_arm_j2",
+      "leader": "right",
+      "channel": 1,
+      "scale": 1.0
+    },
+    {
+      "actuator": "right_arm_j1",
+      "leader": "right",
+      "channel": 0,
+      "scale": 1.0
+    },
+    {
+      "actuator": "left_gripper_finger_a_slide",
+      "leader": "left",
+      "channel": 6,
+      "scale": 0.01
+    },
+    {
+      "actuator": "left_arm_j6",
+      "leader": "left",
+      "channel": 5,
+      "scale": 1.0
+    },
+    {
+      "actuator": "left_arm_j5",
+      "leader": "left",
+      "channel": 4,
+      "scale": 1.0
+    },
+    {
+      "actuator": "left_arm_j4",
+      "leader": "left",
+      "channel": 3,
+      "scale": 1.0
+    },
+    {
+      "actuator": "left_arm_j3",
+      "leader": "left",
+      "channel": 2,
+      "scale": 1.0
+    },
+    {
+      "actuator": "left_arm_j2",
+      "leader": "left",
+      "channel": 1,
+      "scale": 1.0
+    },
+    {
+      "actuator": "left_arm_j1",
+      "leader": "left",
+      "channel": 0,
+      "scale": 1.0
+    }
+  ],
+  "notes": [
+    "Illustrative channel-to-CAD routes for the virtual controller only; signs and topology await leader visual verification.",
+    "The two slider scales are synthetic display gains, not gripper transmission calibration.",
+    "These are CAD coordinates and synthetic receiver joints, not ROBSTRIDE motor coordinates. Never deploy this as a hardware profile."
+  ]
+}

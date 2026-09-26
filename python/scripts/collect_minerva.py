@@ -144,6 +144,13 @@ def parse_args():
     p.add_argument("--notes", default="")
     p.add_argument("--max-steps", type=int, default=10000)
     p.add_argument("--dry-run", action="store_true", help="never send motor commands")
+    p.add_argument("--guarded-shadow", action="store_true",
+                   help="use the existing GUI lifecycle with live leaders and a guarded virtual receiver only")
+    p.add_argument("--model", default="urdf/minerva/model.json", help="model for guarded shadow mode")
+    p.add_argument("--leader-display-calibration", default="calibration_runs/gello-dual/display.json",
+                   help="saved display reference used only for the guarded shadow mapping")
+    p.add_argument("--leader-url", default="http://127.0.0.1:8767/",
+                   help="existing leader workbench URL; guarded shadow never opens its own USB reader")
     p.add_argument("--kp-scale", type=float, default=0.3,
                    help="scale on the arm KP (start low for first motion; raise once trusted)")
     p.add_argument("--grip-strength", type=float, default=1.5,
@@ -246,6 +253,15 @@ def _apply_follower_calibration(path: Path) -> int:
 
 def main():
     args = parse_args()
+    if args.guarded_shadow:
+        from collect_minerva_app.guarded import run_guarded
+        result = run_guarded(args)
+        if args.gui:
+            # Match the existing Qt worker teardown workaround, after cleanup.
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os._exit(result)
+        return result
     cfg = mcfg.load_config(args.config)
     ep = cfg["endpoints"]
     # The package launcher supplies validated endpoint settings. Preserve them
