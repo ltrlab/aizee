@@ -22,12 +22,11 @@ import json
 import math
 from pathlib import Path
 import secrets
-import socket
 import time
 
 from .deploy import BASE, smoke
 from .release import ROOT, check_binaries, collect, release_drift
-from .ssh import DEFAULT_PROFILE, TETHER, connect, run
+from .ssh import DEFAULT_PROFILE, TETHER, connect, route_source, run
 
 CURRENT = f'{BASE}/current'
 PROBE = f'cd {CURRENT} && PYTHONPATH=src python3 -u -m robot_platform.ops.probe'
@@ -286,18 +285,6 @@ def _builds(ctx):
     check_binaries(files, ctx.root)
     built = max(path.stat().st_mtime for key, path in files.items() if key.startswith(('bin/', 'lib/')))
     return PASS, f"Receiver, harness and collision library built {_ago(datetime.fromtimestamp(built, timezone.utc).isoformat())}, newer than their Rust sources"
-
-
-def route_source(address):
-    """The local address this PC would use to reach `address`, or None (no packet is sent)."""
-    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        probe.connect((address, 9))
-        return probe.getsockname()[0]
-    except OSError:
-        return None
-    finally:
-        probe.close()
 
 
 @check('pc', 'tether', 'Tether route')

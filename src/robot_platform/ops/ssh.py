@@ -8,6 +8,7 @@ import base64
 import hashlib
 import json
 from pathlib import Path
+import socket
 
 DEFAULT_PROFILE = Path(__file__).resolve().parents[3] / 'config/devices/minerva-joint-calibration.json'
 TETHER = '10.42.0.1'  # USB Ethernet tether; the control path never uses Wi-Fi.
@@ -58,3 +59,15 @@ def run(client, command, *, timeout=60., stdin=None):
     channel_in.channel.shutdown_write()
     stdout, stderr = out.read().decode(errors='replace'), err.read().decode(errors='replace')
     return out.channel.recv_exit_status(), stdout, stderr
+
+
+def route_source(address):
+    """The local address this PC would use to reach `address`, or None (no packet is sent)."""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect((address, 9))
+        return probe.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        probe.close()
