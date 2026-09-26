@@ -44,9 +44,12 @@ def _run(args, timeout=5.):
 
 
 def _read(path):
+    """A sysfs or proc value, or None when absent or unreadable."""
     try:
         return Path(path).read_text().strip()
-    except OSError:
+    except (OSError, ValueError, TypeError):
+        # A sysfs attribute that refuses the read (a disabled thermal zone) makes the
+        # buffered reader hand None to the decoder: TypeError, not OSError.
         return None
 
 
