@@ -127,13 +127,18 @@ def test_derivation_refuses_unsafe_or_incomplete_settings():
         derive(profile=profile(max_tracking_error=0.))
 
 
-def test_a_gripper_gets_its_whole_range_without_margin_reserve_or_lead_limit():
+def test_a_gripper_gets_its_whole_physical_range_without_margin_reserve_or_lead_limit():
     derived = derive(profile=profile(gripper=True))
     arm, grip = derived['report']
-    # CAD 0..3 rad in motor terms, swept -0.5..2: the whole overlap, no inset.
-    assert grip['operational'] == pytest.approx([0., 2.]) and grip['usable'] == pytest.approx([0., 2.])
+    # CAD is 0..3 rad in motor terms, but jaws physically close past the model's
+    # closed limit: the hand-swept -0.5..2 stands, with no inset.
+    assert grip['operational'] == pytest.approx([-.5, 2.]) and grip['usable'] == pytest.approx([-.5, 2.])
+    assert grip['binding'] == ['swept', 'swept'] and grip['cad'] == pytest.approx([0., 3.])
     assert grip['reserve'] == 0. and grip['home'] == pytest.approx(0.)
     assert arm['reserve'] > 0  # Arm joints keep their margin and reserve.
     joints = derived['config']['joints']
     assert joints[1]['gripper'] is True and 'gripper' not in joints[0]
-    assert derived['lifecycle'][1]['max_lead'] == pytest.approx(2.)  # A grasp may push past contact.
+    assert derived['lifecycle'][1]['max_lead'] == pytest.approx(2.5)  # A grasp may push past contact.
+    # Wherever it meets the model, the slide is clamped into its CAD range.
+    assert derived['cad_limits'] == {'slide': (0., .03)}
+    assert to_cad(derived['joint_map'], {'arm_j1': 0., 'gripper': -.5}, derived['cad_limits'])['slide'] == 0.

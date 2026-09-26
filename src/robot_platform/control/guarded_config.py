@@ -6,10 +6,13 @@ CAD viewing range (mapped through the motor-to-CAD direction or transmission),
 inset by a margin. Commands must also keep the receiver's stopping reserve
 inside that interval, so the usable target range is narrower still; both are
 reported. Grippers (motion setting "gripper": true) touch and hold objects:
-they get no margin and no reserve, since the receiver keeps their last target
-on a stop instead of braking, and their command may lead the measured position
-by their whole range (a grasp pushes past contact). Motion values come from a
-teleop profile and are not qualified by this derivation.
+their interval is their hand-swept physical travel (jaws close a little past the
+CAD slide's closed limit, so the model's range would stop them short), with no
+margin and no reserve, since the receiver keeps their last target on a stop
+instead of braking, and their command may lead the measured position by their
+whole range (a grasp pushes past contact). Their CAD values are clamped into the
+model's range wherever they meet the model (`cad_limits`). Motion values come
+from a teleop profile and are not qualified by this derivation.
 """
 from fnmatch import fnmatchcase
 import math
@@ -68,6 +71,7 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
     verified.update({t['motor']: t.get('direction_verified') is True for t in transmissions})
     grippers = {t['motor'] for t in transmissions}
     joints, lifecycle, initial, report = [], [], [], []
+    cad_limits = {}
     for motor in reference['motors']:
         name = motor['name']
         saved = limits['joints'].get(name)
@@ -78,9 +82,12 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
         cad_joint, row = by_motor[name]
         cad_lo, cad_hi = model.by_name[cad_joint]['control_bounds']
         cad_motor = sorted(((cad_lo - row['offset']) / row['scale'], (cad_hi - row['offset']) / row['scale']))
-        margin = 0. if gripper else settings['margin_rad']
-        lower = max(saved['min_rad'], cad_motor[0]) + margin
-        upper = min(saved['max_rad'], cad_motor[1]) - margin
+        if gripper:
+            lower, upper = saved['min_rad'], saved['max_rad']
+            cad_limits[cad_joint] = tuple(model.by_name[cad_joint].get('bounds') or (cad_lo, cad_hi))
+        else:
+            lower = max(saved['min_rad'], cad_motor[0]) + settings['margin_rad']
+            upper = min(saved['max_rad'], cad_motor[1]) - settings['margin_rad']
         speed = settings['max_velocity']
         if gripper:
             reserve = padding = 0.
@@ -110,8 +117,9 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
         report.append({'motor': name, 'cad_joint': cad_joint, 'scale': row['scale'], 'offset': row['offset'],
                        'swept': [saved['min_rad'], saved['max_rad']], 'cad': cad_motor,
                        'operational': [lower, upper], 'usable': list(usable), 'reserve': reserve + padding,
-                       'binding': ['cad' if cad_motor[0] > saved['min_rad'] else 'swept',
-                                   'cad' if cad_motor[1] < saved['max_rad'] else 'swept'],
+                       'binding': ['swept', 'swept'] if gripper else [
+                           'cad' if cad_motor[0] > saved['min_rad'] else 'swept',
+                           'cad' if cad_motor[1] < saved['max_rad'] else 'swept'],
                        'home': home, 'direction_verified': verified.get(name, False),
                        # Gripper slides: the motor direction that opens (away from the bound nearest zero).
                        # The CAD axis may be mirrored between arms; physical opening is what an operator sees.
@@ -125,10 +133,18 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
               'collision': {'world_revision': backend.runtime_model.world_revision, 'scope': policy['scope'],
                             'max_verdict_ms': policy['max_verdict_ms'], 'reaction_ms': policy['reaction_ms']}}
     return {'config': config, 'joint_map': joint_map, 'lifecycle': lifecycle,
-            'initial': initial, 'report': report}
+            'initial': initial, 'report': report, 'cad_limits': cad_limits}
 
 
-def to_cad(joint_map, motors):
-    """CAD joint positions for a {motor: position} mapping (display and collision)."""
-    return {joint: row['scale'] * motors[row['actuator']] + row['offset']
-            for joint, row in joint_map.items() if row['actuator'] in motors}
+def to_cad(joint_map, motors, limits=None):
+    """CAD joint positions for a {motor: position} mapping (display and collision).
+
+    `limits` ({cad joint: (low, high)}) clamps gripper slides, whose physical
+    travel passes the model's closed limit, into the model's range.
+    """
+    cad = {joint: row['scale'] * motors[row['actuator']] + row['offset']
+           for joint, row in joint_map.items() if row['actuator'] in motors}
+    for joint, (low, high) in (limits or {}).items():
+        if joint in cad:
+            cad[joint] = min(high, max(low, cad[joint]))
+    return cad

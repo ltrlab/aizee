@@ -23,8 +23,10 @@ def calibration_revision(mapping):
 
 class CollisionEnvelopeCompiler:
     def __init__(self, backend, config, joint_map, *, clearance_m=.005,
-                 max_skew_ms=10, compute_budget_s=.03, clock=time.perf_counter):
+                 max_skew_ms=10, compute_budget_s=.03, cad_limits=None, clock=time.perf_counter):
         self.backend, self.config = backend, deepcopy(config)
+        # Gripper slides travel a little past the model's closed limit; clamp them for queries.
+        self.cad_limits = dict(cad_limits or {})
         self.clock, self.compute_budget_s = clock, compute_budget_s
         self.clearance_m, self.max_skew_ms = clearance_m, max_skew_ms
         self.mapping = {name: value if isinstance(value, JointCalibration) else JointCalibration(**value)
@@ -126,6 +128,9 @@ class CollisionEnvelopeCompiler:
             a, b = {}, {}
             for name, calibration in self.mapping.items():
                 values = [q * calibration.scale + calibration.offset for q in bounds[calibration.actuator]]
+                if name in self.cad_limits:
+                    low, high = self.cad_limits[name]
+                    values = [min(high, max(low, value)) for value in values]
                 a[name], b[name] = min(values), max(values)
             result = check_linear_motion(self.backend, a, b, clearance_m=self.clearance_m,
                                          deadline=deadline, clock=self.clock, subdivide=False,
