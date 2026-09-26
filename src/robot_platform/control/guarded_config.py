@@ -60,6 +60,16 @@ def cad_map(reference, steps, directions, transmissions):
     return result
 
 
+def arm_subset(reference, steps, transmissions, arm):
+    """(reference, steps, transmissions) for one arm's motors, which must share one CAN bus."""
+    motors = [motor for motor in reference['motors'] if motor['name'].startswith(arm + '_')]
+    if not motors or len({motor['bus'] for motor in motors}) != 1:
+        raise ValueError(f'The {arm} arm must be the motors of one CAN bus')
+    names = {motor['name'] for motor in motors}
+    return (dict(reference, motors=motors), [step for step in steps if step['motor'] in names],
+            [entry for entry in transmissions if entry['motor'] in names])
+
+
 def derive_receiver(*, reference, steps, directions, transmissions, model, limits, profile, backend):
     """Receiver config, CAD map, lifecycle joints, initial pose and a per-joint report."""
     joint_map = cad_map(reference, steps, directions, transmissions)

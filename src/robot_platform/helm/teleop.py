@@ -22,7 +22,7 @@ from pathlib import Path
 import threading
 import time
 
-from robot_platform.control.guarded_config import derive_receiver, to_cad
+from robot_platform.control.guarded_config import arm_subset, derive_receiver, to_cad
 from robot_platform.control.joint_calibration import save_json
 from robot_platform.control.scheduling import prefer_responsive
 from .limits import utc_now
@@ -298,13 +298,7 @@ class TeleopCore:
             if self.collision_mode != 'advisory' or 'live' not in self.profile:
                 raise ValueError('Live teleop needs the profile\'s live block and advisory collision checks: '
                                  'one arm, until a two-arm collision bound exists')
-            motors = [m for m in reference['motors'] if m['name'].startswith(self.live_arm + '_')]
-            if not motors or len({m['bus'] for m in motors}) != 1:
-                raise ValueError(f'The {self.live_arm} arm must be the motors of one CAN bus')
-            names = {motor['name'] for motor in motors}
-            reference = dict(reference, motors=motors)
-            steps = [step for step in steps if step['motor'] in names]
-            transmissions = [t for t in transmissions if t['motor'] in names]
+            reference, steps, transmissions = arm_subset(reference, steps, transmissions, self.live_arm)
         backend = self.open_backend(model)
         self._closers.append(backend.close)
         derived = derive_receiver(reference=reference, steps=steps, directions=self.bundle['directions'],
