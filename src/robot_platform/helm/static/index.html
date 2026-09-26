@@ -5,11 +5,12 @@
   <title>Helm</title>
   <link rel="stylesheet" href="helm/helm.css">
 </head>
-<body data-feed="disconnected" data-tab="limits">
+<body data-feed="disconnected" data-tab="check">
   <header>
     <div class="brand"><span class="mark" aria-hidden="true">⎈</span><div><span class="name">Helm</span><small id="robot-name">Loading robot…</small></div></div>
     <nav aria-label="Workspaces">
-      <button class="tab" data-tab="limits" aria-current="page">Limits</button>
+      <button class="tab" data-tab="check" aria-current="page">Check</button>
+      <button class="tab" data-tab="limits">Limits</button>
       <button class="tab" data-tab="leaders">Leaders</button>
       <button class="tab" data-tab="teleop">Teleop</button>
     </nav>
@@ -24,7 +25,22 @@
       <iframe id="model-view" src="viewer?embed=1" title="Live robot model"></iframe>
     </section>
     <aside>
-      <section id="panel-limits" class="panel" aria-label="Joint limits">
+      <section id="panel-check" class="panel" aria-label="Minerva Check">
+        <div class="panel-head">
+          <div class="eyebrow">MINERVA CHECK · MOTORS STAY DISABLED</div>
+          <h1>Is Minerva ready?</h1>
+          <p class="lead">Checks this PC's calibration and leaders, the tether, the Jetson's release and health,
+            then reads every motor while it stays disabled. Run it before each session, with the foot switch
+            within reach.</p>
+          <div id="c-verdict" class="verdict" role="status"><b>Not run yet</b><span>Press Run check.</span></div>
+        </div>
+        <div id="check-stages" class="scroll"></div>
+        <div class="save-bar">
+          <p id="check-status" role="status"></p>
+          <button id="c-run" class="primary">Run check</button>
+        </div>
+      </section>
+      <section id="panel-limits" class="panel" aria-label="Joint limits" hidden>
         <div class="panel-head">
           <div class="eyebrow">JOINT LIMITS · MOTORS STAY DISABLED</div>
           <h1>Sweep each joint by hand</h1>

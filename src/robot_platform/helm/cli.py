@@ -35,7 +35,11 @@ def main(argv=None):
             from .teleop import TeleopSession
             leaders = LeaderWorkspace(args.teleop, labels=session.labels, evidence=session.evidence)
             teleop = TeleopSession(session, args.teleop, runs=args.runs, leaders=leaders)
-        app = create_app(session, link, teleop=teleop, leaders=leaders)
+        from robot_platform.ops.check import DEFAULT_TELEOP
+        from .check import CheckWorkspace
+        check = CheckWorkspace(profile=session.profile_path, teleop=args.teleop or DEFAULT_TELEOP,
+                               runs=args.runs, limits=session.limits_path)
+        app = create_app(session, link, teleop=teleop, leaders=leaders, check=check)
         if session.stale_lock_pid:
             print(f'Took over a calibration lock left by exited process {session.stale_lock_pid}.', flush=True)
         print(f'Helm: http://127.0.0.1:{args.port}/  ({session.asset_id}; not connected until you press Connect)',

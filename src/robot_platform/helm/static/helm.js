@@ -19,7 +19,7 @@ async function request(path, payload) {
   return data;
 }
 
-const STATUS = {limits: 'action-status', leaders: 'leaders-status', teleop: 'teleop-status'};
+const STATUS = {check: 'check-status', limits: 'action-status', leaders: 'leaders-status', teleop: 'teleop-status'};
 
 function say(text, kind = '') {
   const status = $(STATUS[document.body.dataset.tab] || 'action-status');
@@ -182,6 +182,81 @@ function render(state) {
   for (const row of limits.rows) update(cards.get(row.name), row, live);
   renderLeaders(state.leaders);
   renderTeleop(state.teleop);
+  renderCheck(state.check);
+}
+
+// ---- Minerva Check -------------------------------------------------------------
+const CHECK_ICON = {pass: '✓', warn: '!', fail: '✕', skip: '–', pending: '·', running: '…'};
+const VERDICT = {go: 'GO', no_go: 'NO GO', incomplete: 'INCOMPLETE'};
+const crows = new Map();
+let checkLayout = '';
+
+function renderCheck(c) {
+  const tab = document.querySelector('.tab[data-tab=check]');
+  tab.disabled = !c;
+  if (!c) {
+    if (document.body.dataset.tab === 'check') showTab('limits');
+    return;
+  }
+  const report = c.report;
+  const run = $('c-run');
+  run.disabled = c.running;
+  run.textContent = c.running ? 'Checking…' : 'Run check';
+
+  const checks = report ? report.stages.flatMap(stage => stage.checks) : [];
+  const done = checks.filter(entry => !['pending', 'running'].includes(entry.status)).length;
+  const verdict = $('c-verdict');
+  const [title, detail] = verdict.children;
+  if (c.error) {
+    verdict.dataset.verdict = 'no_go';
+    [title.textContent, detail.textContent] = ['Check stopped', c.error];
+  } else if (c.running || report?.state === 'running') {
+    verdict.dataset.verdict = 'running';
+    const current = checks.find(entry => entry.status === 'running');
+    title.textContent = `Checking… ${done}/${checks.length || '—'}`;
+    detail.textContent = current ? current.title : 'Starting';
+  } else if (report) {
+    verdict.dataset.verdict = report.verdict;
+    title.textContent = VERDICT[report.verdict] || report.verdict;
+    const when = new Date(report.finished_at || report.started_at).toLocaleString();
+    detail.textContent = `${report.summary.replace(/^(NO GO|GO|INCOMPLETE):?\s*/, '')} · ${when}`
+      + (report.seconds ? ` · ${Math.round(report.seconds)} s` : '');
+  } else {
+    verdict.dataset.verdict = '';
+    [title.textContent, detail.textContent] = ['Not run yet', 'Press Run check.'];
+  }
+
+  const container = $('check-stages');
+  const layout = report ? report.stages.map(stage => `${stage.id}:${stage.checks.map(e => e.id)}`).join('|') : '';
+  if (layout !== checkLayout) {
+    container.replaceChildren();
+    crows.clear();
+    checkLayout = layout;
+    for (const stage of report ? report.stages : []) {
+      const heading = document.createElement('div');
+      heading.className = 'arm';
+      heading.textContent = stage.title.toUpperCase();
+      container.append(heading);
+      for (const entry of stage.checks) {
+        const row = document.createElement('div');
+        row.className = 'crow';
+        row.innerHTML = `<span class="cicon" aria-hidden="true"></span><div class="ctext"><span class="ctitle"></span>
+          <span class="cdetail"></span></div><span class="ctime"></span>`;
+        row.querySelector('.ctitle').textContent = entry.title;
+        crows.set(`${stage.id}/${entry.id}`, row);
+        container.append(row);
+      }
+    }
+  }
+  for (const stage of report ? report.stages : []) {
+    for (const entry of stage.checks) {
+      const row = crows.get(`${stage.id}/${entry.id}`);
+      row.dataset.status = entry.status;
+      row.querySelector('.cicon').textContent = CHECK_ICON[entry.status] || '?';
+      row.querySelector('.cdetail').textContent = entry.status === 'running' ? 'Checking…' : entry.detail;
+      row.querySelector('.ctime').textContent = entry.seconds == null ? '' : `${entry.seconds.toFixed(1)} s`;
+    }
+  }
 }
 
 // ---- Leaders workspace -------------------------------------------------------
@@ -472,16 +547,16 @@ $('teleop-session').onclick = () => {
 
 function showTab(name) {
   const chosen = document.querySelector(`.tab[data-tab=${name}]`);
-  if (!chosen || chosen.disabled) name = 'limits';
+  if (!chosen || chosen.disabled) name = 'check';
   document.body.dataset.tab = name;
   for (const tab of document.querySelectorAll('.tab[data-tab]')) {
     if (tab.dataset.tab === name) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current');
   }
-  for (const panel of ['limits', 'leaders', 'teleop']) $(`panel-${panel}`).hidden = name !== panel;
+  for (const panel of ['check', 'limits', 'leaders', 'teleop']) $(`panel-${panel}`).hidden = name !== panel;
   try { localStorage.setItem('helm-tab', name); } catch { /* storage unavailable */ }
 }
 for (const tab of document.querySelectorAll('.tab[data-tab]')) tab.onclick = () => showTab(tab.dataset.tab);
-try { showTab(localStorage.getItem('helm-tab') || 'limits'); } catch { showTab('limits'); }
+try { showTab(localStorage.getItem('helm-tab') || 'check'); } catch { showTab('check'); }
 
 $('connect').onclick = () => {
   const running = last?.link?.running;
@@ -489,6 +564,7 @@ $('connect').onclick = () => {
     running ? 'Disconnected. CAN links are down.' : 'Connecting. Motors stay disabled.');
 };
 $('save').onclick = () => act('/api/helm/limits/save', {}, () => `Saved to ${last.limits.path}.`);
+$('c-run').onclick = () => act('/api/helm/check/run', {}, 'Minerva Check started. Motors stay disabled.');
 $('l-connect').onclick = () => {
   const connected = ['reading', 'connecting'].includes(last?.leaders?.state);
   act(connected ? '/api/helm/leaders/disconnect' : '/api/helm/leaders/connect', {},
