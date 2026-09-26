@@ -1,0 +1,21 @@
+{
+  "asset_id": "minerva-production-01",
+  "robot": "minerva",
+  "hostname": "aizee-rover",
+  "address": "192.168.8.180",
+  "module_serial": "1421623029971",
+  "machine_id": "661607618a944c90a32de217d0c92476",
+  "can_up_helper": "/usr/local/bin/aizee-can-up",
+  "conflicting_services": ["aizee-minerva-left", "aizee-minerva-right", "aizee-motor-control-rover"],
+  "buses": [
+    {"interface": "canL", "usb_serial": "004D002C4730511520303650", "hardware_profile": "config/hardware_minerva_left.yaml"},
+    {"interface": "canR", "usb_serial": "0021002F4D53530920303937", "hardware_profile": "config/hardware_minerva_right.yaml"}
+  ],
+  "support_loss": "User confirmed on 2026-09-24 that the arms may fall safely on the test stand.",
+  "programmatic_power_cutoff": false,
+  "retired_stop_design": "ESP-NOW receiver and serial bridge; replacement deferred by user.",
+  "motor_models_verified": true,
+  "motor_model_evidence": "User confirmed physical labels on 2026-09-24: each arm IDs 4..10 are RS03, RS04, RS03, RS02, RS02, RS00, RS00.",
+  "motor_to_cad_calibration_verified": false,
+  "physical_stopping_verified": false
+}

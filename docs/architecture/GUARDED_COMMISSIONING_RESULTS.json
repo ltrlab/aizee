@@ -1,0 +1,95 @@
+{
+  "date": "2026-09-24",
+  "asset_id": "minerva-production-01",
+  "module_serial": "1421623029971",
+  "stage": "/home/ltr/aizee/device-maintenance/guarded-20260924T164504Z",
+  "artifact_sha256": "6e09e60b4b35a815dfd6a2d3effc87142b0c9ca93bf70572922f8ec9300205ae",
+  "benchmark_source": "bench-scheduled-1000/result.json",
+  "benchmark_sha256": "06933bf0436e596f21a427cf731c7a4794e6817b3a0fc05e19d3a00a1de6dd5f",
+  "benchmark": {
+    "robot": "minerva",
+    "evidence": "synthetic-vcan",
+    "pid": 5452,
+    "checks": {
+      "virtual_mode_refuses_physical_can": true,
+      "probe_requires_explicit_trial_flag": true,
+      "zero_torque_rejects_multiple_motors": true,
+      "startup_disarmed": true,
+      "silent_producer_expires": true,
+      "replay_rejected": true,
+      "batch_rejection_is_complete": true,
+      "missing_feedback_disables": true,
+      "scheduler_stall_latches_fault": true,
+      "legacy_motion_rejected": true,
+      "sigterm_disables_virtual_motors": true,
+      "restart_rejects_old_authority": true,
+      "25hz_guarded_commands": true
+    },
+    "cycles_requested": 1000,
+    "fault_trial_summary": {
+      "disable_operation_succeeded": true,
+      "disable_transmit_attempted": true,
+      "mode": "virtual_can",
+      "rx_frames": 1610,
+      "timing": {
+        "deadline_misses": 1,
+        "maximum_lateness_us": 148493,
+        "maximum_work_us": 515,
+        "overruns": 1,
+        "rejected_frames": 1,
+        "ticks": 240
+      },
+      "tx_frames": 2590
+    },
+    "cycles_completed": 1000,
+    "cycle_p50_ms": 7.426629999827128,
+    "cycle_p99_ms": 7.747062000362348,
+    "cycle_max_ms": 7.9049269997995,
+    "scheduled_40ms_misses": 0,
+    "nominal_faults": 0,
+    "control_timing_before": {
+      "ticks": 78,
+      "overruns": 0,
+      "maximum_lateness_us": 60,
+      "maximum_work_us": 162,
+      "rejected_frames": 0,
+      "deadline_misses": 0
+    },
+    "control_timing_after": {
+      "ticks": 16067,
+      "overruns": 0,
+      "maximum_lateness_us": 434,
+      "maximum_work_us": 315,
+      "rejected_frames": 0,
+      "deadline_misses": 0
+    },
+    "tx_frames": 223902,
+    "rx_frames": 104692,
+    "success": true,
+    "service_stdout": "{\"disable_operation_succeeded\":true,\"disable_transmit_attempted\":false,\"mode\":\"virtual_can\",\"rx_frames\":104692,\"timing\":{\"deadline_misses\":0,\"maximum_lateness_us\":434,\"maximum_work_us\":315,\"overruns\":0,\"rejected_frames\":0,\"ticks\":16067},\"tx_frames\":223902}\n",
+    "service_stderr": "",
+    "service_exit": 0
+  },
+  "physical_interfaces": {
+    "canL": {
+      "serial": "004D002C4730511520303650",
+      "state": "DOWN",
+      "rx_packets": 0,
+      "tx_packets": 0
+    },
+    "canR": {
+      "serial": "0021002F4D53530920303937",
+      "state": "DOWN",
+      "rx_packets": 0,
+      "tx_packets": 0
+    }
+  },
+  "software_tests": {
+    "rust": 22,
+    "python_full_suite": 429,
+    "python_final_affected": 17
+  },
+  "qualification": "Ready for supervised read-only motor parameter trial; physical movement and full collision supervisor remain unqualified",
+  "scope_note": "Historical synthetic benchmark and pre-trial interface snapshot; later physical commissioning is recorded separately.",
+  "subsequent_hardware_evidence": "../devices/MINERVA_MOTOR_COMMISSIONING_20260924.json"
+}
