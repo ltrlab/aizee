@@ -11,6 +11,7 @@ from robot_platform.control.joint_calibration import load_plan
 from robot_platform.helm.session import HelmSession
 from robot_platform.ops import check, probe
 from robot_platform.ops.release import ROOT, _sha, collect, release_drift
+from robot_platform.teleop.leader_link import LeaderLinkServer, SyntheticLeaders
 from robot_platform.teleop.leader_ranges import range_table
 from robot_platform.teleop.openrb import LeaderSample
 
@@ -161,12 +162,22 @@ def loopback(monkeypatch):
     monkeypatch.setattr('serial.tools.list_ports.comports', lambda: ports)
 
 
+def serve_in_process(profile, key, robot, *, local, real):
+    """The PC end of the link in this process (LeaderLinkProcess is tested on its own)."""
+    server = LeaderLinkServer(SyntheticLeaders(profile), key, robot, local=local).start()
+
+    def close():
+        server.close()
+        return {'served': server.served, 'skipped': server.skipped, 'rejected': server.rejected,
+                'failure': server.failure}
+    return SimpleNamespace(close=close)
+
+
 def run(runs, robot, *, leaders=None, **options):
     leaders = leaders or Leaders()
     published = []
     report = check.run_check(runs=runs, address='127.0.0.1', link_seconds=1., open_ssh=lambda *a, **k: robot,
-                             open_leaders=lambda profile: leaders,
-                             open_link_source=lambda profile, real: (check.SyntheticPair(profile), 'synthetic'),
+                             open_leaders=lambda profile: leaders, serve_link=serve_in_process,
                              publish=published.append, **options)
     return report, {entry['id']: entry for stage in report['stages'] for entry in stage['checks']}, published
 
@@ -178,6 +189,7 @@ def test_a_complete_check_of_a_healthy_robot_is_a_go_and_is_saved(runs, loopback
     assert {entry['status'] for key, entry in checks.items() if key != 'sweep'} <= {'pass', 'warn'}
     assert checks['sweep']['status'] == 'pending'
     assert checks['link']['status'] != 'fail' and checks['link']['data']['fresh'] > 0
+    assert checks['link']['data']['pc']['served'] >= checks['link']['data']['fresh']
     assert 'All 14 motors answered' in checks['scan']['detail'] and 'inside their swept ranges' in checks['pose']['detail']
     assert any(entry['status'] == 'running' for stage in published[0]['stages'] for entry in stage['checks'])
     assert robot.closed and sum(command.endswith('probe motors') for command in robot.commands) == 1

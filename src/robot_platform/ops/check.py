@@ -67,12 +67,12 @@ class Context:
     """Options plus what earlier checks found (plan, limits, SSH client, probe results)."""
 
     def __init__(self, *, root, profile, teleop, runs, limits, address, motors, link_seconds, leaders_busy,
-                 open_ssh, open_leaders, open_link_source):
+                 open_ssh, open_leaders, serve_link):
         self.root, self.profile, self.teleop = Path(root), Path(profile).resolve(), Path(teleop).resolve()
         self.runs, self.limits_path = Path(runs).resolve(), limits
         self.address, self.motors, self.link_seconds = address, motors, link_seconds
         self.leaders_busy = leaders_busy or (lambda: None)
-        self.open_ssh, self.open_leaders, self.open_link_source = open_ssh, open_leaders, open_link_source
+        self.open_ssh, self.open_leaders, self.serve_link = open_ssh, open_leaders, serve_link
         self.client = None
         self.facts = {}
 
@@ -394,38 +394,14 @@ def _health(ctx):
     return status, ' · '.join(text for _, text in findings), report
 
 
-class SyntheticPair:
-    """A steady, fresh leader pair for the network path alone, when the real leaders are busy."""
-
-    def __init__(self, profile, clock=time.perf_counter):
-        self.pins = {name: item['usb_serial'] for name, item in profile['leaders'].items()}
-        self.clock, self.sequence = clock, 0
-
-    def poll(self):
-        from robot_platform.teleop.openrb import LeaderSample
-        self.sequence += 1
-        now = self.clock()
-        return {name: LeaderSample((0.,) * 7, (0,) * 7, self.sequence, now, now, (0, 0, 0, 0),
-                                   10 * self.sequence, 10 * self.sequence + 1) for name in self.pins}
-
-    def close(self):
-        pass
-
-
-def link_source(profile, real):
-    """Real leaders when free (the whole path), otherwise a synthetic pair (network path only)."""
-    if not real:
-        return SyntheticPair(profile), 'synthetic leaders (network path only)'
-    from robot_platform.teleop.leader_bridge import LatestLeaderInputs
-    from robot_platform.teleop.openrb import OpenRBInputs
-    leaders = LatestLeaderInputs(OpenRBInputs(profile), rate_hz=100.)
-    leaders.connect()
-    return leaders, 'the real leaders'
+def serve_link(profile, key, robot, *, local, real):
+    """The PC end of the leader link, as a session runs it: its own responsive process."""
+    from robot_platform.teleop.leader_link import LeaderLinkProcess
+    return LeaderLinkProcess(profile, key, robot, local=local, real=real).start()
 
 
 @check('jetson', 'link', 'Leader link at 25 Hz', requires=('release', 'leader_ranges'))
 def _link(ctx):
-    from robot_platform.teleop.leader_link import LeaderLinkServer
     profile, key = ctx.facts['leader_profile'], secrets.token_bytes(32)
     stdin, stdout, stderr = ctx.client.exec_command(f'{PROBE} link', timeout=ctx.link_seconds + 20)
     stdin.write(f'{key.hex()}\n{json.dumps(profile)}\n{ctx.link_seconds}\n{ctx.address}\n')
@@ -433,27 +409,34 @@ def _link(ctx):
     ready = stdout.readline().split()
     if len(ready) != 2 or ready[0] != 'ready':
         raise RuntimeError(f"The link probe did not start: {' '.join(ready) or stderr.read().decode()[-300:]}")
-    source, described = ctx.open_link_source(profile, ctx.facts.get('leaders_readable', False))
-    server = LeaderLinkServer(source, key, (ctx.address, int(ready[1])),
-                              local=(ctx.facts.get('local_address', '0.0.0.0'), 0)).start()
+    real = ctx.facts.get('leaders_readable', False)  # Free and healthy: test the whole path with them.
+    try:
+        server = ctx.serve_link(profile, key, (ctx.address, int(ready[1])),
+                                local=(ctx.facts.get('local_address', '0.0.0.0'), 0), real=real)
+    except Exception:
+        stdin.channel.close()  # The robot side gives up after 10 s without a hello.
+        raise
     try:
         line = stdout.readline()
     finally:
-        server.close()
-        source.close()
+        pc = server.close()
     try:
         report = json.loads(line)
     except ValueError:
         raise RuntimeError(f'The link probe ended without a result: {stderr.read().decode()[-300:]}')
     if not report.get('ok'):
         return FAIL, f"The robot's leader input failed: {report.get('error')}"
+    report['pc'] = pc
     cycles, fresh, age = report['cycles'], report['fresh'], report['age_ms']
     share = fresh / cycles if cycles else 0
     status = PASS if share >= .98 and (age['p99'] or math.inf) < report['max_age_ms'] else WARN if share >= .9 else FAIL
-    detail = (f"{fresh}/{cycles} fresh pairs from {described} · sample age p50 {age['p50']} ms, p99 {age['p99']} ms "
-              f"(limit {report['max_age_ms']} ms) · longest gap {report['longest_skip_run']} cycle(s)")
+    detail = (f"{fresh}/{cycles} fresh pairs from {'the real leaders' if real else 'synthetic leaders (network only)'}"
+              f" · sample age p50 {age['p50']} ms, p99 {age['p99']} ms (limit {report['max_age_ms']} ms)"
+              f" · longest gap {report['longest_skip_run']} cycle(s)")
     if report.get('last_skip') and status != PASS:
         detail += f" · last skip: {report['last_skip']}"
+    if pc.get('failure') or pc.get('error'):
+        status, detail = FAIL, detail + f" · PC side: {pc.get('failure') or pc.get('error')}"
     return status, detail, report
 
 
@@ -590,7 +573,7 @@ def verdict(report):
 
 def run_check(*, root=ROOT, profile=DEFAULT_PROFILE, teleop=DEFAULT_TELEOP, runs=DEFAULT_RUNS, limits=None,
               address=TETHER, motors=True, link_seconds=5., leaders_busy=None, publish=None, save=True,
-              open_ssh=connect, open_leaders=None, open_link_source=link_source):
+              open_ssh=connect, open_leaders=None, serve_link=serve_link):
     """Run every check in order; publish(report) after each change. Returns the final report."""
     if open_leaders is None:
         def open_leaders(leader_profile):
@@ -600,7 +583,7 @@ def run_check(*, root=ROOT, profile=DEFAULT_PROFILE, teleop=DEFAULT_TELEOP, runs
             return inputs
     ctx = Context(root=root, profile=profile, teleop=teleop, runs=runs, limits=limits, address=address,
                   motors=motors, link_seconds=link_seconds, leaders_busy=leaders_busy, open_ssh=open_ssh,
-                  open_leaders=open_leaders, open_link_source=open_link_source)
+                  open_leaders=open_leaders, serve_link=serve_link)
     publish = publish or (lambda report: None)
     report = {'schema': 1, 'kind': 'minerva_check', 'asset_id': None, 'address': address,
               'started_at': _now(), 'finished_at': None, 'state': 'running', 'verdict': None, 'summary': None,
