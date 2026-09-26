@@ -88,6 +88,7 @@ class FakeRobot:
             'error': 'FileNotFoundError: no release.json'}
         self.health, self.motors = health_report or health(), motors_report or scan()
         self.commands, self.closed = [], False
+        self.staged, self.validated, self.cleaned = {}, [], False
 
     def exec_command(self, command, timeout=None):
         self.commands.append(command)
@@ -105,6 +106,14 @@ class FakeRobot:
             stdout.write(json.dumps({'ok': True, **self.health, 'time': time.time()}) + '\n')
         elif command.endswith('probe motors'):
             stdout.write(json.dumps({'ok': True, **self.motors}) + '\n')
+        elif ' && cat > ' in command:
+            self.staged[command.rsplit(' ', 1)[-1]] = stdin
+        elif command.endswith('--validate'):
+            config = json.loads(''.join(self.staged[command.split()[1]].lines.queue))
+            self.validated.append(config)
+            stdout.write('configuration valid; no sockets opened\n' if config['mode'] == 'teleop' else '')
+        elif command.startswith('rm -rf /tmp/minerva-check-'):
+            self.cleaned = True
         else:
             raise AssertionError(f'Unexpected command {command}')
         return stdin, stdout, stderr
@@ -193,6 +202,9 @@ def test_a_complete_check_of_a_healthy_robot_is_a_go_and_is_saved(runs, loopback
     assert 'All 14 motors answered' in checks['scan']['detail'] and 'inside their swept ranges' in checks['pose']['detail']
     assert any(entry['status'] == 'running' for stage in published[0]['stages'] for entry in stage['checks'])
     assert robot.closed and sum(command.endswith('probe motors') for command in robot.commands) == 1
+    assert [len(config['motors']) for config in robot.validated] == [7, 7] and robot.cleaned
+    assert [config['buses'][0]['interface'] for config in robot.validated] == ['canL', 'canR']
+    assert 'Both arms' in checks['live_config']['detail']
     saved = check.latest_report(runs)
     assert saved['verdict'] == 'go' and saved['evidence'] == report['evidence']
 

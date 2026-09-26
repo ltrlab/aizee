@@ -6,8 +6,9 @@ skipped too, never guessed:
      leader ranges and zero, routes, the teleop receiver configuration, the
      leader arms, the ARM64 builds and the route to the tether.
   2. Link and Jetson: pinned SSH over the tether, the deployed release (intact,
-     matching this PC, smoke-tested), the Jetson's health and leader-link round
-     trips at the control rate.
+     matching this PC, smoke-tested), each arm's live receiver configuration
+     validated by the deployed receiver, the Jetson's health and leader-link
+     round trips at the control rate.
   3. Motors, stopped: CAN system setup, adapters and services, then the stopped
      reader's scan of every motor (identity, firmware, fault-free Reset and one
      position each; CAN ends down) and every position inside its swept range.
@@ -200,18 +201,25 @@ def _routes(ctx):
     return PASS, f'All {len(motors)} motors routed with confirmed directions'
 
 
-@check('pc', 'receiver', 'Teleop receiver configuration', requires=('directions', 'limits', 'routes'))
-def _receiver(ctx):
+def _derive(ctx, arm=None):
+    """The teleop receiver derived from this PC's calibration: the whole robot, or one arm."""
     from types import SimpleNamespace
-    from robot_platform.control.guarded_config import derive_receiver
+    from robot_platform.control.guarded_config import arm_subset, derive_receiver
+    reference, steps, transmissions = ctx.facts['reference'], ctx.facts['plan']['steps'], ctx.facts['transmissions']
+    if arm is not None:
+        reference, steps, transmissions = arm_subset(reference, steps, transmissions, arm)
     # The derivation reads only identity revisions from the collision backend, so
     # skip the ~8 s CAD collision load here; the release smoke test loads the model.
     revisions = SimpleNamespace(policy_revision='check', runtime_model=SimpleNamespace(revision='check',
                                                                                         world_revision='check'))
-    derived = derive_receiver(reference=ctx.facts['reference'], steps=ctx.facts['plan']['steps'],
-                              directions=ctx.facts['directions'], transmissions=ctx.facts['transmissions'],
-                              model=ctx.facts['model'], limits=ctx.facts['limits'], profile=ctx.facts['teleop'],
-                              backend=revisions)
+    return derive_receiver(reference=reference, steps=steps, directions=ctx.facts['directions'],
+                           transmissions=transmissions, model=ctx.facts['model'], limits=ctx.facts['limits'],
+                           profile=ctx.facts['teleop'], backend=revisions)
+
+
+@check('pc', 'receiver', 'Teleop receiver configuration', requires=('directions', 'limits', 'routes'))
+def _receiver(ctx):
+    derived = _derive(ctx)
     rows = derived['report']
     share = {row['motor']: (row['usable'][1] - row['usable'][0]) / (row['swept'][1] - row['swept'][0])
              for row in rows}
@@ -346,6 +354,41 @@ def _smoke(ctx):
         return FAIL, f"The smoke test failed on the robot: {report.get('error')}"
     return PASS, (f"Collision model loads in {report['load_ms']} ms, keep-out query p50 "
                   f"{report['keepout_query_ms']['p50']} ms, receiver harness {report['receiver_harness']}"), report
+
+
+@check('jetson', 'live_config', 'Live receiver configuration', requires=('release', 'receiver'))
+def _live_config(ctx):
+    from robot_platform.control.commissioning import motor_models
+    from robot_platform.control.live_receiver import service_config
+    live = ctx.facts['teleop'].get('live')
+    if live is None:
+        return WARN, 'The teleop profile has no live block, so live teleop is not available'
+    models = motor_models(ctx.facts['device'], ctx.root)
+    directory = f'/tmp/minerva-check-{secrets.token_hex(4)}'
+    problems = []
+    try:
+        for arm in ('left', 'right'):
+            derived = _derive(ctx, arm)
+            reference = {'motors': [m for m in ctx.facts['reference']['motors']
+                                    if m['name'] in {j['name'] for j in derived['config']['joints']}]}
+            config = service_config(derived['config'], ctx.facts['device'], reference, models,
+                                    bus=reference['motors'][0]['bus'], tolerance_rad=live['reference_tolerance_rad'],
+                                    period_us=live['period_us'], maximum_lateness_us=live['maximum_lateness_us'])
+            path = f'{directory}/{arm}.json'
+            status, _out, err = run(ctx.client, f'mkdir -p {directory} && cat > {path}', stdin=json.dumps(config))
+            if status:
+                raise RuntimeError(f'Could not stage the {arm} arm configuration: {err.strip()}')
+            # --validate parses and checks the configuration only: no socket, CAN or motor.
+            status, out, err = run(ctx.client, f'{CURRENT}/bin/guarded_controller {path} --validate', timeout=30)
+            if status or 'configuration valid' not in out:
+                problems.append(f'{arm} arm: {(err or out).strip()[-200:] or f"exit {status}"}')
+    finally:
+        run(ctx.client, f'rm -rf {directory}')
+    if problems:
+        return FAIL, 'The deployed receiver rejects: ' + '; '.join(problems)
+    return PASS, (f"Both arms' teleop-mode configurations pass the deployed receiver's validation: one bus each, "
+                  f"watchdog identity and reference position for every motor, collision policy, "
+                  f"{live['reference_tolerance_rad']:g} rad reference tolerance")
 
 
 def health_findings(report, offset_s):
