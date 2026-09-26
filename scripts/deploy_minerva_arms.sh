@@ -6,9 +6,8 @@
 #     aizee-minerva-left   AIZEE_CONFIG=hardware_minerva_left.yaml   canL  :5555/:5556
 #     aizee-minerva-right  AIZEE_CONFIG=hardware_minerva_right.yaml  canR  :5575/:5576
 #
-# Services are installed and enabled for boot, but not started by this script.
-# The Minerva e-stop drop-in routes to both controllers; restart an existing
-# bridge after deployment when ready to verify the physical stop path.
+# Legacy services are installed disabled and are not started by this script.
+# The ESP-NOW/serial stop bridge was retired; this script does not install it.
 #
 # Usage: ./deploy_minerva_arms.sh [user@host]   (default: auto-detected)
 
@@ -50,7 +49,7 @@ tar czf "$TARBALL" \
     --exclude='*.pyc' \
     --exclude='__pycache__' \
     --exclude='logs' \
-    "${WORKSPACE_FILES[@]}" rust/ config/ pyproject.toml README.md src/ firmware/estop/ scripts/aizee-reset-usb-can scripts/aizee-can-up scripts/aizee-can-reset
+    "${WORKSPACE_FILES[@]}" rust/ config/ pyproject.toml README.md src/ scripts/aizee-reset-usb-can scripts/aizee-can-up scripts/aizee-can-reset
 echo "   $(du -h $TARBALL | cut -f1) packed."
 echo ""
 
@@ -78,14 +77,18 @@ sed 's/\r$//' /home/ltr/aizee/scripts/aizee-reset-usb-can > /usr/local/bin/aizee
 sed 's/\r$//' /home/ltr/aizee/scripts/aizee-can-reset > /usr/local/bin/aizee-can-reset
 chmod 755 /usr/local/bin/aizee-can-up /usr/local/bin/aizee-reset-usb-can /usr/local/bin/aizee-can-reset
 
-# Pin the two identical USB-CAN adapters to canL/canR by physical USB port so
+# Pin the two USB-CAN adapters to canL/canR by verified unique serial so
 # left/right can never swap across reboots/resets.
 sed 's/\r$//' /home/ltr/aizee/config/udev/80-minerva-can.rules > /etc/udev/rules.d/80-minerva-can.rules
 udevadm control --reload-rules
 # Apply USB-autosuspend-off to any already-connected adapters now (the rule itself
 # handles future hotplugs/boots). Resume-from-autosuspend is a known gs_usb wedge cause.
-for _p in 1-2.1.2 1-2.1.4; do
-    [ -e /sys/bus/usb/devices/$_p/power/control ] && echo on > /sys/bus/usb/devices/$_p/power/control || true
+for _d in /sys/bus/usb/devices/*; do
+    [ -f "$_d/serial" ] || continue
+    case "$(cat "$_d/serial")" in
+        004D002C4730511520303650|0021002F4D53530920303937)
+            [ -e "$_d/power/control" ] && echo on > "$_d/power/control" ;;
+    esac
 done
 
 # Passwordless CAN management for both arm buses (canL, canR) + helpers.
@@ -107,14 +110,9 @@ systemctl disable aizee-motor-control-rover 2>/dev/null || true
 for svc in aizee-minerva-left aizee-minerva-right; do
     sed 's/\r$//' /home/ltr/aizee/config/systemd/${svc}.service > /etc/systemd/system/${svc}.service
 done
-# The bridge uses the shared MessagePack implementation and independent PUSH sockets.
-sed 's/\r$//' /home/ltr/aizee/config/systemd/aizee-estop-bridge.service > /etc/systemd/system/aizee-estop-bridge.service
-mkdir -p /etc/systemd/system/aizee-estop-bridge.service.d
-sed 's/\r$//' /home/ltr/aizee/config/systemd/aizee-estop-bridge.service.d/minerva.conf > /etc/systemd/system/aizee-estop-bridge.service.d/minerva.conf
 systemctl daemon-reload
-# Enable boot-start. Safe now: motor_control degrades (stays alive) instead of
-# wedging/flapping if it boots with the motor bus unpowered.
-systemctl enable aizee-minerva-left aizee-minerva-right
+# An installation must not silently re-enable legacy controllers during bring-up.
+systemctl disable aizee-minerva-left aizee-minerva-right
 
 echo "--- installed units ---"
 systemctl list-unit-files | grep -E 'aizee-minerva|aizee-motor-control-rover' || true
@@ -122,9 +120,9 @@ SUDO_CMDS
 } | $SSH "$TARGET" "sudo -S bash -s 2>/dev/null"
 echo ""
 
-echo "=== Deploy complete (services installed + enabled for boot; NOT started now) ==="
+echo "=== Deploy complete (legacy services installed disabled; NOT started) ==="
 echo ""
-echo "They auto-start on boot. To start now without rebooting (motor bus POWERED):"
+echo "Start only after reviewing the current powered-test procedure:"
 echo "  $SSH $TARGET 'sudo systemctl start aizee-minerva-left aizee-minerva-right'"
 echo "Watch a bus:"
 echo "  $SSH $TARGET 'journalctl -u aizee-minerva-left -f'"

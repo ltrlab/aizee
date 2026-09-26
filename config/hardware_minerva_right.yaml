@@ -80,9 +80,8 @@ control:
   watchdog_timeout: 0.5
 
 can:
-  # RIGHT arm = canR (udev-pinned to USB 1-2.1.4). LEFT arm = canL (USB 1-2.1.2).
-  # If the adapters are reversed, swap the NAME= lines in the udev rule
-  # (config/udev/80-minerva-can.rules).
+  # RIGHT arm = canR, LEFT arm = canL, pinned to verified USB adapter serials.
+  # Hub port changes do not change names; adapter replacements need verification.
   interfaces:
     arm: canR
 

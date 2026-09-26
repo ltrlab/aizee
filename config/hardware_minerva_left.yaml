@@ -98,11 +98,9 @@ control:
   watchdog_timeout: 0.5    # s  — hold position if no command for 500 ms
 
 can:
-  # Logical bus "arm" -> kernel CAN interface. Names are pinned to physical USB
-  # ports by udev (config/udev/80-minerva-can.rules): canL = USB 1-2.1.2 (LEFT),
-  # canR = USB 1-2.1.4 (RIGHT). Verify which physical adapter drives which arm
-  # (move one joint, watch which bus's telemetry changes); if reversed, swap the
-  # two NAME= lines in the udev rule.
+  # Logical bus "arm" -> kernel CAN interface. Udev pins names to verified USB
+  # adapter serials (config/udev/80-minerva-can.rules), independent of hub ports.
+  # Verify physical cabling before changing the serial-to-arm assignment.
   interfaces:
     arm: canL
 

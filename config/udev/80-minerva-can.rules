@@ -1,20 +1,20 @@
 # Deterministic CAN interface names for Minerva's two USB-CAN adapters.
 #
-# Both adapters are identical Geschwister Schneider / candleLight (gs_usb,
-# 1d50:606f), so the kernel's can0/can1/can2 assignment is order-dependent and
-# can swap left<->right across reboots or a USB reset. We pin each to its
-# PHYSICAL USB port instead:
+# The canable gs_usb adapters share VID/PID 1d50:606f but have unique USB
+# serials. Pin to adapter identity so moving USB hubs/ports does not swap arms.
+# Confirmed 2026-09-24 by unplugging the LEFT adapter and observing only RIGHT.
 #
-#     USB 1-2.4.2  ->  canL   (LEFT arm  bus, motor_control :5555/:5556)
-#     USB 1-2.4.4  ->  canR   (RIGHT arm bus, motor_control :5575/:5576)
+#     004D002C4730511520303650 -> canL  (LEFT,  :5555/:5556)
+#     0021002F4D53530920303937 -> canR  (RIGHT, :5575/:5576)
 #
 # Distinct names (canL/canR, not canX) avoid rename-swap collisions with the
 # kernel's own canN names and with the internal Tegra mttcan (can0).
 #
-# If you move an adapter to a different USB port, update the KERNELS path here
-# (find it with:  ls -l /sys/class/net/can*/device ).
-SUBSYSTEM=="net", ACTION=="add", DRIVERS=="gs_usb", KERNELS=="1-2.4.2:1.0", NAME="canL"
-SUBSYSTEM=="net", ACTION=="add", DRIVERS=="gs_usb", KERNELS=="1-2.4.4:1.0", NAME="canR"
+# Replace these serials after verifying wiring if an adapter is replaced.
+# All ATTRS conditions match the same USB-device ancestor. Do not combine
+# them with DRIVERS=="gs_usb", which belongs to a different interface ancestor.
+SUBSYSTEM=="net", ACTION=="add", ATTRS{idVendor}=="1d50", ATTRS{idProduct}=="606f", ATTRS{serial}=="004D002C4730511520303650", NAME="canL"
+SUBSYSTEM=="net", ACTION=="add", ATTRS{idVendor}=="1d50", ATTRS{idProduct}=="606f", ATTRS{serial}=="0021002F4D53530920303937", NAME="canR"
 
 # Prevent USB autosuspend on the CAN adapters. Autosuspend→resume is a common way
 # for these gs_usb adapters to wedge (the resume can leave the firmware's control

@@ -6,7 +6,7 @@
 #
 # Unlike aizee-reset-usb-can this does NO unbind/rebind and NO rename — the
 # interface is already named deterministically by udev (config/udev/
-# 80-minerva-can.rules pins canL/canR to physical USB ports). Bouncing the
+# 80-minerva-can.rules pins canL/canR to unique USB adapter serials). Bouncing the
 # gs_usb driver with two identical adapters is what scrambled left<->right, so
 # startup must not do it.
 set -e
