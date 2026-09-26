@@ -1,5 +1,43 @@
 # OpenRB-150 Leader Arm
 
+## Shared guarded input (2026-09-24)
+
+New robot-independent input code lives in `src/robot_platform/teleop/openrb.py`.
+It identifies boards by USB serial from a device profile, preserves signed raw
+encoder ticks, and does not enable, center or configure leader servos. The
+firmware disables responding servos on startup. Joint routes and follower
+calibration belong outside the driver. The older Aizee-specific mapping and
+setup scripts below describe the legacy path; they are not Minerva calibration.
+
+The fresh poll `0xA6` returns 50 bytes, little-endian fields:
+
+| Offset | Field |
+|---|---|
+| 0–1 | `0xA6`, seven channels |
+| 2–29 | Seven signed int32 encoder positions |
+| 30–35 | int16 joystick X/Y, uint8 button/status |
+| 36–47 | uint32 complete-read sequence, bus-read start ms, reply ms |
+| 48 | All seven servo replies valid |
+| 49 | CRC over preceding bytes |
+
+Only a complete error-free seven-servo read advances the sequence/sample time.
+Legacy `0xA5` retains its original 37-byte reply but cannot provide this source
+freshness guarantee. The CRC uses MSB-first polynomial `0x31`, seed zero (not
+the reflected Dallas/Maxim implementation). The bridge uses a latest-source
+cache; it retains original timestamps and rejects stale cached data.
+
+Both installed Minerva leaders were flashed and checksum-verified. Their USB
+serials and side assignment are in `config/devices/minerva-leaders-01.json`.
+Neither reports a joystick. See [guarded teleoperation](../GUARDED_TELEOP.md).
+
+The [dual leader viewer](../GELLO_TELEOP.md) now requests 100 Hz paired reads and
+renders a configurable arm schematic with software reference/direction controls.
+Independent USB buses are polled concurrently through a persistent worker pool;
+both complete source-valid samples are still required. A short 10-second run
+returned 996 pairs (maximum source age 15.23 ms, skew 1.93 ms, four 10 ms deadline
+misses). This does not change the firmware, servo settings or the follower's
+initial 25 Hz control target.
+
 A 7-DoF teleop leader built around a **Robotis OpenRB-150** board and **7×
 Dynamixel XL330-M077-T** servos, exposing its own binary protocol over USB-CDC.
 
@@ -86,7 +124,7 @@ are interchangeable. The AIZEE follower arm is 7-DoF swivel-first.
 
 ## Wire protocol (host ↔ OpenRB-150 over USB-CDC)
 
-Multi-byte values are little-endian. CRC-8 is Dallas/Maxim (polynomial `0x31`,
+Multi-byte values are little-endian. CRC-8 is MSB-first (polynomial `0x31`,
 seed `0x00`) computed over `[HDR, ...payload]`. Constants are mirrored in
 `python/teleop/openrb_leader.py` and `firmware/openrb_leader/src/main.cpp` — keep
 the two in sync.

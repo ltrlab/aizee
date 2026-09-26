@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "minerva-leaders-01",
+  "host": "operator-windows-pc",
+  "leaders": {
+    "left": {"usb_serial": "86AE0E865157375037202020FF110E12"},
+    "right": {"usb_serial": "D5C58E435157375037202020FF0F2A0C"}
+  },
+  "max_age_s": 0.05,
+  "max_skew_s": 0.02,
+  "notes": [
+    "Side assignment verified from the operator moving only the left leader on 2026-09-24.",
+    "USB VID/PID 2F5D:2202. Observed COM7 left / COM4 right; resolve by serial, not COM number.",
+    "Freshness firmware installed and checksum-verified on both boards. Seven servo channels responded on each.",
+    "Neither board reports an attached joystick. This file provides input identities only, not motor routes, CAD calibration or permission to move Minerva."
+  ]
+}

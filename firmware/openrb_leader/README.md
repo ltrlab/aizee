@@ -5,6 +5,13 @@ USB-CDC for use as the AIZEE leader arm. See
 [../../docs/subsystems/OPENRB_LEADER.md](../../docs/subsystems/OPENRB_LEADER.md)
 for full documentation including wire protocol and setup procedure.
 
+The guarded shared input driver is `src/robot_platform/teleop/openrb.py`. It uses
+the 50-byte `0xA6` freshness reply (full-read counter, sample/reply times and
+validity), and pins USB serial identity through a device profile. Legacy `0xA5`
+remains compatible. Only a complete, error-free seven-servo read refreshes the
+source counter/time. Startup disables responding servos; reading inputs never
+enables them. Robot joint mapping is configured separately from this firmware.
+
 ## Build / upload
 
 ```bash

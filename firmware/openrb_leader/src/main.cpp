@@ -1,4 +1,4 @@
-// OpenRB-150 leader-arm bridge for the AIZEE robot.
+// OpenRB-150 leader input bridge for the shared robot platform.
 //
 // Reads Present_Position on every poll from up to 7x Dynamixel XL330-M077-T
 // servos (IDs 1..7, Protocol 2.0) and replies to the host with a compact
@@ -11,6 +11,12 @@
 //     0xA5                       POLL   -> [0xA5][N][int32 LE * N]
 //                                          [int16 joy_x][int16 joy_y]
 //                                          [uint8 joy_btn][uint8 joy_status][crc8]
+//     0xA6                       FRESH_POLL -> POLL fields, followed by
+//                                          [uint32 sample_sequence]
+//                                          [uint32 sample_ms][uint32 reply_ms]
+//                                          [uint8 all_servos_valid][crc8]
+//   FRESH_POLL uses header 0xA6. Sequence advances only after a complete,
+//   error-free seven-servo read. Failed/partial reads cannot refresh cached data.
 //     0x53                       SCAN   -> [0x53][N][(id, baud_code) * N][crc8]
 //     0x52 [target_id]           REID   -> [0x52][status][found_id][baud_code][crc8]
 //
@@ -74,6 +80,7 @@ static const uint16_t LEN_PRESENT_POSITION  = 4;
 // Wire protocol constants — must match python/teleop/openrb_leader.py.
 static const uint8_t  CMD_IDENT        = 0x50;
 static const uint8_t  CMD_POLL         = 0xA5;
+static const uint8_t  CMD_FRESH_POLL   = 0xA6;
 static const uint8_t  CMD_SCAN         = 0x53;
 static const uint8_t  CMD_REID         = 0x52;
 static const uint8_t  CMD_CENTER       = 0xC0;   // payload [id]; one servo to 2048
@@ -220,6 +227,8 @@ static DYNAMIXEL::XELInfoSyncRead_t    sr_xels[DXL_NUM_SERVOS];
 // fails so the host always gets a well-formed frame and can retry.  Seeded
 // to encoder centre for sane output before the first read succeeds.
 static int32_t last_pos[DXL_NUM_SERVOS] = {2048, 2048, 2048, 2048, 2048, 2048, 2048};
+static uint32_t position_sequence = 0;
+static uint32_t position_sample_ms = 0;
 
 // Currently-selected bus baud (so REID can leave it at TARGET_BAUD on success).
 static uint32_t current_bus_baud = DXL_BAUD;
@@ -407,13 +416,22 @@ static void send_ident() {
 //   [7+4N]                 uint8        — joy_status (0=ok, 1=not present, 2=read err)
 //   [8+4N]                 uint8        — crc8 over preceding bytes
 // Total: 9 + 4N bytes (37 with N=7, was 31 before joystick fields).
-static void send_poll_reply() {
+static void send_poll_reply(bool with_freshness = false) {
     // Sync-read all servos in one bus transaction.  Missing servos retain
     // their previous cached value so the host always gets N entries.
-    if (dxl.syncRead(&sr_infos) > 0) {
+    const uint32_t read_started_ms = millis();
+    const uint8_t received = dxl.syncRead(&sr_infos);
+    bool valid = received == DXL_NUM_SERVOS;
+    for (uint8_t i = 0; i < received; ++i) {
+        valid = valid && sr_xels[i].error == 0;
+    }
+    if (valid) {
         for (uint8_t i = 0; i < DXL_NUM_SERVOS; ++i) {
             last_pos[i] = sr_data[i].present_position;
         }
+        // Start-of-read time conservatively includes the full bus transaction.
+        position_sample_ms = read_started_ms;
+        ++position_sequence;
     }
 
     // Refresh joystick state on every poll.  ~150 µs at 400 kHz for the two
@@ -421,8 +439,9 @@ static void send_poll_reply() {
     // SyncRead cost above.  No-op if the unit was absent at boot.
     joy_poll();
 
-    uint8_t frame[2 + DXL_NUM_SERVOS * 4 + 6 + 1];
-    frame[0] = REPLY_POLL_HDR;
+    uint8_t frame[2 + DXL_NUM_SERVOS * 4 + 6 + 13 + 1];
+    const size_t length = with_freshness ? sizeof(frame) : sizeof(frame) - 13;
+    frame[0] = with_freshness ? CMD_FRESH_POLL : REPLY_POLL_HDR;
     frame[1] = DXL_NUM_SERVOS;
     for (uint8_t i = 0; i < DXL_NUM_SERVOS; ++i) {
         int32_t v = last_pos[i];
@@ -438,9 +457,18 @@ static void send_poll_reply() {
     frame[off + 3] = (uint8_t)((joy_y >> 8) & 0xFF);
     frame[off + 4] = joy_button;
     frame[off + 5] = joy_status;
-    frame[sizeof(frame) - 1] = crc8(frame, sizeof(frame) - 1);
+    if (with_freshness) {
+        const uint32_t fields[] = {position_sequence, position_sample_ms, millis()};
+        for (uint8_t field = 0; field < 3; ++field) {
+            for (uint8_t byte = 0; byte < 4; ++byte) {
+                frame[off + 6 + field * 4 + byte] = (uint8_t)(fields[field] >> (8 * byte));
+            }
+        }
+        frame[off + 18] = valid ? 1 : 0;
+    }
+    frame[length - 1] = crc8(frame, length - 1);
 
-    Serial.write(frame, sizeof(frame));
+    Serial.write(frame, length);
     Serial.flush();
 }
 
@@ -792,6 +820,9 @@ void loop() {
             break;
         case CMD_POLL:
             send_poll_reply();
+            break;
+        case CMD_FRESH_POLL:
+            send_poll_reply(true);
             break;
         case CMD_SCAN:
             send_scan_reply();
