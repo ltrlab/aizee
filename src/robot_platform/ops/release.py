@@ -26,7 +26,9 @@ CALIBRATION = 'config/devices/minerva-joint-calibration.json'
 MANIFEST, LOCK = 'release.json', 'assets.lock.json'
 BINARIES = ('guarded_controller', 'control_harness', 'motor_watchdog_trial')
 LIBRARY = 'librobot_collision.so'
-RUST_SOURCES = ('rust/control_core', 'rust/collision')
+# Each artifact is only as stale as its own crate: binaries come from control_core,
+# the library from collision.
+RUST_SOURCES = {'bin/': 'rust/control_core', 'lib/': 'rust/collision'}
 EM_AARCH64 = 183
 
 
@@ -71,15 +73,17 @@ def collect(root=ROOT):
 
 
 def check_binaries(files, root=ROOT):
-    """Cross-built binaries must exist, be AArch64 and be newer than their Rust sources."""
-    newest = max(path.stat().st_mtime for source in RUST_SOURCES
-                 for path in (Path(root) / source).rglob('*') if path.is_file() and path.suffix in ('.rs', '.toml'))
+    """Cross-built binaries must exist, be AArch64 and be newer than their crate's Rust sources."""
+    newest = {prefix: max(path.stat().st_mtime for path in (Path(root) / source).rglob('*')
+                          if path.is_file() and path.suffix in ('.rs', '.toml'))
+              for prefix, source in RUST_SOURCES.items()}
     for key, path in files.items():
-        if key.startswith(('bin/', 'lib/')):
+        prefix = key[:key.find('/') + 1]
+        if prefix in RUST_SOURCES:
             if not path.is_file() or not _aarch64(path):
                 raise ValueError(f'{key}: missing or not an AArch64 build. Run '
                                  'scripts/build_jetson.ps1 -Offline -Package robot_control, robot_collision')
-            if path.stat().st_mtime < newest:
+            if path.stat().st_mtime < newest[prefix]:
                 raise ValueError(f'{key} is older than the Rust sources. Run '
                                  'scripts/build_jetson.ps1 -Offline -Package robot_control, robot_collision')
 

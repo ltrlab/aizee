@@ -7,7 +7,7 @@ import pytest
 
 from robot_platform.models.urdf import register_verified_assets, verified_release_active
 from robot_platform.ops.deploy import RELEASE_ID, stale_releases
-from robot_platform.ops.release import LOCK, MANIFEST, ROOT, TARGET, _sha, activate, build, verify_tree
+from robot_platform.ops.release import LOCK, MANIFEST, ROOT, TARGET, _sha, activate, build, check_binaries, verify_tree
 
 ARM64 = ROOT / 'rust/target' / TARGET / 'release'
 
@@ -78,3 +78,23 @@ def test_a_built_release_is_small_complete_and_verifiable(tmp_path):
     assert verify_tree(tmp_path / 'release') == []
     again, _ = build(tmp_path / 'again')
     assert again['content_sha256'] == manifest['content_sha256']  # Same sources, same content.
+
+
+def test_each_binary_is_only_as_stale_as_its_own_crate(tmp_path):
+    elf = b'\x7fELF\x02\x01' + bytes(12) + (183).to_bytes(2, 'little') + bytes(44)
+    sources = {'rust/control_core/src/lib.rs': 100, 'rust/collision/src/lib.rs': 50}
+    for key, stamp in sources.items():
+        (tmp_path / key).parent.mkdir(parents=True)
+        (tmp_path / key).write_text('//')
+        os.utime(tmp_path / key, (stamp, stamp))
+    files = {'bin/guarded_controller': tmp_path / 'guarded_controller', 'lib/librobot_collision.so': tmp_path / 'lib.so'}
+    for path, stamp in zip(files.values(), (200, 75)):
+        path.write_bytes(elf)
+        os.utime(path, (stamp, stamp))
+    check_binaries(files, tmp_path)  # The library predates control_core, not its own crate.
+    os.utime(files['lib/librobot_collision.so'], (40, 40))
+    with pytest.raises(ValueError, match='librobot_collision.so is older'):
+        check_binaries(files, tmp_path)
+    files['bin/guarded_controller'].write_bytes(b'MZ' + bytes(62))
+    with pytest.raises(ValueError, match='not an AArch64 build'):
+        check_binaries(files, tmp_path)
