@@ -80,10 +80,15 @@
       </section>
       <section id="panel-teleop" class="panel" aria-label="Teleoperation" hidden>
         <div class="panel-head">
-          <div class="eyebrow warn">TELEOP · VIRTUAL RECEIVER · NO MOTORS MOVE</div>
+          <div class="eyebrow warn" id="t-eyebrow">TELEOP · VIRTUAL RECEIVER · NO MOTORS MOVE</div>
           <h1>Drive the arms with the leaders</h1>
           <p class="lead">Idle (I), then Enable (E) to hold, then Engage (T) to align with the leaders and follow them.
             T again holds; Shutdown (X) returns slowly to the reference; Disable (H) removes torque.</p>
+          <div class="target" role="group" aria-label="Where the loop runs">
+            <span>Loop runs on</span>
+            <button data-target="jetson" title="The control loop runs on Minerva's Jetson; leaders stream over the tether">Minerva's Jetson</button>
+            <button data-target="pc" title="The control loop runs on this PC">This PC</button>
+          </div>
           <div class="teleop-status">
             <span>Phase<b id="t-state">—</b></span><span>Receiver<b id="t-receiver">—</b></span>
             <span>Cycle<b id="t-cycle">—</b></span><span>Collision<b id="t-collision">—</b></span>

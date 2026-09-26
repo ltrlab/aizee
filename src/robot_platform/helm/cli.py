@@ -12,6 +12,8 @@ def main(argv=None):
     parser.add_argument('--seed', type=Path, help='Import compatible earlier direction evidence into a new session')
     parser.add_argument('--teleop', type=Path,
                         help='Guarded teleop profile (virtual receiver) for the Leaders and Teleop workspaces')
+    parser.add_argument('--loop', choices=('jetson', 'pc'), default='jetson',
+                        help="where the teleop loop runs at first: Minerva's Jetson (default) or this PC")
     parser.add_argument('--port', type=int, default=8760)
     args = parser.parse_args(argv)
     if not 1 <= args.port <= 65535:
@@ -34,7 +36,7 @@ def main(argv=None):
             from .leaders import LeaderWorkspace
             from .teleop import TeleopSession
             leaders = LeaderWorkspace(args.teleop, labels=session.labels, evidence=session.evidence)
-            teleop = TeleopSession(session, args.teleop, runs=args.runs, leaders=leaders)
+            teleop = TeleopSession(session, args.teleop, runs=args.runs, leaders=leaders, target=args.loop)
         from robot_platform.ops.check import DEFAULT_TELEOP
         from .check import CheckWorkspace
         check = CheckWorkspace(profile=session.profile_path, teleop=args.teleop or DEFAULT_TELEOP,

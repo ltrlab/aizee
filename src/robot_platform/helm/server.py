@@ -168,6 +168,14 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, token=No
         response.headers['X-Helm-Saved'] = result['path']
         return response
 
+    async def teleop_target(request):
+        payload = await body(request)
+        need_teleop()
+        if set(payload) != {'target'}:
+            raise ValueError('Expected target')
+        teleop.set_target(payload['target'])
+        return state_response()
+
     async def teleop_zero(request):
         await body(request)
         need_teleop()
@@ -205,6 +213,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, token=No
     app.router.add_post('/api/helm/teleop/key', teleop_key)
     app.router.add_post('/api/helm/teleop/route', teleop_route)
     app.router.add_post('/api/helm/teleop/zero', teleop_zero)
+    app.router.add_post('/api/helm/teleop/target', teleop_target)
     app.router.add_post('/api/helm/leaders/connect', leaders_connect)
     app.router.add_post('/api/helm/leaders/disconnect', leaders_disconnect)
     app.router.add_post('/api/helm/leaders/range', leaders_range)

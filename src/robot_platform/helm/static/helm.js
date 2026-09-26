@@ -477,6 +477,12 @@ function renderTeleop(t) {
   collision.title = c.mode === 'advisory'
     ? 'Advisory: the target pose is checked every cycle but the virtual receiver is not blocked.' : '';
   $('t-message').textContent = t.message || '';
+  const where = t.target === 'jetson' ? "ON MINERVA'S JETSON" : 'ON THIS PC';
+  $('t-eyebrow').textContent = `TELEOP · VIRTUAL RECEIVER ${where} · NO MOTORS MOVE`;
+  for (const button of document.querySelectorAll('.target button')) {
+    button.setAttribute('aria-pressed', String(button.dataset.target === t.target));
+    button.disabled = running || starting;
+  }
   const session = $('teleop-session');
   session.textContent = running || starting ? 'Stop session' : 'Start session';
   session.className = running || starting ? 'danger' : 'primary';
@@ -546,6 +552,10 @@ async function setZero() {
   }
 }
 $('t-zero').onclick = setZero;
+for (const button of document.querySelectorAll('.target button')) {
+  button.onclick = () => act('/api/helm/teleop/target', {target: button.dataset.target},
+    `The loop will run on ${button.textContent}.`);
+}
 $('teleop-session').onclick = () => {
   const running = ['running', 'starting'].includes(last?.teleop?.phase);
   act(running ? '/api/helm/teleop/stop' : '/api/helm/teleop/start', {},
