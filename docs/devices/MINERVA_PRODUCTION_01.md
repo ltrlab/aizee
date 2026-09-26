@@ -1711,3 +1711,35 @@ stayed in TELEOP.
 made the 3D view mark every robot pose stale until views were stamped on arrival
 at the PC.
 
+
+### 2026-09-26 — live one-arm teleop built, not yet run on motors
+
+The user chose advisory collision checks for single-arm tests first. The other
+arm stays disabled, and a tighter bound for two-arm operation will be built
+separately. What was added:
+
+- **Receiver.** A new `teleop` service mode. It drives exactly one CAN bus (one
+  arm) and requires a collision policy, a lease of at most 250 ms and a
+  feedback timeout of at most 100 ms. Before opening its socket it passes the
+  same watchdog and reference gates as the zero-torque trial. Its enable is
+  single-use. It refuses to run without `--allow-powered-teleop
+  --confirm-reference-pose`.
+- **Live session start.** A stopped pre-scan requires every motor of the arm to
+  be still and within 0.1 rad of its reference, then the arm's CAN link comes
+  up and the service starts. The service dies with the loop's process;
+  closing it disables the arm and takes the link down.
+- **Grippers.** The receiver range is now the hand-swept physical travel: left
+  −0.021 to 5.220 rad, right −0.002 to 5.229 rad. It was previously clipped at
+  the CAD closed limit, 0.055 rad, below which a resting closed gripper would
+  have faulted the receiver. CAD values are clamped wherever they meet the
+  model.
+- **Helm.** A receiver choice, Live · left arm or right arm, available only
+  with the loop on the Jetson. Starting a live session asks for confirmation,
+  and so does stopping while the arm is powered.
+
+Release `20260926T224400Z-fd35f95` is deployed. Minerva Check passed every
+Operator PC and Link and Jetson check, including the deployed receiver
+validating both arms' teleop configurations and 125 of 125 fresh leader
+samples. The stopped scan again found no motor answering, with both buses
+error-passive (motor power off or foot switch pressed). No motor was enabled,
+and no live session has been started.
