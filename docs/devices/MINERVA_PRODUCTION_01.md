@@ -1798,3 +1798,15 @@ Both gates now count a motor as moving only after three readings in a row over
 0.2 rad/s. A real motion persists, so it still fails within a few readings.
 Positions, modes, fault bits, temperatures and reply timing are checked as
 before.
+
+With that fixed, the 01:56 UTC start reached Idle: the motors came on at zero
+torque, with a 4 ms typical and 20 ms worst loop cycle. Pressing Enable was then
+refused (`invalid_state`), and the session stopped with the arm disabled. It had
+been hanging in Idle, so it did not drop. The controller refused Arm when any
+joint's latest speed reading exceeded `settled_velocity` (0.15 rad/s): the same
+noise. The lifecycle had the same weakness: it finished alignment and shutdown
+only when every speed reading was under 0.05 rad/s, and the drives read up to
+0.06 at rest. Now Arm and Reset are refused only for three fast samples in a
+row, and the lifecycle settles on the change in measured position between
+cycles. Release `20260927T020538Z-bb0a052` carries both.
+
