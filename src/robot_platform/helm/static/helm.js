@@ -3,6 +3,7 @@ const $ = id => document.getElementById(id);
 const DEG = 180 / Math.PI;
 const cards = new Map();
 let token = null, last = null, busy = false, lockNoticeShown = false;
+let pendingConfirm = null;  // An open live confirmation: {kind: 'start' | 'stop', arm}
 
 const signed = (q, digits = 3) => (q == null || !Number.isFinite(q)) ? '—' : `${q < 0 ? '−' : '+'}${Math.abs(q).toFixed(digits)}`;
 const range = entry => `${signed(entry.min_rad, 2)} … ${signed(entry.max_rad, 2)} rad`;
@@ -135,12 +136,13 @@ function render(state) {
   token = state.action_token;
   const {feed, limits, robot, session} = state;
   $('robot-name').textContent = `${robot.model} · ${robot.asset_id} · ${robot.address}`;
-  const busy = state.link.running || ['running', 'starting'].includes(state.teleop?.phase) || !!state.check?.running;
+  // The connection is fixed while the reader, a teleop session or a check uses it.
+  const inUse = state.link.running || ['running', 'starting'].includes(state.teleop?.phase) || !!state.check?.running;
   for (const button of document.querySelectorAll('#via button')) {
     const key = button.dataset.connection;
     const option = (robot.connections || []).find(c => c.key === key);
     button.setAttribute('aria-pressed', String(key === robot.connection));
-    button.disabled = !option || busy;
+    button.disabled = !option || inUse;
     button.title = !option ? '' : key === 'tether'
       ? `USB Ethernet tether · ${option.address} · required for Minerva Check and live teleop`
       : `Minerva's Wi-Fi · ${option.address} · stopped reads and virtual teleop only`;
@@ -513,6 +515,8 @@ function renderTeleop(t) {
     : t.target !== 'jetson' ? "Live teleop runs its loop on Minerva's Jetson." : '';
   $('t-choice-note').textContent = note;
   $('t-choice-note').hidden = !note;
+  if (pendingConfirm && (pendingConfirm.kind === 'start'
+      ? running || starting || !live || choice.arm !== pendingConfirm.arm : !running && !starting)) closeConfirm();
   const session = $('teleop-session');
   session.textContent = running || starting ? 'Stop session' : live ? 'Start LIVE session' : 'Start session';
   session.className = running || starting || live ? 'danger' : 'primary';
@@ -597,13 +601,36 @@ for (const button of document.querySelectorAll('#t-receiver-choice button')) {
   button.onclick = () => act('/api/helm/teleop/receiver', arm ? {mode: 'live', arm} : {mode: 'virtual'},
     arm ? `Live on the ${arm} arm: its motors are powered once the session reaches Idle.` : 'Virtual receiver: no motors move.');
 }
+// Asked in the page, not with window.confirm: embedded browsers (such as an IDE or
+// assistant preview pane) suppress native dialogs, and confirm() then returns false.
+function askConfirm(kind, arm, title, items, action, onConfirm) {
+  pendingConfirm = {kind, arm};
+  $('t-confirm-title').textContent = title;
+  $('t-confirm-list').replaceChildren(...items.map(text => Object.assign(document.createElement('li'), {textContent: text})));
+  const go = $('t-confirm-go');
+  go.textContent = action;
+  go.onclick = () => { closeConfirm(); onConfirm(); };
+  $('t-confirm').hidden = false;
+  $('t-confirm-cancel').focus();
+}
+function closeConfirm() {
+  pendingConfirm = null;
+  $('t-confirm').hidden = true;
+}
+$('t-confirm-cancel').onclick = closeConfirm;
 $('teleop-session').onclick = () => {
   const t = last?.teleop;
   if (['running', 'starting'].includes(t?.phase)) {
+    const stop = () => act('/api/helm/teleop/stop', {}, 'Teleop stopped.');
     const powered = t.live && ['HOLD', 'ENGAGING', 'TELEOP', 'SHUTDOWN'].includes(t.state);
-    if (powered && !window.confirm(`The ${t.live.arm} arm is powered (${t.state}). Stopping disables it where it `
-        + 'is, and it may drop. Shutdown (X) returns it slowly to its reference first.\n\nStop anyway?')) return;
-    act('/api/helm/teleop/stop', {}, 'Teleop stopped.');
+    if (!powered) {
+      closeConfirm();
+      stop();
+      return;
+    }
+    askConfirm('stop', t.live.arm, `The ${t.live.arm} arm is powered (${t.state}). Stop anyway?`,
+      ['Stopping disables it where it is, and it may drop.',
+       'Shutdown (X) returns it slowly to its reference first.'], 'Stop anyway', stop);
     return;
   }
   const choice = t?.receiver_choice || {mode: 'virtual'};
@@ -612,16 +639,14 @@ $('teleop-session').onclick = () => {
     return;
   }
   const arm = choice.arm, other = arm === 'left' ? 'right' : 'left';
-  const confirmed = window.confirm(`Start LIVE teleop on the ${arm} arm?\n\n`
-    + `• Its motors are powered when you press Idle (I).\n`
-    + `• The foot switch (e-stop) is in reach.\n`
-    + `• The ${arm} arm hangs straight down in its reference pose, gripper closed.\n`
-    + `• The ${other} arm stays disabled.\n`
-    + '• Collision checks are advisory: nothing stops the arm from reaching the body or the other arm.');
-  if (confirmed) {
-    act('/api/helm/teleop/start', {confirm: true},
-      `Starting LIVE on the ${arm} arm: checking that it is still and in its reference pose, then the receiver.`);
-  }
+  askConfirm('start', arm, `Start LIVE teleop on the ${arm} arm?`, [
+    'Its motors are powered when you press Idle (I).',
+    'The foot switch (e-stop) is in reach.',
+    `The ${arm} arm hangs straight down in its reference pose, gripper closed, untouched until Idle.`,
+    `The ${other} arm stays disabled.`,
+    'Collision checks are advisory: nothing stops the arm from reaching the body or the other arm.',
+  ], `Start LIVE on the ${arm} arm`, () => act('/api/helm/teleop/start', {confirm: true},
+    `Starting LIVE on the ${arm} arm: checking that it is still and in its reference pose, then the receiver.`));
 };
 
 function showTab(name) {

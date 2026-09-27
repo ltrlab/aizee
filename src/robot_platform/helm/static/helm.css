@@ -100,6 +100,10 @@ body[data-teleop-state=FAULT] #t-state,#t-collision.bad{color:var(--bad)}#t-coll
 .target span{margin-right:4px}.target button{font-size:12px;padding:4px 10px}
 .target button[aria-pressed=true]{background:#1f4b44;border-color:#3f8f81;color:#e9fffa}
 .via{margin:0}.choice-note{margin:-4px 0 10px;font-size:11px;color:var(--warn)}
+.confirm-box{border-top:1px solid #9a4b58;background:#2a1a20;padding:12px 20px}
+.confirm-box b{display:block;color:var(--bad);font-size:13px;margin-bottom:6px}
+.confirm-box ul{margin:0 0 10px;padding-left:18px;font-size:12px;line-height:1.5}
+.confirm-actions{display:flex;justify-content:flex-end;gap:10px}
 @media(max-width:640px){.via span{display:none}}
 .eyebrow.live{color:var(--bad)}
 #t-receiver-choice button[data-receiver=live][aria-pressed=true]{background:#4b2530;border-color:#9a4b58;color:#ffe8eb}

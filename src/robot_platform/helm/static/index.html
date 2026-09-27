@@ -116,6 +116,14 @@
           <p id="t-message" class="muted" role="status"></p>
         </div>
         <div id="teleop-joints" class="scroll"></div>
+        <div id="t-confirm" class="confirm-box" role="alertdialog" aria-labelledby="t-confirm-title" hidden>
+          <b id="t-confirm-title"></b>
+          <ul id="t-confirm-list"></ul>
+          <div class="confirm-actions">
+            <button id="t-confirm-cancel">Cancel</button>
+            <button id="t-confirm-go" class="danger"></button>
+          </div>
+        </div>
         <div class="save-bar">
           <p id="teleop-status" role="status"></p>
           <button id="teleop-session" class="primary">Start session</button>
