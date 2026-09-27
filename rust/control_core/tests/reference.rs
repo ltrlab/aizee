@@ -52,6 +52,29 @@ fn shifted_zero_and_whole_revolutions_latch_failure() {
     }
 }
 #[test]
+fn a_failure_names_the_joint_and_the_value_and_keeps_the_first_reason() {
+    let mut g = gate();
+    let mut f = sample(0.);
+    f.velocity = 0.21;
+    assert!(g.observe(0, f, 0, 0).is_err());
+    let moving = Some("joint: moving at +0.210 rad/s (limit 0.2 rad/s)");
+    assert_eq!(g.failure.as_deref(), moving);
+    assert!(g.observe(0, sample(0.05), 1, 1).is_err());
+    assert_eq!(g.failure.as_deref(), moving);
+    let mut g = gate();
+    assert!(g.observe(0, sample(0.031), 1, 1).is_err());
+    assert_eq!(
+        g.failure.as_deref(),
+        Some("joint: at +0.0310 rad, 0.0310 rad from its reference (tolerance 0.03 rad)")
+    );
+    let mut g = gate();
+    assert!(g.observe(0, sample(0.), 0, 41).is_err());
+    assert_eq!(
+        g.failure.as_deref(),
+        Some("joint: feedback read 41 ms after it arrived (limit 40 ms)")
+    );
+}
+#[test]
 fn old_duplicate_moving_and_enabled_samples_cannot_verify() {
     let mut g = gate();
     for _ in 0..10 {

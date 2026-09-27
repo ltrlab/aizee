@@ -61,6 +61,8 @@ pub struct CanHardware<I: CanIo> {
     watchdog: Option<crate::watchdog::Gate>,
     virtual_enable: bool,
     reference: Option<crate::reference::Gate>,
+    /// The first read failure, in words: which motor and check, and the value that failed it.
+    failure: Option<String>,
 }
 impl<I: CanIo> Drop for CanHardware<I> {
     fn drop(&mut self) {
@@ -111,7 +113,12 @@ impl<I: CanIo> CanHardware<I> {
             watchdog: None,
             virtual_enable: false,
             reference: None,
+            failure: None,
         })
+    }
+    /// Why the first failed read failed, for operators and evidence.
+    pub fn failure(&self) -> Option<&str> {
+        self.failure.as_deref()
     }
     /// Linux callers may use this only after verifying kernel vcan interfaces.
     pub fn allow_virtual_enable(&mut self) {
@@ -215,24 +222,30 @@ pub enum Diagnostic {
     Parameter { parameter: u16 },
 }
 impl<I: CanIo> CanHardware<I> {
-    fn read_inner(
-        &mut self,
-        now_ms: u64,
-        output: &mut [JointFeedback],
-    ) -> Result<(), HardwareError> {
+    fn read_inner(&mut self, now_ms: u64, output: &mut [JointFeedback]) -> Result<(), String> {
         self.now_ms = now_ms;
         if output.len() != self.samples.len() {
-            return Err(HardwareError);
+            return Err("feedback buffer does not match the motor roster".into());
         }
         let mut empty = false;
         for _ in 0..self.max_drain {
-            let Some(rx) = self.io.receive(now_ms)? else {
+            let Some(rx) = self.io.receive(now_ms).map_err(|_| {
+                String::from(
+                    "CAN receive failed (overflow, bus-off, error frame or lost timestamp)",
+                )
+            })?
+            else {
                 empty = true;
                 break;
             };
             self.rx_frames += 1;
             if let Some(gate) = &mut self.watchdog {
-                gate.observe(rx, &self.motors, self.host, now_ms)?;
+                gate.observe(rx, &self.motors, self.host, now_ms)
+                    .map_err(|_| {
+                        gate.failure
+                            .clone()
+                            .unwrap_or_else(|| "watchdog check failed".into())
+                    })?;
             }
             // A frame for another host/type cannot refresh feedback.
             if rx.frame.id >> 24 != 2
@@ -250,13 +263,20 @@ impl<I: CanIo> CanHardware<I> {
                 continue;
             };
             let m = &self.motors[i];
-            let f =
-                robstride::feedback(rx.frame, self.host, m.ranges).map_err(|_| HardwareError)?;
+            let f = robstride::feedback(rx.frame, self.host, m.ranges)
+                .map_err(|_| format!("{}: undecodable feedback", m.name))?;
             if let Some(gate) = &mut self.reference {
-                gate.observe(i, f, rx.sampled_at_ms, now_ms)?;
+                gate.observe(i, f, rx.sampled_at_ms, now_ms).map_err(|_| {
+                    gate.failure
+                        .clone()
+                        .unwrap_or_else(|| "reference check failed".into())
+                })?;
             }
             if rx.sampled_at_ms > now_ms || rx.sampled_at_ms < self.samples[i].sampled_at_ms {
-                return Err(HardwareError);
+                return Err(format!(
+                    "{}: feedback stamped {} ms, now {} ms, previous sample {} ms",
+                    m.name, rx.sampled_at_ms, now_ms, self.samples[i].sampled_at_ms
+                ));
             }
             self.samples[i] = JointFeedback {
                 position: m.scale * (f.position - m.zero),
@@ -266,7 +286,7 @@ impl<I: CanIo> CanHardware<I> {
                 sequence: self.samples[i]
                     .sequence
                     .checked_add(1)
-                    .ok_or(HardwareError)?,
+                    .ok_or_else(|| String::from("feedback sequence overflow"))?,
                 sampled_at_ms: rx.sampled_at_ms,
                 fault: f.error_bits != 0 || f.mode == 1,
             };
@@ -274,15 +294,27 @@ impl<I: CanIo> CanHardware<I> {
         }
         // Never process an unbounded CAN backlog or give queued frames a new age.
         if !empty {
-            return Err(HardwareError);
+            return Err(format!(
+                "more than {} CAN frames queued in one cycle",
+                self.max_drain
+            ));
         }
         if let Some(gate) = &mut self.watchdog {
-            self.tx_frames += gate.poll(&mut self.io, &self.motors, self.host, now_ms)?;
+            self.tx_frames += gate
+                .poll(&mut self.io, &self.motors, self.host, now_ms)
+                .map_err(|_| {
+                    gate.failure
+                        .clone()
+                        .unwrap_or_else(|| "watchdog check failed".into())
+                })?;
         }
         output.copy_from_slice(&self.samples);
         for (i, _sample) in output.iter_mut().enumerate() {
             if self.enabled && now_ms.saturating_sub(self.enabled_at) >= 50 && self.modes[i] != 2 {
-                return Err(HardwareError);
+                return Err(format!(
+                    "{}: not in Run mode 50 ms after enable (mode {})",
+                    self.motors[i].name, self.modes[i]
+                ));
             }
         }
         Ok(())
@@ -290,16 +322,17 @@ impl<I: CanIo> CanHardware<I> {
 }
 impl<I: CanIo> Hardware for CanHardware<I> {
     fn read(&mut self, now_ms: u64, output: &mut [JointFeedback]) -> Result<(), HardwareError> {
-        let result = self.read_inner(now_ms, output);
-        if result.is_err() {
-            if let Some(gate) = &mut self.reference {
-                gate.revoke();
-            }
-            if let Some(gate) = &mut self.watchdog {
-                self.tx_frames += gate.abort(&mut self.io, &self.motors, self.host);
-            }
+        let Err(reason) = self.read_inner(now_ms, output) else {
+            return Ok(());
+        };
+        self.failure.get_or_insert(reason);
+        if let Some(gate) = &mut self.reference {
+            gate.revoke();
         }
-        result
+        if let Some(gate) = &mut self.watchdog {
+            self.tx_frames += gate.abort(&mut self.io, &self.motors, self.host);
+        }
+        Err(HardwareError)
     }
     fn enable(&mut self) -> Result<(), HardwareError> {
         if !self.transmit {

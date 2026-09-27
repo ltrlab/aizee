@@ -10,6 +10,19 @@ use crate::{
 
 pub const TICKS: u32 = 600;
 const FRESH_MS: u64 = 40;
+/// What each phase asks the motor, for failure reports.
+const STEPS: [&str; 10] = [
+    "identity request",
+    "firmware version request",
+    "stop and feedback request",
+    "run-mode read",
+    "watchdog write",
+    "watchdog read",
+    "zero-gain feedback request",
+    "audit stop and feedback request",
+    "audit run-mode read",
+    "audit wait",
+];
 struct Entry {
     identity: Identity,
     phase: u8,
@@ -22,6 +35,8 @@ pub struct Gate {
     entries: Vec<Entry>,
     consumed: bool,
     failed: bool,
+    /// The first failure, naming the motor, the request and the value that failed it.
+    pub failure: Option<String>,
 }
 impl Gate {
     pub fn new(identities: Vec<Identity>, count: usize) -> Result<Self, &'static str> {
@@ -42,7 +57,12 @@ impl Gate {
                 .collect(),
             consumed: false,
             failed: false,
+            failure: None,
         })
+    }
+    fn fail(&mut self, reason: String) -> HardwareError {
+        self.failure.get_or_insert(reason);
+        HardwareError
     }
     pub fn status(&self, now: u64) -> &'static str {
         if self.failed {
@@ -90,6 +110,16 @@ impl Gate {
         host: u8,
         now: u64,
     ) -> Result<(), HardwareError> {
+        self.check_reply(rx, motors, host, now)
+            .map_err(|reason| self.fail(reason))
+    }
+    fn check_reply(
+        &mut self,
+        rx: Received,
+        motors: &[Motor],
+        host: u8,
+        now: u64,
+    ) -> Result<(), String> {
         if self.failed || self.consumed {
             return Ok(());
         }
@@ -108,8 +138,13 @@ impl Gate {
         if rx.sampled_at_ms < sent {
             return Ok(());
         }
+        let step = STEPS[usize::from(e.phase).min(STEPS.len() - 1)];
         if rx.sampled_at_ms > now || now.saturating_sub(sent) > FRESH_MS {
-            return Err(HardwareError);
+            return Err(format!(
+                "{}: a frame reached the {step} check {} ms after the request (limit {FRESH_MS} ms)",
+                m.name,
+                now.saturating_sub(sent)
+            ));
         }
         match e.phase {
             0 => {
@@ -117,7 +152,10 @@ impl Gate {
                     return Ok(());
                 }
                 if f.data != e.identity.uid {
-                    return Err(HardwareError);
+                    return Err(format!(
+                        "{}: UID {:02x?} is not the pinned {:02x?}",
+                        m.name, f.data, e.identity.uid
+                    ));
                 }
                 e.identified = true;
             }
@@ -126,20 +164,44 @@ impl Gate {
                     return Ok(());
                 }
                 if f.data[3..7] != e.identity.firmware || (f.id >> 16) & 63 != 0 {
-                    return Err(HardwareError);
+                    return Err(format!(
+                        "{}: firmware {:?} (status {}) is not the pinned {:?}",
+                        m.name,
+                        &f.data[3..7],
+                        (f.id >> 16) & 63,
+                        e.identity.firmware
+                    ));
                 }
             }
             2 | 6 | 7 => {
                 if f.id >> 24 != 2 || f.id as u8 != host || robstride::is_version(f) {
                     return Ok(());
                 }
-                let fb = robstride::feedback(f, host, m.ranges).map_err(|_| HardwareError)?;
-                if fb.mode != 0
-                    || fb.error_bits != 0
-                    || fb.temperature > 60.
-                    || fb.velocity.abs() > 0.2
-                {
-                    return Err(HardwareError);
+                let fb = robstride::feedback(f, host, m.ranges)
+                    .map_err(|_| format!("{}: undecodable feedback to the {step}", m.name))?;
+                if fb.mode != 0 {
+                    return Err(format!(
+                        "{}: in mode {} (not Reset) at the {step}",
+                        m.name, fb.mode
+                    ));
+                }
+                if fb.error_bits != 0 {
+                    return Err(format!(
+                        "{}: fault bits {:#04x} at the {step}",
+                        m.name, fb.error_bits
+                    ));
+                }
+                if fb.temperature > 60. {
+                    return Err(format!(
+                        "{}: {:.1} C at the {step} (limit 60 C)",
+                        m.name, fb.temperature
+                    ));
+                }
+                if fb.velocity.abs() > 0.2 {
+                    return Err(format!(
+                        "{}: moving at {:+.3} rad/s at the {step} (limit 0.2 rad/s)",
+                        m.name, fb.velocity
+                    ));
                 }
                 e.position = fb.position;
                 if e.phase == 6 {
@@ -154,12 +216,24 @@ impl Gate {
                     return Ok(());
                 }
                 if (f.id >> 16) & 255 != 0 {
-                    return Err(HardwareError);
+                    return Err(format!(
+                        "{}: the {step} of {parameter:#06x} returned status {}",
+                        m.name,
+                        (f.id >> 16) & 255
+                    ));
                 }
-                if (e.phase == 5 && u32::from_le_bytes(f.data[4..].try_into().unwrap()) != TICKS)
-                    || (e.phase != 5 && f.data[4] != 0)
-                {
-                    return Err(HardwareError);
+                let value = u32::from_le_bytes(f.data[4..].try_into().unwrap());
+                if e.phase == 5 && value != TICKS {
+                    return Err(format!(
+                        "{}: watchdog 0x7028 reads {value} (expected {TICKS})",
+                        m.name
+                    ));
+                }
+                if e.phase != 5 && f.data[4] != 0 {
+                    return Err(format!(
+                        "{}: run mode 0x7005 is {} (expected 0, MIT)",
+                        m.name, f.data[4]
+                    ));
                 }
             }
             _ => return Ok(()),
@@ -186,6 +260,16 @@ impl Gate {
         if self.failed {
             return Err(HardwareError);
         }
+        self.send_requests(io, motors, host, now)
+            .map_err(|reason| self.fail(reason))
+    }
+    fn send_requests<I: CanIo>(
+        &mut self,
+        io: &mut I,
+        motors: &[Motor],
+        host: u8,
+        now: u64,
+    ) -> Result<u64, String> {
         if self.consumed {
             return Ok(0);
         }
@@ -193,7 +277,11 @@ impl Gate {
         for (e, m) in self.entries.iter_mut().zip(motors) {
             if let Some(sent) = e.sent {
                 if now.saturating_sub(sent) > FRESH_MS {
-                    return Err(HardwareError);
+                    return Err(format!(
+                        "{}: no answer to the {} within {FRESH_MS} ms",
+                        m.name,
+                        STEPS[usize::from(e.phase).min(STEPS.len() - 1)]
+                    ));
                 }
                 continue;
             }
@@ -226,10 +314,16 @@ impl Gate {
                         kd: 0.,
                     },
                 )
-                .map_err(|_| HardwareError)?,
-                _ => return Err(HardwareError),
+                .map_err(|_| format!("{}: zero-gain command out of range", m.name))?,
+                phase => return Err(format!("{}: invalid watchdog phase {phase}", m.name)),
             };
-            io.send(m.bus, frame)?;
+            io.send(m.bus, frame).map_err(|_| {
+                format!(
+                    "{}: could not send the {} (CAN transmit queue full or adapter error)",
+                    m.name,
+                    STEPS[usize::from(e.phase).min(STEPS.len() - 1)]
+                )
+            })?;
             sent_count += 1;
             if e.phase == 4 {
                 e.phase = 5;

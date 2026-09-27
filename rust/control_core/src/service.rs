@@ -63,6 +63,8 @@ struct Output<'a> {
     error: Option<&'a str>,
     mode: Mode,
     hardware_enabled: bool,
+    /// Why the hardware's first failed read failed (which motor and check), if one has.
+    hardware_failure: Option<&'a str>,
     watchdog: &'static str,
     reference: &'static str,
     tx_frames: u64,
@@ -116,7 +118,12 @@ pub fn run(
             }
             hardware
                 .read(clock.elapsed().as_millis() as u64, &mut feedback)
-                .map_err(|_| "watchdog startup verification failed")?;
+                .map_err(|_| {
+                    format!(
+                        "watchdog startup verification failed: {}",
+                        hardware.failure().unwrap_or("no detail")
+                    )
+                })?;
             if hardware.watchdog_status() == "ready" && hardware.reference_status() == "ready" {
                 break;
             }
@@ -243,6 +250,7 @@ pub fn run(
                         error,
                         mode: config.mode,
                         hardware_enabled: hardware.enabled,
+                        hardware_failure: hardware.failure(),
                         watchdog: hardware.watchdog_status(),
                         reference: hardware.reference_status(),
                         tx_frames: hardware.tx_frames,
@@ -298,7 +306,8 @@ pub fn run(
         "{}",
         serde_json::json!({"timing": timing, "tx_frames": hardware.tx_frames,
         "rx_frames": hardware.rx_frames, "disable_operation_succeeded": disabled,
-        "disable_transmit_attempted": disable_attempted, "mode": config.mode})
+        "disable_transmit_attempted": disable_attempted, "mode": config.mode,
+        "hardware_failure": hardware.failure()})
     );
     Ok(())
 }

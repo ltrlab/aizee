@@ -384,9 +384,46 @@ fn startup_watchdog_rejects_identity_firmware_readback_and_lost_reply() {
             clock.wait_ms(2);
         }
         assert!(rejected);
+        // The operator learns which motor failed which request, and with what value.
+        let expected = [
+            "UID",
+            "firmware",
+            "watchdog 0x7028 reads 0 (expected 600)",
+            "no answer to the identity request within 40 ms",
+        ][failure];
+        let reason = hw.failure().unwrap_or_default();
+        assert!(
+            reason.starts_with("test_gripper: ") && reason.contains(expected),
+            "{reason}"
+        );
         assert!(hw.enable().is_err());
         assert!(hw.io.tx.iter().all(|f| f.id >> 24 != 3));
     }
+}
+
+#[test]
+fn a_moving_motor_fails_startup_with_its_measured_speed() {
+    let (mut bus, mut clock, motor, identity) = fixture();
+    bus.position = 32770;
+    bus.post_stop_speed = true;
+    let mut hw = CanHardware::new(bus, vec![motor], 170, true).unwrap();
+    hw.configure_watchdogs(vec![identity]).unwrap();
+    let mut out = [JointFeedback::default()];
+    let mut rejected = false;
+    for _ in 0..60 {
+        if hw.read(clock.now_ms(), &mut out).is_err() {
+            rejected = true;
+            break;
+        }
+        clock.wait_ms(2);
+    }
+    assert!(rejected);
+    let reason = hw.failure().unwrap_or_default();
+    assert!(
+        reason.starts_with("test_gripper: moving at +0.2")
+            && reason.ends_with("at the stop and feedback request (limit 0.2 rad/s)"),
+        "{reason}"
+    );
 }
 
 #[test]

@@ -19,6 +19,8 @@ pub struct Gate {
     count: Vec<u32>,
     failed: bool,
     consumed: bool,
+    /// The first failure, naming the motor and the value that failed it.
+    pub failure: Option<String>,
 }
 impl Gate {
     pub fn new(references: Vec<Reference>, names: &[&str]) -> Result<Self, &'static str> {
@@ -42,6 +44,7 @@ impl Gate {
             count: vec![0; n],
             failed: false,
             consumed: false,
+            failure: None,
         })
     }
     pub fn observe(
@@ -55,17 +58,42 @@ impl Gate {
             return Ok(());
         }
         let r = &self.references[index];
-        if self.failed
-            || stamp > now
-            || now - stamp > 40
-            || f.mode != 0
-            || f.error_bits != 0
-            || !f.position.is_finite()
-            || !f.velocity.is_finite()
-            || (f.position - r.raw_position_rad).abs() > r.tolerance_rad
-            || f.velocity.abs() > 0.2
-        {
+        let problem = if self.failed {
+            Some(format!(
+                "{}: the reference check had already failed or was revoked",
+                r.name
+            ))
+        } else if stamp > now || now - stamp > 40 {
+            Some(format!(
+                "{}: feedback read {} ms after it arrived (limit 40 ms)",
+                r.name,
+                now.saturating_sub(stamp)
+            ))
+        } else if f.mode != 0 {
+            Some(format!("{}: in mode {} (not Reset)", r.name, f.mode))
+        } else if f.error_bits != 0 {
+            Some(format!("{}: fault bits {:#04x}", r.name, f.error_bits))
+        } else if !f.position.is_finite() || !f.velocity.is_finite() {
+            Some(format!("{}: non-finite feedback", r.name))
+        } else if (f.position - r.raw_position_rad).abs() > r.tolerance_rad {
+            Some(format!(
+                "{}: at {:+.4} rad, {:.4} rad from its reference (tolerance {} rad)",
+                r.name,
+                f.position,
+                (f.position - r.raw_position_rad).abs(),
+                r.tolerance_rad
+            ))
+        } else if f.velocity.abs() > 0.2 {
+            Some(format!(
+                "{}: moving at {:+.3} rad/s (limit 0.2 rad/s)",
+                r.name, f.velocity
+            ))
+        } else {
+            None
+        };
+        if let Some(reason) = problem {
             self.failed = true;
+            self.failure.get_or_insert(reason);
             return Err(HardwareError);
         }
         if self.last[index].is_some_and(|last| stamp <= last) {
