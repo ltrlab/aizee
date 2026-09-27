@@ -1779,3 +1779,22 @@ Changes:
   profile's address) with no way to choose. Helm now has **Via Tether / Wi-Fi**,
   defaulting to the tether, for Connect, Minerva Check and teleop. Live teleop
   is refused on Wi-Fi.
+
+### 2026-09-27 — live start: speed noise, not motion
+
+The next two live starts on the right arm failed the receiver's startup check,
+with nothing enabled. The receiver now names the motor, the check and the value
+behind a failed read. The second attempt (01:50 UTC) said
+`right_arm_j5: moving at +0.211 rad/s at the zero-gain feedback request (limit
+0.2 rad/s)`.
+
+J5 had not moved. Its position was −0.0669 rad, against −0.0667 rad three hours
+earlier, and the operator confirmed it was still. The receiver's last status
+showed every right-arm motor at rest reporting speeds of −0.06 to +0.01 rad/s
+with constant positions. The drives' speed readings are noisy, and a single
+reading over 0.2 rad/s failed the watchdog audit and the reference gate.
+
+Both gates now count a motor as moving only after three readings in a row over
+0.2 rad/s. A real motion persists, so it still fails within a few readings.
+Positions, modes, fault bits, temperatures and reply timing are checked as
+before.

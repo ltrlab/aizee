@@ -292,8 +292,10 @@ reach.
 - The arm to drive hangs straight down in its reference pose with the gripper
   closed. Every joint must be within 0.1 rad of its reference.
 - Keep your hands off the arm from Start until Idle: until the first enable the
-  receiver keeps auditing the motors' watchdogs, and a motor moving faster than
-  0.2 rad/s fails that audit and faults the session.
+  receiver keeps auditing the motors' watchdogs, and a motor reading over
+  0.2 rad/s three times in a row fails that audit and faults the session. A
+  single reading over it is drive noise: still motors read up to about
+  0.2 rad/s.
 
 Choose **Receiver: Live · left arm** (or right). The panel turns red and Start
 asks you to confirm.
