@@ -3,8 +3,10 @@
 Windows may treat a windowless process as background work: EcoQoS on the
 efficiency cores and coalesced timers. The guarded receiver's collision verdict
 lasts two 25 Hz periods, so one such stall between cycles stops the receiver.
-The loop and its receiver process opt out explicitly. Nothing here needs
-elevation; a failed hint leaves the operating-system default in place.
+The loop, its receiver process and the leader link server opt out explicitly,
+and a process applying the hints to itself also asks for 1 ms timer resolution.
+Nothing here needs elevation; a failed hint leaves the operating-system default
+in place.
 """
 import os
 import sys
@@ -48,6 +50,11 @@ def prefer_responsive(pid=None):
                 break
         if kernel32.SetPriorityClass(handle, HIGH_PRIORITY_CLASS):
             applied.append('high_priority')
+        # Timed waits otherwise round up to the ~15.6 ms system tick: the 100 Hz leader
+        # sampler ran at 30-60 Hz and served samples up to ~30 ms old (p99 29 ms; 21 ms
+        # with this). The resolution is per process and ends with it.
+        if own and ctypes.WinDLL('winmm').timeBeginPeriod(1) == 0:
+            applied.append('timer_1ms')
     finally:
         if not own:
             kernel32.CloseHandle(handle)

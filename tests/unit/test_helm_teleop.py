@@ -2,6 +2,7 @@
 route edits, the loop's messaging and the web endpoints."""
 import asyncio
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -315,6 +316,16 @@ def test_scheduling_hints_apply_to_another_process():
     finally:
         child.kill()
         child.wait()
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows scheduling hints')
+def test_scheduling_hints_applied_to_itself_also_get_a_1ms_timer():
+    # Run in a child: the timer resolution lasts for the life of the process that asks.
+    code = ('from robot_platform.control.scheduling import prefer_responsive; '
+            'print(",".join(prefer_responsive()))')
+    result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, timeout=60,
+                            env={**os.environ, 'PYTHONPATH': str(Path(__file__).resolve().parents[2] / 'src')})
+    assert result.stdout.strip().split(',') == ['no_power_throttling', 'high_priority', 'timer_1ms'], result.stderr
 
 
 def test_scheduling_hints_are_a_no_op_elsewhere(monkeypatch):
