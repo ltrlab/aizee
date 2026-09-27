@@ -1810,3 +1810,23 @@ only when every speed reading was under 0.05 rad/s, and the drives read up to
 row, and the lifecycle settles on the change in measured position between
 cycles. Release `20260927T020538Z-bb0a052` carries both.
 
+### 2026-09-27 — first powered teleop session (right arm)
+
+The session ran at 02:08 UTC on release `20260927T020538Z-bb0a052`. It went
+through Start, Idle (motors on, zero torque) and Enable (hold), and the arm held
+its pose with 0.000 rad tracking error on every joint. The loop cycle was 13 ms
+typical and at most 34 ms, with no overruns. The advisory collision check read
+clear. No receiver fault occurred while the arm was powered.
+
+- **Engage** aligned for about a second, then fell back to hold ("leader input
+  lost"): 8% of cycles had no fresh leader sample. The PC's leader sampler,
+  nominally 100 Hz, woke on Windows' 15.6 ms timer tick and served samples up
+  to about 30 ms old (p99 29 ms measured). Over the tether and with the loop's
+  cycle margin, that often passed the 50 ms limit. The responsive processes now
+  request 1 ms timer resolution; served age is p99 21 ms measured.
+- **Shutdown**: J1 settled 0.016 rad and J4 0.007 rad from the reference, but
+  J5 stayed 0.063 rad away. At 2.4 Nm/rad its hold torque there (0.15 Nm) did
+  not overcome friction, so the shutdown never settled. Disable (H) ended the
+  session with the arm hanging. J5 and J6 now hold at the collector's full
+  gains, 8 and 3 Nm/rad.
+
