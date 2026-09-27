@@ -60,9 +60,18 @@ DEFAULTS = {
     'clearance_m': .02,
     'path_step_rad': .02,
     'check_span_rad': .3,  # Verify mode: the out-and-back for friction, each way.
+    'usable_floor': .5,  # A loosened bound or cap must leave at least this share of the swept travel usable.
+    # Headroom under the receiver's overspeed limit (its speed cap, 3 readings in a row): a joint overshoots the
+    # speed it follows, and a stiff, lightly damped step peaks at about its size times its natural frequency.
+    'speed_headroom': .8,  # Speeds (tested, verified, checked) at most this share of the cap.
+    'max_step_rad': .03,  # Step tests no larger than this (J6 stepped 0.029 rad cleanly up to kp 24).
 }
-JOINT_KEYS = ('kp_ceiling', 'speed_ceiling')
+JOINT_KEYS = ('kp_ceiling', 'speed_ceiling', 'bound_ceiling')
 PERIOD_S = .04
+STALL_S = 3.  # A joint that cannot follow its plan (or come to rest) for this long ends the task.
+REST_BAND_RAD = .003  # At rest: the joint moved less than this over REST_S.
+REST_S = .2
+GAIN_RAMP_S = .3  # Stiffness and damping change over this long, never in one step.
 CHECK_BUDGET_S = .01  # Collision queries per cycle; a path is checked over several cycles.
 
 
@@ -84,11 +93,15 @@ def damping_for(kp, *, reference, multiplier):
     return kd_ref * math.sqrt(kp / kp_ref) * multiplier
 
 
-def sweep_profile(profile, motors, gains):
+def sweep_profile(profile, motors, gains, *, travel=None, sweep=None):
     """The teleop profile for a sweep session: each joint holds at `gains` ({motor: (hold_kp,
-    hold_kd)}, the profile's or a saved calibration's) with its stiffness, damping and speed
-    ceilings raised to what the sweep may try."""
+    hold_kd)}, the profile's or a saved calibration's) with its stiffness and damping ceilings
+    raised to what the sweep may try. The swept joints (`sweep`, default all) also get their
+    tracking bound and speed cap raised toward bound_ceiling and speed_ceiling; given `travel`
+    ({motor: its row of derive_receiver's report}), only as far as the usable range stays at least
+    usable_floor of the swept travel, since the receiver's stopping reserve grows with both."""
     from copy import deepcopy
+    from robot_platform.control.guarded_config import motion_settings
     result = deepcopy(profile)
     overrides = []
     for motor in motors:
@@ -98,11 +111,50 @@ def sweep_profile(profile, motors, gains):
         kd_ceiling = damping_for(ceiling, reference=(kp_ref, kd_ref), multiplier=max(settings['damping']))
         entry = {'match': motor, 'hold_kp': kp_ref, 'hold_kd': kd_ref,
                  'max_kp': max(ceiling, kp_ref), 'max_kd': max(kd_ceiling, kd_ref)}
-        if settings.get('speed_ceiling'):
-            entry['max_velocity'] = settings['speed_ceiling']
+        if sweep is None or motor in sweep:
+            try:
+                motion = motion_settings(profile['motion'], motor)
+            except ValueError:  # A partial profile: only the ceilings apply, as they are.
+                if settings.get('speed_ceiling'):
+                    entry['max_velocity'] = settings['speed_ceiling']
+                if settings.get('bound_ceiling'):
+                    entry['max_tracking_error'] = settings['bound_ceiling']
+            else:
+                bound, cap = loosened(motion, settings, (travel or {}).get(motor), profile['receiver'])
+                if bound != motion['max_tracking_error']:
+                    entry['max_tracking_error'] = bound
+                if cap != motion['max_velocity']:
+                    entry['max_velocity'] = cap
         overrides.append(entry)
     result['motion']['joints'] = list(result['motion']['joints']) + overrides
     return result
+
+
+def loosened(motion, settings, row, receiver):
+    """(tracking bound, speed cap) for a sweep session: raised toward the joint's bound_ceiling
+    (first: it is the joint's push, as the command's lead is capped at a share of it) and
+    speed_ceiling, never lowered. With `row` (the joint's derived report row), each only as far as
+    its usable range stays at least usable_floor of its swept travel; a gripper has no reserve."""
+    from robot_platform.control.guarded_config import stopping_reserve
+    bound0, cap0 = motion['max_tracking_error'], motion['max_velocity']
+    bound_ceiling = max(bound0, settings.get('bound_ceiling') or bound0)
+    cap_ceiling = max(cap0, settings.get('speed_ceiling') or cap0)
+    if row is None or motion.get('gripper') is True:
+        return bound_ceiling, cap_ceiling
+    lower, upper = row['operational']
+    floor = settings['usable_floor'] * (row['swept'][1] - row['swept'][0])
+
+    def usable(bound, cap):
+        return upper - lower - 2 * stopping_reserve(dict(motion, max_tracking_error=bound, max_velocity=cap),
+                                                    receiver)
+    if usable(bound0, cap0) < floor:
+        return bound0, cap0  # Already under the floor: nothing to spend.
+    steps = max(0, int(round((bound_ceiling - bound0) / .01)))
+    bound = max((b for b in [bound0 + k * (bound_ceiling - bound0) / steps for k in range(1, steps + 1)]
+                 if usable(b, cap0) >= floor), default=bound0) if steps else bound0
+    caps = sorted({c for c in [*settings['speeds'], cap_ceiling] if cap0 < c <= cap_ceiling + 1e-9})
+    cap = max((c for c in caps if usable(bound, c) >= floor), default=cap0)
+    return round(bound, 4), cap
 
 
 class Abort(Exception):
@@ -240,12 +292,14 @@ class SweepEngine:
     """The sweep's plan and guards, one command per cycle. See the module docstring."""
 
     def __init__(self, joints, *, home, gains, settings, sweep, checker=None, window_s=.12, verdict_s=.08,
-                 labels=None, period_s=PERIOD_S, mode='tune', calibration=None):
+                 labels=None, period_s=PERIOD_S, mode='tune', calibration=None, travel=None, receiver=None):
         """mode 'tune' steps the settings; 'verify' (Minerva Check) checks each joint at the settings it has
         (`gains`, and each joint's speed cap), against its saved sweep (`calibration`: {motor: entry}) if any."""
         if mode not in ('tune', 'verify'):
             raise ValueError('The sweep tunes or verifies')
         self.mode, self.calibration = mode, dict(calibration or {})
+        # For the results: each joint's derived report row today, and the receiver's reserve settings.
+        self.travel, self.receiver = dict(travel or {}), receiver
         self.limits = {joint['name']: joint for joint in joints}  # The receiver's joint limits.
         self.names = [joint['name'] for joint in joints]
         self.home, self.gains = dict(home), dict(gains)  # gains: {motor: (hold_kp, hold_kd)}.
@@ -385,11 +439,28 @@ class SweepEngine:
         start = self.targets[motor]
         direction = math.copysign(1, target - start) if target != start else 1.
         v = self.velocity[motor] * direction if self.velocity[motor] * direction > 0 else 0.
+        waited = 0.
         while True:
             remaining = (target - self.targets[motor]) * direction
             if remaining <= 1e-9:
                 break
             dt = self.period
+            behind = self._behind(motor, direction)
+            if behind is not None and behind >= self._lead(motor):
+                # The command is pinned at its lead cap: the plan waits for the joint rather than run
+                # ahead of it (a plan far ahead turns into a lunge the moment the joint gets more push).
+                waited += dt
+                if waited >= STALL_S:
+                    why = (f'{self._label(motor)} could not follow its plan: {behind:.3f} rad behind for '
+                           f'{STALL_S:g} s')
+                    if self.recovering:
+                        self._event(why + '; holding where it is')
+                        return
+                    self._event(why)
+                    raise Abort(why)
+                yield
+                continue
+            waited = 0.
             braking = deceleration if deceleration else math.inf
             if stop and deceleration and v * v / (2 * deceleration) >= remaining:
                 v = max(0., v - braking * dt)
@@ -406,6 +477,50 @@ class SweepEngine:
         self.targets[motor] = target
         if stop:
             self.velocity[motor] = 0.
+
+    def _lead(self, motor):
+        """How far a command may lead the measured position of the joint under test."""
+        return (self.settings.get(motor) or self.settings[self.sweep[0]])['lead_fraction'] \
+            * self.limits[motor]['max_tracking_error']
+
+    def _behind(self, motor, direction):
+        """How far the plan is ahead of the joint in the direction of travel (the joint under test only,
+        whose command is capped), or None."""
+        q = self.measured(motor) if motor == self.current else None
+        return None if q is None else (self.targets[motor] - q) * direction
+
+    def _arrive(self, motor):
+        """Hold until the joint has come to rest within its lead of its commanded position."""
+        waited, history = 0., []
+        window = self._cycles(REST_S) + 1
+        while True:
+            q = self.measured(motor)
+            if q is not None:
+                history = (history + [q])[-window:]
+                if (len(history) == window and max(history) - min(history) < REST_BAND_RAD
+                        and abs(self.targets[motor] - q) <= self._lead(motor)):
+                    return
+            waited += self.period
+            if waited >= STALL_S:
+                why = (f'{self._label(motor)} did not come to rest at its commanded position within '
+                       f'{STALL_S:g} s')
+                self._event(why)
+                raise Abort(why)
+            self.velocity[motor] = 0.
+            yield
+
+    def _stiffen(self, motor, gains, seconds=GAIN_RAMP_S):
+        """Change the joint's stiffness and damping once it is at rest, over `seconds`: a joint that is
+        still moving or behind its command lunges when its stiffness jumps."""
+        yield from self._arrive(motor)
+        old = self.test_gains.get(motor, self.gains[motor])
+        steps = self._cycles(seconds)
+        for k in range(1, steps + 1):
+            f = k / steps
+            self.test_gains[motor] = (old[0] + (gains[0] - old[0]) * f, old[1] + (gains[1] - old[1]) * f)
+            self.velocity[motor] = 0.
+            yield
+        self.test_gains[motor] = tuple(gains)
 
     def _measure(self, motor, kind, generator, **params):
         segment = Segment(motor, kind, params, t0=self.recording.last_t or 0.)
@@ -458,6 +573,9 @@ class SweepEngine:
                     yield from (self._verify_joint(motor, report) if self.mode == 'verify'
                                 else self._joint(motor, report))
                     report.status = 'done'
+                except Abort:
+                    report.status = 'stopped'  # Its reason is in the events; the next joint goes on.
+                    yield from self._recover(motor)
                 except SweepStopped:
                     report.status = 'stopped'
                     self.recovering = True
@@ -560,7 +678,7 @@ class SweepEngine:
         ceiling = settings.get('kp_ceiling') or kp_ref
         limit = self.limits[motor]
         bound, lead = limit['max_tracking_error'], settings['lead_fraction'] * limit['max_tracking_error']
-        step = settings['step_fraction'] * lead
+        step = min(settings['step_fraction'] * lead, settings['max_step_rad'])
         load = (report.torque.get('gravity_max') or 0.) + (report.torque.get('friction') or 0.)
         ladder = sorted({round(f * ceiling, 3) for f in settings['kp_ladder']}, reverse=True)
         for kp in ladder:
@@ -595,11 +713,11 @@ class SweepEngine:
                                    profile_gains={'kp': kp_ref, 'kd': kd_ref})
         chosen = (gains['hold_kp'], gains['hold_kd'])
         # 3. Speeds, then braking, at the chosen gains.
-        self.test_gains[motor] = chosen
+        yield from self._stiffen(motor, chosen)
         span_low = home - report.verified[-1]
         span_high = home + report.verified[1]
         followed = None
-        for speed in [s for s in settings['speeds'] if s <= limit['max_velocity'] + 1e-9]:
+        for speed in [s for s in settings['speeds'] if s <= settings['speed_headroom'] * limit['max_velocity'] + 1e-9]:
             low, high = self._allowed(motor, speed)
             low, high = max(low, span_low), min(high, span_high)
             accel = settings['acceleration']
@@ -611,8 +729,9 @@ class SweepEngine:
             results = []
             ok = yield from self._guarded(motor, self._speed_test(motor, low, high, speed, accel, results))
             report.speeds += results
-            if not ok or any(r['max_lag'] is None or r['max_lag'] > .5 * bound for r in results):
-                break
+            if not ok or any(r['max_lag'] is None or r['max_lag'] > .5 * bound
+                             or (r['speed'] or 0.) < .85 * speed for r in results):
+                break  # Lagged, or could not reach the speed (the plan waited for it).
             followed = speed
         if followed:
             low, high = self._allowed(motor, followed)
@@ -632,7 +751,7 @@ class SweepEngine:
         # 4. Verify the whole verified range at the recommended settings. The pass across the range is the
         # last word on lag: over half the bound, it steps down to the next slower tested speed (twice at most).
         recommendation = report.recommendation
-        self.test_gains[motor] = (recommendation['hold_kp'], recommendation['hold_kd'])
+        yield from self._stiffen(motor, (recommendation['hold_kp'], recommendation['hold_kd']))
         top = recommendation['max_velocity']
         tries = ([s for s in settings['speeds'] if s <= min(top, limit['max_velocity']) + 1e-9][::-1][:3]
                  if top else []) or [slow]
@@ -712,7 +831,8 @@ class SweepEngine:
         swept = measured.get('verified') or {}
         up = min(swept.get('up', report.verified[1]), high - home)
         down = min(swept.get('down', report.verified[-1]), home - low)
-        speed = min((saved or {}).get('max_velocity') or .5 * limit['max_velocity'], limit['max_velocity'])
+        speed = min((saved or {}).get('max_velocity') or .5 * limit['max_velocity'],
+                    settings['speed_headroom'] * limit['max_velocity'])
         self._task(f'{self._label(motor)}: pass at {speed:.2f} rad/s')
         verification = {}
         ok = yield from self._guarded(motor, self._verify(motor, home - down, home + up, speed, verification))
@@ -753,7 +873,7 @@ class SweepEngine:
     def _grid(self, motor, kp, kd, step, load, entry):
         home, settings = self.home[motor], self.settings[motor]
         index = self.names.index(motor)
-        self.test_gains[motor] = (kp, kd)
+        yield from self._stiffen(motor, (kp, kd))
         try:
             yield from self._hold(motor, settings['rest_s'])
             noise = yield from self._measure(motor, 'hold', self._hold(motor, settings['rest_s']), position=home)
@@ -798,7 +918,7 @@ class SweepEngine:
             self._event(f'hold test skipped: {why}')
             return
         yield from self._go(motor, position, settings['characterize_speed'])
-        self.test_gains[motor] = (kp, kd)
+        yield from self._stiffen(motor, (kp, kd))
         try:
             yield from self._hold(motor, .3)
             segment = yield from self._measure(motor, 'hold', self._hold(motor, 1.), position=position, kp=kp)
@@ -882,6 +1002,20 @@ class SweepEngine:
                 'recovering': self.recovering, 'events': self.events[-8:], 'rows': self.recording.rows_total,
                 'dropped': self.recording.dropped}
 
+    def _usable(self, motor, report):
+        """The joint's usable range today and at the recommended settings (rad), and its swept travel."""
+        row, rec = self.travel.get(motor), report.recommendation
+        if row is None or self.receiver is None or rec is None or self.limits[motor].get('gripper'):
+            return None
+        from robot_platform.control.guarded_config import stopping_reserve
+        limit = self.limits[motor]
+        lower, upper = row['operational']
+        settings = {'max_tracking_error': rec.get('max_tracking_error') or limit['max_tracking_error'],
+                    'max_velocity': rec.get('max_velocity') or limit['max_velocity'],
+                    'stop_acceleration': rec.get('stop_acceleration') or limit['stop_acceleration']}
+        return {'swept': row['swept'][1] - row['swept'][0], 'today': row['usable'][1] - row['usable'][0],
+                'recommended': max(0., upper - lower - 2 * stopping_reserve(settings, self.receiver))}
+
     def summary(self):
         """Per joint: the recommendation, the measurements behind it and what happened."""
         result = {}
@@ -908,5 +1042,5 @@ class SweepEngine:
                 'holds': {str(kp): error for kp, error in report.holds.items()},
                 'speeds': report.speeds, 'decelerations': report.decelerations,
                 'verification': report.verification, 'recommendation': report.recommendation,
-                'check': report.check, 'events': report.events}
+                'check': report.check, 'usable': self._usable(motor, report), 'events': report.events}
         return result

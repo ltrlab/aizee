@@ -32,11 +32,12 @@
     "note": "Live teleop drives one arm at a time on its physical motors, with advisory collision checks, until a two-arm collision bound exists; the other arm is never enabled. Each session starts from the reference pose (arms straight down, grippers closed). The motion settings below are unqualified: attended tests only, with the foot switch in reach."
   },
   "sweep": {
-    "note": "The servo sweep (Helm's Tune tab, control/servo_sweep.py) steps each joint's stiffness from kp_ceiling down (default: its current hold gain), damping ratios, then speeds up to its speed cap (speed_ceiling raises a joint's cap for the sweep, at the cost of usable range: the receiver's collision reserve is taken at the cap). Defaults are in servo_sweep.DEFAULTS. The wrists and grippers get headroom: friction held J5 and J6 off target at their collector gains, and the first J6 sweep (2026-09-27) passed only its top rung, 16, so the wrists go to 24.",
+    "note": "The servo sweep (Helm's Tune tab, control/servo_sweep.py) steps each joint's stiffness from kp_ceiling down (default: its current hold gain), damping ratios, then speeds up to its speed cap (speed_ceiling raises a joint's cap for the sweep, at the cost of usable range: the receiver's collision reserve is taken at the cap). Defaults are in servo_sweep.DEFAULTS. The wrists and grippers get headroom: friction held J5 and J6 off target at their collector gains, and the first J6 sweep (2026-09-27) passed only its top rung, 16, so the wrists go to 24. bound_ceiling and speed_ceiling let the sweep set a joint's tracking bound and speed cap from its measurements (never lowered, and only while its usable range stays at least usable_floor of its swept travel): the light distal joints only (operator's choice, 2026-09-27); J1-J3 keep theirs until gravity and velocity feed-forward.",
     "joints": [
-      {"match": "*_arm_j5", "kp_ceiling": 24.0},
-      {"match": "*_arm_j6", "kp_ceiling": 24.0},
-      {"match": "*_gripper", "kp_ceiling": 5.0}
+      {"match": "*_arm_j4", "bound_ceiling": 0.12, "speed_ceiling": 1.5},
+      {"match": "*_arm_j5", "kp_ceiling": 24.0, "bound_ceiling": 0.15, "speed_ceiling": 2.5},
+      {"match": "*_arm_j6", "kp_ceiling": 24.0, "bound_ceiling": 0.15, "speed_ceiling": 2.5},
+      {"match": "*_gripper", "kp_ceiling": 5.0, "bound_ceiling": 0.15}
     ]
   },
   "motion": {

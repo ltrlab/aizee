@@ -121,9 +121,12 @@ class TuneCore:
         if self.mode == 'verify':
             derived = base  # The settings teleop would use: that is what the check verifies.
         else:
+            travel = {row['motor']: row for row in base['report']}
             derived = derive_receiver(reference=reference, steps=steps, directions=self.bundle['directions'],
                                       transmissions=transmissions, model=model, limits=self.bundle['limits'],
-                                      profile=sweep_profile(self.profile, motors, gains), backend=backend)
+                                      profile=sweep_profile(self.profile, motors, gains, travel=travel, sweep=sweep),
+                                      backend=backend)
+        self.travel = {row['motor']: row for row in base['report']}
         self.derived = derived
         stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
         kind = 'check-sweep' if self.mode == 'verify' else 'sweep'
@@ -168,7 +171,8 @@ class TuneCore:
         self.engine = SweepEngine(derived['config']['joints'], home=home, gains=gains, settings=settings, sweep=sweep,
                                   checker=checker, window_s=window_s, verdict_s=policy['max_verdict_ms'] / 1000,
                                   labels=self.labels, mode=self.mode,
-                                  calibration={m: calibration[m] for m in sweep if m in calibration})
+                                  calibration={m: calibration[m] for m in sweep if m in calibration},
+                                  travel=self.travel, receiver=self.profile['receiver'])
         if self.evidence is not None:
             self.sink = (self.evidence / 'samples.f32').open('ab')
             self.engine.recording.sink = self.sink

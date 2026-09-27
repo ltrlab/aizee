@@ -58,6 +58,17 @@ def motion_settings(motion, motor):
     return merged
 
 
+def stopping_reserve(settings, receiver):
+    """How far inside its operational range a joint's targets stay, at each end: its tracking bound,
+    the distance covered at its speed cap over the receiver's reaction window plus the verdict
+    padding, and its braking distance from the cap (what derive_receiver takes off, less 1e-6)."""
+    policy = receiver['collision']
+    window_s = (policy['max_verdict_ms'] + receiver['feedback_timeout_ms'] + policy['reaction_ms']) / 1000
+    speed = settings['max_velocity']
+    return (settings['max_tracking_error'] + speed * window_s + speed ** 2 / (2 * settings['stop_acceleration'])
+            + speed * policy['max_verdict_ms'] / 1000)
+
+
 def cad_map(reference, steps, directions, transmissions):
     """Per CAD joint: the motor driving it and cad = scale * motor + offset."""
     motors = {m['name'] for m in reference['motors']}

@@ -4,7 +4,8 @@ import math
 import numpy as np
 import pytest
 
-from robot_platform.control.servo_sweep import (DEFAULTS, Recording, SweepEngine, damping_for, result_rows,
+from robot_platform.control.guarded_config import stopping_reserve
+from robot_platform.control.servo_sweep import (DEFAULTS, Recording, SweepEngine, damping_for, loosened, result_rows,
                                                 sweep_profile, sweep_settings)
 
 TICK = .0025
@@ -20,6 +21,7 @@ class Plant:
         self.t = 0.
         self.noise, self.random = noise, np.random.default_rng(seed)
         self.worst_lag = {name: 0. for name in joints}
+        self.fastest = {name: 0. for name in joints}  # The receiver faults on a joint over its speed cap.
         self.shove = None  # (name, start_s, end_s, torque): an external push, as from a bump.
 
     def run(self, names, command, seconds=.04):
@@ -39,6 +41,7 @@ class Plant:
                     v += (net - spec['friction'] * math.copysign(1, v if abs(v) >= 1e-4 else net)) / spec['inertia'] * TICK
                     q += v * TICK
                 self.state[name] = [q, v]
+                self.fastest[name] = max(self.fastest[name], abs(v))
                 lag = abs(target - q)
                 self.worst_lag[name] = max(self.worst_lag[name], lag)
                 if lag > self.bounds[name]:
@@ -257,3 +260,75 @@ def test_verify_mode_checks_each_joint_at_its_settings_and_flags_new_friction():
     # The wrist's friction (0.15 Nm) is well up on what it was swept with (0.02): a maintenance flag.
     assert not wrist['passed'] and any('friction' in reason for reason in wrist['reasons']), wrist['reasons']
     assert now < 200  # A quick check: seconds per joint, not minutes.
+
+
+RECEIVER = {'feedback_timeout_ms': 30, 'collision': {'max_verdict_ms': 80, 'reaction_ms': 10}}
+
+
+def test_a_session_loosens_the_bound_then_the_cap_while_half_the_swept_travel_stays_usable():
+    motion = {'max_tracking_error': .08, 'max_velocity': .8, 'stop_acceleration': 4.}
+    # Today's J6 reserve, as the receiver derives it: 0.320 rad at each end.
+    assert stopping_reserve(motion, RECEIVER) == pytest.approx(.32)
+    settings = dict(DEFAULTS, bound_ceiling=.15, speed_ceiling=2.5)
+    # Right J6 (2026-09-27): 1.81 rad operational, 1.91 swept. Bound 0.15 leaves 54%; any faster cap, under half.
+    j6 = {'operational': (-.905, .905), 'swept': (-.955, .955)}
+    assert loosened(motion, settings, j6, RECEIVER) == (.15, .8)
+    # Right J4: 3.22 rad operational, 3.32 swept: bound 0.12, and 1.5 rad/s still leaves 55%.
+    j4 = {'operational': (-1.61, 1.61), 'swept': (-1.66, 1.66)}
+    assert loosened(motion, dict(DEFAULTS, bound_ceiling=.12, speed_ceiling=1.5), j4, RECEIVER) == (.12, 1.5)
+    # A joint already under the floor keeps what it has; a gripper has no reserve to weigh.
+    narrow = {'operational': (-.6, .6), 'swept': (-.7, .7)}
+    assert loosened(motion, settings, narrow, RECEIVER) == (.08, .8)
+    assert loosened(dict(motion, gripper=True), dict(DEFAULTS, bound_ceiling=.15), j6, RECEIVER) == (.15, .8)
+
+
+def wrist():
+    """A light wrist that its profile gains (8, 1) can barely push at the lead cap, like right J6."""
+    joints = [limits('right_arm_j6', lower=-.9, upper=.9, bound=.15, speed=.8, stop=4., effort=14., max_kd=4.,
+                     max_kp=24.)]
+    plant = Plant({'right_arm_j6': dict(inertia=.01, gravity=lambda q: .15 * math.sin(2 * q), friction=.3, q=0.)},
+                  {'right_arm_j6': .15})
+    profile = {'sweep': {'defaults': dict(PROFILE['sweep']['defaults']),
+                         'joints': [{'match': '*_j6', 'kp_ceiling': 24.}]}}
+    return joints, plant, {'right_arm_j6': (8., 1.)}, profile
+
+
+def test_the_plan_waits_for_a_joint_it_cannot_push_and_stiffens_it_only_at_rest():
+    joints, plant, gains, profile = wrist()
+    names = ['right_arm_j6']
+    settings = {name: sweep_settings(profile, name) for name in names}
+    engine = SweepEngine(joints, home={'right_arm_j6': 0.}, gains=gains, settings=settings, sweep=names,
+                         travel={'right_arm_j6': {'operational': (-.9, .9), 'swept': (-.95, .95), 'usable': (-.6, .6)}},
+                         receiver=RECEIVER)
+    engine.observe(plant.run(names, {'targets': [0.], 'gains': [gains['right_arm_j6']]}))
+    now = 0.
+    while now < 4000:
+        command = engine.command(now)
+        if command is None:
+            break
+        engine.observe(plant.run(names, command))
+        now += .04
+    assert engine.done and engine.task == 'finished', engine.task
+    # The first live J6 sweep lunged at 0.97 rad/s against its 0.8 cap when its stiffness tripled behind its plan.
+    assert plant.fastest['right_arm_j6'] < .8, plant.fastest
+    result = engine.summary()['right_arm_j6']
+    assert result['usable']['swept'] == pytest.approx(1.9) and result['usable']['today'] == pytest.approx(1.2)
+    assert 0 < result['usable']['recommended'] <= 1.8
+
+
+def test_a_joint_that_cannot_follow_its_plan_ends_the_task_and_the_sweep_goes_on():
+    joints, plant, gains, profile = wrist()
+    plant.joints['right_arm_j6']['friction'] = 1.  # More than 8 Nm/rad can push at the lead cap (0.72 Nm).
+    names = ['right_arm_j6']
+    settings = {name: sweep_settings(profile, name) for name in names}
+    engine = SweepEngine(joints, home={'right_arm_j6': 0.}, gains=gains, settings=settings, sweep=names)
+    engine.observe(plant.run(names, {'targets': [0.], 'gains': [gains['right_arm_j6']]}))
+    now = 0.
+    while now < 4000:
+        command = engine.command(now)
+        if command is None:
+            break
+        engine.observe(plant.run(names, command))
+        now += .04
+    assert engine.done
+    assert any('could not follow its plan' in event['text'] for event in engine.events), engine.events
