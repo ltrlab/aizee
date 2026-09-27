@@ -35,6 +35,10 @@ struct Bus {
     breakaway: bool,
     receive_error: bool,
     post_stop_speed: bool,
+    /// Stop replies still to report a speed reading, whatever the position.
+    spikes: u32,
+    /// Every feedback reply reports a speed, as from a motor that is really turning.
+    moving: bool,
     damping_fault: Option<&'static str>,
 }
 impl CanIo for Bus {
@@ -70,6 +74,10 @@ impl CanIo for Bus {
             4 => {
                 self.enabled = false;
                 if self.post_stop_speed && self.position != 32767 {
+                    reply.data[2..4].copy_from_slice(&33016u16.to_be_bytes());
+                }
+                if self.spikes > 0 {
+                    self.spikes -= 1;
                     reply.data[2..4].copy_from_slice(&33016u16.to_be_bytes());
                 }
                 if frame.data[1] == 0xc4 {
@@ -159,6 +167,9 @@ impl CanIo for Bus {
         if reply.id >> 24 == 2 && self.enabled {
             reply.id |= 2 << 22;
         }
+        if reply.id >> 24 == 2 && self.moving && reply.data[1] != 0xc4 {
+            reply.data[2..4].copy_from_slice(&33016u16.to_be_bytes());
+        }
         self.rx.push_back(Received {
             bus,
             frame: reply,
@@ -193,6 +204,8 @@ fn fixture() -> (Bus, TestClock, Motor, Identity) {
         breakaway: false,
         receive_error: false,
         post_stop_speed: false,
+        spikes: 0,
+        moving: false,
         damping_fault: None,
     };
     let motor = Motor {
@@ -404,8 +417,7 @@ fn startup_watchdog_rejects_identity_firmware_readback_and_lost_reply() {
 #[test]
 fn a_moving_motor_fails_startup_with_its_measured_speed() {
     let (mut bus, mut clock, motor, identity) = fixture();
-    bus.position = 32770;
-    bus.post_stop_speed = true;
+    bus.moving = true;
     let mut hw = CanHardware::new(bus, vec![motor], 170, true).unwrap();
     hw.configure_watchdogs(vec![identity]).unwrap();
     let mut out = [JointFeedback::default()];
@@ -421,9 +433,25 @@ fn a_moving_motor_fails_startup_with_its_measured_speed() {
     let reason = hw.failure().unwrap_or_default();
     assert!(
         reason.starts_with("test_gripper: moving at +0.2")
-            && reason.ends_with("at the stop and feedback request (limit 0.2 rad/s)"),
+            && reason.ends_with("3 readings in a row over 0.2 rad/s"),
         "{reason}"
     );
+}
+
+#[test]
+fn isolated_speed_readings_on_a_still_motor_do_not_fail_startup() {
+    let (mut bus, mut clock, motor, identity) = fixture();
+    bus.spikes = 3; // Each stop reply is followed by a quiet zero-gain reply.
+    let mut hw = CanHardware::new(bus, vec![motor], 170, true).unwrap();
+    hw.configure_watchdogs(vec![identity]).unwrap();
+    let mut out = [JointFeedback::default()];
+    for _ in 0..60 {
+        hw.read(clock.now_ms(), &mut out).unwrap();
+        clock.wait_ms(2);
+    }
+    assert_eq!(hw.io.spikes, 0);
+    assert_eq!(hw.watchdog_status(), "ready");
+    assert!(hw.failure().is_none());
 }
 
 #[test]

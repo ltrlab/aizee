@@ -4,6 +4,13 @@
 use crate::{hardware::HardwareError, robstride::Feedback};
 use serde::{Deserialize, Serialize};
 
+/// A still motor's drive still reports speed noise: on Minerva, motors at rest read
+/// about -0.06..+0.01 rad/s, and an unmoving wrist once read +0.211 rad/s. Real
+/// motion persists, so a motor counts as moving only when MOVING_READINGS readings
+/// in a row exceed STILL_RAD_S.
+pub const STILL_RAD_S: f64 = 0.2;
+pub const MOVING_READINGS: u8 = 3;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Reference {
@@ -17,6 +24,8 @@ pub struct Gate {
     first: Vec<Option<u64>>,
     last: Vec<Option<u64>>,
     count: Vec<u32>,
+    /// Readings in a row over STILL_RAD_S, per motor.
+    moving: Vec<u8>,
     failed: bool,
     consumed: bool,
     /// The first failure, naming the motor and the value that failed it.
@@ -42,6 +51,7 @@ impl Gate {
             first: vec![None; n],
             last: vec![None; n],
             count: vec![0; n],
+            moving: vec![0; n],
             failed: false,
             consumed: false,
             failure: None,
@@ -58,6 +68,11 @@ impl Gate {
             return Ok(());
         }
         let r = &self.references[index];
+        let moving = if f.velocity.abs() > STILL_RAD_S {
+            self.moving[index].saturating_add(1)
+        } else {
+            0
+        };
         let problem = if self.failed {
             Some(format!(
                 "{}: the reference check had already failed or was revoked",
@@ -83,14 +98,15 @@ impl Gate {
                 (f.position - r.raw_position_rad).abs(),
                 r.tolerance_rad
             ))
-        } else if f.velocity.abs() > 0.2 {
+        } else if moving >= MOVING_READINGS {
             Some(format!(
-                "{}: moving at {:+.3} rad/s (limit 0.2 rad/s)",
+                "{}: moving at {:+.3} rad/s, {moving} readings in a row over {STILL_RAD_S} rad/s",
                 r.name, f.velocity
             ))
         } else {
             None
         };
+        self.moving[index] = moving;
         if let Some(reason) = problem {
             self.failed = true;
             self.failure.get_or_insert(reason);

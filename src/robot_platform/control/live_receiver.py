@@ -10,8 +10,9 @@ release. Starting it:
   3. guarded_controller runs in teleop mode on that one bus. It repeats the
      identity and reference checks and arms the motors' command-loss watchdogs
      before opening its socket; its first enable spends that permit. Until then
-     it keeps auditing the watchdogs, which fails if a motor moves faster than
-     0.2 rad/s: the arm must hang still until Idle.
+     it keeps auditing the watchdogs, which fails if a motor reads over
+     0.2 rad/s three times in a row (one such reading is drive noise): the arm
+     must hang still until Idle.
 The receiver faults on any reading outside its joint limits, even disarmed, so
 the pre-scan also refuses a joint at or near a limit. Closing stops the service,
 which disables every motor on its bus on the way out, saves its last status as
@@ -27,8 +28,9 @@ import time
 ENDPOINT = 'tcp://127.0.0.1:5590'
 HOST_ID = 0xAA  # The stopped reader's host id too.
 FEEDBACK_MARGIN_RAD = .002  # Closer to a limit than this, 16-bit feedback steps (~0.0004 rad) may cross it.
-STARTUP_HINT = ('every motor must answer promptly, hang still (under 0.2 rad/s), stay in Reset without a '
-                'fault and within tolerance of its reference. Let the arm settle, then start again.')
+STARTUP_HINT = ('every motor must answer promptly, hang still (not over 0.2 rad/s three readings in a row), '
+                'stay in Reset without a fault and within tolerance of its reference. Let the arm settle, then '
+                'start again.')
 
 
 def service_config(controller, device, reference, motor_models, *, bus, tolerance_rad, period_us=2500,
