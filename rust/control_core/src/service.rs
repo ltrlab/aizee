@@ -8,6 +8,7 @@ use crate::{
     can_adapter::{CanHardware, Diagnostic},
     hardware::{Hardware, JointFeedback},
     protocol::*,
+    recorder::Recorder,
     Controller,
 };
 use serde::{Deserialize, Serialize};
@@ -71,6 +72,10 @@ struct Output<'a> {
     rx_frames: u64,
     timing: &'a Timing,
     observations: &'a [linux_can::Observation],
+    /// Recorder rows since the previous response: [t_ms, then per joint position,
+    /// velocity, effort, commanded position].
+    recent: Vec<&'a [f64]>,
+    recent_dropped: u64,
 }
 
 pub fn run(
@@ -134,6 +139,7 @@ pub fn run(
         .trim()
         .to_owned();
     let mut controller = Controller::new(config.controller.clone(), epoch)?;
+    let mut recorder = Recorder::new(config.motors.len());
     let context = zmq::Context::new();
     let socket = context.socket(zmq::REP)?;
     socket.set_linger(0)?;
@@ -166,6 +172,11 @@ pub fn run(
             physical_trial_deadline = None;
         }
         controller.tick(now_ms, &mut hardware);
+        recorder.record(
+            clock.elapsed().as_secs_f64() * 1000.0,
+            controller.feedback(),
+            controller.commands(),
+        );
         timing.ticks += 1;
         if !response_pending {
             match socket.recv_bytes(zmq::DONTWAIT) {
@@ -243,6 +254,7 @@ pub fn run(
                             error = Some("invalid_guarded_protocol_frame");
                         }
                     }
+                    let (recent, recent_dropped) = recorder.take();
                     pending = rmp_serde::to_vec_named(&Output {
                         reply,
                         status: controller.status(),
@@ -257,6 +269,8 @@ pub fn run(
                         rx_frames: hardware.rx_frames,
                         timing: &timing,
                         observations: &hardware.io.observations,
+                        recent,
+                        recent_dropped,
                     })?;
                     response_pending = true;
                 }

@@ -8,6 +8,7 @@ pub mod can_adapter;
 pub mod collision;
 pub mod hardware;
 pub mod protocol;
+pub mod recorder;
 pub mod reference;
 pub mod robstride;
 #[cfg(all(target_os = "linux", feature = "linux-service"))]
@@ -230,6 +231,11 @@ impl Controller {
             collision_expires_at_ms: self.collision_deadline,
             joints: self.commands.clone(),
         }
+    }
+
+    /// The joint commands in force (the last validated targets, or the braking or hold samples).
+    pub fn commands(&self) -> &[JointCommand] {
+        &self.commands
     }
 
     pub fn feedback(&self) -> &[JointFeedback] {
