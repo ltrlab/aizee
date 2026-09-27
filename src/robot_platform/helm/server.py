@@ -234,7 +234,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         if not set(payload) <= {'arm', 'joints', 'mode', 'target'} or 'arm' not in payload:
             raise ValueError('Expected arm, and optionally joints, mode and target')
         tune.configure(arm=payload['arm'], joints=payload.get('joints'), mode=payload.get('mode', 'live'),
-                       target=payload.get('target'))
+                       target=payload.get('target'), verify=False)
         return state_response()
 
     async def tune_start(request):
@@ -271,6 +271,22 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         await off_loop(lambda: tune.save(payload['motors']))
         return state_response()
 
+    async def check_live(request):
+        payload = await body(request)
+        need_tune()
+        if check is None:
+            raise ValueError('Helm was started without Minerva Check')
+        if not set(payload) <= {'arm', 'confirm'} or payload.get('arm') not in ('left', 'right'):
+            raise ValueError('Expected arm (left or right)')
+        if link.running:
+            raise ValueError('Disconnect from the motors before the live joint sweep')
+        if teleop is not None and teleop.active:
+            raise ValueError('Stop the teleop session before the live joint sweep')
+        check.live_ready()
+        tune.configure(arm=payload['arm'], mode='live', verify=True)
+        tune.start(confirm=payload.get('confirm') is True)
+        return state_response()
+
     async def shutdown(_app):
         if tune is not None:
             await off_loop(tune.stop)
@@ -301,6 +317,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     app.router.add_post('/api/helm/leaders/reference', leaders_reference)
     app.router.add_post('/api/helm/leaders/save', leaders_save)
     app.router.add_post('/api/helm/check/run', check_run)
+    app.router.add_post('/api/helm/check/live', check_live)
     app.router.add_post('/api/helm/tune/configure', tune_configure)
     app.router.add_post('/api/helm/tune/start', tune_start)
     app.router.add_post('/api/helm/tune/key', tune_key)

@@ -41,6 +41,14 @@
           <div id="c-verdict" class="verdict" role="status"><b>Not run yet</b><span>Press Run check.</span></div>
         </div>
         <div id="check-stages" class="scroll"></div>
+        <div id="c-confirm" class="confirm-box" role="alertdialog" aria-labelledby="c-confirm-title" hidden>
+          <b id="c-confirm-title"></b>
+          <ul id="c-confirm-list"></ul>
+          <div class="confirm-actions">
+            <button id="c-confirm-cancel">Cancel</button>
+            <button id="c-confirm-go" class="danger"></button>
+          </div>
+        </div>
         <div class="save-bar">
           <p id="check-status" role="status"></p>
           <button id="c-run" class="primary">Run check</button>

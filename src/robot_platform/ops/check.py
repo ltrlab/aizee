@@ -633,11 +633,56 @@ def _live_pose(ctx):
 
 # -- Stage 4: live joint sweep --------------------------------------------------
 
-@check('sweep', 'sweep', 'Automated live joint sweep')
-def _sweep(_ctx):
-    return PENDING, ('Added once the live pipeline is proven: with the foot switch in hand, each follower joint '
-                     'moves slowly through its range under the guarded receiver while tracking, effort and '
-                     'temperature are checked.')
+LIVE_SWEEP = ('Run it from the Check tab after the stopped checks pass, with the foot switch in hand: each '
+              'joint of the {arm} arm moves out and back for friction, then across its range at its settings, '
+              'judged on lag, effort, heat and against its saved servo sweep.')
+
+
+@check('sweep', 'sweep_left', 'Live joint sweep: left arm')
+def _sweep_left(_ctx):
+    return PENDING, LIVE_SWEEP.format(arm='left')
+
+
+@check('sweep', 'sweep_right', 'Live joint sweep: right arm')
+def _sweep_right(_ctx):
+    return PENDING, LIVE_SWEEP.format(arm='right')
+
+
+def live_sweep_entry(arm, results, *, fault=None):
+    """(status, detail, data) for a live joint sweep's results ({motor: engine summary})."""
+    if fault:
+        return FAIL, f'The live sweep of the {arm} arm stopped: {fault}', {'results': results}
+    checked = {motor: result.get('check') for motor, result in (results or {}).items()}
+    if not checked or any(check is None for check in checked.values()):
+        missing = [motor for motor, check in checked.items() if check is None]
+        return FAIL, (f'The live sweep of the {arm} arm did not finish'
+                      + (f' ({len(missing)} joint{"s" if len(missing) != 1 else ""} not checked)' if missing else '')
+                      ), {'results': results}
+    failed = {motor: check for motor, check in checked.items() if not check['passed']}
+    if failed:
+        return FAIL, '; '.join(f"{(results[motor].get('label') or motor)}: {', '.join(check['reasons'])}"
+                               for motor, check in failed.items()), {'results': results}
+    uncalibrated = [motor for motor, check in checked.items() if not check['calibrated']]
+    worst = max(checked, key=lambda motor: checked[motor]['lag'] or 0.)
+    detail = (f"All {len(checked)} joints followed within half their tracking bound; worst lag "
+              f"{checked[worst]['lag']:.3f} rad ({results[worst].get('label') or worst})")
+    if uncalibrated:
+        return WARN, detail + f'; {len(uncalibrated)} not yet servo-swept, judged on the profile settings', \
+            {'results': results}
+    return PASS, detail + ', no more lag or friction than when swept', {'results': results}
+
+
+def record_live(report, arm, results, *, fault=None, save=True):
+    """Put a live sweep's outcome into a check report (the one it followed), recompute its verdict and
+    save it over the same file."""
+    entry = next(c for stage in report['stages'] for c in stage['checks'] if c['id'] == f'sweep_{arm}')
+    status, detail, data = live_sweep_entry(arm, results, fault=fault)
+    entry.update(status=status, detail=detail, data=data, recorded_at=_now())
+    report['verdict'], report['summary'] = verdict(report)
+    if save and report.get('evidence'):
+        Path(report['evidence']).write_text(json.dumps(report, indent=1, allow_nan=False, default=float) + '\n',
+                                            encoding='utf-8')
+    return report
 
 
 # -- Runner ------------------------------------------------------------------------
@@ -654,8 +699,13 @@ def verdict(report):
         return 'no_go', f"NO GO: {len(failed)} check{'s' if len(failed) > 1 else ''} failed ({', '.join(failed)})"
     if SKIP in statuses:
         return 'incomplete', 'INCOMPLETE: some checks were skipped, so this is not a go'
-    return 'go', ('GO' + (f' with {warned} warning{"s" if warned > 1 else ""}' if warned else ': every check passed')
-                  + '. The live joint sweep is not part of the check yet.')
+    warnings = f' with {warned} warning{"s" if warned > 1 else ""}' if warned else ''
+    live = [c for stage in report['stages'] if stage['id'] == 'sweep' for c in stage['checks']]
+    pending = [c['title'].split(': ')[-1] for c in live if c['status'] == PENDING]
+    if pending:
+        return 'incomplete', (f'INCOMPLETE: the stopped checks passed{warnings}. Run the live joint sweep on the '
+                              + ' and the '.join(pending) + ' (attended, motors move) to complete Minerva Check')
+    return 'go', 'GO' + (warnings if warned else ': every check passed, including the live joint sweeps')
 
 
 def run_check(*, root=ROOT, profile=DEFAULT_PROFILE, teleop=DEFAULT_TELEOP, runs=DEFAULT_RUNS, limits=None,

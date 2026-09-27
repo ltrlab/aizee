@@ -194,9 +194,11 @@ def run(runs, robot, *, leaders=None, **options):
 def test_a_complete_check_of_a_healthy_robot_is_a_go_and_is_saved(runs, loopback):
     robot = FakeRobot()
     report, checks, published = run(runs, robot)
-    assert report['verdict'] == 'go', report['summary']
-    assert {entry['status'] for key, entry in checks.items() if key != 'sweep'} <= {'pass', 'warn'}
-    assert checks['sweep']['status'] == 'pending'
+    # The stopped checks pass; GO needs the live joint sweeps, which run attended from the Check tab.
+    assert report['verdict'] == 'incomplete' and 'live joint sweep' in report['summary'], report['summary']
+    live = ('sweep_left', 'sweep_right')
+    assert {entry['status'] for key, entry in checks.items() if key not in live} <= {'pass', 'warn'}
+    assert checks['sweep_left']['status'] == checks['sweep_right']['status'] == 'pending'
     assert checks['link']['status'] != 'fail' and checks['link']['data']['fresh'] > 0
     assert checks['link']['data']['pc']['served'] >= checks['link']['data']['fresh']
     assert 'All 14 motors answered' in checks['scan']['detail'] and 'inside their swept ranges' in checks['pose']['detail']
@@ -206,7 +208,24 @@ def test_a_complete_check_of_a_healthy_robot_is_a_go_and_is_saved(runs, loopback
     assert [config['buses'][0]['interface'] for config in robot.validated] == ['canL', 'canR']
     assert 'Both arms' in checks['live_config']['detail']
     saved = check.latest_report(runs)
-    assert saved['verdict'] == 'go' and saved['evidence'] == report['evidence']
+    assert saved['verdict'] == 'incomplete' and saved['evidence'] == report['evidence']
+    # A live sweep's outcome goes into the same report, which then becomes a GO.
+    passing = {'left_arm_j1': {'label': 'Left J1', 'check': {'passed': True, 'reasons': [], 'lag': .02,
+                                                            'friction': .4, 'calibrated': True}}}
+    check.record_live(saved, 'left', passing)
+    assert saved['verdict'] == 'incomplete' and 'right arm' in saved['summary'] and 'left arm' not in saved['summary']
+    check.record_live(saved, 'right', {'right_arm_j1': passing['left_arm_j1']})
+    assert saved['verdict'] == 'go', saved['summary']
+    assert check.latest_report(runs)['verdict'] == 'go'  # Saved over the same file.
+    failing = {'right_arm_j5': {'label': 'Right wrist J5', 'check': {
+        'passed': False, 'reasons': ['friction 0.41 Nm, up from 0.12 when swept'], 'lag': .02, 'friction': .41,
+        'calibrated': True}}}
+    check.record_live(saved, 'right', failing)
+    entry = next(c for stage in saved['stages'] for c in stage['checks'] if c['id'] == 'sweep_right')
+    assert saved['verdict'] == 'no_go' and 'Right wrist J5: friction 0.41 Nm' in entry['detail']
+    check.record_live(saved, 'right', None, fault='Receiver faulted: limit_violation')
+    assert 'stopped: Receiver faulted' in next(c for stage in saved['stages'] for c in stage['checks']
+                                               if c['id'] == 'sweep_right')['detail']
 
 
 def test_a_failure_skips_what_depends_on_it_and_says_how_to_fix_it(runs, loopback):

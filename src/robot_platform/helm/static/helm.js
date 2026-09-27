@@ -265,12 +265,32 @@ function renderCheck(c) {
       }
     }
   }
+  // The live joint sweep: attended, from here, once the stopped checks pass (the server checks too).
+  const tune = last?.tune;
+  const sweeping = tune && ['running', 'starting'].includes(tune.phase);
+  const stoppedFailed = report ? report.stages.some(stage => stage.id !== 'sweep'
+    && stage.checks.some(entry => entry.status === 'fail')) : true;
   for (const stage of report ? report.stages : []) {
     for (const entry of stage.checks) {
       const row = crows.get(`${stage.id}/${entry.id}`);
       row.dataset.status = entry.status;
       row.querySelector('.cicon').textContent = CHECK_ICON[entry.status] || '?';
-      row.querySelector('.cdetail').textContent = entry.status === 'running' ? 'Checking…' : entry.detail;
+      const arm = stage.id === 'sweep' && /^sweep_(left|right)$/.test(entry.id) ? entry.id.slice(6) : null;
+      const live = arm && sweeping && tune.mode === 'verify' && tune.receiver_choice?.arm === arm;
+      row.querySelector('.cdetail').textContent = entry.status === 'running' ? 'Checking…'
+        : live ? `${tune.progress?.task || 'Starting'} · ${tune.message || ''}` : entry.detail;
+      if (arm) {
+        let button = row.querySelector('button.live');
+        if (!button) {
+          button = document.createElement('button');
+          button.className = 'live danger';
+          button.onclick = () => askCheck(arm);
+          row.append(button);
+        }
+        button.textContent = live ? 'Sweeping…' : `Sweep ${arm} arm`;
+        button.disabled = c.running || sweeping || stoppedFailed || report?.state !== 'finished';
+        button.title = stoppedFailed ? 'The stopped checks must pass first' : '';
+      }
       row.querySelector('.ctime').textContent = entry.seconds == null ? '' : `${entry.seconds.toFixed(1)} s`;
       if (entry.status === 'running' && checkRunning !== row) {
         checkRunning = row;
@@ -751,9 +771,10 @@ function renderTune(u, state) {
   const running = ['running', 'starting'].includes(u.phase);
   const choice = u.receiver_choice || {mode: 'live', arm: 'right'};
   const live = choice.mode === 'live';
+  const what = u.mode === 'verify' ? 'MINERVA CHECK LIVE JOINT SWEEP' : 'SERVO SWEEP';
   $('u-eyebrow').textContent = live
-    ? `SERVO SWEEP · LIVE ${choice.arm.toUpperCase()} ARM · MOTORS MOVE ON THEIR OWN · FOOT SWITCH IN REACH`
-    : `SERVO SWEEP · VIRTUAL RECEIVER · NO MOTORS MOVE`;
+    ? `${what} · LIVE ${choice.arm.toUpperCase()} ARM · MOTORS MOVE ON THEIR OWN · FOOT SWITCH IN REACH`
+    : `${what} · VIRTUAL RECEIVER · NO MOTORS MOVE`;
   $('u-eyebrow').className = `eyebrow ${live ? 'live' : 'warn'}`;
   for (const button of document.querySelectorAll('#u-arm button')) {
     button.setAttribute('aria-pressed', String(button.dataset.arm === choice.arm));
@@ -853,6 +874,31 @@ $('u-session').onclick = () => {
   ], `Start LIVE sweep on the ${choice.arm} arm`, () => act('/api/helm/tune/start', {confirm: true},
     `Starting the sweep on the ${choice.arm} arm: checking it is still and in its reference pose.`));
 };
+
+function closeCheckConfirm() {
+  $('c-confirm').hidden = true;
+}
+$('c-confirm-cancel').onclick = closeCheckConfirm;
+
+function askCheck(arm) {
+  const other = arm === 'left' ? 'right' : 'left';
+  $('c-confirm-title').textContent = `Run the live joint sweep on the ${arm} arm?`;
+  $('c-confirm-list').replaceChildren(...[
+    'The motors move on their own: each joint out and back, then across its range at its settings.',
+    'The foot switch (e-stop) is in your hand throughout.',
+    `The ${arm} arm hangs straight down in its reference pose, gripper closed, and its path is clear.`,
+    `The ${other} arm stays disabled.`,
+  ].map(text => Object.assign(document.createElement('li'), {textContent: text})));
+  const go = $('c-confirm-go');
+  go.textContent = `Sweep the ${arm} arm`;
+  go.onclick = () => {
+    closeCheckConfirm();
+    act('/api/helm/check/live', {arm, confirm: true},
+      `Live joint sweep of the ${arm} arm starting: checking it is still and in its reference pose.`);
+  };
+  $('c-confirm').hidden = false;
+  $('c-confirm-cancel').focus();
+}
 
 function showTab(name) {
   const chosen = document.querySelector(`.tab[data-tab=${name}]`);

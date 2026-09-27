@@ -40,6 +40,9 @@ class TuneCore:
         self.evidence_root = Path(evidence_root) if evidence_root else Path.home() / 'minerva' / 'evidence'
         self.profile = load_profile(bundle['teleop_profile'])
         receiver = bundle.get('receiver') or {'mode': 'virtual'}
+        self.mode = bundle.get('mode') or 'tune'  # 'verify': Minerva Check's live joint sweep.
+        if self.mode not in ('tune', 'verify'):
+            raise ValueError('The sweep tunes or verifies')
         self.live_arm = receiver.get('arm') if receiver.get('mode') == 'live' else None
         self.arm = receiver.get('arm') or bundle.get('arm')
         if self.arm not in ('left', 'right'):
@@ -115,12 +118,16 @@ class TuneCore:
                                transmissions=transmissions, model=model, limits=self.bundle['limits'],
                                profile=self.profile, backend=backend, servo=self.bundle.get('servo'))
         gains = {joint['name']: (joint['hold_kp'], joint['hold_kd']) for joint in base['config']['joints']}
-        derived = derive_receiver(reference=reference, steps=steps, directions=self.bundle['directions'],
-                                  transmissions=transmissions, model=model, limits=self.bundle['limits'],
-                                  profile=sweep_profile(self.profile, motors, gains), backend=backend)
+        if self.mode == 'verify':
+            derived = base  # The settings teleop would use: that is what the check verifies.
+        else:
+            derived = derive_receiver(reference=reference, steps=steps, directions=self.bundle['directions'],
+                                      transmissions=transmissions, model=model, limits=self.bundle['limits'],
+                                      profile=sweep_profile(self.profile, motors, gains), backend=backend)
         self.derived = derived
         stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
-        self.evidence = (self.evidence_root / f'sweep-{stamp}') if self.live_arm else None
+        kind = 'check-sweep' if self.mode == 'verify' else 'sweep'
+        self.evidence = (self.evidence_root / f'{kind}-{stamp}') if self.live_arm else None
         if self.evidence is not None:
             self.evidence.mkdir(parents=True, exist_ok=True)
         names = tuple(joint['name'] for joint in derived['config']['joints'])
@@ -157,9 +164,11 @@ class TuneCore:
                               step_rad=settings[sweep[0]]['path_step_rad'])
         policy = derived['config']['collision']
         window_s = (policy['max_verdict_ms'] + derived['config']['feedback_timeout_ms'] + policy['reaction_ms']) / 1000
+        calibration = ((self.bundle.get('servo') or {}).get('joints') or {})
         self.engine = SweepEngine(derived['config']['joints'], home=home, gains=gains, settings=settings, sweep=sweep,
                                   checker=checker, window_s=window_s, verdict_s=policy['max_verdict_ms'] / 1000,
-                                  labels=self.labels)
+                                  labels=self.labels, mode=self.mode,
+                                  calibration={m: calibration[m] for m in sweep if m in calibration})
         if self.evidence is not None:
             self.sink = (self.evidence / 'samples.f32').open('ab')
             self.engine.recording.sink = self.sink
@@ -169,9 +178,10 @@ class TuneCore:
                 indent=1) + '\n', encoding='utf-8')
         self.phase, self.stage = 'running', 'arming'
         self._stage_since = self.clock()
-        self.message = (f'SERVO SWEEP · LIVE {self.arm.upper()} ARM · enabling, then the sweep moves the arm. '
+        what = 'LIVE JOINT SWEEP (MINERVA CHECK)' if self.mode == 'verify' else 'SERVO SWEEP'
+        self.message = (f'{what} · LIVE {self.arm.upper()} ARM · enabling, then the sweep moves the arm. '
                         'Keep the foot switch in reach.' if self.live_arm else
-                        'SERVO SWEEP · VIRTUAL RECEIVER · no motors move.')
+                        f'{what} · VIRTUAL RECEIVER · no motors move.')
 
     # -- the cycle -----------------------------------------------------------------------------
 
@@ -306,7 +316,7 @@ class TuneCore:
         durations = sorted((c['completed_at'] - c['started_at']) * 1000 for c in self.cycles[-100:]
                            if c.get('completed_at') is not None)
         view = {'phase': self.phase, 'stage': self.stage, 'message': self.message, 'fault': self.fault,
-                'arm': self.arm, 'live': self.live_arm is not None,
+                'arm': self.arm, 'live': self.live_arm is not None, 'mode': self.mode,
                 'receiver': ((last or {}).get('status') or {}).get('state'),
                 'motors_enabled': (last or {}).get('hardware_enabled'),
                 'progress': self.engine.progress() if self.engine else None,
@@ -374,8 +384,11 @@ class TuneSession:
 
     TARGETS = ('jetson', 'pc')
 
-    def __init__(self, helm, profile_path, *, target='jetson', core_factory=None, edge_factory=None):
+    def __init__(self, helm, profile_path, *, target='jetson', core_factory=None, edge_factory=None,
+                 on_finished=None):
         self.helm = helm
+        self.on_finished = on_finished  # (mode, arm, results, fault) once a sweep's loop ends.
+        self.mode = 'tune'
         self.profile_path = Path(profile_path).resolve()
         self.profile = load_profile(self.profile_path)
         self.target, self.core_factory, self.edge_factory = target, core_factory, edge_factory
@@ -402,7 +415,7 @@ class TuneSession:
         worker = self._worker
         return worker is not None and worker.is_alive()
 
-    def configure(self, *, arm, joints=None, mode='live', target=None):
+    def configure(self, *, arm, joints=None, mode='live', target=None, verify=False):
         if arm not in ('left', 'right') or mode not in ('live', 'virtual'):
             raise ValueError('Sweep the left or right arm, live or on the virtual receiver')
         with self._lock:
@@ -416,10 +429,12 @@ class TuneSession:
                 raise ValueError("A live sweep runs its loop on Minerva's Jetson")
             self.receiver = {'mode': mode, 'arm': arm}
             self.joints = list(joints) if joints else None
+            self.mode = 'verify' if verify else 'tune'
 
     def _bundle(self):
         helm = self.helm
-        return {'kind': 'tune', 'calibration_profile': str(helm.profile_path), 'bindings': deepcopy(helm.bindings),
+        return {'kind': 'tune', 'mode': self.mode, 'calibration_profile': str(helm.profile_path),
+                'bindings': deepcopy(helm.bindings),
                 'directions': deepcopy(helm.mapping), 'limits': deepcopy(helm.saved_limits),
                 'teleop_profile': str(self.profile_path), 'asset_id': helm.asset_id,
                 'receiver': dict(self.receiver), 'arm': self.receiver['arm'], 'joints': self.joints,
@@ -492,6 +507,12 @@ class TuneSession:
                 if self._view.get('phase') in ('starting', 'running'):
                     self._view = dict(self._view, phase='fault', fault='The sweep loop ended unexpectedly',
                                       message='Sweep stopped: the loop process ended unexpectedly.')
+                finished = (self.mode, self.receiver['arm'], deepcopy(self.results), self._view.get('fault'))
+            if self.on_finished is not None:
+                try:
+                    self.on_finished(*finished)
+                except Exception:  # Recording is best effort; the sweep itself has ended safely.
+                    pass
 
     def key(self, key):
         if key not in ('X', 'H'):
@@ -553,5 +574,6 @@ class TuneSession:
             view = deepcopy(self._view)
             view.pop('results', None)
             return dict(view, receiver_choice=dict(self.receiver), joints_choice=self.joints, target=self.target,
+                        mode=self.mode,
                         results=deepcopy(self.results), saved=deepcopy(self.saved), saved_error=self.saved_error,
                         path=str(self.path))

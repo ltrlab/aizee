@@ -45,6 +45,10 @@ def main(argv=None):
         from .check import CheckWorkspace
         check = CheckWorkspace(profile=session.profile_path, teleop=args.teleop or DEFAULT_TELEOP,
                                runs=args.runs, limits=session.limits_path, address=lambda: session.address)
+        if tune is not None:
+            # Minerva Check's live joint sweep runs through the Tune loop; its outcome goes into the report.
+            tune.on_finished = lambda mode, arm, results, fault: (
+                check.record_live(arm, results, fault=fault) if mode == 'verify' else None)
         app = create_app(session, link, teleop=teleop, leaders=leaders, check=check, tune=tune)
         if session.stale_lock_pid:
             print(f'Took over a calibration lock left by exited process {session.stale_lock_pid}.', flush=True)

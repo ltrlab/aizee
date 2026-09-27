@@ -194,7 +194,9 @@ class SlowChecker:
 
     def check(self, motor, position):
         import time
-        time.sleep(.004)
+        until = time.perf_counter() + .004  # Busy: Windows sleeps round up to a 15.6 ms tick.
+        while time.perf_counter() < until:
+            pass
         return 'wrist_link within 12 mm of body at +0.26 rad' if motor.endswith('j5') and position > .25 else None
 
 
@@ -220,3 +222,32 @@ def test_path_checks_spread_over_cycles_and_still_stop_the_widening():
     wrist = engine.summary()['right_arm_j5']
     assert wrist['verified']['up'] <= .25 + 1e-9  # Stopped widening at the contact.
     assert any('stopped widening' in event['text'] for event in engine.events)
+
+
+def test_verify_mode_checks_each_joint_at_its_settings_and_flags_new_friction():
+    joints, plant, gains = arm()
+    names = [joint['name'] for joint in joints]
+    settings = {name: sweep_settings(PROFILE, name) for name in names}
+    calibration = {'right_arm_j2': {'max_velocity': .4, 'measured': {
+        'verified': {'up': .6, 'down': .6}, 'verification': {'max_lag': .03}, 'torque': {'friction': .5}}},
+        'right_arm_j5': {'max_velocity': .8, 'measured': {
+            'verified': {'up': .6, 'down': .6}, 'verification': {'max_lag': .03}, 'torque': {'friction': .02}}}}
+    gains = dict(gains, right_arm_j2=(300., 10.5))  # Verify runs at the calibrated gains.
+    engine = SweepEngine(joints, home={name: 0. for name in names}, gains=gains, settings=settings, sweep=names,
+                         mode='verify', calibration=calibration)
+    engine.observe(plant.run(names, {'targets': [0., 0.], 'gains': [gains[n] for n in names]}))
+    now = 0.
+    while now < 600:
+        command = engine.command(now)
+        if command is None:
+            break
+        engine.observe(plant.run(names, command))
+        now += .04
+    assert engine.done and engine.task == 'finished'
+    summary = engine.summary()
+    shoulder, wrist = summary['right_arm_j2']['check'], summary['right_arm_j5']['check']
+    assert shoulder['passed'], shoulder['reasons']
+    assert shoulder['friction'] == pytest.approx(.5, abs=.12) and shoulder['calibrated']
+    # The wrist's friction (0.15 Nm) is well up on what it was swept with (0.02): a maintenance flag.
+    assert not wrist['passed'] and any('friction' in reason for reason in wrist['reasons']), wrist['reasons']
+    assert now < 200  # A quick check: seconds per joint, not minutes.

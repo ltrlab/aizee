@@ -59,6 +59,7 @@ DEFAULTS = {
     'temperature_c': 55.,
     'clearance_m': .02,
     'path_step_rad': .02,
+    'check_span_rad': .3,  # Verify mode: the out-and-back for friction, each way.
 }
 JOINT_KEYS = ('kp_ceiling', 'speed_ceiling')
 PERIOD_S = .04
@@ -135,6 +136,7 @@ class JointReport:
     noise: dict | None = None
     verification: dict | None = None
     recommendation: dict | None = None
+    check: dict | None = None
     status: str = 'pending'
 
 
@@ -238,7 +240,12 @@ class SweepEngine:
     """The sweep's plan and guards, one command per cycle. See the module docstring."""
 
     def __init__(self, joints, *, home, gains, settings, sweep, checker=None, window_s=.12, verdict_s=.08,
-                 labels=None, period_s=PERIOD_S):
+                 labels=None, period_s=PERIOD_S, mode='tune', calibration=None):
+        """mode 'tune' steps the settings; 'verify' (Minerva Check) checks each joint at the settings it has
+        (`gains`, and each joint's speed cap), against its saved sweep (`calibration`: {motor: entry}) if any."""
+        if mode not in ('tune', 'verify'):
+            raise ValueError('The sweep tunes or verifies')
+        self.mode, self.calibration = mode, dict(calibration or {})
         self.limits = {joint['name']: joint for joint in joints}  # The receiver's joint limits.
         self.names = [joint['name'] for joint in joints]
         self.home, self.gains = dict(home), dict(gains)  # gains: {motor: (hold_kp, hold_kd)}.
@@ -448,7 +455,8 @@ class SweepEngine:
                 report = self.reports[motor]
                 report.status = 'running'
                 try:
-                    yield from self._joint(motor, report)
+                    yield from (self._verify_joint(motor, report) if self.mode == 'verify'
+                                else self._joint(motor, report))
                     report.status = 'done'
                 except SweepStopped:
                     report.status = 'stopped'
@@ -635,6 +643,72 @@ class SweepEngine:
         yield from self._go(motor, home, slow)
         yield from self._hold(motor, settings['rest_s'])
 
+    def _verify_joint(self, motor, report):
+        """Minerva Check's live sweep of one joint: a short out-and-back for friction, then a pass across
+        its range at its speed, judged against half its tracking bound and its saved sweep."""
+        settings, home, limit = self.settings[motor], self.home[motor], self.limits[motor]
+        slow, bound = settings['characterize_speed'], limit['max_tracking_error']
+        saved = self.calibration.get(motor)
+        measured = (saved or {}).get('measured') or {}
+        self._task(f'{self._label(motor)}: to the reference')
+        yield from self._go(motor, home, slow)
+        yield from self._hold(motor, settings['rest_s'])
+        low, high = self._allowed(motor)
+        char = []
+        for direction in (1, -1):
+            room = (high - home) if direction > 0 else (home - low)
+            amplitude = min(settings['check_span_rad'], .8 * room)
+            if amplitude < .02:
+                continue
+            target = home + direction * amplitude
+            clear, why = yield from self._clear(motor, home, target)
+            if not clear:
+                self._event(f'friction check skipped: {why}')
+                continue
+            self._task(f'{self._label(motor)}: friction {direction * amplitude:+.2f} rad')
+            segments = []
+
+            def out_and_back(target=target, direction=direction, segments=segments):
+                segments.append((yield from self._measure(motor, 'ramp', self._go(motor, target, slow),
+                                                          direction=direction, speed=slow)))
+                yield from self._hold(motor, settings['rest_s'])
+                segments.append((yield from self._measure(motor, 'ramp', self._go(motor, home, slow),
+                                                          direction=-direction, speed=slow)))
+                yield from self._hold(motor, settings['rest_s'])
+            if (yield from self._guarded(motor, out_and_back())):
+                report.verified[direction] = amplitude
+            char += segments
+        index = self.names.index(motor)
+        report.torque = analysis.torque_map([{'rows': s.rows, 'direction': s.params['direction'],
+                                              'speed': s.params['speed']} for s in char if s.rows is not None], index)
+        # The pass: the range the joint was swept over (or the friction span), at its speed.
+        swept = measured.get('verified') or {}
+        up = min(swept.get('up', report.verified[1]), high - home)
+        down = min(swept.get('down', report.verified[-1]), home - low)
+        speed = min((saved or {}).get('max_velocity') or .5 * limit['max_velocity'], limit['max_velocity'])
+        self._task(f'{self._label(motor)}: pass at {speed:.2f} rad/s')
+        verification = {}
+        ok = yield from self._guarded(motor, self._verify(motor, home - down, home + up, speed, verification))
+        verification['passed'] = bool(ok)
+        report.verification = verification
+        lag, friction = verification.get('max_lag'), report.torque.get('friction')
+        reasons = ['guard: ' + event['text'] for event in report.events]
+        if lag is None:
+            reasons.append('no pass across the range')
+        elif lag > .5 * bound:
+            reasons.append(f'lagged {lag:.3f} rad (half the tracking bound is {.5 * bound:.3f})')
+        swept_lag = (measured.get('verification') or {}).get('max_lag')
+        if lag is not None and swept_lag is not None and lag > 1.5 * swept_lag + .01:
+            reasons.append(f'lagged {lag:.3f} rad, up from {swept_lag:.3f} when swept')
+        swept_friction = (measured.get('torque') or {}).get('friction')
+        if friction is not None and swept_friction is not None and friction > 1.5 * swept_friction + .1:
+            reasons.append(f'friction {friction:.2f} Nm, up from {swept_friction:.2f} when swept')
+        report.check = {'passed': not reasons, 'reasons': reasons, 'lag': lag, 'friction': friction,
+                        'speed': speed, 'calibrated': saved is not None}
+        self._task(f'{self._label(motor)}: back to the reference')
+        yield from self._go(motor, home, slow)
+        yield from self._hold(motor, settings['rest_s'])
+
     def _tolerance(self, motor):
         return self.settings[motor].get('tolerance') or .03
 
@@ -797,5 +871,5 @@ class SweepEngine:
                 'holds': {str(kp): error for kp, error in report.holds.items()},
                 'speeds': report.speeds, 'decelerations': report.decelerations,
                 'verification': report.verification, 'recommendation': report.recommendation,
-                'events': report.events}
+                'check': report.check, 'events': report.events}
         return result

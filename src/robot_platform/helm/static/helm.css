@@ -104,7 +104,7 @@ body[data-teleop-state=FAULT] #t-state,#t-collision.bad{color:var(--bad)}#t-coll
 .confirm-box b{display:block;color:var(--bad);font-size:13px;margin-bottom:6px}
 .confirm-box ul{margin:0 0 10px;padding-left:18px;font-size:12px;line-height:1.5}
 .confirm-actions{display:flex;justify-content:flex-end;gap:10px}
-.target.wrap{flex-wrap:wrap}.target button.off{opacity:.45}
+.target.wrap{flex-wrap:wrap}.crow .live{margin-left:8px;white-space:nowrap}.target button.off{opacity:.45}
 .events{list-style:none;margin:0 0 8px;padding:0;font-size:11px;color:var(--warn);max-height:84px;overflow:auto}
 .events li{margin:2px 0}
 .ucard{border:1px solid var(--line);border-radius:8px;background:var(--raised);padding:9px 12px;margin:8px 0}
