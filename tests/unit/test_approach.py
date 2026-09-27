@@ -2,7 +2,7 @@
 import pytest
 
 from robot_platform.control.approach import (APPROACH_FLOOR_RAD_S, COMMAND_HEADROOM, OVERSPEED_HEADROOM,
-                                             approach_speed, command_speed, end_margin, reserve_toward)
+                                             approach_speed, command_speed, end_margin, lead_toward, reserve_toward)
 
 # The Rust fixture: limits +-3, cap 2 rad/s, 2 rad/s^2, bound 0.5; reaction 40 + 20 + 10 ms.
 JOINT = {'lower': -3., 'upper': 3., 'max_velocity': 2., 'max_tracking_error': .5, 'stop_acceleration': 2.}
@@ -38,3 +38,18 @@ def test_commands_keep_headroom_under_the_curve_toward_an_end_and_the_cap_elsewh
     assert up == pytest.approx(COMMAND_HEADROOM * approach_speed(JOINT, REACTION, 1.))
     # Moving away from that limit (5 rad from the other): the commanded cap.
     assert command_speed(JOINT, REACTION, 2., -1, 1.6) == 1.6
+
+
+def test_the_pull_toward_an_end_shrinks_when_the_joint_moves_toward_it_at_the_speed_allowed_there():
+    allowed = command_speed(JOINT, REACTION, 2., 1, 1.6)  # One radian from the end.
+    shrunk = .1 * allowed / 1.6
+    # In open travel, the full lead at any speed.
+    assert lead_toward(JOINT, REACTION, -2., 1, .1, 1.6, 1.5) == .1
+    # Toward the end at the allowed speed or faster: in proportion to it; slowly (lifting): the full lead.
+    assert lead_toward(JOINT, REACTION, 2., 1, .1, 1.6, allowed) == pytest.approx(shrunk)
+    assert lead_toward(JOINT, REACTION, 2., 1, .1, 1.6, 3.) == pytest.approx(shrunk)
+    assert lead_toward(JOINT, REACTION, 2., 1, .1, 1.6, .4 * allowed) == .1
+    assert lead_toward(JOINT, REACTION, 2., 1, .1, 1.6, .75 * allowed) == pytest.approx((shrunk + .1) / 2)
+    assert lead_toward(JOINT, REACTION, 2., -1, .1, 1.6, -3.) == .1  # Away from that end.
+    assert lead_toward(dict(JOINT, gripper=True), REACTION, 2.9, 1, .1, 1.6, 3.) == .1
+

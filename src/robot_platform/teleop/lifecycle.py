@@ -7,7 +7,7 @@ from copy import deepcopy
 import math
 import time
 
-from robot_platform.control.approach import command_speed
+from robot_platform.control.approach import command_speed, lead_toward
 
 
 def _finite(value):
@@ -179,12 +179,18 @@ class TeleopLifecycle:
         proposed = []
         for previous, row, target, joint in zip(self.target, measured, goal, self._joints):
             up = down = joint[speed]
+            lead_up = lead_down = joint['max_lead']
             curve = joint.get('approach')
             if curve:  # Toward an end, within the receiver's braking curve (with headroom).
                 up = command_speed(curve, curve['reaction_s'], previous, 1, up)
                 down = command_speed(curve, curve['reaction_s'], previous, -1, down)
-            low = max(joint['lower'], row['position']-joint['max_lead'], previous-down*dt)
-            high = min(joint['upper'], row['position']+joint['max_lead'], previous+up*dt)
+                # And pull no harder than that speed warrants: the lead toward an end shrinks with it.
+                reaction, cap = curve['reaction_s'], joint['max_velocity']
+                lead_up = lead_toward(curve, reaction, row['position'], 1, joint['max_lead'], cap, row['velocity'])
+                lead_down = lead_toward(curve, reaction, row['position'], -1, joint['max_lead'], cap, row['velocity'])
+            # A target beyond a shrunken lead may come back toward the joint at once: that only eases the pull.
+            low = max(joint['lower'], row['position']-lead_down, min(previous-down*dt, row['position']+lead_up))
+            high = min(joint['upper'], row['position']+lead_up, max(previous+up*dt, row['position']-lead_down))
             if low > high:
                 raise ValueError(f'Measured pose exceeds command lead/slew bounds: {joint["name"]}')
             proposed.append(max(low, min(high, target)))

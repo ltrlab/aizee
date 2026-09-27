@@ -4,6 +4,7 @@ import math
 import numpy as np
 import pytest
 
+from robot_platform.control.approach import approach_speed
 from robot_platform.control.guarded_config import usable_margin
 from robot_platform.control.servo_sweep import (DEFAULTS, Recording, SweepEngine, damping_for, loosened, result_rows,
                                                 sweep_profile, sweep_settings)
@@ -22,6 +23,8 @@ class Plant:
         self.noise, self.random = noise, np.random.default_rng(seed)
         self.worst_lag = {name: 0. for name in joints}
         self.fastest = {name: 0. for name in joints}  # The receiver faults on a joint over its speed cap.
+        self.curve = {}  # {name: receiver joint}: track speed against its braking curve (reaction 0.12 s).
+        self.over_curve = {name: 0. for name in joints}  # Worst |speed| / speed allowed where the joint was.
         self.shove = None  # (name, start_s, end_s, torque): an external push, as from a bump.
 
     def run(self, names, command, seconds=.04):
@@ -42,6 +45,10 @@ class Plant:
                     q += v * TICK
                 self.state[name] = [q, v]
                 self.fastest[name] = max(self.fastest[name], abs(v))
+                if name in self.curve and abs(v) > 1e-3:
+                    limit = self.curve[name]
+                    distance = limit['upper'] - q if v > 0 else q - limit['lower']
+                    self.over_curve[name] = max(self.over_curve[name], abs(v) / approach_speed(limit, .12, distance))
                 lag = abs(target - q)
                 self.worst_lag[name] = max(self.worst_lag[name], lag)
                 if lag > self.bounds[name]:
@@ -301,6 +308,7 @@ def test_the_plan_waits_for_a_joint_it_cannot_push_and_stiffens_it_only_at_rest(
     engine = SweepEngine(joints, home={'right_arm_j6': 0.}, gains=gains, settings=settings, sweep=names,
                          travel={'right_arm_j6': {'operational': (-.9, .9), 'swept': (-.95, .95), 'usable': (-.6, .6)}},
                          receiver=RECEIVER)
+    plant.curve['right_arm_j6'] = joints[0]
     engine.observe(plant.run(names, {'targets': [0.], 'gains': [gains['right_arm_j6']]}))
     now = 0.
     while now < 4000:
@@ -310,8 +318,10 @@ def test_the_plan_waits_for_a_joint_it_cannot_push_and_stiffens_it_only_at_rest(
         engine.observe(plant.run(names, command))
         now += .04
     assert engine.done and engine.task == 'finished', engine.task
-    # The first live J6 sweep lunged at 0.97 rad/s against its 0.8 cap when its stiffness tripled behind its plan.
+    # The first live J6 sweep lunged at 0.97 rad/s against its 0.8 cap when its stiffness tripled behind its plan,
+    # and a later one ran into its braking curve near an end, pulled by its command's lead.
     assert plant.fastest['right_arm_j6'] < .8, plant.fastest
+    assert plant.over_curve['right_arm_j6'] < 1., plant.over_curve
     result = engine.summary()['right_arm_j6']
     assert result['usable']['swept'] == pytest.approx(1.9) and result['usable']['today'] == pytest.approx(1.2)
     assert result['current']['max_velocity'] == .8  # The session's cap, as no row gives today's settings here.

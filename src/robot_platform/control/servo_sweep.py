@@ -38,7 +38,7 @@ import time
 import numpy as np
 
 from . import servo_analysis as analysis
-from robot_platform.control.approach import command_speed, end_margin
+from robot_platform.control.approach import OVERSPEED_HEADROOM, command_speed, end_margin, lead_toward
 
 DEFAULTS = {
     'characterize_speed': .15,
@@ -345,6 +345,11 @@ class SweepEngine:
             return None
         return float(self.latest[1 + 4 * self.names.index(motor)])
 
+    def measured_velocity(self, motor):
+        if self.latest is None:
+            return 0.
+        return float(self.latest[2 + 4 * self.names.index(motor)])
+
     def _guard(self):
         """The reason to abandon the running task, or None."""
         rows = getattr(self, '_fresh', None)
@@ -416,8 +421,8 @@ class SweepEngine:
             q = self.measured(name)
             settings = self.settings.get(name) or self.settings[self.current or self.sweep[0]]
             if q is not None and name == self.current:
-                lead = settings['lead_fraction'] * limit['max_tracking_error']
-                target = min(q + lead, max(q - lead, target))  # Never lead the joint by more than the cap.
+                # Never lead the joint by more than the cap, and toward an end by no more than its curve allows.
+                target = min(q + self._lead(name, 1, q), max(q - self._lead(name, -1, q), target))
             low, high = self._allowed(name)
             target = min(high, max(low, target))
             targets.append(target)
@@ -453,7 +458,7 @@ class SweepEngine:
                 break
             dt = self.period
             behind = self._behind(motor, direction)
-            if behind is not None and behind >= self._lead(motor):
+            if behind is not None and behind >= self._lead(motor, direction, self.measured(motor)):
                 # The command is pinned at its lead cap: the plan waits for the joint rather than run
                 # ahead of it (a plan far ahead turns into a lunge the moment the joint gets more push).
                 waited += dt
@@ -486,10 +491,15 @@ class SweepEngine:
         if stop:
             self.velocity[motor] = 0.
 
-    def _lead(self, motor):
-        """How far a command may lead the measured position of the joint under test."""
-        return (self.settings.get(motor) or self.settings[self.sweep[0]])['lead_fraction'] \
-            * self.limits[motor]['max_tracking_error']
+    def _lead(self, motor, direction=None, position=None):
+        """How far a command may lead the measured position of the joint under test: its lead cap, and in
+        `direction` from `position`, less toward an end (control.approach.lead_toward)."""
+        limit = self.limits[motor]
+        lead = (self.settings.get(motor) or self.settings[self.sweep[0]])['lead_fraction'] * limit['max_tracking_error']
+        if direction is None or position is None:
+            return lead
+        return lead_toward(limit, self.window_s, position, direction, lead, limit['max_velocity'] / OVERSPEED_HEADROOM,
+                           self.measured_velocity(motor))
 
     def _behind(self, motor, direction):
         """How far the plan is ahead of the joint in the direction of travel (the joint under test only,

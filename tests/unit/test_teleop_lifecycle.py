@@ -294,3 +294,25 @@ def test_commands_slow_toward_an_end_within_the_receivers_braking_curve():
     away = lifecycle.step(feedback(.12, (toward, .02)), target=target(.12, (1., .02)), now=.12)['positions'][0]
     assert away == pytest.approx(toward - 2. * .04)
 
+
+def test_a_lagging_joint_near_an_end_is_pulled_only_as_hard_as_its_curve_allows():
+    from robot_platform.control.approach import command_speed
+    curve = {'lower': -2., 'upper': 2., 'max_velocity': 2.5, 'max_tracking_error': .05, 'stop_acceleration': 5.,
+             'reaction_s': .12}
+    curved = joints()
+    curved[0].update(max_velocity=2., approach=curve)
+    lifecycle = TeleopLifecycle(curved, settle_time_s=0.)
+    positions = (1.7, .02)
+    lifecycle.action('idle', feedback(0., positions), now=0.)
+    lifecycle.action('enable', feedback(0., positions), now=0.)
+    lifecycle.action('engage', feedback(0., positions), target=target(0., positions), now=0.)
+    lifecycle.step(feedback(.04, positions), target=target(.04, positions), now=.04)
+    # The joint lags at 1.6 behind its 1.7 target, moving toward the end at 1.5 rad/s: it may lead by
+    # 0.2 x (allowed / 2 rad/s) only.
+    moving = lifecycle.step(feedback(.08, (1.6, .02), (1.5, 0.)), target=target(.08, (1.95, .02)), now=.08)
+    lead = .2 * command_speed(curve, .12, 1.6, 1, 2.) / 2.
+    assert lead < .2 and moving['positions'][0] == pytest.approx(1.6 + lead)
+    # Slowly (a joint lifting against gravity): the full lead, so the slew limit binds instead.
+    slow = lifecycle.step(feedback(.12, (1.6, .02), (.1, 0.)), target=target(.12, (1.95, .02)), now=.12)
+    assert slow['positions'][0] > moving['positions'][0]
+
