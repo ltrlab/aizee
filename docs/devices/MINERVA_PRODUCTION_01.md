@@ -2017,3 +2017,26 @@ Further range would come from:
 The operator then let the sweep test J1–J3 up to 1.5 rad/s, now that speed
 costs no travel (`0bfa6ed`, release `20260927T212919Z-0bfa6ed`). Their tracking
 bounds are unchanged. The speed ladder's 1.6 rad/s step became 1.5.
+
+### 2026-09-27 — J6 sweep at the braking curve
+
+The J6 sweep on release `0bfa6ed` (22:35 UTC) ran cleanly through:
+- characterisation, every stiffness from 2.9 to 24 with every damping ratio,
+  and the holds, including the 24 Nm/rad hold that lunged before;
+- speed tests from 0.2 to 0.8 rad/s.
+
+At 1 rad/s the receiver faulted `limit_violation` (the arm disabled; the
+display now showed it as stopped). J6 was 0.33 rad from its upper end, moving
+at 0.86 rad/s, where its braking curve allows 0.82. Two causes:
+- **The profile's 4 rad/s² stop acceleration** makes J6's curve steep.
+- **The pull didn't follow the plan.** The plan had slowed, but the lagging
+  joint was pulled by its command's lead (0.09 rad at kp 24, 2.2 Nm) rather
+  than by the plan's speed.
+
+Fixes (release `20260927T225416Z-5b5d2a6`):
+- **`16f6cfb`:** moving toward an end at the speed commands may approach it
+  there or faster, a joint's lead shrinks in proportion to that speed. Slower
+  than half of it, as when lifting against gravity, it keeps the full lead. It
+  blends in between. Applied in teleop's lifecycle and the sweep.
+- **`5b5d2a6`:** J6 stop acceleration 16 rad/s², half what it braked at
+  cleanly. The same spot now allows about 1.2 rad/s.
