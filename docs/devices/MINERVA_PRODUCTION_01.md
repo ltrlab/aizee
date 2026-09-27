@@ -2013,3 +2013,7 @@ Further range would come from:
 - measured braking deceleration (J6 braked cleanly at 32 rad/s²; its profile
   still has 4);
 - a lower approach floor (0.5 rad/s, chosen above the drives' noise).
+
+The operator then let the sweep test J1–J3 up to 1.5 rad/s, now that speed
+costs no travel (`0bfa6ed`, release `20260927T212919Z-0bfa6ed`). Their tracking
+bounds are unchanged. The speed ladder's 1.6 rad/s step became 1.5.
