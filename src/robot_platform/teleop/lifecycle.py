@@ -186,8 +186,8 @@ class TeleopLifecycle:
                 down = command_speed(curve, curve['reaction_s'], previous, -1, down)
                 # And pull no harder than that speed warrants: the lead toward an end shrinks with it.
                 reaction, cap = curve['reaction_s'], joint['max_velocity']
-                lead_up = lead_toward(curve, reaction, row['position'], 1, joint['max_lead'], cap, row['velocity'])
-                lead_down = lead_toward(curve, reaction, row['position'], -1, joint['max_lead'], cap, row['velocity'])
+                lead_up = lead_toward(curve, reaction, row['position'], 1, joint['max_lead'], cap)
+                lead_down = lead_toward(curve, reaction, row['position'], -1, joint['max_lead'], cap)
             # A target beyond a shrunken lead may come back toward the joint at once: that only eases the pull.
             low = max(joint['lower'], row['position']-lead_down, min(previous-down*dt, row['position']+lead_up))
             high = min(joint['upper'], row['position']+lead_up, max(previous+up*dt, row['position']-lead_down))

@@ -62,23 +62,20 @@ def end_margin(joint, reaction, verdict_s):
             + floor * verdict_s + 1e-6)
 
 
-def lead_toward(joint, reaction, position, direction, lead, cap, velocity=0.):
-    """How far a command may lead a joint measured at `position` (moving at `velocity`) in `direction`.
+def lead_toward(joint, reaction, position, direction, lead, cap):
+    """How far a command may lead a joint measured at `position` in `direction`: the full `lead` in open
+    travel; toward an end, only in proportion to the speed commands may approach it there against the
+    commanded `cap`.
 
-    A lagging joint is pulled by its command's lead, not by the plan's speed, so near an end a full lead
-    drives it in faster than the curve allows (right J6, 2026-09-27). Moving toward an end at the speed
-    commands may approach it there or faster, the lead shrinks in proportion to that speed against the
-    commanded `cap`; under half that speed (as when lifting against gravity, where the lead is what
-    holds the joint up) it keeps the full lead; in between it blends. In open travel, the full lead."""
+    A lagging joint is pulled by its command's lead, not by the plan's speed: near an end a full lead drove
+    right J6 in faster than the curve allows, and a joint stuck on static friction breaks free with all the
+    pull its lead has built up (J6 lunged to 1.1 rad/s from a 0.06 rad lead, 2026-09-27). A stuck joint
+    reads as slow as one lifting against gravity, so the lead shrinks by position alone. Until gravity
+    feed-forward, a heavy joint may therefore lift short of an end."""
     if joint.get('gripper') or cap <= 0:
         return lead
     allowed = command_speed(joint, reaction, position, direction, cap)
-    if allowed >= cap:
-        return lead
-    shrunk = lead * allowed / cap
-    toward = velocity * direction
-    blend = min(1., max(0., 2 - 2 * toward / allowed)) if allowed > 0 else 0.
-    return shrunk + (lead - shrunk) * blend
+    return lead if allowed >= cap else lead * allowed / cap
 
 
 def command_speed(joint, reaction, position, direction, cap):

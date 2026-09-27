@@ -312,7 +312,7 @@ def test_a_lagging_joint_near_an_end_is_pulled_only_as_hard_as_its_curve_allows(
     moving = lifecycle.step(feedback(.08, (1.6, .02), (1.5, 0.)), target=target(.08, (1.95, .02)), now=.08)
     lead = .2 * command_speed(curve, .12, 1.6, 1, 2.) / 2.
     assert lead < .2 and moving['positions'][0] == pytest.approx(1.6 + lead)
-    # Slowly (a joint lifting against gravity): the full lead, so the slew limit binds instead.
-    slow = lifecycle.step(feedback(.12, (1.6, .02), (.1, 0.)), target=target(.12, (1.95, .02)), now=.12)
-    assert slow['positions'][0] > moving['positions'][0]
+    # Stuck (reading still, as on static friction), the same: a joint breaks free with the pull it has.
+    stuck = lifecycle.step(feedback(.12, (1.6, .02)), target=target(.12, (1.95, .02)), now=.12)
+    assert stuck['positions'][0] == pytest.approx(1.6 + lead)
 

@@ -345,11 +345,6 @@ class SweepEngine:
             return None
         return float(self.latest[1 + 4 * self.names.index(motor)])
 
-    def measured_velocity(self, motor):
-        if self.latest is None:
-            return 0.
-        return float(self.latest[2 + 4 * self.names.index(motor)])
-
     def _guard(self):
         """The reason to abandon the running task, or None."""
         rows = getattr(self, '_fresh', None)
@@ -498,8 +493,7 @@ class SweepEngine:
         lead = (self.settings.get(motor) or self.settings[self.sweep[0]])['lead_fraction'] * limit['max_tracking_error']
         if direction is None or position is None:
             return lead
-        return lead_toward(limit, self.window_s, position, direction, lead, limit['max_velocity'] / OVERSPEED_HEADROOM,
-                           self.measured_velocity(motor))
+        return lead_toward(limit, self.window_s, position, direction, lead, limit['max_velocity'] / OVERSPEED_HEADROOM)
 
     def _behind(self, motor, direction):
         """How far the plan is ahead of the joint in the direction of travel (the joint under test only,
@@ -973,6 +967,7 @@ class SweepEngine:
     def _brake_test(self, motor, low, high, speed, deceleration, acceleration, results):
         index = self.names.index(motor)
         settings = self.settings[motor]
+        high = low + .8 * (high - low)  # Brake short of the end: braking is measured, not the curve's edge.
         yield from self._go(motor, low, settings['characterize_speed'])
         yield from self._hold(motor, settings['rest_s'])
         braking_distance = speed * speed / (2 * deceleration)

@@ -38,7 +38,7 @@ class Plant:
                 net = torque - spec['gravity'](q)
                 if self.shove and self.shove[0] == name and self.shove[1] <= self.t < self.shove[2]:
                     net += self.shove[3]
-                if abs(v) < 1e-4 and abs(net) <= spec['friction']:
+                if abs(v) < 1e-4 and abs(net) <= spec.get('static', spec['friction']):  # Sticks, then slides.
                     v = 0.
                 else:
                     v += (net - spec['friction'] * math.copysign(1, v if abs(v) >= 1e-4 else net)) / spec['inertia'] * TICK
@@ -129,12 +129,14 @@ def test_a_full_sweep_characterises_steps_the_settings_and_recommends_without_a_
 
 def test_a_heavy_joint_is_swept_within_its_bound_without_needing_a_guard():
     joints, plant, gains = arm()
-    # Three times the gravity: the lead cap and the torque map keep every test within the bound.
+    # Three times the gravity: the lead cap and the torque map keep every test within the bound. Near its
+    # upper end its pull is held to what the braking curve allows, so it characterises short of the end
+    # (until gravity feed-forward), and still maps most of its load.
     plant.joints['right_arm_j2']['gravity'] = lambda q: 12. * math.sin(q)
     engine, _ = run_sweep(plant, joints, gains)
     assert engine.done and engine.task == 'finished'
     shoulder = engine.summary()['right_arm_j2']
-    assert shoulder['torque']['gravity_max'] > 8.
+    assert shoulder['torque']['gravity_max'] > 6.
     assert shoulder['recommendation']['hold_kp'] >= shoulder['recommendation']['kp_floor']
     assert plant.worst_lag['right_arm_j2'] < .08  # Never reached the receiver's fault.
 
@@ -374,3 +376,30 @@ def test_the_profile_lets_the_sweep_speed_up_every_arm_joint_and_loosen_only_the
     assert sweep_settings(profile, 'left_arm_j4')['bound_ceiling'] == .12
     assert sweep_settings(profile, 'left_arm_j6')['speed_ceiling'] == 2.5
 
+
+def test_a_joint_breaking_free_of_static_friction_near_an_end_stays_well_under_its_curve():
+    # Right J6's sweep session (2.5 rad/s commanded, 3.125 enforced, 16 rad/s^2, bound 0.15, kp to 24). The
+    # third live J6 sweep stuck on static friction short of an end while its lead built up, then lunged to
+    # 1.1 rad/s where 0.98 was allowed. Pulling toward an end by position alone keeps it under half the
+    # curve here; a pull that grew back while the joint read slow reached 0.79 of it.
+    joints = [limits('right_arm_j6', lower=-.885, upper=.9225, bound=.15, speed=3.125, stop=16., effort=14.,
+                     max_kd=4., max_kp=24.)]
+    plant = Plant({'right_arm_j6': dict(inertia=.01, gravity=lambda q: .15 * math.sin(2 * q), friction=.1,
+                                        static=.35, q=0.)}, {'right_arm_j6': .15})
+    plant.curve['right_arm_j6'] = joints[0]
+    profile = {'sweep': {'defaults': dict(PROFILE['sweep']['defaults'], speeds=[.4, .8, 1., 1.2],
+                                         decelerations=[2., 4., 8.]),
+                         'joints': [{'match': '*_j6', 'kp_ceiling': 24.}]}}
+    names = ['right_arm_j6']
+    engine = SweepEngine(joints, home={'right_arm_j6': 0.}, gains={'right_arm_j6': (8., 1.)},
+                         settings={name: sweep_settings(profile, name) for name in names}, sweep=names)
+    engine.observe(plant.run(names, {'targets': [0.], 'gains': [(8., 1.)]}))
+    now = 0.
+    while now < 4000:
+        command = engine.command(now)
+        if command is None:
+            break
+        engine.observe(plant.run(names, command))
+        now += .04
+    assert engine.done and engine.task == 'finished', engine.task
+    assert plant.over_curve['right_arm_j6'] < .7, plant.over_curve
