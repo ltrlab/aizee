@@ -246,19 +246,32 @@ target. A leader reading that moves faster than 20 rad/s is treated as an encode
 glitch, and the arm holds; a quick trigger squeeze stays well under that.
 
 **Where the limits come from.** Each joint's operational interval is its swept
-range intersected with the CAD range, 0.05 rad inside both ends. Targets must
-also keep the receiver's stopping reserve inside that interval: tracking
-allowance + speed × (verdict + feedback timeout + reaction) + speed²/(2 × stop
-acceleration). The usable band is therefore narrower, and faster joints lose
-more of it: the wrist swivels run at 2.5 rad/s over ±2.28 rad instead of
-0.8 rad/s over ±2.77 rad. Braking harder and a tighter tracking bound shrink the
-reserve instead: the elbows run at 1.2 rad/s, braking at 25 rad/s² with a
-0.05 rad tracking bound, over the same range they had at 0.8 rad/s. The part
-proportional to speed (about 0.2 s of travel before the receiver stops) cannot
-shrink, so about 1.3 rad/s is the most an elbow can run without losing range.
-Each command step is also capped by the joint's tracking bound, so every tracking
-bound is at least its speed times the 40 ms period. The rehearsal speeds and
-gains are unqualified.
+range intersected with the CAD range, 0.05 rad inside both ends.
+
+**Joints slow down near the ends.** A joint may approach an end only as fast as
+it can still stop short of it, with its tracking bound in hand:
+- it has the receiver's reaction time to stop in: verdict + feedback timeout +
+  reaction, 0.12 s;
+- it brakes at its stop acceleration;
+- in open travel it runs at its speed cap, and near an end it never slows below
+  0.5 rad/s.
+
+The receiver enforces this braking curve on feedback while it drives the arm,
+as it does the cap, and takes each side's stopping reserve at the curve's
+speed. Targets therefore keep only the tracking bound, plus the stopping margin
+at 0.5 rad/s and the envelope compiler's padding, inside the interval: about
+0.21 rad at a 0.08 rad bound. A faster cap costs no range. On the right arm,
+between 73% (J6) and 89% (J3) of each joint's swept travel is usable, and the
+leader scaling covers all of it.
+
+**Commands keep headroom under what the receiver enforces.** Servos overshoot
+the speed they follow:
+- the receiver's speed cap is 1.25 × the commanded cap;
+- near an end, commands move at most 80% of the curve's speed there.
+
+Each command step is also capped by the joint's tracking bound, so every
+tracking bound is at least its speed times the 40 ms period. The rehearsal
+speeds and gains are unqualified.
 
 **Grippers are exempt.** They touch and hold objects, so the receiver treats a
 joint marked `"gripper": true` differently. It gets no margin and no stopping
@@ -394,13 +407,39 @@ reference. Then, joint by joint, with the rest of the arm held there:
 
 Every planned move is checked against the collision model along its whole
 path, relative to the reference pose: a pair that comes within 20 mm and was
-not that close already stops it. Each cycle, a command's lead over the measured
-position is capped at 60% of the joint's tracking bound. A guard abandons a
-task if any joint of the arm lags past 75% of its bound, pushes over half its
-effort limit, passes 55 °C, or the pose's collision check is not clear. The
-joint then holds where it is at the current gains and returns to its
+not that close already stops it.
+
+**How the plan moves the joint:**
+- Each cycle, a command's lead over the measured position is capped at 60% of
+  the joint's tracking bound.
+- The plan waits for a joint pinned at that cap rather than running ahead of
+  it. A joint stuck for 3 s ends the task.
+- Stiffness and damping change only once the joint is at rest, ramped over
+  0.3 s.
+- Speed tests stop at 80% of the receiver's cap, and step tests are at most
+  0.03 rad, leaving headroom under the overspeed limit.
+- Moves slow down near the ends, as teleop does.
+
+**The guards.** A guard abandons a task if any joint of the arm:
+- lags past 75% of its bound;
+- pushes over half its effort limit;
+- passes 55 °C;
+- or the pose's collision check is not clear.
+
+The joint then holds where it is at the current gains and returns to its
 reference, and the sweep continues with what the evidence allows. The
-receiver's own limits stay in force behind all of this.
+receiver's own limits stay in force behind all of this. If the receiver faults
+anyway, the session ends with the arm disabled: the joint under test shows as
+stopped, and Motors reads off.
+
+**Bound and speed ceilings.** A joint's `bound_ceiling` and `speed_ceiling` in
+the teleop profile's `sweep` block let the session raise its tracking bound and
+speed cap, so the sweep can measure there:
+- The bound sets the joint's push, through the lead cap. It rises only while at
+  least half the joint's swept travel stays usable.
+- Speed costs no travel.
+- The ceilings are set for J4, J5, J6 and the gripper only. J1–J3 keep their
+  bounds until feed-forward.
 
 **Finish (X)** returns the joint under test to its reference, then disables
 the arm. **Disable (H)** removes torque at once, and the arm goes limp where it
@@ -413,10 +452,12 @@ disables the arm where it is; Helm asks first.
   tolerance at the reference, with one rung of margin. Its steps must not
   overshoot by more than 10% and must come to rest.
 - **Damping**: the ratio with the quickest settling at that stiffness.
-- **Speed and braking**: the highest tested speed and deceleration followed
-  with at most half the tracking bound of lag.
-- **Tracking bound**: twice the worst lag at that speed, between 0.03 rad and
-  the current bound.
+- **Speed and braking**: the highest tested speed that every direction
+  followed, and the highest deceleration, with at most half the tracking bound
+  of lag. A final pass across the whole range at that speed must stay within
+  half the bound too; if it doesn't, the speed steps down.
+- **Tracking bound**: twice the worst lag at that speed (including that final
+  pass), between 0.03 rad and the session's bound.
 
 The results show the recommended values next to the current ones, the
 measurements (gravity, friction, verified range, worst lag) and any guard

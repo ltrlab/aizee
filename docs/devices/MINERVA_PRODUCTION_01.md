@@ -1963,3 +1963,53 @@ Also found: teleop commands a joint at up to its receiver cap, which is also
 its overspeed threshold, so a joint that briefly overshoots while following
 a fast leader move at the cap can fault. Open: command at about 80% of the
 cap.
+
+### 2026-09-27 — braking curves: range and speed no longer trade off
+
+- **20:41 UTC:** the next J6 sweep (release `b2d53cb`) faulted `limit_violation`
+  in its 0.6 rad/s speed test. J6, at stiffness 24 with damping 0.61, overshot
+  to 0.834 rad/s against its 0.8 cap.
+- **The receiver did disable the arm** (`hardware_enabled` false,
+  `disable_operation_succeeded`). But Helm kept showing the stage as sweeping,
+  the joint as measuring and Motors as blank, so it read as still running.
+  Fixed in `5cf4b14`.
+
+The operator: "WE NEED to use the full range, and we need the speed."
+
+**The old rule.** The receiver kept every joint its stopping reserve at its
+speed cap from both ends, all the time: bound + cap × 0.2 s + braking from the
+cap. That gave 0.32 rad a side for most joints at 0.8 rad/s, and more at higher
+caps.
+
+**The new rule (`70971c0`, release `20260927T211923Z-5cf4b14`, built with
+`--build`).** A joint may approach an end only as fast as it can still stop
+short of it: its cap in open travel, down to 0.5 rad/s near the end. The
+receiver enforces this curve on feedback while driving, and takes each side's
+reserve at the curve's speed.
+- Each end now keeps only the tracking bound plus the stopping margin at
+  0.5 rad/s: 0.21 rad at a 0.08 rad bound, at any cap.
+- The receiver's cap is 1.25 × the commanded cap (headroom for overshoot).
+  Commands near an end move at most 80% of the curve.
+
+Right arm, share of swept travel usable, before → after:
+
+| Joint | Before | After |
+|---|---|---|
+| J1 | 68% | 77% |
+| J2 | 75% | 82% |
+| J3 | 81% | 89% |
+| J4 | 78% | 84% |
+| J5 | 69% | 87% |
+| J6 | 61% | 73% |
+
+(The commit message says J6 goes to 78%; it is 73%.) Leader scaling spreads
+each leader over the wider range.
+
+Not yet run on the motors. The first live use should be attended, watching
+joints slow near their ends.
+
+Further range would come from:
+- a shorter reaction time (a faster loop and verdict);
+- measured braking deceleration (J6 braked cleanly at 32 rad/s²; its profile
+  still has 4);
+- a lower approach floor (0.5 rad/s, chosen above the drives' noise).
