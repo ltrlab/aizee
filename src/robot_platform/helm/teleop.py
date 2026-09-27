@@ -692,7 +692,7 @@ class TeleopSession:
 
     def _servo(self):
         """The saved servo calibration (Helm's Tune tab), if any: the receiver takes its settings from it."""
-        from .tune import load_servo, servo_path
+        from robot_platform.control.servo_calibration import load_servo, servo_path
         if not hasattr(self.helm, 'profile_path') or not hasattr(self.helm, 'asset_id'):
             return None
         return load_servo(servo_path(self.helm.profile_path, self.helm.asset_id))

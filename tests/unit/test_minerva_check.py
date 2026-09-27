@@ -312,3 +312,22 @@ def test_release_drift_lists_changed_new_and_removed_files():
     del manifest['files'][new]
     manifest['files']['src/robot_platform/gone.py'] = {'sha256': '1' * 64}
     assert set(release_drift(manifest)) == {f'changed {changed}', f'new {new}', 'removed src/robot_platform/gone.py'}
+
+
+def test_the_servo_calibration_is_checked_against_the_motors_it_was_swept_with(runs, loopback, monkeypatch, tmp_path):
+    from robot_platform.control import servo_calibration
+    path = tmp_path / 'servo.json'
+    monkeypatch.setattr(servo_calibration, 'servo_path', lambda profile, asset: path)
+    _report, checks, _ = run(runs, FakeRobot(), motors=False)
+    assert checks['servo']['status'] == 'warn' and 'Tune tab' in checks['servo']['detail']
+    joints = {m['name']: {'uid': m['uid'], 'firmware': m['firmware'], 'hold_kp': 10., 'hold_kd': 1.}
+              for m in REFERENCE['motors']}
+    path.write_text(json.dumps({'schema': 1, 'kind': 'servo_calibration', 'updated_at': '2026-09-27T00:00:00',
+                                'joints': joints}))
+    _report, checks, _ = run(runs, FakeRobot(), motors=False)
+    assert checks['servo']['status'] == 'pass' and 'All 14 joints' in checks['servo']['detail']
+    assert checks['receiver']['status'] == 'pass'  # The receiver derives from it.
+    joints['left_arm_j4'] = dict(joints['left_arm_j4'], uid='0000000000000000')
+    path.write_text(json.dumps({'schema': 1, 'kind': 'servo_calibration', 'joints': joints}))
+    _report, checks, _ = run(runs, FakeRobot(), motors=False)
+    assert checks['servo']['status'] == 'fail' and 'sweep them again' in checks['servo']['detail'].lower()

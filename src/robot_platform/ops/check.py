@@ -169,6 +169,25 @@ def _limits(ctx):
     return PASS, f"All {len(document['joints'])} motors, saved {_ago(document.get('updated_at'))}"
 
 
+@check('pc', 'servo', 'Servo calibration', requires=('calibration',))
+def _servo(ctx):
+    """The live servo sweep's saved settings: every joint swept with the motor it has now."""
+    from robot_platform.control.servo_calibration import coverage, load_servo, servo_path
+    path = servo_path(ctx.profile, ctx.facts['asset_id'])
+    document = load_servo(path)
+    ctx.facts['servo'] = document
+    calibrated, missing, changed = coverage(document, ctx.facts['reference'])
+    if changed:
+        ctx.facts['servo'] = None  # The receiver would refuse it; derive from the profile instead.
+        return FAIL, ('Swept with another motor or firmware: ' + ', '.join(ctx.label(m) for m in changed)
+                      + ". Sweep them again in Helm's Tune tab.")
+    if missing:
+        return WARN, (f'{len(calibrated)} of {len(calibrated) + len(missing)} joints calibrated; not swept yet: '
+                      + ', '.join(ctx.label(m) for m in missing)
+                      + ". Run the servo sweep in Helm's Tune tab; until then they use the teleop profile's settings.")
+    return PASS, f"All {len(calibrated)} joints calibrated by the servo sweep ({document.get('updated_at', '')[:10]})"
+
+
 @check('pc', 'leader_ranges', 'Leader ranges and zero')
 def _leader_ranges(ctx):
     from robot_platform.helm.leaders import LeaderWorkspace
@@ -214,7 +233,7 @@ def _derive(ctx, arm=None):
                                                                                         world_revision='check'))
     return derive_receiver(reference=reference, steps=steps, directions=ctx.facts['directions'],
                            transmissions=transmissions, model=ctx.facts['model'], limits=ctx.facts['limits'],
-                           profile=ctx.facts['teleop'], backend=revisions)
+                           profile=ctx.facts['teleop'], backend=revisions, servo=ctx.facts.get('servo'))
 
 
 @check('pc', 'receiver', 'Teleop receiver configuration', requires=('directions', 'limits', 'routes'))

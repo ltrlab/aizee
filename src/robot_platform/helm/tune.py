@@ -20,51 +20,14 @@ from pathlib import Path
 import threading
 import time
 
-from robot_platform.control.guarded_config import SERVO_KEYS, arm_subset, derive_receiver
+from robot_platform.control.guarded_config import arm_subset, derive_receiver
+from robot_platform.control.servo_calibration import load_servo, save_servo, servo_path  # noqa: F401 (re-exported)
 from robot_platform.control.scheduling import prefer_responsive
 from .limits import utc_now
 from .teleop import AdvisoryCompiler, load_profile
 
 PERIOD_S = .04
 RESULTS_EVERY_S = 1.
-
-
-def servo_path(profile_path, asset_id):
-    """The servo calibration, next to the joint limits."""
-    return Path(profile_path).resolve().parent / f'{asset_id}-servo.json'
-
-
-def load_servo(path):
-    path = Path(path)
-    if not path.is_file():
-        return None
-    document = json.loads(path.read_text(encoding='utf-8'))
-    if document.get('schema') != 1 or document.get('kind') != 'servo_calibration':
-        raise ValueError(f'{path.name} is not a servo calibration')
-    return document
-
-
-def save_servo(path, *, asset_id, reference, results, motors, session, existing=None):
-    """Write the confirmed joints' recommended settings, bound to their motor identities."""
-    roster = {motor['name']: motor for motor in reference['motors']}
-    document = deepcopy(existing) if existing else {'schema': 1, 'kind': 'servo_calibration', 'joints': {}}
-    document.update(asset_id=asset_id, reference_id=reference['id'], updated_at=utc_now())
-    for motor in motors:
-        result = results.get(motor) or {}
-        recommendation = result.get('recommendation')
-        if not recommendation or not recommendation.get('gains_met'):
-            raise ValueError(f'{motor}: no recommended settings to save')
-        if not (result.get('verification') or {}).get('passed'):
-            raise ValueError(f'{motor}: the verification pass did not pass')
-        entry = {'uid': roster[motor]['uid'], 'firmware': roster[motor]['firmware'],
-                 'confirmed_at': utc_now(), 'session': session,
-                 'measured': {'torque': result.get('torque'), 'verified': result.get('verified'),
-                              'verification': result.get('verification')},
-                 'notes': recommendation.get('notes', [])}
-        entry.update({key: recommendation[key] for key in SERVO_KEYS if recommendation.get(key) is not None})
-        document['joints'][motor] = entry
-    Path(path).write_text(json.dumps(document, indent=2) + '\n', encoding='utf-8')
-    return document
 
 
 class TuneCore:
