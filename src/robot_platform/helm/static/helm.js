@@ -789,23 +789,39 @@ function renderTune(u, state) {
   if (joints.dataset.layout !== layout) {
     joints.dataset.layout = layout;
     joints.querySelectorAll('button').forEach(b => b.remove());
+    const everyJoint = document.createElement('button');
+    everyJoint.dataset.all = '1';
+    everyJoint.textContent = 'All';
+    everyJoint.title = 'Sweep every joint of the arm';
+    everyJoint.onclick = () => act('/api/helm/tune/configure', {arm: choice.arm, joints: null});
+    joints.append(everyJoint);
     for (const row of motors) {
       const button = document.createElement('button');
       button.dataset.motor = row.name;
       button.textContent = row.label.replace(/^(Left|Right) /, '');
       button.title = row.label;
       button.onclick = () => {
-        const current = new Set(last?.tune?.joints_choice || motors.map(r => r.name));
-        if (current.has(row.name)) current.delete(row.name); else current.add(row.name);
-        const list = motors.map(r => r.name).filter(name => current.has(name));
-        act('/api/helm/tune/configure', {arm: choice.arm, joints: list.length === motors.length ? null : list});
+        const names = motors.map(r => r.name);
+        const now = last?.tune?.joints_choice;
+        let list;
+        if (!now) {
+          list = [row.name];  // From every joint, a click picks just this one.
+        } else {
+          const current = new Set(now);
+          if (current.has(row.name)) current.delete(row.name); else current.add(row.name);
+          list = names.filter(name => current.has(name));
+          if (!list.length) return;  // At least one joint; All brings the rest back.
+        }
+        act('/api/helm/tune/configure', {arm: choice.arm, joints: list.length === names.length ? null : list});
       };
       joints.append(button);
     }
   }
+  const every = !u.joints_choice;
   for (const button of joints.querySelectorAll('button')) {
-    button.classList.toggle('off', !chosen.has(button.dataset.motor));
-    button.setAttribute('aria-pressed', String(chosen.has(button.dataset.motor)));
+    const on = button.dataset.all ? every : !every && chosen.has(button.dataset.motor);
+    button.classList.toggle('off', !on && !every);
+    button.setAttribute('aria-pressed', String(on));
     button.disabled = running;
   }
   const progress = u.progress;
@@ -867,8 +883,12 @@ $('u-session').onclick = () => {
     return;
   }
   const other = choice.arm === 'left' ? 'right' : 'left';
+  const motors = tuneMotors(last, choice.arm);
+  const picked = u?.joints_choice ? motors.filter(row => u.joints_choice.includes(row.name)) : motors;
+  const names = picked.map(row => row.label.replace(/^(Left|Right) /, '')).join(', ');
   askTune(`Start the LIVE servo sweep on the ${choice.arm} arm?`, [
-    'The motors move on their own, joint by joint, for several minutes per joint.',
+    u?.joints_choice ? `Joints: ${names} only.` : `Joints: all ${motors.length}: ${names}.`,
+    `The motors move on their own, joint by joint, about 5 to 7 minutes per joint (${picked.length} joint${picked.length === 1 ? '' : 's'}).`,
     'The foot switch (e-stop) is in your hand throughout.',
     `The ${choice.arm} arm hangs straight down in its reference pose, gripper closed, and its path is clear.`,
     `The ${other} arm stays disabled.`,
