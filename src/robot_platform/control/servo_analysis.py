@@ -254,20 +254,25 @@ def recommend(joint, *, torque, grid, holds, speeds, decelerations, bound, toler
                 notes.append(f"lowest passing stiffness {chosen['kp']:.1f}; one ladder step of margin")
                 chosen = {'kp': margin_kp, 'kd': best['kd']}
         chosen['met'] = True
-    # A speed counts only when every direction tested at it (and at every slower speed) was followed.
+    # A speed counts only when every direction tested at it (and at every slower speed) was followed: within
+    # the lag limit, and reaching the speed (the sweep's plan waits for a joint that cannot keep up).
     def commanded(result):
         return result.get('target_speed') or result.get('speed')
 
+    def missed(result):
+        return (result.get('max_lag') is None or result['max_lag'] > limit
+                or (result.get('target_speed') and (result.get('speed') or 0.) < .85 * result['target_speed']))
+
     tested = [s for s in speeds if s and commanded(s) is not None]
-    failed = [commanded(s) for s in tested if s.get('max_lag') is None or s['max_lag'] > limit]
-    followed = [s for s in tested if s.get('max_lag') is not None and s['max_lag'] <= limit
-                and not any(f <= commanded(s) + 1e-9 for f in failed)]
+    failed = [commanded(s) for s in tested if missed(s)]
+    followed = [s for s in tested if not missed(s) and not any(f <= commanded(s) + 1e-9 for f in failed)]
     speed = max((commanded(s) for s in followed), default=None)
     if speed is None:
         notes.append('no tested speed was followed within half the tracking bound both ways')
     faster = [f for f in failed if speed is None or f > speed]
     if faster:
-        notes.append(f'{min(faster):g} rad/s lagged over {limit:.3f} rad in at least one direction')
+        notes.append(f'{min(faster):g} rad/s lagged over {limit:.3f} rad or fell short of it in at least one '
+                     'direction')
     braked = [d for d in decelerations if d and d['max_lag'] <= limit and d['overshoot'] <= limit / 2]
     deceleration = max((d['deceleration'] for d in braked), default=None)
     at_speed = [s['max_lag'] for s in followed if speed is not None and commanded(s) >= speed * .9]

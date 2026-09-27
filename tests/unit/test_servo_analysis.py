@@ -123,7 +123,22 @@ def test_a_speed_counts_only_when_both_directions_were_followed():
                        bound=.08, tolerance=.03, profile_gains={'kp': 8., 'kd': 1.})
     assert result['max_velocity'] == .2
     assert result['max_tracking_error'] == pytest.approx(2 * .0307)
-    assert any('0.4 rad/s lagged over 0.040 rad in at least one direction' in note for note in result['notes'])
+    assert any('0.4 rad/s lagged over 0.040 rad' in note for note in result['notes'])
+
+
+def test_a_speed_the_joint_did_not_reach_both_ways_does_not_count():
+    # The complete J6 sweep (2026-09-27): commanded 1.0 rad/s, it lagged within the limit both ways but reached
+    # only 0.75 rad/s moving up; 0.8 rad/s it reached both ways.
+    torque = {'gravity_max': .14, 'friction': .106}
+    grid = [{'kp': 24., 'kd': .61, 'steps': steps(.03, .09), 'ramp': {'speed': .3, 'max_lag': .019}}]
+    speeds = [dict(speed=.713, max_lag=.0484, target_speed=.8, direction=1),
+              dict(speed=.795, max_lag=.0302, target_speed=.8, direction=-1),
+              dict(speed=.748, max_lag=.0495, target_speed=1., direction=1),
+              dict(speed=.943, max_lag=.0405, target_speed=1., direction=-1)]
+    result = recommend('right_arm_j6', torque=torque, grid=grid, holds={}, speeds=speeds, decelerations=[],
+                       bound=.15, tolerance=.03, profile_gains={'kp': 8., 'kd': 1.})
+    assert result['max_velocity'] == .8
+    assert any('1 rad/s lagged over 0.075 rad or fell short of it' in note for note in result['notes'])
 
 
 def test_each_rejected_stiffness_says_why():
