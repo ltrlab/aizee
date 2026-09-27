@@ -2059,3 +2059,34 @@ Fixed in `171fd0e` (release `20260927T232222Z-171fd0e`):
 - braking tests stop at 80% of the span instead of at its edge.
 
 Until gravity feed-forward, a heavy joint may lift short of an end.
+
+### 2026-09-27 — first complete J6 sweep
+
+Release `171fd0e` (23:25 UTC), J6 only: finished, with no fault.
+
+Recommended settings (not saved):
+
+| Setting | Today | Recommended |
+|---|---|---|
+| Stiffness | 8 | **24** |
+| Damping | 1.0 | **0.61** |
+| Braking | 16 rad/s² | **32** (clean at every rate) |
+| Tracking bound | 0.08 rad | **0.106** |
+
+- **Stiffness:** 8 and 12 rest 0.021–0.028 rad off target; 16.8 is the
+  lowest that passes, plus one step of margin.
+- **Verification** passed at 1 rad/s (lag 0.053 rad).
+- **Usable travel:** 1.39 rad at these settings, 1.43 today.
+
+Not saved, for two reasons:
+- **Speed.** It recommended 1 rad/s, but J6 reached only 0.75 moving up when
+  commanded 1. Fixed in `f3c02b2`: the speed must be reached both ways, which
+  makes it 0.8.
+- **Range.** Characterisation stalled near both ends ("could not follow its
+  plan"), leaving the verified range at +0.55/−0.35 rad. At kp 8, pull held to
+  its share of the allowed speed over the 2.5 rad/s ceiling could not beat
+  friction. Fixed in `f8468de`: the pull toward an end is what the damping
+  balances at the allowed speed (allowed × kd / kp). That gives the full lead
+  at kp 8 and about 0.03 rad at kp 24.
+
+Both fixes are on release `20260927T233419Z-f3c02b2`.
