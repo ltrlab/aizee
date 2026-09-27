@@ -706,9 +706,14 @@ fn enable_from_idle_is_refused_while_backdriven() {
     let (mut c, mut h) = fixture(1);
     assert!(claim(&mut c, &mut h, 0).accepted);
     assert!(c.handle(1, idle_request(&c, 1), &mut h).accepted);
+    // Backdriven: every new sample reads fast (Idle's zero-gain apply resets the loopback).
+    for now in 2..5 {
+        h.feedback[0].velocity = 0.5;
+        c.tick(now, &mut h);
+    }
     h.feedback[0].velocity = 0.5;
     let reply = c.handle(
-        2,
+        5,
         Request::Arm {
             collision: None,
             authority: auth(&c, 2),
@@ -718,6 +723,29 @@ fn enable_from_idle_is_refused_while_backdriven() {
     assert_eq!(reply.reason, Reason::InvalidState);
     assert_eq!(c.status().state, State::Idle);
     assert!(h.enabled);
+}
+
+#[test]
+fn one_fast_reading_while_idle_is_drive_noise_not_a_backdriven_arm() {
+    let (mut c, mut h) = fixture(1);
+    assert!(claim(&mut c, &mut h, 0).accepted);
+    assert!(c.handle(1, idle_request(&c, 1), &mut h).accepted);
+    h.feedback[0].velocity = 0.5;
+    c.tick(2, &mut h);
+    h.feedback[0].velocity = 0.0;
+    c.tick(3, &mut h);
+    h.feedback[0].velocity = 0.5;
+    c.tick(4, &mut h);
+    let reply = c.handle(
+        5,
+        Request::Arm {
+            collision: None,
+            authority: auth(&c, 2),
+        },
+        &mut h,
+    );
+    assert!(reply.accepted, "{:?}", reply.reason);
+    assert_eq!(c.status().state, State::Holding);
 }
 
 #[test]

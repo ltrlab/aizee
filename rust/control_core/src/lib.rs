@@ -19,6 +19,7 @@ pub mod watchdog_trial;
 
 use hardware::{Hardware, JointFeedback};
 use protocol::*;
+use reference::MOVING_READINGS;
 use serde::{Deserialize, Serialize};
 use stop::JointStop;
 
@@ -153,6 +154,9 @@ pub struct Controller {
     offers: [Option<Offer>; 16],
     feedback: Vec<JointFeedback>,
     previous_feedback: Vec<JointFeedback>,
+    /// New feedback samples in a row over settled_velocity, per joint. Drives report
+    /// speed noise at rest, so one fast reading is not a backdriven arm.
+    fast_readings: Vec<u8>,
     commands: Vec<JointCommand>,
     stops: Vec<JointStop>,
     stop_started_ms: u64,
@@ -182,6 +186,7 @@ impl Controller {
             offers: std::array::from_fn(|_| None),
             feedback: vec![JointFeedback::default(); count],
             previous_feedback: vec![JointFeedback::default(); count],
+            fast_readings: vec![0; count],
             commands: vec![
                 JointCommand {
                     position: 0.0,
@@ -395,6 +400,20 @@ impl Controller {
         if let Some(error) = self.feedback_error() {
             self.fault(error, hardware);
             return;
+        }
+        for ((fast, current), old) in self
+            .fast_readings
+            .iter_mut()
+            .zip(&self.feedback)
+            .zip(&self.previous_feedback)
+        {
+            if current.sequence != old.sequence {
+                *fast = if current.velocity.abs() > self.config.settled_velocity {
+                    fast.saturating_add(1)
+                } else {
+                    0
+                };
+            }
         }
         if self.collision_active
             && self.active()
@@ -729,11 +748,7 @@ impl Controller {
                 if let Some(error) = self.feedback_error() {
                     return Err(error);
                 }
-                if self
-                    .feedback
-                    .iter()
-                    .any(|f| f.velocity.abs() > self.config.settled_velocity)
-                {
+                if self.fast_readings.iter().any(|&n| n >= MOVING_READINGS) {
                     return Err(Reason::InvalidState);
                 }
                 let deadline = self.validate_collision(collision.as_ref(), None)?;
@@ -834,11 +849,7 @@ impl Controller {
                 if let Some(error) = self.feedback_error() {
                     return Err(error);
                 }
-                if self
-                    .feedback
-                    .iter()
-                    .any(|f| f.velocity.abs() > self.config.settled_velocity)
-                {
+                if self.fast_readings.iter().any(|&n| n >= MOVING_READINGS) {
                     return Err(Reason::InvalidState);
                 }
                 if hardware.disable().is_err() {
