@@ -2040,3 +2040,22 @@ Fixes (release `20260927T225416Z-5b5d2a6`):
   blends in between. Applied in teleop's lifecycle and the sweep.
 - **`5b5d2a6`:** J6 stop acceleration 16 rad/s², half what it braked at
   cleanly. The same spot now allows about 1.2 rad/s.
+
+### 2026-09-27 — J6 at 1 rad/s; stiction near an end
+
+The J6 sweep on release `5b5d2a6` (23:04 UTC) passed:
+- every stiffness, damping and hold test;
+- every speed test up to **1 rad/s** (1.2 did not follow).
+
+It then faulted `limit_violation` braking at 4 rad/s² from 1 rad/s. After
+braking, J6 stuck on static friction short of its stop and read slow, so its
+pull grew back to the full lead: 0.06 rad, 1.4 Nm at kp 24, against about
+0.3 Nm of stiction. It broke free at 1.1 rad/s, 0.30 rad from its end, where
+0.98 was allowed.
+
+Fixed in `171fd0e` (release `20260927T232222Z-171fd0e`):
+- the pull toward an end shrinks by position alone, since a stuck joint reads
+  as slow as one lifting;
+- braking tests stop at 80% of the span instead of at its edge.
+
+Until gravity feed-forward, a heavy joint may lift short of an end.
