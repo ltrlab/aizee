@@ -30,6 +30,12 @@ LIFECYCLE_KEYS = ('align_speed', 'shutdown_speed', 'tolerance', 'settled_velocit
 # so a gripper's interval extends this far past each swept end (about 0.5 mm of jaw
 # travel). The stops keep the jaws from going further; targets stay swept.
 GRIPPER_TOLERANCE_RAD = .05
+# How far an arm joint's command may lead its measured position, as a share of its
+# tracking bound. Commands are position-only, so a joint servo's steady lag grows
+# with speed (hold_kd * speed / hold_kp); a command led by the whole bound kept a
+# joint that could not keep up at its fault threshold (right J4 lagged 0.088 rad
+# against 0.08 in the first live session). With margin, it lags and catches up.
+LEAD_FRACTION = .6
 
 
 def _finite(value):
@@ -132,7 +138,7 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
                           **{key: float(settings[key]) for key in ('hold_kp', 'hold_kd', 'max_velocity')},
                           **{key: float(settings[key]) for key in LIFECYCLE_KEYS},
                           'max_lead': bounds['upper'] - bounds['lower'] if gripper
-                          else float(settings['max_tracking_error']),
+                          else LEAD_FRACTION * float(settings['max_tracking_error']),
                           'zero_position': home})
         initial.append(home)
         report.append({'motor': name, 'cad_joint': cad_joint, 'scale': row['scale'], 'offset': row['offset'],

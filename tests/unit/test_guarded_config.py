@@ -100,7 +100,8 @@ def test_usable_targets_keep_the_receivers_stopping_reserve_inside():
     # The reference pose is clamped into the usable range; the lifecycle returns there.
     assert derived['initial'] == pytest.approx([arm['usable'][1], grip['usable'][0]])
     assert [row['zero_position'] for row in derived['lifecycle']] == derived['initial']
-    assert [row['max_lead'] for row in derived['lifecycle']] == [.05, .05]
+    # Commands lead by at most 60% of the tracking bound, so a lagging joint is not at its fault threshold.
+    assert [row['max_lead'] for row in derived['lifecycle']] == pytest.approx([.6 * .05, .6 * .05])
 
 
 def test_receiver_config_is_bound_to_model_calibration_and_policy():
