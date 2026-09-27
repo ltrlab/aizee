@@ -25,7 +25,10 @@ PYTHON="$REPO_DIR/.venv-platform/Scripts/python.exe"
 
 if [[ "${1:-}" == "--build" ]]; then
     shift
+    BUILD_SCRIPT="$REPO_DIR/scripts/build_jetson.ps1"
+    # PowerShell cannot open Git Bash paths (/c/Users/...); hand it a Windows path.
+    command -v cygpath >/dev/null 2>&1 && BUILD_SCRIPT="$(cygpath -w "$BUILD_SCRIPT")"
     powershell -NoProfile -ExecutionPolicy Bypass -Command \
-        "& '$REPO_DIR/scripts/build_jetson.ps1' -Offline -Package robot_control, robot_collision"
+        "& '$BUILD_SCRIPT' -Offline -Package robot_control, robot_collision"
 fi
 exec "$PYTHON" -m robot_platform deploy "$@"
