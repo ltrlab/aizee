@@ -4,7 +4,8 @@ import math
 import numpy as np
 import pytest
 
-from robot_platform.control.servo_analysis import braking, ramp_lag, recommend, speed_noise, step_response, torque_map
+from robot_platform.control.servo_analysis import (braking, grid_check, ramp_lag, recommend, speed_noise,
+                                                   step_response, torque_map)
 
 
 def simulate(command, *, kp, kd, duration, q0=0., inertia=.02, gravity=lambda q: 2. * math.sin(q),
@@ -108,3 +109,35 @@ def test_recommendation_keeps_the_profile_gains_when_nothing_passes():
                        speeds=[], decelerations=[], bound=.08, tolerance=.03, profile_gains={'kp': 8., 'kd': 1.})
     assert result['gains_met'] is False and (result['hold_kp'], result['hold_kd']) == (8., 1.)
     assert result['max_velocity'] is None and result['stop_acceleration'] is None
+
+
+def test_a_speed_counts_only_when_both_directions_were_followed():
+    # The first right J6 sweep (2026-09-27): 0.4 rad/s cruised at 0.35 and lagged 0.033 one way, 0.042 the other.
+    torque = {'gravity_max': .156, 'friction': .104}
+    grid = [{'kp': 16., 'kd': .71, 'steps': steps(.03, .24), 'ramp': {'speed': .3, 'max_lag': .028}}]
+    speeds = [dict(speed=.1997, mean_lag=.021, max_lag=.028, peak_effort=.36, target_speed=.2, direction=1),
+              dict(speed=.1997, mean_lag=.020, max_lag=.0307, peak_effort=.38, target_speed=.2, direction=-1),
+              dict(speed=.3507, mean_lag=.027, max_lag=.0331, peak_effort=.34, target_speed=.4, direction=1),
+              dict(speed=.3573, mean_lag=.026, max_lag=.0417, peak_effort=.40, target_speed=.4, direction=-1)]
+    result = recommend('right_arm_j6', torque=torque, grid=grid, holds={}, speeds=speeds, decelerations=[],
+                       bound=.08, tolerance=.03, profile_gains={'kp': 8., 'kd': 1.})
+    assert result['max_velocity'] == .2
+    assert result['max_tracking_error'] == pytest.approx(2 * .0307)
+    assert any('0.4 rad/s lagged over 0.040 rad in at least one direction' in note for note in result['notes'])
+
+
+def test_each_rejected_stiffness_says_why():
+    torque = {'gravity_max': .156, 'friction': .104}
+    resting = [dict(step, steady_error=.018) for step in steps(0., .2)]
+    grid = [{'kp': 8., 'kd': .5, 'steps': steps(.03, .04), 'ramp': {'speed': .3, 'max_lag': .044}},
+            {'kp': 11.2, 'kd': .59, 'steps': resting, 'ramp': {'speed': .3, 'max_lag': .034}},
+            {'kp': 11.2, 'kd': .83, 'steps': steps(0., None), 'ramp': None},
+            {'kp': 16., 'kd': .71, 'steps': steps(.03, .24), 'ramp': {'speed': .3, 'max_lag': .028}}]
+    result = recommend('right_arm_j6', torque=torque, grid=grid, holds={}, speeds=[], decelerations=[],
+                       bound=.08, tolerance=.03, profile_gains={'kp': 8., 'kd': 1.})
+    assert result['hold_kp'] == 16.
+    notes = ' | '.join(result['notes'])
+    assert 'stiffness 8 failed with every damping: ramp lagged 0.044 rad (limit 0.040)' in notes
+    assert ('stiffness 11.2 failed with every damping: rested 0.018 rad from the target (limit 0.015); '
+            'did not come to rest') in notes
+    assert grid_check(grid[3], tolerance=.03, limit=.04) is None

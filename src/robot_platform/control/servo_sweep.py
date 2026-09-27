@@ -45,11 +45,11 @@ DEFAULTS = {
     'hold_s': .6,
     'rest_s': .3,
     'kp_ladder': [1., .7, .5, .35, .25, .18, .12],
-    'damping': [1., .7, 1.4, .5],
+    'damping': [1., .7, 1.4, .5, .35, .25],
     'step_fraction': .6,
     'grid_ramp_rad': .1,
     'grid_ramp_speed': .3,
-    'speeds': [.2, .4, .6, .8, 1., 1.2, 1.6, 2., 2.5],
+    'speeds': [.2, .3, .4, .5, .6, .8, 1., 1.2, 1.6, 2., 2.5],
     'decelerations': [2., 4., 8., 16., 32.],  # Speeds step up to each joint's cap (or speed_ceiling, opt-in).
     'acceleration': 4.,
     'cruise_s': .3,
@@ -534,7 +534,7 @@ class SweepEngine:
                 if not clear:
                     self._event(f'stopped widening: {why}')
                     break
-                self._task(f'{self._label(motor)}: characterise {direction * (target - home):+.2f} rad')
+                self._task(f'{self._label(motor)}: characterise {target - home:+.2f} rad')
                 segments = []
 
                 def out_and_back(target=target, direction=direction, segments=segments):
@@ -611,7 +611,7 @@ class SweepEngine:
             results = []
             ok = yield from self._guarded(motor, self._speed_test(motor, low, high, speed, accel, results))
             report.speeds += results
-            if not ok or any(r is None or r['max_lag'] > .5 * bound for r in results):
+            if not ok or any(r['max_lag'] is None or r['max_lag'] > .5 * bound for r in results):
                 break
             followed = speed
         if followed:
@@ -629,13 +629,40 @@ class SweepEngine:
             motor, torque=report.torque, grid=report.grid, holds=report.holds, speeds=report.speeds,
             decelerations=report.decelerations, bound=bound, tolerance=self._tolerance(motor),
             profile_gains={'kp': kp_ref, 'kd': kd_ref})
-        # 4. Verify the whole verified range at the recommended settings.
+        # 4. Verify the whole verified range at the recommended settings. The pass across the range is the
+        # last word on lag: over half the bound, it steps down to the next slower tested speed (twice at most).
         recommendation = report.recommendation
         self.test_gains[motor] = (recommendation['hold_kp'], recommendation['hold_kd'])
-        speed = min(recommendation['max_velocity'] or slow, limit['max_velocity'])
-        self._task(f'{self._label(motor)}: verify')
-        verification = {}
-        ok = yield from self._guarded(motor, self._verify(motor, span_low, span_high, speed, verification))
+        top = recommendation['max_velocity']
+        tries = ([s for s in settings['speeds'] if s <= min(top, limit['max_velocity']) + 1e-9][::-1][:3]
+                 if top else []) or [slow]
+        for speed in tries:
+            self._task(f'{self._label(motor)}: verify at {speed:g} rad/s')
+            verification = {}
+            ok = yield from self._guarded(motor, self._verify(motor, span_low, span_high, speed, verification))
+            lag = verification.get('max_lag')
+            if not ok or lag is None:
+                verification['reason'] = ('a guard stopped the pass across the range' if not ok
+                                          else 'no lag measured on the pass across the range')
+                ok = False
+                break
+            if lag <= .5 * bound:
+                break
+            ok = False
+            verification['reason'] = (f'the pass across the range at {speed:g} rad/s lagged {lag:.3f} rad, over '
+                                      f'half the tracking bound ({.5 * bound:.3f})')
+            recommendation['notes'].append(verification['reason'])
+        if ok and top:
+            if speed < top - 1e-9:
+                recommendation['notes'].append(f'speed stepped down to {speed:g} rad/s by the pass across the range')
+                recommendation['max_velocity'] = speed
+            lags = [r['max_lag'] for r in report.speeds
+                    if r.get('max_lag') is not None and abs((r.get('target_speed') or 0.) - speed) < 1e-9]
+            tracking = min(bound, max(.03, 2 * max(lags + [lag])))
+            if tracking > (recommendation['max_tracking_error'] or 0.) + 1e-9:
+                recommendation['notes'].append(f'the pass across the range lagged {lag:.3f} rad; tracking bound '
+                                               f'{tracking:.3f}')
+            recommendation['max_tracking_error'] = tracking
         verification['passed'] = bool(ok)
         report.verification = verification
         self.test_gains.pop(motor, None)
@@ -795,8 +822,10 @@ class SweepEngine:
                                                                        deceleration=acceleration),
                                                speed=speed, direction=1 if end == high else -1)
             yield from self._hold(motor, settings['rest_s'])
-            results.append(analysis.ramp_lag(segment.rows, index, speed=speed)
-                           if segment.rows is not None and len(segment.rows) else None)
+            lag = (analysis.ramp_lag(segment.rows, index, speed=speed)
+                   if segment.rows is not None and len(segment.rows) else None)
+            results.append(dict(lag or {'speed': None, 'mean_lag': None, 'max_lag': None, 'peak_effort': None},
+                                target_speed=speed, direction=1 if end == high else -1))
         yield from self._go(motor, self.home[motor], settings['characterize_speed'])
 
     def _brake_test(self, motor, low, high, speed, deceleration, acceleration, results):
@@ -866,8 +895,16 @@ class SweepEngine:
                                                               ('gravity_max', 'gravity_worst_at', 'friction', 'span')},
                 'grid': [{k: e.get(k) for k in ('kp', 'kd', 'multiplier', 'failed')}
                          | {'overshoot': max((s['overshoot'] for s in e['steps'] if s), default=None),
-                            'settle_s': max((s['settle_s'] or 0. for s in e['steps'] if s), default=None),
-                            'ramp_lag': (e.get('ramp') or {}).get('max_lag')} for e in report.grid],
+                            # None: a step never came to rest.
+                            'settle_s': (max(s['settle_s'] for s in e['steps'])
+                                         if e['steps'] and all(s and s['settle_s'] is not None for s in e['steps'])
+                                         else None),
+                            'steady_error': max((s['steady_error'] for s in e['steps']
+                                                 if s and s['steady_error'] is not None), default=None),
+                            'ramp_lag': (e.get('ramp') or {}).get('max_lag'),
+                            'why_not': (analysis.grid_check(e, tolerance=self._tolerance(motor),
+                                                            limit=.5 * self.limits[motor]['max_tracking_error'])
+                                        or (None, None))[1]} for e in report.grid],
                 'holds': {str(kp): error for kp, error in report.holds.items()},
                 'speeds': report.speeds, 'decelerations': report.decelerations,
                 'verification': report.verification, 'recommendation': report.recommendation,

@@ -106,6 +106,12 @@ def test_a_full_sweep_characterises_steps_the_settings_and_recommends_without_a_
     assert recommendation['max_velocity'] and recommendation['stop_acceleration']
     assert recommendation['notes']
     assert shoulder['verification']['passed'] and wrist['verification']['passed']
+    # Speeds are recorded per direction at their commanded speed, and the bound covers the pass across the range.
+    assert {s['direction'] for s in shoulder['speeds']} == {1, -1} and all(s['target_speed'] for s in shoulder['speeds'])
+    for joint in (shoulder, wrist):
+        assert joint['recommendation']['max_tracking_error'] >= 2 * joint['verification']['max_lag'] - 1e-9
+    # Every rung says why it was not chosen; a step that never came to rest reads None, not 0.
+    assert all('why_not' in entry and (entry['settle_s'] is None or entry['settle_s'] >= 0) for entry in shoulder['grid'])
     # A friction-only wrist needs little stiffness; it is still enough to settle within half the tolerance.
     assert wrist['recommendation']['hold_kp'] >= .15 / .015
     assert elapsed < 4000

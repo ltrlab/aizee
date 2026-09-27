@@ -175,6 +175,29 @@ def speed_noise(rows, joint_index):
 
 # -- recommendation ------------------------------------------------------------------------
 
+def grid_check(entry, *, tolerance, limit, overshoot_limit=.1):
+    """Why a stiffness x damping entry fails the recommendation's criteria, as (kind, text), or
+    None when it passes: its steps must not overshoot, must come to rest within half the
+    tolerance of the target, and its ramp must lag at most `limit`."""
+    if entry.get('failed'):
+        return 'guard', f"guard: {entry['failed']}"
+    steps = [s for s in entry['steps'] if s]
+    if not steps:
+        return 'data', 'no step measured'
+    overshoot = max(s['overshoot'] for s in steps)
+    if overshoot > overshoot_limit:
+        return 'overshoot', f'overshot {overshoot:.0%} of the step (limit {overshoot_limit:.0%})'
+    if any(s['settle_s'] is None for s in steps):
+        return 'rest', 'did not come to rest'
+    error = max((s['steady_error'] or 0.) for s in steps)
+    if error > .5 * tolerance:
+        return 'error', f'rested {error:.3f} rad from the target (limit {.5 * tolerance:.3f})'
+    ramp = entry.get('ramp')
+    if ramp is not None and ramp['max_lag'] > limit:
+        return 'ramp', f"ramp lagged {ramp['max_lag']:.3f} rad (limit {limit:.3f})"
+    return None
+
+
 def recommend(joint, *, torque, grid, holds, speeds, decelerations, bound, tolerance, profile_gains,
               overshoot_limit=.1, lag_fraction=.5):
     """Settings for one joint from its sweep results, with the reason for each.
@@ -196,24 +219,26 @@ def recommend(joint, *, torque, grid, holds, speeds, decelerations, bound, toler
                  f'{kp_settle:.1f}')
 
     def passes(entry):
-        steps = [s for s in entry['steps'] if s]
-        if not steps or entry.get('failed') or any(
-                s['overshoot'] > overshoot_limit or s['settle_s'] is None
-                or (s['steady_error'] or 0.) > .5 * tolerance for s in steps):
-            return False
-        ramp = entry.get('ramp')
-        return ramp is None or ramp['max_lag'] <= limit
+        return grid_check(entry, tolerance=tolerance, limit=limit, overshoot_limit=overshoot_limit) is None
 
     candidates = sorted({entry['kp'] for entry in grid if entry['kp'] >= kp_floor})
     chosen = None
     for kp in candidates:
         if kp in holds and holds[kp] is not None and holds[kp] > limit:
-            continue  # Sagged too far at the worst-gravity point.
+            notes.append(f'stiffness {kp:g}: sagged {holds[kp]:.3f} rad at the worst-gravity point')
+            continue
         passing = [e for e in grid if e['kp'] == kp and passes(e)]
         if passing:
             best = min(passing, key=lambda e: max(s['settle_s'] for s in e['steps'] if s))
             chosen = {'kp': kp, 'kd': best['kd']}
             break
+        # Why not, once per kind of failure, across its damping ratios.
+        kinds = {}
+        for entry in grid:
+            if entry['kp'] == kp:
+                kind, text = grid_check(entry, tolerance=tolerance, limit=limit, overshoot_limit=overshoot_limit)
+                kinds.setdefault(kind, text)
+        notes.append(f'stiffness {kp:g} failed with every damping: ' + '; '.join(list(kinds.values())[:2]))
     if chosen is None:
         notes.append('no tested stiffness and damping met the criteria; keeping the profile gains')
         chosen = dict(profile_gains)
@@ -229,13 +254,23 @@ def recommend(joint, *, torque, grid, holds, speeds, decelerations, bound, toler
                 notes.append(f"lowest passing stiffness {chosen['kp']:.1f}; one ladder step of margin")
                 chosen = {'kp': margin_kp, 'kd': best['kd']}
         chosen['met'] = True
-    followed = [s for s in speeds if s and s['max_lag'] <= limit]
-    speed = max((s['speed'] for s in followed), default=None)
+    # A speed counts only when every direction tested at it (and at every slower speed) was followed.
+    def commanded(result):
+        return result.get('target_speed') or result.get('speed')
+
+    tested = [s for s in speeds if s and commanded(s) is not None]
+    failed = [commanded(s) for s in tested if s.get('max_lag') is None or s['max_lag'] > limit]
+    followed = [s for s in tested if s.get('max_lag') is not None and s['max_lag'] <= limit
+                and not any(f <= commanded(s) + 1e-9 for f in failed)]
+    speed = max((commanded(s) for s in followed), default=None)
     if speed is None:
-        notes.append('no tested speed was followed within half the tracking bound')
+        notes.append('no tested speed was followed within half the tracking bound both ways')
+    faster = [f for f in failed if speed is None or f > speed]
+    if faster:
+        notes.append(f'{min(faster):g} rad/s lagged over {limit:.3f} rad in at least one direction')
     braked = [d for d in decelerations if d and d['max_lag'] <= limit and d['overshoot'] <= limit / 2]
     deceleration = max((d['deceleration'] for d in braked), default=None)
-    at_speed = [s['max_lag'] for s in followed if speed is not None and s['speed'] >= speed * .9]
+    at_speed = [s['max_lag'] for s in followed if speed is not None and commanded(s) >= speed * .9]
     tracking = None
     if at_speed:
         tracking = min(bound, max(.03, 2 * max(at_speed)))

@@ -320,7 +320,8 @@ class TuneCore:
                 'receiver': ((last or {}).get('status') or {}).get('state'),
                 'motors_enabled': (last or {}).get('hardware_enabled'),
                 'progress': self.engine.progress() if self.engine else None,
-                'cycle_ms': {'p50': durations[len(durations) // 2], 'p99': durations[int(.99 * (len(durations) - 1))]}
+                'cycle_ms': {'p50': durations[(len(durations) - 1) // 2],
+                             'p99': durations[min(len(durations), -(-99 * len(durations) // 100)) - 1]}
                 if durations else None,
                 'evidence': str(self.evidence) if self.evidence else None}
         if results and self.engine is not None:

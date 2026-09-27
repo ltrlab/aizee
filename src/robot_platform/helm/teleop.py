@@ -533,8 +533,8 @@ class TeleopCore:
         durations = sorted((c['completed_at'] - c['started_at']) * 1000 for c in self.cycles[-100:]
                            if c.get('completed_at') is not None)
         if durations:
-            result['cycle_ms'] = {'p50': durations[len(durations) // 2],
-                                  'p99': durations[int(.99 * (len(durations) - 1))],
+            result['cycle_ms'] = {'p50': durations[(len(durations) - 1) // 2],
+                                  'p99': durations[min(len(durations), -(-99 * len(durations) // 100)) - 1],
                                   'max': self.slowest_ms, 'overruns': self.overruns,
                                   'largest_gap': self.largest_gap_ms}
         if self.derived is None:
