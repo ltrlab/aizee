@@ -50,7 +50,7 @@ DEFAULTS = {
     'step_fraction': .6,
     'grid_ramp_rad': .1,
     'grid_ramp_speed': .3,
-    'speeds': [.2, .3, .4, .5, .6, .8, 1., 1.2, 1.6, 2., 2.5],
+    'speeds': [.2, .3, .4, .5, .6, .8, 1., 1.2, 1.5, 2., 2.5],
     'decelerations': [2., 4., 8., 16., 32.],  # Speeds step up to each joint's cap (or speed_ceiling, opt-in).
     'acceleration': 4.,
     'cruise_s': .3,

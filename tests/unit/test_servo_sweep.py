@@ -352,3 +352,15 @@ def test_a_session_that_ends_under_the_sweep_stops_the_joint_under_test():
     assert engine.progress()['motor'] is None and engine.task == 'stopped'
     assert 'limit_violation' in summary['right_arm_j2']['events'][-1]['text']
 
+
+def test_the_profile_lets_the_sweep_speed_up_every_arm_joint_and_loosen_only_the_distal_bounds():
+    import json
+    from robot_platform.ops.release import ROOT
+    profile = json.loads((ROOT / 'config/devices/minerva-teleop.json').read_text(encoding='utf-8'))
+    for joint in ('j1', 'j2', 'j3'):
+        settings = sweep_settings(profile, f'right_arm_{joint}')
+        assert settings['speed_ceiling'] == 1.5 and not settings.get('bound_ceiling')
+        assert 1.5 in settings['speeds']  # The ladder reaches the ceiling itself.
+    assert sweep_settings(profile, 'left_arm_j4')['bound_ceiling'] == .12
+    assert sweep_settings(profile, 'left_arm_j6')['speed_ceiling'] == 2.5
+
