@@ -41,14 +41,16 @@ the CAN links. The arms are limp; support them while moving them by hand.
 ## Minerva Check
 
 The **Check** tab answers "is Minerva ready?" before a session. **Run check**
-works through four stages and shows each result as it lands. A check whose
+works through the three stopped stages and shows each result as it lands; the
+fourth, the live joint sweep, is run from the tab afterwards. A check whose
 prerequisite failed is skipped, not guessed:
 
 1. **Operator PC**: the calibration profile, confirmed motor-to-model directions,
    joint limits for every motor, leader ranges and the leader zero, confirmed
-   routes, the teleop receiver settings derived from all of them, both leader
-   arms reading inside their sweeps, fresh ARM64 builds and a route to the
-   USB Ethernet tether.
+   routes, the servo calibration (a warning while joints are not yet swept, a
+   failure if a motor was replaced since), the teleop receiver settings derived
+   from all of them, both leader arms reading inside their sweeps, fresh ARM64
+   builds and a route to the USB Ethernet tether.
 2. **Link and Jetson**: pinned SSH over the tether; the deployed release intact
    and identical to this PC's files (otherwise it says to deploy); its smoke test;
    the Jetson's disk, memory, temperatures and clock; and 5 s of leader-link round
@@ -60,16 +62,30 @@ prerequisite failed is skipped, not guessed:
    each; CAN ends down) and checks every position is inside its swept range. A
    drive with a latched fault is named with the fault. When nothing on either bus
    answers, motor power is off or the foot switch is pressed.
-4. **Live joint sweep**: not built yet. Once the live pipeline is proven, each
-   follower joint will move slowly through its range under the guarded receiver,
-   with the foot switch in hand.
+4. **Live joint sweep**, one item per arm, attended, with the foot switch in
+   hand. Once the stopped checks pass, each item has a **Sweep left arm** /
+   **Sweep right arm** button; Helm asks first (the arm hangs in its reference
+   pose with its path clear, the other arm stays disabled), then switches to
+   the Tune tab for its progress, Finish (X) and Disable (H). X and H also work
+   from the Check tab while it runs. It is the servo sweep of the Tune tab in a
+   short verify mode, at the settings teleop would use, under the same live
+   receiver: per joint, a slow out-and-back for friction, then a pass across
+   its swept range at its speed. A joint fails on any guard event, on lag over
+   half its tracking bound, or on lag or friction well up on what it was swept
+   with (drag, wear or a loose joint). A joint not yet servo-swept is judged on
+   the profile settings alone, which is a warning.
 
-The verdict is **GO** only when nothing failed or was skipped; warnings are
-listed. Nothing in the check enables a motor. It reads the motors and leaders
-itself, so it runs alone: disconnect Limits and stop teleop first (the Leaders
+The verdict is **GO** only when nothing failed or was skipped and both arms'
+live sweeps passed; warnings are listed. After the stopped stages it is
+**INCOMPLETE** until the live sweeps are run, and a live sweep's outcome goes
+into the report it followed, saved over the same file. Nothing in the stopped
+stages enables a motor. The check reads the motors and leaders itself, so it
+runs alone: disconnect Limits and stop teleop and any sweep first (the Leaders
 tab may stay connected; the check then only confirms the leaders are plugged in).
 Every run is saved under `calibration_runs/minerva-check/`, and the last one is
-shown when Helm starts. The same check runs from a terminal:
+shown when Helm starts. A report saved before checks were added shows as
+**OUTDATED**, with what it said then; run the check again (the file is left as
+it was). The stopped stages also run from a terminal:
 
 ```bash
 .venv-platform/Scripts/python.exe -m robot_platform check
@@ -283,7 +299,9 @@ settings are unqualified, so these are attended tests with the foot switch in
 reach.
 
 **Before you start:**
-- Minerva Check shows GO. Its "Live receiver configuration" item has the
+- Minerva Check's stopped stages pass (its live sweep items may still be
+  pending while the servo settings are being measured). Its "Live receiver
+  configuration" item has the
   deployed receiver validate both arms' configurations. "Live start" runs a
   session's own pre-scan on both arms: within 0.1 rad of the reference pose
   (a warning otherwise), and clear of the receiver's limits (a failure otherwise).
@@ -407,7 +425,12 @@ selected**. They go to the servo calibration,
 `config/devices/<asset>-servo.json`, bound to each motor's UID and firmware.
 The receiver takes those joints' gains, speed, braking and tracking bound from
 it, and live teleop uses it from its next session. A replaced motor must be
-swept again.
+swept again. The release carries `config/devices`, so deploy
+(`bash scripts/deploy_minerva_arms.sh`) before the next Minerva Check; until
+then its "Release matches this PC" item fails.
+
+Minerva Check's live joint sweep (above) runs this engine in verify mode
+against the saved calibration. Its evidence goes to `check-sweep-<time>`.
 
 Evidence stays on the Jetson in `~/minerva/evidence/sweep-<time>`:
 - `samples.f32`, every receiver tick as float32 rows, described by

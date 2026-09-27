@@ -1872,3 +1872,44 @@ The operator chose the collector's full tuned gains: J1-J4 hold at 150, 220,
 values should be calculated once from the arm itself, then checked by the live
 joint sweep in Minerva Check, rather than tuned in teleop sessions.
 
+### 2026-09-27 — servo sweep and Minerva Check's live joint sweep built, not yet run on motors
+
+Following the operator's direction, the servo settings are now measured once on
+the arm by a live sweep, reviewed and saved, then checked by a shorter live
+sweep in Minerva Check. The operator chose a progressive range, and sweeping
+stiffness, damping ratio and speeds; the first sweep may take as long as good
+data needs.
+
+- The receiver now returns its most recent ticks with each status: position,
+  velocity, effort and command per joint, up to 256 rows. The sweep keeps every
+  tick as evidence on the Jetson (`~/minerva/evidence/sweep-<time>`).
+- Helm's Tune tab sweeps one arm, joint by joint, in four phases:
+  1. slow ramps widening toward the usable range, for gravity and friction;
+  2. steps and ramps over a stiffness ladder × damping ratios;
+  3. speeds, then braking;
+  4. a pass over the verified range at the chosen settings.
+
+  Guards stop a task when:
+  - a joint lags past 75% of its tracking bound;
+  - it pushes over half its effort limit;
+  - it passes 55 °C;
+  - the collision check fails. Every planned path is also checked against the
+    collision model beforehand.
+
+  The `sweep` block of the teleop profile raises the wrist ceilings to
+  16 Nm/rad (J5, J6) and the gripper's to 5 for the sweep only.
+- Accepted joints are saved to `config/devices/minerva-production-01-servo.json`,
+  bound to each motor's UID and firmware. The receiver takes those joints'
+  gains, speed, braking and tracking bound from it.
+- Minerva Check adds "Servo calibration" (a warning while joints are not swept,
+  a failure if a motor changed). Its stage 4 is the live joint sweep per arm:
+  the same engine in verify mode. A joint fails there on any guard event, on
+  lag over half its bound, or on lag or friction well up on its saved sweep.
+  GO now needs both arms' live sweeps; until then the verdict is INCOMPLETE,
+  and reports saved before this load as OUTDATED.
+
+Tested in simulation and on the virtual receiver through Helm, including a full
+J6 sweep. Built in commits `32c51e9` and `55baca4` and deployed the same night.
+It has not run on the motors. The first run is attended from the Tune tab (the
+right arm suggested), with the foot switch in hand; then Minerva Check and its
+live sweeps.
