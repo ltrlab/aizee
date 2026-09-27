@@ -84,7 +84,9 @@ def fault_detail(result, controller, labels=None):
 
 
 def _fault_detail(result, controller, labels):
-    details = []
+    # The receiver's own words first: which motor failed which check, with the value.
+    failure = (result or {}).get('hardware_failure')
+    details = [f'the receiver reports {failure}'] if failure else []
     for joint, row in zip(controller['joints'], (result or {}).get('feedback') or []):
         label = labels.get(joint['name'], joint['name'])
         position, velocity, effort, temperature = (row.get(key) for key in
@@ -100,7 +102,7 @@ def _fault_detail(result, controller, labels):
             details.append(f"{label} effort {effort:+.1f} Nm (limit {joint['max_effort']:g})")
         if temperature is not None and temperature > joint['max_temperature']:
             details.append(f"{label} at {temperature:.0f} °C (limit {joint['max_temperature']:g})")
-    if (result or {}).get('watchdog') == 'failed':
+    if (result or {}).get('watchdog') == 'failed' and not failure:
         details.append('the watchdog audit failed: ' + STARTUP_HINT.split('. ')[0])
     return '; '.join(details)
 

@@ -195,5 +195,11 @@ def test_a_startup_fault_names_what_the_receiver_saw_and_keeps_its_last_status(t
                         controller_config).startswith('the watchdog audit failed: every motor must answer promptly')
     assert fault_detail({'feedback': [feedback(fault=True)]}, controller_config) == 'left_arm_j1 reports a drive fault'
     assert fault_detail(None, controller_config) == ''
+    # The receiver names the motor and check itself; that leads, and replaces the generic audit line.
+    reported = fault_detail({'feedback': [feedback() for _ in LEFT], 'watchdog': 'failed',
+                             'hardware_failure': 'left_arm_j5: moving at +0.312 rad/s at the audit stop and '
+                                                 'feedback request (limit 0.2 rad/s)'}, controller_config)
+    assert reported == ('the receiver reports left_arm_j5: moving at +0.312 rad/s at the audit stop and feedback '
+                        'request (limit 0.2 rad/s)')
     # Called from fault handlers: an unexpected response shape never raises.
     assert fault_detail({'feedback': [{'sequence': 1}, 'garbled']}, controller_config) == ''
