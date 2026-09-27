@@ -29,6 +29,19 @@ def times_s(rows):
     return rows[:, 0] / 1000.
 
 
+def position_speed(rows, joint_index, *, window_s=.02):
+    """Speed from measured positions, averaged over about `window_s` (positions are clean
+    where the drive's speed reading is not)."""
+    t, q = times_s(rows), column(rows, joint_index, POSITION)
+    if len(t) < 3:
+        return np.zeros(len(t))
+    speed = np.gradient(q, t)
+    width = max(1, int(round(window_s / max(np.median(np.diff(t)), 1e-4))))
+    if width > 1 and len(speed) > width:
+        speed = np.convolve(speed, np.ones(width) / width, mode='same')
+    return speed
+
+
 # -- torque map -------------------------------------------------------------------
 
 def torque_map(segments, joint_index, *, bin_rad=.02):
@@ -39,22 +52,29 @@ def torque_map(segments, joint_index, *, bin_rad=.02):
     directions: [{'position', 'up', 'down', 'gravity', 'friction'}], plus the
     joint's worst gravity torque and its median friction.
     """
+    # Torque weighted by forward displacement: a slow ramp moves in pulses (the command is a 25 Hz
+    # staircase), and over a pass the inertia term integrates to the change in kinetic energy (~0)
+    # while stuck samples, whose torque lies anywhere within friction, carry no weight.
     sums = {}
     for segment in segments:
         rows = segment['rows']
-        if not len(rows):
+        if len(rows) < 8:
             continue
-        position, velocity, effort = (column(rows, joint_index, f) for f in (POSITION, VELOCITY, EFFORT))
-        moving = np.abs(velocity) > .2 * abs(segment.get('speed', .1))
-        keys = np.round(position[moving] / bin_rad).astype(int)
-        for key, value in zip(keys, effort[moving]):
-            entry = sums.setdefault(int(key), {1: [], -1: []})
-            entry[segment['direction']].append(float(value))
+        position, effort = column(rows, joint_index, POSITION), column(rows, joint_index, EFFORT)
+        step = np.diff(position) * segment['direction']
+        forward = step > 0
+        middle = ((position[:-1] + position[1:]) / 2)[forward]
+        torque = ((effort[:-1] + effort[1:]) / 2)[forward]
+        keys = np.round(middle / bin_rad).astype(int)
+        for key, value, weight in zip(keys, torque, step[forward]):
+            entry = sums.setdefault(int(key), {1: [0., 0.], -1: [0., 0.]})
+            entry[segment['direction']][0] += float(value * weight)
+            entry[segment['direction']][1] += float(weight)
     bins = []
     for key in sorted(sums):
-        up, down = sums[key][1], sums[key][-1]
-        if up and down:
-            up_mean, down_mean = float(np.median(up)), float(np.median(down))
+        (up_sum, up_weight), (down_sum, down_weight) = sums[key][1], sums[key][-1]
+        if up_weight > .25 * bin_rad and down_weight > .25 * bin_rad:
+            up_mean, down_mean = up_sum / up_weight, down_sum / down_weight
             bins.append({'position': key * bin_rad, 'up': up_mean, 'down': down_mean,
                          'gravity': (up_mean + down_mean) / 2, 'friction': abs(up_mean - down_mean) / 2})
     if not bins:
@@ -68,10 +88,11 @@ def torque_map(segments, joint_index, *, bin_rad=.02):
 # -- step response ------------------------------------------------------------------
 
 def step_response(rows, joint_index, *, target, start, band_fraction=.1, band_floor_rad=.002):
-    """A position step from `start` to `target`: overshoot (fraction of the step),
-    settling time (s) into a band of 10% of the step (at least 2 mrad), steady
-    error (rad, the last quarter), sign reversals of the error while settling, and
-    the peak effort."""
+    """A position step from `start` to `target`: overshoot past the target (fraction of
+    the step); settling time (s), until the joint stays within 10% of the step (at least
+    2 mrad) of where it comes to rest; steady error (rad), how far from the target it
+    rests (friction stops a joint short); sign reversals of the error while settling;
+    and the peak effort."""
     delta = target - start
     t = times_s(rows)
     position = column(rows, joint_index, POSITION)
@@ -86,13 +107,14 @@ def step_response(rows, joint_index, *, target, start, band_fraction=.1, band_fl
     error = (target - position) * math.copysign(1, delta)  # Positive while short of the target.
     overshoot = max(0., float(-error.min()) / abs(delta))
     band = max(band_fraction * abs(delta), band_floor_rad)
-    outside = np.flatnonzero(np.abs(error) > band)
+    tail = position[int(len(position) * .75):]
+    rest = float(np.mean(tail)) if len(tail) else float(position[-1])
+    outside = np.flatnonzero(np.abs(position - rest) > band)
     settle = float(t[outside[-1]]) if len(outside) else 0.
-    settled = len(outside) == 0 or outside[-1] < len(t) - 1
-    tail = error[int(len(error) * .75):]
+    settled = len(outside) == 0 or outside[-1] < len(t) - len(tail)
     signs = np.sign(error[np.abs(error) > band_floor_rad])
     return {'overshoot': overshoot, 'settle_s': settle if settled else None,
-            'steady_error': float(np.mean(np.abs(tail))) if len(tail) else None,
+            'steady_error': abs(target - rest) if len(tail) else None,
             'reversals': int(np.count_nonzero(np.diff(signs) != 0)) if len(signs) > 1 else 0,
             'peak_effort': float(np.max(np.abs(effort))) if len(effort) else None,
             'duration_s': float(t[-1]) if len(t) else 0.}
@@ -175,7 +197,9 @@ def recommend(joint, *, torque, grid, holds, speeds, decelerations, bound, toler
 
     def passes(entry):
         steps = [s for s in entry['steps'] if s]
-        if not steps or any(s['overshoot'] > overshoot_limit or s['settle_s'] is None for s in steps):
+        if not steps or entry.get('failed') or any(
+                s['overshoot'] > overshoot_limit or s['settle_s'] is None
+                or (s['steady_error'] or 0.) > .5 * tolerance for s in steps):
             return False
         ramp = entry.get('ramp')
         return ramp is None or ramp['max_lag'] <= limit
