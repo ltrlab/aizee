@@ -745,7 +745,7 @@ function updateTuneCard(card, motor, result, current) {
   const cells = [
     ['Stiffness', r ? `${fmt(r.hold_kp, 1)}` : '—', now.hold_kp],
     ['Damping', r ? `${fmt(r.hold_kd, 2)}` : '—', now.hold_kd],
-    ['Speed', r?.max_velocity ? `${fmt(r.max_velocity)} rad/s` : '—', null],
+    ['Speed', r?.max_velocity ? `${fmt(r.max_velocity)} rad/s` : '—', now.max_velocity],
     ['Braking', r?.stop_acceleration ? `${fmt(r.stop_acceleration, 0)} rad/s²` : '—', now.stop_acceleration],
     ['Tracking', r?.max_tracking_error ? `${fmt(r.max_tracking_error, 3)} rad` : '—', now.max_tracking_error],
   ];
@@ -754,6 +754,8 @@ function updateTuneCard(card, motor, result, current) {
   card.querySelector('.measured').textContent = t
     ? `Gravity up to ${fmt(t.gravity_max)} Nm, friction ${fmt(t.friction)} Nm · verified ${fmt(result.verified.down)} down, `
       + `${fmt(result.verified.up)} up rad` + (v?.max_lag != null ? ` · worst lag ${fmt(v.max_lag, 3)} rad` : '')
+      + (result.usable ? ` · usable ${fmt(result.usable.recommended)} of ${fmt(result.usable.swept)} rad swept `
+        + `at these settings (now ${fmt(result.usable.today)})` : '')
     : 'Not measured yet.';
   const notes = [...(r?.notes || []), ...(result.events || []).map(e => `Guard: ${e.text}`)];
   card.querySelector('.notes').replaceChildren(...notes.map(text => Object.assign(document.createElement('li'), {textContent: text})));

@@ -313,6 +313,7 @@ def test_the_plan_waits_for_a_joint_it_cannot_push_and_stiffens_it_only_at_rest(
     assert plant.fastest['right_arm_j6'] < .8, plant.fastest
     result = engine.summary()['right_arm_j6']
     assert result['usable']['swept'] == pytest.approx(1.9) and result['usable']['today'] == pytest.approx(1.2)
+    assert result['current']['max_velocity'] == .8  # The session's cap, as no row gives today's settings here.
     assert 0 < result['usable']['recommended'] <= 1.8
 
 

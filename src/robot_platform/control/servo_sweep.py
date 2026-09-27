@@ -1022,8 +1022,9 @@ class SweepEngine:
         for motor, report in self.reports.items():
             result[motor] = {
                 'label': self._label(motor), 'current': {'hold_kp': self.gains[motor][0], 'hold_kd': self.gains[motor][1],
-                                                         'max_tracking_error': self.limits[motor]['max_tracking_error'],
-                                                         'stop_acceleration': self.limits[motor]['stop_acceleration']},
+                                                         **{key: self.limits[motor][key] for key in (
+                                                             'max_tracking_error', 'max_velocity', 'stop_acceleration')},
+                                                         **((self.travel.get(motor) or {}).get('today') or {})},
                 'status': report.status, 'verified': {'up': report.verified[1], 'down': report.verified[-1]},
                 'torque': None if report.torque is None else {k: report.torque.get(k) for k in
                                                               ('gravity_max', 'gravity_worst_at', 'friction', 'span')},
