@@ -400,6 +400,14 @@ class SweepEngine:
         """Finish: the current joint returns to the reference, then the sweep ends."""
         self.stopping = True
 
+    def halt(self, reason):
+        """The session ended under the sweep (a receiver fault): the joint under test stopped there."""
+        report = self.reports.get(self.current)
+        if report is not None and report.status == 'running':
+            report.status = 'stopped'
+            self._event(f'the session ended: {reason}')
+        self.task, self.current, self.done = 'stopped', None, True
+
     def _compose(self):
         targets, gains = [], []
         for name in self.names:

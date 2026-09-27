@@ -334,3 +334,21 @@ def test_a_joint_that_cannot_follow_its_plan_ends_the_task_and_the_sweep_goes_on
         now += .04
     assert engine.done
     assert any('could not follow its plan' in event['text'] for event in engine.events), engine.events
+
+
+def test_a_session_that_ends_under_the_sweep_stops_the_joint_under_test():
+    joints, plant, gains = arm()
+    names = [joint['name'] for joint in joints]
+    engine = SweepEngine(joints, home={name: 0. for name in names}, gains=gains,
+                         settings={name: sweep_settings(PROFILE, name) for name in names}, sweep=names)
+    engine.observe(plant.run(names, {'targets': [0., 0.], 'gains': [gains[n] for n in names]}))
+    now = 0.
+    while engine.current != 'right_arm_j2' or engine.task.endswith('reference'):
+        engine.observe(plant.run(names, engine.command(now)))
+        now += .04
+    engine.halt('Receiver faulted: limit_violation')
+    summary = engine.summary()
+    assert summary['right_arm_j2']['status'] == 'stopped' and engine.done and engine.command(now) is None
+    assert engine.progress()['motor'] is None and engine.task == 'stopped'
+    assert 'limit_violation' in summary['right_arm_j2']['events'][-1]['text']
+

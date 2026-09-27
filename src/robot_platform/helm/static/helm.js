@@ -830,7 +830,8 @@ function renderTune(u, state) {
   $('u-phase').textContent = running ? (u.stage || u.phase) : {stopped: 'Stopped', fault: 'Fault'}[u.phase] || u.phase;
   $('u-done').textContent = progress ? `${progress.joints_done}/${progress.joints}` : '—';
   $('u-cycle').textContent = u.cycle_ms ? `${u.cycle_ms.p50.toFixed(1)} / ${u.cycle_ms.p99.toFixed(1)} ms` : '—';
-  $('u-motors').textContent = running && u.motors_enabled != null ? (u.motors_enabled ? 'on' : 'off') : '—';
+  // From the receiver's own status, running or not: after a fault it reads off once the receiver has disabled.
+  $('u-motors').textContent = u.motors_enabled == null ? '—' : u.motors_enabled ? 'on' : 'off';
   $('u-message').textContent = (u.fault ? `${u.fault} · ` : '') + (u.message || '');
   $('u-events').replaceChildren(...(progress?.events || []).map(e =>
     Object.assign(document.createElement('li'), {textContent: `${e.task}: ${e.text}`})));

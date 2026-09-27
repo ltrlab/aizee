@@ -284,7 +284,9 @@ class TuneCore:
         self.message = message
 
     def fail(self, reason):
-        self.phase, self.fault = 'fault', reason
+        self.phase, self.fault, self.stage = 'fault', reason, 'faulted'
+        if self.engine is not None:
+            self.engine.halt(reason)
         self.message = f'Sweep stopped: {reason}. The receiver disables the arm.'
 
     def close(self):
