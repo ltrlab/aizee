@@ -38,6 +38,7 @@ import time
 import numpy as np
 
 from . import servo_analysis as analysis
+from robot_platform.control.approach import command_speed, end_margin
 
 DEFAULTS = {
     'characterize_speed': .15,
@@ -135,26 +136,24 @@ def loosened(motion, settings, row, receiver):
     (first: it is the joint's push, as the command's lead is capped at a share of it) and
     speed_ceiling, never lowered. With `row` (the joint's derived report row), each only as far as
     its usable range stays at least usable_floor of its swept travel; a gripper has no reserve."""
-    from robot_platform.control.guarded_config import stopping_reserve
+    from robot_platform.control.guarded_config import usable_margin
     bound0, cap0 = motion['max_tracking_error'], motion['max_velocity']
     bound_ceiling = max(bound0, settings.get('bound_ceiling') or bound0)
     cap_ceiling = max(cap0, settings.get('speed_ceiling') or cap0)
     if row is None or motion.get('gripper') is True:
         return bound_ceiling, cap_ceiling
+    # The speed cap no longer costs travel (joints slow near the ends); the bound still does.
     lower, upper = row['operational']
     floor = settings['usable_floor'] * (row['swept'][1] - row['swept'][0])
 
-    def usable(bound, cap):
-        return upper - lower - 2 * stopping_reserve(dict(motion, max_tracking_error=bound, max_velocity=cap),
-                                                    receiver)
-    if usable(bound0, cap0) < floor:
-        return bound0, cap0  # Already under the floor: nothing to spend.
+    def usable(bound):
+        return upper - lower - 2 * usable_margin(dict(motion, max_tracking_error=bound), receiver)
+    if usable(bound0) < floor:
+        return bound0, cap_ceiling  # Already under the floor: no bound to spend.
     steps = max(0, int(round((bound_ceiling - bound0) / .01)))
     bound = max((b for b in [bound0 + k * (bound_ceiling - bound0) / steps for k in range(1, steps + 1)]
-                 if usable(b, cap0) >= floor), default=bound0) if steps else bound0
-    caps = sorted({c for c in [*settings['speeds'], cap_ceiling] if cap0 < c <= cap_ceiling + 1e-9})
-    cap = max((c for c in caps if usable(bound, c) >= floor), default=cap0)
-    return round(bound, 4), cap
+                 if usable(b) >= floor), default=bound0) if steps else bound0
+    return round(bound, 4), cap_ceiling
 
 
 class Abort(Exception):
@@ -470,6 +469,7 @@ class SweepEngine:
                 v = min(speed, v + acceleration * dt)
             else:
                 v = speed
+            v = min(v, self._toward_end(motor, direction))  # Slower toward an end: the braking curve.
             step = min(remaining, v * dt)
             self.targets[motor] += step * direction
             self.velocity[motor] = v * direction if (not stop or step < remaining) else 0.
@@ -602,16 +602,20 @@ class SweepEngine:
             return False
 
     def _allowed(self, motor, speed=None):
-        """Where a joint's target and measured position may be: its limits less the receiver's collision
-        reserve, which is taken at the joint's speed cap whatever the speed (the receiver refuses an
-        envelope that does not hold both with that margin). This is teleop's usable range."""
+        """Where a joint's target and measured position may be: its limits less the stopping margin of its
+        approach floor (control.approach; the receiver refuses an envelope that cannot hold the joint's
+        reserve at the speed it may approach a limit). This is teleop's usable range."""
         limit = self.limits[motor]
         if limit.get('gripper'):
             return limit['lower'], limit['upper']
-        cap = limit['max_velocity']
-        reserve = (limit['max_tracking_error'] + cap * self.window_s + cap ** 2 / (2 * limit['stop_acceleration'])
-                   + 1e-6)
-        return limit['lower'] + reserve, limit['upper'] - reserve
+        margin = end_margin(limit, self.window_s, self.verdict_s)
+        return limit['lower'] + margin, limit['upper'] - margin
+
+    def _toward_end(self, motor, direction):
+        """How fast the plan may move `motor` in `direction` from its commanded position: within the
+        receiver's braking curve toward that end, with headroom."""
+        limit = self.limits[motor]
+        return command_speed(limit, self.window_s, self.targets[motor], direction, limit['max_velocity'])
 
     def _clear(self, motor, start, end):
         """(clear, why) for a planned move, checking about CHECK_BUDGET_S of poses per cycle and holding
@@ -1007,14 +1011,14 @@ class SweepEngine:
         row, rec = self.travel.get(motor), report.recommendation
         if row is None or self.receiver is None or rec is None or self.limits[motor].get('gripper'):
             return None
-        from robot_platform.control.guarded_config import stopping_reserve
+        from robot_platform.control.guarded_config import usable_margin
         limit = self.limits[motor]
         lower, upper = row['operational']
         settings = {'max_tracking_error': rec.get('max_tracking_error') or limit['max_tracking_error'],
                     'max_velocity': rec.get('max_velocity') or limit['max_velocity'],
                     'stop_acceleration': rec.get('stop_acceleration') or limit['stop_acceleration']}
         return {'swept': row['swept'][1] - row['swept'][0], 'today': row['usable'][1] - row['usable'][0],
-                'recommended': max(0., upper - lower - 2 * stopping_reserve(settings, self.receiver))}
+                'recommended': max(0., upper - lower - 2 * usable_margin(settings, self.receiver))}
 
     def summary(self):
         """Per joint: the recommendation, the measurements behind it and what happened."""

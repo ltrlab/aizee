@@ -271,3 +271,26 @@ def test_hold_faults_instead_of_sending_an_unbounded_lead():
     with pytest.raises(ValueError, match='lead'):
         lifecycle.step(feedback(.04, (-1., .02)), now=.04)
     assert lifecycle.target is None
+
+
+def test_commands_slow_toward_an_end_within_the_receivers_braking_curve():
+    from robot_platform.control.approach import COMMAND_HEADROOM, approach_speed
+    curve = {'lower': -2., 'upper': 2., 'max_velocity': 2.5, 'max_tracking_error': .05, 'stop_acceleration': 5.,
+             'reaction_s': .12}
+    curved = joints()
+    curved[0].update(max_velocity=2., approach=curve)
+    positions = (1.7, .02)
+    lifecycle = TeleopLifecycle(curved, settle_time_s=0.)
+    lifecycle.action('idle', feedback(0., positions), now=0.)
+    lifecycle.action('enable', feedback(0., positions), now=0.)
+    lifecycle.action('engage', feedback(0., positions), target=target(0., positions), now=0.)
+    lifecycle.step(feedback(.04, positions), target=target(.04, positions), now=.04)
+    assert lifecycle.state == 'TELEOP'
+    # 0.3 rad below the upper end, toward it: only the curve's speed there, with headroom (about 0.87 rad/s).
+    toward = lifecycle.step(feedback(.08, positions), target=target(.08, (1.95, .02)), now=.08)['positions'][0]
+    allowed = COMMAND_HEADROOM * approach_speed(curve, .12, .3)
+    assert allowed < 1. and toward == pytest.approx(1.7 + allowed * .04)
+    # Away from it: the full 2 rad/s.
+    away = lifecycle.step(feedback(.12, (toward, .02)), target=target(.12, (1., .02)), now=.12)['positions'][0]
+    assert away == pytest.approx(toward - 2. * .04)
+

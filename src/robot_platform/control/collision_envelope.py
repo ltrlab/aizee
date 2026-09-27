@@ -12,6 +12,7 @@ import json
 import math
 import time
 
+from .approach import approach_speed, reserve_toward
 from .collision_guard import JointCalibration, check_linear_motion
 
 
@@ -115,11 +116,18 @@ class CollisionEnvelopeCompiler:
                     low = max(limit["lower"], min(sample["position"], goal) - padding)
                     high = min(limit["upper"], max(sample["position"], goal) + padding)
                 else:
-                    reserve = (limit["max_tracking_error"] + velocity * (
-                        policy["max_verdict_ms"] + self.config["feedback_timeout_ms"] + policy["reaction_ms"]) / 1000
-                        + velocity ** 2 / (2 * limit["stop_acceleration"]))
-                    low = min(sample["position"], goal) - reserve - padding
-                    high = max(sample["position"], goal) + reserve + padding
+                    # Each side's reserve at the fastest the joint may approach that limit (the
+                    # receiver's braking curve): near a limit the box reaches it, no further.
+                    reaction = (policy["max_verdict_ms"] + self.config["feedback_timeout_ms"]
+                                + policy["reaction_ms"]) / 1000
+                    lo, hi = min(sample["position"], goal), max(sample["position"], goal)
+                    down, up = lo - limit["lower"], limit["upper"] - hi
+                    reserve_low, reserve_high = reserve_toward(limit, reaction, down), reserve_toward(limit, reaction, up)
+                    if lo - reserve_low < limit["lower"] - 1e-9 or hi + reserve_high > limit["upper"] + 1e-9:
+                        raise ValueError("Stopping envelope exceeds operational interval")
+                    verdict_s = policy["max_verdict_ms"] / 1000
+                    low = max(limit["lower"], lo - reserve_low - approach_speed(limit, reaction, down) * verdict_s - 1e-9)
+                    high = min(limit["upper"], hi + reserve_high + approach_speed(limit, reaction, up) * verdict_s + 1e-9)
                 if low < limit["lower"] or high > limit["upper"]:
                     raise ValueError("Stopping envelope exceeds operational interval")
                 lower.append(low)

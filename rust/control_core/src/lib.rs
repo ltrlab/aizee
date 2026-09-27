@@ -22,10 +22,15 @@ use hardware::{Hardware, JointFeedback};
 use protocol::*;
 use reference::MOVING_READINGS;
 
-/// A joint over its speed cap faults after MOVING_READINGS samples in a row, or at
-/// once beyond this multiple of the cap. Drives report speed spikes: on Minerva a
-/// servoed wrist-roll joint moving slowly read +1.53 rad/s against its 0.8 cap.
+/// A joint over its allowed speed faults after MOVING_READINGS samples in a row, or at
+/// once beyond this multiple of it. Drives report speed spikes: on Minerva a servoed
+/// wrist-roll joint moving slowly read +1.53 rad/s against its 0.8 cap. The allowed
+/// speed is the cap, or, while the arm is driven under a collision policy, the joint's
+/// approach speed toward the limit it is moving to (collision::approach_speed).
 const OVERSPEED_FACTOR: f64 = 3.0;
+/// Box edges are compared with this tolerance: near a limit the reserve equals the
+/// distance to it, so the box edge is the limit itself, up to rounding.
+const EDGE_EPS: f64 = 1e-9;
 use serde::{Deserialize, Serialize};
 use stop::JointStop;
 
@@ -299,12 +304,30 @@ impl Controller {
         }
     }
 
+    /// How fast joint `i` may move at `position` in the direction of `velocity`: its cap,
+    /// or, while driven under a collision policy, its approach speed toward that limit.
+    fn allowed_speed(&self, i: usize, position: f64, velocity: f64) -> f64 {
+        let limit = &self.config.joints[i];
+        match &self.config.collision {
+            Some(policy) if self.active() => {
+                let distance = if velocity > 0.0 {
+                    limit.upper - position
+                } else {
+                    position - limit.lower
+                };
+                collision::approach_speed(policy, &self.config, limit, distance)
+            }
+            _ => limit.max_velocity,
+        }
+    }
+
     fn feedback_error(&self) -> Option<Reason> {
-        for ((f, limit), &overspeed) in self
+        for (i, ((f, limit), &overspeed)) in self
             .feedback
             .iter()
             .zip(&self.config.joints)
             .zip(&self.overspeed)
+            .enumerate()
         {
             if f.sequence == 0
                 || f.sampled_at_ms > self.now_ms
@@ -323,7 +346,7 @@ impl Controller {
             if f.position < limit.lower
                 || f.position > limit.upper
                 || overspeed >= MOVING_READINGS
-                || f.velocity.abs() > OVERSPEED_FACTOR * limit.max_velocity
+                || f.velocity.abs() > OVERSPEED_FACTOR * self.allowed_speed(i, f.position, f.velocity)
                 || f.effort.abs() > limit.max_effort
                 || f.temperature > limit.max_temperature
             {
@@ -434,7 +457,7 @@ impl Controller {
                 } else {
                     0
                 };
-                self.overspeed[i] = if speed > self.config.joints[i].max_velocity {
+                self.overspeed[i] = if speed > self.allowed_speed(i, current.position, current.velocity) {
                     self.overspeed[i].saturating_add(1)
                 } else {
                     0
@@ -586,15 +609,23 @@ impl Controller {
         for (i, (feedback, limit)) in self.feedback.iter().zip(&self.config.joints).enumerate() {
             let (low, high) = (envelope.lower[i], envelope.upper[i]);
             let target = commands.map_or(feedback.position, |values| values[i].position);
-            let reserve = collision::reserve(policy, &self.config, limit);
+            let (lo, hi) = (feedback.position.min(target), feedback.position.max(target));
+            // Each side's reserve is taken at the fastest the joint may approach that limit.
+            let reserve_low =
+                collision::reserve_toward(policy, &self.config, limit, lo - limit.lower);
+            let reserve_high =
+                collision::reserve_toward(policy, &self.config, limit, limit.upper - hi);
             if !low.is_finite()
                 || !high.is_finite()
                 || low >= high
-                || !reserve.is_finite()
+                || !reserve_low.is_finite()
+                || !reserve_high.is_finite()
                 || low < limit.lower
                 || high > limit.upper
-                || low > feedback.position.min(target) - reserve
-                || high < feedback.position.max(target) + reserve
+                || lo - reserve_low < limit.lower - EDGE_EPS
+                || hi + reserve_high > limit.upper + EDGE_EPS
+                || low > (lo - reserve_low).max(limit.lower) + EDGE_EPS
+                || high < (hi + reserve_high).min(limit.upper) - EDGE_EPS
             {
                 return Err(Reason::CollisionViolation);
             }

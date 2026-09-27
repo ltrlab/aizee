@@ -7,6 +7,8 @@ from copy import deepcopy
 import math
 import time
 
+from robot_platform.control.approach import command_speed
+
 
 def _finite(value):
     return type(value) in (int, float) and math.isfinite(value)
@@ -176,9 +178,13 @@ class TeleopLifecycle:
     def _approach(self, measured, goal, speed, dt):
         proposed = []
         for previous, row, target, joint in zip(self.target, measured, goal, self._joints):
-            maximum_step = joint[speed]*dt
-            low = max(joint['lower'], row['position']-joint['max_lead'], previous-maximum_step)
-            high = min(joint['upper'], row['position']+joint['max_lead'], previous+maximum_step)
+            up = down = joint[speed]
+            curve = joint.get('approach')
+            if curve:  # Toward an end, within the receiver's braking curve (with headroom).
+                up = command_speed(curve, curve['reaction_s'], previous, 1, up)
+                down = command_speed(curve, curve['reaction_s'], previous, -1, down)
+            low = max(joint['lower'], row['position']-joint['max_lead'], previous-down*dt)
+            high = min(joint['upper'], row['position']+joint['max_lead'], previous+up*dt)
             if low > high:
                 raise ValueError(f'Measured pose exceeds command lead/slew bounds: {joint["name"]}')
             proposed.append(max(low, min(high, target)))

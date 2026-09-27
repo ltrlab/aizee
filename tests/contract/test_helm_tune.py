@@ -144,8 +144,8 @@ def test_saved_results_become_the_servo_calibration_the_receiver_uses(setup):
                               model=model, limits=helm.saved_limits, profile=session.profile, backend=backend,
                               servo=document)
     joint = next(j for j in derived['config']['joints'] if j['name'] == 'left_arm_j5')
-    assert (joint['hold_kp'], joint['hold_kd'], joint['max_velocity'], joint['max_tracking_error']) == (6.5, .8, 1.2,
-                                                                                                      .06)
+    assert (joint['hold_kp'], joint['hold_kd'], joint['max_velocity'], joint['max_tracking_error']) == (
+        6.5, .8, 1.2 * 1.25, .06)  # The receiver enforces 25% over the saved (commanded) speed.
     assert servo_path(helm.profile_path, helm.asset_id).name == 'minerva-production-01-servo.json'
 
 

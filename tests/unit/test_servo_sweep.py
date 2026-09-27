@@ -4,7 +4,7 @@ import math
 import numpy as np
 import pytest
 
-from robot_platform.control.guarded_config import stopping_reserve
+from robot_platform.control.guarded_config import usable_margin
 from robot_platform.control.servo_sweep import (DEFAULTS, Recording, SweepEngine, damping_for, loosened, result_rows,
                                                 sweep_profile, sweep_settings)
 
@@ -265,20 +265,21 @@ def test_verify_mode_checks_each_joint_at_its_settings_and_flags_new_friction():
 RECEIVER = {'feedback_timeout_ms': 30, 'collision': {'max_verdict_ms': 80, 'reaction_ms': 10}}
 
 
-def test_a_session_loosens_the_bound_then_the_cap_while_half_the_swept_travel_stays_usable():
+def test_a_session_takes_the_speed_ceiling_and_loosens_the_bound_while_half_the_swept_travel_stays_usable():
     motion = {'max_tracking_error': .08, 'max_velocity': .8, 'stop_acceleration': 4.}
-    # Today's J6 reserve, as the receiver derives it: 0.320 rad at each end.
-    assert stopping_reserve(motion, RECEIVER) == pytest.approx(.32)
+    # Near an end a joint slows (the braking curve), so its speed cap no longer costs travel: right J6
+    # keeps 0.211 rad at each end (its bound, then the stopping margin at 0.5 rad/s), not 0.32 at its cap.
+    assert usable_margin(motion, RECEIVER) == pytest.approx(.08 + .5 * .12 + .25 / 8 + .5 * .08, abs=1e-5)
+    assert usable_margin(dict(motion, max_velocity=2.5), RECEIVER) == usable_margin(motion, RECEIVER)
     settings = dict(DEFAULTS, bound_ceiling=.15, speed_ceiling=2.5)
-    # Right J6 (2026-09-27): 1.81 rad operational, 1.91 swept. Bound 0.15 leaves 54%; any faster cap, under half.
+    # Right J6 (2026-09-27): 1.81 rad operational, 1.91 swept. Bound 0.15 leaves 65%, and the full ceiling speed.
     j6 = {'operational': (-.905, .905), 'swept': (-.955, .955)}
-    assert loosened(motion, settings, j6, RECEIVER) == (.15, .8)
-    # Right J4: 3.22 rad operational, 3.32 swept: bound 0.12, and 1.5 rad/s still leaves 55%.
+    assert loosened(motion, settings, j6, RECEIVER) == (.15, 2.5)
     j4 = {'operational': (-1.61, 1.61), 'swept': (-1.66, 1.66)}
     assert loosened(motion, dict(DEFAULTS, bound_ceiling=.12, speed_ceiling=1.5), j4, RECEIVER) == (.12, 1.5)
-    # A joint already under the floor keeps what it has; a gripper has no reserve to weigh.
+    # A narrow joint loosens its bound only as far as half its swept travel stays usable; a gripper has no margin.
     narrow = {'operational': (-.6, .6), 'swept': (-.7, .7)}
-    assert loosened(motion, settings, narrow, RECEIVER) == (.08, .8)
+    assert loosened(motion, settings, narrow, RECEIVER) == (.11, 2.5)
     assert loosened(dict(motion, gripper=True), dict(DEFAULTS, bound_ceiling=.15), j6, RECEIVER) == (.15, .8)
 
 

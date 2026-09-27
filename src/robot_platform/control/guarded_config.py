@@ -20,6 +20,7 @@ from fnmatch import fnmatchcase
 import math
 
 from .collision_envelope import calibration_revision
+from robot_platform.control.approach import OVERSPEED_HEADROOM, end_margin, reaction_s
 
 RECEIVER_KEYS = ('max_velocity', 'max_effort', 'max_kp', 'max_kd', 'stop_acceleration',
                  'hold_kp', 'hold_kd', 'max_tracking_error', 'max_temperature')
@@ -58,15 +59,13 @@ def motion_settings(motion, motor):
     return merged
 
 
-def stopping_reserve(settings, receiver):
-    """How far inside its operational range a joint's targets stay, at each end: its tracking bound,
-    the distance covered at its speed cap over the receiver's reaction window plus the verdict
-    padding, and its braking distance from the cap (what derive_receiver takes off, less 1e-6)."""
-    policy = receiver['collision']
-    window_s = (policy['max_verdict_ms'] + receiver['feedback_timeout_ms'] + policy['reaction_ms']) / 1000
-    speed = settings['max_velocity']
-    return (settings['max_tracking_error'] + speed * window_s + speed ** 2 / (2 * settings['stop_acceleration'])
-            + speed * policy['max_verdict_ms'] / 1000)
+def usable_margin(settings, receiver):
+    """How far inside its operational range a non-gripper joint's targets stay at each end, for motion
+    `settings` (the commanded cap, tracking bound and stop acceleration) under the teleop profile's
+    `receiver` block: the stopping margin of its approach floor (control.approach), whatever its cap."""
+    joint = {'max_velocity': settings['max_velocity'] * OVERSPEED_HEADROOM,
+             'max_tracking_error': settings['max_tracking_error'], 'stop_acceleration': settings['stop_acceleration']}
+    return end_margin(joint, reaction_s(receiver), receiver['collision']['max_verdict_ms'] / 1000)
 
 
 def cad_map(reference, steps, directions, transmissions):
@@ -146,19 +145,15 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
         else:
             lower = max(saved['min_rad'], cad_motor[0]) + settings['margin_rad']
             upper = min(saved['max_rad'], cad_motor[1]) - settings['margin_rad']
-        speed = settings['max_velocity']
-        if gripper:
-            reserve = padding = 0.
-        else:
-            reserve = (settings['max_tracking_error'] + speed * window_s
-                       + speed ** 2 / (2 * settings['stop_acceleration']))
-            # Matches CollisionEnvelopeCompiler's box (it adds 1e-9); stay a hair
-            # inside so a pose exactly on the usable edge still certifies.
-            padding = speed * policy['max_verdict_ms'] / 1000 + 1e-6
-        usable = (lower + reserve + padding, upper - reserve - padding)
+        # The receiver enforces its cap (and near the ends its braking curve) with headroom over what is
+        # commanded: a servo overshoots the speed it follows. Near an end a joint slows (control.approach),
+        # so its targets stay only the stopping margin of its approach floor inside, at any speed cap.
+        speed = settings['max_velocity'] * OVERSPEED_HEADROOM
+        margin = 0. if gripper else usable_margin(settings, receiver)
+        usable = (lower + margin, upper - margin)
         if not lower < upper or not usable[0] < usable[1]:
-            raise ValueError(f'{name}: no usable range after margins and the stopping reserve; '
-                             'reduce its speed or stopping distance')
+            raise ValueError(f'{name}: no usable range after margins and the stopping margin; '
+                             'reduce its tracking bound')
         if settings['hold_kp'] > settings['max_kp'] or settings['hold_kd'] > settings['max_kd']:
             raise ValueError(f'{name}: hold gains exceed their maxima')
         if settings['max_tracking_error'] <= 0 or settings['max_velocity'] <= 0 or settings['stop_acceleration'] <= 0:
@@ -167,17 +162,24 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
         tolerance = GRIPPER_TOLERANCE_RAD if gripper else 0.
         bounds = {'lower': lower - tolerance, 'upper': upper + tolerance}  # Receiver and lifecycle share these.
         joints.append({'name': name, 'unit': 'radians', **bounds,
-                       **{key: float(settings[key]) for key in RECEIVER_KEYS}, **({'gripper': True} if gripper else {})})
+                       **{key: float(settings[key]) for key in RECEIVER_KEYS}, 'max_velocity': float(speed),
+                       **({'gripper': True} if gripper else {})})
         lifecycle.append({'name': name, **bounds,
                           **{key: float(settings[key]) for key in ('hold_kp', 'hold_kd', 'max_velocity')},
                           **{key: float(settings[key]) for key in LIFECYCLE_KEYS},
                           'max_lead': bounds['upper'] - bounds['lower'] if gripper
                           else LEAD_FRACTION * float(settings['max_tracking_error']),
-                          'zero_position': home})
+                          'zero_position': home,
+                          # Commands slow toward an end within the receiver's braking curve.
+                          **({} if gripper else {'approach': {
+                              **bounds, 'max_velocity': float(speed),
+                              'max_tracking_error': float(settings['max_tracking_error']),
+                              'stop_acceleration': float(settings['stop_acceleration']), 'reaction_s': window_s}})})
         initial.append(home)
         report.append({'motor': name, 'cad_joint': cad_joint, 'scale': row['scale'], 'offset': row['offset'],
                        'swept': [saved['min_rad'], saved['max_rad']], 'cad': cad_motor,
-                       'operational': [lower, upper], 'usable': list(usable), 'reserve': reserve + padding,
+                       'operational': [lower, upper], 'usable': list(usable), 'reserve': margin,
+                       'receiver_cap': float(speed),
                        'receiver': [bounds['lower'], bounds['upper']],
                        'binding': ['swept', 'swept'] if gripper else [
                            'cad' if cad_motor[0] > saved['min_rad'] else 'swept',

@@ -24,8 +24,9 @@ class GuardedLifecycleSession:
                 or controller.group != compiler.config["group"]):
             raise ValueError("Matching complete robot configuration and valid timing required")
         for row, limit in zip(lifecycle.joints, compiler.config["joints"]):
-            if any(row[key] != limit[key] for key in
-                   ("name", "lower", "upper", "hold_kp", "hold_kd", "max_velocity")):
+            # Commands keep headroom under the receiver's speed cap (control.approach), never above it.
+            if (any(row[key] != limit[key] for key in ("name", "lower", "upper", "hold_kp", "hold_kd"))
+                    or row["max_velocity"] > limit["max_velocity"]):
                 raise ValueError("Lifecycle bounds and gains must match receiver configuration")
         self.owned = False
         self.stop_error = None

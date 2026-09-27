@@ -91,9 +91,10 @@ def test_a_mirrored_gripper_slide_still_opens_with_its_motor_angle():
 def test_usable_targets_keep_the_receivers_stopping_reserve_inside():
     derived = derive()
     arm, grip = derived['report']
-    # tracking + v * (verdict + feedback + reaction) + v^2 / 2a, then the compiler's padding.
+    # tracking + v * (verdict + feedback + reaction) + v^2 / 2a, then the compiler's padding, where v is the
+    # approach floor (0.5 rad/s): near an end a joint slows, whatever its cap (1 rad/s for the second joint).
     arm_reserve = .05 + .5 * .12 + .5 ** 2 / 10 + .5 * .08 + 1e-6
-    grip_reserve = .05 + 1. * .12 + 1. / 10 + .08 + 1e-6
+    grip_reserve = .05 + .5 * .12 + .5 ** 2 / 10 + .5 * .08 + 1e-6
     assert arm['reserve'] == pytest.approx(arm_reserve)
     assert arm['usable'] == pytest.approx([-.85 + arm_reserve, .45 - arm_reserve])
     assert grip['usable'] == pytest.approx([.05 + grip_reserve, 1.95 - grip_reserve])
@@ -113,7 +114,8 @@ def test_receiver_config_is_bound_to_model_calibration_and_policy():
     assert config['collision'] == {'world_revision': 'world-rev', 'scope': 'inter_branch',
                                    'max_verdict_ms': 80, 'reaction_ms': 10}
     assert [joint['name'] for joint in config['joints']] == ['arm_j1', 'gripper']
-    assert config['joints'][1]['max_velocity'] == 1.
+    # The receiver enforces 25% over the commanded cap (servos overshoot); commands keep the cap.
+    assert config['joints'][1]['max_velocity'] == 1.25 and derived['lifecycle'][1]['max_velocity'] == 1.
     assert (config['joints'][0]['lower'], config['joints'][0]['upper']) == pytest.approx((-.85, .45))
 
 
@@ -121,7 +123,9 @@ def test_derivation_refuses_unsafe_or_incomplete_settings():
     with pytest.raises(ValueError, match='no saved joint limits'):
         derive(limits={'joints': {'arm_j1': LIMITS['joints']['arm_j1']}})
     with pytest.raises(ValueError, match='no usable range'):
-        derive(profile=profile(max_velocity=6.))
+        derive(profile=profile(max_tracking_error=1.))  # The second joint's 1.9 rad cannot keep 1.125 at each end.
+    # A fast cap costs no travel: near its ends a joint slows down.
+    assert derive(profile=profile(max_velocity=6.))['report'][1]['usable'] == derive()['report'][1]['usable']
     with pytest.raises(ValueError, match='hold gains'):
         derive(profile=profile(hold_kp=25.))
     with pytest.raises(ValueError, match='must be positive'):
@@ -162,7 +166,7 @@ def test_a_servo_calibration_sets_its_joints_settings_and_is_bound_to_the_motor(
     derived = derive(reference=reference, servo=servo)
     arm, grip = derived['config']['joints']
     assert (arm['hold_kp'], arm['hold_kd'], arm['max_velocity'], arm['stop_acceleration'],
-            arm['max_tracking_error']) == (12., 1.5, .3, 6., .04)
+            arm['max_tracking_error']) == (12., 1.5, .3 * 1.25, 6., .04)
     assert arm['max_kp'] >= 12. and derived['report'][0]['servo_calibrated'] is True
     assert derived['report'][1]['servo_calibrated'] is False and grip['hold_kp'] == derive()['config']['joints'][1]['hold_kp']
     # A tighter bound and a slower speed shrink the stopping reserve, so more of the range is usable.
