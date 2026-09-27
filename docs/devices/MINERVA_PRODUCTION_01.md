@@ -2090,3 +2090,23 @@ Not saved, for two reasons:
   at kp 8 and about 0.03 rad at kp 24.
 
 Both fixes are on release `20260927T233419Z-f3c02b2`.
+
+### 2026-09-27 — first full-range J6 sweep; speed in open travel
+
+Release `f3c02b2` (23:39 UTC), J6 only: finished, with no fault.
+- Characterised the full usable range, +0.665/−0.628 rad.
+- Measured gravity up to 0.17 Nm (worst at −0.5 rad) and friction 0.11 Nm.
+- Stiffness 24 and 16.8 pass; 12 and 8.4 rest 0.022/0.028 rad off target.
+- Verification passed at 0.6 rad/s (lag 0.039 rad).
+
+It recommended stiffness 24, damping 0.61 and braking 32 rad/s², but only
+0.6 rad/s with a 0.138 rad bound. That is slower than today's 0.8, and usable
+travel would drop from 1.43 to 1.32 rad. Not saved.
+
+The cause: the speed tests now crossed the whole range, into the ends where
+the braking curve slows the joint. There they lagged (0.069 rad at 0.6) and
+fell short of 0.8. Teleop slows near the ends by the same curve, so speed is
+now measured in open travel for each speed (`8e7dd8c`, release
+`20260927T235536Z-8e7dd8c`). The result cards now compare commanded caps
+(today's shows 0.8, not the receiver's 1.0). A simulated J6 then recommends
+1.2 rad/s over its full range.
