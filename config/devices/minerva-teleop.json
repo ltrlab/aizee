@@ -55,7 +55,8 @@
       {"match": "*_arm_j4", "hold_kp": 50.0, "hold_kd": 4.0, "max_kp": 50.0, "max_kd": 4.0, "max_effort": 17.0},
       {"match": "*_arm_j5", "hold_kp": 8.0, "hold_kd": 1.0, "max_kp": 8.0, "max_kd": 1.0, "max_effort": 17.0,
        "max_velocity": 2.5, "stop_acceleration": 15.0, "max_tracking_error": 0.1},
-      {"match": "*_arm_j6", "hold_kp": 8.0, "hold_kd": 1.0, "max_kp": 8.0, "max_kd": 1.0, "max_effort": 14.0},
+      {"match": "*_arm_j6", "hold_kp": 8.0, "hold_kd": 1.0, "max_kp": 8.0, "max_kd": 1.0, "max_effort": 14.0,
+       "stop_acceleration": 16.0},
       {"match": "*_gripper", "gripper": true, "hold_kp": 2.0, "hold_kd": 1.0, "max_kp": 5.0, "max_kd": 2.0,
        "max_effort": 14.0, "max_velocity": 10.0, "stop_acceleration": 30.0, "max_tracking_error": 0.06,
        "align_speed": 1.0, "shutdown_speed": 0.5, "tolerance": 0.05, "settled_velocity": 0.1}
