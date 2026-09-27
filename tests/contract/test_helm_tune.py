@@ -73,11 +73,11 @@ def setup(tmp_path):
     helm = HelmSession(DEVICES / 'minerva-joint-calibration.json', runs=tmp_path / 'runs',
                        limits=DEVICES / 'minerva-production-01-joint-limits.json', seed=SEED)
     profile = json.loads((DEVICES / 'minerva-teleop.json').read_text(encoding='utf-8'))
-    profile.update(live=LIVE, sweep=SHORT)
+    profile.update(live=LIVE, sweep=dict(profile['sweep'], defaults=SHORT['defaults']))  # The file's ceilings.
     profile_path = tmp_path / 'teleop.json'
     profile_path.write_text(json.dumps(profile))
     session = TuneSession(helm, profile_path)
-    session.configure(arm='left', joints=['left_arm_j5'])
+    session.configure(arm='left', joints=['left_arm_j6'])  # Small range: the reserve clamps it.
     yield helm, session, tmp_path
     helm.close()
 
@@ -96,7 +96,7 @@ def test_a_live_sweep_runs_one_arm_to_the_end_disables_it_and_leaves_evidence(se
     names = [joint['name'] for joint in receiver.config['joints']]
     assert all(name.startswith('left_') for name in names)  # The right arm is not in this receiver.
     joints = {joint['name']: joint for joint in receiver.config['joints']}
-    assert joints['left_arm_j5']['max_kp'] >= 8.  # Ceilings raised for the sweep.
+    assert joints['left_arm_j6']['max_kp'] >= 16.  # Ceilings raised for the sweep.
     for _ in range(20000):
         core.tick(None, clock())
         clock.now += core.period_s
@@ -105,7 +105,7 @@ def test_a_live_sweep_runs_one_arm_to_the_end_disables_it_and_leaves_evidence(se
             break
     assert core.stage == 'finished' and core.engine.task == 'finished', core.message
     assert receiver.last['status']['state'] == 'disarmed' and not receiver.last['hardware_enabled']
-    result = core.engine.summary()['left_arm_j5']
+    result = core.engine.summary()['left_arm_j6']
     assert result['status'] == 'done' and result['recommendation'] is not None
     assert result['verification']['passed']
     assert result['verified']['up'] > 0 and result['verified']['down'] > 0
@@ -114,7 +114,7 @@ def test_a_live_sweep_runs_one_arm_to_the_end_disables_it_and_leaves_evidence(se
     columns = json.loads((core.evidence / 'columns.json').read_text())['columns']
     assert samples.size and samples.size % len(columns) == 0
     saved = json.loads((core.evidence / 'results.json').read_text())
-    assert saved['task'] == 'finished' and 'left_arm_j5' in saved['joints']
+    assert saved['task'] == 'finished' and 'left_arm_j6' in saved['joints']
     assert receiver.closed
 
 

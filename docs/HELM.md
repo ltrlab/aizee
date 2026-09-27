@@ -346,3 +346,70 @@ within the swept travel. A stalled grasp holds about hold Kp × lead: up to 10 N
 gains (2 Nm/rad over a 5.1 rad lead), against the gripper motor's 14 Nm peak.
 Long grasps heat the motor toward the receiver's 70 °C limit. Lower the
 gripper's `hold_kp` if that matters.
+
+## Servo sweep (Tune)
+
+The Tune tab measures each joint's servo settings on the real arm, so they are
+not tuned by hand in teleop sessions. It runs one arm at a time, attended, with
+the foot switch in reach. It uses the live receiver with the same gates as live
+teleop: the other arm is never enabled, and the loop runs on Minerva's Jetson
+over the tether. The receiver's stiffness, damping and speed ceilings are raised
+to the sweep's own ceilings (the `sweep` block of the teleop profile).
+
+Choose the arm and the joints (all by default), check that the arm hangs in its
+reference pose with its path clear, and press **Start LIVE sweep**. The arm is
+enabled at zero torque, then holds, and every joint comes slowly to its
+reference. Then, joint by joint, with the rest of the arm held there:
+
+1. **Characterise.** Slow ramps out and back at the current gains, widening
+   step by step toward the joint's usable range, with a hold at each end. This
+   maps gravity and friction by angle, weighting torque by displacement so
+   inertia and stuck samples drop out.
+2. **Stiffness × damping.** Position steps and a short ramp at the reference
+   for each rung of a stiffness ladder (from the ceiling down) and each damping
+   ratio. Damping scales as the square root of stiffness, times a multiplier.
+   A stiffness is held at the worst-gravity point only where the torque map
+   predicts its sag stays within half the tracking bound.
+3. **Speeds and braking** at the chosen gains: trapezoidal moves at increasing
+   speeds, then braking at increasing decelerations.
+4. **Verify** the whole verified range at the chosen settings.
+
+Every planned move is checked against the collision model along its whole
+path, relative to the reference pose: a pair that comes within 20 mm and was
+not that close already stops it. Each cycle, a command's lead over the measured
+position is capped at 60% of the joint's tracking bound. A guard abandons a
+task if any joint of the arm lags past 75% of its bound, pushes over half its
+effort limit, passes 55 °C, or the pose's collision check is not clear. The
+joint then holds where it is at the current gains and returns to its
+reference, and the sweep continues with what the evidence allows. The
+receiver's own limits stay in force behind all of this.
+
+**Finish (X)** returns the joint under test to its reference, then disables
+the arm. **Disable (H)** removes torque at once, and the arm goes limp where it
+is. The motors stay enabled for the whole sweep, so stopping the session
+disables the arm where it is; Helm asks first.
+
+**What it chooses**, per joint, with the reasons shown on its card:
+- **Stiffness**: the lowest rung that holds the joint's load (gravity plus
+  friction) within half the tracking bound and settles within half the
+  tolerance at the reference, with one rung of margin. Its steps must not
+  overshoot by more than 10% and must come to rest.
+- **Damping**: the ratio with the quickest settling at that stiffness.
+- **Speed and braking**: the highest tested speed and deceleration followed
+  with at most half the tracking bound of lag.
+- **Tracking bound**: twice the worst lag at that speed, between 0.03 rad and
+  the current bound.
+
+The results show the recommended values next to the current ones, the
+measurements (gravity, friction, verified range, worst lag) and any guard
+events. Check the joints you accept, whose verification passed, and **Save
+selected**. They go to the servo calibration,
+`config/devices/<asset>-servo.json`, bound to each motor's UID and firmware.
+The receiver takes those joints' gains, speed, braking and tracking bound from
+it, and live teleop uses it from its next session. A replaced motor must be
+swept again.
+
+Evidence stays on the Jetson in `~/minerva/evidence/sweep-<time>`:
+- `samples.f32`, every receiver tick as float32 rows, described by
+  `columns.json`;
+- `results.json`, the per-joint results and events.

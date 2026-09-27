@@ -357,7 +357,8 @@ class TuneCore:
 
 
 def run_tune_loop(commands, views, core):
-    """Like helm.teleop.run_loop: keys in, views out; the last view carries the results."""
+    """Like helm.teleop.run_loop: keys in, views out. The loop ends when the sweep finishes, is
+    disabled or faults; the last view carries the results."""
     clock = core.clock
     try:
         views.send(('view', core.view(results=False), None))
@@ -378,6 +379,8 @@ def run_tune_loop(commands, views, core):
                 if message[0] == 'key':
                     key = message[1] if key is None or message[1] == 'H' else key
             core.tick(key, started)
+            if core.fault or core.stage in ('finished', 'disabled'):
+                return  # Nothing more to do: close the receiver and CAN link now; the last view has the results.
             try:
                 views.send(('view', core.view(), None))
             except (OSError, EOFError, ValueError):

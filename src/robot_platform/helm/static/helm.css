@@ -99,11 +99,24 @@ body[data-teleop-state=FAULT] #t-state,#t-collision.bad{color:var(--bad)}#t-coll
 .target{display:flex;align-items:center;gap:6px;margin:0 0 10px;font-size:11px;color:var(--muted)}
 .target span{margin-right:4px}.target button{font-size:12px;padding:4px 10px}
 .target button[aria-pressed=true]{background:#1f4b44;border-color:#3f8f81;color:#e9fffa}
-.via{margin:0}.choice-note{margin:-4px 0 10px;font-size:11px;color:var(--warn)}
+.via{margin:0}.via button{white-space:nowrap}.choice-note{margin:-4px 0 10px;font-size:11px;color:var(--warn)}
 .confirm-box{border-top:1px solid #9a4b58;background:#2a1a20;padding:12px 20px}
 .confirm-box b{display:block;color:var(--bad);font-size:13px;margin-bottom:6px}
 .confirm-box ul{margin:0 0 10px;padding-left:18px;font-size:12px;line-height:1.5}
 .confirm-actions{display:flex;justify-content:flex-end;gap:10px}
+.target.wrap{flex-wrap:wrap}.target button.off{opacity:.45}
+.events{list-style:none;margin:0 0 8px;padding:0;font-size:11px;color:var(--warn);max-height:84px;overflow:auto}
+.events li{margin:2px 0}
+.ucard{border:1px solid var(--line);border-radius:8px;background:var(--raised);padding:9px 12px;margin:8px 0}
+.ucard-top{display:flex;align-items:center;gap:10px;justify-content:space-between}
+.ucard-top b{font-size:13px}.ucard-top .state{font-size:11px;color:var(--muted)}
+.ucard[data-state=running]{border-color:#3f8f81}.ucard[data-state=done] .state{color:var(--good)}
+.ucard .grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px 10px;margin:7px 0 4px;font-size:11px}
+.ucard .grid span{color:var(--muted);display:flex;flex-direction:column}.ucard .grid b{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
+.ucard .measured{font-size:11px;color:var(--muted);margin:4px 0}
+.ucard details{font-size:11px;color:var(--muted)}.ucard details li{margin:2px 0}
+.ucard label{font-size:11px;display:flex;gap:6px;align-items:center}
+@media(max-width:640px){.ucard .grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:640px){.via span{display:none}}
 .eyebrow.live{color:var(--bad)}
 #t-receiver-choice button[data-receiver=live][aria-pressed=true]{background:#4b2530;border-color:#9a4b58;color:#ffe8eb}

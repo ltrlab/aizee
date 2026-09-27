@@ -13,6 +13,7 @@
       <button class="tab" data-tab="limits">Limits</button>
       <button class="tab" data-tab="leaders">Leaders</button>
       <button class="tab" data-tab="teleop">Teleop</button>
+      <button class="tab" data-tab="tune">Tune</button>
     </nav>
     <div class="link">
       <div class="target via" id="via" role="group" aria-label="Connection to Minerva">
@@ -127,6 +128,45 @@
         <div class="save-bar">
           <p id="teleop-status" role="status"></p>
           <button id="teleop-session" class="primary">Start session</button>
+        </div>
+      </section>
+      <section id="panel-tune" class="panel" aria-label="Servo sweep" hidden>
+        <div class="panel-head">
+          <div class="eyebrow live" id="u-eyebrow">SERVO SWEEP · MOTORS MOVE ON THEIR OWN · FOOT SWITCH IN REACH</div>
+          <h1>Measure each joint's servo settings</h1>
+          <p class="lead">The arm hangs in its reference pose. Joint by joint the sweep moves it on its own: slow ramps
+            widening toward its range, stiffness and damping steps, then speeds and braking, then a pass at the chosen
+            settings. Review the results, then save the joints you accept.</p>
+          <div class="target" id="u-arm" role="group" aria-label="Arm">
+            <span>Arm</span>
+            <button data-arm="left">Left arm</button>
+            <button data-arm="right">Right arm</button>
+          </div>
+          <div class="target wrap" id="u-joints" role="group" aria-label="Joints to sweep"><span>Joints</span></div>
+          <div class="teleop-status">
+            <span>Phase<b id="u-phase">—</b></span><span>Joints done<b id="u-done">—</b></span>
+            <span>Cycle<b id="u-cycle">—</b></span><span>Motors<b id="u-motors">—</b></span>
+          </div>
+          <div class="lifecycle" role="group" aria-label="Sweep">
+            <button id="u-finish" title="The joint under test returns to the reference, then the arm is disabled (X)">Finish <kbd>X</kbd></button>
+            <button id="u-disable" class="danger" title="Disable now: the arm goes limp where it is (H)">Disable <kbd>H</kbd></button>
+          </div>
+          <p id="u-message" class="muted" role="status"></p>
+          <ul id="u-events" class="events" aria-label="Guard events"></ul>
+        </div>
+        <div id="tune-results" class="scroll"></div>
+        <div id="u-confirm" class="confirm-box" role="alertdialog" aria-labelledby="u-confirm-title" hidden>
+          <b id="u-confirm-title"></b>
+          <ul id="u-confirm-list"></ul>
+          <div class="confirm-actions">
+            <button id="u-confirm-cancel">Cancel</button>
+            <button id="u-confirm-go" class="danger"></button>
+          </div>
+        </div>
+        <div class="save-bar">
+          <p id="tune-status" role="status"></p>
+          <button id="u-save" title="Save the checked joints' settings as the servo calibration">Save selected</button>
+          <button id="u-session" class="danger">Start sweep</button>
         </div>
       </section>
     </aside>

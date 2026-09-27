@@ -20,7 +20,8 @@ async function request(path, payload) {
   return data;
 }
 
-const STATUS = {check: 'check-status', limits: 'action-status', leaders: 'leaders-status', teleop: 'teleop-status'};
+const STATUS = {check: 'check-status', limits: 'action-status', leaders: 'leaders-status', teleop: 'teleop-status',
+  tune: 'tune-status'};
 
 function say(text, kind = '') {
   const status = $(STATUS[document.body.dataset.tab] || 'action-status');
@@ -194,6 +195,7 @@ function render(state) {
   for (const row of limits.rows) update(cards.get(row.name), row, live);
   renderLeaders(state.leaders);
   renderTeleop(state.teleop);
+  renderTune(state.tune, state);
   renderCheck(state.check);
 }
 
@@ -560,8 +562,17 @@ async function sendKey(key) {
 }
 
 function onKey(event) {
-  if (document.body.dataset.tab !== 'teleop' || event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
+  if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
   if (['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target?.tagName)) return;
+  if (document.body.dataset.tab === 'tune') {
+    const key = event.key.length === 1 ? event.key.toUpperCase() : '';
+    if (key === 'X' || key === 'H') {
+      event.preventDefault();
+      tuneKey(key);
+    }
+    return;
+  }
+  if (document.body.dataset.tab !== 'teleop') return;
   const key = event.key.length === 1 ? event.key.toUpperCase() : '';
   if ('IETHX'.includes(key) && key) {
     event.preventDefault();
@@ -649,6 +660,200 @@ $('teleop-session').onclick = () => {
     `Starting LIVE on the ${arm} arm: checking that it is still and in its reference pose, then the receiver.`));
 };
 
+// -- Tune: the servo sweep ------------------------------------------------------------------
+
+let tuneJoints = null;  // The joints chosen to sweep; null = every joint of the arm.
+let tuneSaving = new Set();  // Result cards checked for saving.
+let tuneConfirm = null;
+const ucards = new Map();
+const fmt = (value, digits = 2) => value == null || !Number.isFinite(value) ? '—' : value.toFixed(digits);
+
+function tuneMotors(state, arm) {
+  return (state?.limits?.rows || []).filter(row => row.arm === arm);
+}
+
+function closeTuneConfirm() {
+  tuneConfirm = null;
+  $('u-confirm').hidden = true;
+}
+
+function askTune(title, items, action, onConfirm) {
+  tuneConfirm = true;
+  $('u-confirm-title').textContent = title;
+  $('u-confirm-list').replaceChildren(...items.map(text => Object.assign(document.createElement('li'), {textContent: text})));
+  const go = $('u-confirm-go');
+  go.textContent = action;
+  go.onclick = () => { closeTuneConfirm(); onConfirm(); };
+  $('u-confirm').hidden = false;
+  $('u-confirm-cancel').focus();
+}
+$('u-confirm-cancel').onclick = closeTuneConfirm;
+
+async function tuneKey(key) {
+  try {
+    render(await request('/api/helm/tune/key', {key}));
+    say(key === 'H' ? 'Disabled.' : 'Finishing: back to the reference, then disabled.', 'good');
+  } catch (error) {
+    say(error.message, 'bad');
+  }
+}
+
+function tuneCard(motor, result) {
+  const card = document.createElement('div');
+  card.className = 'ucard';
+  card.innerHTML = `<div class="ucard-top"><b></b><span class="state"></span></div>
+    <div class="grid"></div><div class="measured"></div>
+    <details><summary>How it was chosen</summary><ul class="notes"></ul></details>
+    <label hidden><input type="checkbox" class="pick"> Save this joint</label>`;
+  card.querySelector('.pick').onchange = event => {
+    if (event.target.checked) tuneSaving.add(motor); else tuneSaving.delete(motor);
+    $('u-save').disabled = !tuneSaving.size;
+  };
+  return card;
+}
+
+function updateTuneCard(card, motor, result, current) {
+  card.dataset.state = result.status;
+  card.querySelector('b').textContent = result.label || motor;
+  const r = result.recommendation, v = result.verification, t = result.torque;
+  card.querySelector('.state').textContent = current ? 'measuring now'
+    : {pending: 'waiting', running: 'measuring', done: v?.passed ? 'done · verified' : 'done · not verified',
+       stopped: 'stopped'}[result.status] || result.status;
+  const now = result.current || {};
+  const cells = [
+    ['Stiffness', r ? `${fmt(r.hold_kp, 1)}` : '—', now.hold_kp],
+    ['Damping', r ? `${fmt(r.hold_kd, 2)}` : '—', now.hold_kd],
+    ['Speed', r?.max_velocity ? `${fmt(r.max_velocity)} rad/s` : '—', null],
+    ['Braking', r?.stop_acceleration ? `${fmt(r.stop_acceleration, 0)} rad/s²` : '—', now.stop_acceleration],
+    ['Tracking', r?.max_tracking_error ? `${fmt(r.max_tracking_error, 3)} rad` : '—', now.max_tracking_error],
+  ];
+  card.querySelector('.grid').innerHTML = cells.map(([name, value, before]) =>
+    `<span>${name}<b>${value}</b>${before != null ? `<small>now ${fmt(before, before < 1 ? 3 : 1)}</small>` : ''}</span>`).join('');
+  card.querySelector('.measured').textContent = t
+    ? `Gravity up to ${fmt(t.gravity_max)} Nm, friction ${fmt(t.friction)} Nm · verified ${fmt(result.verified.down)} down, `
+      + `${fmt(result.verified.up)} up rad` + (v?.max_lag != null ? ` · worst lag ${fmt(v.max_lag, 3)} rad` : '')
+    : 'Not measured yet.';
+  const notes = [...(r?.notes || []), ...(result.events || []).map(e => `Guard: ${e.text}`)];
+  card.querySelector('.notes').replaceChildren(...notes.map(text => Object.assign(document.createElement('li'), {textContent: text})));
+  const savable = r?.gains_met && v?.passed;
+  const pick = card.querySelector('label');
+  pick.hidden = !savable;
+  card.querySelector('.pick').checked = tuneSaving.has(motor);
+}
+
+function renderTune(u, state) {
+  const tab = document.querySelector('.tab[data-tab=tune]');
+  tab.disabled = !u;
+  if (!u) {
+    if (document.body.dataset.tab === 'tune') showTab('check');
+    return;
+  }
+  const running = ['running', 'starting'].includes(u.phase);
+  const choice = u.receiver_choice || {mode: 'live', arm: 'right'};
+  const live = choice.mode === 'live';
+  $('u-eyebrow').textContent = live
+    ? `SERVO SWEEP · LIVE ${choice.arm.toUpperCase()} ARM · MOTORS MOVE ON THEIR OWN · FOOT SWITCH IN REACH`
+    : `SERVO SWEEP · VIRTUAL RECEIVER · NO MOTORS MOVE`;
+  $('u-eyebrow').className = `eyebrow ${live ? 'live' : 'warn'}`;
+  for (const button of document.querySelectorAll('#u-arm button')) {
+    button.setAttribute('aria-pressed', String(button.dataset.arm === choice.arm));
+    button.disabled = running;
+  }
+  const motors = tuneMotors(state, choice.arm);
+  const chosen = new Set(u.joints_choice || motors.map(row => row.name));
+  const joints = $('u-joints');
+  const layout = motors.map(row => row.name).join(',');
+  if (joints.dataset.layout !== layout) {
+    joints.dataset.layout = layout;
+    joints.querySelectorAll('button').forEach(b => b.remove());
+    for (const row of motors) {
+      const button = document.createElement('button');
+      button.dataset.motor = row.name;
+      button.textContent = row.label.replace(/^(Left|Right) /, '');
+      button.title = row.label;
+      button.onclick = () => {
+        const current = new Set(last?.tune?.joints_choice || motors.map(r => r.name));
+        if (current.has(row.name)) current.delete(row.name); else current.add(row.name);
+        const list = motors.map(r => r.name).filter(name => current.has(name));
+        act('/api/helm/tune/configure', {arm: choice.arm, joints: list.length === motors.length ? null : list});
+      };
+      joints.append(button);
+    }
+  }
+  for (const button of joints.querySelectorAll('button')) {
+    button.classList.toggle('off', !chosen.has(button.dataset.motor));
+    button.setAttribute('aria-pressed', String(chosen.has(button.dataset.motor)));
+    button.disabled = running;
+  }
+  const progress = u.progress;
+  $('u-phase').textContent = running ? (u.stage || u.phase) : {stopped: 'Stopped', fault: 'Fault'}[u.phase] || u.phase;
+  $('u-done').textContent = progress ? `${progress.joints_done}/${progress.joints}` : '—';
+  $('u-cycle').textContent = u.cycle_ms ? `${u.cycle_ms.p50.toFixed(1)} / ${u.cycle_ms.p99.toFixed(1)} ms` : '—';
+  $('u-motors').textContent = running && u.motors_enabled != null ? (u.motors_enabled ? 'on' : 'off') : '—';
+  $('u-message').textContent = (u.fault ? `${u.fault} · ` : '') + (u.message || '');
+  $('u-events').replaceChildren(...(progress?.events || []).map(e =>
+    Object.assign(document.createElement('li'), {textContent: `${e.task}: ${e.text}`})));
+  $('u-finish').disabled = !running;
+  $('u-disable').disabled = !running;
+  const session = $('u-session');
+  session.textContent = running ? 'Stop session' : live ? 'Start LIVE sweep' : 'Start sweep';
+  session.disabled = u.phase === 'starting';
+  if (tuneConfirm && running) closeTuneConfirm();
+
+  const container = $('tune-results');
+  const results = u.results || {};
+  const order = Object.keys(results);
+  if (container.dataset.layout !== order.join(',')) {
+    container.dataset.layout = order.join(',');
+    container.replaceChildren();
+    ucards.clear();
+    for (const motor of order) {
+      const card = tuneCard(motor, results[motor]);
+      ucards.set(motor, card);
+      container.append(card);
+    }
+  }
+  for (const motor of order) updateTuneCard(ucards.get(motor), motor, results[motor], progress?.motor === motor && running);
+  for (const motor of [...tuneSaving]) {
+    if (!results[motor]?.recommendation?.gains_met || !results[motor]?.verification?.passed) tuneSaving.delete(motor);
+  }
+  $('u-save').disabled = running || !tuneSaving.size;
+}
+
+for (const button of document.querySelectorAll('#u-arm button')) {
+  button.onclick = () => act('/api/helm/tune/configure', {arm: button.dataset.arm}, `The sweep will run on the ${button.dataset.arm} arm.`);
+}
+$('u-finish').onclick = () => tuneKey('X');
+$('u-disable').onclick = () => tuneKey('H');
+$('u-save').onclick = () => {
+  const motors = [...tuneSaving];
+  act('/api/helm/tune/save', {motors}, `Saved ${motors.length} joint${motors.length > 1 ? 's' : ''} to the servo calibration; live teleop uses it from its next session.`);
+};
+$('u-session').onclick = () => {
+  const u = last?.tune;
+  if (['running', 'starting'].includes(u?.phase)) {
+    askTune('Stop the sweep session?', [
+      'The receiver disables the arm where it is: a raised joint drops.',
+      'Finish (X) returns the joint under test to the reference first.'], 'Stop anyway',
+      () => act('/api/helm/tune/stop', {}, 'Sweep stopped.'));
+    return;
+  }
+  const choice = u?.receiver_choice || {mode: 'live', arm: 'right'};
+  if (choice.mode !== 'live') {
+    act('/api/helm/tune/start', {}, 'Starting the sweep on the virtual receiver.');
+    return;
+  }
+  const other = choice.arm === 'left' ? 'right' : 'left';
+  askTune(`Start the LIVE servo sweep on the ${choice.arm} arm?`, [
+    'The motors move on their own, joint by joint, for several minutes per joint.',
+    'The foot switch (e-stop) is in your hand throughout.',
+    `The ${choice.arm} arm hangs straight down in its reference pose, gripper closed, and its path is clear.`,
+    `The ${other} arm stays disabled.`,
+    'Each move is checked against the collision model first; guards stop a task on lag, effort or heat.',
+  ], `Start LIVE sweep on the ${choice.arm} arm`, () => act('/api/helm/tune/start', {confirm: true},
+    `Starting the sweep on the ${choice.arm} arm: checking it is still and in its reference pose.`));
+};
+
 function showTab(name) {
   const chosen = document.querySelector(`.tab[data-tab=${name}]`);
   if (!chosen || chosen.disabled) name = 'check';
@@ -656,7 +861,7 @@ function showTab(name) {
   for (const tab of document.querySelectorAll('.tab[data-tab]')) {
     if (tab.dataset.tab === name) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current');
   }
-  for (const panel of ['check', 'limits', 'leaders', 'teleop']) $(`panel-${panel}`).hidden = name !== panel;
+  for (const panel of ['check', 'limits', 'leaders', 'teleop', 'tune']) $(`panel-${panel}`).hidden = name !== panel;
   try { localStorage.setItem('helm-tab', name); } catch { /* storage unavailable */ }
 }
 for (const tab of document.querySelectorAll('.tab[data-tab]')) tab.onclick = () => showTab(tab.dataset.tab);

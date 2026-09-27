@@ -6,6 +6,8 @@ stopped-motor link and the (virtual) teleop session are mutually exclusive, so
 the 3D view always shows exactly one source. The Leaders workspace and a teleop
 session both need the leader USB ports, so they exclude each other too. Minerva
 Check reads the motors (stopped) and maybe the leaders itself, so it runs alone.
+The servo sweep (Tune) drives one arm's motors, so it excludes the motor link,
+teleop and Minerva Check, and they exclude it.
 """
 import asyncio
 from pathlib import Path
@@ -14,7 +16,7 @@ import secrets
 STATIC = Path(__file__).parent / 'static'
 
 
-def create_app(session, link, *, teleop=None, leaders=None, check=None, token=None):
+def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None):
     from aiohttp import web
     from robot_platform.viewer.server import create_app as viewer_app
     token = token or secrets.token_urlsafe(24)
@@ -43,6 +45,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, token=No
         state['teleop'] = teleop.snapshot() if teleop is not None else None
         state['leaders'] = leaders.snapshot() if leaders is not None else None
         state['check'] = check.snapshot() if check is not None else None
+        state['tune'] = tune.snapshot() if tune is not None else None
         state['action_token'] = token
         return web.json_response(state, headers={'Cache-Control': 'no-store'})
 
@@ -55,6 +58,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, token=No
     def not_checking():
         if check is not None and check.running:
             raise ValueError('Minerva Check is running; wait for it to finish')
+        if tune is not None and tune.active:
+            raise ValueError('The servo sweep is running; finish or stop it first')
 
     async def connect(request):
         await body(request)
@@ -213,11 +218,62 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, token=No
             raise ValueError('Disconnect the motors first: Minerva Check reads them itself')
         if teleop is not None and teleop.active:
             raise ValueError('Stop the teleop session before running Minerva Check')
+        if tune is not None and tune.active:
+            raise ValueError('Stop the servo sweep before running Minerva Check')
         busy = (lambda: "Helm's Leaders tab" if leaders.running else None) if leaders is not None else None
         check.start(leaders_busy=busy)
         return state_response()
 
+    def need_tune():
+        if tune is None:
+            raise ValueError('Helm was started without a teleop profile')
+
+    async def tune_configure(request):
+        payload = await body(request)
+        need_tune()
+        if not set(payload) <= {'arm', 'joints', 'mode', 'target'} or 'arm' not in payload:
+            raise ValueError('Expected arm, and optionally joints, mode and target')
+        tune.configure(arm=payload['arm'], joints=payload.get('joints'), mode=payload.get('mode', 'live'),
+                       target=payload.get('target'))
+        return state_response()
+
+    async def tune_start(request):
+        payload = await body(request)
+        need_tune()
+        if link.running:
+            raise ValueError('Disconnect from the motors before the servo sweep')
+        if teleop is not None and teleop.active:
+            raise ValueError('Stop the teleop session before the servo sweep')
+        if check is not None and check.running:
+            raise ValueError('Minerva Check is running; wait for it to finish')
+        tune.start(confirm=payload.get('confirm') is True)
+        return state_response()
+
+    async def tune_key(request):
+        payload = await body(request)
+        need_tune()
+        if set(payload) != {'key'}:
+            raise ValueError('Expected key')
+        tune.key(payload['key'])
+        return state_response()
+
+    async def tune_stop(request):
+        await body(request)
+        need_tune()
+        await off_loop(tune.stop)
+        return state_response()
+
+    async def tune_save(request):
+        payload = await body(request)
+        need_tune()
+        if set(payload) != {'motors'} or not isinstance(payload['motors'], list):
+            raise ValueError('Expected motors')
+        await off_loop(lambda: tune.save(payload['motors']))
+        return state_response()
+
     async def shutdown(_app):
+        if tune is not None:
+            await off_loop(tune.stop)
         if teleop is not None:
             await off_loop(teleop.stop)
         if leaders is not None:
@@ -245,5 +301,10 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, token=No
     app.router.add_post('/api/helm/leaders/reference', leaders_reference)
     app.router.add_post('/api/helm/leaders/save', leaders_save)
     app.router.add_post('/api/helm/check/run', check_run)
+    app.router.add_post('/api/helm/tune/configure', tune_configure)
+    app.router.add_post('/api/helm/tune/start', tune_start)
+    app.router.add_post('/api/helm/tune/key', tune_key)
+    app.router.add_post('/api/helm/tune/stop', tune_stop)
+    app.router.add_post('/api/helm/tune/save', tune_save)
     app.router.add_static('/helm', STATIC, show_index=False)
     return app

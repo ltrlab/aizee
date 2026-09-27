@@ -33,6 +33,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 import math
+import time
 
 import numpy as np
 
@@ -49,7 +50,7 @@ DEFAULTS = {
     'grid_ramp_rad': .1,
     'grid_ramp_speed': .3,
     'speeds': [.2, .4, .6, .8, 1., 1.2, 1.6, 2., 2.5],
-    'decelerations': [2., 4., 8., 16., 32.],
+    'decelerations': [2., 4., 8., 16., 32.],  # Speeds step up to each joint's cap (or speed_ceiling, opt-in).
     'acceleration': 4.,
     'cruise_s': .3,
     'lead_fraction': .6,
@@ -61,6 +62,7 @@ DEFAULTS = {
 }
 JOINT_KEYS = ('kp_ceiling', 'speed_ceiling')
 PERIOD_S = .04
+CHECK_BUDGET_S = .01  # Collision queries per cycle; a path is checked over several cycles.
 
 
 def sweep_settings(profile, motor):
@@ -167,9 +169,10 @@ class Recording:
         return rows
 
     def between(self, t0, t1):
-        if not self.chunks:
+        chunks = [chunk for chunk in self.chunks if chunk[-1, 0] >= t0 and chunk[0, 0] <= t1]
+        if not chunks:
             return np.empty((0, self.width))
-        rows = np.concatenate(list(self.chunks))
+        rows = np.concatenate(chunks)
         return rows[(rows[:, 0] >= t0) & (rows[:, 0] <= t1)]
 
 
@@ -209,16 +212,25 @@ class PathChecker:
         result = self.backend.proximity(positions, threshold=self.clearance, scope=self.scope)
         return {tuple(sorted(pair['shapes'])): pair['distance_m'] for pair in result['near_pairs']}
 
-    def clear(self, motor, start, end):
-        """(True, None) if the move stays clear, else (False, 'shape and shape at q rad')."""
+    def samples(self, start, end):
         count = max(1, math.ceil(abs(end - start) / self.step))
-        pose = dict(self.home)
-        for k in range(1, count + 1):
-            pose[motor] = start + (end - start) * k / count
-            new = {pair: d for pair, d in self._near(pose).items() if pair not in self.baseline}
-            if new:
-                pair, distance = min(new.items(), key=lambda item: item[1])
-                return False, f'{pair[0]} within {distance * 1000:.0f} mm of {pair[1]} at {pose[motor]:+.2f} rad'
+        return [start + (end - start) * k / count for k in range(1, count + 1)]
+
+    def check(self, motor, position):
+        """None if the pose with `motor` at `position` (the rest at the reference) is clear, else why."""
+        pose = dict(self.home, **{motor: position})
+        new = {pair: d for pair, d in self._near(pose).items() if pair not in self.baseline}
+        if not new:
+            return None
+        pair, distance = min(new.items(), key=lambda item: item[1])
+        return f'{pair[0]} within {distance * 1000:.0f} mm of {pair[1]} at {position:+.2f} rad'
+
+    def clear(self, motor, start, end):
+        """(True, None) if the move stays clear, else (False, why), in one go (tests and tools)."""
+        for position in self.samples(start, end):
+            why = self.check(motor, position)
+            if why:
+                return False, why
         return True, None
 
 
@@ -338,7 +350,8 @@ class SweepEngine:
             if q is not None and name == self.current:
                 lead = settings['lead_fraction'] * limit['max_tracking_error']
                 target = min(q + lead, max(q - lead, target))  # Never lead the joint by more than the cap.
-            target = min(limit['upper'], max(limit['lower'], target))
+            low, high = self._allowed(name)
+            target = min(high, max(low, target))
             targets.append(target)
             gains.append(self.test_gains.get(name, self.gains[name]))
         return {'targets': targets, 'gains': gains, 'task': self.task}
@@ -462,20 +475,33 @@ class SweepEngine:
             yield from self._recover(motor)
             return False
 
-    def _allowed(self, motor, speed):
-        """The positions a joint may reach moving at `speed`: its limits less the receiver's stopping
-        reserve at that speed (a stop plans braking from the measured speed)."""
+    def _allowed(self, motor, speed=None):
+        """Where a joint's target and measured position may be: its limits less the receiver's collision
+        reserve, which is taken at the joint's speed cap whatever the speed (the receiver refuses an
+        envelope that does not hold both with that margin). This is teleop's usable range."""
         limit = self.limits[motor]
         if limit.get('gripper'):
             return limit['lower'], limit['upper']
-        reserve = (limit['max_tracking_error'] + speed * self.window_s
-                   + speed ** 2 / (2 * limit['stop_acceleration']) + speed * self.verdict_s)
+        cap = limit['max_velocity']
+        reserve = (limit['max_tracking_error'] + cap * self.window_s + cap ** 2 / (2 * limit['stop_acceleration'])
+                   + 1e-6)
         return limit['lower'] + reserve, limit['upper'] - reserve
 
     def _clear(self, motor, start, end):
+        """(clear, why) for a planned move, checking about CHECK_BUDGET_S of poses per cycle and holding
+        in between, so the loop keeps the receiver's lease and collision verdict fresh."""
         if self.checker is None:
             return True, None
-        return self.checker.clear(motor, start, end)
+        deadline = time.perf_counter() + CHECK_BUDGET_S
+        for position in self.checker.samples(start, end):
+            why = self.checker.check(motor, position)
+            if why:
+                return False, why
+            if time.perf_counter() >= deadline:
+                self.velocity[motor] = 0.
+                yield
+                deadline = time.perf_counter() + CHECK_BUDGET_S
+        return True, None
 
     def _joint(self, motor, report):
         settings, home = self.settings[motor], self.home[motor]
@@ -496,7 +522,7 @@ class SweepEngine:
                     target = edge
                 if (target - home) * direction <= report.verified[direction] + 1e-6:
                     break
-                clear, why = self._clear(motor, home, target)
+                clear, why = yield from self._clear(motor, home, target)
                 if not clear:
                     self._event(f'stopped widening: {why}')
                     break
@@ -651,7 +677,7 @@ class SweepEngine:
             low, high = self._allowed(motor, settings['grid_ramp_speed'])
             target = min(high, home + reach)
             if target - home > 2 * step:
-                clear, why = self._clear(motor, home, target)
+                clear, why = yield from self._clear(motor, home, target)
                 if clear:
                     speed = settings['grid_ramp_speed']
                     ramp = yield from self._measure(motor, 'ramp', self._go(motor, target, speed), speed=speed,
@@ -666,7 +692,7 @@ class SweepEngine:
     def _hold_test(self, motor, position, kp, kd, result):
         settings = self.settings[motor]
         index = self.names.index(motor)
-        clear, why = self._clear(motor, self.home[motor], position)
+        clear, why = yield from self._clear(motor, self.home[motor], position)
         if not clear:
             self._event(f'hold test skipped: {why}')
             return
@@ -687,7 +713,7 @@ class SweepEngine:
         index = self.names.index(motor)
         settings = self.settings[motor]
         for end in (high, low):
-            clear, why = self._clear(motor, self.targets[motor], end)
+            clear, why = yield from self._clear(motor, self.targets[motor], end)
             if not clear:
                 self._event(f'speed test shortened: {why}')
                 return
@@ -709,7 +735,7 @@ class SweepEngine:
         if brake_at <= low + speed * speed / (2 * acceleration):
             self._event(f'no room to reach {speed:g} rad/s before braking at {deceleration:g} rad/s2')
             return
-        clear, why = self._clear(motor, low, high)
+        clear, why = yield from self._clear(motor, low, high)
         if not clear:
             self._event(f'braking test skipped: {why}')
             return
@@ -730,7 +756,7 @@ class SweepEngine:
         settings = self.settings[motor]
         lags = []
         for end in (high, low, self.home[motor]):
-            clear, why = self._clear(motor, self.targets[motor], end)
+            clear, why = yield from self._clear(motor, self.targets[motor], end)
             if not clear:
                 self._event(f'verification shortened: {why}')
                 break
@@ -758,6 +784,9 @@ class SweepEngine:
         result = {}
         for motor, report in self.reports.items():
             result[motor] = {
+                'label': self._label(motor), 'current': {'hold_kp': self.gains[motor][0], 'hold_kd': self.gains[motor][1],
+                                                         'max_tracking_error': self.limits[motor]['max_tracking_error'],
+                                                         'stop_acceleration': self.limits[motor]['stop_acceleration']},
                 'status': report.status, 'verified': {'up': report.verified[1], 'down': report.verified[-1]},
                 'torque': None if report.torque is None else {k: report.torque.get(k) for k in
                                                               ('gravity_max', 'gravity_worst_at', 'friction', 'span')},

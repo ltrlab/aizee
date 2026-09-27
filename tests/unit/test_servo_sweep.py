@@ -182,3 +182,41 @@ def test_rows_come_from_the_recorder_or_one_per_virtual_step():
     recording.add([[1., 0, 0, 0, 0, 0, 0, 0, 0], [2., 0, 0, 0, 0, 0, 0, 0, 0]])
     assert len(recording.add([[2., 0, 0, 0, 0, 0, 0, 0, 0], [3., 0, 0, 0, 0, 0, 0, 0, 0]])) == 1  # No tick twice.
     assert len(recording.between(1., 3.)) == 3
+
+
+class SlowChecker:
+    """A collision model that takes 4 ms a pose and reports a contact past +0.25 rad on the wrist."""
+    step = .02
+
+    def samples(self, start, end):
+        count = max(1, math.ceil(abs(end - start) / self.step))
+        return [start + (end - start) * k / count for k in range(1, count + 1)]
+
+    def check(self, motor, position):
+        import time
+        time.sleep(.004)
+        return 'wrist_link within 12 mm of body at +0.26 rad' if motor.endswith('j5') and position > .25 else None
+
+
+def test_path_checks_spread_over_cycles_and_still_stop_the_widening():
+    import time
+    joints, plant, gains = arm()
+    names = [joint['name'] for joint in joints]
+    settings = {name: sweep_settings(PROFILE, name) for name in names}
+    engine = SweepEngine(joints, home={name: 0. for name in names}, gains=gains, settings=settings,
+                         sweep=['right_arm_j5'], checker=SlowChecker())
+    engine.observe(plant.run(names, {'targets': [0., 0.], 'gains': [gains[n] for n in names]}))
+    now, slowest = 0., 0.
+    while now < 400:
+        started = time.perf_counter()
+        command = engine.command(now)
+        slowest = max(slowest, time.perf_counter() - started)
+        if command is None:
+            break
+        engine.observe(plant.run(names, command))
+        now += .04
+    assert engine.done
+    assert slowest < .03, f'one cycle took {slowest * 1000:.0f} ms'  # The loop keeps the receiver's verdict fresh.
+    wrist = engine.summary()['right_arm_j5']
+    assert wrist['verified']['up'] <= .25 + 1e-9  # Stopped widening at the contact.
+    assert any('stopped widening' in event['text'] for event in engine.events)
