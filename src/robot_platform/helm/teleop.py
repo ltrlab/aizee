@@ -304,7 +304,7 @@ class TeleopCore:
         self._closers.append(backend.close)
         derived = derive_receiver(reference=reference, steps=steps, directions=self.bundle['directions'],
                                   transmissions=transmissions, model=model, limits=self.bundle['limits'],
-                                  profile=self.profile, backend=backend)
+                                  profile=self.profile, backend=backend, servo=self.bundle.get('servo'))
         base = Path(self.bundle['teleop_profile']).resolve().parent
         leader_profile = json.loads((base / self.profile['leader_profile']).read_text(encoding='utf-8'))
         if self.bundle.get('leader_ranges') is None:
@@ -687,7 +687,15 @@ class TeleopSession:
                 'directions': deepcopy(helm.mapping), 'limits': deepcopy(helm.saved_limits),
                 'teleop_profile': str(self.profile_path), 'routes_path': str(self.routes_path),
                 'asset_id': helm.asset_id, 'leader_factory': self.leader_factory, 'receiver': dict(self.receiver),
-                'leader_ranges': deepcopy(self.leaders.saved) if self.leaders is not None else None}
+                'leader_ranges': deepcopy(self.leaders.saved) if self.leaders is not None else None,
+                'servo': self._servo()}
+
+    def _servo(self):
+        """The saved servo calibration (Helm's Tune tab), if any: the receiver takes its settings from it."""
+        from .tune import load_servo, servo_path
+        if not hasattr(self.helm, 'profile_path') or not hasattr(self.helm, 'asset_id'):
+            return None
+        return load_servo(servo_path(self.helm.profile_path, self.helm.asset_id))
 
     def set_target(self, target):
         if target not in self.TARGETS:

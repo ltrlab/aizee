@@ -152,3 +152,21 @@ def test_a_gripper_gets_its_whole_physical_range_without_margin_reserve_or_lead_
     # Wherever it meets the model, the slide is clamped into its CAD range.
     assert derived['cad_limits'] == {'slide': (0., .03)}
     assert to_cad(derived['joint_map'], {'arm_j1': 0., 'gripper': -.5}, derived['cad_limits'])['slide'] == 0.
+
+
+def test_a_servo_calibration_sets_its_joints_settings_and_is_bound_to_the_motor():
+    reference = {'motors': [dict(REFERENCE['motors'][0], uid='aa', firmware='0.1'),
+                            dict(REFERENCE['motors'][1], uid='bb', firmware='0.2')]}
+    servo = {'joints': {'arm_j1': {'uid': 'aa', 'firmware': '0.1', 'hold_kp': 12., 'hold_kd': 1.5,
+                                   'max_velocity': .3, 'stop_acceleration': 6., 'max_tracking_error': .04}}}
+    derived = derive(reference=reference, servo=servo)
+    arm, grip = derived['config']['joints']
+    assert (arm['hold_kp'], arm['hold_kd'], arm['max_velocity'], arm['stop_acceleration'],
+            arm['max_tracking_error']) == (12., 1.5, .3, 6., .04)
+    assert arm['max_kp'] >= 12. and derived['report'][0]['servo_calibrated'] is True
+    assert derived['report'][1]['servo_calibrated'] is False and grip['hold_kp'] == derive()['config']['joints'][1]['hold_kp']
+    # A tighter bound and a slower speed shrink the stopping reserve, so more of the range is usable.
+    assert derived['report'][0]['reserve'] < derive()['report'][0]['reserve']
+    swapped = {'joints': {'arm_j1': dict(servo['joints']['arm_j1'], uid='cc')}}
+    with pytest.raises(ValueError, match='another motor or firmware; sweep it again'):
+        derive(reference=reference, servo=swapped)

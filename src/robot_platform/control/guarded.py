@@ -60,6 +60,11 @@ class GuardedControllerClient:
         return {"epoch": self._epoch, "session": self.session_id,
                 "lease": self._lease, "sequence": self._sequence}
 
+    @property
+    def owned(self) -> bool:
+        """Whether this client holds the receiver's lease."""
+        return self._lease is not None
+
     def poll(self) -> dict:
         return self._call({"type": "status"})["status"]
 

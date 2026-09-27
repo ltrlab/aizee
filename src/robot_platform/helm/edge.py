@@ -10,9 +10,8 @@ and the zero arrive as frames on stdin; views and replies leave on stdout.
 
 On the PC, EdgeWorker stands in for the loop process in TeleopSession: it opens
 the pinned SSH session, serves the leaders over the link from their own
-responsive process (LeaderLinkProcess) and relays frames. The receiver is still
-the virtual harness, now running on the robot computer; nothing here talks to
-motors.
+responsive process (LeaderLinkProcess) and relays frames. A servo sweep
+(bundle kind 'tune', helm.tune) runs the same way with no leader link.
 """
 import json
 from pathlib import Path
@@ -124,8 +123,8 @@ class Outbox:
 
 # -- Robot side ----------------------------------------------------------------------
 
-def prepare(start, root=ROOT):
-    """Activate the release, match Helm's calibration and bind the leader link: (bundle, link)."""
+def prepare(start, root=ROOT, *, leaders=True):
+    """Activate the release, match Helm's calibration and bind the leader link: (bundle, link or None)."""
     from robot_platform.control.joint_calibration import load_plan
     from robot_platform.ops.release import activate
     from robot_platform.teleop.leader_link import LeaderLinkInput
@@ -139,6 +138,8 @@ def prepare(start, root=ROOT):
         raise ValueError("The robot's calibration files differ from this PC's. "
                          'Deploy (scripts/deploy_minerva_arms.sh) and start again.')
     teleop = load_profile(bundle['teleop_profile'])
+    if not leaders:
+        return bundle, None
     leaders = json.loads((Path(bundle['teleop_profile']).parent / teleop['leader_profile']).read_text(encoding='utf-8'))
     link = LeaderLinkInput(bytes.fromhex(start['key']), leaders, bind=(start['bind'], 0), timeout_s=.02)
     return bundle, link
@@ -147,12 +148,18 @@ def prepare(start, root=ROOT):
 def serve(start, commands, views, *, root=ROOT, core_factory=None):
     """One session after its start frame; returns when the loop ends."""
     from .teleop import TeleopCore, run_loop
+    tune = (start.get('bundle') or {}).get('kind') == 'tune'
     try:
-        bundle, link = prepare(start, root)
+        bundle, link = prepare(start, root, leaders=False) if tune else prepare(start, root)
     except Exception as exc:
         views.send(['error', str(exc) or type(exc).__name__])
         views.close()
         return 1
+    if tune:
+        from .tune import TuneCore, run_tune_loop
+        views.send(['link', 0])  # No leaders: the sweep plans its own motion.
+        run_tune_loop(commands, views, (core_factory or TuneCore)(bundle))
+        return 0
     views.send(['link', link.address[1]])
 
     def open_leaders(_profile):
@@ -216,11 +223,12 @@ class EdgeWorker:
     """
 
     def __init__(self, bundle, leader_profile, *, base_view, address=None, profile=None, open_ssh=None,
-                 serve_link=None, real_leaders=True):
+                 serve_link=None, real_leaders=True, name='Teleop'):
         from robot_platform.ops.ssh import DEFAULT_PROFILE, TETHER
         self.bundle, self.leader_profile, self.base_view = bundle, leader_profile, base_view
         self.address, self.profile = address or TETHER, profile or DEFAULT_PROFILE
         self.open_ssh, self.serve_link, self.real_leaders = open_ssh, serve_link, real_leaders
+        self.name = name
         self.views, self.commands = ArrivalInbox(), _Commands(self)
         self._lock = threading.Lock()
         self._writer = self._channel = None
@@ -266,11 +274,12 @@ class EdgeWorker:
                 raise RuntimeError(f'unexpected first message {first[0]!r} from the robot')
             if self._aborted.is_set():
                 raise RuntimeError('Stopped before the loop started')
-            if self.serve_link is None:
-                from robot_platform.ops.check import serve_link
-                self.serve_link = serve_link
-            server = self.serve_link(self.leader_profile, key, (self.address, int(first[1])),
-                                     local=(route_source(self.address) or '0.0.0.0', 0), real=self.real_leaders)
+            if int(first[1]):  # Port 0: this loop takes no leaders.
+                if self.serve_link is None:
+                    from robot_platform.ops.check import serve_link
+                    self.serve_link = serve_link
+                server = self.serve_link(self.leader_profile, key, (self.address, int(first[1])),
+                                         local=(route_source(self.address) or '0.0.0.0', 0), real=self.real_leaders)
             with self._lock:
                 self._writer = stdin
             reason = pump(stdout, self.views)
@@ -282,7 +291,7 @@ class EdgeWorker:
         except Exception as exc:
             reason = str(exc) or type(exc).__name__
             self.views.put(['view', dict(self.base_view, phase='fault', fault=reason, joints=[],
-                                         message=f"Teleop on Minerva's Jetson stopped: {reason}"), None])
+                                         message=f"{self.name} on Minerva's Jetson stopped: {reason}"), None])
             self.views.end(reason)
         finally:
             with self._lock:

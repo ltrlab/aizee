@@ -30,6 +30,8 @@ LIFECYCLE_KEYS = ('align_speed', 'shutdown_speed', 'tolerance', 'settled_velocit
 # so a gripper's interval extends this far past each swept end (about 0.5 mm of jaw
 # travel). The stops keep the jaws from going further; targets stay swept.
 GRIPPER_TOLERANCE_RAD = .05
+# What a servo calibration (the live servo sweep, saved in Helm) sets per joint.
+SERVO_KEYS = ('hold_kp', 'hold_kd', 'max_velocity', 'stop_acceleration', 'max_tracking_error')
 # How far an arm joint's command may lead its measured position, as a share of its
 # tracking bound. Commands are position-only, so a joint servo's steady lag grows
 # with speed (hold_kd * speed / hold_kp); a command led by the whole bound kept a
@@ -84,8 +86,29 @@ def arm_subset(reference, steps, transmissions, arm):
             [entry for entry in transmissions if entry['motor'] in names])
 
 
-def derive_receiver(*, reference, steps, directions, transmissions, model, limits, profile, backend):
-    """Receiver config, CAD map, lifecycle joints, initial pose and a per-joint report."""
+def servo_settings(settings, motor, servo):
+    """A joint's motion settings with its saved servo calibration applied, if it has one.
+
+    The calibration is bound to the motor's identity: a replaced motor must be swept again.
+    """
+    entry = ((servo or {}).get('joints') or {}).get(motor['name'])
+    if entry is None:
+        return settings, False
+    if entry.get('uid') != motor.get('uid') or entry.get('firmware') != motor.get('firmware'):
+        raise ValueError(f"{motor['name']}: the servo calibration was made with another motor or firmware; "
+                         'sweep it again')
+    merged = dict(settings, **{key: float(entry[key]) for key in SERVO_KEYS if entry.get(key) is not None})
+    merged['max_kp'] = max(merged['max_kp'], merged['hold_kp'])
+    merged['max_kd'] = max(merged['max_kd'], merged['hold_kd'])
+    return merged, True
+
+
+def derive_receiver(*, reference, steps, directions, transmissions, model, limits, profile, backend, servo=None):
+    """Receiver config, CAD map, lifecycle joints, initial pose and a per-joint report.
+
+    `servo` is a saved servo calibration: its joints take their gains, speed,
+    braking and tracking bound from it instead of the profile.
+    """
     joint_map = cad_map(reference, steps, directions, transmissions)
     by_motor = {row['actuator']: (joint, row) for joint, row in joint_map.items()}
     receiver = profile['receiver']
@@ -101,7 +124,7 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
         saved = limits['joints'].get(name)
         if saved is None:
             raise ValueError(f'{name}: no saved joint limits; sweep it in Helm first')
-        settings = motion_settings(profile['motion'], name)
+        settings, calibrated = servo_settings(motion_settings(profile['motion'], name), motor, servo)
         gripper = settings.get('gripper') is True
         cad_joint, row = by_motor[name]
         cad_lo, cad_hi = model.by_name[cad_joint]['control_bounds']
@@ -148,7 +171,7 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
                        'binding': ['swept', 'swept'] if gripper else [
                            'cad' if cad_motor[0] > saved['min_rad'] else 'swept',
                            'cad' if cad_motor[1] < saved['max_rad'] else 'swept'],
-                       'home': home, 'direction_verified': verified.get(name, False),
+                       'home': home, 'direction_verified': verified.get(name, False), 'servo_calibrated': calibrated,
                        # Gripper slides: the motor direction that opens (away from the bound nearest zero).
                        # The CAD axis may be mirrored between arms; physical opening is what an operator sees.
                        'opens': ((1 if row['scale'] > 0 else -1) * (1 if abs(cad_hi) >= abs(cad_lo) else -1)

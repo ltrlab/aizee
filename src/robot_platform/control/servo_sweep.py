@@ -82,8 +82,9 @@ def damping_for(kp, *, reference, multiplier):
 
 
 def sweep_profile(profile, motors, gains):
-    """The teleop profile for a sweep session: each joint's stiffness, damping and speed
-    ceilings raised to what the sweep may try. `gains`: {motor: (hold_kp, hold_kd)}."""
+    """The teleop profile for a sweep session: each joint holds at `gains` ({motor: (hold_kp,
+    hold_kd)}, the profile's or a saved calibration's) with its stiffness, damping and speed
+    ceilings raised to what the sweep may try."""
     from copy import deepcopy
     result = deepcopy(profile)
     overrides = []
@@ -92,7 +93,8 @@ def sweep_profile(profile, motors, gains):
         kp_ref, kd_ref = gains[motor]
         ceiling = settings.get('kp_ceiling') or kp_ref
         kd_ceiling = damping_for(ceiling, reference=(kp_ref, kd_ref), multiplier=max(settings['damping']))
-        entry = {'match': motor, 'max_kp': max(ceiling, kp_ref), 'max_kd': max(kd_ceiling, kd_ref)}
+        entry = {'match': motor, 'hold_kp': kp_ref, 'hold_kd': kd_ref,
+                 'max_kp': max(ceiling, kp_ref), 'max_kd': max(kd_ceiling, kd_ref)}
         if settings.get('speed_ceiling'):
             entry['max_velocity'] = settings['speed_ceiling']
         overrides.append(entry)
@@ -297,6 +299,10 @@ class SweepEngine:
 
     # -- command ----------------------------------------------------------------------
 
+    def begin(self, positions):
+        """Start from the measured pose ({motor: rad}); the sweep brings every joint to the reference slowly."""
+        self.targets.update({name: float(q) for name, q in positions.items() if name in self.targets})
+
     def command(self, now):
         """The next command: {'targets': [...], 'gains': [(kp, kd), ...], 'task': str}, or None when done."""
         self._now = now
@@ -406,8 +412,24 @@ class SweepEngine:
 
     # -- the plan ---------------------------------------------------------------------------
 
+    def _home_all(self):
+        """Every joint to its reference together, each at its characterisation speed."""
+        self._task('to the reference pose')
+        moves = [self._go(name, self.home[name], (self.settings.get(name) or self.settings[self.sweep[0]])
+                          ['characterize_speed']) for name in self.names]
+        while moves:
+            for move in list(moves):
+                try:
+                    next(move)
+                except StopIteration:
+                    moves.remove(move)
+            if moves:
+                yield
+        yield from self._hold(self.sweep[0], .5)
+
     def _run(self):
         try:
+            yield from self._home_all()
             for motor in self.sweep:
                 self.current = motor
                 report = self.reports[motor]

@@ -11,6 +11,7 @@ class GuardedZmqTransport:
             raise ValueError("timeout_ms must be between 1 and 5000")
         self.endpoint, self.timeout_ms = endpoint, timeout_ms
         self.context, self.socket, self.last = zmq.Context(), None, None
+        self.on_result = None  # Called with every result, e.g. to collect its recorder rows.
 
     def _connect(self):
         import zmq
@@ -35,6 +36,8 @@ class GuardedZmqTransport:
             self.socket = None
             raise TimeoutError("Guarded exchange failed; command acceptance is unknown; no command was retried") from exc
         self.last = result
+        if self.on_result is not None:
+            self.on_result(result)
         if result.get("error"):
             raise RuntimeError(result["error"])
         return result
