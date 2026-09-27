@@ -282,7 +282,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             raise ValueError('Disconnect from the motors before the live joint sweep')
         if teleop is not None and teleop.active:
             raise ValueError('Stop the teleop session before the live joint sweep')
-        check.live_ready()
+        check.live_ready(payload['arm'])
         tune.configure(arm=payload['arm'], mode='live', verify=True)
         tune.start(confirm=payload.get('confirm') is True)
         return state_response()

@@ -765,8 +765,15 @@ def run_check(*, root=ROOT, profile=DEFAULT_PROFILE, teleop=DEFAULT_TELEOP, runs
     return report
 
 
+def outdated(report):
+    """The titles of today's checks a saved report does not have (saved before they were added)."""
+    present = {c['id'] for stage in report.get('stages', []) for c in stage.get('checks', [])}
+    return [c['title'] for c in CHECKS if c['id'] not in present]
+
+
 def latest_report(runs=DEFAULT_RUNS):
-    """The most recent saved check report, or None."""
+    """The most recent saved check report, or None. A report saved before checks were added is shown
+    as outdated, whatever it said then: its GO was against fewer checks. The file is left as it was."""
     directory = Path(runs).resolve() / 'minerva-check'
     for path in sorted(directory.glob('*.json'), reverse=True):
         try:
@@ -775,5 +782,10 @@ def latest_report(runs=DEFAULT_RUNS):
             continue
         if report.get('kind') == 'minerva_check':
             report['evidence'] = str(path)
+            missing = outdated(report)
+            if missing and report.get('state') == 'finished':
+                report.update(verdict='outdated', summary=(
+                    f"OUTDATED: saved before Minerva Check had {', '.join(missing)}. Run it again; "
+                    f"it said then: {report.get('summary') or report.get('verdict')}"))
             return report
     return None

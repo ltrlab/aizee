@@ -201,7 +201,7 @@ function render(state) {
 
 // ---- Minerva Check -------------------------------------------------------------
 const CHECK_ICON = {pass: '✓', warn: '!', fail: '✕', skip: '–', pending: '○', queued: '·', running: '…'};
-const VERDICT = {go: 'GO', no_go: 'NO GO', incomplete: 'INCOMPLETE'};
+const VERDICT = {go: 'GO', no_go: 'NO GO', incomplete: 'INCOMPLETE', outdated: 'OUTDATED'};
 const crows = new Map();
 let checkLayout = '', checkRunning = null, checkWasRunning = false;
 
@@ -584,7 +584,9 @@ async function sendKey(key) {
 function onKey(event) {
   if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
   if (['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target?.tagName)) return;
-  if (document.body.dataset.tab === 'tune') {
+  // X and H reach a running sweep from the Check tab too, where Minerva Check's live sweep is started.
+  const sweeping = ['running', 'starting'].includes(last?.tune?.phase);
+  if (document.body.dataset.tab === 'tune' || (sweeping && document.body.dataset.tab === 'check')) {
     const key = event.key.length === 1 ? event.key.toUpperCase() : '';
     if (key === 'X' || key === 'H') {
       event.preventDefault();
@@ -848,7 +850,7 @@ $('u-finish').onclick = () => tuneKey('X');
 $('u-disable').onclick = () => tuneKey('H');
 $('u-save').onclick = () => {
   const motors = [...tuneSaving];
-  act('/api/helm/tune/save', {motors}, `Saved ${motors.length} joint${motors.length > 1 ? 's' : ''} to the servo calibration; live teleop uses it from its next session.`);
+  act('/api/helm/tune/save', {motors}, `Saved ${motors.length} joint${motors.length > 1 ? 's' : ''} to the servo calibration; live teleop uses it from its next session. Deploy before the next Minerva Check: the release carries config/devices.`);
 };
 $('u-session').onclick = () => {
   const u = last?.tune;
@@ -893,8 +895,10 @@ function askCheck(arm) {
   go.textContent = `Sweep the ${arm} arm`;
   go.onclick = () => {
     closeCheckConfirm();
-    act('/api/helm/check/live', {arm, confirm: true},
-      `Live joint sweep of the ${arm} arm starting: checking it is still and in its reference pose.`);
+    act('/api/helm/check/live', {arm, confirm: true}, () => {
+      showTab('tune');  // Its progress, Finish (X) and Disable (H) are there.
+      return `Live joint sweep of the ${arm} arm starting: checking it is still and in its reference pose.`;
+    });
   };
   $('c-confirm').hidden = false;
   $('c-confirm-cancel').focus();

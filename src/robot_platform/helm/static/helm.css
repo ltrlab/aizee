@@ -86,7 +86,7 @@ body[data-teleop-state=FAULT] #t-state,#t-collision.bad{color:var(--bad)}#t-coll
 .verdict b{display:block;font-size:18px;letter-spacing:.04em}.verdict span{display:block;color:var(--muted);font-size:12px;margin-top:3px;line-height:1.45}
 .verdict[data-verdict=go]{border-color:#3c6e55}.verdict[data-verdict=go] b{color:var(--good)}
 .verdict[data-verdict=no_go]{border-color:#7c3a45}.verdict[data-verdict=no_go] b{color:var(--bad)}
-.verdict[data-verdict=incomplete] b,.verdict[data-verdict=running] b{color:var(--warn)}
+.verdict[data-verdict=incomplete] b,.verdict[data-verdict=outdated] b,.verdict[data-verdict=running] b{color:var(--warn)}
 .crow{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:8px;align-items:start;border:1px solid var(--line);border-radius:8px;background:var(--raised);padding:8px 10px;margin:6px 0}
 .crow .cicon{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;color:var(--muted);border:1px solid var(--line)}
 .crow .ctitle{display:block;font-weight:600;font-size:13px}.crow .cdetail{display:block;color:var(--muted);font-size:11.5px;line-height:1.45;margin-top:2px;overflow-wrap:anywhere}

@@ -7,7 +7,7 @@ and refuses those while it runs. The last saved report is shown at startup.
 from copy import deepcopy
 import threading
 
-from robot_platform.ops.check import FAIL, latest_report, record_live, run_check
+from robot_platform.ops.check import FAIL, latest_report, outdated, record_live, run_check
 
 
 class CheckWorkspace:
@@ -45,7 +45,7 @@ class CheckWorkspace:
             with self.lock:
                 self.error = f'Minerva Check stopped: {exc}'
 
-    def live_ready(self):
+    def live_ready(self, arm):
         """Raise unless the latest report's stopped checks all passed: the live sweep follows them."""
         with self.lock:
             report = self.report
@@ -53,6 +53,9 @@ class CheckWorkspace:
             raise ValueError('Minerva Check is running; wait for it to finish')
         if report is None or report.get('state') != 'finished':
             raise ValueError('Run Minerva Check first: the live joint sweep follows the stopped checks')
+        if outdated(report):
+            raise ValueError('The last Minerva Check was saved before it had the live joint sweep: run '
+                             'Minerva Check again first')
         failed = [c['title'] for stage in report['stages'] if stage['id'] != 'sweep' for c in stage['checks']
                   if c['status'] == FAIL]
         if failed:
