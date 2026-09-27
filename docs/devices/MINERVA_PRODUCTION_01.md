@@ -1830,3 +1830,24 @@ clear. No receiver fault occurred while the arm was powered.
   session with the arm hanging. J5 and J6 now hold at the collector's full
   gains, 8 and 3 Nm/rad.
 
+### 2026-09-27 — first teleop following (right arm)
+
+The session ran at 02:28 UTC on release `20260927T022032Z-e0d9571`, after Minerva
+Check was GO (leader sample age p99 21 ms). It went through Start, Idle and
+Enable, then Engage reached TELEOP in about a second. The arm followed the right
+leader with 0.02-0.03 rad tracking errors and a 13 ms loop.
+
+About 18 s later, on a quick leader motion of about 0.5 rad at J4, the receiver
+faulted (`limit_violation`) and disabled the arm: J4 read +1.534 rad/s against
+its 0.8 rad/s cap. The operator saw no fast motion. J4's position had moved
+about 0.008 rad since the previous cycle, and its servo (hold Kp 15, Kd 4,
+position-only commands) cannot drive it faster than about 0.3 rad/s. J4 was
+also 0.088 rad behind its command, past its 0.08 rad tracking bound, because a
+command could lead by the whole bound.
+
+Release `20260927T024355Z-ee3cca2` changes three things:
+- A joint faults on overspeed only after three samples in a row over its cap,
+  or on one beyond three times it.
+- A stop brakes from at most the cap, never from a spike.
+- A command leads its measured position by at most 60% of the tracking bound.
+
