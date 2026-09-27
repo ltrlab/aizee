@@ -1851,3 +1851,24 @@ Release `20260927T024355Z-ee3cca2` changes three things:
 - A stop brakes from at most the cap, never from a spike.
 - A command leads its measured position by at most 60% of the tracking bound.
 
+### 2026-09-27 — teleop at the first-motion gains; full gains chosen
+
+The session ran at 02:49 UTC on release `20260927T024355Z-ee3cca2`: Start,
+Idle, Enable, Engage and TELEOP, with no receiver fault. Shutdown returned the
+arm to its reference and disabled it by itself (the position-based settling
+fix). Two holds came from leader-link stalls, each three requests in a row with
+no reply within 20 ms, to be investigated.
+
+At the collector's 0.3 first-motion kp scale the arm followed very slowly (J1
+about 0.11 rad/s). J2 and J3 did not rise when the leader did, and J6 did not
+move. Commands are position-only while collision envelopes are in force: the
+receiver rejects any velocity or effort feed-forward. So a joint's drive is
+hold Kp times its lead: 3.2 Nm at J2 and 1.9 Nm at J3 at the lead limit, below
+the arm's gravity torque, and 0.14 Nm at J6, below its friction.
+
+The operator chose the collector's full tuned gains: J1-J4 hold at 150, 220,
+215 and 50 Nm/rad with their tuned damping, and J6 at 8 Nm/rad (release
+`20260927T025732Z-a5cce96`, not yet run). The operator's direction: these
+values should be calculated once from the arm itself, then checked by the live
+joint sweep in Minerva Check, rather than tuned in teleop sessions.
+
