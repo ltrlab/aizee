@@ -326,7 +326,8 @@ def test_the_plan_waits_for_a_joint_it_cannot_push_and_stiffens_it_only_at_rest(
     assert plant.over_curve['right_arm_j6'] < 1., plant.over_curve
     result = engine.summary()['right_arm_j6']
     assert result['usable']['swept'] == pytest.approx(1.9) and result['usable']['today'] == pytest.approx(1.2)
-    assert result['current']['max_velocity'] == .8  # The session's cap, as no row gives today's settings here.
+    # The commanded cap (the receiver enforces 1.25x), as no row gives today's settings here.
+    assert result['current']['max_velocity'] == pytest.approx(.8 / 1.25)
     assert 0 < result['usable']['recommended'] <= 1.8
 
 
@@ -408,3 +409,22 @@ def test_a_joint_breaking_free_of_static_friction_near_an_end_stays_well_under_i
     verified = engine.summary()['right_arm_j6']['verified']
     assert verified['up'] == pytest.approx(high) and verified['down'] == pytest.approx(-low), verified
     assert not any('could not follow' in event['text'] for event in engine.events), engine.events
+
+
+def test_speeds_are_measured_in_open_travel_where_the_braking_curve_allows_them():
+    # Right J6's session (commanded 2.5 rad/s, enforced 3.125, 16 rad/s^2, bound 0.15, reaction 0.12 s): at
+    # 1 rad/s commands may move freely from 0.349 rad inside each end (0.15 + 1.25 x 0.12 + 1.25^2 / 32).
+    joints = [limits('right_arm_j6', lower=-.885, upper=.9225, bound=.15, speed=3.125, stop=16., effort=14.,
+                     max_kd=4., max_kp=24.)]
+    engine = SweepEngine(joints, home={'right_arm_j6': 0.}, gains={'right_arm_j6': (8., 1.)},
+                         settings={'right_arm_j6': sweep_settings(PROFILE, 'right_arm_j6')}, sweep=['right_arm_j6'])
+    low, high = engine._open_travel('right_arm_j6', 1.)
+    room = .15 + 1.25 * .12 + 1.25 ** 2 / 32
+    assert (low, high) == (pytest.approx(-.885 + room), pytest.approx(.9225 - room))
+    # There the plan is not slowed: commands may move at the full speed toward either end.
+    assert engine.limits['right_arm_j6']['max_velocity'] >= 1.
+    engine.targets['right_arm_j6'] = high - 1e-9
+    assert engine._toward_end('right_arm_j6', 1) >= 1. - 1e-6
+    engine.targets['right_arm_j6'] = low + 1e-9
+    assert engine._toward_end('right_arm_j6', -1) >= 1. - 1e-6
+

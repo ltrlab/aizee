@@ -127,10 +127,14 @@ class TuneCore:
                                       profile=sweep_profile(self.profile, motors, gains, travel=travel, sweep=sweep),
                                       backend=backend)
         # Each joint's derived row today, with the settings teleop uses today (the session may loosen them).
+        # The receiver's speed cap is the commanded one times OVERSPEED_HEADROOM; the card compares commanded caps.
+        from robot_platform.control.approach import OVERSPEED_HEADROOM
         today = {joint['name']: joint for joint in base['config']['joints']}
-        self.travel = {row['motor']: dict(row, today={key: today[row['motor']][key] for key in
-                                                      ('max_tracking_error', 'max_velocity', 'stop_acceleration')})
-                       for row in base['report'] if row['motor'] in today}
+        self.travel = {row['motor']: dict(row, today={
+            'max_tracking_error': today[row['motor']]['max_tracking_error'],
+            'stop_acceleration': today[row['motor']]['stop_acceleration'],
+            'max_velocity': today[row['motor']]['max_velocity'] / OVERSPEED_HEADROOM})
+            for row in base['report'] if row['motor'] in today}
         self.derived = derived
         stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
         kind = 'check-sweep' if self.mode == 'verify' else 'sweep'

@@ -38,7 +38,7 @@ import time
 import numpy as np
 
 from . import servo_analysis as analysis
-from robot_platform.control.approach import OVERSPEED_HEADROOM, command_speed, end_margin, lead_toward
+from robot_platform.control.approach import COMMAND_HEADROOM, OVERSPEED_HEADROOM, command_speed, end_margin, lead_toward
 
 DEFAULTS = {
     'characterize_speed': .15,
@@ -625,6 +625,16 @@ class SweepEngine:
         margin = end_margin(limit, self.window_s, self.verdict_s)
         return limit['lower'] + margin, limit['upper'] - margin
 
+    def _open_travel(self, motor, speed):
+        """Where commands may move `motor` at `speed` without its braking curve slowing them (with headroom):
+        its limits less the distance at which the curve first allows that speed."""
+        limit = self.limits[motor]
+        if limit.get('gripper'):
+            return limit['lower'], limit['upper']
+        v = speed / COMMAND_HEADROOM
+        room = limit['max_tracking_error'] + v * self.window_s + v * v / (2 * limit['stop_acceleration'])
+        return limit['lower'] + room, limit['upper'] - room
+
     def _toward_end(self, motor, direction):
         """How fast the plan may move `motor` in `direction` from its commanded position: within the
         receiver's braking curve toward that end, with headroom."""
@@ -738,6 +748,10 @@ class SweepEngine:
         for speed in [s for s in settings['speeds'] if s <= settings['speed_headroom'] * limit['max_velocity'] + 1e-9]:
             low, high = self._allowed(motor, speed)
             low, high = max(low, span_low), min(high, span_high)
+            # Tracking at a speed is measured in open travel: nearer the ends the braking curve slows the joint,
+            # in teleop as here, whatever its cap (the full range is covered by characterising and verifying).
+            open_low, open_high = self._open_travel(motor, speed)
+            low, high = max(low, open_low), min(high, open_high)
             accel = settings['acceleration']
             need = speed * speed / accel + speed * settings['cruise_s']
             if high - low < need:
@@ -754,6 +768,8 @@ class SweepEngine:
         if followed:
             low, high = self._allowed(motor, followed)
             low, high = max(low, span_low), min(high, span_high)
+            open_low, open_high = self._open_travel(motor, followed)
+            low, high = max(low, open_low), min(high, open_high)
             for deceleration in settings['decelerations']:
                 self._task(f'{self._label(motor)}: braking at {deceleration:g} rad/s2 from {followed:g} rad/s')
                 results = []
@@ -1030,7 +1046,7 @@ class SweepEngine:
         limit = self.limits[motor]
         lower, upper = row['operational']
         settings = {'max_tracking_error': rec.get('max_tracking_error') or limit['max_tracking_error'],
-                    'max_velocity': rec.get('max_velocity') or limit['max_velocity'],
+                    'max_velocity': rec.get('max_velocity') or limit['max_velocity'] / OVERSPEED_HEADROOM,
                     'stop_acceleration': rec.get('stop_acceleration') or limit['stop_acceleration']}
         return {'swept': row['swept'][1] - row['swept'][0], 'today': row['usable'][1] - row['usable'][0],
                 'recommended': max(0., upper - lower - 2 * usable_margin(settings, self.receiver))}
@@ -1042,7 +1058,10 @@ class SweepEngine:
             result[motor] = {
                 'label': self._label(motor), 'current': {'hold_kp': self.gains[motor][0], 'hold_kd': self.gains[motor][1],
                                                          **{key: self.limits[motor][key] for key in (
-                                                             'max_tracking_error', 'max_velocity', 'stop_acceleration')},
+                                                             'max_tracking_error', 'stop_acceleration')},
+                                                         # Commanded, as the recommendation's is.
+                                                         'max_velocity': self.limits[motor]['max_velocity']
+                                                         / OVERSPEED_HEADROOM,
                                                          **((self.travel.get(motor) or {}).get('today') or {})},
                 'status': report.status, 'verified': {'up': report.verified[1], 'down': report.verified[-1]},
                 'torque': None if report.torque is None else {k: report.torque.get(k) for k in
