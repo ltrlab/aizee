@@ -493,7 +493,9 @@ class SweepEngine:
         lead = (self.settings.get(motor) or self.settings[self.sweep[0]])['lead_fraction'] * limit['max_tracking_error']
         if direction is None or position is None:
             return lead
-        return lead_toward(limit, self.window_s, position, direction, lead, limit['max_velocity'] / OVERSPEED_HEADROOM)
+        kp, kd = self.test_gains.get(motor, self.gains[motor])
+        return lead_toward(limit, self.window_s, position, direction, lead, limit['max_velocity'] / OVERSPEED_HEADROOM,
+                           kp, kd)
 
     def _behind(self, motor, direction):
         """How far the plan is ahead of the joint in the direction of travel (the joint under test only,

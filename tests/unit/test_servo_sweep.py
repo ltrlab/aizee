@@ -403,3 +403,8 @@ def test_a_joint_breaking_free_of_static_friction_near_an_end_stays_well_under_i
         now += .04
     assert engine.done and engine.task == 'finished', engine.task
     assert plant.over_curve['right_arm_j6'] < .7, plant.over_curve
+    # Held softly (kp 8) while characterising, it still pushes past friction to both edges of its travel.
+    low, high = engine._allowed('right_arm_j6')
+    verified = engine.summary()['right_arm_j6']['verified']
+    assert verified['up'] == pytest.approx(high) and verified['down'] == pytest.approx(-low), verified
+    assert not any('could not follow' in event['text'] for event in engine.events), engine.events

@@ -40,10 +40,15 @@ def test_commands_keep_headroom_under_the_curve_toward_an_end_and_the_cap_elsewh
     assert command_speed(JOINT, REACTION, 2., -1, 1.6) == 1.6
 
 
-def test_the_pull_toward_an_end_shrinks_with_the_speed_allowed_there_however_fast_the_joint_moves():
+def test_the_pull_toward_an_end_is_what_damping_balances_at_the_speed_allowed_there():
     allowed = command_speed(JOINT, REACTION, 2., 1, 1.6)  # One radian from the end.
-    assert lead_toward(JOINT, REACTION, -2., 1, .1, 1.6) == .1  # Open travel: the full lead.
-    # A joint stuck on static friction reads as slow as one lifting: the lead shrinks by position alone.
-    assert lead_toward(JOINT, REACTION, 2., 1, .1, 1.6) == pytest.approx(.1 * allowed / 1.6)
-    assert lead_toward(JOINT, REACTION, 2., -1, .1, 1.6) == .1  # Away from that end.
-    assert lead_toward(dict(JOINT, gripper=True), REACTION, 2.9, 1, .1, 1.6) == .1
+    assert lead_toward(JOINT, REACTION, -2., 1, .1, 1.6, 24., .87) == .1  # Open travel: the full lead.
+    # Stiff and lightly damped (where J6 lunged): the pull its damping balances at the allowed speed.
+    assert lead_toward(JOINT, REACTION, 2., 1, .1, 1.6, 240., .87) == pytest.approx(max(.1 * allowed / 1.6,
+                                                                                        allowed * .87 / 240.))
+    # Softly held: the full lead, or it could not push past friction near the end.
+    assert lead_toward(JOINT, REACTION, 2., 1, .1, 1.6, 8., 1.) == .1
+    # Never less than the lead's share of the allowed speed, so the limit starts continuously.
+    assert lead_toward(JOINT, REACTION, 2., 1, .1, 1.6, 1e6, .01) == pytest.approx(.1 * allowed / 1.6)
+    assert lead_toward(JOINT, REACTION, 2., -1, .1, 1.6, 240., .87) == .1  # Away from that end.
+    assert lead_toward(dict(JOINT, gripper=True), REACTION, 2.9, 1, .1, 1.6, 240., .87) == .1

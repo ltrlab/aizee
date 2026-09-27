@@ -62,20 +62,25 @@ def end_margin(joint, reaction, verdict_s):
             + floor * verdict_s + 1e-6)
 
 
-def lead_toward(joint, reaction, position, direction, lead, cap):
-    """How far a command may lead a joint measured at `position` in `direction`: the full `lead` in open
-    travel; toward an end, only in proportion to the speed commands may approach it there against the
-    commanded `cap`.
+def lead_toward(joint, reaction, position, direction, lead, cap, kp, kd):
+    """How far a command may lead a joint measured at `position` in `direction`, at stiffness `kp` and
+    damping `kd`: the full `lead` in open travel; toward an end, no more than the pull its damping balances
+    at the speed commands may approach the end there (allowed x kd / kp), nor less than the lead's share
+    in proportion to that speed against the commanded `cap` (so the limit is continuous where it begins).
 
     A lagging joint is pulled by its command's lead, not by the plan's speed: near an end a full lead drove
     right J6 in faster than the curve allows, and a joint stuck on static friction breaks free with all the
-    pull its lead has built up (J6 lunged to 1.1 rad/s from a 0.06 rad lead, 2026-09-27). A stuck joint
-    reads as slow as one lifting against gravity, so the lead shrinks by position alone. Until gravity
-    feed-forward, a heavy joint may therefore lift short of an end."""
+    pull its lead has built up (J6 lunged to 1.1 rad/s from a 0.06 rad lead at kp 24, 2026-09-27). A stuck
+    joint reads as slow as one lifting against gravity, so the limit is by position, not speed. A softly
+    held joint keeps its full lead (at kp 8, J6 could not otherwise push past friction near its ends); a
+    heavy joint may still lift short of an end until gravity feed-forward."""
     if joint.get('gripper') or cap <= 0:
         return lead
     allowed = command_speed(joint, reaction, position, direction, cap)
-    return lead if allowed >= cap else lead * allowed / cap
+    if allowed >= cap:
+        return lead
+    balanced = allowed * kd / kp if kp > 0 else lead
+    return min(lead, max(lead * allowed / cap, balanced))
 
 
 def command_speed(joint, reaction, position, direction, cap):
