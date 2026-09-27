@@ -50,6 +50,7 @@ class TeleopLifecycle:
         self.clock = clock
         self.state, self.reason, self.target = 'DISABLED', None, None
         self._last_time, self._settled_since = None, None
+        self._last_measured = None  # Positions of the previous cycle, for settling speed.
         self._feedback, self._source = None, None
         self._misses = 0
 
@@ -132,6 +133,7 @@ class TeleopLifecycle:
             if self.state != 'FAULT':
                 self.state, self.reason = 'DISABLED', None
             self.target, self._source, self._settled_since, self._last_time = None, None, None, None
+            self._last_measured = None
             return self._proposal('disable')
         try:
             now = self._now(now)
@@ -142,6 +144,7 @@ class TeleopLifecycle:
                 self._read(target, now, feedback=False)
             old_state = self.state
             self.target = tuple(row['position'] for row in measured)
+            self._last_measured = self.target
             self._last_time, self._settled_since, self.reason = now, None, None
             self._misses = 0
             self.state = {'idle': 'IDLE', 'enable': 'HOLD', 'engage': 'ENGAGING',
@@ -154,10 +157,15 @@ class TeleopLifecycle:
             self.fault(str(exc))
             raise
 
-    def _settled(self, measured, goal, now):
-        arrived = all(abs(row['position']-q) <= joint['tolerance']
-                      and abs(row['velocity']) <= joint['settled_velocity']
-                      for row, q, joint in zip(measured, goal, self._joints))
+    def _settled(self, measured, goal, now, dt):
+        # Speed from the measured positions of consecutive cycles, not the drives'
+        # speed readings: at rest those read up to ~0.2 rad/s on Minerva, while
+        # positions stay put to a few ten-thousandths of a radian.
+        previous = self._last_measured
+        arrived = previous is not None and dt > 0 and all(
+            abs(row['position']-q) <= joint['tolerance']
+            and abs(row['position']-p)/dt <= joint['settled_velocity']
+            for row, q, p, joint in zip(measured, goal, previous, self._joints))
         if not arrived:
             self._settled_since = None
             return False
@@ -219,15 +227,16 @@ class TeleopLifecycle:
                 goal = [row['position'] for row in source]
                 speed = 'align_speed' if self.state == 'ENGAGING' else 'max_velocity'
                 self.target = self._approach(measured, goal, speed, dt)
-                if self.state == 'ENGAGING' and self._settled(measured, goal, now):
+                if self.state == 'ENGAGING' and self._settled(measured, goal, now, dt):
                     self.state = 'TELEOP'
             elif self.state == 'SHUTDOWN':
                 goal = [joint['zero_position'] for joint in self._joints]
                 self.target = self._approach(measured, goal, 'shutdown_speed', dt)
-                if self._settled(measured, goal, now):
+                if self._settled(measured, goal, now, dt):
                     self.state, self.target = 'DISABLED', None
                     operation = 'disable'
             self._last_time = now
+            self._last_measured = tuple(row['position'] for row in measured)
             return self._proposal(operation)
         except (ValueError, TypeError, KeyError) as exc:
             self.fault(str(exc))

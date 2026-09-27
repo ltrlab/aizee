@@ -89,12 +89,22 @@ def test_alignment_cannot_finish_just_because_time_elapsed_or_command_arrived():
 def test_alignment_requires_every_measured_joint_and_settled_velocity():
     lifecycle = in_state('HOLD', positions=(.6, .04))
     lifecycle.action('engage', feedback(0., (.6, .04)), target=target(0.), now=0.)
-    for now in (.04, .08, .12, .16):
-        proposal = lifecycle.step(feedback(now, (.6, .04), velocity=(.02, 0.)), target=target(now), now=now)
+    # Within tolerance of the goal but still moving (0.05-0.1 rad/s from the positions).
+    for now, q in ((.04, .598), (.08, .602), (.12, .598), (.16, .6)):
+        proposal = lifecycle.step(feedback(now, (q, .04)), target=target(now), now=now)
         assert proposal['state'] == 'ENGAGING'
     for now in (.20, .24, .28):
         assert lifecycle.step(feedback(now, (.6, .04)), target=target(now), now=now)['state'] == 'ENGAGING'
     assert lifecycle.step(feedback(.32, (.6, .04)), target=target(.32), now=.32)['state'] == 'TELEOP'
+
+
+def test_a_drives_speed_noise_at_rest_does_not_hold_up_settling():
+    # Minerva's drives report speeds up to ~0.2 rad/s at rest; positions decide.
+    lifecycle = in_state('HOLD', positions=(.6, .04))
+    lifecycle.action('engage', feedback(0., (.6, .04)), target=target(0.), now=0.)
+    states = [lifecycle.step(feedback(now, (.6, .04), velocity=(.06, .002)), target=target(now), now=now)['state']
+              for now in (.04, .08, .12, .16)]
+    assert states == ['ENGAGING', 'ENGAGING', 'ENGAGING', 'TELEOP']
 
 
 @pytest.mark.parametrize('state', ['ENGAGING', 'TELEOP', 'SHUTDOWN'])
@@ -134,8 +144,9 @@ def test_shutdown_speed_is_elapsed_time_based_for_different_loop_rates():
 def test_shutdown_disables_only_after_measured_arrival_and_settling():
     lifecycle = in_state('HOLD', positions=(0., 0.))
     lifecycle.action('shutdown', feedback(0., (0., 0.)), now=0.)
-    for now in (.04, .08, .12, .16):
-        assert lifecycle.step(feedback(now, (0., 0.), velocity=(0., .002)), now=now)['state'] == 'SHUTDOWN'
+    # The slide is within tolerance of zero but still moving (0.0025-0.005 m/s).
+    for now, q in ((.04, .0001), (.08, -.0001), (.12, .0001), (.16, 0.)):
+        assert lifecycle.step(feedback(now, (0., q)), now=now)['state'] == 'SHUTDOWN'
     for now in (.20, .24, .28):
         assert lifecycle.step(feedback(now, (0., 0.)), now=now)['state'] == 'SHUTDOWN'
     finished = lifecycle.step(feedback(.32, (0., 0.)), now=.32)
