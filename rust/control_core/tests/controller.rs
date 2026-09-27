@@ -605,6 +605,53 @@ fn frozen_feedback_and_hardware_failures_revoke_authority() {
 }
 
 #[test]
+fn one_overspeed_reading_is_drive_noise_but_a_run_of_them_faults() {
+    let (mut c, mut h) = armed(1);
+    h.feedback[0].velocity = 2.5; // Over the 2.0 rad/s cap once...
+    c.tick(2, &mut h);
+    h.feedback[0].velocity = 0.0;
+    c.tick(3, &mut h);
+    assert_eq!(c.status().state, State::Holding);
+    for now in 4..7 {
+        h.feedback[0].velocity = 2.5; // ...then three samples in a row.
+        c.tick(now, &mut h);
+    }
+    assert_eq!(c.status().reason, Reason::LimitViolation);
+    assert!(!h.enabled);
+}
+
+#[test]
+fn a_reading_far_over_the_speed_cap_faults_at_once() {
+    let (mut c, mut h) = armed(1);
+    h.feedback[0].velocity = 6.5; // Over three times the 2.0 rad/s cap.
+    c.tick(2, &mut h);
+    assert_eq!(c.status().reason, Reason::LimitViolation);
+    assert!(!h.enabled);
+}
+
+#[test]
+fn braking_starts_from_at_most_the_speed_cap() {
+    // Braking from a lone 2.5 rad/s spike would carry the joint 1.56 rad on;
+    // from the 2.0 rad/s cap it is 1.0 rad at 2 rad/s^2.
+    let (mut c, mut h) = armed(1);
+    h.feedback[0].velocity = 2.5;
+    let reply = c.handle(
+        2,
+        Request::Stop {
+            authority: auth(&c, 2),
+        },
+        &mut h,
+    );
+    assert!(reply.accepted, "{:?}", reply.reason);
+    assert_eq!(c.status().state, State::Stopping);
+    for now in 3..1500 {
+        c.tick(now, &mut h);
+    }
+    assert_eq!(c.status().state, State::Stopped);
+    assert!((c.status().joints[0].position - 1.0).abs() < 1e-9);
+}
+
+#[test]
 fn clock_regression_and_unsafe_stopping_envelope_latch_faults() {
     let (mut c, mut h) = armed(1);
     c.tick(0, &mut h);

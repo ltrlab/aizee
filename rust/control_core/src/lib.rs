@@ -20,6 +20,11 @@ pub mod watchdog_trial;
 use hardware::{Hardware, JointFeedback};
 use protocol::*;
 use reference::MOVING_READINGS;
+
+/// A joint over its speed cap faults after MOVING_READINGS samples in a row, or at
+/// once beyond this multiple of the cap. Drives report speed spikes: on Minerva a
+/// servoed wrist-roll joint moving slowly read +1.53 rad/s against its 0.8 cap.
+const OVERSPEED_FACTOR: f64 = 3.0;
 use serde::{Deserialize, Serialize};
 use stop::JointStop;
 
@@ -157,6 +162,8 @@ pub struct Controller {
     /// New feedback samples in a row over settled_velocity, per joint. Drives report
     /// speed noise at rest, so one fast reading is not a backdriven arm.
     fast_readings: Vec<u8>,
+    /// New feedback samples in a row over each joint's max_velocity.
+    overspeed: Vec<u8>,
     commands: Vec<JointCommand>,
     stops: Vec<JointStop>,
     stop_started_ms: u64,
@@ -187,6 +194,7 @@ impl Controller {
             feedback: vec![JointFeedback::default(); count],
             previous_feedback: vec![JointFeedback::default(); count],
             fast_readings: vec![0; count],
+            overspeed: vec![0; count],
             commands: vec![
                 JointCommand {
                     position: 0.0,
@@ -286,7 +294,12 @@ impl Controller {
     }
 
     fn feedback_error(&self) -> Option<Reason> {
-        for (f, limit) in self.feedback.iter().zip(&self.config.joints) {
+        for ((f, limit), &overspeed) in self
+            .feedback
+            .iter()
+            .zip(&self.config.joints)
+            .zip(&self.overspeed)
+        {
             if f.sequence == 0
                 || f.sampled_at_ms > self.now_ms
                 || [f.position, f.velocity, f.effort, f.temperature]
@@ -303,7 +316,8 @@ impl Controller {
             }
             if f.position < limit.lower
                 || f.position > limit.upper
-                || f.velocity.abs() > limit.max_velocity
+                || overspeed >= MOVING_READINGS
+                || f.velocity.abs() > OVERSPEED_FACTOR * limit.max_velocity
                 || f.effort.abs() > limit.max_effort
                 || f.temperature > limit.max_temperature
             {
@@ -346,7 +360,10 @@ impl Controller {
                 *stop = JointStop::hold(command.position);
                 continue;
             }
-            let Some(plan) = JointStop::new(f.position, f.velocity, limit.stop_acceleration) else {
+            // Brake from at most the speed cap: a faster reading is a drive spike unless it
+            // repeats (which faults), and braking from a spike would carry the joint on.
+            let speed = f.velocity.clamp(-limit.max_velocity, limit.max_velocity);
+            let Some(plan) = JointStop::new(f.position, speed, limit.stop_acceleration) else {
                 self.fault(Reason::InvalidCommand, hardware);
                 return;
             };
@@ -397,23 +414,30 @@ impl Controller {
                 return;
             }
         }
-        if let Some(error) = self.feedback_error() {
-            self.fault(error, hardware);
-            return;
-        }
-        for ((fast, current), old) in self
-            .fast_readings
-            .iter_mut()
-            .zip(&self.feedback)
+        // Count each joint's new samples over its settled speed and its speed cap.
+        for (i, (current, old)) in self
+            .feedback
+            .iter()
             .zip(&self.previous_feedback)
+            .enumerate()
         {
             if current.sequence != old.sequence {
-                *fast = if current.velocity.abs() > self.config.settled_velocity {
-                    fast.saturating_add(1)
+                let speed = current.velocity.abs();
+                self.fast_readings[i] = if speed > self.config.settled_velocity {
+                    self.fast_readings[i].saturating_add(1)
+                } else {
+                    0
+                };
+                self.overspeed[i] = if speed > self.config.joints[i].max_velocity {
+                    self.overspeed[i].saturating_add(1)
                 } else {
                     0
                 };
             }
+        }
+        if let Some(error) = self.feedback_error() {
+            self.fault(error, hardware);
+            return;
         }
         if self.collision_active
             && self.active()
