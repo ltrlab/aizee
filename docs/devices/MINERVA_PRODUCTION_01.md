@@ -1913,3 +1913,53 @@ J6 sweep. Built in commits `32c51e9` and `55baca4` and deployed the same night.
 It has not run on the motors. The first run is attended from the Tune tab (the
 right arm suggested), with the foot switch in hand; then Minerva Check and its
 live sweeps.
+
+### 2026-09-27 — first live servo sweeps (right J6)
+
+- **15:41 UTC, not started.** The tether was down (the PC's adapter showed
+  "media disconnected"). The operator rebooted the Jetson and it came back.
+- **15:47 UTC, stopped at the reference check** before enabling: the right
+  gripper was 0.13 rad open (tolerance 0.1).
+- **15:48 UTC, release `20260927T171842Z-64f5e91`, J6 only.** Clean: no guard
+  events, no faults, about 5 min.
+  - Measured: friction 0.10 Nm, gravity up to 0.16 Nm (worst at −0.46 rad),
+    verified range +0.67/−0.63 rad.
+  - Every stiffness from 1.9 to 16 Nm/rad stepped cleanly (under 4% overshoot
+    at 5.6 and above). Holds at 8/11.2/16 sagged 0.016/0.013/0.012 rad.
+  - Braking from 0.2 rad/s was clean up to 32 rad/s².
+  - The recommender took 0.35 rad/s from the one direction that followed it;
+    the other lagged 0.042 rad, over half the bound. Not saved. Fixed in
+    `64f5e91`: a speed counts only when every direction follows it.
+  - Position-only commands limit J6 to about 0.2 rad/s within half its bound:
+    with a zero velocity target the drive's damping resists motion, so lag ≈
+    (friction + gravity + kd·speed)/kp.
+- **20:06 UTC, release `64f5e91`, J6 with the wider search** (stiffness to
+  24, damping to 0.25×). The receiver faulted `limit_violation` during the hold
+  tests: J6 read 0.97 rad/s against its 0.8 cap. The operator saw no buzz, and
+  the samples show why:
+  - Going out to the hold point at its profile gains (8/1), J6's command sat
+    at the lead cap (0.6 × 0.08 = 0.048 rad) the whole way. That is 0.38 Nm of
+    push, about what friction, gravity and damping take there, so J6 crawled
+    about 0.13 rad behind its plan.
+  - When the plan arrived, the hold test switched to 24 Nm/rad, and J6 lunged
+    toward the hold point.
+  - Fixed in `463573e`: the plan waits for a pinned joint; stiffness changes
+    only once it is at rest, ramped over 0.3 s; speed tests stop at 80% of the
+    cap; steps are at most 0.03 rad.
+
+The operator judged the bounds too tight for performance. The sweep may now
+raise a light distal joint's tracking bound (which sets its push through the
+lead cap) and speed cap toward per-joint ceilings, while at least half its
+swept travel stays usable (the stopping reserve grows with both):
+- J5 and J6: 0.15 rad and 2.5 rad/s;
+- J4: 0.12 rad and 1.5 rad/s;
+- the gripper: bound 0.15 rad.
+
+At the 50% floor, J6 (1.91 rad swept, 61% usable today) gets bound 0.15 at
+0.8 rad/s; a faster cap would leave under half usable. J1–J3 keep their bounds
+until gravity and velocity feed-forward.
+
+Also found: teleop commands a joint at up to its receiver cap, which is also
+its overspeed threshold, so a joint that briefly overshoots while following
+a fast leader move at the cap can fault. Open: command at about 80% of the
+cap.
