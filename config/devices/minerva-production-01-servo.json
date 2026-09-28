@@ -48,5 +48,67 @@
   },
   "asset_id": "minerva-production-01",
   "reference_id": "minerva-mechanical-reference-20260924",
-  "updated_at": "2026-09-28T00:14:27.022065+00:00"
+  "updated_at": "2026-09-28T00:14:27.022065+00:00",
+  "gravity": {
+    "right_arm_j2": {
+      "A": 16.78,
+      "C": -0.056,
+      "span": [
+        -0.38,
+        0.36
+      ],
+      "session": "~/minerva/evidence/sweep-20260928T022528Z",
+      "measured_at": "2026-09-28T02:38:59+00:00"
+    },
+    "right_arm_j3": {
+      "A": 6.4,
+      "C": 0.076,
+      "span": [
+        -0.52,
+        0.44
+      ],
+      "session": "~/minerva/evidence/sweep-20260928T022528Z",
+      "measured_at": "2026-09-28T02:38:59+00:00"
+    },
+    "right_arm_j4": {
+      "A": 2.51,
+      "C": 0.012,
+      "span": [
+        -1.06,
+        1.22
+      ],
+      "session": "~/minerva/evidence/sweep-20260928T022528Z",
+      "measured_at": "2026-09-28T02:38:59+00:00"
+    },
+    "left_arm_j2": {
+      "A": 17.76,
+      "C": 0.042,
+      "span": [
+        -1.347,
+        1.405
+      ],
+      "session": "config/minerva_gravity.json (legacy collector sweep, 2026-08-22)",
+      "measured_at": "2026-08-22T23:38:47+00:00"
+    },
+    "left_arm_j3": {
+      "A": 6.69,
+      "C": -0.004,
+      "span": [
+        -1.883,
+        1.93
+      ],
+      "session": "config/minerva_gravity.json (legacy collector sweep, 2026-08-22)",
+      "measured_at": "2026-08-22T23:38:47+00:00"
+    },
+    "left_arm_j4": {
+      "A": 2.33,
+      "C": -0.004,
+      "span": [
+        -1.511,
+        1.38
+      ],
+      "session": "config/minerva_gravity.json (legacy collector sweep, 2026-08-22)",
+      "measured_at": "2026-08-22T23:38:47+00:00"
+    }
+  }
 }
