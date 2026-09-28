@@ -6,6 +6,9 @@ pub struct JointStop {
     position: f64,
     velocity: f64,
     acceleration: f64,
+    /// Held through the stop: the last command's feed-forward, which holds the joint against
+    /// gravity (without it a joint held out sags by gravity / kp, past its tracking bound).
+    effort: f64,
     pub duration_s: f64,
     pub end_position: f64,
 }
@@ -28,9 +31,15 @@ impl JointStop {
             position,
             velocity,
             acceleration,
+            effort: 0.0,
             duration_s,
             end_position,
         })
+    }
+
+    /// Keep commanding `effort` while braking and after.
+    pub fn with_effort(self, effort: f64) -> Self {
+        Self { effort, ..self }
     }
 
     /// No trajectory: stay at `position` (a gripper keeps its last target).
@@ -56,7 +65,7 @@ impl JointStop {
             } else {
                 self.velocity + a * t
             },
-            effort: 0.0,
+            effort: self.effort,
             kp,
             kd,
         }

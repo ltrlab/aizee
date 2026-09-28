@@ -1121,7 +1121,10 @@ fn limit_speed_is_the_cap_in_open_travel_and_stops_the_joint_at_the_limit() {
     assert!(v > APPROACH_FLOOR_RAD_S && v < 2.0, "{v}");
     assert!((limit_reserve(&policy, &cfg, joint, 1.0) - 1.0).abs() < 1e-9);
     // Within the floor's stopping margin the reserve is that margin: more than the distance.
-    assert_eq!(limit_speed(&policy, &cfg, joint, 0.05), APPROACH_FLOOR_RAD_S);
+    assert_eq!(
+        limit_speed(&policy, &cfg, joint, 0.05),
+        APPROACH_FLOOR_RAD_S
+    );
     assert!((limit_reserve(&policy, &cfg, joint, 0.05) - 0.0775).abs() < 1e-9);
     let mut gripper = joint.clone();
     gripper.gripper = true;
@@ -1183,8 +1186,8 @@ fn interpolated_fixture() -> (Controller, Loopback) {
     let mut h = Loopback::new(&[0.0, 0.0]);
     assert!(claim(&mut c, &mut h, 0).accepted);
     let checked = envelope(&mut c, &mut h, 1);
-    assert!(c
-        .handle(
+    assert!(
+        c.handle(
             1,
             Request::Arm {
                 authority: auth(&c, 1),
@@ -1192,7 +1195,8 @@ fn interpolated_fixture() -> (Controller, Loopback) {
             },
             &mut h,
         )
-        .accepted);
+        .accepted
+    );
     (c, h)
 }
 
@@ -1232,7 +1236,10 @@ fn velocity_and_effort_feed_forward_are_accepted_with_a_collision_box() {
     assert!(reply.accepted, "{:?}", reply.reason);
     let status = c.status();
     assert_eq!(status.state, State::Executing);
-    assert_eq!((status.joints[0].velocity, status.joints[0].effort), (1.0, 1.5));
+    assert_eq!(
+        (status.joints[0].velocity, status.joints[0].effort),
+        (1.0, 1.5)
+    );
 }
 
 #[test]
@@ -1256,4 +1263,23 @@ fn a_ramp_that_would_start_within_the_stopping_margin_is_refused() {
     let reply = move_with(&mut c, &mut h, 2, 2, 2.9, -2.0, 0.0, 3.0);
     assert!(!reply.accepted);
     assert_eq!(reply.reason, Reason::CollisionViolation);
+}
+
+#[test]
+fn a_stop_keeps_the_last_commands_feed_forward_holding_the_joint() {
+    // A joint held out against gravity by 3 Nm of feed-forward: without it, stopping would drop
+    // the load onto the position loop and sag the joint past its tracking bound.
+    let (mut c, mut h) = interpolated_fixture();
+    assert!(move_with(&mut c, &mut h, 2, 2, 0.0, 0.0, 3.0, 2.5).accepted);
+    let reply = c.handle(
+        3,
+        Request::Stop {
+            authority: auth(&c, 3),
+        },
+        &mut h,
+    );
+    assert!(reply.accepted, "{:?}", reply.reason);
+    c.tick(4, &mut h);
+    assert_eq!(c.status().state, State::Stopped);
+    assert_eq!(c.status().joints[0].effort, 3.0);
 }

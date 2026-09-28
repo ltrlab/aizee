@@ -394,7 +394,8 @@ impl Controller {
             if f.position < limit.lower
                 || f.position > limit.upper
                 || overspeed >= MOVING_READINGS
-                || f.velocity.abs() > OVERSPEED_FACTOR * self.allowed_speed(i, f.position, f.velocity)
+                || f.velocity.abs()
+                    > OVERSPEED_FACTOR * self.allowed_speed(i, f.position, f.velocity)
                 || f.effort.abs() > limit.max_effort
                 || f.temperature > limit.max_temperature
             {
@@ -440,7 +441,10 @@ impl Controller {
             // Brake from at most the speed cap: a faster reading is a drive spike unless it
             // repeats (which faults), and braking from a spike would carry the joint on.
             let speed = f.velocity.clamp(-limit.max_velocity, limit.max_velocity);
-            let Some(plan) = JointStop::new(f.position, speed, limit.stop_acceleration) else {
+            // The last command's feed-forward holds the joint against gravity through the stop.
+            let Some(plan) = JointStop::new(f.position, speed, limit.stop_acceleration)
+                .map(|plan| plan.with_effort(command.effort))
+            else {
                 self.fault(Reason::InvalidCommand, hardware);
                 return;
             };
@@ -505,11 +509,12 @@ impl Controller {
                 } else {
                     0
                 };
-                self.overspeed[i] = if speed > self.allowed_speed(i, current.position, current.velocity) {
-                    self.overspeed[i].saturating_add(1)
-                } else {
-                    0
-                };
+                self.overspeed[i] =
+                    if speed > self.allowed_speed(i, current.position, current.velocity) {
+                        self.overspeed[i].saturating_add(1)
+                    } else {
+                        0
+                    };
             }
         }
         if let Some(error) = self.feedback_error() {
@@ -660,10 +665,14 @@ impl Controller {
         for (i, (feedback, limit)) in self.feedback.iter().zip(&self.config.joints).enumerate() {
             let (low, high) = (envelope.lower[i], envelope.upper[i]);
             // The reference ramps from where the command's velocity says the stream came from.
-            let (target, start) = commands.map_or((feedback.position, feedback.position), |values| {
-                let command = &values[i];
-                (command.position, command.position - command.velocity * self.interpolation_s())
-            });
+            let (target, start) =
+                commands.map_or((feedback.position, feedback.position), |values| {
+                    let command = &values[i];
+                    (
+                        command.position,
+                        command.position - command.velocity * self.interpolation_s(),
+                    )
+                });
             let lo = feedback.position.min(target).min(start);
             let hi = feedback.position.max(target).max(start);
             // The box holds each side's stopping reserve at the fastest the joint may approach
