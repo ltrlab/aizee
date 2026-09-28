@@ -2165,3 +2165,74 @@ It summed them in a Python loop, and J1's wide, slow characterisation
 recorded tens of thousands of samples, so that step overran the receiver's
 80 ms verdict. Fixed in the next commit: the map sums by bin with numpy, 13 ms
 for 192,000 samples on the desktop, where the loop took 96 ms.
+
+### 2026-09-28 — J1 swept; J2–J4 held back by gravity; J4 hardware fault
+
+- **Right J1** (02:15 UTC) finished: it recommended kp 75, kd 3.5, 0.4 rad/s
+  and a 0.077 rad bound. Not saved.
+- **Right J2–J4** (02:25 UTC) ran on position-only commands, which the lead cap
+  limits to kp × 60% of the bound of push:
+  - J2 and J3 could not follow their characterisation past about ±0.55 and
+    ±0.8 rad. Each lifted until gravity outweighed its push: for J2,
+    220 × 0.048 = 10.6 Nm.
+  - No stiffness met the criteria. Holding their gravity within half the bound
+    needed kp 221 (J2) and 207 (J3). No speed was followed.
+  - J4 stalled at +1.53 rad the same way. The session then ended on a receiver
+    `hardware_fault` during J4's stiffness tests (kp 50, kd 5.6).
+- The torque maps measured J2 at 16.8 sin q, J3 at 6.4 sin q and J4 at
+  2.5 sin q Nm. These agree with the legacy collector's fits (2026-08-22)
+  within 10%.
+
+### 2026-09-28 — new control law: feed-forward, the whole swept range, gravity
+
+The operator asked for the robot to be "as fast and responsive as possible",
+using "the entire calibrated range", with any rewrite needed. What held it back:
+
+- **Commands were position-only.** A joint's own damping braked every motion:
+  for J2 at 1.5 rad/s, 22 Nm and 0.1 rad of lag. Gravity rested on the position
+  loop within the lead cap, which is why J2 and J3 reached only part of their
+  range.
+- **The range was trimmed.** Each end kept the tracking bound plus a 0.12 s
+  reaction, on top of the swept range intersected with the CAD and a 0.05 rad
+  margin: 11–27% of each joint's travel.
+
+What changed:
+- **Receiver** (`1a1fc8e`, `4c282bd`): each 25 Hz command is ramped over 40 ms
+  with its velocity fed forward. Feed-forward is allowed with a collision
+  envelope, whose box covers the ramp. Joint limits use a limit curve at the
+  40 ms limit reaction, with no bound term. A stop keeps the last command's
+  feed-forward.
+- **Teleop and the sweep** (`3b81ef2`):
+  - velocity feed-forward, plus 70% of a swept joint's friction;
+  - the whole swept range plus 0.02 rad of overtravel;
+  - caps: J1–J3 1.5 rad/s, J4 2.5, the wrists 4 (`4597e88`).
+- **Gravity feed-forward** for J2–J4 (`259ca84`, `9af82d9`): from each joint's
+  gravity slice, split along the arm's pitch chain. The right arm's slices come
+  from the 02:25 sweep; the left arm's from the legacy collector.
+- **Sweep:**
+  - it recommends the stiffest passing stiffness, holding only 20% of a joint's
+    gravity when that is fed forward (`2672746`);
+  - a short joint is verified at its cap (`3b81ef2`);
+  - a calibration made under position-only commands keeps its gains, braking
+    and bound, but not its speed (`3b81ef2`, `3ea29f9`). Right J6 now runs at
+    4 rad/s until it is swept again.
+
+In simulation, a shoulder with 14 sin q of gravity, fed a slice 20% short,
+characterises and verifies ±1 rad instead of ±0.6, twice as fast.
+
+The right arm as derived now:
+
+| Joint | Usable of swept | Cap (rad/s) | Gravity fed |
+|---|---|---|---|
+| J1 | 99% | 1.5 | no (vertical axis) |
+| J2 | 100% | 1.5 | yes, up to 16.8 Nm |
+| J3 | 100% | 1.5 | yes, up to 6.4 Nm |
+| J4 | 100% | 2.5 | yes, up to 2.5 Nm |
+| J5 | 100% | 4 | no |
+| J6 | 100% | 4 | no (friction fed) |
+
+Deployed as release `20260928T033820Z-9af82d9`. Unqualified on motors. Next:
+1. Minerva Check, whose stopped scan shows whether J4's fault is latched (a
+   RobStride overcurrent latch needs a power cycle).
+2. Attended teleop on the right arm, foot switch in reach.
+3. Sweep J1–J6 again under the new law.

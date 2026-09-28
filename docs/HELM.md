@@ -245,33 +245,60 @@ still while engaging: alignment finishes once the robot settles on the leader's
 target. A leader reading that moves faster than 20 rad/s is treated as an encoder
 glitch, and the arm holds; a quick trigger squeeze stays well under that.
 
-**Where the limits come from.** Each joint's operational interval is its swept
-range intersected with the CAD range, 0.05 rad inside both ends.
+**Where the limits come from.** Each arm joint's operational interval is its
+hand-swept range (the Limits tab), plus 0.02 rad of overtravel at each end
+before the receiver faults. The CAD's nominal limits no longer narrow it.
 
 **Joints slow down near the ends.** A joint may approach an end only as fast as
-it can still stop short of it, with its tracking bound in hand:
-- it has the receiver's reaction time to stop in: verdict + feedback timeout +
-  reaction, 0.12 s;
+it can still stop at it:
+- the receiver checks feedback every tick, so it reacts within the feedback
+  timeout and its reaction allowance, 40 ms (the collision verdict's 80 ms
+  lifetime bounds the collision box, not a joint limit);
 - it brakes at its stop acceleration;
 - in open travel it runs at its speed cap, and near an end it never slows below
   0.5 rad/s.
 
 The receiver enforces this braking curve on feedback while it drives the arm,
-as it does the cap, and takes each side's stopping reserve at the curve's
-speed. Targets therefore keep only the tracking bound, plus the stopping margin
-at 0.5 rad/s and the envelope compiler's padding, inside the interval: about
-0.21 rad at a 0.08 rad bound. A faster cap costs no range. On the right arm,
-between 73% (J6) and 89% (J3) of each joint's swept travel is usable, and the
-leader scaling covers all of it.
+as it does the cap. Targets keep only the stopping margin at 0.5 rad/s inside
+the interval, about 0.03 rad, so neither a faster cap nor a looser tracking
+bound costs range: on the right arm 99–100% of each joint's swept travel is
+usable, and the leader scaling covers all of it. The collision box keeps its
+own wider reserve, clipped at the limits.
+
+**The control law.** Commands are no longer position-only:
+- the receiver ramps each 25 Hz command over 40 ms (`interpolation_ms`), from
+  where the previous one pointed to its target, with the command's velocity fed
+  forward, so a joint's own damping no longer brakes it (J2 at 1.5 rad/s lost
+  22 Nm to it, 0.1 rad of lag);
+- a joint whose servo sweep is saved also gets 70% of its measured friction fed
+  forward in the direction of motion;
+- J2–J4 get gravity fed forward at the commanded pose (below), so the position
+  loop no longer holds the arm up and J2/J3 lift through their whole range;
+- a stop keeps the last command's feed-forward, so the arm does not sag when
+  the receiver brakes.
+
+Grippers keep position-only commands: fed-forward velocity would add to the
+squeeze while the jaws close on an object.
+
+**Gravity feed-forward.** J2, J3 and J4 turn about parallel horizontal axes, so
+the torque each holds against gravity is a sum of sines of the absolute angles
+of the links beyond it. `control/gravity.py` finds each arm's chain and each
+motor's sense from the model's joint frames and the verified directions. Each
+joint's gravity slice (`A sin q`, measured by its servo sweep at the reference
+pose, where the arm hangs straight down) is split into link moments. The slices
+live in the servo calibration's `gravity` section. The right arm's came from the
+2026-09-28 sweep (J2 16.78, J3 6.40, J4 2.51 Nm), the left arm's from the
+legacy collector's sweep of it (2026-08-22), until its own sweep refits them.
 
 **Commands keep headroom under what the receiver enforces.** Servos overshoot
 the speed they follow:
 - the receiver's speed cap is 1.25 × the commanded cap;
 - near an end, commands move at most 80% of the curve's speed there.
 
-Each command step is also capped by the joint's tracking bound, so every
-tracking bound is at least its speed times the 40 ms period. The rehearsal
-speeds and gains are unqualified.
+A command still leads its measured position by at most 60% of the joint's
+tracking bound. Caps: J1–J3 1.5 rad/s, J4 2.5, the wrists 4. A servo
+calibration saved before this control law (2026-09-28) keeps its gains, braking
+and tracking bound but not its speed. The speeds and gains are unqualified.
 
 **Grippers are exempt.** They touch and hold objects, so the receiver treats a
 joint marked `"gripper": true` differently. It gets no margin and no stopping
@@ -395,7 +422,9 @@ reference. Then, joint by joint, with the rest of the arm held there:
 1. **Characterise.** Slow ramps out and back at the current gains, widening
    step by step toward the joint's usable range, with a hold at each end. This
    maps gravity and friction by angle, weighting torque by displacement so
-   inertia and stuck samples drop out.
+   inertia and stuck samples drop out, and fits the joint's gravity slice. The
+   sweep feeds velocity, friction and gravity forward as teleop does, so a heavy
+   joint reaches much further than on position-only commands.
 2. **Stiffness × damping.** Position steps and a short ramp at the reference
    for each rung of a stiffness ladder (from the ceiling down) and each damping
    ratio. Damping scales as the square root of stiffness, times a multiplier.
@@ -434,12 +463,10 @@ stopped, and Motors reads off.
 
 **Bound and speed ceilings.** A joint's `bound_ceiling` and `speed_ceiling` in
 the teleop profile's `sweep` block let the session raise its tracking bound and
-speed cap, so the sweep can measure there:
-- The bound sets the joint's push, through the lead cap. It rises only while at
-  least half the joint's swept travel stays usable.
-- Speed costs no travel.
-- The ceilings are set for J4, J5, J6 and the gripper only. J1–J3 keep their
-  bounds until feed-forward.
+speed cap, so the sweep can measure there. Neither costs travel. The bound sets
+the joint's push, through the lead cap. Bound ceilings are set for J4, J5, J6
+and the gripper only; speed ceilings are 1.5 rad/s for J1–J3, 2.5 for J4 and
+4 for the wrists.
 
 **Finish (X)** returns the joint under test to its reference, then disables
 the arm. **Disable (H)** removes torque at once, and the arm goes limp where it
@@ -447,15 +474,19 @@ is. The motors stay enabled for the whole sweep, so stopping the session
 disables the arm where it is; Helm asks first.
 
 **What it chooses**, per joint, with the reasons shown on its card:
-- **Stiffness**: the lowest rung that holds the joint's load (gravity plus
-  friction) within half the tracking bound and settles within half the
-  tolerance at the reference, with one rung of margin. Its steps must not
-  overshoot by more than 10% and must come to rest.
+- **Stiffness**: the stiffest rung that passes, since it follows and holds
+  best. Its steps must not overshoot by more than 10% and must come to rest
+  within half the tolerance, and it must hold the joint's load within half the
+  tracking bound: friction plus gravity, or with gravity fed forward, 20% of
+  it (the model's error).
 - **Damping**: the ratio with the quickest settling at that stiffness.
 - **Speed and braking**: the highest tested speed that every direction
   followed, and the highest deceleration, with at most half the tracking bound
-  of lag. A final pass across the whole range at that speed must stay within
-  half the bound too; if it doesn't, the speed steps down.
+  of lag. A short joint runs out of room to test its faster speeds; when every
+  speed it had room for was followed, it gets its cap. A final pass across the
+  whole range at that speed must stay within half the bound too; if it doesn't,
+  the speed steps down.
+- **Gravity slice**: saved with the joint, for the arm's gravity feed-forward.
 - **Tracking bound**: twice the worst lag at that speed (including that final
   pass), between 0.03 rad and the session's bound.
 
