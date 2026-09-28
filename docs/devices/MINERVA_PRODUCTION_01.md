@@ -2138,3 +2138,17 @@ Reviewed and saved by the operator (`7433563`, release
 - 0.8 rad/s just missed both the lag and reach criteria.
 
 Teleop uses this calibration from its next session.
+
+### 2026-09-28 — J1 sweep stopped by a bearing interface
+
+The first right J1 sweep (00:22 UTC) stopped widening at +0.23 and −0.21 rad:
+`bearing/0` came within 20 mm of `ikea_desk_leg/5`. That is a bearing at the
+J1 interface against the frame part it sits in; the operator confirms they do
+not meet. The session was stopped before its speed tests.
+
+Cause: the sweep's path check used the default scope, every pair of parts,
+where the CAD's assembly interfaces at the joints read as contacts. Teleop
+already checks only the arms against each other (`inter_branch`), the policy
+chosen for these interfaces. Fixed in `5443f8d` (release
+`20260928T003220Z-5443f8d`): the sweep checks paths in the teleop profile's
+scope.
