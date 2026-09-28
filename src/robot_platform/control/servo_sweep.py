@@ -715,7 +715,8 @@ class SweepEngine:
         limit = self.limits[motor]
         bound, lead = limit['max_tracking_error'], settings['lead_fraction'] * limit['max_tracking_error']
         step = min(settings['step_fraction'] * lead, settings['max_step_rad'])
-        load = (report.torque.get('gravity_max') or 0.) + (report.torque.get('friction') or 0.)
+        fed = bool(self.gravity.get(motor))  # Gravity fed forward: the position loop holds only its error.
+        load = analysis.static_load(report.torque, gravity_fed=fed)
         ladder = sorted({round(f * ceiling, 3) for f in settings['kp_ladder']}, reverse=True)
         for kp in ladder:
             passed_any = False
@@ -746,7 +747,7 @@ class SweepEngine:
                 report.holds[kp] = holding.get('error') if ok else None
         gains = analysis.recommend(motor, torque=report.torque, grid=report.grid, holds=report.holds, speeds=[],
                                    decelerations=[], bound=bound, tolerance=self._tolerance(motor),
-                                   profile_gains={'kp': kp_ref, 'kd': kd_ref})
+                                   profile_gains={'kp': kp_ref, 'kd': kd_ref}, gravity_fed=fed)
         chosen = (gains['hold_kp'], gains['hold_kd'])
         # 3. Speeds, then braking, at the chosen gains.
         yield from self._stiffen(motor, chosen)
@@ -790,7 +791,7 @@ class SweepEngine:
         report.recommendation = analysis.recommend(
             motor, torque=report.torque, grid=report.grid, holds=report.holds, speeds=report.speeds,
             decelerations=report.decelerations, bound=bound, tolerance=self._tolerance(motor),
-            profile_gains={'kp': kp_ref, 'kd': kd_ref})
+            profile_gains={'kp': kp_ref, 'kd': kd_ref}, gravity_fed=fed)
         # 4. Verify the whole verified range at the recommended settings. The pass across the range is the
         # last word on lag: over half the bound, it steps down to the next slower tested speed (twice at most).
         recommendation = report.recommendation

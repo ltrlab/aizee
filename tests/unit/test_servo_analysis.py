@@ -85,19 +85,29 @@ def steps(overshoot, settle):
              'peak_effort': 1., 'duration_s': .6}] * 2
 
 
-def test_recommendation_takes_the_lowest_passing_stiffness_plus_one_step_of_margin():
+def test_recommendation_takes_the_stiffest_passing_stiffness():
     torque = {'gravity_max': 2., 'friction': .3}
     grid = [{'kp': kp, 'kd': kd, 'steps': steps(over, .15), 'ramp': {'speed': .3, 'max_lag': .01}}
             for kp in (30., 60., 90., 150.) for kd, over in ((2., .25), (6., .05))]
+    grid.append({'kp': 220., 'kd': 9., 'steps': steps(.3, .15), 'ramp': {'speed': .3, 'max_lag': .01}})
     holds = {30.: .08, 60.: .03, 90.: .025, 150.: .015}
     speeds = [{'speed': s, 'mean_lag': s / 20, 'max_lag': s / 15, 'peak_effort': 1.} for s in (.2, .4, .6, .8)]
     decelerations = [{'deceleration': a, 'max_lag': a / 200, 'overshoot': a / 2000} for a in (2., 4., 8., 16.)]
     result = recommend('right_arm_j2', torque=torque, grid=grid, holds=holds, speeds=speeds,
                        decelerations=decelerations, bound=.08, tolerance=.03,
                        profile_gains={'kp': 220., 'kd': 15.})
-    # 2.3 Nm within 0.04 rad needs kp >= 57.5; 60 passes (its hold sagged 0.03 <= 0.04), so 90 with margin.
+    # 2.3 Nm within 0.04 rad needs kp >= 57.5; 220 overshoots 30%, and 150 is the stiffest that passes: it
+    # follows and holds best.
     assert result['kp_floor'] == pytest.approx(57.5)
-    assert (result['hold_kp'], result['hold_kd'], result['gains_met']) == (90., 6., True)
+    assert (result['hold_kp'], result['hold_kd'], result['gains_met']) == (150., 6., True)
+    assert any('stiffness 220 failed with every damping: overshot 30%' in note for note in result['notes'])
+    # With gravity fed forward the position loop holds only its model's error, 20% of it here.
+    fed = recommend('right_arm_j2', torque=torque, grid=grid, holds=holds, speeds=speeds,
+                    decelerations=decelerations, bound=.08, tolerance=.03, profile_gains={'kp': 220., 'kd': 15.},
+                    gravity_fed=True)
+    assert any(note.startswith('holding 0.70 Nm (20% of gravity (fed forward) + friction) within 0.040 rad needs '
+                               'kp >= 17.5') for note in fed['notes'])
+    assert fed['kp_floor'] == pytest.approx(.3 / .015)  # Settling against friction sets the floor now.
     assert result['max_velocity'] == .6  # Lagged 0.04 rad, just within half the bound; 0.8 lagged 0.053.
     assert result['stop_acceleration'] == 8.  # 16 rad/s^2 lagged 0.08 rad.
     assert result['max_tracking_error'] == pytest.approx(.08)  # Twice 0.04, capped at the current bound.
@@ -144,16 +154,16 @@ def test_a_speed_the_joint_did_not_reach_both_ways_does_not_count():
 def test_each_rejected_stiffness_says_why():
     torque = {'gravity_max': .156, 'friction': .104}
     resting = [dict(step, steady_error=.018) for step in steps(0., .2)]
-    grid = [{'kp': 8., 'kd': .5, 'steps': steps(.03, .04), 'ramp': {'speed': .3, 'max_lag': .044}},
-            {'kp': 11.2, 'kd': .59, 'steps': resting, 'ramp': {'speed': .3, 'max_lag': .034}},
-            {'kp': 11.2, 'kd': .83, 'steps': steps(0., None), 'ramp': None},
-            {'kp': 16., 'kd': .71, 'steps': steps(.03, .24), 'ramp': {'speed': .3, 'max_lag': .028}}]
+    grid = [{'kp': 24., 'kd': .5, 'steps': steps(.03, .04), 'ramp': {'speed': .3, 'max_lag': .044}},
+            {'kp': 16.8, 'kd': .59, 'steps': resting, 'ramp': {'speed': .3, 'max_lag': .034}},
+            {'kp': 16.8, 'kd': .83, 'steps': steps(0., None), 'ramp': None},
+            {'kp': 12., 'kd': .71, 'steps': steps(.03, .24), 'ramp': {'speed': .3, 'max_lag': .028}}]
     result = recommend('right_arm_j6', torque=torque, grid=grid, holds={}, speeds=[], decelerations=[],
                        bound=.08, tolerance=.03, profile_gains={'kp': 8., 'kd': 1.})
-    assert result['hold_kp'] == 16.
+    assert result['hold_kp'] == 12.
     notes = ' | '.join(result['notes'])
-    assert 'stiffness 8 failed with every damping: ramp lagged 0.044 rad (limit 0.040)' in notes
-    assert ('stiffness 11.2 failed with every damping: rested 0.018 rad from the target (limit 0.015); '
+    assert 'stiffness 24 failed with every damping: ramp lagged 0.044 rad (limit 0.040)' in notes
+    assert ('stiffness 16.8 failed with every damping: rested 0.018 rad from the target (limit 0.015); '
             'did not come to rest') in notes
     assert grid_check(grid[3], tolerance=.03, limit=.04) is None
 

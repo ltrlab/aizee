@@ -21,6 +21,7 @@ import numpy as np
 POSITION, VELOCITY, EFFORT, COMMAND = range(4)
 COMMAND_PERIOD_S = .04  # The sweep sends a command every 40 ms.
 GRAVITY_FIT_SPAN_RAD = .3  # A gravity slice is fitted over at least this much travel.
+GRAVITY_RESIDUAL = .2  # With gravity fed forward, the share of it a joint's position loop still holds.
 
 
 def column(rows, joint_index, field):
@@ -224,30 +225,41 @@ def grid_check(entry, *, tolerance, limit, overshoot_limit=.1):
     return None
 
 
+def static_load(torque, *, gravity_fed=False):
+    """The torque a joint's position loop holds at rest: its friction and its gravity, or with gravity fed
+    forward, GRAVITY_RESIDUAL of it (the model's error)."""
+    return ((torque.get('gravity_max') or 0.) * (GRAVITY_RESIDUAL if gravity_fed else 1.)
+            + (torque.get('friction') or 0.))
+
+
 def recommend(joint, *, torque, grid, holds, speeds, decelerations, bound, tolerance, profile_gains,
-              overshoot_limit=.1, lag_fraction=.5):
+              overshoot_limit=.1, lag_fraction=.5, gravity_fed=False):
     """Settings for one joint from its sweep results, with the reason for each.
 
     torque: torque_map() result. grid: [{'kp', 'kd', 'steps': [step_response...],
     'ramp': ramp_lag or None}] from the stiffness x damping ladder. holds: {kp:
     steady error at the worst-gravity point}. speeds: [ramp_lag results at the
     chosen gains]. decelerations: [{'deceleration', 'max_lag', 'overshoot'}].
+    gravity_fed: the joint's gravity is fed forward, so its position loop holds only
+    the model's error of it.
     """
     notes = []
     limit = lag_fraction * bound
-    load = (torque.get('gravity_max') or 0.) + (torque.get('friction') or 0.)
+    load = static_load(torque, gravity_fed=gravity_fed)
     friction = torque.get('friction') or 0.
     kp_static = load / limit if limit > 0 else math.inf
     kp_settle = friction / (.5 * tolerance) if tolerance > 0 else math.inf
     kp_floor = max(kp_static, kp_settle)
-    notes.append(f'holding {load:.2f} Nm (gravity + friction) within {limit:.3f} rad needs kp >= {kp_static:.1f}; '
+    held = f'{GRAVITY_RESIDUAL:.0%} of gravity (fed forward)' if gravity_fed else 'gravity'
+    notes.append(f'holding {load:.2f} Nm ({held} + friction) within {limit:.3f} rad needs kp >= {kp_static:.1f}; '
                  f'settling within {tolerance / 2:.3f} rad against {friction:.2f} Nm friction needs kp >= '
                  f'{kp_settle:.1f}')
 
     def passes(entry):
         return grid_check(entry, tolerance=tolerance, limit=limit, overshoot_limit=overshoot_limit) is None
 
-    candidates = sorted({entry['kp'] for entry in grid if entry['kp'] >= kp_floor})
+    # The stiffest rung that passes: it follows and holds best, and the criteria keep it settled and unshaken.
+    candidates = sorted({entry['kp'] for entry in grid if entry['kp'] >= kp_floor}, reverse=True)
     chosen = None
     for kp in candidates:
         if kp in holds and holds[kp] is not None and holds[kp] > limit:
@@ -270,15 +282,7 @@ def recommend(joint, *, torque, grid, holds, speeds, decelerations, bound, toler
         chosen = dict(profile_gains)
         chosen['met'] = False
     else:
-        # One ladder step of margin above the lowest passing stiffness, when it was tested and passed too.
-        higher = [kp for kp in candidates if kp > chosen['kp']]
-        if higher:
-            margin_kp = higher[0]
-            passing = [e for e in grid if e['kp'] == margin_kp and passes(e)]
-            if passing:
-                best = min(passing, key=lambda e: max(s['settle_s'] for s in e['steps'] if s))
-                notes.append(f"lowest passing stiffness {chosen['kp']:.1f}; one ladder step of margin")
-                chosen = {'kp': margin_kp, 'kd': best['kd']}
+        notes.append(f"stiffest passing stiffness {chosen['kp']:g}")
         chosen['met'] = True
     # A speed counts only when every direction tested at it (and at every slower speed) was followed: within
     # the lag limit, and reaching the speed (the sweep's plan waits for a joint that cannot keep up).
