@@ -2152,3 +2152,16 @@ already checks only the arms against each other (`inter_branch`), the policy
 chosen for these interfaces. Fixed in `5443f8d` (release
 `20260928T003220Z-5443f8d`): the sweep checks paths in the teleop profile's
 scope.
+
+### 2026-09-28 — J1 characterised its full range, then overran a cycle
+
+The right J1 sweep with the teleop collision scope (00:38 UTC) characterised
+past the old ±0.2 rad stop, out to +1.35 rad and into the negative side. It then
+faulted `collision_expired` just as the stiffness tests began. The receiver
+braked J1 at its hanging pose and disabled it.
+
+The torque map is built from every characterisation sample in one plan step.
+It summed them in a Python loop, and J1's wide, slow characterisation
+recorded tens of thousands of samples, so that step overran the receiver's
+80 ms verdict. Fixed in the next commit: the map sums by bin with numpy, 13 ms
+for 192,000 samples on the desktop, where the loop took 96 ms.
