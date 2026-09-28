@@ -156,3 +156,25 @@ def test_each_rejected_stiffness_says_why():
     assert ('stiffness 11.2 failed with every damping: rested 0.018 rad from the target (limit 0.015); '
             'did not come to rest') in notes
     assert grid_check(grid[3], tolerance=.03, limit=.04) is None
+
+
+def test_the_torque_map_of_a_wide_joint_takes_milliseconds():
+    # It runs inside the sweep's control cycle. Right J1's characterisation (+1.35/-0.53 rad at 0.15 rad/s)
+    # recorded tens of thousands of samples; summing them in Python missed the receiver's 80 ms deadline.
+    import time
+    rng = np.random.default_rng(3)
+    segments = []
+    for direction in (1, -1):
+        for _ in range(8):
+            n = 12000
+            q = np.linspace(-.5, 1.3, n)[::direction] + rng.normal(0, 1e-4, n)
+            effort = 4 * np.sin(q) + .5 * direction + rng.normal(0, .05, n)
+            rows = np.zeros((n, 9))
+            rows[:, 0], rows[:, 1], rows[:, 3] = np.arange(n) * 2.5, q, effort
+            segments.append({'rows': rows, 'direction': direction})
+    started = time.perf_counter()
+    result = torque_map(segments, 0)
+    assert time.perf_counter() - started < .05
+    assert result['friction'] == pytest.approx(.5, abs=.05)
+    assert result['gravity_max'] == pytest.approx(4 * math.sin(1.3), abs=.1)
+

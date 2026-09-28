@@ -54,8 +54,10 @@ def torque_map(segments, joint_index, *, bin_rad=.02):
     """
     # Torque weighted by forward displacement: a slow ramp moves in pulses (the command is a 25 Hz
     # staircase), and over a pass the inertia term integrates to the change in kinetic energy (~0)
-    # while stuck samples, whose torque lies anywhere within friction, carry no weight.
-    sums = {}
+    # while stuck samples, whose torque lies anywhere within friction, carry no weight. Summed by bin
+    # with numpy: it runs inside the sweep's control cycle, and a wide joint records tens of thousands
+    # of samples (right J1 missed the receiver's 80 ms deadline summing them in Python, 2026-09-28).
+    keys, directions, torques, weights = [], [], [], []
     for segment in segments:
         rows = segment['rows']
         if len(rows) < 8:
@@ -63,16 +65,26 @@ def torque_map(segments, joint_index, *, bin_rad=.02):
         position, effort = column(rows, joint_index, POSITION), column(rows, joint_index, EFFORT)
         step = np.diff(position) * segment['direction']
         forward = step > 0
-        middle = ((position[:-1] + position[1:]) / 2)[forward]
-        torque = ((effort[:-1] + effort[1:]) / 2)[forward]
-        keys = np.round(middle / bin_rad).astype(int)
-        for key, value, weight in zip(keys, torque, step[forward]):
-            entry = sums.setdefault(int(key), {1: [0., 0.], -1: [0., 0.]})
-            entry[segment['direction']][0] += float(value * weight)
-            entry[segment['direction']][1] += float(weight)
+        keys.append(np.round(((position[:-1] + position[1:]) / 2)[forward] / bin_rad).astype(int))
+        torques.append(((effort[:-1] + effort[1:]) / 2)[forward])
+        weights.append(step[forward])
+        directions.append(np.full(int(forward.sum()), segment['direction']))
+    sums = {1: {}, -1: {}}
+    if keys:
+        keys, directions = np.concatenate(keys), np.concatenate(directions)
+        torques, weights = np.concatenate(torques), np.concatenate(weights)
+        lowest = int(keys.min()) if len(keys) else 0  # Bins are small integers: count them directly.
+        for direction in (1, -1):
+            mask = directions == direction
+            if mask.any():
+                index = keys[mask] - lowest
+                weighted = np.bincount(index, weights=torques[mask] * weights[mask])
+                total = np.bincount(index, weights=weights[mask])
+                sums[direction] = {int(i) + lowest: (float(weighted[i]), float(total[i]))
+                                   for i in np.flatnonzero(total)}
     bins = []
-    for key in sorted(sums):
-        (up_sum, up_weight), (down_sum, down_weight) = sums[key][1], sums[key][-1]
+    for key in sorted(set(sums[1]) & set(sums[-1])):
+        (up_sum, up_weight), (down_sum, down_weight) = sums[1][key], sums[-1][key]
         if up_weight > .25 * bin_rad and down_weight > .25 * bin_rad:
             up_mean, down_mean = up_sum / up_weight, down_sum / down_weight
             bins.append({'position': key * bin_rad, 'up': up_mean, 'down': down_mean,
