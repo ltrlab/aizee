@@ -170,9 +170,14 @@ class TuneCore:
         tolerance = {row['name']: row['tolerance'] for row in derived['lifecycle']}
         settings = {name: dict(sweep_settings(self.profile, name), tolerance=tolerance[name]) for name in names}
         home = {motor['name']: motor['raw_reference_rad'] for motor in reference['motors']}
+        # The teleop profile's collision scope, as teleop checks: the arm against the other arm. Within an arm and
+        # against the body, the CAD's assembly interfaces (bearings at the joints) read as contacts that are not
+        # (docs/architecture/COLLISION_RUNTIME_IMPLEMENTATION.md), and each joint moves alone from the reference
+        # pose within its hand-swept range. The right J1 sweep of 2026-09-28 stopped at +-0.2 rad on bearing/0.
         checker = PathChecker(backend, derived['joint_map'], home=home, fixed=fixed, cad_limits=derived['cad_limits'],
                               clearance_m=settings[sweep[0]]['clearance_m'],
-                              step_rad=settings[sweep[0]]['path_step_rad'])
+                              step_rad=settings[sweep[0]]['path_step_rad'],
+                              scope=derived['config']['collision']['scope'])
         policy = derived['config']['collision']
         window_s = (policy['max_verdict_ms'] + derived['config']['feedback_timeout_ms'] + policy['reaction_ms']) / 1000
         calibration = ((self.bundle.get('servo') or {}).get('joints') or {})

@@ -104,6 +104,8 @@ def test_a_live_sweep_runs_one_arm_to_the_end_disables_it_and_leaves_evidence(se
         if core.stage == 'finished':
             break
     assert core.stage == 'finished' and core.engine.task == 'finished', core.message
+    # Paths are checked in the teleop profile's collision scope, as teleop checks them (not every CAD interface).
+    assert core.engine.checker.scope == session.profile['receiver']['collision']['scope'] == 'inter_branch'
     assert receiver.last['status']['state'] == 'disarmed' and not receiver.last['hardware_enabled']
     result = core.engine.summary()['left_arm_j6']
     assert result['status'] == 'done' and result['recommendation'] is not None
