@@ -41,6 +41,7 @@ from . import servo_analysis as analysis
 from robot_platform.control.approach import (COMMAND_HEADROOM, OVERSPEED_HEADROOM, command_speed, end_margin,
                                              friction_feedforward, lead_toward)
 from robot_platform.control.gravity import gravity_effort
+from robot_platform.control.guarded_config import CONTROL_LAW
 
 DEFAULTS = {
     'characterize_speed': .15,
@@ -846,6 +847,9 @@ class SweepEngine:
         slow, bound = settings['characterize_speed'], limit['max_tracking_error']
         saved = self.calibration.get(motor)
         measured = (saved or {}).get('measured') or {}
+        # A sweep made under the old position-only commands measured another control law: its speed and lag
+        # do not carry over (teleop does not use its speed either, guarded_config.CONTROL_LAW).
+        same_law = (saved or {}).get('control') == CONTROL_LAW
         self._task(f'{self._label(motor)}: to the reference')
         yield from self._go(motor, home, slow)
         yield from self._hold(motor, settings['rest_s'])
@@ -883,7 +887,7 @@ class SweepEngine:
         swept = measured.get('verified') or {}
         up = min(swept.get('up', report.verified[1]), high - home)
         down = min(swept.get('down', report.verified[-1]), home - low)
-        speed = min((saved or {}).get('max_velocity') or .5 * limit['max_velocity'],
+        speed = min(((saved or {}).get('max_velocity') if same_law else None) or .5 * limit['max_velocity'],
                     settings['speed_headroom'] * limit['max_velocity'])
         self._task(f'{self._label(motor)}: pass at {speed:.2f} rad/s')
         verification = {}
@@ -896,7 +900,7 @@ class SweepEngine:
             reasons.append('no pass across the range')
         elif lag > .5 * bound:
             reasons.append(f'lagged {lag:.3f} rad (half the tracking bound is {.5 * bound:.3f})')
-        swept_lag = (measured.get('verification') or {}).get('max_lag')
+        swept_lag = (measured.get('verification') or {}).get('max_lag') if same_law else None
         if lag is not None and swept_lag is not None and lag > 1.5 * swept_lag + .01:
             reasons.append(f'lagged {lag:.3f} rad, up from {swept_lag:.3f} when swept')
         swept_friction = (measured.get('torque') or {}).get('friction')

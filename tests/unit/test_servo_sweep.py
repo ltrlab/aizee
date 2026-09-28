@@ -264,9 +264,10 @@ def test_verify_mode_checks_each_joint_at_its_settings_and_flags_new_friction():
     joints, plant, gains = arm()
     names = [joint['name'] for joint in joints]
     settings = {name: sweep_settings(PROFILE, name) for name in names}
-    calibration = {'right_arm_j2': {'max_velocity': .4, 'measured': {
+    from robot_platform.control.guarded_config import CONTROL_LAW
+    calibration = {'right_arm_j2': {'max_velocity': .4, 'control': CONTROL_LAW, 'measured': {
         'verified': {'up': .6, 'down': .6}, 'verification': {'max_lag': .03}, 'torque': {'friction': .5}}},
-        'right_arm_j5': {'max_velocity': .8, 'measured': {
+        'right_arm_j5': {'max_velocity': .8, 'control': CONTROL_LAW, 'measured': {
             'verified': {'up': .6, 'down': .6}, 'verification': {'max_lag': .03}, 'torque': {'friction': .02}}}}
     gains = dict(gains, right_arm_j2=(300., 10.5))  # Verify runs at the calibrated gains.
     engine = SweepEngine(joints, home={name: 0. for name in names}, gains=gains, settings=settings, sweep=names,
@@ -287,6 +288,19 @@ def test_verify_mode_checks_each_joint_at_its_settings_and_flags_new_friction():
     # The wrist's friction (0.15 Nm) is well up on what it was swept with (0.02): a maintenance flag.
     assert not wrist['passed'] and any('friction' in reason for reason in wrist['reasons']), wrist['reasons']
     assert now < 200  # A quick check: seconds per joint, not minutes.
+    assert shoulder['speed'] == .4  # Its saved speed.
+    # A sweep saved under the old position-only commands: its speed and lag measured another control law, so the
+    # check runs at half the receiver's cap (the speed teleop uses is the profile's) and compares no lag.
+    old = {motor: {k: v for k, v in entry.items() if k != 'control'} for motor, entry in calibration.items()}
+    engine = SweepEngine(joints, home={name: 0. for name in names}, gains=gains, settings=settings,
+                         sweep=['right_arm_j5'], mode='verify', calibration=old)
+    engine.observe(plant.run(names, {'targets': [0., 0.], 'gains': [gains[n] for n in names]}))
+    while (command := engine.command(now)) is not None:
+        engine.observe(plant.run(names, command))
+        now += .04
+    check = engine.summary()['right_arm_j5']['check']
+    assert check['speed'] == pytest.approx(.5 * 2.5)
+    assert not any('when swept' in reason and 'lagged' in reason for reason in check['reasons'])
 
 
 RECEIVER = {'feedback_timeout_ms': 30, 'collision': {'max_verdict_ms': 80, 'reaction_ms': 10}}
