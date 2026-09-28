@@ -2110,3 +2110,31 @@ now measured in open travel for each speed (`8e7dd8c`, release
 `20260927T235536Z-8e7dd8c`). The result cards now compare commanded caps
 (today's shows 0.8, not the receiver's 1.0). A simulated J6 then recommends
 1.2 rad/s over its full range.
+
+### 2026-09-28 — right J6 servo calibration saved
+
+From the full-range sweep of 00:01 UTC, which used open-travel speed tests
+(release `8e7dd8c`). No faults and no guard events. Measured: gravity up to
+0.18 Nm (worst at −0.5 rad), friction 0.11 Nm, verified range
++0.665/−0.628 rad.
+
+Reviewed and saved by the operator (`7433563`, release
+`20260928T001727Z-7433563`):
+
+| Setting | Before | Saved |
+|---|---|---|
+| Stiffness | 8 | 24 |
+| Damping | 1.0 | 0.61 |
+| Speed cap | 0.8 rad/s | 0.6 rad/s |
+| Braking | 16 rad/s² | 32 rad/s² |
+| Tracking bound | 0.08 rad | 0.142 rad |
+
+- At 24, J6 rests within 0.01 rad of its target (0.029 at 8) and follows
+  0.6 rad/s with about 0.02 rad of mean lag. At 8, it already lagged about
+  0.05 rad at 0.3 rad/s, so 0.8 rad/s was only nominal.
+- Usable travel is 1.32 rad (1.43 before). The bound is twice J6's worst brief
+  lag at 0.6 rad/s, 0.071 rad.
+- Verification across the whole range at 0.6 rad/s lagged 0.044 rad at most.
+- 0.8 rad/s just missed both the lag and reach criteria.
+
+Teleop uses this calibration from its next session.
