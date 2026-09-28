@@ -19,6 +19,7 @@ import math
 import numpy as np
 
 POSITION, VELOCITY, EFFORT, COMMAND = range(4)
+COMMAND_PERIOD_S = .04  # The sweep sends a command every 40 ms.
 
 
 def column(rows, joint_index, field):
@@ -137,23 +138,27 @@ def step_response(rows, joint_index, *, target, start, band_fraction=.1, band_fl
 def ramp_lag(rows, joint_index, *, speed):
     """Lag behind the ideal constant-speed path while cruising.
 
-    The commanded position is a 25 Hz staircase; the ideal path is the line fitted
-    through it where it moves at `speed`. Returns mean and worst lag (rad, positive
-    = behind) and the worst effort, or None without a cruise phase.
+    The cruise is where the command moves at its top speed, measured over each command
+    period (the command is a 25 Hz staircase, or the receiver's ramp through it), not
+    its accelerating and braking ends; the ideal path is the line fitted through the
+    command there, and its slope is the speed reached (`speed` was commanded). Returns
+    that speed, the mean and worst lag (rad, positive = behind) and the worst effort,
+    or None without a cruise phase.
     """
     t = times_s(rows)
     commanded = column(rows, joint_index, COMMAND)
     position = column(rows, joint_index, POSITION)
     if len(t) < 8:
         return None
-    # The move is where the command has left its start and not yet reached its end;
-    # its middle 80% cruises (the staircase's own steps average out in the fit).
-    moving = np.flatnonzero((commanded != commanded[0]) & (commanded != commanded[-1]))
-    if len(moving) < 8:
+    window = max(1, int(round(COMMAND_PERIOD_S / max(float(np.median(np.diff(t))), 1e-4))))
+    if len(t) < window + 8:
         return None
-    first, last = moving[0], moving[-1]
-    margin = (last - first) // 10
-    cruise = slice(first + margin, last - margin + 1)
+    rate = np.abs(commanded[window:] - commanded[:-window]) / np.maximum(t[window:] - t[:-window], 1e-6)
+    top = float(np.max(rate))
+    if not top > 0:
+        return None
+    fast = np.flatnonzero(rate >= .9 * top)  # rate[i] spans samples i to i + window.
+    cruise = slice(int(fast[0]), int(fast[-1]) + window + 1)
     if cruise.stop - cruise.start < 8:
         return None
     slope, intercept = np.polyfit(t[cruise], commanded[cruise], 1)
