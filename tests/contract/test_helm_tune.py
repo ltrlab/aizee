@@ -159,3 +159,34 @@ def test_a_live_sweep_needs_a_confirmation_the_jetson_and_the_tether(setup):
         session.configure(arm='left', target='pc')
     session.configure(arm='left', mode='virtual', target='pc')
     assert session.snapshot()['receiver_choice'] == {'mode': 'virtual', 'arm': 'left'}
+
+
+def test_a_saved_gravity_slice_feeds_its_arms_pitch_chain_forward(setup):
+    helm, session, tmp_path = setup
+    session.path = tmp_path / 'servo.json'
+    recommendation = {'joint': 'left_arm_j2', 'hold_kp': 220., 'hold_kd': 15., 'gains_met': True,
+                      'max_velocity': 1.5, 'stop_acceleration': 16., 'max_tracking_error': .08, 'notes': []}
+    session.results = {'left_arm_j2': {
+        'recommendation': recommendation, 'verification': {'passed': True}, 'verified': {'up': .5, 'down': .5},
+        'torque': {'friction': .6, 'span': [-.4, .4], 'gravity_fit': {'A': 17., 'C': .05}}}}
+    document = session.save(['left_arm_j2'])
+    assert document['gravity']['left_arm_j2']['A'] == 17. and document['gravity']['left_arm_j2']['span'] == [-.4, .4]
+    plan, _paths, device, reference, model, pose, bindings = load_plan(helm.profile_path)
+    transmissions = validate_preview_transmissions(plan.get('preview_transmissions', []), plan['steps'], reference,
+                                                   model)
+    reference, steps, transmissions = arm_subset(reference, plan['steps'], transmissions, 'left')
+    backend = SimpleNamespace(policy_revision='p', runtime_model=SimpleNamespace(revision='m', world_revision='w'))
+    derived = derive_receiver(reference=reference, steps=steps, directions=helm.mapping, transmissions=transmissions,
+                              model=model, limits=helm.saved_limits, profile=session.profile, backend=backend,
+                              servo=document)
+    lifecycle = {row['name']: row for row in derived['lifecycle']}
+    # The new shoulder slice joins the saved elbow and wrist slices: the shoulder carries its upper arm and, at
+    # their own angles, the links beyond it (the elbow's motor turns the other way about their common axis).
+    a3, a4 = document['gravity']['left_arm_j3']['A'], document['gravity']['left_arm_j4']['A']
+    assert [term[0] for term in lifecycle['left_arm_j2']['gravity']] == pytest.approx([17. - a3, a3 - a4, a4])
+    assert [term[1] for term in lifecycle['left_arm_j2']['gravity']] == [
+        {'left_arm_j2': 1}, {'left_arm_j2': 1, 'left_arm_j3': -1},
+        {'left_arm_j2': 1, 'left_arm_j3': -1, 'left_arm_j4': 1}]
+    assert not lifecycle['left_arm_j1']['gravity'] and not lifecycle['left_arm_j5']['gravity']
+    report = {row['motor']: row for row in derived['report']}
+    assert report['left_arm_j2']['gravity_ff'] and not report['left_arm_j1']['gravity_ff']

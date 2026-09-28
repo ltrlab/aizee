@@ -501,3 +501,33 @@ def test_a_joint_short_of_room_for_faster_speeds_is_verified_at_its_cap():
     assert result['verification']['passed'] and result['recommendation']['max_velocity'] == pytest.approx(2.5)
     assert plant.fastest['right_arm_j6'] < 3.125
 
+
+
+def test_gravity_feed_forward_lets_a_heavy_joint_sweep_and_verify_its_range():
+    # A shoulder with 14 sin(q) of gravity: its lead cap (220 x 0.048 = 10.6 Nm) stops it lifting past 0.6 rad.
+    # Fed its gravity from a slice 20% short (11 sin q), the position loop only answers the friction and the
+    # model's error: it characterises, follows and verifies twice the range, and its torque map refits the slice.
+    def sweep(gravity):
+        joints, plant, gains = arm()
+        plant.joints['right_arm_j2']['gravity'] = lambda q: 14. * math.sin(q)
+        plant.bounds['right_arm_j2'] = 10.  # Let the plan's own guards show what it can do.
+        plant.interpolation = .04
+        names = [joint['name'] for joint in joints]
+        engine = SweepEngine(joints, home={name: 0. for name in names}, gains=gains,
+                             settings={name: sweep_settings(PROFILE, name) for name in names},
+                             sweep=['right_arm_j2'], interpolation_s=.04, gravity=gravity)
+        engine.observe(plant.run(names, {'targets': [0., 0.], 'gains': [gains[n] for n in names]}))
+        now = 0.
+        while now < 4000:
+            command = engine.command(now)
+            if command is None:
+                break
+            engine.observe(plant.run(names, command))
+            now += .04
+        assert engine.done and engine.task == 'finished', engine.task
+        return engine.summary()['right_arm_j2']
+    held, fed = sweep(None), sweep({'right_arm_j2': [[11., {'right_arm_j2': 1}]]})
+    assert held['verified']['up'] < .7 and fed['verified']['up'] >= 1. - 1e-9 and fed['verified']['down'] >= 1. - 1e-9
+    assert fed['verification']['passed'] and fed['verification']['span'] == pytest.approx((-1., 1.))
+    assert fed['recommendation']['max_velocity'] > held['recommendation']['max_velocity']
+    assert fed['torque']['gravity_fit']['A'] == pytest.approx(14., rel=.02)

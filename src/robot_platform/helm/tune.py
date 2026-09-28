@@ -121,10 +121,11 @@ class TuneCore:
         if self.mode == 'verify':
             derived = base  # The settings teleop would use: that is what the check verifies.
         else:
+            # The session's own settings, with the saved gravity feed-forward (a new torque map refits it).
             derived = derive_receiver(reference=reference, steps=steps, directions=self.bundle['directions'],
                                       transmissions=transmissions, model=model, limits=self.bundle['limits'],
                                       profile=sweep_profile(self.profile, motors, gains, sweep=sweep),
-                                      backend=backend)
+                                      backend=backend, gravity=(self.bundle.get('servo') or {}).get('gravity'))
         # Each joint's derived row today, with the settings teleop uses today (the session may loosen them).
         # The receiver's speed cap is the commanded one times OVERSPEED_HEADROOM; the card compares commanded caps.
         from robot_platform.control.approach import OVERSPEED_HEADROOM
@@ -185,7 +186,9 @@ class TuneCore:
                                   labels=self.labels, mode=self.mode,
                                   calibration={m: calibration[m] for m in sweep if m in calibration},
                                   travel=self.travel, receiver=self.profile['receiver'],
-                                  interpolation_s=derived['config'].get('interpolation_ms', 0) / 1000)
+                                  interpolation_s=derived['config'].get('interpolation_ms', 0) / 1000,
+                                  gravity={row['name']: row['gravity'] for row in derived['lifecycle']
+                                           if row.get('gravity')})
         if self.evidence is not None:
             self.sink = (self.evidence / 'samples.f32').open('ab')
             self.engine.recording.sink = self.sink

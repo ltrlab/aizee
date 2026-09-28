@@ -40,6 +40,7 @@ import numpy as np
 from . import servo_analysis as analysis
 from robot_platform.control.approach import (COMMAND_HEADROOM, OVERSPEED_HEADROOM, command_speed, end_margin,
                                              friction_feedforward, lead_toward)
+from robot_platform.control.gravity import gravity_effort
 
 DEFAULTS = {
     'characterize_speed': .15,
@@ -274,7 +275,7 @@ class SweepEngine:
 
     def __init__(self, joints, *, home, gains, settings, sweep, checker=None, window_s=.12, verdict_s=.08,
                  labels=None, period_s=PERIOD_S, mode='tune', calibration=None, travel=None, receiver=None,
-                 interpolation_s=0.):
+                 interpolation_s=0., gravity=None):
         """mode 'tune' steps the settings; 'verify' (Minerva Check) checks each joint at the settings it has
         (`gains`, and each joint's speed cap), against its saved sweep (`calibration`: {motor: entry}) if any."""
         if mode not in ('tune', 'verify'):
@@ -293,6 +294,7 @@ class SweepEngine:
         self.interpolation_s = interpolation_s
         self._sent = {}  # The last command's position per joint.
         self.friction = {}  # {motor: Nm} fed forward in the direction of motion, as teleop does.
+        self.gravity = dict(gravity or {})  # {motor: gravity terms} fed forward at the commanded pose, as teleop.
         self.labels = dict(labels or {})
         self.period = period_s
         self.recording = Recording(self.names)
@@ -420,6 +422,11 @@ class SweepEngine:
             velocities.append(velocity)
             efforts.append(friction_feedforward(self.friction.get(name, 0.), velocity))
             gains.append(self.test_gains.get(name, self.gains[name]))
+        pose = dict(zip(self.names, targets))
+        for i, name in enumerate(self.names):
+            if self.gravity.get(name):
+                limit = .9 * self.limits[name]['max_effort']
+                efforts[i] = max(-limit, min(limit, efforts[i] + gravity_effort(self.gravity[name], pose)))
         return {'targets': targets, 'gains': gains, 'velocities': velocities, 'efforts': efforts, 'task': self.task}
 
     def _event(self, text):
@@ -1076,7 +1083,8 @@ class SweepEngine:
                                                          **((self.travel.get(motor) or {}).get('today') or {})},
                 'status': report.status, 'verified': {'up': report.verified[1], 'down': report.verified[-1]},
                 'torque': None if report.torque is None else {k: report.torque.get(k) for k in
-                                                              ('gravity_max', 'gravity_worst_at', 'friction', 'span')},
+                                                              ('gravity_max', 'gravity_worst_at', 'friction', 'span',
+                                                               'gravity_fit')},
                 'grid': [{k: e.get(k) for k in ('kp', 'kd', 'multiplier', 'failed')}
                          | {'overshoot': max((s['overshoot'] for s in e['steps'] if s), default=None),
                             # None: a step never came to rest.

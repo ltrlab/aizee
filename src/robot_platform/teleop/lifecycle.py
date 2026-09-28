@@ -8,6 +8,7 @@ import math
 import time
 
 from robot_platform.control.approach import command_speed, friction_feedforward, lead_toward
+from robot_platform.control.gravity import gravity_effort
 
 
 def _finite(value):
@@ -39,6 +40,11 @@ class TeleopLifecycle:
                 raise ValueError('Invalid joint interval, reference, gains or motion bounds')
         if len(set(names)) != len(names):
             raise ValueError('Joint names must be unique')
+        for joint in self._joints:
+            for term in joint.get('gravity') or ():
+                if (len(term) != 2 or not _finite(term[0]) or not isinstance(term[1], dict)
+                        or any(name not in names or term[1][name] not in (-1, 1) for name in term[1])):
+                    raise ValueError('Gravity terms must be finite and name this lifecycle\'s joints')
         self.names = tuple(names)
         values = (feedback_max_age_s, target_max_age_s, max_skew_s, max_step_s)
         if (any(not _finite(value) or value <= 0 for value in values)
@@ -110,11 +116,20 @@ class TeleopLifecycle:
         self._velocities = None
         velocities = velocities or (0.,) * len(self._joints)
         commands = None if positions is None else [
-            dict(position=q, velocity=v, effort=friction_feedforward(joint.get('friction_nm', 0.), v),
+            dict(position=q, velocity=v, effort=0. if zero_gains else self._effort(joint, v, positions),
                  kp=0. if zero_gains else joint['hold_kp'], kd=0. if zero_gains else joint['hold_kd'])
             for q, v, joint in zip(positions, velocities, self._joints)]
         return dict(state=self.state, operation=operation, joint_names=list(self.names),
                     positions=positions, joints=commands, reason=self.reason)
+
+    def _effort(self, joint, velocity, positions):
+        """Feed-forward: friction in the direction of motion and the arm's gravity at the commanded pose,
+        within 90% of the joint's effort limit."""
+        effort = friction_feedforward(joint.get('friction_nm', 0.), velocity)
+        if joint.get('gravity'):
+            effort += gravity_effort(joint['gravity'], dict(zip(self.names, positions)))
+        limit = .9 * joint.get('max_effort', math.inf)
+        return max(-limit, min(limit, effort))
 
     def fault(self, reason):
         """Latch a fault and clear proposals; receiver recovery is external."""

@@ -356,3 +356,20 @@ def test_without_an_interpolation_period_commands_carry_no_velocity():
     moving = lifecycle.step(feedback(.08), target=target(.08, (.6, .04)), now=.08)
     assert moving['positions'][0] > .3
     assert all(command['velocity'] == 0. and command['effort'] == 0. for command in moving['joints'])
+
+
+def test_commands_hold_the_arm_against_gravity_at_the_commanded_pose():
+    held = joints()
+    # The arm joint holds 3 sin(q) against gravity; the slide's load hangs on the arm's angle plus its own.
+    held[0].update(gravity=[[3., {'arm': 1}]], max_effort=10.)
+    held[1].update(gravity=[[-1., {'arm': 1, 'slide': 1}]], max_effort=.2)
+    lifecycle = TeleopLifecycle(held, settle_time_s=0.)
+    positions = (.3, .02)
+    idle = lifecycle.action('idle', feedback(0., positions), now=0.)
+    assert all(command['effort'] == 0. for command in idle['joints'])  # Zero gains: no effort.
+    lifecycle.action('enable', feedback(0., positions), now=0.)
+    hold = lifecycle.step(feedback(.04, positions), now=.04)['joints']
+    assert hold[0]['effort'] == pytest.approx(3. * math.sin(.3))
+    assert hold[1]['effort'] == pytest.approx(-.18)  # Within 90% of the slide's 0.2 Nm effort limit.
+    with pytest.raises(ValueError, match='Gravity terms'):
+        TeleopLifecycle([dict(held[0], gravity=[[3., {'elsewhere': 1}]]), held[1]])

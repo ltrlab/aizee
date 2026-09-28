@@ -3,7 +3,9 @@
 It lives next to the joint limits (config/devices/<asset>-servo.json). Each joint
 is bound to its motor's UID and firmware; guarded_config.derive_receiver takes
 that joint's gains, speed, braking and tracking bound from it, and refuses a
-joint whose motor has changed since.
+joint whose motor has changed since. Its `gravity` section keeps each saved joint's
+gravity slice (servo_analysis.torque_map's gravity_fit), from which control.gravity
+builds each arm's gravity feed-forward.
 """
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -59,6 +61,11 @@ def save_servo(path, *, asset_id, reference, results, motors, session, existing=
                  'notes': recommendation.get('notes', [])}
         entry.update({key: recommendation[key] for key in SERVO_KEYS if recommendation.get(key) is not None})
         document['joints'][motor] = entry
+        torque = result.get('torque') or {}
+        if torque.get('gravity_fit'):
+            document.setdefault('gravity', {})[motor] = {
+                **torque['gravity_fit'], 'span': list(torque.get('span') or []), 'session': evidence_name(session),
+                'measured_at': entry['confirmed_at']}
     Path(path).write_text(json.dumps(document, indent=2) + '\n', encoding='utf-8')
     return document
 

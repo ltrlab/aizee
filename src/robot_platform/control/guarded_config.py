@@ -24,6 +24,7 @@ from fnmatch import fnmatchcase
 import math
 
 from .collision_envelope import calibration_revision
+from .gravity import gravity_model
 from robot_platform.control.approach import OVERSPEED_HEADROOM, OVERTRAVEL_RAD, end_margin, limit_reaction_s
 
 RECEIVER_KEYS = ('max_velocity', 'max_effort', 'max_kp', 'max_kd', 'stop_acceleration',
@@ -122,11 +123,14 @@ def servo_settings(settings, motor, servo):
     return merged, True
 
 
-def derive_receiver(*, reference, steps, directions, transmissions, model, limits, profile, backend, servo=None):
+def derive_receiver(*, reference, steps, directions, transmissions, model, limits, profile, backend, servo=None,
+                    gravity=None):
     """Receiver config, CAD map, lifecycle joints, initial pose and a per-joint report.
 
     `servo` is a saved servo calibration: its joints take their gains, speed,
-    braking and tracking bound from it instead of the profile.
+    braking and tracking bound from it instead of the profile. Each arm's pitch chain
+    gets gravity feed-forward from `gravity` (gravity slices, {motor: {'A': ...}};
+    default: the servo calibration's), see control.gravity.
     """
     joint_map = cad_map(reference, steps, directions, transmissions)
     by_motor = {row['actuator']: (joint, row) for joint, row in joint_map.items()}
@@ -136,6 +140,8 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
     verified = {row['motor']: row.get('direction_verified') is True for row in directions.values()}
     verified.update({t['motor']: t.get('direction_verified') is True for t in transmissions})
     grippers = {t['motor'] for t in transmissions}
+    fits = gravity if gravity is not None else (servo or {}).get('gravity')
+    terms = gravity_model(model, directions, reference['motors'], fits) if fits else {}
     joints, lifecycle, initial, report = [], [], [], []
     cad_limits = {}
     for motor in reference['motors']:
@@ -188,6 +194,9 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
                           # Not a gripper's: fed-forward velocity would add to its squeeze while it closes on
                           # an object (kd x speed), and its command already leads by its whole range.
                           'interpolation_s': 0. if gripper else interpolation_ms / 1000, 'friction_nm': friction,
+                          # Gravity feed-forward: [(coefficient, {motor: multiplier})], control.gravity.
+                          'gravity': [[coefficient, angle] for coefficient, angle in terms.get(name, [])],
+                          'max_effort': float(settings['max_effort']),
                           # Commands slow toward an end within the receiver's braking curve.
                           **({} if gripper else {'approach': {
                               **bounds, 'max_velocity': float(speed),
@@ -198,7 +207,7 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
         report.append({'motor': name, 'cad_joint': cad_joint, 'scale': row['scale'], 'offset': row['offset'],
                        'swept': [saved['min_rad'], saved['max_rad']], 'cad': cad_motor,
                        'operational': [lower, upper], 'usable': list(usable), 'reserve': margin,
-                       'receiver_cap': float(speed), 'friction_ff': friction,
+                       'receiver_cap': float(speed), 'friction_ff': friction, 'gravity_ff': bool(terms.get(name)),
                        'receiver': [bounds['lower'], bounds['upper']],
                        'home': home, 'direction_verified': verified.get(name, False), 'servo_calibrated': calibrated,
                        # Gripper slides: the motor direction that opens (away from the bound nearest zero).

@@ -20,6 +20,7 @@ import numpy as np
 
 POSITION, VELOCITY, EFFORT, COMMAND = range(4)
 COMMAND_PERIOD_S = .04  # The sweep sends a command every 40 ms.
+GRAVITY_FIT_SPAN_RAD = .3  # A gravity slice is fitted over at least this much travel.
 
 
 def column(rows, joint_index, field):
@@ -51,7 +52,9 @@ def torque_map(segments, joint_index, *, bin_rad=.02):
     Each segment: {'rows': array, 'direction': +1|-1}. Effort while moving up is
     gravity + friction; down, gravity - friction. Returns bins with both
     directions: [{'position', 'up', 'down', 'gravity', 'friction'}], plus the
-    joint's worst gravity torque and its median friction.
+    joint's worst gravity torque, its median friction and its gravity slice
+    gravity = A sin(q) + C (`gravity_fit`, over at least GRAVITY_FIT_SPAN_RAD; the
+    reference pose q = 0 hangs straight down, control.gravity).
     """
     # Torque weighted by forward displacement: a slow ramp moves in pulses (the command is a 25 Hz
     # staircase), and over a pass the inertia term integrates to the change in kinetic energy (~0)
@@ -91,11 +94,17 @@ def torque_map(segments, joint_index, *, bin_rad=.02):
             bins.append({'position': key * bin_rad, 'up': up_mean, 'down': down_mean,
                          'gravity': (up_mean + down_mean) / 2, 'friction': abs(up_mean - down_mean) / 2})
     if not bins:
-        return {'bins': [], 'gravity_max': None, 'friction': None, 'span': None}
+        return {'bins': [], 'gravity_max': None, 'friction': None, 'span': None, 'gravity_fit': None}
     worst = max(bins, key=lambda b: abs(b['gravity']))
+    positions = np.array([b['position'] for b in bins])
+    fit = None
+    if len(bins) >= 5 and positions[-1] - positions[0] >= GRAVITY_FIT_SPAN_RAD:
+        (a, c), *_ = np.linalg.lstsq(np.column_stack([np.sin(positions), np.ones_like(positions)]),
+                                     np.array([b['gravity'] for b in bins]), rcond=None)
+        fit = {'A': float(a), 'C': float(c)}
     return {'bins': bins, 'gravity_max': abs(worst['gravity']), 'gravity_worst_at': worst['position'],
             'friction': float(np.median([b['friction'] for b in bins])),
-            'span': (bins[0]['position'], bins[-1]['position'])}
+            'span': (bins[0]['position'], bins[-1]['position']), 'gravity_fit': fit}
 
 
 # -- step response ------------------------------------------------------------------

@@ -177,4 +177,10 @@ def test_the_torque_map_of_a_wide_joint_takes_milliseconds():
     assert time.perf_counter() - started < .05
     assert result['friction'] == pytest.approx(.5, abs=.05)
     assert result['gravity_max'] == pytest.approx(4 * math.sin(1.3), abs=.1)
+    # Its gravity slice, for gravity feed-forward (control.gravity).
+    assert result['gravity_fit']['A'] == pytest.approx(4., abs=.05)
+    assert result['gravity_fit']['C'] == pytest.approx(0., abs=.05)
+    # Over too short a travel, no fit.
+    short = [dict(s, rows=s['rows'][np.abs(s['rows'][:, 1]) < .1]) for s in segments]
+    assert torque_map(short, 0)['gravity_fit'] is None
 
