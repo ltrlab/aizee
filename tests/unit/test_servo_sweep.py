@@ -428,3 +428,9 @@ def test_speeds_are_measured_in_open_travel_where_the_braking_curve_allows_them(
     engine.targets['right_arm_j6'] = low + 1e-9
     assert engine._toward_end('right_arm_j6', -1) >= 1. - 1e-6
 
+
+def test_a_calibration_names_its_evidence_without_the_robots_home_directory():
+    from robot_platform.control.servo_calibration import evidence_name
+    assert evidence_name('/home/someone/minerva/evidence/sweep-20260928T000115Z') ==         '~/minerva/evidence/sweep-20260928T000115Z'
+    assert evidence_name('2026-09-28T00:14:27+00:00') == '2026-09-28T00:14:27+00:00'  # A virtual sweep's time.
+
