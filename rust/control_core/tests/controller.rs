@@ -16,6 +16,7 @@ fn config(count: usize) -> Config {
         identity: identity(),
         lease_ms: 100,
         feedback_timeout_ms: 20,
+        interpolation_ms: 0,
         settled_velocity: 0.001,
         joints: (0..count)
             .map(|i| JointLimits {
@@ -1081,9 +1082,9 @@ fn a_gripper_stalled_on_an_object_does_not_fault_but_an_arm_joint_does() {
 }
 
 // Braking curves: in the fixture's collision policy a joint (limits +-3, cap 2 rad/s,
-// 2 rad/s^2, bound 0.5) reacts in 70 ms, so its reserve at the cap is 1.64 rad; near
-// a limit it may approach only as fast as it can still stop, down to 0.5 rad/s, whose
-// stopping margin (0.5975 rad) is all it keeps at each end.
+// 2 rad/s^2) may approach a limit only as fast as it can still stop at it, reacting within
+// the feedback timeout and reaction allowance (30 ms), down to 0.5 rad/s, whose stopping
+// margin (0.0775 rad) is all it keeps at each end.
 
 fn arm_at(position: f64, upper: f64) -> (Controller, Loopback, Reply) {
     let (mut c, mut h) = collision_fixture();
@@ -1103,8 +1104,8 @@ fn arm_at(position: f64, upper: f64) -> (Controller, Loopback, Reply) {
 }
 
 #[test]
-fn approach_speed_is_the_cap_in_open_travel_and_slows_to_the_floor_near_a_limit() {
-    use robot_control::collision::{approach_speed, reserve_toward, APPROACH_FLOOR_RAD_S};
+fn limit_speed_is_the_cap_in_open_travel_and_stops_the_joint_at_the_limit() {
+    use robot_control::collision::{limit_reserve, limit_speed, APPROACH_FLOOR_RAD_S};
     let mut cfg = config(1);
     let policy = robot_control::collision::CollisionPolicy {
         world_revision: "fixed-world".into(),
@@ -1114,25 +1115,22 @@ fn approach_speed_is_the_cap_in_open_travel_and_slows_to_the_floor_near_a_limit(
     };
     cfg.collision = Some(policy.clone());
     let joint = &cfg.joints[0];
-    assert_eq!(approach_speed(&policy, &cfg, joint, 3.0), 2.0);
-    assert!((reserve_toward(&policy, &cfg, joint, 3.0) - 1.64).abs() < 1e-9);
-    // One radian from the limit: slower than the cap, and the reserve is exactly that radian.
-    let v = approach_speed(&policy, &cfg, joint, 1.0);
+    assert_eq!(limit_speed(&policy, &cfg, joint, 3.0), 2.0);
+    // One radian from the limit: under the cap, and it stops exactly at the limit.
+    let v = limit_speed(&policy, &cfg, joint, 1.0);
     assert!(v > APPROACH_FLOOR_RAD_S && v < 2.0, "{v}");
-    assert!((reserve_toward(&policy, &cfg, joint, 1.0) - 1.0).abs() < 1e-9);
-    // Within the floor's stopping margin, the reserve is that margin: more than the distance.
-    assert_eq!(approach_speed(&policy, &cfg, joint, 0.55), APPROACH_FLOOR_RAD_S);
-    assert!((reserve_toward(&policy, &cfg, joint, 0.55) - 0.5975).abs() < 1e-9);
+    assert!((limit_reserve(&policy, &cfg, joint, 1.0) - 1.0).abs() < 1e-9);
+    // Within the floor's stopping margin the reserve is that margin: more than the distance.
+    assert_eq!(limit_speed(&policy, &cfg, joint, 0.05), APPROACH_FLOOR_RAD_S);
+    assert!((limit_reserve(&policy, &cfg, joint, 0.05) - 0.0775).abs() < 1e-9);
     let mut gripper = joint.clone();
     gripper.gripper = true;
-    assert_eq!(approach_speed(&policy, &cfg, &gripper, 0.1), 2.0);
-    assert_eq!(reserve_toward(&policy, &cfg, &gripper, 0.1), 0.0);
+    assert_eq!(limit_speed(&policy, &cfg, &gripper, 0.01), 2.0);
+    assert_eq!(limit_reserve(&policy, &cfg, &gripper, 0.01), 0.0);
 }
 
 #[test]
 fn a_joint_near_its_limit_arms_with_a_box_reaching_the_limit() {
-    // One radian from the upper limit: the fixed reserve at the cap (1.64 rad) would
-    // have refused it; the braking curve needs the box to reach the limit, no further.
     let (c, h, reply) = arm_at(2.0, 3.0);
     assert!(reply.accepted, "{:?}", reply.reason);
     assert_eq!(c.status().state, State::Holding);
@@ -1145,30 +1143,117 @@ fn a_joint_near_its_limit_arms_with_a_box_reaching_the_limit() {
 }
 
 #[test]
-fn a_joint_within_its_stopping_margin_of_a_limit_cannot_arm() {
-    let (_, h, reply) = arm_at(2.45, 3.0); // 0.55 rad from the limit; the margin is 0.5975.
+fn a_joint_uses_its_travel_up_to_the_floors_stopping_margin() {
+    let (_, h, reply) = arm_at(2.95, 3.0); // 0.05 rad from the limit; the margin is 0.0775.
     assert!(!reply.accepted);
     assert_eq!(reply.reason, Reason::CollisionViolation);
     assert!(!h.enabled);
-    let (_, _, reply) = arm_at(2.4, 3.0); // 0.6 rad: just outside it.
+    let (_, _, reply) = arm_at(2.9, 3.0); // 0.1 rad: on the curve, which stops it at the limit.
     assert!(reply.accepted, "{:?}", reply.reason);
 }
 
 #[test]
 fn approaching_a_limit_faster_than_the_curve_allows_faults_but_leaving_it_does_not() {
-    // 0.6 rad from the upper limit a joint may approach it at about 0.51 rad/s.
+    // 0.6 rad from the upper limit a joint may approach it at about 1.49 rad/s.
     let (mut c, mut h, reply) = arm_at(2.4, 3.0);
     assert!(reply.accepted, "{:?}", reply.reason);
     for now in 2..5 {
-        h.feedback[0].velocity = -1.0; // Away from it, well within the 2 rad/s cap.
+        h.feedback[0].velocity = -1.8; // Away from it, within the 2 rad/s cap.
         c.tick(now, &mut h);
     }
     assert_eq!(c.status().state, State::Holding);
     for now in 5..8 {
-        h.feedback[0].velocity = 1.0; // Toward it, three readings in a row.
+        h.feedback[0].velocity = 1.8; // Toward it, three readings in a row.
         c.tick(now, &mut h);
     }
     assert_eq!(c.status().reason, Reason::LimitViolation);
     assert!(!h.enabled);
 }
 
+fn interpolated_fixture() -> (Controller, Loopback) {
+    let mut cfg = config(2);
+    cfg.interpolation_ms = 40;
+    cfg.collision = Some(robot_control::collision::CollisionPolicy {
+        world_revision: "fixed-world".into(),
+        scope: "inter_branch".into(),
+        max_verdict_ms: 100, // Longer than a ramp, so the verdict stays fresh through these tests.
+        reaction_ms: 10,
+    });
+    let mut c = Controller::new(cfg, "boot-a".into()).unwrap();
+    let mut h = Loopback::new(&[0.0, 0.0]);
+    assert!(claim(&mut c, &mut h, 0).accepted);
+    let checked = envelope(&mut c, &mut h, 1);
+    assert!(c
+        .handle(
+            1,
+            Request::Arm {
+                authority: auth(&c, 1),
+                collision: Some(checked),
+            },
+            &mut h,
+        )
+        .accepted);
+    (c, h)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn move_with(
+    c: &mut Controller,
+    h: &mut Loopback,
+    now: u64,
+    sequence: u64,
+    q: f64,
+    v: f64,
+    effort: f64,
+    upper: f64,
+) -> Reply {
+    let mut checked = envelope(c, h, now);
+    checked.upper = vec![upper; 2];
+    let mut commanded = joints(2, q, v);
+    for joint in commanded.iter_mut() {
+        joint.effort = effort;
+    }
+    c.handle(
+        now,
+        Request::Move {
+            collision: Some(checked),
+            authority: auth(c, sequence),
+            identity: identity(),
+            joints: commanded,
+        },
+        h,
+    )
+}
+
+#[test]
+fn velocity_and_effort_feed_forward_are_accepted_with_a_collision_box() {
+    let (mut c, mut h) = interpolated_fixture();
+    let reply = move_with(&mut c, &mut h, 2, 2, 0.2, 1.0, 1.5, 2.5);
+    assert!(reply.accepted, "{:?}", reply.reason);
+    let status = c.status();
+    assert_eq!(status.state, State::Executing);
+    assert_eq!((status.joints[0].velocity, status.joints[0].effort), (1.0, 1.5));
+}
+
+#[test]
+fn a_move_ramps_from_where_the_stream_came_from_then_holds() {
+    let (mut c, mut h) = interpolated_fixture();
+    // 0.4 rad at 1 rad/s over the 40 ms period: the reference starts at 0.36.
+    assert!(move_with(&mut c, &mut h, 10, 2, 0.4, 1.0, 0.0, 2.5).accepted);
+    assert!((c.status().joints[0].position - 0.36).abs() < 1e-9);
+    c.tick(30, &mut h);
+    let halfway = c.status().joints[0];
+    assert!((halfway.position - 0.38).abs() < 1e-9 && halfway.velocity == 1.0);
+    c.tick(50, &mut h);
+    let there = c.status().joints[0];
+    assert!((there.position - 0.4).abs() < 1e-9 && there.velocity == 0.0);
+}
+
+#[test]
+fn a_ramp_that_would_start_within_the_stopping_margin_is_refused() {
+    let (mut c, mut h) = interpolated_fixture();
+    // Ends 0.1 rad from the limit, but ramps from 2.98 (moving away at 2 rad/s over 40 ms).
+    let reply = move_with(&mut c, &mut h, 2, 2, 2.9, -2.0, 0.0, 3.0);
+    assert!(!reply.accepted);
+    assert_eq!(reply.reason, Reason::CollisionViolation);
+}

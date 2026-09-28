@@ -66,6 +66,54 @@ pub fn approach_speed(
     v.clamp(floor, cap)
 }
 
+/// The time the receiver may take to react to a joint approaching a limit too fast: it checks
+/// feedback every tick, so the feedback timeout and the reaction allowance (the collision
+/// verdict's lifetime bounds a box, not a limit).
+pub fn limit_reaction_s(policy: &CollisionPolicy, config: &crate::Config) -> f64 {
+    (config.feedback_timeout_ms + policy.reaction_ms) as f64 / 1000.0
+}
+
+/// The fastest a joint may move toward a limit `distance` away and still stop at it: after the
+/// limit reaction time, braking at its stop acceleration; its cap in open travel; never below
+/// the approach floor (or its cap). The receiver enforces it on feedback while it drives the
+/// arm, so a joint uses its travel up to the floor's stopping margin. Grippers keep their cap.
+pub fn limit_speed(
+    policy: &CollisionPolicy,
+    config: &crate::Config,
+    joint: &crate::JointLimits,
+    distance: f64,
+) -> f64 {
+    let cap = joint.max_velocity;
+    if joint.gripper {
+        return cap;
+    }
+    let floor = APPROACH_FLOOR_RAD_S.min(cap);
+    if !(distance > 0.0) {
+        return floor;
+    }
+    // v * reaction + v^2 / (2 a) = distance
+    let reaction = limit_reaction_s(policy, config);
+    let a = joint.stop_acceleration;
+    let v = a * ((reaction * reaction + 2.0 * distance / a).sqrt() - reaction);
+    v.clamp(floor, cap)
+}
+
+/// How far a joint moving toward a limit `distance` away may travel before it stops: the limit
+/// reaction and braking distances at its limit speed there. It equals the distance on the curve
+/// and exceeds it only within the floor's stopping margin, where no target may be.
+pub fn limit_reserve(
+    policy: &CollisionPolicy,
+    config: &crate::Config,
+    joint: &crate::JointLimits,
+    distance: f64,
+) -> f64 {
+    if joint.gripper {
+        return 0.0;
+    }
+    let v = limit_speed(policy, config, joint, distance);
+    v * limit_reaction_s(policy, config) + v * v / (2.0 * joint.stop_acceleration)
+}
+
 /// The stopping reserve a box keeps toward a limit `distance` from the joint's extreme
 /// position (feedback or target): its tracking bound, then the reaction and braking
 /// distances at its approach speed there. In open travel this is the reserve at the cap;

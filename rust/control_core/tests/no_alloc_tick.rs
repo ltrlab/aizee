@@ -47,6 +47,7 @@ fn periodic_execution_expiry_stop_and_fault_do_not_touch_allocator() {
         identity: identity.clone(),
         lease_ms: 100,
         feedback_timeout_ms: 20,
+        interpolation_ms: 0,
         settled_velocity: 0.001,
         joints: vec![JointLimits {
             name: "q".into(),

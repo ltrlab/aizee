@@ -76,6 +76,11 @@ pub struct Config {
     pub joints: Vec<JointLimits>,
     #[serde(default)]
     pub collision: Option<collision::CollisionPolicy>,
+    /// Commands arrive this often (ms). A command moving at `velocity` is ramped over it, tick by
+    /// tick, from where the previous one pointed (position - velocity x period) to its position,
+    /// with that velocity fed forward: smooth motion from a periodic stream. 0: applied as sent.
+    #[serde(default)]
+    pub interpolation_ms: u64,
 }
 
 impl Config {
@@ -101,6 +106,7 @@ impl Config {
         }
         if self.lease_ms == 0
             || self.lease_ms > 1000
+            || self.interpolation_ms > self.lease_ms
             || self.feedback_timeout_ms == 0
             || self.feedback_timeout_ms > 1000
             || self.joints.is_empty()
@@ -171,6 +177,9 @@ pub struct Controller {
     /// New feedback samples in a row over each joint's max_velocity.
     overspeed: Vec<u8>,
     commands: Vec<JointCommand>,
+    /// The last accepted Move, which `commands` ramps toward while Executing.
+    targets: Vec<JointCommand>,
+    target_at_ms: u64,
     stops: Vec<JointStop>,
     stop_started_ms: u64,
 }
@@ -211,9 +220,48 @@ impl Controller {
                 };
                 count
             ],
+            targets: vec![
+                JointCommand {
+                    position: 0.0,
+                    velocity: 0.0,
+                    effort: 0.0,
+                    kp: 0.0,
+                    kd: 0.0
+                };
+                count
+            ],
+            target_at_ms: 0,
             stops: vec![JointStop::default(); count],
             stop_started_ms: 0,
         })
+    }
+
+    fn interpolation_s(&self) -> f64 {
+        self.config.interpolation_ms as f64 / 1000.0
+    }
+
+    /// Ramp the reference toward the last Move: from where its velocity says the stream came from
+    /// to its position, over one interpolation period, with its velocity fed forward; then hold it.
+    fn follow_targets(&mut self) {
+        let period = self.interpolation_s();
+        let elapsed = (self.now_ms.saturating_sub(self.target_at_ms)) as f64 / 1000.0;
+        for ((command, target), limit) in self
+            .commands
+            .iter_mut()
+            .zip(&self.targets)
+            .zip(&self.config.joints)
+        {
+            *command = *target;
+            if period <= 0.0 {
+                continue; // No interpolation: applied as sent.
+            }
+            if elapsed < period {
+                command.position = (target.position - target.velocity * (period - elapsed))
+                    .clamp(limit.lower, limit.upper);
+            } else {
+                command.velocity = 0.0;
+            }
+        }
     }
 
     pub fn status(&self) -> Status {
@@ -315,7 +363,7 @@ impl Controller {
                 } else {
                     position - limit.lower
                 };
-                collision::approach_speed(policy, &self.config, limit, distance)
+                collision::limit_speed(policy, &self.config, limit, distance)
             }
             _ => limit.max_velocity,
         }
@@ -468,6 +516,9 @@ impl Controller {
             self.fault(error, hardware);
             return;
         }
+        if self.state == State::Executing {
+            self.follow_targets();
+        }
         if self.collision_active
             && self.active()
             && self.feedback.iter().zip(&self.commands).enumerate().any(
@@ -608,13 +659,21 @@ impl Controller {
         }
         for (i, (feedback, limit)) in self.feedback.iter().zip(&self.config.joints).enumerate() {
             let (low, high) = (envelope.lower[i], envelope.upper[i]);
-            let target = commands.map_or(feedback.position, |values| values[i].position);
-            let (lo, hi) = (feedback.position.min(target), feedback.position.max(target));
-            // Each side's reserve is taken at the fastest the joint may approach that limit.
+            // The reference ramps from where the command's velocity says the stream came from.
+            let (target, start) = commands.map_or((feedback.position, feedback.position), |values| {
+                let command = &values[i];
+                (command.position, command.position - command.velocity * self.interpolation_s())
+            });
+            let lo = feedback.position.min(target).min(start);
+            let hi = feedback.position.max(target).max(start);
+            // The box holds each side's stopping reserve at the fastest the joint may approach
+            // that limit; the joint must be able to stop before the limit on its limit curve.
             let reserve_low =
                 collision::reserve_toward(policy, &self.config, limit, lo - limit.lower);
             let reserve_high =
                 collision::reserve_toward(policy, &self.config, limit, limit.upper - hi);
+            let stop_low = collision::limit_reserve(policy, &self.config, limit, lo - limit.lower);
+            let stop_high = collision::limit_reserve(policy, &self.config, limit, limit.upper - hi);
             if !low.is_finite()
                 || !high.is_finite()
                 || low >= high
@@ -622,8 +681,8 @@ impl Controller {
                 || !reserve_high.is_finite()
                 || low < limit.lower
                 || high > limit.upper
-                || lo - reserve_low < limit.lower - EDGE_EPS
-                || hi + reserve_high > limit.upper + EDGE_EPS
+                || lo - stop_low < limit.lower - EDGE_EPS
+                || hi + stop_high > limit.upper + EDGE_EPS
                 || low > (lo - reserve_low).max(limit.lower) + EDGE_EPS
                 || high < (hi + reserve_high).min(limit.upper) - EDGE_EPS
             {
@@ -877,15 +936,15 @@ impl Controller {
                         || command.kp > limit.max_kp
                         || command.kd < 0.0
                         || command.kd > limit.max_kd
-                        || (self.config.collision.is_some()
-                            && (command.velocity != 0.0 || command.effort != 0.0))
                     {
                         return Err(Reason::InvalidCommand);
                     }
                 }
                 let deadline = self.validate_collision(collision.as_ref(), Some(&joints))?;
                 self.install_collision(collision.as_ref(), deadline);
-                self.commands.copy_from_slice(&joints);
+                self.targets.copy_from_slice(&joints);
+                self.target_at_ms = self.now_ms;
+                self.follow_targets();
                 self.consume_sequence(&authority);
                 self.command_deadline = self.lease.as_ref().map(|l| l.expires_at_ms);
                 self.state = State::Executing;
