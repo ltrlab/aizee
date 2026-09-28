@@ -121,10 +121,9 @@ class TuneCore:
         if self.mode == 'verify':
             derived = base  # The settings teleop would use: that is what the check verifies.
         else:
-            travel = {row['motor']: row for row in base['report']}
             derived = derive_receiver(reference=reference, steps=steps, directions=self.bundle['directions'],
                                       transmissions=transmissions, model=model, limits=self.bundle['limits'],
-                                      profile=sweep_profile(self.profile, motors, gains, travel=travel, sweep=sweep),
+                                      profile=sweep_profile(self.profile, motors, gains, sweep=sweep),
                                       backend=backend)
         # Each joint's derived row today, with the settings teleop uses today (the session may loosen them).
         # The receiver's speed cap is the commanded one times OVERSPEED_HEADROOM; the card compares commanded caps.
@@ -185,7 +184,8 @@ class TuneCore:
                                   checker=checker, window_s=window_s, verdict_s=policy['max_verdict_ms'] / 1000,
                                   labels=self.labels, mode=self.mode,
                                   calibration={m: calibration[m] for m in sweep if m in calibration},
-                                  travel=self.travel, receiver=self.profile['receiver'])
+                                  travel=self.travel, receiver=self.profile['receiver'],
+                                  interpolation_s=derived['config'].get('interpolation_ms', 0) / 1000)
         if self.evidence is not None:
             self.sink = (self.evidence / 'samples.f32').open('ab')
             self.engine.recording.sink = self.sink
@@ -220,8 +220,12 @@ class TuneCore:
         offer_started = self.clock()
         offered = self.controller.collision_offer()
         feedback = (self.latest() or {}).get('feedback') or []
-        joints = [{'position': target, 'velocity': 0., 'effort': 0., 'kp': kp, 'kd': kd}
-                  for target, (kp, kd) in zip(command['targets'], command['gains'])]
+        count = len(command['targets'])
+        joints = [{'position': target, 'velocity': velocity, 'effort': effort, 'kp': kp, 'kd': kd}
+                  for target, velocity, effort, (kp, kd) in zip(command['targets'],
+                                                                 command.get('velocities') or [0.] * count,
+                                                                 command.get('efforts') or [0.] * count,
+                                                                 command['gains'])]
         envelope = self.compiler.compile(offered, feedback, joints, started_at=offer_started)
         self.controller.move(joints, collision=envelope)
 

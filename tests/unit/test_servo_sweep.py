@@ -1,10 +1,10 @@
-"""The servo sweep engine end to end on a simulated arm (inertia, gravity, friction, position-only PD)."""
+"""The servo sweep engine end to end on a simulated arm (inertia, gravity, friction, the drives' PD loop)."""
 import math
 
 import numpy as np
 import pytest
 
-from robot_platform.control.approach import approach_speed
+from robot_platform.control.approach import limit_speed
 from robot_platform.control.guarded_config import usable_margin
 from robot_platform.control.servo_sweep import (DEFAULTS, Recording, SweepEngine, damping_for, loosened, result_rows,
                                                 sweep_profile, sweep_settings)
@@ -13,9 +13,12 @@ TICK = .0025
 
 
 class Plant:
-    """Independent joints driven by the drive's MIT loop: effort = kp (target - q) - kd v."""
+    """Independent joints driven by the drive's MIT loop: effort = kp (reference - q) + kd (velocity - v) + effort.
+    With `interpolation` (s), the receiver ramps each command's reference over that period from where its
+    velocity says the stream came from, with the velocity fed forward, then holds it; otherwise it is applied as
+    sent."""
 
-    def __init__(self, joints, bounds, *, noise=0., seed=1):
+    def __init__(self, joints, bounds, *, noise=0., seed=1, interpolation=0.):
         self.joints = joints  # {name: dict(inertia, gravity, friction, q)}
         self.bounds = bounds  # {name: tracking bound}; the receiver faults beyond it.
         self.state = {name: [spec['q'], 0.] for name, spec in joints.items()}
@@ -23,18 +26,32 @@ class Plant:
         self.noise, self.random = noise, np.random.default_rng(seed)
         self.worst_lag = {name: 0. for name in joints}
         self.fastest = {name: 0. for name in joints}  # The receiver faults on a joint over its speed cap.
-        self.curve = {}  # {name: receiver joint}: track speed against its braking curve (reaction 0.12 s).
+        self.curve = {}  # {name: receiver joint}: track speed against its limit curve (reaction 0.04 s).
         self.over_curve = {name: 0. for name in joints}  # Worst |speed| / speed allowed where the joint was.
         self.shove = None  # (name, start_s, end_s, torque): an external push, as from a bump.
+        self.interpolation = interpolation
+        self.commands = []  # Every command, as sent.
 
     def run(self, names, command, seconds=.04):
         rows = []
-        for _ in range(round(seconds / TICK)):
+        self.commands.append(command)
+        count = len(names)
+        velocities = command.get('velocities') or [0.] * count
+        efforts = command.get('efforts') or [0.] * count
+        for tick in range(round(seconds / TICK)):
             self.t += TICK
+            elapsed = tick * TICK
             row = [self.t * 1000]
-            for name, target, (kp, kd) in zip(names, command['targets'], command['gains']):
+            for name, target, velocity, effort, (kp, kd) in zip(names, command['targets'], velocities, efforts,
+                                                                 command['gains']):
                 spec, (q, v) = self.joints[name], self.state[name]
-                torque = kp * (target - q) - kd * v
+                if not self.interpolation:
+                    reference, speed = target, velocity
+                elif elapsed < self.interpolation:
+                    reference, speed = target - velocity * (self.interpolation - elapsed), velocity
+                else:
+                    reference, speed = target, 0.
+                torque = kp * (reference - q) + kd * (speed - v) + effort
                 net = torque - spec['gravity'](q)
                 if self.shove and self.shove[0] == name and self.shove[1] <= self.t < self.shove[2]:
                     net += self.shove[3]
@@ -48,13 +65,13 @@ class Plant:
                 if name in self.curve and abs(v) > 1e-3:
                     limit = self.curve[name]
                     distance = limit['upper'] - q if v > 0 else q - limit['lower']
-                    self.over_curve[name] = max(self.over_curve[name], abs(v) / approach_speed(limit, .12, distance))
-                lag = abs(target - q)
+                    self.over_curve[name] = max(self.over_curve[name], abs(v) / limit_speed(limit, .04, distance))
+                lag = abs(reference - q)
                 self.worst_lag[name] = max(self.worst_lag[name], lag)
                 if lag > self.bounds[name]:
                     raise AssertionError(f'the receiver would fault: {name} lagged {lag:.3f} rad')
                 reading = v + (self.random.normal(0, self.noise) if self.noise else 0.)
-                row += [q, reading, torque, target]
+                row += [q, reading, torque, reference]
             rows.append(row)
         return rows
 
@@ -74,7 +91,8 @@ PROFILE = {'sweep': {'defaults': {'amplitudes': [.1, .3, .6, 1.], 'kp_ladder': [
 def run_sweep(plant, joints, gains, *, seconds=4000):
     names = [joint['name'] for joint in joints]
     settings = {name: sweep_settings(PROFILE, name) for name in names}
-    engine = SweepEngine(joints, home={name: 0. for name in names}, gains=gains, settings=settings, sweep=names)
+    engine = SweepEngine(joints, home={name: 0. for name in names}, gains=gains, settings=settings, sweep=names,
+                         interpolation_s=plant.interpolation)
     now = 0.
     engine.observe(plant.run(names, {'targets': [0.] * len(names), 'gains': [gains[n] for n in names]}))
     while now < seconds:
@@ -274,22 +292,16 @@ def test_verify_mode_checks_each_joint_at_its_settings_and_flags_new_friction():
 RECEIVER = {'feedback_timeout_ms': 30, 'collision': {'max_verdict_ms': 80, 'reaction_ms': 10}}
 
 
-def test_a_session_takes_the_speed_ceiling_and_loosens_the_bound_while_half_the_swept_travel_stays_usable():
+def test_a_session_takes_the_bound_and_speed_ceilings_as_neither_costs_travel():
     motion = {'max_tracking_error': .08, 'max_velocity': .8, 'stop_acceleration': 4.}
-    # Near an end a joint slows (the braking curve), so its speed cap no longer costs travel: right J6
-    # keeps 0.211 rad at each end (its bound, then the stopping margin at 0.5 rad/s), not 0.32 at its cap.
-    assert usable_margin(motion, RECEIVER) == pytest.approx(.08 + .5 * .12 + .25 / 8 + .5 * .08, abs=1e-5)
+    # Near an end a joint slows (the braking curve) and the receiver checks its limits on feedback, so each end
+    # keeps only the approach floor's stopping margin: 0.5 rad/s for 40 ms, then braking at 4 rad/s2.
+    assert usable_margin(motion, RECEIVER) == pytest.approx(.5 * .04 + .25 / 8, abs=1e-5)
     assert usable_margin(dict(motion, max_velocity=2.5), RECEIVER) == usable_margin(motion, RECEIVER)
-    settings = dict(DEFAULTS, bound_ceiling=.15, speed_ceiling=2.5)
-    # Right J6 (2026-09-27): 1.81 rad operational, 1.91 swept. Bound 0.15 leaves 65%, and the full ceiling speed.
-    j6 = {'operational': (-.905, .905), 'swept': (-.955, .955)}
-    assert loosened(motion, settings, j6, RECEIVER) == (.15, 2.5)
-    j4 = {'operational': (-1.61, 1.61), 'swept': (-1.66, 1.66)}
-    assert loosened(motion, dict(DEFAULTS, bound_ceiling=.12, speed_ceiling=1.5), j4, RECEIVER) == (.12, 1.5)
-    # A narrow joint loosens its bound only as far as half its swept travel stays usable; a gripper has no margin.
-    narrow = {'operational': (-.6, .6), 'swept': (-.7, .7)}
-    assert loosened(motion, settings, narrow, RECEIVER) == (.11, 2.5)
-    assert loosened(dict(motion, gripper=True), dict(DEFAULTS, bound_ceiling=.15), j6, RECEIVER) == (.15, .8)
+    assert usable_margin(dict(motion, max_tracking_error=.15), RECEIVER) == usable_margin(motion, RECEIVER)
+    assert loosened(motion, dict(DEFAULTS, bound_ceiling=.15, speed_ceiling=4.)) == (.15, 4.)
+    assert loosened(motion, dict(DEFAULTS, bound_ceiling=.05)) == (.08, .8)  # Never lowered.
+    assert loosened(dict(motion, gripper=True), dict(DEFAULTS, bound_ceiling=.15)) == (.15, .8)
 
 
 def wrist():
@@ -375,7 +387,10 @@ def test_the_profile_lets_the_sweep_speed_up_every_arm_joint_and_loosen_only_the
         assert settings['speed_ceiling'] == 1.5 and not settings.get('bound_ceiling')
         assert 1.5 in settings['speeds']  # The ladder reaches the ceiling itself.
     assert sweep_settings(profile, 'left_arm_j4')['bound_ceiling'] == .12
-    assert sweep_settings(profile, 'left_arm_j6')['speed_ceiling'] == 2.5
+    assert sweep_settings(profile, 'left_arm_j4')['speed_ceiling'] == 2.5
+    for joint in ('j5', 'j6'):
+        settings = sweep_settings(profile, f'left_arm_{joint}')
+        assert settings['speed_ceiling'] == 4. and 4. in settings['speeds']
 
 
 def test_a_joint_breaking_free_of_static_friction_near_an_end_stays_well_under_its_curve():
@@ -412,14 +427,14 @@ def test_a_joint_breaking_free_of_static_friction_near_an_end_stays_well_under_i
 
 
 def test_speeds_are_measured_in_open_travel_where_the_braking_curve_allows_them():
-    # Right J6's session (commanded 2.5 rad/s, enforced 3.125, 16 rad/s^2, bound 0.15, reaction 0.12 s): at
-    # 1 rad/s commands may move freely from 0.349 rad inside each end (0.15 + 1.25 x 0.12 + 1.25^2 / 32).
+    # Right J6's session (commanded 2.5 rad/s, enforced 3.125, 16 rad/s^2, limit reaction 0.04 s): at 1 rad/s
+    # commands may move freely from 0.099 rad inside each end (1.25 x 0.04 + 1.25^2 / 32).
     joints = [limits('right_arm_j6', lower=-.885, upper=.9225, bound=.15, speed=3.125, stop=16., effort=14.,
                      max_kd=4., max_kp=24.)]
     engine = SweepEngine(joints, home={'right_arm_j6': 0.}, gains={'right_arm_j6': (8., 1.)},
                          settings={'right_arm_j6': sweep_settings(PROFILE, 'right_arm_j6')}, sweep=['right_arm_j6'])
     low, high = engine._open_travel('right_arm_j6', 1.)
-    room = .15 + 1.25 * .12 + 1.25 ** 2 / 32
+    room = 1.25 * .04 + 1.25 ** 2 / 32
     assert (low, high) == (pytest.approx(-.885 + room), pytest.approx(.9225 - room))
     # There the plan is not slowed: commands may move at the full speed toward either end.
     assert engine.limits['right_arm_j6']['max_velocity'] >= 1.
@@ -433,4 +448,56 @@ def test_a_calibration_names_its_evidence_without_the_robots_home_directory():
     from robot_platform.control.servo_calibration import evidence_name
     assert evidence_name('/home/someone/minerva/evidence/sweep-20260928T000115Z') ==         '~/minerva/evidence/sweep-20260928T000115Z'
     assert evidence_name('2026-09-28T00:14:27+00:00') == '2026-09-28T00:14:27+00:00'  # A virtual sweep's time.
+
+
+def test_under_the_interpolated_feed_forward_law_a_sweep_follows_faster_with_less_lag():
+    # The receiver ramps each command over 40 ms with its velocity fed forward, and friction once measured: the
+    # drive's damping no longer brakes the motion, so the same arm follows its speeds with a fraction of the lag.
+    joints, plant, gains = arm()
+    before, _ = run_sweep(plant, joints, gains)
+    joints, plant, gains = arm()
+    plant.interpolation = .04
+    after, _ = run_sweep(plant, joints, gains)
+    assert after.done and after.task == 'finished', after.task
+    old, new = before.summary()['right_arm_j2'], after.summary()['right_arm_j2']
+    assert new['status'] == 'done' and new['verification']['passed']
+    top = max(r['target_speed'] for r in new['speeds'])
+
+    def lag(summary, speed):
+        return max(r['max_lag'] for r in summary['speeds'] if r['target_speed'] == speed)
+    assert lag(new, top) < .6 * lag(old, top)
+    assert (new['recommendation']['max_velocity'] or 0.) >= (old['recommendation']['max_velocity'] or 0.)
+    # Moving commands carried their velocity and, once the joint's friction was measured, friction feed-forward;
+    # a step test is sent as a step.
+    assert any(abs(v) > .1 for command in plant.commands for v in command.get('velocities') or [])
+    assert any(abs(e) > 0 for command in plant.commands for e in command.get('efforts') or [])
+    assert after.friction['right_arm_j2'] == pytest.approx(.5, abs=.12)
+
+
+def test_a_joint_short_of_room_for_faster_speeds_is_verified_at_its_cap():
+    # A wrist with 1.2 rad of travel has no open-travel room to test its faster speeds; everything it had room
+    # for was followed, so the pass across its range tries the cap (the braking curve slows it near each end).
+    joints = [limits('right_arm_j6', lower=-.6, upper=.6, bound=.15, speed=3.125, stop=32., effort=14., max_kd=4.,
+                     max_kp=24.)]
+    plant = Plant({'right_arm_j6': dict(inertia=.01, gravity=lambda q: .15 * math.sin(2 * q), friction=.1, q=0.)},
+                  {'right_arm_j6': .15}, interpolation=.04)
+    profile = {'sweep': {'defaults': dict(PROFILE['sweep']['defaults'], speeds=[.4, .8, 1.2, 1.6, 2., 2.5]),
+                         'joints': [{'match': '*_j6', 'kp_ceiling': 24.}]}}
+    names = ['right_arm_j6']
+    engine = SweepEngine(joints, home={'right_arm_j6': 0.}, gains={'right_arm_j6': (24., .6)},
+                         settings={name: sweep_settings(profile, name) for name in names}, sweep=names,
+                         interpolation_s=.04)
+    engine.observe(plant.run(names, {'targets': [0.], 'gains': [(24., .6)]}))
+    now = 0.
+    while now < 4000:
+        command = engine.command(now)
+        if command is None:
+            break
+        engine.observe(plant.run(names, command))
+        now += .04
+    assert engine.done and engine.task == 'finished', engine.task
+    result = engine.summary()['right_arm_j6']
+    assert any('verified room' in event['text'] for event in engine.events), engine.events
+    assert result['verification']['passed'] and result['recommendation']['max_velocity'] == pytest.approx(2.5)
+    assert plant.fastest['right_arm_j6'] < 3.125
 

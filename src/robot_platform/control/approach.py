@@ -1,12 +1,17 @@
 """Braking curves: how fast a joint may move toward the end of its travel.
 
 Mirrors rust/control_core/src/collision.rs. In open travel a joint may move at its
-receiver speed cap; nearer an end, only as fast as it can still stop short of it
-after the receiver's reaction time, braking at its stop acceleration, with its
-tracking bound in hand; never below APPROACH_FLOOR_RAD_S (or its cap). The
-receiver enforces the curve on feedback while it drives the arm and keeps each
-collision box's stopping reserve at the curve's speed, so a joint can use its
-travel up to the stopping margin of the floor (end_margin) at any speed cap.
+receiver speed cap; nearer an end, only as fast as it can still stop at it after the
+receiver's limit reaction time (feedback timeout and reaction allowance: it checks
+feedback every tick), braking at its stop acceleration; never below
+APPROACH_FLOOR_RAD_S (or its cap). The receiver enforces the curve on feedback while
+it drives the arm, so a joint uses its travel up to the floor's stopping margin
+(end_margin) at any speed cap, and its hand-swept range is its travel (the receiver
+lets it pass a swept end by OVERTRAVEL_RAD before it faults).
+
+The collision box keeps its own, wider reserve (approach_speed, reserve_toward): the
+tracking bound, then the reaction over the verdict's lifetime. It is clipped at the
+limits, so it never takes travel away.
 
 Commands carry headroom under what the receiver enforces: servos overshoot the
 speed they follow. The receiver's cap is the commanded cap times
@@ -18,19 +23,28 @@ import math
 APPROACH_FLOOR_RAD_S = .5  # collision::APPROACH_FLOOR_RAD_S
 OVERSPEED_HEADROOM = 1.25  # The receiver's speed cap over the commanded one.
 COMMAND_HEADROOM = 1 / OVERSPEED_HEADROOM  # Commands toward an end: this share of the curve.
+OVERTRAVEL_RAD = .02  # A joint may pass its hand-swept end by this much before the receiver faults.
+FRICTION_FF_FRACTION = .7  # Friction feed-forward: this share of the measured friction, never all of it.
+FRICTION_SMOOTH_RAD_S = .05  # Friction feed-forward reaches its share at this commanded speed.
 
 
 def reaction_s(receiver):
-    """The receiver's reaction time (s): verdict lifetime, feedback timeout and reaction allowance.
-    `receiver` has feedback_timeout_ms and collision.max_verdict_ms / reaction_ms (a derived
-    receiver config, or a teleop profile's receiver block)."""
+    """The collision box's reaction time (s): verdict lifetime, feedback timeout and reaction allowance.
+    `receiver` has feedback_timeout_ms and collision.max_verdict_ms / reaction_ms (a derived receiver
+    config, or a teleop profile's receiver block)."""
     policy = receiver['collision']
     return (policy['max_verdict_ms'] + receiver['feedback_timeout_ms'] + policy['reaction_ms']) / 1000
 
 
+def limit_reaction_s(receiver):
+    """The receiver's reaction time at a joint limit (s): the feedback timeout and reaction allowance."""
+    return (receiver['feedback_timeout_ms'] + receiver['collision']['reaction_ms']) / 1000
+
+
 def approach_speed(joint, reaction, distance):
-    """The fastest `joint` (a receiver joint: max_velocity is the receiver's cap) may move toward a
-    limit `distance` away, given the receiver's `reaction` time (s)."""
+    """The collision box's speed toward a limit `distance` away (joint: a receiver joint, whose
+    max_velocity is the receiver's cap), given the box reaction time: slow enough to stop with the
+    tracking bound in hand."""
     cap = joint['max_velocity']
     if joint.get('gripper'):
         return cap
@@ -44,22 +58,52 @@ def approach_speed(joint, reaction, distance):
 
 
 def reserve_toward(joint, reaction, distance):
-    """The stopping reserve a box keeps toward a limit `distance` from the joint's extreme position."""
+    """The stopping reserve a collision box keeps toward a limit `distance` from the joint's extreme position."""
     if joint.get('gripper'):
         return 0.
     v = approach_speed(joint, reaction, distance)
     return joint['max_tracking_error'] + v * reaction + v * v / (2 * joint['stop_acceleration'])
 
 
-def end_margin(joint, reaction, verdict_s):
-    """How far inside a limit a joint's targets and positions stay: the stopping reserve at the approach
-    floor, plus the envelope compiler's padding for motion while a verdict (`verdict_s`) is computed, plus
-    a hair so a pose exactly on the edge still certifies. Nothing for a gripper."""
+def limit_speed(joint, reaction, distance):
+    """The fastest `joint` may move toward a limit `distance` away and still stop at it, given the limit
+    reaction time (collision::limit_speed)."""
+    cap = joint['max_velocity']
+    if joint.get('gripper'):
+        return cap
+    floor = min(APPROACH_FLOOR_RAD_S, cap)
+    if not distance > 0:
+        return floor
+    a = joint['stop_acceleration']
+    v = a * (math.sqrt(reaction * reaction + 2 * distance / a) - reaction)
+    return min(cap, max(floor, v))
+
+
+def limit_reserve(joint, reaction, distance):
+    """How far a joint moving toward a limit `distance` away travels before it stops (collision::limit_reserve)."""
+    if joint.get('gripper'):
+        return 0.
+    v = limit_speed(joint, reaction, distance)
+    return v * reaction + v * v / (2 * joint['stop_acceleration'])
+
+
+def end_margin(joint, reaction):
+    """How far inside a limit a joint's targets stay: the stopping margin of its approach floor at the
+    limit reaction time, plus a hair so a pose exactly on the edge still certifies. Nothing for a gripper."""
     if joint.get('gripper'):
         return 0.
     floor = min(APPROACH_FLOOR_RAD_S, joint['max_velocity'])
-    return (joint['max_tracking_error'] + floor * reaction + floor * floor / (2 * joint['stop_acceleration'])
-            + floor * verdict_s + 1e-6)
+    return floor * reaction + floor * floor / (2 * joint['stop_acceleration']) + 1e-6
+
+
+def command_speed(joint, reaction, position, direction, cap):
+    """The fastest a command at `position` may move in `direction` (+1 or -1): `cap` (the commanded
+    cap), and toward an end at most COMMAND_HEADROOM of the receiver's limit curve there, at the limit
+    reaction time."""
+    if joint.get('gripper'):
+        return cap
+    distance = joint['upper'] - position if direction > 0 else position - joint['lower']
+    return min(cap, COMMAND_HEADROOM * limit_speed(joint, reaction, distance))
 
 
 def lead_toward(joint, reaction, position, direction, lead, cap, kp, kd):
@@ -83,10 +127,9 @@ def lead_toward(joint, reaction, position, direction, lead, cap, kp, kd):
     return min(lead, max(lead * allowed / cap, balanced))
 
 
-def command_speed(joint, reaction, position, direction, cap):
-    """The fastest a command at `position` may move in `direction` (+1 or -1): `cap` (the commanded
-    cap), and toward an end at most COMMAND_HEADROOM of the receiver's curve there."""
-    if joint.get('gripper'):
-        return cap
-    distance = joint['upper'] - position if direction > 0 else position - joint['lower']
-    return min(cap, COMMAND_HEADROOM * approach_speed(joint, reaction, distance))
+def friction_feedforward(friction_nm, velocity):
+    """Friction feed-forward for a commanded `velocity`: FRICTION_FF_FRACTION of the joint's measured
+    friction, in the direction of motion, reaching it at FRICTION_SMOOTH_RAD_S."""
+    if not friction_nm or not velocity:
+        return 0.
+    return FRICTION_FF_FRACTION * friction_nm * max(-1., min(1., velocity / FRICTION_SMOOTH_RAD_S))

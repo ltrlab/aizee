@@ -38,7 +38,8 @@ import time
 import numpy as np
 
 from . import servo_analysis as analysis
-from robot_platform.control.approach import COMMAND_HEADROOM, OVERSPEED_HEADROOM, command_speed, end_margin, lead_toward
+from robot_platform.control.approach import (COMMAND_HEADROOM, OVERSPEED_HEADROOM, command_speed, end_margin,
+                                             friction_feedforward, lead_toward)
 
 DEFAULTS = {
     'characterize_speed': .15,
@@ -50,9 +51,9 @@ DEFAULTS = {
     'step_fraction': .6,
     'grid_ramp_rad': .1,
     'grid_ramp_speed': .3,
-    'speeds': [.2, .3, .4, .5, .6, .8, 1., 1.2, 1.5, 2., 2.5],
+    'speeds': [.2, .3, .4, .5, .6, .8, 1., 1.2, 1.5, 2., 2.5, 3., 4.],
     'decelerations': [2., 4., 8., 16., 32.],  # Speeds step up to each joint's cap (or speed_ceiling, opt-in).
-    'acceleration': 4.,
+    'acceleration': 8.,  # Speed tests and the pass across the range speed up and slow down at this (rad/s2).
     'cruise_s': .3,
     'lead_fraction': .6,
     'guard_fraction': .75,
@@ -61,7 +62,6 @@ DEFAULTS = {
     'clearance_m': .02,
     'path_step_rad': .02,
     'check_span_rad': .3,  # Verify mode: the out-and-back for friction, each way.
-    'usable_floor': .5,  # A loosened bound or cap must leave at least this share of the swept travel usable.
     # Headroom under the receiver's overspeed limit (its speed cap, 3 readings in a row): a joint overshoots the
     # speed it follows, and a stiff, lightly damped step peaks at about its size times its natural frequency.
     'speed_headroom': .8,  # Speeds (tested, verified, checked) at most this share of the cap.
@@ -94,13 +94,11 @@ def damping_for(kp, *, reference, multiplier):
     return kd_ref * math.sqrt(kp / kp_ref) * multiplier
 
 
-def sweep_profile(profile, motors, gains, *, travel=None, sweep=None):
+def sweep_profile(profile, motors, gains, *, sweep=None):
     """The teleop profile for a sweep session: each joint holds at `gains` ({motor: (hold_kp,
     hold_kd)}, the profile's or a saved calibration's) with its stiffness and damping ceilings
     raised to what the sweep may try. The swept joints (`sweep`, default all) also get their
-    tracking bound and speed cap raised toward bound_ceiling and speed_ceiling; given `travel`
-    ({motor: its row of derive_receiver's report}), only as far as the usable range stays at least
-    usable_floor of the swept travel, since the receiver's stopping reserve grows with both."""
+    tracking bound and speed cap raised to bound_ceiling and speed_ceiling (loosened)."""
     from copy import deepcopy
     from robot_platform.control.guarded_config import motion_settings
     result = deepcopy(profile)
@@ -121,7 +119,7 @@ def sweep_profile(profile, motors, gains, *, travel=None, sweep=None):
                 if settings.get('bound_ceiling'):
                     entry['max_tracking_error'] = settings['bound_ceiling']
             else:
-                bound, cap = loosened(motion, settings, (travel or {}).get(motor), profile['receiver'])
+                bound, cap = loosened(motion, settings)
                 if bound != motion['max_tracking_error']:
                     entry['max_tracking_error'] = bound
                 if cap != motion['max_velocity']:
@@ -131,29 +129,13 @@ def sweep_profile(profile, motors, gains, *, travel=None, sweep=None):
     return result
 
 
-def loosened(motion, settings, row, receiver):
-    """(tracking bound, speed cap) for a sweep session: raised toward the joint's bound_ceiling
-    (first: it is the joint's push, as the command's lead is capped at a share of it) and
-    speed_ceiling, never lowered. With `row` (the joint's derived report row), each only as far as
-    its usable range stays at least usable_floor of its swept travel; a gripper has no reserve."""
-    from robot_platform.control.guarded_config import usable_margin
+def loosened(motion, settings):
+    """(tracking bound, speed cap) for a sweep session: the joint's bound_ceiling (its push, as the
+    command's lead is capped at a share of it) and speed_ceiling, never lowered. Neither costs travel:
+    near an end a joint slows on the receiver's braking curve, and the receiver checks its limits on
+    feedback, so the stopping margin at each end is the approach floor's, whatever the bound or cap."""
     bound0, cap0 = motion['max_tracking_error'], motion['max_velocity']
-    bound_ceiling = max(bound0, settings.get('bound_ceiling') or bound0)
-    cap_ceiling = max(cap0, settings.get('speed_ceiling') or cap0)
-    if row is None or motion.get('gripper') is True:
-        return bound_ceiling, cap_ceiling
-    # The speed cap no longer costs travel (joints slow near the ends); the bound still does.
-    lower, upper = row['operational']
-    floor = settings['usable_floor'] * (row['swept'][1] - row['swept'][0])
-
-    def usable(bound):
-        return upper - lower - 2 * usable_margin(dict(motion, max_tracking_error=bound), receiver)
-    if usable(bound0) < floor:
-        return bound0, cap_ceiling  # Already under the floor: no bound to spend.
-    steps = max(0, int(round((bound_ceiling - bound0) / .01)))
-    bound = max((b for b in [bound0 + k * (bound_ceiling - bound0) / steps for k in range(1, steps + 1)]
-                 if usable(b) >= floor), default=bound0) if steps else bound0
-    return round(bound, 4), cap_ceiling
+    return max(bound0, settings.get('bound_ceiling') or bound0), max(cap0, settings.get('speed_ceiling') or cap0)
 
 
 class Abort(Exception):
@@ -291,7 +273,8 @@ class SweepEngine:
     """The sweep's plan and guards, one command per cycle. See the module docstring."""
 
     def __init__(self, joints, *, home, gains, settings, sweep, checker=None, window_s=.12, verdict_s=.08,
-                 labels=None, period_s=PERIOD_S, mode='tune', calibration=None, travel=None, receiver=None):
+                 labels=None, period_s=PERIOD_S, mode='tune', calibration=None, travel=None, receiver=None,
+                 interpolation_s=0.):
         """mode 'tune' steps the settings; 'verify' (Minerva Check) checks each joint at the settings it has
         (`gains`, and each joint's speed cap), against its saved sweep (`calibration`: {motor: entry}) if any."""
         if mode not in ('tune', 'verify'):
@@ -305,6 +288,11 @@ class SweepEngine:
         self.settings = settings  # {motor: sweep_settings(...)}.
         self.sweep = list(sweep)  # The motors to sweep, in order.
         self.checker, self.window_s, self.verdict_s = checker, window_s, verdict_s
+        self.limit_reaction = window_s - verdict_s  # The receiver's reaction at a joint limit.
+        # The receiver ramps each command over this period from the last one, with its velocity fed forward.
+        self.interpolation_s = interpolation_s
+        self._sent = {}  # The last command's position per joint.
+        self.friction = {}  # {motor: Nm} fed forward in the direction of motion, as teleop does.
         self.labels = dict(labels or {})
         self.period = period_s
         self.recording = Recording(self.names)
@@ -409,7 +397,7 @@ class SweepEngine:
         self.task, self.current, self.done = 'stopped', None, True
 
     def _compose(self):
-        targets, gains = [], []
+        targets, gains, velocities, efforts = [], [], [], []
         for name in self.names:
             target = self.targets[name]
             limit = self.limits[name]
@@ -420,9 +408,19 @@ class SweepEngine:
                 target = min(q + self._lead(name, 1, q), max(q - self._lead(name, -1, q), target))
             low, high = self._allowed(name)
             target = min(high, max(low, target))
+            # A moving plan's command carries the velocity it is ramped at (from the last command, over the
+            # receiver's interpolation period) and friction feed-forward; a jump (a step test) is sent as a step.
+            velocity, previous = 0., self._sent.get(name)
+            if (self.interpolation_s > 0 and previous is not None and self.velocity[name] != 0.
+                    and not limit.get('gripper')):  # As teleop: a gripper's commands carry no velocity.
+                cap = limit['max_velocity'] / OVERSPEED_HEADROOM
+                velocity = max(-cap, min(cap, (target - previous) / self.interpolation_s))
+            self._sent[name] = target
             targets.append(target)
+            velocities.append(velocity)
+            efforts.append(friction_feedforward(self.friction.get(name, 0.), velocity))
             gains.append(self.test_gains.get(name, self.gains[name]))
-        return {'targets': targets, 'gains': gains, 'task': self.task}
+        return {'targets': targets, 'gains': gains, 'velocities': velocities, 'efforts': efforts, 'task': self.task}
 
     def _event(self, text):
         entry = {'motor': self.current, 'task': self.task, 'text': text}
@@ -494,8 +492,8 @@ class SweepEngine:
         if direction is None or position is None:
             return lead
         kp, kd = self.test_gains.get(motor, self.gains[motor])
-        return lead_toward(limit, self.window_s, position, direction, lead, limit['max_velocity'] / OVERSPEED_HEADROOM,
-                           kp, kd)
+        return lead_toward(limit, self.limit_reaction, position, direction, lead,
+                           limit['max_velocity'] / OVERSPEED_HEADROOM, kp, kd)
 
     def _behind(self, motor, direction):
         """How far the plan is ahead of the joint in the direction of travel (the joint under test only,
@@ -622,7 +620,7 @@ class SweepEngine:
         limit = self.limits[motor]
         if limit.get('gripper'):
             return limit['lower'], limit['upper']
-        margin = end_margin(limit, self.window_s, self.verdict_s)
+        margin = end_margin(limit, self.limit_reaction)
         return limit['lower'] + margin, limit['upper'] - margin
 
     def _open_travel(self, motor, speed):
@@ -632,14 +630,14 @@ class SweepEngine:
         if limit.get('gripper'):
             return limit['lower'], limit['upper']
         v = speed / COMMAND_HEADROOM
-        room = limit['max_tracking_error'] + v * self.window_s + v * v / (2 * limit['stop_acceleration'])
+        room = v * self.limit_reaction + v * v / (2 * limit['stop_acceleration'])
         return limit['lower'] + room, limit['upper'] - room
 
     def _toward_end(self, motor, direction):
         """How fast the plan may move `motor` in `direction` from its commanded position: within the
         receiver's braking curve toward that end, with headroom."""
         limit = self.limits[motor]
-        return command_speed(limit, self.window_s, self.targets[motor], direction, limit['max_velocity'])
+        return command_speed(limit, self.limit_reaction, self.targets[motor], direction, limit['max_velocity'])
 
     def _clear(self, motor, start, end):
         """(clear, why) for a planned move, checking about CHECK_BUDGET_S of poses per cycle and holding
@@ -701,6 +699,8 @@ class SweepEngine:
         index = self.names.index(motor)
         report.torque = analysis.torque_map([{'rows': s.rows, 'direction': s.params['direction'],
                                               'speed': s.params['speed']} for s in char if s.rows is not None], index)
+        if not self.limits[motor].get('gripper'):
+            self.friction[motor] = report.torque.get('friction') or 0.  # Fed forward from here on, as in teleop.
         # 2. Stiffness x damping at the reference, stiff first; stop lowering once a rung fails every ratio.
         kp_ref, kd_ref = self.gains[motor]
         ceiling = settings.get('kp_ceiling') or kp_ref
@@ -744,7 +744,7 @@ class SweepEngine:
         yield from self._stiffen(motor, chosen)
         span_low = home - report.verified[-1]
         span_high = home + report.verified[1]
-        followed = None
+        followed, room_limited = None, False
         for speed in [s for s in settings['speeds'] if s <= settings['speed_headroom'] * limit['max_velocity'] + 1e-9]:
             low, high = self._allowed(motor, speed)
             low, high = max(low, span_low), min(high, span_high)
@@ -756,6 +756,7 @@ class SweepEngine:
             need = speed * speed / accel + speed * settings['cruise_s']
             if high - low < need:
                 self._event(f'{speed:g} rad/s needs {need:.2f} rad of verified room; stopping the speed ladder')
+                room_limited = True
                 break
             self._task(f'{self._label(motor)}: {speed:g} rad/s')
             results = []
@@ -785,9 +786,17 @@ class SweepEngine:
         # 4. Verify the whole verified range at the recommended settings. The pass across the range is the
         # last word on lag: over half the bound, it steps down to the next slower tested speed (twice at most).
         recommendation = report.recommendation
+        # A short joint runs out of room for the faster speeds, not out of speed: everything it had room for
+        # was followed, so the pass across its range tries its cap (the braking curve slows it near each end,
+        # in teleop as here) and steps down if it lags.
+        cap = limit['max_velocity'] / OVERSPEED_HEADROOM
+        if room_limited and followed and recommendation.get('max_velocity') == followed and cap > followed + 1e-9:
+            recommendation['notes'].append(f'every speed with room to test was followed, up to {followed:g} rad/s; '
+                                           f'the pass across the range tries the cap, {cap:g} rad/s')
+            recommendation['max_velocity'] = cap
         yield from self._stiffen(motor, (recommendation['hold_kp'], recommendation['hold_kd']))
         top = recommendation['max_velocity']
-        tries = ([s for s in settings['speeds'] if s <= min(top, limit['max_velocity']) + 1e-9][::-1][:3]
+        tries = (sorted({top, *(s for s in settings['speeds'] if s < top)}, reverse=True)[:3]
                  if top else []) or [slow]
         for speed in tries:
             self._task(f'{self._label(motor)}: verify at {speed:g} rad/s')
@@ -861,6 +870,8 @@ class SweepEngine:
         index = self.names.index(motor)
         report.torque = analysis.torque_map([{'rows': s.rows, 'direction': s.params['direction'],
                                               'speed': s.params['speed']} for s in char if s.rows is not None], index)
+        if saved is not None and not limit.get('gripper'):  # The friction teleop feeds forward: its saved sweep's.
+            self.friction[motor] = (measured.get('torque') or {}).get('friction') or 0.
         # The pass: the range the joint was swept over (or the friction span), at its speed.
         swept = measured.get('verified') or {}
         up = min(swept.get('up', report.verified[1]), high - home)

@@ -111,7 +111,7 @@ def test_box_check_rejects_asynchronous_crossing_even_if_endpoints_are_clear(set
         assert not harness.last["hardware_enabled"]
 
 
-@pytest.mark.parametrize("failure", ["stale", "skew", "fault", "nan", "roster", "world", "deadline", "limits", "feedforward"])
+@pytest.mark.parametrize("failure", ["stale", "skew", "fault", "nan", "roster", "world", "deadline", "limits", "velocity"])
 def test_bad_state_or_late_collision_work_never_produces_an_envelope(setup, failure):
     backend, cfg, mapping = setup
     clock = [1.]
@@ -137,8 +137,8 @@ def test_bad_state_or_late_collision_work_never_produces_an_envelope(setup, fail
             backend.runtime_model.world_revision = "changed"
         elif failure == "limits":
             target[0]["position"] = -2.999
-        elif failure == "feedforward":
-            target[0]["effort"] = .1
+        elif failure == "velocity":
+            target[0]["velocity"] = float("nan")
         with pytest.raises(ValueError):
             compiler.compile(offered, feedback, target, started_at=.9 if failure == "deadline" else 1.)
         assert compiler.last_verdict["clear"] is False
@@ -250,21 +250,31 @@ def test_teleop_faults_latch_and_do_not_replay_commands(setup, failure):
             supervisor.step(leader_pair(.08, 3), engaged=True)
 
 
-def test_collision_profile_receiver_rejects_unmodelled_feedforward_even_with_envelope(setup):
+def test_feed_forward_moves_under_an_envelope_that_covers_the_receivers_ramp(setup):
     backend, cfg, mapping = setup
+    cfg = dict(cfg, interpolation_ms=40)
     compiler = CollisionEnvelopeCompiler(backend, cfg, mapping)
     with NativeControlHarness(cfg, [-1., 1.]) as h:
         control = client(h, cfg)
         control.acquire()
         offered = control.collision_offer()
         control.arm(collision=compiler.compile(offered, h.last["feedback"]))
+        # Moving at 0.05 m/s with a little effort fed forward: the receiver ramps from where the stream came from.
+        target = commands(-.998, 1.)
+        target[0].update(velocity=.05, effort=.1)
         offered = control.collision_offer()
-        envelope = compiler.compile(offered, h.last["feedback"], commands())
-        for field in ("velocity", "effort"):
-            target = commands()
-            target[0][field] = .01
-            with pytest.raises(GuardRejected, match="invalid_command"):
-                control.move(target, collision=envelope)
+        control.move(target, collision=compiler.compile(offered, h.last["feedback"], target))
+        assert h.last["status"]["joints"][0]["position"] == pytest.approx(-1.)
+        # A ramp that would start inside the stopping margin at the limit (0.008 m at the 0.1 m/s floor) is
+        # refused: by the compiler, and by the receiver under an envelope certified without the velocity.
+        near = commands(-.998, 2.99)
+        moving = deepcopy(near)
+        moving[1]["velocity"] = -.1
+        with pytest.raises(ValueError, match="Stopping envelope"):
+            compiler.compile(control.collision_offer(), h.last["feedback"], moving)
+        envelope = compiler.compile(control.collision_offer(), h.last["feedback"], near)
+        with pytest.raises(GuardRejected, match="collision_violation"):
+            control.move(moving, collision=envelope)
 
 
 def test_distant_joint_motion_does_not_inflate_stationary_pair_reserve(tmp_path):

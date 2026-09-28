@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 
-from .guarded_config import SERVO_KEYS
+from .guarded_config import CONTROL_LAW, SERVO_KEYS
 
 
 def utc_now():
@@ -53,7 +53,7 @@ def save_servo(path, *, asset_id, reference, results, motors, session, existing=
         if not (result.get('verification') or {}).get('passed'):
             raise ValueError(f'{motor}: the verification pass did not pass')
         entry = {'uid': roster[motor]['uid'], 'firmware': roster[motor]['firmware'],
-                 'confirmed_at': utc_now(), 'session': evidence_name(session),
+                 'confirmed_at': utc_now(), 'session': evidence_name(session), 'control': CONTROL_LAW,
                  'measured': {'torque': result.get('torque'), 'verified': result.get('verified'),
                               'verification': result.get('verification')},
                  'notes': recommendation.get('notes', [])}

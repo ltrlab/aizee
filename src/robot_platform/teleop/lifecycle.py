@@ -7,7 +7,7 @@ from copy import deepcopy
 import math
 import time
 
-from robot_platform.control.approach import command_speed, lead_toward
+from robot_platform.control.approach import command_speed, friction_feedforward, lead_toward
 
 
 def _finite(value):
@@ -55,6 +55,7 @@ class TeleopLifecycle:
         self._last_measured = None  # Positions of the previous cycle, for settling speed.
         self._feedback, self._source = None, None
         self._misses = 0
+        self._velocities = None  # This cycle's slewed targets' velocities, for the next proposal.
 
     @property
     def joints(self):
@@ -103,9 +104,15 @@ class TeleopLifecycle:
     def _proposal(self, operation):
         positions = list(self.target) if self.target is not None else None
         zero_gains = self.state == 'IDLE'
+        # A slewed move carries its velocity (the receiver ramps it over its interpolation period) and
+        # friction feed-forward in that direction; any other target (a snap to the measured pose) none.
+        velocities = self._velocities if operation == 'move' and not zero_gains else None
+        self._velocities = None
+        velocities = velocities or (0.,) * len(self._joints)
         commands = None if positions is None else [
-            dict(position=q, velocity=0., effort=0., kp=0. if zero_gains else joint['hold_kp'],
-                 kd=0. if zero_gains else joint['hold_kd']) for q, joint in zip(positions, self._joints)]
+            dict(position=q, velocity=v, effort=friction_feedforward(joint.get('friction_nm', 0.), v),
+                 kp=0. if zero_gains else joint['hold_kp'], kd=0. if zero_gains else joint['hold_kd'])
+            for q, v, joint in zip(positions, velocities, self._joints)]
         return dict(state=self.state, operation=operation, joint_names=list(self.names),
                     positions=positions, joints=commands, reason=self.reason)
 
@@ -176,7 +183,7 @@ class TeleopLifecycle:
         return now-self._settled_since >= self.settle_time_s
 
     def _approach(self, measured, goal, speed, dt):
-        proposed = []
+        proposed, velocities = [], []
         for previous, row, target, joint in zip(self.target, measured, goal, self._joints):
             up = down = joint[speed]
             lead_up = lead_down = joint['max_lead']
@@ -189,12 +196,21 @@ class TeleopLifecycle:
                 gains = (joint['hold_kp'], joint['hold_kd'])
                 lead_up = lead_toward(curve, reaction, row['position'], 1, joint['max_lead'], cap, *gains)
                 lead_down = lead_toward(curve, reaction, row['position'], -1, joint['max_lead'], cap, *gains)
+            # The receiver ramps each command from the last one over its interpolation period: a cycle
+            # moves at most that period's worth, so a late cycle never asks for more than the speed.
+            period = joint.get('interpolation_s') or 0.
+            step = min(dt, period) if period > 0 else dt
             # A target beyond a shrunken lead may come back toward the joint at once: that only eases the pull.
-            low = max(joint['lower'], row['position']-lead_down, min(previous-down*dt, row['position']+lead_up))
-            high = min(joint['upper'], row['position']+lead_up, max(previous+up*dt, row['position']-lead_down))
+            low = max(joint['lower'], row['position']-lead_down, min(previous-down*step, row['position']+lead_up))
+            high = min(joint['upper'], row['position']+lead_up, max(previous+up*step, row['position']-lead_down))
             if low > high:
                 raise ValueError(f'Measured pose exceeds command lead/slew bounds: {joint["name"]}')
-            proposed.append(max(low, min(high, target)))
+            q = max(low, min(high, target))
+            proposed.append(q)
+            # The velocity it is ramped at, fed forward (a snap back toward the joint no faster than the cap).
+            velocities.append(0. if period <= 0 else
+                              max(-joint['max_velocity'], min(joint['max_velocity'], (q-previous)/period)))
+        self._velocities = tuple(velocities)
         return tuple(proposed)
 
     def step(self, feedback=None, *, target=None, now=None):

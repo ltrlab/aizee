@@ -274,9 +274,9 @@ def test_hold_faults_instead_of_sending_an_unbounded_lead():
 
 
 def test_commands_slow_toward_an_end_within_the_receivers_braking_curve():
-    from robot_platform.control.approach import COMMAND_HEADROOM, approach_speed
+    from robot_platform.control.approach import COMMAND_HEADROOM, limit_speed
     curve = {'lower': -2., 'upper': 2., 'max_velocity': 2.5, 'max_tracking_error': .05, 'stop_acceleration': 5.,
-             'reaction_s': .12}
+             'reaction_s': .04}
     curved = joints()
     curved[0].update(max_velocity=2., approach=curve)
     positions = (1.7, .02)
@@ -286,10 +286,10 @@ def test_commands_slow_toward_an_end_within_the_receivers_braking_curve():
     lifecycle.action('engage', feedback(0., positions), target=target(0., positions), now=0.)
     lifecycle.step(feedback(.04, positions), target=target(.04, positions), now=.04)
     assert lifecycle.state == 'TELEOP'
-    # 0.3 rad below the upper end, toward it: only the curve's speed there, with headroom (about 0.87 rad/s).
+    # 0.3 rad below the upper end, toward it: only the curve's speed there, with headroom (about 1.23 rad/s).
     toward = lifecycle.step(feedback(.08, positions), target=target(.08, (1.95, .02)), now=.08)['positions'][0]
-    allowed = COMMAND_HEADROOM * approach_speed(curve, .12, .3)
-    assert allowed < 1. and toward == pytest.approx(1.7 + allowed * .04)
+    allowed = COMMAND_HEADROOM * limit_speed(curve, .04, .3)
+    assert allowed < 1.5 and toward == pytest.approx(1.7 + allowed * .04)
     # Away from it: the full 2 rad/s.
     away = lifecycle.step(feedback(.12, (toward, .02)), target=target(.12, (1., .02)), now=.12)['positions'][0]
     assert away == pytest.approx(toward - 2. * .04)
@@ -298,7 +298,7 @@ def test_commands_slow_toward_an_end_within_the_receivers_braking_curve():
 def test_a_lagging_joint_near_an_end_is_pulled_only_as_hard_as_its_curve_allows():
     from robot_platform.control.approach import command_speed
     curve = {'lower': -2., 'upper': 2., 'max_velocity': 2.5, 'max_tracking_error': .05, 'stop_acceleration': 5.,
-             'reaction_s': .12}
+             'reaction_s': .04}
     curved = joints()
     curved[0].update(max_velocity=2., approach=curve)
     lifecycle = TeleopLifecycle(curved, settle_time_s=0.)
@@ -310,9 +310,49 @@ def test_a_lagging_joint_near_an_end_is_pulled_only_as_hard_as_its_curve_allows(
     # The joint lags at 1.6 behind its 1.7 target, moving toward the end at 1.5 rad/s: it may lead by
     # 0.2 x (allowed / 2 rad/s) only.
     moving = lifecycle.step(feedback(.08, (1.6, .02), (1.5, 0.)), target=target(.08, (1.95, .02)), now=.08)
-    lead = .2 * command_speed(curve, .12, 1.6, 1, 2.) / 2.
+    lead = .2 * command_speed(curve, .04, 1.6, 1, 2.) / 2.
     assert lead < .2 and moving['positions'][0] == pytest.approx(1.6 + lead)
     # Stuck (reading still, as on static friction), the same: a joint breaks free with the pull it has.
     stuck = lifecycle.step(feedback(.12, (1.6, .02)), target=target(.12, (1.95, .02)), now=.12)
     assert stuck['positions'][0] == pytest.approx(1.6 + lead)
 
+
+def test_a_slewed_move_carries_its_velocity_and_friction_feed_forward():
+    from robot_platform.control.approach import friction_feedforward
+    ramped = joints()
+    for joint in ramped:
+        joint.update(interpolation_s=.04)
+    ramped[0].update(friction_nm=.4)
+    lifecycle = TeleopLifecycle(ramped, settle_time_s=0.)
+    positions = (.3, .02)
+    lifecycle.action('idle', feedback(0., positions), now=0.)
+    lifecycle.action('enable', feedback(0., positions), now=0.)
+    engaged = lifecycle.action('engage', feedback(0., positions), target=target(0., positions), now=0.)
+    # A snap to the measured pose carries no velocity.
+    assert all(command['velocity'] == 0. and command['effort'] == 0. for command in engaged['joints'])
+    lifecycle.step(feedback(.04, positions), target=target(.04, positions), now=.04)
+    assert lifecycle.state == 'TELEOP'
+    # The leader moves away: the arm follows at its 0.5 rad/s cap and the slide at 0.01, and the receiver ramps
+    # each command from the last one over its 40 ms with that velocity fed forward.
+    arm, slide = lifecycle.step(feedback(.08, positions), target=target(.08, (.6, .04)), now=.08)['joints']
+    assert arm['position'] == pytest.approx(.3 + .5 * .04) and arm['velocity'] == pytest.approx(.5)
+    assert slide['position'] == pytest.approx(.02 + .01 * .04) and slide['velocity'] == pytest.approx(.01)
+    # Friction feed-forward in the direction of motion, for a joint whose sweep measured its friction.
+    assert arm['effort'] == pytest.approx(friction_feedforward(.4, .5)) and slide['effort'] == 0.
+    # A late cycle moves no more than the receiver's period's worth: the ramp never outruns the cap.
+    late = lifecycle.step(feedback(.14, positions), target=target(.14, (.6, .04)), now=.14)['joints'][0]
+    assert late['position'] == pytest.approx(arm['position'] + .5 * .04) and late['velocity'] == pytest.approx(.5)
+    # The leader stops: so does the command, with no velocity.
+    here = (late['position'], .02 + .01 * .08)
+    still = lifecycle.step(feedback(.18, positions), target=target(.18, here), now=.18)['joints'][0]
+    assert still['position'] == pytest.approx(late['position']) and still['velocity'] == 0. and still['effort'] == 0.
+    # Holding sends no velocity.
+    held = lifecycle.action('disengage', feedback(.22, positions), now=.22)
+    assert all(command['velocity'] == 0. and command['effort'] == 0. for command in held['joints'])
+
+
+def test_without_an_interpolation_period_commands_carry_no_velocity():
+    lifecycle = in_state('TELEOP', settle_time_s=0.)
+    moving = lifecycle.step(feedback(.08), target=target(.08, (.6, .04)), now=.08)
+    assert moving['positions'][0] > .3
+    assert all(command['velocity'] == 0. and command['effort'] == 0. for command in moving['joints'])

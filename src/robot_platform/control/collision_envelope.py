@@ -12,7 +12,7 @@ import json
 import math
 import time
 
-from .approach import approach_speed, reserve_toward
+from .approach import approach_speed, limit_reaction_s, limit_reserve, reserve_toward
 from .collision_guard import JointCalibration, check_linear_motion
 
 
@@ -102,28 +102,34 @@ class CollisionEnvelopeCompiler:
             target = [sample["position"] for sample in feedback] if joints is None else [j["position"] for j in joints]
             if len(target) != len(self.names) or any(not math.isfinite(value) for value in target):
                 raise ValueError("Complete finite joint targets required")
-            if joints is not None and any(j["velocity"] != 0 or j["effort"] != 0 for j in joints):
-                raise ValueError("Collision envelopes currently require position targets with zero feedforward")
+            # The receiver ramps each command from where its velocity says the stream came from.
+            period = self.config.get("interpolation_ms", 0) / 1000
+            starts = target if joints is None else [j["position"] - j["velocity"] * period for j in joints]
+            if any(not math.isfinite(value) for value in starts):
+                raise ValueError("Complete finite joint targets required")
             lower, upper = [], []
             policy = self.config["collision"]
-            for sample, goal, limit in zip(feedback, target, self.config["joints"]):
+            for sample, goal, start, limit in zip(feedback, target, starts, self.config["joints"]):
+                lo, hi = min(sample["position"], goal, start), max(sample["position"], goal, start)
                 velocity = limit["max_velocity"]
                 # Allow state progression while collision computation/transport run.
                 padding = velocity * policy["max_verdict_ms"] / 1000 + 1e-9
                 if limit.get("gripper"):
                     # No stopping reserve: the receiver keeps a gripper's last target
                     # instead of braking, and a gripper never leaves its interval.
-                    low = max(limit["lower"], min(sample["position"], goal) - padding)
-                    high = min(limit["upper"], max(sample["position"], goal) + padding)
+                    low = max(limit["lower"], lo - padding)
+                    high = min(limit["upper"], hi + padding)
                 else:
                     # Each side's reserve at the fastest the joint may approach that limit (the
-                    # receiver's braking curve): near a limit the box reaches it, no further.
+                    # receiver's braking curve): near a limit the box reaches it, no further. The joint
+                    # itself must be able to stop at the limit on its limit curve, as the receiver checks.
                     reaction = (policy["max_verdict_ms"] + self.config["feedback_timeout_ms"]
                                 + policy["reaction_ms"]) / 1000
-                    lo, hi = min(sample["position"], goal), max(sample["position"], goal)
                     down, up = lo - limit["lower"], limit["upper"] - hi
                     reserve_low, reserve_high = reserve_toward(limit, reaction, down), reserve_toward(limit, reaction, up)
-                    if lo - reserve_low < limit["lower"] - 1e-9 or hi + reserve_high > limit["upper"] + 1e-9:
+                    stop = limit_reaction_s(self.config)
+                    if (lo - limit_reserve(limit, stop, down) < limit["lower"] - 1e-9
+                            or hi + limit_reserve(limit, stop, up) > limit["upper"] + 1e-9):
                         raise ValueError("Stopping envelope exceeds operational interval")
                     verdict_s = policy["max_verdict_ms"] / 1000
                     low = max(limit["lower"], lo - reserve_low - approach_speed(limit, reaction, down) * verdict_s - 1e-9)

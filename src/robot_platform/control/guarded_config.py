@@ -1,11 +1,15 @@
 """Guarded receiver settings derived from a robot's recorded calibration.
 
 The receiver works in motor coordinates, the space the joint limits were swept
-in. Each joint's operational interval is the swept range intersected with the
-CAD viewing range (mapped through the motor-to-CAD direction or transmission),
-inset by a margin. Commands must also keep the receiver's stopping reserve
-inside that interval, so the usable target range is narrower still; both are
-reported. Grippers (motion setting "gripper": true) touch and hold objects:
+in. An arm joint's operational interval is its hand-swept range, extended
+OVERTRAVEL_RAD past each end (control.approach): the swept range is the joint's
+travel, and the CAD's nominal limits (reported, mapped through the motor-to-CAD
+direction or transmission) do not narrow it. Near an end a joint slows on the
+receiver's braking curve, so its targets stay only the stopping margin of its
+approach floor inside the interval (`usable`, reported). The receiver ramps each
+arm command over the profile's interpolation period with its velocity fed
+forward, and a joint with a saved servo sweep also gets its friction fed forward.
+Grippers (motion setting "gripper": true) touch and hold objects:
 their interval is their hand-swept physical travel (jaws close a little past the
 CAD slide's closed limit, so the model's range would stop them short), with no
 margin and no reserve, since the receiver keeps their last target on a stop
@@ -20,7 +24,7 @@ from fnmatch import fnmatchcase
 import math
 
 from .collision_envelope import calibration_revision
-from robot_platform.control.approach import OVERSPEED_HEADROOM, end_margin, reaction_s
+from robot_platform.control.approach import OVERSPEED_HEADROOM, OVERTRAVEL_RAD, end_margin, limit_reaction_s
 
 RECEIVER_KEYS = ('max_velocity', 'max_effort', 'max_kp', 'max_kd', 'stop_acceleration',
                  'hold_kp', 'hold_kd', 'max_tracking_error', 'max_temperature')
@@ -33,11 +37,15 @@ LIFECYCLE_KEYS = ('align_speed', 'shutdown_speed', 'tolerance', 'settled_velocit
 GRIPPER_TOLERANCE_RAD = .05
 # What a servo calibration (the live servo sweep, saved in Helm) sets per joint.
 SERVO_KEYS = ('hold_kp', 'hold_kd', 'max_velocity', 'stop_acceleration', 'max_tracking_error')
+# The control law a servo calibration was measured under: the receiver ramps each command over its
+# interpolation period with its velocity (and friction) fed forward. A speed measured under the old
+# position-only commands, where damping braked every motion, does not carry over: a calibration made
+# under another law keeps its gains, braking and tracking bound, not its speed.
+CONTROL_LAW = 'interpolated-feedforward'
 # How far an arm joint's command may lead its measured position, as a share of its
-# tracking bound. Commands are position-only, so a joint servo's steady lag grows
-# with speed (hold_kd * speed / hold_kp); a command led by the whole bound kept a
-# joint that could not keep up at its fault threshold (right J4 lagged 0.088 rad
-# against 0.08 in the first live session). With margin, it lags and catches up.
+# tracking bound: a joint that cannot keep up lags and catches up, short of its fault
+# threshold (right J4 lagged 0.088 rad against 0.08 in the first live session, when
+# commands were position-only and the lag grew with speed as hold_kd * speed / hold_kp).
 LEAD_FRACTION = .6
 
 
@@ -51,10 +59,10 @@ def motion_settings(motion, motor):
     for entry in motion.get('joints', []):
         if fnmatchcase(motor, entry['match']):
             merged.update({k: v for k, v in entry.items() if k != 'match'})
-    missing = [k for k in (*RECEIVER_KEYS, *LIFECYCLE_KEYS, 'margin_rad') if k not in merged]
+    missing = [k for k in (*RECEIVER_KEYS, *LIFECYCLE_KEYS) if k not in merged]
     if missing:
         raise ValueError(f'{motor}: motion settings missing {", ".join(missing)}')
-    if any(not _finite(merged[k]) or merged[k] < 0 for k in (*RECEIVER_KEYS, *LIFECYCLE_KEYS, 'margin_rad')):
+    if any(not _finite(merged[k]) or merged[k] < 0 for k in (*RECEIVER_KEYS, *LIFECYCLE_KEYS)):
         raise ValueError(f'{motor}: motion settings must be finite and non-negative')
     return merged
 
@@ -65,7 +73,7 @@ def usable_margin(settings, receiver):
     `receiver` block: the stopping margin of its approach floor (control.approach), whatever its cap."""
     joint = {'max_velocity': settings['max_velocity'] * OVERSPEED_HEADROOM,
              'max_tracking_error': settings['max_tracking_error'], 'stop_acceleration': settings['stop_acceleration']}
-    return end_margin(joint, reaction_s(receiver), receiver['collision']['max_verdict_ms'] / 1000)
+    return end_margin(joint, limit_reaction_s(receiver))
 
 
 def cad_map(reference, steps, directions, transmissions):
@@ -107,7 +115,8 @@ def servo_settings(settings, motor, servo):
     if entry.get('uid') != motor.get('uid') or entry.get('firmware') != motor.get('firmware'):
         raise ValueError(f"{motor['name']}: the servo calibration was made with another motor or firmware; "
                          'sweep it again')
-    merged = dict(settings, **{key: float(entry[key]) for key in SERVO_KEYS if entry.get(key) is not None})
+    keys = [key for key in SERVO_KEYS if key != 'max_velocity' or entry.get('control') == CONTROL_LAW]
+    merged = dict(settings, **{key: float(entry[key]) for key in keys if entry.get(key) is not None})
     merged['max_kp'] = max(merged['max_kp'], merged['hold_kp'])
     merged['max_kd'] = max(merged['max_kd'], merged['hold_kd'])
     return merged, True
@@ -123,7 +132,7 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
     by_motor = {row['actuator']: (joint, row) for joint, row in joint_map.items()}
     receiver = profile['receiver']
     policy = receiver['collision']
-    window_s = (policy['max_verdict_ms'] + receiver['feedback_timeout_ms'] + policy['reaction_ms']) / 1000
+    interpolation_ms = int(receiver.get('interpolation_ms', 0))
     verified = {row['motor']: row.get('direction_verified') is True for row in directions.values()}
     verified.update({t['motor']: t.get('direction_verified') is True for t in transmissions})
     grippers = {t['motor'] for t in transmissions}
@@ -136,6 +145,11 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
             raise ValueError(f'{name}: no saved joint limits; sweep it in Helm first')
         settings, calibrated = servo_settings(motion_settings(profile['motion'], name), motor, servo)
         gripper = settings.get('gripper') is True
+        # The friction its servo sweep measured, for friction feed-forward (arm joints only: a gripper's
+        # squeeze is its stiffness times its lead).
+        measured = ((((servo or {}).get('joints') or {}).get(name) or {}).get('measured') or {}).get('torque') or {}
+        friction = 0. if gripper or not calibrated else min(float(measured.get('friction') or 0.),
+                                                              float(settings['max_effort']))
         cad_joint, row = by_motor[name]
         cad_lo, cad_hi = model.by_name[cad_joint]['control_bounds']
         cad_motor = sorted(((cad_lo - row['offset']) / row['scale'], (cad_hi - row['offset']) / row['scale']))
@@ -143,8 +157,9 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
             lower, upper = saved['min_rad'], saved['max_rad']
             cad_limits[cad_joint] = tuple(model.by_name[cad_joint].get('bounds') or (cad_lo, cad_hi))
         else:
-            lower = max(saved['min_rad'], cad_motor[0]) + settings['margin_rad']
-            upper = min(saved['max_rad'], cad_motor[1]) - settings['margin_rad']
+            # The hand-swept range is the joint's travel: the receiver lets it pass a swept end by
+            # OVERTRAVEL_RAD before it faults.
+            lower, upper = saved['min_rad'] - OVERTRAVEL_RAD, saved['max_rad'] + OVERTRAVEL_RAD
         # The receiver enforces its cap (and near the ends its braking curve) with headroom over what is
         # commanded: a servo overshoots the speed it follows. Near an end a joint slows (control.approach),
         # so its targets stay only the stopping margin of its approach floor inside, at any speed cap.
@@ -152,8 +167,7 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
         margin = 0. if gripper else usable_margin(settings, receiver)
         usable = (lower + margin, upper - margin)
         if not lower < upper or not usable[0] < usable[1]:
-            raise ValueError(f'{name}: no usable range after margins and the stopping margin; '
-                             'reduce its tracking bound')
+            raise ValueError(f'{name}: no usable range inside the stopping margin; sweep its range again')
         if settings['hold_kp'] > settings['max_kp'] or settings['hold_kd'] > settings['max_kd']:
             raise ValueError(f'{name}: hold gains exceed their maxima')
         if settings['max_tracking_error'] <= 0 or settings['max_velocity'] <= 0 or settings['stop_acceleration'] <= 0:
@@ -170,20 +184,22 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
                           'max_lead': bounds['upper'] - bounds['lower'] if gripper
                           else LEAD_FRACTION * float(settings['max_tracking_error']),
                           'zero_position': home,
+                          # The receiver ramps each command over this period, with its velocity fed forward.
+                          # Not a gripper's: fed-forward velocity would add to its squeeze while it closes on
+                          # an object (kd x speed), and its command already leads by its whole range.
+                          'interpolation_s': 0. if gripper else interpolation_ms / 1000, 'friction_nm': friction,
                           # Commands slow toward an end within the receiver's braking curve.
                           **({} if gripper else {'approach': {
                               **bounds, 'max_velocity': float(speed),
                               'max_tracking_error': float(settings['max_tracking_error']),
-                              'stop_acceleration': float(settings['stop_acceleration']), 'reaction_s': window_s}})})
+                              'stop_acceleration': float(settings['stop_acceleration']),
+                              'reaction_s': limit_reaction_s(receiver)}})})
         initial.append(home)
         report.append({'motor': name, 'cad_joint': cad_joint, 'scale': row['scale'], 'offset': row['offset'],
                        'swept': [saved['min_rad'], saved['max_rad']], 'cad': cad_motor,
                        'operational': [lower, upper], 'usable': list(usable), 'reserve': margin,
-                       'receiver_cap': float(speed),
+                       'receiver_cap': float(speed), 'friction_ff': friction,
                        'receiver': [bounds['lower'], bounds['upper']],
-                       'binding': ['swept', 'swept'] if gripper else [
-                           'cad' if cad_motor[0] > saved['min_rad'] else 'swept',
-                           'cad' if cad_motor[1] < saved['max_rad'] else 'swept'],
                        'home': home, 'direction_verified': verified.get(name, False), 'servo_calibrated': calibrated,
                        # Gripper slides: the motor direction that opens (away from the bound nearest zero).
                        # The CAD axis may be mirrored between arms; physical opening is what an operator sees.
@@ -193,7 +209,7 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
               'identity': {'model': backend.runtime_model.revision, 'calibration': calibration_revision(joint_map),
                            'collision_policy': backend.policy_revision},
               'lease_ms': receiver['lease_ms'], 'feedback_timeout_ms': receiver['feedback_timeout_ms'],
-              'settled_velocity': receiver['settled_velocity'], 'joints': joints,
+              'settled_velocity': receiver['settled_velocity'], 'joints': joints, 'interpolation_ms': interpolation_ms,
               'collision': {'world_revision': backend.runtime_model.world_revision, 'scope': policy['scope'],
                             'max_verdict_ms': policy['max_verdict_ms'], 'reaction_ms': policy['reaction_ms']}}
     return {'config': config, 'joint_map': joint_map, 'lifecycle': lifecycle,
