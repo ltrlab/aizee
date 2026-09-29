@@ -2378,3 +2378,42 @@ Saved (`3c7c178`):
 At damping 5 a step settles in 0.09 s, against 0.35 s at 20. J1 lagged 0.02 rad
 at its cap, half its bound: it has room for a higher cap if the operator raises
 J1's 1.5 rad/s ceiling.
+
+### 2026-09-29 — right J2 swept under the new law; two sweep fixes
+
+Claude ran right J2 (23:26 UTC, release `20260929T230615Z-0199a95`). It
+finished with no faults or guard events. The loop's cycle was 12.1 ms median
+and 23 ms p99.
+
+- **Range:** the whole usable range, +1.607/−1.555 rad, characterised and
+  verified. The 2026-09-28 sweep, without gravity feed-forward, stalled near
+  ±0.55 rad.
+- **Gravity:** the slice refits to 18.6 sin q Nm, against 16.8 from the
+  shorter span of 2026-09-28. That is 19.6 Nm held at −1.5 rad, with 0.85 Nm of
+  friction.
+- **Stiffness:** kp 220 passed only with damping 21. Lighter damping overshot a
+  step by 11–18%. At kp 154, damping 8.8–17.6 passed.
+- **Braking:** every rate up to 32 rad/s² was followed within 0.029 rad.
+- **Speed:** the ladder stopped at 1.0 rad/s. 1.2 rad/s read 0.046 rad of lag,
+  over half the bound.
+
+Saved as a fallback (`ff24dfe`): kp 220, kd 21, 1.0 rad/s, braking 32 rad/s²,
+bound 0.068 rad, and the new gravity slice.
+
+Two sweep faults came to light:
+
+- **The speed tests misread lag** (`4b454d0`). A command that reaches the
+  receiver a loop cycle late pauses its ramp. The next, on time, jumps ahead,
+  so that 40 ms runs up to 1.5× the cruise speed. The analysis took the fastest
+  40 ms as the cruise: a 1.0 rad/s test read 1.2–1.3 rad/s. Its fitted line,
+  extrapolated into the braking end, read lag the joint never had. Re-analysed
+  from the recording, J2 lagged 0.032 rad behind its command at 1.2 rad/s
+  (0.046 as read), within half its bound. The cruise now runs at the commanded
+  speed, and lag is measured against the command, as the receiver's tracking
+  bound and the pass across the range take it.
+- **Characterisation stopped at 2 rad** (`efbb361`). The widening steps ended
+  at 2 rad, so right J3 (to −2.15) and the wrist roll (±3.4) would have been
+  characterised, speed-tested and verified short of their ends. The sweep now
+  widens to the end of the range after the last step.
+
+Deployed as release `20260929T234053Z-ff24dfe`.
