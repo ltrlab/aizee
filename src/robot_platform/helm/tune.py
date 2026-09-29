@@ -14,6 +14,7 @@ results, and saves the joints the operator confirms as the servo calibration,
 from which the receiver then takes its gains, speeds and tracking bounds.
 """
 from copy import deepcopy
+import gc
 import json
 import multiprocessing
 from pathlib import Path
@@ -60,6 +61,7 @@ class TuneCore:
         self.pending = []  # Receiver results since the engine last saw them.
         self.cycles = []
         self._closers = []
+        self._frozen = False  # The garbage collector's long-lived objects are frozen while the loop runs.
         self._stage_since = None
         self._results_at = 0.
         self.scheduling = {}
@@ -196,6 +198,12 @@ class TuneCore:
                 {'dtype': 'float32', 'columns': ['t_ms'] + [f'{name}.{field}' for name in names
                                                            for field in ('position', 'velocity', 'effort', 'command')]},
                 indent=1) + '\n', encoding='utf-8')
+        # As teleop does (helm.teleop.TeleopCore.build): a full garbage-collector pass over the collision model's
+        # object graphs took 46 ms on the Jetson, and one in the middle of a right J1 sweep (2026-09-29) let the
+        # receiver's 80 ms collision verdict expire. Freeze everything long-lived; later passes walk only new objects.
+        gc.collect()
+        gc.freeze()
+        self._frozen = True
         self.phase, self.stage = 'running', 'arming'
         self._stage_since = self.clock()
         what = 'LIVE JOINT SWEEP (MINERVA CHECK)' if self.mode == 'verify' else 'SERVO SWEEP'
@@ -321,6 +329,9 @@ class TuneCore:
             except Exception as exc:
                 failures.append(str(exc) or type(exc).__name__)
         self._closers = []
+        if self._frozen:
+            gc.unfreeze()
+            self._frozen = False
         if self.sink is not None:
             self.sink.close()
             self.sink = None
