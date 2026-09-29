@@ -76,6 +76,7 @@ REST_BAND_RAD = .003  # At rest: the joint moved less than this over REST_S.
 REST_S = .2
 GAIN_RAMP_S = .3  # Stiffness and damping change over this long, never in one step.
 CHECK_BUDGET_S = .01  # Collision queries per cycle; a path is checked over several cycles.
+CHUNK_ROWS = 256  # The recording keeps rows in chunks of about this many (a result brings one or two).
 
 
 def sweep_settings(profile, motor):
@@ -196,7 +197,12 @@ class Recording:
             rows = rows[rows[:, 0] > self.last_t]  # Never the same tick twice.
             if not len(rows):
                 return rows
-        self.chunks.append(rows)
+        # Each receiver result brings a row or two: kept one chunk each, a 90 s window held 11,000 chunks and
+        # every lookup walked them all (right J1's sweep then missed the receiver's 80 ms verdict, 2026-09-29).
+        if self.chunks and len(self.chunks[-1]) < CHUNK_ROWS:
+            self.chunks[-1] = np.concatenate([self.chunks[-1], rows])
+        else:
+            self.chunks.append(rows)
         self.rows_total += len(rows)
         self.last_t = float(rows[-1, 0])
         while self.chunks and self.chunks[0][-1, 0] < self.last_t - self.window_ms:

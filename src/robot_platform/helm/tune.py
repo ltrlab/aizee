@@ -218,10 +218,7 @@ class TuneCore:
         verdict = getattr(self.compiler, 'last_verdict', None) or {}
         self.engine.observe([], temperatures=temperatures, collision_clear=verdict.get('clear', True))
 
-    def _move(self, command):
-        self.controller.renew()
-        offer_started = self.clock()
-        offered = self.controller.collision_offer()
+    def _move(self, command, offered, offer_started):
         feedback = (self.latest() or {}).get('feedback') or []
         count = len(command['targets'])
         joints = [{'position': target, 'velocity': velocity, 'effort': effort, 'kp': kp, 'kd': kd}
@@ -247,8 +244,11 @@ class TuneCore:
             if self.stage == 'arming':
                 self._arm()
             elif self.stage == 'sweeping':
-                # The latest rows first: a command's lead is taken from where the joint is now, not a cycle ago.
-                self.controller.poll()
+                # Renew and take the collision offer first: their results bring the latest rows, so the command's
+                # lead is taken from where the joint is now, not a cycle ago, with no extra request.
+                self.controller.renew()
+                offer_started = self.clock()
+                offered = self.controller.collision_offer()
                 self._feed()
                 command = self.engine.command(started)
                 if command is None:
@@ -257,7 +257,7 @@ class TuneCore:
                                   'Sweep stopped: the arm is back at the reference and disabled.')
                     self.stage = 'finished'
                 else:
-                    self._move(command)
+                    self._move(command, offered, offer_started)
                     progress = self.engine.progress()
                     self.message = f"{progress['task']} ({progress['joints_done']}/{progress['joints']} joints done)"
         except Exception as exc:

@@ -565,3 +565,19 @@ def test_the_guard_sees_every_row_since_the_last_command():
     engine.observe([], temperatures={'right_arm_j5': 30.})
     engine.command(now + .04)
     assert any(event['text'].startswith('right_arm_j5 lagged 0.090') for event in engine.events), engine.events
+
+
+def test_the_recording_keeps_few_chunks_however_the_rows_arrive():
+    # Each receiver result brings a row or two. Kept one chunk each, a 90 s window held 11,000 chunks, every
+    # lookup walked them all, and right J1's sweep missed the receiver's 80 ms verdict (2026-09-29).
+    names = [f'j{i}' for i in range(7)]
+    recording = Recording(names)
+    t = 0.
+    for _ in range(int(90 / .04) * 5):
+        rows = np.zeros((3, 1 + 4 * len(names)))
+        rows[:, 0] = t + np.arange(3) * 2.5
+        t += 7.5
+        recording.add(rows)
+    assert len(recording.chunks) < 200
+    assert len(recording.between(t - 40, t)) == 16
+    assert recording.rows_total == int(90 / .04) * 15
