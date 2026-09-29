@@ -26,24 +26,34 @@ def default_binary() -> Path:
 
 
 class NativeControlHarness:
-    def __init__(self, config: dict, initial_positions: list[float], *, binary=None, timeout_s=3.0):
+    def __init__(self, config: dict, initial_positions: list[float], *, binary=None, timeout_s=3.0,
+                 setup_json=None):
+        """`setup_json`: a path to write the setup to as JSON and have the harness read it from, as the
+        live receiver reads its configuration (it parses floats from text), instead of MessagePack."""
         if not math.isfinite(timeout_s) or timeout_s <= 0:
             raise ValueError("timeout_s must be positive and finite")
         self.timeout_s = timeout_s
         self.binary = Path(binary) if binary is not None else default_binary()
         if not self.binary.is_file():
             raise FileNotFoundError(f"Build the native harness first: cargo build -p robot_control --bin control_harness ({self.binary})")
-        setup = pack_msg({"config": config, "initial_positions": initial_positions})
-        if len(setup) > 256 * 1024:
-            raise ValueError("Controller setup exceeds 256 KiB")
-        self.process = subprocess.Popen([str(self.binary), "-"], stdin=subprocess.PIPE,
+        setup = {"config": config, "initial_positions": initial_positions}
+        if setup_json is not None:
+            import json
+            Path(setup_json).write_text(json.dumps(setup, indent=1, allow_nan=False), encoding="utf-8")
+            argument, setup = str(setup_json), None
+        else:
+            argument, setup = "-", pack_msg(setup)
+            if len(setup) > 256 * 1024:
+                raise ValueError("Controller setup exceeds 256 KiB")
+        self.process = subprocess.Popen([str(self.binary), argument], stdin=subprocess.PIPE,
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self._responses = Queue()
         self._reader = Thread(target=self._read_replies, daemon=True, name="controller-harness-reader")
         self._reader.start()
         try:
-            self.process.stdin.write(struct.pack("<I", len(setup)) + setup)
-            self.process.stdin.flush()
+            if setup is not None:
+                self.process.stdin.write(struct.pack("<I", len(setup)) + setup)
+                self.process.stdin.flush()
         except BaseException:
             self.close()
             raise
@@ -66,11 +76,17 @@ class NativeControlHarness:
         except Exception as exc:
             self._responses.put(exc)
 
-    def step(self, now_ms: int, request: dict | None = None, *, faults=None) -> dict:
+    def step(self, now_ms: int, request: dict | None = None, *, faults=None, feedback=None) -> dict:
+        """Advance the receiver to `now_ms`, handling `request` if any. `feedback` ([{position, velocity,
+        effort}] per joint) is what the next read reports, as a simulated plant measured it; without it the
+        joints follow their commands exactly."""
         if type(now_ms) is not int or now_ms < 0:
             raise ValueError("now_ms must be a nonnegative integer in the receiver clock")
         self.now_ms = now_ms
-        frame = pack_msg({"protocol_version": 1, "now_ms": now_ms, "request": request, "faults": faults})
+        frame = {"protocol_version": 1, "now_ms": now_ms, "request": request, "faults": faults}
+        if feedback is not None:
+            frame["feedback"] = feedback
+        frame = pack_msg(frame)
         if len(frame) > 256 * 1024:
             raise ValueError("Controller harness frame exceeds 256 KiB")
         self.process.stdin.write(struct.pack("<I", len(frame)) + frame)

@@ -31,6 +31,15 @@ struct Faults {
     motor_fault: bool,
 }
 
+/// A measured joint state to report from the next read, as a simulated plant computes it.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Measured {
+    position: f64,
+    velocity: f64,
+    effort: f64,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Input {
@@ -38,6 +47,9 @@ struct Input {
     now_ms: u64,
     request: Option<Request>,
     faults: Option<Faults>,
+    /// Drive the feedback from a plant instead of following the commands (the default).
+    #[serde(default)]
+    feedback: Option<Vec<Measured>>,
 }
 
 #[derive(Serialize)]
@@ -107,6 +119,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     hardware.fail_read = f.fail_read;
                     hardware.fail_write = f.fail_write;
                     hardware.motor_fault = f.motor_fault;
+                }
+                if let Some(measured) = frame.feedback {
+                    if measured.len() != hardware.feedback.len() {
+                        return Err("feedback must cover every joint".into());
+                    }
+                    for (joint, m) in hardware.feedback.iter_mut().zip(measured) {
+                        joint.position = m.position;
+                        joint.velocity = m.velocity;
+                        joint.effort = m.effort;
+                    }
                 }
                 let reply = if let Some(request) = frame.request {
                     Some(controller.handle(frame.now_ms, request, &mut hardware))
