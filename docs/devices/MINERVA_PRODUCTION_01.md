@@ -2260,3 +2260,50 @@ Fixed in `2594ffe` (release `20260929T022502Z-2594ffe`):
 
 On the Jetson, arming this session's configuration read from JSON is refused
 by the previous release's binary and accepted by the new one.
+
+### 2026-09-29 — J1 refused at its first speed test; rehearsals on a simulated arm
+
+The second right J1 sweep (02:28 UTC) characterised its whole range:
++1.604/−0.821 rad, both edges of its usable range. It passed its stiffness
+tests (none overshot at kp 150; the softest rungs rested too far from their
+target). The receiver then refused a command in its 0.2 rad/s speed test with
+`collision_violation`, near the lower edge. The joint had settled a hair past a
+command at the edge of its usable range, and the stop check took the measured
+position, which was then inside the floor's stopping margin. The check now
+takes the reference the receiver drives (`813e6e8`).
+
+To stop finding these one live run at a time, sessions are now rehearsed
+offline (`2fb4080`). The actual Rust receiver reads its configuration from
+JSON and ticks every 2.5 ms against a simulated arm with:
+- inertia and friction with stiction;
+- gravity 10% off the fed model;
+- the drives' speed noise and noisy 16-bit positions.
+
+Offline, it reproduced the refusal with the old receiver. It then found four
+more problems before the robot did:
+- **Speed held down by the lead:** a command's lead was taken from the measured
+  position, 80 ms behind what the receiver drives (the 40 ms ramp and the
+  sample's age). A 0.048 rad lead held J1 to 0.57 rad/s whatever its speed. The
+  lead now starts from where the joint will be when the ramp ends (`9e55637`).
+- **Overspeed at speed:** at 1.5 rad/s, J1's pass across its range ran into the
+  part of its curve that allows 1.55 rad/s, and its speed noise tripped the
+  overspeed check. Each step's speed is now taken where the step ends
+  (`9e55637`).
+- **The guard never ran live:** the loop's last read of each cycle emptied the
+  rows the guard checks (`9e55637`).
+- **J5 past ±π:** in teleop, right J5 went past the model's ±π (it was swept
+  6.65 rad), and the collision model refused the pose. Full-turn joints are now
+  taken a turn round for the model (`e448995`).
+
+Rehearsed afterwards:
+- **J1, full default sweep:** kp 150, kd 10, 1.5 rad/s, braking 32 rad/s²,
+  bound 0.038 rad.
+- **J2–J6 sweeps:** all complete. J2 lifts to both ends of its range with
+  gravity fed forward, and the refitted slices came within 1% of the simulated
+  truth.
+- **Teleop:** 20 s of leader sweeps past every joint's ends ran without a fault.
+  J1–J3 reached 1.5 rad/s, J4 2.5 and the wrists 4.
+
+The contract tests now include a J6 sweep to both edges and 12 s of teleop on
+the simulated arm (`tests/contract/test_rehearsal.py`). Both fail on the
+receiver that refused J1. Deployed as release `20260929T033414Z-2fb4080`.
