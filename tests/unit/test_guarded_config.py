@@ -1,4 +1,6 @@
 """Receiver settings derived from swept joint limits, in motor coordinates."""
+import math
+
 import pytest
 
 from robot_platform.control.collision_envelope import calibration_revision
@@ -203,3 +205,11 @@ def test_a_servo_calibration_sets_its_joints_settings_and_is_bound_to_the_motor(
     swapped = {'joints': {'arm_j1': dict(servo['joints']['arm_j1'], uid='cc')}}
     with pytest.raises(ValueError, match='another motor or firmware; sweep it again'):
         derive(reference=reference, servo=swapped)
+
+
+def test_a_full_turn_joint_is_taken_a_turn_round_for_the_model_and_a_slide_clamped():
+    mapping = {'swivel': {'actuator': 'w', 'scale': 1., 'offset': 0.}, 'slide': {'actuator': 'g', 'scale': .01, 'offset': 0.}}
+    limits = {'swivel': (-math.pi, math.pi), 'slide': (0., .03)}
+    cad = to_cad(mapping, {'w': -3.4, 'g': -.5}, limits)
+    assert cad['swivel'] == pytest.approx(-3.4 + 2 * math.pi) and cad['slide'] == 0.
+    assert to_cad(mapping, {'w': 1., 'g': 1.}, limits)['swivel'] == pytest.approx(1.)

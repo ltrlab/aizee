@@ -36,6 +36,7 @@ LIFECYCLE_KEYS = ('align_speed', 'shutdown_speed', 'tolerance', 'settled_velocit
 # so a gripper's interval extends this far past each swept end (about 0.5 mm of jaw
 # travel). The stops keep the jaws from going further; targets stay swept.
 GRIPPER_TOLERANCE_RAD = .05
+FULL_TURN = 2 * math.pi
 # What a servo calibration (the live servo sweep, saved in Helm) sets per joint.
 SERVO_KEYS = ('hold_kp', 'hold_kd', 'max_velocity', 'stop_acceleration', 'max_tracking_error')
 # The control law a servo calibration was measured under: the receiver ramps each command over its
@@ -163,6 +164,11 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
             lower, upper = saved['min_rad'], saved['max_rad']
             cad_limits[cad_joint] = tuple(model.by_name[cad_joint].get('bounds') or (cad_lo, cad_hi))
         else:
+            # A joint the model lets turn a full circle (the wrist swivels were swept 6.65 rad) is taken a turn
+            # round past its model limits (to_cad): the same pose, which the collision model accepts.
+            bounds = model.by_name[cad_joint].get('bounds')
+            if bounds and bounds[1] - bounds[0] >= FULL_TURN - 1e-9:
+                cad_limits[cad_joint] = tuple(bounds)
             # The hand-swept range is the joint's travel: the receiver lets it pass a swept end by
             # OVERTRAVEL_RAD before it faults.
             lower, upper = saved['min_rad'] - OVERTRAVEL_RAD, saved['max_rad'] + OVERTRAVEL_RAD
@@ -228,12 +234,15 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
 def to_cad(joint_map, motors, limits=None):
     """CAD joint positions for a {motor: position} mapping (display and collision).
 
-    `limits` ({cad joint: (low, high)}) clamps gripper slides, whose physical
-    travel passes the model's closed limit, into the model's range.
+    `limits` ({cad joint: (low, high)}) brings each position into the model's range:
+    a joint whose range is a full turn is taken a turn round (the same pose); a
+    gripper slide, whose physical travel passes the model's closed limit, is clamped.
     """
     cad = {joint: row['scale'] * motors[row['actuator']] + row['offset']
            for joint, row in joint_map.items() if row['actuator'] in motors}
     for joint, (low, high) in (limits or {}).items():
         if joint in cad:
+            if high - low >= FULL_TURN - 1e-9:
+                cad[joint] = low + (cad[joint] - low) % FULL_TURN
             cad[joint] = min(high, max(low, cad[joint]))
     return cad

@@ -145,7 +145,9 @@ class CollisionEnvelopeCompiler:
             a, b = {}, {}
             for name, calibration in self.mapping.items():
                 values = [q * calibration.scale + calibration.offset for q in bounds[calibration.actuator]]
-                if name in self.cad_limits:
+                if name in self.cad_limits and self.cad_limits[name][1] - self.cad_limits[name][0] < 2 * math.pi - 1e-9:
+                    # A gripper slide passes the model's closed limit; clamp it. A box of a full-turn joint
+                    # past the model's range is not wrapped: the model refuses it and no envelope is made.
                     low, high = self.cad_limits[name]
                     values = [min(high, max(low, value)) for value in values]
                 a[name], b[name] = min(values), max(values)
