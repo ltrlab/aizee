@@ -82,10 +82,13 @@ class PlantReceiver:
     """The live receiver's interface over the Rust receiver ticking against an `ArmPlant`.
 
     `clock` is the caller's clock (s); the receiver's time is milliseconds since construction.
+    As the live service does, it takes each request at its next tick (`service_latency`), so a
+    loop's requests span ticks and each result brings the rows since the last.
     """
 
-    def __init__(self, config, plant, *, clock, directory=None, binary=None):
+    def __init__(self, config, plant, *, clock, directory=None, binary=None, service_latency=True):
         self.config, self.plant, self.clock = config, plant, clock
+        self.service_latency = service_latency
         self.directory = Path(directory) if directory else Path(tempfile.mkdtemp(prefix='plant-receiver-'))
         self.directory.mkdir(parents=True, exist_ok=True)
         positions = [q for q in plant.q]
@@ -107,18 +110,23 @@ class PlantReceiver:
             row += [feedback['position'], feedback['velocity'], feedback['effort'], command['position']]
         return row
 
+    def _tick(self):
+        enabled = self.last.get('hardware_enabled')
+        self.plant.step(self.last['status']['joints'] if enabled else None, TICK_S)
+        self.ticks += 1
+        t_ms = self.ticks * TICK_S * 1000
+        self.last = self.harness.step(int(t_ms), feedback=self.plant.measured())
+        self.rows.append(self._row(self.last, t_ms))
+
     def advance(self):
         """Tick the receiver and the plant up to the caller's clock."""
         while (self.ticks + 1) * TICK_S * 1000 <= self._now_ms():
-            enabled = self.last.get('hardware_enabled')
-            self.plant.step(self.last['status']['joints'] if enabled else None, TICK_S)
-            self.ticks += 1
-            t_ms = self.ticks * TICK_S * 1000
-            self.last = self.harness.step(int(t_ms), feedback=self.plant.measured())
-            self.rows.append(self._row(self.last, t_ms))
+            self._tick()
 
     def exchange(self, request):
         self.advance()
+        if self.service_latency:
+            self._tick()
         now_ms = max(self.harness.now_ms, int(self._now_ms()))
         result = self.harness.step(now_ms, request, feedback=self.plant.measured())
         result = dict(result, recent=self.rows, recent_dropped=0)
