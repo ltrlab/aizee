@@ -73,6 +73,45 @@ def test_ramp_lag_grows_with_speed_and_braking_reports_lag_and_overshoot():
     assert stop['max_lag'] > 0 and stop['overshoot'] < .01
 
 
+def test_ramp_lag_takes_the_cruise_at_the_commanded_speed_through_command_jitter():
+    # The receiver ramps each 25 Hz command over 40 ms with its velocity fed forward. One command arrives a
+    # 12 ms loop cycle late: the ramp pauses, then the next, on time, jumps ahead. That 40 ms ran at 1.47 rad/s
+    # of a 1.2 rad/s cruise and was taken for the cruise, and a line fitted to it and extrapolated into the
+    # braking end read lag that was never there (right J2, rehearsed and live, 2026-09-29).
+    speed, acceleration, period, dt = 1.2, 8., .04, .0025
+    ramp_s = speed / acceleration
+    cruise_s = .6
+
+    def profile(t):  # Accelerate, cruise, brake: (position, velocity).
+        total = 2 * ramp_s + cruise_s
+        t = min(max(t, 0.), total)
+        if t < ramp_s:
+            return .5 * acceleration * t * t, acceleration * t
+        if t < ramp_s + cruise_s:
+            return .5 * speed * ramp_s + speed * (t - ramp_s), speed
+        left = total - t
+        return .5 * speed * ramp_s * 2 + speed * cruise_s - .5 * acceleration * left * left, acceleration * left
+    arrivals = [k * period + (.012 if k == 10 else 0.) for k in range(60)]
+    commands = [profile(k * period + period) for k in range(60)]
+    rows, q, v, t = [], 0., 0., 0.
+    while t < 60 * period - .05:
+        k = max(i for i, a in enumerate(arrivals) if a <= t) if t >= arrivals[0] else None
+        if k is None:
+            reference, velocity = 0., 0.
+        else:
+            (target, rate), elapsed = commands[k], t - arrivals[k]
+            reference, velocity = (target - rate * (period - elapsed), rate) if elapsed < period else (target, 0.)
+        torque = 150. * (reference - q) + 5. * (velocity - v)
+        v += torque / .05 * dt
+        q += v * dt
+        rows.append([t * 1000, q, v, torque, reference])
+        t += dt
+    rows = np.array(rows)
+    result = ramp_lag(rows, 0, speed=speed)
+    assert result['speed'] == pytest.approx(speed, rel=.03)
+    assert result['max_lag'] == pytest.approx(np.max(rows[:, 4] - rows[:, 1]), abs=1e-9)  # The jump's, and no more.
+
+
 def test_speed_noise_is_measured_while_holding():
     rows = np.zeros((100, 5))
     rows[:, 2] = np.where(np.arange(100) % 10 == 0, .2, .01)

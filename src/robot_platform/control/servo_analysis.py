@@ -146,14 +146,19 @@ def step_response(rows, joint_index, *, target, start, band_fraction=.1, band_fl
 # -- ramps and braking ----------------------------------------------------------------
 
 def ramp_lag(rows, joint_index, *, speed):
-    """Lag behind the ideal constant-speed path while cruising.
+    """Lag behind the command while cruising.
 
     The cruise is where the command moves at its top speed, measured over each command
-    period (the command is a 25 Hz staircase, or the receiver's ramp through it), not
-    its accelerating and braking ends; the ideal path is the line fitted through the
-    command there, and its slope is the speed reached (`speed` was commanded). Returns
-    that speed, the mean and worst lag (rad, positive = behind) and the worst effort,
-    or None without a cruise phase.
+    period (the receiver's ramp through the 25 Hz commands, or their staircase), not its
+    accelerating and braking ends: a sample counts when the periods before and after it
+    both do. The top is the commanded `speed` once the command reached it: commands
+    arrive a loop cycle early or late, so the ramp briefly runs up to half again faster
+    or pauses, and the fastest period alone is no cruise. The slope of the line fitted
+    through the command there is the speed reached; the lag is the command's lead over
+    the measured position, which is what the receiver's tracking bound limits (a line
+    extrapolated into the braking end read J2 0.041 rad behind where it lagged 0.024).
+    Returns that speed, the mean and worst lag (rad, positive = behind) and the worst
+    effort, or None without a cruise phase.
     """
     t = times_s(rows)
     commanded = column(rows, joint_index, COMMAND)
@@ -161,19 +166,19 @@ def ramp_lag(rows, joint_index, *, speed):
     if len(t) < 8:
         return None
     window = max(1, int(round(COMMAND_PERIOD_S / max(float(np.median(np.diff(t))), 1e-4))))
-    if len(t) < window + 8:
+    if len(t) < 2 * window + 8:
         return None
     rate = np.abs(commanded[window:] - commanded[:-window]) / np.maximum(t[window:] - t[:-window], 1e-6)
-    top = float(np.max(rate))
+    top = min(float(np.max(rate)), speed or math.inf)
     if not top > 0:
         return None
     fast = np.flatnonzero(rate >= .9 * top)  # rate[i] spans samples i to i + window.
-    cruise = slice(int(fast[0]), int(fast[-1]) + window + 1)
+    cruise = slice(int(fast[0]) + window, int(fast[-1]) + 1)
     if cruise.stop - cruise.start < 8:
         return None
-    slope, intercept = np.polyfit(t[cruise], commanded[cruise], 1)
+    slope, _ = np.polyfit(t[cruise], commanded[cruise], 1)
     direction = math.copysign(1, slope)
-    lag = (slope * t[cruise] + intercept - position[cruise]) * direction
+    lag = (commanded[cruise] - position[cruise]) * direction
     effort = column(rows, joint_index, EFFORT)[cruise]
     return {'speed': abs(float(slope)), 'mean_lag': float(np.mean(lag)), 'max_lag': float(np.max(lag)),
             'peak_effort': float(np.max(np.abs(effort)))}
