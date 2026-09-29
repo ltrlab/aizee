@@ -2346,3 +2346,35 @@ same pauses. The sweep's loop now does too (`0199a95`, release
 
 The operator then asked Claude to run the powered sweeps. A safety cage now
 surrounds the robot.
+
+### 2026-09-29 — right J1 swept under the new law and saved
+
+Claude ran the fifth right J1 sweep (23:10 UTC, release
+`20260929T230615Z-0199a95`) through Helm's Tune tab. It finished with no faults
+and no guard events. The loop's cycle was 11.9 ms median and 23 ms p99.
+
+- **Range:** characterised and verified across the whole usable range,
+  +1.604/−0.821 rad.
+- **Speed:** every speed up to the 1.5 rad/s cap was followed within
+  0.028 rad. The verification pass across the range at 1.5 rad/s lagged
+  0.020 rad at most.
+- **Stiffness:** kp 150, 105, 75 and 52.5 passed. At 37.5 and 27 the joint
+  rested more than 0.015 rad from its target, against 0.33 Nm of friction.
+  At 18 it overshot by 50%.
+- **Braking:** at 2 and 4 rad/s² the joint lagged 0.021 and 0.025 rad; at 8,
+  0.052 rad, over the bound.
+- **Gravity:** none to speak of (0.025 Nm), as expected on the vertical axis.
+
+Saved (`3c7c178`):
+
+| Setting | Before | Saved |
+|---|---|---|
+| Stiffness | 150 | 150 |
+| Damping | 20 | 5 |
+| Speed cap | 1.5 rad/s | 1.5 rad/s |
+| Braking | 16 rad/s² | 4 rad/s² |
+| Tracking bound | 0.08 rad | 0.040 rad |
+
+At damping 5 a step settles in 0.09 s, against 0.35 s at 20. J1 lagged 0.02 rad
+at its cap, half its bound: it has room for a higher cap if the operator raises
+J1's 1.5 rad/s ceiling.
