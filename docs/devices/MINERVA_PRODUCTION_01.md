@@ -2236,3 +2236,27 @@ Deployed as release `20260928T033820Z-9af82d9`. Unqualified on motors. Next:
    RobStride overcurrent latch needs a power cycle).
 2. Attended teleop on the right arm, foot switch in reach.
 3. Sweep J1–J6 again under the new law.
+
+### 2026-09-29 — Minerva Check passes its stopped checks; J1 sweep refused at arm
+
+Minerva Check (02:06 UTC): every stopped check passed. All 14 motors were
+fault-free, so J4's fault from the 02:25 sweep had cleared. The one warning:
+only right J6 has a servo calibration.
+
+The right J1 sweep (02:07 UTC) never moved. The receiver refused its arm with
+`collision_violation`, and the arm was disabled.
+
+Cause: the live receiver reads its configuration from JSON. serde_json's default
+float parser can be 1 ULP off. It read right J1's new upper limit,
+1.6313617420196533, as ...531, and right J6's lower limit 1 ULP inward. The
+advisory envelope carries the exact limits as binary floats, so it sat 1 ULP
+outside the interval the receiver checked it against. The old limits happened
+to parse exactly. The harness takes its configuration as MessagePack, which is
+why no test caught this.
+
+Fixed in `2594ffe` (release `20260929T022502Z-2594ffe`):
+- serde_json parses every float exactly (`float_roundtrip`);
+- the envelope's own bounds get the receiver's 1e-9 edge tolerance.
+
+On the Jetson, arming this session's configuration read from JSON is refused
+by the previous release's binary and accepted by the new one.
