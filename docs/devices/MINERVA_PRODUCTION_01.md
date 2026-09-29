@@ -2330,3 +2330,19 @@ Fixed in `bc161e0` and `67264d2` (release `20260929T222352Z-67264d2`):
 Timed on the Jetson itself, a rehearsed J1 sweep's cycle work was 10.3 ms at the
 median, 21.4 ms at the 99th percentile and 22.7 ms at most. That includes
 simulating the arm in Python.
+
+### 2026-09-29 — a 46 ms garbage-collector pause; the sweep's loop freezes it
+
+The fourth right J1 sweep (22:52 UTC) stopped in its stiffness tests (kp 75)
+with `collision_expired`, even with its cycle down to 12 ms median and 20 ms
+p99. Timed on the Jetson, a full garbage-collector pass took 46 ms, because it
+walks the collision model's object graphs. One such pass plus a cycle's work
+outlasted the receiver's 80 ms verdict.
+
+Teleop's loop has frozen its long-lived objects after building since it hit the
+same pauses. The sweep's loop now does too (`0199a95`, release
+`20260929T230615Z-0199a95`). Re-timed on the Jetson, the largest pause was
+0.6 ms and the longest cycle 22.9 ms.
+
+The operator then asked Claude to run the powered sweeps. A safety cage now
+surrounds the robot.
