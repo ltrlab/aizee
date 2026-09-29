@@ -373,3 +373,20 @@ def test_commands_hold_the_arm_against_gravity_at_the_commanded_pose():
     assert hold[1]['effort'] == pytest.approx(-.18)  # Within 90% of the slide's 0.2 Nm effort limit.
     with pytest.raises(ValueError, match='Gravity terms'):
         TeleopLifecycle([dict(held[0], gravity=[[3., {'elsewhere': 1}]]), held[1]])
+
+
+def test_a_hold_at_the_measured_pose_stays_inside_the_usable_range():
+    # A joint may settle a hair past a command at the edge of its usable range; the receiver refuses a command
+    # within the stopping margin (0.045 rad here), so holding it there would fault the session.
+    from robot_platform.control.approach import end_margin
+    curve = {'lower': -2., 'upper': 2., 'max_velocity': 2.5, 'max_tracking_error': .05, 'stop_acceleration': 5.,
+             'reaction_s': .04}
+    curved = joints()
+    curved[0].update(max_velocity=2., approach=curve)
+    lifecycle = TeleopLifecycle(curved, settle_time_s=0.)
+    lifecycle.action('idle', feedback(0., (1.98, .02)), now=0.)
+    held = lifecycle.action('enable', feedback(0., (1.98, .02)), now=0.)
+    assert held['positions'][0] == pytest.approx(2. - end_margin(curve, .04)) and held['positions'][1] == .02
+    assert lifecycle.step(feedback(.04, (1.98, .02)), now=.04)['positions'][0] == pytest.approx(held['positions'][0])
+
+

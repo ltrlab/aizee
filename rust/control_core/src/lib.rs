@@ -676,13 +676,20 @@ impl Controller {
             let lo = feedback.position.min(target).min(start);
             let hi = feedback.position.max(target).max(start);
             // The box holds each side's stopping reserve at the fastest the joint may approach
-            // that limit; the joint must be able to stop before the limit on its limit curve.
+            // that limit, from wherever the joint is or is driven.
             let reserve_low =
                 collision::reserve_toward(policy, &self.config, limit, lo - limit.lower);
             let reserve_high =
                 collision::reserve_toward(policy, &self.config, limit, limit.upper - hi);
-            let stop_low = collision::limit_reserve(policy, &self.config, limit, lo - limit.lower);
-            let stop_high = collision::limit_reserve(policy, &self.config, limit, limit.upper - hi);
+            // The reference the receiver drives (the command's ramp) must stop before the limit on
+            // its limit curve. The measured position is held to the limits, the curve and the
+            // tracking bound every tick; a joint settling a hair past a command at the edge of its
+            // usable range is not refused (right J1's sweep was, 2026-09-29).
+            let (driven_lo, driven_hi) = (target.min(start), target.max(start));
+            let stop_low =
+                collision::limit_reserve(policy, &self.config, limit, driven_lo - limit.lower);
+            let stop_high =
+                collision::limit_reserve(policy, &self.config, limit, limit.upper - driven_hi);
             if !low.is_finite()
                 || !high.is_finite()
                 || low >= high
@@ -690,8 +697,8 @@ impl Controller {
                 || !reserve_high.is_finite()
                 || low < limit.lower - EDGE_EPS
                 || high > limit.upper + EDGE_EPS
-                || lo - stop_low < limit.lower - EDGE_EPS
-                || hi + stop_high > limit.upper + EDGE_EPS
+                || driven_lo - stop_low < limit.lower - EDGE_EPS
+                || driven_hi + stop_high > limit.upper + EDGE_EPS
                 || low > (lo - reserve_low).max(limit.lower) + EDGE_EPS
                 || high < (hi + reserve_high).min(limit.upper) - EDGE_EPS
             {

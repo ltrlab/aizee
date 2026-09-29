@@ -121,15 +121,18 @@ class CollisionEnvelopeCompiler:
                     high = min(limit["upper"], hi + padding)
                 else:
                     # Each side's reserve at the fastest the joint may approach that limit (the
-                    # receiver's braking curve): near a limit the box reaches it, no further. The joint
-                    # itself must be able to stop at the limit on its limit curve, as the receiver checks.
+                    # receiver's braking curve): near a limit the box reaches it, no further. The
+                    # reference the receiver drives (the command's ramp) must stop at the limit on its
+                    # limit curve, as the receiver checks; the measured position it holds every tick.
                     reaction = (policy["max_verdict_ms"] + self.config["feedback_timeout_ms"]
                                 + policy["reaction_ms"]) / 1000
                     down, up = lo - limit["lower"], limit["upper"] - hi
                     reserve_low, reserve_high = reserve_toward(limit, reaction, down), reserve_toward(limit, reaction, up)
                     stop = limit_reaction_s(self.config)
-                    if (lo - limit_reserve(limit, stop, down) < limit["lower"] - 1e-9
-                            or hi + limit_reserve(limit, stop, up) > limit["upper"] + 1e-9):
+                    driven_lo, driven_hi = min(goal, start), max(goal, start)
+                    if (driven_lo - limit_reserve(limit, stop, driven_lo - limit["lower"]) < limit["lower"] - 1e-9
+                            or driven_hi + limit_reserve(limit, stop, limit["upper"] - driven_hi)
+                            > limit["upper"] + 1e-9):
                         raise ValueError("Stopping envelope exceeds operational interval")
                     verdict_s = policy["max_verdict_ms"] / 1000
                     low = max(limit["lower"], lo - reserve_low - approach_speed(limit, reaction, down) * verdict_s - 1e-9)

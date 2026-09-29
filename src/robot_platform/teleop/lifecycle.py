@@ -7,7 +7,7 @@ from copy import deepcopy
 import math
 import time
 
-from robot_platform.control.approach import command_speed, friction_feedforward, lead_toward
+from robot_platform.control.approach import command_speed, end_margin, friction_feedforward, lead_toward
 from robot_platform.control.gravity import gravity_effort
 
 
@@ -107,6 +107,18 @@ class TeleopLifecycle:
             self._source = result
         return result
 
+    def _hold_measured(self, measured):
+        """A target holding the measured pose, inside each joint's usable range: a joint may settle a hair
+        past a command at the edge of its range, and the receiver refuses a command within its stopping margin."""
+        held = []
+        for row, joint in zip(measured, self._joints):
+            q, curve = row['position'], joint.get('approach')
+            if curve:
+                margin = end_margin(curve, curve['reaction_s'])
+                q = max(curve['lower'] + margin, min(curve['upper'] - margin, q))
+            held.append(q)
+        return tuple(held)
+
     def _proposal(self, operation):
         positions = list(self.target) if self.target is not None else None
         zero_gains = self.state == 'IDLE'
@@ -167,8 +179,8 @@ class TeleopLifecycle:
             if action == 'engage':
                 self._read(target, now, feedback=False)
             old_state = self.state
-            self.target = tuple(row['position'] for row in measured)
-            self._last_measured = self.target
+            self.target = self._hold_measured(measured)
+            self._last_measured = tuple(row['position'] for row in measured)
             self._last_time, self._settled_since, self.reason = now, None, None
             self._misses = 0
             self.state = {'idle': 'IDLE', 'enable': 'HOLD', 'engage': 'ENGAGING',
@@ -256,7 +268,7 @@ class TeleopLifecycle:
                     # Stop following. Resuming needs an explicit new Engage.
                     self.state = 'HOLD'
                     self.reason = 'Leader input lost; holding measured pose until Engage'
-                    self.target = tuple(row['position'] for row in measured)
+                    self.target = self._hold_measured(measured)
                     self._source, self._misses = None, 0
                 elif any(abs(q-row['position']) > joint['max_lead']
                          for q, row, joint in zip(self.target, measured, self._joints)):

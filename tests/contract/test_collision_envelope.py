@@ -275,6 +275,11 @@ def test_feed_forward_moves_under_an_envelope_that_covers_the_receivers_ramp(set
         envelope = compiler.compile(control.collision_offer(), h.last["feedback"], near)
         with pytest.raises(GuardRejected, match="collision_violation"):
             control.move(moving, collision=envelope)
+        # A joint that settled a hair past a command at the edge of its range, inside the stopping margin,
+        # can still be commanded there: the margin binds what the receiver drives, not where the joint is.
+        settled = deepcopy(h.last["feedback"])
+        settled[1]["position"] = 2.995
+        assert compiler.compile(control.collision_offer(), settled, near)["upper"][1] == 3.
 
 
 def test_distant_joint_motion_does_not_inflate_stationary_pair_reserve(tmp_path):

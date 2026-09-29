@@ -1299,3 +1299,18 @@ fn joint_limits_read_from_json_are_exactly_the_values_written() {
         assert_eq!(parsed, text.parse::<f64>().unwrap(), "{text}");
     }
 }
+
+#[test]
+fn a_joint_settling_past_a_command_at_the_edge_of_its_range_can_still_be_commanded() {
+    // The command is at the edge of the usable range (0.1 rad from the limit, outside the
+    // floor's 0.0775 stopping margin); the joint has settled 0.03 rad past it, inside that margin.
+    let (mut c, mut h) = interpolated_fixture();
+    assert!(move_with(&mut c, &mut h, 2, 2, 2.9, 0.0, 0.0, 3.0).accepted);
+    h.feedback[0].position = 2.93;
+    c.tick(3, &mut h);
+    let reply = move_with(&mut c, &mut h, 4, 3, 2.9, 0.0, 0.0, 3.0);
+    assert!(reply.accepted, "{:?}", reply.reason);
+    // A command there is still refused.
+    let reply = move_with(&mut c, &mut h, 5, 4, 2.95, 0.0, 0.0, 3.0);
+    assert_eq!(reply.reason, Reason::CollisionViolation);
+}
