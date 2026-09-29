@@ -106,6 +106,15 @@ def command_speed(joint, reaction, position, direction, cap):
     return min(cap, COMMAND_HEADROOM * limit_speed(joint, reaction, distance))
 
 
+def command_step(joint, reaction, position, direction, cap, period):
+    """How far a command may move in `direction` from `position` in one `period` (s): the receiver ramps it
+    at one speed all the way, so that speed must be within command_speed where the step ends, not only where
+    it starts (the curve falls toward an end). Taken where it started, right J1 ran at 1.5 rad/s into the part
+    of its curve that allows 1.55, and its speed noise tripped the overspeed check (in rehearsal)."""
+    speed = command_speed(joint, reaction, position, direction, cap)
+    return period * min(speed, command_speed(joint, reaction, position + direction * speed * period, direction, cap))
+
+
 def lead_toward(joint, reaction, position, direction, lead, cap, kp, kd):
     """How far a command may lead a joint measured at `position` in `direction`, at stiffness `kp` and
     damping `kd`: the full `lead` in open travel; toward an end, no more than the pull its damping balances

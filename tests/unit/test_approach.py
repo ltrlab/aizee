@@ -3,8 +3,8 @@ import pytest
 
 from robot_platform.control.approach import (APPROACH_FLOOR_RAD_S, COMMAND_HEADROOM, FRICTION_FF_FRACTION,
                                              FRICTION_SMOOTH_RAD_S, OVERSPEED_HEADROOM, approach_speed,
-                                             command_speed, end_margin, friction_feedforward, lead_toward,
-                                             limit_reserve, limit_speed, reserve_toward)
+                                             command_speed, command_step, end_margin, friction_feedforward,
+                                             lead_toward, limit_reserve, limit_speed, reserve_toward)
 
 # The Rust fixture: limits +-3, cap 2 rad/s, 2 rad/s^2, bound 0.5; the box reacts in 40 + 20 + 10 ms (verdict,
 # feedback timeout, reaction), a joint limit in 20 + 10 ms (the receiver checks feedback every tick).
@@ -77,3 +77,14 @@ def test_friction_feed_forward_is_a_share_of_the_measured_friction_in_the_direct
     # Smoothly through zero speed, so a joint at rest gets none and a slow one little.
     assert friction_feedforward(.4, FRICTION_SMOOTH_RAD_S / 2) == pytest.approx(FRICTION_FF_FRACTION * .2)
     assert friction_feedforward(.4, 0.) == 0. and friction_feedforward(0., 1.) == 0.
+
+
+def test_a_command_step_moves_no_faster_than_the_curve_allows_where_it_ends():
+    # The receiver ramps a step at one speed all the way: taken where it starts, a step toward an end runs
+    # faster than the curve allows where it ends.
+    start = command_speed(JOINT, LIMIT_REACTION, 2.5, 1, 1.6)
+    step = command_step(JOINT, LIMIT_REACTION, 2.5, 1, 1.6, .04)
+    assert step < start * .04
+    assert step == pytest.approx(.04 * command_speed(JOINT, LIMIT_REACTION, 2.5 + start * .04, 1, 1.6))
+    # In open travel, the cap.
+    assert command_step(JOINT, LIMIT_REACTION, 0., 1, 1.6, .04) == pytest.approx(1.6 * .04)

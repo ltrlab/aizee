@@ -247,6 +247,9 @@ class TuneCore:
             if self.stage == 'arming':
                 self._arm()
             elif self.stage == 'sweeping':
+                # The latest rows first: a command's lead is taken from where the joint is now, not a cycle ago.
+                self.controller.poll()
+                self._feed()
                 command = self.engine.command(started)
                 if command is None:
                     self._disable('Sweep finished: the arm is back at the reference and disabled. Review the results, '

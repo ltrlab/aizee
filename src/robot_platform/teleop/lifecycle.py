@@ -7,7 +7,7 @@ from copy import deepcopy
 import math
 import time
 
-from robot_platform.control.approach import command_speed, end_margin, friction_feedforward, lead_toward
+from robot_platform.control.approach import command_step, end_margin, friction_feedforward, lead_toward
 from robot_platform.control.gravity import gravity_effort
 
 
@@ -209,27 +209,35 @@ class TeleopLifecycle:
             self._settled_since = now
         return now-self._settled_since >= self.settle_time_s
 
-    def _approach(self, measured, goal, speed, dt):
+    def _approach(self, measured, goal, speed, dt, now):
         proposed, velocities = [], []
-        for previous, row, target, joint in zip(self.target, measured, goal, self._joints):
+        before = self._last_measured or tuple(row['position'] for row in measured)
+        for previous, row, target, joint, last in zip(self.target, measured, goal, self._joints, before):
             up = down = joint[speed]
             lead_up = lead_down = joint['max_lead']
+            # The receiver ramps each command from the last one over its interpolation period: a cycle
+            # moves at most that period's worth, so a late cycle never asks for more than the speed.
+            period = joint.get('interpolation_s') or 0.
+            step = min(dt, period) if period > 0 else dt
             curve = joint.get('approach')
-            if curve:  # Toward an end, within the receiver's braking curve (with headroom).
-                up = command_speed(curve, curve['reaction_s'], previous, 1, up)
-                down = command_speed(curve, curve['reaction_s'], previous, -1, down)
+            if curve:  # Toward an end, within the receiver's braking curve (with headroom) all along the step.
+                if step > 0:
+                    up = command_step(curve, curve['reaction_s'], previous, 1, up, step) / step
+                    down = command_step(curve, curve['reaction_s'], previous, -1, down, step) / step
                 # And pull no harder than that speed warrants: the lead toward an end shrinks with it.
                 reaction, cap = curve['reaction_s'], joint['max_velocity']
                 gains = (joint['hold_kp'], joint['hold_kd'])
                 lead_up = lead_toward(curve, reaction, row['position'], 1, joint['max_lead'], cap, *gains)
                 lead_down = lead_toward(curve, reaction, row['position'], -1, joint['max_lead'], cap, *gains)
-            # The receiver ramps each command from the last one over its interpolation period: a cycle
-            # moves at most that period's worth, so a late cycle never asks for more than the speed.
-            period = joint.get('interpolation_s') or 0.
-            step = min(dt, period) if period > 0 else dt
+            # The lead is taken from where the joint will be once the receiver has ramped to this command: its
+            # measured position carried on, in the direction it moves, at its speed between the last two cycles
+            # over the sample's age and the interpolation period. Taken from the measured position alone, the
+            # ramp and the sample's age (about 80 ms) held right J1 to 0.57 rad/s at a 0.048 rad lead.
+            ahead = (row['position'] - last) / dt * (max(0., now - row['sampled_at']) + period) if dt > 0 else 0.
+            up_from, down_from = row['position'] + max(0., ahead), row['position'] + min(0., ahead)
             # A target beyond a shrunken lead may come back toward the joint at once: that only eases the pull.
-            low = max(joint['lower'], row['position']-lead_down, min(previous-down*step, row['position']+lead_up))
-            high = min(joint['upper'], row['position']+lead_up, max(previous+up*step, row['position']-lead_down))
+            low = max(joint['lower'], down_from-lead_down, min(previous-down*step, up_from+lead_up))
+            high = min(joint['upper'], up_from+lead_up, max(previous+up*step, down_from-lead_down))
             if low > high:
                 raise ValueError(f'Measured pose exceeds command lead/slew bounds: {joint["name"]}')
             q = max(low, min(high, target))
@@ -282,12 +290,12 @@ class TeleopLifecycle:
                     raise ValueError('Mapped source did not advance')
                 goal = [row['position'] for row in source]
                 speed = 'align_speed' if self.state == 'ENGAGING' else 'max_velocity'
-                self.target = self._approach(measured, goal, speed, dt)
+                self.target = self._approach(measured, goal, speed, dt, now)
                 if self.state == 'ENGAGING' and self._settled(measured, goal, now, dt):
                     self.state = 'TELEOP'
             elif self.state == 'SHUTDOWN':
                 goal = [joint['zero_position'] for joint in self._joints]
-                self.target = self._approach(measured, goal, 'shutdown_speed', dt)
+                self.target = self._approach(measured, goal, 'shutdown_speed', dt, now)
                 if self._settled(measured, goal, now, dt):
                     self.state, self.target = 'DISABLED', None
                     operation = 'disable'

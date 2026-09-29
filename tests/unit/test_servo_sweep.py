@@ -442,20 +442,20 @@ def test_a_joint_breaking_free_of_static_friction_near_an_end_stays_well_under_i
 
 def test_speeds_are_measured_in_open_travel_where_the_braking_curve_allows_them():
     # Right J6's session (commanded 2.5 rad/s, enforced 3.125, 16 rad/s^2, limit reaction 0.04 s): at 1 rad/s
-    # commands may move freely from 0.099 rad inside each end (1.25 x 0.04 + 1.25^2 / 32).
+    # commands may move freely from 0.139 rad inside each end (1.25 x 0.04 + 1.25^2 / 32, then one 40 ms step).
     joints = [limits('right_arm_j6', lower=-.885, upper=.9225, bound=.15, speed=3.125, stop=16., effort=14.,
                      max_kd=4., max_kp=24.)]
     engine = SweepEngine(joints, home={'right_arm_j6': 0.}, gains={'right_arm_j6': (8., 1.)},
                          settings={'right_arm_j6': sweep_settings(PROFILE, 'right_arm_j6')}, sweep=['right_arm_j6'])
     low, high = engine._open_travel('right_arm_j6', 1.)
-    room = 1.25 * .04 + 1.25 ** 2 / 32
+    room = 1.25 * .04 + 1.25 ** 2 / 32 + 1. * .04
     assert (low, high) == (pytest.approx(-.885 + room), pytest.approx(.9225 - room))
     # There the plan is not slowed: commands may move at the full speed toward either end.
     assert engine.limits['right_arm_j6']['max_velocity'] >= 1.
     engine.targets['right_arm_j6'] = high - 1e-9
-    assert engine._toward_end('right_arm_j6', 1) >= 1. - 1e-6
+    assert engine._toward_end('right_arm_j6', 1, 1.) >= 1. - 1e-6
     engine.targets['right_arm_j6'] = low + 1e-9
-    assert engine._toward_end('right_arm_j6', -1) >= 1. - 1e-6
+    assert engine._toward_end('right_arm_j6', -1, 1.) >= 1. - 1e-6
 
 
 def test_a_calibration_names_its_evidence_without_the_robots_home_directory():
@@ -545,3 +545,23 @@ def test_gravity_feed_forward_lets_a_heavy_joint_sweep_and_verify_its_range():
     assert fed['verification']['passed'] and fed['verification']['span'] == pytest.approx((-1., 1.))
     assert fed['recommendation']['max_velocity'] > held['recommendation']['max_velocity']
     assert fed['torque']['gravity_fit']['A'] == pytest.approx(14., rel=.02)
+
+
+def test_the_guard_sees_every_row_since_the_last_command():
+    # The loop hands the engine each receiver result's rows, then the temperatures with no rows: that emptied the
+    # rows the guard reads, so on the live arm the guard never ran.
+    joints, plant, gains = arm()
+    names = [joint['name'] for joint in joints]
+    engine = SweepEngine(joints, home={name: 0. for name in names}, gains=gains,
+                         settings={name: sweep_settings(PROFILE, name) for name in names}, sweep=names)
+    engine.observe(plant.run(names, {'targets': [0., 0.], 'gains': [gains[n] for n in names]}))
+    now = 0.
+    while engine.current is None or engine.task.endswith('reference'):
+        engine.observe(plant.run(names, engine.command(now)))
+        now += .04
+    rows = np.array(plant.run(names, engine.command(now)))
+    rows[-1, 4 + 4 * 1] = rows[-1, 1 + 4 * 1] + .09  # The wrist lags its command by 0.09 rad (guard 0.075).
+    engine.observe(rows)
+    engine.observe([], temperatures={'right_arm_j5': 30.})
+    engine.command(now + .04)
+    assert any(event['text'].startswith('right_arm_j5 lagged 0.090') for event in engine.events), engine.events

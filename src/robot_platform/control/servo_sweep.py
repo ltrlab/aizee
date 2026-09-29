@@ -38,7 +38,7 @@ import time
 import numpy as np
 
 from . import servo_analysis as analysis
-from robot_platform.control.approach import (COMMAND_HEADROOM, OVERSPEED_HEADROOM, command_speed, end_margin,
+from robot_platform.control.approach import (COMMAND_HEADROOM, OVERSPEED_HEADROOM, command_step, end_margin,
                                              friction_feedforward, lead_toward)
 from robot_platform.control.gravity import gravity_effort
 from robot_platform.control.guarded_config import CONTROL_LAW
@@ -311,6 +311,7 @@ class SweepEngine:
         self.done = False
         self.events = []
         self.latest = None
+        self._fresh = []  # The rows observed since the last command, for the guard.
         self.temperatures = {}
         self.collision_clear = True
         self._plan = self._run()
@@ -322,9 +323,7 @@ class SweepEngine:
         new = self.recording.add(rows, dropped)
         if len(new):
             self.latest = new[-1]
-            self._fresh = new
-        else:
-            self._fresh = None
+            self._fresh.append(new)
         if temperatures:
             self.temperatures = dict(temperatures)
         if collision_clear is not None:
@@ -336,9 +335,24 @@ class SweepEngine:
             return None
         return float(self.latest[1 + 4 * self.names.index(motor)])
 
+    def _ahead(self, motor, direction):
+        """Where the joint will be, moving in `direction`, when the receiver has ramped to a command sent now:
+        its latest measured position (the loop reads the receiver just before composing) carried on at its speed
+        over the last command period, for the receiver's interpolation period. A joint at rest or moving the
+        other way stays where it was measured."""
+        q = self.measured(motor)
+        if q is None or self.latest is None:
+            return q
+        index = 1 + 4 * self.names.index(motor)
+        rows = self.recording.between(self.latest[0] - 1000 * self.period, self.latest[0])
+        if len(rows) < 2 or rows[-1, 0] - rows[0, 0] < 500 * self.period:
+            return q
+        speed = (rows[-1, index] - rows[0, index]) / ((rows[-1, 0] - rows[0, 0]) / 1000)
+        return q + max(0., speed * direction) * direction * self.interpolation_s
+
     def _guard(self):
         """The reason to abandon the running task, or None."""
-        rows = getattr(self, '_fresh', None)
+        rows = np.concatenate(self._fresh) if self._fresh else None
         if rows is None or self.recovering or self.current is None:
             return None
         for i, name in enumerate(self.names):
@@ -372,6 +386,7 @@ class SweepEngine:
         if self.done:
             return None
         reason = self._guard()
+        self._fresh = []
         try:
             if reason is not None:
                 self._event(reason)
@@ -407,13 +422,24 @@ class SweepEngine:
             q = self.measured(name)
             settings = self.settings.get(name) or self.settings[self.current or self.sweep[0]]
             if q is not None and name == self.current:
-                # Never lead the joint by more than the cap, and toward an end by no more than its curve allows.
-                target = min(q + self._lead(name, 1, q), max(q - self._lead(name, -1, q), target))
+                # Never lead the joint by more than the cap, and toward an end by no more than its curve allows:
+                # the lead is taken from where the joint will be once the receiver has ramped to this command.
+                target = min(self._ahead(name, 1) + self._lead(name, 1, q),
+                             max(self._ahead(name, -1) - self._lead(name, -1, q), target))
             low, high = self._allowed(name)
             target = min(high, max(low, target))
+            # What the receiver ramps to moves no faster than the braking curve allows where it is (with
+            # headroom): a plan held back by the lead catches up no faster than it may move there. In rehearsal,
+            # right J1's pass across its range at 1.5 rad/s caught up into its curve and faulted on overspeed.
+            previous = self._sent.get(name)
+            if previous is not None and target != previous and not limit.get('gripper'):
+                direction = 1 if target > previous else -1
+                most = command_step(limit, self.limit_reaction, previous, direction,
+                                    limit['max_velocity'] / OVERSPEED_HEADROOM, self.interpolation_s or self.period)
+                target = previous + direction * min(abs(target - previous), most)
             # A moving plan's command carries the velocity it is ramped at (from the last command, over the
             # receiver's interpolation period) and friction feed-forward; a jump (a step test) is sent as a step.
-            velocity, previous = 0., self._sent.get(name)
+            velocity = 0.
             if (self.interpolation_s > 0 and previous is not None and self.velocity[name] != 0.
                     and not limit.get('gripper')):  # As teleop: a gripper's commands carry no velocity.
                 cap = limit['max_velocity'] / OVERSPEED_HEADROOM
@@ -483,7 +509,7 @@ class SweepEngine:
                 v = min(speed, v + acceleration * dt)
             else:
                 v = speed
-            v = min(v, self._toward_end(motor, direction))  # Slower toward an end: the braking curve.
+            v = min(v, self._toward_end(motor, direction, v))  # Slower toward an end: the braking curve.
             step = min(remaining, v * dt)
             self.targets[motor] += step * direction
             self.velocity[motor] = v * direction if (not stop or step < remaining) else 0.
@@ -506,7 +532,7 @@ class SweepEngine:
     def _behind(self, motor, direction):
         """How far the plan is ahead of the joint in the direction of travel (the joint under test only,
         whose command is capped), or None."""
-        q = self.measured(motor) if motor == self.current else None
+        q = self._ahead(motor, direction) if motor == self.current else None
         return None if q is None else (self.targets[motor] - q) * direction
 
     def _arrive(self, motor):
@@ -633,19 +659,21 @@ class SweepEngine:
 
     def _open_travel(self, motor, speed):
         """Where commands may move `motor` at `speed` without its braking curve slowing them (with headroom):
-        its limits less the distance at which the curve first allows that speed."""
+        its limits less the distance at which the curve first allows that speed, and one command step, as a
+        step's speed is taken where it ends (approach.command_step)."""
         limit = self.limits[motor]
         if limit.get('gripper'):
             return limit['lower'], limit['upper']
         v = speed / COMMAND_HEADROOM
-        room = v * self.limit_reaction + v * v / (2 * limit['stop_acceleration'])
+        room = v * self.limit_reaction + v * v / (2 * limit['stop_acceleration']) + speed * self.period
         return limit['lower'] + room, limit['upper'] - room
 
-    def _toward_end(self, motor, direction):
-        """How fast the plan may move `motor` in `direction` from its commanded position: within the
-        receiver's braking curve toward that end, with headroom."""
+    def _toward_end(self, motor, direction, speed=None):
+        """How fast the plan may move `motor` in `direction` from its commanded position, at up to `speed` (default
+        its cap): within the receiver's braking curve toward that end, with headroom, all along the next step."""
         limit = self.limits[motor]
-        return command_speed(limit, self.limit_reaction, self.targets[motor], direction, limit['max_velocity'])
+        cap = limit['max_velocity'] if speed is None else min(speed, limit['max_velocity'])
+        return command_step(limit, self.limit_reaction, self.targets[motor], direction, cap, self.period) / self.period
 
     def _clear(self, motor, start, end):
         """(clear, why) for a planned move, checking about CHECK_BUDGET_S of poses per cycle and holding

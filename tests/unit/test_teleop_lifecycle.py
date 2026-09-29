@@ -274,7 +274,7 @@ def test_hold_faults_instead_of_sending_an_unbounded_lead():
 
 
 def test_commands_slow_toward_an_end_within_the_receivers_braking_curve():
-    from robot_platform.control.approach import COMMAND_HEADROOM, limit_speed
+    from robot_platform.control.approach import COMMAND_HEADROOM, command_step, limit_speed
     curve = {'lower': -2., 'upper': 2., 'max_velocity': 2.5, 'max_tracking_error': .05, 'stop_acceleration': 5.,
              'reaction_s': .04}
     curved = joints()
@@ -286,17 +286,19 @@ def test_commands_slow_toward_an_end_within_the_receivers_braking_curve():
     lifecycle.action('engage', feedback(0., positions), target=target(0., positions), now=0.)
     lifecycle.step(feedback(.04, positions), target=target(.04, positions), now=.04)
     assert lifecycle.state == 'TELEOP'
-    # 0.3 rad below the upper end, toward it: only the curve's speed there, with headroom (about 1.23 rad/s).
+    # 0.3 rad below the upper end, toward it: only the curve's speed there, with headroom (about 1.23 rad/s),
+    # and no more than it allows where the step ends (about 1.12 rad/s, 0.25 rad from the end).
     toward = lifecycle.step(feedback(.08, positions), target=target(.08, (1.95, .02)), now=.08)['positions'][0]
     allowed = COMMAND_HEADROOM * limit_speed(curve, .04, .3)
-    assert allowed < 1.5 and toward == pytest.approx(1.7 + allowed * .04)
+    assert allowed < 1.5 and toward == pytest.approx(1.7 + command_step(curve, .04, 1.7, 1, 2., .04))
+    assert toward < 1.7 + allowed * .04
     # Away from it: the full 2 rad/s.
     away = lifecycle.step(feedback(.12, (toward, .02)), target=target(.12, (1., .02)), now=.12)['positions'][0]
     assert away == pytest.approx(toward - 2. * .04)
 
 
 def test_a_lagging_joint_near_an_end_is_pulled_only_as_hard_as_its_curve_allows():
-    from robot_platform.control.approach import command_speed
+    from robot_platform.control.approach import command_speed, command_step
     curve = {'lower': -2., 'upper': 2., 'max_velocity': 2.5, 'max_tracking_error': .05, 'stop_acceleration': 5.,
              'reaction_s': .04}
     curved = joints()
@@ -307,14 +309,15 @@ def test_a_lagging_joint_near_an_end_is_pulled_only_as_hard_as_its_curve_allows(
     lifecycle.action('enable', feedback(0., positions), now=0.)
     lifecycle.action('engage', feedback(0., positions), target=target(0., positions), now=0.)
     lifecycle.step(feedback(.04, positions), target=target(.04, positions), now=.04)
-    # The joint lags at 1.6 behind its 1.7 target, moving toward the end at 1.5 rad/s: it may lead by
+    # The joint lags at 1.55 behind its 1.7 target, moving toward the end at 1.5 rad/s: it may lead by
     # 0.2 x (allowed / 2 rad/s) only.
-    moving = lifecycle.step(feedback(.08, (1.6, .02), (1.5, 0.)), target=target(.08, (1.95, .02)), now=.08)
-    lead = .2 * command_speed(curve, .04, 1.6, 1, 2.) / 2.
-    assert lead < .2 and moving['positions'][0] == pytest.approx(1.6 + lead)
+    moving = lifecycle.step(feedback(.08, (1.55, .02), (1.5, 0.)), target=target(.08, (1.95, .02)), now=.08)
+    lead = .2 * command_speed(curve, .04, 1.55, 1, 2.) / 2.
+    assert lead < .2 and moving['positions'][0] == pytest.approx(1.55 + lead)
+    assert 1.55 + lead < 1.7 + command_step(curve, .04, 1.7, 1, 2., .04)  # The lead binds, not the slew.
     # Stuck (reading still, as on static friction), the same: a joint breaks free with the pull it has.
-    stuck = lifecycle.step(feedback(.12, (1.6, .02)), target=target(.12, (1.95, .02)), now=.12)
-    assert stuck['positions'][0] == pytest.approx(1.6 + lead)
+    stuck = lifecycle.step(feedback(.12, (1.55, .02)), target=target(.12, (1.95, .02)), now=.12)
+    assert stuck['positions'][0] == pytest.approx(1.55 + lead)
 
 
 def test_a_slewed_move_carries_its_velocity_and_friction_feed_forward():
@@ -390,3 +393,26 @@ def test_a_hold_at_the_measured_pose_stays_inside_the_usable_range():
     assert lifecycle.step(feedback(.04, (1.98, .02)), now=.04)['positions'][0] == pytest.approx(held['positions'][0])
 
 
+
+def test_a_moving_joint_is_led_from_where_it_will_be_when_the_receiver_has_ramped():
+    # The receiver ramps each command over 40 ms, and the feedback is a sample old: taken from the measured
+    # position alone, the lead held right J1 to 0.57 rad/s at a 0.048 rad lead (80 ms of delay). A joint moving
+    # at 1.25 rad/s is led from where it will be once the ramp ends: its 10 ms old sample, 50 ms on.
+    ramped = joints()
+    for joint in ramped:
+        joint.update(interpolation_s=.04)
+    ramped[0].update(max_velocity=10., max_lead=.03)
+    lifecycle = TeleopLifecycle(ramped, settle_time_s=0.)
+    lifecycle.action('idle', feedback(0., (.3, .02)), now=0.)
+    lifecycle.action('enable', feedback(0., (.3, .02)), now=0.)
+    lifecycle.action('engage', feedback(0., (.3, .02)), target=target(0., (.3, .02)), now=0.)
+    lifecycle.step(feedback(.04, (.3, .02)), target=target(.04, (.3, .02)), now=.04)
+    assert lifecycle.state == 'TELEOP'
+    # At rest, the lead from where it is.
+    assert lifecycle.step(feedback(.08, (.3, .02)), target=target(.08, (1.5, .04)), now=.08)['positions'][0] ==         pytest.approx(.33)
+    rows = feedback(.12, (.35, .02))
+    for row in rows:
+        row['sampled_at'] = .11
+    moving = lifecycle.step(rows, target=target(.12, (1.5, .04)), now=.12)['positions'][0]
+    assert moving == pytest.approx(.35 + (.35 - .3) / .04 * (.01 + .04) + .03)
+    assert moving > .35 + .03
