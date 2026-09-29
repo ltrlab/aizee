@@ -2307,3 +2307,26 @@ Rehearsed afterwards:
 The contract tests now include a J6 sweep to both edges and 12 s of teleop on
 the simulated arm (`tests/contract/test_rehearsal.py`). Both fail on the
 receiver that refused J1. Deployed as release `20260929T033414Z-2fb4080`.
+
+### 2026-09-29 — J1 stopped by its own slow loop; fixed and timed on the Jetson
+
+The third right J1 sweep (21:54 UTC) characterised its whole range again, then
+stopped in its stiffness tests (kp 27, kd 11.9) with `collision_expired`. The
+loop had not sent a command within the receiver's 80 ms verdict. Its cycle took
+25 ms at the median and 44 ms at the 99th percentile, twice the previous run's.
+
+Cause: the new lead lookup read the recording, which kept every receiver
+result's row or two as its own chunk (11,000 in its 90 s window), and walked
+them all three times a cycle. The rehearsal had missed it: its receiver
+answered a whole cycle's rows in one result.
+
+Fixed in `bc161e0` and `67264d2` (release `20260929T222352Z-67264d2`):
+- the recording merges rows into chunks of about 256;
+- the loop takes its collision offer before composing a command, so the offer's
+  result brings the latest rows without an extra request;
+- the rehearsal's receiver now takes each request at its next tick, as the live
+  service does.
+
+Timed on the Jetson itself, a rehearsed J1 sweep's cycle work was 10.3 ms at the
+median, 21.4 ms at the 99th percentile and 22.7 ms at most. That includes
+simulating the arm in Python.
