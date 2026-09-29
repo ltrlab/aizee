@@ -542,7 +542,10 @@ def test_gravity_feed_forward_lets_a_heavy_joint_sweep_and_verify_its_range():
         return engine.summary()['right_arm_j2']
     held, fed = sweep(None), sweep({'right_arm_j2': [[11., {'right_arm_j2': 1}]]})
     assert held['verified']['up'] < .7 and fed['verified']['up'] >= 1. - 1e-9 and fed['verified']['down'] >= 1. - 1e-9
-    assert fed['verification']['passed'] and fed['verification']['span'] == pytest.approx((-1., 1.))
+    # Past the widest widening step (1 rad), out to its ends (±1.3 rad less the stopping margin).
+    assert fed['verification']['passed']
+    assert fed['verification']['span'] == pytest.approx((-fed['verified']['down'], fed['verified']['up']))
+    assert min(fed['verified'].values()) > 1.3 - .06
     assert fed['recommendation']['max_velocity'] > held['recommendation']['max_velocity']
     assert fed['torque']['gravity_fit']['A'] == pytest.approx(14., rel=.02)
 

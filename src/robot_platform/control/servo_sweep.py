@@ -709,7 +709,9 @@ class SweepEngine:
         for direction in (1, -1):
             low, high = self._allowed(motor, slow)
             edge = high if direction > 0 else low
-            for amplitude in settings['amplitudes']:
+            # The widening steps, then the end of the range however far past the widest step it lies (a wrist
+            # swept ±3.4 rad would otherwise be characterised, tested and verified over only ±2).
+            for amplitude in (*settings['amplitudes'], math.inf):
                 target = home + direction * amplitude
                 last = (target - edge) * direction >= 0
                 if last:
