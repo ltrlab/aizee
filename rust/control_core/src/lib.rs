@@ -688,8 +688,8 @@ impl Controller {
                 || low >= high
                 || !reserve_low.is_finite()
                 || !reserve_high.is_finite()
-                || low < limit.lower
-                || high > limit.upper
+                || low < limit.lower - EDGE_EPS
+                || high > limit.upper + EDGE_EPS
                 || lo - stop_low < limit.lower - EDGE_EPS
                 || hi + stop_high > limit.upper + EDGE_EPS
                 || low > (lo - reserve_low).max(limit.lower) + EDGE_EPS

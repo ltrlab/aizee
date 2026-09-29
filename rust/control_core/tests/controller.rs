@@ -1283,3 +1283,19 @@ fn a_stop_keeps_the_last_commands_feed_forward_holding_the_joint() {
     assert_eq!(c.status().state, State::Stopped);
     assert_eq!(c.status().joints[0].effort, 3.0);
 }
+
+#[test]
+fn joint_limits_read_from_json_are_exactly_the_values_written() {
+    // The live receiver reads its configuration from JSON, and the collision envelope carries the
+    // same limits as binary floats. serde_json's default float parser can be 1 ULP off: it read
+    // right J1's upper limit 1.6313617420196533 as ...531, and the receiver refused an envelope at
+    // exactly its limits as a collision violation (2026-09-29).
+    for text in [
+        "1.6313617420196533",
+        "-0.9554215860366821",
+        "-0.8491166424751282",
+    ] {
+        let parsed: f64 = serde_json::from_str(text).unwrap();
+        assert_eq!(parsed, text.parse::<f64>().unwrap(), "{text}");
+    }
+}
