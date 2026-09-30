@@ -229,10 +229,12 @@ fn collision_expiry_survives_lease_renewal_and_stops_without_client_messages() {
     }
     assert_eq!(c.status().state, State::Stopped);
     assert!((c.status().joints[0].position - 0.11).abs() < 1e-10);
+    // Pushed out of the box while held, the joint is held (pulled back), not dropped.
     h.feedback[0].position = 2.6;
     c.tick(160, &mut h);
-    assert_eq!(c.status().reason, Reason::CollisionViolation);
-    assert!(!h.enabled);
+    assert_eq!(c.status().state, State::Stopped);
+    assert!(h.enabled);
+    assert!((c.status().joints[0].position - 0.11).abs() < 1e-10);
 }
 
 #[test]
@@ -517,7 +519,7 @@ fn new_motion_after_renewal_gets_only_new_offer_deadline() {
 }
 
 #[test]
-fn expiry_stops_locally_then_requires_reset_and_arm() {
+fn expiry_stops_locally_and_the_owner_re_arms_where_the_stop_holds() {
     let (mut c, mut h) = armed(2);
     let r = move_request(&c, 2, 2, 0.1, 0.2);
     assert!(c.handle(2, r, &mut h).accepted);
@@ -529,19 +531,33 @@ fn expiry_stops_locally_then_requires_reset_and_arm() {
     c.tick(201, &mut h);
     assert_eq!(c.status().state, State::Stopped);
     assert!((c.status().joints[0].position - 0.11).abs() < 1e-10);
+    // A new owner re-arms it where the stop holds it: no new enable (the permit is single-use),
+    // no limp moment; then it may move it again.
     assert!(claim(&mut c, &mut h, 202).accepted);
-    assert_eq!(
-        c.handle(
-            203,
-            Request::Arm {
-                collision: None,
-                authority: auth(&c, 1)
-            },
-            &mut h
-        )
-        .reason,
-        Reason::InvalidState
+    let reply = c.handle(
+        203,
+        Request::Arm {
+            collision: None,
+            authority: auth(&c, 1),
+        },
+        &mut h,
     );
+    assert!(reply.accepted, "{:?}", reply.reason);
+    assert_eq!(c.status().state, State::Holding);
+    assert!((c.status().joints[0].position - 0.11).abs() < 1e-10);
+    assert!(h.enabled);
+    assert_eq!(h.enables, 1);
+    let r = move_request(&c, 2, 2, 0.0, 0.0);
+    assert!(c.handle(204, r, &mut h).accepted);
+    // Reset still disarms a stopped arm; Arm then enables it from Disarmed.
+    let (mut c, mut h) = armed(2);
+    let r = move_request(&c, 2, 2, 0.1, 0.2);
+    assert!(c.handle(2, r, &mut h).accepted);
+    for now in [100, 150, 200, 201] {
+        c.tick(now, &mut h);
+    }
+    assert_eq!(c.status().state, State::Stopped);
+    assert!(claim(&mut c, &mut h, 202).accepted);
     assert!(
         c.handle(
             204,
@@ -606,7 +622,7 @@ fn frozen_feedback_and_hardware_failures_revoke_authority() {
 }
 
 #[test]
-fn one_overspeed_reading_is_drive_noise_but_a_run_of_them_faults() {
+fn one_overspeed_reading_is_drive_noise_but_a_run_of_them_trips_to_a_hold() {
     let (mut c, mut h) = armed(1);
     h.feedback[0].velocity = 2.5; // Over the 2.0 rad/s cap once...
     c.tick(2, &mut h);
@@ -617,16 +633,74 @@ fn one_overspeed_reading_is_drive_noise_but_a_run_of_them_faults() {
         h.feedback[0].velocity = 2.5; // ...then three samples in a row.
         c.tick(now, &mut h);
     }
+    // Braked to a hold, not dropped: torque stays on and authority is revoked, as for a stop.
     assert_eq!(c.status().reason, Reason::LimitViolation);
-    assert!(!h.enabled);
+    assert_eq!(c.status().state, State::Stopping);
+    assert!(c.status().lease.is_none());
+    assert!(h.enabled);
 }
 
 #[test]
-fn a_reading_far_over_the_speed_cap_faults_at_once() {
+fn a_reading_far_over_the_speed_cap_trips_at_once() {
     let (mut c, mut h) = armed(1);
     h.feedback[0].velocity = 6.5; // Over three times the 2.0 rad/s cap.
     c.tick(2, &mut h);
     assert_eq!(c.status().reason, Reason::LimitViolation);
+    assert_eq!(c.status().state, State::Stopping);
+    assert!(h.enabled);
+}
+
+#[test]
+fn a_trip_holds_a_raised_joint_with_its_feed_forward_and_its_owner_lowers_it() {
+    // Right J2, 2026-09-29: raised near horizontal with 19 Nm of gravity fed forward, a run of
+    // readings over its speed near a limit cut its torque and it fell. Now it is braked to a
+    // hold that keeps the feed-forward; a new owner re-arms it there and moves it down.
+    let (mut c, mut h) = armed(1);
+    let mut raised = joints(1, 1.5, 0.0);
+    raised[0].effort = 4.0; // Within the fixture's 5.0 limit.
+    let r = Request::Move {
+        collision: None,
+        authority: auth(&c, 2),
+        identity: identity(),
+        joints: raised,
+    };
+    assert!(c.handle(2, r, &mut h).accepted);
+    for now in 3..6 {
+        h.feedback[0].velocity = 2.5;
+        c.tick(now, &mut h);
+    }
+    assert_eq!(c.status().state, State::Stopping);
+    assert!(h.enabled);
+    for now in 6..2000 {
+        c.tick(now, &mut h);
+    }
+    assert_eq!(c.status().state, State::Stopped);
+    let held = c.status().joints[0];
+    assert!(h.enabled);
+    assert_eq!(held.effort, 4.0);
+    assert_eq!((held.kp, held.kd), (10.0, 1.0));
+    assert!(claim(&mut c, &mut h, 2000).accepted);
+    let reply = c.handle(
+        2001,
+        Request::Arm {
+            collision: None,
+            authority: auth(&c, 1),
+        },
+        &mut h,
+    );
+    assert!(reply.accepted, "{:?}", reply.reason);
+    assert_eq!(c.status().joints[0], held);
+    let r = move_request(&c, 2, 1, held.position - 0.01, 0.0);
+    assert!(c.handle(2002, r, &mut h).accepted);
+    assert_eq!(c.status().state, State::Executing);
+}
+
+#[test]
+fn lost_feedback_or_a_drive_fault_still_cuts_torque() {
+    let (mut c, mut h) = armed(1);
+    h.motor_fault = true;
+    c.tick(2, &mut h);
+    assert_eq!(c.status().state, State::Faulted);
     assert!(!h.enabled);
 }
 
@@ -653,16 +727,25 @@ fn braking_starts_from_at_most_the_speed_cap() {
 }
 
 #[test]
-fn clock_regression_and_unsafe_stopping_envelope_latch_faults() {
+fn clock_regression_latches_a_fault_and_a_stop_that_would_overrun_brakes_harder() {
     let (mut c, mut h) = armed(1);
     c.tick(0, &mut h);
     assert_eq!(c.status().reason, Reason::ClockRegression);
+    assert!(!h.enabled);
+    // At 2 rad/s^2 a joint at 2.99 moving 1 rad/s would stop 0.25 rad on, past the limit at 3:
+    // it brakes harder, to stop at the limit, rather than cutting torque.
     let (mut c, mut h) = armed(1);
     let r = move_request(&c, 2, 1, 2.99, 1.0);
     c.handle(2, r, &mut h);
     c.tick(100, &mut h);
-    assert_eq!(c.status().reason, Reason::LimitViolation);
-    assert!(!h.enabled);
+    assert_eq!(c.status().reason, Reason::LeaseExpired);
+    assert_eq!(c.status().state, State::Stopping);
+    assert!(h.enabled);
+    for now in 101..200 {
+        c.tick(now, &mut h);
+    }
+    assert!(c.status().joints[0].position <= 3.0);
+    assert!((c.status().joints[0].position - 3.0).abs() < 1e-9);
 }
 
 #[test]
@@ -1073,10 +1156,12 @@ fn a_gripper_stalled_on_an_object_does_not_fault_but_an_arm_joint_does() {
         if gripper_stalled {
             assert_eq!(status.state, State::Executing);
         } else {
+            // Braked to a hold (at once: it was not moving), not dropped.
             assert_eq!(
                 (status.state, status.reason),
-                (State::Faulted, Reason::TrackingError)
+                (State::Stopped, Reason::TrackingError)
             );
+            assert!(h.enabled);
         }
     }
 }
@@ -1156,7 +1241,7 @@ fn a_joint_uses_its_travel_up_to_the_floors_stopping_margin() {
 }
 
 #[test]
-fn approaching_a_limit_faster_than_the_curve_allows_faults_but_leaving_it_does_not() {
+fn approaching_a_limit_faster_than_the_curve_allows_trips_but_leaving_it_does_not() {
     // 0.6 rad from the upper limit a joint may approach it at about 1.49 rad/s.
     let (mut c, mut h, reply) = arm_at(2.4, 3.0);
     assert!(reply.accepted, "{:?}", reply.reason);
@@ -1170,7 +1255,17 @@ fn approaching_a_limit_faster_than_the_curve_allows_faults_but_leaving_it_does_n
         c.tick(now, &mut h);
     }
     assert_eq!(c.status().reason, Reason::LimitViolation);
-    assert!(!h.enabled);
+    assert_eq!(c.status().state, State::Stopping);
+    assert!(h.enabled);
+    // It is braked to rest short of the floor's stopping margin (0.0775 rad), where targets are
+    // accepted again, and inside the box.
+    for now in 8..3000 {
+        c.tick(now, &mut h);
+    }
+    assert_eq!(c.status().state, State::Stopped);
+    let held = c.status().joints[0].position;
+    assert!(held <= 3.0 - 0.0775 + 1e-9, "{held}");
+    assert!(held > 2.4);
 }
 
 fn interpolated_fixture() -> (Controller, Loopback) {

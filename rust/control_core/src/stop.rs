@@ -37,6 +37,41 @@ impl JointStop {
         })
     }
 
+    /// Brake to rest within `lower..=upper`: at `acceleration`, or harder where that would carry
+    /// the joint past an edge, to stop at it (the drive brakes as hard as its torque allows and
+    /// the hold then pulls the joint back). A joint past an edge, or moving on past it, holds at it.
+    pub fn within(
+        position: f64,
+        velocity: f64,
+        acceleration: f64,
+        lower: f64,
+        upper: f64,
+    ) -> Option<Self> {
+        if !lower.is_finite() || !upper.is_finite() || lower > upper {
+            return None;
+        }
+        let plan = Self::new(position, velocity, acceleration)?;
+        if (lower..=upper).contains(&plan.end_position) {
+            return Some(plan);
+        }
+        let edge = if plan.end_position > upper {
+            upper
+        } else {
+            lower
+        };
+        let room = (edge - position) * velocity.signum();
+        if velocity != 0.0 && room > 0.0 {
+            if let Some(harder) = Self::new(position, velocity, velocity * velocity / (2.0 * room))
+            {
+                return Some(Self {
+                    end_position: harder.end_position.clamp(lower, upper),
+                    ..harder
+                });
+            }
+        }
+        Some(Self::hold(position.clamp(lower, upper)))
+    }
+
     /// Keep commanding `effort` while braking and after.
     pub fn with_effort(self, effort: f64) -> Self {
         Self { effort, ..self }

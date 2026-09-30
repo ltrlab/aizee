@@ -369,14 +369,10 @@ impl Controller {
         }
     }
 
+    /// The joints' state is unknown or a drive reports a fault: nothing can be held, so these cut
+    /// torque (a fault).
     fn feedback_error(&self) -> Option<Reason> {
-        for (i, ((f, limit), &overspeed)) in self
-            .feedback
-            .iter()
-            .zip(&self.config.joints)
-            .zip(&self.overspeed)
-            .enumerate()
-        {
+        for f in &self.feedback {
             if f.sequence == 0
                 || f.sampled_at_ms > self.now_ms
                 || [f.position, f.velocity, f.effort, f.temperature]
@@ -391,6 +387,20 @@ impl Controller {
             if f.fault {
                 return Some(Reason::HardwareFault);
             }
+        }
+        None
+    }
+
+    /// A joint past a limit, over its allowed speed, effort or temperature, its state known: while
+    /// the arm is held this trips it to a braking hold (trip), rather than dropping it.
+    fn limit_error(&self) -> Option<Reason> {
+        for (i, ((f, limit), &overspeed)) in self
+            .feedback
+            .iter()
+            .zip(&self.config.joints)
+            .zip(&self.overspeed)
+            .enumerate()
+        {
             if f.position < limit.lower
                 || f.position > limit.upper
                 || overspeed >= MOVING_READINGS
@@ -403,6 +413,42 @@ impl Controller {
             }
         }
         None
+    }
+
+    /// A limit, tracking or collision-box trip with the joints' state known. While the arm is held
+    /// (holding or executing) it is braked to a hold that keeps its feed-forward, and authority is
+    /// revoked as for any stop: the client acquires again and re-arms it where it is held, to lower
+    /// it. Cutting torque dropped a raised arm: right J2 fell from horizontal on a near-limit
+    /// overspeed (2026-09-29). A stop in progress carries on; nothing is held in Idle or Disarmed,
+    /// which fault as before.
+    fn trip(&mut self, reason: Reason, hardware: &mut impl Hardware) {
+        match self.state {
+            State::Holding | State::Executing => self.start_stop(reason, hardware),
+            State::Stopping | State::Stopped => {}
+            _ => self.fault(reason, hardware),
+        }
+    }
+
+    /// Where a stop brings joint `i` to rest: within its limits less its approach floor's stopping
+    /// margin, where the receiver accepts a target, so a held arm can be re-armed and lowered from
+    /// there; and within the collision box in force. The limits alone where those leave no room.
+    fn hold_band(&self, i: usize) -> (f64, f64) {
+        let limit = &self.config.joints[i];
+        let margin = self.config.collision.as_ref().map_or(0.0, |policy| {
+            collision::limit_reserve(policy, &self.config, limit, 0.0)
+        });
+        let (mut lower, mut upper) = (limit.lower + margin, limit.upper - margin);
+        if lower > upper {
+            (lower, upper) = (limit.lower, limit.upper);
+        }
+        if self.collision_active {
+            let low = lower.max(self.collision_lower[i]);
+            let high = upper.min(self.collision_upper[i]);
+            if low <= high {
+                (lower, upper) = (low, high);
+            }
+        }
+        (lower, upper)
     }
 
     fn start_stop(&mut self, reason: Reason, hardware: &mut impl Hardware) {
@@ -426,42 +472,28 @@ impl Controller {
             self.fault(error, hardware);
             return;
         }
-        for (((f, limit), stop), command) in self
-            .feedback
-            .iter()
-            .zip(&self.config.joints)
-            .zip(&mut self.stops)
-            .zip(&self.commands)
-        {
+        for i in 0..self.stops.len() {
+            let (f, command) = (self.feedback[i], self.commands[i]);
+            let limit = &self.config.joints[i];
             if limit.gripper {
                 // No braking trajectory: keep holding the last validated target.
-                *stop = JointStop::hold(command.position);
+                self.stops[i] = JointStop::hold(command.position);
                 continue;
             }
             // Brake from at most the speed cap: a faster reading is a drive spike unless it
-            // repeats (which faults), and braking from a spike would carry the joint on.
+            // repeats (which trips), and braking from a spike would carry the joint on.
             let speed = f.velocity.clamp(-limit.max_velocity, limit.max_velocity);
-            // The last command's feed-forward holds the joint against gravity through the stop.
-            let Some(plan) = JointStop::new(f.position, speed, limit.stop_acceleration)
-                .map(|plan| plan.with_effort(command.effort))
+            let acceleration = limit.stop_acceleration;
+            // At the stop acceleration, or harder where that would carry the joint out of its
+            // hold band (it stops at the band's edge rather than faulting and dropping).
+            let (lower, upper) = self.hold_band(i);
+            let Some(plan) = JointStop::within(f.position, speed, acceleration, lower, upper)
             else {
                 self.fault(Reason::InvalidCommand, hardware);
                 return;
             };
-            if plan.end_position < limit.lower || plan.end_position > limit.upper {
-                self.fault(Reason::LimitViolation, hardware);
-                return;
-            }
-            *stop = plan;
-        }
-        if self.collision_active
-            && self.stops.iter().enumerate().any(|(i, stop)| {
-                stop.end_position < self.collision_lower[i]
-                    || stop.end_position > self.collision_upper[i]
-            })
-        {
-            self.fault(Reason::CollisionViolation, hardware);
-            return;
+            // The last command's feed-forward holds the joint against gravity through the stop.
+            self.stops[i] = plan.with_effort(command.effort);
         }
         // Keep enforcing the spatial box during stopping and subsequent hold.
         self.collision_deadline = None;
@@ -521,6 +553,12 @@ impl Controller {
             self.fault(error, hardware);
             return;
         }
+        if let Some(error) = self.limit_error() {
+            self.trip(error, hardware);
+        }
+        if self.state == State::Faulted {
+            return;
+        }
         if self.state == State::Executing {
             self.follow_targets();
         }
@@ -535,8 +573,7 @@ impl Controller {
                 },
             )
         {
-            self.fault(Reason::CollisionViolation, hardware);
-            return;
+            self.trip(Reason::CollisionViolation, hardware);
         }
         if self.active()
             && self
@@ -548,7 +585,9 @@ impl Controller {
                     !l.gripper && (f.position - c.position).abs() > l.max_tracking_error
                 })
         {
-            self.fault(Reason::TrackingError, hardware);
+            self.trip(Reason::TrackingError, hardware);
+        }
+        if self.state == State::Faulted {
             return;
         }
         if self
@@ -851,7 +890,7 @@ impl Controller {
                 ) {
                     return Err(Reason::InvalidState);
                 }
-                if let Some(error) = self.feedback_error() {
+                if let Some(error) = self.feedback_error().or_else(|| self.limit_error()) {
                     return Err(error);
                 }
                 let entering = self.state != State::Idle;
@@ -878,31 +917,38 @@ impl Controller {
                 collision,
             } => {
                 self.authorize(&authority)?;
-                if !matches!(self.state, State::Disarmed | State::Idle) {
+                if !matches!(self.state, State::Disarmed | State::Idle | State::Stopped) {
                     return Err(Reason::InvalidState);
                 }
-                if let Some(error) = self.feedback_error() {
+                if let Some(error) = self.feedback_error().or_else(|| self.limit_error()) {
                     return Err(error);
                 }
                 if self.fast_readings.iter().any(|&n| n >= MOVING_READINGS) {
                     return Err(Reason::InvalidState);
                 }
-                let deadline = self.validate_collision(collision.as_ref(), None)?;
+                // From a stop the arm is re-armed where the stop holds it: that target and its
+                // feed-forward, inside the hold band (captured from the measured pose instead, a
+                // raised arm would sag by its gravity / kp, past its tracking bound).
+                let resuming = self.state == State::Stopped;
+                let held = resuming.then(|| self.commands.clone());
+                let deadline = self.validate_collision(collision.as_ref(), held.as_deref())?;
                 self.install_collision(collision.as_ref(), deadline);
-                // Capture measured positions, never an old command or a zero default.
-                for ((command, feedback), limit) in self
-                    .commands
-                    .iter_mut()
-                    .zip(&self.feedback)
-                    .zip(&self.config.joints)
-                {
-                    *command = JointCommand {
-                        position: feedback.position,
-                        velocity: 0.0,
-                        effort: 0.0,
-                        kp: limit.hold_kp,
-                        kd: limit.hold_kd,
-                    };
+                if !resuming {
+                    // Capture measured positions, never an old command or a zero default.
+                    for ((command, feedback), limit) in self
+                        .commands
+                        .iter_mut()
+                        .zip(&self.feedback)
+                        .zip(&self.config.joints)
+                    {
+                        *command = JointCommand {
+                            position: feedback.position,
+                            velocity: 0.0,
+                            effort: 0.0,
+                            kp: limit.hold_kp,
+                            kd: limit.hold_kd,
+                        };
+                    }
                 }
                 // Idle already consumed the adapter's enable permit; never re-enable.
                 let enabling = self.state == State::Disarmed;
@@ -982,7 +1028,7 @@ impl Controller {
                 if !matches!(self.state, State::Faulted | State::Stopped) {
                     return Err(Reason::InvalidState);
                 }
-                if let Some(error) = self.feedback_error() {
+                if let Some(error) = self.feedback_error().or_else(|| self.limit_error()) {
                     return Err(error);
                 }
                 if self.fast_readings.iter().any(|&n| n >= MOVING_READINGS) {
