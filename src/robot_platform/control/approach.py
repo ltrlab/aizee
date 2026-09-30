@@ -29,6 +29,8 @@ FRICTION_FF_FRACTION = .7  # Friction feed-forward: this share of the measured f
 FRICTION_SMOOTH_RAD_S = .05  # Friction feed-forward reaches its share at this commanded speed.
 ARRIVAL_ZONE_RAD = .04  # Commands slow to rest over the last this much of a joint's usable range,
 ARRIVAL_CREEP_RAD_S = .05  # and no slower than this, so they arrive.
+INERTIA_FF_FRACTION = .7  # Acceleration feed-forward: this share of a joint's fitted inertia (it varies with pose).
+ACCELERATION_FF_LIMIT = 32.  # rad/s2: the acceleration fed forward, at most.
 
 
 def reaction_s(receiver):
@@ -173,3 +175,16 @@ def friction_feedforward(friction_nm, velocity):
     if not friction_nm or not velocity:
         return 0.
     return FRICTION_FF_FRACTION * friction_nm * max(-1., min(1., velocity / FRICTION_SMOOTH_RAD_S))
+
+
+def ramp_effort(inertia, velocity, previous, period, effort, max_effort):
+    """The effort that accelerates a joint of `inertia` (kg m2) from the previous command's `previous` velocity to
+    this one's `velocity` over the receiver's interpolation `period` (s): INERTIA_FF_FRACTION of it (the inertia
+    was fitted at the reference pose), the acceleration within ACCELERATION_FF_LIMIT, and with the command's own
+    `effort` within 90% of the joint's effort limit. The receiver adds it only while it ramps to the command, so
+    a stop never holds it."""
+    if not inertia or not period or period <= 0:
+        return 0.
+    acceleration = max(-ACCELERATION_FF_LIMIT, min(ACCELERATION_FF_LIMIT, (velocity - previous) / period))
+    limit = .9 * max_effort
+    return max(-limit - effort, min(limit - effort, INERTIA_FF_FRACTION * inertia * acceleration))

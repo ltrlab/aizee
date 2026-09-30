@@ -175,6 +175,8 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
         measured = ((((servo or {}).get('joints') or {}).get(name) or {}).get('measured') or {}).get('torque') or {}
         friction = 0. if gripper or not calibrated else min(float(measured.get('friction') or 0.),
                                                               float(settings['max_effort']))
+        # And its inertia, for acceleration feed-forward (control.approach.ramp_effort).
+        inertia = 0. if gripper or not calibrated else float(measured.get('inertia') or 0.)
         cad_joint, row = by_motor[name]
         cad_lo, cad_hi = model.by_name[cad_joint]['control_bounds']
         cad_motor = sorted(((cad_lo - row['offset']) / row['scale'], (cad_hi - row['offset']) / row['scale']))
@@ -218,6 +220,7 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
                           # Not a gripper's: fed-forward velocity would add to its squeeze while it closes on
                           # an object (kd x speed), and its command already leads by its whole range.
                           'interpolation_s': 0. if gripper else interpolation_ms / 1000, 'friction_nm': friction,
+                          'inertia': inertia,
                           # Gravity feed-forward: [(coefficient, {motor: multiplier})], control.gravity.
                           'gravity': [[coefficient, angle] for coefficient, angle in terms.get(name, [])],
                           'max_effort': float(settings['max_effort']),

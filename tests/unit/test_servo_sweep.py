@@ -38,17 +38,18 @@ class Plant:
         count = len(names)
         velocities = command.get('velocities') or [0.] * count
         efforts = command.get('efforts') or [0.] * count
+        ramps = command.get('ramp_efforts') or [0.] * count
         for tick in range(round(seconds / TICK)):
             self.t += TICK
             elapsed = tick * TICK
             row = [self.t * 1000]
-            for name, target, velocity, effort, (kp, kd) in zip(names, command['targets'], velocities, efforts,
-                                                                 command['gains']):
+            for name, target, velocity, effort, ramp, (kp, kd) in zip(names, command['targets'], velocities,
+                                                                       efforts, ramps, command['gains']):
                 spec, (q, v) = self.joints[name], self.state[name]
                 if not self.interpolation:
                     reference, speed = target, velocity
-                elif elapsed < self.interpolation:
-                    reference, speed = target - velocity * (self.interpolation - elapsed), velocity
+                elif elapsed < self.interpolation:  # As the receiver: the ramp effort only while it ramps.
+                    reference, speed, effort = target - velocity * (self.interpolation - elapsed), velocity, effort + ramp
                 else:
                     reference, speed = target, 0.
                 torque = kp * (reference - q) + kd * (speed - v) + effort
@@ -612,3 +613,38 @@ def test_a_braked_move_slows_steadily_to_its_target_and_ramps_its_last_step():
     assert steps[-1] < .01  # No abrupt last step.
     assert all(v > 0 for v in velocities)  # Each step, the last too, is a ramp at its speed.
     assert engine.velocity['right_arm_j3'] == 0.  # At rest once there.
+
+
+def test_a_heavy_joints_inertia_is_fitted_and_fed_forward_as_it_speeds_up():
+    # Right J2 (0.9 kg m2 fitted, 2026-09-30) lagged while it accelerated, not while it cruised. Here a shoulder
+    # of 0.6 kg m2, its gravity fed forward: the sweep fits its inertia from its speed tests and feeds its
+    # acceleration forward from then on, so its later tests lag less than without.
+    def sweep(fit):
+        joints, plant, gains = arm()
+        plant.joints['right_arm_j2'].update(inertia=.6, gravity=lambda q: 14. * math.sin(q))
+        plant.bounds['right_arm_j2'] = 10.
+        plant.interpolation = .04
+        names = [joint['name'] for joint in joints]
+        engine = SweepEngine(joints, home={name: 0. for name in names}, gains=gains,
+                             settings={name: sweep_settings(PROFILE, name) for name in names},
+                             sweep=['right_arm_j2'], interpolation_s=.04,
+                             gravity={'right_arm_j2': [[14., {'right_arm_j2': 1}]]})
+        if not fit:
+            engine._fit_inertia = lambda motor, report: None
+        engine.observe(plant.run(names, {'targets': [0., 0.], 'gains': [gains[n] for n in names]}))
+        now = 0.
+        while now < 4000:
+            command = engine.command(now)
+            if command is None:
+                break
+            engine.observe(plant.run(names, command))
+            now += .04
+        assert engine.done and engine.task == 'finished', engine.task
+        return engine.summary()['right_arm_j2']
+    fed, bare = sweep(True), sweep(False)
+    assert fed['torque']['inertia'] == pytest.approx(.6, rel=.25)
+    assert 'inertia' not in bare['torque']
+    def worst(result, speed):
+        return max(s['max_lag'] for s in result['speeds'] if s['target_speed'] == speed and s['max_lag'] is not None)
+    assert worst(fed, .8) < .7 * worst(bare, .8)
+    assert fed['verification']['max_lag'] < bare['verification']['max_lag']

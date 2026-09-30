@@ -7,7 +7,7 @@ from copy import deepcopy
 import math
 import time
 
-from robot_platform.control.approach import command_step, end_margin, friction_feedforward, lead_toward
+from robot_platform.control.approach import command_step, end_margin, friction_feedforward, lead_toward, ramp_effort
 from robot_platform.control.gravity import gravity_effort
 
 
@@ -62,6 +62,7 @@ class TeleopLifecycle:
         self._feedback, self._source = None, None
         self._misses = 0
         self._velocities = None  # This cycle's slewed targets' velocities, for the next proposal.
+        self._sent_velocities = None  # The last move's velocities, for the acceleration fed forward.
 
     @property
     def joints(self):
@@ -131,8 +132,17 @@ class TeleopLifecycle:
             dict(position=q, velocity=v, effort=0. if zero_gains else self._effort(joint, v, positions),
                  kp=0. if zero_gains else joint['hold_kp'], kd=0. if zero_gains else joint['hold_kd'])
             for q, v, joint in zip(positions, velocities, self._joints)]
+        # The effort that accelerates each joint to its command's velocity from the last move's, which the
+        # receiver adds only while it ramps to the command (a stop never holds it).
+        previous = self._sent_velocities or (0.,) * len(self._joints)
+        ramps = None
+        if commands is not None and operation == 'move' and not zero_gains:
+            ramps = [ramp_effort(joint.get('inertia'), command['velocity'], before, joint.get('interpolation_s'),
+                                 command['effort'], joint.get('max_effort', math.inf))
+                     for command, before, joint in zip(commands, previous, self._joints)]
+        self._sent_velocities = tuple(velocities) if operation == 'move' and not zero_gains else None
         return dict(state=self.state, operation=operation, joint_names=list(self.names),
-                    positions=positions, joints=commands, reason=self.reason)
+                    positions=positions, joints=commands, reason=self.reason, ramp_efforts=ramps)
 
     def _effort(self, joint, velocity, positions):
         """Feed-forward: friction in the direction of motion and the arm's gravity at the commanded pose,

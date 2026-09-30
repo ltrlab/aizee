@@ -416,3 +416,35 @@ def test_a_moving_joint_is_led_from_where_it_will_be_when_the_receiver_has_rampe
     moving = lifecycle.step(rows, target=target(.12, (1.5, .04)), now=.12)['positions'][0]
     assert moving == pytest.approx(.35 + (.35 - .3) / .04 * (.01 + .04) + .03)
     assert moving > .35 + .03
+
+
+def test_a_move_that_changes_speed_carries_the_effort_that_accelerates_it():
+    # Right J2 lagged 0.04 rad accelerating 0.9 kg m2 with no feed-forward (2026-09-30). The receiver adds a
+    # command's ramp effort only while it ramps to it, so a stop never holds it.
+    from robot_platform.control.approach import INERTIA_FF_FRACTION
+    ramped = joints()
+    for joint in ramped:
+        joint.update(interpolation_s=.04, max_effort=50.)
+    ramped[0].update(inertia=.6)
+    lifecycle = TeleopLifecycle(ramped, settle_time_s=0.)
+    positions = (.3, .02)
+    lifecycle.action('idle', feedback(0., positions), now=0.)
+    lifecycle.action('enable', feedback(0., positions), now=0.)
+    lifecycle.action('engage', feedback(0., positions), target=target(0., positions), now=0.)
+    lifecycle.step(feedback(.04, positions), target=target(.04, positions), now=.04)
+    assert lifecycle.state == 'TELEOP'
+    # From rest to its 0.5 rad/s cap in one command: 12.5 rad/s2 over the 40 ms ramp.
+    started = lifecycle.step(feedback(.08, positions), target=target(.08, (.6, .04)), now=.08)
+    assert started['ramp_efforts'][0] == pytest.approx(INERTIA_FF_FRACTION * .6 * .5 / .04)
+    assert started['ramp_efforts'][1] == 0.  # No inertia fitted: none fed forward.
+    # At its cap: no change of speed, no ramp effort.
+    cruising = lifecycle.step(feedback(.12, positions), target=target(.12, (.6, .04)), now=.12)
+    assert cruising['ramp_efforts'][0] == pytest.approx(0.)
+    # The leader stops: the effort that brakes it.
+    here = (cruising['joints'][0]['position'], .02 + .01 * .08)
+    stopping = lifecycle.step(feedback(.16, positions), target=target(.16, here), now=.16)
+    assert stopping['ramp_efforts'][0] == pytest.approx(-INERTIA_FF_FRACTION * .6 * .5 / .04)
+    # Holding from rest carries none; idling never does.
+    held = lifecycle.action('disengage', feedback(.2, positions), now=.2)
+    assert held['ramp_efforts'] == [0., 0.]
+    assert lifecycle.action('idle', feedback(.24, positions), now=.24)['ramp_efforts'] is None

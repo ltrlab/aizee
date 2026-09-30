@@ -194,7 +194,10 @@ class TuneCore:
                                   travel=self.travel, receiver=self.profile['receiver'],
                                   interpolation_s=derived['config'].get('interpolation_ms', 0) / 1000,
                                   gravity={row['name']: row['gravity'] for row in derived['lifecycle']
-                                           if row.get('gravity')})
+                                           if row.get('gravity')},
+                                  # A saved sweep's inertia, fed forward as teleop does (this sweep refits it).
+                                  inertia={row['name']: row['inertia'] for row in base['lifecycle']
+                                           if row.get('inertia')})
         if self.evidence is not None:
             self.sink = (self.evidence / 'samples.f32').open('ab')
             self.engine.recording.sink = self.sink
@@ -239,7 +242,7 @@ class TuneCore:
                                                                  command.get('efforts') or [0.] * count,
                                                                  command['gains'])]
         envelope = self.compiler.compile(offered, feedback, joints, started_at=offer_started)
-        self.controller.move(joints, collision=envelope)
+        self.controller.move(joints, collision=envelope, ramp_efforts=command.get('ramp_efforts'))
 
     def tick(self, key, started):
         if self.fault or self.stage in ('finished', 'disabled'):

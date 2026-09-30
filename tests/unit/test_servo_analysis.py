@@ -4,8 +4,8 @@ import math
 import numpy as np
 import pytest
 
-from robot_platform.control.servo_analysis import (best_damping, braking, grid_check, ramp_lag, recommend,
-                                                   speed_noise, step_response, torque_map)
+from robot_platform.control.servo_analysis import (best_damping, braking, grid_check, inertia_fit, ramp_lag,
+                                                   recommend, speed_noise, step_response, torque_map)
 
 
 def simulate(command, *, kp, kd, duration, q0=0., inertia=.02, gravity=lambda q: 2. * math.sin(q),
@@ -260,3 +260,32 @@ def test_a_small_steps_overshoot_within_frictions_offset_does_not_fail_it():
     assert grid_check(entry(.1385, .018), tolerance=.03, limit=.025) is None
     assert grid_check(entry(.3, .018), tolerance=.03, limit=.025)[0] == 'overshoot'  # 5.4 mrad: too far.
     assert grid_check(entry(.15, .05), tolerance=.03, limit=.025)[0] == 'overshoot'  # 7.5 mrad of a large step.
+
+
+def test_the_inertia_is_fitted_from_moves_that_speed_up_and_slow_down():
+    # Back and forth at up to 1 rad/s, speeding up and slowing down at 8 rad/s2, on a joint of 0.3 kg m2 with
+    # gravity 2 sin q and 0.3 Nm of friction, followed by a stiff position loop (as the sweep's speed tests).
+    def trapezoid(start, end, speed=1., acceleration=8.):
+        distance, sign = abs(end - start), math.copysign(1, end - start)
+        ramp = speed / acceleration
+        cruise = (distance - speed * ramp) / speed
+        total = 2 * ramp + cruise
+
+        def command(t):
+            t = min(max(t, 0.), total)
+            if t < ramp:
+                travelled = .5 * acceleration * t * t
+            elif t < ramp + cruise:
+                travelled = .5 * speed * ramp + speed * (t - ramp)
+            else:
+                left = total - t
+                travelled = distance - .5 * acceleration * left * left
+            return start + sign * travelled
+        return command, total + .2
+    segments = []
+    for start, end in ((-.6, .6), (.6, -.6), (-.5, .7)):
+        command, duration = trapezoid(start, end)
+        segments.append(simulate(command, kp=400., kd=20., duration=duration, q0=start, inertia=.3, friction=.3))
+    inertia = inertia_fit(segments, 0, gravity_fit={'A': 2., 'C': 0.}, friction=.3)
+    assert inertia == pytest.approx(.3, rel=.15)
+    assert inertia_fit(segments[:0], 0) is None  # Nothing to fit.

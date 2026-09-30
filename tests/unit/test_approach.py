@@ -121,3 +121,15 @@ def test_commands_slow_to_rest_over_the_last_of_the_usable_range_and_still_arriv
     assert steps < 100
     assert command_step(JOINT, LIMIT_REACTION, edge, 1, 2., .04) == pytest.approx(.04 * ARRIVAL_CREEP_RAD_S)
     assert arrival_factor(dict(JOINT, gripper=True), LIMIT_REACTION, 2.99, 1) == 1.
+
+
+def test_the_ramp_effort_is_a_share_of_the_inertia_times_the_change_of_speed_within_limits():
+    from robot_platform.control.approach import ACCELERATION_FF_LIMIT, INERTIA_FF_FRACTION, ramp_effort
+    # 0.9 kg m2 from 0.2 to 0.4 rad/s over a 40 ms ramp: 5 rad/s2.
+    assert ramp_effort(.9, .4, .2, .04, 0., 60.) == pytest.approx(INERTIA_FF_FRACTION * .9 * 5.)
+    assert ramp_effort(.9, 0., .4, .04, 0., 60.) == pytest.approx(-INERTIA_FF_FRACTION * .9 * 10.)
+    # The acceleration fed forward is limited, and so is the effort with the command's own.
+    assert ramp_effort(.9, 4., 0., .04, 0., 60.) == pytest.approx(INERTIA_FF_FRACTION * .9 * ACCELERATION_FF_LIMIT)
+    assert ramp_effort(.9, 4., 0., .04, 50., 60.) == pytest.approx(.9 * 60. - 50.)
+    # No inertia, or no ramp: nothing.
+    assert ramp_effort(None, .4, 0., .04, 0., 60.) == 0. and ramp_effort(.9, .4, 0., 0., 0., 60.) == 0.

@@ -39,8 +39,7 @@ import numpy as np
 
 from . import servo_analysis as analysis
 from robot_platform.control.approach import (ARRIVAL_ZONE_RAD, COMMAND_HEADROOM, OVERSPEED_HEADROOM, command_step,
-                                             end_margin,
-                                             friction_feedforward, lead_toward)
+                                             end_margin, friction_feedforward, lead_toward, ramp_effort)
 from robot_platform.control.gravity import gravity_effort
 from robot_platform.control.guarded_config import CONTROL_LAW
 
@@ -283,7 +282,7 @@ class SweepEngine:
 
     def __init__(self, joints, *, home, gains, settings, sweep, checker=None, window_s=.12, verdict_s=.08,
                  labels=None, period_s=PERIOD_S, mode='tune', calibration=None, travel=None, receiver=None,
-                 interpolation_s=0., gravity=None):
+                 interpolation_s=0., gravity=None, inertia=None):
         """mode 'tune' steps the settings; 'verify' (Minerva Check) checks each joint at the settings it has
         (`gains`, and each joint's speed cap), against its saved sweep (`calibration`: {motor: entry}) if any."""
         if mode not in ('tune', 'verify'):
@@ -303,6 +302,9 @@ class SweepEngine:
         self._sent = {}  # The last command's position per joint.
         self.friction = {}  # {motor: Nm} fed forward in the direction of motion, as teleop does.
         self.gravity = dict(gravity or {})  # {motor: gravity terms} fed forward at the commanded pose, as teleop.
+        # {motor: kg m2}: its acceleration fed forward, as teleop (a saved sweep's, refitted as this one speeds up).
+        self.inertia = dict(inertia or {})
+        self._velocity_sent = {}  # The last command's velocity per joint, for the acceleration fed forward.
         self.labels = dict(labels or {})
         self.period = period_s
         self.recording = Recording(self.names)
@@ -480,7 +482,15 @@ class SweepEngine:
             if self.gravity.get(name):
                 limit = .9 * self.limits[name]['max_effort']
                 efforts[i] = max(-limit, min(limit, efforts[i] + gravity_effort(self.gravity[name], pose)))
-        return {'targets': targets, 'gains': gains, 'velocities': velocities, 'efforts': efforts, 'task': self.task}
+        # And the effort that accelerates each joint to its command's velocity, added only while the receiver
+        # ramps to it (it is never held).
+        ramps = []
+        for name, velocity, effort in zip(self.names, velocities, efforts):
+            ramps.append(ramp_effort(self.inertia.get(name), velocity, self._velocity_sent.get(name, 0.),
+                                     self.interpolation_s, effort, self.limits[name]['max_effort']))
+            self._velocity_sent[name] = velocity
+        return {'targets': targets, 'gains': gains, 'velocities': velocities, 'efforts': efforts,
+                'ramp_efforts': ramps, 'task': self.task}
 
     def _event(self, text):
         entry = {'motor': self.current, 'task': self.task, 'text': text}
@@ -831,6 +841,7 @@ class SweepEngine:
                 results.append({'speed': None, 'mean_lag': None, 'max_lag': None, 'peak_effort': None,
                                 'target_speed': speed, 'direction': 0})
             report.speeds += results
+            self._fit_inertia(motor, report)  # Fed forward from the next test on.
             if not ok or any(r['max_lag'] is None or r['max_lag'] > .5 * bound
                              or (r['speed'] or 0.) < .85 * speed for r in results):
                 break  # Lagged, or could not reach the speed (the plan waited for it).
@@ -846,6 +857,7 @@ class SweepEngine:
                 ok = yield from self._guarded(motor, self._brake_test(motor, low, high, followed, deceleration,
                                                                       settings['acceleration'], results))
                 report.decelerations += results
+                self._fit_inertia(motor, report)
                 if not ok or any(r is None or r['max_lag'] > .5 * bound for r in results):
                     break
         report.recommendation = analysis.recommend(
@@ -972,6 +984,16 @@ class SweepEngine:
         self._task(f'{self._label(motor)}: back to the reference')
         yield from self._go(motor, home, slow)
         yield from self._hold(motor, settings['rest_s'])
+
+    def _fit_inertia(self, motor, report):
+        """Refit the joint's inertia from its moves so far that sped up and slowed down (speed tests and braking),
+        into its torque map (saved with its calibration) and its acceleration feed-forward from here on."""
+        rows = [segment.rows for segment in self.segments if segment.joint == motor and segment.kind in ('ramp', 'brake')
+                and (segment.params.get('speed') or 0.) >= .3]
+        inertia = analysis.inertia_fit(rows, self.names.index(motor), gravity_fit=report.torque.get('gravity_fit'),
+                                       friction=report.torque.get('friction') or 0.)
+        if inertia is not None:
+            self.inertia[motor] = report.torque['inertia'] = inertia
 
     def _tolerance(self, motor):
         return self.settings[motor].get('tolerance') or .03
@@ -1147,7 +1169,8 @@ class SweepEngine:
                 'status': report.status, 'verified': {'up': report.verified[1], 'down': report.verified[-1]},
                 'torque': None if report.torque is None else {k: report.torque.get(k) for k in
                                                               ('gravity_max', 'gravity_worst_at', 'friction', 'span',
-                                                               'gravity_fit')},
+                                                               'gravity_fit')}
+                | ({'inertia': report.torque['inertia']} if 'inertia' in report.torque else {}),
                 'grid': [{k: e.get(k) for k in ('kp', 'kd', 'multiplier', 'failed')}
                          | {'overshoot': max((s['overshoot'] for s in e['steps'] if s), default=None),
                             # None: a step never came to rest.

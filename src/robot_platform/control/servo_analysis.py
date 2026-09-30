@@ -110,6 +110,54 @@ def torque_map(segments, joint_index, *, bin_rad=.02):
             'span': (bins[0]['position'], bins[-1]['position']), 'gravity_fit': fit}
 
 
+def inertia_fit(segments, joint_index, *, gravity_fit=None, friction=0.):
+    """A joint's inertia (kg m2) from moves that speed up and slow down (its speed tests, braking and passes):
+    the drive's torque less its gravity slice (A sin q + C) and friction in the direction of motion, against
+    its acceleration, both taken from positions differenced over a command period and centred on the same
+    sample. None without enough accelerating samples, or when the fit is not a plausible inertia.
+
+    Without its inertia fed forward, a heavy joint lags while it accelerates: right J2 (0.6 kg m2 fitted this
+    way, 2026-09-30) lagged 0.035-0.041 rad at 1.2 rad/s, about 0.13 s into each cruise, and its speed stopped
+    at 1.0 rad/s, while cruising it lagged 0.01."""
+    residuals, accelerations = [], []
+    for rows in segments:
+        if rows is None or len(rows) < 8:
+            continue
+        t = times_s(rows)
+        window = max(1, int(round(COMMAND_PERIOD_S / max(float(np.median(np.diff(t))), 1e-4))))
+        if len(t) < 2 * window + 8:
+            continue
+        position = column(rows, joint_index, POSITION)
+        effort = column(rows, joint_index, EFFORT)
+        # Speed over a period centred on sample i: (p[i + w] - p[i - w]) / (t[i + w] - t[i - w]); acceleration
+        # the same way from those speeds, so both are centred on sample i.
+        span = t[2 * window:] - t[:-2 * window]
+        speed = (position[2 * window:] - position[:-2 * window]) / np.maximum(span, 1e-6)
+        middle = slice(window, len(t) - window)  # Samples the speeds are centred on.
+        speed_t = t[middle]
+        if len(speed) < 2 * window + 2:
+            continue
+        acceleration = (speed[2 * window:] - speed[:-2 * window]) / np.maximum(
+            speed_t[2 * window:] - speed_t[:-2 * window], 1e-6)
+        centre = slice(2 * window, len(t) - 2 * window)
+        v, a = speed[window:len(speed) - window], acceleration
+        q, torque = position[centre], effort[centre]
+        count = min(len(v), len(a), len(q), len(torque))
+        v, a, q, torque = v[:count], a[:count], q[:count], torque[:count]
+        gravity = (gravity_fit['A'] * np.sin(q) + gravity_fit['C']) if gravity_fit else 0.
+        residual = torque - gravity - friction * np.sign(v) * (np.abs(v) > .05)
+        use = (np.abs(v) > .05) & (np.abs(a) > 1.) & (np.abs(a) < 60.)
+        residuals.append(residual[use])
+        accelerations.append(a[use])
+    if not residuals:
+        return None
+    residual, acceleration = np.concatenate(residuals), np.concatenate(accelerations)
+    if len(acceleration) < 100 or np.ptp(acceleration) < 4.:
+        return None
+    inertia, _ = np.polyfit(acceleration, residual, 1)
+    return float(inertia) if 0. < inertia < 10. else None
+
+
 # -- step response ------------------------------------------------------------------
 
 def step_response(rows, joint_index, *, target, start, band_fraction=.1, band_floor_rad=.002):

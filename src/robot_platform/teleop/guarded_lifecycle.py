@@ -161,7 +161,8 @@ class GuardedLifecycleSession:
             elif operation == "enable":
                 status = self.controller.arm(collision=envelope)
             elif operation == "move":
-                status = self.controller.move(proposal["joints"], collision=envelope)
+                status = self.controller.move(proposal["joints"], collision=envelope,
+                                              ramp_efforts=proposal.get("ramp_efforts"))
             elif operation == "disable":
                 status = self.controller.disable()
                 self.owned = False

@@ -108,11 +108,13 @@ class GuardedControllerClient:
         """Explicit removal of torque, distinct from a controlled fault stop."""
         return self._call({"type": "disable", "authority": self._authority()})["status"]
 
-    def move(self, joints: list[dict], *, collision=None) -> dict:
+    def move(self, joints: list[dict], *, collision=None, ramp_efforts=None) -> dict:
         request = {"type": "move", "authority": self._authority(),
                    "identity": self.identity, "joints": joints}
         if collision is not None:
             request["collision"] = collision
+        if ramp_efforts is not None:
+            request["ramp_efforts"] = [float(effort) for effort in ramp_efforts]
         return self._call(request)["status"]
 
     def stop(self) -> dict:
