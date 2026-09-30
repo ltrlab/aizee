@@ -2711,5 +2711,10 @@ sequence:
 The zero was not touched. At power-up every joint rests near its reference,
 well inside ±π, so it now reads correctly there. A joint powered up more than
 half a turn from its reference reads a turn off instead; Minerva Check names
-such a reading as a whole turn and says how to clear it. Persistence is
-verified at the next motor power cycle.
+such a reading as a whole turn and says how to clear it.
+
+Verified (12:01 UTC). The operator turned both shoulder swivels back and
+power-cycled the motors. Minerva Check's stopped checks all pass. All 14 drives
+kept `zero_sta = 1`, with identity, firmware and fault-free Reset unchanged.
+Every joint is inside its swept range and both arms are within 0.1 rad of the
+reference: left J1 −0.020, right J1 −0.039, farthest right J5 +0.100.
