@@ -2842,3 +2842,24 @@ From 1.5 rad/s, braking at 32 rad/s² overshot 0.0205 rad, just over the 0.02
 limit, so it qualifies at 16. It starts slowing about 0.18 rad from each end.
 Fits: gravity A 18.55 Nm, friction 0.83 Nm, inertia 1.32 kg·m². Both
 shoulder hinges now run at 1.5 rad/s.
+
+### 2026-09-30 — left wrist drives lost power during left J3's sweep; left arm stopped
+
+Left J3's sweep (18:28 UTC, release `20260930T182008Z-66da3d6`) followed every
+speed to 1.5 rad/s, with at most 0.015 rad of lag, and braked cleanly at 2 and
+4 rad/s². Then, braking at 8 rad/s² from 1.5 rad/s, left J5, J6 and the gripper
+(the three drives past J4) all flagged faults and left Run mode together, at
+856.2 s. J1–J4 kept running. A drive reporting a fault cuts torque, so the arm
+went limp and the forearm (J3 at +0.69 rad) dropped to hanging.
+
+Minerva Check's stopped scan afterwards reached every motor except those three:
+**left J5, J6 and the gripper no longer answer.** Power or CAN to the wrist
+branch past J4 has failed. The same harness sparked at J4 on 2026-09-26, and the
+gripper's CAN link dropped out in the left J2 fall and again at 27.5 ms on the
+left J2 sweep. The operator is to switch motor power off and redo the left
+wrist harness. The left arm is not to be run until then. Left J3's sweep was not
+saved and is to be re-run.
+
+The receiver reported this as "left_arm_j5: not in Run mode 50 ms after enable
+(mode 0)", its startup check's wording, which misnames a drive that ran and
+then left Run mode reporting faults.
