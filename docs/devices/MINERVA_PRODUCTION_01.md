@@ -2528,3 +2528,23 @@ fault. J4 was at its reference; nothing dropped.
   Only the sweep's J4 ceiling, on both arms, was over.
 
 Deployed as release `20260930T022140Z-7191c95`.
+
+### 2026-09-30 — right J4 saved
+
+The second right J4 sweep (02:21 UTC, release `20260930T022140Z-7191c95`)
+finished with no faults, its damping ceiling now 5.0:
+- the whole range, +1.819/−1.487 rad, characterised and verified at its
+  2.5 rad/s cap with 0.029 rad of lag at most;
+- every speed to 2.5 rad/s followed within 0.030 rad;
+- every braking rate to 32 rad/s² followed, with 12 mrad of overshoot at most.
+
+Saved (`4504d36`):
+
+| Setting | Before | Saved |
+|---|---|---|
+| Stiffness | 50 | 50 |
+| Damping | 4.0 | 2.8 |
+| Speed cap | 2.5 rad/s | 2.5 rad/s |
+| Braking | 16 rad/s² | 32 rad/s² |
+| Tracking bound | 0.08 rad | 0.059 rad |
+| Gravity slice | 2.51 sin q | 2.69 sin q Nm |
