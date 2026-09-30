@@ -22,6 +22,7 @@ POSITION, VELOCITY, EFFORT, COMMAND = range(4)
 COMMAND_PERIOD_S = .04  # The sweep sends a command every 40 ms.
 GRAVITY_FIT_SPAN_RAD = .3  # A gravity slice is fitted over at least this much travel.
 GRAVITY_RESIDUAL = .2  # With gravity fed forward, the share of it a joint's position loop still holds.
+WELL_DAMPED = .02  # A step overshooting at most this share is well damped: preferred at a stiffness.
 
 
 def column(rows, joint_index, field):
@@ -237,6 +238,18 @@ def static_load(torque, *, gravity_fed=False):
             + (torque.get('friction') or 0.))
 
 
+def best_damping(entries):
+    """Of grid entries at one stiffness (each with its steps), the one to use: the fastest to settle of those
+    that are well damped (overshooting at most WELL_DAMPED), else of all. With velocity fed forward, a lightly
+    damped joint lags more as it speeds up and overshoots its stops: right J2 at kp 220 settled fastest at
+    kd 14.7 (7% overshoot) but lagged 0.042 rad at 1.2 rad/s and overshot every stop by 0.02-0.03 rad; at
+    kd 21 (2%) it lagged 0.033 and braked at 32 rad/s2. Right J1's fastest, kd 5, overshot 0.5%."""
+    def worst(entry, key, default):
+        values = [step[key] for step in entry['steps'] if step and step.get(key) is not None]
+        return max(values) if values else default
+    return min(entries, key=lambda e: (worst(e, 'overshoot', 0.) > WELL_DAMPED, worst(e, 'settle_s', math.inf)))
+
+
 def recommend(joint, *, torque, grid, holds, speeds, decelerations, bound, tolerance, profile_gains,
               overshoot_limit=.1, lag_fraction=.5, gravity_fed=False):
     """Settings for one joint from its sweep results, with the reason for each.
@@ -272,7 +285,7 @@ def recommend(joint, *, torque, grid, holds, speeds, decelerations, bound, toler
             continue
         passing = [e for e in grid if e['kp'] == kp and passes(e)]
         if passing:
-            best = min(passing, key=lambda e: max(s['settle_s'] for s in e['steps'] if s))
+            best = best_damping(passing)
             chosen = {'kp': kp, 'kd': best['kd']}
             break
         # Why not, once per kind of failure, across its damping ratios.

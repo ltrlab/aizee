@@ -979,9 +979,7 @@ class SweepEngine:
                    and all(s and s['settle_s'] is not None for s in e['steps'])]
         if not entries:
             return None
-        best = min(entries, key=lambda e: (max(s['overshoot'] for s in e['steps']) > .1,
-                                           max(s['settle_s'] for s in e['steps'])))
-        return best['kd']
+        return analysis.best_damping(entries)['kd']
 
     # -- tests ---------------------------------------------------------------------------------
 

@@ -4,8 +4,8 @@ import math
 import numpy as np
 import pytest
 
-from robot_platform.control.servo_analysis import (braking, grid_check, ramp_lag, recommend, speed_noise,
-                                                   step_response, torque_map)
+from robot_platform.control.servo_analysis import (best_damping, braking, grid_check, ramp_lag, recommend,
+                                                   speed_noise, step_response, torque_map)
 
 
 def simulate(command, *, kp, kd, duration, q0=0., inertia=.02, gravity=lambda q: 2. * math.sin(q),
@@ -233,3 +233,17 @@ def test_the_torque_map_of_a_wide_joint_takes_milliseconds():
     short = [dict(s, rows=s['rows'][np.abs(s['rows'][:, 1]) < .1]) for s in segments]
     assert torque_map(short, 0)['gravity_fit'] is None
 
+
+def test_at_a_stiffness_the_fastest_well_damped_damping_is_chosen():
+    # Right J2 at kp 220 (2026-09-30): kd 14.7 settled fastest but overshot 7%; with velocity fed forward it
+    # lagged more at speed and overshot its stops. The well-damped kd 29.4 settles nearly as fast.
+    def entry(kd, overshoot, settle):
+        return {'kp': 220., 'kd': kd, 'steps': [{'overshoot': overshoot, 'settle_s': settle}] * 2}
+    j2 = [entry(21., .06, .2875), entry(14.7, .073, .26), entry(29.4, 0., .2875)]
+    assert best_damping(j2)['kd'] == 29.4
+    # Right J1 at kp 150: the fastest, kd 5, overshot 0.5%, so it is still the one.
+    j1 = [entry(20., 0., .345), entry(7., 0., .135), entry(5., .005, .092), entry(28., 0., .365)]
+    assert best_damping(j1)['kd'] == 5.
+    # With none well damped, the fastest to settle; a step that never settled counts as slowest.
+    loose = [entry(10., .08, .3), entry(8., .09, .25), entry(6., .09, None)]
+    assert best_damping(loose)['kd'] == 8.
