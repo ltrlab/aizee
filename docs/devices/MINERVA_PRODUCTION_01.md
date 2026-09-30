@@ -2757,3 +2757,24 @@ Drives stayed answering throughout, with one exception. The gripper went quiet
 once for 27.5 ms (the receiver trips at 30) while the arm was lowered after the
 trip, with J2 at +0.54 rad. In the fall its link dropped for 15 ms and then 46
 ms, with J2 at +1.55. The gripper's link is still marginal.
+
+### 2026-09-30 — left J2 saved at 1.5 rad/s
+
+Left J2 was swept again (16:33 UTC) on release `20260930T122625Z-4f54be8`, with
+the braking fix, and finished without a trip or a drive dropout. Every braking
+test ran, 2 to 32 rad/s². It followed every speed to 1.5 rad/s (0.034 rad at
+worst), and the pass across its whole range at 1.5 rad/s lagged 0.033 rad at
+most.
+
+Saved (`sweep-20260930T163310Z`):
+
+| Stiffness / damping | Speed cap | Braking | Tracking bound | Usable |
+|---|---|---|---|---|
+| 220 / 21 | 1.5 rad/s | 8 rad/s² | 0.068 rad | 3.142 of 3.173 rad swept |
+
+Braking qualifies where the overshoot stays within half the lag limit, 0.02
+rad. At 16 and 32 rad/s² it overshot 0.022, so the receiver brakes J2 at 8 near
+its ends: it starts slowing about 0.3 rad from each end. The fits (gravity A
+17.88 Nm, friction 0.90 Nm, inertia 1.35 kg·m²) replace the 2026-08-22 legacy
+gravity fit. Left J2 now runs 50% faster than right J2 (1.0 rad/s), which was
+swept before acceleration feed-forward existed.
