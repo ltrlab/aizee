@@ -288,6 +288,17 @@ impl<I: CanIo> CanHardware<I> {
                             m.name)
                 });
                 continue;
+            } else if self.enabled && self.running[i] && f.mode != 2 {
+                // It left Run mode while driven reporting faults (a supply dip reads as undervoltage): that
+                // cuts torque, and says which faults. The startup check below would call it a drive that
+                // never reached Run mode; left J5, J6 and the gripper faulted that way when their supply
+                // failed (2026-09-30).
+                return Err(format!(
+                    "{}: left Run mode while driven (mode {}), reporting {}",
+                    m.name,
+                    f.mode,
+                    robstride::fault_names(f.error_bits)
+                ));
             }
             if let Some(gate) = &mut self.reference {
                 gate.observe(i, f, rx.sampled_at_ms, now_ms).map_err(|_| {

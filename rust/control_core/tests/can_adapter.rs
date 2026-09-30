@@ -299,11 +299,22 @@ fn a_drive_that_leaves_run_mode_while_driven_reads_as_quiet_not_as_a_failure() {
         .unwrap()
         .starts_with("one: left Run mode while driven"));
     assert!(hw.failure().is_none());
-    // A drive that reports a fault as it leaves Run mode still fails the read, cutting torque.
+    // A drive that reports a fault as it leaves Run mode still fails the read, cutting torque, named.
     let mut faulted = feedback(0, 80);
     faulted.frame.id = 0x020104aa;
     hw.io.rx.push_back(faulted);
     assert!(hw.read(80, &mut output).is_err());
+    assert_eq!(
+        hw.failure(),
+        Some("one: left Run mode while driven (mode 0), reporting undervoltage")
+    );
+}
+
+#[test]
+fn fault_bits_are_named() {
+    assert_eq!(robstride::fault_names(0), "no fault");
+    assert_eq!(robstride::fault_names(0b000011), "undervoltage, overcurrent");
+    assert_eq!(robstride::fault_names(0b100000), "uncalibrated");
 }
 
 #[test]

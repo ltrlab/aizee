@@ -93,6 +93,29 @@ pub fn feedback(frame: Frame, host: u8, r: Ranges) -> Result<Feedback, &'static 
     })
 }
 
+/// The latched faults a feedback frame's error bits name (bits 16-21 of its id).
+pub fn fault_names(error_bits: u8) -> String {
+    const NAMES: [&str; 6] = [
+        "undervoltage",
+        "overcurrent",
+        "overtemperature",
+        "magnetic encoder",
+        "Hall encoder",
+        "uncalibrated",
+    ];
+    let names: Vec<&str> = NAMES
+        .iter()
+        .enumerate()
+        .filter(|(bit, _)| error_bits >> bit & 1 == 1)
+        .map(|(_, name)| *name)
+        .collect();
+    if names.is_empty() {
+        "no fault".into()
+    } else {
+        names.join(", ")
+    }
+}
+
 /// Firmware replies reuse type 2 but contain a version, not joint measurements.
 pub fn is_version(frame: Frame) -> bool {
     frame.id >> 24 == 2 && frame.data[..3] == [0, 0xc4, 0x56]
