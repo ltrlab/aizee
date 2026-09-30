@@ -375,8 +375,12 @@ impl Controller {
         }
     }
 
-    /// The joints' state is unknown or a drive reports a fault: nothing can be held, so these cut
-    /// torque (a fault).
+    fn stale(&self, f: &JointFeedback) -> bool {
+        self.now_ms - f.sampled_at_ms >= self.config.feedback_timeout_ms
+    }
+
+    /// Invalid feedback, a drive reporting a fault, or no drive answering at all (the bus is gone):
+    /// nothing can be held, so these cut torque (a fault).
     fn feedback_error(&self) -> Option<Reason> {
         for f in &self.feedback {
             if f.sequence == 0
@@ -387,14 +391,24 @@ impl Controller {
             {
                 return Some(Reason::FeedbackInvalid);
             }
-            if self.now_ms - f.sampled_at_ms >= self.config.feedback_timeout_ms {
-                return Some(Reason::FeedbackStale);
-            }
             if f.fault {
                 return Some(Reason::HardwareFault);
             }
         }
+        if self.feedback.iter().all(|f| self.stale(f)) {
+            return Some(Reason::FeedbackStale);
+        }
         None
+    }
+
+    /// Some drives, not all, have stopped answering: a trip, holding the arm on those that still do
+    /// (each quiet one keeps its last command). The left gripper went quiet for over 30 ms with the
+    /// left arm raised, and cutting every joint's torque dropped the arm (2026-09-30).
+    fn stale_error(&self) -> Option<Reason> {
+        self.feedback
+            .iter()
+            .any(|f| self.stale(f))
+            .then_some(Reason::FeedbackStale)
     }
 
     /// A joint past a limit, over its allowed speed, effort or temperature, its state known: while
@@ -493,6 +507,11 @@ impl Controller {
                 self.stops[i] = JointStop::hold(command.position);
                 continue;
             }
+            if self.stale(&f) {
+                // Where it is and how fast it moves are unknown: it keeps the command in force.
+                self.stops[i] = JointStop::hold(command.position).with_effort(held);
+                continue;
+            }
             // Brake from at most the speed cap: a faster reading is a drive spike unless it
             // repeats (which trips), and braking from a spike would carry the joint on.
             let speed = f.velocity.clamp(-limit.max_velocity, limit.max_velocity);
@@ -566,7 +585,7 @@ impl Controller {
             self.fault(error, hardware);
             return;
         }
-        if let Some(error) = self.limit_error() {
+        if let Some(error) = self.limit_error().or_else(|| self.stale_error()) {
             self.trip(error, hardware);
         }
         if self.state == State::Faulted {
@@ -903,7 +922,11 @@ impl Controller {
                 ) {
                     return Err(Reason::InvalidState);
                 }
-                if let Some(error) = self.feedback_error().or_else(|| self.limit_error()) {
+                if let Some(error) = self
+                    .feedback_error()
+                    .or_else(|| self.limit_error())
+                    .or_else(|| self.stale_error())
+                {
                     return Err(error);
                 }
                 let entering = self.state != State::Idle;
@@ -933,7 +956,11 @@ impl Controller {
                 if !matches!(self.state, State::Disarmed | State::Idle | State::Stopped) {
                     return Err(Reason::InvalidState);
                 }
-                if let Some(error) = self.feedback_error().or_else(|| self.limit_error()) {
+                if let Some(error) = self
+                    .feedback_error()
+                    .or_else(|| self.limit_error())
+                    .or_else(|| self.stale_error())
+                {
                     return Err(error);
                 }
                 if self.fast_readings.iter().any(|&n| n >= MOVING_READINGS) {
@@ -1059,7 +1086,11 @@ impl Controller {
                 if !matches!(self.state, State::Faulted | State::Stopped) {
                     return Err(Reason::InvalidState);
                 }
-                if let Some(error) = self.feedback_error().or_else(|| self.limit_error()) {
+                if let Some(error) = self
+                    .feedback_error()
+                    .or_else(|| self.limit_error())
+                    .or_else(|| self.stale_error())
+                {
                     return Err(error);
                 }
                 if self.fast_readings.iter().any(|&n| n >= MOVING_READINGS) {

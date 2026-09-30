@@ -38,6 +38,8 @@ pub struct Loopback {
     /// Successful enable() calls; physical enable permits are single-use.
     pub enables: u64,
     pub feedback: Vec<JointFeedback>,
+    /// Per joint, a drive that has stopped answering: its reading is not updated (empty: none).
+    pub quiet: Vec<bool>,
     observed: Vec<JointFeedback>,
 }
 
@@ -59,6 +61,7 @@ impl Loopback {
             motor_fault: false,
             writes: 0,
             enables: 0,
+            quiet: Vec::new(),
             observed: feedback.clone(),
             feedback,
         }
@@ -70,15 +73,14 @@ impl Hardware for Loopback {
         if self.fail_read || output.len() != self.feedback.len() {
             return Err(HardwareError);
         }
-        for joint in &mut self.feedback {
-            if !self.frozen {
+        for i in 0..self.feedback.len() {
+            if !self.frozen && !self.quiet.get(i).copied().unwrap_or(false) {
+                let joint = &mut self.feedback[i];
                 joint.sequence = joint.sequence.checked_add(1).ok_or(HardwareError)?;
                 joint.sampled_at_ms = now_ms;
                 joint.fault = self.motor_fault;
+                self.observed[i] = *joint;
             }
-        }
-        if !self.frozen {
-            self.observed.copy_from_slice(&self.feedback);
         }
         output.copy_from_slice(&self.observed);
         Ok(())

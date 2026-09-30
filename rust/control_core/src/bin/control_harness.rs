@@ -38,6 +38,9 @@ struct Measured {
     position: f64,
     velocity: f64,
     effort: f64,
+    /// The drive has stopped answering: its reading is not updated.
+    #[serde(default)]
+    quiet: bool,
 }
 
 #[derive(Deserialize)]
@@ -124,6 +127,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if measured.len() != hardware.feedback.len() {
                         return Err("feedback must cover every joint".into());
                     }
+                    hardware.quiet = measured.iter().map(|m| m.quiet).collect();
                     for (joint, m) in hardware.feedback.iter_mut().zip(measured) {
                         joint.position = m.position;
                         joint.velocity = m.velocity;

@@ -1479,3 +1479,64 @@ fn a_ramp_effort_accelerates_only_the_ramp_and_is_never_held() {
     let bad = move_with_ramp(&mut c, &mut h, 12, 4, vec![f64::NAN, 0.0]);
     assert_eq!(bad.reason, Reason::InvalidCommand);
 }
+
+#[test]
+fn a_quiet_drive_among_answering_ones_holds_the_arm_until_it_answers() {
+    // The left gripper stopped answering for over 30 ms with the left arm raised; cutting every
+    // joint's torque dropped the arm (2026-09-30). Now the arm is held on the drives that answer,
+    // the quiet one keeps its last command, and it is re-armed only once every drive answers.
+    let (mut c, mut h) = armed(2);
+    let mut raised = joints(2, 1.0, 0.0);
+    raised[0].effort = 4.0;
+    let r = Request::Move {
+        collision: None,
+        authority: auth(&c, 2),
+        identity: identity(),
+        ramp_efforts: Vec::new(),
+        joints: raised,
+    };
+    assert!(c.handle(2, r, &mut h).accepted);
+    c.tick(3, &mut h); // Both readings reach the command...
+    h.quiet = vec![false, true]; // ...then the second drive stops answering.
+    for now in 4..30 {
+        c.tick(now, &mut h);
+    }
+    let status = c.status();
+    assert!(matches!(status.state, State::Stopping | State::Stopped));
+    assert_eq!(status.reason, Reason::FeedbackStale);
+    assert!(h.enabled && status.lease.is_none());
+    assert_eq!(status.joints[0].effort, 4.0); // Held against its load.
+    assert_eq!(status.joints[1].position, 1.0); // The quiet one keeps its command.
+                                                // While it is quiet the arm stays held: no re-arm.
+    assert!(claim(&mut c, &mut h, 30).accepted);
+    let refused = c.handle(
+        31,
+        Request::Arm {
+            collision: None,
+            authority: auth(&c, 1),
+        },
+        &mut h,
+    );
+    assert_eq!(refused.reason, Reason::FeedbackStale);
+    assert!(h.enabled);
+    // It answers again: re-armed where it is held.
+    h.quiet = Vec::new();
+    c.tick(32, &mut h);
+    let reply = c.handle(
+        33,
+        Request::Arm {
+            collision: None,
+            authority: auth(&c, 2),
+        },
+        &mut h,
+    );
+    assert!(reply.accepted, "{:?}", reply.reason);
+    assert_eq!(c.status().state, State::Holding);
+    // Every drive quiet at once (the bus) still cuts torque.
+    h.quiet = vec![true, true];
+    for now in 34..60 {
+        c.tick(now, &mut h);
+    }
+    assert_eq!(c.status().state, State::Faulted);
+    assert!(!h.enabled);
+}
