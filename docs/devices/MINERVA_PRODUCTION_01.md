@@ -2823,3 +2823,22 @@ read +0.62 and J6 +0.26.
 - **Lag:** the worst was 0.014 rad (J6); J1's was 0.007 rad.
 - **End pose:** every joint ended within 0.005 rad of its reference, and the arm
   was disabled.
+
+### 2026-09-30 — right J2 re-swept with acceleration feed-forward: 1.0 → 1.5 rad/s
+
+Right J2 was swept again (18:07 UTC, release `20260930T174931Z-a632a9a`) right
+after its return, and finished without a trip or a drive dropout. It followed
+every speed to 1.5 rad/s: 0.027/0.031 rad at 1.2 rad/s (0.034–0.041 before the
+feed-forward) and 0.032/0.037 at 1.5. The pass across its whole range at 1.5
+rad/s lagged 0.035 rad at most.
+
+Saved (`sweep-20260930T180734Z`), replacing its 1.0 rad/s calibration:
+
+| Stiffness / damping | Speed cap | Braking | Tracking bound | Usable |
+|---|---|---|---|---|
+| 220 / 29.4 | 1.5 rad/s | 16 rad/s² | 0.074 rad | 3.162 of 3.178 rad swept |
+
+From 1.5 rad/s, braking at 32 rad/s² overshot 0.0205 rad, just over the 0.02
+limit, so it qualifies at 16. It starts slowing about 0.18 rad from each end.
+Fits: gravity A 18.55 Nm, friction 0.83 Nm, inertia 1.32 kg·m². Both
+shoulder hinges now run at 1.5 rad/s.
