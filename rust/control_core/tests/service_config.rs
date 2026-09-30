@@ -121,3 +121,22 @@ fn teleop_drives_one_gated_arm_with_holding_gains_and_collision_envelopes() {
     virtual_bus["buses"][0]["usb_serial"] = Value::Null;
     assert!(error(virtual_bus).contains("CAN interface identity"));
 }
+
+#[test]
+fn every_command_limit_fits_the_motors_protocol_ranges() {
+    // A damping ceiling over the motor's wire range (right J4: 5.6 against 5.0) failed to encode
+    // mid-session, which the receiver took as a drive fault and cut torque.
+    parse(teleop(&LEFT_ARM)).validate().unwrap();
+    for (key, value) in [
+        ("max_kd", 5.6),
+        ("max_kp", 501.0),
+        ("max_effort", 14.5),
+        ("max_velocity", 34.0),
+        ("upper", 12.6),
+        ("lower", -12.6),
+    ] {
+        let mut over = teleop(&LEFT_ARM);
+        over["controller"]["joints"][1][key] = json!(value);
+        assert!(error(over).contains("protocol ranges"), "{key}");
+    }
+}

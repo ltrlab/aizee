@@ -95,6 +95,23 @@ impl ServiceConfig {
             if m.name != j.name || m.bus >= self.buses.len() {
                 return Err("joint/CAN roster mismatch".into());
             }
+            // Every command the controller may accept must fit its motor's wire protocol. One that
+            // does not fails to encode, which the receiver takes as a drive fault, cutting torque:
+            // right J4's damping ceiling of 5.6 against its motor's 5.0 (2026-09-28 and -30).
+            let (r, s) = (m.ranges, m.scale.abs());
+            let position = |q: f64| (q / m.scale + m.zero).abs();
+            if j.max_kp * s * s > r.kp
+                || j.max_kd * s * s > r.kd
+                || j.max_effort * s > r.effort
+                || j.max_velocity / s > r.velocity
+                || position(j.lower) > r.position
+                || position(j.upper) > r.position
+            {
+                return Err(format!(
+                    "{}: its limits exceed its motor's protocol ranges",
+                    j.name
+                ));
+            }
         }
         if matches!(
             self.mode,
