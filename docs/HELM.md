@@ -499,6 +499,33 @@ the arm. **Disable (H)** removes torque at once, and the arm goes limp where it
 is. Stopping the session lowers the arm to the reference first, then disables
 it; Helm asks first.
 
+**Return to reference** brings the chosen arm back to its reference pose after
+it has been moved or left off it while limp. A live start refuses an arm that
+isn't within 0.1 rad of its reference.
+1. **Connect** (top right). The 3D view shows the arm as its drives read it.
+2. Press **Return to reference**. Helm lists each joint's offset from the
+   reference. It refuses readings that aren't fresh, or that fall outside a
+   joint's swept range, since those can't be trusted to move from.
+3. **Compare the 3D view with the real arm, then confirm.** Helm checks the arm
+   hasn't moved more than 0.02 rad since it was shown, disconnects the reader
+   and starts.
+4. The live start scans the arm stopped and requires it within 0.1 rad of the
+   confirmed pose, not the reference. The receiver's start gate checks the same.
+   The arm is enabled at zero torque, then held where it rests.
+5. Each joint returns alone, the wrist first and the gripper last, at its
+   characterisation speed (0.15 rad/s). Each path is checked against the
+   collision model from the arm's actual pose. The arm is then disabled at its
+   reference.
+
+The same guards and receiver limits apply. A guard, a path that isn't clear, or
+Finish (X) stops it and disables the arm where it is, which is where it rested
+before.
+
+This trusts readings away from the reference, so it relies on the drives'
+−π…π power-on range, which makes every joint that stays within ±π of zero read
+its true angle, and on your visual check. The drives' power-on range is set
+since 2026-09-30.
+
 **What it chooses**, per joint, with the reasons shown on its card:
 - **Stiffness**: the stiffest rung that passes, since it follows and holds
   best. Its steps must not overshoot by more than 10% and must come to rest
