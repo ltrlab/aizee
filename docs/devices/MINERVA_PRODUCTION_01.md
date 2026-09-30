@@ -2494,3 +2494,37 @@ Fixes, each tested and rehearsed:
   stopped 0.02 rad short of its end.
 
 Deployed as release `20260930T015209Z-1e1ffa4`.
+
+### 2026-09-30 — right J3 saved; right J4's "hardware fault" was a damping ceiling
+
+**Right J3, second run** (01:52 UTC, release `20260930T015209Z-1e1ffa4`):
+- its whole range, +2.019/−2.147 rad, verified at 1.5 rad/s with 0.022 rad of
+  lag at most;
+- every speed to 1.5 rad/s followed within 0.020 rad;
+- every braking rate to 32 rad/s² followed, with 4 mrad of overshoot at most.
+
+Saved (`e4d79eb`):
+
+| Setting | Before | Saved |
+|---|---|---|
+| Stiffness | 215 | 215 |
+| Damping | 14 | 19.6 |
+| Speed cap | 1.5 rad/s | 1.5 rad/s |
+| Braking | 25 rad/s² | 32 rad/s² |
+| Tracking bound | 0.05 rad | 0.043 rad |
+| Gravity slice | 6.4 sin q | 7.24 sin q Nm |
+
+**Right J4** (02:08 UTC) characterised its whole range, +1.819/−1.487 rad, with
+gravity 2.64 sin q Nm and 0.21 Nm of friction. It then ended in `hardware_fault`
+at stiffness 50, damping 5.6, exactly where its 2026-09-28 sweep ended. The
+drive was not at fault. The sweep raises each joint's damping ceiling to
+1.4 times its hold damping, 5.6 for J4. Its RobStride 02 frame carries damping up
+to 5.0, so the command failed to encode, which the receiver takes as a drive
+fault. J4 was at its reference; nothing dropped.
+
+- The receiver now refuses a config whose stiffness, damping, effort, speed or
+  position limits exceed its motors' protocol ranges (`52cdcf3`).
+- Live sweeps and teleop clamp those limits to each motor's ranges (`7191c95`).
+  Only the sweep's J4 ceiling, on both arms, was over.
+
+Deployed as release `20260930T022140Z-7191c95`.
