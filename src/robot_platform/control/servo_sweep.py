@@ -420,6 +420,25 @@ class SweepEngine:
             self._event(f'the session ended: {reason}')
         self.task, self.current, self.done = 'stopped', None, True
 
+    def lower(self, held, why):
+        """End the sweep by taking every joint from where the receiver holds it (`held`: {motor: rad}; None: the
+        last command, which it ramps to) to its reference at its characterisation speed: after the receiver
+        braked the arm to a hold (a trip) and was re-armed there, or before the session closes. The loop then
+        disables the arm, which hangs."""
+        report = self.reports.get(self.current)
+        if report is not None and report.status == 'running':
+            report.status = 'stopped'
+        self._event(f'{why}; lowering the arm to the reference')
+        held = dict(self.targets, **self._sent) if held is None else held
+        held = {name: float(q) for name, q in held.items() if name in self.targets}
+        self.targets.update(held)
+        self._sent.update(held)  # The receiver holds these: the first command steps from them.
+        self.velocity = {name: 0. for name in self.names}
+        self.test_gains.clear()
+        self.current, self.recovering, self.stopping, self._stop_sent = None, True, True, True
+        self.done = False
+        self._plan = self._home_all()
+
     def _compose(self):
         targets, gains, velocities, efforts = [], [], [], []
         for name in self.names:

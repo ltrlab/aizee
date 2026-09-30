@@ -59,6 +59,60 @@ class GuardedLifecycleSession:
             self.owned = False
         return proposal
 
+    def disable_now(self):
+        """The operator's disable, whatever the state: this adapter's disable while it owns the receiver, or
+        else an emergency stop (always accepted), which removes torque from an arm the receiver holds."""
+        try:
+            self.lifecycle.action("disable", [], now=self.clock())
+        except ValueError:
+            pass
+        try:
+            if self.controller.owned:  # The client's lease, which a receiver stop revokes.
+                self.controller.disable()
+            else:
+                self.controller.emergency_stop()
+        finally:
+            self.owned = False
+
+    def _rows(self, offered, feedback, offer_started):
+        """The lifecycle's feedback rows from a receiver offer's feedback, stamped on this clock."""
+        now_ms = offered["status"]["now_ms"]
+        if len(feedback) != len(self.compiler.names):
+            raise ValueError("Complete robot feedback required")
+        rows = []
+        for name, item in zip(self.compiler.names, feedback):
+            age = (now_ms - item["sampled_at_ms"]) / 1000
+            if item["fault"] or not math.isfinite(age) or age < 0:
+                raise ValueError("Faulted or invalid receiver feedback")
+            rows.append(dict(name=name, position=item["position"], velocity=item["velocity"],
+                             sequence=item["sequence"], sampled_at=offer_started - age))
+        return rows
+
+    def recover(self):
+        """After a fault, take back the arm the receiver braked to a hold (a trip, or the stop this adapter
+        asked for): acquire again, re-arm it where the receiver holds it, with its feed-forward, and start the
+        lifecycle's shutdown from there, which the next cycles step down to the reference and then disable.
+        False while the receiver is still braking."""
+        status = self.controller.poll()
+        if status["state"] == "stopping":
+            return False
+        if status["state"] != "stopped":
+            raise RuntimeError(f"The receiver is {status['state']} ({status['reason']}): the arm's torque is off")
+        self.controller.acquire()
+        self.owned = True
+        offer_started = self.clock()
+        offered = self.controller.collision_offer()
+        sample = deepcopy(self.snapshot())
+        if sample["reply"] != offered or sample["status"] != offered["status"]:
+            raise ValueError("Feedback must be from the same receiver offer")
+        held = offered["status"]["joints"]  # The stop's hold: the receiver re-arms there.
+        envelope = self.compiler.compile(offered, sample["feedback"], held, started_at=offer_started)
+        status = self.controller.arm(collision=envelope)
+        rows = self._rows(offered, sample["feedback"], offer_started)
+        self.lifecycle.recover(rows, [joint["position"] for joint in status["joints"]], now=self.clock())
+        self.last_feedback = deepcopy(rows)
+        return True
+
     def cycle(self, *, action=None, target=None, started_at=None):
         started = self.clock() if started_at is None else started_at
         record = dict(action=action, accepted=False, started_at=started)
@@ -82,17 +136,8 @@ class GuardedLifecycleSession:
             sample = deepcopy(self.snapshot())
             if sample["reply"] != offered or sample["status"] != offered["status"]:
                 raise ValueError("Feedback must be from the same receiver offer")
-            now_ms = offered["status"]["now_ms"]
             feedback = sample["feedback"]
-            if len(feedback) != len(self.compiler.names):
-                raise ValueError("Complete robot feedback required")
-            rows = []
-            for name, item in zip(self.compiler.names, feedback):
-                age = (now_ms - item["sampled_at_ms"]) / 1000
-                if item["fault"] or not math.isfinite(age) or age < 0:
-                    raise ValueError("Faulted or invalid receiver feedback")
-                rows.append(dict(name=name, position=item["position"], velocity=item["velocity"],
-                                 sequence=item["sequence"], sampled_at=offer_started - age))
+            rows = self._rows(offered, feedback, offer_started)
             self.last_feedback = deepcopy(rows)
             if action is not None:
                 proposal = self.lifecycle.action(action, rows, target=target, now=self.clock())

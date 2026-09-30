@@ -378,23 +378,34 @@ asks you to confirm.
 
 The receiver's enable is single-use: after Disable (H) or a completed Shutdown
 the arm is limp, and a new session, which checks the reference pose again, is
-needed to enable it. Stopping the session disables the arm where it is. If the
-arm is powered, Helm asks first, since a raised arm drops; use Shutdown (X)
-before stopping.
+needed to enable it. Stopping a session with the arm powered lowers it to its
+reference first, as Shutdown (X) does, then disables it; Helm asks first.
+Disable (H) removes torque at once: the arm goes limp where it is.
 
 **What happens when something is lost:**
 
 | Lost | Result |
 |---|---|
 | Leader samples (unplugged leader, PC or tether gone) | After two cycles the arm holds where it is until you Engage again. The foot switch cuts power at any time. |
-| Helm's session (closed, crashed) | The loop on the Jetson disables the arm and stops the receiver. |
+| Helm's session (closed, crashed) | The loop on the Jetson lowers the arm to its reference, then disables it and stops the receiver. |
 | The loop | The receiver stops the arm when its lease and collision verdict expire (150 ms and 80 ms). |
 | The receiver process | Each motor's own watchdog disables it when commands stop. |
 
-A receiver fault names what its own feedback shows (a joint outside its limits,
-too fast, over its effort or temperature, a drive fault, a failed watchdog
-audit). The receiver's last status is saved as `live-<bus>-last.json` in the
-session's `~/minerva/evidence/live-<time>` folder on the Jetson.
+**Trips hold the arm.** A joint past a limit, or too fast toward one, over its
+effort or temperature, past its tracking bound, or out of its collision box
+trips the receiver. It brakes the arm to a hold that keeps its gravity
+feed-forward, rather than cutting torque, and revokes the session's lease. The
+session takes the arm back where it is held, lowers it to its reference and
+disables it; the reason stays on screen. A stop the receiver makes itself (its
+lease or collision verdict lapsing) ends the same way. Only lost or invalid
+feedback, a drive's own fault, an emergency stop or the receiver's own loop
+running late cut torque at once, and a raised arm then drops. Until
+2026-09-29 every trip cut torque: right J2 fell from horizontal.
+
+A receiver fault or trip names what its own feedback shows (a joint outside its
+limits, too fast, over its effort or temperature, a drive fault, a failed
+watchdog audit). The receiver's last status is saved as `live-<bus>-last.json`
+in the session's `~/minerva/evidence/live-<time>` folder on the Jetson.
 
 **Grippers** use their full physical range, closing past the model's closed
 limit. A closed gripper rests on its hand-swept end and its 16-bit feedback can
@@ -457,9 +468,11 @@ not that close already stops it.
 
 The joint then holds where it is at the current gains and returns to its
 reference, and the sweep continues with what the evidence allows. The
-receiver's own limits stay in force behind all of this. If the receiver faults
-anyway, the session ends with the arm disabled: the joint under test shows as
-stopped, and Motors reads off.
+receiver's own limits stay in force behind all of this. If the receiver trips
+anyway, it brakes the arm to a hold; the sweep takes it back there, lowers every
+joint to its reference at its characterisation speed and disables it. The
+joint under test shows as stopped. After three trips while lowering, the arm is
+left held where it stopped: support it, then press H.
 
 **Bound and speed ceilings.** A joint's `bound_ceiling` and `speed_ceiling` in
 the teleop profile's `sweep` block let the session raise its tracking bound and
@@ -470,8 +483,8 @@ and the gripper only; speed ceilings are 1.5 rad/s for J1–J3, 2.5 for J4 and
 
 **Finish (X)** returns the joint under test to its reference, then disables
 the arm. **Disable (H)** removes torque at once, and the arm goes limp where it
-is. The motors stay enabled for the whole sweep, so stopping the session
-disables the arm where it is; Helm asks first.
+is. Stopping the session lowers the arm to the reference first, then disables
+it; Helm asks first.
 
 **What it chooses**, per joint, with the reasons shown on its card:
 - **Stiffness**: the stiffest rung that passes, since it follows and holds

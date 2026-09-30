@@ -25,7 +25,7 @@ from robot_platform.control.guarded_config import arm_subset, derive_receiver
 from robot_platform.control.servo_calibration import load_servo, save_servo, servo_path  # noqa: F401 (re-exported)
 from robot_platform.control.scheduling import prefer_responsive
 from .limits import utc_now
-from .teleop import AdvisoryCompiler, load_profile
+from .teleop import HELD, LOWERING_ATTEMPTS, AdvisoryCompiler, load_profile
 
 PERIOD_S = .04
 RESULTS_EVERY_S = 1.
@@ -57,6 +57,8 @@ class TuneCore:
         self.message = ('Checking the arm, then starting the live receiver…' if self.live_arm
                         else 'Loading the collision model and virtual receiver…')
         self.fault = None
+        self.stopped_by = None  # Why the receiver stopped the arm, when it did.
+        self._lowerings = 0
         self.engine = self.controller = self.receiver = self.compiler = self.derived = None
         self.pending = []  # Receiver results since the engine last saw them.
         self.cycles = []
@@ -268,9 +270,24 @@ class TuneCore:
                     self._move(command, offered, offer_started)
                     progress = self.engine.progress()
                     self.message = f"{progress['task']} ({progress['joints_done']}/{progress['joints']} joints done)"
+            elif self.stage == 'lowering':
+                self._lower(started)
         except Exception as exc:
             status = getattr(exc, 'status', None) or (self.controller.status if self.controller else None) or {}
             reason = status.get('reason')
+            if self.stage in ('sweeping', 'lowering') and self.engine is not None:
+                why = reason if status.get('state') in HELD else str(exc) or type(exc).__name__
+                if status.get('state') in ('holding', 'executing') and self.controller.owned:
+                    # This loop failed with the arm up: have the receiver brake it to a hold, then lower it.
+                    try:
+                        status = self.controller.stop()
+                    except Exception:
+                        pass
+                if status.get('state') in HELD:
+                    # A trip (or a lapsed lease): the receiver braked the arm to a hold and revoked this session's
+                    # authority. Take it back there and lower the arm; never let it drop.
+                    self._held(why)
+                    return
             self.fail(f"Receiver {status.get('state')}: {reason} · {exc}" if reason not in (None, 'ok') else str(exc))
         finally:
             record['completed_at'] = self.clock()
@@ -301,10 +318,75 @@ class TuneCore:
         self.stage = 'sweeping'
         self.message = 'Holding. The sweep moves the arm joint by joint.'
 
+    def _held(self, reason):
+        """The receiver stopped the arm and holds it: lower it from where it is held."""
+        if self.stage != 'lowering':
+            self.stage, self.stopped_by, self._lowerings = 'lowering', reason, 0
+        self.message = (f'The receiver stopped the arm ({reason}) and holds it; taking it back to lower it to the '
+                        'reference…')
+
+    def land(self):
+        """Before the session closes (closing the receiver cuts torque): lower an arm the sweep holds up, then
+        disable it. True while there is an arm to lower; the loop keeps running until it is down."""
+        if self.engine is None or self.controller is None or self.fault:
+            return False
+        if self.stage == 'sweeping':
+            self.engine.lower(None, 'the session is closing')  # From the last command, which the receiver ramps to.
+            self.stage, self._lowerings = 'lowering', 0
+            self.message = 'Closing: lowering the arm to the reference, then disabling it…'
+        return self.stage == 'lowering'
+
+    def _lower(self, started):
+        """Re-arm an arm the receiver holds where it holds it, move every joint to its reference slowly, then
+        disable it (it hangs)."""
+        status = self.controller.poll()
+        state = status['state']
+        if state == 'stopping':
+            self.message = f'The receiver stopped the arm ({self.stopped_by}) and is braking it to a hold…'
+            return
+        if state == 'stopped':
+            self._lowerings += 1
+            if self._lowerings > LOWERING_ATTEMPTS:
+                self.stage = 'held'
+                self.message = (f'The receiver stopped the arm {LOWERING_ATTEMPTS} times while it was lowered '
+                                f'({status.get("reason")}): it holds the arm where it stopped. Support the arm, '
+                                'then press H to disable it (it goes limp), or stop the session.')
+                return
+            self.controller.acquire()
+            offer_started = self.clock()
+            offered = self.controller.collision_offer()
+            feedback = (self.latest() or {}).get('feedback') or []
+            held = status['joints']  # The stop's hold: re-armed there, with its feed-forward.
+            status = self.controller.arm(collision=self.compiler.compile(offered, feedback, held,
+                                                                         started_at=offer_started))
+            self.engine.lower({name: joint['position'] for name, joint in zip(self.engine.names, status['joints'])},
+                              f'the receiver stopped the arm ({self.stopped_by})' if self.stopped_by
+                              else 'the receiver stopped the arm')
+            self.message = 'Re-armed where the receiver held it; lowering the arm to the reference…'
+            return
+        if state not in ('holding', 'executing') or not self.controller.owned:
+            raise RuntimeError(f"the receiver is {state} ({status.get('reason')}): the arm's torque is off")
+        self.controller.renew()
+        offer_started = self.clock()
+        offered = self.controller.collision_offer()
+        self._feed()
+        command = self.engine.command(started)
+        if command is None:
+            why = f'the receiver stopped it ({self.stopped_by})' if self.stopped_by else 'the session closed'
+            self._disable(f'Sweep ended: {why}. The arm was lowered to the reference and disabled. Review the '
+                          'results; the joint under test was not finished.')
+        else:
+            self._move(command, offered, offer_started)
+            self.message = 'Lowering the arm to the reference…'
+
     def _disable(self, message):
-        if self.controller is not None and self.controller.owned:
+        if self.controller is not None:
             try:
-                self.controller.disable()
+                if self.controller.owned:
+                    self.controller.disable()
+                elif self.stage in ('lowering', 'held'):
+                    # The receiver holds the arm under no owner: an emergency stop (always accepted) removes torque.
+                    self.controller.emergency_stop()
             except Exception as exc:
                 message += f' (disable reported: {exc})'
         self.stage = 'disabled' if self.stage != 'finished' else self.stage
@@ -374,6 +456,8 @@ def run_tune_loop(commands, views, core):
     """Like helm.teleop.run_loop: keys in, views out. The loop ends when the sweep finishes, is
     disabled or faults; the last view carries the results."""
     clock = core.clock
+    closing = False  # Asked to stop, or Helm is gone: lowering the arm before the receiver closes.
+    listening = True
     try:
         views.send(('view', core.view(results=False), None))
         core.build()
@@ -381,15 +465,20 @@ def run_tune_loop(commands, views, core):
         while True:
             started = clock()
             key = None
-            while True:
+            while listening:
                 try:
                     if not commands.poll():
                         break
                     message = commands.recv()
                 except (EOFError, OSError):
-                    return
+                    listening, message = False, ('stop',)
                 if message[0] == 'stop':
-                    return
+                    # Closing the receiver cuts torque: a raised arm is lowered first (H still disables at once).
+                    if not closing:
+                        if not core.land():
+                            return
+                        closing = True
+                    continue
                 if message[0] == 'key':
                     key = message[1] if key is None or message[1] == 'H' else key
             core.tick(key, started)
@@ -398,7 +487,9 @@ def run_tune_loop(commands, views, core):
             try:
                 views.send(('view', core.view(), None))
             except (OSError, EOFError, ValueError):
-                return
+                if not core.land():
+                    return
+                closing = True
             remaining = core.period_s - (clock() - started)
             if remaining > 0:
                 time.sleep(remaining)
@@ -567,7 +658,8 @@ class TuneSession:
         except (OSError, ValueError) as exc:
             raise ValueError(f'The sweep is not reachable: {exc}') from exc
 
-    def stop(self, timeout=15.):
+    def stop(self, timeout=45.):
+        # The loop lowers a raised arm before it closes the receiver: about 11 s for J2 from horizontal.
         with self._lock:
             conn, views, worker, reader = self._conn, self._views, self._worker, self._reader
         if worker is None:

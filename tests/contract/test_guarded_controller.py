@@ -46,10 +46,18 @@ def test_native_lease_expires_without_any_more_client_commands():
             result = h.step(now)
         assert result["status"]["state"] == "stopped"
         assert result["status"]["joints"][0]["position"] == pytest.approx(0.11)
+        assert result["hardware_enabled"]  # The stop holds the arm.
         c.poll()
         c.acquire()
-        with pytest.raises(GuardRejected, match="invalid_state"):
-            c.arm()
+        # Re-armed where the stop holds it, without going limp; Reset from a stop still disarms.
+        status = c.arm()
+        assert status["state"] == "holding" and h.last["hardware_enabled"]
+        assert status["joints"][0]["position"] == pytest.approx(0.11)
+        c.stop()
+        for now in (300, 301):
+            h.step(now)
+        c.poll()
+        c.acquire()
         c.reset()
         assert not h.last["hardware_enabled"]
         assert c.arm()["state"] == "holding"

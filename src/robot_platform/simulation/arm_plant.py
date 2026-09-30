@@ -33,7 +33,7 @@ class ArmPlant:
     gravity: {name: callable(pose) -> the torque that holds the joint against gravity}.
     """
 
-    def __init__(self, joints, *, gravity=None, speed_noise=.08, position_noise=0., seed=1):
+    def __init__(self, joints, *, gravity=None, speed_noise=.08, position_noise=0., seed=1, disturbance=None):
         self.specs = [dict(joint) for joint in joints]
         self.names = [joint['name'] for joint in joints]
         self.q = [float(joint.get('q', 0.)) for joint in joints]
@@ -42,6 +42,9 @@ class ArmPlant:
         self.gravity = dict(gravity or {})
         self.speed_noise, self.position_noise = speed_noise, position_noise
         self.random = random.Random(seed)
+        self.t = 0.  # Simulated time (s).
+        # callable(plant) -> {name: Nm}: an outside push (a bump, a hand), added to the drive's torque.
+        self.disturbance = disturbance
 
     def pose(self):
         return dict(zip(self.names, self.q))
@@ -55,6 +58,7 @@ class ArmPlant:
         h = dt / SUBSTEPS
         for _ in range(SUBSTEPS):
             holding = self.holding()
+            pushed = self.disturbance(self) if self.disturbance else {}
             for i, spec in enumerate(self.specs):
                 q, v = self.q[i], self.v[i]
                 if commands is None:
@@ -62,7 +66,7 @@ class ArmPlant:
                 else:
                     c = commands[i]
                     torque = c['kp'] * (c['position'] - q) + c['kd'] * (c['velocity'] - v) + c['effort']
-                net = torque - holding[i]
+                net = torque - holding[i] + pushed.get(spec['name'], 0.)
                 friction, static = spec['friction'], spec.get('static', spec['friction'])
                 if abs(v) < 1e-4 and abs(net) <= static:
                     v = 0.  # Sticks, then slides.
@@ -70,6 +74,7 @@ class ArmPlant:
                     v += (net - friction * math.copysign(1, v if abs(v) >= 1e-4 else net)) / spec['inertia'] * h
                     q += v * h
                 self.q[i], self.v[i], self.torque[i] = q, v, torque
+            self.t += h
 
     def measured(self):
         return [{'position': round((q + self.random.gauss(0., self.position_noise)) / POSITION_STEP_RAD)

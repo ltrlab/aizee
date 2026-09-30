@@ -661,9 +661,9 @@ $('teleop-session').onclick = () => {
       stop();
       return;
     }
-    askConfirm('stop', t.live.arm, `The ${t.live.arm} arm is powered (${t.state}). Stop anyway?`,
-      ['Stopping disables it where it is, and it may drop.',
-       'Shutdown (X) returns it slowly to its reference first.'], 'Stop anyway', stop);
+    askConfirm('stop', t.live.arm, `The ${t.live.arm} arm is powered (${t.state}). Stop the session?`,
+      ['It is lowered slowly to its reference first (as Shutdown X does), then disabled.',
+       'Disable (H) instead removes torque at once: the arm goes limp where it is.'], 'Stop', stop);
     return;
   }
   const choice = t?.receiver_choice || {mode: 'virtual'};
@@ -875,9 +875,9 @@ $('u-session').onclick = () => {
   const u = last?.tune;
   if (['running', 'starting'].includes(u?.phase)) {
     askTune('Stop the sweep session?', [
-      'The receiver disables the arm where it is: a raised joint drops.',
-      'Finish (X) returns the joint under test to the reference first.'], 'Stop anyway',
-      () => act('/api/helm/tune/stop', {}, 'Sweep stopped.'));
+      'The arm is lowered slowly to the reference first, then disabled; the joint under test is not finished.',
+      'Disable (H) instead removes torque at once: the arm goes limp where it is.'], 'Stop',
+      () => act('/api/helm/tune/stop', {}, 'Sweep stopped: the arm was lowered and disabled.'));
     return;
   }
   const choice = u?.receiver_choice || {mode: 'live', arm: 'right'};

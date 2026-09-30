@@ -162,6 +162,11 @@ class FakeCore:
     def fail(self, reason):
         self.phase, self.fault = 'fault', reason
 
+    landing = False  # No arm to lower before closing.
+
+    def land(self):
+        return self.landing
+
 
 def helm_stub(limits=True):
     return SimpleNamespace(profile_path=ROOT / 'config/devices/minerva-joint-calibration.json', bindings={},

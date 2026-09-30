@@ -216,7 +216,7 @@ def test_engage_needs_live_leaders_and_a_lost_leader_holds(rig):
     assert state(core) == ('DISABLED', 'disarmed')
 
 
-def test_a_stalled_cycle_faults_with_the_receivers_reason_and_ignores_later_keys(rig):
+def test_a_stalled_cycle_faults_with_the_receivers_reason_then_lowers_the_held_arm(rig):
     core, clock, _leaders = rig
     run(core, clock, 'I')
     run(core, clock, 'E')
@@ -226,8 +226,45 @@ def test_a_stalled_cycle_faults_with_the_receivers_reason_and_ignores_later_keys
     assert re.match(r'Receiver stop(ping|ped): collision_expired · ', core.fault), core.fault
     assert core.session.lifecycle.state == 'FAULT'
     fault = core.fault
+    # The receiver holds the arm: the session takes it back there and lowers it, rather than dropping it.
+    for _ in range(2000):
+        clock.now += core.period_s
+        core.tick('T', clock())  # Keys do not bring following back.
+        if core.session.lifecycle.state == 'DISABLED':
+            break
+    assert core.fault == fault
+    assert core.session.lifecycle.state == 'DISABLED' and core.harness.last['status']['state'] == 'disarmed'
+    assert 'lowered to the reference and disabled' in core.message
+    assert 'Stop the session and start it again' in core.message
+
+
+def test_h_disables_a_faulted_arm_at_once_rather_than_lowering_it(rig):
+    core, clock, _leaders = rig
+    run(core, clock, 'I')
+    run(core, clock, 'E')
+    run(core, clock, 'T', until='TELEOP', limit=400)
+    clock.now += .1
+    core.tick(None, clock())
+    assert core.fault
+    clock.now += core.period_s
     core.tick('H', clock())
-    assert core.fault == fault and 'Stop the session and start it again' in core.message
+    assert not core.landing and 'Disabled at your request' in core.message
+    assert not core.harness.last['hardware_enabled']
+
+
+def test_closing_a_following_arm_lowers_it_before_the_receiver_closes(rig):
+    core, clock, _leaders = rig
+    run(core, clock, 'I')
+    run(core, clock, 'E')
+    run(core, clock, 'T', until='TELEOP', limit=400)
+    assert core.land() and core.landing
+    for _ in range(2000):
+        clock.now += core.period_s
+        core.tick(None, clock())
+        if not core.landing:
+            break
+    assert core.session.lifecycle.state == 'DISABLED' and core.harness.last['status']['state'] == 'disarmed'
+    assert not core.land()  # Nothing left to lower.
 
 
 def test_setting_the_zero_while_engaged_holds_then_follows_from_the_new_zero(rig):

@@ -30,6 +30,8 @@ from .limits import utc_now
 
 KEYS = frozenset('IETHX')
 ENGAGED = ('ENGAGING', 'TELEOP')
+HELD = ('stopping', 'stopped')  # Receiver states in which it brakes or holds the arm itself.
+LOWERING_ATTEMPTS = 3  # Re-arms after the receiver stops the arm, before it is left held where it stopped.
 
 
 def load_profile(path):
@@ -162,6 +164,9 @@ class TeleopCore:
         self.derived = self.session = self.mapper = self.leaders = self.harness = self.compiler = None
         self.scales = {}
         self.fault = self.input_error = self.last_target = None
+        # After a fault the receiver holds the arm: it is taken back and lowered (the lifecycle's shutdown).
+        self._lowering, self._lowerings = False, 0
+        self._land = False  # Closing: shut down (lower, then disable) before the receiver closes.
         self.late_targets, self.sequence, self.overruns = 0, 0, 0
         self.slowest_ms = self.largest_gap_ms = 0.
         self._last_start = None
@@ -415,14 +420,26 @@ class TeleopCore:
     def tick(self, key, started):
         from robot_platform.teleop.guarded_lifecycle import minerva_action
         if self.fault:
-            # The receiver stopped itself and revoked the lease; nothing can be
-            # sent until a new session, so keep the original reason on screen.
+            # The receiver stopped itself and revoked the lease. It holds the arm: take it back there and
+            # lower it, keeping the original reason on screen; a new session is needed to follow again.
+            if key == 'H' and self._lowering:
+                self._lowering = False
+                self.session.disable_now()
+                self.message = (f'{self._receiver_name} FAULT · {self.fault} · Disabled at your request: the arm '
+                                'is limp where it was. Stop the session and start it again.')
+            elif self._lowering:
+                self._lower(started)
             return
         lifecycle = self.session.lifecycle
         previous = lifecycle.state
         engaged = previous in ENGAGED
         action = minerva_action(key, previous) if key else None
         notice = None
+        if self._land:
+            # Closing: lower the arm and disable it (as X) before the receiver closes; H still disables at once.
+            self._land = False
+            if previous in ('HOLD', 'ENGAGING', 'TELEOP') and action != 'disable':
+                action = 'shutdown'
         if self._hold:
             self._hold = False
             if engaged:
@@ -458,9 +475,14 @@ class TeleopCore:
             detail = fault_detail(self.harness.last, self.derived['config'], self.labels) if self.harness else ''
             self.fault = (f"Receiver {status.get('state')}: {reason}" + (f' ({detail})' if detail else '')
                           + f' · {exc}') if reason not in (None, 'ok') else str(exc)
-            self.message = (f'{self._receiver_name} FAULT · {self.fault} · The receiver stopped itself'
-                            + (' and disabled the arm' if self.live_arm else '')
-                            + '. Stop the session and start it again.')
+            if self._held():
+                self._lowering, self._lowerings = True, 0
+                self.message = (f'{self._receiver_name} FAULT · {self.fault} · The receiver braked the arm to a '
+                                'hold; lowering it to the reference, then disabling it…')
+            else:
+                self.message = (f'{self._receiver_name} FAULT · {self.fault} · The receiver stopped itself'
+                                + (' and disabled the arm' if self.live_arm else '')
+                                + '. Stop the session and start it again.')
             return
         self._record(record)
         self.sequence += 1
@@ -474,6 +496,62 @@ class TeleopCore:
                 self.message += f' · {lifecycle.reason} · last input problem: {self.input_error}'
             if current == 'DISABLED' and self.live_arm:
                 self.message += ' · the arm is limp. Stop the session; a new one checks the reference pose again.'
+
+    def _held(self):
+        """Whether the receiver brakes or holds the arm itself (after a trip, or the stop a failed cycle asked
+        for), rather than having cut its torque."""
+        try:
+            return self.session.controller.poll()['state'] in HELD
+        except Exception:
+            return False
+
+    def _lower(self, started):
+        """After a fault: take the arm back where the receiver holds it, then step the lifecycle's shutdown down
+        to the reference, which ends disabled with the arm hanging."""
+        session = self.session
+        try:
+            if session.lifecycle.state == 'FAULT':
+                if self._lowerings >= LOWERING_ATTEMPTS:
+                    self._lowering = False
+                    self.message = (f'{self._receiver_name} FAULT · {self.fault} · The receiver stopped the arm '
+                                    f'{LOWERING_ATTEMPTS} times while it was lowered and holds it where it stopped. '
+                                    'Support the arm, then stop the session (it goes limp).')
+                    return
+                if session.recover():
+                    self._lowerings += 1
+                    self.message = (f'{self._receiver_name} FAULT · {self.fault} · Re-armed where the receiver '
+                                    'held it; lowering the arm to the reference…')
+                return
+            record = session.cycle(action=None, target=None, started_at=started)
+            self._record(record)
+            if session.lifecycle.state == 'DISABLED':
+                self._lowering = False
+                self.message = (f'{self._receiver_name} FAULT · {self.fault} · The arm was lowered to the '
+                                'reference and disabled. Stop the session and start it again.')
+        except Exception as exc:
+            self._record(session.last_cycle or {}, failure=str(exc))
+            if not self._held():  # The receiver cut the arm's torque: nothing left to lower.
+                self._lowering = False
+                self.message = (f'{self._receiver_name} FAULT · {self.fault} · Lowering stopped: {exc}. '
+                                'Stop the session and start it again.')
+
+    def land(self):
+        """Before the session closes (closing the receiver cuts torque): lower an enabled arm to the reference
+        (the lifecycle's shutdown, as X does), then disable it. True while there is an arm to lower."""
+        if self.session is None:
+            return False
+        if not self.fault and self.session.lifecycle.state in ('HOLD', 'ENGAGING', 'TELEOP'):
+            self._land = True
+        return self.landing
+
+    @property
+    def landing(self):
+        """Whether the loop is still lowering the arm before it may close the receiver."""
+        if self.session is None:
+            return False
+        if self.fault:
+            return self._lowering
+        return self._land or self.session.lifecycle.state == 'SHUTDOWN'
 
     @property
     def _receiver_name(self):
@@ -597,21 +675,28 @@ def run_loop(commands, views, core):
 
     thread = threading.Thread(target=sender, daemon=True, name='helm-teleop-sender')
     thread.start()
+    closing = False  # Asked to stop, or Helm went away: lowering the arm before the receiver closes.
+    listening = True
     try:
         publish(False)
         core.build()
         publish()
         while True:
             started = clock()
-            while True:
+            while listening:
                 try:
                     if not commands.poll():
                         break
                     message = commands.recv()
                 except (EOFError, OSError):
-                    return  # Helm went away: stop and clean up.
+                    listening, message = False, ('stop',)  # Helm went away: stop and clean up.
                 if message[0] == 'stop':
-                    return
+                    # Closing the receiver cuts torque: an enabled arm is lowered first (H still disables at once).
+                    if not closing:
+                        if not core.land():
+                            return
+                        closing = True
+                    continue
                 if message[0] == 'key':
                     keys.append(message[1])
                 elif message[0] in ('route', 'zero'):
@@ -622,6 +707,8 @@ def run_loop(commands, views, core):
                         reply(request, str(exc) or type(exc).__name__)
             core.tick(keys.pop(0) if keys else None, started)
             publish()
+            if closing and not core.landing:
+                return
             remaining = core.period_s - (clock() - started)
             if remaining > 0:
                 time.sleep(remaining)
@@ -851,7 +938,8 @@ class TeleopSession:
             self.leaders.store_reference(zero)
         return zero
 
-    def stop(self, timeout=15.):
+    def stop(self, timeout=45.):
+        # The loop lowers an enabled arm before it closes the receiver: seconds at the shutdown speed.
         with self._lock:
             conn, views, worker, reader = self._conn, self._views, self._worker, self._reader
         if worker is None:

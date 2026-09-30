@@ -150,6 +150,23 @@ class TeleopLifecycle:
         self._source = None
         return self._proposal('disable')
 
+    def recover(self, feedback, held, *, now=None):
+        """After a fault the receiver braked the arm to a hold, and the adapter re-armed it there (`held`: the
+        positions it holds): shut down from there, lowering the arm to the reference, then disable. The
+        fault's reason stays; nothing follows the leaders again."""
+        if self.state != 'FAULT':
+            raise ValueError(f'Cannot recover from {self.state}')
+        now = self._now(now)
+        measured = self._read(feedback, now, feedback=True)
+        if len(held) != len(self.names) or not all(_finite(q) for q in held):
+            raise ValueError('Complete held positions required')
+        self.target = tuple(float(q) for q in held)
+        self._last_measured = tuple(row['position'] for row in measured)
+        self._last_time, self._settled_since, self._source, self._misses = now, None, None, 0
+        self._velocities = None
+        self.state = 'SHUTDOWN'
+        return self._proposal('move')
+
     def action(self, action, feedback=None, *, target=None, now=None):
         """Apply Idle/Enable/Engage/Hold/Shutdown/Disable GUI intent.
 

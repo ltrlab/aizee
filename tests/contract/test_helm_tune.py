@@ -120,6 +120,40 @@ def test_a_live_sweep_runs_one_arm_to_the_end_disables_it_and_leaves_evidence(se
     assert receiver.closed
 
 
+def test_closing_a_sweep_lowers_the_arm_before_the_receiver_closes(setup):
+    # Closing the receiver cuts torque: a session stopped with a joint out lowers it to the reference first.
+    helm, session, tmp_path = setup
+    clock = Clock()
+    receivers = []
+
+    def open_receiver(config, device, reference):
+        receivers.append(Receiver(config, reference, clock))
+        return receivers[-1]
+    core = TuneCore(session._bundle(), open_receiver=open_receiver, clock=clock, evidence_root=tmp_path / 'evidence')
+    core.build()
+    receiver = receivers[0]
+    index = [joint['name'] for joint in receiver.config['joints']].index('left_arm_j6')
+    home = core.engine.home['left_arm_j6']
+    for _ in range(20000):
+        core.tick(None, clock())
+        clock.now += core.period_s
+        if abs(receiver.last['feedback'][index]['position'] - home) > .15:
+            break
+    assert core.stage == 'sweeping'
+    assert core.land() and core.stage == 'lowering'
+    for _ in range(2000):
+        core.tick(None, clock())
+        clock.now += core.period_s
+        assert core.fault is None, core.fault
+        if core.stage != 'lowering':
+            break
+    assert core.stage == 'disabled' and 'lowered to the reference and disabled' in core.message, core.message
+    assert abs(receiver.last['feedback'][index]['position'] - home) < .01
+    assert receiver.last['status']['state'] == 'disarmed' and not receiver.last['hardware_enabled']
+    assert not core.land()  # Nothing left to lower.
+    core.close()
+
+
 def test_saved_results_become_the_servo_calibration_the_receiver_uses(setup):
     helm, session, tmp_path = setup
     session.path = tmp_path / 'servo.json'
