@@ -49,6 +49,8 @@ pub struct CanHardware<I: CanIo> {
     host: u8,
     samples: Vec<JointFeedback>,
     modes: Vec<u8>,
+    /// Reported Run mode since the last enable: leaving it later means the drive dropped out.
+    running: Vec<bool>,
     frames: Vec<Frame>,
     pub enabled: bool,
     /// Physical observation mode blocks ALL writes, including disable.
@@ -63,6 +65,8 @@ pub struct CanHardware<I: CanIo> {
     reference: Option<crate::reference::Gate>,
     /// The first read failure, in words: which motor and check, and the value that failed it.
     failure: Option<String>,
+    /// The first drive that left Run mode while driven, in words (not a failure: it reads as quiet).
+    dropped: Option<String>,
 }
 impl<I: CanIo> Drop for CanHardware<I> {
     fn drop(&mut self) {
@@ -96,6 +100,7 @@ impl<I: CanIo> CanHardware<I> {
             host,
             samples: vec![JointFeedback::default(); n],
             modes: vec![0; n],
+            running: vec![false; n],
             frames: vec![
                 Frame {
                     id: 0,
@@ -114,11 +119,16 @@ impl<I: CanIo> CanHardware<I> {
             virtual_enable: false,
             reference: None,
             failure: None,
+            dropped: None,
         })
     }
     /// Why the first failed read failed, for operators and evidence.
     pub fn failure(&self) -> Option<&str> {
         self.failure.as_deref()
+    }
+    /// Which drive first left Run mode while driven, for operators and evidence.
+    pub fn dropped(&self) -> Option<&str> {
+        self.dropped.as_deref()
     }
     /// Linux callers may use this only after verifying kernel vcan interfaces.
     pub fn allow_virtual_enable(&mut self) {
@@ -265,6 +275,20 @@ impl<I: CanIo> CanHardware<I> {
             let m = &self.motors[i];
             let f = robstride::feedback(rx.frame, self.host, m.ranges)
                 .map_err(|_| format!("{}: undecodable feedback", m.name))?;
+            if self.enabled && f.mode == 2 {
+                self.running[i] = true;
+            } else if self.enabled && self.running[i] && f.mode == 0 && f.error_bits == 0 {
+                // It left Run mode while driven, without a fault: it rebooted (lost power) or its own
+                // command-loss watchdog disabled it, and no longer holds its joint. Nothing re-enables it
+                // here (its watchdog would not be armed), so its readings are withheld: it reads as not
+                // answering, and the receiver holds the arm on the drives still running. A drive that
+                // reports a fault still cuts torque.
+                self.dropped.get_or_insert_with(|| {
+                    format!("{}: left Run mode while driven (it rebooted, or its own watchdog disabled it)",
+                            m.name)
+                });
+                continue;
+            }
             if let Some(gate) = &mut self.reference {
                 gate.observe(i, f, rx.sampled_at_ms, now_ms).map_err(|_| {
                     gate.failure
@@ -350,6 +374,7 @@ impl<I: CanIo> Hardware for CanHardware<I> {
         }
         self.enabled = true; // Partial enable must be followed by best-effort disable.
         self.enabled_at = self.now_ms;
+        self.running.fill(false);
         // Stage a neutral command for every actuator before sending any enable.
         // Whether a particular firmware accepts it while disabled is a physical
         // commissioning question; the initial hold is also sent immediately.

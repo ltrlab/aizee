@@ -66,6 +66,8 @@ struct Output<'a> {
     hardware_enabled: bool,
     /// Why the hardware's first failed read failed (which motor and check), if one has.
     hardware_failure: Option<&'a str>,
+    /// The first drive that left Run mode while driven: it reads as not answering.
+    hardware_dropped: Option<&'a str>,
     watchdog: &'static str,
     reference: &'static str,
     tx_frames: u64,
@@ -263,6 +265,7 @@ pub fn run(
                         mode: config.mode,
                         hardware_enabled: hardware.enabled,
                         hardware_failure: hardware.failure(),
+                        hardware_dropped: hardware.dropped(),
                         watchdog: hardware.watchdog_status(),
                         reference: hardware.reference_status(),
                         tx_frames: hardware.tx_frames,
@@ -321,7 +324,7 @@ pub fn run(
         serde_json::json!({"timing": timing, "tx_frames": hardware.tx_frames,
         "rx_frames": hardware.rx_frames, "disable_operation_succeeded": disabled,
         "disable_transmit_attempted": disable_attempted, "mode": config.mode,
-        "hardware_failure": hardware.failure()})
+        "hardware_failure": hardware.failure(), "hardware_dropped": hardware.dropped()})
     );
     Ok(())
 }

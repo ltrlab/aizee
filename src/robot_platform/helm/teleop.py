@@ -535,8 +535,11 @@ class TeleopCore:
         except Exception as exc:
             self._record(session.last_cycle or {}, failure=str(exc))
             if getattr(exc, 'reason', None) in WAIT_TO_REARM and self._held():
-                self.message = (f'{self._receiver_name} FAULT · {self.fault} · The receiver holds the arm; waiting '
-                                f'to re-arm it ({exc.reason})…')
+                dropped = (self.harness.last or {}).get('hardware_dropped') if self.harness else None
+                self.message = (f'{self._receiver_name} FAULT · {self.fault} · ' + (
+                    f'{dropped}. The receiver holds the arm on the other drives and cannot re-arm it this session. '
+                    'Support the arm, then press H to disable it (it goes limp).' if dropped else
+                    f'The receiver holds the arm; waiting to re-arm it ({exc.reason})…'))
             if not self._held():  # The receiver cut the arm's torque: nothing left to lower.
                 self._lowering = False
                 self.message = (f'{self._receiver_name} FAULT · {self.fault} · Lowering stopped: {exc}. '

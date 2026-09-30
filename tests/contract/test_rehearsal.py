@@ -200,6 +200,50 @@ def test_a_drive_that_stops_answering_with_the_arm_raised_holds_it_then_lowers_i
         core.close()
 
 
+def test_a_drive_that_reboots_with_the_arm_raised_leaves_it_held_on_the_others(helm, tmp_path):
+    # A drive that reboots (as left J4 and J6 did after the 2026-09-30 fall) comes back in Reset mode: limp, never
+    # re-enabled in the session. The adapter withholds its readings, so the receiver holds the arm on the others,
+    # and the sweep says which drive and asks for the arm to be supported, instead of dropping it.
+    profile = json.loads((DEVICES / 'minerva-teleop.json').read_text(encoding='utf-8'))
+    profile.update(live=LIVE, sweep=dict(profile['sweep'], defaults={
+        'amplitudes': [.6], 'kp_ladder': [1.], 'damping': [1.], 'speeds': [.4], 'decelerations': [16.],
+        'hold_s': .2, 'rest_s': .1}))
+    path = tmp_path / 'teleop.json'
+    path.write_text(json.dumps(profile))
+    session = TuneSession(helm, path)
+    session.configure(arm='right', joints=['right_arm_j2'])
+    clock = Clock()
+    bundle = session._bundle()
+
+    def reboot(plant):
+        if plant.q[plant.names.index('right_arm_j2')] > .45:
+            plant.dropped.add('right_arm_j4')
+        return {}
+    open_receiver, opened = plant_receiver(helm, bundle.get('servo'), clock, tmp_path / 'receiver', reboot)
+    core = TuneCore(bundle, open_receiver=open_receiver, clock=clock, evidence_root=tmp_path / 'evidence')
+    try:
+        core.build()
+        fastest = 0.
+        for _ in range(20000):
+            core.tick(None, clock())
+            clock.now += core.period_s
+            assert core.fault is None, core.fault
+            plant = opened[0].plant
+            fastest = max(fastest, abs(plant.v[plant.names.index('right_arm_j2')]))
+            if core.stage in ('finished', 'disabled', 'held'):
+                break
+        assert core.stage == 'held', core.message
+        assert core.message.startswith('right_arm_j4: left Run mode while driven') and 'press H' in core.message
+        for _ in range(100):  # Held, not dropped, while it waits for the operator.
+            core.tick(None, clock())
+            clock.now += core.period_s
+        plant = opened[0].plant
+        assert opened[0].last['status']['state'] == 'stopped' and opened[0].last['hardware_enabled']
+        assert plant.q[plant.names.index('right_arm_j2')] > .4 and fastest < .5
+    finally:
+        core.close()
+
+
 class Leaders:
     class inputs:
         max_age_s, max_skew_s = .05, .02

@@ -238,6 +238,35 @@ def test_a_stalled_cycle_faults_with_the_receivers_reason_then_lowers_the_held_a
     assert 'Stop the session and start it again' in core.message
 
 
+def test_a_drive_that_left_run_mode_is_named_while_the_receiver_holds_the_arm(rig, monkeypatch):
+    from robot_platform.control.guarded import GuardRejected
+    core, clock, _leaders = rig
+    run(core, clock, 'I')
+    run(core, clock, 'E')
+    run(core, clock, 'T', until='TELEOP', limit=400)
+    clock.now += .1
+    core.tick(None, clock())
+    assert core.session.lifecycle.state == 'FAULT'
+    # A drive rebooted: the live adapter withholds its readings and names it; a re-arm is refused while it is quiet.
+    step = core.harness.step
+
+    def dropped(*args, **kwargs):
+        result = step(*args, **kwargs)
+        core.harness.last = dict(result, hardware_dropped='right_arm_j4: left Run mode while driven')
+        return core.harness.last
+    monkeypatch.setattr(core.harness, 'step', dropped)
+
+    def refused():
+        raise GuardRejected('feedback_stale', core.session.controller.poll())
+    monkeypatch.setattr(core.session, 'recover', refused)
+    for _ in range(3):
+        clock.now += core.period_s
+        core.tick(None, clock())
+    assert core.landing and core.harness.last['status']['state'] == 'stopped'
+    assert 'right_arm_j4: left Run mode while driven. The receiver holds the arm' in core.message, core.message
+    assert 'press H' in core.message
+
+
 def test_h_disables_a_faulted_arm_at_once_rather_than_lowering_it(rig):
     core, clock, _leaders = rig
     run(core, clock, 'I')

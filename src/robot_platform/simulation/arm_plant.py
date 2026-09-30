@@ -46,6 +46,8 @@ class ArmPlant:
         # callable(plant) -> {name: Nm}: an outside push (a bump, a hand), added to the drive's torque.
         self.disturbance = disturbance
         self.quiet = set()  # Drives that have stopped answering: the receiver sees no new reading from them.
+        # Drives that rebooted while driven: limp, and (their readings withheld by the adapter) quiet for good.
+        self.dropped = set()
 
     def pose(self):
         return dict(zip(self.names, self.q))
@@ -62,7 +64,7 @@ class ArmPlant:
             pushed = self.disturbance(self) if self.disturbance else {}
             for i, spec in enumerate(self.specs):
                 q, v = self.q[i], self.v[i]
-                if commands is None:
+                if commands is None or spec['name'] in self.dropped:
                     torque = 0.
                 else:
                     c = commands[i]
@@ -80,7 +82,8 @@ class ArmPlant:
     def measured(self):
         return [{'position': round((q + self.random.gauss(0., self.position_noise)) / POSITION_STEP_RAD)
                  * POSITION_STEP_RAD,
-                 'velocity': v + self.random.gauss(0., self.speed_noise), 'effort': torque, 'quiet': name in self.quiet}
+                 'velocity': v + self.random.gauss(0., self.speed_noise), 'effort': torque,
+                 'quiet': name in self.quiet or name in self.dropped}
                 for name, q, v, torque in zip(self.names, self.q, self.v, self.torque)]
 
 
@@ -121,7 +124,7 @@ class PlantReceiver:
         self.plant.step(self.last['status']['joints'] if enabled else None, TICK_S)
         self.ticks += 1
         t_ms = self.ticks * TICK_S * 1000
-        self.last = self.harness.step(int(t_ms), feedback=self.plant.measured())
+        self.last = dict(self.harness.step(int(t_ms), feedback=self.plant.measured()), hardware_dropped=self._dropped())
         self.rows.append(self._row(self.last, t_ms))
 
     def advance(self):
@@ -135,12 +138,17 @@ class PlantReceiver:
             self._tick()
         now_ms = max(self.harness.now_ms, int(self._now_ms()))
         result = self.harness.step(now_ms, request, feedback=self.plant.measured())
-        result = dict(result, recent=self.rows, recent_dropped=0)
+        result = dict(result, recent=self.rows, recent_dropped=0, hardware_dropped=self._dropped())
         self.rows = []
         self.last = result
         if self.transport.on_result:
             self.transport.on_result(result)
         return result['reply']
+
+    def _dropped(self):
+        """The live adapter's note on the first drive that left Run mode while driven."""
+        name = next((name for name in self.plant.names if name in self.plant.dropped), None)
+        return f'{name}: left Run mode while driven (it rebooted, or its own watchdog disabled it)' if name else None
 
     def close(self):
         self.closed = True

@@ -277,3 +277,48 @@ fn diagnostics_cannot_enable_clear_faults_or_write_and_version_is_not_feedback()
     assert!(hw.diagnostic(0, Diagnostic::Identity).is_err());
     assert_eq!(hw.io.tx.len(), 4);
 }
+
+#[test]
+fn a_drive_that_leaves_run_mode_while_driven_reads_as_quiet_not_as_a_failure() {
+    let mut hw = CanHardware::new(Bus::default(), vec![motor("one", 0)], 0xaa, true).unwrap();
+    hw.allow_virtual_enable();
+    hw.enable().unwrap();
+    let mut output = [JointFeedback::default()];
+    hw.io.rx.push_back(feedback(0, 10));
+    hw.read(10, &mut output).unwrap();
+    assert_eq!((output[0].sequence, output[0].sampled_at_ms), (1, 10));
+    // It reboots (or its own watchdog disables it): Reset mode, no fault, and it has moved.
+    let mut reset = feedback(0, 70);
+    reset.frame.id = 0x020004aa;
+    reset.frame.data[0] = 0x90;
+    hw.io.rx.push_back(reset);
+    hw.read(70, &mut output).unwrap();
+    assert_eq!((output[0].sequence, output[0].sampled_at_ms), (1, 10));
+    assert!(hw
+        .dropped()
+        .unwrap()
+        .starts_with("one: left Run mode while driven"));
+    assert!(hw.failure().is_none());
+    // A drive that reports a fault as it leaves Run mode still fails the read, cutting torque.
+    let mut faulted = feedback(0, 80);
+    faulted.frame.id = 0x020104aa;
+    hw.io.rx.push_back(faulted);
+    assert!(hw.read(80, &mut output).is_err());
+}
+
+#[test]
+fn a_drive_that_never_reaches_run_mode_after_enable_still_fails() {
+    let mut hw = CanHardware::new(Bus::default(), vec![motor("one", 0)], 0xaa, true).unwrap();
+    hw.allow_virtual_enable();
+    hw.enable().unwrap();
+    let mut output = [JointFeedback::default()];
+    let mut reset = feedback(0, 60);
+    reset.frame.id = 0x020004aa;
+    hw.io.rx.push_back(reset);
+    assert!(hw.read(60, &mut output).is_err());
+    assert!(hw
+        .failure()
+        .unwrap()
+        .contains("not in Run mode 50 ms after enable"));
+    assert!(hw.dropped().is_none());
+}

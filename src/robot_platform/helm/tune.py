@@ -369,6 +369,13 @@ class TuneCore:
             except GuardRejected as exc:
                 if exc.reason not in WAIT_TO_REARM:
                     raise
+                dropped = (self.latest() or {}).get('hardware_dropped')
+                if dropped:
+                    # Out of Run mode, that drive never answers again this session: nothing can re-arm the arm.
+                    self.stage = 'held'
+                    self.message = (f'{dropped}. The receiver holds the arm on the other drives and cannot re-arm '
+                                    'it this session. Support the arm, then press H to disable it (it goes limp).')
+                    return
                 # A drive not answering, or a joint not yet settled: the receiver holds the arm meanwhile.
                 self.message = (f'The receiver stopped the arm ({self.stopped_by}) and holds it; waiting to re-arm '
                                 f'it ({exc.reason})…')
