@@ -22,7 +22,8 @@ POSITION, VELOCITY, EFFORT, COMMAND = range(4)
 COMMAND_PERIOD_S = .04  # The sweep sends a command every 40 ms.
 GRAVITY_FIT_SPAN_RAD = .3  # A gravity slice is fitted over at least this much travel.
 GRAVITY_RESIDUAL = .2  # With gravity fed forward, the share of it a joint's position loop still holds.
-WELL_DAMPED = .02  # A step overshooting at most this share is well damped: preferred at a stiffness.
+WELL_DAMPED = .02  # At a stiffness, dampings overshooting a step at most this share more than the least do.
+OVERSHOOT_FLOOR_RAD = .004  # A step's overshoot counts against it only beyond this (friction's offset).
 
 
 def column(rows, joint_index, field):
@@ -137,7 +138,7 @@ def step_response(rows, joint_index, *, target, start, band_fraction=.1, band_fl
     settle = float(t[outside[-1]]) if len(outside) else 0.
     settled = len(outside) == 0 or outside[-1] < len(t) - len(tail)
     signs = np.sign(error[np.abs(error) > band_floor_rad])
-    return {'overshoot': overshoot, 'settle_s': settle if settled else None,
+    return {'overshoot': overshoot, 'size': abs(delta), 'settle_s': settle if settled else None,
             'steady_error': abs(target - rest) if len(tail) else None,
             'reversals': int(np.count_nonzero(np.diff(signs) != 0)) if len(signs) > 1 else 0,
             'peak_effort': float(np.max(np.abs(effort))) if len(effort) else None,
@@ -218,7 +219,9 @@ def grid_check(entry, *, tolerance, limit, overshoot_limit=.1):
     if not steps:
         return 'data', 'no step measured'
     overshoot = max(s['overshoot'] for s in steps)
-    if overshoot > overshoot_limit:
+    # A few thousandths of a radian past a small step is friction's offset where the joint sticks, not ringing:
+    # right J3's 18 mrad steps rested 2.5-3.6 mrad past at every damping, 14-20%, and no stiffness passed.
+    if overshoot > overshoot_limit and max(s['overshoot'] * s.get('size', math.inf) for s in steps) > OVERSHOOT_FLOOR_RAD:
         return 'overshoot', f'overshot {overshoot:.0%} of the step (limit {overshoot_limit:.0%})'
     if any(s['settle_s'] is None for s in steps):
         return 'rest', 'did not come to rest'
@@ -240,14 +243,17 @@ def static_load(torque, *, gravity_fed=False):
 
 def best_damping(entries):
     """Of grid entries at one stiffness (each with its steps), the one to use: the fastest to settle of those
-    that are well damped (overshooting at most WELL_DAMPED), else of all. With velocity fed forward, a lightly
-    damped joint lags more as it speeds up and overshoots its stops: right J2 at kp 220 settled fastest at
-    kd 14.7 (7% overshoot) but lagged 0.042 rad at 1.2 rad/s and overshot every stop by 0.02-0.03 rad; at
-    kd 21 (2%) it lagged 0.033 and braked at 32 rad/s2. Right J1's fastest, kd 5, overshot 0.5%."""
+    well damped, overshooting a step at most WELL_DAMPED more than the least of them does (what is left of the
+    least is friction's offset, not ringing). With velocity fed forward, a lightly damped joint lags more as it
+    speeds up and overshoots its stops: right J2 at kp 220 settled fastest at kd 14.7 (7% overshoot, 0% at
+    kd 29.4) but lagged 0.042 rad at 1.2 rad/s and overshot every stop by 0.02-0.03 rad; at kd 21 (2%) it
+    lagged 0.033 and braked at 32 rad/s2. Right J1's fastest, kd 5, overshot 0.5%."""
     def worst(entry, key, default):
         values = [step[key] for step in entry['steps'] if step and step.get(key) is not None]
         return max(values) if values else default
-    return min(entries, key=lambda e: (worst(e, 'overshoot', 0.) > WELL_DAMPED, worst(e, 'settle_s', math.inf)))
+    least = min(worst(e, 'overshoot', 0.) for e in entries)
+    return min(entries, key=lambda e: (worst(e, 'overshoot', 0.) > least + WELL_DAMPED,
+                                       worst(e, 'settle_s', math.inf)))
 
 
 def recommend(joint, *, torque, grid, holds, speeds, decelerations, bound, tolerance, profile_gains,

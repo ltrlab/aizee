@@ -244,6 +244,19 @@ def test_at_a_stiffness_the_fastest_well_damped_damping_is_chosen():
     # Right J1 at kp 150: the fastest, kd 5, overshot 0.5%, so it is still the one.
     j1 = [entry(20., 0., .345), entry(7., 0., .135), entry(5., .005, .092), entry(28., 0., .365)]
     assert best_damping(j1)['kd'] == 5.
-    # With none well damped, the fastest to settle; a step that never settled counts as slowest.
-    loose = [entry(10., .08, .3), entry(8., .09, .25), entry(6., .09, None)]
+    # Right J3 at kp 215: friction left every step 14-20% past its target; the least overshooting is the one.
+    j3 = [entry(14., .18, .21), entry(19.6, .1385, .2675), entry(3.5, .2024, .07)]
+    assert best_damping(j3)['kd'] == 19.6
+    # A step that never settled counts as slowest.
+    loose = [entry(10., .08, .3), entry(8., .08, .25), entry(6., .09, None)]
     assert best_damping(loose)['kd'] == 8.
+
+
+def test_a_small_steps_overshoot_within_frictions_offset_does_not_fail_it():
+    # Right J3's 18 mrad steps rested 2.5 mrad past their target (14%) at its best damping: friction, not ringing.
+    def entry(overshoot, size):
+        return {'kp': 215., 'kd': 19.6, 'failed': None, 'ramp': None,
+                'steps': [{'overshoot': overshoot, 'size': size, 'settle_s': .27, 'steady_error': .001}] * 2}
+    assert grid_check(entry(.1385, .018), tolerance=.03, limit=.025) is None
+    assert grid_check(entry(.3, .018), tolerance=.03, limit=.025)[0] == 'overshoot'  # 5.4 mrad: too far.
+    assert grid_check(entry(.15, .05), tolerance=.03, limit=.025)[0] == 'overshoot'  # 7.5 mrad of a large step.
