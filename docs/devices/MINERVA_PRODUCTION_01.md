@@ -2548,3 +2548,24 @@ Saved (`4504d36`):
 | Braking | 16 rad/s² | 32 rad/s² |
 | Tracking bound | 0.08 rad | 0.059 rad |
 | Gravity slice | 2.51 sin q | 2.69 sin q Nm |
+
+### 2026-09-30 — right J5 saved, its whole range for the first time
+
+The right wrist roll's sweep (02:34 UTC, release `20260930T022140Z-7191c95`)
+characterised and verified its whole swept range, +3.231/−3.405 rad (6.64 rad,
+past the model's ±π). Before `efbb361` a sweep stopped it at ±2 rad. It finished
+with no faults:
+- every speed to its 4 rad/s cap followed within 0.033 rad;
+- the pass across the range at 4 rad/s lagged 0.038 rad at most;
+- braking rates to 32 rad/s² followed;
+- gravity is negligible (0.06 sin q Nm), with 0.16 Nm of friction.
+
+Saved (`d4a4849`):
+
+| Setting | Before | Saved |
+|---|---|---|
+| Stiffness | 8 | 24 |
+| Damping | 1.0 | 0.61 |
+| Speed cap | 4 rad/s | 4 rad/s |
+| Braking | 16 rad/s² | 32 rad/s² |
+| Tracking bound | 0.1 rad | 0.075 rad |
