@@ -2630,3 +2630,11 @@ it.
 
 Deployed as release `20260930T032007Z-65ee54d`, with the right arm's six
 saved calibrations.
+
+Resolved (03:30 UTC). The operator found left J1 slightly rotated and turned it
+back by hand: it then read +6.231 rad, still a turn above its true −0.05, since
+the drive, powered, kept counting. After a motor power cycle it read −0.035 rad.
+Minerva Check's stopped checks all pass: every motor inside its swept range,
+both arms within 0.1 rad of the reference pose. The zero had not moved; the
+drive had miscounted a turn. Other joints resting slightly negative (left J5 at
+−0.03, left J6 at −0.06) read correctly throughout.
