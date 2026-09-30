@@ -2456,3 +2456,41 @@ re-armed it, lowered it to 0.003 rad at 0.15 rad/s and disabled it. The J2 sweep
 rehearses to its full range at 1.5 rad/s and verifies.
 
 Deployed as release `20260930T005309Z-cf3664a`.
+
+### 2026-09-30 — right J2 again, right J3, and four sweep fixes
+
+**Right J2, third run** (00:54 UTC, release `20260930T005309Z-cf3664a`) finished
+cleanly: no trips, full range, verified at 1.0 rad/s (0.040 rad of lag). Its
+ladder stopped at 1.0 again, with 1.2 rad/s lagging 0.042 rad. The grid had
+chosen kd 14.7 for the fastest step settle. Every braking test then overshot its
+stop by 0.020–0.030 rad, so no braking rate qualified. The first run's
+calibration (kd 21, braking at 32 rad/s², 0.029 rad of lag at 1.0 rad/s) stays
+saved. The worst lag at speed comes from the move's ends and acceleration; the
+mean is 0.003–0.012 rad.
+
+**Right J3, first run under the new law** (01:26 UTC, release
+`20260930T012617Z-18c7951`) characterised and verified its whole range,
++2.019/−2.147 rad (4.17 rad; the sweep had stopped at ±2 before `efbb361`). Its
+gravity slice refits to 7.2 sin q Nm (6.4 seeded), with 0.47 Nm of friction.
+Every speed to 1.2 rad/s was followed within 0.017 rad, and the pass across the
+range at 1.5 rad/s lagged 0.021. Still, it could not be saved:
+- No stiffness passed its steps. Friction left each 18 mrad step 2.5–3.6 mrad
+  past its target, 14–20% at every damping, over the 10% limit.
+- At 1.5 rad/s the guard stopped the speed test (0.047 rad of lag), but the
+  upward leg alone counted as followed.
+
+Fixes, each tested and rehearsed:
+- **Moves brake smoothly into their targets** (`5aa93bb`). A move braked a
+  step, sped up again and ended with one abrupt step, which the receiver took
+  as a jump. That was the 0.047 rad: J3's command jumped 0.053 rad at
+  1.5 rad/s. Moves now slow on a stop curve and ramp their last step.
+- **A speed a guard stopped is missed** (`5ee7b4f`).
+- **Damping** (`715de26`, `1e1ffa4`): at a stiffness, the fastest-settling of the
+  dampings within 2% of the least overshoot there. J2 would take kd 29.4, J3
+  kd 19.6, J1 keeps kd 5. A step's overshoot fails it only if it is also over
+  4 mrad.
+- **Commands step the largest step allowed where they end** (`18c7951`). Before,
+  a command short of an end crawled at the creep, and in rehearsed teleop J2
+  stopped 0.02 rad short of its end.
+
+Deployed as release `20260930T015209Z-1e1ffa4`.
