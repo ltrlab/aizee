@@ -59,7 +59,10 @@ prerequisite failed is skipped, not guessed:
 3. **Motors, stopped**: CAN helpers and serial pinning installed, both adapters on
    their pinned serials and free, no motor service running, then the stopped
    reader scans all 14 motors (identity, firmware, fault-free Reset, one position
-   each; CAN ends down) and checks every position is inside its swept range. A
+   and its power-on range each; CAN ends down) and checks every position is
+   inside its swept range. A drive still at the factory power-on range (0…2π)
+   is a warning: a joint resting just below its zero at power-up reads a whole
+   turn high. Such a reading is named as a whole turn, with how to clear it. A
    drive with a latched fault is named with the fault. When nothing on either bus
    answers, motor power is off or the foot switch is pressed.
 4. **Live joint sweep**, one item per arm, attended, with the foot switch in

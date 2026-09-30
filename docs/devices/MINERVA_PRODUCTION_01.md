@@ -2638,3 +2638,70 @@ Minerva Check's stopped checks all pass: every motor inside its swept range,
 both arms within 0.1 rad of the reference pose. The zero had not moved; the
 drive had miscounted a turn. Other joints resting slightly negative (left J5 at
 −0.03, left J6 at −0.06) read correctly throughout.
+
+### 2026-09-30 — left J2 dropped when the gripper went quiet; one quiet drive now holds the arm
+
+Left J2's sweep (03:41 UTC, release `20260930T032007Z-65ee54d`) was
+characterising toward +1.57 rad when the arm fell. Left J2 was holding at
++1.55 rad with 19.5 Nm. The operator found the arm undamaged.
+
+The receiver's raw frames show the cause. The left gripper's replies stopped
+for 46 ms while J1–J6 answered every 2.5 ms. At 30 ms the receiver faulted
+(`feedback_stale`) and cut torque on the whole arm. The gripper then answered
+again still in Run mode, so it had not lost power: its CAN link had dropped.
+
+After the fall, Minerva Check (04:00 UTC, motors disabled) read left J4 at
++6.061 rad and left J6 at +6.205 rad. A drive only reads a turn high at power-up
+(see the next entry), so those two had rebooted, although nobody had cut motor
+power. The right arm's drives had not rebooted; its joints read slightly moved,
+as if the impact shook the frame. Left J5 read +3.17 rad: the fall spun the
+wrist roll about half a turn. The operator set the wrist back and power-cycled.
+
+Changes (release `20260930T040006Z-b232729`):
+- **A drive that goes quiet while the others answer now trips the receiver to
+  its hold**, which keeps the gravity feed-forward on the drives still
+  answering, instead of cutting torque. Requests are refused until that drive
+  answers again; the loops then lower the arm and disable. Torque is cut at
+  once only when every drive is quiet, a drive reports a fault, or the adapter
+  fails.
+- **Acceleration feed-forward.** Each sweep fits the joint's inertia from its
+  speed and braking tests. A move adds inertia × commanded acceleration (70% of
+  it, within 32 rad/s²) only while it ramps, and never in a hold. Not yet
+  exercised live.
+
+Still open: a drive that reboots mid-move answers in Reset mode, which the
+adapter treats as a failure, so it still cuts torque everywhere. The operator
+will redo the left wrist harness if the gripper drops out again.
+
+### 2026-09-30 — the turn-high readings: every drive's power-on range set to −π…π
+
+Both shoulder swivels read about +6.17 rad after the operator's power cycle
+(04:04 UTC): left J1 +6.177 and right J1 +6.173, one turn above −0.106 and
+−0.110 rad. The cause is the drives' factory setting, not a moved zero or a
+miscounted turn. The stopped scan now reads each drive's `zero_sta` (0x7029),
+and all 14 read 0: a drive reports its power-up angle within 0…2π, so a joint
+resting below its zero at power-up reads a whole turn high. On these drives the
+wrap sits a little below zero. Joints powered up as far as 0.063 rad below zero
+read correctly; those 0.078 rad or more below read a turn high. The same cause
+explains left J1's +5.848 rad earlier,
+left J4 and J6 after the fall, and the 2026-09-24 power cycle passing: every
+joint was then within 0.0003 rad of zero.
+
+At 04:24 UTC, with the operator's approval and every drive disabled,
+`robot_platform.control.power_on_range` wrote `zero_sta = 1` (−π…π) to all 14
+drives and saved it ([evidence](MINERVA_POWER_ON_RANGE_20260930.json)). The
+sequence:
+- Every drive's identity, firmware, Reset and run mode were verified, and every
+  drive was read, before the first write.
+- Each drive got one type-18 write, read back as 1, then one type-22 save. All
+  14 acknowledged both; the RS00/RS02/RS03 drives that missed their save reply on
+  2026-09-24 answered this time.
+- After the save each still read 1, with its position unchanged. The J1s still
+  read a turn high until the next power-up.
+- Every drive ended in fault-free Reset, and both CAN links were down afterwards.
+
+The zero was not touched. At power-up every joint rests near its reference,
+well inside ±π, so it now reads correctly there. A joint powered up more than
+half a turn from its reference reads a turn off instead; Minerva Check names
+such a reading as a whole turn and says how to clear it. Persistence is
+verified at the next motor power cycle.

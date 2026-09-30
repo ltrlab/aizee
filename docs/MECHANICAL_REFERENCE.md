@@ -84,9 +84,19 @@ remain pending. No runtime mapping or mechanical zero was changed by these reads
 
 ## Why an apparent zero may change
 
-The root cause on Minerva is not yet established. Manufacturer documentation
-describes power-on position range (`zero_sta`), position bias (`add_offset`) and
-firmware-dependent zero behavior. A power-on turn representation change must not
+A reading one whole turn off has a known cause on Minerva: the drives' power-on
+position range (`zero_sta`, 0x7029). At the factory setting 0 a drive reports
+its power-up angle within 0…2π, so a joint resting a little below its zero at
+power-up reads a turn high. All 14 drives read 0 until 2026-09-30, when
+`robot_platform.control.power_on_range` set them to 1 (−π…π, centred on the
+zero) and saved it. That write changes no zero; see the
+[device log](devices/MINERVA_PRODUCTION_01.md) and its
+[evidence](devices/MINERVA_POWER_ON_RANGE_20260930.json). Minerva Check reads
+every drive's `zero_sta` in its stopped scan and names a reading a whole turn off
+as such.
+
+Any other apparent change has no established cause. Manufacturer documentation
+also describes position bias (`add_offset`) and firmware-dependent zero behavior. A power-on turn representation change must not
 be silently treated as an unchanged raw encoder reference. Manufacturer release
 notes also require re-marking RS03/RS04 mechanical zero after certain upgrades.
 Record firmware and power-cycle observations before blaming a particular cause.
