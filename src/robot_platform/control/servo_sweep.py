@@ -76,6 +76,7 @@ REST_BAND_RAD = .003  # At rest: the joint moved less than this over REST_S.
 REST_S = .2
 GAIN_RAMP_S = .3  # Stiffness and damping change over this long, never in one step.
 CHECK_BUDGET_S = .01  # Collision queries per cycle; a path is checked over several cycles.
+RETURNED_RAD = .01  # A return leaves a joint this close to its reference where it is.
 CHUNK_ROWS = 256  # The recording keeps rows in chunks of about this many (a result brings one or two).
 
 
@@ -259,10 +260,15 @@ class PathChecker:
         count = max(1, math.ceil(abs(end - start) / self.step))
         return [start + (end - start) * k / count for k in range(1, count + 1)]
 
-    def check(self, motor, position):
-        """None if the pose with `motor` at `position` (the rest at the reference) is clear, else why."""
-        pose = dict(self.home, **{motor: position})
-        new = {pair: d for pair, d in self._near(pose).items() if pair not in self.baseline}
+    def near(self, motors):
+        """The shape pairs within the clearance at a pose ({motor: rad})."""
+        return set(self._near(motors))
+
+    def check(self, motor, position, *, pose=None, baseline=frozenset()):
+        """None if the pose with `motor` at `position` is clear, else why. The rest are at the reference, or at
+        `pose` (a return from where the arm rests), where the pairs in `baseline` were already that close."""
+        pose = dict(self.home if pose is None else pose, **{motor: position})
+        new = {pair: d for pair, d in self._near(pose).items() if pair not in self.baseline and pair not in baseline}
         if not new:
             return None
         pair, distance = min(new.items(), key=lambda item: item[1])
@@ -284,9 +290,10 @@ class SweepEngine:
                  labels=None, period_s=PERIOD_S, mode='tune', calibration=None, travel=None, receiver=None,
                  interpolation_s=0., gravity=None, inertia=None):
         """mode 'tune' steps the settings; 'verify' (Minerva Check) checks each joint at the settings it has
-        (`gains`, and each joint's speed cap), against its saved sweep (`calibration`: {motor: entry}) if any."""
-        if mode not in ('tune', 'verify'):
-            raise ValueError('The sweep tunes or verifies')
+        (`gains`, and each joint's speed cap), against its saved sweep (`calibration`: {motor: entry}) if any;
+        'return' only brings the arm from where it rests to its reference (`sweep` empty)."""
+        if mode not in ('tune', 'verify', 'return'):
+            raise ValueError('The sweep tunes, verifies or returns the arm')
         self.mode, self.calibration = mode, dict(calibration or {})
         # For the results: each joint's derived report row today, and the receiver's reserve settings.
         self.travel, self.receiver = dict(travel or {}), receiver
@@ -636,7 +643,7 @@ class SweepEngine:
     def _home_all(self):
         """Every joint to its reference together, each at its characterisation speed."""
         self._task('to the reference pose')
-        moves = [self._go(name, self.home[name], (self.settings.get(name) or self.settings[self.sweep[0]])
+        moves = [self._go(name, self.home[name], (self.settings.get(name) or self.settings[(self.sweep or self.names)[0]])
                           ['characterize_speed']) for name in self.names]
         while moves:
             for move in list(moves):
@@ -646,9 +653,35 @@ class SweepEngine:
                     moves.remove(move)
             if moves:
                 yield
-        yield from self._hold(self.sweep[0], .5)
+        yield from self._hold((self.sweep or self.names)[0], .5)
+
+    def _return_all(self):
+        """The arm from where it rests to its reference: one joint at a time from the wrist in, the gripper last,
+        each at its characterisation speed, each path checked first from the arm's actual pose."""
+        order = ([name for name in reversed(self.names) if not self.limits[name].get('gripper')]
+                 + [name for name in self.names if self.limits[name].get('gripper')])
+        for name in order:
+            if abs(self.targets[name] - self.home[name]) <= RETURNED_RAD:
+                continue
+            self.current = name
+            self._task(f'{self._label(name)}: back to the reference')
+            clear, why = yield from self._clear(name, self.targets[name], self.home[name], pose=dict(self.targets))
+            if not clear:
+                self._event(f'{self._label(name)} was not moved: {why}')
+                raise Abort(why)
+            yield from self._go(name, self.home[name], self.settings[name]['characterize_speed'])
+            yield from self._hold(name, self.settings[name]['rest_s'])
+        self.current = None
 
     def _run(self):
+        if self.mode == 'return':
+            try:
+                yield from self._return_all()
+                self.task = 'finished'
+            except (Abort, SweepStopped):
+                # It stops where it is: the loop disables the arm, which rests there as it did before the return.
+                self.stopping, self.current = True, None
+            return
         try:
             yield from self._home_all()
             for motor in self.sweep:
@@ -717,14 +750,17 @@ class SweepEngine:
         cap = limit['max_velocity'] if speed is None else min(speed, limit['max_velocity'])
         return command_step(limit, self.limit_reaction, self.targets[motor], direction, cap, self.period) / self.period
 
-    def _clear(self, motor, start, end):
+    def _clear(self, motor, start, end, *, pose=None):
         """(clear, why) for a planned move, checking about CHECK_BUDGET_S of poses per cycle and holding
-        in between, so the loop keeps the receiver's lease and collision verdict fresh."""
+        in between, so the loop keeps the receiver's lease and collision verdict fresh. The rest of the arm is at
+        the reference, or at `pose`, whose own close pairs then do not count."""
         if self.checker is None:
             return True, None
+        baseline = frozenset() if pose is None else self.checker.near(pose)
         deadline = time.perf_counter() + CHECK_BUDGET_S
         for position in self.checker.samples(start, end):
-            why = self.checker.check(motor, position)
+            why = (self.checker.check(motor, position) if pose is None
+                   else self.checker.check(motor, position, pose=pose, baseline=baseline))
             if why:
                 return False, why
             if time.perf_counter() >= deadline:

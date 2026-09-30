@@ -642,6 +642,75 @@ def test_a_move_handing_over_at_speed_keeps_its_speed_into_the_next():
     assert engine.targets['left_arm_j2'] == pytest.approx(.8) and engine.velocity['left_arm_j2'] == 0.
 
 
+def return_arm(start):
+    """A shoulder swivel and a wrist resting at `start` ({motor: rad}), for a return to the reference."""
+    joints = [limits('right_arm_j1', lower=-.83, upper=1.61, bound=.04, speed=1.875, stop=16., effort=60., max_kd=5.,
+                     max_kp=150.),
+              limits('right_arm_j6', lower=-.94, upper=.97, bound=.064, speed=5., stop=16., effort=14., max_kd=1.,
+                     max_kp=24.)]
+    plant = Plant({'right_arm_j1': dict(inertia=.3, gravity=lambda q: 0., friction=.5, q=start['right_arm_j1']),
+                   'right_arm_j6': dict(inertia=.004, gravity=lambda q: 0., friction=.1, q=start['right_arm_j6'])},
+                  {'right_arm_j1': .04, 'right_arm_j6': .064}, noise=.03, interpolation=.04)
+    gains = {'right_arm_j1': (150., 5.), 'right_arm_j6': (24., .61)}
+    return joints, plant, gains
+
+
+def test_a_return_brings_each_joint_home_alone_slowly_from_the_wrist_in():
+    # The right arm rested with its shoulder swivel 1.22 rad and its wrist 0.58 rad off (2026-09-30): the return
+    # moves the wrist home first, then the shoulder, each alone at its characterisation speed.
+    start = {'right_arm_j1': 1.22, 'right_arm_j6': .58}
+    joints, plant, gains = return_arm(start)
+    names = [joint['name'] for joint in joints]
+    engine = SweepEngine(joints, home={name: 0. for name in names}, gains=gains, mode='return', sweep=[],
+                         settings={name: sweep_settings(PROFILE, name) for name in names}, interpolation_s=.04)
+    engine.observe(plant.run(names, {'targets': [start[n] for n in names], 'gains': [gains[n] for n in names]}))
+    engine.begin(start)
+    now, moving = 0., []
+    while now < 60:
+        command = engine.command(now)
+        if command is None:
+            break
+        before = {name: plant.state[name][0] for name in names}
+        engine.observe(plant.run(names, command))
+        moving.append({name for name in names if abs(plant.state[name][0] - before[name]) > 1e-3})
+        now += .04
+    assert engine.task == 'finished' and command is None
+    assert all(abs(plant.state[name][0]) < .01 for name in names), plant.state
+    wrist_done = max(i for i, moved in enumerate(moving) if 'right_arm_j6' in moved)
+    assert min(i for i, moved in enumerate(moving) if 'right_arm_j1' in moved) > wrist_done  # One at a time.
+    slow = sweep_settings(PROFILE, 'right_arm_j1')['characterize_speed']
+    assert plant.fastest['right_arm_j1'] < 1.5 * slow  # Slow: about its characterisation speed.
+    assert not engine.summary()
+
+
+def test_a_return_stops_where_it_is_when_its_path_is_not_clear():
+    class Blocked:
+        def near(self, motors):
+            return set()
+
+        def samples(self, start, end):
+            return [start + (end - start) * k / 4 for k in range(1, 5)]
+
+        def check(self, motor, position, *, pose=None, baseline=frozenset()):
+            return 'right_arm_j6 link within 5 mm of left_arm_j6 link' if motor == 'right_arm_j6' else None
+    start = {'right_arm_j1': .5, 'right_arm_j6': .4}
+    joints, plant, gains = return_arm(start)
+    names = [joint['name'] for joint in joints]
+    engine = SweepEngine(joints, home={name: 0. for name in names}, gains=gains, mode='return', sweep=[],
+                         checker=Blocked(), settings={name: sweep_settings(PROFILE, name) for name in names},
+                         interpolation_s=.04)
+    engine.observe(plant.run(names, {'targets': [start[n] for n in names], 'gains': [gains[n] for n in names]}))
+    engine.begin(start)
+    for _ in range(100):
+        command = engine.command(0.)
+        if command is None:
+            break
+        engine.observe(plant.run(names, command))
+    assert command is None and engine.task == 'stopped'
+    assert engine.events[-1]['text'] == 'right_arm_j6 was not moved: right_arm_j6 link within 5 mm of left_arm_j6 link'
+    assert abs(plant.state['right_arm_j6'][0] - .4) < .01 and abs(plant.state['right_arm_j1'][0] - .5) < .01
+
+
 def test_a_heavy_joints_inertia_is_fitted_and_fed_forward_as_it_speeds_up():
     # Right J2 (0.9 kg m2 fitted, 2026-09-30) lagged while it accelerated, not while it cruised. Here a shoulder
     # of 0.6 kg m2, its gravity fed forward: the sweep fits its inertia from its speed tests and feeds its

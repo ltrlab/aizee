@@ -43,9 +43,10 @@ class Clock:
 class Receiver:
     """The live receiver's interface (exchange, last, transport hook, close) over the actual Rust core."""
 
-    def __init__(self, config, reference, clock):
+    def __init__(self, config, reference, clock, start=None):
         roster = {m['name']: m['raw_reference_rad'] for m in reference['motors']}
-        initial = [min(joint['upper'], max(joint['lower'], roster[joint['name']] + .03)) for joint in config['joints']]
+        initial = [min(joint['upper'], max(joint['lower'], roster[joint['name']] + .03)) if start is None
+                   else start[joint['name']] for joint in config['joints']]
         self.harness = NativeControlHarness(config, initial)
         self.harness.step(0)
         self.clock, self.epoch, self.closed = clock, clock(), False
@@ -118,6 +119,42 @@ def test_a_live_sweep_runs_one_arm_to_the_end_disables_it_and_leaves_evidence(se
     saved = json.loads((core.evidence / 'results.json').read_text())
     assert saved['task'] == 'finished' and 'left_arm_j6' in saved['joints']
     assert receiver.closed
+
+
+def test_an_arm_returns_from_where_it_rests_to_its_reference_one_joint_at_a_time(setup):
+    # The right arm rested with its shoulder swivel 1.22 rad and its wrist 0.58 rad off (2026-09-30): from that
+    # confirmed pose it returns, the wrist first, each joint alone and each path checked, then it is disabled.
+    helm, session, tmp_path = setup
+    clock = Clock()
+    pose = {m['name']: 0. for m in helm.reference['motors'] if m['name'].startswith('right_')}
+    pose.update(right_arm_j1=1.22, right_arm_j6=.58)
+    session.receiver, session.joints, session.mode = {'mode': 'live', 'arm': 'right'}, None, 'return'
+    session._start_pose = pose
+    receivers = []
+
+    def open_receiver(config, device, reference):
+        receivers.append(Receiver(config, reference, clock, start=pose))
+        return receivers[-1]
+    core = TuneCore(session._bundle(), open_receiver=open_receiver, clock=clock, evidence_root=tmp_path / 'evidence')
+    core.build()
+    tasks = []
+    for _ in range(20000):
+        core.tick(None, clock())
+        clock.now += core.period_s
+        assert core.fault is None, core.fault
+        if not tasks or tasks[-1] != core.engine.task:
+            tasks.append(core.engine.task)
+        if core.stage == 'finished':
+            break
+    assert core.stage == 'finished' and core.engine.task == 'finished', core.message
+    assert core.message == 'Returned: the arm is at its reference and disabled.'
+    assert [task for task in tasks if task.endswith('back to the reference')] == [
+        'Right wrist J6: back to the reference', 'Right shoulder swivel (J1): back to the reference']
+    receiver = receivers[0]
+    assert all(abs(sample['position']) < .02 for sample in receiver.last['feedback'])
+    assert receiver.last['status']['state'] == 'disarmed' and not receiver.last['hardware_enabled']
+    assert core.evidence.name.startswith('return-') and not core.engine.summary()
+    core.close()
 
 
 def test_closing_a_sweep_lowers_the_arm_before_the_receiver_closes(setup):

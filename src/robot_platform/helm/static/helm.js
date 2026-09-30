@@ -775,7 +775,8 @@ function renderTune(u, state) {
   const running = ['running', 'starting'].includes(u.phase);
   const choice = u.receiver_choice || {mode: 'live', arm: 'right'};
   const live = choice.mode === 'live';
-  const what = u.mode === 'verify' ? 'MINERVA CHECK LIVE JOINT SWEEP' : 'SERVO SWEEP';
+  const what = u.mode === 'verify' ? 'MINERVA CHECK LIVE JOINT SWEEP' : u.mode === 'return' ? 'RETURN TO REFERENCE'
+    : 'SERVO SWEEP';
   $('u-eyebrow').textContent = live
     ? `${what} · LIVE ${choice.arm.toUpperCase()} ARM · MOTORS MOVE ON THEIR OWN · FOOT SWITCH IN REACH`
     : `${what} · VIRTUAL RECEIVER · NO MOTORS MOVE`;
@@ -840,6 +841,7 @@ function renderTune(u, state) {
   const session = $('u-session');
   session.textContent = running ? 'Stop session' : live ? 'Start LIVE sweep' : 'Start sweep';
   session.disabled = u.phase === 'starting';
+  $('u-return').disabled = running || !live;
   if (tuneConfirm && running) closeTuneConfirm();
 
   const container = $('tune-results');
@@ -870,6 +872,26 @@ $('u-disable').onclick = () => tuneKey('H');
 $('u-save').onclick = () => {
   const motors = [...tuneSaving];
   act('/api/helm/tune/save', {motors}, `Saved ${motors.length} joint${motors.length > 1 ? 's' : ''} to the servo calibration; live teleop uses it from its next session. Deploy before the next Minerva Check: the release carries config/devices.`);
+};
+$('u-return').onclick = () => {
+  const arm = (last?.tune?.receiver_choice || {arm: 'right'}).arm;
+  act('/api/helm/tune/return', {arm}, () => {
+    const offer = last?.tune?.return_offer;
+    const moving = (offer?.joints || []).filter(joint => joint.moves);
+    if (!moving.length) return `The ${arm} arm is already at its reference.`;
+    const other = arm === 'left' ? 'right' : 'left';
+    const offsets = moving.map(joint => `${joint.label} ${joint.offset >= 0 ? '+' : ''}${joint.offset.toFixed(2)} rad`);
+    askTune(`Return the ${arm} arm to its reference?`, [
+      'The 3D view shows the arm as its drives read it now. Compare it with the real arm: they must match.',
+      `Off its reference: ${offsets.join(', ')}.`,
+      `Each joint returns alone, the wrist first and the gripper last, at ${offer.speed} rad/s: about ` +
+        `${Math.ceil(offer.seconds)} s. Then the arm is disabled, hanging.`,
+      "The foot switch (e-stop) is in your hand throughout, and the arm's path is clear.",
+      `The ${other} arm stays disabled. Helm disconnects from the motors to start.`,
+    ], `Return the ${arm} arm`, () => act('/api/helm/tune/return', {arm, confirm: true},
+      `Returning the ${arm} arm: checking it is still where you confirmed it.`));
+    return 'Compare the 3D view with the arm, then confirm.';
+  });
 };
 $('u-session').onclick = () => {
   const u = last?.tune;

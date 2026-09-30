@@ -325,3 +325,57 @@ def test_link_stops_instead_of_retrying_anything_but_a_clean_dropout(helm, repor
     assert client.streams == 1 and helm.feed['state'] == 'fault' and client.closed
     if report == 'transport':
         assert 'Cleanup was not confirmed' in helm.feed['message']
+
+
+def test_an_arm_returns_to_its_reference_only_from_a_pose_confirmed_against_live_readings(tmp_path):
+    # The right arm rested with its shoulder swivel 1.22 rad and its wrist 0.58 rad off its reference (2026-09-30).
+    from robot_platform.helm.tune import TuneSession
+    clock = Clock()
+    helm = HelmSession(PROFILE, runs=tmp_path / 'runs', limits=ROOT / 'config/devices/minerva-production-01-joint-limits.json',
+                       seed=SEED, clock=clock)
+    tune = TuneSession(helm, ROOT / 'config/devices/minerva-teleop.json')
+    started = []
+    tune.start = lambda *, confirm=False: started.append((confirm, tune._bundle()))
+    link = FakeLink()
+    resting = {'right_arm_j1': 1.22, 'right_arm_j6': .58}
+
+    async def scenario(client):
+        headers = {'X-Helm-Token': 'secret'}
+        refused = await client.post('/api/helm/tune/return', json={'arm': 'right'}, headers=headers)
+        assert refused.status == 422 and 'Connect to the motors first' in (await refused.json())['error']
+        await client.post('/api/helm/connect', json={}, headers=headers)
+        helm.link_state('reading', 'live')
+        helm.on_frame(frame(helm, 1, resting))
+        state = await (await client.post('/api/helm/tune/return', json={'arm': 'right'}, headers=headers)).json()
+        offer = state['tune']['return_offer']
+        assert [row['motor'] for row in offer['joints'] if row['moves']] == ['right_arm_j1', 'right_arm_j6']
+        assert offer['seconds'] > (1.22 + .58) / offer['speed'] and not started
+        # It moved after it was shown: nothing starts.
+        helm.on_frame(frame(helm, 2, dict(resting, right_arm_j1=1.1)))
+        moved = await client.post('/api/helm/tune/return', json={'arm': 'right', 'confirm': True}, headers=headers)
+        assert moved.status == 422 and 'moved since its pose was shown' in (await moved.json())['error']
+        assert not started and link.running
+        # Shown again and confirmed as it reads: the reader disconnects, then the return starts from that pose.
+        await client.post('/api/helm/tune/return', json={'arm': 'right'}, headers=headers)
+        state = await (await client.post('/api/helm/tune/return', json={'arm': 'right', 'confirm': True},
+                                         headers=headers)).json()
+        assert link.calls == ['connect', 'disconnect'] and len(started) == 1
+        confirm, bundle = started[0]
+        assert confirm and bundle['mode'] == 'return' and bundle['arm'] == 'right'
+        assert bundle['start_pose']['right_arm_j1'] == pytest.approx(1.1) and len(bundle['start_pose']) == 7
+        assert tune.mode == 'tune' and state['tune']['return_offer'] is None  # A later start sweeps again.
+        # A reading outside its swept range is not moved from.
+        await client.post('/api/helm/connect', json={}, headers=headers)
+        helm.on_frame(frame(helm, 3, {'right_arm_j5': 6.2}))
+        outside = await client.post('/api/helm/tune/return', json={'arm': 'right'}, headers=headers)
+        assert outside.status == 422 and 'Right wrist J5 reads +6.20 rad, outside its swept' in (await outside.json())['error']
+
+    from aiohttp.test_utils import TestClient, TestServer
+
+    async def run():
+        async with TestClient(TestServer(create_app(helm, link, tune=tune, token='secret'))) as client:
+            return await scenario(client)
+    try:
+        asyncio.run(run())
+    finally:
+        helm.close()

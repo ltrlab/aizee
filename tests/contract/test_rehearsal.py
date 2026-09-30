@@ -48,8 +48,9 @@ class Clock:
         return self.now
 
 
-def plant_receiver(helm, servo, clock, directory, disturbance=None):
-    """An open_receiver for the right arm's simulated joints, with gravity 10% over the fed model."""
+def plant_receiver(helm, servo, clock, directory, disturbance=None, start=None):
+    """An open_receiver for the right arm's simulated joints, with gravity 10% over the fed model, resting at
+    `start` ({motor: rad}; the reference otherwise)."""
     truth = {motor: dict(fit, A=fit['A'] * 1.1) for motor, fit in ((servo or {}).get('gravity') or {}).items()}
     terms = gravity_model(helm.model, helm.mapping, [m for m in helm.reference['motors']
                                                      if m['name'].startswith('right')], truth)
@@ -58,7 +59,8 @@ def plant_receiver(helm, servo, clock, directory, disturbance=None):
     def open_receiver(config, device, reference):
         names = [joint['name'] for joint in config['joints']]
         spec = {name: SPECS[name.split('_')[-1]] for name in names}
-        plant = ArmPlant([dict(name=n, inertia=spec[n][0], friction=spec[n][1], static=spec[n][2]) for n in names],
+        plant = ArmPlant([dict(name=n, inertia=spec[n][0], friction=spec[n][1], static=spec[n][2],
+                               q=(start or {}).get(n, 0.)) for n in names],
                          gravity={n: (lambda pose, t=terms[n]: gravity_effort(t, pose)) for n in names if n in terms},
                          position_noise=.0006, disturbance=disturbance)
         opened.append(PlantReceiver(config, plant, clock=clock, directory=directory))
@@ -240,6 +242,44 @@ def test_a_drive_that_reboots_with_the_arm_raised_leaves_it_held_on_the_others(h
         plant = opened[0].plant
         assert opened[0].last['status']['state'] == 'stopped' and opened[0].last['hardware_enabled']
         assert plant.q[plant.names.index('right_arm_j2')] > .4 and fastest < .5
+    finally:
+        core.close()
+
+
+def test_an_arm_resting_off_its_reference_is_returned_there_slowly(helm, tmp_path):
+    # The right arm rested with its shoulder swivel 1.22 rad and its wrist 0.58 rad off (2026-09-30). From that
+    # confirmed pose the arm is held where it rests, each joint returns alone at its characterisation speed, and
+    # the arm is disabled at its reference.
+    profile = json.loads((DEVICES / 'minerva-teleop.json').read_text(encoding='utf-8'))
+    profile.update(live=LIVE)
+    path = tmp_path / 'teleop.json'
+    path.write_text(json.dumps(profile))
+    session = TuneSession(helm, path)
+    pose = {m['name']: 0. for m in helm.reference['motors'] if m['name'].startswith('right_')}
+    pose.update(right_arm_j1=1.22, right_arm_j6=.58)
+    session.receiver, session.joints, session.mode = {'mode': 'live', 'arm': 'right'}, None, 'return'
+    session._start_pose = pose
+    clock = Clock()
+    bundle = session._bundle()
+    open_receiver, opened = plant_receiver(helm, bundle.get('servo'), clock, tmp_path / 'receiver', start=pose)
+    core = TuneCore(bundle, open_receiver=open_receiver, clock=clock, evidence_root=tmp_path / 'evidence')
+    try:
+        core.build()
+        fastest = {}
+        for _ in range(20000):
+            core.tick(None, clock())
+            clock.now += core.period_s
+            assert core.fault is None, core.fault
+            plant = opened[0].plant
+            for name, v in zip(plant.names, plant.v):
+                fastest[name] = max(fastest.get(name, 0.), abs(v))
+            if core.stage in ('finished', 'disabled', 'held'):
+                break
+        assert core.stage == 'finished' and core.message == 'Returned: the arm is at its reference and disabled.',             core.message
+        plant = opened[0].plant
+        assert all(abs(q) < .02 for q in plant.q), dict(zip(plant.names, plant.q))
+        assert fastest['right_arm_j1'] < .3 and fastest['right_arm_j6'] < .3  # Slow, about 0.15 rad/s.
+        assert opened[0].last['status']['state'] == 'disarmed'
     finally:
         core.close()
 

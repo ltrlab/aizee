@@ -105,7 +105,8 @@ class Transport:
         self.closed = True
 
 
-def receiver(tmp_path, *, capture=None, process=None, commands=None, transport=Transport, service=None):
+def receiver(tmp_path, *, capture=None, process=None, commands=None, transport=Transport, service=None,
+             confirmed_pose=False):
     commands = [] if commands is None else commands
     spawned = []
 
@@ -121,7 +122,7 @@ def receiver(tmp_path, *, capture=None, process=None, commands=None, transport=T
     return LiveReceiver(service or config(), device=DEVICE, reference=REFERENCE,
                         binary='/release/bin/guarded_controller', directory=tmp_path, labels=labels,
                         capture=capture or (lambda device, reference: scan()), command=command, spawn=spawn,
-                        transport_factory=transport), commands, spawned
+                        transport_factory=transport, confirmed_pose=confirmed_pose), commands, spawned
 
 
 def test_start_scans_stopped_then_brings_the_link_up_and_waits_for_a_disarmed_arm(tmp_path):
@@ -161,6 +162,26 @@ def test_an_arm_out_of_its_reference_pose_is_named_and_nothing_starts(tmp_path):
         live.start()
     assert commands == [] and spawned == []
     assert reference_offsets(scan({'left_gripper': -.021}), config()) == []
+
+
+def test_a_return_starts_from_the_pose_the_operator_confirmed_and_only_if_the_arm_is_still_there(tmp_path):
+    names = [m['name'] for m in LEFT]
+    pose = dict({name: 0. for name in names}, left_arm_j2=.35)
+    service = service_config(controller(names), DEVICE, dict(REFERENCE, motors=LEFT), MODELS, bus='canL',
+                             tolerance_rad=.1, start_pose=pose)
+    assert {r['name']: r['raw_position_rad'] for r in service['reference_positions']} == pose
+    # Where it was confirmed: the receiver starts (the scan reads it within tolerance).
+    live, commands, spawned = receiver(tmp_path, service=service, confirmed_pose=True,
+                                       capture=lambda d, r: scan({'left_arm_j2': .36}))
+    live.start()
+    assert spawned
+    live.close()
+    # Moved since: nothing starts, and the message says so rather than asking for the reference pose.
+    live, commands, spawned = receiver(tmp_path, service=service, confirmed_pose=True,
+                                       capture=lambda d, r: scan({'left_arm_j2': .6}))
+    with pytest.raises(ValueError, match=r'The arm moved since you confirmed its pose: Left J2 is \+0\.25 rad from it'):
+        live.start()
+    assert commands == [] and spawned == []
 
 
 def test_a_service_that_dies_while_starting_is_reported_and_the_link_goes_down(tmp_path):

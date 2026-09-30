@@ -14,6 +14,7 @@ from pathlib import Path
 import secrets
 
 STATIC = Path(__file__).parent / 'static'
+RETURN_MOVED_RAD = .02  # A confirmed return starts only if no joint moved more than this since it was shown.
 
 
 def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None):
@@ -249,6 +250,32 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         tune.start(confirm=payload.get('confirm') is True)
         return state_response()
 
+    async def tune_return(request):
+        """Return an arm from where it rests to its reference. Without confirm: the offer, from the stopped link's
+        readings (the 3D view shows them). With confirm: the arm must still read as offered; the link disconnects
+        and the return starts from that pose."""
+        payload = await body(request)
+        need_tune()
+        if not set(payload) <= {'arm', 'confirm'} or payload.get('arm') not in ('left', 'right'):
+            raise ValueError('Expected arm (left or right), and optionally confirm')
+        if teleop is not None and teleop.active:
+            raise ValueError('Stop the teleop session before returning an arm')
+        not_checking()
+        if tune.active:
+            raise ValueError('Stop the sweep before returning an arm')
+        offer = tune.return_offer(payload['arm'])
+        if payload.get('confirm') is not True:
+            tune.offer = offer
+            return state_response()
+        shown, tune.offer = tune.offer, None
+        if (not shown or shown['arm'] != offer['arm']
+                or any(abs(a['position'] - b['position']) > RETURN_MOVED_RAD
+                       for a, b in zip(shown['joints'], offer['joints']))):
+            raise ValueError('The arm moved since its pose was shown: look at it again, then confirm')
+        await off_loop(link.disconnect)  # The live receiver needs the CAN links; the reader must be down.
+        tune.start_return(offer['arm'], {row['motor']: row['position'] for row in offer['joints']})
+        return state_response()
+
     async def tune_key(request):
         payload = await body(request)
         need_tune()
@@ -320,6 +347,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     app.router.add_post('/api/helm/check/live', check_live)
     app.router.add_post('/api/helm/tune/configure', tune_configure)
     app.router.add_post('/api/helm/tune/start', tune_start)
+    app.router.add_post('/api/helm/tune/return', tune_return)
     app.router.add_post('/api/helm/tune/key', tune_key)
     app.router.add_post('/api/helm/tune/stop', tune_stop)
     app.router.add_post('/api/helm/tune/save', tune_save)

@@ -42,9 +42,13 @@ class TuneCore:
         self.evidence_root = Path(evidence_root) if evidence_root else Path.home() / 'minerva' / 'evidence'
         self.profile = load_profile(bundle['teleop_profile'])
         receiver = bundle.get('receiver') or {'mode': 'virtual'}
-        self.mode = bundle.get('mode') or 'tune'  # 'verify': Minerva Check's live joint sweep.
-        if self.mode not in ('tune', 'verify'):
-            raise ValueError('The sweep tunes or verifies')
+        # 'verify': Minerva Check's live joint sweep. 'return': the arm from a pose the operator confirmed
+        # (bundle['start_pose'], {motor: raw rad}) back to its reference, then disabled.
+        self.mode = bundle.get('mode') or 'tune'
+        if self.mode not in ('tune', 'verify', 'return'):
+            raise ValueError('The sweep tunes, verifies or returns the arm')
+        if self.mode == 'return' and not bundle.get('start_pose'):
+            raise ValueError('A return starts from the pose the operator confirmed')
         self.live_arm = receiver.get('arm') if receiver.get('mode') == 'live' else None
         self.arm = receiver.get('arm') or bundle.get('arm')
         if self.arm not in ('left', 'right'):
@@ -91,11 +95,13 @@ class TuneCore:
         from robot_platform.ops.release import ROOT
         live = self.profile['live']
         buses = {motor['bus'] for motor in reference['motors']}
+        returning = self.mode == 'return'
         service = service_config(config, device, reference, self.bundle['receiver']['motor_models'],
                                  bus=buses.pop(), tolerance_rad=live['reference_tolerance_rad'],
-                                 period_us=live['period_us'], maximum_lateness_us=live['maximum_lateness_us'])
+                                 period_us=live['period_us'], maximum_lateness_us=live['maximum_lateness_us'],
+                                 start_pose=self.bundle['start_pose'] if returning else None)
         return LiveReceiver(service, device=device, reference=reference, binary=ROOT / 'bin' / 'guarded_controller',
-                            directory=self.evidence, labels=self.labels).start()
+                            directory=self.evidence, labels=self.labels, confirmed_pose=returning).start()
 
     # -- build -------------------------------------------------------------------------------
 
@@ -113,9 +119,12 @@ class TuneCore:
         # One arm: the other is not in this receiver and is never enabled.
         reference, steps, transmissions = arm_subset(reference, plan['steps'], transmissions, self.arm)
         motors = [motor['name'] for motor in reference['motors']]
-        sweep = [motor for motor in (self.bundle.get('joints') or motors) if motor in motors]
-        if not sweep:
+        sweep = [] if self.mode == 'return' else [motor for motor in (self.bundle.get('joints') or motors)
+                                                  if motor in motors]
+        if not sweep and self.mode != 'return':
             raise ValueError('Choose at least one joint of the arm to sweep')
+        if self.mode == 'return' and set(self.bundle['start_pose']) != set(motors):
+            raise ValueError(f'The confirmed pose must cover every motor of the {self.arm} arm')
         backend = self.open_backend(model)
         self._closers.append(backend.close)
         # The profile's gains as derived (and any saved servo calibration), with the sweep's ceilings raised.
@@ -123,8 +132,8 @@ class TuneCore:
                                transmissions=transmissions, model=model, limits=self.bundle['limits'],
                                profile=self.profile, backend=backend, servo=self.bundle.get('servo'))
         gains = {joint['name']: (joint['hold_kp'], joint['hold_kd']) for joint in base['config']['joints']}
-        if self.mode == 'verify':
-            derived = base  # The settings teleop would use: that is what the check verifies.
+        if self.mode in ('verify', 'return'):
+            derived = base  # The settings teleop would use: what the check verifies, and what holds a return.
         else:
             # The session's own settings, with the saved gravity feed-forward (a new torque map refits it).
             derived = derive_receiver(reference=reference, steps=steps, directions=self.bundle['directions'],
@@ -144,7 +153,7 @@ class TuneCore:
             for row in base['report'] if row['motor'] in today}
         self.derived = derived
         stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
-        kind = 'check-sweep' if self.mode == 'verify' else 'sweep'
+        kind = {'verify': 'check-sweep', 'return': 'return'}.get(self.mode, 'sweep')
         self.evidence = (self.evidence_root / f'{kind}-{stamp}') if self.live_arm else None
         if self.evidence is not None:
             self.evidence.mkdir(parents=True, exist_ok=True)
@@ -182,8 +191,8 @@ class TuneCore:
         # (docs/architecture/COLLISION_RUNTIME_IMPLEMENTATION.md), and each joint moves alone from the reference
         # pose within its hand-swept range. The right J1 sweep of 2026-09-28 stopped at +-0.2 rad on bearing/0.
         checker = PathChecker(backend, derived['joint_map'], home=home, fixed=fixed, cad_limits=derived['cad_limits'],
-                              clearance_m=settings[sweep[0]]['clearance_m'],
-                              step_rad=settings[sweep[0]]['path_step_rad'],
+                              clearance_m=settings[(sweep or names)[0]]['clearance_m'],
+                              step_rad=settings[(sweep or names)[0]]['path_step_rad'],
                               scope=derived['config']['collision']['scope'])
         policy = derived['config']['collision']
         window_s = (policy['max_verdict_ms'] + derived['config']['feedback_timeout_ms'] + policy['reaction_ms']) / 1000
@@ -214,8 +223,11 @@ class TuneCore:
         self._frozen = True
         self.phase, self.stage = 'running', 'arming'
         self._stage_since = self.clock()
-        what = 'LIVE JOINT SWEEP (MINERVA CHECK)' if self.mode == 'verify' else 'SERVO SWEEP'
-        self.message = (f'{what} · LIVE {self.arm.upper()} ARM · enabling, then the sweep moves the arm. '
+        what = {'verify': 'LIVE JOINT SWEEP (MINERVA CHECK)', 'return': 'RETURN TO REFERENCE'}.get(self.mode,
+                                                                                                   'SERVO SWEEP')
+        moves = ('each joint returns alone to the reference' if self.mode == 'return'
+                 else 'the sweep moves the arm')
+        self.message = (f'{what} · LIVE {self.arm.upper()} ARM · enabling, then {moves}. '
                         'Keep the foot switch in reach.' if self.live_arm else
                         f'{what} · VIRTUAL RECEIVER · no motors move.')
 
@@ -268,14 +280,21 @@ class TuneCore:
                 self._feed()
                 command = self.engine.command(started)
                 if command is None:
-                    self._disable('Sweep finished: the arm is back at the reference and disabled. Review the results, '
-                                  'then save the joints you accept.' if self.engine.task == 'finished' else
-                                  'Sweep stopped: the arm is back at the reference and disabled.')
+                    if self.mode == 'return':
+                        why = next((e['text'] for e in reversed(self.engine.events)), 'stopped')
+                        self._disable('Returned: the arm is at its reference and disabled.'
+                                      if self.engine.task == 'finished' else
+                                      f'Return stopped ({why}): the arm was disabled where it is, and rests there.')
+                    else:
+                        self._disable('Sweep finished: the arm is back at the reference and disabled. Review the '
+                                      'results, then save the joints you accept.' if self.engine.task == 'finished'
+                                      else 'Sweep stopped: the arm is back at the reference and disabled.')
                     self.stage = 'finished'
                 else:
                     self._move(command, offered, offer_started)
                     progress = self.engine.progress()
-                    self.message = f"{progress['task']} ({progress['joints_done']}/{progress['joints']} joints done)"
+                    self.message = (progress['task'] if self.mode == 'return' else
+                                    f"{progress['task']} ({progress['joints_done']}/{progress['joints']} joints done)")
             elif self.stage == 'lowering':
                 self._lower(started)
         except Exception as exc:
@@ -322,7 +341,8 @@ class TuneCore:
         self.controller.arm(collision=self.compiler.compile(offered, feedback, None, started_at=offer_started))
         self.engine.begin({name: sample['position'] for name, sample in zip(self.engine.names, feedback)})
         self.stage = 'sweeping'
-        self.message = 'Holding. The sweep moves the arm joint by joint.'
+        self.message = ('Holding where it rests. Each joint returns alone to the reference.' if self.mode == 'return'
+                        else 'Holding. The sweep moves the arm joint by joint.')
 
     def _held(self, reason):
         """The receiver stopped the arm and holds it: lower it from where it is held."""
@@ -556,6 +576,8 @@ class TuneSession:
         self.results = None
         self.saved = self._load()
         self.saved_error = None
+        self._start_pose = None  # A return's confirmed pose, while it starts.
+        self.offer = None  # The return last shown to the operator (return_offer), until confirmed or replaced.
 
     def _load(self):
         try:
@@ -585,6 +607,57 @@ class TuneSession:
             self.joints = list(joints) if joints else None
             self.mode = 'verify' if verify else 'tune'
 
+    def return_offer(self, arm):
+        """What a return of `arm` to its reference would do, from the stopped link's live readings: each motor's
+        reading, its offset from the reference and whether it moves. The operator confirms it against the arm
+        (the 3D view shows those readings). Refused unless every reading is fresh and inside its swept range."""
+        from robot_platform.control.servo_sweep import RETURNED_RAD, sweep_settings
+        helm = self.helm
+        if arm not in ('left', 'right'):
+            raise ValueError('Return the left or right arm')
+        if not helm.fresh():
+            raise ValueError('Connect to the motors first (Connect, top right): the 3D view then shows the arm '
+                             'as its drives read it, to compare with the real arm')
+        limits = (helm.saved_limits or {}).get('joints') or {}
+        motors = [motor for motor in helm.reference['motors'] if motor['name'].startswith(f'{arm}_')]
+        if any(motor['name'] not in limits for motor in motors):
+            raise ValueError('Save joint limits for every motor in the Limits workspace first')
+        raw = dict(helm.raw or {})
+        joints, outside = [], []
+        for motor in motors:
+            name = motor['name']
+            q, home = raw.get(name), motor['raw_reference_rad']
+            if q is None:
+                raise ValueError(f'No live reading for {helm.labels.get(name, name)}')
+            low, high = limits[name]['min_rad'], limits[name]['max_rad']
+            if not low - .05 <= q <= high + .05:
+                outside.append(f'{helm.labels.get(name, name)} reads {q:+.2f} rad, outside its swept '
+                               f'{low:+.2f} to {high:+.2f}')
+            settings = sweep_settings(self.profile, name)
+            joints.append({'motor': name, 'label': helm.labels.get(name, name), 'position': q, 'offset': q - home,
+                           'moves': abs(q - home) > RETURNED_RAD, 'speed': settings['characterize_speed'],
+                           'rest_s': settings['rest_s']})
+        if outside:
+            raise ValueError('A reading outside its swept range cannot be trusted to move from: ' + '; '.join(outside)
+                             + '. Turn that joint back by hand.')
+        return {'arm': arm, 'joints': joints, 'speed': max(j['speed'] for j in joints),
+                'seconds': round(sum(abs(j['offset']) / j['speed'] + j['rest_s'] for j in joints if j['moves']), 1)}
+
+    def start_return(self, arm, pose):
+        """Return `arm` from `pose` ({motor: raw rad}, confirmed by the operator) to its reference, then disable."""
+        with self._lock:
+            if self.active:
+                raise ValueError('The sweep is already running')
+            previous = self.receiver, self.joints, self.mode
+            self.receiver, self.joints, self.mode = {'mode': 'live', 'arm': arm}, None, 'return'
+            self._start_pose = dict(pose)
+        try:
+            self.start(confirm=True)
+        finally:
+            with self._lock:  # A later start sweeps again, as configured before.
+                self.receiver, self.joints, self.mode = previous
+                self._start_pose = None
+
     def _bundle(self):
         helm = self.helm
         return {'kind': 'tune', 'mode': self.mode, 'calibration_profile': str(helm.profile_path),
@@ -592,7 +665,8 @@ class TuneSession:
                 'directions': deepcopy(helm.mapping), 'limits': deepcopy(helm.saved_limits),
                 'teleop_profile': str(self.profile_path), 'asset_id': helm.asset_id,
                 'receiver': dict(self.receiver), 'arm': self.receiver['arm'], 'joints': self.joints,
-                'servo': deepcopy(self.saved)}
+                'servo': deepcopy(self.saved),
+                **({'start_pose': dict(self._start_pose)} if self.mode == 'return' else {})}
 
     def start(self, *, confirm=False):
         with self._lock:
@@ -633,8 +707,10 @@ class TuneSession:
                                                            real_leaders=False, name='The servo sweep',
                                                            address=getattr(self.helm, 'address', None))
                 command_writer, view_reader = worker.commands, worker.views
-            self._view = dict(self._view, phase='starting', fault=None, results=None,
-                              message=(f"Starting the sweep on the {self.receiver['arm']} arm: checking it is still and "
+            self._view = dict(self._view, phase='starting', fault=None, results=None, mode=self.mode,
+                              message=(f"Returning the {self.receiver['arm']} arm: checking it is still where you "
+                                       'confirmed it, then starting the receiver…' if self.mode == 'return' else
+                                       f"Starting the sweep on the {self.receiver['arm']} arm: checking it is still and "
                                        'in its reference pose, then starting the receiver…'))
             self._conn, self._views, self._worker = command_writer, view_reader, worker
             worker.start()
@@ -728,7 +804,9 @@ class TuneSession:
         with self._lock:
             view = deepcopy(self._view)
             view.pop('results', None)
+            running = view.get('phase') in ('starting', 'running')
             return dict(view, receiver_choice=dict(self.receiver), joints_choice=self.joints, target=self.target,
-                        mode=self.mode,
+                        mode=view.get('mode', self.mode) if running else self.mode,
                         results=deepcopy(self.results), saved=deepcopy(self.saved), saved_error=self.saved_error,
+                        return_offer=deepcopy(self.offer),
                         path=str(self.path))

@@ -35,8 +35,9 @@ STARTUP_HINT = ('every motor must answer promptly, hang still (not over 0.2 rad/
 
 
 def service_config(controller, device, reference, motor_models, *, bus, tolerance_rad, period_us=2500,
-                   maximum_lateness_us=10000, endpoint=ENDPOINT):
-    """The teleop-mode service configuration for `controller`'s joints, all on `bus`."""
+                   maximum_lateness_us=10000, endpoint=ENDPOINT, start_pose=None):
+    """The teleop-mode service configuration for `controller`'s joints, all on `bus`. The arm starts in its
+    reference pose, or at `start_pose` ({motor: raw rad}): the pose an operator confirmed, to return it from."""
     from .commissioning import wire_ranges
     roster = {motor['name']: motor for motor in reference['motors']}
     names = [joint['name'] for joint in controller['joints']]
@@ -55,7 +56,8 @@ def service_config(controller, device, reference, motor_models, *, bus, toleranc
             'watchdog_identities': [{'uid': list(bytes.fromhex(roster[name]['uid'])),
                                      'firmware': [int(part) for part in roster[name]['firmware'].split('.')]}
                                     for name in names],
-            'reference_positions': [{'name': name, 'raw_position_rad': roster[name]['raw_reference_rad'],
+            'reference_positions': [{'name': name, 'raw_position_rad': (roster[name]['raw_reference_rad']
+                                                                        if start_pose is None else start_pose[name]),
                                      'tolerance_rad': tolerance_rad} for name in names]}
 
 
@@ -144,8 +146,11 @@ class LiveReceiver:
     """One arm's guarded service, owned by this process. Exchange-compatible with the harness."""
 
     def __init__(self, config, *, device, reference, binary, directory, labels=None, capture=None,
-                 command=subprocess.run, spawn=subprocess.Popen, transport_factory=None, clock=time.monotonic):
+                 command=subprocess.run, spawn=subprocess.Popen, transport_factory=None, clock=time.monotonic,
+                 confirmed_pose=False):
         self.config, self.device, self.reference = config, device, reference
+        # Its start pose is one the operator confirmed away from the reference (a return), not the reference.
+        self.confirmed_pose = confirmed_pose
         self.bus = config['buses'][0]['interface']
         self.binary, self.directory = Path(binary), Path(directory)
         self.labels = dict(labels or {})
@@ -187,6 +192,11 @@ class LiveReceiver:
             raise ValueError('; '.join(turned(name, value, turns, self.labels) for name, value, turns in wrapped
                                        if turns) + '. ' + TURN_ADVICE)
         offsets = reference_offsets(report, self.config)
+        if offsets and self.confirmed_pose:
+            tolerance = self.config['reference_positions'][0]['tolerance_rad']
+            raise ValueError('The arm moved since you confirmed its pose: ' + ', '.join(
+                f'{self.labels.get(name, name)} is {offset:+.2f} rad from it' for name, offset in offsets)
+                + f' (tolerance {tolerance:g} rad). Confirm it again from where it is now.')
         if offsets:
             tolerance = self.config['reference_positions'][0]['tolerance_rad']
             raise ValueError('Not in the reference pose: ' + ', '.join(
