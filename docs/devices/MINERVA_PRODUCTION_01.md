@@ -2580,3 +2580,36 @@ cap lagged 0.032 rad. Braking rates to 32 rad/s² followed.
 
 Saved (`11464f9`): stiffness 24, damping 0.61, 4 rad/s, braking at 32 rad/s²,
 tracking bound 0.064 rad (0.142 before).
+
+### 2026-09-30 — right J2's final pass: acceleration, not damping, limits it
+
+Right J2 was swept again (03:05 UTC) with the well-damped choice, kd 29.4. It
+still stopped at 1.0 rad/s: 1.2 rad/s lagged 0.041 rad. Across three runs, at
+kd 14.7, 21 and 29.4, its lag at speed barely changed: 0.027–0.029 rad at
+1.0 rad/s and 0.034–0.041 at 1.2. Braking qualified only to 8 rad/s². The first
+run's calibration (kd 21, braking at 32 rad/s², 0.029 rad verified) stays
+saved.
+
+From the recording:
+- **Not viscous friction.** After the gravity model and dry friction, the
+  drive's torque while cruising is within 0.2 Nm at every speed; the fitted
+  slope is 0.12 Nm per rad/s.
+- **Steady lag is small:** 0.003–0.010 rad from 0.25 to 1.2 rad/s.
+- **The worst lags come from acceleration.** They fall about 0.13 s into each
+  cruise, while the joint still catches up after the command's 8 rad/s²
+  acceleration. J2's inertia fits to 0.60 kg·m², so the position loop must build
+  lag to push about 5 Nm.
+
+Acceleration feed-forward (inertia × commanded acceleration) is the next step
+for J2's speed.
+
+**The right arm's sweeps are done**, each over its whole range:
+
+| Joint | Speed cap | Stiffness / damping | Braking | Tracking bound |
+|---|---|---|---|---|
+| J1 | 1.5 rad/s | 150 / 5 | 4 rad/s² | 0.040 rad |
+| J2 | 1.0 rad/s | 220 / 21 | 32 rad/s² | 0.068 rad |
+| J3 | 1.5 rad/s | 215 / 19.6 | 32 rad/s² | 0.043 rad |
+| J4 | 2.5 rad/s | 50 / 2.8 | 32 rad/s² | 0.059 rad |
+| J5 | 4 rad/s | 24 / 0.61 | 32 rad/s² | 0.075 rad |
+| J6 | 4 rad/s | 24 / 0.61 | 32 rad/s² | 0.064 rad |
