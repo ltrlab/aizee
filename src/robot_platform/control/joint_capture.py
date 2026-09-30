@@ -2,6 +2,9 @@
 
 Runs on the identified Linux CAN host. No enable, zero, save or parameter-write
 operation is permitted by this transport, including when called incorrectly.
+The one exception is explicit: run_capture's `maintain` caller (the power-on
+range) gets the session's exchange after the stopped preflight, and the socket
+boundary still limits it to the fixed maintenance frames.
 """
 import json
 import math
@@ -121,7 +124,10 @@ def live_scan(reader, motors):
     return rows
 
 
-def run_capture(device, reference, *, live=None):
+def run_capture(device, reference, *, live=None, maintain=None):
+    """The stopped session: host, adapter and service checks, CAN up, then `live(reader, motors, result)` after
+    the preflight (or the roster capture without it), CAN down. `maintain(exchange, motors, result)` instead
+    gets the session's exchange after the preflight, for an explicit maintenance write."""
     import fcntl
 
     def command(args):
@@ -170,13 +176,17 @@ def run_capture(device, reference, *, live=None):
                 # firmware with alternating stop/parameter transactions.
                 time.sleep(max(0., io.last_tx + .01 - time.perf_counter()))
                 return io(*args)
-            if live is None:
+            if live is None and maintain is None:
                 result['motors'] = capture_roster(reference['motors'], exchange)
             else:
                 reader = StoppedMaintenance(stopped_exchange(exchange))
                 motors = reference['motors']
                 live_preflight(reader, motors, result)
-                live(reader, motors, result)
+                if maintain is None:
+                    live(reader, motors, result)
+                else:
+                    result['parameter_writes_requested'] = True
+                    maintain(exchange, motors, result)
             result['success'] = True
         except Exception as exc:
             result['error'] = str(exc)

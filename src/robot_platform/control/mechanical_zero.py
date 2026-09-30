@@ -2,7 +2,8 @@
 
 This is not homing by motion or magnetic encoder calibration. An operator must
 already have placed the robot in a known physical reference pose. No enable,
-control, mode change, fault clear, or arbitrary parameter write exists here.
+control, mode change, fault clear, or arbitrary parameter write exists here: the
+one parameter write is a fixed value, the power-on range (see power_on_range).
 """
 import math
 import socket
@@ -19,6 +20,7 @@ from datetime import datetime, timezone
 
 ZERO_DATA = bytes([1, 0, 0, 0, 0, 0, 0, 0])
 SAVE_DATA = bytes(range(1, 9))
+POWER_ON_RANGE_DATA = struct.pack("<HH", 0x7029, 0) + bytes([1, 0, 0, 0])  # zero_sta := 1, −π…π.
 READ_PARAMETERS = {0x7005, 0x7019, 0x701B, 0x7029, 0x2021, 0x2024}
 # One-byte values: the run mode, and zero_sta, the window a drive puts its angle in at power-on
 # (0: 0…2π, the factory default; 1: −π…π).
@@ -50,6 +52,8 @@ def maintenance_frame(motor_id, host, kind, parameter=None):
         code, data = 6, ZERO_DATA
     elif kind == "save":
         code, data = 22, SAVE_DATA
+    elif kind == "power_on_range":
+        code, data = 18, POWER_ON_RANGE_DATA
     else:
         raise ValueError("Unsupported maintenance operation")
     return (code << 24) | (host << 8) | motor_id, data
@@ -65,7 +69,7 @@ class StoppedMaintenance:
         try:
             arb, data = self.exchange(motor["bus"], frame, kind, parameter)
         except TimeoutError:
-            if kind in ('zero', 'save'):
+            if kind in ('zero', 'save', 'power_on_range'):
                 raise
             # One bounded repeat of an idempotent stopped diagnostic. Transport
             # drains prior queued frames before each transaction. This never
