@@ -2569,3 +2569,14 @@ Saved (`d4a4849`):
 | Speed cap | 4 rad/s | 4 rad/s |
 | Braking | 16 rad/s² | 32 rad/s² |
 | Tracking bound | 0.1 rad | 0.075 rad |
+
+### 2026-09-30 — right J6 saved under the feed-forward law
+
+The right wrist's sweep (02:56 UTC, release `20260930T022140Z-7191c95`) replaces
+its position-only calibration of 2026-09-28. It characterised its whole range,
++0.965/−0.928 rad, and followed every speed to 2 rad/s within 0.021 rad; its
+travel leaves no room to test faster. The pass across the range at its 4 rad/s
+cap lagged 0.032 rad. Braking rates to 32 rad/s² followed.
+
+Saved (`11464f9`): stiffness 24, damping 0.61, 4 rad/s, braking at 32 rad/s²,
+tracking bound 0.064 rad (0.142 before).
