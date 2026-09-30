@@ -213,3 +213,17 @@ def test_a_full_turn_joint_is_taken_a_turn_round_for_the_model_and_a_slide_clamp
     cad = to_cad(mapping, {'w': -3.4, 'g': -.5}, limits)
     assert cad['swivel'] == pytest.approx(-3.4 + 2 * math.pi) and cad['slide'] == 0.
     assert to_cad(mapping, {'w': 1., 'g': 1.}, limits)['swivel'] == pytest.approx(1.)
+
+
+def test_receiver_limits_fit_each_motors_protocol_ranges():
+    # The sweep raised right J4's damping ceiling to 5.6; its RobStride 02 carries 5.0, so the command failed to
+    # encode mid-sweep, a drive fault that cut torque (2026-09-28 and -30).
+    from robot_platform.control.guarded_config import fit_motor_ranges
+    joints = [{'name': 'right_arm_j4', 'max_kp': 50., 'max_kd': 5.6, 'max_effort': 17., 'max_velocity': 3.125,
+               'hold_kp': 50., 'hold_kd': 4.}]
+    fit_motor_ranges(joints, {'right_arm_j4': 'ROBSTRIDE02'})
+    assert joints[0]['max_kd'] == 5. and joints[0]['max_kp'] == 50. and joints[0]['max_velocity'] == 3.125
+    held = [dict(joints[0], hold_kd=5.5, max_kd=5.6)]
+    with pytest.raises(ValueError, match='hold gains exceed'):
+        fit_motor_ranges(held, {'right_arm_j4': 'ROBSTRIDE02'})
+    assert fit_motor_ranges([dict(joints[0], max_kd=9.)], {})[0]['max_kd'] == 9.  # No model: as derived.

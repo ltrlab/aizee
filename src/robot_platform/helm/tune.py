@@ -21,7 +21,7 @@ from pathlib import Path
 import threading
 import time
 
-from robot_platform.control.guarded_config import arm_subset, derive_receiver
+from robot_platform.control.guarded_config import arm_subset, derive_receiver, fit_motor_ranges
 from robot_platform.control.servo_calibration import load_servo, save_servo, servo_path  # noqa: F401 (re-exported)
 from robot_platform.control.scheduling import prefer_responsive
 from .limits import utc_now
@@ -130,6 +130,8 @@ class TuneCore:
                                       transmissions=transmissions, model=model, limits=self.bundle['limits'],
                                       profile=sweep_profile(self.profile, motors, gains, sweep=sweep),
                                       backend=backend, gravity=(self.bundle.get('servo') or {}).get('gravity'))
+        # The sweep's raised ceilings stay within what each motor's wire protocol carries.
+        fit_motor_ranges(derived['config']['joints'], (self.bundle.get('receiver') or {}).get('motor_models') or {})
         # Each joint's derived row today, with the settings teleop uses today (the session may loosen them).
         # The receiver's speed cap is the commanded one times OVERSPEED_HEADROOM; the card compares commanded caps.
         from robot_platform.control.approach import OVERSPEED_HEADROOM

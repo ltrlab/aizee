@@ -106,6 +106,24 @@ def arm_subset(reference, steps, transmissions, arm):
             [entry for entry in transmissions if entry['motor'] in names])
 
 
+def fit_motor_ranges(joints, models):
+    """Keep each receiver joint's command limits (a derived config's joints, changed in place) within what its
+    motor's wire protocol carries (`models`: {motor: RobStride model}, commissioning.wire_ranges); the receiver
+    refuses a config beyond them. A damping ceiling of 5.6 on a motor carrying 5.0 failed to encode mid-sweep, a
+    drive fault that cut torque (right J4, 2026-09-28 and -30). Hold gains beyond them are a calibration error."""
+    from .commissioning import wire_ranges
+    for joint in joints:
+        if joint['name'] not in models:
+            continue
+        ranges = wire_ranges(models[joint['name']])
+        for key, wire in (('max_kp', 'kp'), ('max_kd', 'kd'), ('max_effort', 'effort'), ('max_velocity', 'velocity')):
+            joint[key] = min(joint[key], ranges[wire])
+        if joint['hold_kp'] > joint['max_kp'] or joint['hold_kd'] > joint['max_kd']:
+            raise ValueError(f"{joint['name']}: its hold gains exceed what its motor ({models[joint['name']]}) "
+                             'carries')
+    return joints
+
+
 def servo_settings(settings, motor, servo):
     """A joint's motion settings with its saved servo calibration applied, if it has one.
 

@@ -22,7 +22,7 @@ from pathlib import Path
 import threading
 import time
 
-from robot_platform.control.guarded_config import arm_subset, derive_receiver, to_cad
+from robot_platform.control.guarded_config import arm_subset, derive_receiver, fit_motor_ranges, to_cad
 from robot_platform.control.joint_calibration import save_json
 from robot_platform.control.live_receiver import fault_detail
 from robot_platform.control.scheduling import prefer_responsive
@@ -310,6 +310,7 @@ class TeleopCore:
         derived = derive_receiver(reference=reference, steps=steps, directions=self.bundle['directions'],
                                   transmissions=transmissions, model=model, limits=self.bundle['limits'],
                                   profile=self.profile, backend=backend, servo=self.bundle.get('servo'))
+        fit_motor_ranges(derived['config']['joints'], (self.bundle.get('receiver') or {}).get('motor_models') or {})
         base = Path(self.bundle['teleop_profile']).resolve().parent
         leader_profile = json.loads((base / self.profile['leader_profile']).read_text(encoding='utf-8'))
         if self.bundle.get('leader_ranges') is None:
