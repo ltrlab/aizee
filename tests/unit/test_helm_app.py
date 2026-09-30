@@ -349,7 +349,7 @@ def test_an_arm_returns_to_its_reference_only_from_a_pose_confirmed_against_live
         state = await (await client.post('/api/helm/tune/return', json={'arm': 'right'}, headers=headers)).json()
         offer = state['tune']['return_offer']
         assert [row['motor'] for row in offer['joints'] if row['moves']] == ['right_arm_j1', 'right_arm_j6']
-        assert offer['seconds'] > (1.22 + .58) / offer['speed'] and not started
+        assert 1.22 / offer['speed'] < offer['seconds'] < (1.22 + .58) / offer['speed'] and not started
         # It moved after it was shown: nothing starts.
         helm.on_frame(frame(helm, 2, dict(resting, right_arm_j1=1.1)))
         moved = await client.post('/api/helm/tune/return', json={'arm': 'right', 'confirm': True}, headers=headers)

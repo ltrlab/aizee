@@ -146,6 +146,7 @@ class Abort(Exception):
     """A guard abandoned the current task."""
 
 
+
 class SweepStopped(Exception):
     """The operator asked the sweep to finish."""
 
@@ -264,15 +265,19 @@ class PathChecker:
         """The shape pairs within the clearance at a pose ({motor: rad})."""
         return set(self._near(motors))
 
-    def check(self, motor, position, *, pose=None, baseline=frozenset()):
-        """None if the pose with `motor` at `position` is clear, else why. The rest are at the reference, or at
-        `pose` (a return from where the arm rests), where the pairs in `baseline` were already that close."""
-        pose = dict(self.home if pose is None else pose, **{motor: position})
+    def check(self, motor, position):
+        """None if the pose with `motor` at `position` (the rest at the reference) is clear, else why."""
+        why = self.check_pose(dict(self.home, **{motor: position}))
+        return None if why is None else f'{why} at {position:+.2f} rad'
+
+    def check_pose(self, pose, *, baseline=frozenset()):
+        """None if a whole pose ({motor: rad}) is clear, else why: no pair within the clearance that was not
+        that close at the reference, nor in `baseline` (pairs already that close where a return starts)."""
         new = {pair: d for pair, d in self._near(pose).items() if pair not in self.baseline and pair not in baseline}
         if not new:
             return None
         pair, distance = min(new.items(), key=lambda item: item[1])
-        return f'{pair[0]} within {distance * 1000:.0f} mm of {pair[1]} at {position:+.2f} rad'
+        return f'{pair[0]} within {distance * 1000:.0f} mm of {pair[1]}'
 
     def clear(self, motor, start, end):
         """(True, None) if the move stays clear, else (False, why), in one go (tests and tools)."""
@@ -656,22 +661,56 @@ class SweepEngine:
         yield from self._hold((self.sweep or self.names)[0], .5)
 
     def _return_all(self):
-        """The arm from where it rests to its reference: one joint at a time from the wrist in, the gripper last,
-        each at its characterisation speed, each path checked first from the arm's actual pose."""
-        order = ([name for name in reversed(self.names) if not self.limits[name].get('gripper')]
-                 + [name for name in self.names if self.limits[name].get('gripper')])
-        for name in order:
-            if abs(self.targets[name] - self.home[name]) <= RETURNED_RAD:
+        """The arm from where it rests to its reference along one straight line in joint space: every joint off it
+        moves together and arrives with the others, the one farthest out (in time) at its characterisation speed.
+        The line is checked against the collision model first, from the arm's actual pose. The plan waits while any
+        joint is pinned at its lead cap and stops after STALL_S of it. Together, not joint by joint: the right arm's
+        wrist, dragged 0.58 rad by a harness its shoulder swivel had twisted, could not return before the swivel,
+        and held while the swivel returned it would have been pulled off its command (2026-09-30)."""
+        start = dict(self.targets)
+        moving = [name for name in self.names if abs(start[name] - self.home[name]) > RETURNED_RAD]
+        if not moving:
+            return
+        pace = {name: abs(start[name] - self.home[name]) / self.settings[name]['characterize_speed'] for name in moving}
+        span = max(pace.values())  # Seconds, the slowest joint at its own speed.
+        self.current = max(pace, key=pace.get)  # The guards watch the arm while a joint is current.
+        self._task('back to the reference')
+        clear, why = yield from self._clear_line(start, dict(self.home))
+        if not clear:
+            self._event(f'the arm was not moved: {why}')
+            raise Abort(why)
+        s, waited = 0., 0.
+        while s < 1.:
+            pinned = next((name for name in moving if self._pinned(name, start)), None)
+            if pinned is not None:
+                waited += self.period
+                if waited >= STALL_S:
+                    why = f'{self._label(pinned)} could not follow the return for {STALL_S:g} s'
+                    self._event(why)
+                    raise Abort(why)
+                for name in moving:
+                    self.velocity[name] = 0.
+                yield
                 continue
-            self.current = name
-            self._task(f'{self._label(name)}: back to the reference')
-            clear, why = yield from self._clear(name, self.targets[name], self.home[name], pose=dict(self.targets))
-            if not clear:
-                self._event(f'{self._label(name)} was not moved: {why}')
-                raise Abort(why)
-            yield from self._go(name, self.home[name], self.settings[name]['characterize_speed'])
-            yield from self._hold(name, self.settings[name]['rest_s'])
+            waited = 0.
+            s = min(1., s + self.period / span)
+            for name in moving:
+                target = start[name] + (self.home[name] - start[name]) * s
+                self.velocity[name] = (target - self.targets[name]) / self.period
+                self.targets[name] = target
+            yield
+        for name in moving:
+            self.velocity[name], self.targets[name] = 0., self.home[name]
+        yield from self._hold(self.current, self.settings[self.current]['rest_s'])
         self.current = None
+
+    def _pinned(self, motor, start):
+        """Whether a returning joint's command leads where it is by its lead cap: the plan waits for it."""
+        q = self.measured(motor)
+        if q is None:
+            return False
+        direction = 1 if self.home[motor] > start[motor] else -1
+        return (self.targets[motor] - q) * direction >= self._lead(motor, direction, q)
 
     def _run(self):
         if self.mode == 'return':
@@ -750,17 +789,33 @@ class SweepEngine:
         cap = limit['max_velocity'] if speed is None else min(speed, limit['max_velocity'])
         return command_step(limit, self.limit_reaction, self.targets[motor], direction, cap, self.period) / self.period
 
-    def _clear(self, motor, start, end, *, pose=None):
-        """(clear, why) for a planned move, checking about CHECK_BUDGET_S of poses per cycle and holding
-        in between, so the loop keeps the receiver's lease and collision verdict fresh. The rest of the arm is at
-        the reference, or at `pose`, whose own close pairs then do not count."""
+    def _clear_line(self, start, end):
+        """(clear, why) for the straight line in joint space from pose `start` to `end`, sampled so no joint moves
+        more than the path step between samples, spread over cycles like _clear. Pairs already that close at
+        `start` do not count."""
         if self.checker is None:
             return True, None
-        baseline = frozenset() if pose is None else self.checker.near(pose)
+        baseline = self.checker.near(start)
+        count = max(1, math.ceil(max(abs(end[name] - start[name]) for name in start) / self.checker.step))
+        deadline = time.perf_counter() + CHECK_BUDGET_S
+        for k in range(1, count + 1):
+            why = self.checker.check_pose({name: start[name] + (end[name] - start[name]) * k / count for name in start},
+                                          baseline=baseline)
+            if why:
+                return False, why
+            if time.perf_counter() >= deadline:
+                yield
+                deadline = time.perf_counter() + CHECK_BUDGET_S
+        return True, None
+
+    def _clear(self, motor, start, end):
+        """(clear, why) for a planned move, checking about CHECK_BUDGET_S of poses per cycle and holding
+        in between, so the loop keeps the receiver's lease and collision verdict fresh."""
+        if self.checker is None:
+            return True, None
         deadline = time.perf_counter() + CHECK_BUDGET_S
         for position in self.checker.samples(start, end):
-            why = (self.checker.check(motor, position) if pose is None
-                   else self.checker.check(motor, position, pose=pose, baseline=baseline))
+            why = self.checker.check(motor, position)
             if why:
                 return False, why
             if time.perf_counter() >= deadline:

@@ -884,7 +884,7 @@ $('u-return').onclick = () => {
     askTune(`Return the ${arm} arm to its reference?`, [
       'The 3D view shows the arm as its drives read it now. Compare it with the real arm: they must match.',
       `Off its reference: ${offsets.join(', ')}.`,
-      `Each joint returns alone, the wrist first and the gripper last, at ${offer.speed} rad/s: about ` +
+      `The whole arm returns together along one line, the joint farthest out at ${offer.speed} rad/s: about ` +
         `${Math.ceil(offer.seconds)} s. Then the arm is disabled, hanging.`,
       "The foot switch (e-stop) is in your hand throughout, and the arm's path is clear.",
       `The ${other} arm stays disabled. Helm disconnects from the motors to start.`,

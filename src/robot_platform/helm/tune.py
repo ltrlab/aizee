@@ -640,8 +640,10 @@ class TuneSession:
         if outside:
             raise ValueError('A reading outside its swept range cannot be trusted to move from: ' + '; '.join(outside)
                              + '. Turn that joint back by hand.')
+        moving = [j for j in joints if j['moves']]
+        # The joints move together along one line: the slowest to arrive at its own speed sets the time.
         return {'arm': arm, 'joints': joints, 'speed': max(j['speed'] for j in joints),
-                'seconds': round(sum(abs(j['offset']) / j['speed'] + j['rest_s'] for j in joints if j['moves']), 1)}
+                'seconds': round(max((abs(j['offset']) / j['speed'] + j['rest_s'] for j in moving), default=0.), 1)}
 
     def start_return(self, arm, pose):
         """Return `arm` from `pose` ({motor: raw rad}, confirmed by the operator) to its reference, then disable."""

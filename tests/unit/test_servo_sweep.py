@@ -31,6 +31,7 @@ class Plant:
         self.shove = None  # (name, start_s, end_s, torque): an external push, as from a bump.
         self.interpolation = interpolation
         self.commands = []  # Every command, as sent.
+        self.coupling = None  # callable(name, state) -> Nm on that joint from the others (a cable, say).
 
     def run(self, names, command, seconds=.04):
         rows = []
@@ -56,6 +57,8 @@ class Plant:
                 net = torque - spec['gravity'](q)
                 if self.shove and self.shove[0] == name and self.shove[1] <= self.t < self.shove[2]:
                     net += self.shove[3]
+                if self.coupling:
+                    net += self.coupling(name, self.state)
                 if abs(v) < 1e-4 and abs(net) <= spec.get('static', spec['friction']):  # Sticks, then slides.
                     v = 0.
                 else:
@@ -655,60 +658,77 @@ def return_arm(start):
     return joints, plant, gains
 
 
-def test_a_return_brings_each_joint_home_alone_slowly_from_the_wrist_in():
-    # The right arm rested with its shoulder swivel 1.22 rad and its wrist 0.58 rad off (2026-09-30): the return
-    # moves the wrist home first, then the shoulder, each alone at its characterisation speed.
-    start = {'right_arm_j1': 1.22, 'right_arm_j6': .58}
-    joints, plant, gains = return_arm(start)
+def run_return(joints, plant, gains, start, *, checker=None, seconds=90, on_cycle=None):
     names = [joint['name'] for joint in joints]
     engine = SweepEngine(joints, home={name: 0. for name in names}, gains=gains, mode='return', sweep=[],
-                         settings={name: sweep_settings(PROFILE, name) for name in names}, interpolation_s=.04)
+                         checker=checker, settings={name: sweep_settings(PROFILE, name) for name in names},
+                         interpolation_s=.04)
     engine.observe(plant.run(names, {'targets': [start[n] for n in names], 'gains': [gains[n] for n in names]}))
     engine.begin(start)
     now, moving = 0., []
-    while now < 60:
+    while now < seconds:
         command = engine.command(now)
         if command is None:
             break
         before = {name: plant.state[name][0] for name in names}
         engine.observe(plant.run(names, command))
         moving.append({name for name in names if abs(plant.state[name][0] - before[name]) > 1e-3})
+        if on_cycle:
+            on_cycle()
         now += .04
-    assert engine.task == 'finished' and command is None
+    return engine, moving
+
+
+def test_a_return_brings_the_whole_arm_home_together_along_one_line_slowly():
+    # The right arm rested with its shoulder swivel 1.22 rad and its wrist 0.58 rad off (2026-09-30): both return
+    # together along one line, arriving together, the swivel (farthest out) at its characterisation speed.
+    start = {'right_arm_j1': 1.22, 'right_arm_j6': .58}
+    joints, plant, gains = return_arm(start)
+    names = [joint['name'] for joint in joints]
+    halfway = []
+    engine, moving = run_return(joints, plant, gains, start,
+                                on_cycle=lambda: halfway.append((plant.state['right_arm_j1'][0],
+                                                                 plant.state['right_arm_j6'][0])))
+    assert engine.task == 'finished'
     assert all(abs(plant.state[name][0]) < .01 for name in names), plant.state
-    wrist_done = max(i for i, moved in enumerate(moving) if 'right_arm_j6' in moved)
-    assert min(i for i, moved in enumerate(moving) if 'right_arm_j1' in moved) > wrist_done  # One at a time.
+    q1, q6 = next((q1, q6) for q1, q6 in halfway if q1 < .61)
+    assert q6 == pytest.approx(q1 * .58 / 1.22, abs=.03)  # On the line from the start to the reference.
     slow = sweep_settings(PROFILE, 'right_arm_j1')['characterize_speed']
-    assert plant.fastest['right_arm_j1'] < 1.5 * slow  # Slow: about its characterisation speed.
+    assert plant.fastest['right_arm_j1'] < 1.5 * slow and plant.fastest['right_arm_j6'] < slow
     assert not engine.summary()
 
 
-def test_a_return_stops_where_it_is_when_its_path_is_not_clear():
+def test_a_wrist_dragged_by_the_shoulders_harness_returns_with_it():
+    # The live return of 2026-09-30 moved the wrist first: it stalled at +0.40 rad pushing 0.95 Nm, rising as it
+    # went, against a harness the shoulder swivel's 1.22 rad had twisted. Here the harness pulls the wrist toward
+    # 0.58 of the swivel's share (4.5 Nm/rad): together they return with the harness slack.
+    start = {'right_arm_j1': 1.22, 'right_arm_j6': .58}
+    joints, plant, gains = return_arm(start)
+    names = [joint['name'] for joint in joints]
+    plant.coupling = lambda name, state: (-4.5 * (state['right_arm_j6'][0] - .58 * state['right_arm_j1'][0] / 1.22)
+                                          if name == 'right_arm_j6' else 0.)
+    engine, _moving = run_return(joints, plant, gains, start)
+    assert engine.task == 'finished', engine.events
+    assert all(abs(plant.state[name][0]) < .01 for name in names), plant.state
+    assert plant.worst_lag['right_arm_j6'] < .02
+
+
+def test_a_return_does_not_start_when_its_line_is_not_clear():
     class Blocked:
+        step = .1
+
         def near(self, motors):
             return set()
 
-        def samples(self, start, end):
-            return [start + (end - start) * k / 4 for k in range(1, 5)]
-
-        def check(self, motor, position, *, pose=None, baseline=frozenset()):
-            return 'right_arm_j6 link within 5 mm of left_arm_j6 link' if motor == 'right_arm_j6' else None
+        def check_pose(self, pose, *, baseline=frozenset()):
+            return 'right_arm_j6 link within 5 mm of left_arm_j6 link' if pose['right_arm_j6'] < .2 else None
     start = {'right_arm_j1': .5, 'right_arm_j6': .4}
     joints, plant, gains = return_arm(start)
-    names = [joint['name'] for joint in joints]
-    engine = SweepEngine(joints, home={name: 0. for name in names}, gains=gains, mode='return', sweep=[],
-                         checker=Blocked(), settings={name: sweep_settings(PROFILE, name) for name in names},
-                         interpolation_s=.04)
-    engine.observe(plant.run(names, {'targets': [start[n] for n in names], 'gains': [gains[n] for n in names]}))
-    engine.begin(start)
-    for _ in range(100):
-        command = engine.command(0.)
-        if command is None:
-            break
-        engine.observe(plant.run(names, command))
-    assert command is None and engine.task == 'stopped'
-    assert engine.events[-1]['text'] == 'right_arm_j6 was not moved: right_arm_j6 link within 5 mm of left_arm_j6 link'
-    assert abs(plant.state['right_arm_j6'][0] - .4) < .01 and abs(plant.state['right_arm_j1'][0] - .5) < .01
+    engine, _moving = run_return(joints, plant, gains, start, checker=Blocked())
+    assert engine.task == 'stopped' and engine.done
+    assert [e['text'] for e in engine.events] == ['the arm was not moved: right_arm_j6 link within 5 mm of '
+                                                  'left_arm_j6 link']
+    assert abs(plant.state['right_arm_j1'][0] - .5) < .01 and abs(plant.state['right_arm_j6'][0] - .4) < .01
 
 
 def test_a_heavy_joints_inertia_is_fitted_and_fed_forward_as_it_speeds_up():
