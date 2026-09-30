@@ -155,6 +155,51 @@ def test_a_trip_with_the_arm_raised_holds_it_and_lowers_it_to_the_reference(helm
         core.close()
 
 
+def test_a_drive_that_stops_answering_with_the_arm_raised_holds_it_then_lowers_it(helm, tmp_path):
+    # The left gripper stopped answering for over 30 ms with the left arm raised, and cutting every joint's torque
+    # dropped the arm (2026-09-30). Here the right gripper goes quiet for 0.1 s with J2 raised: the receiver holds
+    # the arm on the drives that answer; once the gripper answers again, the sweep lowers the arm and disables it.
+    profile = json.loads((DEVICES / 'minerva-teleop.json').read_text(encoding='utf-8'))
+    profile.update(live=LIVE, sweep=dict(profile['sweep'], defaults={
+        'amplitudes': [.6], 'kp_ladder': [1.], 'damping': [1.], 'speeds': [.4], 'decelerations': [16.],
+        'hold_s': .2, 'rest_s': .1}))
+    path = tmp_path / 'teleop.json'
+    path.write_text(json.dumps(profile))
+    session = TuneSession(helm, path)
+    session.configure(arm='right', joints=['right_arm_j2'])
+    clock = Clock()
+    bundle = session._bundle()
+    quiet = {}
+
+    def silence(plant):  # Rides the disturbance hook, which runs every substep: pushes nothing.
+        q = plant.q[plant.names.index('right_arm_j2')]
+        if 'at' not in quiet and q > .45:
+            quiet['at'] = plant.t
+        plant.quiet = {'right_gripper'} if 'at' in quiet and plant.t - quiet['at'] < .1 else set()
+        return {}
+    open_receiver, opened = plant_receiver(helm, bundle.get('servo'), clock, tmp_path / 'receiver', silence)
+    core = TuneCore(bundle, open_receiver=open_receiver, clock=clock, evidence_root=tmp_path / 'evidence')
+    try:
+        core.build()
+        reasons, fastest = set(), 0.
+        for _ in range(20000):
+            core.tick(None, clock())
+            clock.now += core.period_s
+            assert core.fault is None, core.fault
+            plant = opened[0].plant
+            reasons.add(opened[0].last['status']['reason'])
+            fastest = max(fastest, abs(plant.v[plant.names.index('right_arm_j2')]))
+            if core.stage in ('finished', 'disabled', 'held'):
+                break
+        assert 'at' in quiet and 'feedback_stale' in reasons
+        assert core.stage == 'disabled' and 'lowered to the reference and disabled' in core.message, core.message
+        plant = opened[0].plant
+        assert abs(plant.q[plant.names.index('right_arm_j2')]) < .05  # Lowered to hanging.
+        assert fastest < .5  # Held, never fell.
+    finally:
+        core.close()
+
+
 class Leaders:
     class inputs:
         max_age_s, max_skew_s = .05, .02

@@ -45,6 +45,7 @@ class ArmPlant:
         self.t = 0.  # Simulated time (s).
         # callable(plant) -> {name: Nm}: an outside push (a bump, a hand), added to the drive's torque.
         self.disturbance = disturbance
+        self.quiet = set()  # Drives that have stopped answering: the receiver sees no new reading from them.
 
     def pose(self):
         return dict(zip(self.names, self.q))
@@ -79,8 +80,8 @@ class ArmPlant:
     def measured(self):
         return [{'position': round((q + self.random.gauss(0., self.position_noise)) / POSITION_STEP_RAD)
                  * POSITION_STEP_RAD,
-                 'velocity': v + self.random.gauss(0., self.speed_noise), 'effort': torque}
-                for q, v, torque in zip(self.q, self.v, self.torque)]
+                 'velocity': v + self.random.gauss(0., self.speed_noise), 'effort': torque, 'quiet': name in self.quiet}
+                for name, q, v, torque in zip(self.names, self.q, self.v, self.torque)]
 
 
 class PlantReceiver:

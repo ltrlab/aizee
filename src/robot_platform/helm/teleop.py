@@ -32,6 +32,9 @@ KEYS = frozenset('IETHX')
 ENGAGED = ('ENGAGING', 'TELEOP')
 HELD = ('stopping', 'stopped')  # Receiver states in which it brakes or holds the arm itself.
 LOWERING_ATTEMPTS = 3  # Re-arms after the receiver stops the arm, before it is left held where it stopped.
+# A re-arm the receiver refuses for these waits (it holds the arm meanwhile): a drive not answering, a joint over
+# a limit, or one still moving.
+WAIT_TO_REARM = ('feedback_stale', 'limit_violation', 'invalid_state')
 
 
 def load_profile(path):
@@ -531,6 +534,9 @@ class TeleopCore:
                                 'reference and disabled. Stop the session and start it again.')
         except Exception as exc:
             self._record(session.last_cycle or {}, failure=str(exc))
+            if getattr(exc, 'reason', None) in WAIT_TO_REARM and self._held():
+                self.message = (f'{self._receiver_name} FAULT · {self.fault} · The receiver holds the arm; waiting '
+                                f'to re-arm it ({exc.reason})…')
             if not self._held():  # The receiver cut the arm's torque: nothing left to lower.
                 self._lowering = False
                 self.message = (f'{self._receiver_name} FAULT · {self.fault} · Lowering stopped: {exc}. '

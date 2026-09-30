@@ -98,7 +98,8 @@ class GuardedLifecycleSession:
             return False
         if status["state"] != "stopped":
             raise RuntimeError(f"The receiver is {status['state']} ({status['reason']}): the arm's torque is off")
-        self.controller.acquire()
+        if not self.controller.owned:  # Kept from a re-arm the receiver refused (a drive not answering yet).
+            self.controller.acquire()
         self.owned = True
         offer_started = self.clock()
         offered = self.controller.collision_offer()

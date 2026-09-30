@@ -25,7 +25,8 @@ from robot_platform.control.guarded_config import arm_subset, derive_receiver, f
 from robot_platform.control.servo_calibration import load_servo, save_servo, servo_path  # noqa: F401 (re-exported)
 from robot_platform.control.scheduling import prefer_responsive
 from .limits import utc_now
-from .teleop import HELD, LOWERING_ATTEMPTS, AdvisoryCompiler, load_profile
+from robot_platform.control.guarded import GuardRejected
+from .teleop import HELD, LOWERING_ATTEMPTS, WAIT_TO_REARM, AdvisoryCompiler, load_profile
 
 PERIOD_S = .04
 RESULTS_EVERY_S = 1.
@@ -350,20 +351,29 @@ class TuneCore:
             self.message = f'The receiver stopped the arm ({self.stopped_by}) and is braking it to a hold…'
             return
         if state == 'stopped':
-            self._lowerings += 1
-            if self._lowerings > LOWERING_ATTEMPTS:
+            if self._lowerings >= LOWERING_ATTEMPTS:
                 self.stage = 'held'
                 self.message = (f'The receiver stopped the arm {LOWERING_ATTEMPTS} times while it was lowered '
                                 f'({status.get("reason")}): it holds the arm where it stopped. Support the arm, '
                                 'then press H to disable it (it goes limp), or stop the session.')
                 return
-            self.controller.acquire()
+            if not self.controller.owned:
+                self.controller.acquire()
             offer_started = self.clock()
             offered = self.controller.collision_offer()
             feedback = (self.latest() or {}).get('feedback') or []
             held = status['joints']  # The stop's hold: re-armed there, with its feed-forward.
-            status = self.controller.arm(collision=self.compiler.compile(offered, feedback, held,
-                                                                         started_at=offer_started))
+            try:
+                status = self.controller.arm(collision=self.compiler.compile(offered, feedback, held,
+                                                                             started_at=offer_started))
+            except GuardRejected as exc:
+                if exc.reason not in WAIT_TO_REARM:
+                    raise
+                # A drive not answering, or a joint not yet settled: the receiver holds the arm meanwhile.
+                self.message = (f'The receiver stopped the arm ({self.stopped_by}) and holds it; waiting to re-arm '
+                                f'it ({exc.reason})…')
+                return
+            self._lowerings += 1
             self.engine.lower({name: joint['position'] for name, joint in zip(self.engine.names, status['joints'])},
                               f'the receiver stopped the arm ({self.stopped_by})' if self.stopped_by
                               else 'the receiver stopped the arm')
