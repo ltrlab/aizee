@@ -2812,3 +2812,14 @@ rad/s. The line is checked against the collision model from the actual pose.
 The plan waits for any joint behind its lead cap and stops after 3 s of that.
 Rehearsed with that harness modelled (4.5 Nm/rad toward the swivel's share): the
 wrist stayed within 0.02 rad of its command all the way.
+
+Returned (18:06 UTC, release `20260930T174931Z-a632a9a`). The operator
+confirmed the 3D view again. The wrist had sprung back to +0.51 rad after the
+stall; the swivel was still at +1.22. The arm returned along one line in 9.7 s,
+the swivel at 0.15 rad/s with the wrist unwinding in proportion: halfway, J1
+read +0.62 and J6 +0.26.
+- **Effort:** the wrist's peak was 0.35 Nm, against 0.95 Nm when it went first.
+  That confirms the harness coupling.
+- **Lag:** the worst was 0.014 rad (J6); J1's was 0.007 rad.
+- **End pose:** every joint ended within 0.005 rad of its reference, and the arm
+  was disabled.
