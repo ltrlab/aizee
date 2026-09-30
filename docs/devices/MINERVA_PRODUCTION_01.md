@@ -2417,3 +2417,42 @@ Two sweep faults came to light:
   widens to the end of the range after the last step.
 
 Deployed as release `20260929T234053Z-ff24dfe`.
+
+### 2026-09-29 — right J2 dropped from horizontal on a trip; trips now hold the arm
+
+The second right J2 sweep (23:42 UTC, release `20260929T234053Z-ff24dfe`) read
+every speed correctly after `4b454d0`. Its
+lags were 0.029/0.040 rad at 1.0 rad/s and 0.035/0.042 at 1.2, so the ladder
+stopped at 1.0 again. This time the lags were real.
+
+The pass across the range then approached the top of J2's range at 0.8 rad/s
+with damping 14.7. The command slowed to the braking curve's floor (0.4 rad/s)
+at the usable end, but J2 was 0.01 rad behind it. Catching up, it ran at
+0.53–0.62 rad/s, over the curve's 0.53–0.57 there, for three readings in a row.
+The receiver faulted with `limit_violation` at +1.604 rad and cut the drives'
+torque. **The arm, raised near horizontal with 19 Nm of gravity, fell.** The
+operator checked it: no damage. A safety cage surrounds the robot.
+
+The operator chose how a trip should end: brake and hold, then lower.
+
+- **Receiver** (`96199cd`): a tracking error, a limit-curve overspeed, a joint
+  past a limit or over its effort or temperature, or one leaving its collision
+  box now brakes the arm to a hold that keeps its gravity feed-forward. Only
+  lost or invalid feedback, a drive fault, an emergency stop or the receiver's
+  own loop running late still cut torque at once. A stop rests inside the
+  joint's limits less the approach floor's stopping margin, braking harder if
+  it must, and a new owner can re-arm the arm where it is held.
+- **Sweep and teleop** (`cb907da`): after a receiver stop they take the arm back
+  where it is held, lower it to the reference (the sweep at each joint's
+  characterisation speed, teleop by its shutdown) and disable it. Stopping a
+  session, or Helm going away, lowers the arm first too. H still disables at
+  once.
+- **Approach** (`cf3664a`): over the last 0.04 rad of a usable range, commands
+  slow to rest (to a 0.05 rad/s creep), so a lagging joint catches up slowly.
+
+In rehearsal, an 80 Nm push drove right J2 to 4.6 rad/s while raised. The
+receiver braked it to a hold at +0.585 rad with torque on throughout; the sweep
+re-armed it, lowered it to 0.003 rad at 0.15 rad/s and disabled it. The J2 sweep
+rehearses to its full range at 1.5 rad/s and verifies.
+
+Deployed as release `20260930T005309Z-cf3664a`.
