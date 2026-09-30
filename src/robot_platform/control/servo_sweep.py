@@ -526,19 +526,18 @@ class SweepEngine:
                 yield
                 continue
             waited = 0.
-            braking = deceleration if deceleration else math.inf
-            if stop and deceleration and v * v / (2 * deceleration) >= remaining:
-                v = max(0., v - braking * dt)
-                if v == 0.:
-                    v = min(speed, math.sqrt(2 * deceleration * remaining))  # Creep the last bit.
-            elif acceleration:
-                v = min(speed, v + acceleration * dt)
-            else:
-                v = speed
+            v = min(speed, v + acceleration * dt) if acceleration else speed
+            if stop and deceleration:
+                # No faster than it can still stop at the target from after this step: v dt + v^2 / 2a = what
+                # is left, so the steps shrink to nothing. Braking only once the stopping distance at the
+                # current speed reached what was left, the plan braked a step, then sped up again, and ended
+                # with one abrupt last step: at 1.5 rad/s, right J3's command jumped 0.053 rad.
+                v = min(v, deceleration * (math.sqrt(dt * dt + 2 * remaining / deceleration) - dt))
             v = min(v, self._toward_end(motor, direction, v))  # Slower toward an end: the braking curve.
             step = min(remaining, v * dt)
             self.targets[motor] += step * direction
-            self.velocity[motor] = v * direction if (not stop or step < remaining) else 0.
+            # The last step too is a ramp at its speed (sent without a velocity, the receiver jumps to it).
+            self.velocity[motor] = step / dt * direction
             yield
         self.targets[motor] = target
         if stop:

@@ -546,7 +546,12 @@ def test_gravity_feed_forward_lets_a_heavy_joint_sweep_and_verify_its_range():
     assert fed['verification']['passed']
     assert fed['verification']['span'] == pytest.approx((-fed['verified']['down'], fed['verified']['up']))
     assert min(fed['verified'].values()) > 1.3 - .06
-    assert fed['recommendation']['max_velocity'] > held['recommendation']['max_velocity']
+    # Both follow the profile's speeds; fed, with a fraction of the lag, so with a tighter tracking bound.
+    assert fed['recommendation']['max_velocity'] >= held['recommendation']['max_velocity']
+    def worst(result):
+        return max(s['max_lag'] for s in result['speeds'] if s['max_lag'] is not None)
+    assert worst(fed) < .5 * worst(held)
+    assert fed['recommendation']['max_tracking_error'] < held['recommendation']['max_tracking_error']
     assert fed['torque']['gravity_fit']['A'] == pytest.approx(14., rel=.02)
 
 
@@ -584,3 +589,26 @@ def test_the_recording_keeps_few_chunks_however_the_rows_arrive():
     assert len(recording.chunks) < 200
     assert len(recording.between(t - 40, t)) == 16
     assert recording.rows_total == int(90 / .04) * 15
+
+
+def test_a_braked_move_slows_steadily_to_its_target_and_ramps_its_last_step():
+    # Braking only once the stopping distance reached what was left, a move braked a step, sped up again and
+    # ended with one abrupt step, sent with no velocity: at 1.5 rad/s right J3's command jumped 0.053 rad and
+    # it lagged 0.047 (2026-09-30).
+    joints = [limits('right_arm_j3', lower=-3., upper=3., bound=.05, speed=1.875, stop=25., effort=60., max_kd=20.,
+                     max_kp=215.)]
+    engine = SweepEngine(joints, home={'right_arm_j3': 0.}, gains={'right_arm_j3': (215., 14.)},
+                         settings={'right_arm_j3': sweep_settings(PROFILE, 'right_arm_j3')}, sweep=['right_arm_j3'],
+                         interpolation_s=.04)
+    steps, velocities = [], []
+    before = engine.targets['right_arm_j3']
+    for _ in engine._go('right_arm_j3', 1.2, 1.5, acceleration=8., deceleration=8.):
+        steps.append(engine.targets['right_arm_j3'] - before)
+        velocities.append(engine.velocity['right_arm_j3'])
+        before = engine.targets['right_arm_j3']
+    assert engine.targets['right_arm_j3'] == pytest.approx(1.2)
+    peak = steps.index(max(steps))
+    assert all(b <= a + 1e-12 for a, b in zip(steps[peak:], steps[peak + 1:]))  # Never speeds up again.
+    assert steps[-1] < .01  # No abrupt last step.
+    assert all(v > 0 for v in velocities)  # Each step, the last too, is a ramp at its speed.
+    assert engine.velocity['right_arm_j3'] == 0.  # At rest once there.
