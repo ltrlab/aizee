@@ -2718,3 +2718,42 @@ power-cycled the motors. Minerva Check's stopped checks all pass. All 14 drives
 kept `zero_sta = 1`, with identity, firmware and fault-free Reset unchanged.
 Every joint is inside its swept range and both arms are within 0.1 rad of the
 reference: left J1 −0.020, right J1 −0.039, farthest right J5 +0.100.
+
+### 2026-09-30 — left J2 swept to 1.5 rad/s; a trip held and lowered the arm
+
+Left J2's sweep (12:02 UTC, release `20260930T044607Z-83d16b3`) was the first
+live run of acceleration feed-forward and of the quiet- and rebooted-drive
+holds. It went up and down the whole range, −1.59 to +1.57 rad, holding at
+−1.54 rad with its worst gravity, 18.9 Nm. Fits: gravity A 17.85 Nm, friction
+0.94 Nm, inertia 1.26 kg·m². It followed every speed up to 1.5 rad/s:
+
+| Speed (rad/s) | 0.5 | 0.8 | 1.0 | 1.2 | 1.5 |
+|---|---|---|---|---|---|
+| Lag up / down (rad) | 0.013 / 0.013 | 0.019 / 0.022 | 0.022 / 0.026 | 0.025 / 0.029 | 0.023 / 0.026 |
+
+Right J2 without the feed-forward lagged 0.034–0.041 rad at 1.2 rad/s and was
+capped at 1.0. Braking at 2 rad/s² from 1.5 rad/s lagged 0.007 rad and
+overshot 0.0002.
+
+Braking at 4 rad/s² tripped the receiver (`limit_violation`). At +0.51 rad,
+J2 read 2.006, 1.887 and 1.895 rad/s, three readings over its 1.875 cap.
+- **The cause was a planner bug.** The braking test cruises to its brake point
+  in one move and brakes in the next. The first move's short last step halved
+  the command's speed for one 40 ms cycle, and J2 overshot chasing it back.
+- **What J2's readings did.** They fell from 1.5 to 0.28 rad/s within 5 ms while
+  J2's torque went from +10.8 to −1.9 Nm. J3 showed no jolt, so the arm itself
+  cannot have stopped that fast. Play between J2's motor and the arm is a
+  possibility after the two falls: worth feeling for a clunk at the shoulder
+  with the motors off.
+- **The receiver held the arm.** It braked to a hold; the sweep re-armed it
+  there, lowered it to the reference and disabled it. This was the first live
+  trip under hold-and-lower, and nothing dropped.
+
+A move handing over at speed now ends a step early and the next carries on, so
+the command's speed never dips. J2 was not saved: the sweep stopped before its
+recommendation and verification.
+
+Drives stayed answering throughout, with one exception. The gripper went quiet
+once for 27.5 ms (the receiver trips at 30) while the arm was lowered after the
+trip, with J2 at +0.54 rad. In the fall its link dropped for 15 ms and then 46
+ms, with J2 at +1.55. The gripper's link is still marginal.
