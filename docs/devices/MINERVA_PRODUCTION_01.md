@@ -2613,3 +2613,20 @@ for J2's speed.
 | J4 | 2.5 rad/s | 50 / 2.8 | 32 rad/s² | 0.059 rad |
 | J5 | 4 rad/s | 24 / 0.61 | 32 rad/s² | 0.075 rad |
 | J6 | 4 rad/s | 24 / 0.61 | 32 rad/s² | 0.064 rad |
+
+### 2026-09-30 — left arm held back: left J1 reads a turn off
+
+The first left-arm sweep (left J1, 03:18 UTC) was refused at its stopped scan:
+left J1 read +5.85 rad against its reference of 0.0 (tolerance 0.1). Minerva
+Check (03:19 UTC, motors disabled) confirmed it. All 14 motors answered with
+identity, firmware and a fault-free Reset. Left J1 read +5.848 rad, 5.01 beyond
+its swept range (−1.56 to +0.84); every other motor was within its range.
+
++5.848 rad is one turn above −0.435 rad. Either the left shoulder swivel sits
+about 25° from its hanging reference and read a turn high after power-up, or
+its zero has shifted (the RobStride zero-loss fault). Nothing was enabled or
+re-zeroed. The left arm is not to be operated until the operator has looked at
+it.
+
+Deployed as release `20260930T032007Z-65ee54d`, with the right arm's six
+saved calibrations.
