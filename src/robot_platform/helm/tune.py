@@ -615,7 +615,10 @@ class TuneSession:
         helm = self.helm
         if arm not in ('left', 'right'):
             raise ValueError('Return the left or right arm')
-        if not helm.fresh():
+        # A resting arm's reading up to 2 s old: the stopped reader's 0.3 s scans plus their round trip sometimes
+        # pass the 0.75 s live-edit limit, which refused a return between two fresh frames (2026-09-30). The
+        # confirm, the live start's stopped scan and the receiver's start gate each check the pose again.
+        if not helm.fresh(limit=2.):
             raise ValueError('Connect to the motors first (Connect, top right): the 3D view then shows the arm '
                              'as its drives read it, to compare with the real arm')
         limits = (helm.saved_limits or {}).get('joints') or {}

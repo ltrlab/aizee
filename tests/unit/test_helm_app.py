@@ -346,6 +346,7 @@ def test_an_arm_returns_to_its_reference_only_from_a_pose_confirmed_against_live
         await client.post('/api/helm/connect', json={}, headers=headers)
         helm.link_state('reading', 'live')
         helm.on_frame(frame(helm, 1, resting))
+        clock.now += 1.5  # Between two stopped scans a resting arm's last reading still counts.
         state = await (await client.post('/api/helm/tune/return', json={'arm': 'right'}, headers=headers)).json()
         offer = state['tune']['return_offer']
         assert [row['motor'] for row in offer['joints'] if row['moves']] == ['right_arm_j1', 'right_arm_j6']
@@ -364,9 +365,14 @@ def test_an_arm_returns_to_its_reference_only_from_a_pose_confirmed_against_live
         assert confirm and bundle['mode'] == 'return' and bundle['arm'] == 'right'
         assert bundle['start_pose']['right_arm_j1'] == pytest.approx(1.1) and len(bundle['start_pose']) == 7
         assert tune.mode == 'tune' and state['tune']['return_offer'] is None  # A later start sweeps again.
-        # A reading outside its swept range is not moved from.
+        # A reading from a reader that stopped is not moved from.
         await client.post('/api/helm/connect', json={}, headers=headers)
-        helm.on_frame(frame(helm, 3, {'right_arm_j5': 6.2}))
+        helm.on_frame(frame(helm, 3, resting))
+        clock.now += 2.5
+        stale = await client.post('/api/helm/tune/return', json={'arm': 'right'}, headers=headers)
+        assert stale.status == 422 and 'Connect to the motors first' in (await stale.json())['error']
+        # A reading outside its swept range is not moved from.
+        helm.on_frame(frame(helm, 4, {'right_arm_j5': 6.2}))
         outside = await client.post('/api/helm/tune/return', json={'arm': 'right'}, headers=headers)
         assert outside.status == 422 and 'Right wrist J5 reads +6.20 rad, outside its swept' in (await outside.json())['error']
 
