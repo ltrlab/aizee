@@ -400,10 +400,20 @@ trips the receiver. It brakes the arm to a hold that keeps its gravity
 feed-forward, rather than cutting torque, and revokes the session's lease. The
 session takes the arm back where it is held, lowers it to its reference and
 disables it; the reason stays on screen. A stop the receiver makes itself (its
-lease or collision verdict lapsing) ends the same way. Only lost or invalid
-feedback, a drive's own fault, an emergency stop or the receiver's own loop
-running late cut torque at once, and a raised arm then drops. Until
-2026-09-29 every trip cut torque: right J2 fell from horizontal.
+lease or collision verdict lapsing) ends the same way.
+
+**One drive going quiet holds the arm too.** The receiver holds the arm on the
+drives still answering while one stops answering, and refuses to re-arm until it
+answers again; the session then lowers the arm. A drive that drops out of Run
+mode mid-move (it rebooted, or its own watchdog disabled it) reads as quiet for
+the rest of the session and is never re-enabled. The receiver holds the arm on
+the others, and Helm names that drive and asks you to support the arm and press H.
+
+Torque is cut at once only for invalid feedback, every drive going quiet, a
+drive's own fault, an adapter failure, an emergency stop, or the receiver's own
+loop running late; a raised arm then drops. Until 2026-09-29 every trip cut
+torque, and right J2 fell from horizontal. Until 2026-09-30 one quiet drive cut
+torque too, and left J2 fell when its gripper's CAN replies stopped for 46 ms.
 
 A receiver fault or trip names what its own feedback shows (a joint outside its
 limits, too fast, over its effort or temperature, a drive fault, a failed

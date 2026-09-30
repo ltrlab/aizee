@@ -2669,9 +2669,17 @@ Changes (release `20260930T040006Z-b232729`):
   it, within 32 rad/s²) only while it ramps, and never in a hold. Not yet
   exercised live.
 
-Still open: a drive that reboots mid-move answers in Reset mode, which the
-adapter treats as a failure, so it still cuts torque everywhere. The operator
-will redo the left wrist harness if the gripper drops out again.
+A drive that reboots mid-move (as J4 and J6 did after this fall) comes back
+disabled, in Reset mode. The adapter treated that as a failure and cut torque
+everywhere. Now it withholds that drive's readings, so the drive reads as quiet
+and the receiver holds the arm on the others. The drive is never re-enabled in
+the session: its command-loss watchdog would not be armed. The status carries
+`hardware_dropped`, naming it, and Helm asks for the arm to be supported and H
+pressed. A drive that reports a fault, or never reaches Run mode after enable,
+still cuts torque. Rehearsed on the simulated arm with right J4 rebooting while
+J2 is raised: the arm stays held.
+
+The operator will redo the left wrist harness if the gripper drops out again.
 
 ### 2026-09-30 — the turn-high readings: every drive's power-on range set to −π…π
 
