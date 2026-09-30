@@ -827,6 +827,9 @@ class SweepEngine:
             self._task(f'{self._label(motor)}: {speed:g} rad/s')
             results = []
             ok = yield from self._guarded(motor, self._speed_test(motor, low, high, speed, accel, results))
+            if not ok:  # A guard stopped it: the speed was not followed, whichever direction it had measured.
+                results.append({'speed': None, 'mean_lag': None, 'max_lag': None, 'peak_effort': None,
+                                'target_speed': speed, 'direction': 0})
             report.speeds += results
             if not ok or any(r['max_lag'] is None or r['max_lag'] > .5 * bound
                              or (r['speed'] or 0.) < .85 * speed for r in results):
