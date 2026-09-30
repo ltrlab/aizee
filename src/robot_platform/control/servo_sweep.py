@@ -545,6 +545,11 @@ class SweepEngine:
                 v = min(v, deceleration * (math.sqrt(dt * dt + 2 * remaining / deceleration) - dt))
             v = min(v, self._toward_end(motor, direction, v))  # Slower toward an end: the braking curve.
             step = min(remaining, v * dt)
+            if not stop and step < v * dt:
+                # A move handing over at speed ends a step early: the next carries on from here at this speed. Its
+                # short last step halved the command's speed for a cycle, and the joint, chasing it back, reached
+                # 2.0 rad/s against a 1.5 plan: left J2's braking test tripped the receiver (2026-09-30).
+                return
             self.targets[motor] += step * direction
             # The last step too is a ramp at its speed (sent without a velocity, the receiver jumps to it).
             self.velocity[motor] = step / dt * direction

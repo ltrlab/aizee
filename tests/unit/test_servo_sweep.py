@@ -615,6 +615,33 @@ def test_a_braked_move_slows_steadily_to_its_target_and_ramps_its_last_step():
     assert engine.velocity['right_arm_j3'] == 0.  # At rest once there.
 
 
+def test_a_move_handing_over_at_speed_keeps_its_speed_into_the_next():
+    # The braking test cruises to where it brakes (a move ending at speed), then brakes. That first move's short last
+    # step halved the command's speed for a cycle, and left J2, chasing it back, reached 2.0 rad/s against 1.5: the
+    # receiver tripped (2026-09-30). Now every step into the braking is a whole cruise step.
+    joints = [limits('left_arm_j2', lower=-1.6, upper=1.6, bound=.08, speed=1.875, stop=16., effort=120., max_kd=30.,
+                     max_kp=220.)]
+    engine = SweepEngine(joints, home={'left_arm_j2': 0.}, gains={'left_arm_j2': (220., 15.)},
+                         settings={'left_arm_j2': sweep_settings(PROFILE, 'left_arm_j2')}, sweep=['left_arm_j2'],
+                         interpolation_s=.04)
+    engine.targets['left_arm_j2'] = -1.
+    steps = []
+    before = -1.
+    for move in (engine._go('left_arm_j2', .4999, 1.5, acceleration=8., stop=False),
+                 engine._go('left_arm_j2', .8, 1.5, deceleration=4.)):
+        for _ in move:
+            steps.append(engine.targets['left_arm_j2'] - before)
+            before = engine.targets['left_arm_j2']
+    cruise = 1.5 * .04
+    peak = steps.index(max(steps))
+    assert max(steps) == pytest.approx(cruise)
+    # From the cruise on, each step is no longer than the last, and none before the braking is short.
+    assert all(b <= a + 1e-12 for a, b in zip(steps[peak:], steps[peak + 1:]))
+    braking = next(i for i in range(peak, len(steps)) if steps[i] < cruise - 1e-9)
+    assert steps[braking] > cruise - 4. * .04 * .04 - 1e-9  # Its first braking step slows by one cycle's 4 rad/s2.
+    assert engine.targets['left_arm_j2'] == pytest.approx(.8) and engine.velocity['left_arm_j2'] == 0.
+
+
 def test_a_heavy_joints_inertia_is_fitted_and_fed_forward_as_it_speeds_up():
     # Right J2 (0.9 kg m2 fitted, 2026-09-30) lagged while it accelerated, not while it cruised. Here a shoulder
     # of 0.6 kg m2, its gravity fed forward: the sweep fits its inertia from its speed tests and feeds its
