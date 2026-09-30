@@ -19,7 +19,10 @@ from datetime import datetime, timezone
 
 ZERO_DATA = bytes([1, 0, 0, 0, 0, 0, 0, 0])
 SAVE_DATA = bytes(range(1, 9))
-READ_PARAMETERS = {0x7005, 0x7019, 0x701B, 0x2021, 0x2024}
+READ_PARAMETERS = {0x7005, 0x7019, 0x701B, 0x7029, 0x2021, 0x2024}
+# One-byte values: the run mode, and zero_sta, the window a drive puts its angle in at power-on
+# (0: 0…2π, the factory default; 1: −π…π).
+BYTE_PARAMETERS = {0x7005, 0x7029}
 # Type-2 reply: mode in arbitration bits 22-23, latched faults in bits 16-21.
 MODES = ('Reset', 'Cali', 'Run', 'unknown mode')
 FAULTS = ('undervoltage', 'overcurrent', 'overtemperature', 'magnetic encoder', 'Hall encoder', 'uncalibrated')
@@ -87,7 +90,7 @@ class StoppedMaintenance:
             if (arb != (17 << 24) | (motor["id"] << 8) | self.host
                     or int.from_bytes(data[:2], "little") != parameter):
                 raise RuntimeError("Wrong parameter reply")
-            value = data[4] if parameter == 0x7005 else struct.unpack_from("<f", data, 4)[0]
+            value = data[4] if parameter in BYTE_PARAMETERS else struct.unpack_from("<f", data, 4)[0]
             if not math.isfinite(value):
                 raise RuntimeError("Nonfinite parameter")
             return value

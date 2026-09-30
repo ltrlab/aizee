@@ -28,9 +28,9 @@ class Bus:
         if kind == "identity":
             return (motor << 8) | 0xFE, bytes(range(1, 9))
         if kind == "read":
-            value = {0x7005: self.run_mode, 0x7019: self.q[motor], 0x701B: self.velocity}[parameter]
+            value = {0x7005: self.run_mode, 0x7019: self.q[motor], 0x701B: self.velocity, 0x7029: 1}[parameter]
             data = struct.pack("<H", parameter) + bytes(2)
-            data += bytes([value, 0, 0, 0]) if parameter == 0x7005 else struct.pack("<f", value)
+            data += bytes([value, 0, 0, 0]) if parameter in (0x7005, 0x7029) else struct.pack("<f", value)
             return (17 << 24) | (motor << 8) | 0xAA, data
         if kind == "zero" and not self.bad_zero:
             self.q[motor] = 0.
@@ -49,6 +49,11 @@ def test_complete_roster_verified_before_write_and_save_magic():
     assert [e[2] for e in bus.events if e[1] == "zero"] == [bytes([1]) + bytes(7)] * 2
     assert [e[2] for e in bus.events if e[1] == "save"] == [bytes(range(1, 9))] * 2
     assert all(e[1] in {"identity", "stop", "version", "read", "zero", "save"} for e in bus.events)
+
+
+def test_the_power_on_range_reads_as_one_byte():
+    # zero_sta: 1 puts a drive's power-on angle within -pi..pi (0, the default: 0..2pi).
+    assert StoppedMaintenance(Bus(), sleep=lambda _: None).request(roster()[0], "read", 0x7029) == 1
 
 
 @pytest.mark.parametrize("failure", ["missing", "firmware", "enabled", "pp", "moving"])

@@ -1,5 +1,6 @@
 """The live receiver for one arm: its service configuration and its start/stop sequence (faked hardware)."""
 import json
+import math
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -147,6 +148,12 @@ def test_start_scans_stopped_then_brings_the_link_up_and_waits_for_a_disarmed_ar
 def test_an_arm_out_of_its_reference_pose_is_named_and_nothing_starts(tmp_path):
     live, commands, spawned = receiver(tmp_path, capture=lambda d, r: scan({'left_arm_j2': .35}))
     with pytest.raises(ValueError, match=r'Not in the reference pose: Left J2 is \+0\.35 rad away \(tolerance 0\.1'):
+        live.start()
+    assert commands == [] and spawned == []
+    # A drive that powered up a whole turn away is named as that, not as a moved joint.
+    live, commands, spawned = receiver(tmp_path, capture=lambda d, r: scan({'left_arm_j2': 2 * math.pi - .11}))
+    with pytest.raises(ValueError, match=r'^Left J2 reads \+6\.17 rad, -0\.11 rad plus a whole turn\. A drive reports '
+                                         r'its angle within one turn.*power-cycle the motors\.$'):
         live.start()
     assert commands == [] and spawned == []
     live, commands, spawned = receiver(tmp_path, capture=lambda d, r: scan(success=False, error='Not answering: x'))

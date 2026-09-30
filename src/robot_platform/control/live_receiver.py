@@ -20,6 +20,7 @@ evidence, then takes the CAN link down. The service dies with this process
 (parent death signal). Nothing here writes a zero, a parameter or flash.
 """
 import json
+import math
 from pathlib import Path
 import signal
 import subprocess
@@ -66,6 +67,31 @@ def reference_offsets(report, config):
         raise RuntimeError('The stopped scan did not cover every motor of the arm')
     return [(name, scanned[name] - row['raw_position_rad']) for name, row in references.items()
             if abs(scanned[name] - row['raw_position_rad']) > row['tolerance_rad']]
+
+
+TURN_RAD = 2 * math.pi
+TURN_ADVICE = ('A drive reports its angle within one turn when it powers up (0…2π unless its power-on range '
+               'is set to −π…π), so a joint resting just below its zero at power-up reads a whole turn high. '
+               'Nothing moved and nothing is re-zeroed: turn the joint to its reference by hand, then power-cycle '
+               'the motors.')
+
+
+def whole_turns(value, lower, upper, *, tolerance=.05):
+    """How many whole turns (+1 or -1) a reading outside lower…upper sits from a reading inside it, else 0:
+    a drive that powered up a turn away (see TURN_ADVICE), not a moved or re-zeroed joint. A reading inside
+    the range is 0 even where the range spans more than a turn."""
+    if lower - tolerance <= value <= upper + tolerance:
+        return 0
+    for turns in (1, -1):
+        if lower - tolerance <= value - turns * TURN_RAD <= upper + tolerance:
+            return turns
+    return 0
+
+
+def turned(name, value, turns, labels=None):
+    """'Left J1 reads +6.18 rad, −0.11 rad plus a whole turn'."""
+    label = (labels or {}).get(name, name)
+    return f"{label} reads {value:+.2f} rad, {value - turns * TURN_RAD:+.2f} rad {'plus' if turns > 0 else 'minus'} a whole turn"
 
 
 def outside_limits(positions, controller, *, margin=0.):
@@ -154,6 +180,12 @@ class LiveReceiver:
         report = (self.capture or run_capture)(device, reference)
         if not report.get('success'):
             raise RuntimeError(f"The stopped check of the arm failed: {report.get('error', 'no report')}")
+        scanned = {row['name']: row['position_rad'] for row in report['motors']}
+        wrapped = [(name, value, whole_turns(value, lower, upper))
+                   for name, value, lower, upper in outside_limits(scanned, self.config['controller'])]
+        if any(turns for _, _, turns in wrapped):
+            raise ValueError('; '.join(turned(name, value, turns, self.labels) for name, value, turns in wrapped
+                                       if turns) + '. ' + TURN_ADVICE)
         offsets = reference_offsets(report, self.config)
         if offsets:
             tolerance = self.config['reference_positions'][0]['tolerance_rad']
@@ -161,7 +193,6 @@ class LiveReceiver:
                 f'{self.labels.get(name, name)} is {offset:+.2f} rad away' for name, offset in offsets)
                 + f' (tolerance {tolerance:g} rad). Let the arm hang straight down with the gripper closed, '
                   'then start again.')
-        scanned = {row['name']: row['position_rad'] for row in report['motors']}
         outside = outside_limits(scanned, self.config['controller'], margin=FEEDBACK_MARGIN_RAD)
         if outside:
             raise ValueError("At or next to the receiver's joint limits, which would fault it at once: " + ', '.join(

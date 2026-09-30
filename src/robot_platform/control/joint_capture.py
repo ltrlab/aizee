@@ -20,11 +20,14 @@ else:  # The SSH client stages these two source files together, by content hash.
     from mechanical_zero import SocketCanMaintenance, StoppedMaintenance
 
 
+POWER_ON_RANGE = 0x7029  # zero_sta: the window a drive puts its angle in at power-on (0: 0…2π, 1: −π…π).
+
+
 def stopped_exchange(exchange):
     def call(bus, frame, kind, parameter):
         if kind not in {"identity", "stop", "version", "read"}:
             raise ValueError("Calibration permits stopped reads only")
-        if kind == "read" and parameter not in {0x7005, 0x7019, 0x701B}:
+        if kind == "read" and parameter not in {0x7005, 0x7019, 0x701B, POWER_ON_RANGE}:
             raise ValueError("Calibration parameter is not allowlisted")
         return exchange(bus, frame, kind, parameter)
     return call
@@ -109,8 +112,12 @@ def live_scan(reader, motors):
             q = reader.request(motor, 'read', 0x7019)
         except TimeoutError as exc:
             raise MotorSilent('Missing stopped position: ' + motor['name'], motor['name']) from exc
+        try:
+            zero_sta = reader.request(motor, 'read', POWER_ON_RANGE)
+        except (TimeoutError, RuntimeError):
+            zero_sta = None  # Firmware without the parameter: unknown, not a silent motor.
         rows.append({k: motor[k] for k in ('name', 'bus', 'id', 'uid', 'firmware')} |
-                    {'position_rad': q, 'reset_confirmed': True})
+                    {'position_rad': q, 'zero_sta': zero_sta, 'reset_confirmed': True})
     return rows
 
 

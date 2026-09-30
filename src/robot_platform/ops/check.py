@@ -579,21 +579,46 @@ def _scan(ctx):
     status, detail = scan_findings(ctx, report)
     if status == PASS:
         ctx.facts['positions'] = {row['name']: row['position_rad'] for row in report['motors']}
+        ctx.facts['power_on'] = {row['name']: row.get('zero_sta') for row in report['motors']}
     return status, detail, report
+
+
+@check('motors', 'power_on', 'Power-on position range', requires=('scan',))
+def _power_on(ctx):
+    """zero_sta, read while stopped: a drive left at the factory's 0…2π reads a whole turn high when its joint
+    rests just below zero at power-up, which stops operation until someone turns it back and power-cycles."""
+    ranges = ctx.facts['power_on']
+    wide = [motor for motor, value in ranges.items() if value == 0]
+    unknown = [motor for motor, value in ranges.items() if value not in (0, 1)]
+    if wide or unknown:
+        return WARN, ((f'{_names(ctx, wide)} start{"s" if len(wide) == 1 else ""} within 0…2π (zero_sta 0): a joint '
+                       'resting just below its zero at power-up reads a whole turn high until it is turned back '
+                       'and the motors are power-cycled. −π…π (zero_sta 1) avoids it. ' if wide else '')
+                      + (f'{_names(ctx, unknown)} did not report a power-on range.' if unknown else '')).strip()
+    return PASS, f'All {len(ranges)} drives start within −π…π of their zero'
 
 
 @check('motors', 'pose', 'Positions inside the swept ranges', requires=('scan', 'limits'))
 def _pose(ctx):
+    from robot_platform.control.live_receiver import TURN_ADVICE, turned, whole_turns
     limits, positions = ctx.facts['limits']['joints'], ctx.facts['positions']
-    outside = []
+    outside, wrapped = [], []
     for motor, q in positions.items():
         low, high = limits[motor]['min_rad'], limits[motor]['max_rad']
         beyond = max(low - q, q - high)
-        if beyond > POSE_TOLERANCE_RAD:
+        if beyond <= POSE_TOLERANCE_RAD:
+            continue
+        turns = whole_turns(q, low, high, tolerance=POSE_TOLERANCE_RAD)
+        if turns:
+            wrapped.append(turned(motor, q, turns, {motor: ctx.label(motor)}))
+        else:
             outside.append(f'{ctx.label(motor)} at {q:+.2f} rad, {beyond:.2f} beyond its swept {low:+.2f}…{high:+.2f}')
-    if outside:
-        return FAIL, ('Outside the swept range: ' + '; '.join(outside) + '. Move it into range by hand, or re-sweep '
-                      'it in Limits. Far outside can mean its zero shifted: do not operate until that is explained.')
+    if outside or wrapped:
+        return FAIL, ' '.join(
+            ([f"{'; '.join(wrapped)}. {TURN_ADVICE}"] if wrapped else [])
+            + (['Outside the swept range: ' + '; '.join(outside) + '. Move it into range by hand, or re-sweep it '
+                'in Limits. Far outside can mean its zero shifted: do not operate until that is explained.']
+               if outside else []))
     raw = {m['name']: m['raw_reference_rad'] for m in ctx.facts['reference']['motors']}
     farthest = max(positions, key=lambda motor: abs(positions[motor] - raw[motor]))
     return PASS, (f'All {len(positions)} inside their swept ranges; farthest from the reference pose: '
@@ -606,24 +631,31 @@ def _live_pose(ctx):
     """What a live session's own pre-scan checks, for each arm: the receiver faults on a reading
     outside its limits even disarmed, so a joint at a limit (a closed gripper on its swept end)
     would stop the session at once."""
-    from robot_platform.control.live_receiver import FEEDBACK_MARGIN_RAD, outside_limits
+    from robot_platform.control.live_receiver import (FEEDBACK_MARGIN_RAD, TURN_ADVICE, outside_limits, turned,
+                                                      whole_turns)
     positions = ctx.facts['positions']
     raw = {m['name']: m['raw_reference_rad'] for m in ctx.facts['reference']['motors']}
     tolerance = ctx.facts['teleop'].get('live', {}).get('reference_tolerance_rad', .1)
-    blocked, away = [], []
+    blocked, wrapped, away = [], [], []
     for arm in ('left', 'right'):
         controller = _derive(ctx, arm)['config']
         names = [joint['name'] for joint in controller['joints']]
         for motor, q, lower, upper in outside_limits({name: positions[name] for name in names}, controller,
                                                      margin=FEEDBACK_MARGIN_RAD):
-            blocked.append(f'{ctx.label(motor)} reads {q:+.4f} rad (receiver limits {lower:+.4f} to {upper:+.4f})')
+            turns = whole_turns(q, lower, upper)
+            if turns:
+                wrapped.append(turned(motor, q, turns, {motor: ctx.label(motor)}))
+            else:
+                blocked.append(f'{ctx.label(motor)} reads {q:+.4f} rad (receiver limits {lower:+.4f} to {upper:+.4f})')
         off = [f'{ctx.label(name)} {positions[name] - raw[name]:+.2f} rad' for name in names
                if abs(positions[name] - raw[name]) > tolerance]
         if off:
             away.append(f'{arm} arm: ' + ', '.join(off))
-    if blocked:
-        return FAIL, ("At or next to the live receiver's limits, which would fault it at once: "
-                      + '; '.join(blocked) + '. Re-sweep that joint in Limits.')
+    if blocked or wrapped:
+        return FAIL, ' '.join(
+            ([f"{'; '.join(wrapped)}: the live receiver would fault at once. {TURN_ADVICE}"] if wrapped else [])
+            + (["At or next to the live receiver's limits, which would fault it at once: " + '; '.join(blocked)
+                + '. Re-sweep that joint in Limits.'] if blocked else []))
     if away:
         return WARN, ('Away from the reference pose, which a live session requires at its start: '
                       + '; '.join(away) + f' (tolerance {tolerance:g} rad). Let that arm hang straight down.')

@@ -53,6 +53,19 @@ def test_complete_preflight_verifies_identity():
     assert result == {'identity_verified': True}
 
 
+def test_the_scan_reads_each_drives_power_on_range_and_tolerates_firmware_without_it():
+    class Ranges(Reader):
+        def request(self, motor, kind, parameter=None):
+            if parameter == 0x7029:
+                if motor['name'] == 'm2':
+                    raise TimeoutError('no such parameter')
+                return 1
+            return super().request(motor, kind, parameter)
+    rows = live_scan(Ranges(), MOTORS)
+    assert [row['zero_sta'] for row in rows] == [1, 1, None, 1]
+    assert [row['position_rad'] for row in rows] == [0] * 4
+
+
 def test_a_silent_motor_during_a_scan_is_identified():
     with pytest.raises(MotorSilent, match='Missing stopped position: m1') as error:
         live_scan(Reader(silent=('m1',)), MOTORS)

@@ -1,5 +1,6 @@
 """Minerva Check: a full run against a fake robot (real link code over loopback), and its findings."""
 import json
+import math
 import queue
 import threading
 import time
@@ -70,7 +71,8 @@ def scan(**change):
               'enable_requested': False, 'parameter_writes_requested': False,
               'motors': [{**{k: m[k] for k in ('name', 'bus', 'id', 'uid', 'firmware')},
                           'position_rad': (LIMITS['joints'][m['name']]['min_rad']
-                                           + LIMITS['joints'][m['name']]['max_rad']) / 2, 'reset_confirmed': True}
+                                           + LIMITS['joints'][m['name']]['max_rad']) / 2, 'zero_sta': 1,
+                          'reset_confirmed': True}
                          for m in REFERENCE['motors']],
               'after': {'canL': {'flags': ['NOARP']}, 'canR': {'flags': ['NOARP']}}}
     report.update(change)
@@ -256,17 +258,18 @@ def test_robot_problems_are_named(runs, loopback):
     assert checks['leaders']['status'] == 'warn' and 'outside the saved sweep' in checks['leaders']['detail']
 
 
-def test_what_would_stop_a_live_session_at_once_is_caught_before_one_starts(runs, loopback):
-    def hanging(**positions):
-        report = scan()
-        for row in report['motors']:
-            name = row['name']
-            # Arms hang in the reference pose; closed grippers rest on their swept ends.
-            row['position_rad'] = positions.get(name, LIMITS['joints'][name]['min_rad'] if 'gripper' in name
-                                                else next(m['raw_reference_rad'] for m in REFERENCE['motors']
-                                                          if m['name'] == name))
-        return report
+def hanging(**positions):
+    report = scan()
+    for row in report['motors']:
+        name = row['name']
+        # Arms hang in the reference pose; closed grippers rest on their swept ends.
+        row['position_rad'] = positions.get(name, LIMITS['joints'][name]['min_rad'] if 'gripper' in name
+                                            else next(m['raw_reference_rad'] for m in REFERENCE['motors']
+                                                      if m['name'] == name))
+    return report
 
+
+def test_what_would_stop_a_live_session_at_once_is_caught_before_one_starts(runs, loopback):
     _report, checks, _ = run(runs, FakeRobot(motors_report=hanging()))
     assert checks['live_pose']['status'] == 'pass', checks['live_pose']['detail']
     grip = LIMITS['joints']['right_gripper']['min_rad']
@@ -275,6 +278,23 @@ def test_what_would_stop_a_live_session_at_once_is_caught_before_one_starts(runs
     assert "live receiver's limits" in checks['live_pose']['detail'] and 'Right gripper' in checks['live_pose']['detail']
     _report, checks, _ = run(runs, FakeRobot(motors_report=hanging(left_arm_j2=.3)))
     assert checks['live_pose']['status'] == 'warn' and 'left arm: Left shoulder hinge (J2) +0.30 rad' in checks['live_pose']['detail']
+
+
+def test_a_drive_that_powered_up_a_whole_turn_high_is_explained_not_blamed_on_its_zero(runs, loopback):
+    report = hanging(left_arm_j1=2 * math.pi - .11)
+    next(row for row in report['motors'] if row['name'] == 'left_arm_j1')['zero_sta'] = 0
+    _report, checks, _ = run(runs, FakeRobot(motors_report=report))
+    for key in ('pose', 'live_pose'):
+        detail = checks[key]['detail']
+        assert checks[key]['status'] == 'fail', key
+        assert detail.startswith('Left shoulder swivel (J1) reads +6.17 rad, -0.11 rad plus a whole turn'), detail
+        assert 'power-cycle the motors' in detail and 'zero shifted' not in detail and 'Re-sweep' not in detail
+    assert checks['power_on']['status'] == 'warn'
+    assert checks['power_on']['detail'].startswith('Left shoulder swivel (J1) starts within 0…2π (zero_sta 0)')
+    # A joint far outside its range by anything but a whole turn is still an unexplained reading.
+    _report, checks, _ = run(runs, FakeRobot(motors_report=hanging(left_arm_j1=4.)))
+    assert 'zero shifted' in checks['pose']['detail'] and 'whole turn' not in checks['pose']['detail']
+    assert checks['power_on']['status'] == 'pass' and 'All 14 drives start within' in checks['power_on']['detail']
 
 
 def test_unconfirmed_calibration_fails_before_anything_is_derived(runs, loopback):
