@@ -2863,3 +2863,17 @@ saved and is to be re-run.
 The receiver reported this as "left_arm_j5: not in Run mode 50 ms after enable
 (mode 0)", its startup check's wording, which misnames a drive that ran and
 then left Run mode reporting faults.
+
+Harness repaired and motors power-cycled (22:44 UTC). Minerva Check's stopped
+checks all passed: all 14 drives answered fault-free, with −π…π power-on range,
+and both arms within 0.1 rad of the reference.
+
+The left J3 re-run (22:44 UTC, release `20260930T184706Z-c3f8f8d`) failed during
+characterisation. With J3 moving slowly through −1.13 rad toward −2.05, the
+receiver reported "left_arm_j5: left Run mode while driven (mode 0), reporting
+overcurrent". J5 was holding still at 0.17 Nm (0.29 Nm peak all session). Left
+J5, J6 and the gripper again stopped answering the stopped scan afterwards.
+Both failures came while J3 moved, so the wrist branch's supply most likely
+breaks under flex at J3 or J4. The forearm dropped from J3 −1.13 rad when
+torque was cut. The left arm stays stopped until the harness is found and
+fixed.
