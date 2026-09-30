@@ -120,6 +120,7 @@ fn periodic_execution_expiry_stop_and_fault_do_not_touch_allocator() {
                     kp: 10.0,
                     kd: 1.0,
                 }],
+                ramp_efforts: Vec::new(),
             },
             &mut h,
         )

@@ -179,6 +179,8 @@ pub struct Controller {
     commands: Vec<JointCommand>,
     /// The last accepted Move, which `commands` ramps toward while Executing.
     targets: Vec<JointCommand>,
+    /// Its ramp efforts: added to each joint's effort only while it ramps.
+    ramp_efforts: Vec<f64>,
     target_at_ms: u64,
     stops: Vec<JointStop>,
     stop_started_ms: u64,
@@ -230,6 +232,7 @@ impl Controller {
                 };
                 count
             ],
+            ramp_efforts: vec![0.0; count],
             target_at_ms: 0,
             stops: vec![JointStop::default(); count],
             stop_started_ms: 0,
@@ -241,23 +244,26 @@ impl Controller {
     }
 
     /// Ramp the reference toward the last Move: from where its velocity says the stream came from
-    /// to its position, over one interpolation period, with its velocity fed forward; then hold it.
+    /// to its position, over one interpolation period, with its velocity fed forward and its ramp
+    /// effort added (to accelerate the joint to that velocity); then hold it, without either.
     fn follow_targets(&mut self) {
         let period = self.interpolation_s();
         let elapsed = (self.now_ms.saturating_sub(self.target_at_ms)) as f64 / 1000.0;
-        for ((command, target), limit) in self
+        for (((command, target), limit), ramp) in self
             .commands
             .iter_mut()
             .zip(&self.targets)
             .zip(&self.config.joints)
+            .zip(&self.ramp_efforts)
         {
             *command = *target;
             if period <= 0.0 {
-                continue; // No interpolation: applied as sent.
+                continue; // No interpolation: applied as sent (no ramp, so no ramp effort).
             }
             if elapsed < period {
                 command.position = (target.position - target.velocity * (period - elapsed))
                     .clamp(limit.lower, limit.upper);
+                command.effort += ramp;
             } else {
                 command.velocity = 0.0;
             }
@@ -474,6 +480,13 @@ impl Controller {
         }
         for i in 0..self.stops.len() {
             let (f, command) = (self.feedback[i], self.commands[i]);
+            // The effort that holds the joint: the last Move's, without the ramp effort that was
+            // accelerating it (a stop that kept that would push on in its direction).
+            let held = if self.state == State::Executing {
+                self.targets[i].effort
+            } else {
+                command.effort
+            };
             let limit = &self.config.joints[i];
             if limit.gripper {
                 // No braking trajectory: keep holding the last validated target.
@@ -493,7 +506,7 @@ impl Controller {
                 return;
             };
             // The last command's feed-forward holds the joint against gravity through the stop.
-            self.stops[i] = plan.with_effort(command.effort);
+            self.stops[i] = plan.with_effort(held);
         }
         // Keep enforcing the spatial box during stopping and subsequent hold.
         self.collision_deadline = None;
@@ -968,6 +981,7 @@ impl Controller {
                 identity,
                 joints,
                 collision,
+                ramp_efforts,
             } => {
                 self.authorize(&authority)?;
                 if !matches!(self.state, State::Holding | State::Executing) {
@@ -976,7 +990,9 @@ impl Controller {
                 if identity != self.config.identity {
                     return Err(Reason::WrongIdentity);
                 }
-                if joints.len() != self.commands.len() {
+                if joints.len() != self.commands.len()
+                    || !(ramp_efforts.is_empty() || ramp_efforts.len() == joints.len())
+                {
                     return Err(Reason::InvalidCommand);
                 }
                 // Validate the ENTIRE batch before any target changes.
@@ -1002,9 +1018,24 @@ impl Controller {
                         return Err(Reason::InvalidCommand);
                     }
                 }
+                // A ramp effort is finite and, with the command's own, within the effort limit.
+                for ((command, limit), ramp) in joints
+                    .iter()
+                    .zip(&self.config.joints)
+                    .zip(ramp_efforts.iter().chain(std::iter::repeat(&0.0)))
+                {
+                    if !ramp.is_finite() || (command.effort + ramp).abs() > limit.max_effort {
+                        return Err(Reason::InvalidCommand);
+                    }
+                }
                 let deadline = self.validate_collision(collision.as_ref(), Some(&joints))?;
                 self.install_collision(collision.as_ref(), deadline);
                 self.targets.copy_from_slice(&joints);
+                if ramp_efforts.is_empty() {
+                    self.ramp_efforts.fill(0.0);
+                } else {
+                    self.ramp_efforts.copy_from_slice(&ramp_efforts);
+                }
                 self.target_at_ms = self.now_ms;
                 self.follow_targets();
                 self.consume_sequence(&authority);

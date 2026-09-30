@@ -104,6 +104,7 @@ fn move_request(c: &Controller, sequence: u64, count: usize, q: f64, v: f64) -> 
         collision: None,
         authority: auth(c, sequence),
         identity: identity(),
+        ramp_efforts: Vec::new(),
         joints: joints(count, q, v),
     }
 }
@@ -196,6 +197,7 @@ fn collision_expiry_survives_lease_renewal_and_stops_without_client_messages() {
             Request::Move {
                 authority: auth(&c, 2),
                 identity: identity(),
+                ramp_efforts: Vec::new(),
                 joints: joints(2, 0.1, 0.0),
                 collision: Some(checked)
             },
@@ -271,6 +273,7 @@ fn collision_offer_cannot_be_delayed_reused_or_given_a_new_lifetime() {
             Request::Move {
                 authority: auth(&c, 2),
                 identity: identity(),
+                ramp_efforts: Vec::new(),
                 joints: joints(2, 0.1, 0.),
                 collision: Some(checked)
             },
@@ -437,6 +440,7 @@ fn entire_batch_and_identity_are_validated_before_mutation() {
                 collision: None,
                 authority: auth(&c, 2),
                 identity: identity(),
+                ramp_efforts: Vec::new(),
                 joints: values,
             },
             &mut h,
@@ -459,6 +463,7 @@ fn entire_batch_and_identity_are_validated_before_mutation() {
             authority: auth(&c, 2),
             identity: changed,
             joints: joints(2, 0.1, 0.0),
+            ramp_efforts: Vec::new(),
         },
         &mut h,
     );
@@ -662,6 +667,7 @@ fn a_trip_holds_a_raised_joint_with_its_feed_forward_and_its_owner_lowers_it() {
         collision: None,
         authority: auth(&c, 2),
         identity: identity(),
+        ramp_efforts: Vec::new(),
         joints: raised,
     };
     assert!(c.handle(2, r, &mut h).accepted);
@@ -1318,6 +1324,7 @@ fn move_with(
             collision: Some(checked),
             authority: auth(c, sequence),
             identity: identity(),
+            ramp_efforts: Vec::new(),
             joints: commanded,
         },
         h,
@@ -1408,4 +1415,67 @@ fn a_joint_settling_past_a_command_at_the_edge_of_its_range_can_still_be_command
     // A command there is still refused.
     let reply = move_with(&mut c, &mut h, 5, 4, 2.95, 0.0, 0.0, 3.0);
     assert_eq!(reply.reason, Reason::CollisionViolation);
+}
+
+fn move_with_ramp(
+    c: &mut Controller,
+    h: &mut Loopback,
+    now: u64,
+    sequence: u64,
+    ramp: Vec<f64>,
+) -> Reply {
+    let checked = envelope(c, h, now);
+    let mut commanded = joints(2, 0.4, 1.0);
+    for joint in commanded.iter_mut() {
+        joint.effort = 1.0;
+    }
+    c.handle(
+        now,
+        Request::Move {
+            collision: Some(checked),
+            authority: auth(c, sequence),
+            identity: identity(),
+            ramp_efforts: ramp,
+            joints: commanded,
+        },
+        h,
+    )
+}
+
+#[test]
+fn a_ramp_effort_accelerates_only_the_ramp_and_is_never_held() {
+    // An acceleration's effort belongs to the ramp that changes the velocity: held after it, or
+    // through a stop, it would push the joint on in that direction.
+    let (mut c, mut h) = interpolated_fixture();
+    assert!(move_with_ramp(&mut c, &mut h, 10, 2, vec![2.0, 0.0]).accepted);
+    assert_eq!(c.status().joints[0].effort, 3.0); // Its own 1 Nm, and 2 accelerating it.
+    assert_eq!(c.status().joints[1].effort, 1.0);
+    c.tick(30, &mut h);
+    assert_eq!(c.status().joints[0].effort, 3.0);
+    c.tick(50, &mut h); // The ramp is over: only its own.
+    assert_eq!(c.status().joints[0].effort, 1.0);
+    // A stop in the middle of a ramp holds the joint with its own effort, not the ramp's.
+    assert!(move_with_ramp(&mut c, &mut h, 60, 3, vec![2.0, 0.0]).accepted);
+    assert!(
+        c.handle(
+            61,
+            Request::Stop {
+                authority: auth(&c, 4)
+            },
+            &mut h
+        )
+        .accepted
+    );
+    for now in 62..600 {
+        c.tick(now, &mut h);
+    }
+    assert_eq!(c.status().joints[0].effort, 1.0);
+    // Refused: a ramp effort for some joints only, or over the effort limit with the command's own.
+    let (mut c, mut h) = interpolated_fixture();
+    let short = move_with_ramp(&mut c, &mut h, 10, 2, vec![2.0]);
+    assert_eq!(short.reason, Reason::InvalidCommand);
+    let over = move_with_ramp(&mut c, &mut h, 11, 3, vec![4.5, 0.0]); // 1 + 4.5 over the 5 Nm limit.
+    assert_eq!(over.reason, Reason::InvalidCommand);
+    let bad = move_with_ramp(&mut c, &mut h, 12, 4, vec![f64::NAN, 0.0]);
+    assert_eq!(bad.reason, Reason::InvalidCommand);
 }

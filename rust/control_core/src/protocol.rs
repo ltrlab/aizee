@@ -62,6 +62,11 @@ pub enum Request {
         joints: Vec<JointCommand>,
         #[serde(default)]
         collision: Option<crate::collision::MotionEnvelope>,
+        /// Per joint, effort added only while the receiver ramps to this command (its
+        /// interpolation period), to accelerate the joint to the command's velocity; never
+        /// held through a stop or after the ramp. Empty: none.
+        #[serde(default)]
+        ramp_efforts: Vec<f64>,
     },
     Stop {
         authority: Authority,
