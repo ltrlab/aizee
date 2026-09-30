@@ -16,7 +16,8 @@ limits, so it never takes travel away.
 Commands carry headroom under what the receiver enforces: servos overshoot the
 speed they follow. The receiver's cap is the commanded cap times
 OVERSPEED_HEADROOM, and commands toward an end stay within COMMAND_HEADROOM of
-the curve.
+the curve. Over the last few hundredths of a radian of the usable range they slow
+to rest (arrival_factor) rather than stopping at its end from the curve's floor.
 """
 import math
 
@@ -26,6 +27,8 @@ COMMAND_HEADROOM = 1 / OVERSPEED_HEADROOM  # Commands toward an end: this share 
 OVERTRAVEL_RAD = .02  # A joint may pass its hand-swept end by this much before the receiver faults.
 FRICTION_FF_FRACTION = .7  # Friction feed-forward: this share of the measured friction, never all of it.
 FRICTION_SMOOTH_RAD_S = .05  # Friction feed-forward reaches its share at this commanded speed.
+ARRIVAL_ZONE_RAD = .04  # Commands slow to rest over the last this much of a joint's usable range,
+ARRIVAL_CREEP_RAD_S = .05  # and no slower than this, so they arrive.
 
 
 def reaction_s(receiver):
@@ -106,13 +109,31 @@ def command_speed(joint, reaction, position, direction, cap):
     return min(cap, COMMAND_HEADROOM * limit_speed(joint, reaction, distance))
 
 
+def arrival_factor(joint, reaction, position, direction):
+    """The share of its speed a command at `position` keeps moving in `direction` toward the end of the joint's
+    usable range: all of it, until the last ARRIVAL_ZONE_RAD; there, as the square root of the room left, so it
+    slows to rest at the end rather than stopping there from its approach speed. With velocity fed forward, a
+    joint lagging its command catches up at up to kp / kd times the lag on top of the command's speed: right J2
+    reached its end 0.01 rad behind a command at the curve's floor (0.4 rad/s), ran at 0.6, over its limit
+    curve, and tripped (2026-09-29)."""
+    if joint.get('gripper'):
+        return 1.
+    distance = joint['upper'] - position if direction > 0 else position - joint['lower']
+    room = distance - end_margin(joint, reaction)
+    return 1. if room >= ARRIVAL_ZONE_RAD else math.sqrt(max(0., room) / ARRIVAL_ZONE_RAD)
+
+
 def command_step(joint, reaction, position, direction, cap, period):
     """How far a command may move in `direction` from `position` in one `period` (s): the receiver ramps it
-    at one speed all the way, so that speed must be within command_speed where the step ends, not only where
-    it starts (the curve falls toward an end). Taken where it started, right J1 ran at 1.5 rad/s into the part
-    of its curve that allows 1.55, and its speed noise tripped the overspeed check (in rehearsal)."""
-    speed = command_speed(joint, reaction, position, direction, cap)
-    return period * min(speed, command_speed(joint, reaction, position + direction * speed * period, direction, cap))
+    at one speed all the way, so that speed must be within command_speed (and its arrival_factor) where the step
+    ends, not only where it starts (the curve falls toward an end). Taken where it started, right J1 ran at
+    1.5 rad/s into the part of its curve that allows 1.55, and its speed noise tripped the overspeed check (in
+    rehearsal)."""
+    def speed_at(q):
+        speed = command_speed(joint, reaction, q, direction, cap)
+        return min(speed, max(ARRIVAL_CREEP_RAD_S, speed * arrival_factor(joint, reaction, q, direction)))
+    speed = speed_at(position)
+    return period * min(speed, speed_at(position + direction * speed * period))
 
 
 def lead_toward(joint, reaction, position, direction, lead, cap, kp, kd):

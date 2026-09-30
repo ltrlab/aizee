@@ -1,10 +1,11 @@
 """Braking curves in Python mirror the receiver's (rust/control_core/tests/controller.rs uses the same numbers)."""
 import pytest
 
-from robot_platform.control.approach import (APPROACH_FLOOR_RAD_S, COMMAND_HEADROOM, FRICTION_FF_FRACTION,
-                                             FRICTION_SMOOTH_RAD_S, OVERSPEED_HEADROOM, approach_speed,
-                                             command_speed, command_step, end_margin, friction_feedforward,
-                                             lead_toward, limit_reserve, limit_speed, reserve_toward)
+from robot_platform.control.approach import (APPROACH_FLOOR_RAD_S, ARRIVAL_CREEP_RAD_S, ARRIVAL_ZONE_RAD,
+                                             COMMAND_HEADROOM, FRICTION_FF_FRACTION, FRICTION_SMOOTH_RAD_S,
+                                             OVERSPEED_HEADROOM, approach_speed, arrival_factor, command_speed,
+                                             command_step, end_margin, friction_feedforward, lead_toward,
+                                             limit_reserve, limit_speed, reserve_toward)
 
 # The Rust fixture: limits +-3, cap 2 rad/s, 2 rad/s^2, bound 0.5; the box reacts in 40 + 20 + 10 ms (verdict,
 # feedback timeout, reaction), a joint limit in 20 + 10 ms (the receiver checks feedback every tick).
@@ -88,3 +89,28 @@ def test_a_command_step_moves_no_faster_than_the_curve_allows_where_it_ends():
     assert step == pytest.approx(.04 * command_speed(JOINT, LIMIT_REACTION, 2.5 + start * .04, 1, 1.6))
     # In open travel, the cap.
     assert command_step(JOINT, LIMIT_REACTION, 0., 1, 1.6, .04) == pytest.approx(1.6 * .04)
+
+
+def test_commands_slow_to_rest_over_the_last_of_the_usable_range_and_still_arrive():
+    # Right J2 reached its end at the curve's floor (0.4 rad/s) 0.01 rad behind its command, caught up at 0.6
+    # and tripped. Over the last ARRIVAL_ZONE_RAD, commands slow to rest at the usable end instead.
+    edge = JOINT['upper'] - end_margin(JOINT, LIMIT_REACTION)
+    near = edge - ARRIVAL_ZONE_RAD / 4
+    assert arrival_factor(JOINT, LIMIT_REACTION, near, 1) == pytest.approx(.5)
+    curve = command_speed(JOINT, LIMIT_REACTION, near, 1, 2.)
+    assert command_step(JOINT, LIMIT_REACTION, near, 1, 2., .04) / .04 <= .5 * curve + 1e-9
+    assert arrival_factor(JOINT, LIMIT_REACTION, near, -1) == 1.  # Away from that end it does not bind.
+    # Before the last stretch the braking curve alone binds, whatever the speed.
+    far = edge - ARRIVAL_ZONE_RAD - .2
+    assert arrival_factor(JOINT, LIMIT_REACTION, far, 1) == 1.
+    speed = command_speed(JOINT, LIMIT_REACTION, far, 1, 2.)
+    assert command_step(JOINT, LIMIT_REACTION, far, 1, 2., .04) == pytest.approx(
+        .04 * min(speed, command_speed(JOINT, LIMIT_REACTION, far + .04 * speed, 1, 2.)))
+    # Commands still reach the edge (never slower than the creep), and no further.
+    q, steps = edge - .1, 0
+    while q < edge - 1e-9:
+        q = min(edge, q + command_step(JOINT, LIMIT_REACTION, q, 1, 2., .04))
+        steps += 1
+    assert steps < 100
+    assert command_step(JOINT, LIMIT_REACTION, edge, 1, 2., .04) == pytest.approx(.04 * ARRIVAL_CREEP_RAD_S)
+    assert arrival_factor(dict(JOINT, gripper=True), LIMIT_REACTION, 2.99, 1) == 1.

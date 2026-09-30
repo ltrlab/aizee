@@ -38,7 +38,8 @@ import time
 import numpy as np
 
 from . import servo_analysis as analysis
-from robot_platform.control.approach import (COMMAND_HEADROOM, OVERSPEED_HEADROOM, command_step, end_margin,
+from robot_platform.control.approach import (ARRIVAL_ZONE_RAD, COMMAND_HEADROOM, OVERSPEED_HEADROOM, command_step,
+                                             end_margin,
                                              friction_feedforward, lead_toward)
 from robot_platform.control.gravity import gravity_effort
 from robot_platform.control.guarded_config import CONTROL_LAW
@@ -691,6 +692,8 @@ class SweepEngine:
             return limit['lower'], limit['upper']
         v = speed / COMMAND_HEADROOM
         room = v * self.limit_reaction + v * v / (2 * limit['stop_acceleration']) + speed * self.period
+        # Nor where commands slow to rest at the end of the usable range (approach.arrival_factor).
+        room = max(room, end_margin(limit, self.limit_reaction) + ARRIVAL_ZONE_RAD + speed * self.period)
         return limit['lower'] + room, limit['upper'] - room
 
     def _toward_end(self, motor, direction, speed=None):
