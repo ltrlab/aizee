@@ -2778,3 +2778,37 @@ its ends: it starts slowing about 0.3 rad from each end. The fits (gravity A
 17.88 Nm, friction 0.90 Nm, inertia 1.35 kg·m²) replace the 2026-08-22 legacy
 gravity fit. Left J2 now runs 50% faster than right J2 (1.0 rad/s), which was
 swept before acceleration feed-forward existed.
+
+### 2026-09-30 — returning an arm to its reference; the first return stalled on the harness
+
+The right J2 re-sweep was refused at its start (17:10 UTC). The right arm read
+1.22 rad off at the shoulder swivel (J1) and 0.58 rad off at wrist J6, beyond
+the start's 0.1 rad tolerance. With the operator's approval, Helm got **Return
+to reference** (release `20260930T171924Z-15e8cdd`):
+1. The operator connects, and Helm's 3D view shows the arm as its drives read
+   it, stopped.
+2. Helm lists each joint's offset. It refuses stale readings or any outside the
+   swept ranges.
+3. The operator confirms the view matches the real arm.
+4. The live start then requires the arm within 0.1 rad of that confirmed pose,
+   not the reference.
+
+This trusts readings away from the reference, relying on the drives' −π…π
+power-on range and the operator's visual check.
+
+The operator confirmed the 3D view (17:35 UTC). The first version returned one
+joint at a time, wrist first. J6 moved from +0.58 to +0.40 rad and stalled:
+the push it needed rose steadily (0.12, 0.39, 0.70, then 0.95 Nm) until the
+lead cap's 0.92 Nm could not move it. After 3 s the plan stopped and disabled
+the arm where it was. Gravity would help a hanging wrist toward 0, so this was
+spring-like: most likely the harness, twisted by the 1.22 rad shoulder swivel,
+had dragged the wrist to +0.58 and held it there. Returning the swivel first
+would not do either: the harness would then pull the held wrist about 0.1 rad
+off its command, past its 0.064 rad tracking bound.
+
+The return now moves every displaced joint together along one straight line in
+joint space. They arrive at once, and the joint farthest out moves at 0.15
+rad/s. The line is checked against the collision model from the actual pose.
+The plan waits for any joint behind its lead cap and stops after 3 s of that.
+Rehearsed with that harness modelled (4.5 Nm/rad toward the swivel's share): the
+wrist stayed within 0.02 rad of its command all the way.

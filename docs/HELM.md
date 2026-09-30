@@ -512,14 +512,21 @@ isn't within 0.1 rad of its reference.
 4. The live start scans the arm stopped and requires it within 0.1 rad of the
    confirmed pose, not the reference. The receiver's start gate checks the same.
    The arm is enabled at zero torque, then held where it rests.
-5. Each joint returns alone, the wrist first and the gripper last, at its
-   characterisation speed (0.15 rad/s). Each path is checked against the
-   collision model from the arm's actual pose. The arm is then disabled at its
-   reference.
+5. The whole arm returns together along one straight line in joint space.
+   Every joint arrives at once, and the one farthest out moves at its
+   characterisation speed (0.15 rad/s). The line is checked against the
+   collision model first, from the arm's actual pose. The plan waits for any
+   joint that falls behind its lead cap, and stops if one stays behind for 3 s.
+   The arm is then disabled at its reference.
 
-The same guards and receiver limits apply. A guard, a path that isn't clear, or
-Finish (X) stops it and disables the arm where it is, which is where it rested
-before.
+   The joints move together because they can be coupled. On 2026-09-30 the
+   right arm's wrist rested 0.58 rad off, dragged there by a harness that a
+   1.22 rad shoulder swivel had twisted. Returned first, it stalled against the
+   harness; returned together, the harness unwinds as it was wound.
+
+The same guards and receiver limits apply. A guard, a line that isn't clear, or
+Finish (X) stops it and disables the arm where it is. Part-way through a
+return, that may not be exactly where it rested before.
 
 This trusts readings away from the reference, so it relies on the drives'
 −π…π power-on range, which makes every joint that stays within ±π of zero read
