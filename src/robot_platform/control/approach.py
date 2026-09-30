@@ -126,14 +126,24 @@ def arrival_factor(joint, reaction, position, direction):
 def command_step(joint, reaction, position, direction, cap, period):
     """How far a command may move in `direction` from `position` in one `period` (s): the receiver ramps it
     at one speed all the way, so that speed must be within command_speed (and its arrival_factor) where the step
-    ends, not only where it starts (the curve falls toward an end). Taken where it started, right J1 ran at
-    1.5 rad/s into the part of its curve that allows 1.55, and its speed noise tripped the overspeed check (in
-    rehearsal)."""
+    ends, not only where it starts (both fall toward an end). The largest such step. Taken where it started,
+    right J1 ran at 1.5 rad/s into the part of its curve that allows 1.55, and its speed noise tripped the
+    overspeed check (in rehearsal); taken where a step at the starting speed would end, a command short of an
+    end crawled at the creep over the last few hundredths of a radian."""
     def speed_at(q):
         speed = command_speed(joint, reaction, q, direction, cap)
         return min(speed, max(ARRIVAL_CREEP_RAD_S, speed * arrival_factor(joint, reaction, q, direction)))
-    speed = speed_at(position)
-    return period * min(speed, speed_at(position + direction * speed * period))
+    most = period * speed_at(position)
+    if period * speed_at(position + direction * most) >= most:
+        return most
+    low, high = 0., most  # The speed allowed only falls toward the end: bisect for the largest step.
+    for _ in range(12):
+        middle = .5 * (low + high)
+        if period * speed_at(position + direction * middle) >= middle:
+            low = middle
+        else:
+            high = middle
+    return low
 
 
 def lead_toward(joint, reaction, position, direction, lead, cap, kp, kd):

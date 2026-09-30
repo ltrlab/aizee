@@ -86,7 +86,9 @@ def test_a_command_step_moves_no_faster_than_the_curve_allows_where_it_ends():
     start = command_speed(JOINT, LIMIT_REACTION, 2.5, 1, 1.6)
     step = command_step(JOINT, LIMIT_REACTION, 2.5, 1, 1.6, .04)
     assert step < start * .04
-    assert step == pytest.approx(.04 * command_speed(JOINT, LIMIT_REACTION, 2.5 + start * .04, 1, 1.6))
+    # The largest step whose speed is within the curve where it ends.
+    allowed = command_speed(JOINT, LIMIT_REACTION, 2.5 + step, 1, 1.6)
+    assert allowed * .999 <= step / .04 <= allowed + 1e-9
     # In open travel, the cap.
     assert command_step(JOINT, LIMIT_REACTION, 0., 1, 1.6, .04) == pytest.approx(1.6 * .04)
 
@@ -100,12 +102,17 @@ def test_commands_slow_to_rest_over_the_last_of_the_usable_range_and_still_arriv
     curve = command_speed(JOINT, LIMIT_REACTION, near, 1, 2.)
     assert command_step(JOINT, LIMIT_REACTION, near, 1, 2., .04) / .04 <= .5 * curve + 1e-9
     assert arrival_factor(JOINT, LIMIT_REACTION, near, -1) == 1.  # Away from that end it does not bind.
-    # Before the last stretch the braking curve alone binds, whatever the speed.
+    # Before the last stretch the braking curve alone binds, whatever the speed: the largest step whose speed
+    # is within the curve where it ends.
     far = edge - ARRIVAL_ZONE_RAD - .2
     assert arrival_factor(JOINT, LIMIT_REACTION, far, 1) == 1.
-    speed = command_speed(JOINT, LIMIT_REACTION, far, 1, 2.)
-    assert command_step(JOINT, LIMIT_REACTION, far, 1, 2., .04) == pytest.approx(
-        .04 * min(speed, command_speed(JOINT, LIMIT_REACTION, far + .04 * speed, 1, 2.)))
+    step = command_step(JOINT, LIMIT_REACTION, far, 1, 2., .04)
+    assert step / .04 <= command_speed(JOINT, LIMIT_REACTION, far + step, 1, 2.) + 1e-9
+    assert step / .04 > .99 * command_speed(JOINT, LIMIT_REACTION, far + step, 1, 2.)
+    # Just short of the last stretch, a step is not cut to the creep because a full-speed one would pass it.
+    short = edge - ARRIVAL_ZONE_RAD - .001
+    step = command_step(JOINT, LIMIT_REACTION, short, 1, 2., .04)
+    assert step > .04 * ARRIVAL_CREEP_RAD_S * 3
     # Commands still reach the edge (never slower than the creep), and no further.
     q, steps = edge - .1, 0
     while q < edge - 1e-9:
