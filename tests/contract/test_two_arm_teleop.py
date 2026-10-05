@@ -12,7 +12,7 @@ import pytest
 from robot_platform.control.guarded_config import to_cad
 from robot_platform.helm.session import HelmSession
 from robot_platform.helm.teleop import TeleopCore, TeleopSession
-from robot_platform.simulation.control_harness import default_binary
+from robot_platform.simulation.control_harness import NativeControlHarness, default_binary
 from robot_platform.simulation.native_collision import library_path
 from robot_platform.teleop.leader_ranges import KIND, SCHEMA, UNITS, pins
 
@@ -51,7 +51,15 @@ def rig(tmp_path_factory):
     bundle['receiver'] = {'mode': 'virtual', 'collision': 'motion'}
     clock = Clock()
     leaders = Leaders(clock)
-    core = TeleopCore(bundle, open_leaders=lambda _profile: leaders, clock=clock)
+
+    def open_harness(config, initial):
+        # Timing is not what this checks: a busy test machine may answer slower than a cycle's budget.
+        harness = NativeControlHarness(config, initial)
+        harness.step(0)
+        harness.timeout_s = 1.
+        return harness
+
+    core = TeleopCore(bundle, open_leaders=lambda _profile: leaders, open_harness=open_harness, clock=clock)
     core.build()
     yield core, clock
     core.close()
