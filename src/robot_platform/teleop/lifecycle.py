@@ -4,6 +4,7 @@ Proposals are not acknowledgements or permission to enable hardware. A guarded
 adapter must certify and acknowledge every batch, and call fault() on failure.
 """
 from copy import deepcopy
+from collections import deque
 import math
 import time
 
@@ -14,6 +15,11 @@ from robot_platform.control.gravity import gravity_effort
 def _finite(value):
     return type(value) in (int, float) and math.isfinite(value)
 
+
+
+# Settling speed is judged over at least this long, whatever the loop rate: one 20 ms cycle's change in position
+# reads the drives' position steps and noise as twice the speed of a 40 ms one, and alignment never settled.
+SETTLE_WINDOW_S = .04
 
 class TeleopLifecycle:
     """Shared semantic operations, independent of each GUI's key bindings."""
@@ -58,7 +64,8 @@ class TeleopLifecycle:
         self.clock = clock
         self.state, self.reason, self.target = 'DISABLED', None, None
         self._last_time, self._settled_since = None, None
-        self._last_measured = None  # Positions of the previous cycle, for settling speed.
+        self._last_measured = None  # Positions of the previous cycle, for the lead.
+        self._history = deque()  # (time, positions) of recent cycles, for settling speed.
         self._feedback, self._source = None, None
         self._misses = 0
         self._velocities = None  # This cycle's slewed targets' velocities, for the next proposal.
@@ -172,6 +179,7 @@ class TeleopLifecycle:
             raise ValueError('Complete held positions required')
         self.target = tuple(float(q) for q in held)
         self._last_measured = tuple(row['position'] for row in measured)
+        self._history = deque([(now, self._last_measured)])
         self._last_time, self._settled_since, self._source, self._misses = now, None, None, 0
         self._velocities = None
         self.state = 'SHUTDOWN'
@@ -197,6 +205,7 @@ class TeleopLifecycle:
                 self.state, self.reason = 'DISABLED', None
             self.target, self._source, self._settled_since, self._last_time = None, None, None, None
             self._last_measured = None
+            self._history.clear()
             return self._proposal('disable')
         try:
             now = self._now(now)
@@ -208,6 +217,7 @@ class TeleopLifecycle:
             old_state = self.state
             self.target = self._hold_measured(measured)
             self._last_measured = tuple(row['position'] for row in measured)
+            self._history = deque([(now, self._last_measured)])
             self._last_time, self._settled_since, self.reason = now, None, None
             self._misses = 0
             self.state = {'idle': 'IDLE', 'enable': 'HOLD', 'engage': 'ENGAGING',
@@ -221,14 +231,14 @@ class TeleopLifecycle:
             raise
 
     def _settled(self, measured, goal, now, dt):
-        # Speed from the measured positions of consecutive cycles, not the drives'
+        # Speed from measured positions at least SETTLE_WINDOW_S apart, not the drives'
         # speed readings: at rest those read up to ~0.2 rad/s on Minerva, while
         # positions stay put to a few ten-thousandths of a radian.
-        previous = self._last_measured
-        arrived = previous is not None and dt > 0 and all(
+        then = next(((t, positions) for t, positions in reversed(self._history) if now - t >= SETTLE_WINDOW_S), None)
+        arrived = then is not None and all(
             abs(row['position']-q) <= joint['tolerance']
-            and abs(row['position']-p)/dt <= joint['settled_velocity']
-            for row, q, p, joint in zip(measured, goal, previous, self._joints))
+            and abs(row['position']-p)/(now - then[0]) <= joint['settled_velocity']
+            for row, q, p, joint in zip(measured, goal, then[1], self._joints))
         if not arrived:
             self._settled_since = None
             return False
@@ -337,6 +347,9 @@ class TeleopLifecycle:
                     operation = 'disable'
             self._last_time = now
             self._last_measured = tuple(row['position'] for row in measured)
+            self._history.append((now, self._last_measured))
+            while len(self._history) > 2 and now - self._history[1][0] >= 5 * SETTLE_WINDOW_S:
+                self._history.popleft()
             return self._proposal(operation)
         except (ValueError, TypeError, KeyError) as exc:
             self.fault(str(exc))
