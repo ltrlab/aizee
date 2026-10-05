@@ -143,14 +143,18 @@ def servo_settings(settings, motor, servo):
 
 
 def derive_receiver(*, reference, steps, directions, transmissions, model, limits, profile, backend, servo=None,
-                    gravity=None):
+                    gravity=None, collision_bound=None):
     """Receiver config, CAD map, lifecycle joints, initial pose and a per-joint report.
 
     `servo` is a saved servo calibration: its joints take their gains, speed,
     braking and tracking bound from it instead of the profile. Each arm's pitch chain
     gets gravity feed-forward from `gravity` (gravity slices, {motor: {'A': ...}};
-    default: the servo calibration's), see control.gravity.
+    default: the servo calibration's), see control.gravity. `collision_bound` 'motion'
+    has the receiver check collision boxes against the motion commanded (two arms;
+    collision_envelope.MotionEnvelopeCompiler); by default it keeps its reserve bound.
     """
+    if collision_bound not in (None, 'reserve', 'motion'):
+        raise ValueError('The collision bound is reserve or motion')
     joint_map = cad_map(reference, steps, directions, transmissions)
     by_motor = {row['actuator']: (joint, row) for joint, row in joint_map.items()}
     receiver = profile['receiver']
@@ -248,6 +252,8 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
               'settled_velocity': receiver['settled_velocity'], 'joints': joints, 'interpolation_ms': interpolation_ms,
               'collision': {'world_revision': backend.runtime_model.world_revision, 'scope': policy['scope'],
                             'max_verdict_ms': policy['max_verdict_ms'], 'reaction_ms': policy['reaction_ms']}}
+    if collision_bound == 'motion':
+        config['collision']['bound'] = 'motion'
     return {'config': config, 'joint_map': joint_map, 'lifecycle': lifecycle,
             'initial': initial, 'report': report, 'cad_limits': cad_limits}
 

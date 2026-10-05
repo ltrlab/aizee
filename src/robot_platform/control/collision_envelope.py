@@ -12,8 +12,11 @@ import json
 import math
 import time
 
-from .approach import approach_speed, limit_reaction_s, limit_reserve, reserve_toward
-from .collision_guard import JointCalibration, check_linear_motion
+from .approach import (approach_speed, limit_reaction_s, limit_reserve, motion_reserve, reserve_toward,
+                       speed_bound)
+from .collision_guard import JointBoxBound, JointCalibration, check_joint_box, check_linear_motion
+
+FULL_TURN = 2 * math.pi
 
 
 def calibration_revision(mapping):
@@ -164,3 +167,197 @@ class CollisionEnvelopeCompiler:
         except (ValueError, KeyError, TypeError, RuntimeError, OSError) as exc:
             verdict.update(clear=False, reason=str(exc), completed_at=self.clock())
             raise ValueError(f"Collision envelope unavailable: {exc}") from exc
+
+
+class CollisionBlocked(ValueError):
+    """A command's box could not be certified clear: a pair could come too close within it, or the check ran out
+    of time. The adapter holds the arms instead of faulting. `verdict` has the check's details."""
+
+    def __init__(self, message, verdict=None):
+        super().__init__(message)
+        self.verdict = dict(verdict or {})
+
+
+class MotionEnvelopeCompiler:
+    """Certify a command's motion-bound box (the receiver's collision::Bound::Motion).
+
+    The box holds the reference the receiver drives from now on: the command in force, carried on along its ramp,
+    then this command's ramp; widened by each joint's tracking bound and its stop from its speed bound, both of
+    which the receiver enforces every tick. One proximity query at its centre certifies every pose in it
+    (collision_guard.JointBoxBound), joints moving or stopping at different times. This mirrors the receiver's
+    check (lib.rs validate_collision) from the offer's status, conservatively: the speed bounds it reports only
+    fall, and its reference only moves on along its ramp, before the receiver checks the command.
+
+    A box that cannot be certified raises CollisionBlocked, and the adapter holds instead. Model joints outside
+    this receiver (none when it drives both arms) are taken at `fixed`, their parked pose.
+    """
+
+    def __init__(self, backend, config, joint_map, *, clearance_m=.005, max_skew_ms=10, compute_budget_s=.012,
+                 cad_limits=None, fixed=None, clock=time.perf_counter):
+        self.backend, self.config = backend, deepcopy(config)
+        self.cad_limits, self.fixed = dict(cad_limits or {}), dict(fixed or {})
+        self.clock, self.compute_budget_s = clock, compute_budget_s
+        self.clearance_m, self.max_skew_ms = clearance_m, max_skew_ms
+        self.mapping = {name: value if isinstance(value, JointCalibration) else JointCalibration(**value)
+                        for name, value in joint_map.items()}
+        self.names = tuple(joint["name"] for joint in config["joints"])
+        runtime = backend.runtime_model
+        if (len(set(self.names)) != len(self.names)
+                or set(self.mapping) | set(self.fixed) != set(runtime.scene.independent_joints)
+                or set(self.mapping) & set(self.fixed)
+                or {value.actuator for value in self.mapping.values()} != set(self.names)):
+            raise ValueError("Every model joint must follow this receiver or have a fixed pose")
+        if any(not math.isfinite(v.scale) or not v.scale or not math.isfinite(v.offset)
+               for v in self.mapping.values()) or any(not math.isfinite(q) for q in self.fixed.values()):
+            raise ValueError("Invalid mechanical transmission map or fixed pose")
+        if (not math.isfinite(clearance_m) or clearance_m < 0 or not math.isfinite(compute_budget_s)
+                or compute_budget_s <= 0 or not math.isfinite(max_skew_ms) or max_skew_ms <= 0):
+            raise ValueError("Invalid clearance, skew or compute budget")
+        policy = self.config.get("collision")
+        if (not policy or policy.get("bound") != "motion" or policy["scope"] not in ("all", "inter_branch")
+                or not 0 < policy["max_verdict_ms"] <= config["lease_ms"]
+                or not 0 <= policy["reaction_ms"] <= 1000 or not config.get("interpolation_ms", 0) > 0):
+            raise ValueError("A motion-bound receiver collision policy, with ramped commands, is required")
+        if compute_budget_s * 1000 >= policy["max_verdict_ms"]:
+            raise ValueError("Collision computation must leave time for dispatch")
+        for joint in self.config["joints"]:
+            if any(not math.isfinite(joint[key]) or joint[key] <= 0
+                   for key in ("max_velocity", "max_tracking_error", "stop_acceleration")):
+                raise ValueError("Finite positive motion/stopping bounds required")
+        self._check_revisions()
+        self.bound = JointBoxBound(runtime.scene, runtime.keepout_motion_corners)
+        self._joints = [(name, self.names.index(value.actuator), value) for name, value in self.mapping.items()]
+        self.last_verdict = None
+        self.blocked = 0
+
+    def _check_revisions(self):
+        config, backend = self.config, self.backend
+        if (config["identity"]["model"] != backend.runtime_model.revision
+                or config["identity"]["calibration"] != calibration_revision(self.mapping)
+                or config["identity"]["collision_policy"] != backend.policy_revision
+                or config["collision"]["world_revision"] != backend.runtime_model.world_revision):
+            raise ValueError("Model, calibration, collision policy or world revision mismatch")
+
+    def box(self, status, feedback, joints=None):
+        """Per actuator, the box ((lower, ...), (upper, ...)) the receiver requires of this command, from the
+        offer's `status` and `feedback`; None joints: the hold an Arm takes."""
+        period = self.config["interpolation_ms"] / 1000
+        reaction = limit_reaction_s(self.config)
+        verdict_s = self.config["collision"]["max_verdict_ms"] / 1000
+        active = status["state"] in ("holding", "executing", "stopping", "stopped")
+        bounds = status["speed_bounds"]
+        lower, upper = [], []
+        for i, (sample, limit) in enumerate(zip(feedback, self.config["joints"])):
+            command = None if joints is None else joints[i]
+            target = sample["position"] if command is None else command["position"]
+            velocity = 0. if command is None else command["velocity"]
+            start = target - velocity * period
+            if active:
+                # The receiver's reference moves on along the ramp in force, at most a period of it, before it
+                # checks this command.
+                held = status["joints"][i]
+                points = (held["position"], held["position"] + held["velocity"] * period, start, target)
+            else:
+                points = (sample["position"], start, target)
+            lo, hi = min(points), max(points)
+            if not all(math.isfinite(value) for value in (lo, hi, bounds[i])):
+                raise ValueError("Complete finite joint targets and speed bounds required")
+            if limit.get("gripper"):
+                # It may trail its command (stalled on an object) and move on toward it before the receiver checks:
+                # its measured position, padded by its speed over the verdict's lifetime. The keep-out model ignores
+                # the fingers, so this costs the check nothing.
+                pad = limit["max_velocity"] * verdict_s
+                lo, hi = min(lo, sample["position"]) - pad, max(hi, sample["position"]) + pad
+                reserve = 0.
+            else:
+                # The reference must stop on the joint's limit curve, as the receiver checks.
+                low, high = min(start, target), max(start, target)
+                if (low - limit_reserve(limit, reaction, low - limit["lower"]) < limit["lower"] - 1e-9
+                        or high + limit_reserve(limit, reaction, limit["upper"] - high) > limit["upper"] + 1e-9):
+                    raise ValueError("Stopping envelope exceeds operational interval")
+                reserve = motion_reserve(limit, reaction, max(bounds[i], speed_bound(limit, velocity)))
+            lower.append(max(limit["lower"], lo - reserve - 1e-9))
+            upper.append(min(limit["upper"], hi + reserve + 1e-9))
+        return lower, upper
+
+    def model_box(self, lower, upper):
+        """The box in model joints: (centre, half-width) per model joint, the fixed ones at their pose."""
+        center, half = dict(self.fixed), {name: 0. for name in self.fixed}
+        for name, index, calibration in self._joints:
+            a, b = sorted(q * calibration.scale + calibration.offset for q in (lower[index], upper[index]))
+            limits = self.cad_limits.get(name)
+            if limits and limits[1] - limits[0] >= FULL_TURN - 1e-9:
+                # A joint the model turns a full circle is taken a turn round into its range (the same pose).
+                mid = (a + b) / 2
+                center[name], half[name] = limits[0] + (mid - limits[0]) % FULL_TURN, (b - a) / 2
+                continue
+            if limits:
+                # A gripper slide passes the model's closed limit: clamp it.
+                a, b = (min(limits[1], max(limits[0], value)) for value in (a, b))
+            center[name], half[name] = (a + b) / 2, (b - a) / 2
+        return center, half
+
+    def compile(self, offered, feedback, joints=None, *, started_at=None):
+        """A wire envelope for this command (None joints: an Arm's hold), from the offer's status and feedback;
+        CollisionBlocked if its box is not clear in time, ValueError if the inputs are unusable."""
+        started = self.clock() if started_at is None else started_at
+        deadline = started + self.compute_budget_s
+        policy = self.config["collision"]
+        verdict = {"clear": False, "reason": "unavailable", "queries": 0, "query_scope": policy["scope"],
+                   "bound": "motion", "started_at": started}
+        self.last_verdict = verdict
+        try:
+            self._check_revisions()
+            status, offer = offered["status"], offered["offer"]
+            now = status["now_ms"]
+            if (not offered["accepted"] or status["identity"] != self.config["identity"]
+                    or status["group"] != self.config["group"]
+                    or tuple(status["joint_names"]) != self.names
+                    or len(feedback) != len(self.names)
+                    or not 0 <= offer["issued_at_ms"] <= now
+                    or now >= offer["issued_at_ms"] + policy["max_verdict_ms"]):
+                raise ValueError("Receiver offer, revision, roster or age mismatch")
+            stamps = [sample["sampled_at_ms"] for sample in feedback]
+            if max(stamps) - min(stamps) > self.max_skew_ms:
+                raise ValueError("Unsynchronized joint feedback")
+            for sample, limit in zip(feedback, self.config["joints"]):
+                if (sample["sequence"] <= 0 or sample["fault"]
+                        or not 0 <= now - sample["sampled_at_ms"] < self.config["feedback_timeout_ms"]
+                        or not math.isfinite(sample["position"]) or not math.isfinite(sample["velocity"])):
+                    raise ValueError("Stale, faulted or invalid joint feedback")
+            if joints is not None and (len(joints) != len(self.names) or any(
+                    not math.isfinite(joint["position"]) or not math.isfinite(joint["velocity"]) for joint in joints)):
+                raise ValueError("Complete finite joint targets required")
+            lower, upper = self.box(status, feedback, joints)
+            center, half = self.model_box(lower, upper)
+            result = check_joint_box(self.backend, self.bound, center, half, clearance_m=self.clearance_m,
+                                     scope=policy["scope"], deadline=deadline, clock=self.clock)
+            verdict.update(result)
+            if result.get("shapes"):
+                shapes = self.backend.runtime_model.shapes
+                index = self.backend._motion_shape_indices
+                verdict["links"] = [shapes[index[name]]["link"] for name in result["shapes"]]
+            self._check_revisions()
+            if not result["clear"] or self.clock() >= deadline:
+                if result["clear"]:
+                    verdict.update(clear=False, reason="collision_deadline")
+                self.blocked += 1
+                raise CollisionBlocked(self.describe(verdict), verdict)
+            verdict["completed_at"] = self.clock()
+            return {"offer": offer["id"], "world_revision": policy["world_revision"],
+                    "scope": policy["scope"], "lower": lower, "upper": upper}
+        except CollisionBlocked:
+            verdict["completed_at"] = self.clock()
+            raise
+        except (ValueError, KeyError, TypeError, RuntimeError, OSError) as exc:
+            verdict.update(clear=False, reason=str(exc), completed_at=self.clock())
+            raise ValueError(f"Collision envelope unavailable: {exc}") from exc
+
+    @staticmethod
+    def describe(verdict):
+        """In words, why a box was not certified."""
+        if verdict.get("reason") == "insufficient_swept_clearance":
+            links = verdict.get("links") or verdict.get("shapes") or ["two parts"]
+            return (f"{' and '.join(links)} could come within {max(0., verdict['clearance_lower_bound_m']) * 1000:.0f}"
+                    f" mm of each other ({verdict['distance_m'] * 1000:.0f} mm apart now)")
+        return f"collision check not clear: {verdict.get('reason')}"

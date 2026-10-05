@@ -92,6 +92,20 @@ def limit_reserve(joint, reaction, distance):
     return v * reaction + v * v / (2 * joint['stop_acceleration'])
 
 
+def speed_bound(joint, commanded):
+    """Under a motion collision bound, the speed the receiver lets a joint move at once its reference is
+    commanded at `commanded`: its overshoot over that, never below its approach floor (collision::speed_bound)."""
+    return max(OVERSPEED_HEADROOM * abs(commanded), min(APPROACH_FLOOR_RAD_S, joint['max_velocity']))
+
+
+def motion_reserve(joint, reaction, speed):
+    """The reserve a motion box keeps around the reference the receiver drives: the tracking bound, then the limit
+    reaction and braking distances at the joint's speed bound `speed`. None for a gripper (collision::motion_reserve)."""
+    if joint.get('gripper'):
+        return 0.
+    return joint['max_tracking_error'] + speed * reaction + speed * speed / (2 * joint['stop_acceleration'])
+
+
 def end_margin(joint, reaction):
     """How far inside a limit a joint's targets stay: the stopping margin of its approach floor at the
     limit reaction time, plus a hair so a pose exactly on the edge still certifies. Nothing for a gripper."""
