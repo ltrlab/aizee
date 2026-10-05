@@ -159,6 +159,9 @@ pub struct Status {
     pub command_expires_at_ms: Option<u64>,
     pub collision_expires_at_ms: Option<u64>,
     pub joints: Vec<JointCommand>,
+    /// How fast each joint may move under a motion collision bound (collision::Bound::Motion), for a
+    /// client sizing its boxes: they only fall until the next Move.
+    pub speed_bounds: Vec<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

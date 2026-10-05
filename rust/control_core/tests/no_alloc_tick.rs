@@ -42,6 +42,7 @@ fn periodic_execution_expiry_stop_and_fault_do_not_touch_allocator() {
             scope: "all".into(),
             max_verdict_ms: 40,
             reaction_ms: 10,
+            bound: Default::default(),
         }),
         group: "g".into(),
         identity: identity.clone(),

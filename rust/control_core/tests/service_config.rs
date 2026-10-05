@@ -123,6 +123,38 @@ fn teleop_drives_one_gated_arm_with_holding_gains_and_collision_envelopes() {
 }
 
 #[test]
+fn teleop_drives_both_arms_only_under_a_motion_collision_bound() {
+    let both: Vec<String> = LEFT_ARM
+        .iter()
+        .map(|name| name.to_string())
+        .chain(
+            LEFT_ARM
+                .iter()
+                .map(|name| name.replacen("left", "right", 1)),
+        )
+        .collect();
+    let both: Vec<&str> = both.iter().map(String::as_str).collect();
+    // A reserve bound's boxes are too wide to certify one arm against the other.
+    assert!(error(teleop(&both)).contains("one arm"));
+    let mut motion = teleop(&both);
+    motion["controller"]["collision"]["bound"] = json!("motion");
+    motion["controller"]["interpolation_ms"] = json!(20);
+    let valid = parse(motion.clone());
+    assert_eq!(valid.buses.len(), 2);
+    valid.validate().unwrap();
+    // A motion bound covers the reference's ramp: commands must be ramped.
+    let mut unramped = motion.clone();
+    unramped["controller"]["interpolation_ms"] = json!(0);
+    assert!(error(unramped).contains("interpolated"));
+    let mut three = motion;
+    three["buses"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"interface": "can_head", "usb_serial": "serial-head"}));
+    assert!(error(three).contains("one arm"));
+}
+
+#[test]
 fn every_command_limit_fits_the_motors_protocol_ranges() {
     // A damping ceiling over the motor's wire range (right J4: 5.6 against 5.0) failed to encode
     // mid-session, which the receiver took as a drive fault and cut torque.

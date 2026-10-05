@@ -94,6 +94,10 @@ impl Config {
             {
                 return Err("invalid collision policy, scope or freshness budget");
             }
+            // A motion bound covers the reference's ramp: commands must be ramped.
+            if policy.bound == collision::Bound::Motion && self.interpolation_ms == 0 {
+                return Err("a motion collision bound needs interpolated commands");
+            }
         }
         if !valid_id(&self.group)
             || !valid_id(&self.identity.model)
@@ -176,6 +180,12 @@ pub struct Controller {
     fast_readings: Vec<u8>,
     /// New feedback samples in a row over each joint's max_velocity.
     overspeed: Vec<u8>,
+    /// Under a motion collision bound, how fast each joint may move: its overshoot over the speed its
+    /// reference is commanded at, which after a slower command decays at its stop acceleration (the
+    /// joint brakes from the faster one), never below its approach floor.
+    speed_bounds: Vec<f64>,
+    /// When the speed bounds last decayed.
+    speed_bounds_at_ms: u64,
     commands: Vec<JointCommand>,
     /// The last accepted Move, which `commands` ramps toward while Executing.
     targets: Vec<JointCommand>,
@@ -193,6 +203,11 @@ impl Controller {
             return Err("a unique nonempty boot epoch is required");
         }
         let count = config.joints.len();
+        let resting = config
+            .joints
+            .iter()
+            .map(|joint| collision::speed_bound(joint, 0.0))
+            .collect();
         Ok(Self {
             config,
             epoch,
@@ -212,6 +227,8 @@ impl Controller {
             previous_feedback: vec![JointFeedback::default(); count],
             fast_readings: vec![0; count],
             overspeed: vec![0; count],
+            speed_bounds: resting,
+            speed_bounds_at_ms: 0,
             commands: vec![
                 JointCommand {
                     position: 0.0,
@@ -289,6 +306,7 @@ impl Controller {
             command_expires_at_ms: self.command_deadline,
             collision_expires_at_ms: self.collision_deadline,
             joints: self.commands.clone(),
+            speed_bounds: self.speed_bounds.clone(),
         }
     }
 
@@ -372,6 +390,50 @@ impl Controller {
                 collision::limit_speed(policy, &self.config, limit, distance)
             }
             _ => limit.max_velocity,
+        }
+    }
+
+    /// Whether boxes cover the motion commanded (collision::Bound::Motion), with the joints' speed
+    /// bounds enforced.
+    fn motion_bound(&self) -> bool {
+        self.config
+            .collision
+            .as_ref()
+            .is_some_and(|policy| policy.bound == collision::Bound::Motion)
+    }
+
+    /// How fast joint `i` may keep moving: its allowed speed and, while driven under a motion bound,
+    /// its speed bound. Readings over it in a row trip (one is drive noise); only its allowed speed
+    /// trips at once (a drive spiked to 1.53 rad/s on a slowly moving wrist).
+    fn sustained_speed(&self, i: usize, position: f64, velocity: f64) -> f64 {
+        let allowed = self.allowed_speed(i, position, velocity);
+        if self.motion_bound() && self.active() {
+            allowed.min(self.speed_bounds[i])
+        } else {
+            allowed
+        }
+    }
+
+    /// The joints at rest: each speed bound back to its approach floor.
+    fn rest_speed_bounds(&mut self) {
+        for (bound, limit) in self.speed_bounds.iter_mut().zip(&self.config.joints) {
+            *bound = collision::speed_bound(limit, 0.0);
+        }
+    }
+
+    /// Each speed bound follows the reference's commanded speed up at once and down no faster than
+    /// the joint's stop acceleration, the braking it is qualified for.
+    fn decay_speed_bounds(&mut self, now_ms: u64) {
+        let dt = now_ms.saturating_sub(self.speed_bounds_at_ms) as f64 / 1000.0;
+        self.speed_bounds_at_ms = now_ms;
+        for ((bound, limit), command) in self
+            .speed_bounds
+            .iter_mut()
+            .zip(&self.config.joints)
+            .zip(&self.commands)
+        {
+            *bound = collision::speed_bound(limit, command.velocity)
+                .max(*bound - limit.stop_acceleration * dt);
         }
     }
 
@@ -559,6 +621,7 @@ impl Controller {
                 return;
             }
         }
+        self.decay_speed_bounds(now_ms);
         // Count each joint's new samples over its settled speed and its speed cap.
         for (i, (current, old)) in self
             .feedback
@@ -574,7 +637,7 @@ impl Controller {
                     0
                 };
                 self.overspeed[i] =
-                    if speed > self.allowed_speed(i, current.position, current.velocity) {
+                    if speed > self.sustained_speed(i, current.position, current.velocity) {
                         self.overspeed[i].saturating_add(1)
                     } else {
                         0
@@ -735,25 +798,53 @@ impl Controller {
         {
             return Err(Reason::InvalidCommand);
         }
+        let motion = policy.bound == collision::Bound::Motion;
         for (i, (feedback, limit)) in self.feedback.iter().zip(&self.config.joints).enumerate() {
             let (low, high) = (envelope.lower[i], envelope.upper[i]);
             // The reference ramps from where the command's velocity says the stream came from.
-            let (target, start) =
-                commands.map_or((feedback.position, feedback.position), |values| {
+            let (target, start, speed) =
+                commands.map_or((feedback.position, feedback.position, 0.0), |values| {
                     let command = &values[i];
                     (
                         command.position,
                         command.position - command.velocity * self.interpolation_s(),
+                        command.velocity,
                     )
                 });
-            let lo = feedback.position.min(target).min(start);
-            let hi = feedback.position.max(target).max(start);
-            // The box holds each side's stopping reserve at the fastest the joint may approach
-            // that limit, from wherever the joint is or is driven.
-            let reserve_low =
-                collision::reserve_toward(policy, &self.config, limit, lo - limit.lower);
-            let reserve_high =
-                collision::reserve_toward(policy, &self.config, limit, limit.upper - hi);
+            let (lo, hi, reserve_low, reserve_high) = if motion {
+                // The reference the receiver drives from now on: the command in force (it ramps on to
+                // its target before this one takes over), then this command's ramp. The joint stays
+                // within its tracking bound of it and its speed bound, or trips and stops within its
+                // reserve. A gripper may trail its command (stalled on an object): it keeps its
+                // measured position in the box too.
+                let reference = if self.active() {
+                    self.commands[i].position
+                } else {
+                    feedback.position
+                };
+                let (mut lo, mut hi) = (
+                    reference.min(target).min(start),
+                    reference.max(target).max(start),
+                );
+                if limit.gripper {
+                    lo = lo.min(feedback.position);
+                    hi = hi.max(feedback.position);
+                }
+                let bound = self.speed_bounds[i].max(collision::speed_bound(limit, speed));
+                let reserve = collision::motion_reserve(policy, &self.config, limit, bound);
+                (lo, hi, reserve, reserve)
+            } else {
+                let lo = feedback.position.min(target).min(start);
+                let hi = feedback.position.max(target).max(start);
+                // The box holds each side's stopping reserve at the fastest the joint may approach
+                // that limit, from wherever the joint is or is driven.
+                (
+                    lo,
+                    hi,
+                    collision::reserve_toward(policy, &self.config, limit, lo - limit.lower),
+                    collision::reserve_toward(policy, &self.config, limit, limit.upper - hi),
+                )
+            };
             // The reference the receiver drives (the command's ramp) must stop before the limit on
             // its limit curve. The measured position is held to the limits, the curve and the
             // tracking bound every tick; a joint settling a hair past a command at the edge of its
@@ -987,7 +1078,10 @@ impl Controller {
                 let resuming = self.state == State::Stopped;
                 let held = resuming.then(|| self.commands.clone());
                 let verdict = self.validate_collision(collision.as_ref(), held.as_deref())?;
-                self.install_collision(collision.as_ref(), verdict.as_ref().map(|(deadline, _)| *deadline));
+                self.install_collision(
+                    collision.as_ref(),
+                    verdict.as_ref().map(|(deadline, _)| *deadline),
+                );
                 if !resuming {
                     // Capture measured positions, never an old command or a zero default.
                     for ((command, feedback), limit) in self
@@ -1017,6 +1111,7 @@ impl Controller {
                 if let Some((_, offer)) = &verdict {
                     self.renew_with(offer);
                 }
+                self.rest_speed_bounds();
                 self.state = State::Holding;
                 self.reason = Reason::Ok;
                 self.command_deadline = self.lease.as_ref().map(|l| l.expires_at_ms);
@@ -1074,7 +1169,18 @@ impl Controller {
                     }
                 }
                 let verdict = self.validate_collision(collision.as_ref(), Some(&joints))?;
-                self.install_collision(collision.as_ref(), verdict.as_ref().map(|(deadline, _)| *deadline));
+                self.install_collision(
+                    collision.as_ref(),
+                    verdict.as_ref().map(|(deadline, _)| *deadline),
+                );
+                for ((bound, limit), command) in self
+                    .speed_bounds
+                    .iter_mut()
+                    .zip(&self.config.joints)
+                    .zip(&joints)
+                {
+                    *bound = bound.max(collision::speed_bound(limit, command.velocity));
+                }
                 self.targets.copy_from_slice(&joints);
                 if ramp_efforts.is_empty() {
                     self.ramp_efforts.fill(0.0);

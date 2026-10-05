@@ -13,7 +13,8 @@ pub enum Mode {
     ZeroTorqueTrial,
     BoundedJogTrial,
     BreakawayTrial,
-    /// Guarded teleoperation of one arm on physical CAN: Idle, Arm and Move under
+    /// Guarded teleoperation of one arm on physical CAN (both, on two buses, under a
+    /// motion collision bound): Idle, Arm and Move under
     /// the receiver's leases, collision envelopes and stops, after the same
     /// watchdog and reference-pose gates as the zero-torque trial.
     Teleop,
@@ -129,12 +130,18 @@ impl ServiceConfig {
             );
         }
         if self.mode == Mode::Teleop {
-            // One bus drives one arm: the other arm is never enabled until a
-            // two-arm collision bound exists. Every Arm/Move needs a receiver-checked
-            // envelope, and stale feedback or an idle owner must stop it quickly.
-            if self.buses.len() != 1 {
+            // One bus drives one arm. Both arms (two buses) only under a motion collision bound,
+            // whose boxes are tight enough to certify one arm against the other. Every Arm/Move
+            // needs a receiver-checked envelope, and stale feedback or an idle owner must stop it
+            // quickly.
+            let motion = self
+                .controller
+                .collision
+                .as_ref()
+                .is_some_and(|policy| policy.bound == crate::collision::Bound::Motion);
+            if self.buses.len() > 2 || (self.buses.len() == 2 && !motion) {
                 return Err(
-                    "physical teleop drives one arm (one CAN bus) until a two-arm collision bound exists"
+                    "physical teleop drives one arm (one CAN bus), or both (two) under a motion collision bound"
                         .into(),
                 );
             }

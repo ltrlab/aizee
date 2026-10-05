@@ -116,6 +116,7 @@ fn collision_fixture() -> (Controller, Loopback) {
         scope: "inter_branch".into(),
         max_verdict_ms: 40,
         reaction_ms: 10,
+        bound: Default::default(),
     });
     let mut c = Controller::new(cfg, "boot-a".into()).unwrap();
     let mut h = Loopback::new(&[0.0, 0.0]);
@@ -1085,6 +1086,7 @@ fn a_gripper_needs_no_stopping_reserve_at_its_ends() {
         scope: "inter_branch".into(),
         max_verdict_ms: 40,
         reaction_ms: 10,
+        bound: Default::default(),
     });
     for (gripper_low, accepted) in [(0.0, true), (0.01, false)] {
         let mut c = Controller::new(cfg.clone(), "boot-a".into()).unwrap();
@@ -1203,6 +1205,7 @@ fn limit_speed_is_the_cap_in_open_travel_and_stops_the_joint_at_the_limit() {
         scope: "inter_branch".into(),
         max_verdict_ms: 40,
         reaction_ms: 10,
+        bound: Default::default(),
     };
     cfg.collision = Some(policy.clone());
     let joint = &cfg.joints[0];
@@ -1282,6 +1285,7 @@ fn interpolated_fixture() -> (Controller, Loopback) {
         scope: "inter_branch".into(),
         max_verdict_ms: 100, // Longer than a ramp, so the verdict stays fresh through these tests.
         reaction_ms: 10,
+        bound: Default::default(),
     });
     let mut c = Controller::new(cfg, "boot-a".into()).unwrap();
     let mut h = Loopback::new(&[0.0, 0.0]);
@@ -1632,4 +1636,139 @@ fn a_move_bound_to_a_fresh_offer_renews_the_lease_with_it() {
     );
     assert!(r.accepted, "{:?}", r.reason);
     assert_eq!(r.status.lease.unwrap().expires_at_ms, 410);
+}
+
+fn motion_fixture() -> (Controller, Loopback) {
+    let mut cfg = config(1);
+    cfg.interpolation_ms = 20;
+    cfg.collision = Some(robot_control::collision::CollisionPolicy {
+        world_revision: "fixed-world".into(),
+        scope: "inter_branch".into(),
+        max_verdict_ms: 80,
+        reaction_ms: 10,
+        bound: robot_control::collision::Bound::Motion,
+    });
+    let mut c = Controller::new(cfg, "boot-a".into()).unwrap();
+    let mut h = Loopback::new(&[0.0]);
+    assert!(claim(&mut c, &mut h, 0).accepted);
+    (c, h)
+}
+
+fn boxed(
+    c: &mut Controller,
+    h: &mut Loopback,
+    now: u64,
+    low: f64,
+    high: f64,
+) -> robot_control::collision::MotionEnvelope {
+    robot_control::collision::MotionEnvelope {
+        offer: offer(c, h, now),
+        world_revision: "fixed-world".into(),
+        scope: "inter_branch".into(),
+        lower: vec![low],
+        upper: vec![high],
+    }
+}
+
+#[test]
+fn a_motion_box_covers_the_reference_ramp_and_a_stop_from_the_speed_bound() {
+    // Tracking bound 0.5, stop acceleration 2, limit reaction 30 ms (20 ms feedback, 10 reaction).
+    let reserve = |speed: f64| 0.5 + speed * 0.03 + speed * speed / 4.0;
+    let (mut c, mut h) = motion_fixture();
+    // At rest a joint may move at its approach floor, 0.5 rad/s.
+    let rest = reserve(0.5);
+    let arm = |c: &mut Controller, h: &mut Loopback, now: u64, edge: f64, sequence: u64| {
+        let collision = Some(boxed(c, h, now, -edge, edge));
+        c.handle(
+            now,
+            Request::Arm {
+                authority: auth(c, sequence),
+                collision,
+            },
+            h,
+        )
+    };
+    assert_eq!(
+        arm(&mut c, &mut h, 1, rest - 0.01, 1).reason,
+        Reason::CollisionViolation
+    );
+    assert!(arm(&mut c, &mut h, 2, rest + 0.001, 2).accepted);
+    assert_eq!(c.status().speed_bounds, vec![0.5]);
+    // A move at 1 rad/s ramps from 0 to 0.02: its box holds that ramp, the tracking bound and a stop
+    // from 1.25 rad/s (a servo overshoots the speed it follows).
+    let fast = reserve(1.25);
+    let mut sequence = 3;
+    let mut moved = |c: &mut Controller, h: &mut Loopback, now: u64, low: f64, high: f64| {
+        let collision = Some(boxed(c, h, now, low, high));
+        let mut joints = joints(1, 0.02, 1.0);
+        joints[0].kp = 10.0;
+        sequence += 1;
+        c.handle(
+            now,
+            Request::Move {
+                authority: auth(c, sequence),
+                identity: identity(),
+                joints,
+                collision,
+                ramp_efforts: Vec::new(),
+            },
+            h,
+        )
+    };
+    assert_eq!(
+        moved(&mut c, &mut h, 3, -fast + 0.01, 0.02 + fast).reason,
+        Reason::CollisionViolation
+    );
+    assert_eq!(
+        moved(&mut c, &mut h, 4, -fast, 0.02 + fast - 0.01).reason,
+        Reason::CollisionViolation
+    );
+    assert!(moved(&mut c, &mut h, 5, -fast - 0.001, 0.02 + fast + 0.001).accepted);
+    assert_eq!(c.status().speed_bounds, vec![1.25]);
+    // Once the ramp ends the bound falls at the joint's stop acceleration, no faster.
+    for now in 6..=75 {
+        c.tick(now, &mut h);
+    }
+    let bound = c.status().speed_bounds[0];
+    assert!(
+        (1.25 - 2.0 * 0.051..=1.25 - 2.0 * 0.049).contains(&bound),
+        "{bound}"
+    );
+    assert_eq!(c.status().state, State::Executing);
+}
+
+#[test]
+fn under_a_motion_bound_a_run_of_readings_over_the_speed_bound_trips_but_one_does_not() {
+    let (mut c, mut h) = motion_fixture();
+    let collision = Some(boxed(&mut c, &mut h, 1, -2.9, 2.9));
+    assert!(
+        c.handle(
+            1,
+            Request::Arm {
+                authority: auth(&c, 1),
+                collision
+            },
+            &mut h
+        )
+        .accepted
+    );
+    h.feedback[0].velocity = 0.6; // Over the 0.5 rad/s bound at rest, well under the 2 rad/s cap...
+    c.tick(2, &mut h);
+    h.feedback[0].velocity = 0.0;
+    c.tick(3, &mut h);
+    assert_eq!(c.status().state, State::Holding);
+    for now in 4..7 {
+        h.feedback[0].velocity = 0.6; // ...then three samples in a row.
+        c.tick(now, &mut h);
+    }
+    assert_eq!(c.status().reason, Reason::LimitViolation);
+    assert_eq!(c.status().state, State::Stopping);
+    assert!(h.enabled);
+    // Without a motion bound the same run is under the cap.
+    let (mut c, mut h) = armed(1);
+    for now in 2..6 {
+        h.feedback[0].velocity = 0.6;
+        c.tick(now, &mut h);
+    }
+    assert_eq!(c.status().state, State::Holding);
 }

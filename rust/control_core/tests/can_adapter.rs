@@ -313,7 +313,10 @@ fn a_drive_that_leaves_run_mode_while_driven_reads_as_quiet_not_as_a_failure() {
 #[test]
 fn fault_bits_are_named() {
     assert_eq!(robstride::fault_names(0), "no fault");
-    assert_eq!(robstride::fault_names(0b000011), "undervoltage, overcurrent");
+    assert_eq!(
+        robstride::fault_names(0b000011),
+        "undervoltage, overcurrent"
+    );
     assert_eq!(robstride::fault_names(0b100000), "uncalibrated");
 }
 
