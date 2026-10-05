@@ -220,8 +220,9 @@ def _routes(ctx):
     return PASS, f'All {len(motors)} motors routed with confirmed directions'
 
 
-def _derive(ctx, arm=None):
-    """The teleop receiver derived from this PC's calibration: the whole robot, or one arm."""
+def _derive(ctx, arm=None, collision_bound=None):
+    """The teleop receiver derived from this PC's calibration: the whole robot, or one arm; `collision_bound`
+    'motion' for both arms live."""
     from types import SimpleNamespace
     from robot_platform.control.guarded_config import arm_subset, derive_receiver
     reference, steps, transmissions = ctx.facts['reference'], ctx.facts['plan']['steps'], ctx.facts['transmissions']
@@ -233,7 +234,8 @@ def _derive(ctx, arm=None):
                                                                                         world_revision='check'))
     return derive_receiver(reference=reference, steps=steps, directions=ctx.facts['directions'],
                            transmissions=transmissions, model=ctx.facts['model'], limits=ctx.facts['limits'],
-                           profile=ctx.facts['teleop'], backend=revisions, servo=ctx.facts.get('servo'))
+                           profile=ctx.facts['teleop'], backend=revisions, servo=ctx.facts.get('servo'),
+                           collision_bound=collision_bound)
 
 
 @check('pc', 'receiver', 'Teleop receiver configuration', requires=('directions', 'limits', 'routes'))
@@ -386,12 +388,15 @@ def _live_config(ctx):
     directory = f'/tmp/minerva-check-{secrets.token_hex(4)}'
     problems = []
     try:
-        for arm in ('left', 'right'):
-            derived = _derive(ctx, arm)
+        # Each arm on its bus, and both arms on both buses under the two-arm (motion) collision bound.
+        for arm in ('left', 'right', 'both'):
+            derived = _derive(ctx, None, 'motion') if arm == 'both' else _derive(ctx, arm)
             reference = {'motors': [m for m in ctx.facts['reference']['motors']
                                     if m['name'] in {j['name'] for j in derived['config']['joints']}]}
+            used = {m['bus'] for m in reference['motors']}
             config = service_config(derived['config'], ctx.facts['device'], reference, models,
-                                    bus=reference['motors'][0]['bus'], tolerance_rad=live['reference_tolerance_rad'],
+                                    buses=[b['interface'] for b in ctx.facts['device']['buses'] if b['interface'] in used],
+                                    tolerance_rad=live['reference_tolerance_rad'],
                                     period_us=live['period_us'], maximum_lateness_us=live['maximum_lateness_us'])
             path = f'{directory}/{arm}.json'
             status, _out, err = run(ctx.client, f'mkdir -p {directory} && cat > {path}', stdin=json.dumps(config))
@@ -400,14 +405,16 @@ def _live_config(ctx):
             # --validate parses and checks the configuration only: no socket, CAN or motor.
             status, out, err = run(ctx.client, f'{CURRENT}/bin/guarded_controller {path} --validate', timeout=30)
             if status or 'configuration valid' not in out:
-                problems.append(f'{arm} arm: {(err or out).strip()[-200:] or f"exit {status}"}')
+                problems.append(f'{"both arms" if arm == "both" else arm + " arm"}: '
+                                f'{(err or out).strip()[-200:] or f"exit {status}"}')
     finally:
         run(ctx.client, f'rm -rf {directory}')
     if problems:
         return FAIL, 'The deployed receiver rejects: ' + '; '.join(problems)
     return PASS, (f"Both arms' teleop-mode configurations pass the deployed receiver's validation: one bus each, "
-                  f"watchdog identity and reference position for every motor, collision policy, "
-                  f"{live['reference_tolerance_rad']:g} rad reference tolerance")
+                  f"and both arms on both buses under the two-arm collision bound; watchdog identity and reference "
+                  f"position for every motor, collision policy, {live['reference_tolerance_rad']:g} rad reference "
+                  f"tolerance")
 
 
 def health_findings(report, offset_s):

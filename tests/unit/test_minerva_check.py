@@ -206,8 +206,10 @@ def test_a_complete_check_of_a_healthy_robot_is_a_go_and_is_saved(runs, loopback
     assert 'All 14 motors answered' in checks['scan']['detail'] and 'inside their swept ranges' in checks['pose']['detail']
     assert any(entry['status'] == 'running' for stage in published[0]['stages'] for entry in stage['checks'])
     assert robot.closed and sum(command.endswith('probe motors') for command in robot.commands) == 1
-    assert [len(config['motors']) for config in robot.validated] == [7, 7] and robot.cleaned
-    assert [config['buses'][0]['interface'] for config in robot.validated] == ['canL', 'canR']
+    assert [len(config['motors']) for config in robot.validated] == [7, 7, 14] and robot.cleaned
+    assert [[bus['interface'] for bus in config['buses']] for config in robot.validated] == [
+        ['canL'], ['canR'], ['canL', 'canR']]
+    assert robot.validated[2]['controller']['collision']['bound'] == 'motion'
     assert 'Both arms' in checks['live_config']['detail']
     saved = check.latest_report(runs)
     assert saved['verdict'] == 'incomplete' and saved['evidence'] == report['evidence']

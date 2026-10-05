@@ -349,7 +349,8 @@ reach.
 - Minerva Check's stopped stages pass (its live sweep items may still be
   pending while the servo settings are being measured). Its "Live receiver
   configuration" item has the
-  deployed receiver validate both arms' configurations. "Live start" runs a
+  deployed receiver validate each arm's configuration and the two-arm one (both
+  buses, the two-arm collision bound). "Live start" runs a
   session's own pre-scan on both arms: within 0.1 rad of the reference pose
   (a warning otherwise), and clear of the receiver's limits (a failure otherwise).
 - Helm is on **Via Tether**, and the loop runs on Minerva's Jetson (live is not
