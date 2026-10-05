@@ -159,9 +159,12 @@ pub struct Status {
     pub command_expires_at_ms: Option<u64>,
     pub collision_expires_at_ms: Option<u64>,
     pub joints: Vec<JointCommand>,
-    /// How fast each joint may move under a motion collision bound (collision::Bound::Motion), for a
-    /// client sizing its boxes: they only fall until the next Move.
-    pub speed_bounds: Vec<f64>,
+    /// How fast each joint may move [down, up] under a motion collision bound
+    /// (collision::Bound::Motion), for a client sizing its boxes: they only fall until the next Move.
+    pub speed_bounds: Vec<[f64; 2]>,
+    /// Where each joint's reference comes to rest without a new command: the end of the ramp in force,
+    /// or of its stop. A client's box covers the way there, as the receiver's check of a command does.
+    pub reference_ends: Vec<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

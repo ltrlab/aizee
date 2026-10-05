@@ -39,6 +39,9 @@ GRIPPER_TOLERANCE_RAD = .05
 FULL_TURN = 2 * math.pi
 # What a servo calibration (the live servo sweep, saved in Helm) sets per joint.
 SERVO_KEYS = ('hold_kp', 'hold_kd', 'max_velocity', 'stop_acceleration', 'max_tracking_error')
+# Under a motion collision bound, a joint's tracking bound at rest, as a share of its whole bound
+# (collision::tracking_bound).
+REST_TRACKING_SHARE = .5
 # The control law a servo calibration was measured under: the receiver ramps each command over its
 # interpolation period with its velocity (and friction) fed forward. A speed measured under the old
 # position-only commands, where damping braked every motion, does not carry over: a calibration made
@@ -214,6 +217,10 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
         joints.append({'name': name, 'unit': 'radians', **bounds,
                        **{key: float(settings[key]) for key in RECEIVER_KEYS}, 'max_velocity': float(speed),
                        **({'gripper': True} if gripper else {})})
+        if collision_bound == 'motion' and not gripper:
+            # At rest a joint holds within half its tracking bound: its servo sweep sizes the bound at twice the
+            # lag at full speed, and the stiffness to hold within half of it. Two arms keep tighter boxes for it.
+            joints[-1]['rest_tracking_error'] = REST_TRACKING_SHARE * float(settings['max_tracking_error'])
         lifecycle.append({'name': name, **bounds,
                           **{key: float(settings[key]) for key in ('hold_kp', 'hold_kd', 'max_velocity')},
                           **{key: float(settings[key]) for key in LIFECYCLE_KEYS},

@@ -77,7 +77,7 @@ def test_a_motion_box_is_the_ramp_widened_by_tracking_and_a_stop_from_the_speed_
         control = armed(harness, cfg, compiler)
         # At rest each joint may move at its approach floor (0.5): the tracking bound, then 30 ms of reaction and
         # a stop at 2 m/s2 from there, 0.0875 m in all.
-        rest = motion_reserve(cfg["joints"][0], .03, .5)
+        rest = motion_reserve(cfg["joints"][0], .03, (.5, .5))[0]
         assert rest == pytest.approx(.01 + .015 + .0625)
         offered = control.collision_offer()
         held = compiler.compile(offered, harness.last["feedback"], commands(-1., 1.))
@@ -116,7 +116,7 @@ def test_a_stream_of_moves_is_certified_and_taken_and_the_box_follows_the_speed(
         # a slower one at the stop acceleration.
         assert max(widths) > min(widths) + .3
         assert harness.last["status"]["state"] == "executing"
-        assert .5 < max(harness.last["status"]["speed_bounds"]) <= 1.25 * 1.2 + 1e-9
+        assert .5 < max(max(pair) for pair in harness.last["status"]["speed_bounds"]) <= 1.25 * 1.2 + 1e-9
 
 
 def test_a_box_that_could_bring_the_bodies_together_is_blocked_not_sent(setup):

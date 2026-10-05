@@ -63,6 +63,11 @@ pub struct JointLimits {
     /// object. Position, velocity, effort, gain and temperature limits still apply.
     #[serde(default)]
     pub gripper: bool,
+    /// Under a motion collision bound, the tracking bound at rest: it grows with the joint's speed
+    /// bound to max_tracking_error at its cap (a servo lags in proportion to its speed), so a joint
+    /// at rest keeps a tighter box (collision::tracking_bound). None: max_tracking_error throughout.
+    #[serde(default)]
+    pub rest_tracking_error: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,6 +150,9 @@ impl Config {
                 || !j.hold_kd.is_finite()
                 || j.hold_kd < 0.0
                 || j.hold_kd > j.max_kd
+                || j
+                    .rest_tracking_error
+                    .is_some_and(|rest| !(rest > 0.0 && rest <= j.max_tracking_error))
             {
                 return Err("invalid joint configuration");
             }
@@ -180,10 +188,10 @@ pub struct Controller {
     fast_readings: Vec<u8>,
     /// New feedback samples in a row over each joint's max_velocity.
     overspeed: Vec<u8>,
-    /// Under a motion collision bound, how fast each joint may move: its overshoot over the speed its
-    /// reference is commanded at, which after a slower command decays at its stop acceleration (the
-    /// joint brakes from the faster one), never below its approach floor.
-    speed_bounds: Vec<f64>,
+    /// Under a motion collision bound, how fast each joint may move [down, up]: its overshoot over the
+    /// speed its reference is commanded at that way, which after a slower command decays at its stop
+    /// acceleration (the joint brakes from the faster one), never below its approach floor.
+    speed_bounds: Vec<[f64; 2]>,
     /// When the speed bounds last decayed.
     speed_bounds_at_ms: u64,
     commands: Vec<JointCommand>,
@@ -206,7 +214,7 @@ impl Controller {
         let resting = config
             .joints
             .iter()
-            .map(|joint| collision::speed_bound(joint, 0.0))
+            .map(|joint| collision::speed_bounds(joint, 0.0))
             .collect();
         Ok(Self {
             config,
@@ -307,6 +315,13 @@ impl Controller {
             collision_expires_at_ms: self.collision_deadline,
             joints: self.commands.clone(),
             speed_bounds: self.speed_bounds.clone(),
+            reference_ends: (0..self.commands.len())
+                .map(|i| match self.state {
+                    State::Executing => self.targets[i].position,
+                    State::Stopping => self.stops[i].end_position,
+                    _ => self.commands[i].position,
+                })
+                .collect(),
         }
     }
 
@@ -408,16 +423,28 @@ impl Controller {
     fn sustained_speed(&self, i: usize, position: f64, velocity: f64) -> f64 {
         let allowed = self.allowed_speed(i, position, velocity);
         if self.motion_bound() && self.active() {
-            allowed.min(self.speed_bounds[i])
+            allowed.min(self.speed_bounds[i][collision::direction(velocity)])
         } else {
             allowed
         }
     }
 
+    /// How far joint `i` may trail or lead its reference: its tracking bound, or under a motion bound
+    /// while driven, the share of it for its speed bound (collision::tracking_bound).
+    fn tracking_bound(&self, i: usize) -> f64 {
+        let limit = &self.config.joints[i];
+        if self.motion_bound() && self.active() {
+            let [down, up] = self.speed_bounds[i];
+            collision::tracking_bound(limit, down.max(up))
+        } else {
+            limit.max_tracking_error
+        }
+    }
+
     /// The joints at rest: each speed bound back to its approach floor.
     fn rest_speed_bounds(&mut self) {
-        for (bound, limit) in self.speed_bounds.iter_mut().zip(&self.config.joints) {
-            *bound = collision::speed_bound(limit, 0.0);
+        for (bounds, limit) in self.speed_bounds.iter_mut().zip(&self.config.joints) {
+            *bounds = collision::speed_bounds(limit, 0.0);
         }
     }
 
@@ -426,14 +453,16 @@ impl Controller {
     fn decay_speed_bounds(&mut self, now_ms: u64) {
         let dt = now_ms.saturating_sub(self.speed_bounds_at_ms) as f64 / 1000.0;
         self.speed_bounds_at_ms = now_ms;
-        for ((bound, limit), command) in self
+        for ((bounds, limit), command) in self
             .speed_bounds
             .iter_mut()
             .zip(&self.config.joints)
             .zip(&self.commands)
         {
-            *bound = collision::speed_bound(limit, command.velocity)
-                .max(*bound - limit.stop_acceleration * dt);
+            let commanded = collision::speed_bounds(limit, command.velocity);
+            for (bound, floor) in bounds.iter_mut().zip(commanded) {
+                *bound = floor.max(*bound - limit.stop_acceleration * dt);
+            }
         }
     }
 
@@ -676,8 +705,9 @@ impl Controller {
                 .iter()
                 .zip(&self.commands)
                 .zip(&self.config.joints)
-                .any(|((f, c), l)| {
-                    !l.gripper && (f.position - c.position).abs() > l.max_tracking_error
+                .enumerate()
+                .any(|(i, ((f, c), l))| {
+                    !l.gripper && (f.position - c.position).abs() > self.tracking_bound(i)
                 })
         {
             self.trip(Reason::TrackingError, hardware);
@@ -830,9 +860,15 @@ impl Controller {
                     lo = lo.min(feedback.position);
                     hi = hi.max(feedback.position);
                 }
-                let bound = self.speed_bounds[i].max(collision::speed_bound(limit, speed));
-                let reserve = collision::motion_reserve(policy, &self.config, limit, bound);
-                (lo, hi, reserve, reserve)
+                let commanded = collision::speed_bounds(limit, speed);
+                let [down, up] = self.speed_bounds[i];
+                let [below, above] = collision::motion_reserve(
+                    policy,
+                    &self.config,
+                    limit,
+                    [down.max(commanded[0]), up.max(commanded[1])],
+                );
+                (lo, hi, below, above)
             } else {
                 let lo = feedback.position.min(target).min(start);
                 let hi = feedback.position.max(target).max(start);
@@ -1173,13 +1209,16 @@ impl Controller {
                     collision.as_ref(),
                     verdict.as_ref().map(|(deadline, _)| *deadline),
                 );
-                for ((bound, limit), command) in self
+                for ((bounds, limit), command) in self
                     .speed_bounds
                     .iter_mut()
                     .zip(&self.config.joints)
                     .zip(&joints)
                 {
-                    *bound = bound.max(collision::speed_bound(limit, command.velocity));
+                    let commanded = collision::speed_bounds(limit, command.velocity);
+                    for (bound, floor) in bounds.iter_mut().zip(commanded) {
+                        *bound = bound.max(floor);
+                    }
                 }
                 self.targets.copy_from_slice(&joints);
                 if ramp_efforts.is_empty() {

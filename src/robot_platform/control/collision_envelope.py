@@ -13,7 +13,7 @@ import math
 import time
 
 from .approach import (approach_speed, limit_reaction_s, limit_reserve, motion_reserve, reserve_toward,
-                       speed_bound)
+                       speed_bounds)
 from .collision_guard import JointBoxBound, JointCalibration, check_joint_box, check_linear_motion
 
 FULL_TURN = 2 * math.pi
@@ -253,14 +253,13 @@ class MotionEnvelopeCompiler:
             velocity = 0. if command is None else command["velocity"]
             start = target - velocity * period
             if active:
-                # The receiver's reference moves on along the ramp in force, at most a period of it, before it
-                # checks this command.
-                held = status["joints"][i]
-                points = (held["position"], held["position"] + held["velocity"] * period, start, target)
+                # The receiver's reference moves on along the ramp in force toward its end before it checks this
+                # command.
+                points = (status["joints"][i]["position"], status["reference_ends"][i], start, target)
             else:
                 points = (sample["position"], start, target)
             lo, hi = min(points), max(points)
-            if not all(math.isfinite(value) for value in (lo, hi, bounds[i])):
+            if not all(math.isfinite(value) for value in (lo, hi, *bounds[i])):
                 raise ValueError("Complete finite joint targets and speed bounds required")
             if limit.get("gripper"):
                 # It may trail its command (stalled on an object) and move on toward it before the receiver checks:
@@ -268,16 +267,19 @@ class MotionEnvelopeCompiler:
                 # the fingers, so this costs the check nothing.
                 pad = limit["max_velocity"] * verdict_s
                 lo, hi = min(lo, sample["position"]) - pad, max(hi, sample["position"]) + pad
-                reserve = 0.
+                below = above = 0.
             else:
                 # The reference must stop on the joint's limit curve, as the receiver checks.
                 low, high = min(start, target), max(start, target)
                 if (low - limit_reserve(limit, reaction, low - limit["lower"]) < limit["lower"] - 1e-9
                         or high + limit_reserve(limit, reaction, limit["upper"] - high) > limit["upper"] + 1e-9):
                     raise ValueError("Stopping envelope exceeds operational interval")
-                reserve = motion_reserve(limit, reaction, max(bounds[i], speed_bound(limit, velocity)))
-            lower.append(max(limit["lower"], lo - reserve - 1e-9))
-            upper.append(min(limit["upper"], hi + reserve + 1e-9))
+                # A joint moving away from something keeps its stop on the far side.
+                commanded = speed_bounds(limit, velocity)
+                below, above = motion_reserve(limit, reaction, (max(bounds[i][0], commanded[0]),
+                                                                max(bounds[i][1], commanded[1])))
+            lower.append(max(limit["lower"], lo - below - 1e-9))
+            upper.append(min(limit["upper"], hi + above + 1e-9))
         return lower, upper
 
     def model_box(self, lower, upper):

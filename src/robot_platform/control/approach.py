@@ -98,12 +98,32 @@ def speed_bound(joint, commanded):
     return max(OVERSPEED_HEADROOM * abs(commanded), min(APPROACH_FLOOR_RAD_S, joint['max_velocity']))
 
 
-def motion_reserve(joint, reaction, speed):
-    """The reserve a motion box keeps around the reference the receiver drives: the tracking bound, then the limit
-    reaction and braking distances at the joint's speed bound `speed`. None for a gripper (collision::motion_reserve)."""
+def tracking_bound(joint, speed):
+    """Under a motion bound, how far a joint moving at up to `speed` may trail or lead its reference: its rest
+    tracking error, growing in proportion to its speed above its approach floor to its whole tracking bound at its
+    cap (collision::tracking_bound)."""
+    rest, whole = joint.get('rest_tracking_error'), joint['max_tracking_error']
+    floor = min(APPROACH_FLOOR_RAD_S, joint['max_velocity'])
+    span = joint['max_velocity'] - floor
+    if rest is None or not span > 0:
+        return whole
+    return rest + (whole - rest) * min(1., max(0., (speed - floor) / span))
+
+
+def motion_reserve(joint, reaction, speeds):
+    """The reserves (below, above) a motion box keeps around the reference the receiver drives, given the joint's
+    speed bounds (down, up): the tracking bound at the faster of them, then on each side the limit reaction and
+    braking distances at its bound toward that side. None for a gripper (collision::motion_reserve)."""
     if joint.get('gripper'):
-        return 0.
-    return joint['max_tracking_error'] + speed * reaction + speed * speed / (2 * joint['stop_acceleration'])
+        return 0., 0.
+    tracking = tracking_bound(joint, max(speeds))
+    return tuple(tracking + v * reaction + v * v / (2 * joint['stop_acceleration']) for v in speeds)
+
+
+def speed_bounds(joint, commanded):
+    """A command's speed bounds (down, up): its overshoot toward the way it moves, the floor the other
+    (collision::speed_bounds)."""
+    return speed_bound(joint, min(commanded, 0.)), speed_bound(joint, max(commanded, 0.))
 
 
 def end_margin(joint, reaction):

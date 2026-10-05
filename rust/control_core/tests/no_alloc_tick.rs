@@ -65,6 +65,7 @@ fn periodic_execution_expiry_stop_and_fault_do_not_touch_allocator() {
             max_tracking_error: 0.5,
             max_temperature: 70.0,
             gripper: false,
+            rest_tracking_error: None,
         }],
     };
     let mut c = Controller::new(config, "boot".into()).unwrap();

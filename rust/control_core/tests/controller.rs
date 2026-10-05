@@ -34,6 +34,7 @@ fn config(count: usize) -> Config {
                 max_tracking_error: 0.5,
                 max_temperature: 70.0,
                 gripper: false,
+                rest_tracking_error: None,
             })
             .collect(),
     }
@@ -1693,9 +1694,9 @@ fn a_motion_box_covers_the_reference_ramp_and_a_stop_from_the_speed_bound() {
         Reason::CollisionViolation
     );
     assert!(arm(&mut c, &mut h, 2, rest + 0.001, 2).accepted);
-    assert_eq!(c.status().speed_bounds, vec![0.5]);
-    // A move at 1 rad/s ramps from 0 to 0.02: its box holds that ramp, the tracking bound and a stop
-    // from 1.25 rad/s (a servo overshoots the speed it follows).
+    assert_eq!(c.status().speed_bounds, vec![[0.5, 0.5]]);
+    // A move up at 1 rad/s ramps from 0 to 0.02: its box holds that ramp, the tracking bound and above
+    // it a stop from 1.25 rad/s (a servo overshoots the speed it follows); below it, one from the floor.
     let fast = reserve(1.25);
     let mut sequence = 3;
     let mut moved = |c: &mut Controller, h: &mut Loopback, now: u64, low: f64, high: f64| {
@@ -1716,20 +1717,22 @@ fn a_motion_box_covers_the_reference_ramp_and_a_stop_from_the_speed_bound() {
         )
     };
     assert_eq!(
-        moved(&mut c, &mut h, 3, -fast + 0.01, 0.02 + fast).reason,
+        moved(&mut c, &mut h, 3, -rest + 0.01, 0.02 + fast).reason,
         Reason::CollisionViolation
     );
     assert_eq!(
-        moved(&mut c, &mut h, 4, -fast, 0.02 + fast - 0.01).reason,
+        moved(&mut c, &mut h, 4, -rest, 0.02 + fast - 0.01).reason,
         Reason::CollisionViolation
     );
-    assert!(moved(&mut c, &mut h, 5, -fast - 0.001, 0.02 + fast + 0.001).accepted);
-    assert_eq!(c.status().speed_bounds, vec![1.25]);
+    assert!(moved(&mut c, &mut h, 5, -rest - 0.001, 0.02 + fast + 0.001).accepted);
+    assert_eq!(c.status().speed_bounds, vec![[0.5, 1.25]]);
+    // The reference ramps on to 0.02 and rests there.
+    assert_eq!(c.status().reference_ends, vec![0.02]);
     // Once the ramp ends the bound falls at the joint's stop acceleration, no faster.
     for now in 6..=75 {
         c.tick(now, &mut h);
     }
-    let bound = c.status().speed_bounds[0];
+    let bound = c.status().speed_bounds[0][1];
     assert!(
         (1.25 - 2.0 * 0.051..=1.25 - 2.0 * 0.049).contains(&bound),
         "{bound}"
@@ -1771,4 +1774,41 @@ fn under_a_motion_bound_a_run_of_readings_over_the_speed_bound_trips_but_one_doe
         c.tick(now, &mut h);
     }
     assert_eq!(c.status().state, State::Holding);
+}
+
+#[test]
+fn under_a_motion_bound_a_joint_at_rest_keeps_its_rest_tracking_error() {
+    let mut cfg = config(1);
+    cfg.interpolation_ms = 20;
+    cfg.joints[0].rest_tracking_error = Some(0.25); // Half its 0.5 bound.
+    cfg.collision = Some(robot_control::collision::CollisionPolicy {
+        world_revision: "fixed-world".into(),
+        scope: "inter_branch".into(),
+        max_verdict_ms: 80,
+        reaction_ms: 10,
+        bound: robot_control::collision::Bound::Motion,
+    });
+    let joint = cfg.joints[0].clone();
+    // Its share of the bound grows from its approach floor (0.5) to its cap (2.0).
+    use robot_control::collision::tracking_bound;
+    assert_eq!(tracking_bound(&joint, 0.5), 0.25);
+    assert_eq!(tracking_bound(&joint, 1.25), 0.375);
+    assert_eq!(tracking_bound(&joint, 2.5), 0.5);
+    let mut c = Controller::new(cfg, "boot-a".into()).unwrap();
+    let mut h = Loopback::new(&[0.0]);
+    assert!(claim(&mut c, &mut h, 0).accepted);
+    // At rest the box keeps the rest error and a stop from the floor: 0.25 + 0.015 + 0.0625.
+    let rest = 0.25 + 0.5 * 0.03 + 0.25 / 4.0;
+    let collision = Some(boxed(&mut c, &mut h, 1, -rest + 0.005, rest));
+    let refused = c.handle(1, Request::Arm { authority: auth(&c, 1), collision }, &mut h);
+    assert_eq!(refused.reason, Reason::CollisionViolation);
+    let collision = Some(boxed(&mut c, &mut h, 2, -rest - 0.001, rest + 0.001));
+    assert!(c.handle(2, Request::Arm { authority: auth(&c, 2), collision }, &mut h).accepted);
+    // Trailing its reference by 0.3 at rest trips it (within its whole 0.5 bound, but not at rest).
+    h.feedback[0].position = 0.3;
+    c.tick(3, &mut h);
+    assert_eq!(c.status().reason, Reason::TrackingError);
+    // Braked to a hold (at rest, at once), not dropped.
+    assert!(matches!(c.status().state, State::Stopping | State::Stopped));
+    assert!(h.enabled);
 }

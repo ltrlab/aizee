@@ -47,21 +47,50 @@ pub fn speed_bound(joint: &crate::JointLimits, commanded: f64) -> f64 {
     (SPEED_OVERSHOOT * commanded.abs()).max(APPROACH_FLOOR_RAD_S.min(joint.max_velocity))
 }
 
-/// The reserve a motion box keeps around the reference: the joint's tracking bound, then the limit
-/// reaction and braking distances at its speed bound `speed`. None for grippers, which do not brake
-/// and may trail their command (the box holds their measured position instead).
+/// Under a motion bound, how far a joint moving at up to `speed` may trail or lead its reference:
+/// its rest tracking error, growing in proportion to its speed above its approach floor to its whole
+/// tracking bound at its cap. The sweep sizes the whole bound at twice the lag at full speed, and the
+/// stiffness to hold within half of it at rest.
+pub fn tracking_bound(joint: &crate::JointLimits, speed: f64) -> f64 {
+    let Some(rest) = joint.rest_tracking_error else {
+        return joint.max_tracking_error;
+    };
+    let floor = APPROACH_FLOOR_RAD_S.min(joint.max_velocity);
+    let span = joint.max_velocity - floor;
+    if !(span > 0.0) {
+        return joint.max_tracking_error;
+    }
+    let share = ((speed - floor) / span).clamp(0.0, 1.0);
+    rest + (joint.max_tracking_error - rest) * share
+}
+
+/// The reserves [below, above] a motion box keeps around the reference, given the joint's speed
+/// bounds [down, up]: its tracking bound at the faster of them on both sides, then on each side the
+/// limit reaction and braking distances at its bound toward that side. A joint moving away from
+/// something keeps its stop on the far side. None for grippers, which do not brake and may trail
+/// their command (the box holds their measured position instead).
 pub fn motion_reserve(
     policy: &CollisionPolicy,
     config: &crate::Config,
     joint: &crate::JointLimits,
-    speed: f64,
-) -> f64 {
+    speeds: [f64; 2],
+) -> [f64; 2] {
     if joint.gripper {
-        return 0.0;
+        return [0.0; 2];
     }
-    joint.max_tracking_error
-        + speed * limit_reaction_s(policy, config)
-        + speed * speed / (2.0 * joint.stop_acceleration)
+    let tracking = tracking_bound(joint, speeds[0].max(speeds[1]));
+    let reaction = limit_reaction_s(policy, config);
+    speeds.map(|speed| tracking + speed * reaction + speed * speed / (2.0 * joint.stop_acceleration))
+}
+
+/// Which speed bound [down, up] a velocity's direction falls under.
+pub fn direction(velocity: f64) -> usize {
+    usize::from(velocity > 0.0)
+}
+
+/// A command's speed bounds [down, up]: its overshoot toward the way it moves, the floor the other.
+pub fn speed_bounds(joint: &crate::JointLimits, commanded: f64) -> [f64; 2] {
+    [speed_bound(joint, commanded.min(0.0)), speed_bound(joint, commanded.max(0.0))]
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
