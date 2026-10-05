@@ -448,3 +448,35 @@ def test_a_move_that_changes_speed_carries_the_effort_that_accelerates_it():
     held = lifecycle.action('disengage', feedback(.2, positions), now=.2)
     assert held['ramp_efforts'] == [0., 0.]
     assert lifecycle.action('idle', feedback(.24, positions), now=.24)['ramp_efforts'] is None
+
+
+def test_a_joint_speeds_up_no_faster_than_its_braking_and_never_runs_past_the_leader():
+    # From rest to 1.5 rad/s in one command asked right J2 for 41 Nm in 10 ms, and gravity carried it to
+    # 1.98 rad/s, over the receiver's cap (rehearsal, 2026-10-04). Speeding up is held to the joint's braking
+    # (16 rad/s2 here); slowing is not, so the command stops where the leader stops.
+    curve = {'lower': -2., 'upper': 2., 'max_velocity': 1.875, 'max_tracking_error': .07, 'stop_acceleration': 16.,
+             'reaction_s': .04}
+    limited = joints()
+    for joint in limited:
+        joint.update(interpolation_s=.04)
+    limited[0].update(max_velocity=1.5, max_lead=10., approach=curve)
+    positions = (-1., .02)
+    lifecycle = TeleopLifecycle(limited, settle_time_s=0.)
+    lifecycle.action('idle', feedback(0., positions), now=0.)
+    lifecycle.action('enable', feedback(0., positions), now=0.)
+    lifecycle.action('engage', feedback(0., positions), target=target(0., positions), now=0.)
+    lifecycle.step(feedback(.04, positions), target=target(.04, positions), now=.04)
+    assert lifecycle.state == 'TELEOP'
+    speeds, q, now = [], -1., .04
+    while now < .6:
+        now += .04
+        proposal = lifecycle.step(feedback(now, (q, .02)), target=target(now, (1., .02)), now=now)
+        speeds.append(proposal['joints'][0]['velocity'])
+        q = proposal['positions'][0]  # It follows exactly.
+    assert speeds[:4] == pytest.approx([.64, 1.28, 1.5, 1.5])  # 16 rad/s2 x 40 ms a cycle, then its cap.
+    # The leader stops: so does the command, at once, at the leader.
+    here = q
+    proposal = lifecycle.step(feedback(now + .04, (q, .02)), target=target(now + .04, (here, .02)), now=now + .04)
+    assert proposal['positions'][0] == pytest.approx(here) and proposal['joints'][0]['velocity'] == 0.
+    # A joint with no braking curve (a gripper) is not held back.
+    assert 'approach' not in limited[1]

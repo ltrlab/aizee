@@ -239,7 +239,8 @@ class TeleopLifecycle:
     def _approach(self, measured, goal, speed, dt, now):
         proposed, velocities = [], []
         before = self._last_measured or tuple(row['position'] for row in measured)
-        for previous, row, target, joint, last in zip(self.target, measured, goal, self._joints, before):
+        sent = self._sent_velocities or (0.,) * len(self._joints)
+        for previous, row, target, joint, last, was in zip(self.target, measured, goal, self._joints, before, sent):
             up = down = joint[speed]
             lead_up = lead_down = joint['max_lead']
             # The receiver ramps each command from the last one over its interpolation period: a cycle
@@ -267,6 +268,14 @@ class TeleopLifecycle:
             high = min(joint['upper'], up_from+lead_up, max(previous+up*step, down_from-lead_down))
             if low > high:
                 raise ValueError(f'Measured pose exceeds command lead/slew bounds: {joint["name"]}')
+            if curve and period > 0 and dt > 0:
+                # Speeding up no faster than the joint's qualified braking, in either direction; slowing toward
+                # the goal is never held back, so a command never runs past where the leader stopped. A step from
+                # rest to 1.5 rad/s asked right J2 for 41 Nm in 10 ms, and gravity carried it to 1.98 rad/s,
+                # over the receiver's 1.875 cap (rehearsal, 2026-10-04).
+                rate = curve['stop_acceleration'] * dt
+                target = max(previous + (min(was, 0.) - rate) * period,
+                             min(previous + (max(was, 0.) + rate) * period, target))
             q = max(low, min(high, target))
             proposed.append(q)
             # The velocity it is ramped at, fed forward (a snap back toward the joint no faster than the cap).

@@ -170,7 +170,7 @@ def test_gui_keys_drive_the_virtual_receiver_through_the_whole_lifecycle(rig):
     fraction = (HANG + .4) / .8
     assert grip['command'] == pytest.approx(grip['usable'][0] + fraction * (grip['usable'][1] - grip['usable'][0]))
     ramp(core, clock, leaders, 'left', 1, -.5)  # Left J2's route sign is -1.
-    run(core, clock, limit=40)
+    run(core, clock, limit=100)  # Speeding up within its braking (8 rad/s2), it arrives within 100 cycles.
     joints = {row['motor']: row for row in core.view()['joints']}
     target = expected_motor(core, 'left_arm_j2', -.5, -1)
     assert joints['left_arm_j2']['command'] == pytest.approx(target, abs=1e-6)
@@ -303,7 +303,7 @@ def test_setting_the_zero_while_engaged_holds_then_follows_from_the_new_zero(rig
     run(core, clock, 'T', until='TELEOP', limit=400)
     sign = core.routes()['left_arm_j2']['sign']  # Earlier tests may have flipped it.
     ramp(core, clock, leaders, 'left', 1, -.5)
-    run(core, clock, limit=40)
+    run(core, clock, limit=100)
     moved = {row['motor']: row for row in core.view()['joints']}['left_arm_j2']
     assert moved['command'] == pytest.approx(expected_motor(core, 'left_arm_j2', -.5, sign), abs=1e-6)
     zero = core.set_zero()
