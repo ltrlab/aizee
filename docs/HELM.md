@@ -315,14 +315,14 @@ position by its whole range. Effort, gain, speed, position and temperature
 limits still apply; on real motors the effort limit is what bounds grip force.
 The grippers run at 10 rad/s.
 
-**Collision checks are advisory here.** The conservative swept keep-out bound
-certifies only about ±0.011 rad per arm joint at the hanging pose, about
-0.03 rad/s at 25 Hz. So in the virtual receiver, every cycle checks the target
-pose against the same keep-out geometry and shows the result (clear, distance, or
-the contacting shapes), but does not block. The receiver still enforces its
-limits, stopping reserve and single-use offers. The only physical use of
-advisory checks is live teleop of one arm (below); two-arm physical teleop needs
-a tighter, still-sound bound with enforced checks.
+**Collision checks are advisory here,** unless you choose **Virtual ·
+enforced**. In the plain virtual receiver every cycle checks the target pose against
+the keep-out geometry and shows the result (clear, distance, or the contacting
+shapes), but does not block. The receiver still enforces its limits, stopping
+reserve and single-use offers. Live teleop of one arm (below) uses the same
+advisory checks. **Virtual · enforced** enforces the two-arm bound that
+**Live · both** runs (described there), so you can rehearse how close the arms
+may come with no motors moving.
 
 **Timing.** The 50 Hz loop (25 Hz before 2026-10-04) runs in its own process,
 so browser traffic cannot stall a cycle. On Windows it runs at high priority,
@@ -362,7 +362,7 @@ reach.
   single reading over it is drive noise: still motors read up to about
   0.2 rad/s.
 
-Choose **Receiver: Live · left arm** (or right). The panel turns red and Start
+Choose **Receiver: Live · left** (or right). The panel turns red and Start
 asks you to confirm.
 
 **Starting a session**, with the motors still disabled throughout:
@@ -432,6 +432,57 @@ within the swept travel. A stalled grasp holds about hold Kp × lead: up to 10 N
 gains (2 Nm/rad over a 5.1 rad lead), against the gripper motor's 14 Nm peak.
 Long grasps heat the motor toward the receiver's 70 °C limit. Lower the
 gripper's `hold_kp` if that matters.
+
+## Live teleop (both arms)
+
+**Live · both** drives all 14 motors from one receiver on Minerva's Jetson,
+and enforces collision checks of one arm against the other. Everything in Live
+teleop (one arm) applies to each arm: the gates and pre-scan, the reference
+pose, the keys, what happens when something is lost, and trips holding the arms.
+Both arms are scanned stopped, both CAN links come up, and one receiver drives
+both buses. Its evidence is saved as `live-canL-canR-last.json`.
+
+**How the arms are kept apart.** Every move carries a box of joint positions,
+which the receiver checks before it takes the move and holds the arms to every
+tick. The box covers the reference the receiver drives (the command in force,
+then the new command's ramp), widened per joint by:
+- its tracking allowance for its speed: half its tracking bound at rest, growing
+  to the whole bound at its speed cap. The servo sweep sizes the bound at twice
+  the lag at full speed, and the stiffness to hold within half of it;
+- on each side, how far it travels before it stops, at its speed bound toward
+  that side. The speed bound is 1.25 × the speed commanded that way (a servo
+  overshoots what it follows). After a slower command it falls no faster than
+  the joint's stop acceleration, and it is never below 0.5 rad/s (drive noise at
+  rest).
+
+The receiver trips the arms to a hold when a joint passes its tracking allowance,
+leaves its box, or reads over its speed bound three times in a row.
+
+Before a move is sent, its box is checked arm against arm in the keep-out model:
+one proximity query at the box's centre, plus a bound on how far each part can
+move anywhere in the box (from each joint axis's distance to the part). The
+outcome:
+- a move whose box could bring the arms within 5 mm of each other is tried again
+  at half, then a fifth, of its step and speed;
+- if none clears, the arms hold their last target, and the panel shows HOLDING
+  with the parts that limit them. They follow again once the leaders part;
+- within 20 mm of that limit, a move passes only if it takes those parts apart,
+  or if the arms could rest at its target with the whole 20 mm.
+
+The arms slow down near each other, stop before their boxes could meet, and
+leave from there.
+
+**What it costs.** At rest each hand's box is about 0.15 m: tracking allowances
+of 0.02–0.05 rad and 0.5 rad/s for 40 ms, on lever arms near a metre. So the
+hands hold about 30 cm apart, farther at speed. In the virtual rehearsal (hands
+driven toward a pose where they overlap) they held at least 29 cm apart. Ways to
+tighten it:
+- measured rest errors per joint (now taken as half the tracking bound);
+- better braking on right J1, whose 4 rad/s² is the weakest;
+- the left arm's wrist sweeps.
+
+**Not checked:** the arms against the body. The keep-out scope is arm against
+arm, as for one arm.
 
 ## Servo sweep (Tune)
 

@@ -80,21 +80,37 @@ before); alignment judges settling speed over at least 40 ms (one 20 ms cycle
 read the drives' position steps as twice the speed); and a cycle faults the
 session only past 35 ms (a slower one starts the next late).
 
-## Two arms
+## Two arms (built 2026-10-05)
 
-- **One receiver for both arms.** It runs both CAN buses (7 drives each, as
-  now per bus) and all 14 motors in one tick, so one collision verdict covers
-  both arms.
-- **An enforced arm-against-arm bound.** The enforced compiler that exists today
-  sizes each joint's box by the joint's *maximum* speed over the verdict's
-  lifetime. That box is large even at rest, which is why teleop has run
-  advisory checks. The receiver only ever ramps to the last target and then
-  holds, so a box can instead be sized from the move actually commanded:
-  - from the current command to the new target;
-  - plus the joint's tracking bound;
-  - plus its stopping distance from the commanded speed.
-  
-  The box is certified with one proximity query at its centre and per-link
-  travel bounds, in the arm-against-arm scope, and the receiver enforces it. A
-  move whose box cannot be certified is not sent: both arms hold their last
-  certified targets until the leaders move apart.
+- **One receiver for both arms.** It runs both CAN buses (7 drives each) and
+  all 14 motors in one tick, so one collision verdict covers both arms
+  (`LiveReceiver` with both buses; the receiver allows two buses only under the
+  motion bound below).
+- **An enforced arm-against-arm bound** (`collision::Bound::Motion`,
+  `MotionEnvelopeCompiler`). The reserve bound sizes each joint's box by its
+  *maximum* speed over the verdict's lifetime: too wide to certify one arm
+  against the other. The motion bound sizes it from the move commanded: the
+  reference the receiver drives (the command in force, then the new ramp), plus
+  a tracking allowance that grows with the joint's speed bound (half its tracking
+  bound at rest), plus on each side its stop from its speed bound that way
+  (1.25 × the commanded speed, falling no faster than its stop acceleration,
+  floor 0.5 rad/s). The receiver enforces the allowance and the speed bound
+  every tick, and reports the bounds so the client sizes boxes from them.
+- **The certification** is one proximity query at the box's centre plus a
+  per-part travel bound from each joint axis's distance to the part
+  (`JointBoxBound`). The earlier bound charged a gripper part a 2.2 m lever (its
+  mesh frame sits at the assembly origin) and certified ±0.011 rad per joint at
+  the hanging pose; this one certifies ±0.075 rad there, about 2 ms a box on the
+  PC.
+- **Blocked moves** are tried at half and a fifth of their step and speed, else
+  the arms hold their last target. Within 20 mm of the clearance a move passes
+  only if it takes the limiting parts apart, or the arms could rest at its target
+  with the whole margin, so held arms can always leave.
+
+What it costs: at rest each hand's box is about 0.15 m, so the hands hold about
+30 cm apart (29 cm in the virtual rehearsal, `tests/contract/test_two_arm_teleop.py`).
+The tracking allowance and the 0.5 rad/s floor over 40 ms dominate, on lever
+arms near a metre. Measured rest errors, right J1's braking (4 rad/s²) and the
+left wrist sweeps would tighten it. The Jetson's cost per cycle (one box, up to
+four when a move is retried) is still to be measured against the 12 ms compute
+budget.
