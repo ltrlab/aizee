@@ -338,6 +338,10 @@ class TeleopCore:
 
             def exchange(request):
                 now_ms = max(harness.now_ms, int((self.clock() - epoch) * 1000))
+                if now_ms > harness.now_ms:
+                    # The live receiver ticks every 2.5 ms between requests, so the joints have taken the latest
+                    # command before a request reads them; the harness ticks only when stepped.
+                    harness.step(now_ms)
                 return harness.step(now_ms, request)['reply']
 
         names = tuple(joint['name'] for joint in derived['config']['joints'])

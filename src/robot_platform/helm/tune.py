@@ -171,6 +171,9 @@ class TuneCore:
 
             def exchange(request):
                 now_ms = max(harness.now_ms, int((self.clock() - epoch) * 1000))
+                if now_ms > harness.now_ms:
+                    # As the live receiver, which ticks every 2.5 ms between requests (see helm.teleop).
+                    self.pending.append(harness.step(now_ms))
                 result = harness.step(now_ms, request)
                 self.pending.append(result)
                 return result['reply']
@@ -272,9 +275,8 @@ class TuneCore:
             if self.stage == 'arming':
                 self._arm()
             elif self.stage == 'sweeping':
-                # Renew and take the collision offer first: their results bring the latest rows, so the command's
-                # lead is taken from where the joint is now, not a cycle ago, with no extra request.
-                self.controller.renew()
+                # Take the collision offer first: its result brings the latest rows, so the command's lead is taken
+                # from where the joint is now, not a cycle ago. The move binding the offer renews the lease.
                 offer_started = self.clock()
                 offered = self.controller.collision_offer()
                 self._feed()
@@ -408,9 +410,8 @@ class TuneCore:
             return
         if state not in ('holding', 'executing') or not self.controller.owned:
             raise RuntimeError(f"the receiver is {state} ({status.get('reason')}): the arm's torque is off")
-        self.controller.renew()
         offer_started = self.clock()
-        offered = self.controller.collision_offer()
+        offered = self.controller.collision_offer()  # The move binding it renews the lease.
         self._feed()
         command = self.engine.command(started)
         if command is None:

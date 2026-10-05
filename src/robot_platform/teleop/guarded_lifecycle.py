@@ -130,8 +130,8 @@ class GuardedLifecycleSession:
                 self.owned = True
                 if status["state"] != "disarmed":
                     raise ValueError("Receiver must be disarmed before Idle")
-            elif self.owned:
-                self.controller.renew()
+            # One offer a cycle: an enable or move binds it in its collision verdict, which renews the lease;
+            # any other cycle renews with it. Two receiver requests a cycle, not four, each waiting for a tick.
             offer_started = self.clock()
             offered = self.controller.collision_offer()
             sample = deepcopy(self.snapshot())
@@ -146,6 +146,11 @@ class GuardedLifecycleSession:
                 proposal = self.lifecycle.step(rows, target=target, now=self.clock())
             record.update(proposal=deepcopy(proposal), feedback=feedback)
             operation = proposal["operation"]
+            lease = offered["status"].get("lease") or {}
+            if (operation in ("none", "idle") and self.owned
+                    and offered["offer"]["expires_at_ms"] > lease.get("expires_at_ms", -1)):
+                # Not when the lease already lasts as long (acquired this cycle, from an offer as fresh).
+                self.controller.renew_with(offered)
             if operation == "none":
                 return record
             if not self.owned:

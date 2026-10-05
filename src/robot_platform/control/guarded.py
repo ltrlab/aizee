@@ -51,6 +51,10 @@ class GuardedControllerClient:
             self._lease = None
         if not reply["accepted"]:
             raise GuardRejected(reply["reason"], status)
+        if lease is not None and lease["session"] == self.session_id and self._lease is not None:
+            # An accepted arm or move whose collision verdict binds a fresh offer renews the lease with it,
+            # as Renew does: the lease id follows.
+            self._lease = lease["id"]
         return reply
 
     def _authority(self) -> dict:
@@ -87,6 +91,13 @@ class GuardedControllerClient:
         offered = self._call({"type": "offer"})
         reply = self._call({"type": "renew", "authority": self._authority(),
                             "offer": offered["offer"]["id"]})
+        self._lease = reply["status"]["lease"]["id"]
+        return reply["status"]
+
+    def renew_with(self, offered: dict) -> dict:
+        """Renew with an offer already taken this cycle (its collision offer), when no arm or move will
+        bind it: one request instead of two."""
+        reply = self._call({"type": "renew", "authority": self._authority(), "offer": offered["offer"]["id"]})
         self._lease = reply["status"]["lease"]["id"]
         return reply["status"]
 
