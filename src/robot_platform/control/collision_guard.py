@@ -272,13 +272,16 @@ class JointBoxBound:
         return result
 
 
-def check_joint_box(backend, bound, center, half, *, clearance_m=0.005, scope="all", deadline=None,
+def check_joint_box(backend, bound, center, half, *, clearance_m=0.005, margin_m=0., scope="all", deadline=None,
                     clock=time.monotonic):
     """Clearance for every pose in a box of joint positions (`center` +/- `half` per joint), from one
     proximity query at its centre: a pair is clear when its distance there exceeds the clearance plus both
-    shapes' travel (JointBoxBound). Joints may move or stop at different times anywhere in the box."""
-    if not math.isfinite(clearance_m) or clearance_m < 0:
-        raise ValueError("Invalid clearance")
+    shapes' travel (JointBoxBound). Joints may move or stop at different times anywhere in the box.
+
+    clearance_lower_bound_m is the least such margin over every pair: exact below clearance_m + margin_m (the
+    query reaches that far past each pair's travel), at least that otherwise. The pair is in `shapes`."""
+    if not math.isfinite(clearance_m) or clearance_m < 0 or not math.isfinite(margin_m) or margin_m < 0:
+        raise ValueError("Invalid clearance or margin")
     runtime = backend.runtime_model
     selected = runtime.pairs_for_scope(scope, geometry_mode=backend.geometry_mode)
 
@@ -295,7 +298,8 @@ def check_joint_box(backend, bound, center, half, *, clearance_m=0.005, scope="a
     largest = float((travel[pairs[:, 0]] + travel[pairs[:, 1]]).max()) if len(pairs) else 0.
     # The query places the shapes from the same kinematics (a backend that cannot take them recomputes them).
     shared = dict(worlds=bound.shape_transforms(frames)) if getattr(backend, 'accepts_worlds', False) else {}
-    result = backend.proximity(center, threshold=clearance_m + largest + 2e-6, scope=scope, **shared)
+    reach = clearance_m + margin_m  # Pairs farther than this past their travel are not reported.
+    result = backend.proximity(center, threshold=reach + largest + 2e-6, scope=scope, **shared)
     if result.get("whole_robot_checked") is not (scope == 'all') or result.get("query_scope") != scope:
         return report(clear=False, reason="incomplete_collision_scope", queries=1)
     if (result.get('collision_policy_revision') != backend.policy_revision
@@ -312,15 +316,15 @@ def check_joint_box(backend, bound, center, half, *, clearance_m=0.005, scope="a
         separation = pair["distance_m"] - travel[i] - travel[j] - 2e-6
         if separation < lower:
             lower, nearest = separation, (list(key), pair["distance_m"])
-        if separation <= clearance_m:
-            return report(clear=False, reason="insufficient_swept_clearance", queries=1, shapes=list(key),
-                          distance_m=pair["distance_m"], clearance_lower_bound_m=separation,
-                          travel_m=float(travel.max()))
+    if lower <= clearance_m:
+        return report(clear=False, reason="insufficient_swept_clearance", queries=1, shapes=nearest[0],
+                      distance_m=nearest[1], clearance_lower_bound_m=lower, travel_m=float(travel.max()))
     if deadline is not None and clock() >= deadline:
         return report(clear=False, reason="collision_deadline", queries=1)
+    within = lower < reach
     return report(clear=True, reason="clear_joint_box", queries=1, travel_m=float(travel.max()),
-                  shapes=nearest[0] if nearest else None, distance_m=nearest[1] if nearest else None,
-                  clearance_lower_bound_m=lower if math.isfinite(lower) else clearance_m + largest)
+                  shapes=nearest[0] if within else None, distance_m=nearest[1] if within else None,
+                  clearance_lower_bound_m=min(lower, reach))
 
 
 @dataclass(frozen=True)

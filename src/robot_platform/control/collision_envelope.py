@@ -190,14 +190,21 @@ class MotionEnvelopeCompiler:
 
     A box that cannot be certified raises CollisionBlocked, and the adapter holds instead. Model joints outside
     this receiver (none when it drives both arms) are taken at `fixed`, their parked pose.
+
+    Holding where a box just certifies would leave the arms there: a move away certifies no more easily (a box
+    reaching from here to there is no easier than here). So a box certified within `approach_margin_m` of the
+    clearance passes only if the arms could rest at its target with the whole margin, or its move keeps the
+    parts that limit the box at least as far apart (nominally, at its target against the reference in force): the
+    arms stop approaching where resting keeps the margin, and leave from there.
     """
 
-    def __init__(self, backend, config, joint_map, *, clearance_m=.005, max_skew_ms=10, compute_budget_s=.012,
-                 cad_limits=None, fixed=None, clock=time.perf_counter):
+    def __init__(self, backend, config, joint_map, *, clearance_m=.005, approach_margin_m=.02, max_skew_ms=10,
+                 compute_budget_s=.012, cad_limits=None, fixed=None, clock=time.perf_counter):
         self.backend, self.config = backend, deepcopy(config)
         self.cad_limits, self.fixed = dict(cad_limits or {}), dict(fixed or {})
         self.clock, self.compute_budget_s = clock, compute_budget_s
         self.clearance_m, self.max_skew_ms = clearance_m, max_skew_ms
+        self.approach_margin_m = approach_margin_m
         self.mapping = {name: value if isinstance(value, JointCalibration) else JointCalibration(**value)
                         for name, value in joint_map.items()}
         self.names = tuple(joint["name"] for joint in config["joints"])
@@ -211,8 +218,9 @@ class MotionEnvelopeCompiler:
                for v in self.mapping.values()) or any(not math.isfinite(q) for q in self.fixed.values()):
             raise ValueError("Invalid mechanical transmission map or fixed pose")
         if (not math.isfinite(clearance_m) or clearance_m < 0 or not math.isfinite(compute_budget_s)
-                or compute_budget_s <= 0 or not math.isfinite(max_skew_ms) or max_skew_ms <= 0):
-            raise ValueError("Invalid clearance, skew or compute budget")
+                or compute_budget_s <= 0 or not math.isfinite(max_skew_ms) or max_skew_ms <= 0
+                or not math.isfinite(approach_margin_m) or approach_margin_m < 0):
+            raise ValueError("Invalid clearance, approach margin, skew or compute budget")
         policy = self.config.get("collision")
         if (not policy or policy.get("bound") != "motion" or policy["scope"] not in ("all", "inter_branch")
                 or not 0 < policy["max_verdict_ms"] <= config["lease_ms"]
@@ -333,15 +341,33 @@ class MotionEnvelopeCompiler:
             lower, upper = self.box(status, feedback, joints)
             center, half = self.model_box(lower, upper)
             result = check_joint_box(self.backend, self.bound, center, half, clearance_m=self.clearance_m,
-                                     scope=policy["scope"], deadline=deadline, clock=self.clock)
+                                     margin_m=self.approach_margin_m, scope=policy["scope"], deadline=deadline,
+                                     clock=self.clock)
             verdict.update(result)
             if result.get("shapes"):
                 shapes = self.backend.runtime_model.shapes
                 index = self.backend._motion_shape_indices
                 verdict["links"] = [shapes[index[name]]["link"] for name in result["shapes"]]
+            margin = self.clearance_m + self.approach_margin_m
+            if result["clear"] and joints is not None and result["clearance_lower_bound_m"] < margin:
+                # Within the approach margin: a move whose target the arms could rest at with the whole margin, or
+                # one that keeps their closest parts as far apart.
+                target = [joint["position"] for joint in joints]
+                rest = check_joint_box(self.backend, self.bound, *self.model_box(*self.rest_box(feedback, target)),
+                                       clearance_m=margin, scope=policy["scope"], deadline=deadline, clock=self.clock)
+                verdict["rest_clearance_m"] = rest.get("clearance_lower_bound_m")
+                if not rest["clear"]:
+                    held = [row["position"] for row in status["joints"]] if status["state"] in (
+                        "holding", "executing", "stopping", "stopped") else [row["position"] for row in feedback]
+                    pair = tuple(sorted(result["shapes"]))
+                    now_m, next_m = (self._apart(dict(zip(self.names, pose)), pair, policy["scope"])
+                                     for pose in (held, target))
+                    verdict.update(nearest_m=now_m, next_nearest_m=next_m)
+                    if next_m < now_m - 1e-4:
+                        verdict.update(clear=False, reason="approaching_within_margin")
             self._check_revisions()
-            if not result["clear"] or self.clock() >= deadline:
-                if result["clear"]:
+            if not verdict["clear"] or self.clock() >= deadline:
+                if verdict["clear"]:
                     verdict.update(clear=False, reason="collision_deadline")
                 self.blocked += 1
                 raise CollisionBlocked(self.describe(verdict), verdict)
@@ -355,11 +381,38 @@ class MotionEnvelopeCompiler:
             verdict.update(clear=False, reason=str(exc), completed_at=self.clock())
             raise ValueError(f"Collision envelope unavailable: {exc}") from exc
 
+    def rest_box(self, feedback, positions):
+        """The box of the arms at rest at `positions`: each joint's rest reserve (its tracking bound at rest and a
+        stop from its approach floor) around it; a gripper's padded as in box()."""
+        reaction = limit_reaction_s(self.config)
+        verdict_s = self.config["collision"]["max_verdict_ms"] / 1000
+        lower, upper = [], []
+        for q, sample, limit in zip(positions, feedback, self.config["joints"]):
+            if limit.get("gripper"):
+                pad = limit["max_velocity"] * verdict_s
+                lo, hi = min(q, sample["position"]) - pad, max(q, sample["position"]) + pad
+            else:
+                below, above = motion_reserve(limit, reaction, speed_bounds(limit, 0.))
+                lo, hi = q - below, q + above
+            lower.append(max(limit["lower"], lo))
+            upper.append(min(limit["upper"], hi))
+        return lower, upper
+
+    def _apart(self, motors, pair, scope):
+        """How far apart (m) the two parts `pair` are with the receiver's joints at `motors`, nominally; 1 m when
+        farther."""
+        center, _ = self.model_box([motors[name] for name in self.names], [motors[name] for name in self.names])
+        pairs = self.backend.proximity(center, threshold=1., scope=scope)["near_pairs"]
+        return next((row["distance_m"] for row in pairs if tuple(sorted(row["shapes"])) == pair), 1.)
+
     @staticmethod
     def describe(verdict):
         """In words, why a box was not certified."""
+        links = verdict.get("links") or verdict.get("shapes") or ["two parts"]
         if verdict.get("reason") == "insufficient_swept_clearance":
-            links = verdict.get("links") or verdict.get("shapes") or ["two parts"]
             return (f"{' and '.join(links)} could come within {max(0., verdict['clearance_lower_bound_m']) * 1000:.0f}"
                     f" mm of each other ({verdict['distance_m'] * 1000:.0f} mm apart now)")
+        if verdict.get("reason") == "approaching_within_margin":
+            return (f"the arms are as close as they may come ({' and '.join(links)}, "
+                    f"{verdict['nearest_m'] * 1000:.0f} mm apart): only moves apart")
         return f"collision check not clear: {verdict.get('reason')}"
