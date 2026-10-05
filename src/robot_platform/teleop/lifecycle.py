@@ -70,6 +70,8 @@ class TeleopLifecycle:
         self._misses = 0
         self._velocities = None  # This cycle's slewed targets' velocities, for the next proposal.
         self._sent_velocities = None  # The last move's velocities, for the acceleration fed forward.
+        self._before = None  # (target, sent velocities) before this cycle's proposal, for reduce().
+        self._proposed = None  # (target, velocities) of this cycle's move, as first proposed.
 
     @property
     def joints(self):
@@ -127,7 +129,7 @@ class TeleopLifecycle:
             held.append(q)
         return tuple(held)
 
-    def _proposal(self, operation):
+    def _proposal(self, operation, *, original=True):
         positions = list(self.target) if self.target is not None else None
         zero_gains = self.state == 'IDLE'
         # A slewed move carries its velocity (the receiver ramps it over its interpolation period) and
@@ -135,6 +137,8 @@ class TeleopLifecycle:
         velocities = self._velocities if operation == 'move' and not zero_gains else None
         self._velocities = None
         velocities = velocities or (0.,) * len(self._joints)
+        if original:
+            self._proposed = (tuple(positions), tuple(velocities)) if operation == 'move' and positions else None
         commands = None if positions is None else [
             dict(position=q, velocity=v, effort=0. if zero_gains else self._effort(joint, v, positions),
                  kp=0. if zero_gains else joint['hold_kp'], kd=0. if zero_gains else joint['hold_kd'])
@@ -185,17 +189,21 @@ class TeleopLifecycle:
         self.state = 'SHUTDOWN'
         return self._proposal('move')
 
-    def hold(self, positions):
-        """The adapter could not certify this cycle's move (its collision box was not clear): the arm holds
-        `positions`, the target last sent, instead, and the next cycle steps on from there, from rest. A hold,
-        alignment or shutdown carries on."""
-        if self.state not in ('HOLD', 'ENGAGING', 'TELEOP', 'SHUTDOWN'):
-            raise ValueError(f'Cannot hold from {self.state}')
-        if len(positions) != len(self.names) or not all(_finite(q) for q in positions):
-            raise ValueError('Complete held positions required')
-        self.target = tuple(float(q) for q in positions)
-        self._velocities, self._settled_since = None, None
-        return self._proposal('move')
+    def reduce(self, fraction):
+        """The adapter could not certify this cycle's move (its collision box was not clear): propose it at
+        `fraction` of its step and its speed instead, from the target last sent (0: hold that target). The next
+        cycle steps on from what was sent. A hold, alignment or shutdown carries on."""
+        if (self.state not in ('HOLD', 'ENGAGING', 'TELEOP', 'SHUTDOWN') or self._proposed is None
+                or self._before is None or self._before[0] is None):
+            raise ValueError(f'No move to reduce from {self.state}')
+        if not _finite(fraction) or not 0 <= fraction < 1:
+            raise ValueError('A move is reduced to a fraction in [0, 1)')
+        (previous, sent), (proposed, velocities) = self._before, self._proposed
+        self.target = tuple(p + fraction * (q - p) for p, q in zip(previous, proposed))
+        self._sent_velocities = sent  # The ramp effort accelerates from what was sent before.
+        self._velocities = tuple(fraction * v for v in velocities)
+        self._settled_since = None
+        return self._proposal('move', original=False)
 
     def action(self, action, feedback=None, *, target=None, now=None):
         """Apply Idle/Enable/Engage/Hold/Shutdown/Disable GUI intent.
@@ -226,6 +234,7 @@ class TeleopLifecycle:
             measured = self._read(feedback, now, feedback=True)
             if action == 'engage':
                 self._read(target, now, feedback=False)
+            self._before = (self.target, self._sent_velocities)
             old_state = self.state
             self.target = self._hold_measured(measured)
             self._last_measured = tuple(row['position'] for row in measured)
@@ -318,6 +327,7 @@ class TeleopLifecycle:
             if not 0 <= dt <= self.max_step_s:
                 raise ValueError('Lifecycle scheduler stalled or clock moved backwards')
             measured = self._read(feedback, now, feedback=True)
+            self._before = (self.target, self._sent_velocities)
             operation = 'move'
             if self.state == 'IDLE':
                 self.target = tuple(row['position'] for row in measured)
