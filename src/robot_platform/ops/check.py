@@ -451,11 +451,13 @@ def serve_link(profile, key, robot, *, local, real):
     return LeaderLinkProcess(profile, key, robot, local=local, real=real).start()
 
 
-@check('jetson', 'link', 'Leader link at 25 Hz', requires=('release', 'leader_ranges'))
+@check('jetson', 'link', "Leader link at the loop's rate", requires=('release', 'leader_ranges'))
 def _link(ctx):
+    from robot_platform.helm.teleop import loop_period_s
     profile, key = ctx.facts['leader_profile'], secrets.token_bytes(32)
+    period = loop_period_s(ctx.facts['teleop'])
     stdin, stdout, stderr = ctx.client.exec_command(f'{PROBE} link', timeout=ctx.link_seconds + 20)
-    stdin.write(f'{key.hex()}\n{json.dumps(profile)}\n{ctx.link_seconds}\n{ctx.address}\n')
+    stdin.write(f'{key.hex()}\n{json.dumps(profile)}\n{ctx.link_seconds}\n{ctx.address}\n{period}\n')
     stdin.flush()
     ready = stdout.readline().split()
     if len(ready) != 2 or ready[0] != 'ready':
@@ -481,7 +483,8 @@ def _link(ctx):
     cycles, fresh, age = report['cycles'], report['fresh'], report['age_ms']
     share = fresh / cycles if cycles else 0
     status = PASS if share >= .98 and (age['p99'] or math.inf) < report['max_age_ms'] else WARN if share >= .9 else FAIL
-    detail = (f"{fresh}/{cycles} fresh pairs from {'the real leaders' if real else 'synthetic leaders (network only)'}"
+    detail = (f"{fresh}/{cycles} fresh pairs at {round(1 / period)} Hz from "
+              f"{'the real leaders' if real else 'synthetic leaders (network only)'}"
               f" · sample age p50 {age['p50']} ms, p99 {age['p99']} ms (limit {report['max_age_ms']} ms)"
               f" · longest gap {report['longest_skip_run']} cycle(s)")
     if report.get('last_skip') and status != PASS:

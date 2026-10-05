@@ -111,16 +111,18 @@ def health(root=ROOT):
 
 
 def link(stream=None, out=None):
-    """25 Hz authenticated leader-sample requests to the PC, like the robot's control loop."""
+    """Authenticated leader-sample requests to the PC at the control loop's rate (an optional fifth line, the
+    loop period in seconds; 0.04 without it), like the robot's control loop."""
     from robot_platform.teleop.leader_link import LeaderLinkInput
     from robot_platform.teleop.openrb import LeaderSampleSkipped
     stream, out = stream or sys.stdin, out or sys.stdout
     key = bytes.fromhex(stream.readline().strip())
     profile = json.loads(stream.readline())
     seconds, address = float(stream.readline()), stream.readline().strip()
-    if not 0 < seconds <= 60:
-        raise ValueError('Link test duration must be within 60 s')
-    robot = LeaderLinkInput(key, profile, bind=(address, 0), timeout_s=.02)
+    period = float(stream.readline().strip() or .04)
+    if not 0 < seconds <= 60 or not .01 <= period <= .04:
+        raise ValueError('Link test duration must be within 60 s, at a 10-40 ms period')
+    robot = LeaderLinkInput(key, profile, bind=(address, 0), timeout_s=min(.02, .4 * period))
     try:
         out.write(f'ready {robot.address[1]}\n')
         out.flush()
@@ -137,9 +139,10 @@ def link(stream=None, out=None):
                 skipped, run, last_skip = skipped + 1, run + 1, str(exc)
                 longest = max(longest, run)
             polls.append((time.perf_counter() - began) * 1000)
-            due += .04
+            due += period
             time.sleep(max(0., due - time.perf_counter()))
         return {'cycles': len(polls), 'fresh': len(ages), 'skipped': skipped, 'longest_skip_run': longest,
+                'rate_hz': round(1 / period),
                 'last_skip': last_skip, 'age_ms': _percentiles(ages), 'poll_ms': _percentiles(polls),
                 'max_age_ms': round(robot.max_age_s * 1000)}
     finally:
