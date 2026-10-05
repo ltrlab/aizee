@@ -80,10 +80,11 @@ fn periodic_execution_expiry_stop_and_fault_do_not_touch_allocator() {
         },
         &mut h,
     );
-    let authority = |sequence| Authority {
+    // An arm or move whose verdict binds a fresh offer renews the lease with it: the lease id follows.
+    let authority = |c: &Controller, sequence| Authority {
         epoch: "boot".into(),
         session: "s".into(),
-        lease: offer,
+        lease: c.status().lease.map_or(offer, |lease| lease.id),
         sequence,
     };
     let collision_offer = c.handle(1, Request::Offer, &mut h).offer.unwrap().id;
@@ -99,7 +100,7 @@ fn periodic_execution_expiry_stop_and_fault_do_not_touch_allocator() {
             1,
             Request::Arm {
                 collision: Some(envelope(collision_offer)),
-                authority: authority(1),
+                authority: authority(&c, 1),
             },
             &mut h,
         )
@@ -111,7 +112,7 @@ fn periodic_execution_expiry_stop_and_fault_do_not_touch_allocator() {
             2,
             Request::Move {
                 collision: Some(envelope(collision_offer)),
-                authority: authority(2),
+                authority: authority(&c, 2),
                 identity,
                 joints: vec![JointCommand {
                     position: 0.1,

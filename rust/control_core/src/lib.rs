@@ -712,11 +712,13 @@ impl Controller {
         Ok(offer)
     }
 
+    /// Validates a command's collision box and consumes its offer: Some((verdict deadline, offer)), or None
+    /// with no collision policy.
     fn validate_collision(
         &mut self,
         envelope: Option<&collision::MotionEnvelope>,
         commands: Option<&[JointCommand]>,
-    ) -> Result<Option<u64>, Reason> {
+    ) -> Result<Option<(u64, Offer)>, Reason> {
         let Some(policy) = &self.config.collision else {
             return if envelope.is_none() {
                 Ok(None)
@@ -785,7 +787,20 @@ impl Controller {
         if self.now_ms >= deadline {
             return Err(Reason::CollisionExpired);
         }
-        Ok(Some(deadline))
+        Ok(Some((deadline, offer)))
+    }
+
+    /// An accepted command whose collision verdict consumed a fresh offer renews the lease with that offer, as
+    /// Renew does: its sender computed the verdict after the offer was issued, so it is alive and
+    /// authorized. A teleop cycle then makes two requests (offer, move), not four (offer, renew, offer, move),
+    /// each waiting for a receiver tick. An older offer never shortens the lease.
+    fn renew_with(&mut self, offer: &Offer) {
+        if let Some(lease) = &mut self.lease {
+            if offer.expires_at_ms > lease.expires_at_ms {
+                lease.id = offer.id;
+                lease.expires_at_ms = offer.expires_at_ms;
+            }
+        }
     }
 
     fn install_collision(
@@ -971,8 +986,8 @@ impl Controller {
                 // raised arm would sag by its gravity / kp, past its tracking bound).
                 let resuming = self.state == State::Stopped;
                 let held = resuming.then(|| self.commands.clone());
-                let deadline = self.validate_collision(collision.as_ref(), held.as_deref())?;
-                self.install_collision(collision.as_ref(), deadline);
+                let verdict = self.validate_collision(collision.as_ref(), held.as_deref())?;
+                self.install_collision(collision.as_ref(), verdict.as_ref().map(|(deadline, _)| *deadline));
                 if !resuming {
                     // Capture measured positions, never an old command or a zero default.
                     for ((command, feedback), limit) in self
@@ -999,6 +1014,9 @@ impl Controller {
                     return Err(Reason::HardwareFault);
                 }
                 self.consume_sequence(&authority);
+                if let Some((_, offer)) = &verdict {
+                    self.renew_with(offer);
+                }
                 self.state = State::Holding;
                 self.reason = Reason::Ok;
                 self.command_deadline = self.lease.as_ref().map(|l| l.expires_at_ms);
@@ -1055,8 +1073,8 @@ impl Controller {
                         return Err(Reason::InvalidCommand);
                     }
                 }
-                let deadline = self.validate_collision(collision.as_ref(), Some(&joints))?;
-                self.install_collision(collision.as_ref(), deadline);
+                let verdict = self.validate_collision(collision.as_ref(), Some(&joints))?;
+                self.install_collision(collision.as_ref(), verdict.as_ref().map(|(deadline, _)| *deadline));
                 self.targets.copy_from_slice(&joints);
                 if ramp_efforts.is_empty() {
                     self.ramp_efforts.fill(0.0);
@@ -1066,6 +1084,9 @@ impl Controller {
                 self.target_at_ms = self.now_ms;
                 self.follow_targets();
                 self.consume_sequence(&authority);
+                if let Some((_, offer)) = &verdict {
+                    self.renew_with(offer);
+                }
                 self.command_deadline = self.lease.as_ref().map(|l| l.expires_at_ms);
                 self.state = State::Executing;
                 if apply_now && hardware.apply(&self.commands).is_err() {

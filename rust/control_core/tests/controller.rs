@@ -1540,3 +1540,96 @@ fn a_quiet_drive_among_answering_ones_holds_the_arm_until_it_answers() {
     assert_eq!(c.status().state, State::Faulted);
     assert!(!h.enabled);
 }
+
+#[test]
+fn a_move_bound_to_a_fresh_offer_renews_the_lease_with_it() {
+    // A teleop cycle makes two requests: an offer, then the move whose verdict binds it. The move renews the
+    // lease as Renew would, so the cycle needs no separate offer and renewal.
+    let (mut c, mut h) = collision_fixture();
+    let checked = envelope(&mut c, &mut h, 1);
+    let r = c.handle(
+        1,
+        Request::Arm {
+            authority: auth(&c, 1),
+            collision: Some(checked),
+        },
+        &mut h,
+    );
+    assert!(r.accepted);
+    let first = r.status.lease.unwrap();
+    assert_eq!(first.expires_at_ms, 101); // The arm's offer, issued at 1.
+    let mut sequence = 2;
+    for now in (30..=300).step_by(30) {
+        let checked = envelope(&mut c, &mut h, now);
+        let r = c.handle(
+            now,
+            Request::Move {
+                authority: auth(&c, sequence),
+                identity: identity(),
+                ramp_efforts: Vec::new(),
+                joints: joints(2, 0.0, 0.0),
+                collision: Some(checked),
+            },
+            &mut h,
+        );
+        assert!(r.accepted, "{:?}", r.reason);
+        assert_eq!(r.status.lease.as_ref().unwrap().expires_at_ms, now + 100);
+        assert_eq!(r.status.command_expires_at_ms, Some(now + 100));
+        sequence += 1;
+        c.tick(now + 1, &mut h);
+    }
+    // Moves alone kept it 300 ms past the first lease, and the lease id rotated as with Renew.
+    assert_eq!(c.status().state, State::Executing);
+    let lease = c.status().lease.unwrap();
+    assert_ne!(lease.id, first.id);
+    let stale = Authority {
+        epoch: c.status().epoch,
+        session: lease.session.clone(),
+        lease: first.id,
+        sequence,
+    };
+    let checked = envelope(&mut c, &mut h, 305);
+    let refused = c.handle(
+        305,
+        Request::Move {
+            authority: stale,
+            identity: identity(),
+            ramp_efforts: Vec::new(),
+            joints: joints(2, 0.0, 0.0),
+            collision: Some(checked),
+        },
+        &mut h,
+    );
+    assert_eq!(refused.reason, Reason::WrongLease);
+    // A move bound to an offer older than the lease's expiry is still accepted, but never shortens it.
+    let older = offer(&mut c, &mut h, 306);
+    let fresh = offer(&mut c, &mut h, 310);
+    let r = c.handle(
+        310,
+        Request::Renew {
+            authority: auth(&c, sequence + 1),
+            offer: fresh,
+        },
+        &mut h,
+    );
+    assert!(r.accepted);
+    let r = c.handle(
+        311,
+        Request::Move {
+            authority: auth(&c, sequence + 2),
+            identity: identity(),
+            ramp_efforts: Vec::new(),
+            joints: joints(2, 0.0, 0.0),
+            collision: Some(robot_control::collision::MotionEnvelope {
+                offer: older,
+                world_revision: "fixed-world".into(),
+                scope: "inter_branch".into(),
+                lower: vec![-2.5; 2],
+                upper: vec![2.5; 2],
+            }),
+        },
+        &mut h,
+    );
+    assert!(r.accepted, "{:?}", r.reason);
+    assert_eq!(r.status.lease.unwrap().expires_at_ms, 410);
+}
