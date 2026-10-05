@@ -70,17 +70,25 @@ class NativeCollisionBackend:
         if getattr(self, "handle", None):
             self.close()
 
-    def proximity(self, positions, *, threshold=0.05, max_pairs=None, scope="all"):
+    # proximity() takes the shapes' world transforms from a caller that already has them for these positions.
+    accepts_worlds = True
+
+    def proximity(self, positions, *, threshold=0.05, max_pairs=None, scope="all", worlds=None):
         start = time.perf_counter()
         mask = scope_mask(scope)
         if not np.isfinite(threshold) or threshold < 0:
             raise CollisionError("Proximity threshold must be finite and nonnegative")
         if max_pairs is not None and (type(max_pairs) is not int or max_pairs<1):
             raise CollisionError("max_pairs must be positive")
+        if worlds is not None:
+            worlds = np.asarray(worlds, dtype=np.float64)
+            if worlds.shape != (len(self.runtime_model.shapes), 4, 4) or not np.isfinite(worlds).all():
+                raise CollisionError("Shape transforms must be finite, one per collision shape")
         with self.lock:
             if not self.handle:
                 raise CollisionError("Native collision backend is closed")
-            worlds = self.runtime_model.transforms(positions)
+            if worlds is None:
+                worlds = self.runtime_model.transforms(positions)
             poses = np.ascontiguousarray(np.column_stack((worlds[:, :3, 3],
                             Rotation.from_matrix(worlds[:, :3, :3]).as_quat())), dtype=np.float64)
             transformed = time.perf_counter()
