@@ -54,8 +54,8 @@ prerequisite failed is skipped, not guessed:
 2. **Link and Jetson**: pinned SSH over the tether; the deployed release intact
    and identical to this PC's files (otherwise it says to deploy); its smoke test;
    the Jetson's disk, memory, temperatures and clock; and 5 s of leader-link round
-   trips at 25 Hz with the real leaders, served from its own responsive process
-   as a session will run it.
+   trips at the loop's rate (50 Hz) with the real leaders, served from its own
+   responsive process as a session will run it.
 3. **Motors, stopped**: CAN helpers and serial pinning installed, both adapters on
    their pinned serials and free, no motor service running, then the stopped
    reader scans all 14 motors (identity, firmware, fault-free Reset, one position
@@ -189,7 +189,8 @@ calibration files: deploy first (Minerva Check shows whether they match).
 **Loop runs on** switches between Minerva's Jetson and this PC while no session
 runs; `helm --loop pc` starts on this PC.
 
-Measured with the real leaders, 30 s in TELEOP, against the 40 ms budget:
+Measured with the real leaders, 30 s in TELEOP, at 25 Hz (before 2026-10-04)
+against its 40 ms period:
 
 | Loop on | Cycle p50 / p99 / max | Overruns |
 |---|---|---|
@@ -215,7 +216,7 @@ whose release has no meshes to load, and about 10 s on this PC. Then:
 
 Keys work anywhere on the page, including over the 3D view. Start with I, then E
 and T. If leader samples stop (unplugged, late), the follower keeps its last
-target for two cycles and then holds; press T to engage again.
+target for 80 ms (four cycles) and then holds; press T to engage again.
 
 Each joint card shows its usable band with the leader target, the command and
 the (virtual) robot position, plus its route: leader, channel and sign. The
@@ -269,10 +270,11 @@ usable, and the leader scaling covers all of it. The collision box keeps its
 own wider reserve, clipped at the limits.
 
 **The control law.** Commands are no longer position-only:
-- the receiver ramps each 25 Hz command over 40 ms (`interpolation_ms`), from
-  where the previous one pointed to its target, with the command's velocity fed
-  forward, so a joint's own damping no longer brakes it (J2 at 1.5 rad/s lost
-  22 Nm to it, 0.1 rad of lag);
+- the receiver ramps each command over one loop period, 20 ms
+  (`interpolation_ms`, which sets the loop's rate: 50 Hz), from where the
+  previous one pointed to its target, with the command's velocity fed forward,
+  so a joint's own damping no longer brakes it (J2 at 1.5 rad/s lost 22 Nm to
+  it, 0.1 rad of lag);
 - a joint whose servo sweep is saved also gets 70% of its measured friction fed
   forward in the direction of motion;
 - J2–J4 get gravity fed forward at the commanded pose (below), so the position
@@ -322,14 +324,16 @@ limits, stopping reserve and single-use offers. The only physical use of
 advisory checks is live teleop of one arm (below); two-arm physical teleop needs
 a tighter, still-sound bound with enforced checks.
 
-**Timing.** The 25 Hz loop runs in its own process, so browser traffic cannot
-stall a cycle. On Windows it runs at high priority, and it and the receiver
-process opt out of power throttling (EcoQoS). Without that, on this laptop's
-hybrid CPU some cycles took 27–37 ms instead of about 5, and one 60 s run in
-three faulted. A cycle about 40 ms late lets the receiver's 80 ms collision
-verdict expire: the receiver stops itself and the session faults with the
-receiver's reason. Stop the session and start it again. The panel shows cycle
-time (p50 / p99); normal is about 5 / 6 ms.
+**Timing.** The 50 Hz loop (25 Hz before 2026-10-04) runs in its own process,
+so browser traffic cannot stall a cycle. On Windows it runs at high priority,
+and it and the receiver process opt out of power throttling (EcoQoS). Without
+that, on this laptop's hybrid CPU some cycles took 27–37 ms instead of about 5,
+and one 60 s run in three faulted. A cycle slower than its 20 ms period only
+starts the next late; one not done within 35 ms faults the session, and one
+about 60 ms late lets the receiver's 80 ms collision verdict expire: the
+receiver stops itself and the session faults with the receiver's reason. Stop
+the session and start it again. The panel shows cycle time (p50 / p99) and
+counts cycles over the period as overruns.
 
 ## Live teleop (one arm)
 
@@ -389,7 +393,7 @@ Disable (H) removes torque at once: the arm goes limp where it is.
 
 | Lost | Result |
 |---|---|
-| Leader samples (unplugged leader, PC or tether gone) | After two cycles the arm holds where it is until you Engage again. The foot switch cuts power at any time. |
+| Leader samples (unplugged leader, PC or tether gone) | After 80 ms the arm holds where it is until you Engage again. The foot switch cuts power at any time. |
 | Helm's session (closed, crashed) | The loop on the Jetson lowers the arm to its reference, then disables it and stops the receiver. |
 | The loop | The receiver stops the arm when its lease and collision verdict expire (150 ms and 80 ms). |
 | The receiver process | Each motor's own watchdog disables it when commands stop. |

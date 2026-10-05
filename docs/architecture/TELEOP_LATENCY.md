@@ -68,6 +68,18 @@ under 10 ms. Measure it at 50 Hz first.
 Not changed here: hop 10, the servos' own lag, is set by the gains each sweep
 found, and predicting the leader's motion ahead is left out for now.
 
+**Status (2026-10-04).** The first three are in: a move renews the lease with
+its offer, the loop runs at 50 Hz with a 20 ms ramp (the period now comes from
+the profile's `interpolation_ms`), and the PC samples the leaders at 200 Hz.
+The table above describes the loop before them. The firmware change waits for a
+reflash of the leader boards.
+
+Running at 50 Hz changed three things counted in cycles, which are now in time:
+an engaged arm rides out 80 ms of missed leader samples (four cycles, two
+before); alignment judges settling speed over at least 40 ms (one 20 ms cycle
+read the drives' position steps as twice the speed); and a cycle faults the
+session only past 35 ms (a slower one starts the next late).
+
 ## Two arms
 
 - **One receiver for both arms.** It runs both CAN buses (7 drives each, as
