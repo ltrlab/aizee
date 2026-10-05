@@ -444,10 +444,16 @@ class SweepEngine:
         if report is not None and report.status == 'running':
             report.status = 'stopped'
         self._event(f'{why}; lowering the arm to the reference')
+        stopped = held is not None
         held = dict(self.targets, **self._sent) if held is None else held
         held = {name: float(q) for name, q in held.items() if name in self.targets}
         self.targets.update(held)
         self._sent.update(held)  # The receiver holds these: the first command steps from them.
+        if stopped:
+            # The receiver braked the arm to rest: the first command speeds up from there. Fed forward from the
+            # speed the last move had, right J2 (moving up at 0.4 rad/s when a drive went quiet) was pushed
+            # down at 0.55 rad/s, lowering at 0.15 (rehearsal at 50 Hz, 2026-10-04).
+            self._velocity_sent = {name: 0. for name in self.names}
         self.velocity = {name: 0. for name in self.names}
         self.test_gains.clear()
         self.current, self.recovering, self.stopping, self._stop_sent = None, True, True, True
