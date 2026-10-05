@@ -507,20 +507,28 @@ function renderTeleop(t) {
   $('t-cycle').textContent = running && t.cycle_ms ? `${t.cycle_ms.p50.toFixed(1)} / ${t.cycle_ms.p99.toFixed(1)} ms` : '—';
   const c = t.collision || {};
   const collision = $('t-collision');
+  const enforced = c.mode === 'motion';
+  // Two-arm bound: the margin left between the arms' stopping boxes, or why they hold.
   const detail = c.clear == null ? '—'
+    : enforced && c.holding ? `holding · ${c.holding}`
+    : enforced ? (c.clearance_m != null && c.clearance_m < .025 ? `${Math.round(c.clearance_m * 1000)} mm margin` : 'clear')
     : !c.clear ? `contact: ${(c.shapes || []).join(' · ')}`
     : c.distance_m != null ? `${Math.round(c.distance_m * 1000)} mm to keep-out` : 'clear';
-  collision.textContent = running ? `${c.mode === 'advisory' ? 'advisory · ' : ''}${detail}` : c.mode || '—';
-  collision.className = c.clear === false ? 'bad' : c.distance_m != null ? 'near' : '';
-  collision.title = c.mode !== 'advisory' ? ''
+  collision.textContent = running
+    ? `${c.mode === 'advisory' ? 'advisory · ' : enforced ? 'two-arm · ' : ''}${detail}` : c.mode || '—';
+  collision.className = enforced ? (c.holding ? 'near' : '') : c.clear === false ? 'bad' : c.distance_m != null ? 'near' : '';
+  collision.title = enforced
+    ? 'Enforced: every move is certified clear of the other arm, with each joint\'s tracking bound and stop; '
+      + 'a move that could bring the arms together is slowed, else held. The body is not checked.'
+    : c.mode !== 'advisory' ? ''
     : live ? 'Advisory: the target pose is checked every cycle, but nothing stops the arm on a contact.'
     : 'Advisory: the target pose is checked every cycle but the virtual receiver is not blocked.';
   $('t-message').textContent = t.message || '';
   const where = t.target === 'jetson' ? "ON MINERVA'S JETSON" : 'ON THIS PC';
   const eyebrow = $('t-eyebrow');
   eyebrow.textContent = live
-    ? `TELEOP · LIVE ${choice.arm.toUpperCase()} ARM ${where} · MOTORS MOVE · FOOT SWITCH IN REACH`
-    : `TELEOP · VIRTUAL RECEIVER ${where} · NO MOTORS MOVE`;
+    ? `TELEOP · LIVE ${choice.arm === 'both' ? 'BOTH ARMS' : choice.arm.toUpperCase() + ' ARM'} ${where} · MOTORS MOVE · FOOT SWITCH IN REACH`
+    : `TELEOP · VIRTUAL RECEIVER${choice.collision === 'motion' ? ' · TWO-ARM BOUND' : ''} ${where} · NO MOTORS MOVE`;
   eyebrow.className = `eyebrow ${live ? 'live' : 'warn'}`;
   for (const button of document.querySelectorAll('#t-target button')) {
     button.setAttribute('aria-pressed', String(button.dataset.target === t.target));
@@ -528,7 +536,8 @@ function renderTeleop(t) {
   }
   for (const button of document.querySelectorAll('#t-receiver-choice button')) {
     const liveButton = button.dataset.receiver === 'live';
-    button.setAttribute('aria-pressed', String(liveButton ? live && choice.arm === button.dataset.arm : !live));
+    button.setAttribute('aria-pressed', String(liveButton ? live && choice.arm === button.dataset.arm
+      : !live && (choice.collision || null) === (button.dataset.collision || null)));
     button.disabled = running || starting || (liveButton && (t.target !== 'jetson' || !t.live_available || !tether));
   }
   // Say why live is unavailable, instead of leaving the operator to guess at greyed-out buttons.
@@ -630,9 +639,12 @@ for (const button of document.querySelectorAll('#via button')) {
       : "Helm reaches Minerva over Wi-Fi: stopped reads and virtual teleop only.");
 }
 for (const button of document.querySelectorAll('#t-receiver-choice button')) {
-  const arm = button.dataset.arm;
-  button.onclick = () => act('/api/helm/teleop/receiver', arm ? {mode: 'live', arm} : {mode: 'virtual'},
-    arm ? `Live on the ${arm} arm: its motors are powered once the session reaches Idle.` : 'Virtual receiver: no motors move.');
+  const arm = button.dataset.arm, collision = button.dataset.collision;
+  button.onclick = () => act('/api/helm/teleop/receiver',
+    arm ? {mode: 'live', arm} : collision ? {mode: 'virtual', collision} : {mode: 'virtual'},
+    arm === 'both' ? 'Live on both arms: their motors are powered once the session reaches Idle.'
+      : arm ? `Live on the ${arm} arm: its motors are powered once the session reaches Idle.`
+      : collision ? 'Virtual receiver with the two-arm bound enforced: no motors move.' : 'Virtual receiver: no motors move.');
 }
 // Asked in the page, not with window.confirm: embedded browsers (such as an IDE or
 // assistant preview pane) suppress native dialogs, and confirm() then returns false.
@@ -661,9 +673,10 @@ $('teleop-session').onclick = () => {
       stop();
       return;
     }
-    askConfirm('stop', t.live.arm, `The ${t.live.arm} arm is powered (${t.state}). Stop the session?`,
-      ['It is lowered slowly to its reference first (as Shutdown X does), then disabled.',
-       'Disable (H) instead removes torque at once: the arm goes limp where it is.'], 'Stop', stop);
+    const arms = t.live.arm === 'both' ? 'Both arms are' : `The ${t.live.arm} arm is`;
+    askConfirm('stop', t.live.arm, `${arms} powered (${t.state}). Stop the session?`,
+      ['Lowered slowly to the reference first (as Shutdown X does), then disabled.',
+       'Disable (H) instead removes torque at once: the arms go limp where they are.'], 'Stop', stop);
     return;
   }
   const choice = t?.receiver_choice || {mode: 'virtual'};
@@ -672,6 +685,17 @@ $('teleop-session').onclick = () => {
     return;
   }
   const arm = choice.arm, other = arm === 'left' ? 'right' : 'left';
+  if (arm === 'both') {
+    askConfirm('start', arm, 'Start LIVE teleop on both arms?', [
+      'Both arms\' motors are powered when you press Idle (I).',
+      'The foot switch (e-stop) is in reach.',
+      'Both arms hang straight down in their reference pose, grippers closed, untouched until Idle.',
+      'Collision checks of one arm against the other are enforced: a move that could bring them together is '
+        + 'slowed, else held. The hands stop about 30 cm apart. Nothing checks the arms against the body.',
+    ], 'Start LIVE on both arms', () => act('/api/helm/teleop/start', {confirm: true},
+      'Starting LIVE on both arms: checking that they are still and in their reference pose, then the receiver.'));
+    return;
+  }
   askConfirm('start', arm, `Start LIVE teleop on the ${arm} arm?`, [
     'Its motors are powered when you press Idle (I).',
     'The foot switch (e-stop) is in reach.',

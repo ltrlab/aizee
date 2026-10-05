@@ -222,8 +222,14 @@ def test_a_robot_that_cannot_start_the_loop_says_why(tmp_path, monkeypatch):
 def test_a_live_session_needs_the_jetson_a_confirmation_and_carries_the_motor_models(tmp_path, monkeypatch):
     monkeypatch.setattr(edge, 'prepare', fake_prepare)
     teleop = session(tmp_path, Robot())
-    with pytest.raises(ValueError, match='left or right arm'):
-        teleop.set_receiver('live', 'both')
+    with pytest.raises(ValueError, match='left, right or both arms'):
+        teleop.set_receiver('live', 'middle')
+    with pytest.raises(ValueError, match='left, right or both arms'):
+        teleop.set_receiver('live', 'both', 'motion')  # Implied live: only the virtual receiver chooses it.
+    teleop.set_receiver('live', 'both')
+    assert teleop.snapshot()['receiver_choice'] == {'mode': 'live', 'arm': 'both'}
+    with pytest.raises(ValueError, match="Confirm the live session: both arms' motors will be powered"):
+        teleop.start()
     teleop.set_receiver('live', 'left')
     with pytest.raises(ValueError, match='virtual receiver first'):
         teleop.set_target('pc')
@@ -240,7 +246,10 @@ def test_a_live_session_needs_the_jetson_a_confirmation_and_carries_the_motor_mo
             teleop.set_receiver('virtual')
     finally:
         teleop.stop()
+    teleop.set_receiver('virtual', collision='motion')
+    assert teleop.snapshot()['receiver_choice'] == {'mode': 'virtual', 'collision': 'motion'}
     teleop.set_receiver('virtual')
+    assert teleop.snapshot()['receiver_choice'] == {'mode': 'virtual'}
     teleop.set_target('pc')
     with pytest.raises(ValueError, match="loop on Minerva's Jetson"):
         teleop.set_receiver('live', 'right')

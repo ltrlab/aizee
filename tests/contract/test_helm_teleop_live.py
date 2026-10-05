@@ -162,8 +162,20 @@ def test_live_needs_the_profiles_live_block_and_advisory_checks(bundle, tmp_path
     plain.write_text(json.dumps(profile))
     core = TeleopCore(dict(data, teleop_profile=str(plain), receiver={'mode': 'live', 'arm': 'right'}),
                       open_receiver=lambda *args: pytest.fail('must not open a receiver'))
-    with pytest.raises(ValueError, match="live block and advisory"):
+    with pytest.raises(ValueError, match="needs the profile's live block"):
         core.build()
     core.close()
-    with pytest.raises(ValueError, match='virtual, or live on the left or right arm'):
-        TeleopCore(dict(data, receiver={'mode': 'live', 'arm': 'both'}))
+    # One arm keeps advisory checks against the other, parked arm.
+    profile = json.loads(profile_path.read_text())
+    profile['receiver']['collision_mode'] = 'enforced'
+    enforced = tmp_path / 'enforced.json'
+    enforced.write_text(json.dumps(profile))
+    core = TeleopCore(dict(data, teleop_profile=str(enforced), receiver={'mode': 'live', 'arm': 'right'}),
+                      open_receiver=lambda *args: pytest.fail('must not open a receiver'))
+    with pytest.raises(ValueError, match='one arm needs advisory collision checks'):
+        core.build()
+    core.close()
+    # Both arms always enforce the two-arm (motion) bound.
+    assert TeleopCore(dict(data, receiver={'mode': 'live', 'arm': 'both'})).collision_mode == 'motion'
+    with pytest.raises(ValueError, match='virtual, or live on the left, right or both arms'):
+        TeleopCore(dict(data, receiver={'mode': 'live', 'arm': 'middle'}))

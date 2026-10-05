@@ -185,9 +185,9 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     async def teleop_receiver(request):
         payload = await body(request)
         need_teleop()
-        if not set(payload) <= {'mode', 'arm'} or 'mode' not in payload:
+        if not set(payload) <= {'mode', 'arm', 'collision'} or 'mode' not in payload:
             raise ValueError('Expected mode and, for live, arm')
-        teleop.set_receiver(payload['mode'], payload.get('arm'))
+        teleop.set_receiver(payload['mode'], payload.get('arm'), payload.get('collision'))
         return state_response()
 
     async def connection(request):

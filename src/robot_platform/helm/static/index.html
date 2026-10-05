@@ -103,11 +103,13 @@
             <button data-target="jetson" title="The control loop runs on Minerva's Jetson; leaders stream over the tether">Minerva's Jetson</button>
             <button data-target="pc" title="The control loop runs on this PC">This PC</button>
           </div>
-          <div class="target" id="t-receiver-choice" role="group" aria-label="Receiver">
+          <div class="target wrap" id="t-receiver-choice" role="group" aria-label="Receiver">
             <span>Receiver</span>
-            <button data-receiver="virtual" title="The virtual receiver: no motors move">Virtual</button>
-            <button data-receiver="live" data-arm="left" title="The left arm's motors, collision checks advisory; the right arm stays disabled. Loop on Minerva's Jetson only.">Live · left arm</button>
-            <button data-receiver="live" data-arm="right" title="The right arm's motors, collision checks advisory; the left arm stays disabled. Loop on Minerva's Jetson only.">Live · right arm</button>
+            <button data-receiver="virtual" title="The virtual receiver: no motors move; collision checks advisory">Virtual</button>
+            <button data-receiver="virtual" data-collision="motion" title="The virtual receiver with the two-arm collision bound enforced, as Live · both runs it: the arms hold where they could meet. No motors move.">Virtual · enforced</button>
+            <button data-receiver="live" data-arm="left" title="The left arm's motors, collision checks advisory; the right arm stays disabled. Loop on Minerva's Jetson only.">Live · left</button>
+            <button data-receiver="live" data-arm="right" title="The right arm's motors, collision checks advisory; the left arm stays disabled. Loop on Minerva's Jetson only.">Live · right</button>
+            <button data-receiver="live" data-arm="both" title="Both arms' motors in one receiver, the two-arm collision bound enforced: the arms hold where they could meet. Loop on Minerva's Jetson only.">Live · both</button>
           </div>
           <p class="choice-note" id="t-choice-note" hidden></p>
           <div class="teleop-status">
