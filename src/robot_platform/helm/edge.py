@@ -128,7 +128,7 @@ def prepare(start, root=ROOT, *, leaders=True):
     from robot_platform.control.joint_calibration import load_plan
     from robot_platform.ops.release import activate
     from robot_platform.teleop.leader_link import LeaderLinkInput
-    from .teleop import load_profile
+    from .teleop import load_profile, loop_period_s
     root = Path(root).resolve()
     activate(root)
     bundle = dict(start['bundle'])
@@ -141,7 +141,8 @@ def prepare(start, root=ROOT, *, leaders=True):
     if not leaders:
         return bundle, None
     leaders = json.loads((Path(bundle['teleop_profile']).parent / teleop['leader_profile']).read_text(encoding='utf-8'))
-    link = LeaderLinkInput(bytes.fromhex(start['key']), leaders, bind=(start['bind'], 0), timeout_s=.02)
+    link = LeaderLinkInput(bytes.fromhex(start['key']), leaders, bind=(start['bind'], 0),
+                           timeout_s=min(.02, .4 * loop_period_s(teleop)))
     return bundle, link
 
 

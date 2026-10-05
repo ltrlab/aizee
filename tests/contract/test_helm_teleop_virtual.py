@@ -113,7 +113,10 @@ def rig(built):
     return core, clock, leaders
 
 
-def run(core, clock, key=None, *, until=None, limit=1):
+def run(core, clock, key=None, *, until=None, limit=1, seconds=None):
+    """`limit` cycles, or `seconds` of them at the loop's rate (the profile's)."""
+    if seconds is not None:
+        limit = max(1, round(seconds / core.period_s))
     for _ in range(limit):
         core.tick(key, clock())
         key = None
@@ -124,8 +127,9 @@ def run(core, clock, key=None, *, until=None, limit=1):
     assert until is None, f'still {core.session.lifecycle.state}, expected {until}'
 
 
-def ramp(core, clock, leaders, side, channel, value, step=.04):
+def ramp(core, clock, leaders, side, channel, value):
     """Move a leader channel at 1 rad/s; an instant jump is rejected as an encoder glitch."""
+    step = core.period_s
     while abs(leaders.offsets[side][channel] - value) > 1e-12:
         current = leaders.offsets[side][channel]
         leaders.offsets[side][channel] = current + max(-step, min(step, value - current))
@@ -157,7 +161,7 @@ def test_gui_keys_drive_the_virtual_receiver_through_the_whole_lifecycle(rig):
     assert state(core) == ('IDLE', 'idle')
     run(core, clock, 'E')
     assert state(core) == ('HOLD', 'holding')
-    run(core, clock, 'T', until='TELEOP', limit=400)
+    run(core, clock, 'T', until='TELEOP', seconds=16)
     assert core.compiler.last_verdict['advisory'] and core.compiler.last_verdict['clear']
     with pytest.raises(ValueError, match='Hold'):
         core.route('flip', 'left_arm_j2')
@@ -170,14 +174,14 @@ def test_gui_keys_drive_the_virtual_receiver_through_the_whole_lifecycle(rig):
     fraction = (HANG + .4) / .8
     assert grip['command'] == pytest.approx(grip['usable'][0] + fraction * (grip['usable'][1] - grip['usable'][0]))
     ramp(core, clock, leaders, 'left', 1, -.5)  # Left J2's route sign is -1.
-    run(core, clock, limit=100)  # Speeding up within its braking (8 rad/s2), it arrives within 100 cycles.
+    run(core, clock, seconds=4)  # Speeding up within its braking (8 rad/s2), it arrives within 4 s.
     joints = {row['motor']: row for row in core.view()['joints']}
     target = expected_motor(core, 'left_arm_j2', -.5, -1)
     assert joints['left_arm_j2']['command'] == pytest.approx(target, abs=1e-6)
     assert joints['left_arm_j2']['measured'] == pytest.approx(target, abs=1e-6)
     for side in ('left', 'right'):  # Triggers to the low end of their range: grippers close.
         ramp(core, clock, leaders, side, 6, -.4)
-    run(core, clock, limit=160)
+    run(core, clock, seconds=6.4)
     joints = {row['motor']: row for row in core.view()['joints']}
     for motor in ('left_gripper', 'right_gripper'):
         assert joints[motor]['command'] == pytest.approx(joints[motor]['usable'][0], abs=1e-6)
@@ -186,12 +190,12 @@ def test_gui_keys_drive_the_virtual_receiver_through_the_whole_lifecycle(rig):
     run(core, clock, 'T')
     assert state(core)[0] == 'HOLD'
     core.route('flip', 'left_arm_j2')
-    run(core, clock, 'T', until='TELEOP', limit=400)
-    run(core, clock, limit=10)
+    run(core, clock, 'T', until='TELEOP', seconds=16)
+    run(core, clock, seconds=.4)
     flipped = {row['motor']: row for row in core.view()['joints']}['left_arm_j2']
     assert flipped['command'] == pytest.approx(expected_motor(core, 'left_arm_j2', -.5, 1), abs=1e-6)
 
-    run(core, clock, 'X', until='DISABLED', limit=800)
+    run(core, clock, 'X', until='DISABLED', seconds=32)
     assert state(core) == ('DISABLED', 'disarmed')
     measured = core.view()['joints']
     assert all(row['measured'] == pytest.approx(home, abs=.05)
@@ -207,9 +211,9 @@ def test_engage_needs_live_leaders_and_a_lost_leader_holds(rig):
     assert state(core)[0] == 'HOLD'
     assert core.message.startswith('[T] Engage needs live leaders: Leader pair arrived late')
     leaders.failure = None
-    run(core, clock, 'T', until='TELEOP', limit=400)
+    run(core, clock, 'T', until='TELEOP', seconds=16)
     leaders.failure = LeaderSampleSkipped('Leader pair arrived late')
-    run(core, clock, limit=3)
+    run(core, clock, seconds=.12)
     assert state(core)[0] == 'HOLD'
     assert 'Leader input lost' in core.message
     run(core, clock, 'H')
@@ -220,7 +224,7 @@ def test_a_stalled_cycle_faults_with_the_receivers_reason_then_lowers_the_held_a
     core, clock, _leaders = rig
     run(core, clock, 'I')
     run(core, clock, 'E')
-    run(core, clock, 'T', until='TELEOP', limit=400)
+    run(core, clock, 'T', until='TELEOP', seconds=16)
     clock.now += .1  # Past the 80 ms collision verdict: the receiver brakes and revokes the lease.
     core.tick(None, clock())
     assert re.match(r'Receiver stop(ping|ped): collision_expired · ', core.fault), core.fault
@@ -243,7 +247,7 @@ def test_a_drive_that_left_run_mode_is_named_while_the_receiver_holds_the_arm(ri
     core, clock, _leaders = rig
     run(core, clock, 'I')
     run(core, clock, 'E')
-    run(core, clock, 'T', until='TELEOP', limit=400)
+    run(core, clock, 'T', until='TELEOP', seconds=16)
     clock.now += .1
     core.tick(None, clock())
     assert core.session.lifecycle.state == 'FAULT'
@@ -271,7 +275,7 @@ def test_h_disables_a_faulted_arm_at_once_rather_than_lowering_it(rig):
     core, clock, _leaders = rig
     run(core, clock, 'I')
     run(core, clock, 'E')
-    run(core, clock, 'T', until='TELEOP', limit=400)
+    run(core, clock, 'T', until='TELEOP', seconds=16)
     clock.now += .1
     core.tick(None, clock())
     assert core.fault
@@ -285,7 +289,7 @@ def test_closing_a_following_arm_lowers_it_before_the_receiver_closes(rig):
     core, clock, _leaders = rig
     run(core, clock, 'I')
     run(core, clock, 'E')
-    run(core, clock, 'T', until='TELEOP', limit=400)
+    run(core, clock, 'T', until='TELEOP', seconds=16)
     assert core.land() and core.landing
     for _ in range(2000):
         clock.now += core.period_s
@@ -300,10 +304,10 @@ def test_setting_the_zero_while_engaged_holds_then_follows_from_the_new_zero(rig
     core, clock, leaders = rig
     run(core, clock, 'I')
     run(core, clock, 'E')
-    run(core, clock, 'T', until='TELEOP', limit=400)
+    run(core, clock, 'T', until='TELEOP', seconds=16)
     sign = core.routes()['left_arm_j2']['sign']  # Earlier tests may have flipped it.
     ramp(core, clock, leaders, 'left', 1, -.5)
-    run(core, clock, limit=100)
+    run(core, clock, seconds=4)
     moved = {row['motor']: row for row in core.view()['joints']}['left_arm_j2']
     assert moved['command'] == pytest.approx(expected_motor(core, 'left_arm_j2', -.5, sign), abs=1e-6)
     zero = core.set_zero()
@@ -312,7 +316,7 @@ def test_setting_the_zero_while_engaged_holds_then_follows_from_the_new_zero(rig
     held = {row['motor']: row for row in core.view()['joints']}['left_arm_j2']
     assert state(core)[0] == 'HOLD' and held['command'] == pytest.approx(moved['command'], abs=1e-6)
     assert 'Leader zero set' in core.message
-    run(core, clock, 'T', until='TELEOP', limit=400)  # Aligns slowly to the new mapping.
+    run(core, clock, 'T', until='TELEOP', seconds=16)  # Aligns slowly to the new mapping.
     home = next(r['home'] for r in core.derived['report'] if r['motor'] == 'left_arm_j2')
     now = {row['motor']: row for row in core.view()['joints']}['left_arm_j2']
     assert now['command'] == pytest.approx(home, abs=1e-6)

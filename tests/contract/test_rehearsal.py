@@ -190,7 +190,8 @@ def test_a_drive_that_stops_answering_with_the_arm_raised_holds_it_then_lowers_i
             assert core.fault is None, core.fault
             plant = opened[0].plant
             reasons.add(opened[0].last['status']['reason'])
-            fastest = max(fastest, abs(plant.v[plant.names.index('right_arm_j2')]))
+            if 'at' in quiet:  # From when the drive went quiet: held, then lowered, never fell.
+                fastest = max(fastest, abs(plant.v[plant.names.index('right_arm_j2')]))
             if core.stage in ('finished', 'disabled', 'held'):
                 break
         assert 'at' in quiet and 'feedback_stale' in reasons
@@ -337,7 +338,7 @@ def test_teleop_sweeps_every_right_arm_joint_to_its_ends_at_speed_on_a_simulated
         for _ in range(10):
             tick()
         tick('T')
-        for _ in range(400):
+        for _ in range(round(16 / core.period_s)):  # Up to 16 s to align, whatever the loop rate.
             tick()
             if core.session.lifecycle.state == 'TELEOP':
                 break

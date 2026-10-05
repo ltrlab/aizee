@@ -47,6 +47,11 @@ def load_profile(path):
         raise ValueError('collision_mode must be enforced or advisory')
     if mode == 'advisory' and profile['backend'] != 'virtual':
         raise ValueError('Advisory collision checks are only allowed with the virtual receiver')
+    receiver = profile['receiver']
+    interpolation = receiver.get('interpolation_ms', 40)
+    if (type(interpolation) is not int or not 10 <= interpolation <= 40
+            or not 0 < receiver.get('compute_budget_s', 0) <= .6 * interpolation / 1000):
+        raise ValueError('The receiver interpolates over 10-40 ms (the loop period), with compute under 60% of it')
     live = profile.get('live')
     if live is not None and (
             set(live) - {'reference_tolerance_rad', 'period_us', 'maximum_lateness_us', 'note'}
@@ -55,6 +60,21 @@ def load_profile(path):
             or not live['period_us'] <= live.get('maximum_lateness_us', 0) <= 20000):
         raise ValueError('The live block needs a reference tolerance of at most 0.1 rad and receiver timing')
     return profile
+
+
+def loop_period_s(profile):
+    """The loop's period: the receiver ramps each command over exactly one, so commands neither stall between
+    ramps nor cut one short."""
+    return profile['receiver'].get('interpolation_ms', 40) / 1000
+
+
+def source_misses(period_s):
+    """Missed leader samples an engaged arm rides out: 80 ms of them, whatever the loop rate."""
+    return max(1, round(.08 / period_s))
+
+
+CYCLE_BUDGET_S = .035  # A cycle not dispatched this long after it started faults the session; a slower one
+# than its period only starts the next late (the receiver's lease and collision verdict still bound it).
 
 
 def routes_path(runs, asset_id):
@@ -135,12 +155,12 @@ class AdvisoryCompiler:
 
 class TeleopCore:
     """The loop body, built from plain data. Openers are injectable for tests."""
-    period_s = .04
 
     def __init__(self, bundle, *, open_leaders=None, open_backend=None, open_harness=None, open_receiver=None,
                  clock=time.perf_counter):
         self.bundle, self.clock = deepcopy(bundle), clock
         self.profile = load_profile(bundle['teleop_profile'])
+        self.period_s = loop_period_s(self.profile)
         self.collision_mode = self.profile['receiver'].get('collision_mode', 'enforced')
         receiver = bundle.get('receiver') or {'mode': 'virtual'}
         self.live_arm = receiver.get('arm') if receiver.get('mode') == 'live' else None
@@ -356,8 +376,10 @@ class TeleopCore:
         else:
             compiler = CollisionEnvelopeCompiler(backend, derived['config'], derived['joint_map'],
                                                  compute_budget_s=budget, cad_limits=derived['cad_limits'])
-        lifecycle = TeleopLifecycle(derived['lifecycle'], clock=self.clock)
-        session = GuardedLifecycleSession(controller, compiler, lifecycle, lambda: harness.last, clock=self.clock)
+        lifecycle = TeleopLifecycle(derived['lifecycle'], clock=self.clock,
+                                    max_source_misses=source_misses(self.period_s))
+        session = GuardedLifecycleSession(controller, compiler, lifecycle, lambda: harness.last,
+                                          period_s=self.period_s, cycle_budget_s=CYCLE_BUDGET_S, clock=self.clock)
         self.derived, self.harness, self.session, self.compiler = derived, harness, session, compiler
         self.leaders = self.open_leaders(leader_profile)
         self._closers.append(self.leaders.close)

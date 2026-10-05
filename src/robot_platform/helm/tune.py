@@ -26,7 +26,7 @@ from robot_platform.control.servo_calibration import load_servo, save_servo, ser
 from robot_platform.control.scheduling import prefer_responsive
 from .limits import utc_now
 from robot_platform.control.guarded import GuardRejected
-from .teleop import HELD, LOWERING_ATTEMPTS, WAIT_TO_REARM, AdvisoryCompiler, load_profile
+from .teleop import HELD, LOWERING_ATTEMPTS, WAIT_TO_REARM, AdvisoryCompiler, load_profile, loop_period_s
 
 PERIOD_S = .04
 RESULTS_EVERY_S = 1.
@@ -34,13 +34,13 @@ RESULTS_EVERY_S = 1.
 
 class TuneCore:
     """The sweep's loop body. Openers are injectable for tests."""
-    period_s = PERIOD_S
 
     def __init__(self, bundle, *, open_backend=None, open_harness=None, open_receiver=None, clock=time.perf_counter,
                  evidence_root=None):
         self.bundle, self.clock = deepcopy(bundle), clock
         self.evidence_root = Path(evidence_root) if evidence_root else Path.home() / 'minerva' / 'evidence'
         self.profile = load_profile(bundle['teleop_profile'])
+        self.period_s = loop_period_s(self.profile)  # As teleop's: Minerva Check verifies at teleop's rate.
         receiver = bundle.get('receiver') or {'mode': 'virtual'}
         # 'verify': Minerva Check's live joint sweep. 'return': the arm from a pose the operator confirmed
         # (bundle['start_pose'], {motor: raw rad}) back to its reference, then disabled.
@@ -202,7 +202,7 @@ class TuneCore:
         calibration = ((self.bundle.get('servo') or {}).get('joints') or {})
         self.engine = SweepEngine(derived['config']['joints'], home=home, gains=gains, settings=settings, sweep=sweep,
                                   checker=checker, window_s=window_s, verdict_s=policy['max_verdict_ms'] / 1000,
-                                  labels=self.labels, mode=self.mode,
+                                  labels=self.labels, mode=self.mode, period_s=self.period_s,
                                   calibration={m: calibration[m] for m in sweep if m in calibration},
                                   travel=self.travel, receiver=self.profile['receiver'],
                                   interpolation_s=derived['config'].get('interpolation_ms', 0) / 1000,

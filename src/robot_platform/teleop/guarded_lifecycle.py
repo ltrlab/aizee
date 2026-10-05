@@ -15,8 +15,9 @@ class GuardedLifecycleSession:
         self.controller, self.compiler, self.lifecycle = controller, compiler, lifecycle
         self.snapshot, self.clock = snapshot, clock
         self.period_s, self.cycle_budget_s = period_s, cycle_budget_s
+        # The budget may pass the period: a slow cycle starts the next late; one past its budget faults.
         if (not all(math.isfinite(v) for v in (period_s, cycle_budget_s))
-                or not 0 < cycle_budget_s <= period_s <= lifecycle.max_step_s
+                or not 0 < period_s <= lifecycle.max_step_s or not 0 < cycle_budget_s <= lifecycle.max_step_s
                 or compiler.compute_budget_s > cycle_budget_s
                 or compiler.config["collision"]["max_verdict_ms"] / 1000 <= period_s
                 or controller.joint_names != compiler.names or lifecycle.names != compiler.names
