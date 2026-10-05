@@ -227,6 +227,7 @@ def test_rows_come_from_the_recorder_or_one_per_virtual_step():
 class SlowChecker:
     """A collision model that takes 4 ms a pose and reports a contact past +0.25 rad on the wrist."""
     step = .02
+    calls = 0
 
     def samples(self, start, end):
         count = max(1, math.ceil(abs(end - start) / self.step))
@@ -234,6 +235,7 @@ class SlowChecker:
 
     def check(self, motor, position):
         import time
+        self.calls += 1
         until = time.perf_counter() + .004  # Busy: Windows sleeps round up to a 15.6 ms tick.
         while time.perf_counter() < until:
             pass
@@ -241,24 +243,28 @@ class SlowChecker:
 
 
 def test_path_checks_spread_over_cycles_and_still_stop_the_widening():
-    import time
+    from robot_platform.control.servo_sweep import CHECK_BUDGET_S
     joints, plant, gains = arm()
     names = [joint['name'] for joint in joints]
     settings = {name: sweep_settings(PROFILE, name) for name in names}
+    checker = SlowChecker()
     engine = SweepEngine(joints, home={name: 0. for name in names}, gains=gains, settings=settings,
-                         sweep=['right_arm_j5'], checker=SlowChecker())
+                         sweep=['right_arm_j5'], checker=checker)
     engine.observe(plant.run(names, {'targets': [0., 0.], 'gains': [gains[n] for n in names]}))
-    now, slowest = 0., 0.
+    now, most = 0., 0
     while now < 400:
-        started = time.perf_counter()
+        before = checker.calls
         command = engine.command(now)
-        slowest = max(slowest, time.perf_counter() - started)
+        most = max(most, checker.calls - before)
         if command is None:
             break
         engine.observe(plant.run(names, command))
         now += .04
     assert engine.done
-    assert slowest < .03, f'one cycle took {slowest * 1000:.0f} ms'  # The loop keeps the receiver's verdict fresh.
+    # The loop keeps the receiver's verdict fresh: a cycle checks only its budget's worth of 4 ms poses, or the
+    # end of one path's and the start of the next (counted, not timed: a busy machine stretches each pose, so it
+    # only checks fewer; the paths here take hundreds).
+    assert 1 < most <= 2 * (CHECK_BUDGET_S / .004 + 1), most
     wrist = engine.summary()['right_arm_j5']
     assert wrist['verified']['up'] <= .25 + 1e-9  # Stopped widening at the contact.
     assert any('stopped widening' in event['text'] for event in engine.events)
