@@ -185,6 +185,18 @@ class TeleopLifecycle:
         self.state = 'SHUTDOWN'
         return self._proposal('move')
 
+    def hold(self, positions):
+        """The adapter could not certify this cycle's move (its collision box was not clear): the arm holds
+        `positions`, the target last sent, instead, and the next cycle steps on from there, from rest. A hold,
+        alignment or shutdown carries on."""
+        if self.state not in ('HOLD', 'ENGAGING', 'TELEOP', 'SHUTDOWN'):
+            raise ValueError(f'Cannot hold from {self.state}')
+        if len(positions) != len(self.names) or not all(_finite(q) for q in positions):
+            raise ValueError('Complete held positions required')
+        self.target = tuple(float(q) for q in positions)
+        self._velocities, self._settled_since = None, None
+        return self._proposal('move')
+
     def action(self, action, feedback=None, *, target=None, now=None):
         """Apply Idle/Enable/Engage/Hold/Shutdown/Disable GUI intent.
 

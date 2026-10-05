@@ -151,3 +151,54 @@ def test_the_compiler_refuses_a_reserve_bound_receiver(setup):
         MotionEnvelopeCompiler(backend, dict(cfg, collision=dict(cfg["collision"], bound="reserve")), mapping)
     with pytest.raises(ValueError, match="ramped"):
         MotionEnvelopeCompiler(backend, dict(cfg, interpolation_ms=0), mapping)
+
+
+def lifecycle_joints(cfg):
+    return [dict(name=joint["name"], lower=joint["lower"], upper=joint["upper"], hold_kp=joint["hold_kp"],
+                 hold_kd=joint["hold_kd"], max_velocity=.5, align_speed=.2, shutdown_speed=.2, max_lead=.008,
+                 tolerance=.005, settled_velocity=.05, zero_position=0., interpolation_s=.02)
+            for joint in cfg["joints"]]
+
+
+def test_teleop_holds_where_the_boxes_would_meet_and_follows_again_once_they_part(setup):
+    from robot_platform.teleop.guarded_lifecycle import GuardedLifecycleSession
+    from robot_platform.teleop.lifecycle import TeleopLifecycle
+    backend, cfg, mapping = setup
+    clock = [0.]
+    compiler = MotionEnvelopeCompiler(backend, cfg, mapping, compute_budget_s=.03, clock=lambda: clock[0])
+    with NativeControlHarness(cfg, [-.6, .6]) as harness:
+        lifecycle = TeleopLifecycle(lifecycle_joints(cfg), clock=lambda: clock[0], max_source_misses=4)
+        session = GuardedLifecycleSession(client(harness, cfg), compiler, lifecycle, lambda: harness.last,
+                                          period_s=.02, cycle_budget_s=.035, clock=lambda: clock[0])
+        now = [0]
+
+        def cycle(action=None, a=None, b=None, sequence=[0]):
+            for _ in range(10):  # The receiver ticks every 2 ms between cycles.
+                now[0] += 2
+                harness.step(now[0])
+            clock[0] = now[0] / 1000
+            target = None
+            if a is not None:
+                sequence[0] += 1
+                target = [dict(name=name, position=q, sampled_at=clock[0], sequence=sequence[0])
+                          for name, q in (("a", a), ("b", b))]
+            return session.cycle(action=action, target=target)
+
+        cycle("idle")
+        cycle("enable")
+        cycle("engage", -.6, .6)
+        gaps, held = [], 0
+        # The leaders bring the cubes together at 0.25 m/s each, until they would overlap, then part them.
+        for k in range(200):
+            q = min(.55, .005 * k) if k < 120 else max(0., .55 - .005 * (k - 120))
+            record = cycle(None, -.6 + q, .6 - q)
+            held += bool(record.get("blocked"))
+            assert record["accepted"], record
+            a, b = (row["position"] for row in harness.last["feedback"])
+            gaps.append(b - a - .2)  # Between the cubes' faces.
+        assert held and lifecycle.state in ("ENGAGING", "TELEOP")
+        # Held short of touching (the faces never closer than the clearance), never faulted.
+        assert .005 < min(gaps) < .3
+        assert harness.last["status"]["state"] == "executing"
+        # Parted again: following once more (the leaders end 0.69 m apart).
+        assert session.blocked is None and gaps[-1] > min(gaps) + .3

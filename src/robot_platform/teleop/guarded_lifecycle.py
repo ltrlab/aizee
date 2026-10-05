@@ -1,12 +1,15 @@
 """Run the existing GUI lifecycle through one whole-robot collision receiver.
 
 No USB ownership, sockets, background sends or automatic recovery. The caller
-supplies an already mapped absolute leader target and advances one 25 Hz cycle.
+supplies an already mapped absolute leader target and advances one cycle.
 The same offer/feedback transaction certifies Hold, alignment and zero return.
+A move whose collision box is not clear holds the last target instead.
 """
 from copy import deepcopy
 import math
 import time
+
+from robot_platform.control.collision_envelope import CollisionBlocked
 
 
 class GuardedLifecycleSession:
@@ -33,6 +36,7 @@ class GuardedLifecycleSession:
         self.stop_error = None
         self.last_cycle = None
         self.last_feedback = None
+        self.blocked = None  # Why the last cycle's move was held, while it is.
 
     def _deadline(self, started, target):
         now = self.clock()
@@ -141,6 +145,7 @@ class GuardedLifecycleSession:
             feedback = sample["feedback"]
             rows = self._rows(offered, feedback, offer_started)
             self.last_feedback = deepcopy(rows)
+            previous = self.lifecycle.target  # What the receiver drives toward now.
             if action is not None:
                 proposal = self.lifecycle.action(action, rows, target=target, now=self.clock())
             else:
@@ -158,8 +163,31 @@ class GuardedLifecycleSession:
                 raise ValueError("Idle must acquire robot ownership before applying commands")
             envelope = None
             if operation in ("enable", "move"):
-                envelope = self.compiler.compile(offered, feedback,
-                    None if operation == "enable" else proposal["joints"], started_at=offer_started)
+                try:
+                    envelope = self.compiler.compile(offered, feedback,
+                        None if operation == "enable" else proposal["joints"], started_at=offer_started)
+                    self.blocked = None
+                except CollisionBlocked as exc:
+                    if operation != "move" or previous is None:
+                        raise
+                    # Not certifiable: hold the target last sent instead (the leaders may move on, apart).
+                    self.blocked = str(exc)
+                    record["blocked"] = self.blocked
+                    proposal = self.lifecycle.hold(previous)
+                    record["proposal"] = deepcopy(proposal)
+                    try:
+                        envelope = self.compiler.compile(offered, feedback, proposal["joints"],
+                                                         started_at=offer_started)
+                    except CollisionBlocked as again:
+                        # Nor the hold: send nothing. The receiver keeps driving its last command within the
+                        # last verdict's box, and stops the arms itself when that lapses.
+                        record.update(skipped=str(again), collision=deepcopy(self.compiler.last_verdict))
+                        lease = offered["status"].get("lease") or {}
+                        if offered["offer"]["expires_at_ms"] > lease.get("expires_at_ms", -1):
+                            self.controller.renew_with(offered)
+                        self._deadline(started, target)
+                        record["accepted"] = True
+                        return record
                 record.update(collision=deepcopy(self.compiler.last_verdict), envelope=envelope)
             self._deadline(started, target)
             record["accepted"] = None
