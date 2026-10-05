@@ -1,13 +1,14 @@
-"""The guarded receiver on Minerva's physical CAN for one arm, for Helm's live teleop.
+"""The guarded receiver on Minerva's physical CAN for one arm, or both, for Helm's live teleop.
 
 Runs on the robot computer, in the teleop loop's process, from the active
 release. Starting it:
-  1. The calibration tool's stopped reader scans the arm with every motor
-     disabled: host, adapter serial, services, identity, firmware and fault-free
-     Reset, and each motor still and within tolerance of its reference position.
-     Encoders cannot prove the physical pose; the operator confirms it too.
-  2. The arm's CAN link comes up through the sudo-permitted helper.
-  3. guarded_controller runs in teleop mode on that one bus. It repeats the
+  1. The calibration tool's stopped reader scans the arm (each arm) with every
+     motor disabled: host, adapter serial, services, identity, firmware and
+     fault-free Reset, and each motor still and within tolerance of its reference
+     position. Encoders cannot prove the physical pose; the operator confirms it too.
+  2. The arm's CAN link (each arm's) comes up through the sudo-permitted helper.
+  3. guarded_controller runs in teleop mode on that bus (both buses: one receiver
+     for both arms, under a motion collision bound). It repeats the
      identity and reference checks and arms the motors' command-loss watchdogs
      before opening its socket; its first enable spends that permit. Until then
      it keeps auditing the watchdogs, which fails if a motor reads over
@@ -34,24 +35,29 @@ STARTUP_HINT = ('every motor must answer promptly, hang still (not over 0.2 rad/
                 'start again.')
 
 
-def service_config(controller, device, reference, motor_models, *, bus, tolerance_rad, period_us=2500,
-                   maximum_lateness_us=10000, endpoint=ENDPOINT, start_pose=None):
-    """The teleop-mode service configuration for `controller`'s joints, all on `bus`. The arm starts in its
-    reference pose, or at `start_pose` ({motor: raw rad}): the pose an operator confirmed, to return it from."""
+def service_config(controller, device, reference, motor_models, *, bus=None, buses=None, tolerance_rad,
+                   period_us=2500, maximum_lateness_us=10000, endpoint=ENDPOINT, start_pose=None):
+    """The teleop-mode service configuration for `controller`'s joints, all on `bus` (one arm), or on `buses`
+    (both arms: the receiver needs a motion collision bound for two). The arm starts in its reference pose, or at
+    `start_pose` ({motor: raw rad}): the pose an operator confirmed, to return it from."""
     from .commissioning import wire_ranges
+    buses = list(buses) if buses is not None else [bus]
     roster = {motor['name']: motor for motor in reference['motors']}
     names = [joint['name'] for joint in controller['joints']]
-    if any(roster[name]['bus'] != bus for name in names):
-        raise ValueError(f'A live receiver drives one arm: every joint must be on {bus}')
-    serial = next((b['usb_serial'] for b in device['buses'] if b['interface'] == bus), None)
-    if not serial:
-        raise ValueError(f'{bus} is not a pinned bus of {device["asset_id"]}')
+    if not buses or len(set(buses)) != len(buses) or any(roster[name]['bus'] not in buses for name in names):
+        raise ValueError(f'A live receiver drives the arms of its buses: every joint must be on {" or ".join(map(str, buses))}')
+    if len(buses) > 1 and (controller.get('collision') or {}).get('bound') != 'motion':
+        raise ValueError('A live receiver drives both arms only under a motion collision bound')
+    pinned = {b['interface']: b['usb_serial'] for b in device['buses']}
+    for name in buses:
+        if not pinned.get(name):
+            raise ValueError(f'{name} is not a pinned bus of {device["asset_id"]}')
     return {'mode': 'teleop', 'endpoint': endpoint, 'period_us': period_us,
             'maximum_lateness_us': maximum_lateness_us, 'host_id': HOST_ID,
-            'buses': [{'interface': bus, 'usb_serial': serial}],
+            'buses': [{'interface': name, 'usb_serial': pinned[name]} for name in buses],
             'conflicting_services': list(device['conflicting_services']),
-            'motors': [{'name': name, 'bus': 0, 'id': roster[name]['id'], 'scale': 1., 'zero': 0.,
-                        'ranges': wire_ranges(motor_models[name])} for name in names],
+            'motors': [{'name': name, 'bus': buses.index(roster[name]['bus']), 'id': roster[name]['id'],
+                        'scale': 1., 'zero': 0., 'ranges': wire_ranges(motor_models[name])} for name in names],
             'controller': controller,
             'watchdog_identities': [{'uid': list(bytes.fromhex(roster[name]['uid'])),
                                      'firmware': [int(part) for part in roster[name]['firmware'].split('.')]}
@@ -143,7 +149,7 @@ def _die_with_parent():
 
 
 class LiveReceiver:
-    """One arm's guarded service, owned by this process. Exchange-compatible with the harness."""
+    """One arm's guarded service (or both arms'), owned by this process. Exchange-compatible with the harness."""
 
     def __init__(self, config, *, device, reference, binary, directory, labels=None, capture=None,
                  command=subprocess.run, spawn=subprocess.Popen, transport_factory=None, clock=time.monotonic,
@@ -151,13 +157,14 @@ class LiveReceiver:
         self.config, self.device, self.reference = config, device, reference
         # Its start pose is one the operator confirmed away from the reference (a return), not the reference.
         self.confirmed_pose = confirmed_pose
-        self.bus = config['buses'][0]['interface']
+        self.buses = [b['interface'] for b in config['buses']]
+        self.label = '-'.join(self.buses)  # Its evidence files: live-<label>.json, .log, -last.json.
         self.binary, self.directory = Path(binary), Path(directory)
         self.labels = dict(labels or {})
         self.capture, self.command, self.spawn = capture, command, spawn
         self.transport_factory, self.clock = transport_factory, clock
         self.process = self.transport = self.log = self.scan = self.exit_code = None
-        self.can_up = False
+        self.links_up = []  # The buses this brought up, to take down again.
 
     @property
     def last(self):
@@ -180,7 +187,7 @@ class LiveReceiver:
     def _prescan(self):
         from .joint_capture import run_capture
         names = {motor['name'] for motor in self.config['motors']}
-        device = dict(self.device, buses=[b for b in self.device['buses'] if b['interface'] == self.bus])
+        device = dict(self.device, buses=[b for b in self.device['buses'] if b['interface'] in self.buses])
         reference = dict(self.reference, motors=[m for m in self.reference['motors'] if m['name'] in names])
         report = (self.capture or run_capture)(device, reference)
         if not report.get('success'):
@@ -211,25 +218,30 @@ class LiveReceiver:
         return report
 
     def _link(self, *, up):
-        command = (['sudo', '-n', self.device['can_up_helper'], self.bus] if up
-                   else ['sudo', '-n', '/usr/sbin/ip', 'link', 'set', self.bus, 'down'])
-        result = self.command(command, capture_output=True, text=True, timeout=10)
-        if result.returncode:
-            raise RuntimeError(f"Could not bring {self.bus} {'up' if up else 'down'}: "
-                               f"{(result.stderr or result.stdout).strip()}")
-        self.can_up = up
+        """Bring every bus up (each one recorded as it comes up), or each one brought up down again."""
+        for bus in (self.buses if up else list(self.links_up)):
+            command = (['sudo', '-n', self.device['can_up_helper'], bus] if up
+                       else ['sudo', '-n', '/usr/sbin/ip', 'link', 'set', bus, 'down'])
+            result = self.command(command, capture_output=True, text=True, timeout=10)
+            if result.returncode:
+                raise RuntimeError(f"Could not bring {bus} {'up' if up else 'down'}: "
+                                   f"{(result.stderr or result.stdout).strip()}")
+            if up:
+                self.links_up.append(bus)
+            else:
+                self.links_up.remove(bus)
 
     def _spawn(self):
         self.directory.mkdir(parents=True, exist_ok=True)
-        path = self.directory / f'live-{self.bus}.json'
+        path = self.directory / f'live-{self.label}.json'
         path.write_text(json.dumps(self.config, indent=1, allow_nan=False) + '\n', encoding='utf-8')
-        self.log = (self.directory / f'live-{self.bus}.log').open('ab')
+        self.log = (self.directory / f'live-{self.label}.log').open('ab')
         self.process = self.spawn([str(self.binary), str(path), '--allow-powered-teleop', '--confirm-reference-pose'],
                                   stdout=self.log, stderr=subprocess.STDOUT, preexec_fn=_die_with_parent)
 
     def _log_tail(self):
         try:
-            return (self.directory / f'live-{self.bus}.log').read_text(errors='replace').strip()[-400:]
+            return (self.directory / f'live-{self.label}.log').read_text(errors='replace').strip()[-400:]
         except OSError:
             return ''
 
@@ -266,7 +278,7 @@ class LiveReceiver:
         if self.transport.last is None:
             return
         try:
-            path = self.directory / f'live-{self.bus}-last.json'
+            path = self.directory / f'live-{self.label}-last.json'
             path.write_text(json.dumps(self.transport.last, indent=1, default=repr) + '\n', encoding='utf-8')
         except (OSError, TypeError, ValueError):
             pass  # Evidence only: never stands in the way of stopping the service.
@@ -292,10 +304,11 @@ class LiveReceiver:
         if self.log is not None:
             self.log.close()
             self.log = None
-        if self.can_up:
+        while self.links_up:
             try:
                 self._link(up=False)
             except Exception as exc:
                 errors.append(str(exc))
+                break
         if errors:
             raise RuntimeError('; '.join(errors))

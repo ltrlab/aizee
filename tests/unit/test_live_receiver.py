@@ -49,9 +49,46 @@ def test_the_service_drives_one_pinned_arm_with_its_watchdog_identities_and_refe
                                                  'firmware': [int(p) for p in LEFT[0]['firmware'].split('.')]}
     assert all(r['raw_position_rad'] == 0. and r['tolerance_rad'] == .1 for r in service['reference_positions'])
     assert service['conflicting_services'] == DEVICE['conflicting_services']
-    with pytest.raises(ValueError, match='one arm'):
+    with pytest.raises(ValueError, match='every joint must be on canL'):
         service_config(controller(['left_arm_j1', 'right_arm_j1']), DEVICE, REFERENCE, MODELS | RIGHT_J1,
                        bus='canL', tolerance_rad=.1)
+
+
+RIGHT = [m for m in REFERENCE['motors'] if m['name'].startswith('right_')]
+BOTH_MODELS = MODELS | {name.replace('left_', 'right_', 1): model for name, model in MODELS.items()}
+
+
+def test_both_arms_run_one_service_on_both_buses_only_under_a_motion_bound(tmp_path):
+    names = [m['name'] for m in LEFT + RIGHT]
+    with pytest.raises(ValueError, match='motion collision bound'):
+        service_config(controller(names), DEVICE, REFERENCE, BOTH_MODELS, buses=['canL', 'canR'], tolerance_rad=.1)
+    motion = controller(names)
+    motion['collision']['bound'] = 'motion'
+    service = service_config(motion, DEVICE, REFERENCE, BOTH_MODELS, buses=['canL', 'canR'], tolerance_rad=.1)
+    assert [b['interface'] for b in service['buses']] == ['canL', 'canR']
+    assert [m['bus'] for m in service['motors']] == [0] * 7 + [1] * 7
+    assert [m['id'] for m in service['motors']] == [m['id'] for m in LEFT + RIGHT]
+
+    class Both(Transport):
+        def request(self, request):
+            result = super().request(request)
+            result['feedback'] = [feedback() for _ in names]
+            return result
+
+    seen = []
+    report = dict(scan(), motors=[{'name': name, 'position_rad': .02} for name in names])
+    live, commands, spawned = receiver(tmp_path, service=service, transport=Both,
+                                       capture=lambda device, reference: seen.append((device, reference)) or report)
+    assert live.start() is live
+    device, reference = seen[0]
+    # Both arms scanned stopped, both links up, one service.
+    assert [b['interface'] for b in device['buses']] == ['canL', 'canR'] and len(reference['motors']) == 14
+    helper = DEVICE['can_up_helper']
+    assert commands == [['sudo', '-n', helper, 'canL'], ['sudo', '-n', helper, 'canR']]
+    assert spawned[0][1] == str(tmp_path / 'live-canL-canR.json') and len(spawned) == 1
+    live.close()
+    assert commands[2:] == [['sudo', '-n', '/usr/sbin/ip', 'link', 'set', bus, 'down'] for bus in ('canL', 'canR')]
+    assert json.loads((tmp_path / 'live-canL-canR-last.json').read_text())['status']['state'] == 'disarmed'
 
 
 def scan(offsets=None, **change):
@@ -190,7 +227,7 @@ def test_a_service_that_dies_while_starting_is_reported_and_the_link_goes_down(t
     with pytest.raises(RuntimeError, match='stopped while starting: .*watchdog startup verification failed'
                                            '.*hang still'):
         live.start()
-    assert commands[-1][-1] == 'down' and live.process is None and not live.can_up
+    assert commands[-1][-1] == "down" and live.process is None and not live.links_up
 
 
 def test_a_joint_resting_at_a_receiver_limit_is_named_before_anything_starts(tmp_path):
