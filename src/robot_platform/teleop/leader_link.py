@@ -212,9 +212,9 @@ def _serve(connection, profile, key, robot, local, real):
     source = server = None
     try:
         if real:
-            from .leader_bridge import LatestLeaderInputs
+            from .leader_bridge import SAMPLER_HZ, LatestLeaderInputs
             from .openrb import OpenRBInputs
-            source = LatestLeaderInputs(OpenRBInputs(profile), rate_hz=100.)
+            source = LatestLeaderInputs(OpenRBInputs(profile), rate_hz=SAMPLER_HZ)
             source.connect()
         else:
             source = SyntheticLeaders(profile)

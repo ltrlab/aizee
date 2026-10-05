@@ -206,9 +206,9 @@ class TeleopCore:
                             directory=evidence, labels=self.labels).start()
 
     def _open_leaders(self, profile):
-        from robot_platform.teleop.leader_bridge import LatestLeaderInputs
+        from robot_platform.teleop.leader_bridge import SAMPLER_HZ, LatestLeaderInputs
         from robot_platform.teleop.openrb import OpenRBInputs
-        leaders = LatestLeaderInputs(OpenRBInputs(profile), rate_hz=100.)
+        leaders = LatestLeaderInputs(OpenRBInputs(profile), rate_hz=SAMPLER_HZ)
         try:
             leaders.connect()
         except Exception as exc:

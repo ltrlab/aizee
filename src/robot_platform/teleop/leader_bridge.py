@@ -16,6 +16,11 @@ from .openrb import LeaderSample, LeaderSampleSkipped, OpenRBInputs
 from robot_platform.transport.wire import pack_msg, unpack_msg
 
 
+# A control loop's sampler polls the leaders as fast as they answer (both boards in parallel take about 6 ms), so
+# a 50 Hz loop reads a sample at most one poll old, not up to 10 ms as at 100 Hz.
+SAMPLER_HZ = 200.
+
+
 class CachedLeaderSampleStale(LeaderSampleSkipped):
     """No fresh cached frame yet; the independent USB sampler may still run.
 
@@ -27,8 +32,8 @@ class CachedLeaderSampleStale(LeaderSampleSkipped):
 class LatestLeaderInputs:
     """Poll USB independently; expose one age-preserving snapshot, never a queue."""
     def __init__(self, inputs, *, rate_hz=100., clock=time.perf_counter):
-        if not math.isfinite(rate_hz) or not 25 <= rate_hz <= 100:
-            raise ValueError("Leader polling rate must be 25-100 Hz")
+        if not math.isfinite(rate_hz) or not 25 <= rate_hz <= 250:
+            raise ValueError("Leader polling rate must be 25-250 Hz")
         self.inputs, self.pins, self.clock = inputs, inputs.pins, clock
         self.period = 1 / rate_hz
         self._lock, self._done = threading.Lock(), threading.Event()
