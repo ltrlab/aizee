@@ -221,6 +221,49 @@ def test_saved_results_become_the_servo_calibration_the_receiver_uses(setup):
     assert servo_path(helm.profile_path, helm.asset_id).name == 'minerva-production-01-servo.json'
 
 
+def test_a_sweep_leaves_an_unplugged_gripper_out_and_saves_nothing(setup):
+    # The left wrist harness (2026-10-07): the gripper unplugged, the rest of the arm swept for dropouts.
+    helm, session, tmp_path = setup
+    with pytest.raises(ValueError, match='only the left gripper'):
+        session.configure(arm='left', joints=['left_arm_j6'], absent=['left_arm_j5'])
+    with pytest.raises(ValueError, match='only the left gripper'):
+        session.configure(arm='left', verify=True, absent=['left_gripper'])
+    session.configure(arm='left', joints=['left_arm_j6'], absent=['left_gripper'])
+    assert session.snapshot()['absent_choice'] == ['left_gripper']
+    bundle = session._bundle()
+    session._swept_without = bundle['absent']  # As start() records it.
+    clock = Clock()
+    receivers = []
+
+    def open_receiver(config, device, reference):
+        assert [m['name'] for m in reference['motors']] == [j['name'] for j in config['joints']]
+        receivers.append(Receiver(config, reference, clock))
+        return receivers[-1]
+    core = TuneCore(bundle, open_receiver=open_receiver, clock=clock, evidence_root=tmp_path / 'evidence')
+    core.build()
+    names = [joint['name'] for joint in receivers[0].config['joints']]
+    assert names == [f'left_arm_j{i}' for i in range(1, 7)]  # Neither scanned nor driven.
+    assert 'WITHOUT LEFT GRIPPER' in core.message and core.view()['absent'] == ['left_gripper']
+    assert core.compiler.fixed and not set(core.compiler.fixed) & set(core.derived['joint_map'])
+    for _ in range(20000):
+        core.tick(None, clock())
+        clock.now += core.period_s
+        assert core.fault is None, core.fault
+        if core.stage == 'finished':
+            break
+    assert core.stage == 'finished', core.message
+    session.results = core.engine.summary()
+    core.close()
+    with pytest.raises(ValueError, match='left out left_gripper to check the wiring'):
+        session.save(['left_arm_j6'])
+    # A return or Minerva Check's sweep always covers every drive.
+    session.configure(arm='left', verify=True)
+    assert 'absent' not in session._bundle()
+    with pytest.raises(ValueError, match='Only a tuning sweep'):
+        TuneCore(dict(session._bundle(), absent=['left_gripper']), open_receiver=open_receiver,
+                 clock=clock, evidence_root=tmp_path / 'evidence').build()
+
+
 def test_a_live_sweep_needs_a_confirmation_the_jetson_and_the_tether(setup):
     helm, session, _ = setup
     with pytest.raises(ValueError, match="Confirm the sweep: the left arm's motors move on their own"):

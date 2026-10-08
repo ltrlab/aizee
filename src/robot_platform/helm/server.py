@@ -232,10 +232,10 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     async def tune_configure(request):
         payload = await body(request)
         need_tune()
-        if not set(payload) <= {'arm', 'joints', 'mode', 'target'} or 'arm' not in payload:
-            raise ValueError('Expected arm, and optionally joints, mode and target')
+        if not set(payload) <= {'arm', 'joints', 'mode', 'target', 'absent'} or 'arm' not in payload:
+            raise ValueError('Expected arm, and optionally joints, mode, target and absent (an unplugged gripper)')
         tune.configure(arm=payload['arm'], joints=payload.get('joints'), mode=payload.get('mode', 'live'),
-                       target=payload.get('target'), verify=False)
+                       target=payload.get('target'), verify=False, absent=payload.get('absent'))
         return state_response()
 
     async def tune_start(request):

@@ -65,6 +65,7 @@ class TuneCore:
         self.stopped_by = None  # Why the receiver stopped the arm, when it did.
         self._lowerings = 0
         self.engine = self.controller = self.receiver = self.compiler = self.derived = None
+        self.absent = []  # Drives left out (unplugged), once built.
         self.pending = []  # Receiver results since the engine last saw them.
         self.cycles = []
         self._closers = []
@@ -118,6 +119,16 @@ class TuneCore:
         self.labels.update({t['motor']: t['motor'].replace('_', ' ').capitalize() for t in transmissions})
         # One arm: the other is not in this receiver and is never enabled.
         reference, steps, transmissions = arm_subset(reference, plan['steps'], transmissions, self.arm)
+        # A drive unplugged for a wiring check (the gripper, the end of the chain) is left out: the receiver
+        # neither scans nor drives it, and the collision model holds it in its reference pose.
+        absent = set(self.bundle.get('absent') or ())
+        if absent:
+            if self.mode != 'tune' or not absent <= {f'{self.arm}_gripper'}:
+                raise ValueError('Only a tuning sweep leaves a drive out, and only the gripper')
+            reference = dict(reference, motors=[m for m in reference['motors'] if m['name'] not in absent])
+            steps = [step for step in steps if step['motor'] not in absent]
+            transmissions = [entry for entry in transmissions if entry['motor'] not in absent]
+        self.absent = sorted(absent)
         motors = [motor['name'] for motor in reference['motors']]
         sweep = [] if self.mode == 'return' else [motor for motor in (self.bundle.get('joints') or motors)
                                                   if motor in motors]
@@ -230,6 +241,8 @@ class TuneCore:
                                                                                                    'SERVO SWEEP')
         moves = ('each joint returns alone to the reference' if self.mode == 'return'
                  else 'the sweep moves the arm')
+        if self.absent:
+            what += ' · WITHOUT ' + ', '.join(self.labels.get(name, name).upper() for name in self.absent)
         self.message = (f'{what} · LIVE {self.arm.upper()} ARM · enabling, then {moves}. '
                         'Keep the foot switch in reach.' if self.live_arm else
                         f'{what} · VIRTUAL RECEIVER · no motors move.')
@@ -481,7 +494,7 @@ class TuneCore:
         durations = sorted((c['completed_at'] - c['started_at']) * 1000 for c in self.cycles[-100:]
                            if c.get('completed_at') is not None)
         view = {'phase': self.phase, 'stage': self.stage, 'message': self.message, 'fault': self.fault,
-                'arm': self.arm, 'live': self.live_arm is not None, 'mode': self.mode,
+                'arm': self.arm, 'live': self.live_arm is not None, 'mode': self.mode, 'absent': self.absent,
                 'receiver': ((last or {}).get('status') or {}).get('state'),
                 'motors_enabled': (last or {}).get('hardware_enabled'),
                 'progress': self.engine.progress() if self.engine else None,
@@ -569,6 +582,8 @@ class TuneSession:
         self.target, self.core_factory, self.edge_factory = target, core_factory, edge_factory
         self.receiver = {'mode': 'live', 'arm': 'right'}
         self.joints = None
+        self.absent = None  # Drives unplugged for a wiring check, which the next tuning sweep leaves out.
+        self._swept_without = None  # Those the last sweep left out: its results are not saved.
         self.path = servo_path(helm.profile_path, helm.asset_id)
         self._lock = threading.Lock()
         self._conn = self._views = self._worker = self._reader = None
@@ -592,9 +607,12 @@ class TuneSession:
         worker = self._worker
         return worker is not None and worker.is_alive()
 
-    def configure(self, *, arm, joints=None, mode='live', target=None, verify=False):
+    def configure(self, *, arm, joints=None, mode='live', target=None, verify=False, absent=None):
         if arm not in ('left', 'right') or mode not in ('live', 'virtual'):
             raise ValueError('Sweep the left or right arm, live or on the virtual receiver')
+        # Only the gripper, the end of the chain, can be unplugged and left out: a wiring check of the rest.
+        if absent and (verify or not set(absent) <= {f'{arm}_gripper'}):
+            raise ValueError(f'Only a tuning sweep leaves a drive out, and only the {arm} gripper')
         with self._lock:
             if self.active:
                 raise ValueError('Stop the sweep before changing it')
@@ -606,6 +624,7 @@ class TuneSession:
                 raise ValueError("A live sweep runs its loop on Minerva's Jetson")
             self.receiver = {'mode': mode, 'arm': arm}
             self.joints = list(joints) if joints else None
+            self.absent = sorted(set(absent)) if absent else None
             self.mode = 'verify' if verify else 'tune'
 
     def return_offer(self, arm):
@@ -654,14 +673,14 @@ class TuneSession:
         with self._lock:
             if self.active:
                 raise ValueError('The sweep is already running')
-            previous = self.receiver, self.joints, self.mode
-            self.receiver, self.joints, self.mode = {'mode': 'live', 'arm': arm}, None, 'return'
+            previous = self.receiver, self.joints, self.mode, self.absent
+            self.receiver, self.joints, self.mode, self.absent = {'mode': 'live', 'arm': arm}, None, 'return', None
             self._start_pose = dict(pose)
         try:
             self.start(confirm=True)
         finally:
             with self._lock:  # A later start sweeps again, as configured before.
-                self.receiver, self.joints, self.mode = previous
+                self.receiver, self.joints, self.mode, self.absent = previous
                 self._start_pose = None
 
     def _bundle(self):
@@ -672,6 +691,7 @@ class TuneSession:
                 'teleop_profile': str(self.profile_path), 'asset_id': helm.asset_id,
                 'receiver': dict(self.receiver), 'arm': self.receiver['arm'], 'joints': self.joints,
                 'servo': deepcopy(self.saved),
+                **({'absent': list(self.absent)} if self.absent and self.mode == 'tune' else {}),
                 **({'start_pose': dict(self._start_pose)} if self.mode == 'return' else {})}
 
     def start(self, *, confirm=False):
@@ -687,6 +707,7 @@ class TuneSession:
             if self.helm.saved_limits is None:
                 raise ValueError('Save joint limits for every motor in the Limits workspace first')
             bundle = self._bundle()
+            self._swept_without = bundle.get('absent')
             local = self.target == 'pc' or self.core_factory is not None
             if local:
                 context = multiprocessing.get_context('spawn')
@@ -797,6 +818,10 @@ class TuneSession:
             results = deepcopy(self.results)
         if not results:
             raise ValueError('No sweep results to save')
+        if self._swept_without:
+            # The arm runs with every drive: a wrist swept without its gripper's load is not what teleop drives.
+            raise ValueError('This sweep left out ' + ', '.join(self._swept_without) + ' to check the wiring; '
+                             'sweep again with every drive plugged in to save settings')
         if not motors:
             raise ValueError('Choose the joints to save')
         document = save_servo(self.path, asset_id=self.helm.asset_id, reference=self.helm.reference,
@@ -812,6 +837,7 @@ class TuneSession:
             view.pop('results', None)
             running = view.get('phase') in ('starting', 'running')
             return dict(view, receiver_choice=dict(self.receiver), joints_choice=self.joints, target=self.target,
+                        absent_choice=self.absent,
                         mode=view.get('mode', self.mode) if running else self.mode,
                         results=deepcopy(self.results), saved=deepcopy(self.saved), saved_error=self.saved_error,
                         return_offer=deepcopy(self.offer),
