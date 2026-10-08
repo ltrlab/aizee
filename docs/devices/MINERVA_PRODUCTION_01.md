@@ -2877,3 +2877,30 @@ Both failures came while J3 moved, so the wrist branch's supply most likely
 breaks under flex at J3 or J4. The forearm dropped from J3 −1.13 rad when
 torque was cut. The left arm stays stopped until the harness is found and
 fixed.
+
+### 2026-10-08 — new left harness, gripper unplugged: left J5 tripped again on J3 motion
+
+The operator redid the left wrist harness and unplugged the left gripper, to
+check the rest of the arm for dropouts. Tune sweeps can now leave an unplugged
+gripper out (commit `c76eb8f`; release `20261008T014142Z-c76eb8f`). Minerva
+Check's stopped scan reached all 13 other drives. The first start gates refused:
+left J5 read +3.19 rad (turned about half a turn during the rework, inside its
+±3.27 swept travel), J4 −0.15 and J6 −0.11. The operator turned them back.
+
+Left J3's sweep (01:51 UTC, evidence `~/minerva/evidence/sweep-20261008T015128Z`)
+characterised the whole range (+2.13 and −2.05 rad), ran every stiffness and
+damping rung and the raised holds, and passed 0.2 and 0.3 rad/s. At 0.4 rad/s,
+with J3 lifting through +1.19 rad, the receiver cut torque on
+"left_arm_j5: left Run mode while driven (mode 0), reporting overcurrent". J5
+was holding still at +0.022 rad with about 0.2 Nm, so the trip is electrical,
+not load. The receiver's timing was clean: no overruns, at most 1.1 ms late. The forearm dropped from +1.19 rad.
+
+Afterwards the stopped scan reached J5 and J6 (only the unplugged gripper was
+silent), unlike 2026-09-30. J5's overcurrent latches until a power cycle.
+
+So the fault is not in the gripper's branch. J5 has now tripped three times, each
+while J3 moved: at −1.13 and +1.19 rad, about the same bend either way. The
+J5 supply or wiring (its connector, or the run across J3/J4) is the suspect,
+or the J5 drive itself. The left arm stays stopped for live motion until that
+is found. Left J3's results were not saved: a sweep without the gripper saves
+nothing.
