@@ -2957,3 +2957,11 @@ included: J5 had tripped three times on the old connector.
   failed. Either the jaw binds or the sweep's gripper gains are too weak for
   its static friction. This was the first gripper sweep; the right gripper has
   none either.
+
+Left J3 re-run (`sweep-20261009T115555Z`, release `20261009T115310Z-450c89c`,
+with late-cycle logging) finished and was saved. kp 215, kd 3.5, 1.5 rad/s,
+32 rad/s², bound 0.046 rad, gravity A 7.24 Nm. It verified across −2.05 to
++2.13 rad at 1.5 rad/s with 0.021 rad lag. The 8 rad/s² braking that set off
+the 2026-09-30 failure passed, and no drive dropped out. No loop cycle ran late,
+so the earlier 1.2 rad/s verdict lapse was intermittent and its cause is still
+unknown; every sweep now logs one. Left J1–J6 are calibrated; the grippers are not.
