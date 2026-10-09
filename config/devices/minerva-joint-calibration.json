@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "device": "minerva-production-01.json",
-  "reference": "minerva-reference-20260924.json",
+  "reference": "minerva-reference-20261009.json",
   "model": "../../urdf/minerva/model.json",
   "connection": {
     "username": "ltr",

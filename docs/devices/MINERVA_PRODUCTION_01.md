@@ -2904,3 +2904,26 @@ J5 supply or wiring (its connector, or the run across J3/J4) is the suspect,
 or the J5 drive itself. The left arm stays stopped for live motion until that
 is found. Left J3's results were not saved: a sweep without the gripper saves
 nothing.
+
+### 2026-10-09 — left J5 root cause found; left J4 and J5 re-zeroed
+
+The operator found oxidation or ash inside one of the left harness's XT30
+connectors, the likely cause of left J5's overcurrent trips under J3 motion.
+They soldered the wires straight to the board, with no connector, and wired
+the left gripper back. Remounting moved left J4 and J5: at the zero pose they
+read −0.620 and −1.654 rad.
+
+All 14 drives answered fault-free in Minerva Check's stopped scan. With the
+operator confirming both joints at the zero pose, left J4 and J5 were zeroed
+and saved, and no other drive was written (evidence
+`~/minerva/evidence/mechanical-zero-left-j4-j5-20261009T015705Z.json`). The
+whole roster was verified stopped first. J5 returned its UID to the save, and
+J4 gave no reply, as on 2026-09-24. Both CAN links went back down with no bus
+errors. After an operator power cycle, left J4 read −0.00017 and J5
+−0.00012 rad, and all 14 drives answered with their identities and fault-free
+Reset (`power-cycle-capture-left-j4-j5-20261009T015836Z.json`).
+
+Reference revision `minerva-mechanical-reference-20261009` records it (see
+[mechanical reference](../MECHANICAL_REFERENCE.md)). The limits and servo
+calibration are re-bound to it unchanged. Next, after a deploy: Minerva Check,
+then the left J3 sweep again with the gripper plugged in.

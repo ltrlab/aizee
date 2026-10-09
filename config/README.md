@@ -21,6 +21,13 @@ false. It is evidence, not
 an automatically installed motor-to-CAD map. Its reference change invalidates
 the old gripper fit's absolute encoder offset; preserve that fit as historical.
 
+`devices/minerva-reference-20261009.json` is its current revision, which the
+calibration profile names: left J4 and J5 were remounted in the left wrist
+harness rework and re-zeroed at the operator-confirmed zero pose (one power
+cycle verified). Every other motor keeps its 2026-09-24 zero. It carries the
+2026-09-24 direction checks over (`direction_evidence_from`: a re-zero moves
+no sign), and the saved limits and servo calibration are bound to it.
+
 Select the robot and operator endpoints through the shared package. The files
 here remain inputs to active applications and deployed services; they are not
 all interchangeable schemas.

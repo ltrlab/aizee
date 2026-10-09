@@ -1,0 +1,149 @@
+{
+  "schema": 1,
+  "device": "minerva-production-01",
+  "reference": "minerva-mechanical-reference-20261009",
+  "previous_reference": "minerva-mechanical-reference-20260924",
+  "started_at": "2026-10-09T01:57:05.951044+00:00",
+  "finished_at": "2026-10-09T01:57:10.480118+00:00",
+  "success": true,
+  "enable_requested": false,
+  "evidence": "~/minerva/evidence/mechanical-zero-left-j4-j5-20261009T015705Z.json",
+  "evidence_sha256": "ac99d73b777ab0938ce6785e30f956976eb6322225a0b10f837797a3e7d74bf6",
+  "roster_preflight": "All 14 motors: identity, firmware, fault-free Reset",
+  "motors": [
+    {
+      "name": "left_arm_j4",
+      "bus": "canL",
+      "id": 7,
+      "uid": "a5283b8f2450b00e",
+      "firmware": "0.2.3.34",
+      "run_mode": 0,
+      "before_rad": [
+        -0.620124101638794,
+        -0.620025098323822,
+        -0.6199756264686584,
+        -0.6199756264686584,
+        -0.6199756264686584,
+        -0.6199756264686584
+      ],
+      "zero_requested": true,
+      "zero_reply": {
+        "position_u16": 32767,
+        "mode": 0,
+        "fault": 0
+      },
+      "after_zero_rad": [
+        -9.893601963995025e-05,
+        -0.0001484655513195321,
+        -0.0001484655513195321,
+        -0.00019793356477748603,
+        -0.00019793356477748603,
+        -0.0001484655513195321
+      ],
+      "save_requested": true,
+      "save_reply": null,
+      "save_response_missing": true,
+      "after_save_rad": [
+        -0.00019793356477748603,
+        0.0,
+        -0.00019793356477748603,
+        -0.00024740156368352473,
+        -9.893601963995025e-05,
+        -0.00029686957714147866
+      ]
+    },
+    {
+      "name": "left_arm_j5",
+      "bus": "canL",
+      "id": 8,
+      "uid": "3e4330021c40b614",
+      "firmware": "0.2.3.34",
+      "run_mode": 0,
+      "before_rad": [
+        -1.6537797451019287,
+        -1.653631329536438,
+        -1.653631329536438,
+        -1.653631329536438,
+        -1.6535322666168213,
+        -1.6535818576812744
+      ],
+      "zero_requested": true,
+      "zero_reply": {
+        "position_u16": 32767,
+        "mode": 0,
+        "fault": 0
+      },
+      "after_zero_rad": [
+        -4.9483391194371507e-05,
+        -9.896678238874301e-05,
+        -0.00024741695960983634,
+        -0.00019793356477748603,
+        0.0,
+        -9.896678238874301e-05
+      ],
+      "save_requested": true,
+      "save_reply": {
+        "kind": "identity",
+        "uid": "3e4330021c40b614",
+        "persistence_verified": false
+      },
+      "save_response_missing": null,
+      "after_save_rad": [
+        0.0,
+        -0.0001484501699451357,
+        9.896678238874301e-05,
+        -0.0001484501699451357,
+        -0.0001484501699451357,
+        -0.0001484501699451357
+      ]
+    }
+  ],
+  "final_stops": {
+    "left_arm_j4": {
+      "position_u16": 32767,
+      "mode": 0,
+      "fault": 0
+    },
+    "left_arm_j5": {
+      "position_u16": 32767,
+      "mode": 0,
+      "fault": 0
+    }
+  },
+  "can_links_after": {
+    "canL": "DOWN",
+    "canR": "DOWN"
+  },
+  "power_cycle": {
+    "capture": "~/minerva/evidence/power-cycle-capture-left-j4-j5-20261009T015836Z.json",
+    "capture_sha256": "8ea6afb4346e918321b1fe0a23b79403a5dad39794f3106faf5b65150aae4492",
+    "motors": [
+      {
+        "name": "left_arm_j4",
+        "uid": "a5283b8f2450b00e",
+        "firmware": "0.2.3.34",
+        "samples_rad": [
+          -0.0001484655513195321,
+          -0.00019793356477748603,
+          -0.00019793356477748603,
+          -0.0001484655513195321,
+          -0.0001484655513195321,
+          -0.00019793356477748603
+        ]
+      },
+      {
+        "name": "left_arm_j5",
+        "uid": "3e4330021c40b614",
+        "firmware": "0.2.3.34",
+        "samples_rad": [
+          -9.896678238874301e-05,
+          -0.0002969003398902714,
+          -0.0001484501699451357,
+          -0.0001484501699451357,
+          -4.9483391194371507e-05,
+          -9.896678238874301e-05
+        ]
+      }
+    ]
+  }
+}

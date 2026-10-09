@@ -72,6 +72,29 @@ reference checks remain mandatory. See
 [reference record](../config/devices/minerva-reference-20260924.json) and
 [full action summary](devices/MINERVA_MECHANICAL_ZERO_20260924.json).
 
+## Left J4 and J5 re-zeroed, 2026-10-09
+
+The left wrist harness rework of 2026-10-08 found oxidation or ash inside an
+XT30 connector, which explains left J5's repeated overcurrent trips under J3
+motion. The operator replaced the connector with wires soldered to the board
+and remounted left J4 and J5. At the zero pose they then read −0.620 and
+−1.654 rad. With the operator confirming both at the zero pose, the stopped
+maintenance session zeroed and saved those two drives only, after checking the
+whole roster stopped (identity, firmware, fault-free Reset). J5 returned its
+UID to the save, and J4 again gave no save response. After an operator power
+cycle both read within 0.0003 rad of zero, with every drive answering with
+its pinned identity and a fault-free Reset.
+
+This is reference revision `minerva-mechanical-reference-20261009`
+([record](../config/devices/minerva-reference-20261009.json),
+[action summary](devices/MINERVA_MECHANICAL_ZERO_20261009.json)). The other
+twelve motors keep their 2026-09-24 zero. The revision names the earlier
+reference in `direction_evidence_from`, because direction checks are signs,
+which a re-zero does not move. The saved limits and servo calibration were
+re-bound to it unchanged, on the operator's report that the ranges are
+unchanged. Helm's direction session was migrated with a backup, as on
+2026-09-26.
+
 Manual direction checks are recorded separately in
 [arm direction evidence](devices/MINERVA_ARM_DIRECTIONS_20260924.json).
 The first two checks established left shoulder swivel J1 sign **+1** and right
