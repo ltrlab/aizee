@@ -5,6 +5,7 @@ leader mapping)."""
 import json
 import math
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -16,6 +17,8 @@ from robot_platform.simulation.control_harness import NativeControlHarness, defa
 from robot_platform.simulation.native_collision import library_path
 from robot_platform.teleop.leader_ranges import KIND, SCHEMA, UNITS, pins
 
+# The virtual teleop test's fixtures: pytest's importlib mode does not put this directory on the path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_helm_teleop_virtual import CENTERS, DEVICES, HANG, SEED, SPANS, Clock, Leaders
 
 pytestmark = [pytest.mark.integration, pytest.mark.skipif(
