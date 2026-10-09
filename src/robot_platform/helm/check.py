@@ -24,13 +24,13 @@ class CheckWorkspace:
     def running(self):
         return self._thread is not None and self._thread.is_alive()
 
-    def start(self, *, leaders_busy=None):
+    def start(self):
         with self.lock:
             if self.running:
                 raise ValueError('Minerva Check is already running')
             self.report, self.error = None, None
             options = dict(self.options, **({'address': self.address()} if self.address else {}))
-            self._thread = threading.Thread(target=self._run, args=(options, leaders_busy), daemon=True,
+            self._thread = threading.Thread(target=self._run, args=(options,), daemon=True,
                                             name='helm-minerva-check')
             self._thread.start()
 
@@ -38,9 +38,9 @@ class CheckWorkspace:
         with self.lock:
             self.report = report
 
-    def _run(self, options, leaders_busy):
+    def _run(self, options):
         try:
-            self.runner(**options, leaders_busy=leaders_busy, publish=self._publish)
+            self.runner(**options, publish=self._publish)
         except Exception as exc:  # The runner records failed checks itself; this is a crash in it.
             with self.lock:
                 self.error = f'Minerva Check stopped: {exc}'

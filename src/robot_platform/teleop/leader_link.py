@@ -283,3 +283,8 @@ class LeaderLinkProcess:
                 self._process.terminate()
             self._connection.close()
         return self.report
+
+
+def serve_link(profile, key, robot, *, local, real):
+    """The PC end of the leader link, as a session runs it: its own responsive process."""
+    return LeaderLinkProcess(profile, key, robot, local=local, real=real).start()

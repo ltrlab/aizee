@@ -1,18 +1,20 @@
-"""Minerva Check: the comprehensive go/no-go for live operation, run from the operator PC.
+"""Minerva Check: whether the robot's systems are ready for live operation, run from the operator PC.
 
-Stages run in order. A check whose prerequisite failed or was skipped is
-skipped too, never guessed:
+It checks the robot only, not how it is controlled: no leader arms, leader
+ranges, routes or leader link (the control interface may change; checks
+before teleop are separate). Stages run in order. A check whose prerequisite
+failed or was skipped is skipped too, never guessed:
   1. Operator PC: calibration profile, motor-to-model directions, joint limits,
-     leader ranges and zero, routes, the teleop receiver configuration, the
-     leader arms, the ARM64 builds and the route to the tether.
+     servo calibration, the receiver configuration, the ARM64 builds and the
+     route to the tether.
   2. Link and Jetson: pinned SSH over the tether, the deployed release (intact,
      matching this PC, smoke-tested), each arm's live receiver configuration
-     validated by the deployed receiver, the Jetson's health and leader-link
-     round trips at the control rate.
+     validated by the deployed receiver, and the Jetson's health.
   3. Motors, stopped: CAN system setup, adapters and services, then the stopped
      reader's scan of every motor (identity, firmware, fault-free Reset and one
      position each; CAN ends down) and every position inside its swept range.
-  4. Live joint sweep: appended once the live pipeline is proven (pending).
+  4. Live joint sweep, one per arm, attended: each arm joint at its settings,
+     and each gripper's travel.
 
 Nothing here enables a motor. The verdict is GO when nothing failed or was
 skipped; warnings are listed. Every run is saved as evidence.
@@ -20,7 +22,6 @@ skipped; warnings are listed. Every run is saved as evidence.
 from copy import deepcopy
 from datetime import datetime, timezone
 import json
-import math
 from pathlib import Path
 import secrets
 import time
@@ -35,7 +36,6 @@ DEFAULT_TELEOP = ROOT / 'config/devices/minerva-teleop.json'
 DEFAULT_RUNS = ROOT / 'calibration_runs'
 TETHER_NETWORK = '10.42.0.'
 POSE_TOLERANCE_RAD = .05
-OPENRB = (0x2F5D, 0x2202)
 PASS, WARN, FAIL, SKIP = 'pass', 'warn', 'fail', 'skip'
 PENDING = 'pending'  # Not built yet (the live sweep); QUEUED and RUNNING only appear during a run.
 QUEUED, RUNNING = 'queued', 'running'
@@ -68,13 +68,10 @@ def check(stage, key, title, requires=()):
 class Context:
     """Options plus what earlier checks found (plan, limits, SSH client, probe results)."""
 
-    def __init__(self, *, root, profile, teleop, runs, limits, address, motors, link_seconds, leaders_busy,
-                 open_ssh, open_leaders, serve_link):
+    def __init__(self, *, root, profile, teleop, runs, limits, address, motors, open_ssh):
         self.root, self.profile, self.teleop = Path(root), Path(profile).resolve(), Path(teleop).resolve()
         self.runs, self.limits_path = Path(runs).resolve(), limits
-        self.address, self.motors, self.link_seconds = address, motors, link_seconds
-        self.leaders_busy = leaders_busy or (lambda: None)
-        self.open_ssh, self.open_leaders, self.serve_link = open_ssh, open_leaders, serve_link
+        self.address, self.motors, self.open_ssh = address, motors, open_ssh
         self.client = None
         self.facts = {}
 
@@ -108,6 +105,14 @@ def _ago(iso):
 
 def _names(ctx, motors):
     return ', '.join(ctx.label(motor) for motor in motors)
+
+
+def _teleop(ctx):
+    """The teleop profile: the receiver's settings (gains, limits, collision policy and live block)."""
+    if 'teleop' not in ctx.facts:
+        from robot_platform.helm.teleop import load_profile
+        ctx.facts['teleop'] = load_profile(ctx.teleop)
+    return ctx.facts['teleop']
 
 
 # -- Stage 1: operator PC -------------------------------------------------------
@@ -175,11 +180,10 @@ def _servo(ctx):
     swept (they squeeze what they hold); the live joint sweep opens and closes them instead."""
     from robot_platform.control.guarded_config import motion_settings
     from robot_platform.control.servo_calibration import coverage, load_servo, servo_path
-    from robot_platform.helm.teleop import load_profile
     path = servo_path(ctx.profile, ctx.facts['asset_id'])
     document = load_servo(path)
     ctx.facts['servo'] = document
-    motion = load_profile(ctx.teleop)['motion']
+    motion = _teleop(ctx)['motion']
     grippers = {motor['name'] for motor in ctx.facts['reference']['motors']
                 if motion_settings(motion, motor['name']).get('gripper')}
     calibrated, missing, changed = coverage(document, ctx.facts['reference'], skip=grippers)
@@ -193,38 +197,6 @@ def _servo(ctx):
                       + ". Run the servo sweep in Helm's Tune tab; until then they use the teleop profile's settings.")
     return PASS, (f"All {len(calibrated)} arm joints calibrated by the servo sweep "
                   f"({document.get('updated_at', '')[:10]}); grippers are checked by their travel in the live sweep")
-
-
-@check('pc', 'leader_ranges', 'Leader ranges and zero')
-def _leader_ranges(ctx):
-    from robot_platform.helm.leaders import LeaderWorkspace
-    from robot_platform.helm.teleop import load_profile
-    teleop = load_profile(ctx.teleop)
-    workspace = LeaderWorkspace(ctx.teleop)  # Reads the saved files only; opens no USB port.
-    ctx.facts.update(teleop=teleop, leader_profile=workspace.profile, leader_ranges=workspace.saved)
-    if workspace.saved_error:
-        return FAIL, f'{workspace.path.name} was not accepted: {workspace.saved_error}'
-    missing = workspace.missing(teleop['routes'])
-    if missing:
-        return FAIL, f"Missing in {workspace.path.name}: {', '.join(missing)}. Sweep and save them in Helm Leaders."
-    zero = workspace.saved['reference']
-    return PASS, f"All {len(teleop['routes'])} routed channels swept; leader zero set {_ago(zero.get('captured_at'))}"
-
-
-@check('pc', 'routes', 'Leader-to-robot routes', requires=('calibration', 'leader_ranges'))
-def _routes(ctx):
-    from robot_platform.helm.teleop import load_route_edits, merge_routes, routes_path
-    teleop, asset_id = ctx.facts['teleop'], ctx.facts['asset_id']
-    routes = merge_routes(teleop['routes'], load_route_edits(routes_path(ctx.runs, asset_id), teleop, asset_id))
-    motors = [m['name'] for m in ctx.facts['reference']['motors']]
-    unrouted = [motor for motor in motors if motor not in routes]
-    unverified = [motor for motor in motors if motor in routes and routes[motor].get('verified') is not True]
-    if unrouted:
-        return FAIL, f'No leader route for {_names(ctx, unrouted)} in {ctx.teleop.name}'
-    if unverified:
-        return FAIL, f'Direction not confirmed for {_names(ctx, unverified)}: confirm it in Helm Teleop'
-    ctx.facts['routes'] = routes
-    return PASS, f'All {len(motors)} motors routed with confirmed directions'
 
 
 def _derive(ctx, arm=None, collision_bound=None):
@@ -241,78 +213,21 @@ def _derive(ctx, arm=None, collision_bound=None):
                                                                                         world_revision='check'))
     return derive_receiver(reference=reference, steps=steps, directions=ctx.facts['directions'],
                            transmissions=transmissions, model=ctx.facts['model'], limits=ctx.facts['limits'],
-                           profile=ctx.facts['teleop'], backend=revisions, servo=ctx.facts.get('servo'),
+                           profile=_teleop(ctx), backend=revisions, servo=ctx.facts.get('servo'),
                            collision_bound=collision_bound)
 
 
-@check('pc', 'receiver', 'Teleop receiver configuration', requires=('directions', 'limits', 'routes'))
+@check('pc', 'receiver', 'Teleop receiver configuration', requires=('directions', 'limits'))
 def _receiver(ctx):
     derived = _derive(ctx)
     rows = derived['report']
     share = {row['motor']: (row['usable'][1] - row['usable'][0]) / (row['swept'][1] - row['swept'][0])
              for row in rows}
     narrowest = min(share, key=share.get)
-    mode = ctx.facts['teleop']['receiver'].get('collision_mode', 'enforced')
+    mode = _teleop(ctx)['receiver'].get('collision_mode', 'enforced')
     detail = (f'{len(rows)} joints derive limits, margins and stopping reserves; collision {mode}; '
               f'narrowest usable range {ctx.label(narrowest)} at {share[narrowest]:.0%} of its swept travel')
     return PASS, detail, {'report': rows}
-
-
-def _leader_outliers(profile, document, samples, routes):
-    """Routed leader channels whose reading lies outside its saved sweep: [(leader, label, beyond_rad)]."""
-    from robot_platform.teleop.leader_ranges import range_table, wrap
-    table = range_table(document, profile)
-    outliers = []
-    for route in routes.values():
-        leader, index = route['leader'], route['channel'] - 1
-        saved = table.get(leader, [None] * 8)[index]
-        if saved is None or leader not in samples:
-            continue
-        center, span = saved
-        beyond = abs(wrap(samples[leader].positions_rad[index] - center)) - span / 2
-        if beyond > POSE_TOLERANCE_RAD:
-            label = profile['leaders'][leader]['joints'][index].get('label', f'channel {index + 1}')
-            outliers.append((leader, label, beyond))
-    return outliers
-
-
-@check('pc', 'leaders', 'Leader arms', requires=('leader_ranges',))
-def _leaders(ctx):
-    from serial.tools import list_ports
-    from robot_platform.teleop.openrb import LeaderSampleSkipped
-    profile = ctx.facts['leader_profile']
-    ports = [port for port in list_ports.comports() if (port.vid, port.pid) == OPENRB]
-    absent = [item['title'] for item in profile['leaders'].values()
-              if sum(port.serial_number == item['usb_serial'] for port in ports) != 1]
-    if absent:
-        return FAIL, f"Not connected by USB: {', '.join(absent)}"
-    busy = ctx.leaders_busy()
-    if busy:
-        return PASS, f'Both present by USB serial; in use by {busy}, so not read now'
-    try:
-        inputs = ctx.open_leaders(profile)
-    except Exception as exc:
-        return FAIL, f'Present but could not be opened ({exc}). Close any other program using them.'
-    fresh, last, skipped = 0, None, None
-    try:
-        for _ in range(12):
-            try:
-                last = inputs.poll()
-                fresh += 1
-            except LeaderSampleSkipped as exc:
-                skipped = str(exc)
-            time.sleep(.02)
-    finally:
-        inputs.close()
-    if fresh < 10:
-        return FAIL, f'Only {fresh}/12 fresh leader pairs' + (f' (last: {skipped})' if skipped else '')
-    ctx.facts['leaders_readable'] = True
-    outliers = _leader_outliers(profile, ctx.facts['leader_ranges'], last, ctx.facts['teleop']['routes'])
-    if outliers:
-        return WARN, ('Reading, but outside the saved sweep: '
-                      + ', '.join(f'{leader} {label.lower()} by {beyond:.2f} rad' for leader, label, beyond in outliers)
-                      + '. Re-sweep it in Helm Leaders if it really moves that far.')
-    return PASS, f"Both present and reading: {fresh}/12 fresh pairs, every routed channel inside its sweep"
 
 
 @check('pc', 'builds', 'ARM64 builds')
@@ -388,7 +303,7 @@ def _smoke(ctx):
 def _live_config(ctx):
     from robot_platform.control.commissioning import motor_models
     from robot_platform.control.live_receiver import service_config
-    live = ctx.facts['teleop'].get('live')
+    live = _teleop(ctx).get('live')
     if live is None:
         return WARN, 'The teleop profile has no live block, so live teleop is not available'
     models = motor_models(ctx.facts['device'], ctx.root)
@@ -457,55 +372,6 @@ def _health(ctx):
     order = (FAIL, WARN, PASS)
     status = min((status for status, _ in findings), key=order.index)
     return status, ' · '.join(text for _, text in findings), report
-
-
-def serve_link(profile, key, robot, *, local, real):
-    """The PC end of the leader link, as a session runs it: its own responsive process."""
-    from robot_platform.teleop.leader_link import LeaderLinkProcess
-    return LeaderLinkProcess(profile, key, robot, local=local, real=real).start()
-
-
-@check('jetson', 'link', "Leader link at the loop's rate", requires=('release', 'leader_ranges'))
-def _link(ctx):
-    from robot_platform.helm.teleop import loop_period_s
-    profile, key = ctx.facts['leader_profile'], secrets.token_bytes(32)
-    period = loop_period_s(ctx.facts['teleop'])
-    stdin, stdout, stderr = ctx.client.exec_command(f'{PROBE} link', timeout=ctx.link_seconds + 20)
-    stdin.write(f'{key.hex()}\n{json.dumps(profile)}\n{ctx.link_seconds}\n{ctx.address}\n{period}\n')
-    stdin.flush()
-    ready = stdout.readline().split()
-    if len(ready) != 2 or ready[0] != 'ready':
-        raise RuntimeError(f"The link probe did not start: {' '.join(ready) or stderr.read().decode()[-300:]}")
-    real = ctx.facts.get('leaders_readable', False)  # Free and healthy: test the whole path with them.
-    try:
-        server = ctx.serve_link(profile, key, (ctx.address, int(ready[1])),
-                                local=(ctx.facts.get('local_address', '0.0.0.0'), 0), real=real)
-    except Exception:
-        stdin.channel.close()  # The robot side gives up after 10 s without a hello.
-        raise
-    try:
-        line = stdout.readline()
-    finally:
-        pc = server.close()
-    try:
-        report = json.loads(line)
-    except ValueError:
-        raise RuntimeError(f'The link probe ended without a result: {stderr.read().decode()[-300:]}')
-    if not report.get('ok'):
-        return FAIL, f"The robot's leader input failed: {report.get('error')}"
-    report['pc'] = pc
-    cycles, fresh, age = report['cycles'], report['fresh'], report['age_ms']
-    share = fresh / cycles if cycles else 0
-    status = PASS if share >= .98 and (age['p99'] or math.inf) < report['max_age_ms'] else WARN if share >= .9 else FAIL
-    detail = (f"{fresh}/{cycles} fresh pairs at {round(1 / period)} Hz from "
-              f"{'the real leaders' if real else 'synthetic leaders (network only)'}"
-              f" · sample age p50 {age['p50']} ms, p99 {age['p99']} ms (limit {report['max_age_ms']} ms)"
-              f" · longest gap {report['longest_skip_run']} cycle(s)")
-    if report.get('last_skip') and status != PASS:
-        detail += f" · last skip: {report['last_skip']}"
-    if pc.get('failure') or pc.get('error'):
-        status, detail = FAIL, detail + f" · PC side: {pc.get('failure') or pc.get('error')}"
-    return status, detail, report
 
 
 # -- Stage 3: motors, stopped ---------------------------------------------------
@@ -652,7 +518,7 @@ def _live_pose(ctx):
                                                       whole_turns)
     positions = ctx.facts['positions']
     raw = {m['name']: m['raw_reference_rad'] for m in ctx.facts['reference']['motors']}
-    tolerance = ctx.facts['teleop'].get('live', {}).get('reference_tolerance_rad', .1)
+    tolerance = _teleop(ctx).get('live', {}).get('reference_tolerance_rad', .1)
     blocked, wrapped, away = [], [], []
     for arm in ('left', 'right'):
         controller = _derive(ctx, arm)['config']
@@ -769,18 +635,10 @@ def verdict(report):
 
 
 def run_check(*, root=ROOT, profile=DEFAULT_PROFILE, teleop=DEFAULT_TELEOP, runs=DEFAULT_RUNS, limits=None,
-              address=TETHER, motors=True, link_seconds=5., leaders_busy=None, publish=None, save=True,
-              open_ssh=connect, open_leaders=None, serve_link=serve_link):
+              address=TETHER, motors=True, publish=None, save=True, open_ssh=connect):
     """Run every check in order; publish(report) after each change. Returns the final report."""
-    if open_leaders is None:
-        def open_leaders(leader_profile):
-            from robot_platform.teleop.openrb import OpenRBInputs
-            inputs = OpenRBInputs(leader_profile)
-            inputs.connect()
-            return inputs
     ctx = Context(root=root, profile=profile, teleop=teleop, runs=runs, limits=limits, address=address,
-                  motors=motors, link_seconds=link_seconds, leaders_busy=leaders_busy, open_ssh=open_ssh,
-                  open_leaders=open_leaders, serve_link=serve_link)
+                  motors=motors, open_ssh=open_ssh)
     publish = publish or (lambda report: None)
     report = {'schema': 1, 'kind': 'minerva_check', 'asset_id': None, 'address': address,
               'started_at': _now(), 'finished_at': None, 'state': 'running', 'verdict': None, 'summary': None,

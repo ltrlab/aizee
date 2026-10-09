@@ -40,22 +40,22 @@ the CAN links. The arms are limp; support them while moving them by hand.
 
 ## Minerva Check
 
-The **Check** tab answers "is Minerva ready?" before a session. **Run check**
-works through the three stopped stages and shows each result as it lands; the
-fourth, the live joint sweep, is run from the tab afterwards. A check whose
-prerequisite failed is skipped, not guessed:
+The **Check** tab answers "are Minerva's systems ready?" before a session. It
+checks the robot only, not how it is controlled: no leader arms, leader ranges,
+routes or leader link, since the control interface may change (checks before
+teleop are separate). **Run check** works through the three stopped stages and
+shows each result as it lands; the fourth, the live joint sweep, is run from the
+tab afterwards. A check whose prerequisite failed is skipped, not guessed:
 
 1. **Operator PC**: the calibration profile, confirmed motor-to-model directions,
-   joint limits for every motor, leader ranges and the leader zero, confirmed
-   routes, the servo calibration (a warning while joints are not yet swept, a
-   failure if a motor was replaced since), the teleop receiver settings derived
-   from all of them, both leader arms reading inside their sweeps, fresh ARM64
-   builds and a route to the USB Ethernet tether.
+   joint limits for every motor, the servo calibration of every arm joint (a
+   warning while joints are not yet swept, a failure if a motor was replaced
+   since; grippers are not swept), the receiver settings derived from all of
+   them, fresh ARM64 builds and a route to the USB Ethernet tether.
 2. **Link and Jetson**: pinned SSH over the tether; the deployed release intact
    and identical to this PC's files (otherwise it says to deploy); its smoke test;
-   the Jetson's disk, memory, temperatures and clock; and 5 s of leader-link round
-   trips at the loop's rate (50 Hz) with the real leaders, served from its own
-   responsive process as a session will run it.
+   each arm's live receiver configuration, validated by the deployed receiver;
+   and the Jetson's disk, memory, temperatures and clock.
 3. **Motors, stopped**: CAN helpers and serial pinning installed, both adapters on
    their pinned serials and free, no motor service running, then the stopped
    reader scans all 14 motors (identity, firmware, fault-free Reset, one position
@@ -87,9 +87,9 @@ The verdict is **GO** only when nothing failed or was skipped and both arms'
 live sweeps passed; warnings are listed. After the stopped stages it is
 **INCOMPLETE** until the live sweeps are run, and a live sweep's outcome goes
 into the report it followed, saved over the same file. Nothing in the stopped
-stages enables a motor. The check reads the motors and leaders itself, so it
+stages enables a motor. The check reads the motors itself, so it
 runs alone: disconnect Limits and stop teleop and any sweep first (the Leaders
-tab may stay connected; the check then only confirms the leaders are plugged in).
+tab may stay connected).
 Every run is saved under `calibration_runs/minerva-check/`, and the last one is
 shown when Helm starts. A report saved before checks were added shows as
 **OUTDATED**, with what it said then; run the check again (the file is left as

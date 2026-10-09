@@ -277,7 +277,7 @@ class EdgeWorker:
                 raise RuntimeError('Stopped before the loop started')
             if int(first[1]):  # Port 0: this loop takes no leaders.
                 if self.serve_link is None:
-                    from robot_platform.ops.check import serve_link
+                    from robot_platform.teleop.leader_link import serve_link
                     self.serve_link = serve_link
                 server = self.serve_link(self.leader_profile, key, (self.address, int(first[1])),
                                          local=(route_source(self.address) or '0.0.0.0', 0), real=self.real_leaders)

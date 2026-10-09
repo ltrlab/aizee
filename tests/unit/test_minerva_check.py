@@ -1,8 +1,7 @@
-"""Minerva Check: a full run against a fake robot (real link code over loopback), and its findings."""
+"""Minerva Check: a full run against a fake robot, and its findings."""
 import json
 import math
 import queue
-import threading
 import time
 from types import SimpleNamespace
 
@@ -10,17 +9,11 @@ import pytest
 
 from robot_platform.control.joint_calibration import load_plan
 from robot_platform.helm.session import HelmSession
-from robot_platform.ops import check, probe
+from robot_platform.ops import check
 from robot_platform.ops.release import ROOT, _sha, collect, release_drift
-from robot_platform.teleop.leader_link import LeaderLinkServer, SyntheticLeaders
-from robot_platform.teleop.leader_ranges import range_table
-from robot_platform.teleop.openrb import LeaderSample
 
 PROFILE = ROOT / 'config/devices/minerva-joint-calibration.json'
-TELEOP = ROOT / 'config/devices/minerva-teleop.json'
 SEED = ROOT / 'docs/devices/MINERVA_ARM_DIRECTIONS_20260924.json'
-LEADERS = json.loads((ROOT / 'config/devices/gello-dual-viewer.json').read_text(encoding='utf-8'))
-RANGES = json.loads((ROOT / 'config/devices/gello-dual-leader-ranges.json').read_text(encoding='utf-8'))
 PLAN = load_plan(PROFILE)
 REFERENCE = PLAN[3]
 LIMITS = json.loads((ROOT / 'config/devices/minerva-production-01-joint-limits.json').read_text(encoding='utf-8'))
@@ -80,7 +73,7 @@ def scan(**change):
 
 
 class FakeRobot:
-    """Answers the check's commands; the link probe really runs, over loopback."""
+    """Answers the check's commands."""
 
     def __init__(self, *, release=True, health_report=None, motors_report=None):
         manifest = {'id': '20260926T000000Z-abcdef0', 'source': {'commit': 'abcdef0123', 'dirty': False},
@@ -95,11 +88,7 @@ class FakeRobot:
     def exec_command(self, command, timeout=None):
         self.commands.append(command)
         stdin, stdout, stderr = Stream(), Stream(), Stream()
-        if command.endswith('probe link'):
-            def serve():
-                stdout.write(json.dumps({'ok': True, **probe.link(stdin, out=stdout)}) + '\n')
-            threading.Thread(target=serve, daemon=True).start()
-        elif command.startswith(f'python3 - {check.CURRENT}'):
+        if command.startswith(f'python3 - {check.CURRENT}'):
             stdout.write(json.dumps(self.release) + '\n')
         elif 'ops.smoke' in command:
             stdout.write(json.dumps({'ok': True, 'load_ms': 1281, 'keepout_query_ms': {'p50': 1.52, 'max': 2.1},
@@ -124,27 +113,9 @@ class FakeRobot:
         self.closed = True
 
 
-class Leaders:
-    """Both leaders at their saved sweep centres (or offset by `shift` radians)."""
-
-    def __init__(self, shift=0.):
-        table = range_table(RANGES, LEADERS)
-        self.positions = {name: tuple((row[0] if row else 0.) + shift for row in rows) for name, rows in table.items()}
-        self.sequence, self.closed = 0, False
-
-    def poll(self):
-        self.sequence += 1
-        now = time.perf_counter()
-        return {name: LeaderSample(q, (0,) * 7, self.sequence, now, now, (0, 0, 0, 0), self.sequence, self.sequence)
-                for name, q in self.positions.items()}
-
-    def close(self):
-        self.closed = True
-
-
 @pytest.fixture
 def runs(tmp_path):
-    """Helm's direction session (every arm joint confirmed) and confirmed routes, as Helm writes them."""
+    """Helm's direction session (every arm joint confirmed), as Helm writes it."""
     runs = tmp_path / 'runs'
     session = HelmSession(PROFILE, runs=runs, limits=tmp_path / 'unused-limits.json', seed=SEED)
     session.close()
@@ -153,42 +124,20 @@ def runs(tmp_path):
     for row in state['preview_mapping'].values():
         row['direction_verified'] = True
     path.write_text(json.dumps(state))
-    teleop = json.loads(TELEOP.read_text(encoding='utf-8'))
-    edits = runs / f"{session.asset_id}-teleop/routes.json"
-    edits.parent.mkdir(parents=True)
-    edits.write_text(json.dumps({'schema': 1, 'profile': teleop['id'], 'asset_id': session.asset_id,
-                                 'routes': {m: {'sign': r['sign'], 'verified': True}
-                                            for m, r in teleop['routes'].items()}}))
     return runs
 
 
 @pytest.fixture
 def loopback(monkeypatch):
-    """Treat loopback as the tether, stub the ARM64 build check and present both leaders by USB."""
+    """Treat loopback as the tether and stub the ARM64 build check."""
     monkeypatch.setattr(check, 'TETHER_NETWORK', '127.0.0.')
     builds = next(spec for spec in check.CHECKS if spec['id'] == 'builds')
     monkeypatch.setitem(builds, 'run', lambda ctx: (check.PASS, 'stubbed'))
-    ports = [SimpleNamespace(vid=0x2F5D, pid=0x2202, serial_number=item['usb_serial'], device=f'COM{i}')
-             for i, item in enumerate(LEADERS['leaders'].values(), 7)]
-    monkeypatch.setattr('serial.tools.list_ports.comports', lambda: ports)
 
 
-def serve_in_process(profile, key, robot, *, local, real):
-    """The PC end of the link in this process (LeaderLinkProcess is tested on its own)."""
-    server = LeaderLinkServer(SyntheticLeaders(profile), key, robot, local=local).start()
-
-    def close():
-        server.close()
-        return {'served': server.served, 'skipped': server.skipped, 'rejected': server.rejected,
-                'failure': server.failure}
-    return SimpleNamespace(close=close)
-
-
-def run(runs, robot, *, leaders=None, **options):
-    leaders = leaders or Leaders()
+def run(runs, robot, **options):
     published = []
-    report = check.run_check(runs=runs, address='127.0.0.1', link_seconds=1., open_ssh=lambda *a, **k: robot,
-                             open_leaders=lambda profile: leaders, serve_link=serve_in_process,
+    report = check.run_check(runs=runs, address='127.0.0.1', open_ssh=lambda *a, **k: robot,
                              publish=published.append, **options)
     return report, {entry['id']: entry for stage in report['stages'] for entry in stage['checks']}, published
 
@@ -201,8 +150,8 @@ def test_a_complete_check_of_a_healthy_robot_is_a_go_and_is_saved(runs, loopback
     live = ('sweep_left', 'sweep_right')
     assert {entry['status'] for key, entry in checks.items() if key not in live} <= {'pass', 'warn'}
     assert checks['sweep_left']['status'] == checks['sweep_right']['status'] == 'pending'
-    assert checks['link']['status'] != 'fail' and checks['link']['data']['fresh'] > 0
-    assert checks['link']['data']['pc']['served'] >= checks['link']['data']['fresh']
+    # The robot's systems only: nothing about the leader arms or how the robot is controlled.
+    assert not {'leaders', 'leader_ranges', 'routes', 'link'} & set(checks)
     assert 'All 14 motors answered' in checks['scan']['detail'] and 'inside their swept ranges' in checks['pose']['detail']
     assert any(entry['status'] == 'running' for stage in published[0]['stages'] for entry in stage['checks'])
     assert robot.closed and sum(command.endswith('probe motors') for command in robot.commands) == 1
@@ -243,9 +192,9 @@ def test_a_failure_skips_what_depends_on_it_and_says_how_to_fix_it(runs, loopbac
     report, checks, _published = run(runs, FakeRobot(release=False))
     assert report['verdict'] == 'no_go' and 'Deployed release' in report['summary']
     assert 'scripts/deploy_minerva_arms.sh' in checks['release']['detail']
-    for key in ('current', 'smoke', 'health', 'link', 'setup', 'adapters', 'services', 'scan', 'pose'):
+    for key in ('current', 'smoke', 'health', 'setup', 'adapters', 'services', 'scan', 'pose'):
         assert checks[key]['status'] == 'skip', key
-    assert checks['ssh']['status'] == 'pass' and checks['leaders']['status'] == 'pass'
+    assert checks['ssh']['status'] == 'pass' and checks['receiver']['status'] == 'pass'
 
 
 def test_skipping_the_motors_is_never_a_go(runs, loopback):
@@ -262,9 +211,8 @@ def test_robot_problems_are_named(runs, loopback):
     assert checks['scan']['status'] == 'skip'
     moved = scan()
     moved['motors'][2]['position_rad'] = LIMITS['joints'][moved['motors'][2]['name']]['max_rad'] + .4
-    _report, checks, _ = run(runs, FakeRobot(motors_report=moved), leaders=Leaders(shift=3.))
+    _report, checks, _ = run(runs, FakeRobot(motors_report=moved))
     assert checks['pose']['status'] == 'fail' and 'beyond its swept' in checks['pose']['detail']
-    assert checks['leaders']['status'] == 'warn' and 'outside the saved sweep' in checks['leaders']['detail']
 
 
 def hanging(**positions):

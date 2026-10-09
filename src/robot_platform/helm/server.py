@@ -221,8 +221,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             raise ValueError('Stop the teleop session before running Minerva Check')
         if tune is not None and tune.active:
             raise ValueError('Stop the servo sweep before running Minerva Check')
-        busy = (lambda: "Helm's Leaders tab" if leaders.running else None) if leaders is not None else None
-        check.start(leaders_busy=busy)
+        check.start()
         return state_response()
 
     def need_tune():

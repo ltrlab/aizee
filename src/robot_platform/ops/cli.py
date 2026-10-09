@@ -44,10 +44,7 @@ def check_main(argv=None):
     parser.add_argument('--address', default=TETHER, help=f'robot address (default: the tether, {TETHER})')
     parser.add_argument('--runs', type=Path, help='evidence directory (default: calibration_runs)')
     parser.add_argument('--no-motors', action='store_true', help='skip the stopped motor scan (verdict: incomplete)')
-    parser.add_argument('--link-seconds', type=float, default=5., help='leader-link test length (default 5 s)')
     args = parser.parse_args(argv)
-    if not 1 <= args.link_seconds <= 60:
-        parser.error('--link-seconds must be within 1..60')
     from .check import DEFAULT_RUNS, run_check
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(errors='replace')  # A redirected Windows console cannot encode every symbol.
@@ -65,6 +62,6 @@ def check_main(argv=None):
 
     print('Minerva Check: motors stay disabled.', flush=True)
     report = run_check(address=args.address, runs=args.runs or DEFAULT_RUNS, motors=not args.no_motors,
-                       link_seconds=args.link_seconds, publish=publish)
+                       publish=publish)
     print(f"\n{report['summary']}\nEvidence: {report['evidence']}", flush=True)
     return 0 if report['verdict'] == 'go' else 1
