@@ -152,6 +152,23 @@ def test_recommendation_takes_the_stiffest_passing_stiffness():
     assert result['max_tracking_error'] == pytest.approx(.08)  # Twice 0.04, capped at the current bound.
 
 
+def test_a_setting_that_buzzes_at_rest_is_not_recommended():
+    # The J2s at kd 21-29 rippled 0.14-0.21 Nm at rest and buzzed (2026-10-09): damping turns the drive's noisy
+    # speed reading into torque, so the recommendation takes a setting that holds quietly.
+    torque = {'gravity_max': 2., 'friction': .3}
+    grid = [{'kp': 220., 'kd': kd, 'steps': steps(over, .15), 'ramp': {'speed': .3, 'max_lag': .01},
+             'ripple': {'std': ripple, 'p2p': 6 * ripple}}
+            for kd, over, ripple in ((29.4, .0, .21), (21., .02, .14), (14.7, .05, .09))]
+    options = dict(torque=torque, grid=grid, holds={220.: .01}, speeds=[], decelerations=[], bound=.08,
+                   tolerance=.03, profile_gains={'kp': 220., 'kd': 21.})
+    assert recommend('right_arm_j2', **options)['hold_kd'] == 29.4  # Least overshoot, without the limit.
+    quiet = recommend('right_arm_j2', **options, ripple_limit=.1)
+    assert (quiet['hold_kp'], quiet['hold_kd']) == (220., 14.7)
+    assert grid_check(grid[0], tolerance=.03, limit=.04, ripple_limit=.1) == (
+        'ripple', 'torque rippled 0.21 Nm at rest (limit 0.10): it buzzes')
+    assert grid_check(grid[2], tolerance=.03, limit=.04, ripple_limit=.1) is None
+
+
 def test_recommendation_keeps_the_profile_gains_when_nothing_passes():
     result = recommend('right_arm_j6', torque={'gravity_max': 5., 'friction': 1.},
                        grid=[{'kp': 8., 'kd': 1., 'steps': steps(.5, None), 'ramp': None}], holds={},

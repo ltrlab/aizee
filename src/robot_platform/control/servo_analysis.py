@@ -247,6 +247,16 @@ def braking(rows, joint_index, *, stop_at):
     return {'max_lag': float(np.max(lag)), 'overshoot': overshoot}
 
 
+def effort_ripple(rows, joint_index):
+    """The drive's torque while the joint is commanded to hold still: its spread about the mean (std) and peak to
+    peak. Damping turns the drive's noisy speed reading into torque: the left and right J2, at kd 21 and 29.4,
+    rippled 0.14 and 0.21 Nm at rest and buzzed, J3 at kd 3.5 0.04 Nm (2026-10-09)."""
+    effort = column(rows, joint_index, EFFORT)
+    if len(effort) < 10:
+        return None
+    return {'std': float(np.std(effort)), 'p2p': float(np.ptp(effort))}
+
+
 def speed_noise(rows, joint_index):
     """The drive's speed reading while the joint is commanded to hold still: RMS and worst."""
     velocity = column(rows, joint_index, VELOCITY)
@@ -257,12 +267,16 @@ def speed_noise(rows, joint_index):
 
 # -- recommendation ------------------------------------------------------------------------
 
-def grid_check(entry, *, tolerance, limit, overshoot_limit=.1):
+def grid_check(entry, *, tolerance, limit, overshoot_limit=.1, ripple_limit=None):
     """Why a stiffness x damping entry fails the recommendation's criteria, as (kind, text), or
-    None when it passes: its steps must not overshoot, must come to rest within half the
-    tolerance of the target, and its ramp must lag at most `limit`."""
+    None when it passes: it must not buzz at rest (torque ripple over `ripple_limit`, Nm), its
+    steps must not overshoot, must come to rest within half the tolerance of the target, and
+    its ramp must lag at most `limit`."""
     if entry.get('failed'):
         return 'guard', f"guard: {entry['failed']}"
+    ripple = (entry.get('ripple') or {}).get('std')
+    if ripple_limit is not None and ripple is not None and ripple > ripple_limit:
+        return 'ripple', f'torque rippled {ripple:.2f} Nm at rest (limit {ripple_limit:.2f}): it buzzes'
     steps = [s for s in entry['steps'] if s]
     if not steps:
         return 'data', 'no step measured'
@@ -305,7 +319,7 @@ def best_damping(entries):
 
 
 def recommend(joint, *, torque, grid, holds, speeds, decelerations, bound, tolerance, profile_gains,
-              overshoot_limit=.1, lag_fraction=.5, gravity_fed=False):
+              overshoot_limit=.1, lag_fraction=.5, gravity_fed=False, ripple_limit=None):
     """Settings for one joint from its sweep results, with the reason for each.
 
     torque: torque_map() result. grid: [{'kp', 'kd', 'steps': [step_response...],
@@ -328,7 +342,8 @@ def recommend(joint, *, torque, grid, holds, speeds, decelerations, bound, toler
                  f'{kp_settle:.1f}')
 
     def passes(entry):
-        return grid_check(entry, tolerance=tolerance, limit=limit, overshoot_limit=overshoot_limit) is None
+        return grid_check(entry, tolerance=tolerance, limit=limit, overshoot_limit=overshoot_limit,
+                          ripple_limit=ripple_limit) is None
 
     # The stiffest rung that passes: it follows and holds best, and the criteria keep it settled and unshaken.
     candidates = sorted({entry['kp'] for entry in grid if entry['kp'] >= kp_floor}, reverse=True)
@@ -346,7 +361,8 @@ def recommend(joint, *, torque, grid, holds, speeds, decelerations, bound, toler
         kinds = {}
         for entry in grid:
             if entry['kp'] == kp:
-                kind, text = grid_check(entry, tolerance=tolerance, limit=limit, overshoot_limit=overshoot_limit)
+                kind, text = grid_check(entry, tolerance=tolerance, limit=limit, overshoot_limit=overshoot_limit,
+                                        ripple_limit=ripple_limit)
                 kinds.setdefault(kind, text)
         notes.append(f'stiffness {kp:g} failed with every damping: ' + '; '.join(list(kinds.values())[:2]))
     if chosen is None:
