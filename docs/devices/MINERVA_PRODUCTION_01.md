@@ -2954,9 +2954,10 @@ included: J5 had tripped three times on the old connector.
 - **Left gripper** (`sweep-20261009T031050Z`) not saved. It hardly moved: it read
   0.024–0.037 rad throughout, while commanded −0.065 to +0.124 rad, pushing up to
   0.3 Nm. Every stiffness rung (5 down to 0.6) "overshot", and the verification
-  failed. Either the jaw binds or the sweep's gripper gains are too weak for
-  its static friction. This was the first gripper sweep; the right gripper has
-  none either.
+  failed. The gripper moves freely (operator): the sweep moved its command by at
+  most about 0.12 rad at stiffness 5 or less, about 0.3 Nm, short of its static
+  friction. Teleop moves a gripper's command across its whole range. Grippers
+  are no longer swept: Minerva Check opens and closes them instead.
 
 Left J3 re-run (`sweep-20261009T115555Z`, release `20261009T115310Z-450c89c`,
 with late-cycle logging) finished and was saved. kp 215, kd 3.5, 1.5 rad/s,
