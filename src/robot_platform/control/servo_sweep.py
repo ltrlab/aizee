@@ -915,7 +915,12 @@ class SweepEngine:
         ladder = sorted({round(f * ceiling, 3) for f in settings['kp_ladder']}, reverse=True)
         for kp in ladder:
             passed_any = False
+            # Damping lighter than a ratio that overshot only overshoots more, and on a heavy joint it rings until
+            # the receiver trips: left J2 overshot 18% at kp 220 x0.5, then tripped it at x0.25 (2026-10-09).
+            overshot = None
             for multiplier in settings['damping']:
+                if overshot is not None and multiplier < overshot:
+                    continue
                 kd = min(limit['max_kd'], damping_for(kp, reference=(kp_ref, kd_ref), multiplier=multiplier))
                 self._task(f'{self._label(motor)}: stiffness {kp:g}, damping {kd:.2f}')
                 entry = {'kp': kp, 'kd': kd, 'multiplier': multiplier, 'steps': [], 'ramp': None, 'failed': None}
@@ -924,6 +929,9 @@ class SweepEngine:
                     entry['failed'] = report.events[-1]['text'] if report.events else 'guard'
                 report.grid.append(entry)
                 passed_any = passed_any or (ok and all(s and s['overshoot'] < 1. for s in entry['steps']))
+                if ok and (analysis.grid_check(entry, tolerance=self._tolerance(motor), limit=math.inf)
+                           or (None,))[0] == 'overshoot':
+                    overshot = max(overshot or 0., multiplier)
             if not passed_any:
                 self._event(f'stiffness {kp:g} failed with every damping ratio; not trying lower')
                 break

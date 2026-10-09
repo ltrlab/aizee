@@ -146,6 +146,9 @@ def test_a_full_sweep_characterises_steps_the_settings_and_recommends_without_a_
     assert all('why_not' in entry and (entry['settle_s'] is None or entry['settle_s'] >= 0) for entry in shoulder['grid'])
     # A friction-only wrist needs little stiffness; it is still enough to settle within half the tolerance.
     assert wrist['recommendation']['hold_kp'] >= .15 / .015
+    # Damping lighter than a ratio that overshot is not tried: it only rings more (left J2 tripped the receiver).
+    tried = [(entry['kp'], entry['multiplier']) for entry in wrist['grid']]
+    assert (2.4, 1.) in tried and (2.4, 1.6) in tried and (2.4, .6) not in tried, tried
     assert elapsed < 4000
 
 
