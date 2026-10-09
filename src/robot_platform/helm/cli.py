@@ -1,4 +1,4 @@
-"""Start Helm on this computer. The robot stays untouched until Connect is pressed."""
+"""Start Helm on this computer. It reads the arms (motors disabled) whenever Minerva is online over the tether."""
 import argparse
 from pathlib import Path
 import sys
@@ -49,11 +49,11 @@ def main(argv=None):
             # Minerva Check's live joint sweep runs through the Tune loop; its outcome goes into the report.
             tune.on_finished = lambda mode, arm, results, fault: (
                 check.record_live(arm, results, fault=fault) if mode == 'verify' else None)
-        app = create_app(session, link, teleop=teleop, leaders=leaders, check=check, tune=tune)
+        app = create_app(session, link, teleop=teleop, leaders=leaders, check=check, tune=tune, live=True)
         if session.stale_lock_pid:
             print(f'Took over a calibration lock left by exited process {session.stale_lock_pid}.', flush=True)
-        print(f'Helm: http://127.0.0.1:{args.port}/  ({session.asset_id}; not connected until you press Connect)',
-              flush=True)
+        print(f'Helm: http://127.0.0.1:{args.port}/  ({session.asset_id}; reads the arms, motors disabled, '
+              'whenever Minerva is online)', flush=True)
         web.run_app(app, host='127.0.0.1', port=args.port, print=None)
         return 0
     finally:

@@ -538,6 +538,17 @@ class TuneCore:
 
     # -- views ---------------------------------------------------------------------------------
 
+    def guide(self):
+        """Its arm as its receiver reads it, as CAD joint positions, for Helm's 3D view (None before it runs)."""
+        from robot_platform.control.guarded_config import to_cad
+        last = self.latest() if self.engine is not None else None
+        feedback = (last or {}).get('feedback') or []
+        if not feedback:
+            return None
+        measured = {name: sample['position'] for name, sample in zip(self.engine.names, feedback)}
+        return {'positions': to_cad(self.derived['joint_map'], measured, self.derived['cad_limits']),
+                'enabled': last.get('hardware_enabled'), 'receiver': (last.get('status') or {}).get('state')}
+
     def view(self, *, results=None):
         now = self.clock()
         if results is None:
@@ -553,7 +564,7 @@ class TuneCore:
                 'cycle_ms': {'p50': durations[(len(durations) - 1) // 2],
                              'p99': durations[min(len(durations), -(-99 * len(durations) // 100)) - 1]}
                 if durations else None,
-                'evidence': str(self.evidence) if self.evidence else None,
+                'evidence': str(self.evidence) if self.evidence else None, 'guide': self.guide(),
                 'slow_cycles': len(self.slow), 'slowest': max(self.slow, key=lambda e: max(e['gap_ms'] or 0,
                                                                                           e['tick_ms'] + e['view_ms']))
                 if self.slow else None}
@@ -649,6 +660,7 @@ class TuneSession:
         self.results = None
         self.saved = self._load()
         self.saved_error = None
+        self._guides = 0  # Views that carried the arm's pose: the 3D view's sequence.
         self._start_pose = None  # A return's confirmed pose, while it starts.
         self.offer = None  # The return last shown to the operator (return_offer), until confirmed or replaced.
 
@@ -815,6 +827,8 @@ class TuneSession:
                     view = message[1]
                     if view.get('results') is not None:
                         self.results = view['results']
+                    if view.get('guide'):
+                        self._guides += 1
                     self._view = view
         except (EOFError, OSError):
             with self._lock:
@@ -888,10 +902,32 @@ class TuneSession:
             self.saved, self.saved_error = document, None
         return document
 
+    def guide(self):
+        """Helm's 3D view while a sweep, return or Check sweep runs: its arm as its receiver reads it; the other
+        arm (not in that receiver) as the reader last read it."""
+        with self._lock:
+            view = self._view
+            sequence = self._guides
+        live = view.get('guide') if view.get('phase') in ('starting', 'running') else None
+        if not live:
+            return None
+        base = self.helm.guide()
+        positions = dict(base.get('positions') or {})
+        positions.update(live['positions'])
+        what = {'verify': 'LIVE JOINT SWEEP', 'return': 'RETURN TO REFERENCE'}.get(view.get('mode'), 'SERVO SWEEP')
+        arm = view.get('arm') or ''
+        other = 'right' if arm == 'left' else 'left'
+        held = 'ENABLED' if live.get('enabled') else 'DISABLED'
+        return {**base, 'positions': positions, 'live': True, 'rows': [], 'stream_id': 'helm-tune',
+                'sequence': sequence, 'updated_at': time.time(), 'source_age_seconds': 0., 'feed_state': 'reading',
+                'reconnections': 0, 'view': 'fit', 'message': view.get('message'),
+                'badge': f"{what} · {arm.upper()} ARM {held} ({live.get('receiver')}) · {other} arm as last read"}
+
     def snapshot(self):
         with self._lock:
             view = deepcopy(self._view)
             view.pop('results', None)
+            view.pop('guide', None)
             running = view.get('phase') in ('starting', 'running')
             return dict(view, receiver_choice=dict(self.receiver), joints_choice=self.joints, target=self.target,
                         absent_choice=self.absent,

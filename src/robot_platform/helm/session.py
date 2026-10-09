@@ -172,15 +172,16 @@ class HelmSession:
             if self._guide.get('live'):
                 self._guide.update(feed_state=state if state != 'connecting' else 'waiting',
                                    message=message, reconnections=reconnections)
-                if state == 'waiting':
-                    self._guide['badge'] = 'WAITING FOR MOTORS · last pose held'
-                else:
-                    self._guide.pop('badge', None)
+                self._guide['badge'] = {
+                    'waiting': 'WAITING FOR MOTORS · last pose held',
+                    'fault': 'MINERVA NOT REACHED · last pose held',
+                    'reconnecting': 'LIVE · MOTORS DISABLED · renewing the reader'}.get(
+                        state, 'NOT READING · last pose held')
             else:
                 self._guide.update(message=message, badge={
                     'connecting': 'CONNECTING · checking host, CAN adapters and motor identities',
                     'waiting': 'WAITING FOR MOTORS · reference pose shown',
-                    'fault': 'NOT CONNECTED · connection failed; see Helm'}.get(state, 'NOT CONNECTED · reference pose shown'))
+                    'fault': 'MINERVA NOT REACHED · reference pose shown'}.get(state, 'NOT CONNECTED · reference pose shown'))
 
     def on_frame(self, frame):
         """Validated stopped frame from the link worker thread."""
@@ -206,6 +207,7 @@ class HelmSession:
                 'stream_id': frame['request_id'], 'updated_at': time.time(),
                 'scan_seconds': frame['scan_seconds'], 'source_age_seconds': frame['roundtrip_seconds'],
                 'feed_state': 'reading', 'reconnections': self.feed.get('reconnections', 0), 'view': 'fit',
+                'badge': f"LIVE · MOTORS DISABLED · all {len(raw)} drives answering",
                 'message': 'Live disabled motors. Directions are candidates; the model is not a safety check.'}
             with (self.evidence / 'frames.jsonl').open('a', encoding='utf-8') as out:
                 out.write(json.dumps({'t': self.received, 'stream': frame['request_id'], 'sequence': frame['sequence'],

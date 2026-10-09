@@ -11,14 +11,22 @@ guarded receiver in its virtual form; no motors move).
 .\scripts\helm.ps1
 ```
 
-Helm opens without touching the robot. **Via** (top right) chooses how Helm
-reaches Minerva's Jetson: **Tether** (the USB Ethernet tether, 10.42.0.1, the
+**The live view.** Whenever Minerva is online over the tether, Helm reads the
+arms with their motors disabled and shows them in the 3D view, with a status
+badge: all drives answering, which ones are not, or Minerva not reached (it
+tries again every 10 s). When teleop, a servo sweep, a return or Minerva Check
+needs the motors, the reader steps aside for it and starts again once it ends.
+Meanwhile the 3D view shows that session's arm as its receiver reads it, enabled
+or not, and the other arm as last read. **Disconnect** turns the live view off
+until **Connect**. **Via** (top right) chooses how Helm reaches Minerva's
+Jetson: **Tether** (the USB Ethernet tether, 10.42.0.1, the
 default) or **Wi-Fi** (the address in the device profile). Connect, Minerva
 Check and teleop all use it. Wi-Fi is for stopped reads and virtual teleop only:
 Minerva Check fails anything but the tether, and live teleop is refused on Wi-Fi.
-The choice is locked while the reader, a check or a teleop session runs.
+The choice is locked while a check, a sweep or a teleop session runs. Over
+Wi-Fi the reader starts only on Connect.
 
-**Connect** starts the same stopped-only reader as the calibration tool: it checks the pinned host, CAN adapter serials,
+The live view uses the same stopped-only reader as the calibration tool: it checks the pinned host, CAN adapter serials,
 conflicting services, every motor UID/firmware and Reset state, then reads
 positions only. Motors are never enabled; no zero, save or parameter write is
 possible over this path. **Disconnect** (or closing Helm with Ctrl+C) stops the
@@ -89,9 +97,9 @@ The verdict is **GO** only when nothing failed or was skipped and both arms'
 live sweeps passed; warnings are listed. After the stopped stages it is
 **INCOMPLETE** until the live sweeps are run, and a live sweep's outcome goes
 into the report it followed, saved over the same file. Nothing in the stopped
-stages enables a motor. The check reads the motors itself, so it
-runs alone: disconnect Limits and stop teleop and any sweep first (the Leaders
-tab may stay connected).
+stages enables a motor. The check reads the motors itself, so the live view
+steps aside while it runs; stop teleop and any sweep first (the Leaders tab may
+stay connected).
 Every run is saved under `calibration_runs/minerva-check/`, and the last one is
 shown when Helm starts. A report saved before checks were added shows as
 **OUTDATED**, with what it said then; run the check again (the file is left as
@@ -566,7 +574,7 @@ it; Helm asks first.
 **Return to reference** brings the chosen arm back to its reference pose after
 it has been moved or left off it while limp. A live start refuses an arm that
 isn't within 0.1 rad of its reference.
-1. **Connect** (top right). The 3D view shows the arm as its drives read it.
+1. With the live view on, the 3D view shows the arm as its drives read it.
 2. Press **Return to reference**. Helm lists each joint's offset from the
    reference. It refuses readings that aren't fresh, or that fall outside a
    joint's swept range, since those can't be trusted to move from.

@@ -269,7 +269,7 @@ class FakeLink:
         self.running = False
 
 
-def test_web_endpoints_drive_teleop_and_keep_it_exclusive_with_the_motor_link(tmp_path):
+def test_web_endpoints_drive_teleop_and_take_the_motors_from_the_reader(tmp_path):
     from aiohttp.test_utils import TestClient, TestServer
     from robot_platform.helm.session import HelmSession
     session = HelmSession(ROOT / 'config/devices/minerva-joint-calibration.json', runs=tmp_path / 'runs',
@@ -293,8 +293,10 @@ def test_web_endpoints_drive_teleop_and_keep_it_exclusive_with_the_motor_link(tm
         assert (await client.post('/api/helm/teleop/key', json={'key': 'T', 'x': 1}, headers=headers)).status == 422
         await client.post('/api/helm/teleop/stop', json={}, headers=headers)
         await client.post('/api/helm/connect', json={}, headers=headers)
-        refused = await client.post('/api/helm/teleop/start', json={}, headers=headers)
-        assert refused.status == 422 and teleop.calls == ['start', 'T', ('flip', 'left_arm_j1'), 'zero', 'stop']
+        assert link.running
+        # Teleop takes the motors from the reader rather than asking for Disconnect first.
+        state = await (await client.post('/api/helm/teleop/start', json={}, headers=headers)).json()
+        assert not link.running and teleop.calls == ['start', 'T', ('flip', 'left_arm_j1'), 'zero', 'stop', 'start']
 
     async def run():
         async with TestClient(TestServer(create_app(session, link, teleop=teleop, token='secret'))) as client:

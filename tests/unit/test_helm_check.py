@@ -20,9 +20,10 @@ SEED = ROOT / 'docs/devices/MINERVA_ARM_DIRECTIONS_20260924.json'
 def test_helm_runs_the_check_alone(tmp_path):
     from aiohttp.test_utils import TestClient, TestServer
     from robot_platform.helm.server import create_app
-    release, published = threading.Event(), threading.Event()
+    release, published, runs = threading.Event(), threading.Event(), []
 
     def runner(**options):
+        runs.append(options)
         report = {'kind': 'minerva_check', 'state': 'running', 'stages': [
             {'id': 'pc', 'title': 'Operator PC', 'checks': [{'id': 'x', 'title': 'X', 'status': 'pass',
                                                              'detail': 'ok', 'seconds': .1, 'data': {'big': 1}}]}]}
@@ -32,7 +33,7 @@ def test_helm_runs_the_check_alone(tmp_path):
 
     workspace = CheckWorkspace(profile=PROFILE, teleop=TELEOP, runs=tmp_path, runner=runner)
     session = HelmSession(PROFILE, runs=tmp_path / 'runs', limits=tmp_path / 'limits.json', seed=SEED)
-    link = SimpleNamespace(running=False, connect=lambda: None, disconnect=lambda: None)
+    link = SimpleNamespace(running=False, connect=lambda: None, disconnect=lambda: setattr(link, 'running', False))
     headers = {'X-Helm-Token': 'secret'}
 
     async def scenario(client):
@@ -49,9 +50,11 @@ def test_helm_runs_the_check_alone(tmp_path):
         assert 'data' not in state['check']['report']['stages'][0]['checks'][0]
         release.set()
         workspace._thread.join(5)
+        # The reader steps aside: Minerva Check reads the motors itself.
         link.running = True
-        refused = await client.post('/api/helm/check/run', json={}, headers=headers)
-        assert refused.status == 422 and 'Disconnect the motors' in (await refused.json())['error']
+        await client.post('/api/helm/check/run', json={}, headers=headers)
+        workspace._thread.join(5)
+        assert not link.running and len(runs) == 2
 
     async def main():
         async with TestClient(TestServer(create_app(session, link, check=workspace, token='secret'))) as client:

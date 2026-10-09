@@ -1,13 +1,15 @@
 """Loopback-only Helm web app: the model viewer plus robot actions.
 
 Actions need the per-process token served with the state, so another local page
-cannot post them. The robot is never contacted until Connect is pressed. The
-stopped-motor link and the (virtual) teleop session are mutually exclusive, so
-the 3D view always shows exactly one source. The Leaders workspace and a teleop
-session both need the leader USB ports, so they exclude each other too. Minerva
-Check reads the motors (stopped) and maybe the leaders itself, so it runs alone.
-The servo sweep (Tune) drives one arm's motors, so it excludes the motor link,
-teleop and Minerva Check, and they exclude it.
+cannot post them. With `live`, the stopped reader shows the arms (motors
+disabled) whenever Minerva is online over the tether (helm.live_view); without
+it the robot is never contacted until Connect is pressed. The reader and a
+session that holds the motors are mutually exclusive: teleop, the servo sweep
+(and returns and live joint sweeps) and Minerva Check take the motors from the
+reader, which starts again once they end. The 3D view shows one source: the
+session's arm as its receiver reads it, else the reader. The Leaders workspace
+and a teleop session both need the leader USB ports, so they exclude each other.
+Teleop, the servo sweep and Minerva Check exclude each other.
 """
 import asyncio
 from pathlib import Path
@@ -17,14 +19,37 @@ STATIC = Path(__file__).parent / 'static'
 RETURN_MOVED_RAD = .02  # A confirmed return starts only if no joint moved more than this since it was shown.
 
 
-def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None):
+def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None, live=False):
+    """`live`: keep the stopped reader running whenever Minerva is online and nothing else holds the motors
+    (helm.live_view); sessions then take the motors from it instead of asking for Disconnect first."""
     from aiohttp import web
     from robot_platform.viewer.server import create_app as viewer_app
+    from .live_view import LiveView
     token = token or secrets.token_urlsafe(24)
 
+    def owner():
+        """What holds the motors, other than the reader."""
+        if teleop is not None and teleop.active:
+            return 'teleop'
+        if tune is not None and tune.active:
+            return {'verify': 'the live joint sweep', 'return': 'the return'}.get(tune.mode, 'the servo sweep')
+        if check is not None and check.running:
+            return 'Minerva Check'
+        return None
+
+    live_view = LiveView(session, link, owner)
+    live_view.enabled = live
+
+    async def take_motors():
+        """The reader steps aside for a session that needs the motors (it starts again once they're free)."""
+        await off_loop(live_view.yield_motors)
+
     def guide():
-        pose = teleop.guide() if teleop is not None else None
-        return pose if pose is not None else session.guide()
+        for source in (teleop, tune):
+            pose = source.guide() if source is not None else None
+            if pose is not None:
+                return pose
+        return session.guide()
 
     app = viewer_app([session.model.profile], session.model.profile.id,
                      guide=guide, index_html=STATIC / 'index.html')
@@ -43,6 +68,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     def state_response():
         state = session.snapshot()
         state['link'] = {'running': link.running}
+        state['live_view'] = live_view.snapshot()
         state['teleop'] = teleop.snapshot() if teleop is not None else None
         state['leaders'] = leaders.snapshot() if leaders is not None else None
         state['check'] = check.snapshot() if check is not None else None
@@ -67,11 +93,14 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         if teleop is not None and teleop.active:
             raise ValueError('Stop the teleop session before connecting to the motors')
         not_checking()
-        link.connect()
+        live_view.set_enabled(True)
+        if not link.running:
+            link.connect()
         return state_response()
 
     async def disconnect(request):
         await body(request)
+        live_view.set_enabled(False)  # The live view stays off until Connect.
         await off_loop(link.disconnect)
         return state_response()
 
@@ -103,11 +132,10 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     async def teleop_start(request):
         payload = await body(request)
         need_teleop()
-        if link.running:
-            raise ValueError('Disconnect from the motors before starting teleop')
         if leaders is not None and leaders.running:
             raise ValueError('Disconnect the leaders in the Leaders tab before starting teleop')
         not_checking()
+        await take_motors()
         teleop.start(confirm=payload.get('confirm') is True)
         return state_response()
 
@@ -195,13 +223,12 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         if set(payload) != {'connection'}:
             raise ValueError('Expected connection')
         not_checking()
-        if link.running:
-            raise ValueError('Disconnect from the motors before changing the connection')
         if teleop is not None:
             if teleop.active:
                 raise ValueError('Stop the teleop session before changing the connection')
             if payload['connection'] != 'tether' and teleop.receiver['mode'] == 'live':
                 raise ValueError('Live teleop runs over the wired tether; choose the virtual receiver first')
+        await take_motors()  # The reader reconnects over the new connection (on its own over the tether).
         session.set_connection(payload['connection'])
         return state_response()
 
@@ -215,12 +242,11 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         await body(request)
         if check is None:
             raise ValueError('Helm was started without Minerva Check')
-        if link.running:
-            raise ValueError('Disconnect the motors first: Minerva Check reads them itself')
         if teleop is not None and teleop.active:
             raise ValueError('Stop the teleop session before running Minerva Check')
         if tune is not None and tune.active:
             raise ValueError('Stop the servo sweep before running Minerva Check')
+        await take_motors()  # Minerva Check reads the motors itself.
         check.start()
         return state_response()
 
@@ -240,12 +266,11 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     async def tune_start(request):
         payload = await body(request)
         need_tune()
-        if link.running:
-            raise ValueError('Disconnect from the motors before the servo sweep')
         if teleop is not None and teleop.active:
             raise ValueError('Stop the teleop session before the servo sweep')
         if check is not None and check.running:
             raise ValueError('Minerva Check is running; wait for it to finish')
+        await take_motors()
         tune.start(confirm=payload.get('confirm') is True)
         return state_response()
 
@@ -271,7 +296,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
                 or any(abs(a['position'] - b['position']) > RETURN_MOVED_RAD
                        for a, b in zip(shown['joints'], offer['joints']))):
             raise ValueError('The arm moved since its pose was shown: look at it again, then confirm')
-        await off_loop(link.disconnect)  # The live receiver needs the CAN links; the reader must be down.
+        await take_motors()  # The live receiver needs the CAN links; the reader must be down.
         tune.start_return(offer['arm'], {row['motor']: row['position'] for row in offer['joints']})
         return state_response()
 
@@ -304,16 +329,20 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             raise ValueError('Helm was started without Minerva Check')
         if not set(payload) <= {'arm', 'confirm'} or payload.get('arm') not in ('left', 'right'):
             raise ValueError('Expected arm (left or right)')
-        if link.running:
-            raise ValueError('Disconnect from the motors before the live joint sweep')
         if teleop is not None and teleop.active:
             raise ValueError('Stop the teleop session before the live joint sweep')
         check.live_ready(payload['arm'])
+        await take_motors()
         tune.configure(arm=payload['arm'], mode='live', verify=True)
         tune.start(confirm=payload.get('confirm') is True)
         return state_response()
 
+    async def startup(_app):
+        if live:
+            live_view.start()
+
     async def shutdown(_app):
+        live_view.close()
         if tune is not None:
             await off_loop(tune.stop)
         if teleop is not None:
@@ -322,6 +351,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             await off_loop(leaders.disconnect)
         await off_loop(link.disconnect)
 
+    app.on_startup.append(startup)
     app.on_shutdown.append(shutdown)
     app.router.add_get('/api/helm/state', state)
     app.router.add_post('/api/helm/connect', connect)

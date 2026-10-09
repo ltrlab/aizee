@@ -137,8 +137,9 @@ function render(state) {
   token = state.action_token;
   const {feed, limits, robot, session} = state;
   $('robot-name').textContent = `${robot.model} · ${robot.asset_id} · ${robot.address}`;
-  // The connection is fixed while the reader, a teleop session or a check uses it.
-  const inUse = state.link.running || ['running', 'starting'].includes(state.teleop?.phase) || !!state.check?.running;
+  // The connection is fixed while a teleop session, a sweep or a check uses it (the reader steps aside).
+  const owner = state.live_view?.owner;
+  const inUse = !!owner || ['running', 'starting'].includes(state.teleop?.phase) || !!state.check?.running;
   for (const button of document.querySelectorAll('#via button')) {
     const key = button.dataset.connection;
     const option = (robot.connections || []).find(c => c.key === key);
@@ -155,9 +156,12 @@ function render(state) {
     connecting: 'Connecting…', reconnecting: 'Reconnecting…', waiting: 'Waiting for motors',
     fault: 'Connection failed',
   }[feed.state] || 'Not connected';
+  if (owner && !state.link.running) $('feed-text').textContent = `Motors in use: ${owner}`;
+  // The live view reads the arms whenever Minerva is online; Disconnect turns it off until Connect.
+  const viewing = state.live_view ? state.live_view.enabled : state.link.running;
   const connect = $('connect');
-  connect.textContent = state.link.running ? 'Disconnect' : 'Connect';
-  connect.className = state.link.running ? 'danger' : 'primary';
+  connect.textContent = viewing ? 'Disconnect' : 'Connect';
+  connect.className = viewing ? 'danger' : 'primary';
 
   let banner = null, bad = false;
   if (['fault', 'connecting', 'reconnecting', 'waiting'].includes(feed.state)) [banner, bad] = [feed.message, feed.state === 'fault'];
@@ -988,9 +992,10 @@ for (const tab of document.querySelectorAll('.tab[data-tab]')) tab.onclick = () 
 try { showTab(localStorage.getItem('helm-tab') || 'check'); } catch { showTab('check'); }
 
 $('connect').onclick = () => {
-  const running = last?.link?.running;
-  act(running ? '/api/helm/disconnect' : '/api/helm/connect', {},
-    running ? 'Disconnected. CAN links are down.' : 'Connecting. Motors stay disabled.');
+  const viewing = last?.live_view ? last.live_view.enabled : last?.link?.running;
+  act(viewing ? '/api/helm/disconnect' : '/api/helm/connect', {},
+    viewing ? 'Disconnected. CAN links are down; the live view stays off until Connect.'
+      : 'Connecting. Motors stay disabled.');
 };
 $('save').onclick = () => act('/api/helm/limits/save', {}, () => `Saved to ${last.limits.path}.`);
 $('c-run').onclick = () => act('/api/helm/check/run', {}, 'Minerva Check started. Motors stay disabled.');

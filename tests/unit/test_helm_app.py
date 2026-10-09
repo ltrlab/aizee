@@ -180,7 +180,7 @@ def test_web_api_requires_the_token_and_drives_the_same_session(helm):
     run_client(helm, link, scenario)
 
 
-def test_the_connection_is_the_tether_until_wifi_is_chosen_and_is_locked_while_connected(helm):
+def test_the_connection_is_the_tether_until_wifi_is_chosen_and_the_reader_steps_aside_to_change_it(helm):
     link = FakeLink()
     wifi = helm.device['address']
 
@@ -195,12 +195,11 @@ def test_the_connection_is_the_tether_until_wifi_is_chosen_and_is_locked_while_c
         bad = await client.post('/api/helm/connection', json={'connection': 'bluetooth'}, headers=headers)
         assert bad.status == 422 and 'tether or Wi-Fi' in (await bad.json())['error']
         await client.post('/api/helm/connect', json={}, headers=headers)
-        locked = await client.post('/api/helm/connection', json={'connection': 'tether'}, headers=headers)
-        assert locked.status == 422 and 'Disconnect' in (await locked.json())['error'] and helm.connection == 'wifi'
-        await client.post('/api/helm/disconnect', json={}, headers=headers)
+        assert link.running
+        # The reader steps aside for the change (the live view starts it again over the tether).
         state = await (await client.post('/api/helm/connection', json={'connection': 'tether'},
                                          headers=headers)).json()
-        assert state['robot']['address'] == '10.42.0.1'
+        assert state['robot']['address'] == '10.42.0.1' and not link.running
 
     run_client(helm, link, scenario)
 
