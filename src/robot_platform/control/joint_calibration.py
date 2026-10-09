@@ -196,7 +196,10 @@ def direction_result(step, baseline, moved, reference):
 
 def seed_results(path, steps, reference):
     data = json.loads(Path(path).read_text())
-    if (data['asset_id'] != reference['asset_id'] or data['mechanical_reference'] != reference['id']
+    # A reference revision that re-zeroes some motors names the earlier references whose direction checks it
+    # keeps: a direction is a sign (raw motor change to CAD joint change), which a re-zero does not move.
+    references = {reference['id'], *reference.get('direction_evidence_from', ())}
+    if (data['asset_id'] != reference['asset_id'] or data['mechanical_reference'] not in references
             or data['model_revision'] != reference['model_revision']):
         raise ValueError('Seed evidence belongs to another reference/model/device')
     roster = {m['name']: m for m in reference['motors']}

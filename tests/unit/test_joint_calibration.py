@@ -163,9 +163,15 @@ def test_live_scan_never_returns_partial_motor_roster():
 def test_minerva_plan_and_seed_bind_the_completed_signs():
     root = Path(__file__).resolve().parents[2]
     plan, _, _, ref, _, _, _ = load_plan(root / 'config/devices/minerva-joint-calibration.json')
-    seeded = seed_results(root / 'docs/devices/MINERVA_ARM_DIRECTIONS_20260924.json', plan['steps'], ref)
+    seed = root / 'docs/devices/MINERVA_ARM_DIRECTIONS_20260924.json'
+    seeded = seed_results(seed, plan['steps'], ref)
     assert len(plan['steps']) == 12
     assert {n: r['sign'] for n, r in seeded.items()} == {'left_arm_j1': 1, 'right_arm_j1': -1}
+    # The 2026-10-09 revision re-zeroed left J4 and J5 and keeps the 2026-09-24 direction checks (signs);
+    # a reference that does not name them refuses them.
+    assert ref['direction_evidence_from'] == ['minerva-mechanical-reference-20260924'] != [ref['id']]
+    with pytest.raises(ValueError, match='another reference'):
+        seed_results(seed, plan['steps'], {k: v for k, v in ref.items() if k != 'direction_evidence_from'})
 
 
 def test_live_guide_marks_stale_and_does_not_clamp_measured_angles(tmp_path):
