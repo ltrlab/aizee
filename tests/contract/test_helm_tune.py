@@ -264,6 +264,26 @@ def test_a_sweep_leaves_an_unplugged_gripper_out_and_saves_nothing(setup):
                  clock=clock, evidence_root=tmp_path / 'evidence').build()
 
 
+def test_a_late_cycle_is_logged_with_where_its_time_went(setup):
+    # Left J3's sweep let the receiver's 80 ms verdict lapse at 1.2 rad/s (2026-10-09) with nothing to show why.
+    import gc
+    helm, session, tmp_path = setup
+    clock = Clock()
+    core = TuneCore(session._bundle(), open_receiver=lambda config, device, reference: Receiver(config, reference, clock),
+                    clock=clock, evidence_root=tmp_path / 'evidence')
+    core.build()
+    core.note_cycle(100., 100.010, 100.012)  # On time.
+    gc.collect()  # A full collection inside the next cycle.
+    core.note_cycle(100.1, 100.105, 100.106)  # Started 100 ms after the last one.
+    assert len(core.slow) == 1
+    entry = core.slow[0]
+    assert (entry['gap_ms'], entry['tick_ms'], entry['view_ms'], entry['gc_generation']) == (100., 5., 1., 2)
+    assert entry['gc_ms'] >= 0 and core.view(results=False)['slow_cycles'] == 1  # Frozen: a full pass is quick.
+    core.close()
+    logged = [json.loads(line) for line in (core.evidence / 'slow-cycles.jsonl').read_text().splitlines()]
+    assert logged == [entry] and core._gc_callback not in gc.callbacks
+
+
 def test_a_live_sweep_needs_a_confirmation_the_jetson_and_the_tether(setup):
     helm, session, _ = setup
     with pytest.raises(ValueError, match="Confirm the sweep: the left arm's motors move on their own"):

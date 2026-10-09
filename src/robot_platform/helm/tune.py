@@ -30,6 +30,9 @@ from .teleop import HELD, LOWERING_ATTEMPTS, WAIT_TO_REARM, AdvisoryCompiler, lo
 
 PERIOD_S = .04
 RESULTS_EVERY_S = 1.
+# A cycle this late or this long is logged with where its time went: the receiver brakes the arm when no fresh
+# command reaches it within its 80 ms verdict (left J3 at 1.2 rad/s, 2026-10-09, with nothing else to show why).
+SLOW_CYCLE_S = .04
 
 
 class TuneCore:
@@ -75,6 +78,10 @@ class TuneCore:
         self.scheduling = {}
         self.evidence = None
         self.sink = None
+        self.slow = []  # Slow cycles: where their time went (also appended to the evidence's slow-cycles.jsonl).
+        self._slow_log = None
+        self._last_started = None
+        self._gc_s, self._gc_started, self._gc_generation = 0., None, None
 
     # -- resources -------------------------------------------------------------------------
 
@@ -235,6 +242,9 @@ class TuneCore:
         gc.collect()
         gc.freeze()
         self._frozen = True
+        gc.callbacks.append(self._gc_callback)
+        if self.evidence is not None:
+            self._slow_log = (self.evidence / 'slow-cycles.jsonl').open('a', encoding='utf-8')
         self.phase, self.stage = 'running', 'arming'
         self._stage_since = self.clock()
         what = {'verify': 'LIVE JOINT SWEEP (MINERVA CHECK)', 'return': 'RETURN TO REFERENCE'}.get(self.mode,
@@ -285,6 +295,7 @@ class TuneCore:
                 self.engine.stop()
                 self.message = 'Finishing: the joint under test returns to the reference, then the arm is disabled.'
             self._feed()
+            record['fed'] = self.clock()
             if self.stage == 'arming':
                 self._arm()
             elif self.stage == 'sweeping':
@@ -292,8 +303,10 @@ class TuneCore:
                 # from where the joint is now, not a cycle ago. The move binding the offer renews the lease.
                 offer_started = self.clock()
                 offered = self.controller.collision_offer()
+                record['offered'] = self.clock()
                 self._feed()
                 command = self.engine.command(started)
+                record['planned'] = self.clock()
                 if command is None:
                     if self.mode == 'return':
                         why = next((e['text'] for e in reversed(self.engine.events)), 'stopped')
@@ -334,6 +347,36 @@ class TuneCore:
             self.cycles.append(record)
             if len(self.cycles) > 500:
                 del self.cycles[:100]
+
+    def _gc_callback(self, phase, info):
+        now = time.perf_counter()
+        if phase == 'start':
+            self._gc_started = now
+        elif self._gc_started is not None:
+            self._gc_s += now - self._gc_started
+            self._gc_generation = max(self._gc_generation or 0, info.get('generation', 0))
+            self._gc_started = None
+
+    def note_cycle(self, started, ticked, sent):
+        """After a cycle's view is sent: log it if it started late or ran long, with where its time went."""
+        gap = None if self._last_started is None else started - self._last_started
+        self._last_started = started
+        gc_s, generation = self._gc_s, self._gc_generation
+        self._gc_s, self._gc_generation = 0., None
+        if (gap is None or gap <= SLOW_CYCLE_S) and sent - started <= SLOW_CYCLE_S:
+            return
+        record = self.cycles[-1] if self.cycles and self.cycles[-1].get('started_at') == started else {}
+        marks = {key: round((record[key] - started) * 1000, 1) for key in ('fed', 'offered', 'planned', 'completed_at')
+                 if record.get(key) is not None}
+        entry = {'at_s': round(started, 3), 'gap_ms': None if gap is None else round(gap * 1000, 1),
+                 'tick_ms': round((ticked - started) * 1000, 1), 'view_ms': round((sent - ticked) * 1000, 1),
+                 'gc_ms': round(gc_s * 1000, 1), 'gc_generation': generation, 'marks_ms': marks,
+                 'stage': self.stage, 'task': (self.engine.progress() or {}).get('task') if self.engine else None}
+        self.slow.append(entry)
+        del self.slow[:-200]
+        if self._slow_log is not None:
+            self._slow_log.write(json.dumps(entry) + '\n')
+            self._slow_log.flush()
 
     def _arm(self):
         """Acquire, enable at zero torque, then hold at the measured pose; the sweep starts there."""
@@ -470,6 +513,11 @@ class TuneCore:
         if self._frozen:
             gc.unfreeze()
             self._frozen = False
+        if self._gc_callback in gc.callbacks:
+            gc.callbacks.remove(self._gc_callback)
+        if self._slow_log is not None:
+            self._slow_log.close()
+            self._slow_log = None
         if self.sink is not None:
             self.sink.close()
             self.sink = None
@@ -501,7 +549,10 @@ class TuneCore:
                 'cycle_ms': {'p50': durations[(len(durations) - 1) // 2],
                              'p99': durations[min(len(durations), -(-99 * len(durations) // 100)) - 1]}
                 if durations else None,
-                'evidence': str(self.evidence) if self.evidence else None}
+                'evidence': str(self.evidence) if self.evidence else None,
+                'slow_cycles': len(self.slow), 'slowest': max(self.slow, key=lambda e: max(e['gap_ms'] or 0,
+                                                                                          e['tick_ms'] + e['view_ms']))
+                if self.slow else None}
         if results and self.engine is not None:
             view['results'] = self.engine.summary()
             self._results_at = now
@@ -538,6 +589,7 @@ def run_tune_loop(commands, views, core):
                 if message[0] == 'key':
                     key = message[1] if key is None or message[1] == 'H' else key
             core.tick(key, started)
+            ticked = clock()
             if core.fault or core.stage in ('finished', 'disabled'):
                 return  # Nothing more to do: close the receiver and CAN link now; the last view has the results.
             try:
@@ -546,6 +598,7 @@ def run_tune_loop(commands, views, core):
                 if not core.land():
                     return
                 closing = True
+            core.note_cycle(started, ticked, clock())
             remaining = core.period_s - (clock() - started)
             if remaining > 0:
                 time.sleep(remaining)
