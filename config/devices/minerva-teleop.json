@@ -35,13 +35,12 @@
     "note": "Live teleop drives one arm on its physical motors, with advisory collision checks, the other arm never enabled; or both arms from one receiver, with the two-arm (motion) collision bound enforced (2026-10-05). Each session starts from the reference pose (arms straight down, grippers closed). The motion settings below are unqualified: attended tests only, with the foot switch in reach."
   },
   "sweep": {
-    "note": "The servo sweep (Helm's Tune tab, control/servo_sweep.py) steps each joint's stiffness from kp_ceiling down (default: its current hold gain), damping ratios, then speeds up to its speed cap (speed_ceiling raises a joint's cap for the sweep, at the cost of usable range: the receiver's collision reserve is taken at the cap). Defaults are in servo_sweep.DEFAULTS. The wrists and grippers get headroom: friction held J5 and J6 off target at their collector gains, and the first J6 sweep (2026-09-27) passed only its top rung, 16, so the wrists go to 24. bound_ceiling and speed_ceiling let the sweep set a joint's tracking bound and speed cap from its measurements (never lowered, and only while its usable range stays at least usable_floor of its swept travel): the light distal joints only (operator's choice, 2026-09-27); J1-J3 keep their bounds; speed costs no travel (braking curves), so the sweep may test J1-J3 up to 1.5 rad/s (operator's choice, 2026-09-27) and J4-J6 up to their caps.",
+    "note": "The servo sweep (Helm's Tune tab, control/servo_sweep.py) steps each joint's stiffness from kp_ceiling down (default: its current hold gain), damping ratios, then speeds up to its speed cap (speed_ceiling raises a joint's cap for the sweep, at the cost of usable range: the receiver's collision reserve is taken at the cap). Defaults are in servo_sweep.DEFAULTS. The wrists get headroom: friction held J5 and J6 off target at their collector gains, and the first J6 sweep (2026-09-27) passed only its top rung, 16, so the wrists go to 24. bound_ceiling and speed_ceiling let the sweep set a joint's tracking bound and speed cap from its measurements (never lowered, and only while its usable range stays at least usable_floor of its swept travel): the light distal joints only (operator's choice, 2026-09-27); J1-J3 keep their bounds; speed costs no travel (braking curves), so the sweep may test J1-J3 up to 1.5 rad/s (operator's choice, 2026-09-27) and J4-J6 up to their caps. Grippers are not swept (operator's choice, 2026-10-09: they squeeze what they hold); Minerva Check's live sweep opens each from its swept min to its swept max and closes it.",
     "joints": [
       {"match": "*_arm_j[123]", "speed_ceiling": 1.5},
       {"match": "*_arm_j4", "bound_ceiling": 0.12, "speed_ceiling": 2.5},
       {"match": "*_arm_j5", "kp_ceiling": 24.0, "bound_ceiling": 0.15, "speed_ceiling": 4.0},
-      {"match": "*_arm_j6", "kp_ceiling": 24.0, "bound_ceiling": 0.15, "speed_ceiling": 4.0},
-      {"match": "*_gripper", "kp_ceiling": 5.0, "bound_ceiling": 0.15}
+      {"match": "*_arm_j6", "kp_ceiling": 24.0, "bound_ceiling": 0.15, "speed_ceiling": 4.0}
     ]
   },
   "motion": {

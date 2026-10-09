@@ -76,7 +76,12 @@ prerequisite failed is skipped, not guessed:
    its swept range at its speed. A joint fails on any guard event, on lag over
    half its tracking bound, or on lag or friction well up on what it was swept
    with (drag, wear or a loose joint). A joint not yet servo-swept is judged on
-   the profile settings alone, which is a warning.
+   the profile settings alone, which is a warning. A gripper is not servo-swept
+   (it squeezes what it holds): its command moves at 2 rad/s from its swept min
+   to its swept max and back, trailing it as in teleop, and it passes when it
+   covers 95% of that travel each way within 8 s of its command getting there.
+   A gripper pushing ever harder (jammed) is stopped by the effort guard and
+   fails.
 
 The verdict is **GO** only when nothing failed or was skipped and both arms'
 live sweeps passed; warnings are listed. After the stopped stages it is
@@ -494,7 +499,8 @@ teleop: the other arm is never enabled, and the loop runs on Minerva's Jetson
 over the tether. The receiver's stiffness, damping and speed ceilings are raised
 to the sweep's own ceilings (the `sweep` block of the teleop profile).
 
-Choose the arm and the joints (all by default), check that the arm hangs in its
+Choose the arm and the joints (all arm joints by default; grippers are not swept,
+Minerva Check opens and closes them instead), check that the arm hangs in its
 reference pose with its path clear, and press **Start LIVE sweep**. The arm is
 enabled at zero torque, then holds, and every joint comes slowly to its
 reference. Then, joint by joint, with the rest of the arm held there:
@@ -614,7 +620,8 @@ selected**. They go to the servo calibration,
 The receiver takes those joints' gains, speed, braking and tracking bound from
 it, and live teleop uses it from its next session. A replaced motor must be
 swept again. The release carries `config/devices`, so deploy
-(`bash scripts/deploy_minerva_arms.sh`) before the next Minerva Check; until
+(`.venv-platform/Scripts/python.exe -m robot_platform deploy`, which
+`scripts/deploy_minerva_arms.sh` runs) before the next Minerva Check; until
 then its "Release matches this PC" item fails.
 
 Minerva Check's live joint sweep (above) runs this engine in verify mode
@@ -623,4 +630,8 @@ against the saved calibration. Its evidence goes to `check-sweep-<time>`.
 Evidence stays on the Jetson in `~/minerva/evidence/sweep-<time>`:
 - `samples.f32`, every receiver tick as float32 rows, described by
   `columns.json`;
-- `results.json`, the per-joint results and events.
+- `results.json`, the per-joint results and events;
+- `slow-cycles.jsonl`, any loop cycle that started more than 40 ms after the last
+  or ran that long: its gap, the feed, offer and planning marks, the view send
+  and any garbage collection. The receiver brakes the arm when no fresh command
+  reaches it within its 80 ms verdict.

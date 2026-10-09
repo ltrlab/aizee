@@ -21,7 +21,7 @@ from pathlib import Path
 import threading
 import time
 
-from robot_platform.control.guarded_config import arm_subset, derive_receiver, fit_motor_ranges
+from robot_platform.control.guarded_config import arm_subset, derive_receiver, fit_motor_ranges, motion_settings
 from robot_platform.control.servo_calibration import load_servo, save_servo, servo_path  # noqa: F401 (re-exported)
 from robot_platform.control.scheduling import prefer_responsive
 from .limits import utc_now
@@ -139,8 +139,12 @@ class TuneCore:
         motors = [motor['name'] for motor in reference['motors']]
         sweep = [] if self.mode == 'return' else [motor for motor in (self.bundle.get('joints') or motors)
                                                   if motor in motors]
+        if self.mode == 'tune':
+            # A gripper is not tuned: it squeezes what it holds. Minerva Check opens and closes it instead.
+            sweep = [motor for motor in sweep if not motion_settings(self.profile['motion'], motor).get('gripper')]
         if not sweep and self.mode != 'return':
-            raise ValueError('Choose at least one joint of the arm to sweep')
+            raise ValueError('Choose at least one arm joint to sweep (grippers are not swept: Minerva Check opens '
+                             'and closes them)')
         if self.mode == 'return' and set(self.bundle['start_pose']) != set(motors):
             raise ValueError(f'The confirmed pose must cover every motor of the {self.arm} arm')
         backend = self.open_backend(model)

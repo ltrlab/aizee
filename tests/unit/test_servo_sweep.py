@@ -339,6 +339,61 @@ def wrist():
     return joints, plant, {'right_arm_j6': (8., 1.)}, profile
 
 
+def gripper(static):
+    """A gripper slide (motor rad) at its profile gains (2, 1), holding still against `static` Nm until pushed past it:
+    the left one sat still at 0.3 Nm in its servo sweep (2026-10-09)."""
+    joints = [dict(limits('left_gripper', lower=-.07, upper=5.27, bound=.06, speed=12.5, stop=30., effort=14.,
+                          max_kd=2., max_kp=5.), gripper=True)]
+    plant = Plant({'left_gripper': dict(inertia=.002, gravity=lambda q: 0., friction=.2, static=static, q=0.)},
+                  {'left_gripper': 99.})  # The receiver does not check a gripper's tracking: it trails its command.
+    return joints, plant, {'left_gripper': (2., 1.)}
+
+
+def run_gripper_check(static, coupling=None):
+    joints, plant, gains = gripper(static)
+    plant.coupling = coupling
+    names = ['left_gripper']
+    engine = SweepEngine(joints, home={'left_gripper': 0.}, gains=gains, settings={
+        'left_gripper': sweep_settings(PROFILE, 'left_gripper')}, sweep=names, mode='verify',
+        travel={'left_gripper': {'swept': [-.02, 5.22]}})
+    engine.observe(plant.run(names, {'targets': [0.], 'gains': [gains['left_gripper']]}))
+    now = 0.
+    while (command := engine.command(now)) is not None and now < 120:
+        engine.observe(plant.run(names, command))
+        now += .04
+    return engine, plant
+
+
+def test_minerva_check_opens_and_closes_a_gripper_across_its_swept_travel_without_tuning_it():
+    engine, plant = run_gripper_check(static=.3)
+    check = engine.summary()['left_gripper']['check']
+    assert engine.task == 'finished' and check['passed'], check['reasons']
+    travel = check['travel']
+    # It rests short of each end by its friction over its stiffness (0.2 Nm at kp 2), within 5% of its travel
+    # (0.26 rad), where it is judged.
+    assert travel['open']['position'] == pytest.approx(5.22, abs=.27)
+    assert travel['close']['position'] == pytest.approx(-.02, abs=.27)
+    assert 0 < travel['open']['seconds'] < 2.6 + 8 and check['lag'] is None and check['calibrated'] is None
+    assert plant.fastest['left_gripper'] < 4.  # Its command moves at 2 rad/s: no lunge at the far end.
+    assert abs(plant.state['left_gripper'][0]) < .2  # Back at its reference.
+    # A jammed gripper fails, saying why: the effort guard stops it pushing ever harder.
+    engine, _plant = run_gripper_check(static=50.)
+    check = engine.summary()['left_gripper']['check']
+    assert engine.task == 'finished' and not check['passed']
+    assert check['reasons'][0].startswith('did not open: left_gripper pushed'), check['reasons']
+    # A gripper that stalls short of an end within its effort guard fails, saying where it got to: something in
+    # its way, a 4 Nm/rad spring from 3 rad open, holds it at about 3.7 rad (well under its 7 Nm effort guard).
+    engine, _plant = run_gripper_check(static=.3, coupling=lambda name, state: -4. * max(0., state[name][0] - 3.))
+    check = engine.summary()['left_gripper']['check']
+    assert not check['passed'] and 'did not open to within 0.26 rad of +5.22 rad in 8 s' in check['reasons'][0], \
+        check['reasons']
+    # And a gripper is never tuned.
+    joints, _plant, gains = gripper(.3)
+    with pytest.raises(ValueError, match='Grippers are not swept'):
+        SweepEngine(joints, home={'left_gripper': 0.}, gains=gains,
+                    settings={'left_gripper': sweep_settings(PROFILE, 'left_gripper')}, sweep=['left_gripper'])
+
+
 def test_the_plan_waits_for_a_joint_it_cannot_push_and_stiffens_it_only_at_rest():
     joints, plant, gains, profile = wrist()
     names = ['right_arm_j6']

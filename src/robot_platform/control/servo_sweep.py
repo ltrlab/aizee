@@ -78,6 +78,14 @@ GAIN_RAMP_S = .3  # Stiffness and damping change over this long, never in one st
 CHECK_BUDGET_S = .01  # Collision queries per cycle; a path is checked over several cycles.
 RETURNED_RAD = .01  # A return leaves a joint this close to its reference where it is.
 CHUNK_ROWS = 256  # The recording keeps rows in chunks of about this many (a result brings one or two).
+# A gripper is not swept: it squeezes what it holds, at the stiffness its profile sets, and trails its command
+# (the receiver lets it). Minerva Check only opens it from its swept min to its swept max and closes it again, its
+# command moving at GRIPPER_TRAVEL_SPEED (rad/s) as teleop's does. It must cover GRIPPER_REACHED_SHARE of its
+# swept travel each way, no later than GRIPPER_TRAVEL_S after its command got there: at its profile's stiffness a
+# gripper rests short of a target by its friction over its stiffness (0.1 rad for 0.2 Nm at kp 2).
+GRIPPER_TRAVEL_SPEED = 2.
+GRIPPER_TRAVEL_S = 8.
+GRIPPER_REACHED_SHARE = .95
 
 
 def sweep_settings(profile, motor):
@@ -299,6 +307,8 @@ class SweepEngine:
         'return' only brings the arm from where it rests to its reference (`sweep` empty)."""
         if mode not in ('tune', 'verify', 'return'):
             raise ValueError('The sweep tunes, verifies or returns the arm')
+        if mode == 'tune' and any(joint.get('gripper') for joint in joints if joint['name'] in sweep):
+            raise ValueError('Grippers are not swept: Minerva Check opens and closes each one')
         self.mode, self.calibration = mode, dict(calibration or {})
         # For the results: each joint's derived report row today, and the receiver's reserve settings.
         self.travel, self.receiver = dict(travel or {}), receiver
@@ -380,7 +390,7 @@ class SweepEngine:
             limit, settings = self.limits[name], self.settings.get(name) or self.settings[self.current]
             lag = np.max(np.abs(rows[:, 4 + 4 * i] - rows[:, 1 + 4 * i]))
             bound = settings['guard_fraction'] * limit['max_tracking_error']
-            if lag > bound:
+            if lag > bound and not limit.get('gripper'):  # A gripper trails its command, as the receiver lets it.
                 return f'{self._label(name)} lagged {lag:.3f} rad (guard {bound:.3f})'
             effort = np.max(np.abs(rows[:, 3 + 4 * i]))
             if effort > settings['effort_fraction'] * limit['max_effort']:
@@ -467,9 +477,10 @@ class SweepEngine:
             limit = self.limits[name]
             q = self.measured(name)
             settings = self.settings.get(name) or self.settings[self.current or self.sweep[0]]
-            if q is not None and name == self.current:
+            if q is not None and name == self.current and not limit.get('gripper'):
                 # Never lead the joint by more than the cap, and toward an end by no more than its curve allows:
                 # the lead is taken from where the joint will be once the receiver has ramped to this command.
+                # (A gripper's command leads it by its whole range, as teleop's.)
                 target = min(self._ahead(name, 1) + self._lead(name, 1, q),
                              max(self._ahead(name, -1) - self._lead(name, -1, q), target))
             low, high = self._allowed(name)
@@ -734,8 +745,12 @@ class SweepEngine:
                 report = self.reports[motor]
                 report.status = 'running'
                 try:
-                    yield from (self._verify_joint(motor, report) if self.mode == 'verify'
-                                else self._joint(motor, report))
+                    if self.mode == 'tune':
+                        yield from self._joint(motor, report)
+                    elif self.limits[motor].get('gripper'):
+                        yield from self._verify_gripper(motor, report)
+                    else:
+                        yield from self._verify_joint(motor, report)
                     report.status = 'done'
                 except Abort:
                     report.status = 'stopped'  # Its reason is in the events; the next joint goes on.
@@ -1086,6 +1101,64 @@ class SweepEngine:
         self._task(f'{self._label(motor)}: back to the reference')
         yield from self._go(motor, home, slow)
         yield from self._hold(motor, settings['rest_s'])
+
+    def _travel(self, motor, end, tolerance, result):
+        """A gripper's command to `end` at GRIPPER_TRAVEL_SPEED, then held until the gripper is within `tolerance`
+        of it or GRIPPER_TRAVEL_S has passed. `result` gets whether it reached it, how long it took and the
+        measured position nearest the end."""
+        direction = 1 if end > self.targets[motor] else -1
+        cycles, nearest = 0, None
+
+        def near():
+            q = self.measured(motor)
+            return nearest if q is None or (nearest is not None and abs(end - nearest) <= abs(end - q)) else q
+        while (end - self.targets[motor]) * direction > 1e-9:
+            self.targets[motor] += direction * min((end - self.targets[motor]) * direction,
+                                                   GRIPPER_TRAVEL_SPEED * self.period)
+            self.velocity[motor] = direction * GRIPPER_TRAVEL_SPEED
+            nearest, cycles = near(), cycles + 1
+            yield
+        self.targets[motor], self.velocity[motor] = end, 0.
+        for _ in range(self._cycles(GRIPPER_TRAVEL_S)):
+            nearest = near()
+            if nearest is not None and abs(end - nearest) <= tolerance:
+                break
+            cycles += 1
+            yield
+        result.update(reached=nearest is not None and abs(end - nearest) <= tolerance,
+                      seconds=round(cycles * self.period, 2), position=nearest)
+
+    def _verify_gripper(self, motor, report):
+        """Minerva Check's live sweep of a gripper: open from its swept min to its swept max, close again, each
+        end reached in time. No stiffness, lag or friction test: it is not swept."""
+        limit, home = self.limits[motor], self.home[motor]
+        swept = (self.travel.get(motor) or {}).get('swept') or (limit['lower'], limit['upper'])
+        ends = {'open': min(limit['upper'], max(swept)), 'close': max(limit['lower'], min(swept))}
+        tolerance = (1 - GRIPPER_REACHED_SHARE) * (ends['open'] - ends['close'])
+        travel, reasons = {}, []
+        for label, end in ends.items():
+            clear, why = yield from self._clear(motor, self.targets[motor], end)
+            if not clear:
+                reasons.append(f'{label} skipped: {why}')
+                break
+            self._task(f"{self._label(motor)}: {label} to its swept {'max' if label == 'open' else 'min'}")
+            result = travel[label] = {'end': end}
+            try:
+                yield from self._travel(motor, end, tolerance, result)
+            except Abort as exc:  # A guard (a jammed gripper pushing ever harder): it returns, and fails.
+                reasons.append(f'did not {label}: {exc}')
+                yield from self._recover(motor)
+                break
+            if not result['reached']:
+                got = 'no reading' if result['position'] is None else f"got to {result['position']:+.2f}"
+                reasons.append(f'did not {label} to within {tolerance:.2f} rad of {end:+.2f} rad in '
+                               f'{GRIPPER_TRAVEL_S:g} s ({got})')
+        self._task(f'{self._label(motor)}: back to the reference')
+        yield from self._travel(motor, home, tolerance, {})
+        yield from self._hold(motor, self.settings[motor]['rest_s'])
+        report.verification = {'travel': travel, 'span': (ends['close'], ends['open']), 'passed': not reasons}
+        report.check = {'passed': not reasons, 'reasons': reasons, 'lag': None, 'friction': None,
+                        'speed': GRIPPER_TRAVEL_SPEED, 'calibrated': None, 'travel': travel}
 
     def _fit_inertia(self, motor, report):
         """Refit the joint's inertia from its moves so far that sped up and slowed down (speed tests and braking),

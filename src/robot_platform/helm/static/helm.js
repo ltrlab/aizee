@@ -715,7 +715,8 @@ const ucards = new Map();
 const fmt = (value, digits = 2) => value == null || !Number.isFinite(value) ? '—' : value.toFixed(digits);
 
 function tuneMotors(state, arm) {
-  return (state?.limits?.rows || []).filter(row => row.arm === arm);
+  // Grippers are not swept (they squeeze what they hold): Minerva Check's live sweep opens and closes them.
+  return (state?.limits?.rows || []).filter(row => row.arm === arm && !row.name.endsWith('_gripper'));
 }
 
 function closeTuneConfirm() {
@@ -955,7 +956,7 @@ function askCheck(arm) {
   const other = arm === 'left' ? 'right' : 'left';
   $('c-confirm-title').textContent = `Run the live joint sweep on the ${arm} arm?`;
   $('c-confirm-list').replaceChildren(...[
-    'The motors move on their own: each joint out and back, then across its range at its settings.',
+    'The motors move on their own: each joint out and back, then across its range at its settings; the gripper opens fully and closes.',
     'The foot switch (e-stop) is in your hand throughout.',
     `The ${arm} arm hangs straight down in its reference pose, gripper closed, and its path is clear.`,
     `The ${other} arm stays disabled.`,

@@ -171,21 +171,28 @@ def _limits(ctx):
 
 @check('pc', 'servo', 'Servo calibration', requires=('calibration',))
 def _servo(ctx):
-    """The live servo sweep's saved settings: every joint swept with the motor it has now."""
+    """The live servo sweep's saved settings: every arm joint swept with the motor it has now. Grippers are not
+    swept (they squeeze what they hold); the live joint sweep opens and closes them instead."""
+    from robot_platform.control.guarded_config import motion_settings
     from robot_platform.control.servo_calibration import coverage, load_servo, servo_path
+    from robot_platform.helm.teleop import load_profile
     path = servo_path(ctx.profile, ctx.facts['asset_id'])
     document = load_servo(path)
     ctx.facts['servo'] = document
-    calibrated, missing, changed = coverage(document, ctx.facts['reference'])
+    motion = load_profile(ctx.teleop)['motion']
+    grippers = {motor['name'] for motor in ctx.facts['reference']['motors']
+                if motion_settings(motion, motor['name']).get('gripper')}
+    calibrated, missing, changed = coverage(document, ctx.facts['reference'], skip=grippers)
     if changed:
         ctx.facts['servo'] = None  # The receiver would refuse it; derive from the profile instead.
         return FAIL, ('Swept with another motor or firmware: ' + ', '.join(ctx.label(m) for m in changed)
                       + ". Sweep them again in Helm's Tune tab.")
     if missing:
-        return WARN, (f'{len(calibrated)} of {len(calibrated) + len(missing)} joints calibrated; not swept yet: '
+        return WARN, (f'{len(calibrated)} of {len(calibrated) + len(missing)} arm joints calibrated; not swept yet: '
                       + ', '.join(ctx.label(m) for m in missing)
                       + ". Run the servo sweep in Helm's Tune tab; until then they use the teleop profile's settings.")
-    return PASS, f"All {len(calibrated)} joints calibrated by the servo sweep ({document.get('updated_at', '')[:10]})"
+    return PASS, (f"All {len(calibrated)} arm joints calibrated by the servo sweep "
+                  f"({document.get('updated_at', '')[:10]}); grippers are checked by their travel in the live sweep")
 
 
 @check('pc', 'leader_ranges', 'Leader ranges and zero')
@@ -677,7 +684,8 @@ def _live_pose(ctx):
 
 LIVE_SWEEP = ('Run it from the Check tab after the stopped checks pass, with the foot switch in hand: each '
               'joint of the {arm} arm moves out and back for friction, then across its range at its settings, '
-              'judged on lag, effort, heat and against its saved servo sweep.')
+              'judged on lag, effort, heat and against its saved servo sweep. Its gripper opens from its swept '
+              'min to its swept max and closes again.')
 
 
 @check('sweep', 'sweep_left', 'Live joint sweep: left arm')
@@ -704,10 +712,20 @@ def live_sweep_entry(arm, results, *, fault=None):
     if failed:
         return FAIL, '; '.join(f"{(results[motor].get('label') or motor)}: {', '.join(check['reasons'])}"
                                for motor, check in failed.items()), {'results': results}
-    uncalibrated = [motor for motor, check in checked.items() if not check['calibrated']]
-    worst = max(checked, key=lambda motor: checked[motor]['lag'] or 0.)
-    detail = (f"All {len(checked)} joints followed within half their tracking bound; worst lag "
-              f"{checked[worst]['lag']:.3f} rad ({results[worst].get('label') or worst})")
+    # A gripper's check is its travel (servo_sweep._verify_gripper): it is never servo-swept.
+    uncalibrated = [motor for motor, check in checked.items() if check['calibrated'] is False]
+    joints = [motor for motor, check in checked.items() if check.get('travel') is None]
+    parts = []
+    if joints:
+        worst = max(joints, key=lambda motor: checked[motor]['lag'] or 0.)
+        parts.append(f"All {len(joints)} joints followed within half their tracking bound; worst lag "
+                     f"{checked[worst]['lag']:.3f} rad ({results[worst].get('label') or worst})")
+    for motor, check in checked.items():
+        if check.get('travel') is not None:
+            travel = check['travel']
+            parts.append(f"{results[motor].get('label') or motor} opened and closed its whole travel "
+                         f"({travel['open']['seconds']:g} s, {travel['close']['seconds']:g} s)")
+    detail = '; '.join(parts)
     if uncalibrated:
         return WARN, detail + f'; {len(uncalibrated)} not yet servo-swept, judged on the profile settings', \
             {'results': results}

@@ -218,8 +218,15 @@ def test_a_complete_check_of_a_healthy_robot_is_a_go_and_is_saved(runs, loopback
                                                             'friction': .4, 'calibrated': True}}}
     check.record_live(saved, 'left', passing)
     assert saved['verdict'] == 'incomplete' and 'right arm' in saved['summary'] and 'left arm' not in saved['summary']
-    check.record_live(saved, 'right', {'right_arm_j1': passing['left_arm_j1']})
+    # A gripper's check is its travel, from its swept min to its swept max and back: no lag, never servo-swept.
+    gripper = {'label': 'Right gripper', 'check': {
+        'passed': True, 'reasons': [], 'lag': None, 'friction': None, 'calibrated': None,
+        'travel': {'open': {'reached': True, 'seconds': 3.1}, 'close': {'reached': True, 'seconds': 3.4}}}}
+    check.record_live(saved, 'right', {'right_arm_j1': passing['left_arm_j1'], 'right_gripper': gripper})
     assert saved['verdict'] == 'go', saved['summary']
+    entry = next(c for stage in saved['stages'] for c in stage['checks'] if c['id'] == 'sweep_right')
+    assert entry['status'] == 'pass' and 'Right gripper opened and closed its whole travel (3.1 s, 3.4 s)' in \
+        entry['detail'] and 'followed within half their tracking bound' in entry['detail']
     assert check.latest_report(runs)['verdict'] == 'go'  # Saved over the same file.
     failing = {'right_arm_j5': {'label': 'Right wrist J5', 'check': {
         'passed': False, 'reasons': ['friction 0.41 Nm, up from 0.12 when swept'], 'lag': .02, 'friction': .41,
@@ -361,12 +368,14 @@ def test_the_servo_calibration_is_checked_against_the_motors_it_was_swept_with(r
     monkeypatch.setattr(servo_calibration, 'servo_path', lambda profile, asset: path)
     _report, checks, _ = run(runs, FakeRobot(), motors=False)
     assert checks['servo']['status'] == 'warn' and 'Tune tab' in checks['servo']['detail']
+    # Grippers are not swept (they squeeze what they hold): the live joint sweep opens and closes them instead.
     joints = {m['name']: {'uid': m['uid'], 'firmware': m['firmware'], 'hold_kp': 10., 'hold_kd': 1.}
-              for m in REFERENCE['motors']}
+              for m in REFERENCE['motors'] if not m['name'].endswith('_gripper')}
     path.write_text(json.dumps({'schema': 1, 'kind': 'servo_calibration', 'updated_at': '2026-09-27T00:00:00',
                                 'joints': joints}))
     _report, checks, _ = run(runs, FakeRobot(), motors=False)
-    assert checks['servo']['status'] == 'pass' and 'All 14 joints' in checks['servo']['detail']
+    assert checks['servo']['status'] == 'pass' and 'All 12 arm joints' in checks['servo']['detail']
+    assert 'grippers are checked by their travel' in checks['servo']['detail']
     assert checks['receiver']['status'] == 'pass'  # The receiver derives from it.
     joints['left_arm_j4'] = dict(joints['left_arm_j4'], uid='0000000000000000')
     path.write_text(json.dumps({'schema': 1, 'kind': 'servo_calibration', 'joints': joints}))

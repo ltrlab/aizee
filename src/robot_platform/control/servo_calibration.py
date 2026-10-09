@@ -70,11 +70,14 @@ def save_servo(path, *, asset_id, reference, results, motors, session, existing=
     return document
 
 
-def coverage(document, reference):
-    """(calibrated, missing, changed) motor names: changed = swept with another motor or firmware."""
+def coverage(document, reference, *, skip=()):
+    """(calibrated, missing, changed) motor names: changed = swept with another motor or firmware. Motors in
+    `skip` (the grippers, which are not swept) count in none of them."""
     joints = (document or {}).get('joints') or {}
     calibrated, missing, changed = [], [], []
     for motor in reference['motors']:
+        if motor['name'] in skip:
+            continue
         entry = joints.get(motor['name'])
         if entry is None:
             missing.append(motor['name'])
