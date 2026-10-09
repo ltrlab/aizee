@@ -416,11 +416,58 @@
       "max_velocity": 2.5,
       "stop_acceleration": 32.0,
       "max_tracking_error": 0.0567214455320163
+    },
+    "left_arm_j5": {
+      "uid": "3e4330021c40b614",
+      "firmware": "0.2.3.34",
+      "confirmed_at": "2026-10-09T03:00:50.828824+00:00",
+      "session": "~/minerva/evidence/sweep-20261009T023936Z",
+      "control": "interpolated-feedforward",
+      "measured": {
+        "torque": {
+          "gravity_max": 0.1538888888889149,
+          "gravity_worst_at": -1.98,
+          "friction": 0.13090641524493518,
+          "span": [
+            -3.24,
+            3.24
+          ],
+          "gravity_fit": {
+            "A": 0.04870482940446575,
+            "C": -0.008398833717202387
+          },
+          "inertia": 0.0059874316792102875
+        },
+        "verified": {
+          "up": 3.259367896484375,
+          "down": 3.2661466135253905
+        },
+        "verification": {
+          "speed": 4.0,
+          "max_lag": 0.07286574158765857,
+          "span": [
+            -3.2661466135253905,
+            3.259367896484375
+          ],
+          "passed": true
+        }
+      },
+      "notes": [
+        "holding 0.28 Nm (gravity + friction) within 0.075 rad needs kp >= 3.8; settling within 0.015 rad against 0.13 Nm friction needs kp >= 8.7",
+        "stiffest passing stiffness 24",
+        "worst lag at 4.00 rad/s was 0.071 rad; tracking bound twice that (at least 0.03, at most the current 0.150)",
+        "the pass across the range lagged 0.073 rad; tracking bound 0.146"
+      ],
+      "hold_kp": 24.0,
+      "hold_kd": 2.424871130596428,
+      "max_velocity": 4.0,
+      "stop_acceleration": 32.0,
+      "max_tracking_error": 0.14573148317531714
     }
   },
   "asset_id": "minerva-production-01",
   "reference_id": "minerva-mechanical-reference-20261009",
-  "updated_at": "2026-10-09T02:39:35.820205+00:00",
+  "updated_at": "2026-10-09T03:00:50.828824+00:00",
   "gravity": {
     "right_arm_j2": {
       "A": 18.54593243140831,
@@ -521,6 +568,16 @@
       ],
       "session": "~/minerva/evidence/sweep-20260930T033028Z",
       "measured_at": "2026-09-30T03:41:55.190351+00:00"
+    },
+    "left_arm_j5": {
+      "A": 0.04870482940446575,
+      "C": -0.008398833717202387,
+      "span": [
+        -3.24,
+        3.24
+      ],
+      "session": "~/minerva/evidence/sweep-20261009T023936Z",
+      "measured_at": "2026-10-09T03:00:50.828824+00:00"
     }
   }
 }
