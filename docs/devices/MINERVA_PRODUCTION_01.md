@@ -2927,3 +2927,33 @@ Reference revision `minerva-mechanical-reference-20261009` records it (see
 [mechanical reference](../MECHANICAL_REFERENCE.md)). The limits and servo
 calibration are re-bound to it unchanged. Next, after a deploy: Minerva Check,
 then the left J3 sweep again with the gripper plugged in.
+
+### 2026-10-09 — left arm sweeps on the repaired harness: no dropouts
+
+After the re-zero and a deploy (release `20261009T021255Z-5aab704`), Minerva
+Check's stopped stages all passed. The left arm was then swept joint by joint,
+with the gripper plugged in. No drive dropped out or faulted in any sweep, J5
+included: J5 had tripped three times on the old connector.
+
+- **Left J3** (`sweep-20261009T021449Z`) followed its whole range and every speed
+  to 1.0 rad/s, lagging 0.016 rad or less. At 1.2 rad/s, braking toward its
+  −2.05 rad end, the receiver stopped the arm on `collision_expired`. The sweep
+  loop on the Jetson sent no fresh command within the 80 ms verdict, and the
+  receiver timing was clean. The sweep lowered the arm and disabled it. Nothing
+  was saved. The loop now logs late cycles (`slow-cycles.jsonl`, commit
+  `b74a62e`) for the re-run.
+- **Left J4** (`sweep-20261009T022846Z`) saved: kp 50, kd 1.4, 2.5 rad/s,
+  32 rad/s², bound 0.057 rad, gravity A 2.73 Nm. It verified across its whole
+  saved range at 2.5 rad/s, with 0.028 rad lag.
+- **Left J5** (`sweep-20261009T023936Z`) saved: kp 24, kd 2.42, 4 rad/s,
+  32 rad/s², bound 0.146 rad. It verified across ±3.26 rad at 4 rad/s, with
+  0.073 rad lag.
+- **Left J6** (`sweep-20261009T030051Z`) saved: kp 24, kd 0.87, 4 rad/s,
+  32 rad/s², bound 0.082 rad. It verified across its range at 4 rad/s, with
+  0.041 rad lag.
+- **Left gripper** (`sweep-20261009T031050Z`) not saved. It hardly moved: it read
+  0.024–0.037 rad throughout, while commanded −0.065 to +0.124 rad, pushing up to
+  0.3 Nm. Every stiffness rung (5 down to 0.6) "overshot", and the verification
+  failed. Either the jaw binds or the sweep's gripper gains are too weak for
+  its static friction. This was the first gripper sweep; the right gripper has
+  none either.
