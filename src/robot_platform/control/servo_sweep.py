@@ -68,6 +68,9 @@ DEFAULTS = {
     # speed it follows, and a stiff, lightly damped step peaks at about its size times its natural frequency.
     'speed_headroom': .8,  # Speeds (tested, verified, checked) at most this share of the cap.
     'max_step_rad': .03,  # Step tests no larger than this (J6 stepped 0.029 rad cleanly up to kp 24).
+    # A setting whose torque ripples more than this at rest (std, Nm) buzzes: damping turns the drive's noisy speed
+    # reading into torque (the J2s at kd 21-29 rippled 0.14-0.21 Nm and buzzed, J3 at kd 3.5 0.04; 2026-10-09).
+    'ripple_nm': .1,
 }
 JOINT_KEYS = ('kp_ceiling', 'speed_ceiling', 'bound_ceiling')
 PERIOD_S = .04
@@ -86,6 +89,10 @@ CHUNK_ROWS = 256  # The recording keeps rows in chunks of about this many (a res
 GRIPPER_TRAVEL_SPEED = 2.
 GRIPPER_TRAVEL_S = 8.
 GRIPPER_REACHED_SHARE = .95
+# Back at its reference a gripper is closed at its stiffest gain for this long: at its profile's stiffness it rests
+# friction over stiffness short (0.2 rad for the left one's 0.4 Nm at kp 2, 2026-10-09), past a live start's
+# 0.1 rad gate; at kp 5 about 0.08 rad.
+GRIPPER_CLOSE_S = 1.
 
 
 def sweep_settings(profile, motor):
@@ -719,12 +726,16 @@ class SweepEngine:
         for name in moving:
             self.velocity[name], self.targets[name] = 0., self.home[name]
         yield from self._hold(self.current, self.settings[self.current]['rest_s'])
+        for name in moving:
+            if self.limits[name].get('gripper'):
+                yield from self._close_firmly(name)
         self.current = None
 
     def _pinned(self, motor, start):
-        """Whether a returning joint's command leads where it is by its lead cap: the plan waits for it."""
+        """Whether a returning joint's command leads where it is by its lead cap: the plan waits for it. Never a
+        gripper: it trails its command (by its friction over its stiffness at rest), as in teleop."""
         q = self.measured(motor)
-        if q is None:
+        if q is None or self.limits[motor].get('gripper'):
             return False
         direction = 1 if self.home[motor] > start[motor] else -1
         return (self.targets[motor] - q) * direction >= self._lead(motor, direction, q)
@@ -931,7 +942,8 @@ class SweepEngine:
                 report.holds[kp] = holding.get('error') if ok else None
         gains = analysis.recommend(motor, torque=report.torque, grid=report.grid, holds=report.holds, speeds=[],
                                    decelerations=[], bound=bound, tolerance=self._tolerance(motor),
-                                   profile_gains={'kp': kp_ref, 'kd': kd_ref}, gravity_fed=fed)
+                                   profile_gains={'kp': kp_ref, 'kd': kd_ref}, gravity_fed=fed,
+                                   ripple_limit=settings['ripple_nm'])
         chosen = (gains['hold_kp'], gains['hold_kd'])
         # 3. Speeds, then braking, at the chosen gains.
         yield from self._stiffen(motor, chosen)
@@ -980,7 +992,7 @@ class SweepEngine:
         report.recommendation = analysis.recommend(
             motor, torque=report.torque, grid=report.grid, holds=report.holds, speeds=report.speeds,
             decelerations=report.decelerations, bound=bound, tolerance=self._tolerance(motor),
-            profile_gains={'kp': kp_ref, 'kd': kd_ref}, gravity_fed=fed)
+            profile_gains={'kp': kp_ref, 'kd': kd_ref}, gravity_fed=fed, ripple_limit=settings['ripple_nm'])
         # 4. Verify the whole verified range at the recommended settings. The pass across the range is the
         # last word on lag: over half the bound, it steps down to the next slower tested speed (twice at most).
         recommendation = report.recommendation
@@ -1128,6 +1140,19 @@ class SweepEngine:
         result.update(reached=nearest is not None and abs(end - nearest) <= tolerance,
                       seconds=round(cycles * self.period, 2), position=nearest)
 
+    def _close_firmly(self, motor):
+        """A gripper at its reference (closed), pushed there at its stiffest gain for GRIPPER_CLOSE_S, so it rests
+        inside a live start's gate; then its profile's stiffness, which friction holds it against."""
+        self.targets[motor], self.velocity[motor] = self.home[motor], 0.
+        kp, kd = self.test_gains.get(motor, self.gains[motor])
+        stiffest = self.limits[motor]['max_kp']
+        steps = self._cycles(GAIN_RAMP_S)
+        for k in range(1, steps + 1):
+            self.test_gains[motor] = (kp + (stiffest - kp) * k / steps, kd)
+            yield
+        yield from self._hold(motor, GRIPPER_CLOSE_S)
+        self.test_gains[motor] = (kp, kd)
+
     def _verify_gripper(self, motor, report):
         """Minerva Check's live sweep of a gripper: open from its swept min to its swept max, close again, each
         end reached in time. No stiffness, lag or friction test: it is not swept."""
@@ -1155,7 +1180,8 @@ class SweepEngine:
                                f'{GRIPPER_TRAVEL_S:g} s ({got})')
         self._task(f'{self._label(motor)}: back to the reference')
         yield from self._travel(motor, home, tolerance, {})
-        yield from self._hold(motor, self.settings[motor]['rest_s'])
+        yield from self._close_firmly(motor)
+        travel['rest'] = self.measured(motor)
         report.verification = {'travel': travel, 'span': (ends['close'], ends['open']), 'passed': not reasons}
         report.check = {'passed': not reasons, 'reasons': reasons, 'lag': None, 'friction': None,
                         'speed': GRIPPER_TRAVEL_SPEED, 'calibrated': None, 'travel': travel}
@@ -1176,9 +1202,11 @@ class SweepEngine:
     def _best_damping(self, report, kp):
         entries = [e for e in report.grid if e['kp'] == kp and not e['failed'] and e['steps']
                    and all(s and s['settle_s'] is not None for s in e['steps'])]
+        limit = self.settings[report.motor]['ripple_nm']
+        quiet = [e for e in entries if (e.get('ripple') or {}).get('std', 0.) <= limit]  # Not buzzing at rest.
         if not entries:
             return None
-        return analysis.best_damping(entries)['kd']
+        return analysis.best_damping(quiet or entries)['kd']
 
     # -- tests ---------------------------------------------------------------------------------
 
@@ -1189,8 +1217,10 @@ class SweepEngine:
         try:
             yield from self._hold(motor, settings['rest_s'])
             noise = yield from self._measure(motor, 'hold', self._hold(motor, settings['rest_s']), position=home)
-            if entry.get('noise') is None and noise.rows is not None and len(noise.rows):
-                entry['noise'] = analysis.speed_noise(noise.rows, index)
+            if noise.rows is not None and len(noise.rows):
+                entry['ripple'] = analysis.effort_ripple(noise.rows, index)
+                if entry.get('noise') is None:
+                    entry['noise'] = analysis.speed_noise(noise.rows, index)
             for target in (home + step, home, home - step, home):
                 start = self.targets[motor]
 
@@ -1347,6 +1377,7 @@ class SweepEngine:
                                                                'gravity_fit')}
                 | ({'inertia': report.torque['inertia']} if 'inertia' in report.torque else {}),
                 'grid': [{k: e.get(k) for k in ('kp', 'kd', 'multiplier', 'failed')}
+                         | {'ripple': (e.get('ripple') or {}).get('std')}
                          | {'overshoot': max((s['overshoot'] for s in e['steps'] if s), default=None),
                             # None: a step never came to rest.
                             'settle_s': (max(s['settle_s'] for s in e['steps'])
@@ -1356,7 +1387,8 @@ class SweepEngine:
                                                  if s and s['steady_error'] is not None), default=None),
                             'ramp_lag': (e.get('ramp') or {}).get('max_lag'),
                             'why_not': (analysis.grid_check(e, tolerance=self._tolerance(motor),
-                                                            limit=.5 * self.limits[motor]['max_tracking_error'])
+                                                            limit=.5 * self.limits[motor]['max_tracking_error'],
+                                                            ripple_limit=self.settings[motor]['ripple_nm'])
                                         or (None, None))[1]} for e in report.grid],
                 'holds': {str(kp): error for kp, error in report.holds.items()},
                 'speeds': report.speeds, 'decelerations': report.decelerations,

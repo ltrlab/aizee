@@ -365,7 +365,7 @@ def run_gripper_check(static, coupling=None):
 
 
 def test_minerva_check_opens_and_closes_a_gripper_across_its_swept_travel_without_tuning_it():
-    engine, plant = run_gripper_check(static=.3)
+    engine, plant = run_gripper_check(static=.4)  # The left one's: it rests 0.2 rad short at kp 2.
     check = engine.summary()['left_gripper']['check']
     assert engine.task == 'finished' and check['passed'], check['reasons']
     travel = check['travel']
@@ -375,7 +375,8 @@ def test_minerva_check_opens_and_closes_a_gripper_across_its_swept_travel_withou
     assert travel['close']['position'] == pytest.approx(-.02, abs=.27)
     assert 0 < travel['open']['seconds'] < 2.6 + 8 and check['lag'] is None and check['calibrated'] is None
     assert plant.fastest['left_gripper'] < 4.  # Its command moves at 2 rad/s: no lunge at the far end.
-    assert abs(plant.state['left_gripper'][0]) < .2  # Back at its reference.
+    # Back at its reference and closed at its stiffest gain (kp 5): inside a live start's 0.1 rad gate.
+    assert abs(plant.state['left_gripper'][0]) < .1 and abs(travel['rest']) < .1
     # A jammed gripper fails, saying why: the effort guard stops it pushing ever harder.
     engine, _plant = run_gripper_check(static=50.)
     check = engine.summary()['left_gripper']['check']
@@ -757,6 +758,16 @@ def test_a_return_brings_the_whole_arm_home_together_along_one_line_slowly():
     slow = sweep_settings(PROFILE, 'right_arm_j1')['characterize_speed']
     assert plant.fastest['right_arm_j1'] < 1.5 * slow and plant.fastest['right_arm_j6'] < slow
     assert not engine.summary()
+
+
+def test_a_return_closes_an_open_gripper_without_waiting_for_it():
+    # The left gripper rested 0.19 rad open (2026-10-09): a return trails it, as teleop does, then closes it at its
+    # stiffest gain, so the next live start's 0.1 rad gate passes. Waiting for it at a lead cap stalled the return.
+    joints, plant, gains = gripper(static=.4)
+    plant.state['left_gripper'][0] = .19
+    engine, _moving = run_return(joints, plant, gains, {'left_gripper': .19}, seconds=30)
+    assert engine.task == 'finished' and not engine.events, engine.events
+    assert abs(plant.state['left_gripper'][0]) < .1
 
 
 def test_a_wrist_dragged_by_the_shoulders_harness_returns_with_it():

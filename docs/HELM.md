@@ -80,6 +80,8 @@ tab afterwards. A check whose prerequisite failed is skipped, not guessed:
    (it squeezes what it holds): its command moves at 2 rad/s from its swept min
    to its swept max and back, trailing it as in teleop, and it passes when it
    covers 95% of that travel each way within 8 s of its command getting there.
+   It ends closed at its stiffest gain, as a return does, so it rests inside the
+   next live start's 0.1 rad gate.
    A gripper pushing ever harder (jammed) is stopped by the effort guard and
    fails.
 
@@ -579,7 +581,10 @@ isn't within 0.1 rad of its reference.
    characterisation speed (0.15 rad/s). The line is checked against the
    collision model first, from the arm's actual pose. The plan waits for any
    joint that falls behind its lead cap, and stops if one stays behind for 3 s.
-   The arm is then disabled at its reference.
+   A gripper is never waited for: it trails its command, as in teleop. Once
+   there, a gripper is closed at its stiffest gain (kp 5) for 1 s. At its
+   profile's stiffness, its friction stops it about 0.2 rad short, outside a
+   live start's 0.1 rad gate. The arm is then disabled at its reference.
 
    The joints move together because they can be coupled. On 2026-09-30 the
    right arm's wrist rested 0.58 rad off, dragged there by a harness that a
@@ -597,11 +602,14 @@ since 2026-09-30.
 
 **What it chooses**, per joint, with the reasons shown on its card:
 - **Stiffness**: the stiffest rung that passes, since it follows and holds
-  best. Its steps must not overshoot by more than 10% and must come to rest
-  within half the tolerance, and it must hold the joint's load within half the
-  tracking bound: friction plus gravity, or with gravity fed forward, 20% of
-  it (the model's error).
-- **Damping**: the ratio with the quickest settling at that stiffness.
+  best. It must hold still quietly: torque ripple at rest at most 0.1 Nm (std).
+  Damping turns the drive's noisy speed reading into torque: the J2s rippled
+  0.14 to 0.21 Nm at kd 21 to 29 and buzzed. Its steps must not overshoot by
+  more than 10% and must come to rest within half the tolerance, and it must
+  hold the joint's load within half the tracking bound: friction plus gravity,
+  or with gravity fed forward, 20% of it (the model's error).
+- **Damping**: the ratio with the quickest settling at that stiffness, among
+  those that hold quietly.
 - **Speed and braking**: the highest tested speed that every direction
   followed, and the highest deceleration, with at most half the tracking bound
   of lag. A short joint runs out of room to test its faster speeds; when every
