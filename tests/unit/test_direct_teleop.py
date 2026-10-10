@@ -10,6 +10,36 @@ from robot_platform.teleop.openrb import LeaderSample, LeaderSampleSkipped
 from robot_platform.teleop.lifecycle import TeleopLifecycle
 
 
+def test_direct_cache_owns_feedback_without_copying_recorder_history():
+    from types import SimpleNamespace
+    from robot_platform.teleop.direct_lifecycle import DirectLifecycleSession
+    class RecorderOnly:
+        def __deepcopy__(self, memo):
+            raise AssertionError('Recorder history entered the control cache')
+    raw = dict(position=.2, velocity=.1, effort=0., sequence=1, sampled_at_ms=90, fault=False)
+    reply = dict(status=dict(now_ms=100))
+    snapshot = dict(reply=reply, status=reply['status'], feedback=[raw], recent=RecorderOnly())
+    session = DirectLifecycleSession.__new__(DirectLifecycleSession)
+    session.controller = SimpleNamespace(joint_names=('q',))
+    session.snapshot, session.clock, session._samples = lambda: snapshot, lambda: 10.002, None
+    _, rows, feedback = session._cache(reply, 10.)
+    assert rows[0]['sampled_at'] == pytest.approx(9.99)
+    assert session._offer_received == 10.002
+    raw['position'] = .3
+    assert feedback[0]['position'] == .2
+    assert session._samples[1][0]['position'] == .2
+    with pytest.raises(ValueError, match='without a new sequence'):
+        session._cache(reply, 10.01)
+
+
+def test_direct_cache_rejects_mismatched_reply_before_reading_feedback():
+    from robot_platform.teleop.direct_lifecycle import DirectLifecycleSession
+    session = DirectLifecycleSession.__new__(DirectLifecycleSession)
+    session.snapshot = lambda: dict(reply={'status': {'now_ms': 99}}, status={'now_ms': 99})
+    with pytest.raises(ValueError, match='same receiver reply'):
+        session._cache({'status': {'now_ms': 100}}, 10.)
+
+
 def test_zero_interpolation_keeps_acceleration_and_velocity_feedforward():
     joint = dict(name='q', lower=-2., upper=2., hold_kp=10., hold_kd=1., max_velocity=1.,
                  align_speed=.1, shutdown_speed=.1, max_lead=.2, tolerance=.01,

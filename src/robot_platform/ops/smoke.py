@@ -17,13 +17,14 @@ def run(root):
     import msgpack
     import numpy
     import scipy
+    import zmq
     from robot_platform.control.joint_calibration import load_plan
     from robot_platform.simulation.control_harness import NativeControlHarness
     from robot_platform.simulation.native_collision import NativeCollisionBackend
     from robot_platform.simulation.runtime_model import RuntimeCollisionModel
     report = {'release': manifest['id'], 'commit': manifest['source']['commit'],
               'python': sys.version.split()[0], 'numpy': numpy.__version__, 'scipy': scipy.__version__,
-              'msgpack': '.'.join(map(str, msgpack.version))}
+              'msgpack': '.'.join(map(str, msgpack.version)), 'pyzmq': zmq.__version__}
     _plan, _paths, _device, _reference, model, pose, _bindings = load_plan(root / CALIBRATION)
     runtime = RuntimeCollisionModel(model.profile)
     if not runtime.kinematics_only:

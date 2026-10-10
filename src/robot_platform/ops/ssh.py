@@ -7,11 +7,23 @@ key fingerprint. Nothing here runs a command with elevated privileges.
 import base64
 import hashlib
 import json
+import os
 from pathlib import Path
 import socket
 
 DEFAULT_PROFILE = Path(__file__).resolve().parents[3] / 'config/devices/minerva-joint-calibration.json'
 TETHER = '10.42.0.1'  # USB Ethernet tether; the control path never uses Wi-Fi.
+
+
+def key_file(connection, directory):
+    """Explicit per-process key override for isolated worktrees; never discover or copy keys."""
+    override = os.environ.get('AIZEE_SSH_KEY_FILE')
+    if override is not None:
+        path = Path(override).expanduser().resolve()
+        if not override.strip() or not path.is_file():
+            raise FileNotFoundError('AIZEE_SSH_KEY_FILE must name an existing private key file')
+        return path
+    return (Path(directory) / connection['key_file']).resolve()
 
 
 def robot_identity(profile_path=DEFAULT_PROFILE):
@@ -38,7 +50,7 @@ def connect(profile_path=DEFAULT_PROFILE, *, address=TETHER, timeout=8.):
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(PinnedHost())
     client.connect(address or device['address'], username=connection['username'],
-                   key_filename=str((directory / connection['key_file']).resolve()),
+                   key_filename=str(key_file(connection, directory)),
                    look_for_keys=False, allow_agent=False, timeout=timeout, auth_timeout=timeout,
                    banner_timeout=timeout)
     try:

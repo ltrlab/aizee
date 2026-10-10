@@ -36,22 +36,26 @@ class DirectLifecycleSession(GuardedLifecycleSession):
         self.command_ms = config['direct']['command_ms']
 
     def _cache(self, reply, started):
-        sample = deepcopy(self.snapshot())
+        sample = self.snapshot()
         if sample['reply'] != reply or sample['status'] != reply['status']:
             raise ValueError('Feedback must be from the same receiver reply')
+        # The synchronous transport owns this completed result. Only feedback
+        # enters the next control cycle; recorder history and duplicate status
+        # trees stay in the recording path. Keep an owned copy of the feedback.
+        feedback = deepcopy(sample['feedback'])
         # Stamp conservatively at request start, not reply arrival. Never refresh
         # the cached sample's age on a later loop iteration.
-        rows = self._rows(reply, sample['feedback'], started)
+        rows = self._rows(reply, feedback, started)
         if self._samples is not None:
             old_rows, old_feedback = self._samples
-            for row, raw, old, previous in zip(rows, sample['feedback'], old_rows, old_feedback):
+            for row, raw, old, previous in zip(rows, feedback, old_rows, old_feedback):
                 if row['sequence'] == old['sequence']:
                     if any(raw[k] != previous[k] for k in ('position', 'velocity', 'sampled_at_ms')):
                         raise ValueError('Receiver feedback changed without a new sequence')
                     row['sampled_at'] = old['sampled_at']
-        self._samples = (deepcopy(rows), deepcopy(sample['feedback']))
+        self._samples = (deepcopy(rows), deepcopy(feedback))
         self._offer_received = self.clock()
-        self._cached = (reply, rows, sample['feedback'])
+        self._cached = (reply, rows, feedback)
         return self._cached
 
     def _offer(self):

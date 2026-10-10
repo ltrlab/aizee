@@ -159,11 +159,13 @@ Both Python and Rust must be updated together; no old-receiver fallback exists.
 After the qualification ladder, select the profile from this checkout:
 
 ```powershell
-.\scripts\helm.ps1 -TeleopProfile config/devices/minerva-teleop-direct.json
+.\scripts\helm.ps1 -TeleopProfile config/devices/minerva-teleop-direct.json -SshKeyFile C:/Users/ltr/Workspace/ssh-keys/aizee_rover_id
 ```
 
-The launcher keeps its existing operator Python environment selection. Use an
-editable install from this checkout, not another feature's environment. This
+The launcher selects this checkout's `.venv-dev`, falling back only to its
+`.venv-platform`, and rejects an editable import from a different checkout.
+`-SshKeyFile` uses an explicitly supplied existing key without copying it; it
+restores the previous process environment on exit. This
 profile deliberately cannot run servo tuning; the original profile owns that
 existing workflow. Saved range scaling/sign/offset mapping is preserved, so
 "direct" does not promise a 1:1 leader/follower angular ratio. Existing gains and
@@ -203,11 +205,91 @@ sudo ip link set vcanDirectR up
 .venv-dev/bin/python scripts/benchmark_direct_teleop.py --backend vcan --binary rust/target/release/guarded_controller --hz 100 --cycles 3000 --output simulation_runs/direct-vcan-100hz-new
 ```
 
-The benchmark also checks producer-silence expiry and emergency stop. Broader
-fault injection currently lives in deterministic receiver/lifecycle contracts;
-it must still be exercised against Linux service scheduling. Evaluate `--hz 200`
+The benchmark also exercises producer-silence expiry, command/consumed-offer
+replay, expired source validity, requested stop, stale feedback and emergency
+stop against independently ticking Linux vcan. Processing, scheduling and fault
+acceptance are separate report fields. Evaluate `--hz 200`
 separately; that option does not promote the default profile to 200 Hz.
 
 Current verification and remaining platform work are recorded in
 [development status](../DEVELOPMENT_STATUS.md). No physical service, deployment
 or robot motion was started by this implementation task.
+
+## Live trial preparation, 2026-10-10
+
+The candidate is prepared for an **attended left-arm trial after activation and
+stopped motor checks**. Dual-arm timing qualification remains blocked. This is
+not approval for unattended operation or evidence of physical tracking accuracy.
+
+The Jetson at `10.42.0.1` passed host-key and machine-id verification. Qualification
+ran under `/home/ltr/minerva/validation/direct-20261010`; its pristine `release/`
+is separate from `qualification/`, which adds benchmark fixtures. Both have
+verified manifests; the latter also has an externally stored source manifest.
+The active `/home/ltr/minerva/current` was not changed. **`check --remote-root`
+selects preflight only; Helm still executes the active release.** Do not launch
+the direct profile against the old active receiver.
+
+The complete-loop benchmark, `scripts/benchmark_direct_loop.py`, runs actual
+TeleopCore/run_loop, recorder and UI construction. Its virtual motor emulator
+runs in a separate process so application garbage collection cannot pause CAN
+feedback. It preserves the first failed receiver result before cleanup and uses
+a bounded, separately reported drain phase to observe the last measured target
+before H/X. It never substitutes success for missing application observations.
+
+Measured results on the Jetson, at 100 Hz:
+
+| Workload | Measured following updates | Full-loop p99 | Following deadline misses | Result |
+|---|---:|---:|---:|---|
+| Synthetic 14-joint receiver/transport only | 3000/3000 | Not measured; RPC path 2.88 ms | 0 | Linux vcan timing and fault checks passed |
+| Synthetic left arm, saved operator mapping | 1000/1000 | 4.83 ms | 0 | Completed X return/disable |
+| Real USB + tether, left arm, harness | 1000/1000 | 4.75 ms | 0 | Software harness only |
+| Real USB + tether, left arm, independent vcan | 1000/1000 | 6.46 ms | 0 | All target applications observed; X return/disable |
+| Synthetic both arms, final candidate | 1604/3000 accepted | 6.41 ms before failure | 1 | Command expired after an overrun; incomplete |
+
+The real-leader vcan test includes recording/UI work, with 911 unique consumed
+leader samples (about 91 Hz), 25.60 ms p99 conservative fresh-source age, and
+3 ms p99 receiver acceptance-to-application. Leaders were nearly stationary;
+this does not measure physical motion-onset latency or moving-leader tracking.
+Repeated samples held position with zero velocity feedforward and kept their
+original age. The direct command/feedback/source windows were not widened.
+
+The dual-arm failure is retained in `build/direct-qualification/full-loop-vcan-both-r4/`.
+An earlier diagnostic isolated unnecessary whole-result deep copies (including
+recorder history): 1.34 ms median on the Jetson. DirectLifecycleSession now copies
+only the feedback it retains, preserving same-reply validation, sample ownership,
+duplicate checks and conservative timestamps. The resulting p99 improved, but
+one 10.00 ms cycle still skipped a slot and the anchored command expired. Keep
+dual-arm live trials blocked until the full workload passes a longer run; do not
+widen watchdogs to hide the failure. The saved trace is the next reproducer.
+
+Operator evidence was copied from the original checkout, not re-seeded. Two raw
+binding hashes differed solely due to CRLF/LF conversion; byte equality after
+normalization and JSON equality were verified, with old/new hashes retained in
+`build/direct-qualification/operator-evidence.json`. Route definitions match,
+and all 14 saved route signs/history were copied for the direct profile. The
+original calibration files and original overhaul edits are unchanged.
+
+Software-only preflight passed all applicable checks, including direct receiver
+configuration validation for 7/7/14 joints, dependency smoke, correct local/remote
+files, pinned adapters and absence of another motor owner. Motor reads and live
+sweeps were skipped, so Minerva Check correctly remains **INCOMPLETE**.
+
+After the deployment owner activates the verified candidate:
+
+1. Run Minerva Check with the direct profile and the operator present. Resolve
+   stopped motor identity, position/range and reference-pose checks first.
+2. Launch the command above from the feature worktree. Select **Jetson → Live
+   left arm**, with the robot in its reference pose and the foot switch in reach.
+3. Start the session, use I → E → T, and make a small movement of one leader joint
+   at a time. Check sign, lag, overshoot and limit behavior in the saved trace.
+4. Test T hold/re-engage and X return/disable; use H or the foot switch if immediate
+   disable is needed. Stop on a fault; do not restart repeatedly without inspecting
+   the first receiver reason and desired/commanded/measured records.
+
+Servo tuning/live sweep belongs to `minerva-teleop.json`; direct mode intentionally
+does not run Tune. Physical servo qualification and direct-law tracking evidence
+remain separate. Do not interpret a generic Check result as direct-law approval.
+
+Evidence aggregate: `build/direct-qualification/live-readiness.json`. The full
+Jetson archive is `build/direct-qualification/readiness-evidence.tar.gz`, including
+failed trials, stage profiling, namespace proof and the real-leader runner scripts.

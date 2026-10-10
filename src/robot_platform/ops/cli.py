@@ -43,9 +43,17 @@ def check_main(argv=None):
                     'the Jetson\'s release and health, and reads every motor while it stays disabled.')
     parser.add_argument('--address', default=TETHER, help=f'robot address (default: the tether, {TETHER})')
     parser.add_argument('--runs', type=Path, help='evidence directory (default: calibration_runs)')
+    parser.add_argument('--profile', type=Path, help='Device calibration profile to validate')
+    parser.add_argument('--teleop', type=Path, help='Teleop profile to validate, including explicit direct mode')
+    parser.add_argument('--limits', type=Path, help='Saved joint limits (default: next to the calibration profile)')
+    parser.add_argument('--remote-root', help='Absolute Jetson candidate release directory; does not switch the active release')
     parser.add_argument('--no-motors', action='store_true', help='skip the stopped motor scan (verdict: incomplete)')
     args = parser.parse_args(argv)
-    from .check import DEFAULT_RUNS, run_check
+    from .check import CURRENT, DEFAULT_PROFILE, DEFAULT_RUNS, DEFAULT_TELEOP, remote_release_root, run_check
+    try:
+        selected_root = remote_release_root(args.remote_root) if args.remote_root is not None else CURRENT
+    except ValueError as exc:
+        parser.error(str(exc))
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(errors='replace')  # A redirected Windows console cannot encode every symbol.
     shown = set()
@@ -62,6 +70,7 @@ def check_main(argv=None):
 
     print('Minerva Check: motors stay disabled.', flush=True)
     report = run_check(address=args.address, runs=args.runs or DEFAULT_RUNS, motors=not args.no_motors,
-                       publish=publish)
+                       profile=args.profile or DEFAULT_PROFILE, teleop=args.teleop or DEFAULT_TELEOP,
+                       limits=args.limits, remote_root=selected_root, publish=publish)
     print(f"\n{report['summary']}\nEvidence: {report['evidence']}", flush=True)
     return 0 if report['verdict'] == 'go' else 1

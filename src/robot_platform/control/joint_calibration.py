@@ -227,6 +227,7 @@ class SshCapture:
     """Stage only the stopped reader and pin the SSH host by fingerprint."""
     def __init__(self, connection, device, reference, plan_directory):
         import paramiko
+        from robot_platform.ops.ssh import key_file
         expected = connection['host_key_sha256']
         class PinnedHost(paramiko.MissingHostKeyPolicy):
             def missing_host_key(self, client, hostname, key):
@@ -239,7 +240,7 @@ class SshCapture:
         self.device, self.reference = device, reference
         try:
             self.client.connect(device['address'], username=connection['username'],
-                key_filename=str((plan_directory / connection['key_file']).resolve()),
+                key_filename=str(key_file(connection, plan_directory)),
                 look_for_keys=False, allow_agent=False, timeout=8, auth_timeout=8, banner_timeout=8)
             source = Path(__file__).parent
             files = {n: (source / n).read_bytes() for n in ('joint_capture.py', 'mechanical_zero.py')}

@@ -55,7 +55,7 @@ service cross-build passed; log: `build/direct-qualification/linux-build.log`.
 An expanded gate found one stale error-message assertion (240 other Python
 tests passed); that expectation was updated for the new explicit mode.
 
-Final required Windows gate: **251 Python tests, zero skips/xfails, and 111 Rust
+Earlier required Windows gate: **251 Python tests, zero skips/xfails, and 111 Rust
 tests passed** at `build/dev-check/20261010T171542Z-d2c7616e/report.json`. Source
 content was unchanged throughout that run. The focused new/affected subset also
 passed 32 tests (`build/direct-qualification/final-focused.xml`). Only these
@@ -77,17 +77,62 @@ failure remains evidence; its report did not retain the underlying receiver stop
 reason beyond `wrong_owner`. Benchmark failure recording now preserves that
 status before cleanup. No control threshold changed for the diagnostic rerun.
 
-These short samples establish synthetic receiver-path overhead only. Harness
+These earlier samples establish synthetic receiver-path overhead only. Harness
 application delay reads zero because application shares a logical tick with
-acceptance; this is not measured physical latency. The full live-loop 8 ms p99
-target has not been demonstrated. Keep the 100 Hz default; the 200 Hz run is an
-evaluation, not approval for deployment.
+acceptance; it is not measured physical latency. Keep the 100 Hz default; the
+200 Hz run is an evaluation, not approval for deployment.
 
-Linux vcan execution remains pending on a Linux development host: this Windows machine has
-no running Linux service environment. Jetson timing, unique real leader sample
-throughput and physical tracking qualification remain open. No deployment or
-motor command was performed. Collision optimization and physical-model
-identification are separate work; the integration branch has not been merged.
+### Direct teleop live-test preparation
+
+**Prepared for an attended left-arm trial after authorized activation and stopped
+motor checks. Dual-arm timing qualification remains blocked.** The wired Jetson
+is available at `10.42.0.1`; isolated user/network namespaces made actual Linux
+vcan testing possible without exposing physical CAN. Both leader USB boards were
+present. No physical CAN command, motor enable, service activation or active-release
+switch was performed; physical canL/canR remained DOWN.
+
+- Receiver vcan: 3000/3000 at 100 Hz, 2.88 ms p99 processing, zero deadline misses,
+  and replay/expiry/requested-stop/stale-feedback/emergency-stop checks passed.
+- Actual full loop, synthetic left-arm input: 1000/1000, 4.83 ms p99, zero following
+  misses; recorder/UI enabled and X return/disable completed.
+- Actual full loop with real USB leaders over the tether and independent vcan:
+  1000/1000, **6.46 ms p99**, max 8.89 ms, zero following deadline misses, one RPC
+  per cycle, all 1000 applications observed. 911 unique leader samples, about
+  91 Hz, with 25.60 ms p99 conservative fresh-source age. Leaders were nearly
+  stationary; this does not qualify moving-leader or physical tracking.
+- Dual-arm final candidate: 1604 updates accepted before one 10.00 ms overrun
+  skipped a slot and the receiver expired the anchored command. Its 6.41 ms p99
+  alone is insufficient for a pass. First divergence and all failed trials remain
+  in the evidence; no watchdog or timing acceptance was relaxed.
+
+Profiling found whole receiver-result copies in the direct feedback cache,
+including recorder history (1.34 ms median on Jetson). The cache now owns only
+the feedback it needs, retaining same-reply checks, source age and duplicate
+validation. The vcan fixture's motor emulator also moved to a separate process
+after application garbage collection caused a false feedback timeout. These
+are separate, evidenced fixes; the dual-arm outlier remains an open task.
+
+Final frozen-source Windows gate passed **403 Python tests, zero skips/xfails,
+and 111 Rust tests**. Evidence is
+`build/dev-check/20261010T175128Z-bdca2760/report.json`; the earlier expanded gate
+also passed 397 Python tests. Results are recorded in
+`build/direct-qualification/live-readiness.json`. Only documentation was updated
+after the final gate; tested runtime and benchmark sources stayed unchanged.
+
+The candidate under `/home/ltr/minerva/validation/direct-20261010/release` passed
+all software-only Minerva Check stages and receiver configuration validation for
+left/right/both. Motor reads and live sweeps were skipped, so Check is correctly
+INCOMPLETE. The active release remains `20261010T142650Z-a66afa7`; Helm still runs
+`current`, even when preflight used `--remote-root`. Candidate activation is a
+separate deployment-owner action before a physical trial.
+
+The launcher now verifies a checkout-owned Python import and supports an explicit
+existing SSH key. Saved operator signs/history were preserved in this worktree;
+two calibration binding differences were proved to be line-ending-only before
+copying. The original 11 dirty overhaul files and original evidence remain intact.
+See the [trial sequence and exact limitations](development/DIRECT_TELEOP.md#live-trial-preparation-2026-10-10).
+Aggregate and full Jetson evidence: `build/direct-qualification/live-readiness.json`
+and `build/direct-qualification/readiness-evidence.tar.gz`. Integration is not merged.
 
 ## Known limits
 

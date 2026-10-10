@@ -22,8 +22,9 @@ skipped; warnings are listed. Every run is saved as evidence.
 from copy import deepcopy
 from datetime import datetime, timezone
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import secrets
+import shlex
 import time
 
 from .deploy import BASE, smoke
@@ -65,13 +66,26 @@ def check(stage, key, title, requires=()):
     return register
 
 
+def remote_release_root(value):
+    """An explicit absolute Jetson directory, quoted separately when composing SSH commands."""
+    if (not isinstance(value, str) or not value or '\\' in value
+            or any(ord(character) < 32 or ord(character) == 127 for character in value)):
+        raise ValueError('Remote release root must be an absolute POSIX directory without control characters')
+    path = PurePosixPath(value)
+    if not path.is_absolute() or not path.name or '..' in path.parts:
+        raise ValueError('Remote release root must be an absolute directory below / without parent traversal')
+    return str(path)
+
+
 class Context:
     """Options plus what earlier checks found (plan, limits, SSH client, probe results)."""
 
-    def __init__(self, *, root, profile, teleop, runs, limits, address, motors, open_ssh):
+    def __init__(self, *, root, profile, teleop, runs, limits, address, motors, open_ssh, remote_root=CURRENT):
         self.root, self.profile, self.teleop = Path(root), Path(profile).resolve(), Path(teleop).resolve()
         self.runs, self.limits_path = Path(runs).resolve(), limits
         self.address, self.motors, self.open_ssh = address, motors, open_ssh
+        self.remote_root = remote_release_root(remote_root)
+        self.probe_command = f'cd {shlex.quote(self.remote_root)} && PYTHONPATH=src python3 -u -m robot_platform.ops.probe'
         self.client = None
         self.facts = {}
 
@@ -79,7 +93,7 @@ class Context:
         return self.facts.get('labels', {}).get(motor, motor)
 
     def probe(self, name, *, timeout=60.):
-        status, out, err = run(self.client, f'{PROBE} {name}', timeout=timeout)
+        status, out, err = run(self.client, f'{self.probe_command} {shlex.quote(name)}', timeout=timeout)
         if 'No module named robot_platform.ops.probe' in err:
             raise RuntimeError('The deployed release predates these checks. Deploy: scripts/deploy_minerva_arms.sh')
         try:
@@ -209,11 +223,12 @@ def _derive(ctx, arm=None, collision_bound=None):
         reference, steps, transmissions = arm_subset(reference, steps, transmissions, arm)
     # The derivation reads only identity revisions from the collision backend, so
     # skip the ~8 s CAD collision load here; the release smoke test loads the model.
-    revisions = SimpleNamespace(policy_revision='check', runtime_model=SimpleNamespace(revision='check',
-                                                                                        world_revision='check'))
+    profile = _teleop(ctx)
+    revisions = None if profile['receiver'].get('collision_mode') == 'disabled' else SimpleNamespace(
+        policy_revision='check', runtime_model=SimpleNamespace(revision='check', world_revision='check'))
     return derive_receiver(reference=reference, steps=steps, directions=ctx.facts['directions'],
                            transmissions=transmissions, model=ctx.facts['model'], limits=ctx.facts['limits'],
-                           profile=_teleop(ctx), backend=revisions, servo=ctx.facts.get('servo'),
+                           profile=profile, backend=revisions, servo=ctx.facts.get('servo'),
                            collision_bound=collision_bound)
 
 
@@ -261,18 +276,21 @@ def _ssh(ctx):
 
 @check('jetson', 'release', 'Deployed release', requires=('ssh',))
 def _release(ctx):
-    status, out, err = run(ctx.client, f'python3 - {CURRENT}', stdin=RELEASE_STATE)
+    status, out, err = run(ctx.client, f'python3 - {shlex.quote(ctx.remote_root)}', stdin=RELEASE_STATE)
     try:
         state = json.loads(out.strip().splitlines()[-1])
     except (ValueError, IndexError):
         state = {'error': err.strip()[-300:] or f'exit {status}'}
     if 'error' in state:
-        return FAIL, f"No usable release at {CURRENT} ({state['error']}). Deploy: scripts/deploy_minerva_arms.sh"
+        hint = ('Deploy: scripts/deploy_minerva_arms.sh' if ctx.remote_root == CURRENT
+                else 'Build and stage a verified candidate at that directory; the active release is unchanged.')
+        return FAIL, f"No usable release at {ctx.remote_root} ({state['error']}). {hint}"
     manifest = state['manifest']
     ctx.facts['release'] = manifest
     if state['problems']:
-        return FAIL, (f"{manifest['id']} was modified on the robot ({'; '.join(state['problems'][:3])}). "
-                      'Deploy again: scripts/deploy_minerva_arms.sh')
+        hint = ('Deploy again: scripts/deploy_minerva_arms.sh' if ctx.remote_root == CURRENT
+                else 'Rebuild and restage the selected candidate; the active release is unchanged.')
+        return FAIL, (f"{manifest['id']} was modified on the robot ({'; '.join(state['problems'][:3])}). " + hint)
     return PASS, f"{manifest['id']}: all {len(manifest['files'])} files match its manifest"
 
 
@@ -283,8 +301,10 @@ def _current(ctx):
     if drift:
         shown = ', '.join(item.split(' ', 1)[1].rsplit('/', 1)[-1] for item in drift[:4])
         more = f' and {len(drift) - 4} more' if len(drift) > 4 else ''
-        return FAIL, (f"The robot runs {manifest['id']}; {len(drift)} file(s) differ from this PC ({shown}{more}). "
-                      'Deploy: scripts/deploy_minerva_arms.sh'), {'drift': drift}
+        hint = ('Deploy: scripts/deploy_minerva_arms.sh' if ctx.remote_root == CURRENT
+                else 'Rebuild and restage the selected candidate; the active release is unchanged.')
+        return FAIL, (f"Selected release {manifest['id']}; {len(drift)} file(s) differ from this PC ({shown}{more}). "
+                      + hint), {'drift': drift}
     source = manifest['source']
     return PASS, (f"Same files as this PC · built from {source['commit'][:7]}"
                   + (' with uncommitted changes' if source['dirty'] else ''))
@@ -292,7 +312,7 @@ def _current(ctx):
 
 @check('jetson', 'smoke', 'Release smoke test', requires=('release',))
 def _smoke(ctx):
-    report = smoke(ctx.client, CURRENT)
+    report = smoke(ctx.client, ctx.remote_root)
     if not report.get('ok'):
         return FAIL, f"The smoke test failed on the robot: {report.get('error')}"
     return PASS, (f"Collision model loads in {report['load_ms']} ms, keep-out query p50 "
@@ -303,16 +323,18 @@ def _smoke(ctx):
 def _live_config(ctx):
     from robot_platform.control.commissioning import motor_models
     from robot_platform.control.live_receiver import service_config
-    live = _teleop(ctx).get('live')
+    profile = _teleop(ctx)
+    live = profile.get('live')
     if live is None:
         return WARN, 'The teleop profile has no live block, so live teleop is not available'
     models = motor_models(ctx.facts['device'], ctx.root)
+    direct = profile['receiver'].get('collision_mode') == 'disabled'
     directory = f'/tmp/minerva-check-{secrets.token_hex(4)}'
     problems = []
     try:
-        # Each arm on its bus, and both arms on both buses under the two-arm (motion) collision bound.
+        # Validate the selected policy on each arm and on the complete two-arm roster.
         for arm in ('left', 'right', 'both'):
-            derived = _derive(ctx, None, 'motion') if arm == 'both' else _derive(ctx, arm)
+            derived = _derive(ctx, None, None if direct else 'motion') if arm == 'both' else _derive(ctx, arm)
             reference = {'motors': [m for m in ctx.facts['reference']['motors']
                                     if m['name'] in {j['name'] for j in derived['config']['joints']}]}
             used = {m['bus'] for m in reference['motors']}
@@ -325,7 +347,8 @@ def _live_config(ctx):
             if status:
                 raise RuntimeError(f'Could not stage the {arm} arm configuration: {err.strip()}')
             # --validate parses and checks the configuration only: no socket, CAN or motor.
-            status, out, err = run(ctx.client, f'{CURRENT}/bin/guarded_controller {path} --validate', timeout=30)
+            binary = shlex.quote(f'{ctx.remote_root}/bin/guarded_controller')
+            status, out, err = run(ctx.client, f'{binary} {path} --validate', timeout=30)
             if status or 'configuration valid' not in out:
                 problems.append(f'{"both arms" if arm == "both" else arm + " arm"}: '
                                 f'{(err or out).strip()[-200:] or f"exit {status}"}')
@@ -333,10 +356,11 @@ def _live_config(ctx):
         run(ctx.client, f'rm -rf {directory}')
     if problems:
         return FAIL, 'The deployed receiver rejects: ' + '; '.join(problems)
-    return PASS, (f"Both arms' teleop-mode configurations pass the deployed receiver's validation: one bus each, "
-                  f"and both arms on both buses under the two-arm collision bound; watchdog identity and reference "
-                  f"position for every motor, collision policy, {live['reference_tolerance_rad']:g} rad reference "
-                  f"tolerance")
+    policy = ('explicit collision-disabled direct mode' if direct else 'the two-arm collision bound')
+    return PASS, (f"Both arms' {'teleop_direct' if direct else 'teleop'} configurations pass the deployed "
+                  f"receiver's validation: one bus each, and both arms on both buses under {policy}; "
+                  f"watchdog identity and reference position for every motor, "
+                  f"{live['reference_tolerance_rad']:g} rad reference tolerance")
 
 
 def health_findings(report, offset_s):
@@ -635,12 +659,13 @@ def verdict(report):
 
 
 def run_check(*, root=ROOT, profile=DEFAULT_PROFILE, teleop=DEFAULT_TELEOP, runs=DEFAULT_RUNS, limits=None,
-              address=TETHER, motors=True, publish=None, save=True, open_ssh=connect):
-    """Run every check in order; publish(report) after each change. Returns the final report."""
+              address=TETHER, motors=True, publish=None, save=True, open_ssh=connect, remote_root=CURRENT):
+    """Check the selected release without switching it; publish(report) after each change."""
     ctx = Context(root=root, profile=profile, teleop=teleop, runs=runs, limits=limits, address=address,
-                  motors=motors, open_ssh=open_ssh)
+                  motors=motors, open_ssh=open_ssh, remote_root=remote_root)
     publish = publish or (lambda report: None)
     report = {'schema': 1, 'kind': 'minerva_check', 'asset_id': None, 'address': address,
+              'remote_root': ctx.remote_root,
               'started_at': _now(), 'finished_at': None, 'state': 'running', 'verdict': None, 'summary': None,
               'stages': [{'id': key, 'title': title, 'checks': [
                   {'id': c['id'], 'title': c['title'], 'status': QUEUED, 'detail': '', 'seconds': None}
