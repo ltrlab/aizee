@@ -429,3 +429,23 @@ explicitly not a measured physical model. The full-loop benchmark's
 then exercises the actual receiver and saved mapping, with held goals, reversals,
 immutable repeats and explicit coverage checks. A stationary timing pass alone
 does not satisfy that moving-source check.
+
+### Cyclic-collection timing failure in the retry candidate
+
+Candidate `20261010T190423Z-4e6c6ce` passed the frozen offline gate (490 Python,
+115 Rust) and receiver-only vcan qualification (3,000 updates, all fault checks).
+Its moving vcan run passed every command coverage/bound check but failed after
+647 accepted following updates: a 4.956 ms mapping outlier made the full cycle
+10.167 ms, skipped one scheduled slot, then expired the unchanged 30 ms command
+deadline. Both the failed run and the diagnostic rerun are preserved under
+`build/direct-retry/` and Jetson validation `direct-retry-20261010T190000Z`.
+
+The unchanged-runtime diagnostic correlated generation-1 GC pauses of 5.483,
+5.689 and 5.758 ms with the slow cycles; thread CPU matched wall time and each
+collection reclaimed zero objects. The last pause produced a 10.508 ms loop,
+another skipped slot and command expiry. Freezing startup objects alone leaves
+later recorder/mapper objects subject to automatic collection. The bounded
+correction suspends automatic cyclic GC only during direct control, keeps normal
+reference counting, closes control resources first, and restores the caller's GC
+state during cleanup. Guarded modes retain their previous behavior. Fresh timing
+and longer-run allocation/RSS measurements are required; no deadline is relaxed.

@@ -1,6 +1,7 @@
 """Direct one/two-arm sessions against the actual receiver; no collision backend."""
 import json
 import math
+import gc
 from copy import deepcopy
 
 import pytest
@@ -8,6 +9,40 @@ import pytest
 from robot_platform.helm.teleop import TeleopCore, load_profile
 from robot_platform.control.live_receiver import service_config
 from tests.contract.test_helm_teleop_live import bundle, Clock, Leaders, Receiver, run  # noqa: F401
+
+
+@pytest.mark.parametrize('previously_enabled', [False, True])
+@pytest.mark.parametrize('failed_stop', [False, True])
+def test_direct_loop_restores_gc_only_after_all_resources_close(bundle, monkeypatch,
+                                                              previously_enabled, failed_stop):
+    data, path = bundle
+    direct_profile(path)
+    clock = Clock()
+    leaders = Leaders(clock)
+    core = TeleopCore(dict(data, receiver={'mode': 'live', 'arm': 'left', 'motor_models': {}}),
+                     open_leaders=lambda _: leaders,
+                     open_receiver=lambda c, d, r: Receiver(c, r, clock),
+                     open_backend=lambda _: pytest.fail('No geometry in direct mode'), clock=clock)
+    original = gc.isenabled()
+    (gc.enable if previously_enabled else gc.disable)()
+    try:
+        core.build()
+        assert not gc.isenabled()
+        closed = []
+        core._closers.append(lambda: closed.append(gc.isenabled()))
+        if failed_stop:
+            def broken(*args, **kwargs):
+                raise RuntimeError('injected stop failure')
+            monkeypatch.setattr(core.session, 'disable', broken)
+            monkeypatch.setattr(core.session, 'fault', broken)
+        core.close()
+        assert closed == [False]
+        assert gc.isenabled() is previously_enabled
+        core.close()
+        assert gc.isenabled() is previously_enabled
+    finally:
+        core.close()
+        (gc.enable if original else gc.disable)()
 
 
 def direct_profile(path, hz=100):

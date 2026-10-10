@@ -230,6 +230,7 @@ class TeleopCore:
         self.cycles = []
         self._closers = []
         self._frozen = False
+        self._gc_enabled_before_direct = None
         self.scheduling = {}
         # Live evidence beside the receiver's own (_start_recording).
         self._samples = self._events = self._logged = None
@@ -455,27 +456,43 @@ class TeleopCore:
         gc.collect()
         gc.freeze()
         self._frozen = True
+        if self.collision_mode == 'disabled':
+            # Even new-object generation scans exceeded the 10 ms direct-loop
+            # budget on Jetson. This dedicated process keeps reference counting
+            # active; restore cyclic collection only after its resources close.
+            self._gc_enabled_before_direct = gc.isenabled()
+            gc.disable()
         self.phase = 'running'
         self.message = (f'{self._receiver_name} · motors are enabled from Idle (I). Keep the foot '
                         'switch in reach; then Enable (E) and Engage (T).' if self.live_arm else
                         'VIRTUAL RECEIVER · no motors move. Idle (I) first, then Enable (E) and Engage (T).')
 
     def close(self):
-        if self.session is not None:
-            try:
-                self.session.disable()
-            except Exception:
-                self.session.fault('helm_teleop_closed')
         failures = []
-        for close in reversed(self._closers):
+        try:
+            if self.session is not None:
+                try:
+                    self.session.disable()
+                except Exception:
+                    try:
+                        self.session.fault('helm_teleop_closed')
+                    except Exception as exc:
+                        failures.append(str(exc) or type(exc).__name__)
+            for close in reversed(self._closers):
+                try:
+                    close()
+                except Exception as exc:
+                    failures.append(str(exc) or type(exc).__name__)
+            self._closers = []
+        finally:
             try:
-                close()
-            except Exception as exc:
-                failures.append(str(exc) or type(exc).__name__)
-        self._closers = []
-        if self._frozen:
-            gc.unfreeze()
-            self._frozen = False
+                if self._frozen:
+                    gc.unfreeze()
+                    self._frozen = False
+            finally:
+                previous, self._gc_enabled_before_direct = self._gc_enabled_before_direct, None
+                if previous is not None:
+                    (gc.enable if previous else gc.disable)()
         if self.phase != 'fault':
             self.phase = 'stopped'
             self.message = (f'Teleop stopped. The live receiver disabled {self._the_arm} and its CAN link is down.'
