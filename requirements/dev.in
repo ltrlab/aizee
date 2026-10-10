@@ -1,0 +1,18 @@
+# Offline control/simulation development on CPython 3.12 (not Jetson deployment).
+# Regenerate using the command in docs/DEVELOPMENT.md.
+msgpack>=1.0.5
+numpy>=1.24
+pyzmq>=25
+scipy>=1.10
+trimesh==4.12.2
+python-fcl==0.7.0.11
+h5py>=3.9
+Pillow>=10
+PyYAML>=6
+aiohttp>=3.9
+paramiko>=3.4
+pyserial>=3.5
+pytest>=7.4
+hypothesis>=6.100
+setuptools>=68
+wheel

@@ -7,6 +7,12 @@ independently.
 
 ## Start here
 
+For development, start with the [reproducible offline workflow](docs/DEVELOPMENT.md)
+and [current development status](docs/DEVELOPMENT_STATUS.md). Each feature branch
+uses its own worktree, Python environment and native build outputs. Run
+`python scripts/dev.py setup` once, then `python scripts/dev.py check` before
+integration. Historical test counts below are evidence from their stated dates.
+
 Run these commands from the repository root in a Python 3.10+ environment:
 
 ```sh
