@@ -27,6 +27,7 @@ from robot_platform.control.joint_calibration import save_json
 from robot_platform.control.live_receiver import fault_detail
 from robot_platform.control.scheduling import prefer_responsive
 from .limits import utc_now
+from .recording import RecordingError, RecordingWriter
 
 KEYS = frozenset('IETHX')
 ENGAGED = ('ENGAGING', 'TELEOP')
@@ -240,6 +241,8 @@ class TeleopCore:
         # Live evidence beside the receiver's own (_start_recording).
         self._samples = self._events = self._logged = None
         self._latency = None
+        self._recorder = None
+        self._recording_error = None
         self._pending_latency = None
         self._loop_timings = []
         self._loop_max_ms = self._loop_misses = self._loop_skipped = 0
@@ -513,6 +516,14 @@ class TeleopCore:
                 except Exception as exc:
                     failures.append(str(exc) or type(exc).__name__)
             self._closers = []
+            # Drain evidence only after disabling and closing the receiver. A
+            # blocked disk must never delay an emergency disable or CAN teardown.
+            try:
+                self._stop_recording()
+            except Exception as exc:
+                reason = str(exc) or type(exc).__name__
+                failures.append(reason)
+                self.fail(self.fault or reason)
         finally:
             try:
                 if self._frozen:
@@ -522,6 +533,8 @@ class TeleopCore:
                 previous, self._gc_enabled_before_direct = self._gc_enabled_before_direct, None
                 if previous is not None:
                     (gc.enable if previous else gc.disable)()
+        if failures and self.phase != 'fault':
+            self.fail(self.fault or 'Teleop cleanup could not be confirmed')
         if self.phase != 'fault':
             self.phase = 'stopped'
             self.message = (f'Teleop stopped. The live receiver disabled {self._the_arm} and its CAN link is down.'
@@ -620,11 +633,11 @@ class TeleopCore:
             {'dtype': 'float32', 'columns': ['t_ms'] + [f'{name}.{field}' for name in names
                                                        for field in ('position', 'velocity', 'effort', 'command')]},
             indent=1) + '\n', encoding='utf-8')
-        self._samples = (directory / 'samples.f32').open('ab')
-        self._events = (directory / 'events.jsonl').open('a', encoding='utf-8')
+        self._recorder = RecordingWriter(directory)
+        self._samples = self._recorder.stream('samples.f32', binary=True)
+        self._events = self._recorder.stream('events.jsonl')
         if self.collision_mode == 'disabled':
-            self._latency = (directory / 'direct-latency.jsonl').open('a', encoding='utf-8')
-        self._closers.append(self._stop_recording)
+            self._latency = self._recorder.stream('direct-latency.jsonl')
 
         def on_result(result):
             if self._samples is None:
@@ -634,7 +647,13 @@ class TeleopCore:
                 self._event('rows_dropped', count=dropped)
             if rows and self._recorded < RECORDING_BYTES:
                 data = np.asarray(rows, dtype=np.float32).tobytes()
-                self._samples.write(data)
+                try:
+                    self._samples.write(data)
+                except RecordingError as exc:
+                    # A recorder callback may also run during disable. Latch its
+                    # error for the loop, never interrupt the receiver stop RPC.
+                    self._recording_error = str(exc)
+                    return
                 self._recorded += len(data)
                 if self._recorded >= RECORDING_BYTES:
                     self._event('recording_full', bytes=self._recorded)
@@ -643,9 +662,12 @@ class TeleopCore:
 
     def _event(self, kind, **fields):
         if self._events is not None:
-            self._events.write(json.dumps({'t': self.clock(), 'at': utc_now(), 'kind': kind, **fields},
-                                          default=str) + '\n')
-            self._events.flush()
+            try:
+                self._events.write(json.dumps({'t': self.clock(), 'at': utc_now(), 'kind': kind, **fields},
+                                              default=str) + '\n')
+                self._events.flush()
+            except RecordingError as exc:
+                self._recording_error = str(exc)
 
     def _note(self):
         """Log what changed this cycle (lifecycle state, fault, message, a hold) and flush the ticks now and then."""
@@ -660,33 +682,48 @@ class TeleopCore:
                         reason=now[5])
         clock = self.clock()
         if self._samples is not None and (self._flushed is None or clock - self._flushed >= RECORDING_FLUSH_S):
-            self._samples.flush()
-            if self._latency is not None:
-                self._latency.flush()
+            try:
+                self._samples.flush()
+                if self._latency is not None:
+                    self._latency.flush()
+            except RecordingError as exc:
+                self._recording_error = str(exc)
             self._flushed = clock
 
+    def _check_recording(self):
+        if self._recording_error is not None:
+            raise RecordingError(self._recording_error)
+        if self._recorder is not None:
+            self._recorder.check()
+
     def _stop_recording(self):
-        self._flush_latency()
-        samples, events, self._samples = self._samples, self._events, None
-        self._event('closed', recorded_bytes=self._recorded)
-        self._events = None
-        for handle in (samples, events, self._latency):
-            if handle is not None:
-                handle.close()
-        self._latency = None
+        recorder, self._recorder = self._recorder, None
+        if recorder is None:
+            return
+        try:
+            self._flush_latency()
+            self._event('closed', recorded_bytes=self._recorded)
+        finally:
+            self._samples = self._events = self._latency = None
+            # Called by close only after receiver cleanup, never by tick.
+            recorder.close(timeout=5.)
+        self._check_recording()
 
     # -- cycle (continued) -------------------------------------------------
 
     def tick(self, key, started):
         # Persist the previous, finalized loop record inside this cycle's measured
         # workload. Its full-loop timestamp is only known after UI construction.
+        self._check_recording()
         self._flush_latency()
+        self._check_recording()
         if key:
             self._event('key', key=key, lifecycle=self.session.lifecycle.state if self.session else None)
         try:
             self._tick(key, started)
         finally:
             self._note()
+        self._check_recording()
 
     def _tick(self, key, started):
         from robot_platform.teleop.guarded_lifecycle import minerva_action
@@ -903,7 +940,11 @@ class TeleopCore:
         entry, self._pending_latency = self._pending_latency, None
         if entry is not None and self._latency is not None and self._recorded < RECORDING_BYTES:
             encoded = json.dumps(entry, allow_nan=False) + '\n'
-            self._latency.write(encoded)
+            try:
+                self._latency.write(encoded)
+            except RecordingError as exc:
+                self._recording_error = str(exc)
+                return
             self._recorded += len(encoded.encode('utf-8'))
 
     def finish_cycle(self, started, scheduled, completed, skipped_slots=0):

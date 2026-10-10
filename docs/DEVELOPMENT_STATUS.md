@@ -10,6 +10,10 @@ trace nevertheless faulted with `command_expired` about 71 seconds into TELEOP;
 the failed input and timing evidence are preserved in `build/manual-tuning`.
 The new profile and Hold → Apply → Engage workflow are described in
 [`development/MANUAL_TELEOP_TUNING.md`](development/MANUAL_TELEOP_TUNING.md).
+The first manual candidate `e13753b` passed 593 Python and 122 Rust tests but
+failed its isolated Jetson virtual-CAN test after 118.8 seconds with a 48.6 ms
+aggregate maximum in synchronous trace recording. It was not activated. A
+bounded asynchronous recorder is being qualified with the same control deadlines.
 New code requires its own offline, virtual-CAN and Jetson timing qualification;
 the following paragraphs describe the previous release and its earlier gates.
 

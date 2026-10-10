@@ -69,6 +69,21 @@ faults and tuning acknowledgements publish immediately with cached joint rows.
 Observation timestamps distinguish old measurements from current control status.
 No command deadlines, watchdogs, skipped-slot or fault assertions are relaxed.
 
+The first 125-second manual candidate qualification (`e13753b`) failed after
+118.8 seconds: an on-time cycle spent about 49 ms before input mapping, with a
+48.6 ms aggregate maximum in synchronous trace recording. The receiver reported
+zero missed deadlines or overruns. The failed candidate remains unactivated;
+its raw traces and first-divergence report are preserved under the task's
+`qualification/candidate-e13753b` evidence directory.
+
+Recording now submits immutable data to a bounded FIFO worker. File open,
+write, flush and close operations run outside the control loop. No queued data
+is silently dropped: queue exhaustion or writer failure faults the session,
+and cleanup disables and closes the receiver before waiting up to five seconds
+for evidence to drain. A recording failure cannot interrupt a disable RPC.
+JSON encoding and enqueue costs remain in full-loop timing measurements.
+This change requires a fresh candidate qualification before activation.
+
 Run `python scripts/dev.py check --offline` for the required zero-skip gate.
 It includes manual lifecycle, native gain-commit, API/concurrency, persistence,
 timing-budget and real native-receiver integration tests. Then run the new
