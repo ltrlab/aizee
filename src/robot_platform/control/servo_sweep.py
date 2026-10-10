@@ -84,7 +84,7 @@ CHUNK_ROWS = 256  # The recording keeps rows in chunks of about this many (a res
 # Minerva Check's pass across a joint's range passes with lag up to this share of its tracking bound. The sweep
 # sized the bound at twice its own lag, so half would leave a re-measurement no room (left J1 lagged 0.019 rad
 # against 0.0195, 2026-10-09). It stays under the lead cap (lead_fraction, 0.6): lag pinned there is a joint the
-# command had to wait for, which teleop, with no such cap, would trip on.
+# command had to wait for, which in teleop (held back the same way, lifecycle max_lead) trails the operator.
 CHECK_LAG_SHARE = .55
 # A gripper is not swept: it squeezes what it holds, at the stiffness its profile sets, and trails its command
 # (the receiver lets it). Minerva Check only opens it from its swept min to its swept max and closes it again, its

@@ -319,7 +319,7 @@ def test_verify_mode_checks_each_joint_at_its_settings_and_flags_new_friction():
 def test_minerva_check_leaves_a_re_measured_lag_room_but_fails_one_held_at_the_lead_cap():
     # The sweep sized the bound at twice its lag: a check re-measuring a little over half of it still passes (left
     # J1 lagged 0.019 rad against 0.0195, 2026-10-09). Lag pinned at the lead cap (0.6 of the bound) is a joint the
-    # command waited for, which teleop would trip on.
+    # command waited for, which in teleop trails the operator.
     from robot_platform.control.guarded_config import CONTROL_LAW
 
     def check(bound):
