@@ -223,3 +223,51 @@ def test_teleop_holds_where_the_boxes_would_meet_and_follows_again_once_they_par
         assert harness.last["status"]["state"] == "executing"
         # Parted again: following once more (the leaders end 0.69 m apart).
         assert session.blocked is None and gaps[-1] > min(gaps) + .3
+
+
+def test_a_blocked_move_is_tried_again_only_while_the_cycle_has_time(setup):
+    # Virtual, enforced, on the Jetson (2026-10-09): a blocked move tried again at shorter steps, each try a whole
+    # collision computation, took the cycle to 37 ms, past its 35 ms budget, and the session faulted. Here each
+    # computation takes 9 ms: with time for one more try a cycle tries the hold, which renews the receiver's
+    # verdict (sending nothing for 80 ms, it would stop the arms), and no cycle runs past its budget.
+    from robot_platform.teleop.guarded_lifecycle import GuardedLifecycleSession
+    from robot_platform.teleop.lifecycle import TeleopLifecycle
+    backend, cfg, mapping = setup
+    clock = [0.]
+    compiler = MotionEnvelopeCompiler(backend, cfg, mapping, compute_budget_s=.012, clock=lambda: clock[0])
+    compile_box = compiler.compile
+
+    def slow(*args, **kwargs):
+        try:
+            return compile_box(*args, **kwargs)
+        finally:
+            clock[0] += .009
+    compiler.compile = slow
+    with NativeControlHarness(cfg, [-.6, .6]) as harness:
+        lifecycle = TeleopLifecycle(lifecycle_joints(cfg), clock=lambda: clock[0], max_source_misses=4)
+        session = GuardedLifecycleSession(client(harness, cfg), compiler, lifecycle, lambda: harness.last,
+                                          period_s=.02, cycle_budget_s=.035, clock=lambda: clock[0])
+        now = [0]
+
+        def cycle(action=None, a=None, b=None, sequence=[0]):
+            now[0] = max(now[0], math.ceil(clock[0] * 1000)) + 20
+            harness.step(now[0])
+            clock[0] = now[0] / 1000
+            target = None
+            if a is not None:
+                sequence[0] += 1
+                target = [dict(name=name, position=q, sampled_at=clock[0], sequence=sequence[0])
+                          for name, q in (("a", a), ("b", b))]
+            return session.cycle(action=action, target=target)
+
+        cycle("idle")
+        cycle("enable")
+        cycle("engage", -.6, .6)
+        holds = 0
+        for k in range(120):
+            q = min(.55, .005 * k)
+            record = cycle(None, -.6 + q, .6 - q)
+            assert record["accepted"] and record["completed_at"] - record["started_at"] <= .035, record
+            holds += record.get("reduced") == 0.
+        assert holds and lifecycle.state in ("ENGAGING", "TELEOP")
+        assert harness.last["status"]["state"] == "executing"  # Held, never stopped.

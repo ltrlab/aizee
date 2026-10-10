@@ -14,6 +14,11 @@ from robot_platform.control.collision_envelope import CollisionBlocked
 # A move whose collision box is not clear is tried again at these fractions of its step and speed, the last
 # holding the target last sent: near the other arm only a slower move certifies.
 REDUCED_STEPS = (.5, .2, 0.)
+# A retry starts only with time left for its whole computation and this much for the move's dispatch: past its
+# budget a cycle faults the session (Virtual · enforced on the Jetson, 2026-10-09: four blocked tries took 37 ms).
+# With time for one more, it is the hold: a certified hold renews the receiver's verdict, without which it stops
+# the arms once the last one lapses.
+DISPATCH_S = .005
 
 
 class GuardedLifecycleSession:
@@ -178,7 +183,21 @@ class GuardedLifecycleSession:
                     self.blocked = str(exc)
                     record.update(blocked=self.blocked, blocked_collision=deepcopy(exc.verdict),
                                   blocked_proposal=deepcopy(proposal))
-                    for fraction in REDUCED_STEPS:
+                    last, fractions = exc, list(REDUCED_STEPS)
+                    while fractions:
+                        left = self.cycle_budget_s - DISPATCH_S - (self.clock() - started)
+                        budget = self.compiler.compute_budget_s
+                        if left < budget:
+                            # No time for another try: hold the target last sent, unsent.
+                            try:
+                                proposal = self.lifecycle.reduce(0.)
+                            except ValueError:
+                                raise exc from None
+                            record.update(out_of_time=fractions[0], proposal=deepcopy(proposal))
+                            break
+                        fraction = fractions.pop(0) if left >= 2 * budget else 0.
+                        if fraction == 0.:
+                            fractions = []
                         try:
                             proposal = self.lifecycle.reduce(fraction)
                         except ValueError:
@@ -193,7 +212,7 @@ class GuardedLifecycleSession:
                             last = again
                             record.setdefault("reduced_blocked", []).append(
                                 (fraction, again.verdict.get("reason"), again.verdict.get("clearance_lower_bound_m")))
-                    else:
+                    if envelope is None:
                         # Nor the hold: send nothing. The receiver keeps driving its last command within the
                         # last verdict's box, and stops the arms itself when that lapses.
                         record.update(skipped=str(last), collision=deepcopy(self.compiler.last_verdict))
