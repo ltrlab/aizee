@@ -3044,3 +3044,33 @@ The right-arm sweep rehearsal shows that **right J2 overshoots its 1.2 rad/s
 command past its 1.5 rad/s cap** in about 1 noise seed in 8. That is the motion
 that tripped it in Minerva Check, descending from horizontal. In teleop such a
 trip holds the arm and lowers it.
+
+### 2026-10-10 — two-arm enforced teleop rehearsed on the Jetson: too slow near the other arm
+
+The user's Virtual · enforced sessions faulted three ways, in turn:
+- a cycle over its 35 ms budget (`798ea93`);
+- the leader target expiring before dispatch;
+- each fix moving the fault on.
+
+A real-time rehearsal on the Jetson finds the cause, rather than another
+timing patch. It runs from the deployed release with the virtual receiver and
+scripted targets that bring the hands together and part them again.
+
+- Clear collision checks take 5–7 ms. Near the other arm, one blocked check
+  took 26 ms against its 12 ms budget. The approach-margin path measures how far
+  apart the parts are with proximity queries that the deadline does not bound.
+  The cycle then has no time left to certify the hold. Nothing certified is
+  sent for 80 ms, and the receiver stops the arms (`collision_expired`) within
+  about a second of the hands approaching.
+- **Two-arm enforced teleop (Virtual · enforced, Live · both) needs its
+  collision checks bounded and faster on the Jetson before it is used.**
+
+Single-arm teleop does not take that path: its advisory check is 2–3 ms. The same
+rehearsal on the Jetson, live left and live right on the simulated plant
+(measured inertia and friction, gravity 10% over the model), ran about 29 s each.
+Each arm reached out to the far pose three times, in 3 s, 1.5 s and 0.8 s, and
+back. There were no faults and no holds, and cycles took 6.7 ms (p50), 7.5 ms
+(p99), 17.6 ms at most.
+
+Blocked two-arm moves now try again only while the leader target is still fresh,
+and a hold no longer needs a fresh target.
