@@ -34,7 +34,7 @@ def test_profile_must_be_virtual_and_unapproved(tmp_path):
     for change in ({'kind': 'other'}, {'backend': 'physical'}, {'runtime_approved': True}):
         with pytest.raises(ValueError, match='virtual, unapproved'):
             load_profile(write_profile(tmp_path, **change))
-    with pytest.raises(ValueError, match='enforced or advisory'):
+    with pytest.raises(ValueError, match='enforced, advisory or disabled'):
         load_profile(write_profile(tmp_path, receiver={'collision_mode': 'off'}))
 
 

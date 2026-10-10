@@ -8,27 +8,22 @@
   "leader_profile": "gello-dual-viewer.json",
   "leader_ranges": "gello-dual-leader-ranges.json",
   "notes": [
-    "Virtual receiver only. Speeds, stopping and tracking values are rehearsal settings, not measured physical behavior.",
-    "Gains are the legacy collector's full tuned values (hold_kp at max_kp); unqualified for the guarded controller. The collector's 0.3 first-motion kp scale was used first and was too weak on the real arm: commands were then position-only, so a joint's drive was hold_kp times its lead, and at 0.3 J2 and J3 (3.2 and 1.9 Nm at the lead limit) could not lift the arm, J1 followed at about 0.11 rad/s, and the wrists stalled on friction (J5 2.4 Nm/rad held 0.063 rad off target by 0.15 Nm). The operator chose the full gains on 2026-09-27: more force on contact (J2 17.6 Nm before its tracking bound), with collision checks still advisory.",
-    "J6 holds at 8 Nm/rad, above the collector's 3: at 3 its drive at the lead limit (0.14 Nm) did not break its friction, and it did not move in the first live sessions.",
-    "Each leader channel's hand-swept range (Helm Leaders tab) scales straight onto its robot joint's whole usable range. Arm joints scale from the operator-set leader zero (mapped onto the robot's reference pose) with one scale for both directions, sized so both robot ends are reached; past a robot limit the leader goes on and the robot holds.",
-    "Grippers touch and hold objects: no margin, no stopping reserve, no braking (a stop keeps the last target) and no tracking-error fault; effort and gain limits still bound them. They run at 10 rad/s over their whole range.",
-    "Control law (2026-09-28): the receiver ramps each command over interpolation_ms, one loop period (20 ms: the loop runs at 50 Hz since 2026-10-04, 25 Hz before), from where the previous one pointed, with the command's velocity fed forward, and a joint with a saved servo sweep also gets 70% of its measured friction fed forward in the direction of motion. J2-J4 (parallel horizontal axes) also get gravity fed forward at the commanded pose, from each joint's gravity slice measured by its sweep (control/gravity.py; the servo calibration's gravity section), so the position loop no longer holds the arm up and J2/J3 can lift through their whole swept range. Before this, commands were position-only: a servo lagged by hold_kd * speed / hold_kp, so its own damping braked every motion (J2 at 1.5 rad/s: 22 Nm, 0.1 rad of lag) and the lead cap throttled it. A command still leads its measured position by at most 60% of the joint's tracking bound (a lead at the whole bound faulted J4 on a quick leader motion in the first live session).",
-    "Speed caps: J1-J3 1.5 rad/s, J4 2.5, the wrists (J5, J6) 4. Near an end every joint slows on the receiver's braking curve (it stops at its stop_acceleration after the 40 ms limit reaction), so a cap costs no travel. The wrist swivels (J5) map about 1.2-2 rad of leader travel onto about 4.6 rad. A servo calibration made under the old position-only law keeps its gains, braking and tracking bound but not its speed (guarded_config.CONTROL_LAW); a new sweep measures the speed under this law.",
-    "Range: an arm joint's operational range is its hand-swept range (Helm Limits) plus 0.02 rad of overtravel before the receiver faults (control/approach.py OVERTRAVEL_RAD); the CAD's nominal limits and the old 0.05 rad margin no longer narrow it. Its targets stay only its approach floor's stopping margin (about 0.03 rad) inside that.",
-    "An arm route sign says whether the leader angle and the robot's CAD joint angle increase together; a gripper route sign of +1 means the leader angle increasing opens the gripper. Signs are candidates until verified in Helm.",
-    "Collision checks are advisory: the conservative keep-out bound only certifies about +/-0.011 rad per arm joint at the hanging pose (about 0.03 rad/s). Each cycle is still checked and shown in Helm; the virtual receiver is not blocked. Physical teleop needs a tighter, still-sound bound and enforced checks."
+    "Explicit collision-disabled position teleop. No geometry backend, envelopes or collision recovery search are run.",
+    "100 Hz latest calibrated joint targets, applied without a receiver ramp; receiver ticks at 400 Hz. Lease 150 ms, feedback 30 ms, direct command 30 ms and velocity feedforward 15 ms are independently bounded.",
+    "Existing limits, gains, gravity and friction feedforward remain in use. This direct control law needs separate physical tracking qualification; prior servo sweeps do not establish that qualification.",
+    "Leader mapping remains calibrated range scaling, not necessarily 1:1 angular mirroring. Engage aligns before following; stale input holds and requires Engage after loss.",
+    "Use minerva-teleop.json for servo tuning. This profile is unapproved until its own virtual CAN, Jetson and supervised hardware qualification is recorded."
   ],
   "receiver": {
     "collision_mode": "disabled",
     "lease_ms": 150,
     "feedback_timeout_ms": 30,
     "settled_velocity": 0.15,
-    "interpolation_ms": 20,
-    "loop_hz": 50,
+    "interpolation_ms": 0,
+    "loop_hz": 100,
     "direct": {
-      "command_ms": 60,
-      "velocity_timeout_ms": 20,
+      "command_ms": 30,
+      "velocity_timeout_ms": 15,
       "limit_reaction_ms": 10
     }
   },
@@ -36,33 +31,7 @@
     "reference_tolerance_rad": 0.1,
     "period_us": 2500,
     "maximum_lateness_us": 10000,
-    "note": "Live teleop drives one arm on its physical motors, with advisory collision checks, the other arm never enabled; or both arms from one receiver, with the two-arm (motion) collision bound enforced (2026-10-05). Each session starts from the reference pose (arms straight down, grippers closed). The motion settings below are unqualified: attended tests only, with the foot switch in reach."
-  },
-  "sweep": {
-    "note": "The servo sweep (Helm's Tune tab, control/servo_sweep.py) steps each joint's stiffness from kp_ceiling down (default: its current hold gain), damping ratios, then speeds up to its speed cap (speed_ceiling raises a joint's cap for the sweep, at the cost of usable range: the receiver's collision reserve is taken at the cap). Defaults are in servo_sweep.DEFAULTS. The wrists get headroom: friction held J5 and J6 off target at their collector gains, and the first J6 sweep (2026-09-27) passed only its top rung, 16, so the wrists go to 24. bound_ceiling and speed_ceiling let the sweep set a joint's tracking bound and speed cap from its measurements (never lowered, and only while its usable range stays at least usable_floor of its swept travel): the light distal joints only (operator's choice, 2026-09-27); J1-J3 keep their bounds; speed costs no travel (braking curves), so the sweep may test J1-J3 up to 1.5 rad/s (operator's choice, 2026-09-27) and J4-J6 up to their caps. Grippers are not swept (operator's choice, 2026-10-09: they squeeze what they hold); Minerva Check's live sweep opens each from its swept min to its swept max and closes it.",
-    "joints": [
-      {
-        "match": "*_arm_j[123]",
-        "speed_ceiling": 1.5
-      },
-      {
-        "match": "*_arm_j4",
-        "bound_ceiling": 0.12,
-        "speed_ceiling": 2.5
-      },
-      {
-        "match": "*_arm_j5",
-        "kp_ceiling": 24.0,
-        "bound_ceiling": 0.15,
-        "speed_ceiling": 4.0
-      },
-      {
-        "match": "*_arm_j6",
-        "kp_ceiling": 24.0,
-        "bound_ceiling": 0.15,
-        "speed_ceiling": 4.0
-      }
-    ]
+    "note": "Explicit collision-disabled service for one or both arms. Pinned motor identities, watchdog setup, reference-pose checks and explicit operator enable/stop remain required."
   },
   "motion": {
     "defaults": {

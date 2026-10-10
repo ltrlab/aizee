@@ -109,12 +109,13 @@ def sample_reply(request, inputs, epoch, *, clock=time.perf_counter):
 
 
 class LeaderSnapshotClient:
-    def __init__(self, exchange, profile, *, clock=time.perf_counter):
+    def __init__(self, exchange, profile, *, clock=time.perf_counter, allow_repeated=False):
         # Reuse the device-profile validator; this does not open local ports.
         checked = OpenRBInputs(profile, clock=clock)
         self.pins, self.max_age_s, self.max_skew_s = checked.pins, checked.max_age_s, checked.max_skew_s
         self.exchange, self.clock = exchange, clock
         self.epoch, self.previous, self.fault = None, {}, None
+        self.allow_repeated = allow_repeated
 
     def poll(self):
         if self.fault:
@@ -146,6 +147,15 @@ class LeaderSnapshotClient:
                 if age >= self.max_age_s:
                     raise LeaderSampleSkipped("Remote leader sample exceeded its source-age limit")
                 previous = self.previous.get(name)
+                if self.allow_repeated and previous and sequence == previous.sequence:
+                    if (tuple(raw) != previous.raw_positions or tuple(row['joystick']) != previous.joystick
+                            or row['board_sample_ms'] != previous.board_sample_ms
+                            or row['board_reply_ms'] != previous.board_reply_ms):
+                        raise ValueError('Remote leader changed without a new sequence')
+                    if received - previous.sampled_at >= self.max_age_s:
+                        raise LeaderSampleSkipped('Repeated remote sample expired')
+                    samples[name] = previous  # Preserve the first conservative age bound.
+                    continue
                 if previous and (not 0 < (sequence - previous.sequence) & 0xffffffff < 0x80000000
                                  or (row["board_reply_ms"] - previous.board_reply_ms) & 0xffffffff >= 0x80000000):
                     raise ValueError("Remote leader sample repeated, reordered or restarted")

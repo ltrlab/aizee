@@ -33,8 +33,10 @@ class GuardedControllerClient:
         self._epoch: str | None = None
         self._lease: int | None = None
         self._sequence = 0
+        self.exchanges = 0
 
     def _call(self, request: dict) -> dict:
+        self.exchanges += 1
         reply = self.exchange(deepcopy(request))
         status = reply["status"]
         self.status = deepcopy(status)
@@ -103,6 +105,10 @@ class GuardedControllerClient:
 
     def collision_offer(self) -> dict:
         """Request a one-use receiver clock anchor before collision computation."""
+        return self.freshness_offer()
+
+    def freshness_offer(self) -> dict:
+        """Request a one-use receiver clock anchor for ownership/command freshness."""
         return self._call({"type": "offer"})
 
     def arm(self, *, collision=None) -> dict:

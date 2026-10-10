@@ -3,11 +3,11 @@
 Idle (I) -> Enable (E) -> Engage/Align (T) -> Teleop; T again holds; Shutdown
 (X) returns slowly to the reference; Disable (H) removes torque. The receiver is
 the virtual (native harness) receiver, or, on the robot computer, the live
-guarded service driving one arm (control.live_receiver) with advisory collision
-checks until a two-arm bound exists.
+guarded service (control.live_receiver), with an explicit collision policy or
+the dedicated collision-disabled direct profile.
 
-The 25 Hz loop runs in its own process and owns the leader USB, the receiver and
-the collision model. The web server only relays keys and route edits and reads
+The profile-timed loop runs in its own process and owns the leader USB, receiver
+and any selected collision model. The web server relays keys and route edits and reads
 back the latest state, so browser traffic cannot stall a control cycle.
 Receiver limits come from the saved joint limits. Each leader channel's saved
 (hand-swept) range spans its robot joint's usable range; route signs come from
@@ -57,7 +57,7 @@ def load_profile(path):
                 or set(direct) != {'command_ms', 'velocity_timeout_ms', 'limit_reaction_ms'}
                 or any(type(v) is not int for v in direct.values())
                 or not 2 * 1000 / hz < direct.get('command_ms', 0) <= receiver['lease_ms']
-                or not interpolation <= direct.get('velocity_timeout_ms', 0) <= 1000 / hz
+                or not interpolation <= direct.get('velocity_timeout_ms', 0) <= 2 * 1000 / hz
                 or direct.get('velocity_timeout_ms', 0) <= 0
                 or not 0 <= direct.get('limit_reaction_ms', -1) <= 1000):
             raise ValueError('Direct teleop needs explicit timing, limit reaction and no collision policy')
@@ -77,15 +77,14 @@ def load_profile(path):
 
 
 def loop_period_s(profile):
-    """The loop's period: the receiver ramps each command over exactly one, so commands neither stall between
-    ramps nor cut one short."""
+    """Direct mode has an independent update rate; legacy modes use their ramp period."""
     receiver = profile['receiver']
     return 1 / receiver['loop_hz'] if receiver.get('collision_mode') == 'disabled' else receiver.get('interpolation_ms', 40) / 1000
 
 
 def source_misses(period_s):
-    """Missed leader samples an engaged arm rides out: 80 ms of them, whatever the loop rate."""
-    return max(1, round(.08 / period_s))
+    """At most 80 ms or ten missed samples before engaged following requires Engage again."""
+    return min(10, max(1, round(.08 / period_s)))
 
 
 CYCLE_BUDGET_S = .035  # A cycle not dispatched this long after it started faults the session; a slower one
@@ -225,6 +224,11 @@ class TeleopCore:
         self.scheduling = {}
         # Live evidence beside the receiver's own (_start_recording).
         self._samples = self._events = self._logged = None
+        self._latency = None
+        self._pending_latency = None
+        self._loop_timings = []
+        self._loop_max_ms = self._loop_misses = self._loop_skipped = 0
+        self._input_timing = {}
         self._recorded, self._flushed = 0, None
 
     # -- resources -------------------------------------------------------
@@ -430,6 +434,8 @@ class TeleopCore:
                                               period_s=self.period_s, cycle_budget_s=CYCLE_BUDGET_S, clock=self.clock)
         self.derived, self.harness, self.session, self.compiler = derived, harness, session, compiler
         self.leaders = self.open_leaders(leader_profile)
+        if self.collision_mode == 'disabled' and hasattr(self.leaders, 'allow_repeated'):
+            self.leaders.allow_repeated = True
         self._closers.append(self.leaders.close)
         self.mapper = self._mapper()
         # Full garbage-collector passes over the CAD/collision object graphs took
@@ -482,12 +488,22 @@ class TeleopCore:
         if self.mapper.fault and not engaged:
             self.mapper.reset()  # Leaders only preview outside engagement.
         try:
+            polled = self.clock()
             samples = unwrap_samples(self.leaders.poll(), self.centers)
+            mapped = self.clock()
             samples = {name: sample for name, sample in samples.items() if name in self.route_leaders}
-            target = self.mapper.map(samples, now=self.clock())
+            if self.collision_mode == 'disabled':
+                target = self.mapper.map(samples, now=self.clock(), allow_repeated=True)
+                if target is None:
+                    self._input_timing = {'poll_ms': (mapped-polled)*1000, 'repeated_source': True}
+                    return None, None
+            else:
+                target = self.mapper.map(samples, now=self.clock())
         except Exception as exc:
             return None, str(exc) or type(exc).__name__
         self.last_target = target
+        self._input_timing = {'poll_ms': (mapped-polled)*1000, 'map_ms': (self.clock()-mapped)*1000,
+                              'source_age_at_map_ms': (self.clock()-min(row['sampled_at'] for row in target))*1000}
         margin = max(self._recent_cycle_s(), .01)
         age = self.clock() - min(row['sampled_at'] for row in target)
         if age + margin >= self.session.lifecycle.target_max_age_s:
@@ -514,6 +530,8 @@ class TeleopCore:
             indent=1) + '\n', encoding='utf-8')
         self._samples = (directory / 'samples.f32').open('ab')
         self._events = (directory / 'events.jsonl').open('a', encoding='utf-8')
+        if self.collision_mode == 'disabled':
+            self._latency = (directory / 'direct-latency.jsonl').open('a', encoding='utf-8')
         self._closers.append(self._stop_recording)
 
         def on_result(result):
@@ -551,19 +569,26 @@ class TeleopCore:
         clock = self.clock()
         if self._samples is not None and (self._flushed is None or clock - self._flushed >= RECORDING_FLUSH_S):
             self._samples.flush()
+            if self._latency is not None:
+                self._latency.flush()
             self._flushed = clock
 
     def _stop_recording(self):
+        self._flush_latency()
         samples, events, self._samples = self._samples, self._events, None
         self._event('closed', recorded_bytes=self._recorded)
         self._events = None
-        for handle in (samples, events):
+        for handle in (samples, events, self._latency):
             if handle is not None:
                 handle.close()
+        self._latency = None
 
     # -- cycle (continued) -------------------------------------------------
 
     def tick(self, key, started):
+        # Persist the previous, finalized loop record inside this cycle's measured
+        # workload. Its full-loop timestamp is only known after UI construction.
+        self._flush_latency()
         if key:
             self._event('key', key=key, lifecycle=self.session.lifecycle.state if self.session else None)
         try:
@@ -573,6 +598,7 @@ class TeleopCore:
 
     def _tick(self, key, started):
         from robot_platform.teleop.guarded_lifecycle import minerva_action
+        self._input_timing = {}
         if self.fault:
             # The receiver stopped itself and revoked the lease. It holds the arm: take it back there and
             # lower it, keeping the original reason on screen; a new session is needed to follow again.
@@ -735,6 +761,10 @@ class TeleopCore:
 
     def _record(self, record, failure=None):
         entry = {k: record.get(k) for k in ('started_at', 'completed_at', 'accepted', 'action')}
+        if self.collision_mode == 'disabled':
+            from robot_platform.teleop.latency import trace_record
+            entry.update(trace_record(record), **self._input_timing)
+            self._pending_latency = entry
         if failure:
             entry['failure'] = failure
         if entry['started_at'] is not None and entry['completed_at'] is not None:
@@ -745,6 +775,36 @@ class TeleopCore:
         self.cycles.append(entry)
         if len(self.cycles) > 500:
             del self.cycles[:100]
+
+    def _flush_latency(self):
+        entry, self._pending_latency = self._pending_latency, None
+        if entry is not None and self._latency is not None and self._recorded < RECORDING_BYTES:
+            encoded = json.dumps(entry, allow_nan=False) + '\n'
+            self._latency.write(encoded)
+            self._recorded += len(encoded.encode('utf-8'))
+
+    def finish_cycle(self, started, scheduled, completed, skipped_slots=0):
+        """Measure commands, prior trace write, tick/flush and UI construction on one clock.
+
+        This runs after publish; it performs no I/O. The next tick persists it.
+        The sender thread's pipe delivery and physical motor response are separate.
+        """
+        if self.collision_mode != 'disabled':
+            return
+        fields = dict(scheduled_at=scheduled, loop_completed_at=completed,
+                      full_loop_ms=(completed-started)*1000,
+                      start_lateness_ms=max(0., (started-scheduled)*1000),
+                      scheduled_deadline_miss=completed > scheduled+self.period_s,
+                      skipped_slots=skipped_slots)
+        if self._pending_latency is None:
+            self._pending_latency = dict(started_at=started, operation=None, accepted=False)
+        self._pending_latency.update(fields)
+        self._loop_timings.append(fields['full_loop_ms'])
+        if len(self._loop_timings) > 500:
+            del self._loop_timings[:100]
+        self._loop_max_ms = max(self._loop_max_ms, fields['full_loop_ms'])
+        self._loop_misses += fields['scheduled_deadline_miss']
+        self._loop_skipped += skipped_slots
 
     # -- views ---------------------------------------------------------------
 
@@ -794,6 +854,11 @@ class TeleopCore:
                                   'p99': durations[min(len(durations), -(-99 * len(durations) // 100)) - 1],
                                   'max': self.slowest_ms, 'overruns': self.overruns,
                                   'largest_gap': self.largest_gap_ms}
+        if self._loop_timings:
+            from robot_platform.teleop.latency import distribution
+            result['full_loop_ms'] = dict(distribution(self._loop_timings[-100:]), max=self._loop_max_ms,
+                                         scheduled_deadline_misses=self._loop_misses,
+                                         skipped_slots=self._loop_skipped)
         if self.derived is None:
             return result
         names = [joint['name'] for joint in self.derived['config']['joints']]
@@ -860,6 +925,10 @@ def run_loop(commands, views, core):
         publish(False)
         core.build()
         publish()
+        direct = getattr(core, 'collision_mode', None) == 'disabled'
+        if direct:
+            from robot_platform.teleop.latency import next_scheduled_slot
+        scheduled = clock()
         while True:
             started = clock()
             while listening:
@@ -886,9 +955,14 @@ def run_loop(commands, views, core):
                         reply(request, str(exc) or type(exc).__name__)
             core.tick(keys.pop(0) if keys else None, started)
             publish()
+            completed = clock()
+            if direct:
+                next_start, skipped = next_scheduled_slot(scheduled, completed, core.period_s)
+                core.finish_cycle(started, scheduled, completed, skipped)
             if closing and not core.landing:
                 return
-            remaining = core.period_s - (clock() - started)
+            scheduled = next_start if direct else started + core.period_s
+            remaining = scheduled - clock()
             if remaining > 0:
                 time.sleep(remaining)
     except Exception as exc:

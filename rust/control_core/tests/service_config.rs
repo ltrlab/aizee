@@ -41,7 +41,8 @@ fn direct_teleop_is_explicit_and_keeps_physical_gates_for_one_or_two_arms() {
     for names in [vec!["left_arm_j1"], vec!["left_arm_j1", "right_arm_j1"]] {
         let mut value = profile("teleop_direct", &names, 2.0);
         value["controller"]["identity"]["collision_policy"] = json!("disabled-v1");
-        value["controller"]["direct"] = json!({"command_ms": 30, "velocity_timeout_ms": 10, "limit_reaction_ms": 10});
+        value["controller"]["direct"] =
+            json!({"command_ms": 30, "velocity_timeout_ms": 10, "limit_reaction_ms": 10});
         let config = parse(value.clone());
         config.validate().unwrap();
         assert!(config.physical_enable());
@@ -55,7 +56,8 @@ fn direct_teleop_is_explicit_and_keeps_physical_gates_for_one_or_two_arms() {
         invalid["reference_positions"] = json!([]);
         assert!(error(invalid).contains("reference"));
         let mut invalid = value.clone();
-        invalid["controller"]["collision"] = json!({"world_revision":"w", "scope":"all", "max_verdict_ms":80, "reaction_ms":10});
+        invalid["controller"]["collision"] =
+            json!({"world_revision":"w", "scope":"all", "max_verdict_ms":80, "reaction_ms":10});
         assert!(error(invalid).contains("direct policy"));
     }
 }

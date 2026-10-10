@@ -47,7 +47,10 @@ pub struct ServiceConfig {
 impl ServiceConfig {
     /// Modes that may physically enable motors after the watchdog and reference gates.
     pub fn physical_enable(&self) -> bool {
-        matches!(self.mode, Mode::ZeroTorqueTrial | Mode::Teleop | Mode::TeleopDirect)
+        matches!(
+            self.mode,
+            Mode::ZeroTorqueTrial | Mode::Teleop | Mode::TeleopDirect
+        )
     }
 
     pub fn validate(&self) -> Result<(), String> {

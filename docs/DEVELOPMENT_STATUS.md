@@ -33,13 +33,61 @@ comment cleanup followed that run; package pins and tested source behavior are u
   the user confirmed that physical mass properties are not yet available.
 
 The user's current priority is direct position teleop without collision detection.
-`codex/teleop-direct-mirror` is prepared from integration commit `8b4f2c4`, with
-the [implementation and acceptance brief](development/DIRECT_TELEOP.md). Runtime
-behavior has not changed yet: the existing advisory mode still computes collision
-queries and the physical receiver requires a collision policy. Implement explicit
-disabled behavior first, then measure and shorten the command path before increasing
-the update rate. Collision timing optimization and physical-model identification
-are separate work; Linux vcan, Jetson timing and hardware qualification remain open.
+`codex/teleop-direct-mirror` implements the [direct-mode contract and qualification
+tools](development/DIRECT_TELEOP.md) from integration commit `8b4f2c4`:
+
+- Explicit collision-disabled one/two-arm configuration bypasses geometry and
+  envelope creation. It retains joint/control bounds, source/feedback freshness,
+  watchdogs, exclusive authority and the existing physical enable gates.
+- Each following cycle sends one atomic direct update and receives feedback plus
+  its next one-use freshness token. Replay cannot extend target or lease lifetime.
+- A separate 100 Hz profile removes interpolation, with bounded velocity
+  feedforward. Repeated samples keep their age; source loss holds and requires
+  Engage. Receiver expiry recovers only into shutdown and disable.
+- Timing traces distinguish source/mapping/RPC/acceptance/application, full loop
+  work and scheduling misses. Synthetic harness/vcan benchmarks save source,
+  config and binary identity with their evidence. Physical motion onset is not
+  inferred from receiver acknowledgement.
+
+The first behavior commit `b8b13c7` passed the required gate at
+`build/dev-check/20261010T165500Z-2bdfa61f/report.json`. The Linux AArch64 release
+service cross-build passed; log: `build/direct-qualification/linux-build.log`.
+An expanded gate found one stale error-message assertion (240 other Python
+tests passed); that expectation was updated for the new explicit mode.
+
+Final required Windows gate: **251 Python tests, zero skips/xfails, and 111 Rust
+tests passed** at `build/dev-check/20261010T171542Z-d2c7616e/report.json`. Source
+content was unchanged throughout that run. The focused new/affected subset also
+passed 32 tests (`build/direct-qualification/final-focused.xml`). Only these
+documentation results were finalized after the gate; runtime/test source did not
+change. Final build/evidence identity is in `build/direct-qualification/report.json`.
+
+Synthetic debug-harness measurements (14 joints, one direct RPC per update):
+
+| Rate | Accepted updates | Processing p50 / p95 / p99 / max (ms) | Scheduled misses | Result |
+|---|---:|---|---:|---|
+| 50 Hz, initial | 641 / 1000 | 1.376 / 1.865 / 2.487 / 16.681 | 1 | Ownership revoked after overrun; incomplete |
+| 50 Hz, diagnostic | 1000 / 1000 | 1.398 / 1.753 / 2.104 / 3.471 | 0 | Completed, silence expiry and stop verified |
+| 100 Hz | 1000 / 1000 | 1.284 / 1.749 / 2.200 / 5.336 | 0 | Completed, silence expiry and stop verified |
+| 200 Hz | 1000 / 1000 | 1.154 / 1.566 / 1.944 / 3.213 | 0 | Completed, silence expiry and stop verified |
+
+Reports and traces are in `simulation_runs/direct-harness-{50,100,200}hz-20261010/`
+and `simulation_runs/direct-harness-50hz-diagnostic-20261010/`. The initial 50 Hz
+failure remains evidence; its report did not retain the underlying receiver stop
+reason beyond `wrong_owner`. Benchmark failure recording now preserves that
+status before cleanup. No control threshold changed for the diagnostic rerun.
+
+These short samples establish synthetic receiver-path overhead only. Harness
+application delay reads zero because application shares a logical tick with
+acceptance; this is not measured physical latency. The full live-loop 8 ms p99
+target has not been demonstrated. Keep the 100 Hz default; the 200 Hz run is an
+evaluation, not approval for deployment.
+
+Linux vcan execution remains pending on a Linux development host: this Windows machine has
+no running Linux service environment. Jetson timing, unique real leader sample
+throughput and physical tracking qualification remain open. No deployment or
+motor command was performed. Collision optimization and physical-model
+identification are separate work; the integration branch has not been merged.
 
 ## Known limits
 

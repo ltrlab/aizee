@@ -94,7 +94,8 @@ pub fn motion_reserve(
     }
     let tracking = tracking_bound(joint, speeds[0].max(speeds[1]));
     let reaction = limit_reaction_s(policy, config);
-    speeds.map(|speed| tracking + speed * reaction + speed * speed / (2.0 * joint.stop_acceleration))
+    speeds
+        .map(|speed| tracking + speed * reaction + speed * speed / (2.0 * joint.stop_acceleration))
 }
 
 /// Which speed bound [down, up] a velocity's direction falls under.
@@ -104,7 +105,10 @@ pub fn direction(velocity: f64) -> usize {
 
 /// A command's speed bounds [down, up]: its overshoot toward the way it moves, the floor the other.
 pub fn speed_bounds(joint: &crate::JointLimits, commanded: f64) -> [f64; 2] {
-    [speed_bound(joint, commanded.min(0.0)), speed_bound(joint, commanded.max(0.0))]
+    [
+        speed_bound(joint, commanded.min(0.0)),
+        speed_bound(joint, commanded.max(0.0)),
+    ]
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

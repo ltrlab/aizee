@@ -193,14 +193,22 @@ pub fn run(
                                     let is_arm = matches!(request, Request::Arm { .. });
                                     // Motion and continuous Idle only in the modes built for
                                     // them: vcan and one-arm teleop (gated, leased, enveloped).
-                                    let teleop =
-                                        matches!(config.mode, Mode::VirtualCan | Mode::Teleop | Mode::TeleopDirect);
-                                    let physical_move =
-                                        !teleop && matches!(request, Request::Move { .. } | Request::DirectUpdate { .. });
+                                    let teleop = matches!(
+                                        config.mode,
+                                        Mode::VirtualCan | Mode::Teleop | Mode::TeleopDirect
+                                    );
+                                    let physical_move = !teleop
+                                        && matches!(
+                                            request,
+                                            Request::Move { .. } | Request::DirectUpdate { .. }
+                                        );
                                     let prohibited_arm = is_arm
                                         && !matches!(
                                             config.mode,
-                                            Mode::VirtualCan | Mode::ZeroTorqueTrial | Mode::Teleop | Mode::TeleopDirect
+                                            Mode::VirtualCan
+                                                | Mode::ZeroTorqueTrial
+                                                | Mode::Teleop
+                                                | Mode::TeleopDirect
                                         );
                                     let prohibited_idle =
                                         !teleop && matches!(request, Request::Idle { .. });

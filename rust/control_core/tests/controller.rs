@@ -127,22 +127,58 @@ fn collision_fixture() -> (Controller, Loopback) {
 }
 
 fn direct_armed() -> (Controller, Loopback) {
+    direct_armed_with_timeout(10)
+}
+
+fn direct_armed_with_timeout(timeout: u64) -> (Controller, Loopback) {
     let mut cfg = config(2);
     cfg.identity.collision_policy = "disabled-v1".into();
-    cfg.direct = Some(robot_control::DirectPolicy { command_ms: 30, velocity_timeout_ms: 10, limit_reaction_ms: 10 });
+    cfg.direct = Some(robot_control::DirectPolicy {
+        command_ms: 30,
+        velocity_timeout_ms: timeout,
+        limit_reaction_ms: 10,
+    });
     let mut c = Controller::new(cfg, "boot-a".into()).unwrap();
     let mut h = Loopback::new(&[0.0, 0.0]);
     let id = offer(&mut c, &mut h, 0);
     let identity = c.status().identity;
-    assert!(c.handle(0, Request::Acquire { epoch: "boot-a".into(), offer: id, session: "client-a".into(),
-        group: "arbitrary-group".into(), identity }, &mut h).accepted);
-    assert!(c.handle(1, Request::Arm { authority: auth(&c, 1), collision: None }, &mut h).accepted);
+    assert!(
+        c.handle(
+            0,
+            Request::Acquire {
+                epoch: "boot-a".into(),
+                offer: id,
+                session: "client-a".into(),
+                group: "arbitrary-group".into(),
+                identity
+            },
+            &mut h
+        )
+        .accepted
+    );
+    assert!(
+        c.handle(
+            1,
+            Request::Arm {
+                authority: auth(&c, 1),
+                collision: None
+            },
+            &mut h
+        )
+        .accepted
+    );
     (c, h)
 }
 
 fn direct_request(c: &Controller, sequence: u64, offer: u64, q: f64, v: f64) -> Request {
-    Request::DirectUpdate { authority: auth(c, sequence), identity: c.status().identity,
-        offer, valid_for_ms: 30, joints: joints(2, q, v), ramp_efforts: vec![] }
+    Request::DirectUpdate {
+        authority: auth(c, sequence),
+        identity: c.status().identity,
+        offer,
+        valid_for_ms: 30,
+        joints: joints(2, q, v),
+        ramp_efforts: vec![],
+    }
 }
 
 #[test]
@@ -155,7 +191,9 @@ fn direct_updates_chain_one_rpc_and_keep_receiver_issued_deadlines() {
         let reply = c.handle(now, request, &mut h);
         assert!(reply.accepted, "{:?}", reply.reason);
         assert_eq!(reply.status.command_expires_at_ms, Some(now + 20));
-        assert!(reply.status.lease.unwrap().expires_at_ms < reply.offer.as_ref().unwrap().expires_at_ms);
+        assert!(
+            reply.status.lease.unwrap().expires_at_ms < reply.offer.as_ref().unwrap().expires_at_ms
+        );
         id = reply.offer.unwrap().id;
     }
 }
@@ -168,22 +206,46 @@ fn direct_replay_invalid_batch_and_delayed_offer_cannot_change_targets_or_deadli
     let accepted = c.handle(3, request.clone(), &mut h);
     assert!(accepted.accepted);
     assert!(!c.handle(4, request, &mut h).accepted);
-    assert!(!c.handle(5, direct_request(&c, 3, id, 0.0, 0.0), &mut h).accepted);
+    assert!(
+        !c.handle(5, direct_request(&c, 3, id, 0.0, 0.0), &mut h)
+            .accepted
+    );
     let next = accepted.offer.unwrap().id;
-    assert_eq!(c.handle(6, direct_request(&c, 3, next, 4.0, 0.0), &mut h).reason, Reason::InvalidCommand);
+    assert_eq!(
+        c.handle(6, direct_request(&c, 3, next, 4.0, 0.0), &mut h)
+            .reason,
+        Reason::InvalidCommand
+    );
     assert_eq!(c.status().command_expires_at_ms, Some(32));
     assert_eq!(c.status().lease.unwrap().last_sequence, 2);
-    assert!(c.handle(7, direct_request(&c, 3, next, 0.01, 0.0), &mut h).accepted);
+    assert!(
+        c.handle(7, direct_request(&c, 3, next, 0.01, 0.0), &mut h)
+            .accepted
+    );
     // Fresh lease renewal must not extend the old direct target.
     let fresh = offer(&mut c, &mut h, 20);
-    assert!(c.handle(20, Request::Renew { authority: auth(&c, 4), offer: fresh }, &mut h).accepted);
+    assert!(
+        c.handle(
+            20,
+            Request::Renew {
+                authority: auth(&c, 4),
+                offer: fresh
+            },
+            &mut h
+        )
+        .accepted
+    );
     assert_eq!(c.status().command_expires_at_ms, Some(33));
     c.tick(33, &mut h);
     assert_eq!(c.status().reason, Reason::CommandExpired);
 
     let (mut c, mut h) = direct_armed();
     let old = offer(&mut c, &mut h, 2);
-    assert_eq!(c.handle(32, direct_request(&c, 2, old, 0.0, 0.0), &mut h).reason, Reason::OfferExpired);
+    assert_eq!(
+        c.handle(32, direct_request(&c, 2, old, 0.0, 0.0), &mut h)
+            .reason,
+        Reason::OfferExpired
+    );
     assert_eq!(c.status().lease.unwrap().last_sequence, 1);
 }
 
@@ -191,12 +253,17 @@ fn direct_replay_invalid_batch_and_delayed_offer_cannot_change_targets_or_deadli
 fn direct_velocity_expires_without_another_request_and_plain_move_is_rejected() {
     let (mut c, mut h) = direct_armed();
     let id = offer(&mut c, &mut h, 2);
-    assert!(c.handle(3, direct_request(&c, 2, id, 0.01, 0.1), &mut h).accepted);
+    assert!(
+        c.handle(3, direct_request(&c, 2, id, 0.01, 0.1), &mut h)
+            .accepted
+    );
     assert_eq!(c.status().joints[0].velocity, 0.1);
     c.tick(13, &mut h);
     assert_eq!(c.status().joints[0].velocity, 0.0);
     let mut request = move_request(&c, 3, 2, 0.01, 0.0);
-    if let Request::Move { identity, .. } = &mut request { *identity = c.status().identity; }
+    if let Request::Move { identity, .. } = &mut request {
+        *identity = c.status().identity;
+    }
     assert_eq!(c.handle(14, request, &mut h).reason, Reason::InvalidCommand);
     assert!(c.handle(15, Request::EmergencyStop, &mut h).accepted);
     assert!(c.status().lease.is_none());
@@ -206,11 +273,73 @@ fn direct_velocity_expires_without_another_request_and_plain_move_is_rejected() 
 fn direct_mode_cannot_bypass_collision_policy_or_joint_limit_margin() {
     let (mut c, mut h) = armed(2);
     let id = offer(&mut c, &mut h, 2);
-    assert_eq!(c.handle(3, direct_request(&c, 2, id, 0.0, 0.0), &mut h).reason, Reason::InvalidCommand);
+    assert_eq!(
+        c.handle(3, direct_request(&c, 2, id, 0.0, 0.0), &mut h)
+            .reason,
+        Reason::InvalidCommand
+    );
     let (mut c, mut h) = direct_armed();
     let id = offer(&mut c, &mut h, 2);
-    assert_eq!(c.handle(3, direct_request(&c, 2, id, 2.99, 0.0), &mut h).reason, Reason::InvalidCommand);
+    assert_eq!(
+        c.handle(3, direct_request(&c, 2, id, 2.99, 0.0), &mut h)
+            .reason,
+        Reason::InvalidCommand
+    );
     assert_eq!(c.status().lease.unwrap().last_sequence, 1);
+}
+
+#[test]
+fn direct_deferred_writes_keep_feedforward_across_a_period_and_report_application() {
+    let (mut c, mut h) = direct_armed_with_timeout(15);
+    let id = offer(&mut c, &mut h, 2);
+    let before = h.writes;
+    let first = c.handle_deferred(3, direct_request(&c, 2, id, 0.01, 0.1), &mut h);
+    assert!(first.accepted && first.status.last_applied_target.is_none());
+    assert_eq!(h.writes, before);
+    c.tick(5, &mut h);
+    assert_eq!(c.status().last_applied_target.unwrap().applied_at_ms, 5);
+    c.tick(13, &mut h); // Service writes before accepting the next 100 Hz update.
+    assert_eq!(c.status().joints[0].velocity, 0.1);
+    let next = c.handle_deferred(
+        13,
+        direct_request(&c, 3, first.offer.unwrap().id, 0.02, 0.1),
+        &mut h,
+    );
+    assert!(next.accepted);
+    assert_eq!(next.status.last_applied_target.unwrap().sequence, 2);
+    c.tick(15, &mut h);
+    let applied = c.status().last_applied_target.unwrap();
+    assert_eq!(
+        (
+            applied.sequence,
+            applied.accepted_at_ms,
+            applied.applied_at_ms
+        ),
+        (3, 13, 15)
+    );
+    c.tick(28, &mut h);
+    assert_eq!(c.status().joints[0].velocity, 0.0);
+}
+
+#[test]
+fn direct_shortened_source_window_and_feedback_timeout_survive_transport_stalls() {
+    let (mut c, mut h) = direct_armed();
+    let id = offer(&mut c, &mut h, 2);
+    let mut request = direct_request(&c, 2, id, 0.0, 0.0);
+    if let Request::DirectUpdate { valid_for_ms, .. } = &mut request {
+        *valid_for_ms = 7;
+    }
+    assert_eq!(c.handle(9, request, &mut h).reason, Reason::OfferExpired);
+    assert_eq!(c.status().lease.unwrap().last_sequence, 1);
+    let id = offer(&mut c, &mut h, 10);
+    assert!(
+        c.handle(10, direct_request(&c, 2, id, 0.0, 0.0), &mut h)
+            .accepted
+    );
+    h.frozen = true;
+    c.tick(31, &mut h);
+    assert_eq!(c.status().reason, Reason::FeedbackStale);
+    assert!(!h.enabled);
 }
 
 fn envelope(
@@ -1889,10 +2018,27 @@ fn under_a_motion_bound_a_joint_at_rest_keeps_its_rest_tracking_error() {
     // At rest the box keeps the rest error and a stop from the floor: 0.25 + 0.015 + 0.0625.
     let rest = 0.25 + 0.5 * 0.03 + 0.25 / 4.0;
     let collision = Some(boxed(&mut c, &mut h, 1, -rest + 0.005, rest));
-    let refused = c.handle(1, Request::Arm { authority: auth(&c, 1), collision }, &mut h);
+    let refused = c.handle(
+        1,
+        Request::Arm {
+            authority: auth(&c, 1),
+            collision,
+        },
+        &mut h,
+    );
     assert_eq!(refused.reason, Reason::CollisionViolation);
     let collision = Some(boxed(&mut c, &mut h, 2, -rest - 0.001, rest + 0.001));
-    assert!(c.handle(2, Request::Arm { authority: auth(&c, 2), collision }, &mut h).accepted);
+    assert!(
+        c.handle(
+            2,
+            Request::Arm {
+                authority: auth(&c, 2),
+                collision
+            },
+            &mut h
+        )
+        .accepted
+    );
     // Trailing its reference by 0.3 at rest trips it (within its whole 0.5 bound, but not at rest).
     h.feedback[0].position = 0.3;
     c.tick(3, &mut h);

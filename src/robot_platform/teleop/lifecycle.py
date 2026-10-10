@@ -71,6 +71,7 @@ class TeleopLifecycle:
         self._velocities = None  # This cycle's slewed targets' velocities, for the next proposal.
         self._sent_velocities = None  # The last move's velocities, for the acceleration fed forward.
         self._before = None  # (target, sent velocities) before this cycle's proposal, for reduce().
+        self._limits = {}
         self._proposed = None  # (target, velocities) of this cycle's move, as first proposed.
 
     @property
@@ -135,6 +136,8 @@ class TeleopLifecycle:
         # A slewed move carries its velocity (the receiver ramps it over its interpolation period) and
         # friction feed-forward in that direction; any other target (a snap to the measured pose) none.
         velocities = self._velocities if operation == 'move' and not zero_gains else None
+        if velocities is None:
+            self._limits = {}
         self._velocities = None
         velocities = velocities or (0.,) * len(self._joints)
         if original:
@@ -153,7 +156,8 @@ class TeleopLifecycle:
                      for command, before, joint in zip(commands, previous, self._joints)]
         self._sent_velocities = tuple(velocities) if operation == 'move' and not zero_gains else None
         return dict(state=self.state, operation=operation, joint_names=list(self.names),
-                    positions=positions, joints=commands, reason=self.reason, ramp_efforts=ramps)
+                    positions=positions, joints=commands, reason=self.reason, ramp_efforts=ramps,
+                    limits=deepcopy(self._limits))
 
     def _effort(self, joint, velocity, positions):
         """Feed-forward: friction in the direction of motion and the arm's gravity at the commanded pose,
@@ -276,11 +280,15 @@ class TeleopLifecycle:
         before = self._last_measured or tuple(row['position'] for row in measured)
         sent = self._sent_velocities or (0.,) * len(self._joints)
         for previous, row, target, joint, last, was in zip(self.target, measured, goal, self._joints, before, sent):
+            desired, reasons = target, []
             up = down = joint[speed]
             lead_up = lead_down = joint['max_lead']
             # The receiver ramps each command from the last one over its interpolation period: a cycle
             # moves at most that period's worth, so a late cycle never asks for more than the speed.
             period = joint.get('interpolation_s') or 0.
+            # Direct targets apply immediately; velocity/acceleration bounds still
+            # use the actual producer period, independently of receiver interpolation.
+            velocity_period = period or (dt if joint.get('direct_velocity') else 0.)
             step = min(dt, period) if period > 0 else dt
             curve = joint.get('approach')
             if curve:  # Toward an end, within the receiver's braking curve (with headroom) all along the step.
@@ -303,19 +311,28 @@ class TeleopLifecycle:
             high = min(joint['upper'], up_from+lead_up, max(previous+up*step, down_from-lead_down))
             if low > high:
                 raise ValueError(f'Measured pose exceeds command lead/slew bounds: {joint["name"]}')
-            if curve and period > 0 and dt > 0:
+            if not joint['lower'] <= desired <= joint['upper']:
+                reasons.append('joint_limit')
+            if not down_from-lead_down <= desired <= up_from+lead_up:
+                reasons.append('tracking_lead')
+            if not previous-down*step <= desired <= previous+up*step:
+                reasons.append('speed_or_limit_approach')
+            if curve and velocity_period > 0 and dt > 0:
                 # Speeding up no faster than the joint's qualified braking, in either direction; slowing toward
                 # the goal is never held back, so a command never runs past where the leader stopped. A step from
                 # rest to 1.5 rad/s asked right J2 for 41 Nm in 10 ms, and gravity carried it to 1.98 rad/s,
                 # over the receiver's 1.875 cap (rehearsal, 2026-10-04).
                 rate = curve['stop_acceleration'] * dt
-                target = max(previous + (min(was, 0.) - rate) * period,
-                             min(previous + (max(was, 0.) + rate) * period, target))
+                target = max(previous + (min(was, 0.) - rate) * velocity_period,
+                             min(previous + (max(was, 0.) + rate) * velocity_period, target))
+                if target != desired:
+                    reasons.append('acceleration')
             q = max(low, min(high, target))
             proposed.append(q)
+            self._limits[joint['name']] = reasons if abs(q-desired) > 1e-12 else []
             # The velocity it is ramped at, fed forward (a snap back toward the joint no faster than the cap).
-            velocities.append(0. if period <= 0 else
-                              max(-joint['max_velocity'], min(joint['max_velocity'], (q-previous)/period)))
+            velocities.append(0. if velocity_period <= 0 else
+                              max(-joint['max_velocity'], min(joint['max_velocity'], (q-previous)/velocity_period)))
         self._velocities = tuple(velocities)
         return tuple(proposed)
 

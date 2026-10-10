@@ -56,7 +56,7 @@ class DirectLifecycleSession(GuardedLifecycleSession):
 
     def _offer(self):
         started = self.clock()
-        return self._cache(self.controller.collision_offer(), started)
+        return self._cache(self.controller.freshness_offer(), started)
 
     def recover(self):
         status = self.controller.poll()
@@ -77,6 +77,7 @@ class DirectLifecycleSession(GuardedLifecycleSession):
         started = self.clock() if started_at is None else started_at
         record = dict(action=action, accepted=False, started_at=started, collision_mode='disabled')
         self.last_cycle = record
+        exchanges = self.controller.exchanges
         try:
             if action == 'disable':
                 record.update(proposal=self.disable(), accepted=True)
@@ -134,7 +135,9 @@ class DirectLifecycleSession(GuardedLifecycleSession):
                 else:
                     raise ValueError(f'Unknown lifecycle operation {operation}')
             record.update(accepted=True, status=status, rpc_ms=(self.clock() - rpc_started) * 1000,
-                          receiver_accepted_ms=status['now_ms'])
+                          receiver_accepted_ms=status['now_ms'],
+                          request_sequence=(status.get('lease') or {}).get('last_sequence'),
+                          receiver_applied=status.get('last_applied_target'))
             return record
         except Exception as exc:
             record['failure'] = str(exc)
@@ -142,4 +145,5 @@ class DirectLifecycleSession(GuardedLifecycleSession):
             self._cached = None
             raise
         finally:
-            record.update(completed_at=self.clock(), stop_error=self.stop_error)
+            record.update(completed_at=self.clock(), stop_error=self.stop_error,
+                          rpc_count=self.controller.exchanges - exchanges)

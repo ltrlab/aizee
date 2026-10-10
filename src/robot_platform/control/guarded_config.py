@@ -237,6 +237,7 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
                           # Not a gripper's: fed-forward velocity would add to its squeeze while it closes on
                           # an object (kd x speed), and its command already leads by its whole range.
                           'interpolation_s': 0. if gripper else interpolation_ms / 1000, 'friction_nm': friction,
+                          'direct_velocity': disabled and not gripper,
                           'inertia': inertia,
                           # Gravity feed-forward: [(coefficient, {motor: multiplier})], control.gravity.
                           'gravity': [[coefficient, angle] for coefficient, angle in terms.get(name, [])],
@@ -254,6 +255,9 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
                        'receiver_cap': float(speed), 'friction_ff': friction, 'gravity_ff': bool(terms.get(name)),
                        'receiver': [bounds['lower'], bounds['upper']],
                        'home': home, 'direction_verified': verified.get(name, False), 'servo_calibrated': calibrated,
+                       'control_law': 'direct-feedforward' if disabled else CONTROL_LAW,
+                       'speed_qualified_for_control_law': bool(calibrated and not disabled and
+                           (((servo or {}).get('joints') or {}).get(name) or {}).get('control') == CONTROL_LAW),
                        # Gripper slides: the motor direction that opens (away from the bound nearest zero).
                        # The CAD axis may be mirrored between arms; physical opening is what an operator sees.
                        'opens': ((1 if row['scale'] > 0 else -1) * (1 if abs(cad_hi) >= abs(cad_lo) else -1)

@@ -47,7 +47,7 @@ class AbsoluteLeaderMapper:
         self.previous = None
         self.fault = None
 
-    def map(self, samples, *, now):
+    def map(self, samples, *, now, allow_repeated=False):
         if self.fault:
             raise ValueError(f"Leader mapping fault requires explicit recovery: {self.fault}")
         try:
@@ -57,6 +57,7 @@ class AbsoluteLeaderMapper:
             if (any(not 0 <= now - stamp < self.max_age_s for stamp in stamps)
                     or max(stamps) - min(stamps) > self.max_skew_s):
                 raise ValueError("Stale or unsynchronized leader target")
+            repeated = False
             for name, sample in samples.items():
                 if (type(sample.sequence) is not int or sample.sequence <= 0
                         or len(sample.positions_rad) != 7
@@ -66,11 +67,18 @@ class AbsoluteLeaderMapper:
                     previous = self.previous[name]
                     delta = (sample.sequence - previous.sequence) & 0xffffffff
                     dt = sample.sampled_at - previous.sampled_at
+                    if allow_repeated and delta == 0:
+                        if sample.positions_rad != previous.positions_rad or sample.sampled_at != previous.sampled_at:
+                            raise ValueError('Leader source changed without a new sequence')
+                        repeated = True
+                        continue
                     if not 0 < delta < 0x80000000 or dt <= 0:
                         raise ValueError("Leader source did not advance")
                     if any(abs(a-b) > self.max_speed * dt for a, b in
                            zip(sample.positions_rad, previous.positions_rad)):
                         raise ValueError("Leader encoder jump or excessive speed")
+            if repeated:
+                return None  # A cached sample never becomes a fresh command or timestamp.
             target = []
             for route in self.routes:
                 sample = samples[route["leader"]]

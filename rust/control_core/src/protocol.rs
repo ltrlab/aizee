@@ -158,6 +158,13 @@ pub struct Lease {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppliedTarget {
+    pub sequence: u64,
+    pub accepted_at_ms: u64,
+    pub applied_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Status {
     pub protocol_version: u32,
     pub epoch: String,
@@ -177,6 +184,9 @@ pub struct Status {
     /// Where each joint's reference comes to rest without a new command: the end of the ramp in force,
     /// or of its stop. A client's box covers the way there, as the receiver's check of a command does.
     pub reference_ends: Vec<f64>,
+    /// Last target successfully written by the receiver, on the receiver clock.
+    /// An acknowledgement may precede this when service writes are deferred.
+    pub last_applied_target: Option<AppliedTarget>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

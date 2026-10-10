@@ -1,29 +1,31 @@
 # Direct position teleop, without collision processing
 
-Prepared 2026-10-10 at the user's request. This is the next implementation task;
-the branch preparation does not change runtime behavior.
+Implemented 2026-10-10 at the user's request. The explicit direct mode, combined
+update exchange, 100 Hz zero-ramp profile and offline qualification tooling are
+available. Physical timing and tracking remain to be measured.
 
 - Branch: `codex/teleop-direct-mirror`.
 - Base: `codex/overhaul-integration`, commit
   `8b4f2c4a9543699fd86d2054dbf658be920b72bb`.
 - Worktree: the completed baseline/MuJoCo checkout, now assigned to this task:
   `C:/Users/ltr/.codex/worktrees/dev-baseline/aizee`.
-- Owner: one agent owns the Python/Rust teleop contract together. Do not run
-  another editing agent in this checkout.
+- Owner: one owner coordinates the Python/Rust teleop contract together. Delegate
+  bounded review/test files explicitly; never allow overlapping edits.
 - Goal: promptly mirror the newest calibrated leader joint positions, with no
   collision geometry queries, collision envelopes or collision recovery search.
   Retain joint, velocity, acceleration, effort and tracking-error bounds, source
   freshness, exclusive ownership, watchdogs, feedback checks and enable/stop behavior.
 
-## What the existing implementation establishes
+## Baseline and scope
 
-The profile selects `advisory`, but `AdvisoryCollisionCompiler` still calls
+The original profile selects `advisory`, and `AdvisoryCompiler` still calls
 `backend.proximity`. `TeleopCore.build` opens the collision backend, and the
 guarded session still compiles and exchanges envelopes. The two-arm path forces
 a motion bound. Both Python live configuration and Rust service validation must
-change together to permit an explicitly selected collision-disabled mode.
+change together to permit an explicitly selected collision-disabled mode. This
+branch makes that coordinated change; the original profile remains available.
 
-The current profile has a 20 ms interpolation interval and a 50 Hz loop derived
+The original profile has a 20 ms interpolation interval and a 50 Hz loop derived
 from that interval. The leader sampler is configured for 200 Hz; that is not a
 measurement of unique encoder sample throughput. The receiver runs at 400 Hz.
 The older latency table in `../architecture/TELEOP_LATENCY.md` predates these
@@ -50,7 +52,7 @@ tasks; neither blocks this software control-path work. No IK, motion planner,
 new transport stack, controller-law rewrite or predictive leader extrapolation
 belongs in this task.
 
-## Small changes in order
+## Implementation and acceptance contract
 
 ### 1. Explicit collision-disabled behavior at the existing rate
 
@@ -135,5 +137,77 @@ with its evidence directory. The integrator reruns the gate before merging to
 worktrees with stable input fixtures; changes to shared control files wait for this
 owner. Collision-query optimization is no longer on the direct teleop critical path.
 
-Results: branch and scope prepared; runtime implementation, new tests, Linux vcan,
-Jetson timing and hardware measurements remain outstanding.
+## Selecting and measuring the implementation
+
+The dedicated profile is `config/devices/minerva-teleop-direct.json`. It selects
+100 Hz and `interpolation_ms: 0`, with a 400 Hz receiver. Command lifetime is
+30 ms, velocity feedforward lifetime 15 ms, feedback timeout 30 ms and lease
+150 ms. These are independent receiver-enforced windows. The next one-use
+freshness offer accompanies an accepted update, giving one request/reply per
+steady following cycle. Replayed, reordered, invalid or expired batches cannot
+renew a target. Feedback/target freshness, calibrated bounds, acceleration and
+near-limit braking remain active; no collision backend is constructed.
+
+Direct mode preserves I (Idle), E (Enable), T (Engage/hold), X (return and disable)
+and H (immediate disable). Repeated source samples retain their original age and
+hold with zero velocity feedforward. Sustained source loss requires Engage again.
+Receiver expiry revokes ownership; the fault recovery path can only return to
+reference and disable, not resume following. Physical service mode is explicitly
+`teleop_direct`, with the existing watchdog, reference and operator enable gates.
+Both Python and Rust must be updated together; no old-receiver fallback exists.
+
+After the qualification ladder, select the profile from this checkout:
+
+```powershell
+.\scripts\helm.ps1 -TeleopProfile config/devices/minerva-teleop-direct.json
+```
+
+The launcher keeps its existing operator Python environment selection. Use an
+editable install from this checkout, not another feature's environment. This
+profile deliberately cannot run servo tuning; the original profile owns that
+existing workflow. Saved range scaling/sign/offset mapping is preserved, so
+"direct" does not promise a 1:1 leader/follower angular ratio. Existing gains and
+feedforward are reused but the zero-ramp law has no physical tracking qualification.
+
+Live evidence includes `direct-latency.jsonl` beside the receiver recording:
+source sequence/age, poll/map/RPC time, desired/commanded/measured positions,
+limiter reasons, receiver acceptance and successful hardware-batch submission.
+Receiver timestamps are compared only within that receiver's clock. Application
+is not motor motion onset. `cycle_ms` measures through session completion;
+`full_loop_ms` additionally includes command handling, previous trace serialization
+and writing, flushes and UI snapshot construction. The loop records scheduled
+lateness, completion deadline misses and skipped slots, and never queues catch-up
+targets. A loop record is finalized after UI construction and persisted on the
+next tick or clean close; an abrupt process kill can lose that final record.
+
+The synthetic benchmark isolates 14-joint receiver/transport overhead. It does
+not measure USB leader throughput, the full lifecycle/UI workload or physical
+tracking. Harness time advances only when the client invokes it. Only the Linux
+vcan backend exercises an independently scheduled real service. Each output
+directory contains source content/config/binary hashes, trace and report.
+
+```powershell
+.\.venv-dev\Scripts\python.exe scripts/benchmark_direct_teleop.py --backend harness --hz 100 --cycles 1000 --output simulation_runs/direct-harness-100hz-new
+```
+
+On a Linux development host, prepare dedicated virtual interfaces and run the
+same benchmark against the actual service (these names must be kernel `vcan`):
+
+```sh
+cargo build --release --locked -p robot_control --features robot_control/linux-service
+sudo modprobe vcan
+sudo ip link add dev vcanDirectL type vcan
+sudo ip link add dev vcanDirectR type vcan
+sudo ip link set vcanDirectL up
+sudo ip link set vcanDirectR up
+.venv-dev/bin/python scripts/benchmark_direct_teleop.py --backend vcan --binary rust/target/release/guarded_controller --hz 100 --cycles 3000 --output simulation_runs/direct-vcan-100hz-new
+```
+
+The benchmark also checks producer-silence expiry and emergency stop. Broader
+fault injection currently lives in deterministic receiver/lifecycle contracts;
+it must still be exercised against Linux service scheduling. Evaluate `--hz 200`
+separately; that option does not promote the default profile to 200 Hz.
+
+Current verification and remaining platform work are recorded in
+[development status](../DEVELOPMENT_STATUS.md). No physical service, deployment
+or robot motion was started by this implementation task.
