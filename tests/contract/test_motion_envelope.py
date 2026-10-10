@@ -94,6 +94,27 @@ def test_a_motion_box_is_the_ramp_widened_by_tracking_and_a_stop_from_the_speed_
             control.move(commands(-1., 1.), collision=short)
 
 
+def test_arming_is_taken_when_a_reading_flickers_after_the_offer(setup):
+    # Not yet driven, the receiver boxes its own newest reading. A real drive's reading flickers by an encoder count
+    # at rest, and the first live two-arm Enable was refused for one (2026-10-09).
+    backend, cfg, mapping = setup
+    compiler = MotionEnvelopeCompiler(backend, cfg, mapping, compute_budget_s=.05)
+    with NativeControlHarness(cfg, [-1., 1.]) as harness:
+        twitch = {}
+
+        def exchange(request):
+            return harness.step(harness.now_ms + 1, request, feedback=twitch.pop("feedback", None))["reply"]
+        control = GuardedControllerClient(exchange, group=cfg["group"], identity=cfg["identity"],
+                                          joint_names=("a", "b"))
+        control.acquire()
+        offered = control.collision_offer()
+        envelope = compiler.compile(offered, harness.last["feedback"])
+        twitch["feedback"] = [dict(position=-1. - 4e-4, velocity=0., effort=0.),
+                              dict(position=1. + 4e-4, velocity=0., effort=0.)]
+        control.arm(collision=envelope)
+        assert harness.last["status"]["state"] == "holding"
+
+
 def test_a_stream_of_moves_is_certified_and_taken_and_the_box_follows_the_speed(setup):
     backend, cfg, mapping = setup
     compiler = MotionEnvelopeCompiler(backend, cfg, mapping, compute_budget_s=.05)

@@ -16,6 +16,10 @@ from .approach import (approach_speed, limit_reaction_s, limit_reserve, motion_r
                        speed_bounds)
 from .collision_guard import JointBoxBound, JointCalibration, check_joint_box, check_linear_motion
 
+# How far a joint's reading may move between an offer and the receiver's check of the box built on it, while
+# nothing drives it: a RobStride count is 0.00038 rad and readings at rest flicker by one or two.
+READING_FLICKER = .005
+
 FULL_TURN = 2 * math.pi
 
 
@@ -265,7 +269,11 @@ class MotionEnvelopeCompiler:
                 # command.
                 points = (status["joints"][i]["position"], status["reference_ends"][i], start, target)
             else:
-                points = (sample["position"], start, target)
+                # Not yet driven, the receiver boxes its own newest reading, taken after the offer's: a drive's
+                # reading flickers at rest, and the first live two-arm Enable was refused for one count
+                # (2026-10-09).
+                points = (sample["position"] - READING_FLICKER, sample["position"] + READING_FLICKER, start,
+                          target)
             lo, hi = min(points), max(points)
             if not all(math.isfinite(value) for value in (lo, hi, *bounds[i])):
                 raise ValueError("Complete finite joint targets and speed bounds required")
