@@ -839,3 +839,27 @@ def test_a_heavy_joints_inertia_is_fitted_and_fed_forward_as_it_speeds_up():
         return max(s['max_lag'] for s in result['speeds'] if s['target_speed'] == speed and s['max_lag'] is not None)
     assert worst(fed, .8) < .7 * worst(bare, .8)
     assert fed['verification']['max_lag'] < bare['verification']['max_lag']
+
+
+def test_a_plan_that_waited_for_its_joint_speeds_up_again_gently():
+    # Left J2 fell behind a 1.2 rad/s speed test (kp 154, 2026-10-09): the plan waited at its lead cap, so the
+    # speed fed forward fell to nothing and the joint stalled; resumed at full speed at once, the joint lunged to
+    # 2.2 rad/s and the receiver tripped. Held back here by a push, it must not lunge once let go.
+    joints = [limits('left_arm_j2', lower=-1.6, upper=1.57, bound=.068, speed=1.875, stop=32., effort=60.,
+                     max_kd=40., max_kp=300.)]
+    plant = Plant({'left_arm_j2': dict(inertia=.3, gravity=lambda q: 0., friction=.9, q=0.)},
+                  {'left_arm_j2': .5}, interpolation=.02)
+    gains = {'left_arm_j2': (154., 12.3)}
+    names = ['left_arm_j2']
+    engine = SweepEngine(joints, home={'left_arm_j2': 0.}, gains=gains, sweep=names, interpolation_s=.02,
+                         settings={'left_arm_j2': sweep_settings(PROFILE, 'left_arm_j2')}, period_s=.02)
+    engine.current = 'left_arm_j2'
+    engine._plan = engine._go('left_arm_j2', 1.2, 1.2, acceleration=8., deceleration=8.)
+    engine.observe(plant.run(names, {'targets': [0.], 'gains': [gains['left_arm_j2']]}, seconds=.02))
+    plant.shove = ('left_arm_j2', .3, .45, -10.)  # Something holds it back for 150 ms, mid-move.
+    now = 0.
+    while (command := engine.command(now)) is not None and now < 10:
+        engine.observe(plant.run(names, command, seconds=.02))
+        now += .02
+    assert plant.state['left_arm_j2'][0] == pytest.approx(1.2, abs=.05)
+    assert plant.fastest['left_arm_j2'] < 1.5, plant.fastest  # The receiver's allowance at a 1.2 rad/s plan.

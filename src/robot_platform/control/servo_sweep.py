@@ -559,7 +559,11 @@ class SweepEngine:
             behind = self._behind(motor, direction)
             if behind is not None and behind >= self._lead(motor, direction, self.measured(motor)):
                 # The command is pinned at its lead cap: the plan waits for the joint rather than run
-                # ahead of it (a plan far ahead turns into a lunge the moment the joint gets more push).
+                # ahead of it (a plan far ahead turns into a lunge the moment the joint gets more push). It speeds
+                # up again from rest, at its acceleration: resumed at full speed at once, the whole speed was fed
+                # forward to a joint that had just stalled, and left J2 lunged to 2.2 rad/s in a 1.2 rad/s speed
+                # test, tripping the receiver (2026-10-09).
+                v = 0.
                 waited += dt
                 if waited >= STALL_S:
                     why = (f'{self._label(motor)} could not follow its plan: {behind:.3f} rad behind for '
