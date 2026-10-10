@@ -3,50 +3,50 @@
 Updated 2026-10-10. This file is the current entry point; dated phase tables and
 device logs retain historical evidence, not an implicit statement of readiness.
 
-The retry candidate now uses explicit `direct.position_only=true`: zero client
-velocity and friction/ramp feedforward, retaining saved PD and gravity, with the
-same internal position/acceleration planner. The native receiver rejects nonzero
-client velocity/ramp in this mode; receiver-owned braking is unchanged. Its
-separate `minerva-teleop-direct-trial.json` profile bounds commanded motion to
-left J1, 0.05 rad/s and ±0.03 rad from the first Enable hold position. Other
-joints hold their latched positions; re-Engage cannot move the window. Shutdown
-returns all joints to reference and is explicitly outside that trial window.
-This is a diagnostic physical baseline, not qualification for fast full-arm use.
-The frozen offline gate passed 490 Python tests (zero skips/xfails) and 115 Rust
-tests at `build/dev-check/20261010T185915Z-0b98f91d/report.json`. Runtime/tests were
-unchanged throughout; this result note followed it. Fresh Jetson evidence is next.
+**The corrected direct-teleop candidate is qualified for activation and a bounded,
+attended left-J1 diagnostic trial. Activation is pending; physical smoothness is
+not yet validated.** Runtime `20261010T191330Z-1624fda` was packaged from clean
+commit `1624fda` on `codex/teleop-direct-mirror`. The robot remains disabled on
+`20261010T175730Z-abfbbbd`; its failed trial and the retry failures are preserved.
 
-**Live direct teleop is not ready for another trial.** The first attended left-arm
-run (`live-20261010T180632Z`, active release `20261010T175730Z-abfbbbd`)
-produced visibly jerky motion and a J3 holding-lead fault. It returned to reference
-and disabled. Preserve this failure; the earlier near-stationary timing pass did
-not qualify moving-input behavior. No corrected release has been deployed.
+The corrected path handles fresh immutable repeats without resetting approach,
+uses explicit position-only commands (zero client velocity/friction feedforward,
+unchanged PD and gravity), and suspends cyclic GC during direct control after
+measured 5.5–5.8 ms collection pauses caused deadline expiry. Resource cleanup
+restores the prior GC state. Timing, watchdog and physical safety bounds remain.
 
-The 32.6-second TELEOP phase had no scheduling misses; the native CAN loop had
-none either. Approximately 10.5% of TELEOP reads repeated the previous USB sample
-(about 89.4 unique samples/s). Each repeat was incorrectly treated as absent input:
-all commanded velocities became zero, and subsequent motion restarted its ramp.
-The final repeat checked J3 against the static holding bound: 0.029513 rad error
-versus 0.027732 rad allowed. Offline checkpoint replay reproduces that fault.
+The frozen final gate passed **494 Python tests, zero skips/xfails, and 115 Rust
+tests** at `build/dev-check/20261010T191234Z-f8d643e8/report.json`. Final candidate
+qualification on Jetson, with physical CAN inaccessible, passed:
 
-A local candidate distinguishes validated, fresh repeated input from missing
-input. It continues the bounded approach toward the unchanged observed goal,
-retains source sequence/timestamp and receiver expiry, counts repeats against the
-same loss budget, and leaves gains and all safety thresholds unchanged. It also
-records commanded velocity/effort and retains feedback on the first failing cycle.
-This removes the reproduced duplicate handling defect; **it does not establish
-smooth physical tracking**. A reached sampled goal can still drop velocity
-feedforward to zero. Moving, quantized-input/reversal qualification and a separate
-decision about velocity feedforward are required before another physical trial.
-Evidence and exact limitations are in
-[the failed-trial investigation](development/DIRECT_TELEOP.md#failed-left-arm-trial-2026-10-10).
+- 5,000 moving full-loop updates with recording/UI, quantized 90 Hz input,
+  reversals, holds and 500 immutable repeats. Following work p99 4.815 ms,
+  maximum 6.993 ms, zero following misses/skipped slots; trial bounds passed.
+- 1,000 real-USB/tether updates against virtual motors. Following work p99
+  6.328 ms, maximum 8.670 ms, zero following misses/skips. Input was stationary,
+  so this is timing evidence, not moving or physical tracking evidence.
+- 3,000 receiver-only updates plus all fault-injection checks. All applied,
+  zero deadline misses/skips. All test receivers ended disabled and closed.
+- A 50-second GC/memory observation: RSS stayed at 48.30 MiB; GC was restored
+  afterward. Each full-loop run had one startup enable-phase miss, recorded
+  separately; no unlimited-duration or startup timing claim is made.
 
-The correction passed **416 required Python tests with zero skips/xfails and
-111 Rust tests** at `build/dev-check/20261010T182211Z-516a4b69/report.json`.
-Runtime/test source stayed frozen during the gate; this results note followed it.
-The separate moving-input comparison ran 24 cases/24,556 cycles without lifecycle
-faults or position/speed violations, but still exposed command-velocity pulses.
-That smoothness limitation blocks another live trial despite the regression pass.
+All 14 stopped motor identity/position/reference checks passed against this
+candidate. The full Minerva Check verdict is INCOMPLETE only because attended
+left/right joint sweeps remain pending. Both physical CAN links were verified
+down afterward. Evidence, hashes, scope and remaining activation action are in
+`build/direct-retry/readiness.json`; complete remote traces are archived at
+`build/direct-retry/final-readiness-evidence.tar.gz`.
+
+Use `minerva-teleop-direct-trial.json` with the separately bound operator routes
+in `build/direct-retry/operator-runs`. Only left J1 follows, at 0.05 rad/s within
+±0.03 rad of the first Enable hold pose; other left joints hold. Re-Engage cannot
+move the window. Shutdown/recovery returns all joints to reference outside it.
+Collision detection is disabled. J1 gains remain Kp 150 / Kd 9.8; all other gains
+are unchanged. Fast full-arm and dual-arm operation remain unqualified.
+See [the retry contract and results](development/DIRECT_TELEOP.md#position-only-retry-contract).
+This documentation result update follows the gate; packaged runtime/tests remain
+byte-identical to the tested commit.
 
 The integration checkpoint preserves the 11 uncommitted overhaul files captured
 after `a66afa7`. The original `overhaul` working directory remains independent.

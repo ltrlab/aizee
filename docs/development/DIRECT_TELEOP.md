@@ -360,7 +360,7 @@ lead bound and avoids the duplicate-specific exception. A synthetic moving J2
 checkpoint using actual gains changes velocities from 0.58 → 0 → 0.08 rad/s to
 0.58 → 0.66 → 0.74 rad/s. This is a software-path comparison, not a physical plant.
 
-Remaining work before another live trial:
+Remaining work at the duplicate-only checkpoint (superseded by the retry results below):
 
 1. Qualify moving, quantized leader trajectories with about 90 Hz unique samples,
    a 100 Hz consumer, duplicate bursts, reversals, reached goals and lost input.
@@ -392,7 +392,7 @@ all duplicate zero-velocity drops while the sampled goal was still unreached.
 It is not a dynamics simulation. Slow-motion pulses largely persisted: J1/J3/J4/J6
 drop counts were unchanged, and J2 fell only from 319 to 295. In the fast J2 case,
 duplicate drops fell from 18 to 4, but a remaining goal-reached velocity jump was
-0.8832 rad/s (legacy maximum 0.7200). **The command smoothness gate has not passed.**
+0.8832 rad/s (legacy maximum 0.7200). **At that duplicate-only checkpoint, the command smoothness gate had not passed.**
 Velocity-reference generation needs a separate evidenced correction; the passing
 functional regression gate is not justification to deploy this partial candidate.
 
@@ -449,3 +449,58 @@ correction suspends automatic cyclic GC only during direct control, keeps normal
 reference counting, closes control resources first, and restores the caller's GC
 state during cleanup. Guarded modes retain their previous behavior. Fresh timing
 and longer-run allocation/RSS measurements are required; no deadline is relaxed.
+
+
+### Final retry qualification: 2026-10-10
+
+Runtime `20261010T191330Z-1624fda` (clean commit `1624fda`) passed the complete
+offline gate: 494 Python tests, zero skips/xfails, 115 Rust tests. Report:
+`build/dev-check/20261010T191234Z-f8d643e8/report.json`. The Linux AArch64 native
+build passed. Runtime content SHA-256 is
+`3a9f8ef486aa2fce587053761262861e048b4b11199ec3f82e5500cc1bf51dca`.
+This documentation-only result note follows the frozen gate and release package.
+
+The final Jetson qualification used a private network namespace containing only
+loopback and virtual CAN. The native receiver, full TeleopCore/run_loop, recorder,
+UI construction and saved operator bindings were exercised together:
+
+| Test | Accepted/applied | Following work p99 / max | Following misses/skips |
+|---|---:|---:|---:|
+| Moving 90 Hz quantized input, 100 Hz consumer | 5,000 / 5,000 | 4.815 / 6.993 ms | 0 / 0 |
+| Real USB leaders and wired tether, stationary input | 1,000 / 1,000 | 6.328 / 8.670 ms | 0 / 0 |
+| Receiver-only protocol and fault qualification | 3,000 / 3,000 | 2.690 / 6.585 ms (RPC cycle) | 0 / 0 |
+
+All receiver fault checks passed. Moving coverage included 500 immutable repeats,
+held/reached goals, both reversal directions, zero wire velocity/ramp effort,
+gravity-only effort, held inactive joints, and the fixed J1 window/speed cap.
+The 50-second moving test saw no cyclic collection during following and RSS was
+50,647,040 bytes at all ten samples. Allocation counts stabilized after warmup;
+this is bounded evidence, not proof for unlimited operation. GC returned to its
+original enabled state and unfroze on close. Both full-loop runs had one startup
+enable-phase scheduling miss (14.512 ms synthetic, 16.143 ms USB); zero-miss
+claims cover following only. All services ended disabled and closed.
+
+The actual USB input was stationary during measured following. Its pass qualifies
+USB/tether timing only; synthetic moving input separately covers commands, and
+neither test validates physical smoothness or high-speed damping lag.
+
+Stopped preflight checked all 14 motor identities, fault-free Reset state,
+positions inside saved travel and near reference. The overall Minerva Check is
+INCOMPLETE because attended live joint sweeps remain pending. No motor enable was
+requested. Final verification found both CAN links down, no controller owner,
+and the prior release `20261010T175730Z-abfbbbd` still active.
+
+The next attended trial is left J1 only, 0.05 rad/s and ±0.03 rad; all other left
+joints hold. Use the trial profile and `build/direct-retry/operator-runs` because
+the original route record is bound to the full direct profile. Original routes
+are preserved; only the copied profile binding changed, with hashes recorded.
+J1 remains Kp 150 / Kd 9.8. Idle (I) already enables physical motors; starting
+the Helm server only starts the stopped reader. Shutdown/recovery can return all
+joints to reference outside the trial window. Collision detection is disabled.
+
+Activation of this specific runtime and reopening Helm on the trial profile are
+the remaining operator actions. No physical tracking approval is inferred from
+these software checks. `build/direct-retry/readiness.json` records all evidence
+paths/hashes. The final remote archive SHA-256 is
+`c492c38fd12dbe3eb25023dcd9477c1b92e226ef661a40b149625f1baa13dbe7`.
+The original failed physical trace and both pre-GC retry failures remain intact.
