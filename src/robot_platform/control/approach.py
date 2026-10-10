@@ -94,7 +94,10 @@ def limit_reserve(joint, reaction, distance):
 
 def speed_bound(joint, commanded):
     """Under a motion collision bound, the speed the receiver lets a joint move at once its reference is
-    commanded at `commanded`: its overshoot over that, never below its approach floor (collision::speed_bound)."""
+    commanded at `commanded`: its overshoot over that, never below its approach floor; a gripper's cap, as its
+    commands carry no velocity (collision::speed_bound)."""
+    if joint.get('gripper'):
+        return joint['max_velocity']
     return max(OVERSPEED_HEADROOM * abs(commanded), min(APPROACH_FLOOR_RAD_S, joint['max_velocity']))
 
 

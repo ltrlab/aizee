@@ -42,8 +42,14 @@ pub enum Bound {
 pub const SPEED_OVERSHOOT: f64 = 1.25;
 
 /// The speed a motion bound lets a joint move at, once the reference it follows is commanded at
-/// `commanded`: its overshoot over that, never below its approach floor (drive noise at rest).
+/// `commanded`: its overshoot over that, never below its approach floor (drive noise at rest). A
+/// gripper's commands carry no velocity (it would add to its squeeze) and lead it by its whole range,
+/// so it moves at up to its cap whatever it is commanded: its box is padded for that (both arms'
+/// grippers tripped on the floor as they opened at Engage, 2026-10-09).
 pub fn speed_bound(joint: &crate::JointLimits, commanded: f64) -> f64 {
+    if joint.gripper {
+        return joint.max_velocity;
+    }
     (SPEED_OVERSHOOT * commanded.abs()).max(APPROACH_FLOOR_RAD_S.min(joint.max_velocity))
 }
 
