@@ -170,6 +170,7 @@ class GuardedLifecycleSession:
             if not self.owned:
                 raise ValueError("Idle must acquire robot ownership before applying commands")
             envelope = None
+            following = target  # The leader target this cycle's command follows; None once it holds instead.
             if operation in ("enable", "move"):
                 try:
                     envelope = self.compiler.compile(offered, feedback,
@@ -184,8 +185,13 @@ class GuardedLifecycleSession:
                     record.update(blocked=self.blocked, blocked_collision=deepcopy(exc.verdict),
                                   blocked_proposal=deepcopy(proposal))
                     last, fractions = exc, list(REDUCED_STEPS)
+                    # A slower move still follows the leader target, so it must be dispatched before that
+                    # expires; a hold follows nothing (a blocked cycle on the Jetson outlived its target, 2026-10-10).
+                    expires = (min(row["sampled_at"] for row in target) + self.lifecycle.target_max_age_s
+                               if target and self.lifecycle.state in ("ENGAGING", "TELEOP") else math.inf)
                     while fractions:
-                        left = self.cycle_budget_s - DISPATCH_S - (self.clock() - started)
+                        now = self.clock()
+                        left = self.cycle_budget_s - DISPATCH_S - (now - started)
                         budget = self.compiler.compute_budget_s
                         if left < budget:
                             # No time for another try: hold the target last sent, unsent.
@@ -195,7 +201,8 @@ class GuardedLifecycleSession:
                                 raise exc from None
                             record.update(out_of_time=fractions[0], proposal=deepcopy(proposal))
                             break
-                        fraction = fractions.pop(0) if left >= 2 * budget else 0.
+                        fresh = expires - DISPATCH_S - now >= budget
+                        fraction = fractions.pop(0) if left >= 2 * budget and fresh else 0.
                         if fraction == 0.:
                             fractions = []
                         try:
@@ -212,6 +219,8 @@ class GuardedLifecycleSession:
                             last = again
                             record.setdefault("reduced_blocked", []).append(
                                 (fraction, again.verdict.get("reason"), again.verdict.get("clearance_lower_bound_m")))
+                    if envelope is None or record.get("reduced") == 0.:
+                        following = None
                     if envelope is None:
                         # Nor the hold: send nothing. The receiver keeps driving its last command within the
                         # last verdict's box, and stops the arms itself when that lapses.
@@ -219,11 +228,11 @@ class GuardedLifecycleSession:
                         lease = offered["status"].get("lease") or {}
                         if offered["offer"]["expires_at_ms"] > lease.get("expires_at_ms", -1):
                             self.controller.renew_with(offered)
-                        self._deadline(started, target)
+                        self._deadline(started, following)
                         record["accepted"] = True
                         return record
                 record.update(collision=deepcopy(self.compiler.last_verdict), envelope=envelope)
-            self._deadline(started, target)
+            self._deadline(started, following)
             record["accepted"] = None
             if operation == "idle":
                 status = self.controller.idle()
@@ -238,7 +247,7 @@ class GuardedLifecycleSession:
             else:
                 raise ValueError(f"Unknown lifecycle operation {operation}")
             record.update(accepted=True, status=status)
-            self._deadline(started, target)
+            self._deadline(started, following)
             return record
         except Exception as exc:
             record["failure"] = str(exc)

@@ -225,11 +225,14 @@ def test_teleop_holds_where_the_boxes_would_meet_and_follows_again_once_they_par
         assert session.blocked is None and gaps[-1] > min(gaps) + .3
 
 
-def test_a_blocked_move_is_tried_again_only_while_the_cycle_has_time(setup):
+@pytest.mark.parametrize('age', [0., .035])
+def test_a_blocked_move_is_tried_again_only_while_the_cycle_has_time(setup, age):
     # Virtual, enforced, on the Jetson (2026-10-09): a blocked move tried again at shorter steps, each try a whole
     # collision computation, took the cycle to 37 ms, past its 35 ms budget, and the session faulted. Here each
     # computation takes 9 ms: with time for one more try a cycle tries the hold, which renews the receiver's
-    # verdict (sending nothing for 80 ms, it would stop the arms), and no cycle runs past its budget.
+    # verdict (sending nothing for 80 ms, it would stop the arms), and no cycle runs past its budget. A slower move
+    # follows the leader target and must go before it expires (50 ms): here it also arrives 35 ms old, and a
+    # blocked cycle outlived it on the Jetson (2026-10-10); a hold follows nothing.
     from robot_platform.teleop.guarded_lifecycle import GuardedLifecycleSession
     from robot_platform.teleop.lifecycle import TeleopLifecycle
     backend, cfg, mapping = setup
@@ -256,7 +259,7 @@ def test_a_blocked_move_is_tried_again_only_while_the_cycle_has_time(setup):
             target = None
             if a is not None:
                 sequence[0] += 1
-                target = [dict(name=name, position=q, sampled_at=clock[0], sequence=sequence[0])
+                target = [dict(name=name, position=q, sampled_at=clock[0] - age, sequence=sequence[0])
                           for name, q in (("a", a), ("b", b))]
             return session.cycle(action=action, target=target)
 
