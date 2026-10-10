@@ -82,8 +82,11 @@ tab afterwards. A check whose prerequisite failed is skipped, not guessed:
    short verify mode, at the settings teleop would use, under the same live
    receiver: per joint, a slow out-and-back for friction, then a pass across
    its swept range at its speed. A joint fails on any guard event, on lag over
-   half its tracking bound, or on lag or friction well up on what it was swept
-   with (drag, wear or a loose joint). A joint not yet servo-swept is judged on
+   55% of its tracking bound (the sweep sized the bound at twice its lag; 55%
+   leaves a re-measurement room and stays under the 60% lead cap, where a
+   joint that cannot keep up gets held), or on lag or friction well up on what
+   it was swept with (drag, wear or a loose joint). A joint not yet servo-swept
+   is judged on
    the profile settings alone, which is a warning. A gripper is not servo-swept
    (it squeezes what it holds): its command moves at 2 rad/s from its swept min
    to its swept max and back, trailing it as in teleop, and it passes when it

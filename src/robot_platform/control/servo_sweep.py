@@ -81,6 +81,11 @@ GAIN_RAMP_S = .3  # Stiffness and damping change over this long, never in one st
 CHECK_BUDGET_S = .01  # Collision queries per cycle; a path is checked over several cycles.
 RETURNED_RAD = .01  # A return leaves a joint this close to its reference where it is.
 CHUNK_ROWS = 256  # The recording keeps rows in chunks of about this many (a result brings one or two).
+# Minerva Check's pass across a joint's range passes with lag up to this share of its tracking bound. The sweep
+# sized the bound at twice its own lag, so half would leave a re-measurement no room (left J1 lagged 0.019 rad
+# against 0.0195, 2026-10-09). It stays under the lead cap (lead_fraction, 0.6): lag pinned there is a joint the
+# command had to wait for, which teleop, with no such cap, would trip on.
+CHECK_LAG_SHARE = .55
 # A gripper is not swept: it squeezes what it holds, at the stiffness its profile sets, and trails its command
 # (the receiver lets it). Minerva Check only opens it from its swept min to its swept max and closes it again, its
 # command moving at GRIPPER_TRAVEL_SPEED (rad/s) as teleop's does. It must cover GRIPPER_REACHED_SHARE of its
@@ -1056,7 +1061,7 @@ class SweepEngine:
 
     def _verify_joint(self, motor, report):
         """Minerva Check's live sweep of one joint: a short out-and-back for friction, then a pass across
-        its range at its speed, judged against half its tracking bound and its saved sweep."""
+        its range at its speed, judged against CHECK_LAG_SHARE of its tracking bound and its saved sweep."""
         settings, home, limit = self.settings[motor], self.home[motor], self.limits[motor]
         slow, bound = settings['characterize_speed'], limit['max_tracking_error']
         saved = self.calibration.get(motor)
@@ -1112,8 +1117,9 @@ class SweepEngine:
         reasons = ['guard: ' + event['text'] for event in report.events]
         if lag is None:
             reasons.append('no pass across the range')
-        elif lag > .5 * bound:
-            reasons.append(f'lagged {lag:.3f} rad (half the tracking bound is {.5 * bound:.3f})')
+        elif lag > CHECK_LAG_SHARE * bound:
+            reasons.append(f'lagged {lag:.3f} rad ({CHECK_LAG_SHARE:.0%} of the tracking bound is '
+                           f'{CHECK_LAG_SHARE * bound:.3f})')
         swept_lag = (measured.get('verification') or {}).get('max_lag') if same_law else None
         if lag is not None and swept_lag is not None and lag > 1.5 * swept_lag + .01:
             reasons.append(f'lagged {lag:.3f} rad, up from {swept_lag:.3f} when swept')

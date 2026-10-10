@@ -316,6 +316,35 @@ def test_verify_mode_checks_each_joint_at_its_settings_and_flags_new_friction():
     assert not any('when swept' in reason and 'lagged' in reason for reason in check['reasons'])
 
 
+def test_minerva_check_leaves_a_re_measured_lag_room_but_fails_one_held_at_the_lead_cap():
+    # The sweep sized the bound at twice its lag: a check re-measuring a little over half of it still passes (left
+    # J1 lagged 0.019 rad against 0.0195, 2026-10-09). Lag pinned at the lead cap (0.6 of the bound) is a joint the
+    # command waited for, which teleop would trip on.
+    from robot_platform.control.guarded_config import CONTROL_LAW
+
+    def check(bound):
+        joints, plant, gains = arm()
+        joints[0]['max_tracking_error'] = bound
+        names = [joint['name'] for joint in joints]
+        settings = {name: sweep_settings(PROFILE, name) for name in names}
+        calibration = {'right_arm_j2': {'max_velocity': .4, 'control': CONTROL_LAW, 'measured': {
+            'verified': {'up': .6, 'down': .6}, 'verification': {'max_lag': .03}, 'torque': {'friction': .5}}}}
+        gains = dict(gains, right_arm_j2=(300., 10.5))
+        engine = SweepEngine(joints, home={name: 0. for name in names}, gains=gains, settings=settings,
+                             sweep=['right_arm_j2'], mode='verify', calibration=calibration)
+        engine.observe(plant.run(names, {'targets': [0., 0.], 'gains': [gains[n] for n in names]}))
+        now = 0.
+        while (command := engine.command(now)) is not None:
+            engine.observe(plant.run(names, command))
+            now += .04
+        return engine.summary()['right_arm_j2']['check']
+    roomy = check(.056)
+    assert .5 * .056 < roomy['lag'] < .55 * .056 and roomy['passed'], roomy
+    held = check(.05)
+    assert held['lag'] > .55 * .05 and not held['passed'], held
+    assert held['reasons'] == [f"lagged {held['lag']:.3f} rad (55% of the tracking bound is 0.028)"]
+
+
 RECEIVER = {'feedback_timeout_ms': 30, 'collision': {'max_verdict_ms': 80, 'reaction_ms': 10}}
 
 
