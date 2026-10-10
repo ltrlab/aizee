@@ -8,17 +8,32 @@ after `a66afa7`. The original `overhaul` working directory remains independent.
 The two test failures seen in the earlier review were subsequently edited in that
 checkpoint; the new baseline must be verified against its own frozen source.
 
-## Current work
+## Implemented and verified
 
-The Windows baseline passed 95 required Python tests with zero skips and all
-portable controller/collision Rust tests on 2026-10-10. The local evidence is
-`build/dev-check/20261010T155025Z-3ee526b4/report.json`. GitHub CI is configured
-for Windows and Linux but has not yet run remotely.
+The Windows baseline passed 95 required Python tests with zero skips and 104
+portable controller/collision Rust tests on 2026-10-10. The baseline commit is
+`5e3b965`; local evidence is `build/dev-check/20261010T155025Z-3ee526b4/report.json`.
+GitHub CI is configured for Windows and Linux but has not yet run remotely.
 
-- Establish a fresh-worktree, hash-locked offline control gate and CI.
-- Use MuJoCo for coupled physics behind `PlantReceiver` and the actual Rust
-  receiver; retain `ArmPlant` for cheap, deterministic fault scenarios.
-- Audit Minerva physical inputs before treating a simulation as robot evidence.
+The combined Windows gate passed **125 required Python tests, zero skips, and
+104 Rust tests** with MuJoCo 3.15.0. Evidence:
+`build/dev-check/20261010T160014Z-56534c06/report.json`. Documentation and lockfile
+comment cleanup followed that run; package pins and tested source behavior are unchanged.
+
+- Fresh-worktree setup, hash-locked dependencies, required offline gate, source
+  and binary identity reports, and Windows/Linux CI configuration are implemented.
+- MuJoCo runs behind `PlantReceiver` and the actual Rust receiver. The original
+  `ArmPlant` remains available for cheap, deterministic fault scenarios.
+- Analytic gravity/URDF import, coupled inertia, signed transmissions, contact,
+  quiet/dropped feedback and generated lease-expiry cases pass.
+- The synthetic recorded rehearsal completed a requested stop. Evidence:
+  `simulation_runs/mujoco-complete/report.json` and its `trace.csv`.
+- The Minerva audit rejects 17 placeholder masses and reports two mimic joints.
+  Evidence: `build/minerva-physics-audit.json`. The measurement checklist is ready;
+  the user confirmed that physical mass properties are not yet available.
+
+Next work is scoped in the task briefs below. Collision timing optimization,
+Minerva physical identification, Jetson timing and hardware validation are unfinished.
 
 ## Known limits
 
@@ -33,6 +48,7 @@ for Windows and Linux but has not yet run remotely.
   are required for the Minerva MuJoCo model. Synthetic tests establish adapter
   behavior only.
 
-See [work boundaries and gates](DEVELOPMENT.md) for the branch order. Each merged
-task should update this file with its source commit, evidence location and remaining
+See [work boundaries and gates](DEVELOPMENT.md), [ready task briefs](development/NEXT_TASKS.md),
+[MuJoCo integration](MUJOCO.md) and the [measurement checklist](MINERVA_PHYSICS_MEASUREMENTS.md).
+Each merged task should update this file with its source commit, evidence location and remaining
 uncertainty, keeping long experiment history in the existing device logs.

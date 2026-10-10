@@ -1,5 +1,10 @@
 # Tests and hardware tools
 
+For the current required development gate, use `python scripts/dev.py check`.
+See [development workflow](../docs/DEVELOPMENT.md) and
+[current status](../docs/DEVELOPMENT_STATUS.md). Counts and commissioning notes
+below are historical evidence from their stated dates, not the current gate.
+
 GELLO viewer/input increment (September 26 UTC): **110 focused Python tests
 passed** across leader input, concurrent board reads, source bridge, display
 calibration and virtual teleop. They cover partial-pair rejection, original

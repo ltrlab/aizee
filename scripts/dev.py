@@ -21,6 +21,8 @@ CORE = [
     'tests/unit/test_runtime_collision.py', 'tests/contract/test_guarded_controller.py',
     'tests/contract/test_collision_envelope.py', 'tests/contract/test_motion_envelope.py',
     'tests/contract/test_guarded_lifecycle_session.py', 'tests/contract/test_rehearsal.py',
+    'tests/unit/test_mujoco_plant.py', 'tests/unit/test_physics_audit.py',
+    'tests/contract/test_mujoco_receiver.py',
 ]
 
 
@@ -71,6 +73,8 @@ def setup():
     subprocess.run(['git', 'lfs', 'pull'], cwd=ROOT, check=True)
     if not PYTHON.exists():
         venv.EnvBuilder(with_pip=True).create(PYTHON.parent.parent)
+    if not capture(str(PYTHON), '--version').startswith('Python 3.12.'):
+        raise RuntimeError('Existing .venv-dev uses another Python version; recreate it with Python 3.12')
     subprocess.run([str(PYTHON), '-m', 'pip', 'install', '--require-hashes',
                     '-r', str(ROOT / 'requirements/dev.lock')], cwd=ROOT, check=True)
     subprocess.run([str(PYTHON), '-m', 'pip', 'install', '--no-deps', '--no-build-isolation',
@@ -112,6 +116,9 @@ def check(offline=False):
         run([PYTHON, '-c', 'from robot_platform.models import UrdfModel, ModelProfile; '
              'UrdfModel(ModelProfile.load("urdf/minerva/model.json"))'], env)
         report['python'] = capture(str(PYTHON), '--version')
+        if not report['python'].startswith('Python 3.12.'):
+            raise RuntimeError('The development gate requires Python 3.12')
+        report['packages'] = json.loads(capture(str(PYTHON), '-m', 'pip', 'list', '--format=json'))
         rustc = shutil.which('rustc', path=env['PATH'])
         if not rustc:
             raise RuntimeError('Rust compiler missing from the selected toolchain')
@@ -127,7 +134,7 @@ def check(offline=False):
         # A broken ABI must fail before tests can skip missing native prerequisites.
         run([PYTHON, '-c', 'import ctypes, os; '
              'lib=ctypes.CDLL(os.environ["ROBOT_COLLISION_LIBRARY"]); '
-             'assert lib.rpc_abi_version() == 3; import fcl, numpy, scipy, pytest'], env)
+             'assert lib.rpc_abi_version() == 3; import fcl, numpy, scipy, pytest, mujoco, hypothesis'], env)
         run([PYTHON, '-m', 'pytest', '-q', '--strict-markers', '-o', 'xfail_strict=true',
              '--basetemp', run_dir / 'pytest', '--junitxml', run_dir / 'tests.xml', *CORE], env)
         cases = ET.parse(run_dir / 'tests.xml').findall('.//testcase')

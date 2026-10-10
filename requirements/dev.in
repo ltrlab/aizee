@@ -16,3 +16,4 @@ pytest>=7.4
 hypothesis>=6.100
 setuptools>=68
 wheel
+mujoco>=3.3,<4

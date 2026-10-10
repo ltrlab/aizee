@@ -1,0 +1,21 @@
+<!-- Same analytic pendulum as pendulum.xml; tests the URDF import frames. -->
+<robot name="synthetic_pendulum">
+  <mujoco>
+    <compiler inertiafromgeom="false" balanceinertia="false" discardvisual="false" fusestatic="false"/>
+  </mujoco>
+  <link name="base">
+    <inertial><mass value="1"/><inertia ixx=".01" ixy="0" ixz="0" iyy=".01" iyz="0" izz=".01"/></inertial>
+  </link>
+  <link name="arm">
+    <inertial>
+      <origin xyz=".5 0 0" rpy="0 0 0"/>
+      <mass value="2"/>
+      <inertia ixx=".01" ixy="0" ixz="0" iyy=".16666666666666667" iyz="0" izz=".17"/>
+    </inertial>
+    <collision><origin xyz=".5 0 0"/><geometry><sphere radius=".05"/></geometry></collision>
+  </link>
+  <joint name="hinge" type="revolute">
+    <parent link="base"/><child link="arm"/>
+    <axis xyz="0 1 0"/><limit lower="-2" upper="2" effort="20" velocity="2"/>
+  </joint>
+</robot>

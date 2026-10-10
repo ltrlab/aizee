@@ -1,0 +1,13 @@
+<!-- Synthetic 2 kg slider with an optional plane contact at z=0. -->
+<mujoco model="synthetic_slider">
+  <compiler angle="radian" inertiafromgeom="false"/>
+  <option timestep="0.0005" gravity="0 0 0" integrator="implicitfast"/>
+  <worldbody>
+    <geom name="floor" type="plane" size="2 2 0.1"/>
+    <body name="slider" pos="0 0 0.1">
+      <joint name="slide" type="slide" axis="0 0 1"/>
+      <inertial pos="0 0 0" mass="2" diaginertia="0.01 0.01 0.01"/>
+      <geom type="sphere" size="0.05"/>
+    </body>
+  </worldbody>
+</mujoco>

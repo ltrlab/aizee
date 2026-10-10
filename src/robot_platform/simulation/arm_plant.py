@@ -89,7 +89,7 @@ class ArmPlant:
 
 
 class PlantReceiver:
-    """The live receiver's interface over the Rust receiver ticking against an `ArmPlant`.
+    """The live receiver's interface over Rust ticking against an ArmPlant or MujocoPlant.
 
     `clock` is the caller's clock (s); the receiver's time is milliseconds since construction.
     As the live service does, it takes each request at its next tick (`service_latency`), so a
@@ -97,6 +97,8 @@ class PlantReceiver:
     """
 
     def __init__(self, config, plant, *, clock, directory=None, binary=None, service_latency=True):
+        if [joint['name'] for joint in config['joints']] != plant.names:
+            raise ValueError('Plant joint order must match receiver configuration')
         self.config, self.plant, self.clock = config, plant, clock
         self.service_latency = service_latency
         self.directory = Path(directory) if directory else Path(tempfile.mkdtemp(prefix='plant-receiver-'))

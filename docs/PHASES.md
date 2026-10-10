@@ -1,5 +1,8 @@
 # Shared platform roadmap
 
+For current development work, branch ownership and blockers, start with
+[development status](DEVELOPMENT_STATUS.md). The phase snapshot below is historical.
+
 Updated 2026-09-24. Status describes source and recorded test evidence, not a
 claim that the latest changes have been deployed to a robot.
 

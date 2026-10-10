@@ -1,0 +1,15 @@
+<!-- Synthetic planar arm, zero gravity to isolate inertial coupling. -->
+<mujoco model="synthetic_two_link">
+  <compiler angle="radian" inertiafromgeom="false"/>
+  <option timestep="0.0005" gravity="0 0 0" integrator="implicitfast"/>
+  <worldbody>
+    <body name="upper">
+      <joint name="shoulder" type="hinge" axis="0 0 1"/>
+      <inertial pos="0.5 0 0" mass="1" diaginertia="0.01 0.08333333333333333 0.08333333333333333"/>
+      <body name="lower" pos="1 0 0">
+        <joint name="elbow" type="hinge" axis="0 0 1"/>
+        <inertial pos="0.5 0 0" mass="1" diaginertia="0.01 0.08333333333333333 0.08333333333333333"/>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>
