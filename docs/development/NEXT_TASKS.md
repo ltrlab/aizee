@@ -4,7 +4,18 @@ Resolve `codex/overhaul-integration` to a full SHA before starting each task, re
 it in the task brief, then create a separate worktree and run setup. These briefs
 are scoped follow-up work, not claims that optimization or hardware validation is done.
 
-## Collision query budget
+## Current priority: direct position teleop without collision processing
+
+Branch: `codex/teleop-direct-mirror`, based on integration commit
+`8b4f2c4a9543699fd86d2054dbf658be920b72bb`.
+
+The [implementation brief](DIRECT_TELEOP.md) assigns one owner to the Python/Rust
+contract and separates collision-disabled behavior from latency optimization.
+Start at the existing rate, then target 100 Hz with the 400 Hz receiver; evaluate
+200 Hz using measured unique leader throughput and deadline headroom. This task
+does not depend on collision-query optimization or measured Minerva inertias.
+
+## Collision query budget (separate from direct teleop)
 
 Branch: `codex/collision-query-budget`.
 

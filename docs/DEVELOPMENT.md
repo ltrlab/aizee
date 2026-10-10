@@ -68,6 +68,7 @@ the overhaul integration line is ahead of it.
 |---|---|---|---|
 | `codex/dev-baseline` | Setup, locks, CI, shared instructions | Reproducible required gate; no missing-native skips | Checkpoint of ongoing fixes |
 | `codex/mujoco-backend` | Physics adapter, model audit, synthetic fixtures | Real receiver against MuJoCo; invalid physical inputs rejected | Baseline |
+| `codex/teleop-direct-mirror` | Python/Rust direct teleop contract and timing evidence | Explicit collision-disabled mode; measured latest-target following | Current integration |
 | `codex/collision-query-budget` | Native/query hot path and performance fixtures | Same verdicts, recorded worst-case query costs | Baseline |
 | `codex/rehearsal-evidence` | Reproducing traces, seeds, fault scenarios | First divergence report for each known failure | Baseline |
 | `codex/helm-diagnostics` | Diagnostics presentation and recorded inputs | Display freshness/expiry/timing without changing motion | Baseline |
@@ -76,10 +77,13 @@ the overhaul integration line is ahead of it.
 | `codex/calibration-repeatability` | Measurement repeats and fit validation | Repeatable estimates with uncertainty and holdouts | Model/evidence |
 | `codex/release-reproducibility` | Existing release manifests/build provenance | Auditable source/model/binary identity | Baseline |
 
-The first independent work lanes are collision performance, rehearsal evidence
-and diagnostics. The motion-contract owner integrates shared seam changes. Do
-not start multiple rewrites of that seam. Ruckig remains a separate future spike;
-it is not a dependency of the MuJoCo or baseline work.
+The current priority is collision-disabled position teleop on
+`codex/teleop-direct-mirror`; see [its implementation brief](development/DIRECT_TELEOP.md).
+One owner changes the Python/Rust control contract together. Rehearsal evidence
+and diagnostics may proceed independently with stable fixtures and coordinated
+data fields. Collision optimization is outside the direct teleop critical path.
+Do not start multiple rewrites of the shared control files. Ruckig remains a
+separate future spike and is not a dependency of direct teleop or MuJoCo.
 
 ## Acceptance ladder
 

@@ -32,8 +32,14 @@ comment cleanup followed that run; package pins and tested source behavior are u
   Evidence: `build/minerva-physics-audit.json`. The measurement checklist is ready;
   the user confirmed that physical mass properties are not yet available.
 
-Next work is scoped in the task briefs below. Collision timing optimization,
-Minerva physical identification, Jetson timing and hardware validation are unfinished.
+The user's current priority is direct position teleop without collision detection.
+`codex/teleop-direct-mirror` is prepared from integration commit `8b4f2c4`, with
+the [implementation and acceptance brief](development/DIRECT_TELEOP.md). Runtime
+behavior has not changed yet: the existing advisory mode still computes collision
+queries and the physical receiver requires a collision policy. Implement explicit
+disabled behavior first, then measure and shorten the command path before increasing
+the update rate. Collision timing optimization and physical-model identification
+are separate work; Linux vcan, Jetson timing and hardware qualification remain open.
 
 ## Known limits
 
