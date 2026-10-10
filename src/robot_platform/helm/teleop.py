@@ -75,6 +75,10 @@ def source_misses(period_s):
 
 CYCLE_BUDGET_S = .035  # A cycle not dispatched this long after it started faults the session; a slower one
 # than its period only starts the next late (the receiver's lease and collision verdict still bound it).
+# A live session records every receiver tick (91 kB/s for both arms at 400 Hz) up to this much, about 90
+# minutes; its events go on being logged.
+RECORDING_BYTES = 512 * 1024 * 1024
+RECORDING_FLUSH_S = 1.
 
 
 def routes_path(runs, asset_id):
@@ -202,6 +206,9 @@ class TeleopCore:
         self._closers = []
         self._frozen = False
         self.scheduling = {}
+        # Live evidence beside the receiver's own (_start_recording).
+        self._samples = self._events = self._logged = None
+        self._recorded, self._flushed = 0, None
 
     # -- resources -------------------------------------------------------
 
@@ -359,6 +366,7 @@ class TeleopCore:
         if self.live_arm:
             harness = self.open_receiver(derived['config'], device, reference)
             self._closers.append(harness.close)
+            self._start_recording(harness, derived['config'])
             exchange = harness.exchange
         else:
             harness = self.open_harness(derived['config'], derived['initial'])
@@ -461,7 +469,83 @@ class TeleopCore:
             return None, None
         return target, None
 
+    # -- evidence ----------------------------------------------------------
+
+    def _start_recording(self, receiver, config):
+        """A live session's evidence beside the receiver's own: every receiver tick (samples.f32, float32 rows
+        as columns.json names them) and every key, lifecycle state, fault and message (events.jsonl). The
+        receiver's -last.json keeps its final two ticks only: what tripped Engage on 2026-10-09 could not be told."""
+        import numpy as np
+        from robot_platform.control.servo_sweep import result_rows
+        transport, directory = getattr(receiver, 'transport', None), getattr(receiver, 'directory', None)
+        if transport is None or directory is None:
+            return
+        directory = Path(directory)
+        names = [joint['name'] for joint in config['joints']]
+        (directory / 'columns.json').write_text(json.dumps(
+            {'dtype': 'float32', 'columns': ['t_ms'] + [f'{name}.{field}' for name in names
+                                                       for field in ('position', 'velocity', 'effort', 'command')]},
+            indent=1) + '\n', encoding='utf-8')
+        self._samples = (directory / 'samples.f32').open('ab')
+        self._events = (directory / 'events.jsonl').open('a', encoding='utf-8')
+        self._closers.append(self._stop_recording)
+
+        def on_result(result):
+            if self._samples is None:
+                return
+            rows, dropped = result_rows(result, names)
+            if dropped:
+                self._event('rows_dropped', count=dropped)
+            if rows and self._recorded < RECORDING_BYTES:
+                data = np.asarray(rows, dtype=np.float32).tobytes()
+                self._samples.write(data)
+                self._recorded += len(data)
+                if self._recorded >= RECORDING_BYTES:
+                    self._event('recording_full', bytes=self._recorded)
+        transport.on_result = on_result
+        self._event('session', receiver=self.live_arm, collision=self.collision_mode, joints=names)
+
+    def _event(self, kind, **fields):
+        if self._events is not None:
+            self._events.write(json.dumps({'t': self.clock(), 'at': utc_now(), 'kind': kind, **fields},
+                                          default=str) + '\n')
+            self._events.flush()
+
+    def _note(self):
+        """Log what changed this cycle (lifecycle state, fault, message, a hold) and flush the ticks now and then."""
+        if self._events is None:
+            return
+        status = ((self.harness.last or {}).get('status') or {}) if self.harness is not None else {}
+        now = (self.session.lifecycle.state if self.session else None, self.fault, self.message,
+               self.session.blocked if self.session else None, status.get('state'), status.get('reason'))
+        if now != self._logged:
+            self._logged = now
+            self._event('state', lifecycle=now[0], fault=now[1], message=now[2], blocked=now[3], receiver=now[4],
+                        reason=now[5])
+        clock = self.clock()
+        if self._samples is not None and (self._flushed is None or clock - self._flushed >= RECORDING_FLUSH_S):
+            self._samples.flush()
+            self._flushed = clock
+
+    def _stop_recording(self):
+        samples, events, self._samples = self._samples, self._events, None
+        self._event('closed', recorded_bytes=self._recorded)
+        self._events = None
+        for handle in (samples, events):
+            if handle is not None:
+                handle.close()
+
+    # -- cycle (continued) -------------------------------------------------
+
     def tick(self, key, started):
+        if key:
+            self._event('key', key=key, lifecycle=self.session.lifecycle.state if self.session else None)
+        try:
+            self._tick(key, started)
+        finally:
+            self._note()
+
+    def _tick(self, key, started):
         from robot_platform.teleop.guarded_lifecycle import minerva_action
         if self.fault:
             # The receiver stopped itself and revoked the lease. It holds the arm: take it back there and

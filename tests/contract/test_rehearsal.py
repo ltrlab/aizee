@@ -12,6 +12,7 @@ import math
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from robot_platform.control.gravity import gravity_effort, gravity_model
@@ -435,3 +436,12 @@ def test_an_arm_engages_follows_and_shuts_down_with_its_gripper_resting_short_on
         assert all(abs(q) < .05 for q in arms.values()), arms
     finally:
         core.close()
+    # The session's evidence: every receiver tick, and its keys and lifecycle states.
+    evidence = tmp_path / 'receiver'
+    columns = json.loads((evidence / 'columns.json').read_text(encoding='utf-8'))['columns']
+    samples = np.fromfile(evidence / 'samples.f32', dtype=np.float32).reshape(-1, len(columns))
+    assert len(samples) > 1000 and np.allclose(np.diff(samples[:, 0]), 2.5)  # Every 2.5 ms tick, none missed.
+    events = [json.loads(line) for line in (evidence / 'events.jsonl').read_text(encoding='utf-8').splitlines()]
+    assert [e['key'] for e in events if e['kind'] == 'key'] == ['I', 'E', 'T', 'X']
+    states = [e['lifecycle'] for e in events if e['kind'] == 'state']
+    assert {'TELEOP', 'SHUTDOWN', 'DISABLED'} <= set(states) and events[-1]['kind'] == 'closed'
