@@ -395,3 +395,37 @@ duplicate drops fell from 18 to 4, but a remaining goal-reached velocity jump wa
 0.8832 rad/s (legacy maximum 0.7200). **The command smoothness gate has not passed.**
 Velocity-reference generation needs a separate evidenced correction; the passing
 functional regression gate is not justification to deploy this partial candidate.
+
+## Position-only retry contract
+
+The next candidate explicitly sets `receiver.direct.position_only=true`. Normal
+commands carry zero velocity and zero friction/ramp feedforward, while retaining
+saved PD gains and gravity compensation. The receiver rejects a nonzero velocity
+or ramp in a client update before consuming its authority. Its own braking after
+expiry/fault still uses measured motion. The internal reference velocity remains
+separate so position slew and acceleration do not reset just because wire velocity
+is zero. This removes the reproduced derivative/friction command pulses; actual
+physical smoothness and high-speed damping lag remain unmeasured.
+
+The separate `minerva-teleop-direct-trial.json` profile is an attended diagnostic
+baseline: only left J1 follows, at no more than 0.05 rad/s, within ±0.03 rad of its
+first Enable hold position. Other joints hold that same latched pose. Hold,
+source loss and re-Engage cannot move the origin; Disable clears it. Every source
+joint still passes freshness/range/sequence validation. Incompatible lead and
+trial bounds fault rather than moving the window or exceeding the trial slew.
+Shutdown/recovery may return all joints to reference outside the trial window.
+These are command bounds, not a guarantee against physical overshoot.
+The 0.05 rad/s cap applies to following and planned return motion. Explicit
+Hold/source-loss stops may capture the measured selected-joint pose inside the
+fixed window without a slew ramp; inactive-joint targets remain latched.
+
+Use `scripts/qualify_direct_motion.py --output <new directory>` for seeded,
+quantized 90 Hz source / 100 Hz consumer command qualification. It compares
+position and internal reference velocity against retained-feedforward behavior,
+checks zero wire velocity/ramp and gravity-only effort, and includes an old-mode
+negative control plus source-loss/mutation/expiry checks. Its ideal follower is
+explicitly not a measured physical model. The full-loop benchmark's
+`--source-mode quantized90 --profile config/devices/minerva-teleop-direct-trial.json`
+then exercises the actual receiver and saved mapping, with held goals, reversals,
+immutable repeats and explicit coverage checks. A stationary timing pass alone
+does not satisfy that moving-source check.

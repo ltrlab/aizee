@@ -76,6 +76,11 @@ pub struct DirectPolicy {
     pub command_ms: u64,
     pub velocity_timeout_ms: u64,
     pub limit_reaction_ms: u64,
+    /// Position targets retain bounded holding/gravity effort, but clients must
+    /// not supply velocity feedforward or acceleration effort. Receiver-owned
+    /// braking from measured motion remains independent of this command policy.
+    #[serde(default)]
+    pub position_only: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1273,6 +1278,14 @@ impl Controller {
                 }
                 if joints.len() != self.commands.len()
                     || !(ramp_efforts.is_empty() || ramp_efforts.len() == joints.len())
+                {
+                    return Err(Reason::InvalidCommand);
+                }
+                // Enforce the selected control law across the complete batch,
+                // including grippers, before consuming its offer or sequence.
+                if self.config.direct.as_ref().is_some_and(|p| p.position_only)
+                    && (joints.iter().any(|command| command.velocity != 0.0)
+                        || ramp_efforts.iter().any(|effort| *effort != 0.0))
                 {
                     return Err(Reason::InvalidCommand);
                 }

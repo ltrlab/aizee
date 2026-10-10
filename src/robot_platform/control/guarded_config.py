@@ -162,6 +162,7 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
     by_motor = {row['actuator']: (joint, row) for joint, row in joint_map.items()}
     receiver = profile['receiver']
     disabled = receiver.get('collision_mode') == 'disabled'
+    position_only = disabled and receiver.get('direct', {}).get('position_only', False)
     if disabled and (backend is not None or collision_bound is not None or receiver.get('collision')):
         raise ValueError('Disabled collision mode must not carry a collision backend or policy')
     if not disabled and backend is None:
@@ -238,6 +239,7 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
                           # an object (kd x speed), and its command already leads by its whole range.
                           'interpolation_s': 0. if gripper else interpolation_ms / 1000, 'friction_nm': friction,
                           'direct_velocity': disabled and not gripper,
+                          'position_only': position_only,
                           'inertia': inertia,
                           # Gravity feed-forward: [(coefficient, {motor: multiplier})], control.gravity.
                           'gravity': [[coefficient, angle] for coefficient, angle in terms.get(name, [])],
@@ -252,10 +254,12 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
         report.append({'motor': name, 'cad_joint': cad_joint, 'scale': row['scale'], 'offset': row['offset'],
                        'swept': [saved['min_rad'], saved['max_rad']], 'cad': cad_motor,
                        'operational': [lower, upper], 'usable': list(usable), 'reserve': margin,
-                       'receiver_cap': float(speed), 'friction_ff': friction, 'gravity_ff': bool(terms.get(name)),
+                       'receiver_cap': float(speed), 'friction_ff': 0. if position_only else friction,
+                       'gravity_ff': bool(terms.get(name)),
                        'receiver': [bounds['lower'], bounds['upper']],
                        'home': home, 'direction_verified': verified.get(name, False), 'servo_calibrated': calibrated,
-                       'control_law': 'direct-feedforward' if disabled else CONTROL_LAW,
+                       'control_law': 'direct-position-only' if position_only else
+                                      'direct-feedforward' if disabled else CONTROL_LAW,
                        'speed_qualified_for_control_law': bool(calibrated and not disabled and
                            (((servo or {}).get('joints') or {}).get(name) or {}).get('control') == CONTROL_LAW),
                        # Gripper slides: the motor direction that opens (away from the bound nearest zero).

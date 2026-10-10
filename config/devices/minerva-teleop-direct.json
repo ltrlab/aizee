@@ -10,7 +10,7 @@
   "notes": [
     "Explicit collision-disabled position teleop. No geometry backend, envelopes or collision recovery search are run.",
     "100 Hz latest calibrated joint targets, applied without a receiver ramp; receiver ticks at 400 Hz. Lease 150 ms, feedback 30 ms, direct command 30 ms and velocity feedforward 15 ms are independently bounded.",
-    "Existing limits, gains, gravity and friction feedforward remain in use. This direct control law needs separate physical tracking qualification; prior servo sweeps do not establish that qualification.",
+    "Position-only motor commands: zero velocity and friction feedforward, with saved PD gains and gravity retained. Internal reference slew and acceleration remain bounded. Physical tracking needs separate qualification.",
     "Leader mapping remains calibrated range scaling, not necessarily 1:1 angular mirroring. Engage aligns before following; stale input holds and requires Engage after loss.",
     "Use minerva-teleop.json for servo tuning. This profile is unapproved until its own virtual CAN, Jetson and supervised hardware qualification is recorded."
   ],
@@ -24,7 +24,8 @@
     "direct": {
       "command_ms": 30,
       "velocity_timeout_ms": 15,
-      "limit_reaction_ms": 10
+      "limit_reaction_ms": 10,
+      "position_only": true
     }
   },
   "live": {

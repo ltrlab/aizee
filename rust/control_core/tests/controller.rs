@@ -131,13 +131,22 @@ fn direct_armed() -> (Controller, Loopback) {
 }
 
 fn direct_armed_with_timeout(timeout: u64) -> (Controller, Loopback) {
+    direct_armed_with_policy(timeout, false)
+}
+
+fn direct_armed_with_policy(timeout: u64, position_only: bool) -> (Controller, Loopback) {
     let mut cfg = config(2);
     cfg.identity.collision_policy = "disabled-v1".into();
     cfg.direct = Some(robot_control::DirectPolicy {
         command_ms: 30,
         velocity_timeout_ms: timeout,
         limit_reaction_ms: 10,
+        position_only,
     });
+    direct_armed_config(cfg)
+}
+
+fn direct_armed_config(cfg: Config) -> (Controller, Loopback) {
     let mut c = Controller::new(cfg, "boot-a".into()).unwrap();
     let mut h = Loopback::new(&[0.0, 0.0]);
     let id = offer(&mut c, &mut h, 0);
@@ -179,6 +188,180 @@ fn direct_request(c: &Controller, sequence: u64, offer: u64, q: f64, v: f64) -> 
         joints: joints(2, q, v),
         ramp_efforts: vec![],
     }
+}
+
+#[test]
+fn direct_position_only_is_explicit_and_old_policy_keeps_feedforward() {
+    let legacy = serde_json::json!({
+        "command_ms": 30, "velocity_timeout_ms": 10, "limit_reaction_ms": 10
+    });
+    let policy: robot_control::DirectPolicy = serde_json::from_value(legacy.clone()).unwrap();
+    assert!(!policy.position_only);
+    let mut selected = legacy;
+    selected["position_only"] = true.into();
+    let policy: robot_control::DirectPolicy = serde_json::from_value(selected.clone()).unwrap();
+    assert!(policy.position_only);
+    selected["position_only"] = "true".into();
+    assert!(serde_json::from_value::<robot_control::DirectPolicy>(selected).is_err());
+
+    let (mut c, mut h) = direct_armed();
+    let id = offer(&mut c, &mut h, 2);
+    let mut request = direct_request(&c, 2, id, 0.01, 0.1);
+    if let Request::DirectUpdate { ramp_efforts, .. } = &mut request {
+        *ramp_efforts = vec![0.2, -0.2];
+    }
+    assert!(c.handle(3, request, &mut h).accepted);
+    assert_eq!(c.status().joints[0].velocity, 0.1);
+}
+
+#[test]
+fn position_only_rejects_whole_nonzero_feedforward_batches_without_consuming_authority() {
+    for deferred in [false, true] {
+        for gripper in [false, true] {
+            for velocity in [false, true] {
+                for nonzero in [-f64::EPSILON, f64::EPSILON] {
+                    let mut cfg = config(2);
+                    cfg.identity.collision_policy = "disabled-v1".into();
+                    cfg.joints[1].gripper = gripper;
+                    cfg.direct = Some(robot_control::DirectPolicy {
+                        command_ms: 30,
+                        velocity_timeout_ms: 10,
+                        limit_reaction_ms: 10,
+                        position_only: true,
+                    });
+                    let (mut c, mut h) = direct_armed_config(cfg);
+                    let id = offer(&mut c, &mut h, 2);
+                    let initial = c.handle(3, direct_request(&c, 2, id, 0.01, 0.0), &mut h);
+                    assert!(initial.accepted);
+                    let before = c.status();
+                    let lease = before.lease.as_ref().unwrap();
+                    let next = initial.offer.unwrap().id;
+                    let mut invalid = direct_request(&c, 3, next, 0.02, 0.0);
+                    if let Request::DirectUpdate {
+                        joints,
+                        ramp_efforts,
+                        ..
+                    } = &mut invalid
+                    {
+                        // First joint is valid and moves, but the final joint
+                        // rejects the entire batch, even for tiny signed inputs.
+                        if velocity {
+                            joints[1].velocity = nonzero;
+                        } else {
+                            *ramp_efforts = vec![0.0, nonzero];
+                        }
+                    }
+                    let writes = h.writes;
+                    let reply = if deferred {
+                        c.handle_deferred(4, invalid, &mut h)
+                    } else {
+                        c.handle(4, invalid, &mut h)
+                    };
+                    assert!(!reply.accepted);
+                    assert_eq!(reply.reason, Reason::InvalidCommand);
+                    assert!(reply.offer.is_none());
+                    assert_eq!(reply.status.joints, before.joints);
+                    assert_eq!(
+                        reply.status.command_expires_at_ms,
+                        before.command_expires_at_ms
+                    );
+                    let after_lease = reply.status.lease.unwrap();
+                    assert_eq!(after_lease.id, lease.id);
+                    assert_eq!(after_lease.expires_at_ms, lease.expires_at_ms);
+                    assert_eq!(after_lease.last_sequence, lease.last_sequence);
+                    assert_eq!(h.feedback[0].position, 0.01);
+                    assert_eq!(h.feedback[1].position, 0.01);
+                    if deferred {
+                        assert_eq!(h.writes, writes);
+                    }
+                    // Correction can use exactly the rejected sequence/offer;
+                    // the bad request neither consumed nor renewed authority.
+                    assert!(
+                        c.handle(5, direct_request(&c, 3, next, 0.02, 0.0), &mut h)
+                            .accepted
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn position_only_accepts_gravity_and_gains_without_weakening_expiry_or_plain_move_rejection() {
+    let (mut c, mut h) = direct_armed_with_policy(10, true);
+    let mut id = offer(&mut c, &mut h, 2);
+    for (now, sequence, ramp) in [(3, 2, vec![]), (8, 3, vec![0.0, -0.0])] {
+        let mut request = direct_request(&c, sequence, id, 0.01 * sequence as f64, -0.0);
+        if let Request::DirectUpdate {
+            joints,
+            ramp_efforts,
+            ..
+        } = &mut request
+        {
+            joints[0].effort = 1.2;
+            joints[1].effort = -0.8;
+            *ramp_efforts = ramp;
+        }
+        let reply = c.handle_deferred(now, request, &mut h);
+        assert!(reply.accepted, "{:?}", reply.reason);
+        id = reply.offer.unwrap().id;
+        c.tick(now + 1, &mut h);
+        let status = c.status();
+        assert_eq!(status.joints[0].position, 0.01 * sequence as f64);
+        assert_eq!(status.joints[0].effort, 1.2);
+        assert_eq!(status.joints[1].effort, -0.8);
+        assert!(status
+            .joints
+            .iter()
+            .all(|j| j.velocity == 0.0 && j.kp == 10.0 && j.kd == 1.0));
+        assert_eq!(status.last_applied_target.unwrap().sequence, sequence);
+    }
+    let before = c.status();
+    for velocity in [0.0, 0.1] {
+        let mut request = move_request(&c, 4, 2, 0.04, velocity);
+        if let Request::Move { identity, .. } = &mut request {
+            *identity = c.status().identity;
+        }
+        assert_eq!(c.handle(10, request, &mut h).reason, Reason::InvalidCommand);
+    }
+    assert_eq!(
+        c.status().command_expires_at_ms,
+        before.command_expires_at_ms
+    );
+    assert_eq!(c.status().lease.unwrap().last_sequence, 3);
+    c.tick(before.command_expires_at_ms.unwrap(), &mut h);
+    assert_eq!(c.status().reason, Reason::CommandExpired);
+    assert!(c.status().lease.is_none());
+    assert!(c.handle(34, Request::EmergencyStop, &mut h).accepted);
+    assert!(!h.enabled);
+}
+
+#[test]
+fn position_only_does_not_disable_receiver_owned_braking_from_measured_motion() {
+    let (mut c, mut h) = direct_armed_with_policy(10, true);
+    let id = offer(&mut c, &mut h, 2);
+    let mut request = direct_request(&c, 2, id, 0.01, 0.0);
+    if let Request::DirectUpdate { joints, .. } = &mut request {
+        joints[0].effort = 1.2;
+    }
+    assert!(c.handle(3, request, &mut h).accepted);
+    h.feedback[0].velocity = 0.2;
+    let reply = c.handle_deferred(
+        4,
+        Request::Stop {
+            authority: auth(&c, 3),
+        },
+        &mut h,
+    );
+    assert!(reply.accepted);
+    assert_eq!(reply.status.reason, Reason::RequestedStop);
+    assert_eq!(reply.status.state, State::Stopping);
+    assert!(reply.status.lease.is_none());
+    c.tick(5, &mut h);
+    let command = c.status().joints[0];
+    assert!(command.position > 0.01);
+    assert!(command.velocity > 0.0 && command.velocity < 0.2);
+    assert_eq!(command.effort, 1.2);
 }
 
 #[test]

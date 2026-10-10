@@ -53,11 +53,11 @@ def require_virtual_mode(result):
         raise ValueError('Benchmark endpoint did not identify itself as virtual_can; refusing authority')
 
 
-def make_bundle(root, output, arm, runs=None):
+def make_bundle(root, output, arm, runs=None, profile=None):
     """Load existing inputs unchanged; HelmSession only writes in output/runs."""
     devices = root / 'config/devices'
     seed = root / 'docs/devices/MINERVA_ARM_DIRECTIONS_20260924.json'
-    profile = devices / 'minerva-teleop-direct.json'
+    profile = profile or devices / 'minerva-teleop-direct.json'
     ranges_path = devices / 'gello-dual-leader-ranges.json'
     ranges = json.loads(ranges_path.read_text(encoding='utf-8'))
     operator_inputs = {}
@@ -113,6 +113,9 @@ class ScriptedLeaders:
         self.reference = ranges['reference']['leaders']
         self.clock, self.sequence, self.follow_started = clock, 0, None
 
+    def start_following(self, now):
+        self.follow_started = now
+
     def poll(self):
         self.sequence += 1
         now = self.clock()
@@ -126,6 +129,71 @@ class ScriptedLeaders:
 
     def close(self):
         pass
+
+
+class QuantizedLeaders(ScriptedLeaders):
+    """Independent 90 Hz sample grid, including immutable repeats at a 100 Hz consumer.
+
+    This is a synthetic source, not a timing model of USB. Positions use the
+    XL330's 4096-count encoder grid. Motion starts only after actual TELEOP.
+    Fresh samples can retain an unchanged quantized position, independently of
+    repeated source sequence numbers. Neither case receives a fabricated stamp.
+    """
+    source_hz, quantum_rad, pattern_s = 90., 2*math.pi/4096, 5.
+    stages = ('held_start', 'positive_ramp', 'held_positive', 'negative_ramp',
+              'held_negative', 'return_ramp', 'held_return')
+
+    def __init__(self, ranges, *, clock=time.perf_counter, source_delay_s=.015):
+        super().__init__(ranges, clock=clock)
+        if not math.isfinite(source_delay_s) or not 0 <= source_delay_s < self.inputs.max_age_s-1/self.source_hz:
+            raise ValueError('Synthetic source delay must leave room for one complete sample period')
+        self.source_delay_s = source_delay_s
+        self.delivery_epoch = clock()
+        self.epoch, self.slot, self.cached = self.delivery_epoch-source_delay_s, None, None
+        self.stage, self.source_elapsed_s = 'alignment', None
+
+    def waveform(self, elapsed):
+        at, amplitude = elapsed % self.pattern_s, 6*self.quantum_rad
+        if at < .3:
+            return 'held_start', 0.
+        if at < 1.1:
+            return 'positive_ramp', amplitude*(at-.3)/.8
+        if at < 1.6:
+            return 'held_positive', amplitude
+        if at < 3.2:
+            return 'negative_ramp', amplitude*(1.-2.*(at-1.6)/1.6)
+        if at < 3.7:
+            return 'held_negative', -amplitude
+        if at < 4.5:
+            return 'return_ramp', -amplitude*(1.-(at-3.7)/.8)
+        return 'held_return', 0.
+
+    def poll(self):
+        now = self.clock()
+        # Equivalent to now-epoch-delay, without cancellation which can make
+        # the first slot -1 at large monotonic timestamps.
+        slot = math.floor((now-self.delivery_epoch)*self.source_hz)
+        if slot < 0 or self.slot is not None and slot < self.slot:
+            raise ValueError('Synthetic leader clock moved backwards')
+        if slot == self.slot:
+            return self.cached
+        sampled_at = self.epoch + slot/self.source_hz
+        elapsed = None if self.follow_started is None else max(0., sampled_at-self.follow_started)
+        self.stage, delta = ('alignment', 0.) if elapsed is None else self.waveform(elapsed)
+        self.source_elapsed_s = elapsed
+        self.sequence, self.slot = slot+1, slot
+        samples = {}
+        for name, rows in self.reference.items():
+            raw = tuple(round((rows[f'channel_{i}'] + (delta if i < 7 else 0.))/self.quantum_rad)
+                        for i in range(1, 8))
+            # Keep the trigger at its saved reference, as in the default source.
+            positions = tuple((q*self.quantum_rad if i < 6 else rows['channel_7']) % (2*math.pi)
+                              for i, q in enumerate(raw))
+            board_ms = round(slot/self.source_hz*1000)
+            samples[name] = LeaderSample(positions, raw, self.sequence, sampled_at, now,
+                                         (0, 0, 1, 1), board_ms, board_ms)
+        self.cached = samples
+        return samples
 
 
 def initial_positions(config, reference):
@@ -397,8 +465,9 @@ class VirtualReceiver:
 
 class ScriptedCommands:
     """One lifecycle key per measured cycle, with a wall-time bound and fail-closed cleanup."""
-    def __init__(self, core, leaders, cycles, stop, maximum_seconds):
+    def __init__(self, core, leaders, cycles, stop, maximum_seconds, *, on_follow_ready=None):
         self.core, self.leaders, self.cycles, self.stop_key = core, leaders, cycles, stop
+        self.on_follow_ready = on_follow_ready
         self.deadline = core.clock()+maximum_seconds
         self.phase, self.followed, self.pending, self.sent_at = 'idle', 0, None, None
         self.failure, self.failure_snapshot, self.transitions = None, None, []
@@ -442,7 +511,16 @@ class ScriptedCommands:
         elif self.phase == 'engage' and state == 'HOLD':
             message, self.phase = ('key', 'T'), 'align'
         elif self.phase == 'align' and state == 'TELEOP':
-            self.phase, self.leaders.follow_started = 'follow', core.clock()
+            self.phase = 'follow'
+            # Drive the source actually opened by TeleopCore, including injected
+            # scripted sources. The previous unused default instance hid motion.
+            start = getattr(self.leaders, 'start_following', None)
+            if start is not None:
+                start(core.clock())
+            elif hasattr(self.leaders, 'follow_started'):
+                self.leaders.follow_started = core.clock()
+            if self.on_follow_ready is not None:
+                self.on_follow_ready()
         elif self.phase == 'follow' and self.followed >= self.cycles:
             # Observe the last measured target on a later receiver tick before
             # H can deliberately cancel it. Drain updates are clearly labelled
@@ -480,6 +558,14 @@ class BenchmarkCore(TeleopCore):
         self.driver_cycle += 1
         self._pending_latency['benchmark_phase'] = self.driver.phase
         self._pending_latency['lifecycle'] = self.session.lifecycle.state
+        if getattr(self, 'benchmark_trial_origin', None) is None:
+            origin = getattr(self.session.lifecycle, '_trial_origin', None)
+            if origin is not None:
+                self.benchmark_trial_origin = tuple(origin)
+        if isinstance(self.driver.leaders, QuantizedLeaders):
+            self._pending_latency['scripted_source_stage'] = self.driver.leaders.stage
+            self._pending_latency['scripted_source_elapsed_s'] = self.driver.leaders.source_elapsed_s
+            self._pending_latency['command_proposed_at'] = (self.session.last_cycle or {}).get('mapped_at')
         self.driver.observe_cycle(self._pending_latency)
         if self.driver.phase == 'follow' and self.session.lifecycle.state == 'TELEOP':
             self.driver.followed += 1
@@ -501,13 +587,121 @@ def summarize_loop(records, period):
     return timing
 
 
-def main(argv=None, *, open_leaders=None, source_label=None):
+def moving_source_coverage(records, joints, *, position_only, trial=None, trial_origin=None):
+    """Fail qualification if a successful timing run did not exercise the defect.
+
+    Checks command requests before motor CAN quantization. The ideal emulator
+    cannot establish physical tracking smoothness, friction or stopping distance.
+    Only joints which actually moved need plateau arrival: a trial profile may
+    deliberately latch every joint except one.
+    """
+    from robot_platform.control.gravity import gravity_effort
+    following = [r for r in records if r.get('benchmark_phase') == 'follow'
+                 and r.get('lifecycle') == 'TELEOP' and r.get('accepted')]
+    count = len(joints)
+    complete = bool(following) and all(
+        all(isinstance(r.get(key), list) and len(r[key]) == count
+            and all(isinstance(v, (int, float)) and math.isfinite(v) for v in r[key])
+            for key in ('desired', 'commanded', 'commanded_velocity', 'commanded_effort'))
+        and len(r.get('source_sequence') or []) == count for r in following)
+    result = dict(complete_command_observations=complete, stages={}, moved_joints=[],
+                  reversed_joints=[], repeated_samples=0, fresh_unchanged_positions=0,
+                  immutable_repeats=True, position_only_required=position_only,
+                  zero_output_velocity=False, gravity_only_effort=False,
+                  plateau_reached={}, checks={}, complete=False,
+                  output_scope='direct_update joint values before motor CAN quantization',
+                  goal_tolerance_rad=1e-8)
+    if not complete:
+        result['checks']['complete_command_observations'] = False
+        return result
+    stages = Counter(r.get('scripted_source_stage') for r in following)
+    result['stages'] = dict(stages)
+    origin_valid = not trial or trial_origin is not None and len(trial_origin) == count
+    result['trial'] = trial
+    result['trial_origin'] = list(trial_origin) if trial_origin is not None else None
+    trial_bounds = not trial or origin_valid and all(
+        abs(command-origin) <= (trial['max_excursion_rad'] if joint['name'] == trial['motor'] else 0.) + 1e-12
+        for record in following for joint, origin, command in zip(joints, trial_origin, record['commanded']))
+    trial_speed, reference_speeds = True, []
+    for before, after in zip(following, following[1:]):
+        times = [row.get('command_proposed_at') for row in (before, after)]
+        if not all(isinstance(t, (int, float)) and math.isfinite(t) for t in times) or times[1] <= times[0]:
+            trial_speed = False
+            continue
+        dt = times[1]-times[0]
+        increments = [abs(a-b) for a, b in zip(after['commanded'], before['commanded'])]
+        reference_speeds.extend(delta/dt for delta in increments)
+        if trial and any(delta > trial['max_velocity']*dt + 1e-12 for delta in increments):
+            trial_speed = False
+    result['maximum_reference_speed_rad_s'] = max(reference_speeds, default=None)
+    def goal(record):
+        if not trial or not origin_valid:
+            return record['desired']
+        radius = trial['max_excursion_rad']
+        return [max(origin-radius, min(origin+radius, desired)) if joint['name'] == trial['motor'] else origin
+                for joint, origin, desired in zip(joints, trial_origin, record['desired'])]
+    moved, reversed_joints = [], []
+    for i, joint in enumerate(joints):
+        values = [r['commanded'][i] for r in following]
+        differences = [b-a for a, b in zip(values, values[1:])]
+        if max(values)-min(values) > 1e-5:
+            moved.append(i)
+            result['moved_joints'].append(joint['name'])
+        if any(d > 1e-8 for d in differences) and any(d < -1e-8 for d in differences):
+            reversed_joints.append(i)
+            result['reversed_joints'].append(joint['name'])
+    for before, after in zip(following, following[1:]):
+        if before['source_sequence'] == after['source_sequence']:
+            result['repeated_samples'] += 1
+            stamps = [r.get('completed_at') is not None and r.get('source_age_ms') is not None
+                      for r in (before, after)]
+            same_stamp = all(stamps) and abs(
+                (before['completed_at']-before['source_age_ms']/1000)
+                -(after['completed_at']-after['source_age_ms']/1000)) <= 1e-8
+            result['immutable_repeats'] &= before['desired'] == after['desired'] and same_stamp
+        elif before['desired'] == after['desired']:
+            result['fresh_unchanged_positions'] += 1
+    for stage in ('held_positive', 'held_negative', 'held_return'):
+        result['plateau_reached'][stage] = sum(
+            r.get('scripted_source_stage') == stage and bool(moved)
+            and all(abs(r['commanded'][i]-goal(r)[i]) <= result['goal_tolerance_rad'] for i in moved)
+            for r in following)
+    result['zero_output_velocity'] = all(v == 0. for r in following for v in r['commanded_velocity'])
+    errors = []
+    for record in following:
+        positions = dict(zip((j['name'] for j in joints), record['commanded']))
+        for joint, effort in zip(joints, record['commanded_effort']):
+            gravity = gravity_effort(joint.get('gravity') or [], positions)
+            limit = .9*joint.get('max_effort', math.inf)
+            errors.append(abs(effort-max(-limit, min(limit, gravity))))
+    result['maximum_non_gravity_effort_nm'] = max(errors)
+    result['gravity_only_effort'] = max(errors) <= 1e-10
+    result['checks'] = dict(complete_command_observations=True,
+                           trial_origin_observed=bool(origin_valid),
+                           trial_command_bounds=bool(trial_bounds),
+                           trial_command_speed=not trial or trial_speed,
+                           all_stages=all(stages.get(stage, 0) >= 2 for stage in QuantizedLeaders.stages),
+                           commanded_movement=bool(moved), commanded_reversal=bool(reversed_joints),
+                           repeated_samples=result['repeated_samples'] >= 2,
+                           immutable_repeats=result['immutable_repeats'],
+                           fresh_unchanged_positions=result['fresh_unchanged_positions'] >= 2,
+                           reached_plateaus=all(n >= 2 for n in result['plateau_reached'].values()),
+                           position_only_output=(not position_only or result['zero_output_velocity']
+                                                 and result['gravity_only_effort']))
+    result['complete'] = all(result['checks'].values())
+    return result
+
+
+def main(argv=None, *, open_leaders=None, source_label=None, on_follow_ready=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument('--backend', choices=('harness', 'vcan'), default='harness')
     parser.add_argument('--binary', type=Path)
     parser.add_argument('--source-manifest', type=Path)
     parser.add_argument('--runs', type=Path, help='Saved operator runs to copy into output; missing/mismatched data fails')
+    parser.add_argument('--profile', type=Path, help='Teleop profile within --root; default config/devices/minerva-teleop-direct.json')
+    parser.add_argument('--source-mode', choices=('sine', 'quantized90'), default='sine',
+                        help='quantized90 exercises holds, ramps, reversals and reached goals over a 5-second pattern')
     parser.add_argument('--arm', choices=('left', 'right', 'both'), default='both')
     parser.add_argument('--stop', choices=('H', 'X'), default='X')
     parser.add_argument('--cycles', type=int, default=3000)
@@ -517,18 +711,28 @@ def main(argv=None, *, open_leaders=None, source_label=None):
         parser.error('Use a new output directory and 10-30000 cycles')
     if args.backend == 'vcan' and (sys.platform != 'linux' or args.binary is None):
         parser.error('vcan requires Linux and --binary guarded_controller')
+    if args.source_mode == 'quantized90' and (open_leaders is not None or args.cycles < 500):
+        parser.error('quantized90 needs at least 500 cycles and cannot replace an injected source')
     args.root, args.output = args.root.resolve(), args.output.resolve()
+    if args.profile is not None:
+        args.profile = (args.root/args.profile).resolve()
+        if not args.profile.is_relative_to(args.root):
+            parser.error('--profile must be inside --root')
     if (args.root/'release.json').exists() and args.output.is_relative_to(args.root):
         parser.error('Release benchmark output must stay outside its verified candidate tree')
     args.output.mkdir(parents=True)
     report = dict(complete=False, failure=None, backend=args.backend, arm=args.arm, stop=args.stop,
                   requested_cycles=args.cycles, physical_validation=False, synthetic_source=open_leaders is None,
-                  source_waveform=('saved leader reference + 0.01 rad sine, 0.5 Hz on channels 1..6'
-                                   if open_leaders is None else None),
+                  source_mode=args.source_mode if open_leaders is None else 'injected',
+                  source_delivery_delay_ms=15. if open_leaders is None and args.source_mode == 'quantized90' else None,
+                  source_waveform=(None if open_leaders is not None else
+                                   '4096-count, 90 Hz immutable samples; 5 s holds/ramps/reversals, +/-6 counts on channels 1..6'
+                                   if args.source_mode == 'quantized90' else
+                                   'saved leader reference + 0.01 rad sine, 0.5 Hz on channels 1..6'),
                   source_label=source_label or ('scripted leaders' if open_leaders is None else 'injected leader source'),
                   independent_receiver_clock=args.backend == 'vcan', limitation=__doc__,
                   script_sha256=sha(__file__))
-    core = receiver = driver = reader = writer = None
+    core = receiver = driver = reader = writer = leaders = None
     view_report = dict(messages=0, error=None)
     def consume_views():
         try:
@@ -551,11 +755,17 @@ def main(argv=None, *, open_leaders=None, source_label=None):
             raise ValueError('Verified candidate benchmark binary must be inside its root')
         report['binary_sha256'] = sha(binary)
         bundle, ranges, identity = make_bundle(args.root, args.output, args.arm,
-                                               args.runs.resolve() if args.runs else None)
+                                               args.runs.resolve() if args.runs else None, args.profile)
         if args.source_manifest:
             verify_runtime_imports(args.root)
         report['inputs'] = identity
-        leaders = ScriptedLeaders(ranges)
+        def open_source(profile):
+            nonlocal leaders
+            leaders = (open_leaders(profile) if open_leaders is not None else
+                       QuantizedLeaders(ranges) if args.source_mode == 'quantized90' else ScriptedLeaders(ranges))
+            if driver is not None:
+                driver.leaders = leaders
+            return leaders
         def open_receiver(config, device, reference):
             nonlocal receiver
             (args.output/'controller.json').write_text(json.dumps(config, indent=2)+'\n', encoding='utf-8')
@@ -567,11 +777,13 @@ def main(argv=None, *, open_leaders=None, source_label=None):
             return receiver
         def no_geometry(_):
             raise RuntimeError('Direct benchmark attempted to construct collision geometry')
-        core = BenchmarkCore(bundle, open_leaders=open_leaders or (lambda _: leaders), open_receiver=open_receiver,
+        core = BenchmarkCore(bundle, open_leaders=open_source, open_receiver=open_receiver,
                              open_backend=no_geometry)
         if core.period_s != .01 or core.collision_mode != 'disabled':
             raise ValueError('This benchmark requires the saved 100 Hz collision-disabled profile')
-        driver = ScriptedCommands(core, leaders, args.cycles, args.stop, args.cycles*.01+60)
+        report['position_only'] = core.profile['receiver']['direct'].get('position_only', False)
+        driver = ScriptedCommands(core, leaders, args.cycles, args.stop, args.cycles*.01+60,
+                                  on_follow_ready=on_follow_ready)
         core.driver = driver
         reader, writer = Pipe(duplex=False)
         thread = threading.Thread(target=consume_views, daemon=True, name='benchmark-view-reader')
@@ -609,6 +821,14 @@ def main(argv=None, *, open_leaders=None, source_label=None):
                                            and timing['scheduled_deadline_misses'] == 0
                                            and timing['skipped_slots'] == 0)
         report['application_samples_complete'] = timing['receiver_unobserved_targets'] == 0
+        if args.source_mode == 'quantized90':
+            joints = core.session.lifecycle.joints if core is not None and core.session is not None else []
+            report['moving_source_coverage'] = moving_source_coverage(
+                records, joints, position_only=report.get('position_only', False),
+                trial=core.profile.get('trial') if core is not None else None,
+                trial_origin=getattr(core, 'benchmark_trial_origin', None))
+            if not report['moving_source_coverage']['complete']:
+                report['failure'] = report['failure'] or 'Moving-source qualification coverage failed'
         report['complete'] = (report['failure'] is None and report.get('phase') == 'done'
                               and report.get('final_state') == 'DISABLED' and timing['cycles'] == args.cycles
                               and timing['accepted'] == args.cycles and timing['maximum_rpc_count'] == 1

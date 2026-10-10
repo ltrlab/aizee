@@ -3,6 +3,19 @@
 Updated 2026-10-10. This file is the current entry point; dated phase tables and
 device logs retain historical evidence, not an implicit statement of readiness.
 
+The retry candidate now uses explicit `direct.position_only=true`: zero client
+velocity and friction/ramp feedforward, retaining saved PD and gravity, with the
+same internal position/acceleration planner. The native receiver rejects nonzero
+client velocity/ramp in this mode; receiver-owned braking is unchanged. Its
+separate `minerva-teleop-direct-trial.json` profile bounds commanded motion to
+left J1, 0.05 rad/s and ±0.03 rad from the first Enable hold position. Other
+joints hold their latched positions; re-Engage cannot move the window. Shutdown
+returns all joints to reference and is explicitly outside that trial window.
+This is a diagnostic physical baseline, not qualification for fast full-arm use.
+The frozen offline gate passed 490 Python tests (zero skips/xfails) and 115 Rust
+tests at `build/dev-check/20261010T185915Z-0b98f91d/report.json`. Runtime/tests were
+unchanged throughout; this result note followed it. Fresh Jetson evidence is next.
+
 **Live direct teleop is not ready for another trial.** The first attended left-arm
 run (`live-20261010T180632Z`, active release `20261010T175730Z-abfbbbd`)
 produced visibly jerky motion and a J3 holding-lead fault. It returned to reference

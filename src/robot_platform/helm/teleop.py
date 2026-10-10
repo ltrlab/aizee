@@ -54,8 +54,10 @@ def load_profile(path):
         if (type(hz) is not int or not 50 <= hz <= 200 or 1000 % hz
                 or type(interpolation) is not int or not 0 <= interpolation <= 1000 / hz
                 or receiver.get('collision') is not None
-                or set(direct) != {'command_ms', 'velocity_timeout_ms', 'limit_reaction_ms'}
-                or any(type(v) is not int for v in direct.values())
+                or set(direct) - {'command_ms', 'velocity_timeout_ms', 'limit_reaction_ms', 'position_only'}
+                or any(type(direct.get(k)) is not int
+                       for k in ('command_ms', 'velocity_timeout_ms', 'limit_reaction_ms'))
+                or type(direct.get('position_only', False)) is not bool
                 or not 2 * 1000 / hz < direct.get('command_ms', 0) <= receiver['lease_ms']
                 or not interpolation <= direct.get('velocity_timeout_ms', 0) <= 2 * 1000 / hz
                 or direct.get('velocity_timeout_ms', 0) <= 0
@@ -66,6 +68,10 @@ def load_profile(path):
     elif (type(interpolation) is not int or not 10 <= interpolation <= 40
             or not 0 < receiver.get('compute_budget_s', 0) <= .6 * interpolation / 1000):
         raise ValueError('The receiver interpolates over 10-40 ms (the loop period), with compute under 60% of it')
+    from robot_platform.teleop.lifecycle import validate_trial
+    trial = validate_trial(profile.get('trial'))
+    if trial and (mode != 'disabled' or receiver['direct'].get('position_only') is not True):
+        raise ValueError('A bounded trial requires explicit direct position-only mode')
     live = profile.get('live')
     if live is not None and (
             set(live) - {'reference_tolerance_rad', 'period_us', 'maximum_lateness_us', 'note'}
@@ -185,6 +191,9 @@ class TeleopCore:
         if receiver.get('mode') not in ('virtual', 'live') or (receiver['mode'] == 'live'
                                                                  and self.live_arm not in ('left', 'right', 'both')):
             raise ValueError('The receiver is virtual, or live on the left, right or both arms')
+        if self.profile.get('trial') and self.live_arm and (
+                self.live_arm == 'both' or not self.profile['trial']['motor'].startswith(self.live_arm + '_')):
+            raise ValueError('The trial permits only its selected single arm')
         # Both arms in one receiver need enforced checks of one arm against the other: boxes the receiver checks
         # against the motion commanded (MotionEnvelopeCompiler). The virtual receiver can rehearse them.
         if self.collision_mode != 'disabled' and (self.live_arm == 'both' or receiver.get('collision') == 'motion'):
@@ -425,6 +434,7 @@ class TeleopCore:
                                                  compute_budget_s=budget, cad_limits=derived['cad_limits'])
         lifecycle = TeleopLifecycle(derived['lifecycle'], clock=self.clock,
                                     max_source_misses=source_misses(self.period_s),
+                                    trial=self.profile.get('trial'),
                                     allow_repeated_source=self.collision_mode == 'disabled')
         if self.collision_mode == 'disabled':
             from robot_platform.teleop.direct_lifecycle import DirectLifecycleSession
@@ -841,6 +851,8 @@ class TeleopCore:
         verdict = getattr(self.compiler, 'last_verdict', None) or {}
         last = (self.harness.last or {}) if self.harness else {}
         result = {'phase': self.phase, 'message': self.message, 'fault': self.fault,
+                  'trial': deepcopy(self.profile.get('trial')),
+                  'position_only': self.profile['receiver'].get('direct', {}).get('position_only', False),
                   'state': self.session.lifecycle.state if self.session else None, 'receiver': receiver,
                   'live': {'arm': self.live_arm, 'motors_enabled': last.get('hardware_enabled'),
                            'watchdog': last.get('watchdog'), 'reference': last.get('reference')}
@@ -853,6 +865,11 @@ class TeleopCore:
                                 'blocked': getattr(self.compiler, 'blocked', 0),
                                 'holding': self.session.blocked if self.session else None},
                   'scheduling': self.scheduling, 'cycle_ms': None, 'joints': []}
+        if self.profile.get('trial'):
+            trial = self.profile['trial']
+            result['message'] = (f"TRIAL: {trial['motor']} only, {trial['max_velocity']:g} rad/s, "
+                                 f"±{trial['max_excursion_rad']:g} rad from Enable; other joints hold. "
+                                 + self.message)
         durations = sorted((c['completed_at'] - c['started_at']) * 1000 for c in self.cycles[-100:]
                            if c.get('completed_at') is not None)
         if durations:

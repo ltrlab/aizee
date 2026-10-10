@@ -1,0 +1,204 @@
+{
+  "schema": 1,
+  "kind": "guarded_teleop_profile",
+  "id": "minerva-teleop-direct-trial",
+  "backend": "virtual",
+  "runtime_approved": false,
+  "calibration_profile": "minerva-joint-calibration.json",
+  "leader_profile": "gello-dual-viewer.json",
+  "leader_ranges": "gello-dual-leader-ranges.json",
+  "notes": [
+    "Attended left J1 baseline: 0.05 rad/s commanded maximum and +/-0.03 rad from its first Enable hold position. All other commanded joints hold that position until Shutdown/Disable. Re-Engage cannot move the origin.",
+    "Position-only commands with saved PD/gravity; no velocity, friction or ramp feedforward. Native feedback speed/lead/effort/watchdog limits remain in force.",
+    "This restricts commanded travel, not physical overshoot. Shutdown can return every joint to its reference outside the experimental window. One left arm only; no collision detection."
+  ],
+  "receiver": {
+    "collision_mode": "disabled",
+    "lease_ms": 150,
+    "feedback_timeout_ms": 30,
+    "settled_velocity": 0.15,
+    "interpolation_ms": 0,
+    "loop_hz": 100,
+    "direct": {
+      "command_ms": 30,
+      "velocity_timeout_ms": 15,
+      "limit_reaction_ms": 10,
+      "position_only": true
+    }
+  },
+  "live": {
+    "reference_tolerance_rad": 0.1,
+    "period_us": 2500,
+    "maximum_lateness_us": 10000,
+    "note": "Explicit collision-disabled service for one or both arms. Pinned motor identities, watchdog setup, reference-pose checks and explicit operator enable/stop remain required."
+  },
+  "motion": {
+    "defaults": {
+      "max_velocity": 0.8,
+      "stop_acceleration": 4.0,
+      "max_tracking_error": 0.08,
+      "align_speed": 0.3,
+      "shutdown_speed": 0.2,
+      "tolerance": 0.03,
+      "settled_velocity": 0.05,
+      "max_temperature": 70.0
+    },
+    "joints": [
+      {
+        "match": "*_arm_j1",
+        "hold_kp": 150.0,
+        "hold_kd": 20.0,
+        "max_kp": 150.0,
+        "max_kd": 20.0,
+        "max_effort": 60.0,
+        "max_velocity": 1.5,
+        "stop_acceleration": 16.0
+      },
+      {
+        "match": "*_arm_j2",
+        "hold_kp": 220.0,
+        "hold_kd": 15.0,
+        "max_kp": 220.0,
+        "max_kd": 15.0,
+        "max_effort": 120.0,
+        "max_velocity": 1.5,
+        "stop_acceleration": 16.0
+      },
+      {
+        "match": "*_arm_j3",
+        "hold_kp": 215.0,
+        "hold_kd": 14.0,
+        "max_kp": 215.0,
+        "max_kd": 14.0,
+        "max_effort": 60.0,
+        "max_velocity": 1.5,
+        "stop_acceleration": 25.0,
+        "max_tracking_error": 0.05
+      },
+      {
+        "match": "*_arm_j4",
+        "hold_kp": 50.0,
+        "hold_kd": 4.0,
+        "max_kp": 50.0,
+        "max_kd": 4.0,
+        "max_effort": 17.0,
+        "max_velocity": 2.5,
+        "stop_acceleration": 16.0
+      },
+      {
+        "match": "*_arm_j5",
+        "hold_kp": 8.0,
+        "hold_kd": 1.0,
+        "max_kp": 8.0,
+        "max_kd": 1.0,
+        "max_effort": 17.0,
+        "max_velocity": 4.0,
+        "stop_acceleration": 16.0,
+        "max_tracking_error": 0.1
+      },
+      {
+        "match": "*_arm_j6",
+        "hold_kp": 8.0,
+        "hold_kd": 1.0,
+        "max_kp": 8.0,
+        "max_kd": 1.0,
+        "max_effort": 14.0,
+        "max_velocity": 4.0,
+        "stop_acceleration": 16.0
+      },
+      {
+        "match": "*_gripper",
+        "gripper": true,
+        "hold_kp": 2.0,
+        "hold_kd": 1.0,
+        "max_kp": 5.0,
+        "max_kd": 2.0,
+        "max_effort": 14.0,
+        "max_velocity": 10.0,
+        "stop_acceleration": 30.0,
+        "max_tracking_error": 0.06,
+        "align_speed": 1.0,
+        "shutdown_speed": 0.5,
+        "tolerance": 0.05,
+        "settled_velocity": 0.1
+      }
+    ]
+  },
+  "routes": {
+    "left_arm_j1": {
+      "leader": "left",
+      "channel": 1,
+      "sign": -1
+    },
+    "left_arm_j2": {
+      "leader": "left",
+      "channel": 2,
+      "sign": -1
+    },
+    "left_arm_j3": {
+      "leader": "left",
+      "channel": 3,
+      "sign": 1
+    },
+    "left_arm_j4": {
+      "leader": "left",
+      "channel": 4,
+      "sign": 1
+    },
+    "left_arm_j5": {
+      "leader": "left",
+      "channel": 5,
+      "sign": 1
+    },
+    "left_arm_j6": {
+      "leader": "left",
+      "channel": 6,
+      "sign": 1
+    },
+    "left_gripper": {
+      "leader": "left",
+      "channel": 7,
+      "sign": 1
+    },
+    "right_arm_j1": {
+      "leader": "right",
+      "channel": 1,
+      "sign": -1
+    },
+    "right_arm_j2": {
+      "leader": "right",
+      "channel": 2,
+      "sign": -1
+    },
+    "right_arm_j3": {
+      "leader": "right",
+      "channel": 3,
+      "sign": 1
+    },
+    "right_arm_j4": {
+      "leader": "right",
+      "channel": 4,
+      "sign": 1
+    },
+    "right_arm_j5": {
+      "leader": "right",
+      "channel": 5,
+      "sign": 1
+    },
+    "right_arm_j6": {
+      "leader": "right",
+      "channel": 6,
+      "sign": 1
+    },
+    "right_gripper": {
+      "leader": "right",
+      "channel": 7,
+      "sign": 1
+    }
+  },
+  "trial": {
+    "max_velocity": 0.05,
+    "max_excursion_rad": 0.03,
+    "motor": "left_arm_j1"
+  }
+}

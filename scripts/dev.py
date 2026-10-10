@@ -25,6 +25,7 @@ CORE = [
     'tests/contract/test_mujoco_receiver.py',
     'tests/contract/test_direct_teleop.py',
     'tests/unit/test_direct_teleop.py', 'tests/unit/test_direct_latency.py', 'tests/unit/test_leader_bridge.py',
+    'tests/unit/test_qualify_direct_motion.py', 'tests/unit/test_position_only_trial.py',
     'tests/unit/test_teleop_lifecycle.py', 'tests/unit/test_guarded_config.py',
     'tests/unit/test_helm_teleop.py', 'tests/unit/test_live_receiver.py',
     'tests/contract/test_direct_benchmark.py', 'tests/unit/test_benchmark_direct_loop.py',
