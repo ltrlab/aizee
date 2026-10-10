@@ -121,3 +121,32 @@ body[data-teleop-state=FAULT] #t-state,#t-collision.bad{color:var(--bad)}#t-coll
 .eyebrow.live{color:var(--bad)}
 #t-receiver-choice button{white-space:nowrap}
 #t-receiver-choice button[data-receiver=live][aria-pressed=true]{background:#4b2530;border-color:#9a4b58;color:#ffe8eb}
+#t-receiver-choice button[hidden]{display:none}
+.manual-tuning[hidden]{display:none}
+.manual-tuning{margin:8px 0 20px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.manual-toolbar{position:sticky;top:-4px;z-index:2;padding:8px 0 10px;background:var(--panel);border-bottom:1px solid var(--line)}
+.manual-toolbar h2{font-size:16px;margin:0 0 5px}
+.manual-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+.manual-actions button{font-size:11.5px;padding:5px 8px}
+.manual-toolbar .bad{color:var(--bad)}
+#manual-gate{color:var(--warn);line-height:1.4}
+#manual-feedback:empty,#manual-gate:empty{display:none}
+.manual-help,.manual-scope{font-size:11.5px;line-height:1.5;color:var(--muted);margin:10px 0}
+.manual-scope{color:var(--text)}
+.manual-row{background:var(--raised);border:1px solid var(--line);border-radius:8px;padding:9px 10px;margin:8px 0}
+.manual-row[data-edited=true]{border-color:#8e7142}
+.manual-row-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.manual-label{font-size:12px;font-weight:600}
+.manual-follow{display:flex;align-items:center;gap:4px;font-size:11.5px;white-space:nowrap}
+.manual-follow input{accent-color:var(--accent)}
+.manual-active{font-size:11px;line-height:1.5;color:var(--good);margin:7px 0;font-variant-numeric:tabular-nums}
+.manual-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
+.manual-fields label{display:flex;flex-direction:column;gap:4px;color:var(--text);font-size:10.5px}
+.manual-fields input{width:100%;min-width:0;padding:6px 5px;border:1px solid #4a5a68;border-radius:4px;background:#0e1720;color:var(--text);font:12px ui-monospace,monospace}
+.manual-fields input:focus-visible,.manual-follow input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.manual-fields input:invalid{border-color:var(--bad)}
+.manual-fields input:disabled{opacity:.5}
+.manual-fields small{font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums}
+.manual-draft-status{display:block;margin-top:6px;font-size:10.5px;color:var(--muted)}
+.manual-row[data-edited=true] .manual-draft-status{color:var(--warn)}
+@media(max-width:900px){.manual-fields{grid-template-columns:repeat(2,minmax(0,1fr))}}

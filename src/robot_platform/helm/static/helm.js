@@ -441,6 +441,215 @@ const ENGAGED = ['ENGAGING', 'TELEOP'];
 let teleopPhase = null;
 const fixed = q => (q == null || !Number.isFinite(q)) ? '—' : signed(q, 2);
 
+const manualFields = ['kp', 'kd', 'speed', 'follow', 'travel_rad'];
+const manualCards = new Map();
+let manualState = null, manualBase = null, manualDraft = new Map(), manualPending = false, manualConflict = false;
+const manualRetiredSessions = [];
+const manualNumber = value => Number.isFinite(value) ? String(Number(value.toPrecision(6))) : '—';
+
+function manualValue(draft, field) {
+  if (field === 'follow') return draft.follow;
+  const value = draft[field].trim();
+  return value === '' ? (field === 'travel_rad' ? null : NaN) : Number(value);
+}
+
+function manualRowChanged(motor, row) {
+  const draft = manualDraft.get(motor);
+  return !draft || manualFields.some(field => manualValue(draft, field) !== row[field]);
+}
+
+function manualHasEdits() {
+  return !!manualBase && (manualBase.rows.some(row => manualRowChanged(row.motor, row))
+    || [...manualCards.values()].some(card => [...card.querySelectorAll('input')].some(input => input.validity.badInput)));
+}
+
+function resetManualDraft(settings) {
+  manualBase = settings;
+  manualDraft = new Map(settings.rows.map(row => [row.motor, Object.fromEntries(manualFields.map(field =>
+    [field, field === 'follow' ? row[field] : row[field] == null ? '' : String(row[field])]))]));
+  manualConflict = false;
+  for (const [motor, card] of manualCards) {
+    const draft = manualDraft.get(motor);
+    if (!draft) continue;
+    for (const field of manualFields) {
+      const input = card.querySelector(`[data-field="${field}"]`);
+      if (field === 'follow') input.checked = draft[field]; else input.value = draft[field];
+    }
+  }
+}
+
+function manualFeedback(message = '', bad = false) {
+  $('manual-feedback').textContent = message;
+  $('manual-feedback').className = `muted${bad ? ' bad' : ''}`;
+}
+
+function manualValid() {
+  return [...manualCards.values()].every(card => [...card.querySelectorAll('input')].every(input => input.checkValidity()));
+}
+
+function updateManualActions() {
+  if (!manualState?.enabled) return;
+  const edits = manualHasEdits(), valid = manualValid();
+  $('manual-apply').disabled = manualPending || manualConflict || !edits || !valid || !manualState.can_apply;
+  $('manual-revert').disabled = manualPending || (!edits && !manualConflict);
+  $('manual-save').disabled = manualPending || manualConflict || edits || !manualState.can_save;
+  $('manual-restore').disabled = manualPending || manualConflict || edits || !manualState.saved_revision || !manualState.can_apply;
+  $('manual-gate').textContent = manualPending ? 'Waiting for the receiver to acknowledge the settings…'
+    : manualConflict ? 'The session or active settings changed. Revert edits to review the current values before applying.'
+    : !valid ? 'Enter finite values within the displayed bounds. Travel may be blank.'
+    : !manualState.can_apply ? manualState.reason || 'Hold with T before applying settings.'
+    : edits ? 'Draft edits are not active. Apply to test them; Save writes only applied settings.'
+    : !manualState.can_save && manualState.dirty ? manualState.reason || 'Saving is not available in this state.' : '';
+  for (const [motor, card] of manualCards) {
+    const row = manualState.rows.find(row => row.motor === motor);
+    const changed = row && manualRowChanged(motor, row);
+    card.dataset.edited = String(!!changed);
+    card.querySelector('.manual-draft-status').textContent = changed ? 'Draft · not applied' : 'Matches active';
+    for (const input of card.querySelectorAll('input')) input.disabled = manualPending;
+  }
+}
+
+function buildManualRow(row) {
+  const card = document.createElement('div');
+  card.className = 'manual-row';
+  card.innerHTML = `<div class="manual-row-head"><div><b class="manual-label"></b><span class="motor"></span></div>
+      <label class="manual-follow"><input type="checkbox" data-field="follow"> Follow</label></div>
+    <p class="manual-active"></p><div class="manual-fields"></div>
+    <span class="manual-draft-status"></span>`;
+  card.querySelector('.manual-label').textContent = row.label;
+  card.querySelector('.motor').textContent = row.motor;
+  const fields = [['kp', 'Kp'], ['kd', 'Kd'], ['speed', 'Speed · rad/s'], ['travel_rad', 'Travel · ±rad']];
+  for (const [field, title] of fields) {
+    const label = document.createElement('label');
+    label.textContent = title;
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.dataset.field = field;
+    input.step = 'any';
+    input.required = field !== 'travel_rad';
+    input.setAttribute('aria-label', `${row.label}: draft ${title}`);
+    if (field === 'travel_rad') input.placeholder = 'Full range';
+    const bound = document.createElement('small');
+    bound.dataset.bound = field;
+    label.append(input, bound);
+    card.querySelector('.manual-fields').append(label);
+  }
+  const draft = manualDraft.get(row.motor);
+  for (const input of card.querySelectorAll('input')) {
+    const field = input.dataset.field;
+    if (field === 'follow') {
+      input.checked = draft.follow;
+      input.setAttribute('aria-label', `${row.label}: follow the leader (unchecked holds position)`);
+    } else input.value = draft[field];
+    input.addEventListener('input', () => {
+      const current = manualDraft.get(row.motor);
+      current[field] = field === 'follow' ? input.checked : input.value;
+      manualFeedback();
+      updateManualActions();
+    });
+  }
+  return card;
+}
+
+function renderManual(t) {
+  const settings = t?.tuning;
+  $('manual-tuning').hidden = !settings?.enabled;
+  if (!settings?.enabled) return;
+  // A late poll must not replace an acknowledged revision or a newer session.
+  if (manualRetiredSessions.includes(settings.session_id)
+      || (manualState?.session_id === settings.session_id && settings.revision < manualState.revision)) return;
+  const changed = !manualState || manualState.session_id !== settings.session_id || manualState.revision !== settings.revision;
+  if (manualState && manualState.session_id !== settings.session_id) {
+    manualRetiredSessions.push(manualState.session_id);
+    if (manualRetiredSessions.length > 8) manualRetiredSessions.shift();
+  }
+  if (changed) {
+    if (manualHasEdits()) manualConflict = true;
+    else resetManualDraft(settings);
+  }
+  manualState = settings;
+  const container = $('manual-rows'), layout = settings.rows.map(row => row.motor).join(',');
+  if (container.dataset.layout !== layout) {
+    container.dataset.layout = layout;
+    container.replaceChildren();
+    manualCards.clear();
+    let arm = null;
+    for (const row of settings.rows) {
+      if (!manualDraft.has(row.motor)) manualDraft.set(row.motor, Object.fromEntries(manualFields.map(field =>
+        [field, field === 'follow' ? row[field] : row[field] == null ? '' : String(row[field])])));
+      const nextArm = row.motor.startsWith('left_') ? 'LEFT ARM' : row.motor.startsWith('right_') ? 'RIGHT ARM' : 'JOINTS';
+      if (nextArm !== arm) {
+        const heading = document.createElement('h3');
+        heading.className = 'arm';
+        heading.textContent = arm = nextArm;
+        container.append(heading);
+      }
+      const card = buildManualRow(row);
+      manualCards.set(row.motor, card);
+      container.append(card);
+    }
+  }
+    const applied = t.phase === 'running' ? 'Active in session' : 'Ready for next session';
+    $('manual-state').textContent = `${applied} · ${settings.dirty ? 'changes not saved' : settings.saved_revision ? 'matches saved settings' : 'profile defaults'}`;
+    if (t.phase === 'running' && Number.isFinite(t.observation_age_ms) && t.observation_age_ms > 500)
+      $('manual-state').textContent += ` · joint display is ${(t.observation_age_ms / 1000).toFixed(1)} s old`;
+  const following = settings.rows.filter(row => row.follow);
+  $('manual-scope').textContent = `Applied follow selection: ${following.length ? following.map(row => row.label).join(', ') : 'none; all joints hold'}.`;
+  for (const row of settings.rows) {
+    const card = manualCards.get(row.motor);
+    card.querySelector('.manual-active').textContent = `Active: Kp ${manualNumber(row.kp)} · Kd ${manualNumber(row.kd)} · `
+      + `${manualNumber(row.speed)} rad/s · ${row.travel_rad == null ? 'full usable travel' : `±${manualNumber(row.travel_rad)} rad`} · ${row.follow ? 'follows' : 'holds'}`;
+    for (const [field, bounds] of Object.entries(row.bounds)) {
+      const input = card.querySelector(`[data-field="${field}"]`), bound = card.querySelector(`[data-bound="${field}"]`);
+      if (!input || !bound) continue;
+      [input.min, input.max] = bounds.map(String);
+      bound.textContent = `${manualNumber(bounds[0])}–${manualNumber(bounds[1])}`;
+      bound.title = 'Receiver bounds; these cannot be raised from this panel';
+    }
+  }
+  updateManualActions();
+}
+
+async function manualAction(action) {
+  if (!manualState || manualPending || busy) return;
+  const edits = manualHasEdits();
+  if (manualConflict || (action === 'apply' ? !edits || !manualValid() || !manualState.can_apply
+    : edits || (action === 'save' ? !manualState.can_save : !manualState.can_apply))) return;
+  const payload = {session_id: manualState.session_id, revision: manualState.revision};
+  if (action === 'apply') payload.joints = manualState.rows.map(row => ({motor: row.motor,
+    ...Object.fromEntries(manualFields.map(field => [field, manualValue(manualDraft.get(row.motor), field)]))}));
+  manualPending = busy = true;
+  manualFeedback();
+  updateManualActions();
+  try {
+    const state = await request(`/api/helm/teleop/tuning/${action}`, payload);
+    const acknowledged = state?.teleop?.tuning;
+    if (!acknowledged?.enabled) throw new Error('Settings acknowledgement is missing. Refresh the session state before retrying.');
+    resetManualDraft(acknowledged);
+    manualState = acknowledged;
+    render(state);
+    const ready = state.teleop.phase === 'running' ? 'Engage with T when ready to test.'
+      : 'Ready for the next session. Start, Idle, Enable, then Engage to test.';
+    manualFeedback(action === 'save' ? 'Applied settings saved for future sessions.'
+      : `${action === 'restore' ? 'Saved settings restored and applied.' : 'Settings applied.'} ${ready}`);
+  } catch (error) {
+    manualFeedback(`${error.message} Your draft edits have been kept.`, true);
+  } finally {
+    manualPending = busy = false;
+    updateManualActions();
+  }
+}
+
+$('manual-apply').onclick = () => manualAction('apply');
+$('manual-save').onclick = () => manualAction('save');
+$('manual-restore').onclick = () => manualAction('restore');
+$('manual-revert').onclick = () => {
+  if (!manualState || manualPending) return;
+  resetManualDraft(manualState);
+  manualFeedback('Draft edits reverted. Active motor settings are unchanged.');
+  updateManualActions();
+};
+
 function buildTeleop(joint) {
   const card = document.createElement('div');
   card.className = 'tjoint';
@@ -494,6 +703,7 @@ function renderTeleop(t) {
   tab.disabled = !t;
   tab.title = t ? '' : 'Start Helm with a teleop profile (scripts/helm.ps1 does this)';
   if (!t) {
+    renderManual(null);
     if (document.body.dataset.tab === 'teleop') showTab('limits');
     return;
   }
@@ -510,6 +720,7 @@ function renderTeleop(t) {
     ? t.receiver + (t.live ? (t.live.motors_enabled ? ' · motors on' : ' · motors off') : '') : '—';
   $('t-cycle').textContent = running && t.cycle_ms ? `${t.cycle_ms.p50.toFixed(1)} / ${t.cycle_ms.p99.toFixed(1)} ms` : '—';
   const c = t.collision || {};
+  const direct = c.mode === 'disabled';
   const collision = $('t-collision');
   const enforced = c.mode === 'motion';
   // Two-arm bound: the margin left between the arms' stopping boxes, or why they hold.
@@ -518,10 +729,10 @@ function renderTeleop(t) {
     : enforced ? (c.clearance_m != null && c.clearance_m < .025 ? `${Math.round(c.clearance_m * 1000)} mm margin` : 'clear')
     : !c.clear ? `contact: ${(c.shapes || []).join(' · ')}`
     : c.distance_m != null ? `${Math.round(c.distance_m * 1000)} mm to keep-out` : 'clear';
-  collision.textContent = running
+  collision.textContent = direct ? 'Disabled' : running
     ? `${c.mode === 'advisory' ? 'advisory · ' : enforced ? 'two-arm · ' : ''}${detail}` : c.mode || '—';
   collision.className = enforced ? (c.holding ? 'near' : '') : c.clear === false ? 'bad' : c.distance_m != null ? 'near' : '';
-  collision.title = enforced
+  collision.title = direct ? 'No collision detection. Joint, speed, freshness and receiver limits still apply.' : enforced
     ? 'Enforced: every move is certified clear of the other arm, with each joint\'s tracking bound and stop; '
       + 'a move that could bring the arms together is slowed, else held. The body is not checked.'
     : c.mode !== 'advisory' ? ''
@@ -540,9 +751,17 @@ function renderTeleop(t) {
   }
   for (const button of document.querySelectorAll('#t-receiver-choice button')) {
     const liveButton = button.dataset.receiver === 'live';
+    const choiceKey = liveButton ? button.dataset.arm : 'virtual';
+    button.hidden = (direct && !!button.dataset.collision)
+      || (Array.isArray(t.receiver_choices) && !t.receiver_choices.includes(choiceKey));
+    if (!button.dataset.collision) button.title = liveButton
+      ? `${button.dataset.arm === 'both' ? 'Both arms' : `The ${button.dataset.arm} arm`}; ${direct ? 'no collision detection' : button.dataset.arm === 'both' ? 'two-arm collision bound enforced' : 'collision checks advisory'}. Loop on Minerva's Jetson only.`
+      : `Virtual receiver; ${direct ? 'no collision detection' : 'collision checks advisory'}. No motors move.`;
     button.setAttribute('aria-pressed', String(liveButton ? live && choice.arm === button.dataset.arm
       : !live && (choice.collision || null) === (button.dataset.collision || null)));
-    button.disabled = running || starting || (liveButton && (t.target !== 'jetson' || !t.live_available || !tether));
+    button.disabled = running || starting || button.hidden
+      || (liveButton && (t.target !== 'jetson' || !t.live_available || !tether
+        || (t.trial && button.dataset.arm !== (t.trial.motor.startsWith('left_') ? 'left' : 'right'))));
   }
   // Say why live is unavailable, instead of leaving the operator to guess at greyed-out buttons.
   const note = running || starting ? '' : !t.live_available ? 'Live teleop needs a live block in the teleop profile.'
@@ -558,6 +777,7 @@ function renderTeleop(t) {
   session.disabled = starting;
   for (const button of document.querySelectorAll('.lifecycle button')) button.disabled = !running || !!t.fault;
   $('t-engage').innerHTML = ENGAGED.includes(t.state) ? 'Hold <kbd>T</kbd>' : 'Engage <kbd>T</kbd>';
+  renderManual(t);
 
   const container = $('teleop-joints');
   if (!t.joints.length) {
@@ -596,7 +816,9 @@ async function sendKey(key) {
 
 function onKey(event) {
   if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
-  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target?.tagName)) return;
+  const stopKey = ['H', 'X'].includes(event.key.toUpperCase());
+  const manualInput = event.target?.tagName === 'INPUT' && event.target.closest('#manual-tuning');
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target?.tagName) && !(manualInput && stopKey)) return;
   // X and H reach a running sweep from the Check tab too, where Minerva Check's live sweep is started.
   const sweeping = ['running', 'starting'].includes(last?.tune?.phase);
   if (document.body.dataset.tab === 'tune' || (sweeping && document.body.dataset.tab === 'check')) {
@@ -689,12 +911,14 @@ $('teleop-session').onclick = () => {
     return;
   }
   const arm = choice.arm, other = arm === 'left' ? 'right' : 'left';
+  const direct = t?.collision?.mode === 'disabled';
   if (arm === 'both') {
     askConfirm('start', arm, 'Start LIVE teleop on both arms?', [
       'Both arms\' motors are powered when you press Idle (I).',
       'The foot switch (e-stop) is in reach.',
       'Both arms hang straight down in their reference pose, grippers closed, untouched until Idle.',
-      'Collision checks of one arm against the other are enforced: a move that could bring them together is '
+      direct ? 'Collision detection is disabled. Nothing checks the arms against each other or the body.'
+      : 'Collision checks of one arm against the other are enforced: a move that could bring them together is '
         + 'slowed, else held. The hands stop about 30 cm apart. Nothing checks the arms against the body.',
     ], 'Start LIVE on both arms', () => act('/api/helm/teleop/start', {confirm: true},
       'Starting LIVE on both arms: checking that they are still and in their reference pose, then the receiver.'));
@@ -705,7 +929,8 @@ $('teleop-session').onclick = () => {
     'The foot switch (e-stop) is in reach.',
     `The ${arm} arm hangs straight down in its reference pose, gripper closed, untouched until Idle.`,
     `The ${other} arm stays disabled.`,
-    'Collision checks are advisory: nothing stops the arm from reaching the body or the other arm.',
+    direct ? 'Collision detection is disabled. Nothing checks the arm against the body or the other arm.'
+      : 'Collision checks are advisory: nothing stops the arm from reaching the body or the other arm.',
   ], `Start LIVE on the ${arm} arm`, () => act('/api/helm/teleop/start', {confirm: true},
     `Starting LIVE on the ${arm} arm: checking that it is still and in its reference pose, then the receiver.`));
 };

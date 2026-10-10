@@ -3,7 +3,17 @@
 Updated 2026-10-10. This file is the current entry point; dated phase tables and
 device logs retain historical evidence, not an implicit statement of readiness.
 
-**The corrected direct-teleop release is active and prepared for a bounded,
+**Manual tuning is being prepared on `codex/teleop-direct-mirror`.** The operator
+reported the small trial smooth and without chatter, then requested direct
+control of Kp/Kd, following speed, selected joints and travel from Helm. The last
+trace nevertheless faulted with `command_expired` about 71 seconds into TELEOP;
+the failed input and timing evidence are preserved in `build/manual-tuning`.
+The new profile and Hold → Apply → Engage workflow are described in
+[`development/MANUAL_TELEOP_TUNING.md`](development/MANUAL_TELEOP_TUNING.md).
+New code requires its own offline, virtual-CAN and Jetson timing qualification;
+the following paragraphs describe the previous release and its earlier gates.
+
+**Previous release:** the corrected direct-teleop release was active and prepared for a bounded,
 attended left-J1 diagnostic trial. Motors remain disabled; physical smoothness is
 not yet validated.** Runtime `20261010T191330Z-1624fda` was packaged from clean
 commit `1624fda` on `codex/teleop-direct-mirror` and activated with explicit user

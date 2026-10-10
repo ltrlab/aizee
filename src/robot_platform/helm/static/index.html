@@ -105,11 +105,11 @@
           </div>
           <div class="target wrap" id="t-receiver-choice" role="group" aria-label="Receiver">
             <span>Receiver</span>
-            <button data-receiver="virtual" title="The virtual receiver: no motors move; collision checks advisory">Virtual</button>
-            <button data-receiver="virtual" data-collision="motion" title="The virtual receiver with the two-arm collision bound enforced, as Live · both runs it: the arms hold where they could meet. No motors move.">Virtual · enforced</button>
-            <button data-receiver="live" data-arm="left" title="The left arm's motors, collision checks advisory; the right arm stays disabled. Loop on Minerva's Jetson only.">Live · left</button>
-            <button data-receiver="live" data-arm="right" title="The right arm's motors, collision checks advisory; the left arm stays disabled. Loop on Minerva's Jetson only.">Live · right</button>
-            <button data-receiver="live" data-arm="both" title="Both arms' motors in one receiver, the two-arm collision bound enforced: the arms hold where they could meet. Loop on Minerva's Jetson only.">Live · both</button>
+            <button data-receiver="virtual" title="The virtual receiver: no motors move">Virtual</button>
+            <button data-receiver="virtual" data-collision="motion" title="Virtual receiver with the two-arm collision bound enforced; no motors move">Virtual · enforced</button>
+            <button data-receiver="live" data-arm="left" title="The left arm's motors; the right arm stays disabled. Loop on Minerva's Jetson only.">Live · left</button>
+            <button data-receiver="live" data-arm="right" title="The right arm's motors; the left arm stays disabled. Loop on Minerva's Jetson only.">Live · right</button>
+            <button data-receiver="live" data-arm="both" title="Both arms' motors in one receiver. Loop on Minerva's Jetson only.">Live · both</button>
           </div>
           <p class="choice-note" id="t-choice-note" hidden></p>
           <div class="teleop-status">
@@ -126,7 +126,28 @@
           </div>
           <p id="t-message" class="muted" role="status"></p>
         </div>
-        <div id="teleop-joints" class="scroll"></div>
+        <div id="teleop-content" class="scroll">
+          <section id="manual-tuning" class="manual-tuning" aria-labelledby="manual-title" hidden>
+            <div class="manual-toolbar">
+              <h2 id="manual-title">Manual motor tuning</h2>
+              <p id="manual-state" class="muted"></p>
+              <div class="manual-actions" role="group" aria-label="Manual tuning settings">
+                <button id="manual-apply" class="primary">Apply to session</button>
+                <button id="manual-revert">Revert edits</button>
+                <button id="manual-save">Save applied</button>
+                <button id="manual-restore">Restore saved</button>
+              </div>
+              <p id="manual-feedback" class="muted" role="status" aria-live="polite"></p>
+              <p id="manual-gate" class="muted"></p>
+            </div>
+            <p class="manual-help">Edit, hold with T, apply, then engage with T to test. Editing alone does not change motors.
+              Unchecked joints hold position; their motors stay powered. Blank travel uses the full usable range.
+              A travel window stays centered on the first Enable pose; Shutdown returns to reference outside that window.</p>
+            <p id="manual-scope" class="manual-scope"></p>
+            <div id="manual-rows"></div>
+          </section>
+          <div id="teleop-joints"></div>
+        </div>
         <div id="t-confirm" class="confirm-box" role="alertdialog" aria-labelledby="t-confirm-title" hidden>
           <b id="t-confirm-title"></b>
           <ul id="t-confirm-list"></ul>

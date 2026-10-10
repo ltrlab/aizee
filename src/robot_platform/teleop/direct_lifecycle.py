@@ -7,6 +7,7 @@ from copy import deepcopy
 import math
 import time
 
+from robot_platform.control.guarded import GuardRejected
 from .guarded_lifecycle import GuardedLifecycleSession
 
 
@@ -77,12 +78,18 @@ class DirectLifecycleSession(GuardedLifecycleSession):
         self.last_feedback = deepcopy(rows)
         return True
 
-    def cycle(self, *, action=None, target=None, started_at=None):
+    def cycle(self, *, action=None, target=None, started_at=None, tuning=None):
         started = self.clock() if started_at is None else started_at
         record = dict(action=action, accepted=False, started_at=started, collision_mode='disabled')
         self.last_cycle = record
         exchanges = self.controller.exchanges
+        previous_tuning = None
         try:
+            if tuning is not None:
+                if self.lifecycle.state != 'HOLD' or action is not None:
+                    raise ValueError('Hold before applying motor tuning')
+                previous_tuning = (deepcopy(self.lifecycle._joints), deepcopy(self.lifecycle._manual), self.lifecycle._manual_hold)
+                self.lifecycle.configure_manual(tuning)
             if action == 'disable':
                 record.update(proposal=self.disable(), accepted=True)
                 self._cached = None
@@ -120,8 +127,30 @@ class DirectLifecycleSession(GuardedLifecycleSession):
                     lifetime = min(lifetime, math.floor((expires - self._offer_received) * 1000))
                 if lifetime <= 0:
                     raise ValueError('Leader target expired before dispatch')
-                reply = self.controller.direct_update(proposal['joints'], offered, valid_for_ms=lifetime,
-                                                      ramp_efforts=proposal.get('ramp_efforts'))
+                try:
+                    reply = self.controller.direct_update(proposal['joints'], offered, valid_for_ms=lifetime,
+                                                          ramp_efforts=proposal.get('ramp_efforts'),
+                                                          update_hold_gains=tuning is not None)
+                except GuardRejected as exc:
+                    # A settling check may change after the UI preflight. This
+                    # definitive rejection precedes native offer consumption and
+                    # gain commit; keep holding with the old settings. An unknown
+                    # outcome, loss of authority or receiver fault still faults.
+                    if not (previous_tuning is not None and exc.reason == 'invalid_state'
+                            and exc.status.get('reason') == 'ok'
+                            and exc.status.get('state') in ('holding', 'executing')
+                            and self.controller.owned and self.lifecycle.state == 'HOLD'):
+                        raise
+                    self.lifecycle._joints, self.lifecycle._manual, self.lifecycle._manual_hold = previous_tuning
+                    previous_tuning = None
+                    proposal = self.lifecycle._proposal('move')
+                    record.update(proposal=deepcopy(proposal), tuning_rejected=
+                                  'The arm is still settling; settings were not applied. Wait in Hold and apply again.')
+                    self._deadline(started, target)
+                    # No new offer, refreshed lifetime or retry of the edit.
+                    reply = self.controller.direct_update(proposal['joints'], offered, valid_for_ms=lifetime,
+                                                          ramp_efforts=proposal.get('ramp_efforts'))
+                previous_tuning = None  # Receiver acknowledged the whole batch, including fallback gains.
                 self._cache(reply, rpc_started)
                 status = reply['status']
             else:
@@ -148,6 +177,8 @@ class DirectLifecycleSession(GuardedLifecycleSession):
                           receiver_applied=status.get('last_applied_target'))
             return record
         except Exception as exc:
+            if previous_tuning is not None:
+                self.lifecycle._joints, self.lifecycle._manual, self.lifecycle._manual_hold = previous_tuning
             record['failure'] = str(exc)
             self.fault(exc)
             self._cached = None

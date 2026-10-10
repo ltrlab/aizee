@@ -79,6 +79,10 @@ pub enum Request {
         joints: Vec<JointCommand>,
         #[serde(default)]
         ramp_efforts: Vec<f64>,
+        /// Commit these bounded gains for subsequent receiver-owned holds/stops.
+        /// Position-only, settled feedback and the unchanged target are required.
+        #[serde(default)]
+        update_hold_gains: bool,
     },
     Stop {
         authority: Authority,

@@ -161,6 +161,13 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         await off_loop(lambda: teleop.route(payload['action'], payload['motor']))
         return state_response()
 
+    async def teleop_manual_tuning(request):
+        payload = await body(request)
+        need_teleop()
+        not_checking()
+        await off_loop(lambda: teleop.manual_tuning(request.match_info['action'], payload))
+        return state_response()
+
     def need_leaders():
         if leaders is None:
             raise ValueError('Helm was started without a teleop profile')
@@ -364,6 +371,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     app.router.add_post('/api/helm/teleop/stop', teleop_stop)
     app.router.add_post('/api/helm/teleop/key', teleop_key)
     app.router.add_post('/api/helm/teleop/route', teleop_route)
+    app.router.add_post('/api/helm/teleop/tuning/{action}', teleop_manual_tuning)
     app.router.add_post('/api/helm/teleop/zero', teleop_zero)
     app.router.add_post('/api/helm/teleop/target', teleop_target)
     app.router.add_post('/api/helm/teleop/receiver', teleop_receiver)

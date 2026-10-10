@@ -39,6 +39,9 @@ class TeleopLifecycle:
         if not isinstance(joints, (list, tuple)) or not joints:
             raise ValueError('A complete ordered joint configuration is required')
         self._joints = tuple(deepcopy(joints))
+        self._manual_base = deepcopy(self._joints)
+        self._manual = None
+        self._manual_hold = None
         self.trial = validate_trial(trial)
         self._trial_origin = None
         if self.trial:
@@ -101,6 +104,40 @@ class TeleopLifecycle:
     @property
     def joints(self):
         return deepcopy(list(self._joints))
+
+    def configure_manual(self, settings):
+        """Commit prevalidated operator settings in DISABLED/HOLD without retargeting.
+
+        Gain ceilings are enforced by the adapter and receiver. Travel origins
+        remain fixed from first Enable; deselecting a joint holds its current target.
+        """
+        if self.state not in ('DISABLED', 'HOLD') or self.trial is not None:
+            raise ValueError('Manual tuning requires DISABLED or HOLD and no fixed trial profile')
+        if ([r.get('motor') for r in settings] != list(self.names)
+                or not all(j.get('position_only') for j in self._joints)):
+            raise ValueError('Manual tuning needs every position-only joint in order')
+        updated = deepcopy(self._joints)
+        held = list(self._manual_hold or self.target or (0.,) * len(updated))
+        for i, (row, joint, base) in enumerate(zip(settings, updated, self._manual_base)):
+            if (type(row.get('follow')) is not bool
+                    or any(not _finite(row.get(k)) or row[k] < 0 for k in ('kp', 'kd'))
+                    or not _finite(row.get('speed')) or not 0 < row['speed'] <= base['max_velocity']
+                    or (row.get('travel_rad') is not None and
+                        (not _finite(row['travel_rad']) or row['travel_rad'] <= 0))):
+                raise ValueError('Invalid manual joint settings')
+            extent = row['travel_rad']
+            if self._trial_origin is not None and self.target is not None and row['follow'] and extent is not None:
+                if abs(self.target[i] - self._trial_origin[i]) > extent + 1e-12:
+                    raise ValueError(f"{joint['name']}: return inside the new travel window before applying it")
+            if self.target is not None and not row['follow']:
+                held[i] = self.target[i]
+            joint['hold_kp'], joint['hold_kd'] = row['kp'], row['kd']
+            for key in ('max_velocity', 'align_speed'):
+                joint[key] = min(base[key], row['speed'])
+            # The operator caps following, not the receiver's qualified return.
+            # A very low test speed must not make shutdown outlive session close.
+            joint['shutdown_speed'] = base['shutdown_speed']
+        self._joints, self._manual, self._manual_hold = tuple(updated), deepcopy(settings), tuple(held)
 
     def _now(self, now):
         now = self.clock() if now is None else now
@@ -257,6 +294,7 @@ class TeleopLifecycle:
             self.target, self._source, self._settled_since, self._last_time = None, None, None, None
             self._last_measured = None
             self._trial_origin = None
+            self._manual_hold = None
             self._history.clear()
             return self._proposal('disable')
         try:
@@ -269,9 +307,11 @@ class TeleopLifecycle:
             self._before = (self.target, self._sent_velocities)
             old_state = self.state
             self.target = self._hold_measured(measured)
-            if self.trial and action in ('enable', 'engage', 'disengage'):
+            if (self.trial or self._manual) and action in ('enable', 'engage', 'disengage'):
                 if self._trial_origin is None:
                     self._trial_origin = self.target
+                    if self._manual:
+                        self._manual_hold = self.target
                 else:
                     # A Hold/Engage cycle must not walk the experimental window.
                     self.target = tuple(self._trial_goal(self.target))
@@ -316,8 +356,9 @@ class TeleopLifecycle:
         proposed, velocities = [], []
         before = self._last_measured or tuple(row['position'] for row in measured)
         sent = self._sent_velocities or (0.,) * len(self._joints)
-        for previous, row, target, joint, last, was in zip(self.target, measured, goal, self._joints, before, sent):
-            if self.trial and self.state in ('ENGAGING', 'TELEOP') and joint['name'] != self.trial['motor']:
+        for index, (previous, row, target, joint, last, was) in enumerate(zip(self.target, measured, goal, self._joints, before, sent)):
+            inactive = (self.trial and joint['name'] != self.trial['motor']) or (self._manual and not self._manual[index]['follow'])
+            if inactive and self.state in ('ENGAGING', 'TELEOP'):
                 if abs(target-row['position']) > joint['max_lead']:
                     raise ValueError('Measured pose exceeds the fixed trial holding bound')
                 proposed.append(target)
@@ -325,6 +366,8 @@ class TeleopLifecycle:
                 self._limits[joint['name']] = ['trial_hold']
                 continue
             desired, reasons = target, []
+            velocity_cap = (self._manual_base[index]['max_velocity']
+                            if self._manual and self.state == 'SHUTDOWN' else joint['max_velocity'])
             up = down = joint[speed]
             lead_up = lead_down = joint['max_lead']
             # The receiver ramps each command from the last one over its interpolation period: a cycle
@@ -340,7 +383,7 @@ class TeleopLifecycle:
                     up = command_step(curve, curve['reaction_s'], previous, 1, up, step) / step
                     down = command_step(curve, curve['reaction_s'], previous, -1, down, step) / step
                 # And pull no harder than that speed warrants: the lead toward an end shrinks with it.
-                reaction, cap = curve['reaction_s'], joint['max_velocity']
+                reaction, cap = curve['reaction_s'], velocity_cap
                 gains = (joint['hold_kp'], joint['hold_kd'])
                 lead_up = lead_toward(curve, reaction, row['position'], 1, joint['max_lead'], cap, *gains)
                 lead_down = lead_toward(curve, reaction, row['position'], -1, joint['max_lead'], cap, *gains)
@@ -385,15 +428,28 @@ class TeleopLifecycle:
                     raise ValueError('Measured pose exceeds the trial excursion bound')
                 if abs(q-previous) > self.trial['max_velocity'] * step + 1e-12:
                     raise ValueError('Measured pose exceeds the trial slew bound')
+            if self._manual and self.state in ('ENGAGING', 'TELEOP'):
+                settings = self._manual[index]
+                extent = settings['travel_rad']
+                if extent is not None and abs(q-self._trial_origin[index]) > extent + 1e-12:
+                    raise ValueError('Measured pose exceeds the manual travel window')
+                if abs(q-previous) > joint['max_velocity'] * step + 1e-12:
+                    raise ValueError('Measured pose exceeds the manual following speed bound')
             proposed.append(q)
             self._limits[joint['name']] = reasons if abs(q-desired) > 1e-12 else []
             # The velocity it is ramped at, fed forward (a snap back toward the joint no faster than the cap).
             velocities.append(0. if velocity_period <= 0 else
-                              max(-joint['max_velocity'], min(joint['max_velocity'], (q-previous)/velocity_period)))
+                              max(-velocity_cap, min(velocity_cap, (q-previous)/velocity_period)))
         self._velocities = tuple(velocities)
         return tuple(proposed)
 
     def _trial_goal(self, goal):
+        if self._manual:
+            if self._trial_origin is None or self._manual_hold is None:
+                raise ValueError('Manual travel origin has not been latched by Enable')
+            return [held if not row['follow'] else q if row['travel_rad'] is None else
+                    max(origin-row['travel_rad'], min(origin+row['travel_rad'], q))
+                    for q, origin, held, row in zip(goal, self._trial_origin, self._manual_hold, self._manual)]
         if self.trial is None:
             return list(goal)
         if self._trial_origin is None:
@@ -404,7 +460,7 @@ class TeleopLifecycle:
 
     def _lost_source_hold(self, measured):
         goal = self._trial_goal(self._hold_measured(measured))
-        if self.trial and any(abs(q-row['position']) > joint['max_lead']
+        if (self.trial or self._manual) and any(abs(q-row['position']) > joint['max_lead']
                               for q, row, joint in zip(goal, measured, self._joints)):
             raise ValueError('Measured pose exceeds the fixed trial holding bound')
         return tuple(goal)

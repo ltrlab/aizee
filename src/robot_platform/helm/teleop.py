@@ -72,6 +72,9 @@ def load_profile(path):
     trial = validate_trial(profile.get('trial'))
     if trial and (mode != 'disabled' or receiver['direct'].get('position_only') is not True):
         raise ValueError('A bounded trial requires explicit direct position-only mode')
+    if ('manual_tuning' in profile and (profile['manual_tuning'] is not True or trial
+            or mode != 'disabled' or receiver['direct'].get('position_only') is not True)):
+        raise ValueError('Manual tuning requires direct position-only mode without a fixed trial')
     live = profile.get('live')
     if live is not None and (
             set(live) - {'reference_tolerance_rad', 'period_us', 'maximum_lateness_us', 'note'}
@@ -194,6 +197,8 @@ class TeleopCore:
         if self.profile.get('trial') and self.live_arm and (
                 self.live_arm == 'both' or not self.profile['trial']['motor'].startswith(self.live_arm + '_')):
             raise ValueError('The trial permits only its selected single arm')
+        if self.profile.get('manual_tuning') and self.live_arm == 'both':
+            raise ValueError('Manual tuning currently supports one live arm at a time')
         # Both arms in one receiver need enforced checks of one arm against the other: boxes the receiver checks
         # against the motion commanded (MotionEnvelopeCompiler). The virtual receiver can rehearse them.
         if self.collision_mode != 'disabled' and (self.live_arm == 'both' or receiver.get('collision') == 'motion'):
@@ -240,6 +245,10 @@ class TeleopCore:
         self._loop_max_ms = self._loop_misses = self._loop_skipped = 0
         self._input_timing = {}
         self._recorded, self._flushed = 0, None
+        self._manual_state = None
+        self._manual_rows = None
+        self._tuning_pending = self._tuning_result = None
+        self._tuning_confirm = None
 
     # -- resources -------------------------------------------------------
 
@@ -382,6 +391,23 @@ class TeleopCore:
                                   transmissions=transmissions, model=model, limits=self.bundle['limits'],
                                   profile=self.profile, backend=backend, servo=self.bundle.get('servo'),
                                   collision_bound='motion' if self.collision_mode == 'motion' else None)
+        if self.profile.get('manual_tuning') is True:
+            from .manual_tuning import receiver_rows, validate, install_initial
+            from robot_platform.control.commissioning import motor_models
+            from robot_platform.ops.release import ROOT
+            if self.profile.get('trial') or not derived['config'].get('direct', {}).get('position_only'):
+                raise ValueError('Manual tuning requires position-only direct control without a fixed trial')
+            models = (self.bundle.get('receiver') or {}).get('motor_models') or motor_models(device, ROOT)
+            self._manual_rows = receiver_rows(derived, models, self.labels)
+            selected = deepcopy(self.bundle.get('manual_tuning'))
+            if (not isinstance(selected, dict) or set(selected) != {'session_id', 'revision', 'joints'}
+                    or not isinstance(selected['session_id'], str) or not selected['session_id']
+                    or type(selected['revision']) is not int or selected['revision'] < 0):
+                raise ValueError('Manual tuning needs a versioned complete operator preset')
+            names = {r['motor'] for r in self._manual_rows}
+            rows = validate([r for r in selected['joints'] if r['motor'] in names], self._manual_rows)
+            install_initial(derived, rows)
+            self._manual_state = selected
         fit_motor_ranges(derived['config']['joints'], (self.bundle.get('receiver') or {}).get('motor_models') or {})
         base = Path(self.bundle['teleop_profile']).resolve().parent
         leader_profile = json.loads((base / self.profile['leader_profile']).read_text(encoding='utf-8'))
@@ -437,6 +463,9 @@ class TeleopCore:
                                     max_source_misses=source_misses(self.period_s),
                                     trial=self.profile.get('trial'),
                                     allow_repeated_source=self.collision_mode == 'disabled')
+        if self._manual_state is not None:
+            names = set(lifecycle.names)
+            lifecycle.configure_manual([r for r in self._manual_state['joints'] if r['motor'] in names])
         if self.collision_mode == 'disabled':
             from robot_platform.teleop.direct_lifecycle import DirectLifecycleSession
             session = DirectLifecycleSession(controller, derived['config'], lifecycle, lambda: harness.last,
@@ -543,6 +572,36 @@ class TeleopCore:
             self.late_targets += 1
             return None, None
         return target, None
+
+    def queue_tuning(self, payload):
+        from .manual_tuning import validate
+        if (self._manual_state is None or self.phase != 'running' or self.fault
+                or self.session.lifecycle.state != 'HOLD' or self._tuning_pending is not None
+                or self._tuning_confirm is not None):
+            raise ValueError('Hold the running arm before applying manual tuning')
+        if (not isinstance(payload, dict) or set(payload) != {'session_id', 'revision', 'joints'}
+                or payload['session_id'] != self._manual_state['session_id']
+                or payload['revision'] != self._manual_state['revision']):
+            raise ValueError('Tuning revision changed; review the current settings')
+        known = [r['motor'] for r in self._manual_state['joints']]
+        if [r.get('motor') for r in payload['joints']] != known:
+            raise ValueError('The tuning motor roster changed')
+        names = set(self.session.lifecycle.names)
+        selected = validate([r for r in payload['joints'] if r['motor'] in names], self._manual_rows)
+        feedback = (self.harness.last or {}).get('feedback') or []
+        settled = self.derived['config']['settled_velocity']
+        if (len(feedback) != len(names)
+                or any(type(row.get('velocity')) not in (int, float)
+                       or not abs(row['velocity']) <= settled for row in feedback)):
+            raise ValueError('The motor feedback is not settled. Wait in Hold before applying; existing settings are unchanged.')
+        lifecycle = self.session.lifecycle
+        before = deepcopy(lifecycle._joints), deepcopy(lifecycle._manual), lifecycle._manual_hold
+        try:
+            lifecycle.configure_manual(selected)  # Validate changed windows before entering the control transaction.
+        finally:
+            lifecycle._joints, lifecycle._manual, lifecycle._manual_hold = before
+        self._tuning_pending = deepcopy(payload)
+        self._tuning_result = None
 
     # -- evidence ----------------------------------------------------------
 
@@ -678,8 +737,33 @@ class TeleopCore:
             self.largest_gap_ms = max(self.largest_gap_ms, (started - self._last_start) * 1000)
         self._last_start = started
         try:
-            record = self.session.cycle(action=action, target=target, started_at=started)
+            tuning = self._tuning_pending
+            if tuning is not None and (action is not None or previous != 'HOLD'):
+                self._tuning_result = ('Control state changed; tuning was not applied', None)
+                self._tuning_pending = tuning = None
+            if tuning is None:
+                record = self.session.cycle(action=action, target=target, started_at=started)
+            else:
+                names = set(lifecycle.names)
+                record = self.session.cycle(action=action, target=target, started_at=started,
+                    tuning=[r for r in tuning['joints'] if r['motor'] in names])
+                if record.get('tuning_rejected'):
+                    self._tuning_result = (record['tuning_rejected'], None)
+                else:
+                    self._tuning_confirm = (dict(tuning, revision=tuning['revision'] + 1), record['request_sequence'])
+                self._tuning_pending = None
+            if self._tuning_confirm is not None:
+                candidate, sequence = self._tuning_confirm
+                applied = (self.harness.last or {}).get('status', {}).get('last_applied_target') or {}
+                if applied.get('sequence', -1) >= sequence:
+                    self._manual_state = candidate
+                    self._tuning_result = (None, deepcopy(candidate))
+                    self._tuning_confirm = None
+                    self._event('manual_tuning_applied', settings=candidate, applied_target=applied)
         except Exception as exc:
+            if self._tuning_pending is not None or self._tuning_confirm is not None:
+                self._tuning_pending = self._tuning_confirm = None
+                self._tuning_result = (f'Tuning application could not be confirmed: {exc}. Restart the session.', None)
             self._record(self.session.last_cycle or {}, failure=str(exc))
             # Lead with the receiver's own reason when it stopped first (a late
             # cycle shows up client-side only as lost ownership).
@@ -862,8 +946,8 @@ class TeleopCore:
                           else f'VIRTUAL FOLLOWER · {state} · no motors move'),
                 'message': self.message}
 
-    def view(self):
-        routes = self.routes()
+    def status_view(self):
+        """Cheap status and tuning ACKs, independent of pose rows and quantiles."""
         receiver = (self.harness.last or {}).get('status', {}).get('state') if self.harness else None
         verdict = getattr(self.compiler, 'last_verdict', None) or {}
         last = (self.harness.last or {}) if self.harness else {}
@@ -871,6 +955,8 @@ class TeleopCore:
                   'trial': deepcopy(self.profile.get('trial')),
                   'position_only': self.profile['receiver'].get('direct', {}).get('position_only', False),
                   'state': self.session.lifecycle.state if self.session else None, 'receiver': receiver,
+                  'manual_tuning_ack': self._manual_state,
+                  'manual_tuning_pending': self._tuning_pending is not None or self._tuning_confirm is not None,
                   'live': {'arm': self.live_arm, 'motors_enabled': last.get('hardware_enabled'),
                            'watchdog': last.get('watchdog'), 'reference': last.get('reference')}
                   if self.live_arm else None,
@@ -887,6 +973,12 @@ class TeleopCore:
             result['message'] = (f"TRIAL: {trial['motor']} only, {trial['max_velocity']:g} rad/s, "
                                  f"±{trial['max_excursion_rad']:g} rad from Enable; other joints hold. "
                                  + self.message)
+        return result
+
+
+    def view(self):
+        result = self.status_view()
+        routes = self.routes()
         durations = sorted((c['completed_at'] - c['started_at']) * 1000 for c in self.cycles[-100:]
                            if c.get('completed_at') is not None)
         if durations:
@@ -928,6 +1020,10 @@ def run_loop(commands, views, core):
     keys = []
     ready = threading.Condition()
     outbox = {'view': None, 'replies': [], 'closing': False}
+    cached_view = None
+    published_status = None
+    view_cost_s = .003
+    next_view_at = None
 
     def sender():
         while True:
@@ -946,11 +1042,43 @@ def run_loop(commands, views, core):
             except (OSError, EOFError, ValueError):
                 return
 
-    def publish(guide=True):
-        state = (core.view(), core.guide() if guide else None)
+    def queue_view(view, guide):
         with ready:
-            outbox['view'] = state
+            outbox['view'] = (view, guide)
             ready.notify()
+
+    def status_key(view):
+        tuning = view.get('manual_tuning_ack') or {}
+        # Compare immutable revision values, not a reference to a mutable payload.
+        return (tuple(view.get(k) for k in ('phase', 'state', 'fault', 'message', 'receiver', 'input_error'))
+                + (tuning.get('session_id'), tuning.get('revision'), view.get('manual_tuning_pending')))
+
+    def publish(guide=True):
+        nonlocal cached_view, published_status
+        cached_view = core.view()
+        cached_view['observed_at'] = clock()
+        published_status = status_key(cached_view)
+        queue_view(cached_view, core.guide() if guide else None)
+
+    def publish_status(status):
+        nonlocal published_status
+        # Keep the last observed joint rows and timestamp; status and tuning ACKs
+        # are current even when there is no time to rebuild observations.
+        view = dict(cached_view or {}, **{k: v for k, v in status.items() if k not in ('joints', 'cycle_ms')})
+        view['status_at'] = clock()
+        published_status = status_key(status)
+        queue_view(view, None)
+
+    def publish_in_budget(deadline, changed):
+        nonlocal next_view_at, view_cost_s
+        now = clock()
+        if (changed or now >= next_view_at) and deadline-now >= view_cost_s + .0005:
+            publish()
+            completed = clock()
+            # An unforeseen spike remains in full-loop deadline accounting and
+            # raises future admission cost. No command/recorder work is skipped.
+            view_cost_s = max(view_cost_s, completed-now)
+            next_view_at = completed + .1
 
     def reply(request, error, result=None):
         with ready:
@@ -960,6 +1088,7 @@ def run_loop(commands, views, core):
     thread = threading.Thread(target=sender, daemon=True, name='helm-teleop-sender')
     thread.start()
     closing = False  # Asked to stop, or Helm went away: lowering the arm before the receiver closes.
+    tuning_request = None
     listening = True
     try:
         publish(False)
@@ -969,8 +1098,11 @@ def run_loop(commands, views, core):
         if direct:
             from robot_platform.teleop.latency import next_scheduled_slot
         scheduled = clock()
+        budget_views = direct and hasattr(core, 'status_view')
+        next_view_at = scheduled + .1
         while True:
             started = clock()
+            view_changed = False
             while listening:
                 try:
                     if not commands.poll():
@@ -988,13 +1120,35 @@ def run_loop(commands, views, core):
                 if message[0] == 'key':
                     keys.append(message[1])
                 elif message[0] in ('route', 'zero'):
+                    view_changed = True
                     _, request, *arguments = message
                     try:
                         reply(request, None, (core.route if message[0] == 'route' else core.set_zero)(*arguments))
                     except Exception as exc:
                         reply(request, str(exc) or type(exc).__name__)
-            core.tick(keys.pop(0) if keys else None, started)
-            publish()
+                elif message[0] == 'manual_tuning':
+                    view_changed = True
+                    _, request, payload = message
+                    try:
+                        if closing or tuning_request is not None:
+                            raise ValueError('A tuning change or shutdown is already in progress')
+                        core.queue_tuning(payload)
+                        tuning_request = request
+                    except Exception as exc:
+                        reply(request, str(exc) or type(exc).__name__)
+            key = keys.pop(0) if keys else None
+            core.tick(key, started)
+            if tuning_request is not None and core._tuning_result is not None:
+                error, result = core._tuning_result
+                reply(tuning_request, error, result)
+                tuning_request = None
+            if budget_views:
+                status = core.status_view()
+                if key is not None or view_changed or status_key(status) != published_status:
+                    publish_status(status)
+                publish_in_budget(scheduled + core.period_s, view_changed)
+            else:
+                publish()
             completed = clock()
             if direct:
                 next_start, skipped = next_scheduled_slot(scheduled, completed, core.period_s)
@@ -1057,6 +1211,12 @@ class TeleopSession:
                    'collision': {'mode': self.profile['receiver'].get('collision_mode', 'enforced')},
                    'cycle_ms': None, 'joints': []}
         self._view, self._guide = stopped, None
+        self._view_received_at = time.perf_counter()
+        self._tuning_lock = threading.Lock()
+        self.manual = None
+        if self.profile.get('manual_tuning') is True:
+            from .manual_tuning import ManualTuning
+            self.manual = ManualTuning(helm, self.profile, runs, self._servo())
 
     @property
     def active(self):
@@ -1070,7 +1230,8 @@ class TeleopSession:
                 'teleop_profile': str(self.profile_path), 'routes_path': str(self.routes_path),
                 'asset_id': helm.asset_id, 'leader_factory': self.leader_factory, 'receiver': dict(self.receiver),
                 'leader_ranges': deepcopy(self.leaders.saved) if self.leaders is not None else None,
-                'servo': self._servo()}
+                'servo': self._servo(),
+                **({'manual_tuning': self.manual.bundle()} if self.manual else {})}
 
     def _servo(self):
         """The saved servo calibration (Helm's Tune tab), if any: the receiver takes its settings from it."""
@@ -1099,6 +1260,13 @@ class TeleopSession:
         with self._lock:
             if self.active:
                 raise ValueError('Stop the session before choosing the receiver')
+            if self.manual and arm == 'both':
+                raise ValueError('Manual tuning currently supports one live arm at a time')
+            trial = self.profile.get('trial')
+            if mode == 'live' and trial and arm != trial['motor'].split('_')[0]:
+                raise ValueError('Choose the arm selected by this trial profile')
+            if collision and self.profile['receiver'].get('collision_mode') == 'disabled':
+                raise ValueError('This direct profile has collision detection disabled')
             if mode == 'live' and ('live' not in self.profile or self.target != 'jetson'):
                 raise ValueError("Live teleop needs the profile's live block and the loop on Minerva's Jetson")
             if mode == 'live' and getattr(self.helm, 'connection', 'tether') != 'tether':
@@ -1117,7 +1285,7 @@ class TeleopSession:
             bundle[key] = path.relative_to(ROOT).as_posix()
         bundle.update(routes_path=None, leader_factory=None,
                       route_edits=load_route_edits(self.routes_path, self.profile, self.helm.asset_id))
-        if self.receiver['mode'] == 'live':
+        if self.receiver['mode'] == 'live' or self.manual:
             # Motor models live in the hardware profiles, which stay on this PC.
             from robot_platform.control.commissioning import motor_models
             bundle['receiver'] = dict(self.receiver, motor_models=motor_models(self.helm.device, ROOT))
@@ -1127,6 +1295,8 @@ class TeleopSession:
         with self._lock:
             if self.active:
                 raise ValueError('Teleop is already running')
+            if self._tuning_lock.locked():
+                raise ValueError('Wait for the tuning operation before starting')
             if self.receiver['mode'] == 'live' and getattr(self.helm, 'connection', 'tether') != 'tether':
                 raise ValueError('Live teleop runs over the wired tether: choose Tether at the top first')
             if self.receiver['mode'] == 'live' and confirm is not True:
@@ -1141,6 +1311,8 @@ class TeleopSession:
                     raise ValueError('Sweep and save the leader ranges in the Leaders tab first; missing: '
                                      + ', '.join(missing))
             local = self.target == 'pc' or self.core_factory is not None
+            if self.manual:
+                self.manual.new_session()
             bundle = self._bundle() if local else self._edge_bundle()
             if local:
                 context = multiprocessing.get_context('spawn')
@@ -1186,6 +1358,7 @@ class TeleopSession:
                 with self._lock:
                     if message[0] == 'view':
                         self._view, self._guide = message[1], message[2]
+                        self._view_received_at = time.perf_counter()
                     elif message[0] == 'reply':
                         self._replies[message[1]] = message[2:]
                         self._reply_ready.notify_all()
@@ -1268,8 +1441,72 @@ class TeleopSession:
 
     def snapshot(self):
         with self._lock:
+            self._sync_tuning()
+            allowed, reason = self._tuning_gate()
+            choices = ['virtual'] + ([self.profile['trial']['motor'].split('_')[0]] if self.profile.get('trial') else
+                                     (['left', 'right'] if self.manual else ['left', 'right', 'both']))
+            observed = self._view.get('observed_at')
+            age = (max(observed, self._view.get('status_at', observed)) - observed
+                   + time.perf_counter() - self._view_received_at) * 1000 if observed is not None else None
             return dict(deepcopy(self._view), target=self.target, receiver_choice=dict(self.receiver),
-                        live_available='live' in self.profile)
+                        live_available='live' in self.profile, receiver_choices=choices,
+                        observation_age_ms=age,
+                        tuning=self.manual.snapshot(can_apply=allowed, reason=reason) if self.manual else
+                        {'enabled': False})
+
+    def _sync_tuning(self):
+        """Recover an applied acknowledgement even if the HTTP caller timed out."""
+        ack = self._view.get('manual_tuning_ack')
+        if (self.manual and ack and ack['session_id'] == self.manual.session_id
+                and ack['revision'] > self.manual.revision):
+            from .manual_tuning import validate
+            self.manual.active = validate(ack['joints'], self.manual.rows)
+            self.manual.revision = ack['revision']
+
+    def _tuning_gate(self):
+        if not self.manual:
+            return False, 'Start Helm with the manual tuning profile to edit settings'
+        if self._tuning_lock.locked():
+            return False, 'Waiting for the tuning operation to finish'
+        if not self.active:
+            return True, 'Apply prepares the next session; it does not enable motors'
+        if self._view.get('manual_tuning_pending'):
+            return False, 'Waiting for the receiver to confirm the pending tuning change'
+        if self._view.get('phase') == 'running' and self._view.get('state') == 'HOLD' and not self._view.get('fault'):
+            return True, 'Apply updates held gains; Engage resumes following'
+        return False, 'Hold to edit. Before enabling, stop the session to prepare settings.'
+
+    def manual_tuning(self, action, payload):
+        """Serialize edits without blocking emergency keys or the receive thread."""
+        expected = {'session_id', 'revision'} | ({'joints'} if action == 'apply' else set())
+        if action not in ('apply', 'save', 'restore') or set(payload) != expected:
+            raise ValueError('Invalid manual tuning request')
+        with self._lock:
+            self._sync_tuning()
+            allowed, reason = self._tuning_gate()
+            if not allowed:
+                raise ValueError(reason)
+            self.manual.check_revision(payload['session_id'], payload['revision'])
+            if not self._tuning_lock.acquire(blocking=False):
+                raise ValueError('A tuning change is already in progress')
+        try:
+            from .manual_tuning import validate
+            if action == 'save':
+                self.manual.save()
+                return
+            if action == 'restore' and self.manual.saved is None:
+                raise ValueError('No manual preset has been saved')
+            rows = validate(payload['joints'] if action == 'apply' else self.manual.saved['joints'], self.manual.rows)
+            if self.active:
+                ack = self._request('manual_tuning', dict(self.manual.bundle(), joints=rows))
+                with self._lock:
+                    self.manual.active = validate(ack['joints'], self.manual.rows)
+                    self.manual.revision = ack['revision']
+            else:
+                with self._lock:
+                    self.manual.accept(rows)
+        finally:
+            self._tuning_lock.release()
 
     def guide(self):
         with self._lock:

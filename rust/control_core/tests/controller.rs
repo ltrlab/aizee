@@ -187,6 +187,486 @@ fn direct_request(c: &Controller, sequence: u64, offer: u64, q: f64, v: f64) -> 
         valid_for_ms: 30,
         joints: joints(2, q, v),
         ramp_efforts: vec![],
+        update_hold_gains: false,
+    }
+}
+
+fn hold_gain_request(c: &Controller, sequence: u64, offer: u64, q: f64) -> Request {
+    let mut request = direct_request(c, sequence, offer, q, 0.0);
+    if let Request::DirectUpdate {
+        joints,
+        update_hold_gains,
+        ..
+    } = &mut request
+    {
+        *update_hold_gains = true;
+        joints[0].kp = 12.0;
+        joints[0].kd = 1.25;
+        joints[1].kp = 6.0;
+        joints[1].kd = 0.5;
+    }
+    request
+}
+
+fn assert_gains(c: &Controller, expected: [(f64, f64); 2]) {
+    for (command, (kp, kd)) in c.commands().iter().zip(expected) {
+        assert_eq!((command.kp, command.kd), (kp, kd));
+    }
+}
+
+fn reclaim_direct(c: &mut Controller, h: &mut Loopback, now: u64) {
+    let id = offer(c, h, now);
+    assert!(
+        c.handle(
+            now,
+            Request::Acquire {
+                epoch: "boot-a".into(),
+                offer: id,
+                session: "client-a".into(),
+                group: "arbitrary-group".into(),
+                identity: c.status().identity,
+            },
+            h
+        )
+        .accepted
+    );
+}
+
+#[test]
+fn direct_hold_gain_commit_is_explicit_on_the_wire() {
+    let (c, _) = direct_armed_with_policy(10, true);
+    let request = direct_request(&c, 2, 1, 0.0, 0.0);
+    let mut encoded = serde_json::to_value(request).unwrap();
+    encoded.as_object_mut().unwrap().remove("update_hold_gains");
+    assert!(matches!(
+        serde_json::from_value::<Request>(encoded.clone()).unwrap(),
+        Request::DirectUpdate {
+            update_hold_gains: false,
+            ..
+        }
+    ));
+    encoded["update_hold_gains"] = true.into();
+    assert!(matches!(
+        serde_json::from_value::<Request>(encoded.clone()).unwrap(),
+        Request::DirectUpdate {
+            update_hold_gains: true,
+            ..
+        }
+    ));
+    encoded["update_hold_gains"] = "true".into();
+    assert!(serde_json::from_value::<Request>(encoded).is_err());
+}
+
+#[test]
+fn direct_hold_gains_preserve_pose_deadlines_and_stop_rearm_gains() {
+    for deferred in [false, true] {
+        let (mut c, mut h) = direct_armed_with_policy(10, true);
+        let id = offer(&mut c, &mut h, 2);
+        // A normal HOLD update first synchronizes the last accepted direct target.
+        let first = c.handle(3, direct_request(&c, 2, id, 0.15, 0.0), &mut h);
+        assert!(first.accepted);
+        let request = hold_gain_request(&c, 3, first.offer.unwrap().id, 0.15);
+        let before_writes = h.writes;
+        let reply = if deferred {
+            c.handle_deferred(4, request, &mut h)
+        } else {
+            c.handle(4, request, &mut h)
+        };
+        assert!(reply.accepted, "{:?}", reply.reason);
+        assert_eq!(reply.status.state, State::Executing);
+        assert_eq!(reply.status.command_expires_at_ms, Some(33));
+        assert_eq!(reply.status.lease.as_ref().unwrap().expires_at_ms, 103);
+        assert_eq!(reply.status.lease.as_ref().unwrap().last_sequence, 3);
+        assert!(reply
+            .status
+            .joints
+            .iter()
+            .all(|j| j.position == 0.15 && j.velocity == 0.0));
+        assert_gains(&c, [(12.0, 1.25), (6.0, 0.5)]);
+        if deferred {
+            assert_eq!(h.writes, before_writes);
+            assert_eq!(reply.status.last_applied_target.unwrap().sequence, 2);
+        } else {
+            assert_eq!(reply.status.last_applied_target.unwrap().sequence, 3);
+        }
+        c.tick(5, &mut h);
+        assert_eq!(c.status().last_applied_target.unwrap().sequence, 3);
+        assert!(
+            c.handle(
+                6,
+                Request::Stop {
+                    authority: auth(&c, 4)
+                },
+                &mut h
+            )
+            .accepted
+        );
+        c.tick(7, &mut h);
+        assert_eq!(c.status().state, State::Stopped);
+        assert_gains(&c, [(12.0, 1.25), (6.0, 0.5)]);
+        assert!(c.commands().iter().all(|j| j.position == 0.15));
+        reclaim_direct(&mut c, &mut h, 8);
+        assert!(
+            c.handle(
+                9,
+                Request::Arm {
+                    authority: auth(&c, 1),
+                    collision: None
+                },
+                &mut h
+            )
+            .accepted
+        );
+        assert_gains(&c, [(12.0, 1.25), (6.0, 0.5)]);
+        // A later fresh Arm must use the committed configuration, not just retained commands.
+        assert!(
+            c.handle(
+                10,
+                Request::Disable {
+                    authority: auth(&c, 2)
+                },
+                &mut h
+            )
+            .accepted
+        );
+        reclaim_direct(&mut c, &mut h, 11);
+        assert!(
+            c.handle(
+                12,
+                Request::Arm {
+                    authority: auth(&c, 1),
+                    collision: None
+                },
+                &mut h
+            )
+            .accepted
+        );
+        assert_gains(&c, [(12.0, 1.25), (6.0, 0.5)]);
+    }
+}
+
+#[test]
+fn direct_hold_gain_invalid_batches_preserve_gains_and_authority() {
+    for deferred in [false, true] {
+        for case in 0..9 {
+            let (mut c, mut h) = direct_armed_with_policy(10, true);
+            let id = offer(&mut c, &mut h, 2);
+            let first = c.handle(3, direct_request(&c, 2, id, 0.15, 0.0), &mut h);
+            let next = first.offer.unwrap().id;
+            let before = c.status();
+            let mut request = hold_gain_request(&c, 3, next, 0.15);
+            if let Request::DirectUpdate {
+                joints,
+                ramp_efforts,
+                ..
+            } = &mut request
+            {
+                // The first joint has valid NEW gains; a bad last joint must reject both.
+                match case {
+                    0 => joints[1].kp = 21.0,
+                    1 => joints[1].kd = 5.1,
+                    2 => joints[1].kp = f64::NAN,
+                    3 => joints[1].kd = -0.01,
+                    4 => joints[1].position += f64::EPSILON,
+                    5 => joints[1].velocity = f64::EPSILON,
+                    6 => *ramp_efforts = vec![0.0, f64::EPSILON],
+                    7 => {
+                        joints.pop();
+                    }
+                    _ => joints[1].effort = 5.1,
+                }
+            }
+            let reply = if deferred {
+                c.handle_deferred(4, request, &mut h)
+            } else {
+                c.handle(4, request, &mut h)
+            };
+            assert!(!reply.accepted, "case {case}");
+            assert_eq!(reply.reason, Reason::InvalidCommand, "case {case}");
+            assert_eq!(reply.status.joints, before.joints);
+            assert_eq!(
+                reply.status.command_expires_at_ms,
+                before.command_expires_at_ms
+            );
+            let old = before.lease.unwrap();
+            let lease = reply.status.lease.unwrap();
+            assert_eq!(
+                (lease.id, lease.expires_at_ms, lease.last_sequence),
+                (old.id, old.expires_at_ms, old.last_sequence)
+            );
+            // The rejected request consumed neither the sequence nor the offer.
+            assert!(
+                c.handle(5, direct_request(&c, 3, next, 0.15, 0.0), &mut h)
+                    .accepted
+            );
+            assert!(
+                c.handle(
+                    6,
+                    Request::Stop {
+                        authority: auth(&c, 4)
+                    },
+                    &mut h
+                )
+                .accepted
+            );
+            c.tick(7, &mut h);
+            assert_gains(&c, [(10.0, 1.0); 2]);
+        }
+    }
+}
+
+#[test]
+fn direct_hold_gain_commit_requires_position_only_and_settled_feedback() {
+    for position_only in [false, true] {
+        let (mut c, mut h) = direct_armed_with_policy(10, position_only);
+        let id = offer(&mut c, &mut h, 2);
+        if position_only {
+            h.feedback[1].velocity = 0.0011; // Just above the configured 0.001 settled bound.
+        }
+        let before = c.status();
+        let request = hold_gain_request(&c, 2, id, 0.0);
+        let reply = c.handle_deferred(3, request, &mut h);
+        assert!(!reply.accepted);
+        assert_eq!(
+            reply.reason,
+            if position_only {
+                Reason::InvalidState
+            } else {
+                Reason::InvalidCommand
+            }
+        );
+        assert_eq!(reply.status.joints, before.joints);
+        assert_eq!(reply.status.lease.unwrap().last_sequence, 1);
+        h.feedback[1].velocity = 0.0;
+        assert!(
+            c.handle(4, direct_request(&c, 2, id, 0.0, 0.0), &mut h)
+                .accepted
+        );
+        assert!(
+            c.handle(
+                5,
+                Request::Stop {
+                    authority: auth(&c, 3)
+                },
+                &mut h
+            )
+            .accepted
+        );
+        c.tick(6, &mut h);
+        assert_gains(&c, [(10.0, 1.0); 2]);
+    }
+    // HOLDING is accepted too, with a settled reading exactly at the limit.
+    let (mut c, mut h) = direct_armed_with_policy(10, true);
+    let id = offer(&mut c, &mut h, 2);
+    h.feedback[0].velocity = -0.001;
+    assert!(
+        c.handle_deferred(3, hold_gain_request(&c, 2, id, 0.0), &mut h)
+            .accepted
+    );
+}
+
+#[test]
+fn direct_hold_gain_commit_rejects_idle_replay_identity_and_expiry() {
+    let (mut c, mut h) = direct_armed_with_policy(10, true);
+    assert!(
+        c.handle(
+            2,
+            Request::Idle {
+                authority: auth(&c, 2)
+            },
+            &mut h
+        )
+        .accepted
+    );
+    let id = offer(&mut c, &mut h, 3);
+    assert_eq!(
+        c.handle(4, hold_gain_request(&c, 3, id, 0.0), &mut h)
+            .reason,
+        Reason::InvalidState
+    );
+    assert!(
+        c.handle(
+            5,
+            Request::Arm {
+                authority: auth(&c, 3),
+                collision: None
+            },
+            &mut h
+        )
+        .accepted
+    );
+    assert_gains(&c, [(10.0, 1.0); 2]);
+
+    for expired in [false, true] {
+        let (mut c, mut h) = direct_armed_with_policy(10, true);
+        let id = offer(&mut c, &mut h, 2);
+        let mut request = hold_gain_request(&c, 2, id, 0.0);
+        if let Request::DirectUpdate {
+            identity,
+            valid_for_ms,
+            ..
+        } = &mut request
+        {
+            if expired {
+                *valid_for_ms = 1;
+            } else {
+                identity.model = "different-model".into();
+            }
+        }
+        let reply = c.handle(3, request, &mut h);
+        assert_eq!(
+            reply.reason,
+            if expired {
+                Reason::OfferExpired
+            } else {
+                Reason::WrongIdentity
+            }
+        );
+        assert_eq!(reply.status.lease.unwrap().last_sequence, 1);
+        assert!(
+            c.handle(
+                4,
+                Request::Stop {
+                    authority: auth(&c, 2)
+                },
+                &mut h
+            )
+            .accepted
+        );
+        c.tick(5, &mut h);
+        assert_gains(&c, [(10.0, 1.0); 2]);
+    }
+
+    let (mut c, mut h) = direct_armed_with_policy(10, true);
+    let id = offer(&mut c, &mut h, 2);
+    let mut replay = hold_gain_request(&c, 2, id, 0.0);
+    assert!(c.handle(3, replay.clone(), &mut h).accepted);
+    if let Request::DirectUpdate { joints, .. } = &mut replay {
+        joints[0].kp = 18.0;
+    }
+    assert!(!c.handle(4, replay, &mut h).accepted);
+    assert!(
+        c.handle(
+            5,
+            Request::Stop {
+                authority: auth(&c, 3)
+            },
+            &mut h
+        )
+        .accepted
+    );
+    c.tick(6, &mut h);
+    assert_gains(&c, [(12.0, 1.25), (6.0, 0.5)]);
+}
+
+#[test]
+fn direct_gain_commands_without_commit_keep_original_fallback_gains() {
+    let (mut c, mut h) = direct_armed_with_policy(10, true);
+    let id = offer(&mut c, &mut h, 2);
+    let mut request = hold_gain_request(&c, 2, id, 0.0);
+    if let Request::DirectUpdate {
+        update_hold_gains, ..
+    } = &mut request
+    {
+        *update_hold_gains = false;
+    }
+    assert!(c.handle(3, request, &mut h).accepted);
+    assert_gains(&c, [(12.0, 1.25), (6.0, 0.5)]);
+    assert!(
+        c.handle(
+            4,
+            Request::Stop {
+                authority: auth(&c, 3)
+            },
+            &mut h
+        )
+        .accepted
+    );
+    c.tick(5, &mut h);
+    assert_gains(&c, [(10.0, 1.0); 2]);
+}
+
+#[test]
+fn direct_hold_gain_commit_obeys_immediate_and_deferred_hardware_failure_semantics() {
+    use robot_control::hardware::{Hardware, HardwareError, JointFeedback};
+    struct RejectNewGains {
+        inner: Loopback,
+        rejected: usize,
+    }
+    impl Hardware for RejectNewGains {
+        fn read(&mut self, now: u64, output: &mut [JointFeedback]) -> Result<(), HardwareError> {
+            self.inner.read(now, output)
+        }
+        fn enable(&mut self) -> Result<(), HardwareError> {
+            self.inner.enable()
+        }
+        fn disable(&mut self) -> Result<(), HardwareError> {
+            self.inner.disable()
+        }
+        fn apply(&mut self, commands: &[JointCommand]) -> Result<(), HardwareError> {
+            if commands[0].kp == 12.0 {
+                self.rejected += 1;
+                Err(HardwareError)
+            } else {
+                self.inner.apply(commands)
+            }
+        }
+    }
+    for deferred in [false, true] {
+        let (mut c, mut h) = direct_armed_with_policy(10, true);
+        let id = offer(&mut c, &mut h, 2);
+        let mut hardware = RejectNewGains {
+            inner: h,
+            rejected: 0,
+        };
+        let request = hold_gain_request(&c, 2, id, 0.0);
+        if deferred {
+            let reply = c.handle_deferred(3, request, &mut hardware);
+            assert!(reply.accepted);
+            assert!(reply.status.last_applied_target.is_none());
+            assert_eq!(hardware.rejected, 0);
+            c.tick(4, &mut hardware);
+        } else {
+            let reply = c.handle(3, request, &mut hardware);
+            assert!(!reply.accepted);
+            assert_eq!(reply.reason, Reason::HardwareFault);
+        }
+        assert_eq!(hardware.rejected, 1);
+        assert_eq!(c.status().state, State::Faulted);
+        assert!(c.status().lease.is_none());
+        assert!(!hardware.inner.enabled);
+        reclaim_direct(&mut c, &mut hardware.inner, 5);
+        assert!(
+            c.handle(
+                6,
+                Request::Reset {
+                    authority: auth(&c, 1)
+                },
+                &mut hardware.inner
+            )
+            .accepted
+        );
+        assert!(
+            c.handle(
+                7,
+                Request::Arm {
+                    authority: auth(&c, 2),
+                    collision: None
+                },
+                &mut hardware.inner
+            )
+            .accepted
+        );
+        // Immediate write failure does not commit. Deferred acceptance did commit,
+        // despite its next tick failing: an accepted target is not proof of application.
+        assert_gains(
+            &c,
+            if deferred {
+                [(12.0, 1.25), (6.0, 0.5)]
+            } else {
+                [(10.0, 1.0); 2]
+            },
+        );
     }
 }
 

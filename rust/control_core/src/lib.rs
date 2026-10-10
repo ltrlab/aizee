@@ -1085,6 +1085,7 @@ impl Controller {
                 valid_for_ms,
                 joints,
                 ramp_efforts,
+                update_hold_gains,
             } => {
                 if self.config.direct.is_none() {
                     return Err(Reason::InvalidCommand);
@@ -1102,7 +1103,7 @@ impl Controller {
                         collision: None,
                         ramp_efforts,
                     },
-                    Some((offer, valid_for_ms)),
+                    Some((offer, valid_for_ms, update_hold_gains)),
                 )
             }
             other => (other, None),
@@ -1281,6 +1282,24 @@ impl Controller {
                 {
                     return Err(Reason::InvalidCommand);
                 }
+                let update_hold_gains = direct_offer.is_some_and(|(_, _, update)| update);
+                if update_hold_gains {
+                    if !self.config.direct.as_ref().is_some_and(|p| p.position_only)
+                        || joints.iter().zip(&self.targets).any(|(command, target)| {
+                            command.position != target.position || command.velocity != 0.0
+                        })
+                        || ramp_efforts.iter().any(|effort| *effort != 0.0)
+                    {
+                        return Err(Reason::InvalidCommand);
+                    }
+                    if self
+                        .feedback
+                        .iter()
+                        .any(|feedback| feedback.velocity.abs() > self.config.settled_velocity)
+                    {
+                        return Err(Reason::InvalidState);
+                    }
+                }
                 // Enforce the selected control law across the complete batch,
                 // including grippers, before consuming its offer or sequence.
                 if self.config.direct.as_ref().is_some_and(|p| p.position_only)
@@ -1347,7 +1366,7 @@ impl Controller {
                         return Err(Reason::InvalidCommand);
                     }
                 }
-                let direct = if let Some((id, valid_for_ms)) = direct_offer {
+                let direct = if let Some((id, valid_for_ms, _)) = direct_offer {
                     let offer = self.consume_offer(id)?;
                     let deadline = offer
                         .issued_at_ms
@@ -1400,6 +1419,15 @@ impl Controller {
                 if apply_now && hardware.apply(&self.commands).is_err() {
                     self.fault(Reason::HardwareFault, hardware);
                     return Err(Reason::HardwareFault);
+                }
+                if update_hold_gains {
+                    // Commit only after complete validation and any immediate write.
+                    // Deferred service requests, like their targets, are accepted before
+                    // the next hardware tick; that later write may still fault.
+                    for (limit, command) in self.config.joints.iter_mut().zip(&joints) {
+                        limit.hold_kp = command.kp;
+                        limit.hold_kd = command.kd;
+                    }
                 }
                 if apply_now {
                     self.note_applied();
