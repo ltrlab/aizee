@@ -79,8 +79,10 @@ its raw traces and first-divergence report are preserved under the task's
 Recording now submits immutable data to a bounded FIFO worker. File open,
 write, flush and close operations run outside the control loop. No queued data
 is silently dropped: queue exhaustion or writer failure faults the session,
-and cleanup disables and closes the receiver before waiting up to five seconds
-for evidence to drain. A recording failure cannot interrupt a disable RPC.
+and cleanup waits up to five seconds for evidence to drain only after resource
+cleanup succeeds. If teardown fails, recorder close uses a zero timeout and
+reports any incomplete recording without adding a drain wait while motor
+shutdown is uncertain. A recording failure cannot interrupt a disable RPC.
 JSON encoding and enqueue costs remain in full-loop timing measurements.
 This change requires a fresh candidate qualification before activation.
 

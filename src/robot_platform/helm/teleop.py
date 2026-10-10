@@ -516,10 +516,10 @@ class TeleopCore:
                 except Exception as exc:
                     failures.append(str(exc) or type(exc).__name__)
             self._closers = []
-            # Drain evidence only after disabling and closing the receiver. A
-            # blocked disk must never delay an emergency disable or CAN teardown.
+            # Wait for evidence only after successful resource cleanup. If any
+            # teardown is unconfirmed, initiate recorder close without waiting.
             try:
-                self._stop_recording()
+                self._stop_recording(timeout=0. if failures else 5.)
             except Exception as exc:
                 reason = str(exc) or type(exc).__name__
                 failures.append(reason)
@@ -696,7 +696,7 @@ class TeleopCore:
         if self._recorder is not None:
             self._recorder.check()
 
-    def _stop_recording(self):
+    def _stop_recording(self, *, timeout=5.):
         recorder, self._recorder = self._recorder, None
         if recorder is None:
             return
@@ -706,7 +706,7 @@ class TeleopCore:
         finally:
             self._samples = self._events = self._latency = None
             # Called by close only after receiver cleanup, never by tick.
-            recorder.close(timeout=5.)
+            recorder.close(timeout=timeout)
         self._check_recording()
 
     # -- cycle (continued) -------------------------------------------------

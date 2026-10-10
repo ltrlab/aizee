@@ -177,3 +177,37 @@ def test_receiver_cleanup_failure_never_claims_confirmed_disable(tmp_path):
     assert 'could not be confirmed' in instance.fault
     assert 'CAN link cleanup failed' in instance.message
     assert 'CAN link is down' not in instance.message
+
+
+def test_failed_disable_and_receiver_teardown_never_wait_for_recording_drain(tmp_path):
+    instance = core(tmp_path)
+    instance.live_arm, instance.fault = 'left', 'primary motor fault'
+    order = []
+
+    def disable():
+        order.append('disable attempted')
+        raise RuntimeError('disable transport lost')
+
+    def fault(reason):
+        order.append('fault stop attempted')
+
+    def close_receiver():
+        order.append('receiver close attempted')
+        raise RuntimeError('receiver teardown unconfirmed')
+
+    class Recorder:
+        def close(self, *, timeout):
+            assert order == ['disable attempted', 'fault stop attempted', 'receiver close attempted']
+            assert timeout == 0.
+            order.append('nonblocking recorder close')
+            raise RecordingError('Recording drain timed out after 0s; evidence incomplete')
+
+    instance.session = SimpleNamespace(disable=disable, fault=fault)
+    instance._closers.append(close_receiver)
+    instance._recorder = Recorder()
+    instance.close()
+    assert order[-1] == 'nonblocking recorder close'
+    assert instance.phase == 'fault' and instance.fault == 'primary motor fault'
+    assert 'receiver teardown unconfirmed' in instance.message
+    assert 'evidence incomplete' in instance.message
+    assert 'CAN link is down' not in instance.message
