@@ -441,7 +441,19 @@ torque too, and left J2 fell when its gripper's CAN replies stopped for 46 ms.
 A receiver fault or trip names what its own feedback shows (a joint outside its
 limits, too fast, over its effort or temperature, a drive fault, a failed
 watchdog audit). The receiver's last status is saved as `live-<bus>-last.json`
-in the session's `~/minerva/evidence/live-<time>` folder on the Jetson.
+in the session's `~/minerva/evidence/live-<time>` folder on the Jetson. The
+session records there too:
+- `samples.f32`: every receiver tick, as float32 rows. `columns.json` names the
+  columns: time, then each joint's position, velocity, effort and command.
+  Recording stops at 512 MB, about 90 minutes of both arms.
+- `events.jsonl`: every key, lifecycle state, fault, message and hold.
+
+**Engage and Shutdown** finish when every arm joint has settled within its
+tolerance of the goal. A gripper is done when its command has reached the goal
+and it has stopped, wherever it stopped: it rests short of a target by its
+friction over its stiffness, or on what it holds. On 2026-10-09 the left one
+rested 0.074 rad from its reference, past the 0.05 rad tolerance, so Shutdown
+never disabled and the motors stayed on.
 
 **Grippers** use their full physical range, closing past the model's closed
 limit. A closed gripper rests on its hand-swept end and its 16-bit feedback can
@@ -460,6 +472,14 @@ teleop (one arm) applies to each arm: the gates and pre-scan, the reference
 pose, the keys, what happens when something is lost, and trips holding the arms.
 Both arms are scanned stopped, both CAN links come up, and one receiver drives
 both buses. Its evidence is saved as `live-canL-canR-last.json`.
+
+**Not yet usable** (2026-10-09). Rehearsed on the simulated robot, a joint
+breaking away from stiction as the leaders start moving outruns its
+motion-bound speed bound (1.25 × its command, with a 0.5 rad/s floor) for 3
+readings, and the receiver trips: left J3 read 0.91 rad/s on a 0.80 bound. The
+rehearsal in `tests/contract/test_rehearsal.py` is a known failure for both arms.
+Teleop one arm at a time until it passes. A gripper's speed bound is its cap
+(its commands carry no velocity).
 
 **How the arms are kept apart.** Every move carries a box of joint positions,
 which the receiver checks before it takes the move and holds the arms to every

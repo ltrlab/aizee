@@ -2997,3 +2997,50 @@ lead cap (60%), where a joint that cannot keep up pins.
 
 The J2 buzz at rest (220 / 21) is still open. The next step is a short test
 of rungs between kp 121 and 154 only, not a whole sweep.
+
+### 2026-10-09 — first live teleop, both arms: Enable, Engage and Shutdown fixed; one arm at a time for now
+
+Minerva Check's live sweeps: the left arm passed all seven items. The right arm
+passed six. Right J5 failed: at 4 rad/s it lagged 0.048 rad against a 0.041
+limit, pinned at its lead cap. Right J6 passed by 0.0001 rad. Raising the right
+wrists' bounds to the left wrists' (0.146, 0.082) was blocked as a safety
+change and waits for the user.
+
+The user's first **Live · both** teleop sessions found four problems. None of
+them showed in the rehearsals, whose joints followed their commands exactly:
+
+1. **Enable refused (`collision_violation`), `fd0c12e`.** Before the arms are
+   held, the receiver boxes each joint around its own newest reading. The
+   compiler built the box from the offer's reading, a few ms older, with no
+   slack, so one encoder count of flicker refused the request. The compiler now
+   pads an unheld reading by 0.005 rad.
+2. **Engage tripped (`limit_violation`), `4bd8689`.** Gripper commands carry no
+   velocity, so under the motion bound a gripper could move no faster than the
+   0.5 rad/s floor. Both grippers opened faster than that toward the triggers.
+   A gripper's speed bound is now its cap, in Rust and Python. Its collision box
+   was already padded for its cap.
+3. **Engage never reached TELEOP, and Shutdown never disabled, so the motors
+   stayed on.** The user cut power with the foot switch. A gripper rests short of
+   a target by friction over stiffness: the left one rested 0.074 rad from its
+   reference, past the 0.05 tolerance every joint had to settle within.
+   `dbd51a3` and the following commit settle a gripper once its command reaches
+   the goal and it stops, wherever it stopped. After the foot switch, the right
+   gripper reported overcurrent and right J1 left Run mode. Both were most likely
+   the power cut.
+4. **No evidence of what tripped.** The receiver keeps only its final two ticks.
+   Live teleop sessions now record every tick (`samples.f32`, `columns.json`)
+   and every key, state, fault and message (`events.jsonl`) in their
+   `live-<time>` folder.
+
+The new rehearsal runs a whole session on the simulated robot, with measured
+inertia and friction, 16-bit noisy feedback and gripper stiction: Engage with
+the triggers pulled, follow, then Shutdown to disabled. One arm passes, left
+and right. **Both arms still fails:** under the motion bound, a joint breaking
+away from stiction as the leaders start moving outruns 1.25× its command for 3
+readings, and the receiver trips (left J3 read 0.91 rad/s on a 0.80 bound).
+Teleop one arm at a time until the two-arm speed bound is reworked.
+
+The right-arm sweep rehearsal shows that **right J2 overshoots its 1.2 rad/s
+command past its 1.5 rad/s cap** in about 1 noise seed in 8. That is the motion
+that tripped it in Minerva Check, descending from horizontal. In teleop such a
+trip holds the arm and lowers it.
