@@ -29,7 +29,8 @@ POSITION_STEP_RAD = 8 * math.pi / 65535  # RobStride feedback: 16 bits over +-4 
 class ArmPlant:
     """Independent joints (their gravity may depend on the whole pose), in the receiver's joint order.
 
-    joints: [{'name', 'inertia', 'friction', 'static' (default: friction), 'q' (default 0)}].
+    joints: [{'name', 'inertia', 'friction', 'static' (default: friction), 'viscous' (Nm per rad/s, default 0:
+    the gearbox's damping), 'q' (default 0)}].
     gravity: {name: callable(pose) -> the torque that holds the joint against gravity}.
     """
 
@@ -69,7 +70,7 @@ class ArmPlant:
                 else:
                     c = commands[i]
                     torque = c['kp'] * (c['position'] - q) + c['kd'] * (c['velocity'] - v) + c['effort']
-                net = torque - holding[i] + pushed.get(spec['name'], 0.)
+                net = torque - holding[i] + pushed.get(spec['name'], 0.) - spec.get('viscous', 0.) * v
                 friction, static = spec['friction'], spec.get('static', spec['friction'])
                 if abs(v) < 1e-4 and abs(net) <= static:
                     v = 0.  # Sticks, then slides.

@@ -299,6 +299,20 @@ def check_joint_box(backend, bound, center, half, *, clearance_m=0.005, margin_m
     # The query places the shapes from the same kinematics (a backend that cannot take them recomputes them).
     shared = dict(worlds=bound.shape_transforms(frames)) if getattr(backend, 'accepts_worlds', False) else {}
     reach = clearance_m + margin_m  # Pairs farther than this past their travel are not reported.
+    if not hasattr(backend, '_motion_shape_indices'):
+        backend._motion_shape_indices = {shape['id']: index for index, shape in enumerate(runtime.shapes)}
+    if shared and getattr(backend, 'geometry_mode', None) == 'keepout' and hasattr(backend, 'near_pairs_raw'):
+        # The same query and separations, as arrays: no result per pair (most of a check's time on the Jetson).
+        near, distances = backend.near_pairs_raw(shared['worlds'], threshold=reach + largest + 2e-6, scope=scope)
+        lower, nearest = math.inf, None
+        if len(near):
+            separations = distances - travel[near[:, 0]] - travel[near[:, 1]] - 2e-6
+            m = int(np.argmin(separations))
+            i, j = (int(k) for k in near[m])
+            lower = float(separations[m])
+            nearest = (sorted(runtime.shapes[k]['id'] for k in (i, j)), float(distances[m]),
+                       float(travel[i] + travel[j]))
+        return _verdict(report, lower, nearest, reach, clearance_m, travel, deadline, clock)
     result = backend.proximity(center, threshold=reach + largest + 2e-6, scope=scope, **shared)
     if result.get("whole_robot_checked") is not (scope == 'all') or result.get("query_scope") != scope:
         return report(clear=False, reason="incomplete_collision_scope", queries=1)
@@ -315,7 +329,12 @@ def check_joint_box(backend, bound, center, half, *, clearance_m=0.005, margin_m
         i, j = (backend._motion_shape_indices[name] for name in key)
         separation = pair["distance_m"] - travel[i] - travel[j] - 2e-6
         if separation < lower:
-            lower, nearest = separation, (list(key), pair["distance_m"])
+            lower, nearest = separation, (list(key), pair["distance_m"], float(travel[i] + travel[j]))
+    return _verdict(report, lower, nearest, reach, clearance_m, travel, deadline, clock)
+
+
+def _verdict(report, lower, nearest, reach, clearance_m, travel, deadline, clock):
+    """check_joint_box's verdict from the least separation over its pairs and the pair that has it."""
     if lower <= clearance_m:
         return report(clear=False, reason="insufficient_swept_clearance", queries=1, shapes=nearest[0],
                       distance_m=nearest[1], clearance_lower_bound_m=lower, travel_m=float(travel.max()))
@@ -324,7 +343,7 @@ def check_joint_box(backend, bound, center, half, *, clearance_m=0.005, margin_m
     within = lower < reach
     return report(clear=True, reason="clear_joint_box", queries=1, travel_m=float(travel.max()),
                   shapes=nearest[0] if within else None, distance_m=nearest[1] if within else None,
-                  clearance_lower_bound_m=min(lower, reach))
+                  pair_travel_m=nearest[2] if within else None, clearance_lower_bound_m=min(lower, reach))
 
 
 @dataclass(frozen=True)

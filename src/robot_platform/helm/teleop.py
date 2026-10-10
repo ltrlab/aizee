@@ -137,7 +137,7 @@ class AdvisoryCompiler:
         self.last_verdict = None
         self.blocked = 0
 
-    def compile(self, offered, feedback, joints=None, *, started_at=None):
+    def compile(self, offered, feedback, joints=None, *, started_at=None, hold=False):
         target = [row['position'] for row in (joints if joints is not None else feedback)]
         cad = dict(self.fixed)
         cad.update(to_cad(self.joint_map, dict(zip(self.names, target)), self.cad_limits))

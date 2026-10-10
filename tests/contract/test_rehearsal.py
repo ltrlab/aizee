@@ -52,7 +52,10 @@ class Clock:
 def plant_receiver(helm, servo, clock, directory, disturbance=None, start=None, arm='right', measured=False):
     """An open_receiver for an arm's simulated joints (both arms' with arm None), with gravity 10% over the fed
     model, resting at `start` ({motor: rad}; the reference otherwise). `measured`: each joint's inertia and
-    friction from its servo sweep where it has them (static friction a third over), SPECS otherwise."""
+    friction from its servo sweep where it has them (static friction a third over), SPECS otherwise, and the
+    damping its sweep's gains were accepted with: steps overshooting at most 10% at them is a damping ratio of
+    0.6 or more, made up by the gearbox where the gains' damping falls short (left J3's kd 3.5 alone is 0.21,
+    and it rang at 4 Hz)."""
     truth = {motor: dict(fit, A=fit['A'] * 1.1) for motor, fit in ((servo or {}).get('gravity') or {}).items()}
     terms = gravity_model(helm.model, helm.mapping, [m for m in helm.reference['motors']
                                                      if arm is None or m['name'].startswith(arm)], truth)
@@ -61,12 +64,16 @@ def plant_receiver(helm, servo, clock, directory, disturbance=None, start=None, 
     def open_receiver(config, device, reference):
         names = [joint['name'] for joint in config['joints']]
         spec = {name: SPECS[name.split('_')[-1]] for name in names}
+        viscous = {}
         for name in names if measured else ():
-            torque = ((((servo or {}).get('joints') or {}).get(name) or {}).get('measured') or {}).get('torque') or {}
+            saved = (((servo or {}).get('joints') or {}).get(name) or {})
+            torque = (saved.get('measured') or {}).get('torque') or {}
             inertia, friction = torque.get('inertia') or spec[name][0], torque.get('friction') or spec[name][1]
             spec[name] = (inertia, friction, max(spec[name][2], 4 / 3 * friction))
+            if saved.get('hold_kp') and saved.get('hold_kd') is not None:
+                viscous[name] = max(0., 2 * .6 * math.sqrt(saved['hold_kp'] * inertia) - saved['hold_kd'])
         plant = ArmPlant([dict(name=n, inertia=spec[n][0], friction=spec[n][1], static=spec[n][2],
-                               q=(start or {}).get(n, 0.)) for n in names],
+                               viscous=viscous.get(n, 0.), q=(start or {}).get(n, 0.)) for n in names],
                          gravity={n: (lambda pose, t=terms[n]: gravity_effort(t, pose)) for n in names if n in terms},
                          position_noise=.0006, disturbance=disturbance)
         opened.append(PlantReceiver(config, plant, clock=clock, directory=directory))
@@ -373,16 +380,15 @@ def test_teleop_sweeps_every_right_arm_joint_to_its_ends_at_speed_on_a_simulated
         core.close()
 
 
-@pytest.mark.parametrize('arm', ['left', 'right', pytest.param('both', marks=pytest.mark.xfail(strict=True, reason=(
-    'Under the two-arm motion bound a joint breaking away from stiction as the leaders start moving outruns '
-    '1.25x its command for 3 readings, and the receiver trips (left J3 read 0.91 rad/s on a 0.80 bound)')))])
+@pytest.mark.parametrize('arm', ['left', 'right', 'both'])
 def test_an_arm_engages_follows_and_shuts_down_with_its_gripper_resting_short_on_a_simulated_robot(helm, tmp_path,
                                                                                                  arm):
     # Live, both arms, 2026-10-09: Engage tripped and never reached TELEOP, and Shutdown never disabled, the motors
     # left on. Under the two-arm motion bound a gripper (commanded with no velocity) could move no faster than the
     # 0.5 rad/s floor; and a gripper rests short of its target by its static friction over its stiffness (0.15 / 2
     # here; the left one rested 0.074 rad from its reference), past the 0.05 rad every joint had to settle within.
-    # Here an arm engages with its trigger pulled, follows, and shuts down to disabled, on noisy 16-bit feedback.
+    # Here an arm, or both, engages with its trigger pulled, follows, and shuts down to disabled, on noisy 16-bit
+    # feedback. Both arms tripped on the motion bound's speed bound until it allowed for the readings' noise.
     leader_profile = json.loads((DEVICES / 'gello-dual-viewer.json').read_text(encoding='utf-8'))
     ranges = {'schema': SCHEMA, 'kind': KIND, 'profile': leader_profile['id'], 'pins': pins(leader_profile),
               'units': UNITS, 'runtime_approved': False, 'leaders': {

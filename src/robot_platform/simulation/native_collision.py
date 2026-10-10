@@ -58,6 +58,7 @@ class NativeCollisionBackend:
         if not self.handle:
             raise CollisionError("Native backend rejected the collision model")
         self._distances = np.empty(len(self.pairs), dtype=np.float64)
+        self._pair_array = np.asarray(self.pairs, dtype=np.intp).reshape(-1, 2)
         self._counters = (C.c_uint64 * len(COUNTERS))()
 
     def close(self):
@@ -72,6 +73,62 @@ class NativeCollisionBackend:
 
     # proximity() takes the shapes' world transforms from a caller that already has them for these positions.
     accepts_worlds = True
+
+    def near_pairs_raw(self, worlds, *, threshold, scope="all"):
+        """Keep-out pairs within `threshold` with the shapes placed by `worlds` (one 4x4 per shape): their shape
+        indices (n x 2) and distances (m), the arrays proximity() builds its result from, without building it
+        (on the Jetson that took most of a box check's 4 ms, 2026-10-10)."""
+        if self.geometry_mode != "keepout":
+            raise CollisionError("Raw pairs are keep-out pairs")
+        if not np.isfinite(threshold) or threshold < 0:
+            raise CollisionError("Proximity threshold must be finite and nonnegative")
+        mask = scope_mask(scope)
+        worlds = np.asarray(worlds, dtype=np.float64)
+        if worlds.shape != (len(self.runtime_model.shapes), 4, 4) or not np.isfinite(worlds).all():
+            raise CollisionError("Shape transforms must be finite, one per collision shape")
+        with self.lock:
+            if not self.handle:
+                raise CollisionError("Native collision backend is closed")
+            poses = np.ascontiguousarray(np.column_stack((worlds[:, :3, 3],
+                            Rotation.from_matrix(worlds[:, :3, :3]).as_quat())), dtype=np.float64)
+            status = self.lib.rpc_query(self.handle, poses.ctypes.data_as(C.POINTER(C.c_double)),
+                                       len(poses), threshold + 2e-6, mask,
+                                       self._distances.ctypes.data_as(C.POINTER(C.c_double)), len(self._distances),
+                                       self._counters)
+            if status != 0:
+                raise CollisionError(f"Native collision query unavailable ({status})")
+            near = np.flatnonzero(np.isfinite(self._distances))
+            return self._pair_array[near], np.maximum(0., self._distances[near] - 2e-6)
+
+    def pair_distance(self, positions, shapes, *, threshold, scope="all"):
+        """The keep-out distance (m) between the two shapes `shapes` (ids) at `positions`, or `threshold` when
+        at least that far: the native query proximity() runs, without building a result for every near pair (a
+        query to 0.6 m found 620 of them, 5 ms on this PC)."""
+        if self.geometry_mode != "keepout":
+            raise CollisionError("Pair distances are keep-out distances")
+        if not np.isfinite(threshold) or threshold < 0:
+            raise CollisionError("Proximity threshold must be finite and nonnegative")
+        if not hasattr(self, "_pair_index"):
+            ids = [shape["id"] for shape in self.runtime_model.shapes]
+            self._pair_index = {frozenset((ids[i], ids[j])): k for k, (i, j) in enumerate(self.pairs)}
+        k = self._pair_index.get(frozenset(shapes))
+        if k is None:
+            raise CollisionError("Not a checked pair")
+        mask = scope_mask(scope)
+        with self.lock:
+            if not self.handle:
+                raise CollisionError("Native collision backend is closed")
+            worlds = self.runtime_model.transforms(positions)
+            poses = np.ascontiguousarray(np.column_stack((worlds[:, :3, 3],
+                            Rotation.from_matrix(worlds[:, :3, :3]).as_quat())), dtype=np.float64)
+            status = self.lib.rpc_query(self.handle, poses.ctypes.data_as(C.POINTER(C.c_double)),
+                                       len(poses), threshold + 2e-6, mask,
+                                       self._distances.ctypes.data_as(C.POINTER(C.c_double)), len(self._distances),
+                                       self._counters)
+            if status != 0:
+                raise CollisionError(f"Native collision query unavailable ({status})")
+            distance = float(self._distances[k])
+        return min(threshold, max(0., distance - 2e-6)) if np.isfinite(distance) else threshold
 
     def proximity(self, positions, *, threshold=0.05, max_pairs=None, scope="all", worlds=None):
         start = time.perf_counter()

@@ -22,6 +22,7 @@ to rest (arrival_factor) rather than stopping at its end from the curve's floor.
 import math
 
 APPROACH_FLOOR_RAD_S = .5  # collision::APPROACH_FLOOR_RAD_S
+SPEED_NOISE_RAD_S = .25  # collision::SPEED_NOISE_RAD_S: speed readings' noise, moving as at rest.
 OVERSPEED_HEADROOM = 1.25  # The receiver's speed cap over the commanded one.
 COMMAND_HEADROOM = 1 / OVERSPEED_HEADROOM  # Commands toward an end: this share of the curve.
 OVERTRAVEL_RAD = .02  # A joint may pass its hand-swept end by this much before the receiver faults.
@@ -98,7 +99,8 @@ def speed_bound(joint, commanded):
     commands carry no velocity (collision::speed_bound)."""
     if joint.get('gripper'):
         return joint['max_velocity']
-    return max(OVERSPEED_HEADROOM * abs(commanded), min(APPROACH_FLOOR_RAD_S, joint['max_velocity']))
+    return max(OVERSPEED_HEADROOM * abs(commanded) + SPEED_NOISE_RAD_S,
+               min(APPROACH_FLOOR_RAD_S, joint['max_velocity']))
 
 
 def tracking_bound(joint, speed):

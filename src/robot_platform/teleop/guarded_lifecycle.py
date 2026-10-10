@@ -11,14 +11,17 @@ import time
 
 from robot_platform.control.collision_envelope import CollisionBlocked
 
-# A move whose collision box is not clear is tried again at these fractions of its step and speed, the last
-# holding the target last sent: near the other arm only a slower move certifies.
+# A move whose collision box is not clear is held (the target last sent), or with time left tried again at
+# these fractions of its step and speed: near the other arm only a slower move certifies.
 REDUCED_STEPS = (.5, .2, 0.)
 # A retry starts only with time left for its whole computation and this much for the move's dispatch: past its
 # budget a cycle faults the session (Virtual · enforced on the Jetson, 2026-10-09: four blocked tries took 37 ms).
-# With time for one more, it is the hold: a certified hold renews the receiver's verdict, without which it stops
-# the arms once the last one lapses.
+# The hold is tried first: a certified hold renews the receiver's verdict, without which it stops the arms once
+# the last one lapses.
 DISPATCH_S = .005
+# A computation checks its deadline between its queries, so it may run past it by one: a box query, up to 7 ms on
+# the Jetson (2026-10-10). A retry's deadline is the time left in the cycle less this.
+QUERY_S = .007
 
 
 class GuardedLifecycleSession:
@@ -27,6 +30,8 @@ class GuardedLifecycleSession:
         self.controller, self.compiler, self.lifecycle = controller, compiler, lifecycle
         self.snapshot, self.clock = snapshot, clock
         self.period_s, self.cycle_budget_s = period_s, cycle_budget_s
+        policy = (getattr(compiler, 'config', None) or {}).get('collision') or {}
+        self._verdict_s = max(cycle_budget_s, (policy.get('max_verdict_ms') or 0) / 1000)
         # The budget may pass the period: a slow cycle starts the next late; one past its budget faults.
         if (not all(math.isfinite(v) for v in (period_s, cycle_budget_s))
                 or not 0 < period_s <= lifecycle.max_step_s or not 0 < cycle_budget_s <= lifecycle.max_step_s
@@ -47,9 +52,29 @@ class GuardedLifecycleSession:
         self.last_feedback = None
         self.blocked = None  # Why the last cycle's move was held, while it is.
 
+    def _try(self, offered, feedback, joints, within, **options):
+        """A retry's envelope (CollisionBlocked if not clear in time), computed by `within` seconds from now or its
+        computation budget, whichever is sooner: a budget shared with the first try from the offer was spent by
+        the time the hold came round, and one estimated from it overran the cycle (real time, 2026-10-10)."""
+        budget = self.compiler.compute_budget_s
+        return self.compiler.compile(offered, feedback, joints, started_at=self.clock() - max(0., budget - within),
+                                     **options)
+
+    def _late(self, started, target):
+        """Whether a command following `target` (None: following none) is past its time to be sent."""
+        try:
+            self._deadline(started, target)
+        except (TimeoutError, ValueError):
+            return True
+        return False
+
     def _deadline(self, started, target):
         now = self.clock()
-        if now - started >= self.cycle_budget_s:
+        # A command following the leaders goes out within the cycle's budget, on a fresh target. One following
+        # none (a hold, the lifecycle's own moves) may take up to its verdict's lifetime: the receiver checks its
+        # box against its own readings, and one 39 ms hold cycle on the Jetson faulted the session (2026-10-10).
+        budget = self.cycle_budget_s if target is not None else self._verdict_s
+        if now - started >= budget:
             raise TimeoutError("GUI teleoperation cycle exceeded its deadline")
         # A cycle without a mapped source only holds its last bounded target.
         if target is not None and self.lifecycle.state in ("ENGAGING", "TELEOP"):
@@ -184,41 +209,59 @@ class GuardedLifecycleSession:
                     self.blocked = str(exc)
                     record.update(blocked=self.blocked, blocked_collision=deepcopy(exc.verdict),
                                   blocked_proposal=deepcopy(proposal))
-                    last, fractions = exc, list(REDUCED_STEPS)
-                    # A slower move still follows the leader target, so it must be dispatched before that
-                    # expires; a hold follows nothing (a blocked cycle on the Jetson outlived its target, 2026-10-10).
+                    # The hold first, so a blocked cycle has a certified command to send: each try is a whole
+                    # computation, and when a slower try left no time for the hold nothing was sent, the receiver's
+                    # verdict lapsed and it stopped the arms (real time, 2026-10-10). A hold is one box query.
+                    # Then, with time left and the leader target fresh (a slower move still follows it), a slower
+                    # step toward it instead, the slowest first: at speed a box reaches a stop (right J1 brakes at
+                    # 4 rad/s2), and only a slower move left a hold near the other arm.
+                    last, held = exc, None
                     expires = (min(row["sampled_at"] for row in target) + self.lifecycle.target_max_age_s
                                if target and self.lifecycle.state in ("ENGAGING", "TELEOP") else math.inf)
-                    while fractions:
-                        now = self.clock()
-                        left = self.cycle_budget_s - DISPATCH_S - (now - started)
-                        budget = self.compiler.compute_budget_s
-                        if left < budget:
-                            # No time for another try: hold the target last sent, unsent.
-                            try:
-                                proposal = self.lifecycle.reduce(0.)
-                            except ValueError:
-                                raise exc from None
-                            record.update(out_of_time=fractions[0], proposal=deepcopy(proposal))
+
+                    def time_left():
+                        return self.cycle_budget_s - DISPATCH_S - (self.clock() - started)
+                    try:
+                        hold = self.lifecycle.reduce(0.)
+                    except ValueError:
+                        raise exc from None
+                    # The receiver's verdict in force outlasting the next cycle's dispatch (two cycle budgets
+                    # away at most), the hold can wait: this cycle's time goes to a slower step, which near the
+                    # other arm needs the approach-margin queries too, and after a hold had none left (2026-10-10).
+                    status = offered["status"]
+                    verdict_s = ((status.get("collision_expires_at_ms") or 0) - status["now_ms"]) / 1000
+                    if verdict_s > 2 * self.cycle_budget_s:
+                        record["hold_deferred"] = verdict_s
+                    elif time_left() >= QUERY_S:
+                        try:
+                            held = self._try(offered, feedback, hold["joints"], time_left(), hold=True)
+                            held_verdict = self.compiler.last_verdict
+                        except CollisionBlocked as again:
+                            last = again
+                            record.setdefault("reduced_blocked", []).append(
+                                (0., again.verdict.get("reason"), again.verdict.get("clearance_lower_bound_m")))
+                    else:
+                        record["out_of_time"] = 0.
+                    for fraction in sorted(f for f in REDUCED_STEPS if f > 0):
+                        within = min(time_left(), expires - DISPATCH_S - self.clock()) - QUERY_S
+                        if within < QUERY_S:
+                            record.setdefault("out_of_time", fraction)
                             break
-                        fresh = expires - DISPATCH_S - now >= budget
-                        fraction = fractions.pop(0) if left >= 2 * budget and fresh else 0.
-                        if fraction == 0.:
-                            fractions = []
+                        proposal = self.lifecycle.reduce(fraction)
                         try:
-                            proposal = self.lifecycle.reduce(fraction)
-                        except ValueError:
-                            raise exc from None
-                        record["proposal"] = deepcopy(proposal)
-                        try:
-                            envelope = self.compiler.compile(offered, feedback, proposal["joints"],
-                                                             started_at=offer_started)
-                            record["reduced"] = fraction
+                            envelope = self._try(offered, feedback, proposal["joints"], within)
+                            record.update(reduced=fraction, proposal=deepcopy(proposal))
                             break
                         except CollisionBlocked as again:
                             last = again
                             record.setdefault("reduced_blocked", []).append(
                                 (fraction, again.verdict.get("reason"), again.verdict.get("clearance_lower_bound_m")))
+                    if envelope is None:
+                        proposal = self.lifecycle.reduce(0.)  # Back to the hold.
+                        record["proposal"] = deepcopy(proposal)
+                        if held is not None:
+                            envelope, self.compiler.last_verdict = held, held_verdict
+                            record["reduced"] = 0.
                     if envelope is None or record.get("reduced") == 0.:
                         following = None
                     if envelope is None:
@@ -232,6 +275,21 @@ class GuardedLifecycleSession:
                         record["accepted"] = True
                         return record
                 record.update(collision=deepcopy(self.compiler.last_verdict), envelope=envelope)
+            if operation == "move" and self._late(started, following):
+                # Too late to send: drop the move, holding the target last sent, as a blocked one with no hold is.
+                # The receiver drives its last command within that command's box, and stops the arms itself if
+                # none follows before its verdict lapses. The loop has no real-time priority on the Jetson, and a
+                # stall of 10-20 ms there faulted the session (2026-10-10).
+                try:
+                    self.lifecycle.reduce(0.)
+                except ValueError:
+                    pass
+                record.update(skipped="late", late_ms=round((self.clock() - started) * 1000, 1))
+                lease = offered["status"].get("lease") or {}
+                if offered["offer"]["expires_at_ms"] > lease.get("expires_at_ms", -1):
+                    self.controller.renew_with(offered)
+                record["accepted"] = True
+                return record
             self._deadline(started, following)
             record["accepted"] = None
             if operation == "idle":
@@ -247,7 +305,12 @@ class GuardedLifecycleSession:
             else:
                 raise ValueError(f"Unknown lifecycle operation {operation}")
             record.update(accepted=True, status=status)
-            self._deadline(started, following)
+            if operation == "move":
+                # Sent, and taken by the receiver, which checked it against its own state: a late finish is noted.
+                if self._late(started, following):
+                    record["late_ms"] = round((self.clock() - started) * 1000, 1)
+            else:
+                self._deadline(started, following)
             return record
         except Exception as exc:
             record["failure"] = str(exc)

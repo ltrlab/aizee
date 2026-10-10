@@ -41,8 +41,15 @@ pub enum Bound {
 /// the receiver's speed cap): a motion bound lets a joint move this much faster than commanded.
 pub const SPEED_OVERSHOOT: f64 = 1.25;
 
+/// Drive speed readings are this noisy moving as at rest (servoed joints read up to about 0.2 rad/s
+/// at rest): a motion bound lets a joint read this much over its overshoot. Without it a joint
+/// commanded at 0.44 rad/s read 0.58 three times running on a 0.55 bound, and the receiver tripped
+/// (both arms, rehearsed on a noisy plant, 2026-10-10).
+pub const SPEED_NOISE_RAD_S: f64 = 0.25;
+
 /// The speed a motion bound lets a joint move at, once the reference it follows is commanded at
-/// `commanded`: its overshoot over that, never below its approach floor (drive noise at rest). A
+/// `commanded`: its overshoot over that and the readings' noise, never below its approach floor
+/// (drive noise at rest). Its box keeps a stop from this speed, so the bound and the box agree. A
 /// gripper's commands carry no velocity (it would add to its squeeze) and lead it by its whole range,
 /// so it moves at up to its cap whatever it is commanded: its box is padded for that (both arms'
 /// grippers tripped on the floor as they opened at Engage, 2026-10-09).
@@ -50,7 +57,8 @@ pub fn speed_bound(joint: &crate::JointLimits, commanded: f64) -> f64 {
     if joint.gripper {
         return joint.max_velocity;
     }
-    (SPEED_OVERSHOOT * commanded.abs()).max(APPROACH_FLOOR_RAD_S.min(joint.max_velocity))
+    (SPEED_OVERSHOOT * commanded.abs() + SPEED_NOISE_RAD_S)
+        .max(APPROACH_FLOOR_RAD_S.min(joint.max_velocity))
 }
 
 /// Under a motion bound, how far a joint moving at up to `speed` may trail or lead its reference:

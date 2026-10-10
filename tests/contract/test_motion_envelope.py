@@ -133,11 +133,11 @@ def test_a_stream_of_moves_is_certified_and_taken_and_the_box_follows_the_speed(
             envelope = compiler.compile(offered, harness.last["feedback"], target)
             control.move(target, collision=envelope)
             widths.append(envelope["upper"][0] - envelope["lower"][0])
-        # Faster commands keep a longer stop: 1.25x their speed (a servo overshoots what it follows), falling after
-        # a slower one at the stop acceleration.
+        # Faster commands keep a longer stop: 1.25x their speed (a servo overshoots what it follows) and the
+        # readings' noise, falling after a slower one at the stop acceleration.
         assert max(widths) > min(widths) + .3
         assert harness.last["status"]["state"] == "executing"
-        assert .5 < max(max(pair) for pair in harness.last["status"]["speed_bounds"]) <= 1.25 * 1.2 + 1e-9
+        assert .5 < max(max(pair) for pair in harness.last["status"]["speed_bounds"]) <= 1.25 * 1.2 + .25 + 1e-9
 
 
 def test_a_box_that_could_bring_the_bodies_together_is_blocked_not_sent(setup):

@@ -23,13 +23,24 @@ READING_FLICKER = .005
 FULL_TURN = 2 * math.pi
 
 
+class _CachedRevision:
+    """A compiler's calibration revision, hashed once: its joint map is frozen after it is built, and hashing it
+    twice per computation (dataclasses.asdict, JSON) took over a millisecond on the Jetson (2026-10-10)."""
+
+    def _calibration_revision(self):
+        cached = getattr(self, '_revision_cache', None)
+        if cached is None or cached[0] is not self.mapping:
+            cached = self._revision_cache = (self.mapping, calibration_revision(self.mapping))
+        return cached[1]
+
+
 def calibration_revision(mapping):
     normalized = {name: asdict(value) if isinstance(value, JointCalibration) else value
                   for name, value in mapping.items()}
     return hashlib.sha256(json.dumps(normalized, sort_keys=True, allow_nan=False).encode()).hexdigest()
 
 
-class CollisionEnvelopeCompiler:
+class CollisionEnvelopeCompiler(_CachedRevision):
     def __init__(self, backend, config, joint_map, *, clearance_m=.005,
                  max_skew_ms=10, compute_budget_s=.03, cad_limits=None, clock=time.perf_counter):
         self.backend, self.config = backend, deepcopy(config)
@@ -67,12 +78,12 @@ class CollisionEnvelopeCompiler:
     def _check_revisions(self):
         config, backend = self.config, self.backend
         if (config["identity"]["model"] != backend.runtime_model.revision
-                or config["identity"]["calibration"] != calibration_revision(self.mapping)
+                or config["identity"]["calibration"] != self._calibration_revision()
                 or config["identity"]["collision_policy"] != backend.policy_revision
                 or config["collision"]["world_revision"] != backend.runtime_model.world_revision):
             raise ValueError("Model, calibration, collision policy or world revision mismatch")
 
-    def compile(self, offered, feedback, joints=None, *, started_at=None):
+    def compile(self, offered, feedback, joints=None, *, started_at=None, hold=False):
         """Use the feedback returned with an offer; None joints means current hold.
 
         started_at should be sampled just before requesting the receiver offer.
@@ -182,7 +193,7 @@ class CollisionBlocked(ValueError):
         self.verdict = dict(verdict or {})
 
 
-class MotionEnvelopeCompiler:
+class MotionEnvelopeCompiler(_CachedRevision):
     """Certify a command's motion-bound box (the receiver's collision::Bound::Motion).
 
     The box holds the reference the receiver drives from now on: the command in force, carried on along its ramp,
@@ -245,7 +256,7 @@ class MotionEnvelopeCompiler:
     def _check_revisions(self):
         config, backend = self.config, self.backend
         if (config["identity"]["model"] != backend.runtime_model.revision
-                or config["identity"]["calibration"] != calibration_revision(self.mapping)
+                or config["identity"]["calibration"] != self._calibration_revision()
                 or config["identity"]["collision_policy"] != backend.policy_revision
                 or config["collision"]["world_revision"] != backend.runtime_model.world_revision):
             raise ValueError("Model, calibration, collision policy or world revision mismatch")
@@ -315,9 +326,11 @@ class MotionEnvelopeCompiler:
             center[name], half[name] = (a + b) / 2, (b - a) / 2
         return center, half
 
-    def compile(self, offered, feedback, joints=None, *, started_at=None):
+    def compile(self, offered, feedback, joints=None, *, started_at=None, hold=False):
         """A wire envelope for this command (None joints: an Arm's hold), from the offer's status and feedback;
-        CollisionBlocked if its box is not clear in time, ValueError if the inputs are unusable."""
+        CollisionBlocked if its box is not clear in time, ValueError if the inputs are unusable. `hold`: the move
+        holds the target last sent, certified when it was sent, so it approaches nothing: its box alone is
+        checked, not the approach margin (whose queries made a hold too slow to fit a cycle on the Jetson)."""
         started = self.clock() if started_at is None else started_at
         deadline = started + self.compute_budget_s
         policy = self.config["collision"]
@@ -357,18 +370,23 @@ class MotionEnvelopeCompiler:
                 index = self.backend._motion_shape_indices
                 verdict["links"] = [shapes[index[name]]["link"] for name in result["shapes"]]
             margin = self.clearance_m + self.approach_margin_m
-            if result["clear"] and joints is not None and result["clearance_lower_bound_m"] < margin:
+            if (result["clear"] and joints is not None and not hold and result["clearance_lower_bound_m"] < margin
+                    and self.clock() < deadline):
                 # Within the approach margin: a move whose target the arms could rest at with the whole margin, or
                 # one that keeps their closest parts as far apart.
                 target = [joint["position"] for joint in joints]
                 rest = check_joint_box(self.backend, self.bound, *self.model_box(*self.rest_box(feedback, target)),
                                        clearance_m=margin, scope=policy["scope"], deadline=deadline, clock=self.clock)
                 verdict["rest_clearance_m"] = rest.get("clearance_lower_bound_m")
-                if not rest["clear"]:
+                if not rest["clear"] and rest.get("reason") != "collision_deadline" and self.clock() < deadline:
                     held = [row["position"] for row in status["joints"]] if status["state"] in (
                         "holding", "executing", "stopping", "stopped") else [row["position"] for row in feedback]
                     pair = tuple(sorted(result["shapes"]))
-                    now_m, next_m = (self._apart(dict(zip(self.names, pose)), pair, policy["scope"])
+                    # Both poses are in the box: the pair is no farther apart at either than at its centre plus
+                    # both parts' travel. A query that far finds a few pairs; one to 1 m found 900 and took 8 ms
+                    # on the Jetson, twice, past the budget (2026-10-10).
+                    reach_m = result["distance_m"] + result["pair_travel_m"] + 1e-3
+                    now_m, next_m = (self._apart(dict(zip(self.names, pose)), pair, policy["scope"], reach_m)
                                      for pose in (held, target))
                     verdict.update(nearest_m=now_m, next_nearest_m=next_m)
                     if next_m < now_m - 1e-4:
@@ -406,12 +424,15 @@ class MotionEnvelopeCompiler:
             upper.append(min(limit["upper"], hi))
         return lower, upper
 
-    def _apart(self, motors, pair, scope):
-        """How far apart (m) the two parts `pair` are with the receiver's joints at `motors`, nominally; 1 m when
-        farther."""
+    def _apart(self, motors, pair, scope, reach_m=1.):
+        """How far apart (m) the two parts `pair` are with the receiver's joints at `motors`, nominally; `reach_m`
+        when at least that far."""
         center, _ = self.model_box([motors[name] for name in self.names], [motors[name] for name in self.names])
-        pairs = self.backend.proximity(center, threshold=1., scope=scope)["near_pairs"]
-        return next((row["distance_m"] for row in pairs if tuple(sorted(row["shapes"])) == pair), 1.)
+        if hasattr(self.backend, "pair_distance"):
+            return self.backend.pair_distance(center, pair, threshold=reach_m, scope=scope)
+        pairs = self.backend.proximity(center, threshold=reach_m, scope=scope)["near_pairs"]
+        return next((min(row["distance_m"], reach_m) for row in pairs if tuple(sorted(row["shapes"])) == pair),
+                    reach_m)
 
     @staticmethod
     def describe(verdict):

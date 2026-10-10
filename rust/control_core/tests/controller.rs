@@ -1696,8 +1696,9 @@ fn a_motion_box_covers_the_reference_ramp_and_a_stop_from_the_speed_bound() {
     assert!(arm(&mut c, &mut h, 2, rest + 0.001, 2).accepted);
     assert_eq!(c.status().speed_bounds, vec![[0.5, 0.5]]);
     // A move up at 1 rad/s ramps from 0 to 0.02: its box holds that ramp, the tracking bound and above
-    // it a stop from 1.25 rad/s (a servo overshoots the speed it follows); below it, one from the floor.
-    let fast = reserve(1.25);
+    // it a stop from 1.5 rad/s (a servo overshoots the speed it follows, and its readings are noisy);
+    // below it, one from the floor.
+    let fast = reserve(1.5);
     let mut sequence = 3;
     let mut moved = |c: &mut Controller, h: &mut Loopback, now: u64, low: f64, high: f64| {
         let collision = Some(boxed(c, h, now, low, high));
@@ -1725,7 +1726,7 @@ fn a_motion_box_covers_the_reference_ramp_and_a_stop_from_the_speed_bound() {
         Reason::CollisionViolation
     );
     assert!(moved(&mut c, &mut h, 5, -rest - 0.001, 0.02 + fast + 0.001).accepted);
-    assert_eq!(c.status().speed_bounds, vec![[0.5, 1.25]]);
+    assert_eq!(c.status().speed_bounds, vec![[0.5, 1.5]]);
     // The reference ramps on to 0.02 and rests there.
     assert_eq!(c.status().reference_ends, vec![0.02]);
     // Once the ramp ends the bound falls at the joint's stop acceleration, no faster.
@@ -1734,7 +1735,7 @@ fn a_motion_box_covers_the_reference_ramp_and_a_stop_from_the_speed_bound() {
     }
     let bound = c.status().speed_bounds[0][1];
     assert!(
-        (1.25 - 2.0 * 0.051..=1.25 - 2.0 * 0.049).contains(&bound),
+        (1.5 - 2.0 * 0.051..=1.5 - 2.0 * 0.049).contains(&bound),
         "{bound}"
     );
     assert_eq!(c.status().state, State::Executing);
