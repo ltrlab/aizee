@@ -3,11 +3,13 @@
 Updated 2026-10-10. This file is the current entry point; dated phase tables and
 device logs retain historical evidence, not an implicit statement of readiness.
 
-**The corrected direct-teleop candidate is qualified for activation and a bounded,
-attended left-J1 diagnostic trial. Activation is pending; physical smoothness is
+**The corrected direct-teleop release is active and prepared for a bounded,
+attended left-J1 diagnostic trial. Motors remain disabled; physical smoothness is
 not yet validated.** Runtime `20261010T191330Z-1624fda` was packaged from clean
-commit `1624fda` on `codex/teleop-direct-mirror`. The robot remains disabled on
-`20261010T175730Z-abfbbbd`; its failed trial and the retry failures are preserved.
+commit `1624fda` on `codex/teleop-direct-mirror` and activated with explicit user
+approval. All four previous releases, the failed trial and retry failures remain
+preserved. Helm is open on port 8760 with the trial profile and live-left selected;
+teleop is stopped, and only the torque-off stopped reader is running.
 
 The corrected path handles fresh immutable repeats without resetting approach,
 uses explicit position-only commands (zero client velocity/friction feedforward,
@@ -34,7 +36,9 @@ qualification on Jetson, with physical CAN inaccessible, passed:
 All 14 stopped motor identity/position/reference checks passed against this
 candidate. The full Minerva Check verdict is INCOMPLETE only because attended
 left/right joint sweeps remain pending. Both physical CAN links were verified
-down afterward. Evidence, hashes, scope and remaining activation action are in
+down afterward. The checks were repeated after activation against `current` at
+`build/direct-retry/operator-runs/minerva-check/20261010T212549Z.json`; all stopped
+checks passed. Evidence, hashes, scope and the disabled UI handoff are in
 `build/direct-retry/readiness.json`; complete remote traces are archived at
 `build/direct-retry/final-readiness-evidence.tar.gz`.
 

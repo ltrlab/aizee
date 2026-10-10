@@ -498,9 +498,30 @@ J1 remains Kp 150 / Kd 9.8. Idle (I) already enables physical motors; starting
 the Helm server only starts the stopped reader. Shutdown/recovery can return all
 joints to reference outside the trial window. Collision detection is disabled.
 
-Activation of this specific runtime and reopening Helm on the trial profile are
-the remaining operator actions. No physical tracking approval is inferred from
-these software checks. `build/direct-retry/readiness.json` records all evidence
+At qualification time, activation and reopening Helm were pending. The activation
+record below supersedes that deployment state. No physical tracking validation
+is inferred from these software checks. `build/direct-retry/readiness.json` records all evidence
 paths/hashes. The final remote archive SHA-256 is
 `c492c38fd12dbe3eb25023dcd9477c1b92e226ef661a40b149625f1baa13dbe7`.
 The original failed physical trace and both pre-GC retry failures remain intact.
+
+
+### Authorized activation and stopped handoff
+
+On 2026-10-10 the user explicitly approved activation, repeated stopped checks,
+and reopening Helm with motors disabled. Release `20261010T191330Z-1624fda`
+is now active; all four previous releases are preserved. Deployment verification
+and the on-robot smoke test passed. The post-activation Check ran against
+`/home/ltr/minerva/current`: all 14 identities, fault-free Reset states, positions
+and reference checks passed. Its INCOMPLETE verdict names only the pending
+attended live sweeps. Evidence:
+`build/direct-retry/operator-runs/minerva-check/20261010T212549Z.json`.
+
+Helm was reopened at `http://127.0.0.1:8760/` with the trial profile and copied
+operator routes. The live-left receiver is selected, the loop target is Jetson,
+collision mode is disabled, and teleop remains stopped with no controller process.
+The automatic torque-off reader is running (so CAN links are UP). No teleop Start,
+Idle, Enable, Engage or motion command was sent. Activation and final state are
+recorded in `build/direct-retry/activation.json`, `activated-ui-state.json`,
+`active-remote-state.json`, and the updated `readiness.json` in that directory.
+The next physical action is the bounded attended J1 diagnostic trial.
