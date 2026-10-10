@@ -694,11 +694,17 @@ class TeleopCore:
         if self.fault:
             # The receiver stopped itself and revoked the lease. It holds the arm: take it back there and
             # lower it, keeping the original reason on screen; a new session is needed to follow again.
-            if key == 'H' and self._lowering:
+            if key == 'H':
                 self._lowering = False
-                self.session.disable_now()
-                self.message = (f'{self._receiver_name} FAULT · {self.fault} · Disabled at your request: the arm '
-                                'is limp where it was. Stop the session and start it again.')
+                try:
+                    self.session.disable_now()
+                except Exception as exc:
+                    self.session.stop_error = str(exc) or type(exc).__name__
+                    self.message = (f'{self._receiver_name} FAULT · {self.fault} · Disable could not be confirmed: '
+                                    f'{self.session.stop_error}. Use the foot switch; the session remains faulted.')
+                else:
+                    self.message = (f'{self._receiver_name} FAULT · {self.fault} · Disabled at your request: the arm '
+                                    'is limp where it was. Stop the session and start it again.')
             elif self._lowering:
                 self._lower(started)
             return
@@ -1385,7 +1391,7 @@ class TeleopSession:
             raise ValueError('Use I, E, T, H or X')
         if self._view.get('phase') != 'running':
             raise ValueError('Start a teleop session first')
-        if self._view.get('fault'):
+        if self._view.get('fault') and key != 'H':
             raise ValueError('Teleop faulted: stop the session and start it again')
         self._send(('key', key))
 

@@ -14,7 +14,8 @@ import pytest
 
 from robot_platform.helm.manual_tuning import values
 from robot_platform.helm.server import create_app
-from robot_platform.helm.teleop import TeleopSession
+from robot_platform.helm.teleop import TeleopCore, TeleopSession
+from robot_platform.teleop.guarded_lifecycle import GuardedLifecycleSession
 
 
 TOKEN = {'X-Helm-Token': 'manual-test-token'}
@@ -304,3 +305,62 @@ def test_restore_during_hold_also_waits_for_receiver_ack(setup):
         assert setup.teleop.manual.revision == before['revision'] + 1
         assert not setup.teleop.snapshot()['tuning']['dirty']
     asyncio.run(run())
+
+
+def test_faulted_running_session_accepts_http_disable_but_no_motion_or_tuning(setup):
+    from aiohttp.test_utils import TestClient, TestServer
+
+    async def run():
+        core = await start(setup)
+        core.fault, core.state = 'Receiver stopped: tracking_error', 'FAULT'
+        await wait_until(lambda: setup.teleop.snapshot()['fault'] == core.fault)
+        async with TestClient(TestServer(setup.app())) as client:
+            for key in ('I', 'E', 'T', 'X'):
+                response = await client.post('/api/helm/teleop/key', json={'key': key}, headers=TOKEN)
+                assert response.status == 422
+            response = await client.post(ENDPOINT+'apply', json=payload(setup.teleop, kp=20.), headers=TOKEN)
+            assert response.status == 422 and not core.requests
+            response = await asyncio.wait_for(client.post('/api/helm/teleop/key',
+                json={'key': 'H'}, headers=TOKEN), timeout=1.)
+            assert response.status == 200
+            await wait_until(lambda: core.keys == ['H'])
+            assert (await response.json())['teleop']['fault'] == core.fault
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('state, lowering, owned', [
+    ('SHUTDOWN', True, True), ('FAULT', False, False), ('DISABLED', False, False)])
+def test_fault_disable_reaches_adapter_while_lowering_exhausted_or_already_disabled(state, lowering, owned):
+    calls = []
+    adapter = GuardedLifecycleSession.__new__(GuardedLifecycleSession)
+    adapter.lifecycle = SimpleNamespace(state=state, action=lambda *args, **kwargs: calls.append('local-disable'))
+    adapter.clock = lambda: 0.
+    adapter.owned = owned
+    adapter.controller = SimpleNamespace(owned=owned, disable=lambda: calls.append('disable'),
+        emergency_stop=lambda: calls.append('emergency-stop'))
+    core = TeleopCore.__new__(TeleopCore)
+    core.session, core.fault, core._lowering, core.live_arm = adapter, 'original tracking fault', lowering, 'left'
+    core._lower = lambda _: pytest.fail('H must not schedule another lowering cycle')
+    core._tick('H', 0.)
+    assert calls == ['local-disable', 'disable' if owned else 'emergency-stop']
+    assert not core._lowering and not adapter.owned
+    assert core.fault == 'original tracking fault' and 'Disabled at your request' in core.message
+    core._tick(None, .01)
+    assert len(calls) == 2  # No automatic rearm or further motion after operator Disable.
+
+
+def test_fault_disable_failure_preserves_original_fault_and_reports_unconfirmed_stop():
+    def fail():
+        raise OSError('receiver channel closed')
+
+    core = TeleopCore.__new__(TeleopCore)
+    core.session = SimpleNamespace(disable_now=fail, stop_error=None)
+    core.fault, core._lowering, core.live_arm = 'original tracking fault', True, 'left'
+    core._lower = lambda _: pytest.fail('An unconfirmed Disable must not resume lowering')
+    core._tick('H', 0.)
+    assert core.fault == 'original tracking fault'
+    assert core.session.stop_error == 'receiver channel closed'
+    assert not core._lowering
+    assert 'Disable could not be confirmed' in core.message and 'receiver channel closed' in core.message
+    assert 'Disabled at your request' not in core.message
+    core._tick(None, .01)

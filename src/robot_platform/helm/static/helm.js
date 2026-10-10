@@ -775,7 +775,8 @@ function renderTeleop(t) {
   session.textContent = running || starting ? 'Stop session' : live ? 'Start LIVE session' : 'Start session';
   session.className = running || starting || live ? 'danger' : 'primary';
   session.disabled = starting;
-  for (const button of document.querySelectorAll('.lifecycle button')) button.disabled = !running || !!t.fault;
+  for (const button of document.querySelectorAll('.lifecycle button'))
+    button.disabled = !running || (!!t.fault && button.dataset.key !== 'H');
   $('t-engage').innerHTML = ENGAGED.includes(t.state) ? 'Hold <kbd>T</kbd>' : 'Engage <kbd>T</kbd>';
   renderManual(t);
 

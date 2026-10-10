@@ -207,7 +207,9 @@ def test_session_relays_keys_and_route_edits_and_stops_cleanly(tmp_path):
         fake.fault = 'Guarded controller rejected request: wrong_owner'
         wait_until(lambda: session.snapshot()['fault'])
         with pytest.raises(ValueError, match='stop the session and start it again'):
-            session.key('H')
+            session.key('T')
+        session.key('H')
+        wait_until(lambda: fake.keys == ['I', 'E', 'H'])
     finally:
         session.stop()
     assert fake.closed and not session.active
