@@ -131,6 +131,15 @@ class GuardedControllerClient:
     def stop(self) -> dict:
         return self._call({"type": "stop", "authority": self._authority()})["status"]
 
+    def direct_update(self, joints, offered, *, valid_for_ms, ramp_efforts=None):
+        """Consume the previous reply's freshness token and return feedback plus the next one.
+
+        No retry or automatic re-offer: an expired command must not gain a new lifetime.
+        """
+        return self._call({'type': 'direct_update', 'authority': self._authority(),
+                           'identity': self.identity, 'offer': offered['offer']['id'], 'joints': joints,
+                           'valid_for_ms': valid_for_ms, 'ramp_efforts': ramp_efforts or []})
+
     def release(self) -> dict:
         return self._call({"type": "release", "authority": self._authority()})["status"]
 

@@ -46,13 +46,19 @@ def service_config(controller, device, reference, motor_models, *, bus=None, bus
     names = [joint['name'] for joint in controller['joints']]
     if not buses or len(set(buses)) != len(buses) or any(roster[name]['bus'] not in buses for name in names):
         raise ValueError(f'A live receiver drives the arms of its buses: every joint must be on {" or ".join(map(str, buses))}')
-    if len(buses) > 1 and (controller.get('collision') or {}).get('bound') != 'motion':
+    direct = controller.get('direct') is not None
+    if direct and (controller.get('collision') is not None
+                   or controller['identity']['collision_policy'] != 'disabled-v1'):
+        raise ValueError('Direct teleop requires an explicit disabled collision identity and no collision policy')
+    if len(buses) > 2:
+        raise ValueError('Teleop drives at most two arm buses')
+    if len(buses) > 1 and not direct and (controller.get('collision') or {}).get('bound') != 'motion':
         raise ValueError('A live receiver drives both arms only under a motion collision bound')
     pinned = {b['interface']: b['usb_serial'] for b in device['buses']}
     for name in buses:
         if not pinned.get(name):
             raise ValueError(f'{name} is not a pinned bus of {device["asset_id"]}')
-    return {'mode': 'teleop', 'endpoint': endpoint, 'period_us': period_us,
+    return {'mode': 'teleop_direct' if direct else 'teleop', 'endpoint': endpoint, 'period_us': period_us,
             'maximum_lateness_us': maximum_lateness_us, 'host_id': HOST_ID,
             'buses': [{'interface': name, 'usb_serial': pinned[name]} for name in buses],
             'conflicting_services': list(device['conflicting_services']),

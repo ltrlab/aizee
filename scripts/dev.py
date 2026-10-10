@@ -23,6 +23,7 @@ CORE = [
     'tests/contract/test_guarded_lifecycle_session.py', 'tests/contract/test_rehearsal.py',
     'tests/unit/test_mujoco_plant.py', 'tests/unit/test_physics_audit.py',
     'tests/contract/test_mujoco_receiver.py',
+    'tests/contract/test_direct_teleop.py',
 ]
 
 

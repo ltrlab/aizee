@@ -72,6 +72,14 @@ pub struct JointLimits {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct DirectPolicy {
+    pub command_ms: u64,
+    pub velocity_timeout_ms: u64,
+    pub limit_reaction_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     pub group: String,
     pub identity: Identity,
@@ -81,6 +89,8 @@ pub struct Config {
     pub joints: Vec<JointLimits>,
     #[serde(default)]
     pub collision: Option<collision::CollisionPolicy>,
+    #[serde(default)]
+    pub direct: Option<DirectPolicy>,
     /// Commands arrive this often (ms). A command moving at `velocity` is ramped over it, tick by
     /// tick, from where the previous one pointed (position - velocity x period) to its position,
     /// with that velocity fed forward: smooth motion from a periodic stream. 0: applied as sent.
@@ -89,7 +99,21 @@ pub struct Config {
 }
 
 impl Config {
+    fn limit_reaction_s(&self) -> Option<f64> {
+        self.direct.as_ref().map(|p| p.limit_reaction_ms)
+            .or_else(|| self.collision.as_ref().map(|p| p.reaction_ms))
+            .map(|ms| (self.feedback_timeout_ms + ms) as f64 / 1000.0)
+    }
+
     pub fn validate(&self) -> Result<(), &'static str> {
+        if let Some(policy) = &self.direct {
+            if self.collision.is_some() || self.identity.collision_policy != "disabled-v1"
+                || policy.command_ms == 0 || policy.command_ms > self.lease_ms
+                || policy.velocity_timeout_ms == 0 || policy.velocity_timeout_ms > policy.command_ms
+                || self.interpolation_ms > policy.velocity_timeout_ms || policy.limit_reaction_ms > 1000 {
+                return Err("invalid direct policy, collision identity or freshness budget");
+            }
+        }
         if let Some(policy) = &self.collision {
             if !valid_id(&policy.world_revision)
                 || !matches!(policy.scope.as_str(), "all" | "inter_branch")
@@ -282,6 +306,10 @@ impl Controller {
             .zip(&self.ramp_efforts)
         {
             *command = *target;
+            if self.config.direct.as_ref().is_some_and(|p|
+                self.now_ms.saturating_sub(self.target_at_ms) >= p.velocity_timeout_ms) {
+                command.velocity = 0.0;
+            }
             if period <= 0.0 {
                 continue; // No interpolation: applied as sent (no ramp, so no ramp effort).
             }
@@ -395,14 +423,14 @@ impl Controller {
     /// or, while driven under a collision policy, its approach speed toward that limit.
     fn allowed_speed(&self, i: usize, position: f64, velocity: f64) -> f64 {
         let limit = &self.config.joints[i];
-        match &self.config.collision {
-            Some(policy) if self.active() => {
+        match self.config.limit_reaction_s() {
+            Some(reaction) if self.active() => {
                 let distance = if velocity > 0.0 {
                     limit.upper - position
                 } else {
                     position - limit.lower
                 };
-                collision::limit_speed(policy, &self.config, limit, distance)
+                collision::limit_speed_with_reaction(limit, distance, reaction)
             }
             _ => limit.max_velocity,
         }
@@ -545,8 +573,10 @@ impl Controller {
     /// there; and within the collision box in force. The limits alone where those leave no room.
     fn hold_band(&self, i: usize) -> (f64, f64) {
         let limit = &self.config.joints[i];
-        let margin = self.config.collision.as_ref().map_or(0.0, |policy| {
-            collision::limit_reserve(policy, &self.config, limit, 0.0)
+        let margin = self.config.limit_reaction_s().map_or(0.0, |reaction| {
+            if limit.gripper { return 0.0; }
+            let v = collision::limit_speed_with_reaction(limit, 0.0, reaction);
+            v * reaction + v * v / (2.0 * limit.stop_acceleration)
         });
         let (mut lower, mut upper) = (limit.lower + margin, limit.upper - margin);
         if lower > upper {
@@ -793,6 +823,15 @@ impl Controller {
         }
     }
 
+    fn issue_offer(&mut self) -> Result<Offer, Reason> {
+        let id = self.next_offer.checked_add(1).ok_or(Reason::InvalidOffer)?;
+        let expires_at_ms = self.now_ms.checked_add(self.config.lease_ms).ok_or(Reason::InvalidOffer)?;
+        self.next_offer = id;
+        let offer = Offer { id, issued_at_ms: self.now_ms, expires_at_ms };
+        self.offers[id as usize % 16] = Some(offer.clone());
+        Ok(offer)
+    }
+
     fn consume_offer(&mut self, id: u64) -> Result<Offer, Reason> {
         let slot = &mut self.offers[id as usize % 16];
         if slot.as_ref().is_none_or(|offer| offer.id != id) {
@@ -989,22 +1028,23 @@ impl Controller {
         offered: &mut Option<Offer>,
         apply_now: bool,
     ) -> Result<(), Reason> {
+        // Normalize only this explicit wire operation into the existing whole-batch
+        // command validator. Ordinary Move cannot bypass a direct policy's deadlines.
+        let (request, direct_offer) = match request {
+            Request::DirectUpdate { authority, identity, offer, valid_for_ms, joints, ramp_efforts } => {
+                if self.config.direct.is_none() { return Err(Reason::InvalidCommand); }
+                if valid_for_ms == 0 || valid_for_ms > self.config.direct.as_ref().unwrap().command_ms {
+                    return Err(Reason::InvalidCommand);
+                }
+                (Request::Move { authority, identity, joints, collision: None, ramp_efforts }, Some((offer, valid_for_ms)))
+            }
+            other => (other, None),
+        };
         match request {
+            Request::DirectUpdate { .. } => unreachable!("normalized above"),
             Request::Status => {}
             Request::Offer => {
-                let id = self.next_offer.checked_add(1).ok_or(Reason::InvalidOffer)?;
-                let expires_at_ms = self
-                    .now_ms
-                    .checked_add(self.config.lease_ms)
-                    .ok_or(Reason::InvalidOffer)?;
-                self.next_offer = id;
-                let offer = Offer {
-                    id,
-                    issued_at_ms: self.now_ms,
-                    expires_at_ms,
-                };
-                self.offers[id as usize % 16] = Some(offer.clone());
-                *offered = Some(offer);
+                *offered = Some(self.issue_offer()?);
             }
             Request::Acquire {
                 epoch,
@@ -1160,6 +1200,9 @@ impl Controller {
                 ramp_efforts,
             } => {
                 self.authorize(&authority)?;
+                if self.config.direct.is_some() != direct_offer.is_some() {
+                    return Err(Reason::InvalidCommand);
+                }
                 if !matches!(self.state, State::Holding | State::Executing) {
                     return Err(Reason::InvalidState);
                 }
@@ -1193,6 +1236,21 @@ impl Controller {
                     {
                         return Err(Reason::InvalidCommand);
                     }
+                    if let Some(policy) = &self.config.direct {
+                        if !limit.gripper {
+                            let reaction = (self.config.feedback_timeout_ms + policy.limit_reaction_ms) as f64 / 1000.0;
+                            let v = collision::limit_speed_with_reaction(limit, 0.0, reaction);
+                            let margin = v * reaction + v * v / (2.0 * limit.stop_acceleration);
+                            let distance = if command.velocity > 0.0 { limit.upper - command.position }
+                                           else { command.position - limit.lower };
+                            let start = command.position - command.velocity * self.interpolation_s();
+                            if command.position.min(start) < limit.lower + margin - EDGE_EPS
+                                || command.position.max(start) > limit.upper - margin + EDGE_EPS
+                                || command.velocity.abs() > collision::limit_speed_with_reaction(limit, distance, reaction) + EDGE_EPS {
+                                return Err(Reason::InvalidCommand);
+                            }
+                        }
+                    }
                 }
                 // A ramp effort is finite and, with the command's own, within the effort limit.
                 for ((command, limit), ramp) in joints
@@ -1204,6 +1262,13 @@ impl Controller {
                         return Err(Reason::InvalidCommand);
                     }
                 }
+                let direct = if let Some((id, valid_for_ms)) = direct_offer {
+                    let offer = self.consume_offer(id)?;
+                    let deadline = offer.issued_at_ms.saturating_add(valid_for_ms)
+                        .min(offer.expires_at_ms);
+                    if self.now_ms >= deadline { return Err(Reason::OfferExpired); }
+                    Some((deadline, offer))
+                } else { None };
                 let verdict = self.validate_collision(collision.as_ref(), Some(&joints))?;
                 self.install_collision(
                     collision.as_ref(),
@@ -1232,12 +1297,15 @@ impl Controller {
                 if let Some((_, offer)) = &verdict {
                     self.renew_with(offer);
                 }
-                self.command_deadline = self.lease.as_ref().map(|l| l.expires_at_ms);
+                if let Some((_, offer)) = &direct { self.renew_with(offer); }
+                self.command_deadline = direct.as_ref().map(|(deadline, _)| *deadline)
+                    .or_else(|| self.lease.as_ref().map(|l| l.expires_at_ms));
                 self.state = State::Executing;
                 if apply_now && hardware.apply(&self.commands).is_err() {
                     self.fault(Reason::HardwareFault, hardware);
                     return Err(Reason::HardwareFault);
                 }
+                if direct.is_some() { *offered = Some(self.issue_offer()?); }
             }
             Request::Stop { authority } => {
                 self.authorize(&authority)?;

@@ -68,6 +68,18 @@ pub enum Request {
         #[serde(default)]
         ramp_efforts: Vec<f64>,
     },
+    /// Collision-disabled latest target. The previous reply's one-use offer bounds
+    /// dispatch age; an accepted update returns the next offer without another RPC.
+    DirectUpdate {
+        authority: Authority,
+        identity: Identity,
+        offer: u64,
+        /// Expiry relative to offer issuance, conservatively shortened for source age.
+        valid_for_ms: u64,
+        joints: Vec<JointCommand>,
+        #[serde(default)]
+        ramp_efforts: Vec<f64>,
+    },
     Stop {
         authority: Authority,
     },

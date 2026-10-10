@@ -173,6 +173,11 @@ pub fn limit_speed(
     joint: &crate::JointLimits,
     distance: f64,
 ) -> f64 {
+    limit_speed_with_reaction(joint, distance, limit_reaction_s(policy, config))
+}
+
+/// Joint-limit braking independent of collision geometry or envelopes.
+pub fn limit_speed_with_reaction(joint: &crate::JointLimits, distance: f64, reaction: f64) -> f64 {
     let cap = joint.max_velocity;
     if joint.gripper {
         return cap;
@@ -182,7 +187,6 @@ pub fn limit_speed(
         return floor;
     }
     // v * reaction + v^2 / (2 a) = distance
-    let reaction = limit_reaction_s(policy, config);
     let a = joint.stop_acceleration;
     let v = a * ((reaction * reaction + 2.0 * distance / a).sqrt() - reaction);
     v.clamp(floor, cap)

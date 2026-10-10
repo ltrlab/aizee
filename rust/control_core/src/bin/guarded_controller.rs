@@ -44,7 +44,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if config.mode == robot_control::service::Mode::ZeroTorqueTrial && !reference_confirmed {
         return Err("physical enable requires operator verification of the reference pose and --confirm-reference-pose".into());
     }
-    if config.mode == robot_control::service::Mode::Teleop && !(allow_teleop && reference_confirmed)
+    if matches!(config.mode, robot_control::service::Mode::Teleop | robot_control::service::Mode::TeleopDirect)
+        && !(allow_teleop && reference_confirmed)
     {
         return Err("physical teleop requires --allow-powered-teleop and --confirm-reference-pose after the operator verifies the arm's reference pose".into());
     }

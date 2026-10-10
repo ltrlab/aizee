@@ -37,6 +37,7 @@ fn periodic_execution_expiry_stop_and_fault_do_not_touch_allocator() {
         collision_policy: "p".into(),
     };
     let config = Config {
+        direct: None,
         collision: Some(robot_control::collision::CollisionPolicy {
             world_revision: "fixed".into(),
             scope: "all".into(),

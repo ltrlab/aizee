@@ -116,10 +116,10 @@ class GuardedLifecycleSession:
     def _rows(self, offered, feedback, offer_started):
         """The lifecycle's feedback rows from a receiver offer's feedback, stamped on this clock."""
         now_ms = offered["status"]["now_ms"]
-        if len(feedback) != len(self.compiler.names):
+        if len(feedback) != len(self.controller.joint_names):
             raise ValueError("Complete robot feedback required")
         rows = []
-        for name, item in zip(self.compiler.names, feedback):
+        for name, item in zip(self.controller.joint_names, feedback):
             age = (now_ms - item["sampled_at_ms"]) / 1000
             if item["fault"] or not math.isfinite(age) or age < 0:
                 raise ValueError("Faulted or invalid receiver feedback")

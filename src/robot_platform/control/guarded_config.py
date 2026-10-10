@@ -161,7 +161,12 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
     joint_map = cad_map(reference, steps, directions, transmissions)
     by_motor = {row['actuator']: (joint, row) for joint, row in joint_map.items()}
     receiver = profile['receiver']
-    policy = receiver['collision']
+    disabled = receiver.get('collision_mode') == 'disabled'
+    if disabled and (backend is not None or collision_bound is not None or receiver.get('collision')):
+        raise ValueError('Disabled collision mode must not carry a collision backend or policy')
+    if not disabled and backend is None:
+        raise ValueError('Collision checking requires its backend')
+    policy = None if disabled else receiver['collision']
     interpolation_ms = int(receiver.get('interpolation_ms', 0))
     verified = {row['motor']: row.get('direction_verified') is True for row in directions.values()}
     verified.update({t['motor']: t.get('direction_verified') is True for t in transmissions})
@@ -254,12 +259,16 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
                        'opens': ((1 if row['scale'] > 0 else -1) * (1 if abs(cad_hi) >= abs(cad_lo) else -1)
                                  if name in grippers else None)})
     config = {'group': profile['id'],
-              'identity': {'model': backend.runtime_model.revision, 'calibration': calibration_revision(joint_map),
-                           'collision_policy': backend.policy_revision},
+              'identity': {'model': model.sha256 if disabled else backend.runtime_model.revision,
+                           'calibration': calibration_revision(joint_map),
+                           'collision_policy': 'disabled-v1' if disabled else backend.policy_revision},
               'lease_ms': receiver['lease_ms'], 'feedback_timeout_ms': receiver['feedback_timeout_ms'],
-              'settled_velocity': receiver['settled_velocity'], 'joints': joints, 'interpolation_ms': interpolation_ms,
-              'collision': {'world_revision': backend.runtime_model.world_revision, 'scope': policy['scope'],
-                            'max_verdict_ms': policy['max_verdict_ms'], 'reaction_ms': policy['reaction_ms']}}
+              'settled_velocity': receiver['settled_velocity'], 'joints': joints, 'interpolation_ms': interpolation_ms}
+    if disabled:
+        config['direct'] = dict(receiver['direct'])
+    else:
+        config['collision'] = {'world_revision': backend.runtime_model.world_revision, 'scope': policy['scope'],
+                               'max_verdict_ms': policy['max_verdict_ms'], 'reaction_ms': policy['reaction_ms']}
     if collision_bound == 'motion':
         config['collision']['bound'] = 'motion'
     return {'config': config, 'joint_map': joint_map, 'lifecycle': lifecycle,

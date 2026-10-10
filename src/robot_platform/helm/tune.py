@@ -43,6 +43,8 @@ class TuneCore:
         self.bundle, self.clock = deepcopy(bundle), clock
         self.evidence_root = Path(evidence_root) if evidence_root else Path.home() / 'minerva' / 'evidence'
         self.profile = load_profile(bundle['teleop_profile'])
+        if self.profile['receiver'].get('collision_mode') == 'disabled':
+            raise ValueError('Servo tuning requires its collision-enabled calibration profile; direct teleop is a separate mode')
         self.period_s = loop_period_s(self.profile)  # As teleop's: Minerva Check verifies at teleop's rate.
         receiver = bundle.get('receiver') or {'mode': 'virtual'}
         # 'verify': Minerva Check's live joint sweep. 'return': the arm from a pose the operator confirmed

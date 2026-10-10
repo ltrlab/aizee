@@ -18,6 +18,8 @@ pub enum Mode {
     /// the receiver's leases, collision envelopes and stops, after the same
     /// watchdog and reference-pose gates as the zero-torque trial.
     Teleop,
+    /// Explicit collision-disabled teleop; ownership, limit braking and physical gates remain enforced.
+    TeleopDirect,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -45,7 +47,7 @@ pub struct ServiceConfig {
 impl ServiceConfig {
     /// Modes that may physically enable motors after the watchdog and reference gates.
     pub fn physical_enable(&self) -> bool {
-        matches!(self.mode, Mode::ZeroTorqueTrial | Mode::Teleop)
+        matches!(self.mode, Mode::ZeroTorqueTrial | Mode::Teleop | Mode::TeleopDirect)
     }
 
     pub fn validate(&self) -> Result<(), String> {
@@ -129,7 +131,11 @@ impl ServiceConfig {
                 "zero-torque trial requires one motor, zero gains and lease <=250 ms".into(),
             );
         }
-        if self.mode == Mode::Teleop {
+        if matches!(self.mode, Mode::Teleop | Mode::TeleopDirect) {
+            let direct = self.mode == Mode::TeleopDirect;
+            if direct != self.controller.direct.is_some() {
+                return Err("direct controller policy requires explicit teleop_direct mode".into());
+            }
             // One bus drives one arm. Both arms (two buses) only under a motion collision bound,
             // whose boxes are tight enough to certify one arm against the other. Every Arm/Move
             // needs a receiver-checked envelope, and stale feedback or an idle owner must stop it
@@ -139,13 +145,13 @@ impl ServiceConfig {
                 .collision
                 .as_ref()
                 .is_some_and(|policy| policy.bound == crate::collision::Bound::Motion);
-            if self.buses.len() > 2 || (self.buses.len() == 2 && !motion) {
+            if self.buses.len() > 2 || (self.buses.len() == 2 && !motion && !direct) {
                 return Err(
                     "physical teleop drives one arm (one CAN bus), or both (two) under a motion collision bound"
                         .into(),
                 );
             }
-            if self.controller.collision.is_none()
+            if (!direct && self.controller.collision.is_none())
                 || self.controller.lease_ms > 250
                 || self.controller.feedback_timeout_ms > 100
             {

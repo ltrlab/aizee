@@ -44,7 +44,9 @@ def reaction_s(receiver):
 
 def limit_reaction_s(receiver):
     """The receiver's reaction time at a joint limit (s): the feedback timeout and reaction allowance."""
-    return (receiver['feedback_timeout_ms'] + receiver['collision']['reaction_ms']) / 1000
+    reaction = (receiver['direct']['limit_reaction_ms'] if receiver.get('direct')
+                else receiver['collision']['reaction_ms'])
+    return (receiver['feedback_timeout_ms'] + reaction) / 1000
 
 
 def approach_speed(joint, reaction, distance):

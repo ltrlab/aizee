@@ -43,13 +43,27 @@ def load_profile(path):
             or profile.get('runtime_approved') is not False):
         raise ValueError('Helm teleop needs a virtual, unapproved guarded teleop profile')
     mode = profile['receiver'].get('collision_mode', 'enforced')
-    if mode not in ('enforced', 'advisory'):
-        raise ValueError('collision_mode must be enforced or advisory')
+    if mode not in ('enforced', 'advisory', 'disabled'):
+        raise ValueError('collision_mode must be enforced, advisory or disabled')
     if mode == 'advisory' and profile['backend'] != 'virtual':
         raise ValueError('Advisory collision checks are only allowed with the virtual receiver')
     receiver = profile['receiver']
     interpolation = receiver.get('interpolation_ms', 40)
-    if (type(interpolation) is not int or not 10 <= interpolation <= 40
+    if mode == 'disabled':
+        hz, direct = receiver.get('loop_hz'), receiver.get('direct') or {}
+        if (type(hz) is not int or not 50 <= hz <= 200 or 1000 % hz
+                or type(interpolation) is not int or not 0 <= interpolation <= 1000 / hz
+                or receiver.get('collision') is not None
+                or set(direct) != {'command_ms', 'velocity_timeout_ms', 'limit_reaction_ms'}
+                or any(type(v) is not int for v in direct.values())
+                or not 2 * 1000 / hz < direct.get('command_ms', 0) <= receiver['lease_ms']
+                or not interpolation <= direct.get('velocity_timeout_ms', 0) <= 1000 / hz
+                or direct.get('velocity_timeout_ms', 0) <= 0
+                or not 0 <= direct.get('limit_reaction_ms', -1) <= 1000):
+            raise ValueError('Direct teleop needs explicit timing, limit reaction and no collision policy')
+    elif receiver.get('direct') is not None or receiver.get('loop_hz') is not None:
+        raise ValueError('Independent loop rate and direct policy require disabled collision mode')
+    elif (type(interpolation) is not int or not 10 <= interpolation <= 40
             or not 0 < receiver.get('compute_budget_s', 0) <= .6 * interpolation / 1000):
         raise ValueError('The receiver interpolates over 10-40 ms (the loop period), with compute under 60% of it')
     live = profile.get('live')
@@ -65,7 +79,8 @@ def load_profile(path):
 def loop_period_s(profile):
     """The loop's period: the receiver ramps each command over exactly one, so commands neither stall between
     ramps nor cut one short."""
-    return profile['receiver'].get('interpolation_ms', 40) / 1000
+    receiver = profile['receiver']
+    return 1 / receiver['loop_hz'] if receiver.get('collision_mode') == 'disabled' else receiver.get('interpolation_ms', 40) / 1000
 
 
 def source_misses(period_s):
@@ -173,8 +188,10 @@ class TeleopCore:
             raise ValueError('The receiver is virtual, or live on the left, right or both arms')
         # Both arms in one receiver need enforced checks of one arm against the other: boxes the receiver checks
         # against the motion commanded (MotionEnvelopeCompiler). The virtual receiver can rehearse them.
-        if self.live_arm == 'both' or receiver.get('collision') == 'motion':
+        if self.collision_mode != 'disabled' and (self.live_arm == 'both' or receiver.get('collision') == 'motion'):
             self.collision_mode = 'motion'
+        if self.collision_mode == 'disabled' and receiver.get('collision') is not None:
+            raise ValueError('Direct teleop cannot request a collision bound')
         self.open_receiver = open_receiver or self._open_receiver
         self._powered = False  # Live: the receiver's enable permit is single-use.
         # No routes_path: a loop on the robot computer, where Helm keeps the file (route_edits).
@@ -340,11 +357,13 @@ class TeleopCore:
         if self.live_arm in ('left', 'right'):
             # One arm on physical motors: the other arm is not in this receiver and is never enabled. Its checks
             # against the other arm (parked at its reference) are advisory.
-            if self.collision_mode != 'advisory':
+            if self.collision_mode not in ('advisory', 'disabled'):
                 raise ValueError('Live teleop of one arm needs advisory collision checks in the profile')
             reference, steps, transmissions = arm_subset(reference, steps, transmissions, self.live_arm)
-        backend = self.open_backend(model)
-        self._closers.append(backend.close)
+        backend = None
+        if self.collision_mode != 'disabled':
+            backend = self.open_backend(model)
+            self._closers.append(backend.close)
         derived = derive_receiver(reference=reference, steps=steps, directions=self.bundle['directions'],
                                   transmissions=transmissions, model=model, limits=self.bundle['limits'],
                                   profile=self.profile, backend=backend, servo=self.bundle.get('servo'),
@@ -384,10 +403,12 @@ class TeleopCore:
         names = tuple(joint['name'] for joint in derived['config']['joints'])
         controller = GuardedControllerClient(exchange, group=derived['config']['group'],
                                              identity=derived['config']['identity'], joint_names=names)
-        budget = self.profile['receiver']['compute_budget_s']
+        budget = self.profile['receiver'].get('compute_budget_s')
         # Model joints outside this receiver (the other arm, if one is live) stay at the reference pose.
         fixed = {name: pose[name] for name in pose if name not in derived['joint_map']}
-        if self.collision_mode == 'advisory':
+        if self.collision_mode == 'disabled':
+            compiler = None
+        elif self.collision_mode == 'advisory':
             compiler = AdvisoryCompiler(backend, derived['config'], derived['joint_map'], fixed=fixed,
                                         cad_limits=derived['cad_limits'], compute_budget_s=budget)
         elif self.collision_mode == 'motion':
@@ -400,8 +421,13 @@ class TeleopCore:
                                                  compute_budget_s=budget, cad_limits=derived['cad_limits'])
         lifecycle = TeleopLifecycle(derived['lifecycle'], clock=self.clock,
                                     max_source_misses=source_misses(self.period_s))
-        session = GuardedLifecycleSession(controller, compiler, lifecycle, lambda: harness.last,
-                                          period_s=self.period_s, cycle_budget_s=CYCLE_BUDGET_S, clock=self.clock)
+        if self.collision_mode == 'disabled':
+            from robot_platform.teleop.direct_lifecycle import DirectLifecycleSession
+            session = DirectLifecycleSession(controller, derived['config'], lifecycle, lambda: harness.last,
+                                             period_s=self.period_s, cycle_budget_s=CYCLE_BUDGET_S, clock=self.clock)
+        else:
+            session = GuardedLifecycleSession(controller, compiler, lifecycle, lambda: harness.last,
+                                              period_s=self.period_s, cycle_budget_s=CYCLE_BUDGET_S, clock=self.clock)
         self.derived, self.harness, self.session, self.compiler = derived, harness, session, compiler
         self.leaders = self.open_leaders(leader_profile)
         self._closers.append(self.leaders.close)
