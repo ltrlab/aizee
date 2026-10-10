@@ -329,7 +329,9 @@ def test_teleop_sweeps_every_right_arm_joint_to_its_ends_at_speed_on_a_simulated
                            leaders=SimpleNamespace(saved=ranges, missing=lambda routes: []))._bundle()
     bundle = dict(bundle, receiver={'mode': 'live', 'arm': 'right', 'motor_models': {}})
     clock = Clock()
-    open_receiver, opened = plant_receiver(helm, bundle.get('servo'), clock, tmp_path / 'receiver')
+    # Measured inertia: on SPECS' (J2 at a fifth of its 1.3 kg m2) the sweep tripped at J2's top in 2 of 18 noise
+    # seeds; on its measured inertia J2 still overshot its 1.2 rad/s command past its 1.5 cap in 1 of 8 (2026-10-09).
+    open_receiver, opened = plant_receiver(helm, bundle.get('servo'), clock, tmp_path / 'receiver', measured=True)
     leaders = Leaders(clock)
     core = TeleopCore(bundle, open_leaders=lambda _profile: leaders, open_receiver=open_receiver, clock=clock)
 
