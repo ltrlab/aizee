@@ -212,22 +212,25 @@ acceptance are separate report fields. Evaluate `--hz 200`
 separately; that option does not promote the default profile to 200 Hz.
 
 Current verification and remaining platform work are recorded in
-[development status](../DEVELOPMENT_STATUS.md). No physical service, deployment
-or robot motion was started by this implementation task.
+[development status](../DEVELOPMENT_STATUS.md). Qualification and the later
+authorized activation/stopped checks are recorded separately below.
 
 ## Live trial preparation, 2026-10-10
 
-The candidate is prepared for an **attended left-arm trial after activation and
-stopped motor checks**. Dual-arm timing qualification remains blocked. This is
+The release is **active and ready to begin an attended left-arm trial**; stopped
+motor checks passed. Dual-arm timing qualification remains blocked. This is
 not approval for unattended operation or evidence of physical tracking accuracy.
 
 The Jetson at `10.42.0.1` passed host-key and machine-id verification. Qualification
 ran under `/home/ltr/minerva/validation/direct-20261010`; its pristine `release/`
 is separate from `qualification/`, which adds benchmark fixtures. Both have
 verified manifests; the latter also has an externally stored source manifest.
-The active `/home/ltr/minerva/current` was not changed. **`check --remote-root`
-selects preflight only; Helm still executes the active release.** Do not launch
-the direct profile against the old active receiver.
+After user authorization, `/home/ltr/minerva/current` was switched to clean release
+`20261010T175730Z-abfbbbd`, whose 122 runtime files are byte-identical to the tested
+candidate. All previous releases were preserved, including rollback target
+`20261010T142650Z-a66afa7`. **`check --remote-root` selects preflight only; Helm
+executes the active release.** Activation evidence is in
+`build/direct-qualification/activation.json`.
 
 The complete-loop benchmark, `scripts/benchmark_direct_loop.py`, runs actual
 TeleopCore/run_loop, recorder and UI construction. Its virtual motor emulator
@@ -271,13 +274,19 @@ original calibration files and original overhaul edits are unchanged.
 
 Software-only preflight passed all applicable checks, including direct receiver
 configuration validation for 7/7/14 joints, dependency smoke, correct local/remote
-files, pinned adapters and absence of another motor owner. Motor reads and live
-sweeps were skipped, so Minerva Check correctly remains **INCOMPLETE**.
+files, pinned adapters and absence of another motor owner. The authorized stopped
+scan after activation also passed: all 14 motors matched identity/firmware,
+reported fault-free Reset state and correct power-on range, and lay inside swept
+limits. Both CAN links returned DOWN. The left arm meets the starting pose; the
+right gripper is +0.13 rad from reference versus a 0.10 rad tolerance. No enable
+or physical motion was requested. Evidence:
+`calibration_runs/minerva-check/20261010T175855Z.json`. Live sweeps remain pending,
+so generic Minerva Check is still **INCOMPLETE**, not a physical qualification GO.
 
-After the deployment owner activates the verified candidate:
+For the next attended trial:
 
-1. Run Minerva Check with the direct profile and the operator present. Resolve
-   stopped motor identity, position/range and reference-pose checks first.
+1. Keep the left arm in the checked reference pose. Repeat stopped Minerva Check
+   if the hardware, power state or pose changed since the recorded scan.
 2. Launch the command above from the feature worktree. Select **Jetson → Live
    left arm**, with the robot in its reference pose and the foot switch in reach.
 3. Start the session, use I → E → T, and make a small movement of one leader joint

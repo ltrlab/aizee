@@ -84,12 +84,13 @@ acceptance; it is not measured physical latency. Keep the 100 Hz default; the
 
 ### Direct teleop live-test preparation
 
-**Prepared for an attended left-arm trial after authorized activation and stopped
-motor checks. Dual-arm timing qualification remains blocked.** The wired Jetson
+**Ready to begin an attended left-arm trial. Authorized activation and stopped
+motor checks passed. Dual-arm timing qualification remains blocked.** The wired Jetson
 is available at `10.42.0.1`; isolated user/network namespaces made actual Linux
 vcan testing possible without exposing physical CAN. Both leader USB boards were
-present. No physical CAN command, motor enable, service activation or active-release
-switch was performed; physical canL/canR remained DOWN.
+present. Qualification used no physical CAN. The user then authorized activation
+and stopped-only motor checks; no motor enable or physical motion was requested.
+The stopped scan returned physical canL/canR to DOWN.
 
 - Receiver vcan: 3000/3000 at 100 Hz, 2.88 ms p99 processing, zero deadline misses,
   and replay/expiry/requested-stop/stale-feedback/emergency-stop checks passed.
@@ -121,10 +122,18 @@ after the final gate; tested runtime and benchmark sources stayed unchanged.
 
 The candidate under `/home/ltr/minerva/validation/direct-20261010/release` passed
 all software-only Minerva Check stages and receiver configuration validation for
-left/right/both. Motor reads and live sweeps were skipped, so Check is correctly
-INCOMPLETE. The active release remains `20261010T142650Z-a66afa7`; Helm still runs
-`current`, even when preflight used `--remote-root`. Candidate activation is a
-separate deployment-owner action before a physical trial.
+left/right/both. After user authorization, clean release
+**`20261010T175730Z-abfbbbd`** was activated; every runtime file is byte-identical
+to the qualified candidate. All existing releases, including rollback target
+`20261010T142650Z-a66afa7`, were preserved.
+
+Activated stopped check `calibration_runs/minerva-check/20261010T175855Z.json`:
+all 14 motors answered with matching identity/firmware, fault-free Reset state,
+correct power-on range, and positions inside their swept ranges. The left arm
+passes its live starting-pose condition. The right gripper is +0.13 rad from
+reference, outside the 0.10 rad starting tolerance. Live sweeps remain pending,
+so generic Check is INCOMPLETE rather than a physical qualification GO.
+Activation evidence is `build/direct-qualification/activation.json`.
 
 The launcher now verifies a checkout-owned Python import and supports an explicit
 existing SSH key. Saved operator signs/history were preserved in this worktree;
