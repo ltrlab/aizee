@@ -2966,3 +2966,34 @@ with late-cycle logging) finished and was saved. kp 215, kd 3.5, 1.5 rad/s,
 the 2026-09-30 failure passed, and no drive dropped out. No loop cycle ran late,
 so the earlier 1.2 rad/s verdict lapse was intermittent and its cause is still
 unknown; every sweep now logs one. Left J1–J6 are calibrated; the grippers are not.
+
+### 2026-10-09 — J2 speeds lowered to what the shoulders follow; Check lag share 55%
+
+Left J2 was re-swept (`sweep-20261010T013440Z`, release `b9ab372`), this time
+without a trip: a plan that waited for its joint now speeds up again from rest.
+It was not saved:
+
+- No gain rung passed. kp 220 and 154 rippled 0.10–0.18 Nm at rest (buzz) or
+  overshot 15%. kp 110 and 77 were quiet and settled, but are below the
+  121 kp needed to hold 20% of gravity within 0.040 rad. So it kept the
+  profile's 220 / 21.
+- It followed 1.2 rad/s in both directions (0.039 rad lag). It fell short of
+  1.5 rad/s lifting (1.29 rad/s).
+- Its pass across the range at 1.2 rad/s lagged 0.046 rad. That is pinned at
+  the lead cap (0.6 × 0.080), so the command had to wait for the joint. At
+  1.0 rad/s it lagged 0.033.
+- On 2026-09-30 the same joint passed its range at 1.5 rad/s with 0.033 rad of
+  lag, so it has lost top speed since; the cause is not yet known.
+
+The saved J2s were capped by hand (`77c85bd`), keeping their gains: left
+1.5 → 1.0 rad/s, right 1.5 → 1.2 rad/s. Right J2 had tripped in Minerva Check
+descending from horizontal at 1.5 rad/s.
+
+Minerva Check now passes a joint's range pass with lag up to 55% of its
+tracking bound, up from 50% (`109b0b9`). The sweep sizes the bound at twice
+the lag it measured, so a check held to half left no room for a
+re-measurement: left J1 lagged 0.019 rad against 0.0195. 55% stays under the
+lead cap (60%), where a joint that cannot keep up pins.
+
+The J2 buzz at rest (220 / 21) is still open. The next step is a short test
+of rungs between kp 121 and 154 only, not a whole sweep.
