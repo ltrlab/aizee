@@ -525,3 +525,33 @@ Idle, Enable, Engage or motion command was sent. Activation and final state are
 recorded in `build/direct-retry/activation.json`, `activated-ui-state.json`,
 `active-remote-state.json`, and the updated `readiness.json` in that directory.
 The next physical action is the bounded attended J1 diagnostic trial.
+
+
+### Windows launcher startup repair
+
+The first post-activation UI Start failed before physical receiver construction:
+the real-USB leader process did not start. The task-local `start-trial.py` used
+unguarded top-level `runpy.run_module(..., run_name="__main__")`. Windows
+multiprocessing spawn re-imported that file, opened a second Helm, and hit the
+parent's direction-session lock. The native runtime and its timing qualification
+were unchanged; the earlier startup-only UI check had not exercised this path.
+
+The corrected `start-trial.ps1` runs identity verification in
+`check-trial-launch.py`, then executes `python -m robot_platform helm` directly.
+The Python shortcut is also guarded and launches that normal module in a child
+process. Original launchers, logs and fault state remain in
+`build/direct-retry/launcher-failure`.
+
+Verification used this exact launcher and the UI's Jetson virtual receiver with
+real USB leaders, without lifecycle keys. The first probe stopped on its own
+overstrict assertion when a transient 4 ms leader timeout appeared, while the
+session remained running/DISABLED/disarmed with no fault. That incomplete report
+is retained; no runtime timeout or miss budget changed. The final startup probe
+recorded 20 one-second snapshots, required DISABLED/disarmed throughout, usable
+leader targets, and no session fault; transient timeout snapshots were recorded
+separately. It then stopped cleanly, restored live-left selection, and independent
+checks found no USB child or remote receiver/harness. This is startup/cleanup
+proof only, not a new timing or physical-tracking qualification. Reports:
+`build/direct-retry/launcher-spawn-qualification.json`,
+`build/direct-retry/launcher-spawn-qualification-complete.json`, and
+`build/direct-retry/launcher-spawn-cleanup.json`.

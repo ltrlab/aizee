@@ -11,6 +11,18 @@ approval. All four previous releases, the failed trial and retry failures remain
 preserved. Helm is open on port 8760 with the trial profile and live-left selected;
 teleop is stopped, and only the torque-off stopped reader is running.
 
+
+A subsequent UI Start exposed a Windows spawn bug in the task-local launcher:
+its unguarded `runpy` entry point re-opened Helm in the USB child and collided
+with the existing calibration lock. The launcher now runs a separate read-only
+preflight and the normal `python -m robot_platform helm` entry point. The actual
+corrected launcher passed a 20-second real-USB/virtual-receiver startup and
+shutdown check; no I/E/T keys or physical motor commands were sent. The native
+release is unchanged. Original logs and the launcher are preserved under
+`build/direct-retry/launcher-failure`; final proof is
+`build/direct-retry/launcher-spawn-qualification-complete.json`. Live-left is
+selected again, stopped, awaiting the attended physical trial.
+
 The corrected path handles fresh immutable repeats without resetting approach,
 uses explicit position-only commands (zero client velocity/friction feedforward,
 unchanged PD and gravity), and suspends cyclic GC during direct control after
