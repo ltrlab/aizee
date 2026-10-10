@@ -255,10 +255,13 @@ class TeleopLifecycle:
         # Speed from measured positions at least SETTLE_WINDOW_S apart, not the drives'
         # speed readings: at rest those read up to ~0.2 rad/s on Minerva, while
         # positions stay put to a few ten-thousandths of a radian.
+        # A gripper is not waited for: it rests short of a target by its friction over its stiffness, or on what
+        # it holds (the left one rested 0.074 rad from its reference, and Engage and Shutdown never settled,
+        # 2026-10-09). It trails its command, as the receiver lets it.
         then = next(((t, positions) for t, positions in reversed(self._history) if now - t >= SETTLE_WINDOW_S), None)
         arrived = then is not None and all(
-            abs(row['position']-q) <= joint['tolerance']
-            and abs(row['position']-p)/(now - then[0]) <= joint['settled_velocity']
+            joint.get('gripper') or (abs(row['position']-q) <= joint['tolerance']
+                                     and abs(row['position']-p)/(now - then[0]) <= joint['settled_velocity'])
             for row, q, p, joint in zip(measured, goal, then[1], self._joints))
         if not arrived:
             self._settled_since = None

@@ -48,17 +48,22 @@ class Clock:
         return self.now
 
 
-def plant_receiver(helm, servo, clock, directory, disturbance=None, start=None):
-    """An open_receiver for the right arm's simulated joints, with gravity 10% over the fed model, resting at
-    `start` ({motor: rad}; the reference otherwise)."""
+def plant_receiver(helm, servo, clock, directory, disturbance=None, start=None, arm='right', measured=False):
+    """An open_receiver for an arm's simulated joints (both arms' with arm None), with gravity 10% over the fed
+    model, resting at `start` ({motor: rad}; the reference otherwise). `measured`: each joint's inertia and
+    friction from its servo sweep where it has them (static friction a third over), SPECS otherwise."""
     truth = {motor: dict(fit, A=fit['A'] * 1.1) for motor, fit in ((servo or {}).get('gravity') or {}).items()}
     terms = gravity_model(helm.model, helm.mapping, [m for m in helm.reference['motors']
-                                                     if m['name'].startswith('right')], truth)
+                                                     if arm is None or m['name'].startswith(arm)], truth)
     opened = []
 
     def open_receiver(config, device, reference):
         names = [joint['name'] for joint in config['joints']]
         spec = {name: SPECS[name.split('_')[-1]] for name in names}
+        for name in names if measured else ():
+            torque = ((((servo or {}).get('joints') or {}).get(name) or {}).get('measured') or {}).get('torque') or {}
+            inertia, friction = torque.get('inertia') or spec[name][0], torque.get('friction') or spec[name][1]
+            spec[name] = (inertia, friction, max(spec[name][2], 4 / 3 * friction))
         plant = ArmPlant([dict(name=n, inertia=spec[n][0], friction=spec[n][1], static=spec[n][2],
                                q=(start or {}).get(n, 0.)) for n in names],
                          gravity={n: (lambda pose, t=terms[n]: gravity_effort(t, pose)) for n in names if n in terms},
@@ -361,5 +366,72 @@ def test_teleop_sweeps_every_right_arm_joint_to_its_ends_at_speed_on_a_simulated
         assert reached['right_arm_j5'][0] < -math.pi
         # J2 lifts the arm to its end, gravity fed forward.
         assert reached['right_arm_j2'][1] == pytest.approx(usable['right_arm_j2'][1], abs=.01)
+    finally:
+        core.close()
+
+
+@pytest.mark.parametrize('arm', ['left', 'right', pytest.param('both', marks=pytest.mark.xfail(strict=True, reason=(
+    'Under the two-arm motion bound a joint breaking away from stiction as the leaders start moving outruns '
+    '1.25x its command for 3 readings, and the receiver trips (left J3 read 0.91 rad/s on a 0.80 bound)')))])
+def test_an_arm_engages_follows_and_shuts_down_with_its_gripper_resting_short_on_a_simulated_robot(helm, tmp_path,
+                                                                                                 arm):
+    # Live, both arms, 2026-10-09: Engage tripped and never reached TELEOP, and Shutdown never disabled, the motors
+    # left on. Under the two-arm motion bound a gripper (commanded with no velocity) could move no faster than the
+    # 0.5 rad/s floor; and a gripper rests short of its target by its static friction over its stiffness (0.15 / 2
+    # here; the left one rested 0.074 rad from its reference), past the 0.05 rad every joint had to settle within.
+    # Here an arm engages with its trigger pulled, follows, and shuts down to disabled, on noisy 16-bit feedback.
+    leader_profile = json.loads((DEVICES / 'gello-dual-viewer.json').read_text(encoding='utf-8'))
+    ranges = {'schema': SCHEMA, 'kind': KIND, 'profile': leader_profile['id'], 'pins': pins(leader_profile),
+              'units': UNITS, 'runtime_approved': False, 'leaders': {
+                  name: {joint['name']: {'center_rad': center, 'span_rad': span}
+                         for joint, center, span in zip(item['joints'], CENTERS[name], SPANS)}
+                  for name, item in leader_profile['leaders'].items()},
+              'reference': {'captured_at': 'fixture', 'leaders': {
+                  name: {joint['name']: (center + HANG) % (2 * math.pi)
+                         for joint, center in zip(item['joints'], CENTERS[name])}
+                  for name, item in leader_profile['leaders'].items()}}}
+    profile = json.loads((DEVICES / 'minerva-teleop.json').read_text(encoding='utf-8'))
+    profile.update(leader_profile=str(DEVICES / 'gello-dual-viewer.json'), live=LIVE)
+    path = tmp_path / 'teleop.json'
+    path.write_text(json.dumps(profile))
+    bundle = TeleopSession(helm, path, runs=tmp_path / 'runs',
+                           leaders=SimpleNamespace(saved=ranges, missing=lambda routes: []))._bundle()
+    bundle = dict(bundle, receiver={'mode': 'live', 'arm': arm, 'motor_models': {}})
+    clock = Clock()
+    open_receiver, opened = plant_receiver(helm, bundle.get('servo'), clock, tmp_path / 'receiver',
+                                           arm=None if arm == 'both' else arm, measured=True)
+    leaders = Leaders(clock)
+    core = TeleopCore(bundle, open_leaders=lambda _profile: leaders, open_receiver=open_receiver, clock=clock)
+
+    def run(key=None, *, until=None, seconds):
+        for k in range(max(1, round(seconds / core.period_s))):
+            core.tick(key if k == 0 else None, clock())
+            clock.now += core.period_s
+            assert core.fault is None, core.fault
+            if until is not None and core.session.lifecycle.state == until:
+                return
+        assert until is None, f'still {core.session.lifecycle.state}, expected {until}: {core.message}'
+    try:
+        core.build()
+        assert core.collision_mode == ('motion' if arm == 'both' else 'advisory')
+        run('I', seconds=.1)
+        run('E', seconds=.4)
+        for name in CENTERS:  # Triggers pulled part way: the grippers open toward it.
+            leaders.offsets[name][6] = HANG + .15
+        run('T', until='TELEOP', seconds=20)
+        start = clock()
+        while clock() - start < 4.:  # Follow the leaders a little (shoulders and elbows), then let go.
+            t = clock() - start
+            for name in CENTERS:
+                for k in range(4):
+                    leaders.offsets[name][k] = HANG + .25 * math.sin(1.2 * t + .5 * k) * min(1., t)
+            run(seconds=core.period_s)
+        for name in CENTERS:
+            leaders.offsets[name] = [HANG] * 7
+        run(seconds=2.)
+        run('X', until='DISABLED', seconds=40)
+        plant = opened[0].plant
+        arms = {n: q for n, q in zip(plant.names, plant.q) if 'gripper' not in n}
+        assert all(abs(q) < .05 for q in arms.values()), arms
     finally:
         core.close()

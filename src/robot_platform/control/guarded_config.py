@@ -224,6 +224,7 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
         lifecycle.append({'name': name, **bounds,
                           **{key: float(settings[key]) for key in ('hold_kp', 'hold_kd', 'max_velocity')},
                           **{key: float(settings[key]) for key in LIFECYCLE_KEYS},
+                          **({'gripper': True} if gripper else {}),
                           'max_lead': bounds['upper'] - bounds['lower'] if gripper
                           else LEAD_FRACTION * float(settings['max_tracking_error']),
                           'zero_position': home,
