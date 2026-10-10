@@ -40,26 +40,116 @@ def test_direct_cache_rejects_mismatched_reply_before_reading_feedback():
         session._cache({'status': {'now_ms': 100}}, 10.)
 
 
-def test_zero_interpolation_keeps_acceleration_and_velocity_feedforward():
-    joint = dict(name='q', lower=-2., upper=2., hold_kp=10., hold_kd=1., max_velocity=1.,
+def direct_joint():
+    return dict(name='q', lower=-2., upper=2., hold_kp=10., hold_kd=1., max_velocity=1.,
                  align_speed=.1, shutdown_speed=.1, max_lead=.2, tolerance=.01,
                  settled_velocity=.05, zero_position=0., interpolation_s=0., direct_velocity=True,
                  approach=dict(lower=-2., upper=2., max_velocity=1.25, max_tracking_error=.3,
                                stop_acceleration=2., reaction_s=.04))
-    life = TeleopLifecycle([joint], settle_time_s=0.)
-    def rows(t, q=0.):
-        return [dict(name='q', position=q, velocity=0., sequence=round(t*1000)+1, sampled_at=t)]
-    life.action('idle', rows(0.), now=0.)
-    life.action('enable', rows(0.), now=0.)
-    life.action('engage', rows(0.), target=rows(0.), now=0.)
-    life.step(rows(.05), target=rows(.05), now=.05)
+
+
+def direct_rows(t, q=0.):
+    return [dict(name='q', position=q, velocity=0., sequence=round(t*1000)+1, sampled_at=t)]
+
+
+def following_direct(**options):
+    life = TeleopLifecycle([direct_joint()], settle_time_s=0., **options)
+    life.action('idle', direct_rows(0.), now=0.)
+    life.action('enable', direct_rows(0.), now=0.)
+    life.action('engage', direct_rows(0.), target=direct_rows(0.), now=0.)
+    life.step(direct_rows(.05), target=direct_rows(.05), now=.05)
     assert life.state == 'TELEOP'
+    return life
+
+
+def test_zero_interpolation_keeps_acceleration_and_velocity_feedforward():
+    life = following_direct()
+    def rows(t, q=0.):
+        return direct_rows(t, q)
     first = life.step(rows(.06), target=rows(.06, 1.), now=.06)
     assert first['positions'][0] == pytest.approx(2 * .01**2)
     assert first['joints'][0]['velocity'] == pytest.approx(.02)
     assert 'acceleration' in first['limits']['q']
     hold = life.step(rows(.07), target=None, now=.07)
     assert hold['positions'] == first['positions'] and hold['joints'][0]['velocity'] == 0
+
+
+def test_fresh_repeats_continue_bounded_motion_without_refreshing_source_or_loss_budget():
+    life = following_direct(allow_repeated_source=True)
+    source = direct_rows(.06, 1.)
+    first = life.step(direct_rows(.06), target=source, now=.06)
+    repeat = life.step(direct_rows(.07, first['positions'][0]), target=source, now=.07)
+    assert repeat['positions'][0] > first['positions'][0]
+    assert repeat['joints'][0]['velocity'] == pytest.approx(.04)
+    assert life._source == source and life._misses == 1
+    second = life.step(direct_rows(.08, repeat['positions'][0]), target=source, now=.08)
+    assert second['joints'][0]['velocity'] == pytest.approx(.06)
+    held = life.step(direct_rows(.09, second['positions'][0]), target=source, now=.09)
+    assert held['state'] == 'HOLD' and held['joints'][0]['velocity'] == 0
+    resumed_source = direct_rows(.10, 1.)
+    assert life.step(direct_rows(.10, second['positions'][0]), target=resumed_source, now=.10)['state'] == 'HOLD'
+
+
+def test_repeated_and_missing_samples_share_the_same_loss_budget():
+    life = following_direct(allow_repeated_source=True)
+    source = direct_rows(.06, .5)
+    life.step(direct_rows(.06), target=source, now=.06)
+    life.step(direct_rows(.07), target=source, now=.07)
+    life.step(direct_rows(.08), target=None, now=.08)
+    assert life.step(direct_rows(.09), target=source, now=.09)['state'] == 'HOLD'
+
+
+def test_repeated_stationary_goal_never_invents_position_or_velocity():
+    life = following_direct(allow_repeated_source=True)
+    proposal = life.step(direct_rows(.06), target=direct_rows(.05), now=.06)
+    assert proposal['positions'] == [0.] and proposal['joints'][0]['velocity'] == 0.
+
+
+@pytest.mark.parametrize('invalid', ['position', 'timestamp', 'stale', 'backwards'])
+def test_repeat_opt_in_still_rejects_mutated_stale_or_reordered_source(invalid):
+    life = following_direct(allow_repeated_source=True)
+    source = direct_rows(.06, .5)
+    life.step(direct_rows(.06), target=source, now=.06)
+    now = .07
+    if invalid == 'position': source[0]['position'] = .6
+    elif invalid == 'timestamp': source[0]['sampled_at'] = .061
+    elif invalid == 'backwards': source[0]['sequence'] -= 1
+    else: now = .111
+    with pytest.raises(ValueError):
+        life.step(direct_rows(now), target=source, now=now)
+    assert life.state == 'FAULT'
+
+
+def test_valid_repeat_uses_the_same_approach_lead_bounds_as_a_new_goal():
+    # Measured motion passed the previous target during a reversal. A normal
+    # duplicate must re-evaluate the bounded goal rather than enter static HOLD.
+    life = following_direct(allow_repeated_source=True)
+    life.target = (-.17,)
+    life._last_measured = (-.35,)
+    life._sent_velocities = (.1,)
+    source = direct_rows(.05, .5)
+    life._source = source
+    repeated = life.step(direct_rows(.06, -.38), target=source, now=.06)
+    assert repeated['state'] == 'TELEOP'
+    assert abs(repeated['positions'][0] - (-.38)) <= direct_joint()['max_lead'] + 1e-12
+    assert abs(repeated['joints'][0]['velocity']) <= direct_joint()['max_velocity']
+    assert 'tracking_lead' in repeated['limits']['q']
+
+
+@pytest.mark.parametrize('direction', [-1., 1.])
+def test_constructed_direct_lead_endpoint_survives_next_missing_sample(direction):
+    joint = direct_joint()
+    joint['max_lead'] = .027731747305049924
+    life = TeleopLifecycle([joint], allow_repeated_source=True)
+    measured = direction * 1.399970531463623
+    life.state, life.target = 'TELEOP', (direction * 1.3704579049057413,)
+    life._last_time, life._last_measured = .05, (measured,)
+    life._source = direct_rows(.05)
+    command = life.step(direct_rows(.06, measured), target=direct_rows(.05), now=.06)
+    assert abs(command['positions'][0]-measured) <= joint['max_lead']
+    held = life.step(direct_rows(.07, measured), target=None, now=.07)
+    assert held['state'] == 'TELEOP' and held['positions'] == command['positions']
+    assert held['joints'][0]['velocity'] == 0.
 
 
 def test_mapper_repeated_samples_hold_without_new_age_and_changed_duplicates_fault():

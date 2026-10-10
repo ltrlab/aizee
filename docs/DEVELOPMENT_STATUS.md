@@ -3,6 +3,38 @@
 Updated 2026-10-10. This file is the current entry point; dated phase tables and
 device logs retain historical evidence, not an implicit statement of readiness.
 
+**Live direct teleop is not ready for another trial.** The first attended left-arm
+run (`live-20261010T180632Z`, active release `20261010T175730Z-abfbbbd`)
+produced visibly jerky motion and a J3 holding-lead fault. It returned to reference
+and disabled. Preserve this failure; the earlier near-stationary timing pass did
+not qualify moving-input behavior. No corrected release has been deployed.
+
+The 32.6-second TELEOP phase had no scheduling misses; the native CAN loop had
+none either. Approximately 10.5% of TELEOP reads repeated the previous USB sample
+(about 89.4 unique samples/s). Each repeat was incorrectly treated as absent input:
+all commanded velocities became zero, and subsequent motion restarted its ramp.
+The final repeat checked J3 against the static holding bound: 0.029513 rad error
+versus 0.027732 rad allowed. Offline checkpoint replay reproduces that fault.
+
+A local candidate distinguishes validated, fresh repeated input from missing
+input. It continues the bounded approach toward the unchanged observed goal,
+retains source sequence/timestamp and receiver expiry, counts repeats against the
+same loss budget, and leaves gains and all safety thresholds unchanged. It also
+records commanded velocity/effort and retains feedback on the first failing cycle.
+This removes the reproduced duplicate handling defect; **it does not establish
+smooth physical tracking**. A reached sampled goal can still drop velocity
+feedforward to zero. Moving, quantized-input/reversal qualification and a separate
+decision about velocity feedforward are required before another physical trial.
+Evidence and exact limitations are in
+[the failed-trial investigation](development/DIRECT_TELEOP.md#failed-left-arm-trial-2026-10-10).
+
+The correction passed **416 required Python tests with zero skips/xfails and
+111 Rust tests** at `build/dev-check/20261010T182211Z-516a4b69/report.json`.
+Runtime/test source stayed frozen during the gate; this results note followed it.
+The separate moving-input comparison ran 24 cases/24,556 cycles without lifecycle
+faults or position/speed violations, but still exposed command-velocity pulses.
+That smoothness limitation blocks another live trial despite the regression pass.
+
 The integration checkpoint preserves the 11 uncommitted overhaul files captured
 after `a66afa7`. The original `overhaul` working directory remains independent.
 The two test failures seen in the earlier review were subsequently edited in that
@@ -84,8 +116,9 @@ acceptance; it is not measured physical latency. Keep the 100 Hz default; the
 
 ### Direct teleop live-test preparation
 
-**Ready to begin an attended left-arm trial. Authorized activation and stopped
-motor checks passed. Dual-arm timing qualification remains blocked.** The wired Jetson
+**Historical preparation result, superseded by the failed physical trial above:**
+authorized activation and stopped motor checks passed. Dual-arm timing
+qualification remains blocked. The wired Jetson
 is available at `10.42.0.1`; isolated user/network namespaces made actual Linux
 vcan testing possible without exposing physical CAN. Both leader USB boards were
 present. Qualification used no physical CAN. The user then authorized activation

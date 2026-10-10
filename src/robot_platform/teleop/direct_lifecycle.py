@@ -99,10 +99,14 @@ class DirectLifecycleSession(GuardedLifecycleSession):
             offered, rows, feedback = self._cached or self._offer()
             self.last_feedback = deepcopy(rows)
             now = self.clock()
+            # Preserve the observations even if proposal construction faults.
+            # Otherwise the first divergent cycle loses precisely its evidence.
+            record.update(feedback=feedback, target=deepcopy(target), mapped_at=now,
+                          lifecycle_before=self.lifecycle.state,
+                          feedback_age_ms=[(now-row['sampled_at'])*1000 for row in rows])
             proposal = (self.lifecycle.action(action, rows, target=target, now=now) if action
                         else self.lifecycle.step(rows, target=target, now=now))
-            record.update(proposal=deepcopy(proposal), feedback=feedback, target=deepcopy(target),
-                          mapped_at=now)
+            record.update(proposal=deepcopy(proposal))
             operation = proposal['operation']
             self._deadline(started, target)
             rpc_started = self.clock()
@@ -150,4 +154,5 @@ class DirectLifecycleSession(GuardedLifecycleSession):
             raise
         finally:
             record.update(completed_at=self.clock(), stop_error=self.stop_error,
+                          lifecycle_after=self.lifecycle.state,
                           rpc_count=self.controller.exchanges - exchanges)

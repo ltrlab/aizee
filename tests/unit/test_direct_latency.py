@@ -102,3 +102,18 @@ def test_trace_record_keeps_existing_fields_and_optional_schedule_metadata():
     assert trace['receiver_epoch'] == 'boot-a'
     assert trace['scheduled_at'] == 1. and trace['full_loop_ms'] == 4.
     assert trace['skipped_slots'] == 2 and trace['scheduled_deadline_miss'] is False
+
+
+def test_trace_keeps_feedforward_and_first_fault_observations():
+    observations = dict(feedback=[dict(position=.3, velocity=.4, effort=.5, sequence=8)],
+                        feedback_age_ms=[12.], lifecycle_before='TELEOP', lifecycle_after='FAULT',
+                        target=[dict(position=.6, sampled_at=1., sequence=7)],
+                        started_at=1.02, completed_at=1.025, failure='holding lead bound')
+    fault = trace_record(observations)
+    assert fault['measured'] == [.3] and fault['measured_velocity'] == [.4]
+    assert fault['measured_effort'] == [.5] and fault['feedback_sequence'] == [8]
+    assert fault['feedback_age_ms'] == [12.] and fault['desired'] == [.6]
+    assert fault['lifecycle_after'] == 'FAULT' and fault['commanded_velocity'] == []
+    moving = trace_record(dict(observations, proposal=dict(operation='move', positions=[.32],
+                              joints=[dict(velocity=.2, effort=.7)])))
+    assert moving['commanded_velocity'] == [.2] and moving['commanded_effort'] == [.7]

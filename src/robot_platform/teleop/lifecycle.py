@@ -25,7 +25,7 @@ class TeleopLifecycle:
     """Shared semantic operations, independent of each GUI's key bindings."""
     def __init__(self, joints, *, feedback_max_age_s=.03, target_max_age_s=.05,
                  max_skew_s=.02, max_step_s=.08, settle_time_s=.1, max_source_misses=2,
-                 clock=time.perf_counter):
+                 allow_repeated_source=False, clock=time.perf_counter):
         if not isinstance(joints, (list, tuple)) or not joints:
             raise ValueError('A complete ordered joint configuration is required')
         self._joints = tuple(deepcopy(joints))
@@ -56,11 +56,13 @@ class TeleopLifecycle:
         if (any(not _finite(value) or value <= 0 for value in values)
                 or not _finite(settle_time_s) or settle_time_s < 0
                 or max_skew_s > min(feedback_max_age_s, target_max_age_s)
+                or type(allow_repeated_source) is not bool
                 or type(max_source_misses) is not int or not 0 <= max_source_misses <= 10):
             raise ValueError('Finite positive freshness, skew and cycle bounds are required')
         self.feedback_max_age_s, self.target_max_age_s = feedback_max_age_s, target_max_age_s
         self.max_skew_s, self.max_step_s, self.settle_time_s = max_skew_s, max_step_s, settle_time_s
         self.max_source_misses = max_source_misses
+        self.allow_repeated_source = allow_repeated_source
         self.clock = clock
         self.state, self.reason, self.target = 'DISABLED', None, None
         self._last_time, self._settled_since = None, None
@@ -306,9 +308,16 @@ class TeleopLifecycle:
             # ramp and the sample's age (about 80 ms) held right J1 to 0.57 rad/s at a 0.048 rad lead.
             ahead = (row['position'] - last) / dt * (max(0., now - row['sampled_at']) + period) if dt > 0 else 0.
             up_from, down_from = row['position'] + max(0., ahead), row['position'] + min(0., ahead)
+            lead_lower, lead_upper = down_from-lead_down, up_from+lead_up
+            if self.allow_repeated_source:
+                # Construct endpoints inside the exact bound. Otherwise subtracting
+                # a rounded endpoint from feedback can exceed max_lead by one ULP
+                # and falsely trip the unchanged strict HOLD check on source loss.
+                lead_lower = math.nextafter(lead_lower, down_from)
+                lead_upper = math.nextafter(lead_upper, up_from)
             # A target beyond a shrunken lead may come back toward the joint at once: that only eases the pull.
-            low = max(joint['lower'], down_from-lead_down, min(previous-down*step, up_from+lead_up))
-            high = min(joint['upper'], up_from+lead_up, max(previous+up*step, down_from-lead_down))
+            low = max(joint['lower'], lead_lower, min(previous-down*step, lead_upper))
+            high = min(joint['upper'], lead_upper, max(previous+up*step, lead_lower))
             if low > high:
                 raise ValueError(f'Measured pose exceeds command lead/slew bounds: {joint["name"]}')
             if not joint['lower'] <= desired <= joint['upper']:
@@ -371,17 +380,27 @@ class TeleopLifecycle:
                          for q, row, joint in zip(self.target, measured, self._joints)):
                     raise ValueError('Measured pose exceeds the holding lead bound')
             elif self.state in {'ENGAGING', 'TELEOP'}:
-                self._misses = 0
                 previous_source = self._source
                 source = self._read(target, now, feedback=False)
-                if dt > 0 and previous_source is not None and any(
-                        row['sequence'] == previous['sequence'] for row, previous in zip(source, previous_source)):
+                repeated = previous_source is not None and any(
+                    row['sequence'] == previous['sequence'] for row, previous in zip(source, previous_source))
+                if dt > 0 and repeated and not self.allow_repeated_source:
                     raise ValueError('Mapped source did not advance')
-                goal = [row['position'] for row in source]
-                speed = 'align_speed' if self.state == 'ENGAGING' else 'max_velocity'
-                self.target = self._approach(measured, goal, speed, dt, now)
-                if self.state == 'ENGAGING' and self._settled(measured, goal, now, dt):
-                    self.state = 'TELEOP'
+                self._misses = self._misses + 1 if repeated else 0
+                if self._misses > self.max_source_misses:
+                    self.state = 'HOLD'
+                    self.reason = 'Leader input lost; holding measured pose until Engage'
+                    self.target = self._hold_measured(measured)
+                    self._source, self._misses = None, 0
+                else:
+                    # Direct loops can outpace USB samples. Continue the bounded
+                    # approach to the same observed goal, without extrapolating it
+                    # or refreshing its sequence/age. A duplicate is not a stop.
+                    goal = [row['position'] for row in source]
+                    speed = 'align_speed' if self.state == 'ENGAGING' else 'max_velocity'
+                    self.target = self._approach(measured, goal, speed, dt, now)
+                    if self.state == 'ENGAGING' and self._settled(measured, goal, now, dt):
+                        self.state = 'TELEOP'
             elif self.state == 'SHUTDOWN':
                 goal = [joint['zero_position'] for joint in self._joints]
                 self.target = self._approach(measured, goal, 'shutdown_speed', dt, now)

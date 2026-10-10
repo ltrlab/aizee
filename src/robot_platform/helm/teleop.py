@@ -424,7 +424,8 @@ class TeleopCore:
             compiler = CollisionEnvelopeCompiler(backend, derived['config'], derived['joint_map'],
                                                  compute_budget_s=budget, cad_limits=derived['cad_limits'])
         lifecycle = TeleopLifecycle(derived['lifecycle'], clock=self.clock,
-                                    max_source_misses=source_misses(self.period_s))
+                                    max_source_misses=source_misses(self.period_s),
+                                    allow_repeated_source=self.collision_mode == 'disabled')
         if self.collision_mode == 'disabled':
             from robot_platform.teleop.direct_lifecycle import DirectLifecycleSession
             session = DirectLifecycleSession(controller, derived['config'], lifecycle, lambda: harness.last,
@@ -492,11 +493,14 @@ class TeleopCore:
             samples = unwrap_samples(self.leaders.poll(), self.centers)
             mapped = self.clock()
             samples = {name: sample for name, sample in samples.items() if name in self.route_leaders}
+            repeated = False
             if self.collision_mode == 'disabled':
                 target = self.mapper.map(samples, now=self.clock(), allow_repeated=True)
                 if target is None:
-                    self._input_timing = {'poll_ms': (mapped-polled)*1000, 'repeated_source': True}
-                    return None, None
+                    # The mapper has validated the cached payload and original
+                    # age. Reuse only that observed goal, never a failed poll.
+                    target = deepcopy(self.last_target)
+                    repeated = True
             else:
                 target = self.mapper.map(samples, now=self.clock())
         except Exception as exc:
@@ -504,6 +508,8 @@ class TeleopCore:
         self.last_target = target
         self._input_timing = {'poll_ms': (mapped-polled)*1000, 'map_ms': (self.clock()-mapped)*1000,
                               'source_age_at_map_ms': (self.clock()-min(row['sampled_at'] for row in target))*1000}
+        if repeated:
+            self._input_timing['repeated_source'] = True
         margin = max(self._recent_cycle_s(), .01)
         age = self.clock() - min(row['sampled_at'] for row in target)
         if age + margin >= self.session.lifecycle.target_max_age_s:

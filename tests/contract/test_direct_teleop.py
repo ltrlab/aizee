@@ -1,6 +1,7 @@
 """Direct one/two-arm sessions against the actual receiver; no collision backend."""
 import json
 import math
+from copy import deepcopy
 
 import pytest
 
@@ -89,7 +90,8 @@ def test_disabled_profile_rejects_implicit_or_conflicting_configuration(bundle):
         load_profile(path)
 
 
-def test_direct_repeated_source_holds_and_loss_requires_explicit_engage(bundle):
+@pytest.mark.parametrize('arm', ['left', 'both'])
+def test_direct_repeated_moving_goal_keeps_bounded_motion_and_loss_requires_engage(bundle, arm):
     data, path = bundle
     direct_profile(path)
     clock, cached, frozen = Clock(), {}, [False]
@@ -100,24 +102,142 @@ def test_direct_repeated_source_holds_and_loss_requires_explicit_engage(bundle):
             cached['samples'] = poll()
         return cached['samples']
     leaders.poll = source
-    core = TeleopCore(dict(data, receiver={'mode': 'live', 'arm': 'both', 'motor_models': {}}),
-        open_leaders=lambda _: leaders, open_receiver=lambda config, _, ref: Receiver(config, ref, clock),
+    requests = []
+    def open_receiver(config, _, reference):
+        receiver = Receiver(config, reference, clock)
+        exchange = receiver.exchange
+        def recorded(request):
+            requests.append(deepcopy(request))
+            return exchange(request)
+        receiver.exchange = recorded
+        return receiver
+    core = TeleopCore(dict(data, receiver={'mode': 'live', 'arm': arm, 'motor_models': {}}),
+        open_leaders=lambda _: leaders, open_receiver=open_receiver,
         open_backend=lambda _: pytest.fail('no geometry'), clock=clock)
     try:
         core.build()
         run(core, clock, 'I')
         run(core, clock, 'E')
         run(core, clock, 'T', until='TELEOP', limit=1000)
-        frozen[0] = True
+        assert core.session.lifecycle.max_source_misses == 8
+        previous = core.session.lifecycle.target[0]
+        leaders.offsets['left'][0] += .03
         run(core, clock)
+        target = deepcopy(core.session.last_cycle['target'])
+        first = core.session.last_cycle['proposal']['joints'][0]
+        goal = target[0]['position']
+        direction = math.copysign(1., goal-previous)
+        assert direction * first['velocity'] > 0
+        assert direction * (goal-first['position']) > .005
+        joint = core.session.lifecycle.joints[0]
+        requests.clear()
+        frozen[0] = True
+        previous = first
+        for _ in range(2):
+            run(core, clock)
+            cycle = core.session.last_cycle
+            command = cycle['proposal']['joints'][0]
+            assert cycle['accepted'] and cycle['rpc_count'] == 1
+            assert cycle['target'] == target  # No new sequence, timestamp or goal.
+            assert core._input_timing['repeated_source'] is True
+            assert core.session.lifecycle.state == 'TELEOP'
+            assert direction * (command['position']-previous['position']) > 0
+            assert direction * (goal-command['position']) >= -1e-12
+            assert direction * command['velocity'] > 0
+            assert command['velocity'] == pytest.approx(
+                (command['position']-previous['position']) / core.period_s)
+            assert abs(command['velocity']) <= joint['max_velocity'] + 1e-9
+            assert abs(command['velocity']) <= abs(previous['velocity']) + (
+                joint['approach']['stop_acceleration'] * core.period_s) + 1e-9
+            previous = command
+        assert len(requests) == 2 and all(r['type'] == 'direct_update' for r in requests)
         assert core.mapper.fault is None
-        assert all(j['velocity'] == 0 for j in core.session.last_cycle['proposal']['joints'])
+        assert all(0 < r['valid_for_ms'] <= 30 for r in requests)
         run(core, clock, until='HOLD', limit=20)
         frozen[0] = False
         run(core, clock, limit=10)
         assert core.session.lifecycle.state == 'HOLD'
+        assert all(j['velocity'] == 0 for j in core.session.last_cycle['proposal']['joints'])
+        run(core, clock, 'T', until='TELEOP', limit=1000)
         run(core, clock, 'H')
         assert core.session.lifecycle.state == 'DISABLED'
+    finally:
+        core.close()
+
+
+def test_repeated_goal_keeps_original_source_deadline_across_new_receiver_offers(bundle):
+    """New receiver tokens cannot extend the original source sample's validity."""
+    data, path = bundle
+    direct_profile(path)
+    clock, requests, receivers = Clock(), [], []
+    leaders = Leaders(clock)
+
+    def open_receiver(config, _, reference):
+        receiver = Receiver(config, reference, clock)
+        exchange = receiver.exchange
+        def recorded(request):
+            offered = deepcopy((receiver.last.get('reply') or {}).get('offer'))
+            reply = exchange(request)
+            if request['type'] == 'direct_update':
+                requests.append(dict(request=deepcopy(request), offered=offered, reply=deepcopy(reply)))
+            return reply
+        receiver.exchange = recorded
+        receivers.append(receiver)
+        return receiver
+
+    core = TeleopCore(dict(data, receiver={'mode': 'live', 'arm': 'left', 'motor_models': {}}),
+        open_leaders=lambda _: leaders, open_receiver=open_receiver,
+        open_backend=lambda _: pytest.fail('no geometry'), clock=clock)
+    try:
+        core.build()
+        run(core, clock, 'I')
+        run(core, clock, 'E')
+        run(core, clock, 'T', until='TELEOP', limit=1000)
+        requests.clear()
+        run(core, clock)
+        target = deepcopy(core.session.last_cycle['target'])
+        original = deepcopy(target)
+        expires = min(row['sampled_at'] for row in target) + core.session.lifecycle.target_max_age_s
+        receiver_bound = math.floor((expires-receivers[0].epoch)*1000 + 1e-7)
+
+        # Exercise the session's own freshness guard up to the boundary. Helm
+        # additionally withholds goals within its unchanged dispatch margin.
+        for _ in range(4):
+            cycle = core.session.cycle(target=deepcopy(target), started_at=clock())
+            assert cycle['accepted'] and cycle['rpc_count'] == 1
+            assert cycle['target'] == original
+            assert core.session.lifecycle.state == 'TELEOP'
+            clock.now += core.period_s
+
+        assert target == original and len(requests) == 5
+        issued = [r['offered']['issued_at_ms'] for r in requests]
+        lifetimes = [r['request']['valid_for_ms'] for r in requests]
+        deadlines = [r['reply']['status']['command_expires_at_ms'] for r in requests]
+        assert all(a < b for a, b in zip(issued, issued[1:]))
+        assert all(0 < lifetime <= 30 for lifetime in lifetimes)
+        assert all(a >= b for a, b in zip(lifetimes, lifetimes[1:]))
+        assert lifetimes[-1] < lifetimes[0]
+        assert all(deadline <= receiver_bound for deadline in deadlines)
+        # Receiver offer time and remaining source lifetime are independently
+        # floored to milliseconds, so the conservative endpoint may lose 2 ms.
+        assert deadlines[-1] >= receiver_bound-2
+        assert deadlines[-1] <= deadlines[-2] + 1  # Fresh token, original source expiry.
+        for row, deadline in zip(requests, deadlines):
+            assert row['reply']['accepted']
+            assert deadline == min(row['offered']['expires_at_ms'],
+                                   row['offered']['issued_at_ms'] + row['request']['valid_for_ms'])
+
+        assert clock()-min(row['sampled_at'] for row in target) >= .05
+        with pytest.raises(ValueError, match='stale mapped source'):
+            core.session.cycle(target=deepcopy(target), started_at=clock())
+        assert len(requests) == 5  # Expired source does not dispatch another direct command.
+        assert core.session.lifecycle.state == 'FAULT'
+        assert core.session.last_cycle['target'] == original
+        assert len(core.session.last_cycle['feedback']) == len(original)
+        assert len(core.session.last_cycle['feedback_age_ms']) == len(original)
+        assert core.session.last_cycle['lifecycle_before'] == 'TELEOP'
+        assert core.session.last_cycle['lifecycle_after'] == 'FAULT'
+        assert receivers[0].last['status']['state'] in ('stopping', 'stopped')
     finally:
         core.close()
 

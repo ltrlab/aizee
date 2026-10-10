@@ -4,6 +4,11 @@ Implemented 2026-10-10 at the user's request. The explicit direct mode, combined
 update exchange, 100 Hz zero-ramp profile and offline qualification tooling are
 available. Physical timing and tracking remain to be measured.
 
+**Current status:** the first physical left-arm trial failed with jerky motion and
+a duplicate-sample holding-lead fault. The local correction is not deployed or
+physically qualified; do not repeat a live trial on the strength of the prior
+near-stationary timing result. See the failed-trial investigation below.
+
 - Branch: `codex/teleop-direct-mirror`.
 - Base: `codex/overhaul-integration`, commit
   `8b4f2c4a9543699fd86d2054dbf658be920b72bb`.
@@ -302,3 +307,91 @@ remain separate. Do not interpret a generic Check result as direct-law approval.
 Evidence aggregate: `build/direct-qualification/live-readiness.json`. The full
 Jetson archive is `build/direct-qualification/readiness-evidence.tar.gz`, including
 failed trials, stage profiling, namespace proof and the real-leader runner scripts.
+
+## Failed left-arm trial, 2026-10-10
+
+Run `live-20261010T180632Z` on activated release `20261010T175730Z-abfbbbd`
+entered HOLD at 18:06:43 UTC, ENGAGING at 18:06:50, TELEOP at 18:07:03,
+and faulted at 18:07:36. The user reported all joints jumping. The existing
+recovery returned to reference and disabled at 18:07:43. No diagnostic work
+after that report enabled motors, restarted teleop or deployed a replacement.
+
+Preserved evidence: `build/direct-qualification/live-fault-20261010/`, including
+the original run, download hashes, `analysis/analysis.json`, plots, and before/after
+checkpoint reproducers. Raw recordings remain on the Jetson. Source/gain/config
+identity matches the qualified candidate. Readiness for further live trials is
+withdrawn; previous stationary and virtual timing reports remain historical data.
+
+Confirmed observations:
+
+- TELEOP lasted 32.56 seconds with zero scheduled misses/skips; full-loop p99 was
+  7.076 ms and maximum 9.601 ms. The native receiver reported zero misses,
+  overruns or rejected CAN frames. Earlier IDLE startup overruns were separate.
+- 343 TELEOP reads repeated a leader sample, about 10.5%; unique input rate was
+  about 89.4 Hz versus the 100 Hz consumer. Final-second traces show synchronized
+  pauses and restarted ramps at roughly 100 ms intervals, with corresponding
+  measured velocity/effort oscillations. Stationary HOLD positions varied only
+  about 0.00038–0.00077 rad peak-to-peak in the saved drive feedback.
+- A validated repeated sample became `target=None`. The lifecycle then emitted
+  zero velocity and removed friction feedforward before resetting its ramp
+  history. The next advancing source sample restarted acceleration from zero.
+- The faulting repeat had no timing miss. The saved receiver position reconstructs
+  J3 at -1.399970531 rad versus the prior target -1.370457905 rad: 0.029512627 rad
+  error, above the static holding bound 0.027731747 rad. The receiver tracking
+  bound remained 0.046219579 rad. Offline replay reproduces the same exception.
+
+The local correction reuses an immutable, validated, still-fresh goal only in
+explicit direct mode and applies the ordinary bounded approach using current
+feedback. It does not extrapolate the leader position. Source timestamps and
+sequences remain unchanged; repeated and missing samples consume the same loss
+counter (production allowance remains eight at 100 Hz), and only advancing input
+resets it. Stale/failed polls are not reused. Existing dispatch margins and native
+source-anchored command deadlines remain in force. Exhaustion still enters
+measured HOLD and requires Engage. Legacy guarded duplicate rejection is unchanged.
+
+Diagnostics now retain source/feedback when proposal construction fails and log
+commanded velocity/effort, measured velocity/effort, feedback age/sequence and
+lifecycle transitions. The original recording lacks commanded feedforward, so
+the pulse overlay is inferred from command increments; it is not measured motor
+torque. The J1 effort channel was constant and is not useful torque evidence.
+
+Checkpoint comparisons show that the candidate corrects J3 back inside the same
+lead bound and avoids the duplicate-specific exception. A synthetic moving J2
+checkpoint using actual gains changes velocities from 0.58 → 0 → 0.08 rad/s to
+0.58 → 0.66 → 0.74 rad/s. This is a software-path comparison, not a physical plant.
+
+Remaining work before another live trial:
+
+1. Qualify moving, quantized leader trajectories with about 90 Hz unique samples,
+   a 100 Hz consumer, duplicate bursts, reversals, reached goals and lost input.
+   Reaching a sampled goal can still drop command-derived velocity feedforward
+   to zero; the current fix alone does not prove smoothness. Evaluate that
+   feedforward behavior separately rather than changing motor gains blindly.
+2. Run the corrected full workload on isolated Jetson vcan with recording enabled;
+   retain all deadlines and watchdogs. No physical services are part of that gate.
+3. Review the resulting command/effort trace, then prepare a deliberate single-joint,
+   low-speed attended trial. A software pass is not physical tracking approval.
+
+Motor gains, gravity/friction calibration, joint/lead/speed bounds, source age,
+command lifetime and watchdog limits were not changed. The active robot release
+is still the failed candidate; the correction must not be described as deployed.
+
+The final required gate passed **416 Python tests, zero skips/xfails, and 111 Rust
+tests**: `build/dev-check/20261010T182211Z-516a4b69/report.json`. Runtime and tests
+were frozen for the gate; only documentation/results were finalized afterward.
+Independent review also found a one-ULP endpoint construction issue: direct
+lead endpoints now round inward, so a subsequent missing sample cannot fail the
+unchanged strict hold check because of subtraction roundoff. Both signs are tested.
+
+The separate deterministic command comparison in
+`build/direct-qualification/live-fault-20261010/moving-source-qualification/`
+ran 24 cases/24,556 cycles: 90 Hz quantized input, 100 Hz consumer, ramps, reversals
+and holds, using exact left-arm lifecycle settings and ideal next-cycle position
+feedback. It had no lifecycle faults or position/speed violations, and removed
+all duplicate zero-velocity drops while the sampled goal was still unreached.
+It is not a dynamics simulation. Slow-motion pulses largely persisted: J1/J3/J4/J6
+drop counts were unchanged, and J2 fell only from 319 to 295. In the fast J2 case,
+duplicate drops fell from 18 to 4, but a remaining goal-reached velocity jump was
+0.8832 rad/s (legacy maximum 0.7200). **The command smoothness gate has not passed.**
+Velocity-reference generation needs a separate evidenced correction; the passing
+functional regression gate is not justification to deploy this partial candidate.
