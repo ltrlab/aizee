@@ -451,16 +451,19 @@ const manualCards = new Map();
 let manualState = null, manualBase = null, manualDraft = new Map(), manualPending = false, manualConflict = false;
 const manualRetiredSessions = [];
 const manualNumber = value => Number.isFinite(value) ? String(Number(value.toPrecision(6))) : '—';
+// Draft text matches the Active line (9.799999999999999 shows as 9.8); text left as shown keeps the exact value.
+const manualText = value => value == null ? '' : manualNumber(value);
 
-function manualValue(draft, field) {
+function manualValue(draft, field, row) {
   if (field === 'follow') return draft.follow;
   const value = draft[field].trim();
+  if (row && value === manualText(row[field])) return row[field];  // Untouched: the exact applied value.
   return value === '' ? (field === 'travel_rad' ? null : NaN) : Number(value);
 }
 
 function manualRowChanged(motor, row) {
   const draft = manualDraft.get(motor);
-  return !draft || manualFields.some(field => manualValue(draft, field) !== row[field]);
+  return !draft || manualFields.some(field => manualValue(draft, field, row) !== row[field]);
 }
 
 function manualHasEdits() {
@@ -471,7 +474,7 @@ function manualHasEdits() {
 function resetManualDraft(settings) {
   manualBase = settings;
   manualDraft = new Map(settings.rows.map(row => [row.motor, Object.fromEntries(manualFields.map(field =>
-    [field, field === 'follow' ? row[field] : row[field] == null ? '' : String(row[field])]))]));
+    [field, field === 'follow' ? row[field] : manualText(row[field])]))]));
   manualConflict = false;
   for (const [motor, card] of manualCards) {
     const draft = manualDraft.get(motor);
@@ -582,7 +585,7 @@ function renderManual(t) {
     let arm = null;
     for (const row of settings.rows) {
       if (!manualDraft.has(row.motor)) manualDraft.set(row.motor, Object.fromEntries(manualFields.map(field =>
-        [field, field === 'follow' ? row[field] : row[field] == null ? '' : String(row[field])])));
+        [field, field === 'follow' ? row[field] : manualText(row[field])])));
       const nextArm = row.motor.startsWith('left_') ? 'LEFT ARM' : row.motor.startsWith('right_') ? 'RIGHT ARM' : 'JOINTS';
       if (nextArm !== arm) {
         const heading = document.createElement('h3');
@@ -623,7 +626,7 @@ async function manualAction(action) {
     : edits || (action === 'save' ? !manualState.can_save : !manualState.can_apply))) return;
   const payload = {session_id: manualState.session_id, revision: manualState.revision};
   if (action === 'apply') payload.joints = manualState.rows.map(row => ({motor: row.motor,
-    ...Object.fromEntries(manualFields.map(field => [field, manualValue(manualDraft.get(row.motor), field)]))}));
+    ...Object.fromEntries(manualFields.map(field => [field, manualValue(manualDraft.get(row.motor), field, row)]))}));
   manualPending = busy = true;
   manualFeedback();
   updateManualActions();
