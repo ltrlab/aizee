@@ -185,15 +185,13 @@
           <button id="u-session" class="danger">Start sweep</button>
         </div>
       </section>
-      <section id="panel-settings" class="panel" aria-label="Settings" hidden>
-        <div class="panel-head settings-head">
-          <div class="eyebrow">OPERATOR SETTINGS</div><h1>Set up the way Minerva moves</h1>
-          <p class="lead">Tune individual motors, prepare session speeds, inspect receiver limits, and choose what appears on the model.</p>
-          <label class="settings-search-label" for="settings-search">Find a setting</label>
-          <input id="settings-search" type="search" placeholder="Search settings, speeds, limits, units…" autocomplete="off">
+      <section id="panel-settings" class="panel settings-panel" aria-label="Settings" hidden>
+        <div class="settings-rail">
+          <input id="settings-search" type="search" placeholder="Search settings…" aria-label="Search settings, speeds, limits and units" autocomplete="off">
+          <nav id="settings-nav" class="settings-nav" aria-label="Settings categories"></nav>
           <div class="settings-meta"><span id="settings-revision">Loading settings…</span><span id="settings-draft"></span></div>
         </div>
-        <nav id="settings-nav" class="settings-nav" aria-label="Settings categories"></nav>
+        <div class="settings-main">
         <div id="settings-content" class="scroll">
           <div id="settings-motors">
           <section id="manual-tuning" class="manual-tuning" aria-labelledby="manual-title" hidden>
@@ -229,7 +227,7 @@
               <label><input type="checkbox" data-display="temperature" checked> Temperature <small>Drive temperature · °C</small></label>
               <label><input type="checkbox" data-display="direction" checked> Direction arrows <small>Measured velocity · verified mapping only</small></label>
             </div>
-            <p class="display-legend"><span class="legend-dot measured"></span>Measured feedback <span class="legend-dot command"></span>Commanded position <span class="legend-dot stale"></span>Stale / unavailable</p>
+            <p class="display-legend"><span class="legend-dot measured"></span>Measured feedback <span class="legend-dot stale"></span>Stale / unavailable</p>
             <p class="muted">Select a joint on the model or in telemetry. Missing readings show “—”; stale readings never appear live. The stopped reader currently supplies position only.</p>
             <button id="display-reset">Reset display preferences</button>
           </section>
@@ -239,6 +237,7 @@
           <div class="settings-actions"><button id="settings-revert">Revert edits</button><button id="settings-reset">Restore profile defaults</button><button id="settings-apply" class="primary">Apply for next session</button></div>
         </div>
         <p id="settings-status" class="settings-status" role="status" aria-live="polite"></p>
+        </div>
       </section>
     </aside>
   </main>

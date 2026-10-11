@@ -21,6 +21,7 @@ aside{background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;
 #calibration-guide th:nth-child(4){width:14%}
 /* Embedded in another page (e.g. Helm): 3D viewport only; the host page owns controls. */
 .embed header,.embed aside{display:none}.embed main{display:block;height:100%}.embed #viewport{height:100%}
+.embed .viewport-head{right:250px}@media(max-width:620px){.embed .viewport-head{right:18px;top:96px}}
 
 /* Joint telemetry is display-only. Settings in Helm own visibility and fields. */
 .joint-overlay{position:absolute;inset:0;pointer-events:none;overflow:hidden}

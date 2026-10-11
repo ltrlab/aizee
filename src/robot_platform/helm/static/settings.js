@@ -38,6 +38,14 @@ export class SettingsPanel {
       this.saveDisplay();
     };
     $('display-reset').onclick=()=>{this.display=clone(DEFAULT_DISPLAY);this.saveDisplay();this.renderDisplay();};
+    $('settings-nav').onkeydown=event=>{
+      if (!['ArrowDown','ArrowUp','Home','End'].includes(event.key)) return;
+      const buttons=[...$('settings-nav').querySelectorAll('button')],index=buttons.indexOf(document.activeElement);
+      if (index<0) return;
+      event.preventDefault();
+      const next=event.key==='Home'?0:event.key==='End'?buttons.length-1:(index+(event.key==='ArrowDown'?1:buttons.length-1))%buttons.length;
+      buttons[next].focus();buttons[next].click();
+    };
     this.renderNavigation();
   }
   updateContext(context) {
@@ -100,10 +108,16 @@ export class SettingsPanel {
   }
   renderNavigation() {
     const host=$('settings-nav');host.replaceChildren();
-    const groups=[{id:'motors',label:'Motor tuning'},...(this.state?.sections||[]),{id:'display',label:'3D display'}];
-    for (const section of groups) {
-      const button=document.createElement('button');button.textContent=section.label;button.dataset.settingsSection=section.id;
-      button.onclick=()=>this.show(section.id);host.append(button);
+    const sections=this.state?.sections||[],session=sections.filter(section=>section.fields?.some(field=>field.editable));
+    const groups=[['Session',[{id:'motors',label:'Motor tuning'},...session]],
+      ['Read-only',sections.filter(section=>!session.includes(section))],['View',[{id:'display',label:'3D display'}]]];
+    for (const [title,items] of groups) {
+      if (!items.length) continue;
+      const heading=document.createElement('div');heading.className='rail-group';heading.textContent=title;host.append(heading);
+      for (const section of items) {
+        const button=document.createElement('button');button.textContent=section.label;button.dataset.settingsSection=section.id;
+        button.onclick=()=>this.show(section.id);host.append(button);
+      }
     }
     this.filter();
   }
@@ -147,7 +161,10 @@ export class SettingsPanel {
     }
   }
   filter() {
-    for(const button of document.querySelectorAll('[data-settings-section]')) button.setAttribute('aria-pressed',String(button.dataset.settingsSection===this.category&&!this.search));
+    for(const button of document.querySelectorAll('[data-settings-section]')) {
+      if(button.dataset.settingsSection===this.category&&!this.search) button.setAttribute('aria-current','true');
+      else button.removeAttribute('aria-current');
+    }
     $('settings-motors').hidden=!!this.search||this.category!=='motors';
     $('settings-display').hidden=!!this.search||this.category!=='display';
     let count=0;
@@ -167,6 +184,8 @@ export class SettingsPanel {
     $('settings-reset').disabled=!allowed||this.conflict||!!changes.length;
     $('settings-revert').disabled=this.pending||(!changes.length&&!this.conflict);
     for(const [id,input] of this.inputs){input.disabled=!allowed;input.closest('.setting-field').dataset.edited=String(changes.some(field=>field.id===id));}
+    const edited=new Set((this.state?.sections||[]).filter(section=>section.fields.some(field=>changes.includes(field))).map(section=>section.id));
+    for(const button of document.querySelectorAll('[data-settings-section]')) button.dataset.edited=String(edited.has(button.dataset.settingsSection));
     $('settings-revision').textContent=this.state?`Session settings · revision ${this.state.revision}`:'Loading settings…';
     $('settings-draft').textContent=this.conflict?'Settings changed elsewhere · revert to reload':changes.length?`${changes.length} unapplied change${changes.length===1?'':'s'}`:'All changes applied';
     $('settings-apply-note').textContent=active?'Stop the active task to change session settings. Motor gains can still be applied in Hold.':this.state?.reason||'Applied values are saved for the next session. No motor commands are sent.';
