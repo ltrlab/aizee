@@ -13,6 +13,7 @@ Receiver limits come from the saved joint limits. Each leader channel's saved
 (hand-swept) range spans its robot joint's usable range; route signs come from
 the teleop profile plus local operator edits.
 """
+from collections import deque
 from copy import deepcopy
 import gc
 import itertools
@@ -28,6 +29,11 @@ from robot_platform.control.live_receiver import fault_detail
 from robot_platform.control.scheduling import prefer_responsive
 from .limits import utc_now
 from .recording import RecordingError, RecordingWriter
+
+# Recent cycle timings kept in memory: the most any reader uses (the view's last 100). The full trace goes to the
+# latency file. A bounded deque drops one small entry per cycle; trimming 100 full trace entries at once stalled
+# the Jetson loop about 3.5 ms every 100 cycles and, with one slow receiver reply, cost a 10 ms slot (2026-10-11).
+CYCLE_HISTORY = 100
 
 KEYS = frozenset('IETHX')
 ENGAGED = ('ENGAGING', 'TELEOP')
@@ -242,7 +248,7 @@ class TeleopCore:
         self._shown_block = None  # The hold on screen: why a move was not certified.
         self.slowest_ms = self.largest_gap_ms = 0.
         self._last_start = None
-        self.cycles = []
+        self.cycles = deque(maxlen=CYCLE_HISTORY)
         self._closers = []
         self._frozen = False
         self._gc_enabled_before_direct = None
@@ -253,7 +259,7 @@ class TeleopCore:
         self._recorder = None
         self._recording_error = None
         self._pending_latency = None
-        self._loop_timings = []
+        self._loop_timings = deque(maxlen=CYCLE_HISTORY)
         self._loop_max_ms = self._loop_misses = self._loop_skipped = 0
         self._input_timing = {}
         self._recorded, self._flushed = 0, None
@@ -562,7 +568,7 @@ class TeleopCore:
     # -- cycle -------------------------------------------------------------
 
     def _recent_cycle_s(self):
-        durations = sorted(c['completed_at'] - c['started_at'] for c in self.cycles[-25:]
+        durations = sorted(c['completed_at'] - c['started_at'] for c in itertools.islice(reversed(self.cycles), 25)
                            if c.get('completed_at') is not None)
         return durations[int(.9 * (len(durations) - 1))] if durations else 0.
 
@@ -945,9 +951,7 @@ class TeleopCore:
             self.slowest_ms = max(self.slowest_ms, duration)
             if duration > self.period_s * 1000:
                 self.overruns += 1
-        self.cycles.append(entry)
-        if len(self.cycles) > 500:
-            del self.cycles[:100]
+        self.cycles.append({'started_at': entry['started_at'], 'completed_at': entry['completed_at']})
 
     def _flush_latency(self):
         entry, self._pending_latency = self._pending_latency, None
@@ -977,8 +981,6 @@ class TeleopCore:
             self._pending_latency = dict(started_at=started, operation=None, accepted=False)
         self._pending_latency.update(fields)
         self._loop_timings.append(fields['full_loop_ms'])
-        if len(self._loop_timings) > 500:
-            del self._loop_timings[:100]
         self._loop_max_ms = max(self._loop_max_ms, fields['full_loop_ms'])
         self._loop_misses += fields['scheduled_deadline_miss']
         self._loop_skipped += skipped_slots
@@ -1039,7 +1041,7 @@ class TeleopCore:
     def view(self):
         result = self.status_view()
         routes = self.routes()
-        durations = sorted((c['completed_at'] - c['started_at']) * 1000 for c in self.cycles[-100:]
+        durations = sorted((c['completed_at'] - c['started_at']) * 1000 for c in self.cycles
                            if c.get('completed_at') is not None)
         if durations:
             result['cycle_ms'] = {'p50': durations[(len(durations) - 1) // 2],
@@ -1048,7 +1050,7 @@ class TeleopCore:
                                   'largest_gap': self.largest_gap_ms}
         if self._loop_timings:
             from robot_platform.teleop.latency import distribution
-            result['full_loop_ms'] = dict(distribution(self._loop_timings[-100:]), max=self._loop_max_ms,
+            result['full_loop_ms'] = dict(distribution(self._loop_timings), max=self._loop_max_ms,
                                          scheduled_deadline_misses=self._loop_misses,
                                          skipped_slots=self._loop_skipped)
         if self.derived is None:

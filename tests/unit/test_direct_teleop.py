@@ -250,3 +250,27 @@ def test_live_timing_includes_previous_trace_write_and_ui_and_counts_late_comple
     assert records[1]['start_lateness_ms'] == pytest.approx(4.)
     assert records[1]['scheduled_deadline_miss'] is True
     assert records[1]['skipped_slots'] == 1
+
+
+def test_cycle_history_keeps_only_recent_timing_and_never_trims_in_batches():
+    """A bounded deque drops one small entry per cycle; the full trace belongs to the latency file.
+
+    Trimming 100 full trace entries at once stalled the Jetson loop about 3.5 ms every 100 cycles (2026-10-11).
+    """
+    from collections import deque
+    from robot_platform.helm.teleop import CYCLE_HISTORY, TeleopCore
+
+    class Core:
+        collision_mode, period_s = 'enforced', .01
+        _record, _recent_cycle_s = TeleopCore._record, TeleopCore._recent_cycle_s
+
+    core = Core()
+    core.cycles, core.slowest_ms, core.overruns = deque(maxlen=CYCLE_HISTORY), 0., 0
+    for i in range(1000):
+        core._record(dict(started_at=i * .01, completed_at=i * .01 + .004 + i * 1e-6, accepted=True, action='move',
+                          desired=[0.] * 7, limits={'left_arm_j1': []}))
+    assert len(core.cycles) == CYCLE_HISTORY
+    assert set(core.cycles[-1]) == {'started_at', 'completed_at'}
+    assert core.cycles[-1]['started_at'] == pytest.approx(9.99)
+    recent = sorted(.004 + i * 1e-6 for i in range(975, 1000))
+    assert core._recent_cycle_s() == pytest.approx(recent[int(.9 * 24)])
