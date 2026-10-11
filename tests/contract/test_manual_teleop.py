@@ -84,6 +84,66 @@ def test_manual_gain_apply_holds_pose_and_requires_ack_before_publication(manual
         core.close()
 
 
+def test_manual_tuning_drives_both_live_arms_in_one_receiver(manual_bundle):
+    """Both arms live: one gain write covers both, and each J1 follows its own leader within its own cap."""
+    data, manual = manual_bundle
+    clock = Clock()
+    leaders = Leaders(clock)
+    requests = []
+
+    def receiver(config, device, reference):
+        result = Receiver(config, reference, clock)
+        original = result.exchange
+        def exchange(request):
+            requests.append(deepcopy(request))
+            return original(request)
+        result.exchange = exchange
+        return result
+
+    core = TeleopCore(dict(data, receiver={'mode': 'live', 'arm': 'both'}), clock=clock,
+        open_leaders=lambda _: leaders, open_receiver=receiver,
+        open_backend=lambda _: pytest.fail('No collision backend'))
+    try:
+        core.build()
+        names = [joint['name'] for joint in core.derived['config']['joints']]
+        assert len(names) == 14
+        left, right = names.index('left_arm_j1'), names.index('right_arm_j1')
+        run(core, clock, 'I')
+        run(core, clock, 'E')
+        run(core, clock)
+        before = list(core.session.lifecycle.target)
+        update = manual.bundle()
+        for motor, kp in (('left_arm_j1', 45.), ('right_arm_j1', 55.)):
+            next(r for r in update['joints'] if r['motor'] == motor).update(
+                kp=kp, kd=3., follow=True, speed=.08, travel_rad=.05)
+        core.queue_tuning(update)
+        run(core, clock)
+        for _ in range(3):
+            if core._tuning_result:
+                break
+            run(core, clock)
+        assert core._tuning_result[0] is None
+        assert core._manual_state['revision'] == 1
+        assert list(core.session.lifecycle.target) == before  # Apply in HOLD moves nothing.
+        writes = [r for r in requests if r.get('update_hold_gains')]
+        assert len(writes) == 1  # One write for both arms.
+        assert writes[0]['joints'][left]['kp'] == 45. and writes[0]['joints'][right]['kp'] == 55.
+        run(core, clock, 'T', until='TELEOP', limit=1000)
+        for _ in range(25):
+            previous = list(core.session.lifecycle.target)
+            leaders.offsets['left'][0] += .002
+            leaders.offsets['right'][0] += .002
+            run(core, clock)
+            target = core.session.lifecycle.target
+            for index in (left, right):
+                assert abs(target[index] - previous[index]) <= .08 * core.period_s + 1e-9
+            assert all(target[i] == before[i] for i in range(len(names)) if i not in (left, right))
+        assert target[left] != before[left] and target[right] != before[right]  # Both arms followed.
+        run(core, clock, 'H')
+    finally:
+        core.close()
+
+
 def test_stopped_manual_edits_save_restore_and_stale_revision(manual_bundle, tmp_path):
     data, _ = manual_bundle
     helm = HelmSession(DEVICES / 'minerva-joint-calibration.json', runs=tmp_path / 'web',
@@ -106,6 +166,6 @@ def test_stopped_manual_edits_save_restore_and_stale_revision(manual_bundle, tmp
         assert session.snapshot()['tuning']['rows'][0]['kp'] == 42.
         assert session.snapshot()['tuning']['dirty'] is False
         assert not session.active
-        assert session.snapshot()['receiver_choices'] == ['virtual', 'left', 'right']
+        assert session.snapshot()['receiver_choices'] == ['virtual', 'left', 'right', 'both']
     finally:
         helm.close()

@@ -5,8 +5,16 @@ Branch: `codex/teleop-direct-mirror`; base for this change: `a0406fd`.
 The operator controls tuning from Helm's Teleop tab using
 `config/devices/minerva-teleop-direct-tuning.json`. Each motor has Kp, Kd,
 following speed, Follow, and an optional travel window. This profile uses direct
-position-only commands with collision detection disabled. One live arm is
-supported at a time; Virtual can exercise both arms without physical motors.
+position-only commands with collision detection disabled. Live runs on the left,
+right or both arms (2026-10-11, `claude/both-arm-tuning`); Virtual exercises
+both without physical motors. With both arms, one receiver drives all 14 joints:
+one Apply writes both arms' gains, and each arm's following joints track their
+own leader. Nothing keeps the arms apart in this profile. Keep travel windows
+small on joints that can bring the hands together until a two-arm bound exists.
+By default only left J1 follows (+/-0.03 rad); tick right-arm joints to tune them.
+
+Qualification: `scripts/qualify_manual_tuning_loop.py --arm left|right|both` (Linux
+private virtual CAN only; see `TELEOP_TRACE_HISTORY.md` for the staging steps).
 
 ## Operator workflow
 

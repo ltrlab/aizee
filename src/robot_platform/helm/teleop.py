@@ -213,8 +213,6 @@ class TeleopCore:
         if self.profile.get('trial') and self.live_arm and (
                 self.live_arm == 'both' or not self.profile['trial']['motor'].startswith(self.live_arm + '_')):
             raise ValueError('The trial permits only its selected single arm')
-        if self.profile.get('manual_tuning') and self.live_arm == 'both':
-            raise ValueError('Manual tuning currently supports one live arm at a time')
         # Both arms in one receiver need enforced checks of one arm against the other: boxes the receiver checks
         # against the motion commanded (MotionEnvelopeCompiler). The virtual receiver can rehearse them.
         if self.collision_mode != 'disabled' and (self.live_arm == 'both' or receiver.get('collision') == 'motion'):
@@ -1337,8 +1335,6 @@ class TeleopSession:
         with self._lock:
             if self.active:
                 raise ValueError('Stop the session before choosing the receiver')
-            if self.manual and arm == 'both':
-                raise ValueError('Manual tuning currently supports one live arm at a time')
             trial = self.profile.get('trial')
             if mode == 'live' and trial and arm != trial['motor'].split('_')[0]:
                 raise ValueError('Choose the arm selected by this trial profile')
@@ -1523,7 +1519,7 @@ class TeleopSession:
             self._sync_tuning()
             allowed, reason = self._tuning_gate()
             choices = ['virtual'] + ([self.profile['trial']['motor'].split('_')[0]] if self.profile.get('trial') else
-                                     (['left', 'right'] if self.manual else ['left', 'right', 'both']))
+                                     ['left', 'right', 'both'])
             observed = self._view.get('observed_at')
             age = (max(observed, self._view.get('status_at', observed)) - observed
                    + time.perf_counter() - self._view_received_at) * 1000 if observed is not None else None
