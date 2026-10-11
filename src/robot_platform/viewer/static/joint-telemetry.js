@@ -1,5 +1,5 @@
 // Pure display contract: no motor control, inferred velocity or effort conversion.
-export const DEFAULT_OVERLAY = Object.freeze({enabled:true, scope:'selected', selected_motor:null,
+export const DEFAULT_OVERLAY = Object.freeze({enabled:true, scope:'selected', card:true, selected_motor:null,
   fields:Object.freeze({position:true, effort:true, temperature:true, direction:true})});
 
 const finite = value => typeof value === 'number' && Number.isFinite(value);
@@ -13,6 +13,7 @@ export function overlaySettings(previous=DEFAULT_OVERLAY, incoming={}) {
   }
   return {enabled:typeof incoming.enabled === 'boolean' ? incoming.enabled : previous.enabled,
     scope:['selected','all','model'].includes(incoming.scope) ? incoming.scope : previous.scope,
+    card:typeof incoming.card === 'boolean' ? incoming.card : previous.card !== false,
     selected_motor:typeof incoming.selected_motor === 'string' || incoming.selected_motor === null
       ? incoming.selected_motor : previous.selected_motor, fields};
 }

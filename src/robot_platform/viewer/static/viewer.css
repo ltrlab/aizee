@@ -39,6 +39,11 @@ aside{background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;
 .joint-overlay-card dt{font-size:10px;color:#aab1b8}.joint-overlay-card dd{margin:0 0 4px;font-size:12px;color:var(--text);overflow-wrap:anywhere}
 .joint-overlay-card dd.position{color:#d2e9ff}.joint-overlay-card dd.effort{color:#dfd1ff}.joint-overlay-card dd.temperature{color:#ffd4aa}.joint-overlay-card dd.direction{font-size:10px;color:var(--accent)}
 .joint-overlay-card.stale{border-color:#aa7653;border-left-color:var(--warn);background:#2b241ff2}.joint-overlay-card.stale dd{color:#c4b8ab}.joint-overlay-card.stale::before{background:var(--warn)}
+.joint-overlay-close{position:absolute;top:5px;right:5px;width:20px;height:20px;padding:0;display:grid;place-items:center;
+  font-size:14px;line-height:1;border-radius:4px;border:1px solid transparent;background:none;color:var(--muted);pointer-events:auto}
+.joint-overlay-close:hover{color:var(--text);border-color:#43484f;background:#1f2226}
+.joint-overlay-card strong{padding-right:22px}
+.joint-overlay-card.compact .joint-overlay-close{display:none}.joint-overlay-card.compact strong{padding-right:0}
 .joint-overlay-values{display:none}
 .joint-overlay-card.compact{padding:5px 8px;border-left-width:2px;font-size:10.5px;line-height:1.3;box-shadow:0 2px 8px #0006}
 .joint-overlay-card.compact strong{font-size:11px}

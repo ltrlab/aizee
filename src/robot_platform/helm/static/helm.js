@@ -1245,7 +1245,8 @@ $('model-view').addEventListener('load',()=>publishTelemetry());
 window.addEventListener('message',event=>{
   if(event.origin!==location.origin||event.source!==$('model-view').contentWindow) return;
   if(event.data?.type==='helm-viewer-selection'&&event.data.version===1
-    && (last?.limits?.rows||[]).some(row=>row.name===event.data.motor)) settingsPanel.selectMotor(event.data.motor);
+    && (event.data.motor===''||(last?.limits?.rows||[]).some(row=>row.name===event.data.motor)))
+    settingsPanel.selectMotor(event.data.motor);  // '' is no joint selected.
 });
 function renderGlobalControls(state) {
   const sweeping=['running','starting'].includes(state.tune?.phase);

@@ -1,6 +1,6 @@
 // Settings stay outside the control loop. Drafts only change runtime via an explicit Apply.
 const $ = id => document.getElementById(id);
-const DEFAULT_DISPLAY = {enabled:true, scope:'selected', selected_motor:null,
+const DEFAULT_DISPLAY = {enabled:true, scope:'selected', card:true, selected_motor:null,
   fields:{position:true, effort:true, temperature:true, direction:true}};
 const clone = value => JSON.parse(JSON.stringify(value));
 const finite = value => typeof value === 'number' && Number.isFinite(value);
@@ -15,6 +15,7 @@ export function validDisplay(value) {
   if (!value || typeof value !== 'object') return result;
   if (typeof value.enabled === 'boolean') result.enabled = value.enabled;
   if (['selected','all','model'].includes(value.scope)) result.scope = value.scope;
+  if (typeof value.card === 'boolean') result.card = value.card;
   if (typeof value.selected_motor === 'string' && value.selected_motor.length < 100) result.selected_motor = value.selected_motor;
   for (const key of Object.keys(result.fields)) if (typeof value.fields?.[key] === 'boolean') result.fields[key] = value.fields[key];
   return result;
@@ -33,6 +34,7 @@ export class SettingsPanel {
     for (const input of document.querySelectorAll('[data-display]')) input.onchange=()=>{
       const field=input.dataset.display;
       if (field==='enabled') this.display.enabled=input.checked;
+      else if (field==='card') this.display.card=input.checked;
       else if (field==='scope') this.display.scope=input.value;
       else this.display.fields[field]=input.checked;
       this.saveDisplay();
@@ -68,7 +70,7 @@ export class SettingsPanel {
     for (const input of document.querySelectorAll('[data-display]')) {
       const key=input.dataset.display;
       if (key==='scope') input.value=this.display.scope;
-      else input.checked=key==='enabled'?this.display.enabled:this.display.fields[key];
+      else input.checked=key==='enabled'?this.display.enabled:key==='card'?this.display.card:this.display.fields[key];
     }
   }
   async refresh() {

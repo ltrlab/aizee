@@ -25,6 +25,7 @@ export class JointOverlay {
     this.select.onchange=()=>this.choose(this.select.value);
     renderer.domElement.addEventListener('pointerdown',event=>{this.pointerDown=[event.clientX,event.clientY];});
     renderer.domElement.addEventListener('pointerup',event=>this.pick(event));
+    window.addEventListener('keydown',event=>{ if(event.key === 'Escape' && this.selected) this.choose(''); });
     window.addEventListener('message',event=>{
       if (!trustedOverlayMessage(event,window.parent,location.origin)) return;
       if (event.data.settings) {
@@ -67,10 +68,13 @@ export class JointOverlay {
     const title=document.createElement('strong'), source=document.createElement('small');
     const readings=document.createElement('dl'), age=document.createElement('small');
     const values=document.createElement('span'); values.className='joint-overlay-values';
-    node.append(title,values,source,readings,age); this.container.append(node);
+    const close=document.createElement('button'); close.className='joint-overlay-close'; close.type='button';
+    close.textContent='×'; close.title='Close (no joint selected)'; close.setAttribute('aria-label','Close card: no joint selected');
+    close.onclick=()=>this.choose('');
+    node.append(close,title,values,source,readings,age); this.container.append(node);
     const line=document.createElementNS('http://www.w3.org/2000/svg','line');this.leaders.append(line);
     const arrow=new THREE.Group(); this.frames.get(row.joint).add(arrow);
-    const card={node,title,values,source,readings,age,arrow,line,joint:row.joint,direction:null};
+    const card={node,close,title,values,source,readings,age,arrow,line,joint:row.joint,direction:null};
     this.cards.set(row.motor,card); return card;
   }
   updateArrow(card,row,direction) {
@@ -101,10 +105,11 @@ export class JointOverlay {
   }
   updateText(now) {
     const snapshot=this.telemetry.snapshot(now), motors=snapshot.rows.map(row=>row.motor);
-    if(!this.selected && motors.length) this.selected=motors[0];
+    if(this.selected == null && motors.length) this.selected=motors[0];  // Not chosen yet: the first joint.
     const optionsKey=snapshot.rows.map(row=>`${row.motor}:${row.label}`).join('|');
     if(optionsKey !== this.optionsKey) {
       this.optionsKey=optionsKey; this.select.replaceChildren();
+      const none=document.createElement('option');none.value='';none.textContent='No joint selected';this.select.append(none);
       for(const row of snapshot.rows) {
         const option=document.createElement('option');option.value=row.motor;option.textContent=row.label;this.select.append(option);
       }
@@ -124,6 +129,7 @@ export class JointOverlay {
     }
     const stale=visible.some(row=>row.stale);
     this.status.textContent=!motors.length ? snapshot.reason || 'Waiting for joint telemetry'
+      : scope === 'selected' && this.selected === '' ? 'No joint selected · click one on the model'
       : !visible.length && this.settings.enabled ? 'Selected joint has no reading'
       : `${stale ? 'Stale readings · arrows hidden' : 'Joint telemetry'} · ${{all:'all joints',model:'on the model'}[scope] || 'selected joint'}`;
     this.status.classList.toggle('stale',stale || !motors.length);
@@ -131,7 +137,9 @@ export class JointOverlay {
       const existing=this.cards.get(row.motor);
       if(existing && existing.joint !== row.joint) { this.disposeCards(); }
       const card=this.cards.get(row.motor)||this.makeCard(row), display=describeJoint(row,this.settings.fields);
-      card.node.hidden=onModel && row.motor !== this.selected; card.node.classList.toggle('stale',row.stale);
+      // Tags always show; otherwise only the selected joint has a card, and only while cards are on.
+      card.node.hidden=scope !== 'all' && !(row.motor === this.selected && this.settings.card);
+      card.node.classList.toggle('stale',row.stale);
       card.line.style.display=card.node.hidden ? 'none' : '';
       // All joints: a compact two-line tag (name; position · effort · temperature). Selected: the full card.
       const compact=this.settings.scope === 'all';
@@ -207,14 +215,15 @@ export class JointOverlay {
       (event.clientX-rect.left)/rect.width*2-1,1-(event.clientY-rect.top)/rect.height*2);
     const ray=new THREE.Raycaster();ray.setFromCamera(pointer,this.camera);
     const hit=ray.intersectObjects(this.meshes.filter(mesh=>mesh.visible && mesh.userData.role==='visual'))[0];
-    if(!hit) return;
+    if(!hit) { if(this.selected) this.choose(''); return; }  // Empty space clears the selection.
     const rows=this.telemetry.snapshot(performance.now()).rows;
     let link=hit.object.userData.link;
     while(link) {
       const joint=this.model.joints.find(j=>j.child===link); if(!joint) break;
       const row=rows.find(r=>r.joint===joint.name);
-      if(row) { this.choose(row.motor);break; }
+      if(row) { this.choose(row.motor);return; }
       link=joint.parent;
     }
+    if(this.selected) this.choose('');  // A part with no joint telemetry (the column, the base) clears it too.
   }
 }

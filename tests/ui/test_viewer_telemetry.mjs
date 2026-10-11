@@ -157,6 +157,7 @@ class Element {
   setAttribute(key,value){this.attributes[key]=String(value);}
   addEventListener(name,fn){this.listeners[name]=fn;}
   querySelector(){return {offsetHeight:100};}
+  getBoundingClientRect(){return {left:0,top:0,width:1000,height:800};}
 }
 const messages=[],listeners={};
 const parent={postMessage:(value,origin)=>messages.push({value,origin})};
@@ -250,6 +251,29 @@ test('on-model gauges sit in the joint frame with the needle at the joint angle'
   listeners.message({source:parent,origin:location.origin,data:{type:'helm-viewer-overlay',version:1,settings:{scope:'selected'}}});
   overlay.update(1020);assert.equal(gauge.root.visible,false);
   overlay.clearModel();assert.equal(frame.children.length,1);
+});
+test('no joint selected: blank click, close button, picker and Esc; the card setting hides only the card',()=>{
+  const {overlay}=makeOverlay();overlay.update(1000);
+  const card=overlay.cards.get('left_arm_j1');
+  assert.equal(overlay.selected,'left_arm_j1');assert.equal(card.node.hidden,false);  // Not chosen yet: the first.
+  assert.deepEqual(overlay.select.children.map(option=>option.value),['','left_arm_j1']);
+  const send=settings=>{listeners.message({source:parent,origin:location.origin,
+    data:{type:'helm-viewer-overlay',version:1,settings}});overlay.update(1001);};
+  send({card:false});
+  assert.equal(card.node.hidden,true);assert.equal(card.line.style.display,'none');assert.equal(card.arrow.visible,true);
+  send({card:true});assert.equal(card.node.hidden,false);
+  card.close.onclick();overlay.update(1002);
+  assert.equal(overlay.selected,'');assert.deepEqual(messages.at(-1).value,{type:'helm-viewer-selection',version:1,motor:''});
+  assert.equal(card.node.hidden,true);assert.equal(card.arrow.visible,false);assert.match(overlay.status.textContent,/No joint selected/);
+  overlay.nextTextAt=0;overlay.update(1003);assert.equal(overlay.selected,'');  // Stays cleared; no default re-pick.
+  overlay.select.value='left_arm_j1';overlay.select.onchange();assert.equal(overlay.selected,'left_arm_j1');
+  overlay.select.value='';overlay.select.onchange();assert.equal(overlay.selected,'');
+  overlay.choose('left_arm_j1');
+  const click=at=>{overlay.renderer.domElement.listeners.pointerdown({clientX:at,clientY:at});
+    overlay.renderer.domElement.listeners.pointerup({clientX:at,clientY:at});};
+  click(5);assert.equal(overlay.selected,'');  // Nothing under the pointer.
+  overlay.choose('left_arm_j1');listeners.keydown({key:'Escape'});assert.equal(overlay.selected,'');
+  send({selected_motor:''});assert.equal(overlay.selected,'');  // The parent echoes it back.
 });
 test('model teardown removes labels, arrows and leader lines',()=>{
   const {overlay,frame}=makeOverlay();overlay.update(1000);assert.equal(overlay.cards.size,1);
