@@ -480,3 +480,50 @@ def test_a_joint_speeds_up_no_faster_than_its_braking_and_never_runs_past_the_le
     assert proposal['positions'][0] == pytest.approx(here) and proposal['joints'][0]['velocity'] == 0.
     # A joint with no braking curve (a gripper) is not held back.
     assert 'approach' not in limited[1]
+
+
+# Left J5 as configured live on 2026-10-11: 0.0874 rad lead, 4 rad/s, feedback about 20 ms old.
+WRIST = dict(name='wrist', lower=-2., upper=2., hold_kp=24., hold_kd=2.4, max_velocity=4., align_speed=.3,
+             shutdown_speed=.2, max_lead=.0874, tolerance=.03, settled_velocity=.05, zero_position=0.)
+
+
+def wrist_feedback(now, q, age=.02):
+    return [dict(name='wrist', position=q, velocity=0., sampled_at=now-age, sequence=round(now*1000)+1)]
+
+
+def wrist_leader(now, q):
+    return [dict(name='wrist', position=q, sampled_at=now-.001, sequence=round(now*1000)+1)]
+
+
+def wrist_lagging_a_fast_leader():
+    """The leader jumps away; the wrist closes on its command at 1 rad/s, as far behind as following allows."""
+    lifecycle = TeleopLifecycle([dict(WRIST)], settle_time_s=0.)
+    lifecycle.action('idle', wrist_feedback(0., 0.), now=0.)
+    lifecycle.action('enable', wrist_feedback(0., 0.), now=0.)
+    lifecycle.action('engage', wrist_feedback(0., 0.), target=wrist_leader(0., 0.), now=0.)
+    now, q = 0., 0.
+    while lifecycle.state == 'ENGAGING' and now < .5:
+        now += .01
+        lifecycle.step(wrist_feedback(now, q), target=wrist_leader(now, q), now=now)
+    assert lifecycle.state == 'TELEOP'
+    for _ in range(8):
+        now, q = now + .01, q - .01
+        lifecycle.step(wrist_feedback(now, q), target=wrist_leader(now, -.6), now=now)
+    assert q - lifecycle.target[0] > WRIST['max_lead']  # Following leads the raw reading by more than max_lead.
+    return lifecycle, now, q
+
+
+def test_one_late_leader_sample_holds_a_moving_joint_following_had_allowed_to_lag():
+    lifecycle, now, q = wrist_lagging_a_fast_leader()
+    held = lifecycle.target
+    now, q = now + .01, q - .01  # Still closing on the command.
+    assert q - held[0] > WRIST['max_lead']  # The raw lag the old check faulted on.
+    proposal = lifecycle.step(wrist_feedback(now, q), target=None, now=now)
+    assert lifecycle.state == 'TELEOP' and proposal['operation'] == 'move' and tuple(proposal['positions']) == held
+
+
+def test_one_late_leader_sample_still_faults_a_joint_that_stopped_short():
+    lifecycle, now, q = wrist_lagging_a_fast_leader()
+    with pytest.raises(ValueError, match='holding lead bound'):
+        lifecycle.step(wrist_feedback(now + .01, q), target=None, now=now + .01)  # Stuck where it was.
+    assert lifecycle.state == 'FAULT'

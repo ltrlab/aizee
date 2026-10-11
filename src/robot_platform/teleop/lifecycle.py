@@ -353,6 +353,29 @@ class TeleopLifecycle:
             self._settled_since = now
         return now-self._settled_since >= self.settle_time_s
 
+    @staticmethod
+    def _lead_origin(row, joint, last, dt, now):
+        """Where the joint will be once the receiver has ramped to this cycle's command: its measured position
+        carried on, in the direction it moves, at its speed between the last two cycles over the sample's age and
+        the interpolation period (lowest, highest). Taken from the measured position alone, the ramp and the
+        sample's age (about 80 ms) held right J1 to 0.57 rad/s at a 0.048 rad lead. A still joint gets no credit."""
+        period = joint.get('interpolation_s') or 0.
+        ahead = (row['position'] - last) / dt * (max(0., now - row['sampled_at']) + period) if dt > 0 else 0.
+        return row['position'] + min(0., ahead), row['position'] + max(0., ahead)
+
+    def _holds_within_lead(self, measured, dt, now):
+        """The held command is still one following could have sent: within each joint's lead of where it will be
+        (_lead_origin), as _approach bounds it. Raw feedback alone faulted a wrist still closing a lead following
+        had allowed, on the first late leader sample (left J5, 0.0880 > 0.0874 rad, 2026-10-11). Joints held
+        rather than following keep the raw check, as _approach applies it to them."""
+        before = self._last_measured or tuple(row['position'] for row in measured)
+        for index, (q, row, joint, last) in enumerate(zip(self.target, measured, self._joints, before)):
+            inactive = (self.trial and joint['name'] != self.trial['motor']) or (self._manual and not self._manual[index]['follow'])
+            low, high = (row['position'],) * 2 if inactive else self._lead_origin(row, joint, last, dt, now)
+            if not low - joint['max_lead'] <= q <= high + joint['max_lead']:
+                return False
+        return True
+
     def _approach(self, measured, goal, speed, dt, now):
         proposed, velocities = [], []
         before = self._last_measured or tuple(row['position'] for row in measured)
@@ -388,17 +411,13 @@ class TeleopLifecycle:
                 gains = (joint['hold_kp'], joint['hold_kd'])
                 lead_up = lead_toward(curve, reaction, row['position'], 1, joint['max_lead'], cap, *gains)
                 lead_down = lead_toward(curve, reaction, row['position'], -1, joint['max_lead'], cap, *gains)
-            # The lead is taken from where the joint will be once the receiver has ramped to this command: its
-            # measured position carried on, in the direction it moves, at its speed between the last two cycles
-            # over the sample's age and the interpolation period. Taken from the measured position alone, the
-            # ramp and the sample's age (about 80 ms) held right J1 to 0.57 rad/s at a 0.048 rad lead.
-            ahead = (row['position'] - last) / dt * (max(0., now - row['sampled_at']) + period) if dt > 0 else 0.
-            up_from, down_from = row['position'] + max(0., ahead), row['position'] + min(0., ahead)
+            # The lead is taken from where the joint will be once the receiver has ramped to this command.
+            down_from, up_from = self._lead_origin(row, joint, last, dt, now)
             lead_lower, lead_upper = down_from-lead_down, up_from+lead_up
             if self.allow_repeated_source:
                 # Construct endpoints inside the exact bound. Otherwise subtracting
                 # a rounded endpoint from feedback can exceed max_lead by one ULP
-                # and falsely trip the unchanged strict HOLD check on source loss.
+                # and falsely trip the source-loss check (_holds_within_lead), which uses the same bound.
                 lead_lower = math.nextafter(lead_lower, down_from)
                 lead_upper = math.nextafter(lead_upper, up_from)
             # A target beyond a shrunken lead may come back toward the joint at once: that only eases the pull.
@@ -497,8 +516,7 @@ class TeleopLifecycle:
                     self.reason = 'Leader input lost; holding measured pose until Engage'
                     self.target = self._lost_source_hold(measured)
                     self._source, self._misses = None, 0
-                elif any(abs(q-row['position']) > joint['max_lead']
-                         for q, row, joint in zip(self.target, measured, self._joints)):
+                elif not self._holds_within_lead(measured, dt, now):
                     raise ValueError('Measured pose exceeds the holding lead bound')
             elif self.state in {'ENGAGING', 'TELEOP'}:
                 previous_source = self._source
