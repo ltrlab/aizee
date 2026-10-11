@@ -12,7 +12,8 @@
 
 ## What it does
 
-- **Settings tab** (Ctrl+, opens it): search, categories, and every field with its current value, default,
+- **Settings tab** (Ctrl+, opens it): a vertical category rail (search; Session, Read-only and View groups)
+  between the model and the options, and every field with its current value, default,
   bounds, unit and when it applies.
   - Manual motor tuning (Kp, Kd, speed, travel; Hold → Apply → Engage) moved here from Teleop. Teleop keeps a
     shortcut to it.
@@ -66,6 +67,10 @@
   folder): the Settings tab loaded 9 categories and 525 fields, 53 of them editable, plus the 14 manual
   tuning rows. Search worked, and an edit through the page applied as revision 1 and was saved for the
   next Start. Labels, effect badges and the model label read correctly. No motors were contacted.
+- Follow-up on operator review (2026-10-10): the category rail, a dark grey / light blue theme, and the
+  model opening on its Front view. Gate passed again on that source (content SHA256 `5d84a4a6…`, unchanged
+  before/after): 645 Python tests, zero failures/skips, Rust tests included, evidence
+  `build/dev-check/20261011T031823Z-1e9b2ce3/report.json`. Seen in the preview at full, 820 px and 400 px widths.
 
 ## Remaining uncertainty
 
