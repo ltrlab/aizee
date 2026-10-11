@@ -39,5 +39,13 @@ aside{background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;
 .joint-overlay-card dt{font-size:10px;color:#aab1b8}.joint-overlay-card dd{margin:0 0 4px;font-size:12px;color:var(--text);overflow-wrap:anywhere}
 .joint-overlay-card dd.position{color:#d2e9ff}.joint-overlay-card dd.effort{color:#dfd1ff}.joint-overlay-card dd.temperature{color:#ffd4aa}.joint-overlay-card dd.direction{font-size:10px;color:var(--accent)}
 .joint-overlay-card.stale{border-color:#aa7653;border-left-color:var(--warn);background:#2b241ff2}.joint-overlay-card.stale dd{color:#c4b8ab}.joint-overlay-card.stale::before{background:var(--warn)}
+.joint-overlay-values{display:none}
+.joint-overlay-card.compact{padding:5px 8px;border-left-width:2px;font-size:10.5px;line-height:1.3;box-shadow:0 2px 8px #0006}
+.joint-overlay-card.compact strong{font-size:11px}
+.joint-overlay-card.compact strong,.joint-overlay-card.compact .joint-overlay-values{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.joint-overlay-card.compact small,.joint-overlay-card.compact dl{display:none}
+.joint-overlay-card.compact .joint-overlay-values{display:block;color:#d2e9ff;font-variant-numeric:tabular-nums}
+.joint-overlay-card.compact.stale .joint-overlay-values{color:#c4b8ab}
+.joint-overlay-card.compact.selected{border-color:var(--accent);background:#16263af2}
 .embed .viewport-foot{display:none}.embed #live-collision-status{bottom:62px}
 @media(max-width:650px){.joint-overlay-legend{display:none}.joint-overlay-toolbar{gap:5px;font-size:10px}.joint-overlay-card{font-size:10px;padding:7px 8px}.joint-overlay-card dd{font-size:11px}}

@@ -109,6 +109,23 @@ export function describeJoint(row, fields=DEFAULT_OVERLAY.fields) {
       : `${Math.round(row.age_seconds*1000)} ms old`, mapping:row.mapping_verified ? '' : 'Model mapping unverified'};
 }
 
+// All-joints labels: two columns at the view's edges, split at the mean anchor, each sorted by anchor height.
+// Labels never overlap while a column fits between top and bottom; past that they stack from the top.
+export function calloutColumns(items, {width, top, bottom, cardWidth, gap=4, margin=12}) {
+  if (!items.length) return [];
+  const split=items.reduce((sum,item)=>sum+item.anchorX,0)/items.length, placed=[];
+  for (const side of ['left','right']) {
+    const column=items.filter(item=>(item.anchorX<split)===(side==='left')).sort((a,b)=>a.anchorY-b.anchorY);
+    const x=side==='left' ? margin : width-cardWidth-margin, ys=[];
+    let floor=top;
+    for (const item of column) {const y=Math.max(floor,item.anchorY-item.height/2);ys.push(y);floor=y+item.height+gap;}
+    let ceiling=bottom;
+    for (let i=column.length-1;i>=0;i--) {ys[i]=Math.max(top,Math.min(ys[i],ceiling-column[i].height));ceiling=ys[i]-gap;}
+    column.forEach((item,i)=>placed.push({...item,x,y:ys[i],side}));
+  }
+  return placed;
+}
+
 // Positive rotation follows the right-hand rule around the supplied URDF axis.
 // Keeping this numeric helper separate lets tests verify both signs and axes.
 export function rotationArc(axis, sign, radius, segments=28) {

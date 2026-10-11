@@ -5,7 +5,7 @@ import {fileURLToPath} from 'node:url';
 
 const stage=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const source=await fs.readFile(path.join(stage,'src/robot_platform/viewer/static/joint-telemetry.js'),'utf8');
-const {JointTelemetry,describeJoint,rotationArc,overlaySettings,trustedOverlayMessage}=await import(
+const {JointTelemetry,calloutColumns,describeJoint,rotationArc,overlaySettings,trustedOverlayMessage}=await import(
   `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 const model={id:'minerva',urdf_sha256:'test-urdf',joints:[
   {name:'left_arm_j1',type:'revolute'}, {name:'left_gripper',type:'prismatic'}, {name:'base',type:'fixed'}]};
@@ -104,6 +104,24 @@ test('rotation geometry obeys right-hand rule on every URDF axis and reverses si
   }
   assert.equal(rotationArc([0,0,0],1,.1),null);
 });
+test('all-joint labels split into edge columns that keep anchor order and never overlap',()=>{
+  const items=[];
+  for(const [side,x] of [['right',380],['left',120]]) for(let i=0;i<7;i++)
+    items.push({id:`${side}${i}`,anchorX:x+i*3,anchorY:200+i*12,height:36});  // Joints closer together than labels.
+  const placed=calloutColumns(items,{width:500,top:145,bottom:600,cardWidth:170});
+  assert.equal(placed.length,14);
+  for(const side of ['left','right']) {
+    const column=placed.filter(item=>item.side===side);
+    assert.ok(column.every(item=>item.id.startsWith(side)));
+    assert.ok(column.every(item=>item.x===(side==='left'?12:500-170-12)));
+    assert.deepEqual(column.map(item=>item.id),column.map((_,i)=>`${side}${i}`));
+    for(let i=1;i<column.length;i++) assert.ok(column[i].y>=column[i-1].y+36+4);
+    assert.ok(column[0].y>=145 && column.at(-1).y+36<=600);
+  }
+  const crowded=calloutColumns(items.slice(0,7),{width:500,top:145,bottom:300,cardWidth:170});
+  assert.ok(crowded.every(item=>item.y>=145 && item.y+36<=300));  // Too many to fit: they overlap but stay in view.
+  assert.deepEqual(calloutColumns([],{width:500,top:0,bottom:100,cardWidth:100}),[]);
+});
 // Minimal DOM plus real vendored Three objects exercise frame anchoring and the
 // parent-message/display lifecycle without creating WebGL, opening a browser or
 // reading hardware. All fixture values are explicitly simulated.
@@ -163,6 +181,17 @@ test('parent preferences control display and selection emits display-only messag
   overlay.choose('left_arm_j1');assert.deepEqual(messages.at(-1).value,{type:'helm-viewer-selection',version:1,motor:'left_arm_j1'});
   listeners.message({source:parent,origin:location.origin,data:{type:'helm-viewer-overlay',version:1,settings:{enabled:false}}});
   overlay.update(1020);assert.equal(overlay.container.hidden,true);assert.equal(overlay.toolbar.hidden,true);
+});
+test('all-joint scope shows compact readings and marks the selected joint',()=>{
+  const {overlay}=makeOverlay();
+  listeners.message({source:parent,origin:location.origin,data:{type:'helm-viewer-overlay',version:1,
+    settings:{enabled:true,scope:'all',selected_motor:'left_arm_j1'}}});
+  overlay.update(1000);const card=overlay.cards.get('left_arm_j1');
+  assert.ok(card.node.classList.contains('compact'));assert.ok(card.node.classList.contains('selected'));
+  assert.equal(card.values.textContent,'−0.200 rad · −0.40 Nm · 30.0 °C');
+  listeners.message({source:parent,origin:location.origin,data:{type:'helm-viewer-overlay',version:1,
+    settings:{enabled:true,scope:'selected'}}});
+  overlay.update(1010);assert.equal(card.node.classList.contains('compact'),false);
 });
 test('model teardown removes labels, arrows and leader lines',()=>{
   const {overlay,frame}=makeOverlay();overlay.update(1000);assert.equal(overlay.cards.size,1);

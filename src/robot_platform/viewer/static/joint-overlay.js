@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {DEFAULT_OVERLAY, JointTelemetry, describeJoint, overlaySettings, rotationArc,
+import {DEFAULT_OVERLAY, JointTelemetry, calloutColumns, describeJoint, overlaySettings, rotationArc,
   trustedOverlayMessage} from './joint-telemetry.js';
 
 // Display only. The parent Settings panel owns all persisted overlay preferences.
@@ -62,10 +62,11 @@ export class JointOverlay {
     const node=document.createElement('div'); node.className='joint-overlay-card';
     const title=document.createElement('strong'), source=document.createElement('small');
     const readings=document.createElement('dl'), age=document.createElement('small');
-    node.append(title,source,readings,age); this.container.append(node);
+    const values=document.createElement('span'); values.className='joint-overlay-values';
+    node.append(title,values,source,readings,age); this.container.append(node);
     const line=document.createElementNS('http://www.w3.org/2000/svg','line');this.leaders.append(line);
     const arrow=new THREE.Group(); this.frames.get(row.joint).add(arrow);
-    const card={node,title,source,readings,age,arrow,line,joint:row.joint,direction:null};
+    const card={node,title,values,source,readings,age,arrow,line,joint:row.joint,direction:null};
     this.cards.set(row.motor,card); return card;
   }
   updateArrow(card,row,direction) {
@@ -123,6 +124,12 @@ export class JointOverlay {
       if(existing && existing.joint !== row.joint) { this.disposeCards(); }
       const card=this.cards.get(row.motor)||this.makeCard(row), display=describeJoint(row,this.settings.fields);
       card.node.hidden=false; card.node.classList.toggle('stale',row.stale);
+      // All joints: a compact two-line tag (name; position · effort · temperature). Selected: the full card.
+      const compact=this.settings.scope === 'all';
+      card.node.classList.toggle('compact',compact);
+      card.node.classList.toggle('selected',compact && row.motor === this.selected);
+      card.values.textContent=display.lines.filter(line=>line.kind !== 'direction').map(line=>line.value).join(' · ')
+        || display.status;
       card.line.classList.toggle('stale',row.stale);
       card.title.textContent=row.label; card.source.textContent=`${display.source} · ${row.joint}`;
       card.readings.replaceChildren();
@@ -141,8 +148,10 @@ export class JointOverlay {
     // Project the URDF origin after world transforms; rotation arrows inherit the
     // same origin orientation, so their axis is the joint's actual world axis.
     const width=this.viewport.clientWidth,height=this.viewport.clientHeight;
-    const top=Math.max(145,(this.viewport.querySelector('.viewport-head')?.offsetHeight||100)+30);
-    const placed=[];
+    // Below the viewer's tools and status, wherever the page has placed them.
+    const head=this.viewport.querySelector('.viewport-head');
+    const top=Math.max(145,(head?.offsetTop||18)+(head?.offsetHeight||100)+12);
+    const shown=[];
     for(const card of this.cards.values()) {
       if(card.node.hidden) continue;
       const point=new THREE.Vector3();this.frames.get(card.joint).getWorldPosition(point);point.project(this.camera);
@@ -151,21 +160,34 @@ export class JointOverlay {
       }
       card.node.style.visibility='visible';
       card.line.style.visibility='visible';
-      const anchorX=(point.x+1)*width/2,anchorY=(1-point.y)*height/2;
+      shown.push({card,anchorX:(point.x+1)*width/2,anchorY:(1-point.y)*height/2});
+    }
+    if(this.settings.scope === 'all') {
+      // Columns at the edges keep the model clear; leader lines run back to each joint.
+      const cardWidth=Math.min(176,Math.max(120,(width-48)/2));
+      const items=shown.map(item=>({...item,height:item.card.node.offsetHeight||40}));
+      for(const item of calloutColumns(items,{width,top,bottom:height-100,cardWidth}))
+        this.place(item.card,item.x,item.y,cardWidth,item.height,item.anchorX,item.anchorY);
+      return;
+    }
+    const placed=[];
+    for(const {card,anchorX,anchorY} of shown) {
       const cardWidth=Math.min(225,width-28),cardHeight=card.node.offsetHeight||142;
       let x=Math.max(12,Math.min(width-cardWidth-12,anchorX+14));
       let y=Math.max(top,Math.min(height-cardHeight-66,anchorY-cardHeight/2));
-      // Selected is the uncluttered default; all-mode labels fan vertically.
       for(const box of placed) if(Math.abs(x-box.x)<cardWidth+8 && y<box.y+box.h+8 && y+cardHeight>box.y) y=box.y+box.h+8;
       if(y+cardHeight>height-54) { x=Math.max(12,anchorX-cardWidth-14);y=Math.max(top,Math.min(height-cardHeight-54,anchorY)); }
       placed.push({x,y,h:cardHeight});
-      card.node.style.width=`${cardWidth}px`;card.node.style.transform=`translate(${x}px,${y}px)`;
-      card.node.style.setProperty('--anchor-x',`${anchorX-x}px`);
-      card.node.style.setProperty('--anchor-y',`${anchorY-y}px`);
-      card.line.setAttribute('x1',anchorX);card.line.setAttribute('y1',anchorY);
-      card.line.setAttribute('x2',Math.max(x,Math.min(x+cardWidth,anchorX)));
-      card.line.setAttribute('y2',Math.max(y,Math.min(y+cardHeight,anchorY)));
+      this.place(card,x,y,cardWidth,cardHeight,anchorX,anchorY);
     }
+  }
+  place(card,x,y,cardWidth,cardHeight,anchorX,anchorY) {
+    card.node.style.width=`${cardWidth}px`;card.node.style.transform=`translate(${x}px,${y}px)`;
+    card.node.style.setProperty('--anchor-x',`${anchorX-x}px`);
+    card.node.style.setProperty('--anchor-y',`${anchorY-y}px`);
+    card.line.setAttribute('x1',anchorX);card.line.setAttribute('y1',anchorY);
+    card.line.setAttribute('x2',Math.max(x,Math.min(x+cardWidth,anchorX)));
+    card.line.setAttribute('y2',Math.max(y,Math.min(y+cardHeight,anchorY)));
   }
   pick(event) {
     const down=this.pointerDown;this.pointerDown=null;
