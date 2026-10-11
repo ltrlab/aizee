@@ -83,6 +83,12 @@
   range, reference and those limits (None when missing). Seen in the simulated preview from the front and at
   an angle. Gate passed (content SHA256 `429af2a5…`, unchanged before/after): 646 Python tests, zero
   failures/skips, Rust tests included, evidence `build/dev-check/20261011T051203Z-7c2844b1/report.json`.
+- Fourth follow-up (2026-10-11): no joint selected (empty-space click, Esc, the card's close button or the
+  picker; Helm keeps the choice) and a Show a card for the selected joint setting; the connection status
+  held in the model view's top-left corner at every width; and the viewer no longer reports a failed start
+  when resized during load (it set the canvas's CSS size inside its ResizeObserver). Seen in the simulated
+  preview at full, Settings-open, 820 px and 400 px widths. Gate passed: 646 Python tests, zero
+  failures/skips, Rust tests included, evidence `build/dev-check/20261011T053212Z-188e4341/report.json`.
 
 ## Remaining uncertainty
 
