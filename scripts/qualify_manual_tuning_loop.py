@@ -23,6 +23,7 @@ import traceback
 
 import benchmark_direct_loop as bench
 from benchmark_direct_teleop import verify_runtime_imports
+from robot_platform.control.plain_data import plain_copy
 from robot_platform.control.scheduling import prefer_responsive
 from robot_platform.helm.teleop import TeleopCore, run_loop
 from robot_platform.teleop.latency import distribution, summarize
@@ -98,13 +99,14 @@ class Receiver(bench.VirtualReceiver):
         super().__init__(*args,**kwargs)
 
     def exchange(self,request):
-        before=deepcopy((self.last or {}).get('status',{})) if request.get('update_hold_gains') else None
+        # Evidence copies run inside the timed exchange: plain_copy keeps them independent and cheap.
+        before=plain_copy((self.last or {}).get('status',{})) if request.get('update_hold_gains') else None
         try:
             return super().exchange(request)
         finally:
             if before is not None:
-                self.tuning_requests.append(dict(request=deepcopy(request),before=before,
-                                                after=deepcopy(self.last),at=time.perf_counter()))
+                self.tuning_requests.append(dict(request=plain_copy(request),before=before,
+                                                after=plain_copy(self.last),at=time.perf_counter()))
 
 
 class Driver:
