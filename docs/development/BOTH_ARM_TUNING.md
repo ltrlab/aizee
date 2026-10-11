@@ -69,5 +69,5 @@ zero misses or skipped slots. Helm's stopped reader was likely running during th
   together until a two-arm bound exists.
 - Right arm: live sweeps and direction checks pending; the right gripper was 0.13 rad from reference (start
   tolerance 0.10) at the last stopped check.
-- Live use needs this release deployed (the active release is `1624fda`) and Helm launched from this checkout
-  with tuning-profile operator runs.
+- Live use: `0c1ef49` was deployed on 2026-10-11 (without the source-loss fix); `0b2900d` or later needs
+  deploying, and Helm launched from this checkout with tuning-profile operator runs.
