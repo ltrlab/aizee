@@ -180,6 +180,8 @@ body[data-teleop-state=FAULT] #t-state,#t-collision.bad{color:var(--bad)}#t-coll
 .settings-nav button[data-edited=true]::after{content:'';position:absolute;right:7px;top:50%;width:6px;height:6px;margin-top:-3px;border-radius:50%;background:var(--warn)}
 .settings-meta{display:flex;flex-direction:column;gap:2px;padding:8px 6px 0;border-top:1px solid var(--line);font-size:10.5px;color:var(--muted)}
 #settings-draft{color:var(--warn)}
+.rail-count{margin-left:6px;padding:0 6px;border-radius:8px;background:var(--raised);color:var(--text);font-size:10.5px;font-variant-numeric:tabular-nums}
+.rail-count:empty{display:none}
 .settings-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
 .settings-group{margin:12px 0 18px}.settings-group[hidden]{display:none}
 .settings-group h2{font-size:15px;margin:4px 0 8px}

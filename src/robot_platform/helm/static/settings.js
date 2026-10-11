@@ -82,6 +82,10 @@ export class SettingsPanel {
     finally {this.fetching=false;}
   }
   fields() {return (this.state?.sections||[]).flatMap(section=>section.fields||[]);}
+  changedFields() {
+    return this.fields().filter(field=>field.editable
+      && (!same(field.value,field.default) || (this.draft.has(field.id) && !same(this.draft.get(field.id),field.value))));
+  }
   edits() {return this.fields().filter(field=>field.editable && !same(this.draft.get(field.id),field.value));}
   resetDraft() {
     this.draft=new Map(this.fields().map(field=>[field.id,clone(field.value)]));this.conflict=false;
@@ -109,20 +113,21 @@ export class SettingsPanel {
   renderNavigation() {
     const host=$('settings-nav');host.replaceChildren();
     const sections=this.state?.sections||[],session=sections.filter(section=>section.fields?.some(field=>field.editable));
-    const groups=[['Session',[{id:'motors',label:'Motor tuning'},...session]],
+    const groups=[['Session',[{id:'changed',label:'Changed from profile'},{id:'motors',label:'Motor tuning'},...session]],
       ['Read-only',sections.filter(section=>!session.includes(section))],['View',[{id:'display',label:'3D display'}]]];
     for (const [title,items] of groups) {
       if (!items.length) continue;
       const heading=document.createElement('div');heading.className='rail-group';heading.textContent=title;host.append(heading);
       for (const section of items) {
         const button=document.createElement('button');button.textContent=section.label;button.dataset.settingsSection=section.id;
+        if (section.id==='changed') {const count=document.createElement('span');count.className='rail-count';button.append(count);}
         button.onclick=()=>this.show(section.id);host.append(button);
       }
     }
     this.filter();
   }
   show(category='motors') {
-    this.category=category;this.search='';$('settings-search').value='';this.filter();
+    this.category=category;this.search='';$('settings-search').value='';this.changedShown=null;this.filter();
     $('settings-content').scrollTop=0;
     if (!this.state) this.refresh();
   }
@@ -133,7 +138,7 @@ export class SettingsPanel {
       const heading=document.createElement('h2');heading.textContent=section.label;group.append(heading);
       if (section.description) {const text=document.createElement('p');text.className='muted';text.textContent=section.description;group.append(text);}
       for (const field of section.fields) {
-        const row=document.createElement('div');row.className='setting-field';row.dataset.search=[field.label,field.id,field.unit,field.description,field.reason,field.source].join(' ').toLowerCase();
+        const row=document.createElement('div');row.className='setting-field';row.dataset.field=field.id;row.dataset.search=[field.label,field.id,field.unit,field.description,field.reason,field.source].join(' ').toLowerCase();
         const label=document.createElement('label'),title=document.createElement('span');title.className='setting-label';title.textContent=field.label;label.append(title);
         const unit=document.createElement('small');unit.textContent=field.unit||'';title.append(unit);
         if (field.editable) {
@@ -167,12 +172,24 @@ export class SettingsPanel {
     }
     $('settings-motors').hidden=!!this.search||this.category!=='motors';
     $('settings-display').hidden=!!this.search||this.category!=='display';
-    let count=0;
-    for(const group of document.querySelectorAll('#settings-fields .settings-group')) {
-      let visible=0;for(const row of group.querySelectorAll('.setting-field')) {row.hidden=!!this.search&&!row.dataset.search.includes(this.search);if(!row.hidden)visible++;}
-      group.hidden=this.search?!visible:group.dataset.section!==this.category;if(!group.hidden)count+=visible;
+    // Rows stay listed while this view is open, so one edited back to its profile value does not vanish mid-edit.
+    let count=0,changed=null;
+    if(this.category==='changed'&&!this.search) {
+      changed=this.changedShown||=new Set();
+      for(const field of this.changedFields()) changed.add(field.id);
     }
-    $('settings-empty').hidden=!this.search||count>0;
+    for(const group of document.querySelectorAll('#settings-fields .settings-group')) {
+      let visible=0;
+      for(const row of group.querySelectorAll('.setting-field')) {
+        row.hidden=this.search?!row.dataset.search.includes(this.search):changed?!changed.has(row.dataset.field):false;
+        if(!row.hidden)visible++;
+      }
+      group.hidden=this.search||changed?!visible:group.dataset.section!==this.category;if(!group.hidden)count+=visible;
+    }
+    $('settings-empty').hidden=!(this.search||changed)||count>0;
+    $('settings-empty').textContent=changed
+      ? 'Nothing differs from the profile: every session setting is at its profile value.'
+      : 'No settings match. Try a motor name, “speed”, or “timeout”.';
     $('settings-footer').hidden=!this.search&&['motors','display'].includes(this.category);
   }
   feedback(message,bad=false) {const node=$('settings-status');node.textContent=message;node.classList.toggle('bad',bad);}
@@ -184,6 +201,8 @@ export class SettingsPanel {
     $('settings-reset').disabled=!allowed||this.conflict||!!changes.length;
     $('settings-revert').disabled=this.pending||(!changes.length&&!this.conflict);
     for(const [id,input] of this.inputs){input.disabled=!allowed;input.closest('.setting-field').dataset.edited=String(changes.some(field=>field.id===id));}
+    const count=document.querySelector('#settings-nav .rail-count');
+    if(count) count.textContent=this.state?String(this.changedFields().length||''):'';
     const edited=new Set((this.state?.sections||[]).filter(section=>section.fields.some(field=>changes.includes(field))).map(section=>section.id));
     for(const button of document.querySelectorAll('[data-settings-section]')) button.dataset.edited=String(edited.has(button.dataset.settingsSection));
     $('settings-revision').textContent=this.state?`Session settings · revision ${this.state.revision}`:'Loading settings…';
@@ -198,7 +217,7 @@ export class SettingsPanel {
     this.pending=true;this.actions();++this.serial;
     try {
       const state=await this.request(`/api/helm/settings/${action}`,payload);
-      this.state=state;this.resetDraft();this.buildFields();this.renderNavigation();
+      this.state=state;this.changedShown=null;this.resetDraft();this.buildFields();this.renderNavigation();
       this.feedback(action==='apply'?'Session settings saved. They take effect at the next Start.':'Session overrides reset to profile defaults.');
     }catch(error){this.feedback(`${error.message} Draft edits are retained.`,true);}
     finally{this.pending=false;this.actions();this.filter();}
