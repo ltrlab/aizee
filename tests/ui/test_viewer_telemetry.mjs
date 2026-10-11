@@ -5,7 +5,8 @@ import {fileURLToPath} from 'node:url';
 
 const stage=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const source=await fs.readFile(path.join(stage,'src/robot_platform/viewer/static/joint-telemetry.js'),'utf8');
-const {JointTelemetry,calloutColumns,describeJoint,rotationArc,overlaySettings,trustedOverlayMessage}=await import(
+const {JointTelemetry,calloutColumns,describeJoint,gaugeSpec,heatColor,rotaryBasis,rotationArc,overlaySettings,
+  trustedOverlayMessage}=await import(
   `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 const model={id:'minerva',urdf_sha256:'test-urdf',joints:[
   {name:'left_arm_j1',type:'revolute'}, {name:'left_gripper',type:'prismatic'}, {name:'base',type:'fixed'}]};
@@ -122,6 +123,24 @@ test('all-joint labels split into edge columns that keep anchor order and never 
   assert.ok(crowded.every(item=>item.y>=145 && item.y+36<=300));  // Too many to fit: they overlap but stay in view.
   assert.deepEqual(calloutColumns([],{width:500,top:0,bottom:100,cardWidth:100}),[]);
 });
+test('gauge spec maps range, reference and shares of the receiver limits, never inventing a limit',()=>{
+  const state=new JointTelemetry();
+  state.accept(packet({rows:[{...row,range:[-1,1],reference:.1,effort_limit:2,temperature_limit_c:60}]}),0,model);
+  const spec=gaugeSpec(state.snapshot(0).rows[0]);
+  assert.deepEqual(spec.track,[-1,1]);assert.equal(spec.reference,.1);assert.equal(spec.value,-.2);
+  assert.equal(spec.effort,.2);assert.equal(spec.heat,.5);assert.equal(spec.label,'−0.20 rad');assert.equal(spec.verified,true);
+  state.accept(packet({sequence:2,rows:[{...row,range:[2,1],reference:'0',effort_limit:0}]}),10,model);
+  const bare=gaugeSpec(state.snapshot(10).rows[0]);
+  assert.equal(bare.track,null);assert.equal(bare.reference,null);assert.equal(bare.effort,null);assert.equal(bare.heat,null);
+  assert.equal(gaugeSpec({...row,range:[-4,4],position_unit:'rad'}).track,null);  // A whole turn: a full dial.
+  assert.equal(gaugeSpec({...row,position:.01,position_unit:'m'}).label,'+0.010 m');
+});
+test('heat colour runs slate to amber to red as temperature nears its limit',()=>{
+  assert.equal(heatColor(.3),0xb4c8dc);assert.equal(heatColor(.8),0xf2c380);
+  assert.equal(heatColor(1),0xff5a5a);assert.equal(heatColor(1.4),0xff5a5a);assert.equal(heatColor(NaN),0xb4c8dc);
+  const {u,v,n}=rotaryBasis([0,0,2]);
+  assert.deepEqual(n,[0,0,1]);assert.ok(Math.abs(u[0]*v[0]+u[1]*v[1]+u[2]*v[2])<1e-12);
+});
 // Minimal DOM plus real vendored Three objects exercise frame anchoring and the
 // parent-message/display lifecycle without creating WebGL, opening a browser or
 // reading hardware. All fixture values are explicitly simulated.
@@ -148,8 +167,12 @@ const vendor=path.resolve(process.env.AIZEE_VIEWER_THREE ||
   'C:/Users/ltr/.codex/worktrees/dev-baseline/aizee/src/robot_platform/viewer/static/vendor/three.module.js');
 const threeURL=`data:text/javascript;base64,${Buffer.from(await fs.readFile(vendor,'utf8')).toString('base64')}`;
 const telemetryURL=`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
-const overlaySource=(await fs.readFile(path.join(stage,'src/robot_platform/viewer/static/joint-overlay.js'),'utf8'))
+const gaugesSource=(await fs.readFile(path.join(stage,'src/robot_platform/viewer/static/joint-gauges.js'),'utf8'))
   .replace("from 'three'",`from '${threeURL}'`).replace("from './joint-telemetry.js'",`from '${telemetryURL}'`);
+const gaugesURL=`data:text/javascript;base64,${Buffer.from(gaugesSource).toString('base64')}`;
+const overlaySource=(await fs.readFile(path.join(stage,'src/robot_platform/viewer/static/joint-overlay.js'),'utf8'))
+  .replace("from 'three'",`from '${threeURL}'`).replace("from './joint-telemetry.js'",`from '${telemetryURL}'`)
+  .replace("from './joint-gauges.js'",`from '${gaugesURL}'`);
 const THREE=await import(threeURL);
 const {JointOverlay}=await import(`data:text/javascript;base64,${Buffer.from(overlaySource).toString('base64')}`);
 function makeOverlay() {
@@ -192,6 +215,41 @@ test('all-joint scope shows compact readings and marks the selected joint',()=>{
   listeners.message({source:parent,origin:location.origin,data:{type:'helm-viewer-overlay',version:1,
     settings:{enabled:true,scope:'selected'}}});
   overlay.update(1010);assert.equal(card.node.classList.contains('compact'),false);
+});
+test('on-model gauges sit in the joint frame with the needle at the joint angle',()=>{
+  const {overlay,frame}=makeOverlay();
+  overlay.telemetry.accept(packet({sequence:2,rows:[{...row,range:[-1,1],reference:0,effort_limit:2,temperature_limit_c:60}]}),
+    1000,overlay.model);
+  listeners.message({source:parent,origin:location.origin,data:{type:'helm-viewer-overlay',version:1,
+    settings:{enabled:true,scope:'model',selected_motor:'left_arm_j1'}}});
+  overlay.update(1000);
+  const gauge=overlay.gauges.gauges.get('left_arm_j1');assert.ok(gauge);assert.equal(gauge.root.parent,frame);
+  assert.equal(gauge.root.visible,true);assert.equal(overlay.cards.get('left_arm_j1').node.hidden,false);
+  // The needle (dial coordinates) turned into the joint frame lies at angle q from u toward v about the axis.
+  const {u,v}=rotaryBasis([1,0,0]),q=-.2,R=gauge.R;
+  const expected=new THREE.Vector3(...u.map((x,i)=>R*(x*Math.cos(q)+v[i]*Math.sin(q))));
+  const needle=gauge.parts.children.find(part=>part.renderOrder===11 && part.geometry.type==='CircleGeometry');
+  assert.ok(needle.position.clone().applyQuaternion(gauge.root.quaternion).distanceTo(expected)<1e-9);
+  // The axis turns into world +y and the camera looks down z: edge-on, so the dial hides and the hub stays.
+  const hub=gauge.parts.children.find(part=>part.userData.hub);
+  assert.equal(needle.visible,false);assert.equal(hub.visible,true);
+  const kinds=gauge.parts.children.map(part=>part.geometry.type);
+  assert.equal(kinds.filter(kind=>kind==='RingGeometry').length,3);  // Track, travel from reference, torque.
+  assert.ok(kinds.includes('PlaneGeometry'));  // Reference tick.
+  // Unverified direction: no dial, only the temperature hub and the label.
+  overlay.telemetry.accept(packet({sequence:3,rows:[{...row,mapping_verified:false,range:[-1,1],reference:0,
+    temperature_limit_c:60}]}),1010,overlay.model);
+  overlay.nextTextAt=0;overlay.update(1010);  // As a parent message does: redraw now.
+  assert.deepEqual(gauge.parts.children.map(part=>part.geometry.type),['SphereGeometry']);
+  // Seen along the axis, the dial shows.
+  overlay.telemetry.accept(packet({sequence:4,rows:[{...row,range:[-1,1],reference:0}]}),1015,overlay.model);
+  overlay.camera.position.set(0,4,.001);overlay.camera.lookAt(0,0,0);overlay.camera.updateMatrixWorld(true);
+  overlay.nextTextAt=0;overlay.update(1015);
+  assert.ok(gauge.parts.children.filter(part=>part.geometry.type==='RingGeometry').every(part=>part.visible));
+  // Back to cards: gauges hide.
+  listeners.message({source:parent,origin:location.origin,data:{type:'helm-viewer-overlay',version:1,settings:{scope:'selected'}}});
+  overlay.update(1020);assert.equal(gauge.root.visible,false);
+  overlay.clearModel();assert.equal(frame.children.length,1);
 });
 test('model teardown removes labels, arrows and leader lines',()=>{
   const {overlay,frame}=makeOverlay();overlay.update(1000);assert.equal(overlay.cards.size,1);

@@ -220,7 +220,7 @@
           <section id="settings-display" class="settings-group" hidden>
             <h2>3D telemetry</h2><p class="muted">Display preferences apply immediately in this browser. They do not change robot control.</p>
             <label class="display-toggle"><input type="checkbox" data-display="enabled" checked> Show joint telemetry on the model</label>
-            <label class="display-select">Labels to show <select data-display="scope"><option value="selected">Selected joint</option><option value="all">All reporting joints</option></select></label>
+            <label class="display-select">Show readings as <select data-display="scope"><option value="selected">Card for the selected joint</option><option value="all">Tags for all joints</option><option value="model">On the model (dials)</option></select></label>
             <div class="display-options">
               <label><input type="checkbox" data-display="position" checked> Position <small>Signed model coordinate · rad or m</small></label>
               <label><input type="checkbox" data-display="effort" checked> Torque / effort <small>Drive-reported feedback with units</small></label>
@@ -229,6 +229,10 @@
             </div>
             <p class="display-legend"><span class="legend-dot measured"></span>Measured feedback <span class="legend-dot stale"></span>Stale / unavailable</p>
             <p class="muted">Select a joint on the model or in telemetry. Missing readings show “—”; stale readings never appear live. The stopped reader currently supplies position only.</p>
+            <p class="muted">On the model: each joint's dial shows its calibrated range (grey), reference (white tick), travel from the
+              reference (blue) and position (needle), with one position label. The violet ring grows with torque as a share of the
+              receiver's limit; the hub shades from slate to amber to red as temperature nears its limit. Dials need a verified
+              direction mapping; stale readings turn grey. The selected joint keeps its card.</p>
             <button id="display-reset">Reset display preferences</button>
           </section>
         </div>

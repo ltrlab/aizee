@@ -12,7 +12,7 @@ export function overlaySettings(previous=DEFAULT_OVERLAY, incoming={}) {
     if (typeof incoming.fields?.[key] === 'boolean') fields[key] = incoming.fields[key];
   }
   return {enabled:typeof incoming.enabled === 'boolean' ? incoming.enabled : previous.enabled,
-    scope:['selected','all'].includes(incoming.scope) ? incoming.scope : previous.scope,
+    scope:['selected','all','model'].includes(incoming.scope) ? incoming.scope : previous.scope,
     selected_motor:typeof incoming.selected_motor === 'string' || incoming.selected_motor === null
       ? incoming.selected_motor : previous.selected_motor, fields};
 }
@@ -70,7 +70,13 @@ export class JointTelemetry {
         effort_label:typeof row.effort_label === 'string' && row.effort_label ? row.effort_label : 'Motor effort',
         temperature_c:finite(row.temperature_c) ? row.temperature_c : null,
         age:Math.max(age,rowAge), stale:row.stale === true, source:row.source,
-        mapping_verified:row.mapping_verified === true});
+        mapping_verified:row.mapping_verified === true,
+        // For gauges: the joint's range and reference in its position unit, and its receiver limits.
+        range:unitsValid && Array.isArray(row.range) && row.range.length === 2 && row.range.every(finite)
+          && row.range[0] <= row.range[1] ? [...row.range] : null,
+        reference:unitsValid && finite(row.reference) ? row.reference : null,
+        effort_limit:finite(row.effort_limit) && row.effort_limit > 0 ? row.effort_limit : null,
+        temperature_limit_c:finite(row.temperature_limit_c) && row.temperature_limit_c > 0 ? row.temperature_limit_c : null});
     }
     this.frame = {rows, age, received:now, stream_id:value.stream_id, sequence:value.sequence,
       stale:value.stale === true, stale_after_s:finite(value.stale_after_s) && value.stale_after_s > 0
@@ -126,14 +132,51 @@ export function calloutColumns(items, {width, top, bottom, cardWidth, gap=4, mar
   return placed;
 }
 
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+
+// A right-handed frame about a URDF axis: u and v span the plane a rotation turns in, n is the axis.
+export function rotaryBasis(axis) {
+  const norm=Array.isArray(axis) ? Math.hypot(...axis) : 0;
+  if (!norm || !Number.isFinite(norm)) return null;
+  const n=axis.map(v=>v/norm), reference=Math.abs(n[2]) < .9 ? [0,0,1] : [0,1,0];
+  const raw=cross(reference,n), length=Math.hypot(...raw), u=raw.map(v=>v/length);
+  return {u, v:cross(n,u), n};
+}
+
+// What a joint's gauge on the model shows. Angles and offsets are joint coordinates; shares are of the
+// receiver's limits and stay null without one. Torque is a magnitude: the drive reports it in motor terms.
+export function gaugeSpec(row) {
+  const rotary=row.position_unit !== 'm';
+  const range=Array.isArray(row.range) && row.range.length === 2 && row.range.every(finite) && row.range[0] <= row.range[1]
+    ? row.range : null;
+  const fullTurn=rotary && range && range[1]-range[0] >= 2*Math.PI-1e-9;
+  return {rotary, verified:row.mapping_verified === true, stale:row.stale === true, track:fullTurn ? null : range,
+    reference:finite(row.reference) ? row.reference : null, value:finite(row.position) ? row.position : null,
+    effort:row.effort_unit === 'Nm' && finite(row.effort) && finite(row.effort_limit) && row.effort_limit > 0
+      ? Math.min(1,Math.abs(row.effort)/row.effort_limit) : null,
+    heat:finite(row.temperature_c) && finite(row.temperature_limit_c) && row.temperature_limit_c > 0
+      ? Math.max(0,row.temperature_c/row.temperature_limit_c) : null,
+    label:signedValue(row.position,row.position_unit,rotary ? 2 : 3)};
+}
+
+// Temperature as a share of its limit: pale slate up to half, amber by 80%, red at the limit.
+export function heatColor(share) {
+  const stops=[[0,0xb4c8dc],[.5,0xb4c8dc],[.8,0xf2c380],[1,0xff5a5a]];
+  const s=Math.max(0,Math.min(1,finite(share) ? share : 0));
+  const mix=(a,b,t)=>[16,8,0].reduce((hex,shift)=>hex|Math.round(((a>>shift)&255)*(1-t)+((b>>shift)&255)*t)<<shift,0);
+  for (let i=1;i<stops.length;i++) if (s <= stops[i][0]) {
+    const [a,from]=stops[i-1],[b,to]=stops[i];
+    return mix(from,to,b > a ? (s-a)/(b-a) : 1);
+  }
+  return stops.at(-1)[1];
+}
+
 // Positive rotation follows the right-hand rule around the supplied URDF axis.
 // Keeping this numeric helper separate lets tests verify both signs and axes.
 export function rotationArc(axis, sign, radius, segments=28) {
-  const norm=Math.hypot(...axis);
-  if (!norm || !Number.isFinite(norm) || ![-1,1].includes(sign)) return null;
-  const n=axis.map(v=>v/norm), reference=Math.abs(n[2]) < .9 ? [0,0,1] : [0,1,0];
-  const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
-  const raw=cross(reference,n), length=Math.hypot(...raw), u=raw.map(v=>v/length), v=cross(n,u);
+  const basis=rotaryBasis(axis);
+  if (!basis || ![-1,1].includes(sign)) return null;
+  const {u,v}=basis;
   const points=[];
   for(let i=0;i<=segments;i++) {
     const angle=sign*(-.7*Math.PI+1.4*Math.PI*i/segments);

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {DEFAULT_OVERLAY, JointTelemetry, calloutColumns, describeJoint, overlaySettings, rotationArc,
   trustedOverlayMessage} from './joint-telemetry.js';
+import {JointGauges} from './joint-gauges.js';
 
 // Display only. The parent Settings panel owns all persisted overlay preferences.
 export class JointOverlay {
@@ -40,6 +41,7 @@ export class JointOverlay {
   setModel(model,motions,meshes,radius) {
     this.disposeCards(); this.telemetry.clear(); this.model=model; this.meshes=meshes;
     this.frames=new Map([...motions].map(([name,motion])=>[name,motion.parent])); this.radius=radius;
+    this.gauges?.dispose(); this.gauges=new JointGauges({frames:this.frames,model,radius});
     this.nextTextAt=0; if(this.pendingTelemetry) this.acceptTelemetry();
   }
   acceptTelemetry() {
@@ -57,7 +59,9 @@ export class JointOverlay {
     }
     this.cards.clear();
   }
-  clearModel() { this.disposeCards(); this.model=null; this.frames.clear(); this.telemetry.clear(); }
+  clearModel() {
+    this.disposeCards(); this.gauges?.dispose(); this.gauges=null; this.model=null; this.frames.clear(); this.telemetry.clear();
+  }
   makeCard(row) {
     const node=document.createElement('div'); node.className='joint-overlay-card';
     const title=document.createElement('strong'), source=document.createElement('small');
@@ -106,9 +110,13 @@ export class JointOverlay {
       }
     }
     this.select.value=this.selected||''; this.select.disabled=!motors.length;
-    this.select.hidden=this.settings.scope === 'all';
+    const scope=this.settings.scope, onModel=scope === 'model';
+    this.select.hidden=scope === 'all';
     this.toolbar.hidden=this.container.hidden=!this.settings.enabled;
-    const visible=this.settings.enabled ? snapshot.rows.filter(row=>this.settings.scope === 'all' || row.motor===this.selected) : [];
+    this.legend.textContent=onModel ? 'Dial: range · reference · position | violet: torque | hub: temperature'
+      : 'Position · motor effort · temperature | blue + / amber − motion';
+    // On the model every joint gets its gauge and motion arrow; only the selected joint keeps a card.
+    const visible=this.settings.enabled ? snapshot.rows.filter(row=>scope === 'all' || onModel || row.motor===this.selected) : [];
     const visibleMotors=new Set(visible.map(row=>row.motor));
     for(const [motor,card] of this.cards) {
       card.node.hidden=!visibleMotors.has(motor); card.arrow.visible=visibleMotors.has(motor) && card.direction !== 0;
@@ -117,13 +125,14 @@ export class JointOverlay {
     const stale=visible.some(row=>row.stale);
     this.status.textContent=!motors.length ? snapshot.reason || 'Waiting for joint telemetry'
       : !visible.length && this.settings.enabled ? 'Selected joint has no reading'
-      : `${stale ? 'Stale readings · arrows hidden' : 'Joint telemetry'} · ${this.settings.scope === 'all' ? 'all joints' : 'selected joint'}`;
+      : `${stale ? 'Stale readings · arrows hidden' : 'Joint telemetry'} · ${{all:'all joints',model:'on the model'}[scope] || 'selected joint'}`;
     this.status.classList.toggle('stale',stale || !motors.length);
     for(const row of visible) {
       const existing=this.cards.get(row.motor);
       if(existing && existing.joint !== row.joint) { this.disposeCards(); }
       const card=this.cards.get(row.motor)||this.makeCard(row), display=describeJoint(row,this.settings.fields);
-      card.node.hidden=false; card.node.classList.toggle('stale',row.stale);
+      card.node.hidden=onModel && row.motor !== this.selected; card.node.classList.toggle('stale',row.stale);
+      card.line.style.display=card.node.hidden ? 'none' : '';
       // All joints: a compact two-line tag (name; position · effort · temperature). Selected: the full card.
       const compact=this.settings.scope === 'all';
       card.node.classList.toggle('compact',compact);
@@ -141,6 +150,8 @@ export class JointOverlay {
       card.age.textContent=[display.status,display.mapping].filter(Boolean).join(' · ');
       this.updateArrow(card,row,display.direction);
     }
+    this.gauges?.update(onModel ? visible : [],{selected:this.selected,fields:this.settings.fields,camera:this.camera,
+      viewportHeight:this.viewport.clientHeight});
   }
   update(now=performance.now()) {
     if(now >= this.nextTextAt) { this.updateText(now); this.nextTextAt=now+100; }

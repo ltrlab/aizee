@@ -14,7 +14,7 @@ export function validDisplay(value) {
   const result = clone(DEFAULT_DISPLAY);
   if (!value || typeof value !== 'object') return result;
   if (typeof value.enabled === 'boolean') result.enabled = value.enabled;
-  if (['selected','all'].includes(value.scope)) result.scope = value.scope;
+  if (['selected','all','model'].includes(value.scope)) result.scope = value.scope;
   if (typeof value.selected_motor === 'string' && value.selected_motor.length < 100) result.selected_motor = value.selected_motor;
   for (const key of Object.keys(result.fields)) if (typeof value.fields?.[key] === 'boolean') result.fields[key] = value.fields[key];
   return result;
