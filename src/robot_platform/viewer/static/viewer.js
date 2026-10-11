@@ -84,7 +84,8 @@ function collisionState({state,result,error}) {
 function transform(object,origin){object.position.fromArray(origin.xyz);object.rotation.set(...origin.rpy,'ZYX');}
 function frame(direction=[1.35,-1.7,.95]){const delta=new THREE.Vector3(...direction).normalize().multiplyScalar(radius*2.8);camera.position.copy(center).add(delta);orbit.target.copy(center);camera.near=Math.max(radius/1000,.0001);camera.far=Math.max(radius*100,10);camera.updateProjectionMatrix();orbit.update();}
 $('fit').onclick=()=>frame();
-$('front').onclick=()=>frame(model?.front_direction??[1,0,0]);
+const front=()=>model?.front_direction??[1,0,0];
+$('front').onclick=()=>frame(front());
 $('top').onclick=()=>{
   const [x,y]=model?.front_direction??[1,0,0];
   // Approach the top from the front to preserve the Front view's left/right.
@@ -236,7 +237,7 @@ async function loadModel(id){
     // Frame visual geometry only; hidden collision shapes/axes cannot skew it.
     const box=new THREE.Box3();for(const m of meshes.filter(m=>m.userData.role==='visual')){m.geometry.computeBoundingBox();box.union(m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld));}
     if(box.isEmpty()){for(const m of meshes){m.geometry.computeBoundingBox();box.union(m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld));}if(box.isEmpty())box.setFromCenterAndSize(new THREE.Vector3(),new THREE.Vector3(1,1,1));}
-    box.getCenter(center);radius=Math.max(box.getSize(new THREE.Vector3()).length()/2,.01);frame();
+    box.getCenter(center);radius=Math.max(box.getSize(new THREE.Vector3()).length()/2,.01);frame(front());
     jointOverlay.setModel(model,motions,meshes,radius);
     linkAxes.forEach(a=>a.scale.setScalar(radius/3));grid=new THREE.GridHelper(radius*4,20,0x425665,0x273846);grid.rotation.x=Math.PI/2;grid.position.set(center.x,center.y,Math.min(0,box.min.z)-radius*.005);scene.add(grid);
     $('loading').textContent=failures.length?'Incomplete geometry':'Model ready';
@@ -295,7 +296,7 @@ async function followCalibration(){
       const identity=`${guide.stream_id||''}:${guide.sequence}`;
       if(!guide.stale&&(!guide.live||guide.age_seconds<=.75)&&identity!==last){
         applyPose(guide.positions,!!guide.live);
-        if(!started||!guide.live){if(guide.view==='top')$('top').click();else if(guide.view==='front')$('front').click();else frame();}
+        if(!started||!guide.live){if(guide.view==='top')$('top').click();else frame(front());}
         started=true;last=identity;
         const body=$('calibration-values');body.replaceChildren();
         for(const row of guide.rows||[]){const tr=document.createElement('tr');const unit=row.cad_unit??'rad',cad=row.cad_value??row.cad_rad;const displayed=unit==='m'?`${(cad*1000).toFixed(2)} mm`:`${cad.toFixed(3)} rad`;for(const value of [row.joint,row.raw_rad.toFixed(3),displayed,`${row.sign>0?'+1':'−1'}${row.direction_verified?' ✓':' ?'}`]){const td=document.createElement('td');td.textContent=value;tr.append(td);}body.append(tr);}
