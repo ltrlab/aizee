@@ -1,3 +1,5 @@
+import {SettingsPanel} from './settings.js';
+
 // Helm operator page. Reads /api/helm/state; every action needs the session token.
 const $ = id => document.getElementById(id);
 const DEG = 180 / Math.PI;
@@ -21,7 +23,7 @@ async function request(path, payload) {
 }
 
 const STATUS = {check: 'check-status', limits: 'action-status', leaders: 'leaders-status', teleop: 'teleop-status',
-  tune: 'tune-status'};
+  tune: 'tune-status', settings:'settings-status'};
 
 function say(text, kind = '') {
   const status = $(STATUS[document.body.dataset.tab] || 'action-status');
@@ -201,6 +203,9 @@ function render(state) {
   renderTeleop(state.teleop);
   renderTune(state.tune, state);
   renderCheck(state.check);
+  settingsPanel.updateContext(state);
+  renderGlobalControls(state);
+  publishTelemetry(state);
 }
 
 // ---- Minerva Check -------------------------------------------------------------
@@ -554,6 +559,7 @@ function buildManualRow(row) {
 function renderManual(t) {
   const settings = t?.tuning;
   $('manual-tuning').hidden = !settings?.enabled;
+  $('settings-manual-unavailable').hidden = !!settings?.enabled;
   if (!settings?.enabled) return;
   // A late poll must not replace an acknowledged revision or a newer session.
   if (manualRetiredSessions.includes(settings.session_id)
@@ -779,6 +785,9 @@ function renderTeleop(t) {
     button.disabled = !running || (!!t.fault && button.dataset.key !== 'H');
   $('t-engage').innerHTML = ENGAGED.includes(t.state) ? 'Hold <kbd>T</kbd>' : 'Engage <kbd>T</kbd>';
   renderManual(t);
+  $('t-tuning-summary').textContent=t.tuning?.enabled
+    ? `${t.tuning.rows.filter(row=>row.follow).length} joints following · revision ${t.tuning.revision} · edit in Hold, Apply, then Engage.`
+    : 'Inspect session speeds and receiver limits in Settings.';
 
   const container = $('teleop-joints');
   if (!t.joints.length) {
@@ -818,11 +827,12 @@ async function sendKey(key) {
 function onKey(event) {
   if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
   const stopKey = ['H', 'X'].includes(event.key.toUpperCase());
-  const manualInput = event.target?.tagName === 'INPUT' && event.target.closest('#manual-tuning');
-  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target?.tagName) && !(manualInput && stopKey)) return;
+  const numericInput = event.target?.tagName === 'INPUT' && ['number','checkbox'].includes(event.target.type)
+    && event.target.closest('#panel-settings');
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target?.tagName) && !(numericInput && stopKey)) return;
   // X and H reach a running sweep from the Check tab too, where Minerva Check's live sweep is started.
   const sweeping = ['running', 'starting'].includes(last?.tune?.phase);
-  if (document.body.dataset.tab === 'tune' || (sweeping && document.body.dataset.tab === 'check')) {
+  if (document.body.dataset.tab === 'tune' || (sweeping && (stopKey || document.body.dataset.tab === 'check'))) {
     const key = event.key.length === 1 ? event.key.toUpperCase() : '';
     if (key === 'X' || key === 'H') {
       event.preventDefault();
@@ -830,7 +840,8 @@ function onKey(event) {
     }
     return;
   }
-  if (document.body.dataset.tab !== 'teleop') return;
+  if (!['teleop','settings'].includes(document.body.dataset.tab) && !stopKey) return;
+  if (!['running','starting'].includes(last?.teleop?.phase)) return;
   const key = event.key.length === 1 ? event.key.toUpperCase() : '';
   if ('IETHX'.includes(key) && key) {
     event.preventDefault();
@@ -1211,9 +1222,44 @@ function showTab(name) {
   for (const tab of document.querySelectorAll('.tab[data-tab]')) {
     if (tab.dataset.tab === name) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current');
   }
-  for (const panel of ['check', 'limits', 'leaders', 'teleop', 'tune']) $(`panel-${panel}`).hidden = name !== panel;
+  for (const panel of ['check', 'limits', 'leaders', 'teleop', 'tune', 'settings']) $(`panel-${panel}`).hidden = name !== panel;
+  if(name==='settings' && typeof settingsPanel !== 'undefined') settingsPanel.refresh();
   try { localStorage.setItem('helm-tab', name); } catch { /* storage unavailable */ }
 }
+const settingsPanel = new SettingsPanel({request,navigate:showTab,onDisplay:publishTelemetry});
+$('open-motor-settings').onclick=()=>{showTab('settings');settingsPanel.show('motors');};
+$('open-display').onclick=()=>{showTab('settings');settingsPanel.show('display');};
+function publishTelemetry() {
+  const frame=$('model-view').contentWindow;
+  const telemetry=last?.telemetry;
+  if(frame) frame.postMessage({type:'helm-viewer-overlay',version:1,settings:settingsPanel.display,telemetry},location.origin);
+  const reading=(telemetry?.rows||[]).filter(row=>Number.isFinite(row.position));
+  $('model-source').textContent=reading.length
+    ? `${reading[0].source==='simulated'?'Virtual feedback':'Measured feedback'} · ${telemetry.stale?'stale':Number.isFinite(telemetry.age_seconds)?Math.round(telemetry.age_seconds*1000)+' ms old':'age unavailable'}`
+    : 'No joint readings · reference pose';
+}
+$('model-view').addEventListener('load',()=>publishTelemetry());
+window.addEventListener('message',event=>{
+  if(event.origin!==location.origin||event.source!==$('model-view').contentWindow) return;
+  if(event.data?.type==='helm-viewer-selection'&&event.data.version===1
+    && (last?.limits?.rows||[]).some(row=>row.name===event.data.motor)) settingsPanel.selectMotor(event.data.motor);
+});
+function renderGlobalControls(state) {
+  const sweeping=['running','starting'].includes(state.tune?.phase);
+  const running=['running','starting'].includes(state.teleop?.phase);
+  const visible=sweeping||running;
+  $('global-controls').hidden=!visible;document.body.classList.toggle('has-controls',visible);
+  $('global-session-state').textContent=sweeping?`Servo task · ${state.tune.phase}`:`Teleop · ${state.teleop?.state||state.teleop?.phase||'stopped'}`;
+  $('global-hold').hidden=sweeping;
+  $('global-hold').disabled=!running||!!state.teleop?.fault||!['HOLD','ENGAGING','TELEOP'].includes(state.teleop?.state);
+  $('global-hold').innerHTML=ENGAGED.includes(state.teleop?.state)?'Hold <kbd>T</kbd>':'Engage <kbd>T</kbd>';
+  $('global-shutdown').disabled=!sweeping&&(!running||!!state.teleop?.fault);
+  $('global-disable').disabled=!visible;
+}
+$('global-hold').onclick=()=>sendKey('T');
+$('global-disable').onclick=()=>['running','starting'].includes(last?.tune?.phase)?tuneKey('H'):sendKey('H');
+$('global-shutdown').onclick=()=>['running','starting'].includes(last?.tune?.phase)?tuneKey('X'):sendKey('X');
+document.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key===','){event.preventDefault();showTab('settings');}});
 for (const tab of document.querySelectorAll('.tab[data-tab]')) tab.onclick = () => showTab(tab.dataset.tab);
 try { showTab(localStorage.getItem('helm-tab') || 'check'); } catch { showTab('check'); }
 

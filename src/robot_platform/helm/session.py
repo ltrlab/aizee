@@ -16,6 +16,7 @@ from robot_platform.control.joint_calibration import (digest, edit_preview, live
     preview_transmission_row, save_json, seed_results, validate_preview_transmissions)
 from robot_platform.ops.ssh import TETHER
 from .limits import LimitRecorder, load_limits, utc_now
+from .telemetry import stopped_packet
 
 
 def process_alive(pid):
@@ -294,7 +295,13 @@ class HelmSession:
             age = None
             if self.frame is not None:
                 age = self.clock() - self.received + self.frame['roundtrip_seconds']
-            return {'robot': {'asset_id': self.asset_id, 'address': self.address, 'connection': self.connection,
+            # The stopped reader reads positions only: the model's joint telemetry carries those, with their age.
+            telemetry = stopped_packet(self.frame, self.mapping, self.transmissions, model=self.model.profile.id,
+                                       urdf_sha256=self.model.sha256, joint_types=self.model.by_name,
+                                       labels=self.labels, cache_age_s=self.clock() - self.received,
+                                       reading=self.feed['state'] == 'reading')
+            return {'telemetry': telemetry,
+                    'robot': {'asset_id': self.asset_id, 'address': self.address, 'connection': self.connection,
                               'connections': [{'key': key, 'address': address}
                                               for key, address in self.connections.items()],
                               'model': self.model.profile.title, 'reference': self.reference['id']},

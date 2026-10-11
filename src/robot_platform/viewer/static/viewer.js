@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {OrbitControls} from './vendor/OrbitControls.js';
 import {PoseCollisionChecker} from './collision-checks.js';
+import {JointOverlay} from './joint-overlay.js';
 
 const api = new URL('../api/models', import.meta.url).pathname;
 const $ = id => document.getElementById(id);
@@ -23,7 +24,8 @@ let linkNodes=new Map(),keepoutLoaded=false,keepoutPromise=null;
 let center=new THREE.Vector3(), radius=1;
 const resize=()=>{const w=viewport.clientWidth,h=viewport.clientHeight;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();};
 new ResizeObserver(resize).observe(viewport);resize();
-function animate(){requestAnimationFrame(animate);orbit.update();renderer.render(scene,camera);}animate();
+const jointOverlay=new JointOverlay({viewport,camera,renderer,scene});
+function animate(){requestAnimationFrame(animate);orbit.update();renderer.render(scene,camera);jointOverlay.update();}animate();
 function message(text,error=false){$('notice').textContent=text;$('render-error').hidden=!error;$('render-error').textContent=error?text:'';}
 async function json(url,options){const response=await fetch(url,options);const data=await response.json();if(!response.ok)throw new Error(data.error||`HTTP ${response.status}`);return data;}
 const collisionChecks=new PoseCollisionChecker({
@@ -193,7 +195,7 @@ function previewLimit(name,side){
   message(`${name} ${side}: ${end.status==='contact'?'inward from sampled contact; amber marks the limit-driving links. '+contact:'search bound reached without contact; mechanical endpoint unknown.'}`);
 }
 $('sweep-reference').onclick=()=>{applyPose(model.limit_review.reference_positions);message('Sweep reference pose restored');};
-function dispose(){if(robot){scene.remove(robot);robot.traverse(o=>{o.geometry?.dispose();if(o.material)o.material.dispose();});}if(grid){scene.remove(grid);grid.geometry.dispose();grid.material.dispose();grid=null;}meshes=[];linkAxes=[];}
+function dispose(){jointOverlay.clearModel();if(robot){scene.remove(robot);robot.traverse(o=>{o.geometry?.dispose();if(o.material)o.material.dispose();});}if(grid){scene.remove(grid);grid.geometry.dispose();grid.material.dispose();grid=null;}meshes=[];linkAxes=[];}
 async function loadModel(id){
   const token=++generation;collisionReady=false;previewLinks.clear();collisionChecks.setPose(null);dispose();model=null;robot=new THREE.Group();scene.add(robot);groups=new Map();motions=new Map();
   keepoutLoaded=false;keepoutPromise=null;linkNodes=new Map();
@@ -235,6 +237,7 @@ async function loadModel(id){
     const box=new THREE.Box3();for(const m of meshes.filter(m=>m.userData.role==='visual')){m.geometry.computeBoundingBox();box.union(m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld));}
     if(box.isEmpty()){for(const m of meshes){m.geometry.computeBoundingBox();box.union(m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld));}if(box.isEmpty())box.setFromCenterAndSize(new THREE.Vector3(),new THREE.Vector3(1,1,1));}
     box.getCenter(center);radius=Math.max(box.getSize(new THREE.Vector3()).length()/2,.01);frame();
+    jointOverlay.setModel(model,motions,meshes,radius);
     linkAxes.forEach(a=>a.scale.setScalar(radius/3));grid=new THREE.GridHelper(radius*4,20,0x425665,0x273846);grid.rotation.x=Math.PI/2;grid.position.set(center.x,center.y,Math.min(0,box.min.z)-radius*.005);scene.add(grid);
     $('loading').textContent=failures.length?'Incomplete geometry':'Model ready';
     if(failures.length)message(`${failures.length} geometry load failures. ${failures[0]}`,true);

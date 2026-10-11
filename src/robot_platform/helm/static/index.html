@@ -14,6 +14,7 @@
       <button class="tab" data-tab="leaders">Leaders</button>
       <button class="tab" data-tab="teleop">Teleop</button>
       <button class="tab" data-tab="tune">Tune</button>
+      <button class="tab settings-tab" data-tab="settings">Settings</button>
     </nav>
     <div class="link">
       <div class="target via" id="via" role="group" aria-label="Connection to Minerva">
@@ -28,6 +29,7 @@
   <p id="banner" role="status" hidden></p>
   <main>
     <section class="view" aria-label="Live robot model">
+      <div class="model-toolbar"><div><span class="eyebrow">MODEL &amp; TELEMETRY</span><span id="model-source" class="muted">Waiting for feedback</span></div><button id="open-display">Display options</button></div>
       <iframe id="model-view" src="viewer?embed=1" title="Live robot model"></iframe>
     </section>
     <aside>
@@ -127,25 +129,7 @@
           <p id="t-message" class="muted" role="status"></p>
         </div>
         <div id="teleop-content" class="scroll">
-          <section id="manual-tuning" class="manual-tuning" aria-labelledby="manual-title" hidden>
-            <div class="manual-toolbar">
-              <h2 id="manual-title">Manual motor tuning</h2>
-              <p id="manual-state" class="muted"></p>
-              <div class="manual-actions" role="group" aria-label="Manual tuning settings">
-                <button id="manual-apply" class="primary">Apply to session</button>
-                <button id="manual-revert">Revert edits</button>
-                <button id="manual-save">Save applied</button>
-                <button id="manual-restore">Restore saved</button>
-              </div>
-              <p id="manual-feedback" class="muted" role="status" aria-live="polite"></p>
-              <p id="manual-gate" class="muted"></p>
-            </div>
-            <p class="manual-help">Edit, hold with T, apply, then engage with T to test. Editing alone does not change motors.
-              Unchecked joints hold position; their motors stay powered. Blank travel uses the full usable range.
-              A travel window stays centered on the first Enable pose; Shutdown returns to reference outside that window.</p>
-            <p id="manual-scope" class="manual-scope"></p>
-            <div id="manual-rows"></div>
-          </section>
+          <div class="tuning-shortcut"><div><b>Motor tuning &amp; session settings</b><p id="t-tuning-summary" class="muted">Configure gains, following and return speeds in Settings.</p></div><button id="open-motor-settings">Open Settings</button></div>
           <div id="teleop-joints"></div>
         </div>
         <div id="t-confirm" class="confirm-box" role="alertdialog" aria-labelledby="t-confirm-title" hidden>
@@ -201,8 +185,69 @@
           <button id="u-session" class="danger">Start sweep</button>
         </div>
       </section>
+      <section id="panel-settings" class="panel" aria-label="Settings" hidden>
+        <div class="panel-head settings-head">
+          <div class="eyebrow">OPERATOR SETTINGS</div><h1>Set up the way Minerva moves</h1>
+          <p class="lead">Tune individual motors, prepare session speeds, inspect receiver limits, and choose what appears on the model.</p>
+          <label class="settings-search-label" for="settings-search">Find a setting</label>
+          <input id="settings-search" type="search" placeholder="Search settings, speeds, limits, units…" autocomplete="off">
+          <div class="settings-meta"><span id="settings-revision">Loading settings…</span><span id="settings-draft"></span></div>
+        </div>
+        <nav id="settings-nav" class="settings-nav" aria-label="Settings categories"></nav>
+        <div id="settings-content" class="scroll">
+          <div id="settings-motors">
+          <section id="manual-tuning" class="manual-tuning" aria-labelledby="manual-title" hidden>
+            <div class="manual-toolbar">
+              <h2 id="manual-title">Manual motor tuning</h2>
+              <p id="manual-state" class="muted"></p>
+              <div class="manual-actions" role="group" aria-label="Manual tuning settings">
+                <button id="manual-apply" class="primary">Apply to session</button>
+                <button id="manual-revert">Revert edits</button>
+                <button id="manual-save">Save applied</button>
+                <button id="manual-restore">Restore saved</button>
+              </div>
+              <p id="manual-feedback" class="muted" role="status" aria-live="polite"></p>
+              <p id="manual-gate" class="muted"></p>
+            </div>
+            <p class="manual-help">Edit, hold with T, apply, then engage with T to test. Editing alone does not change motors.
+              Unchecked joints hold position; their motors stay powered. Blank travel uses the full usable range.
+              A travel window stays centered on the first Enable pose; Shutdown returns to reference outside that window.</p>
+            <p id="manual-scope" class="manual-scope"></p>
+            <div id="manual-rows"></div>
+          </section>
+            <p id="settings-manual-unavailable" class="muted" hidden>Manual motor tuning is available with the direct tuning profile.</p>
+          </div>
+          <div id="settings-fields"></div>
+          <p id="settings-empty" class="empty-state" hidden>No settings match. Try a motor name, “speed”, or “timeout”.</p>
+          <section id="settings-display" class="settings-group" hidden>
+            <h2>3D telemetry</h2><p class="muted">Display preferences apply immediately in this browser. They do not change robot control.</p>
+            <label class="display-toggle"><input type="checkbox" data-display="enabled" checked> Show joint telemetry on the model</label>
+            <label class="display-select">Labels to show <select data-display="scope"><option value="selected">Selected joint</option><option value="all">All reporting joints</option></select></label>
+            <div class="display-options">
+              <label><input type="checkbox" data-display="position" checked> Position <small>Signed model coordinate · rad or m</small></label>
+              <label><input type="checkbox" data-display="effort" checked> Torque / effort <small>Drive-reported feedback with units</small></label>
+              <label><input type="checkbox" data-display="temperature" checked> Temperature <small>Drive temperature · °C</small></label>
+              <label><input type="checkbox" data-display="direction" checked> Direction arrows <small>Measured velocity · verified mapping only</small></label>
+            </div>
+            <p class="display-legend"><span class="legend-dot measured"></span>Measured feedback <span class="legend-dot command"></span>Commanded position <span class="legend-dot stale"></span>Stale / unavailable</p>
+            <p class="muted">Select a joint on the model or in telemetry. Missing readings show “—”; stale readings never appear live. The stopped reader currently supplies position only.</p>
+            <button id="display-reset">Reset display preferences</button>
+          </section>
+        </div>
+        <div id="settings-footer" class="save-bar settings-save">
+          <p id="settings-apply-note" class="muted"></p>
+          <div class="settings-actions"><button id="settings-revert">Revert edits</button><button id="settings-reset">Restore profile defaults</button><button id="settings-apply" class="primary">Apply for next session</button></div>
+        </div>
+        <p id="settings-status" class="settings-status" role="status" aria-live="polite"></p>
+      </section>
     </aside>
   </main>
+  <div id="global-controls" class="global-controls" aria-label="Active session controls" hidden>
+    <div><span class="eyebrow">SESSION CONTROLS</span><b id="global-session-state"></b></div>
+    <button id="global-hold" class="primary">Hold <kbd>T</kbd></button>
+    <button id="global-shutdown">Return &amp; disable <kbd>X</kbd></button>
+    <button id="global-disable" class="danger">Disable now <kbd>H</kbd></button>
+  </div>
   <script type="module" src="helm/helm.js"></script>
 </body>
 </html>

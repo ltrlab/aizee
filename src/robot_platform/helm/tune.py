@@ -126,6 +126,7 @@ class TuneCore:
                                                        reference, model)
         self.labels = {s['motor']: s['label'] for s in plan['steps']}
         self.labels.update({t['motor']: t['motor'].replace('_', ' ').capitalize() for t in transmissions})
+        self.model = model  # Names the model's joint telemetry (view()).
         # One arm: the other is not in this receiver and is never enabled.
         reference, steps, transmissions = arm_subset(reference, plan['steps'], transmissions, self.arm)
         # A drive unplugged for a wiring check (the gripper, the end of the chain) is left out: the receiver
@@ -573,6 +574,13 @@ class TuneCore:
         if results and self.engine is not None:
             view['results'] = self.engine.summary()
             self._results_at = now
+        if last is not None and self.derived is not None and getattr(self, 'model', None) is not None:
+            # The model's joint telemetry: the receiver's last feedback as it reported it.
+            from .telemetry import native_packet
+            view['telemetry'] = native_packet(last, self.derived, model=self.model.profile.id,
+                                              urdf_sha256=self.model.sha256, joint_types=self.model.by_name,
+                                              labels=self.labels, stream='tune',
+                                              source='measured' if self.live_arm else 'simulated')
         return view
 
 
@@ -827,6 +835,7 @@ class TuneSession:
                     continue
                 with self._lock:
                     view = message[1]
+                    self._view_received_at = time.perf_counter()
                     if view.get('results') is not None:
                         self.results = view['results']
                     if view.get('guide'):
@@ -930,6 +939,12 @@ class TuneSession:
             view = deepcopy(self._view)
             view.pop('results', None)
             view.pop('guide', None)
+            if view.get('telemetry') is not None:
+                # Aged since it arrived; a cached packet never looks fresher than its source.
+                from .telemetry import age_packet
+                received = getattr(self, '_view_received_at', None)
+                view['telemetry'] = age_packet(view['telemetry'],
+                                               time.perf_counter() - received if received is not None else None)
             running = view.get('phase') in ('starting', 'running')
             return dict(view, receiver_choice=dict(self.receiver), joints_choice=self.joints, target=self.target,
                         absent_choice=self.absent,

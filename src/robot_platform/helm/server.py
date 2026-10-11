@@ -25,6 +25,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     from aiohttp import web
     from robot_platform.viewer.server import create_app as viewer_app
     from .live_view import LiveView
+    from .telemetry import select_telemetry
     token = token or secrets.token_urlsafe(24)
 
     def owner():
@@ -73,6 +74,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         state['leaders'] = leaders.snapshot() if leaders is not None else None
         state['check'] = check.snapshot() if check is not None else None
         state['tune'] = tune.snapshot() if tune is not None else None
+        # The model's joint telemetry from the one source the 3D view shows: a running session, else the reader.
+        state['telemetry'] = select_telemetry(state)
         state['action_token'] = token
         return web.json_response(state, headers={'Cache-Control': 'no-store'})
 
@@ -167,6 +170,21 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         not_checking()
         await off_loop(lambda: teleop.manual_tuning(request.match_info['action'], payload))
         return state_response()
+
+    async def settings_get(_request):
+        """The Settings workspace's catalog: read-only, like the state."""
+        need_teleop()
+        return web.json_response(await off_loop(teleop.settings_snapshot), headers={'Cache-Control': 'no-store'})
+
+    async def settings_action(request):
+        """Apply edits to, or reset, the settings for the next teleop session; nothing reaches the motors."""
+        payload = await body(request)
+        need_teleop()
+        action = request.match_info['action']
+        if action not in ('apply', 'reset'):
+            raise ValueError('Use apply or reset')
+        result = await off_loop(lambda: teleop.settings_update(action, payload))
+        return web.json_response(result, headers={'Cache-Control': 'no-store'})
 
     def need_leaders():
         if leaders is None:
@@ -372,6 +390,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     app.router.add_post('/api/helm/teleop/key', teleop_key)
     app.router.add_post('/api/helm/teleop/route', teleop_route)
     app.router.add_post('/api/helm/teleop/tuning/{action}', teleop_manual_tuning)
+    app.router.add_get('/api/helm/settings', settings_get)
+    app.router.add_post('/api/helm/settings/{action}', settings_action)
     app.router.add_post('/api/helm/teleop/zero', teleop_zero)
     app.router.add_post('/api/helm/teleop/target', teleop_target)
     app.router.add_post('/api/helm/teleop/receiver', teleop_receiver)

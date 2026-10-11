@@ -37,6 +37,8 @@ CORE = [
     'tests/unit/test_direct_readiness.py', 'tests/unit/test_ssh_worktree.py',
     'tests/unit/test_minerva_check.py', 'tests/unit/test_helm_check.py',
     'tests/unit/test_ops_release.py', 'tests/unit/test_joint_calibration.py',
+    'tests/contract/test_helm_settings.py', 'tests/unit/test_helm_settings_api.py',
+    'tests/unit/test_helm_telemetry.py', 'tests/unit/test_helm_app.py', 'tests/unit/test_helm_live_view.py',
 ]
 
 

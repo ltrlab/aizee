@@ -150,3 +150,64 @@ body[data-teleop-state=FAULT] #t-state,#t-collision.bad{color:var(--bad)}#t-coll
 .manual-draft-status{display:block;margin-top:6px;font-size:10.5px;color:var(--muted)}
 .manual-row[data-edited=true] .manual-draft-status{color:var(--warn)}
 @media(max-width:900px){.manual-fields{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Model toolbar over the 3D view: its telemetry source, and the display options. */
+.model-toolbar{position:absolute;top:10px;left:12px;right:12px;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:10px;pointer-events:none}
+.model-toolbar>*{pointer-events:auto}
+.model-toolbar>div{display:flex;flex-direction:column;gap:2px;padding:6px 10px;background:#0e1822e6;border:1px solid #3b505c;border-radius:7px}
+.model-toolbar .muted{margin:0;font-size:11px}
+.model-toolbar button{font-size:12px;padding:5px 10px;background:#0e1822e6}
+
+/* Teleop: where its tuning now lives. */
+.tuning-shortcut{display:flex;align-items:center;gap:10px;margin:8px 0 12px;padding:10px 12px;background:var(--raised);border:1px solid var(--line);border-radius:8px}
+.tuning-shortcut>div{flex:1}.tuning-shortcut b{font-size:12.5px}.tuning-shortcut p{margin:3px 0 0;font-size:11.5px}
+.tuning-shortcut button{white-space:nowrap;font-size:12px}
+
+/* Settings workspace: search, categories, fields with value, default, bounds and when each applies. */
+.settings-head{padding-bottom:10px}
+.settings-search-label{display:block;margin:6px 0 4px;font-size:11px;color:var(--muted)}
+#settings-search{width:100%;padding:8px 10px;border:1px solid #4a5a68;border-radius:6px;background:#0e1720;color:var(--text);font:13px system-ui,sans-serif}
+#settings-search:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.settings-meta{display:flex;justify-content:space-between;gap:8px;margin-top:8px;font-size:11px;color:var(--muted)}
+#settings-draft{color:var(--warn)}
+.settings-nav{display:flex;flex-wrap:wrap;gap:5px;padding:0 20px 10px;border-bottom:1px solid var(--line)}
+.settings-nav button{font-size:11.5px;padding:4px 9px;border-radius:14px;color:var(--muted);background:none;border-color:var(--line)}
+.settings-nav button[aria-pressed=true]{color:var(--text);background:var(--raised);border-color:#3f8f81}
+.settings-group{margin:12px 0 18px}.settings-group[hidden]{display:none}
+.settings-group h2{font-size:15px;margin:4px 0 8px}
+.setting-field{display:grid;grid-template-columns:minmax(0,1fr);gap:4px;padding:9px 10px;margin:6px 0;background:var(--raised);border:1px solid var(--line);border-radius:8px}
+.setting-field[hidden]{display:none}.setting-field[data-edited=true]{border-color:#8e7142}
+.setting-field label{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.setting-label{font-size:12px;font-weight:600;overflow-wrap:anywhere}.setting-label small{margin-left:6px;font-weight:400;color:var(--muted);font-size:10.5px}
+.setting-field input[type=number]{width:120px;flex:none;padding:5px 7px;border:1px solid #4a5a68;border-radius:4px;background:#0e1720;color:var(--text);font:12px ui-monospace,monospace;text-align:right}
+.setting-field input:invalid{border-color:var(--bad)}.setting-field input:disabled{opacity:.5}
+.setting-field input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.setting-field output{flex:none;max-width:55%;font:12px ui-monospace,monospace;color:#c6d3de;text-align:right;overflow-wrap:anywhere}
+.setting-details{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;font-size:10.5px;color:var(--muted)}
+.setting-details p{flex:1 1 100%;margin:0;line-height:1.45}.setting-details p:empty{display:none}
+.setting-current{color:var(--good)}
+.setting-effect{padding:1px 7px;border-radius:9px;border:1px solid var(--line)}.setting-effect.editable{color:var(--accent);border-color:#3f8f81}
+.setting-workflow{justify-self:start;font-size:11px;padding:3px 8px}
+.empty-state{margin:24px 0;text-align:center;color:var(--muted);font-size:12.5px}.empty-state[hidden]{display:none}
+.display-toggle,.display-select{display:flex;align-items:center;gap:8px;margin:10px 0;font-size:12.5px}
+.display-select select{margin-left:auto;padding:5px 7px;border-radius:5px;background:#0e1720;color:var(--text);border:1px solid #4a5a68}
+.display-options{display:grid;gap:6px;margin:8px 0}
+.display-options label{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;padding:8px 10px;background:var(--raised);border:1px solid var(--line);border-radius:7px;font-size:12px}
+.display-options small{grid-column:2;color:var(--muted);font-size:10.5px}
+.display-toggle input,.display-options input{accent-color:var(--accent)}
+.display-legend{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;font-size:11px;color:var(--muted)}
+.legend-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:-1px}
+.legend-dot.measured{background:var(--accent)}.legend-dot.command{background:#9fc3ff}.legend-dot.stale{background:var(--warn)}
+.settings-save[hidden]{display:none}
+.settings-save p{flex:1 1 180px;margin:0;font-size:12px;color:var(--muted)}
+.settings-actions{display:flex;flex-wrap:wrap;gap:6px}.settings-actions button{font-size:12px;padding:5px 9px}
+.settings-status{margin:0;padding:0 20px 10px;font-size:12px;color:var(--muted);background:#121a23;min-height:16px}
+.settings-status.bad{color:var(--bad)}
+
+/* Session controls, on every tab while a session or sweep runs. */
+.global-controls{position:fixed;left:12px;right:452px;bottom:12px;z-index:5;display:flex;align-items:center;gap:8px;padding:8px 10px;background:#121a23f2;border:1px solid #9a4b58;border-radius:8px;box-shadow:0 6px 18px #0009}
+.global-controls[hidden]{display:none}
+.global-controls>div{flex:1;display:flex;flex-direction:column;gap:2px}.global-controls b{font-size:12.5px}
+.global-controls button{white-space:nowrap}
+@media(max-width:900px){.global-controls{right:372px}}
+@media(max-width:640px){.global-controls{left:8px;right:8px}.model-toolbar{top:6px;left:8px;right:8px}}

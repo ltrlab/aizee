@@ -21,3 +21,22 @@ aside{background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;
 #calibration-guide th:nth-child(4){width:14%}
 /* Embedded in another page (e.g. Helm): 3D viewport only; the host page owns controls. */
 .embed header,.embed aside{display:none}.embed main{display:block;height:100%}.embed #viewport{height:100%}
+
+/* Joint telemetry is display-only. Settings in Helm own visibility and fields. */
+.joint-overlay{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.joint-overlay-leaders{position:absolute;inset:0;width:100%;height:100%;overflow:visible}.joint-overlay-leaders line{stroke:#688996;stroke-width:1;opacity:.8}.joint-overlay-leaders line.stale{stroke:var(--warn)}
+.joint-overlay[hidden],.joint-overlay-toolbar[hidden],.joint-overlay-card[hidden]{display:none}
+.joint-overlay-toolbar{position:absolute;bottom:8px;left:12px;right:12px;z-index:2;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:7px 9px;background:#0e1822ed;border:1px solid #3b505c;border-radius:7px;font-size:11px}
+.joint-overlay-toolbar select{font-size:11px;min-width:130px;max-width:230px;padding:5px 7px}
+.joint-overlay-status{color:var(--accent)}.joint-overlay-status.stale{color:var(--warn)}
+.joint-overlay-legend{color:var(--muted);font-size:10px;margin-left:auto}
+.joint-overlay-card{position:absolute;top:0;left:0;padding:9px 11px;background:#101c27f2;border:1px solid #5b8290;border-left:3px solid var(--accent);border-radius:7px;box-shadow:0 4px 14px #0007;font-size:11px;line-height:1.35;font-variant-numeric:tabular-nums}
+.joint-overlay-card::before{content:'';position:absolute;left:var(--anchor-x);top:var(--anchor-y);width:7px;height:7px;margin:-3px;background:var(--accent);border:1px solid #10251f;border-radius:50%}
+.joint-overlay-card strong{display:block;font-size:12px;overflow-wrap:anywhere;color:var(--text)}
+.joint-overlay-card small{display:block;font-size:10px;color:var(--muted);overflow-wrap:anywhere}
+.joint-overlay-card dl{display:grid;grid-template-columns:1fr;gap:1px;margin:7px 0}
+.joint-overlay-card dt{font-size:10px;color:#abbfcb}.joint-overlay-card dd{margin:0 0 4px;font-size:12px;color:var(--text);overflow-wrap:anywhere}
+.joint-overlay-card dd.position{color:#d2e9ff}.joint-overlay-card dd.effort{color:#dfd1ff}.joint-overlay-card dd.temperature{color:#ffd4aa}.joint-overlay-card dd.direction{font-size:10px;color:var(--accent)}
+.joint-overlay-card.stale{border-color:#aa7653;border-left-color:var(--warn);background:#2b241ff2}.joint-overlay-card.stale dd{color:#c4b8ab}.joint-overlay-card.stale::before{background:var(--warn)}
+.embed .viewport-foot{display:none}.embed #live-collision-status{bottom:62px}
+@media(max-width:650px){.joint-overlay-legend{display:none}.joint-overlay-toolbar{gap:5px;font-size:10px}.joint-overlay-card{font-size:10px;padding:7px 8px}.joint-overlay-card dd{font-size:11px}}

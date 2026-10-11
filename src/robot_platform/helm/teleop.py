@@ -39,7 +39,11 @@ WAIT_TO_REARM = ('feedback_stale', 'limit_violation', 'invalid_state')
 
 
 def load_profile(path):
-    profile = json.loads(Path(path).read_text(encoding='utf-8'))
+    return validate_profile(json.loads(Path(path).read_text(encoding='utf-8')))
+
+
+def validate_profile(profile):
+    """The checks every teleop profile passes, also applied to one resolved with operator settings."""
     if (profile.get('kind') != 'guarded_teleop_profile' or profile.get('backend') != 'virtual'
             or profile.get('runtime_approved') is not False):
         raise ValueError('Helm teleop needs a virtual, unapproved guarded teleop profile')
@@ -187,7 +191,12 @@ class TeleopCore:
     def __init__(self, bundle, *, open_leaders=None, open_backend=None, open_harness=None, open_receiver=None,
                  clock=time.perf_counter):
         self.bundle, self.clock = deepcopy(bundle), clock
-        self.profile = load_profile(bundle['teleop_profile'])
+        self.base_profile = self.profile = load_profile(bundle['teleop_profile'])
+        if bundle.get('operator_settings') is not None:
+            # Operator settings only tighten the profile's timing (helm.settings); the receiver is derived from
+            # the result, and build() takes the lifecycle's speeds and freshness from them.
+            from .settings import resolve_profile
+            self.profile = resolve_profile(self.base_profile, bundle['operator_settings'])
         self.period_s = loop_period_s(self.profile)
         self.collision_mode = self.profile['receiver'].get('collision_mode', 'enforced')
         receiver = bundle.get('receiver') or {'mode': 'virtual'}
@@ -462,8 +471,12 @@ class TeleopCore:
         else:
             compiler = CollisionEnvelopeCompiler(backend, derived['config'], derived['joint_map'],
                                                  compute_budget_s=budget, cad_limits=derived['cad_limits'])
-        lifecycle = TeleopLifecycle(derived['lifecycle'], clock=self.clock,
-                                    max_source_misses=source_misses(self.period_s),
+        rows, source = derived['lifecycle'], {'max_source_misses': source_misses(self.period_s)}
+        if self.bundle.get('operator_settings') is not None:
+            from .settings import validate_bundle
+            rows, source = validate_bundle(self.base_profile, derived, self.bundle['operator_settings'],
+                                           self._manual_state)
+        lifecycle = TeleopLifecycle(rows, clock=self.clock, **source,
                                     trial=self.profile.get('trial'),
                                     allow_repeated_source=self.collision_mode == 'disabled')
         if self._manual_state is not None:
@@ -1040,6 +1053,12 @@ class TeleopCore:
                                          skipped_slots=self._loop_skipped)
         if self.derived is None:
             return result
+        # The model's joint telemetry: the receiver's last feedback as it reported it (Helm ages it on arrival).
+        from .telemetry import native_packet
+        result['telemetry'] = native_packet(self.harness.last if self.harness is not None else None, self.derived,
+                                            model=self.model.profile.id, urdf_sha256=self.model.sha256,
+                                            joint_types=self.model.by_name, labels=self.labels,
+                                            source='measured' if self.live_arm else 'simulated', stream='teleop')
         names = [joint['name'] for joint in self.derived['config']['joints']]
         measured = self._positions() or {}
         command = dict(zip(names, self.session.lifecycle.target or ()))
@@ -1264,6 +1283,14 @@ class TeleopSession:
         if self.profile.get('manual_tuning') is True:
             from .manual_tuning import ManualTuning
             self.manual = ManualTuning(helm, self.profile, runs, self._servo())
+        # Operator session settings (helm.settings): editable with the direct profile, a read-only catalog
+        # otherwise. Helm still starts when they cannot be derived (no saved limits yet); Settings says why.
+        self.settings, self.settings_error = None, None
+        try:
+            from .settings import OperatorSettings
+            self.settings = OperatorSettings(helm, self.profile, runs, self._servo(), self.manual)
+        except (ValueError, KeyError, TypeError, AttributeError, OSError) as exc:
+            self.settings_error = f'Settings are unavailable: {exc}'
 
     @property
     def active(self):
@@ -1278,7 +1305,8 @@ class TeleopSession:
                 'asset_id': helm.asset_id, 'leader_factory': self.leader_factory, 'receiver': dict(self.receiver),
                 'leader_ranges': deepcopy(self.leaders.saved) if self.leaders is not None else None,
                 'servo': self._servo(),
-                **({'manual_tuning': self.manual.bundle()} if self.manual else {})}
+                **({'manual_tuning': self.manual.bundle()} if self.manual else {}),
+                **({'operator_settings': self.settings.bundle()} if self.settings and self.settings.enabled else {})}
 
     def _servo(self):
         """The saved servo calibration (Helm's Tune tab), if any: the receiver takes its settings from it."""
@@ -1360,6 +1388,8 @@ class TeleopSession:
             local = self.target == 'pc' or self.core_factory is not None
             if self.manual:
                 self.manual.new_session()
+            if self.settings:
+                self.settings.new_session()  # A draft made before Start cannot be applied to this session.
             bundle = self._bundle() if local else self._edge_bundle()
             if local:
                 context = multiprocessing.get_context('spawn')
@@ -1495,7 +1525,12 @@ class TeleopSession:
             observed = self._view.get('observed_at')
             age = (max(observed, self._view.get('status_at', observed)) - observed
                    + time.perf_counter() - self._view_received_at) * 1000 if observed is not None else None
-            return dict(deepcopy(self._view), target=self.target, receiver_choice=dict(self.receiver),
+            view = deepcopy(self._view)
+            if view.get('telemetry') is not None:
+                # Aged since it was observed; a cached packet never looks fresher than its source.
+                from .telemetry import age_packet
+                view['telemetry'] = age_packet(view['telemetry'], age / 1000 if age is not None else None)
+            return dict(view, target=self.target, receiver_choice=dict(self.receiver),
                         live_available='live' in self.profile, receiver_choices=choices,
                         observation_age_ms=age,
                         tuning=self.manual.snapshot(can_apply=allowed, reason=reason) if self.manual else
@@ -1544,6 +1579,8 @@ class TeleopSession:
             if action == 'restore' and self.manual.saved is None:
                 raise ValueError('No manual preset has been saved')
             rows = validate(payload['joints'] if action == 'apply' else self.manual.saved['joints'], self.manual.rows)
+            if self.settings:
+                self.settings.validate_manual(rows)  # Within the operator's following-speed ceilings.
             if self.active:
                 ack = self._request('manual_tuning', dict(self.manual.bundle(), joints=rows))
                 with self._lock:
@@ -1554,6 +1591,27 @@ class TeleopSession:
                     self.manual.accept(rows)
         finally:
             self._tuning_lock.release()
+
+    def settings_snapshot(self):
+        """The Settings workspace: every setting with its value, default, bounds and when it takes effect."""
+        with self._lock:
+            if self.settings is None:
+                return {'enabled': False, 'session_id': None, 'revision': 0, 'can_apply': False,
+                        'reason': self.settings_error or 'Settings are unavailable', 'sections': []}
+            active = self.active
+            reason = ('Stop the teleop session to change settings; they apply from the next Start' if active
+                      else 'Applied values are saved for the next session; no motor commands are sent')
+            return self.settings.snapshot(can_apply=not active, reason=reason, manual=self.manual)
+
+    def settings_update(self, action, payload):
+        """Apply edits to, or reset, the session settings for the next Start (never a running session)."""
+        with self._lock:
+            if self.settings is None:
+                raise ValueError(self.settings_error or 'Settings are unavailable')
+            if self._tuning_lock.locked():
+                raise ValueError('Wait for the tuning operation to finish')
+            self.settings.update(action, payload, running=self.active, manual=self.manual)
+        return self.settings_snapshot()
 
     def guide(self):
         with self._lock:
