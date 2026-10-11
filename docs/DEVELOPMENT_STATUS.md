@@ -1,7 +1,25 @@
 # Current development status
 
-Updated 2026-10-10. This file is the current entry point; dated phase tables and
+Updated 2026-10-11. This file is the current entry point; dated phase tables and
 device logs retain historical evidence, not an implicit statement of readiness.
+
+**Integration `codex/overhaul-integration` now includes `codex/teleop-direct-mirror` (`30c4835`),
+`codex/helm-settings-telemetry` (`8e5e451`) and `claude/teleop-trace-history`.** Each was a fast-forward
+followed by a passing gate (614, 646 and 647 Python tests, zero skips, Rust included). Nothing was deployed;
+the active release is still `1624fda`.
+
+- The 125 s Jetson manual-tuning qualification of `8e5e451` expired a command at 90.4 s: `TeleopCore` trimmed
+  its in-memory trace 100 entries at once (about 3.5 ms every ~100 cycles), and one slow receiver reply
+  landed in such a cycle. `20c0f0e` keeps only cycle timings in bounded deques. Its qualification passed:
+  125 s, zero misses, full loop max 7.10 ms (was 11.76), no recorder spikes. See
+  [`development/TELEOP_TRACE_HISTORY.md`](development/TELEOP_TRACE_HISTORY.md).
+- **Both-arm timing now passes on the Jetson** (private virtual CAN, direct profile, collision checks off,
+  saved direct-profile routes, moving 90 Hz quantized input): 12,500/12,500 following updates over 125 s,
+  zero deadline misses or skipped slots, full loop p99 6.68 ms, max 6.97 ms, all targets applied, ended
+  DISABLED. The previous both-arm run failed at 1,605 cycles. Evidence:
+  `~/minerva/validation/trace-history-20c0f0e-01/both-vcan-12500/` on the Jetson. This is timing on ideal
+  emulated motors, not physical tracking. Two live arms still lack arm-to-arm protection in direct mode,
+  manual tuning still allows one live arm, and right-arm live sweeps remain pending.
 
 **Manual tuning is being prepared on `codex/teleop-direct-mirror`.** The operator
 reported the small trial smooth and without chatter, then requested direct

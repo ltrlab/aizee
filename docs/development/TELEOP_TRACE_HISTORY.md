@@ -42,6 +42,11 @@ so the loop would wait for it instead (the switch interval is 5 ms).
   its binaries lost the execute bit (`Permission denied`); a wrapper outside the verified tree
   (`diag_qualify.py`) showed the hidden error. Restoring mode 755 (contents identical to the release copy)
   fixed it. Both failed attempts are kept beside the passing run.
+- Both arms (`benchmark_direct_loop.py --backend vcan --arm both --source-mode quantized90 --cycles 12500`,
+  direct profile, saved direct-profile routes, same release and sandbox): complete, 12,500/12,500 following
+  updates, zero misses or skipped slots, full loop p50 4.09, p99 6.68, max 6.97 ms; RPC p99 4.43 ms; ended
+  DISABLED. Startup Idle/Enable cycles (14.1 / 11.3 ms) are outside following, as in earlier runs.
+  Evidence: `~/minerva/validation/trace-history-20c0f0e-01/both-vcan-12500/`.
 
 ## Remaining uncertainty
 
