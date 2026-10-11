@@ -43,6 +43,25 @@
     max 5.7 ms (the `20c0f0e` run: p50 4.48, max 7.10, Apply 8.2 ms).
   - The failed `d0cff65` attempt is kept in `~/minerva/validation/both-tuning-d0cff65-01/`.
 
+## Follow-up: source-loss hold uses following's lead (`claude/source-loss-lead`, `0b2900d`)
+
+The first live left-arm sessions on `0c1ef49` (2026-10-11): two ended cleanly with X after about 53 s and 65 s
+of following; the third faulted 5 s after Engage with "Measured pose exceeds the holding lead bound"
+(Jetson `~/minerva/evidence/live-20261011T232521Z/`). A fast wrist move (the leader asked J5/J6 for about
+3 rad/s; commands were capped near 1 rad/s) left J5 0.095 rad behind its command, which following allows
+because it bounds the lead from where the joint will be (measured position carried on at its speed over the
+sample's age). One cycle then had no usable leader sample, and that path checked the raw reading: 0.0880 >
+0.0874 rad. Recovery worked: braked to a hold, lowered to the reference, disabled.
+
+Both paths now use `_lead_origin`. A stopped joint gets no credit and faults as before; one moving away faults
+sooner; joints held rather than following keep the raw check. `test_one_late_leader_sample_holds_a_moving_
+joint_following_had_allowed_to_lag` fails on the old code with the live error and passes now; its stopped
+counterpart faults on both. Gate: 654 Python tests, zero failures/skips, Rust included,
+`build/dev-check/20261011T234152Z-328961e9/report.json`. Jetson tuning qualification, release
+`20261011T234934Z-0b2900d`, `~/minerva/validation/both-tuning-0b2900d-01/`: both arms complete (full loop
+p50 4.70, p99 5.65, max 7.02 ms; Apply max 8.0 ms) and left arm complete (2.67 / 3.36 / 5.82 ms; Apply 6.5 ms),
+zero misses or skipped slots. Helm's stopped reader was likely running during these runs.
+
 ## Remaining uncertainty / physical inputs needed
 
 - Emulated motors and synthetic leaders; not physical tracking or gain stability.
