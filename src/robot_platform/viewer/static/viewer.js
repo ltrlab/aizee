@@ -239,7 +239,7 @@ async function loadModel(id){
     if(box.isEmpty()){for(const m of meshes){m.geometry.computeBoundingBox();box.union(m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld));}if(box.isEmpty())box.setFromCenterAndSize(new THREE.Vector3(),new THREE.Vector3(1,1,1));}
     box.getCenter(center);radius=Math.max(box.getSize(new THREE.Vector3()).length()/2,.01);frame(front());
     jointOverlay.setModel(model,motions,meshes,radius);
-    linkAxes.forEach(a=>a.scale.setScalar(radius/3));grid=new THREE.GridHelper(radius*4,20,0x425665,0x273846);grid.rotation.x=Math.PI/2;grid.position.set(center.x,center.y,Math.min(0,box.min.z)-radius*.005);scene.add(grid);
+    linkAxes.forEach(a=>a.scale.setScalar(radius/3));grid=new THREE.GridHelper(radius*4,20,0x4a4f56,0x2a2d32);grid.rotation.x=Math.PI/2;grid.position.set(center.x,center.y,Math.min(0,box.min.z)-radius*.005);scene.add(grid);
     $('loading').textContent=failures.length?'Incomplete geometry':'Model ready';
     if(failures.length)message(`${failures.length} geometry load failures. ${failures[0]}`,true);
     for(const n of ['reset','export','import','check'])$(n).disabled=false;

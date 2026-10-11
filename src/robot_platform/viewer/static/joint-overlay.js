@@ -19,7 +19,7 @@ export class JointOverlay {
     this.status=document.createElement('span'); this.status.className='joint-overlay-status';
     this.status.setAttribute('role','status');
     this.legend=document.createElement('span'); this.legend.className='joint-overlay-legend';
-    this.legend.textContent='Position · motor effort · temperature | teal + / amber − motion';
+    this.legend.textContent='Position · motor effort · temperature | blue + / amber − motion';
     this.toolbar.append(this.select,this.status,this.legend); viewport.append(this.container,this.toolbar);
     this.select.onchange=()=>this.choose(this.select.value);
     renderer.domElement.addEventListener('pointerdown',event=>{this.pointerDown=[event.clientX,event.clientY];});
@@ -77,7 +77,7 @@ export class JointOverlay {
     }
     if(!direction) return;
     const joint=this.model.joints.find(j=>j.name===row.joint), scale=this.radius*.065;
-    const color=direction>0 ? 0x8ae1ce : 0xf2c380;
+    const color=direction>0 ? 0x7cc4ff : 0xf2c380;
     if(joint.type === 'prismatic') {
       const axis=new THREE.Vector3(...joint.axis).normalize().multiplyScalar(direction);
       const arrow=new THREE.ArrowHelper(axis,new THREE.Vector3(),scale*2.8,color,scale*.45,scale*.22);
