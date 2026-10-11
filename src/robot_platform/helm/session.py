@@ -299,7 +299,10 @@ class HelmSession:
             telemetry = stopped_packet(self.frame, self.mapping, self.transmissions, model=self.model.profile.id,
                                        urdf_sha256=self.model.sha256, joint_types=self.model.by_name,
                                        labels=self.labels, cache_age_s=self.clock() - self.received,
-                                       reading=self.feed['state'] == 'reading')
+                                       reading=self.feed['state'] == 'reading',
+                                       ranges={m: (r.get('min_rad'), r.get('max_rad')) for m, r in saved.items()},
+                                       references={m['name']: m.get('raw_reference_rad', 0.)
+                                                   for m in self.reference['motors']})
             return {'telemetry': telemetry,
                     'robot': {'asset_id': self.asset_id, 'address': self.address, 'connection': self.connection,
                               'connections': [{'key': key, 'address': address}

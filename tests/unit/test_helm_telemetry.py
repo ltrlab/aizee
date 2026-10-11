@@ -7,10 +7,11 @@ from robot_platform.helm.telemetry import (STALE_AFTER_S, age_packet, empty_pack
                                             select_telemetry, stopped_packet)
 
 JOINT_TYPES = {'left_arm_j1': {'type': 'revolute'}, 'left_slide': {'type': 'prismatic'}}
-DERIVED = {'config': {'joints': [{'name': 'left_arm_j1'}, {'name': 'left_gripper'}]},
+DERIVED = {'config': {'joints': [{'name': 'left_arm_j1', 'lower': -1., 'upper': 2., 'max_effort': 60.,
+                                  'max_temperature': 70.}, {'name': 'left_gripper'}]},
            'joint_map': {'left_arm_j1': {'actuator': 'left_arm_j1', 'scale': -1., 'offset': .5},
                          'left_slide': {'actuator': 'left_gripper', 'scale': .01, 'offset': 0.}},
-           'report': [{'motor': 'left_arm_j1', 'direction_verified': True},
+           'report': [{'motor': 'left_arm_j1', 'direction_verified': True, 'home': .1},
                       {'motor': 'left_gripper', 'direction_verified': False}]}
 
 
@@ -44,6 +45,17 @@ def test_receiver_feedback_maps_into_model_units_with_its_own_age():
     assert native(receiver_result(), source='simulated')['rows'][0]['effort_label'] == 'Simulated drive torque'
 
 
+def test_receiver_interval_reference_and_limits_map_into_model_units_for_gauges():
+    rows = {row['joint']: row for row in native(receiver_result())['rows']}
+    arm, slide = rows['left_arm_j1'], rows['left_slide']
+    # A negative scale swaps the ends: -1 x [-1, 2] + .5 is [-1.5, 1.5], low end first.
+    assert arm['range'] == pytest.approx([-1.5, 1.5]) and arm['reference'] == pytest.approx(.4)
+    assert arm['effort_limit'] == 60. and arm['temperature_limit_c'] == 70.
+    # Missing config stays missing: no range, reference or limits are made up.
+    assert slide['range'] is None and slide['reference'] is None
+    assert slide['effort_limit'] is None and slide['temperature_limit_c'] is None
+
+
 def test_a_faulted_old_or_missing_reading_is_stale_and_nothing_is_filled_in():
     assert native(receiver_result(fault=True))['rows'][0]['stale'] is True
     old = native(receiver_result(now_ms=2000, sampled_ms=1000))
@@ -75,6 +87,15 @@ def test_the_stopped_reader_supplies_positions_only():
     assert stopped_packet(frame, mapping, transmissions, model='minerva', urdf_sha256='abc',
                           joint_types=JOINT_TYPES, cache_age_s=.1, reading=False)['stale']
     assert stopped_packet(None, mapping, [], model='m', urdf_sha256='u', joint_types=JOINT_TYPES)['stale']
+    # The swept range and reference map like positions; the stopped reader has no load limits to give.
+    gauged = stopped_packet(frame, mapping, transmissions, model='minerva', urdf_sha256='abc', joint_types=JOINT_TYPES,
+                            reading=True, ranges={'left_arm_j1': (-1., 2.), 'left_gripper': (0., 4.)},
+                            references={'left_arm_j1': 0., 'left_gripper': 0.})
+    rows = {row['joint']: row for row in gauged['rows']}
+    assert rows['left_arm_j1']['range'] == pytest.approx([-1.5, 1.5]) and rows['left_arm_j1']['reference'] == .5
+    assert rows['left_slide']['range'] == pytest.approx([0., .04]) and rows['left_slide']['reference'] == 0.
+    assert all(row['effort_limit'] is None and row['temperature_limit_c'] is None for row in gauged['rows'])
+    assert all(row['range'] is None and row['reference'] is None for row in packet['rows'])
 
 
 def test_ageing_a_cached_packet_never_makes_it_fresher():

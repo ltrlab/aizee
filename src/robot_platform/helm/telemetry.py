@@ -19,6 +19,13 @@ def _age(value):
     return value if value is not None and value >= 0 else None
 
 
+def _mapped_range(scale, offset, lo, hi):
+    """A motor-frame interval in joint coordinates, low end first; None when any part is missing."""
+    if None in (scale, offset, lo, hi):
+        return None
+    return sorted([scale * lo + offset, scale * hi + offset])
+
+
 def _unit(value):
     kind = value.get('type') if isinstance(value, dict) else value
     return 'm' if kind == 'prismatic' else 'rad' if kind in ('revolute', 'continuous') else None
@@ -43,6 +50,8 @@ def native_packet(last, derived, *, model, urdf_sha256, joint_types, labels=None
     Native ``status.now_ms`` and ``feedback.sampled_at_ms`` share one clock.
     ``cache_age_s`` is local elapsed time since that snapshot was received. No
     local/remote absolute clocks are subtracted. Missing data remains None.
+    Each row also carries the receiver's interval and reference pose, mapped like
+    positions, and its effort and temperature limits, for gauges on the model.
     """
     if source not in ('measured', 'simulated'):
         raise ValueError('Telemetry source must be measured or simulated')
@@ -52,6 +61,8 @@ def native_packet(last, derived, *, model, urdf_sha256, joint_types, labels=None
     names = status.get('joint_names') or [row['name'] for row in (derived.get('config') or {}).get('joints', [])]
     feedback = dict(zip(names, last.get('feedback') or []))
     verified = {r['motor']: r.get('direction_verified') is True for r in derived.get('report', [])}
+    homes = {r['motor']: _number(r.get('home')) for r in derived.get('report', [])}
+    limits = {j['name']: j for j in (derived.get('config') or {}).get('joints', [])}
     rows = []
     for joint, mapping in (derived.get('joint_map') or {}).items():
         motor = mapping['actuator']
@@ -65,6 +76,9 @@ def native_packet(last, derived, *, model, urdf_sha256, joint_types, labels=None
         age = ((now - sampled) / 1000 + cache_age
                if now is not None and sampled is not None and now >= sampled and cache_age is not None else None)
         effort = _number(sample.get('effort'))
+        config = limits.get(motor) or {}
+        joint_range = _mapped_range(scale, offset, _number(config.get('lower')), _number(config.get('upper')))
+        home = homes.get(motor)
         rows.append(dict(motor=motor, joint=joint, label=labels.get(motor, motor),
             position=_number(position), position_unit=unit, velocity=_number(velocity),
             velocity_unit=unit + '/s' if unit else None, effort=effort,
@@ -72,16 +86,23 @@ def native_packet(last, derived, *, model, urdf_sha256, joint_types, labels=None
             effort_label='Drive torque' if source == 'measured' else 'Simulated drive torque',
             temperature_c=_number(sample.get('temperature')), age_seconds=age,
             stale=age is None or age > stale_after_s or position is None or sample.get('fault') is True,
-            source=source, mapping_verified=verified.get(motor, False)))
+            source=source, mapping_verified=verified.get(motor, False),
+            range=joint_range if unit else None,
+            reference=scale * home + offset if None not in (unit, scale, offset, home) else None,
+            effort_limit=_number(config.get('max_effort')), temperature_limit_c=_number(config.get('max_temperature'))))
     return _packet(rows, model=model, urdf_sha256=urdf_sha256,
                    stream_id=f"{stream}:{status.get('epoch') or 'unavailable'}", sequence=status.get('now_ms'),
                    stale_after_s=stale_after_s)
 
 
 def stopped_packet(frame, mapping, transmissions, *, model, urdf_sha256, joint_types, labels=None,
-                   cache_age_s=0., reading=False, stale_after_s=STALE_AFTER_S):
-    """Only stopped-reader positions are available; never invent velocity or load."""
-    frame, labels = frame or {}, labels or {}
+                   cache_age_s=0., reading=False, stale_after_s=STALE_AFTER_S, ranges=None, references=None):
+    """Only stopped-reader positions are available; never invent velocity or load.
+
+    ``ranges`` (motor -> swept low and high, motor radians) and ``references``
+    (motor -> reference, motor radians) are mapped like positions for gauges.
+    """
+    frame, labels, ranges, references = frame or {}, labels or {}, ranges or {}, references or {}
     raw = {r['name']: _number(r.get('position_rad')) for r in frame.get('motors', [])}
     observed, cache = _age(frame.get('roundtrip_seconds')), _age(cache_age_s)
     age = observed + cache if observed is not None and cache is not None else None
@@ -97,11 +118,16 @@ def stopped_packet(frame, mapping, transmissions, *, model, urdf_sha256, joint_t
         motor, unit = row['actuator'], _unit(joint_types.get(joint))
         value = raw.get(motor)
         position = _number(row['scale'] * value + row['offset']) if value is not None and unit else None
+        lo, hi = (ranges.get(motor) or (None, None))
+        reference = _number(references.get(motor))
         rows.append(dict(motor=motor, joint=joint, label=labels.get(motor, motor), position=position,
             position_unit=unit, velocity=None, velocity_unit=unit + '/s' if unit else None,
             effort=None, effort_unit=None, effort_label='Drive torque', temperature_c=None,
             age_seconds=age, stale=not reading or age is None or age > stale_after_s or position is None,
-            source='measured', mapping_verified=row['verified']))
+            source='measured', mapping_verified=row['verified'],
+            range=_mapped_range(row['scale'], row['offset'], _number(lo), _number(hi)) if unit else None,
+            reference=row['scale'] * reference + row['offset'] if unit and reference is not None else None,
+            effort_limit=None, temperature_limit_c=None))
     return _packet(rows, model=model, urdf_sha256=urdf_sha256,
                    stream_id='stopped:' + str(frame.get('request_id') or 'unavailable'),
                    sequence=frame.get('sequence'), stale_after_s=stale_after_s)
