@@ -21,7 +21,15 @@ aside{background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;
 #calibration-guide th:nth-child(4){width:14%}
 /* Embedded in another page (e.g. Helm): 3D viewport only; the host page owns controls. */
 .embed header,.embed aside{display:none}.embed main{display:block;height:100%}.embed #viewport{height:100%}
-.embed .viewport-head{right:250px}@media(max-width:620px){.embed .viewport-head{right:18px;top:96px}}
+/* In Helm the connection status holds the top-left corner at every width; the view tools follow it, clear of
+   Helm's model toolbar at the top right. Too narrow to share the top row, the tools start below that toolbar. */
+.embed .viewport-head{top:12px;left:12px;right:250px;display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+.embed #telemetry-status{order:-1;max-width:100%}
+.embed .viewport-head #loading{margin:0 2px}
+@media(max-width:620px){
+  .embed .viewport-head{right:12px;display:grid;grid-template-rows:minmax(84px,auto);align-content:start;justify-items:start}
+  .embed #telemetry-status{max-width:calc(100% - 240px);min-width:120px;align-self:start;padding:7px 10px;font-size:12px}
+}
 
 /* Joint telemetry is display-only. Settings in Helm own visibility and fields. */
 .joint-overlay{position:absolute;inset:0;pointer-events:none;overflow:hidden}
