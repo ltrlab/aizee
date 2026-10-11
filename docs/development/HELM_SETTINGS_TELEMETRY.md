@@ -71,11 +71,17 @@
   model opening on its Front view. Gate passed again on that source (content SHA256 `5d84a4a6…`, unchanged
   before/after): 645 Python tests, zero failures/skips, Rust tests included, evidence
   `build/dev-check/20261011T031823Z-1e9b2ce3/report.json`. Seen in the preview at full, 820 px and 400 px widths.
+- Second follow-up (2026-10-11): the overlay seen drawing with simulated readings in the no-hardware preview.
+  Selected-joint cards and direction arrows drew correctly; with all joints shown the full cards piled over
+  the model, so all-joint mode now uses compact tags in edge columns (Node-tested layout). Added a Changed
+  from profile view and fixed float noise in manual tuning fields. Gate passed (content SHA256 `a414b271…`,
+  unchanged before/after): 645 Python tests, zero failures/skips, Rust tests included, evidence
+  `build/dev-check/20261011T044211Z-d98a0aa3/report.json`.
 
 ## Remaining uncertainty
 
-- The 3D overlay was not seen rendering: the browser pane was hidden during this work. Its logic is covered by
-  the Node test, and the page's DOM was checked in a no-hardware preview.
+- The overlay has been seen only with simulated readings (passed through the real `native_packet`), not with a
+  live or virtual teleop session's. In a narrow model view, all-joint tags still cover parts of the arms.
 - Jetson loop timing with telemetry in the view is not measured. The view is admission-controlled, but the
   direct teleop qualification should be rerun before a live session with this branch.
 - Torque and temperature on the real drives are shown as reported; their accuracy is not validated here.
