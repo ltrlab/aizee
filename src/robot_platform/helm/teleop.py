@@ -27,6 +27,7 @@ from robot_platform.control.guarded_config import arm_subset, derive_receiver, f
 from robot_platform.control.joint_calibration import save_json
 from robot_platform.control.live_receiver import fault_detail
 from robot_platform.control.scheduling import prefer_responsive
+from robot_platform.control.plain_data import plain_copy
 from .limits import utc_now
 from .recording import RecordingError, RecordingWriter
 
@@ -625,12 +626,12 @@ class TeleopCore:
                        or not abs(row['velocity']) <= settled for row in feedback)):
             raise ValueError('The motor feedback is not settled. Wait in Hold before applying; existing settings are unchanged.')
         lifecycle = self.session.lifecycle
-        before = deepcopy(lifecycle._joints), deepcopy(lifecycle._manual), lifecycle._manual_hold
+        before = plain_copy(lifecycle._joints), plain_copy(lifecycle._manual), lifecycle._manual_hold
         try:
             lifecycle.configure_manual(selected)  # Validate changed windows before entering the control transaction.
         finally:
             lifecycle._joints, lifecycle._manual, lifecycle._manual_hold = before
-        self._tuning_pending = deepcopy(payload)
+        self._tuning_pending = plain_copy(payload)
         self._tuning_result = None
 
     # -- evidence ----------------------------------------------------------

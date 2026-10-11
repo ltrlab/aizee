@@ -7,9 +7,10 @@ to their own clock. A renewal alone never refreshes a producer's old target.
 """
 from __future__ import annotations
 
-from copy import deepcopy
 from typing import Callable, Mapping
 import uuid
+
+from robot_platform.control.plain_data import plain_copy
 
 
 class GuardRejected(RuntimeError):
@@ -37,9 +38,9 @@ class GuardedControllerClient:
 
     def _call(self, request: dict) -> dict:
         self.exchanges += 1
-        reply = self.exchange(deepcopy(request))
+        reply = self.exchange(plain_copy(request))
         status = reply["status"]
-        self.status = deepcopy(status)
+        self.status = plain_copy(status)
         if (status["protocol_version"] != 1 or status["group"] != self.group
                 or status["identity"] != self.identity
                 or tuple(status["joint_names"]) != self.joint_names):

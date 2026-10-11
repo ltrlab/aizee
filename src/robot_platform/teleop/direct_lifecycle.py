@@ -3,11 +3,11 @@
 The previous reply supplies both feedback and a one-use receiver clock anchor.
 No queued targets, retries, geometry backend or collision verdicts are involved.
 """
-from copy import deepcopy
 import math
 import time
 
 from robot_platform.control.guarded import GuardRejected
+from robot_platform.control.plain_data import plain_copy
 from .guarded_lifecycle import GuardedLifecycleSession
 
 
@@ -43,7 +43,7 @@ class DirectLifecycleSession(GuardedLifecycleSession):
         # The synchronous transport owns this completed result. Only feedback
         # enters the next control cycle; recorder history and duplicate status
         # trees stay in the recording path. Keep an owned copy of the feedback.
-        feedback = deepcopy(sample['feedback'])
+        feedback = plain_copy(sample['feedback'])
         # Stamp conservatively at request start, not reply arrival. Never refresh
         # the cached sample's age on a later loop iteration.
         rows = self._rows(reply, feedback, started)
@@ -54,7 +54,7 @@ class DirectLifecycleSession(GuardedLifecycleSession):
                     if any(raw[k] != previous[k] for k in ('position', 'velocity', 'sampled_at_ms')):
                         raise ValueError('Receiver feedback changed without a new sequence')
                     row['sampled_at'] = old['sampled_at']
-        self._samples = (deepcopy(rows), deepcopy(feedback))
+        self._samples = (plain_copy(rows), plain_copy(feedback))
         self._offer_received = self.clock()
         self._cached = (reply, rows, feedback)
         return self._cached
@@ -75,7 +75,7 @@ class DirectLifecycleSession(GuardedLifecycleSession):
         status = self.controller.arm()
         _, rows, _ = self._offer()
         self.lifecycle.recover(rows, [j['position'] for j in status['joints']], now=self.clock())
-        self.last_feedback = deepcopy(rows)
+        self.last_feedback = plain_copy(rows)
         return True
 
     def cycle(self, *, action=None, target=None, started_at=None, tuning=None):
@@ -88,7 +88,8 @@ class DirectLifecycleSession(GuardedLifecycleSession):
             if tuning is not None:
                 if self.lifecycle.state != 'HOLD' or action is not None:
                     raise ValueError('Hold before applying motor tuning')
-                previous_tuning = (deepcopy(self.lifecycle._joints), deepcopy(self.lifecycle._manual), self.lifecycle._manual_hold)
+                previous_tuning = (plain_copy(self.lifecycle._joints), plain_copy(self.lifecycle._manual),
+                                   self.lifecycle._manual_hold)
                 self.lifecycle.configure_manual(tuning)
             if action == 'disable':
                 record.update(proposal=self.disable(), accepted=True)
@@ -104,16 +105,16 @@ class DirectLifecycleSession(GuardedLifecycleSession):
                     raise ValueError('Receiver must be disarmed before Idle')
             # Outside active following, refresh feedback/authority explicitly.
             offered, rows, feedback = self._cached or self._offer()
-            self.last_feedback = deepcopy(rows)
+            self.last_feedback = plain_copy(rows)
             now = self.clock()
             # Preserve the observations even if proposal construction faults.
             # Otherwise the first divergent cycle loses precisely its evidence.
-            record.update(feedback=feedback, target=deepcopy(target), mapped_at=now,
+            record.update(feedback=feedback, target=plain_copy(target), mapped_at=now,
                           lifecycle_before=self.lifecycle.state,
                           feedback_age_ms=[(now-row['sampled_at'])*1000 for row in rows])
             proposal = (self.lifecycle.action(action, rows, target=target, now=now) if action
                         else self.lifecycle.step(rows, target=target, now=now))
-            record.update(proposal=deepcopy(proposal))
+            record.update(proposal=plain_copy(proposal))
             operation = proposal['operation']
             self._deadline(started, target)
             rpc_started = self.clock()
@@ -144,7 +145,7 @@ class DirectLifecycleSession(GuardedLifecycleSession):
                     self.lifecycle._joints, self.lifecycle._manual, self.lifecycle._manual_hold = previous_tuning
                     previous_tuning = None
                     proposal = self.lifecycle._proposal('move')
-                    record.update(proposal=deepcopy(proposal), tuning_rejected=
+                    record.update(proposal=plain_copy(proposal), tuning_rejected=
                                   'The arm is still settling; settings were not applied. Wait in Hold and apply again.')
                     self._deadline(started, target)
                     # No new offer, refreshed lifetime or retry of the edit.

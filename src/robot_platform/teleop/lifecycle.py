@@ -10,6 +10,7 @@ import time
 
 from robot_platform.control.approach import command_step, end_margin, friction_feedforward, lead_toward, ramp_effort
 from robot_platform.control.gravity import gravity_effort
+from robot_platform.control.plain_data import plain_copy
 
 
 def _finite(value):
@@ -103,7 +104,7 @@ class TeleopLifecycle:
 
     @property
     def joints(self):
-        return deepcopy(list(self._joints))
+        return plain_copy(list(self._joints))
 
     def configure_manual(self, settings):
         """Commit prevalidated operator settings in DISABLED/HOLD without retargeting.
@@ -116,7 +117,7 @@ class TeleopLifecycle:
         if ([r.get('motor') for r in settings] != list(self.names)
                 or not all(j.get('position_only') for j in self._joints)):
             raise ValueError('Manual tuning needs every position-only joint in order')
-        updated = deepcopy(self._joints)
+        updated = plain_copy(self._joints)
         held = list(self._manual_hold or self.target or (0.,) * len(updated))
         for i, (row, joint, base) in enumerate(zip(settings, updated, self._manual_base)):
             if (type(row.get('follow')) is not bool
@@ -137,7 +138,7 @@ class TeleopLifecycle:
             # The operator caps following, not the receiver's qualified return.
             # A very low test speed must not make shutdown outlive session close.
             joint['shutdown_speed'] = base['shutdown_speed']
-        self._joints, self._manual, self._manual_hold = tuple(updated), deepcopy(settings), tuple(held)
+        self._joints, self._manual, self._manual_hold = tuple(updated), plain_copy(settings), tuple(held)
 
     def _now(self, now):
         now = self.clock() if now is None else now
@@ -172,7 +173,7 @@ class TeleopLifecycle:
         stamps = [row['sampled_at'] for row in rows]
         if max(stamps)-min(stamps) > self.max_skew_s:
             raise ValueError(f'{label} exceeds the whole-robot skew bound')
-        result = deepcopy(list(rows))
+        result = plain_copy(list(rows))
         if feedback:
             self._feedback = result
         else:
@@ -221,7 +222,7 @@ class TeleopLifecycle:
         return dict(state=self.state, operation=operation, joint_names=list(self.names),
                     positions=positions, joints=commands, reason=self.reason, ramp_efforts=ramps,
                     reference_velocities=list(velocities),
-                    limits=deepcopy(self._limits))
+                    limits=plain_copy(self._limits))
 
     def _effort(self, joint, velocity, positions):
         """Feed-forward: friction in the direction of motion and the arm's gravity at the commanded pose,
