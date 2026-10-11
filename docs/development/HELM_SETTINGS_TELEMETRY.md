@@ -77,6 +77,12 @@
   from profile view and fixed float noise in manual tuning fields. Gate passed (content SHA256 `a414b271…`,
   unchanged before/after): 645 Python tests, zero failures/skips, Rust tests included, evidence
   `build/dev-check/20261011T044211Z-d98a0aa3/report.json`.
+- Third follow-up (2026-10-11): an On the model display (Settings > 3D display > Show readings as). Each joint's
+  dial shows its range, reference, travel and position; a ring shows torque as a share of the receiver's
+  `max_effort` and a hub shades with temperature as a share of `max_temperature`. Telemetry rows now carry the
+  range, reference and those limits (None when missing). Seen in the simulated preview from the front and at
+  an angle. Gate passed (content SHA256 `429af2a5…`, unchanged before/after): 646 Python tests, zero
+  failures/skips, Rust tests included, evidence `build/dev-check/20261011T051203Z-7c2844b1/report.json`.
 
 ## Remaining uncertainty
 
@@ -86,3 +92,6 @@
   direct teleop qualification should be rerun before a live session with this branch.
 - Torque and temperature on the real drives are shown as reported; their accuracy is not validated here.
 - Settings apply from the next Start. They are not pushed into a running session.
+- On-model dials appear only on joints whose direction mapping is verified (in the seed directions file, the
+  J1s and the left gripper); others show their label and hub. Seen from the front, pitch-joint dials are
+  edge-on and hidden. Torque is shown as a magnitude only: the drive reports it in motor terms.
