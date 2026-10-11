@@ -22,7 +22,9 @@ let robot=null, model=null, q={}, generation=0, groups=new Map(), motions=new Ma
 let collisionReady=false, calibrationMode=false, previewLinks=new Set();
 let linkNodes=new Map(),keepoutLoaded=false,keepoutPromise=null;
 let center=new THREE.Vector3(), radius=1;
-const resize=()=>{const w=viewport.clientWidth,h=viewport.clientHeight;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();};
+// Size the drawing buffer only; CSS sizes the canvas. Setting its style here changed the layout this observer
+// watches, so a resize during load raised a ResizeObserver loop error and the could-not-initialize banner.
+const resize=()=>{const w=viewport.clientWidth,h=viewport.clientHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();};
 new ResizeObserver(resize).observe(viewport);resize();
 const jointOverlay=new JointOverlay({viewport,camera,renderer,scene});
 function animate(){requestAnimationFrame(animate);orbit.update();renderer.render(scene,camera);jointOverlay.update();}animate();
