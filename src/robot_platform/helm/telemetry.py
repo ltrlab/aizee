@@ -97,13 +97,14 @@ def native_packet(last, derived, *, model, urdf_sha256, joint_types, labels=None
 
 def stopped_packet(frame, mapping, transmissions, *, model, urdf_sha256, joint_types, labels=None,
                    cache_age_s=0., reading=False, stale_after_s=STALE_AFTER_S, ranges=None, references=None):
-    """Only stopped-reader positions are available; never invent velocity or load.
+    """Stopped-reader positions and drive temperatures (from each stop's reply); never invent velocity or load.
 
     ``ranges`` (motor -> swept low and high, motor radians) and ``references``
     (motor -> reference, motor radians) are mapped like positions for gauges.
     """
     frame, labels, ranges, references = frame or {}, labels or {}, ranges or {}, references or {}
     raw = {r['name']: _number(r.get('position_rad')) for r in frame.get('motors', [])}
+    temperatures = {r['name']: _number(r.get('temperature_c')) for r in frame.get('motors', [])}
     observed, cache = _age(frame.get('roundtrip_seconds')), _age(cache_age_s)
     age = observed + cache if observed is not None and cache is not None else None
     mappings = {joint: dict(actuator=row['motor'], scale=row['sign'], offset=row['offset_rad'],
@@ -122,7 +123,7 @@ def stopped_packet(frame, mapping, transmissions, *, model, urdf_sha256, joint_t
         reference = _number(references.get(motor))
         rows.append(dict(motor=motor, joint=joint, label=labels.get(motor, motor), position=position,
             position_unit=unit, velocity=None, velocity_unit=unit + '/s' if unit else None,
-            effort=None, effort_unit=None, effort_label='Drive torque', temperature_c=None,
+            effort=None, effort_unit=None, effort_label='Drive torque', temperature_c=temperatures.get(motor),
             age_seconds=age, stale=not reading or age is None or age > stale_after_s or position is None,
             source='measured', mapping_verified=row['verified'],
             range=_mapped_range(row['scale'], row['offset'], _number(lo), _number(hi)) if unit else None,

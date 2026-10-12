@@ -69,19 +69,21 @@ def test_a_faulted_old_or_missing_reading_is_stale_and_nothing_is_filled_in():
         native(receiver_result(), source='guessed')
 
 
-def test_the_stopped_reader_supplies_positions_only():
+def test_the_stopped_reader_supplies_positions_and_temperatures_only():
     mapping = {'left_arm_j1': {'motor': 'left_arm_j1', 'sign': -1, 'offset_rad': .5, 'direction_verified': True}}
     transmissions = [{'motor': 'left_gripper', 'joint': 'left_slide', 'metres_per_motor_rad': .01,
                       'joint_reference_m': 0., 'motor_reference_rad': 0., 'direction_verified': True}]
-    frame = {'motors': [{'name': 'left_arm_j1', 'position_rad': .2}, {'name': 'left_gripper', 'position_rad': 2.}],
+    frame = {'motors': [{'name': 'left_arm_j1', 'position_rad': .2, 'temperature_c': 27.},
+                        {'name': 'left_gripper', 'position_rad': 2.}],
              'roundtrip_seconds': .05, 'request_id': 'r1', 'sequence': 7}
     packet = stopped_packet(frame, mapping, transmissions, model='minerva', urdf_sha256='abc',
                             joint_types=JOINT_TYPES, cache_age_s=.1, reading=True)
     rows = {row['joint']: row for row in packet['rows']}
     assert rows['left_arm_j1']['position'] == pytest.approx(.3)
     assert rows['left_slide']['position'] == pytest.approx(.02)
-    assert all(row['velocity'] is None and row['effort'] is None and row['temperature_c'] is None
-               for row in packet['rows'])
+    assert all(row['velocity'] is None and row['effort'] is None for row in packet['rows'])
+    # Each stop's reply reports the drive's temperature; a reader that predates it reports none.
+    assert rows['left_arm_j1']['temperature_c'] == 27. and rows['left_slide']['temperature_c'] is None
     assert rows['left_arm_j1']['age_seconds'] == pytest.approx(.15) and not packet['stale']
     # Not reading (disconnected or faulted): the last positions are shown stale.
     assert stopped_packet(frame, mapping, transmissions, model='minerva', urdf_sha256='abc',
