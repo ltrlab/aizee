@@ -3,8 +3,11 @@
 Expectations come from the project's own URDF kinematics (CollisionScene) and from
 the source STL bytes, not from a second MuJoCo rendering of the same transforms.
 """
+import hashlib
+import json
 import math
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 import numpy as np
 import pytest
@@ -14,12 +17,14 @@ mujoco = pytest.importorskip('mujoco')
 from robot_platform.models import ModelProfile, UrdfModel
 from robot_platform.models import mjcf
 from robot_platform.models.mjcf import build_mjcf, stl_to_obj, write_mjcf
+from robot_platform.models.urdf import asset_digest
 from robot_platform.simulation.collision import CollisionScene
 from robot_platform.simulation.mujoco_plant import JointBinding, MujocoPlant
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / 'tests/fixtures/physics'
 MINERVA = ROOT / 'urdf/minerva/model.json'
+MINERVA_MJCF = ROOT / 'urdf/minerva/mujoco/minerva.xml'
 # Declared before comparing: frames are copied, so only rounding error is allowed.
 FRAME_TOLERANCE = 1e-9
 # MuJoCo stores mesh vertices as float32 about the mesh centroid.
@@ -179,3 +184,75 @@ def test_minerva_placeholder_masses_keep_the_model_out_of_dynamics(tmp_path):
     assert not manifest['dynamics_usable'] and len(manifest['placeholder_inertial_links']) == 17
     with pytest.raises(ValueError, match='placeholder mass'):
         MujocoPlant(tmp_path / 'model.xml', [JointBinding('left_arm_j1', 'left_arm_j1', 10.)])
+
+
+def numeric_tree(element):
+    def value(text):
+        try:
+            return tuple(float(v) for v in text.split())
+        except ValueError:
+            return text
+    return (element.tag, {k: value(v) for k, v in element.attrib.items()}, [numeric_tree(c) for c in element])
+
+
+def assert_same_tree(actual, expected, path='mujoco'):
+    assert actual[0] == expected[0], path
+    assert set(actual[1]) == set(expected[1]), path
+    for key, value in expected[1].items():
+        if isinstance(value, tuple):
+            assert actual[1][key] == pytest.approx(value, rel=0, abs=1e-14), f'{path}@{key}'
+        else:
+            assert actual[1][key] == value, f'{path}@{key}'
+    assert len(actual[2]) == len(expected[2]), path
+    for a, e in zip(actual[2], expected[2]):
+        assert_same_tree(a, e, f"{path}/{e[1].get('name', e[0])}")
+
+
+def test_committed_minerva_mjcf_is_current_and_its_assets_match_the_manifest(tmp_path):
+    profile = ModelProfile.load(MINERVA)
+    xml, expected, derived = build_mjcf(profile, MINERVA_MJCF)
+    manifest = json.loads(MINERVA_MJCF.with_suffix('.manifest.json').read_text(encoding='utf-8'))
+    # Text is compared numerically: last-digit libm differences are not drift.
+    assert_same_tree(numeric_tree(ET.fromstring(MINERVA_MJCF.read_bytes())), numeric_tree(ET.fromstring(xml)))
+    assert {k: v for k, v in manifest.items() if k != 'mjcf_sha256'} == {
+        k: v for k, v in expected.items() if k != 'mjcf_sha256'}
+    # The manifest describes the committed bytes (stored without line-ending conversion).
+    assert hashlib.sha256(MINERVA_MJCF.read_bytes()).hexdigest() == manifest['mjcf_sha256']
+    for item in manifest['mesh_assets']:
+        assert asset_digest(MINERVA_MJCF.parent / item['file']) == item['sha256']
+    for item in manifest['derived_meshes']:
+        assert (MINERVA_MJCF.parent / item['derived']).read_bytes() == derived[item['derived']]
+
+
+def test_committed_minerva_meshes_land_where_the_urdf_puts_them():
+    profile = ModelProfile.load(MINERVA)
+    urdf, scene = UrdfModel(profile, apply_review=False), kinematic_scene(profile)
+    model = mujoco.MjModel.from_xml_path(str(MINERVA_MJCF))
+    data = mujoco.MjData(model)
+    q = poses(urdf, 1, seed=7)[0]
+    set_pose(model, data, urdf.positions(q))
+    links = scene.link_transforms(q)
+    counts, checked = {}, 0
+    for desc in urdf.geometry:
+        role, link = desc['role'], desc['link']
+        counts[(link, role)] = counts.get((link, role), 0) + 1
+        geom = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, f'{link}/{role}/{counts[(link, role)] - 1}')
+        assert geom >= 0 and desc['shape'] == 'mesh'
+        mesh = model.geom_dataid[geom]
+        start, count = model.mesh_vertadr[mesh], model.mesh_vertnum[mesh]
+        world = data.geom_xpos[geom] + model.mesh_vert[start:start + count] @ data.geom_xmat[geom].reshape(3, 3).T
+        raw = urdf.assets[desc['asset']].read_bytes()
+        faces = int.from_bytes(raw[80:84], 'little')
+        corners = np.frombuffer(raw, dtype=np.dtype([('n', '<f4', 3), ('v', '<f4', (3, 3)), ('a', '<u2')]),
+                                count=faces, offset=84)['v'].reshape(-1, 3).astype(float)
+        source = np.unique(corners, axis=0) * desc['scale']
+        transform = links[link] @ np.vstack([np.column_stack([mjcf.rpy_matrix(desc['origin']['rpy']),
+                                                             desc['origin']['xyz']]), [0, 0, 0, 1]])
+        expected = source @ transform[:3, :3].T + transform[:3, 3]
+        # Nothing dropped or merged beyond exact duplicates, and the same placement.
+        assert model.mesh_facenum[mesh] == faces and count == len(source), desc['asset']
+        np.testing.assert_allclose([world.min(axis=0), world.max(axis=0), world.mean(axis=0)],
+                                   [expected.min(axis=0), expected.max(axis=0), expected.mean(axis=0)],
+                                   rtol=0, atol=VERTEX_TOLERANCE_M)
+        checked += 1
+    assert checked == model.ngeom == 220
