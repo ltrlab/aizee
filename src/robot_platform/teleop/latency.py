@@ -32,6 +32,7 @@ def trace_record(record):
                 measured=[r['position'] for r in feedback], limits=proposal.get('limits'),
                 measured_velocity=[r.get('velocity') for r in feedback],
                 measured_effort=[r.get('effort') for r in feedback],
+                measured_temperature=[r.get('temperature') for r in feedback],
                 feedback_sequence=[r.get('sequence') for r in feedback],
                 feedback_age_ms=record.get('feedback_age_ms'),
                 lifecycle_before=record.get('lifecycle_before'), lifecycle_after=record.get('lifecycle_after'),
