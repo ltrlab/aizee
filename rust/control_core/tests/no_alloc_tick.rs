@@ -142,4 +142,6 @@ fn periodic_execution_expiry_stop_and_fault_do_not_touch_allocator() {
     WATCH.store(false, Ordering::SeqCst);
     assert_eq!(OPERATIONS.load(Ordering::SeqCst), 0);
     assert_eq!(c.status().state, State::Faulted);
+    // The fault's trip was recorded inside the watched ticks, without allocating.
+    assert_eq!(c.status().last_trip.unwrap().check, "drive_fault");
 }

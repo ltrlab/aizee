@@ -200,12 +200,24 @@ fn valid_id(value: &str) -> bool {
     !value.trim().is_empty() && value.len() <= 256
 }
 
+/// What tripped, as the tick keeps it: copyable, so recording a trip never allocates (the periodic
+/// tick must not, faults included). The status names the joint (protocol::Trip).
+#[derive(Debug, Clone, Copy)]
+struct TripRecord {
+    reason: Reason,
+    joint: usize,
+    check: &'static str,
+    value: f64,
+    limit: f64,
+    at_ms: u64,
+}
+
 pub struct Controller {
     config: Config,
     epoch: String,
     state: State,
     reason: Reason,
-    last_trip: Option<Trip>,
+    last_trip: Option<TripRecord>,
     now_ms: u64,
     lease: Option<Lease>,
     // Keep revoked strings alive until non-periodic acquisition cleans them up.
@@ -345,7 +357,14 @@ impl Controller {
         Status {
             protocol_version: PROTOCOL_VERSION,
             last_applied_target: self.last_applied_target.clone(),
-            last_trip: self.last_trip.clone(),
+            last_trip: self.last_trip.map(|trip| Trip {
+                reason: trip.reason,
+                joint: self.config.joints[trip.joint].name.clone(),
+                check: trip.check.to_string(),
+                value: trip.value,
+                limit: trip.limit,
+                at_ms: trip.at_ms,
+            }),
             epoch: self.epoch.clone(),
             group: self.config.group.clone(),
             identity: self.config.identity.clone(),
@@ -520,7 +539,7 @@ impl Controller {
 
     /// Invalid feedback, a drive reporting a fault, or no drive answering at all (the bus is gone):
     /// nothing can be held, so these cut torque (a fault).
-    fn feedback_error(&self) -> Option<Trip> {
+    fn feedback_error(&self) -> Option<TripRecord> {
         for (i, f) in self.feedback.iter().enumerate() {
             if f.sequence == 0
                 || f.sampled_at_ms > self.now_ms
@@ -554,11 +573,18 @@ impl Controller {
     }
 
     /// Joint `i`'s check `check` broke: its reading `value` against `limit`, now.
-    fn trip_at(&self, reason: Reason, i: usize, check: &str, value: f64, limit: f64) -> Trip {
-        Trip {
+    fn trip_at(
+        &self,
+        reason: Reason,
+        i: usize,
+        check: &'static str,
+        value: f64,
+        limit: f64,
+    ) -> TripRecord {
+        TripRecord {
             reason,
-            joint: self.config.joints[i].name.clone(),
-            check: check.to_string(),
+            joint: i,
+            check,
             value,
             limit,
             at_ms: self.now_ms,
@@ -571,7 +597,7 @@ impl Controller {
     }
 
     /// Keep what tripped for the status and return its reason.
-    fn note(&mut self, trip: Trip) -> Reason {
+    fn note(&mut self, trip: TripRecord) -> Reason {
         let reason = trip.reason;
         self.last_trip = Some(trip);
         reason
@@ -580,7 +606,7 @@ impl Controller {
     /// Some drives, not all, have stopped answering: a trip, holding the arm on those that still do
     /// (each quiet one keeps its last command). The left gripper went quiet for over 30 ms with the
     /// left arm raised, and cutting every joint's torque dropped the arm (2026-09-30).
-    fn stale_error(&self) -> Option<Trip> {
+    fn stale_error(&self) -> Option<TripRecord> {
         let timeout = self.config.feedback_timeout_ms as f64;
         (0..self.feedback.len())
             .find(|&i| self.stale(&self.feedback[i]))
@@ -597,7 +623,7 @@ impl Controller {
 
     /// A joint past a limit, over its allowed speed, effort or temperature, its state known: while
     /// the arm is held this trips it to a braking hold (trip), rather than dropping it.
-    fn limit_error(&self) -> Option<Trip> {
+    fn limit_error(&self) -> Option<TripRecord> {
         for (i, ((f, limit), &overspeed)) in self
             .feedback
             .iter()
