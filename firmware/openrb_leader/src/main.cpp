@@ -5,8 +5,8 @@
 // each poll from the latest complete read with a compact binary frame, so a
 // poll costs the USB round trip instead of a whole bus read. A poll is never
 // answered twice with the same sample: one that arrives before a newer read
-// completes waits for it, and one that arrives while reads are failing gets
-// all_servos_valid = 0. The guarded host is src/robot_platform/teleop/openrb.py;
+// completes waits for it, and only after three failed reads in a row is it
+// answered with all_servos_valid = 0. The guarded host is src/robot_platform/teleop/openrb.py;
 // the legacy host is python/teleop/openrb_leader.py.
 //
 // Wire protocol (host <-> board, USB-CDC):
@@ -105,8 +105,10 @@ static const uint16_t ADDR_TORQUE_ENABLE    = 64;
 
 // Reported by INFO. 2: continuous reads, cached replies, RETURN_DELAY, INFO.
 static const uint8_t  LEADER_FIRMWARE_VERSION = 2;
-// A Sync Read that fails this many times in a row marks cached replies invalid.
+// A poll with no newer sample is answered invalid once this many reads in a
+// row have failed (each failure costs at most SERVO_REPLY_TIMEOUT_MS).
 static const uint8_t  READ_FAIL_LIMIT       = 3;
+static const uint32_t SERVO_REPLY_TIMEOUT_MS = 3;
 // The joystick is read at most this often (it shares the loop with servo reads).
 static const uint32_t JOY_PERIOD_US         = 10000;
 // An incomplete command payload is dropped after this long.
@@ -415,6 +417,17 @@ static void joy_poll() {
     joy_fail_streak = 0;
 }
 
+// The servo UART's receive interrupt must preempt USB. The core starts USB at
+// the highest priority and every SERCOM at the lowest; with Return Delay Time
+// 0 the seven replies arrive back to back (a byte every 10 us at 1 Mbps), and
+// a USB interrupt during them overran the receiver: reads failed under host
+// polling (0.02-0.07%) but not idle (2026-10-12). The UART handler only moves
+// a byte, so USB barely notices. Again after every Serial1 begin, which resets it.
+static void prioritise_servo_uart() {
+    NVIC_SetPriority(SERCOM2_IRQn, 0);   // Serial1 (variant.cpp: sercom2)
+    NVIC_SetPriority(USB_IRQn, 1);
+}
+
 static void switch_bus_baud(uint32_t baud) {
     if (baud == current_bus_baud) return;
     // Drain TX, then fully re-init the UART.  The SAMD Uart driver can
@@ -425,6 +438,7 @@ static void switch_bus_baud(uint32_t baud) {
     delay(2);
     dxl.begin(baud);
     dxl.setPortProtocolVersion(DXL_PROTOCOL_VERSION);
+    prioritise_servo_uart();
     current_bus_baud = baud;
     delay(2);   // give the bus a beat to settle before next transaction
 }
@@ -439,6 +453,7 @@ void setup() {
     // factory baud will simply not respond until openrb_setup_arm.py is run.
     dxl.begin(DXL_BAUD);
     dxl.setPortProtocolVersion(DXL_PROTOCOL_VERSION);
+    prioritise_servo_uart();
     current_bus_baud = DXL_BAUD;
 
     // Disable torque on whichever servos are present.  Missing servos just
@@ -507,7 +522,9 @@ static void send_ident() {
 // before any servo answered); missing servos keep their previous value.
 static void read_servos() {
     const uint64_t started = clock_us();
-    const uint8_t received = dxl.syncRead(&sr_infos);
+    // Per servo reply: 3 ms (millis granularity) covers the factory 500 us Return
+    // Delay Time, and a lost reply costs that instead of the library's 10 ms.
+    const uint8_t received = dxl.syncRead(&sr_infos, SERVO_REPLY_TIMEOUT_MS);
     bool valid = received == DXL_NUM_SERVOS;
     for (uint8_t i = 0; i < received; ++i) {
         valid = valid && sr_xels[i].error == 0;
@@ -571,16 +588,15 @@ static void send_poll_reply(bool with_freshness, bool valid) {
 }
 
 // Answer a pending poll once it can be: with a sample newer than the last one
-// sent, or as invalid while reads are failing. Never the same sample twice
-// (a host faults on a repeated sequence); otherwise it waits for the next read.
+// sent, or as invalid once READ_FAIL_LIMIT reads in a row have failed. Never
+// the same sample twice (a host faults on a repeated sequence); otherwise it
+// waits for the next read, so one failed read only delays a reply.
 static void answer_poll() {
     if (!poll_pending) return;
-    const bool failing = read_fail_streak > 0;
     const bool fresh = position_sequence != replied_sequence && position_sequence > 0;
-    if (!fresh && !failing) return;
-    const bool valid = fresh && read_fail_streak < READ_FAIL_LIMIT;
-    send_poll_reply(poll_with_freshness, valid);
-    if (valid) replied_sequence = position_sequence;
+    if (!fresh && read_fail_streak < READ_FAIL_LIMIT) return;
+    send_poll_reply(poll_with_freshness, fresh);
+    if (fresh) replied_sequence = position_sequence;
     poll_pending = false;
 }
 
