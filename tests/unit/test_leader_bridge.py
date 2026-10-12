@@ -2,7 +2,8 @@ from dataclasses import replace
 
 import pytest
 
-from robot_platform.teleop.leader_bridge import CachedLeaderSampleStale, LeaderSnapshotClient, LatestLeaderInputs, sample_reply
+from robot_platform.teleop.leader_bridge import (CachedLeaderSampleStale, LeaderSnapshotClient, LatestLeaderInputs,
+                                                 next_poll, sample_reply)
 from robot_platform.teleop.openrb import LeaderSample, LeaderSampleSkipped, OpenRBInputs
 
 
@@ -124,3 +125,9 @@ def test_cache_future_and_invalid_timestamps_are_not_transient_staleness(stamp):
     with pytest.raises(ValueError) as error:
         buffered.poll()
     assert not isinstance(error.value, CachedLeaderSampleStale)
+
+
+def test_the_sampler_keeps_its_rate_and_polls_again_at_once_after_a_slow_read():
+    assert next_poll(1., .005, 1.003) == 1.005  # On time: one period on, no drift.
+    assert next_poll(1., .005, 1.0058) == 1.0058  # A 5.8 ms read overran 5 ms: poll again now, not 5 ms later.
+    assert next_poll(1., .005, 1.05) == 1.05  # After a long stall: now, with no burst to catch up.

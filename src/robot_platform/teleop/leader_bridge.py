@@ -29,6 +29,14 @@ class CachedLeaderSampleStale(LeaderSampleSkipped):
     """
 
 
+def next_poll(due, period, now):
+    """When the sampler polls next: a period after the last due time, or at once after a read that overran it.
+    Starting a whole period after an overrun idled the USB boards: a 5.8 ms pair read at 200 Hz sampled at
+    90 Hz instead of the boards' 172 Hz, and leader samples reached the robot 20 ms old (2026-10-12)."""
+    due += period
+    return due if due >= now else now
+
+
 class LatestLeaderInputs:
     """Poll USB independently; expose one age-preserving snapshot, never a queue."""
     def __init__(self, inputs, *, rate_hz=100., clock=time.perf_counter):
@@ -64,9 +72,7 @@ class LatestLeaderInputs:
                 else:
                     with self._lock:
                         self._samples = samples
-                due += self.period
-                if due < self.clock():
-                    due = self.clock() + self.period
+                due = next_poll(due, self.period, self.clock())
         except Exception as exc:
             with self._lock:
                 self._failure = str(exc) or type(exc).__name__
