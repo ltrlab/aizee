@@ -532,6 +532,8 @@ function updateManualActions() {
   $('manual-revert').disabled = manualPending || (!edits && !manualConflict);
   $('manual-save').disabled = manualPending || manualConflict || edits || !manualState.can_save;
   $('manual-restore').disabled = manualPending || manualConflict || edits || !manualState.saved_revision || !manualState.can_apply;
+  $('manual-mirror-left').disabled = manualPending || manualConflict || !mirrorPairs('left', 'right').length;
+  $('manual-mirror-right').disabled = manualPending || manualConflict || !mirrorPairs('right', 'left').length;
   $('manual-gate').textContent = manualPending ? 'Waiting for the receiver to acknowledge the settings…'
     : manualConflict ? 'The session or active settings changed. Revert edits to review the current values before applying.'
     : !valid ? 'Enter finite values within the displayed bounds. Travel may be blank.'
@@ -693,6 +695,41 @@ $('manual-revert').onclick = () => {
   manualFeedback('Draft edits reverted. Active motor settings are unchanged.');
   updateManualActions();
 };
+
+// Copy one arm's Kp, Kd and speed to the same joints of the other arm, as draft edits that Apply uses. Follow
+// and travel stay per arm. A value outside the other joint's bounds is clamped to them, and the panel says so.
+const MIRRORED_FIELDS = ['kp', 'kd', 'speed'];
+function mirrorPairs(from, to) {  // [source row, same joint on the other arm], for joints both arms have.
+  const rows = manualState?.rows || [];
+  return rows.filter(row => row.motor.startsWith(`${from}_`))
+    .map(row => [row, rows.find(other => other.motor === `${to}_${row.motor.slice(from.length + 1)}`)])
+    .filter(([, target]) => target);
+}
+
+function manualMirror(from, to) {
+  if (!manualState || manualPending || manualConflict) return;
+  const clamped = [];
+  const pairs = mirrorPairs(from, to);
+  for (const [source, target] of pairs) {
+    const draft = manualDraft.get(target.motor), card = manualCards.get(target.motor);
+    for (const field of MIRRORED_FIELDS) {
+      const value = manualValue(manualDraft.get(source.motor), field, source);
+      if (!Number.isFinite(value)) continue;  // An unfinished draft entry is left for the operator.
+      const [low, high] = target.bounds[field];
+      const fitted = Math.min(Math.max(value, low), high);
+      if (fitted !== value) clamped.push(`${target.label} ${field === 'speed' ? 'speed' : field === 'kp' ? 'Kp' : 'Kd'} ${manualNumber(fitted)}`);
+      draft[field] = manualText(fitted);
+      const input = card?.querySelector(`[data-field="${field}"]`);
+      if (input) input.value = draft[field];
+    }
+  }
+  manualFeedback(`Copied Kp, Kd and speed of ${pairs.length} ${from} joints to the ${to} arm as draft edits; `
+    + 'follow and travel are unchanged. Apply to use them.'
+    + (clamped.length ? ` Clamped to the ${to} arm's bounds: ${clamped.join(', ')}.` : ''));
+  updateManualActions();
+}
+$('manual-mirror-left').onclick = () => manualMirror('left', 'right');
+$('manual-mirror-right').onclick = () => manualMirror('right', 'left');
 
 function buildTeleop(joint) {
   const card = document.createElement('div');
