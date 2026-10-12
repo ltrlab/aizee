@@ -6,6 +6,7 @@ The one exception is explicit: run_capture's `maintain` caller (the power-on
 range) gets the session's exchange after the stopped preflight, and the socket
 boundary still limits it to the fixed maintenance frames.
 """
+import itertools
 import json
 import math
 import statistics
@@ -107,21 +108,49 @@ def live_preflight(reader, motors, result):
     result['identity_verified'] = True
 
 
-def live_scan(reader, motors):
-    rows = []
-    for motor in motors:
+def paced(io, gap=.01, *, clock=time.perf_counter, sleep=time.sleep):
+    """`io` with at least `gap` seconds between requests on each bus; every bus is its own USB adapter."""
+    sent = {}
+
+    def exchange(bus, *args):
+        sleep(max(0., sent.get(bus, -math.inf) + gap - clock()))
         try:
-            reader.request(motor, 'stop')
-            q = reader.request(motor, 'read', 0x7019)
+            return io(bus, *args)
+        finally:
+            sent[bus] = io.last_tx
+    return exchange
+
+
+def alternating(motors):
+    """The roster in ranks of one motor per bus, so consecutive requests alternate adapters."""
+    buses = {}
+    for motor in motors:
+        buses.setdefault(motor['bus'], []).append(motor)
+    return [[motor for motor in rank if motor is not None] for rank in itertools.zip_longest(*buses.values())]
+
+
+def live_scan(reader, motors, *, power_on=True):
+    """Stop and read every motor, rows in roster order. Requests alternate buses, so one adapter answers while
+    the other waits out its spacing. `power_on` also reads each drive's zero_sta, for Check's scan; the live
+    stream never uses it, and skipping it cuts each frame by a third."""
+    def request(motor, *args):
+        try:
+            return reader.request(motor, *args)
         except TimeoutError as exc:
             raise MotorSilent('Missing stopped position: ' + motor['name'], motor['name']) from exc
-        try:
-            zero_sta = reader.request(motor, 'read', POWER_ON_RANGE)
-        except (TimeoutError, RuntimeError):
-            zero_sta = None  # Firmware without the parameter: unknown, not a silent motor.
-        rows.append({k: motor[k] for k in ('name', 'bus', 'id', 'uid', 'firmware')} |
-                    {'position_rad': q, 'zero_sta': zero_sta, 'reset_confirmed': True})
-    return rows
+    rows = {}
+    for rank in alternating(motors):
+        for motor in rank:
+            request(motor, 'stop')
+        for motor in rank:
+            rows[motor['name']] = ({k: motor[k] for k in ('name', 'bus', 'id', 'uid', 'firmware')} |
+                                   {'position_rad': request(motor, 'read', 0x7019), 'reset_confirmed': True})
+        for motor in rank if power_on else ():
+            try:
+                rows[motor['name']]['zero_sta'] = reader.request(motor, 'read', POWER_ON_RANGE)
+            except (TimeoutError, RuntimeError):
+                rows[motor['name']]['zero_sta'] = None  # Firmware without the parameter: unknown, not silent.
+    return [rows[motor['name']] for motor in motors]
 
 
 def run_capture(device, reference, *, live=None, maintain=None):
@@ -170,12 +199,10 @@ def run_capture(device, reference, *, live=None, maintain=None):
             for name in interfaces:
                 command(['sudo', '-n', device['can_up_helper'], name])
             io = SocketCanMaintenance(interfaces, result['events'])
-            def exchange(*args):
-                # Calibration tolerates modest display latency. Space requests
-                # for the installed USB adapters instead of saturating their
-                # firmware with alternating stop/parameter transactions.
-                time.sleep(max(0., io.last_tx + .01 - time.perf_counter()))
-                return io(*args)
+            # Calibration tolerates modest display latency. Space requests
+            # on each installed USB adapter instead of saturating its
+            # firmware with alternating stop/parameter transactions.
+            exchange = paced(io)
             if live is None and maintain is None:
                 result['motors'] = capture_roster(reference['motors'], exchange)
             else:
@@ -243,7 +270,7 @@ def main():
                         raise RuntimeError('Invalid live sample request')
                     begin = time.perf_counter()
                     try:
-                        rows = live_scan(reader, motors)
+                        rows = live_scan(reader, motors, power_on=False)
                         span = time.perf_counter() - begin
                         if span > .5:
                             raise TimeoutError('Live scan exceeded 500 ms')
