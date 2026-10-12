@@ -21,6 +21,18 @@ The fresh poll `0xA6` returns 50 bytes, little-endian fields:
 | 49 | CRC over preceding bytes |
 
 Only a complete error-free seven-servo read advances the sequence/sample time.
+
+**Firmware 2 (2026-10-12)** reads the servos continuously, one Sync Read after
+another, and answers a poll from the latest complete read instead of reading on
+request, so a poll costs the USB round trip. A poll is never answered twice with
+the same sample (the host faults on a repeated sequence): one that arrives before a
+newer read completes waits for it, and one that arrives while reads are failing is
+answered with byte 48 = 0, which the host skips. Bytes 40–47 come from one
+microsecond clock, the read start rounded down and the reply rounded up, so their
+difference never understates a cached sample's age; the reply time never steps
+back. The frame layout is unchanged, so hosts need no change. Firmware 2 adds
+`INFO` and `RETURN_DELAY` (below) and applies force feedback between reads with one
+Sync Write. `python scripts/openrb_leader_setup.py info` reports each board.
 Legacy `0xA5` retains its original 37-byte reply but cannot provide this source
 freshness guarantee. The CRC uses MSB-first polynomial `0x31`, seed zero (not
 the reflected Dallas/Maxim implementation). The bridge uses a latest-source
@@ -137,6 +149,8 @@ the two in sync.
 | `REID` (0x52) | `0x52 [target_id]` | `[0x52][status][found_id][baud_code][crc8]` | Re-assign the single bus servo's ID, bump to 1 Mbps |
 | `CENTER` (0xC0) | `0xC0 [id]` | `[0xC0][status][id][int32 LE pos][crc8]` (8 bytes) | Drive one servo to 2048, then torque off |
 | `FF_CURRENT` (0xCC) | `0xCC [N=7][int16 LE × 7][crc8]` | *(none — fire-and-forget)* | Set per-servo goal currents (force feedback) |
+| `INFO` (0x49), firmware 2 | `0x49` | `[0x49][2][N][(id, servo_fw, return_delay, torque) × N][uint32 reads, failed_reads, last_read_us, max_read_us][crc8]` (48 bytes; 0xFF where a servo did not answer) | Board and servo diagnostics |
+| `RETURN_DELAY` (0x44), firmware 2 | `0x44 [value][crc8 over 0x44, value]` | `[0x44][N][(id, before, after) × N][crc8]` (24 bytes) | Set each torque-off servo's Return Delay Time (EEPROM, 2 µs/unit); refused (no reply) with a bad crc or force feedback on |
 
 **POLL reply (37 bytes, N=7):**
 
@@ -159,10 +173,13 @@ the two in sync.
 
 ### Hot path and latency
 
-`POLL` uses Protocol-2.0 SyncRead to read all 7 `Present_Position` registers
-(addr 132) in one bus transaction (~1–2 ms at 1 Mbps), which bounds leader→follower
-lag during teleop. `SCAN`, `REID`, and `CENTER` operate on one servo at a time and
-use single reads/writes.
+The firmware reads all 7 `Present_Position` registers (addr 132) with one
+Protocol-2.0 Sync Read. At 1 Mbps that is 21 bytes out and 7 × 15 bytes back
+(~1.3 ms) plus each servo's Return Delay Time before it answers: 500 µs at the
+XL330 factory value of 250, 3.5 ms for seven, so a read took 4–5 ms (measured
+2026-10-12, `scripts/probe_leader_timing.py`). Return Delay Time 0 removes that
+wait. `SCAN`, `REID`, and `CENTER` operate on one servo at a time and use single
+reads/writes.
 
 ### Force feedback (`FF_CURRENT`)
 
@@ -170,7 +187,11 @@ By default every servo is torque-disabled so the operator can backdrive the arm.
 The host opts in per-poll by sending `FF_CURRENT` with 7 signed goal currents (mA),
 clamped to ±200 mA (firmware and host both clamp); `INT16_MIN` (-32768) disables a
 slot. It is fire-and-forget (no reply) and must be resent at a steady cadence
-(~30 Hz). The firmware runs a two-stage watchdog: at 200 ms stale it zeroes
+(~30 Hz). Firmware 2 collects the command without waiting on USB, switches a slot
+into current control only when it turns on (Operating Mode is EEPROM), and writes
+every active slot's current in one Sync Write between reads (no status replies,
+~0.2 ms), so force feedback, for example on the gripper alone, does not slow the
+position reads. The firmware runs a two-stage watchdog: at 200 ms stale it zeroes
 currents (still energised), at 1000 ms it disables FF entirely. Driving FF on more
 than one or two servos requires an external 5 V supply on the OpenRB rail.
 

@@ -1,8 +1,13 @@
 // OpenRB-150 leader input bridge for the shared robot platform.
 //
-// Reads Present_Position on every poll from up to 7x Dynamixel XL330-M077-T
-// servos (IDs 1..7, Protocol 2.0) and replies to the host with a compact
-// binary frame.  The host implementation is python/teleop/openrb_leader.py.
+// Reads Present_Position continuously from up to 7x Dynamixel XL330-M077-T
+// servos (IDs 1..7, Protocol 2.0), one Sync Read after another, and answers
+// each poll from the latest complete read with a compact binary frame, so a
+// poll costs the USB round trip instead of a whole bus read. A poll is never
+// answered twice with the same sample: one that arrives before a newer read
+// completes waits for it, and one that arrives while reads are failing gets
+// all_servos_valid = 0. The guarded host is src/robot_platform/teleop/openrb.py;
+// the legacy host is python/teleop/openrb_leader.py.
 //
 // Wire protocol (host <-> board, USB-CDC):
 //
@@ -17,8 +22,22 @@
 //                                          [uint8 all_servos_valid][crc8]
 //   FRESH_POLL uses header 0xA6. Sequence advances only after a complete,
 //   error-free seven-servo read. Failed/partial reads cannot refresh cached data.
+//   sample_ms is the read's start rounded down and reply_ms the reply rounded
+//   up, both from one microsecond clock, so their difference never understates
+//   how old a cached sample is.
 //     0x53                       SCAN   -> [0x53][N][(id, baud_code) * N][crc8]
 //     0x52 [target_id]           REID   -> [0x52][status][found_id][baud_code][crc8]
+//     0x49                       INFO   -> [0x49][firmware_version][N]
+//                                          [(id, servo_firmware, return_delay, torque) * N]
+//                                          [uint32 reads][uint32 failed_reads]
+//                                          [uint32 last_read_us][uint32 max_read_us][crc8]
+//                                          (0xFF for a field a servo did not answer)
+//     0x44 [value][crc8]         RETURN_DELAY -> sets every torque-off servo's
+//                                          Return Delay Time (EEPROM, 2 us/lsb);
+//                                          [0x44][N][(id, before, after) * N][crc8].
+//                                          crc8 over [0x44, value]; a bad crc or
+//                                          force feedback on refuses it (no reply).
+//     0xCC [N][int16 LE * N][crc8] FF_CURRENT -> no reply (see force feedback)
 //
 //   POLL reply now embeds M5Stack Joystick2 state (I2C, addr 0x63 on Wire,
 //   D11=SDA D12=SCL).  joy_x / joy_y are int16 LE in the unit's centred
@@ -76,6 +95,22 @@ static const uint8_t  DXL_IDS[DXL_NUM_SERVOS] = {1, 2, 3, 4, 5, 6, 7};
 // XL330 control-table addresses (Protocol 2.0).
 static const uint16_t ADDR_PRESENT_POSITION = 132;
 static const uint16_t LEN_PRESENT_POSITION  = 4;
+static const uint16_t ADDR_GOAL_CURRENT     = 102;
+static const uint16_t LEN_GOAL_CURRENT      = 2;
+
+// One-byte EEPROM/RAM items INFO and RETURN_DELAY read and write directly.
+static const uint16_t ADDR_FIRMWARE_VERSION = 6;
+static const uint16_t ADDR_RETURN_DELAY     = 9;
+static const uint16_t ADDR_TORQUE_ENABLE    = 64;
+
+// Reported by INFO. 2: continuous reads, cached replies, RETURN_DELAY, INFO.
+static const uint8_t  LEADER_FIRMWARE_VERSION = 2;
+// A Sync Read that fails this many times in a row marks cached replies invalid.
+static const uint8_t  READ_FAIL_LIMIT       = 3;
+// The joystick is read at most this often (it shares the loop with servo reads).
+static const uint32_t JOY_PERIOD_US         = 10000;
+// An incomplete command payload is dropped after this long.
+static const uint32_t PAYLOAD_TIMEOUT_MS    = 100;   // as the old blocking waits
 
 // Wire protocol constants — must match python/teleop/openrb_leader.py.
 static const uint8_t  CMD_IDENT        = 0x50;
@@ -85,6 +120,8 @@ static const uint8_t  CMD_SCAN         = 0x53;
 static const uint8_t  CMD_REID         = 0x52;
 static const uint8_t  CMD_CENTER       = 0xC0;   // payload [id]; one servo to 2048
 static const uint8_t  CMD_FF_CURRENT   = 0xCC;   // payload [N][int16 LE * N][crc8]
+static const uint8_t  CMD_INFO         = 0x49;
+static const uint8_t  CMD_RETURN_DELAY = 0x44;   // payload [value][crc8]
 static const uint8_t  REPLY_POLL_HDR   = 0xA5;
 static const uint8_t  REPLY_SCAN_HDR   = 0x53;
 static const uint8_t  REPLY_REID_HDR   = 0x52;
@@ -118,6 +155,14 @@ static bool     ff_active[DXL_NUM_SERVOS] = {false};
 static uint32_t ff_last_update_ms         = 0;
 static bool     ff_zeroed                 = false;   // currents have been zeroed by watchdog stage 1
 static bool     ff_disabled               = true;    // post-boot state: no servo in current-control mode
+// The latest CMD_FF_CURRENT, applied between servo reads (ff_apply).
+static int16_t  ff_target[DXL_NUM_SERVOS];
+static bool     ff_pending                = false;
+// Goal currents go out in one Sync Write (no status replies) for the active slots.
+static uint8_t                         ff_current_le[DXL_NUM_SERVOS][LEN_GOAL_CURRENT];
+static uint8_t                         sw_pkt_buf[64];
+static DYNAMIXEL::InfoSyncWriteInst_t  sw_infos;
+static DYNAMIXEL::XELInfoSyncWrite_t   sw_xels[DXL_NUM_SERVOS];
 
 // REID status codes.
 static const uint8_t  STAT_OK            = 0x00;
@@ -228,7 +273,37 @@ static DYNAMIXEL::XELInfoSyncRead_t    sr_xels[DXL_NUM_SERVOS];
 // to encoder centre for sane output before the first read succeeds.
 static int32_t last_pos[DXL_NUM_SERVOS] = {2048, 2048, 2048, 2048, 2048, 2048, 2048};
 static uint32_t position_sequence = 0;
-static uint32_t position_sample_ms = 0;
+static uint64_t position_sample_us = 0;   // start of the read that produced last_pos
+
+// Continuous-read statistics (INFO) and the failure streak that invalidates replies.
+static uint32_t reads = 0, failed_reads = 0, last_read_us = 0, max_read_us = 0;
+static uint8_t  read_fail_streak = 0;
+
+// A poll waits here until a newer complete read (or a failing one) can answer it.
+static bool     poll_pending = false;
+static bool     poll_with_freshness = false;
+static uint32_t replied_sequence = 0;
+
+// Commands with a payload collect it without blocking the read loop.
+static uint8_t  cmd_code = 0;            // 0: waiting for a command byte
+static uint8_t  cmd_buf[2 * DXL_NUM_SERVOS + 2];
+static uint8_t  cmd_len = 0, cmd_need = 0;
+static uint32_t cmd_started_ms = 0;
+static uint32_t drain_until_ms = 0;      // after a malformed FF frame, drop bytes until then
+static bool     draining = false;
+
+static uint64_t joy_due_us = 0;
+
+// micros() wraps every 71.6 minutes; this 64-bit count does not, so the
+// millisecond fields derived from it wrap at 2^32 ms like millis(). Called
+// every loop, far more often than once per wrap.
+static uint64_t clock_us() {
+    static uint32_t last = 0, high = 0;
+    const uint32_t now = micros();
+    if (now < last) ++high;
+    last = now;
+    return ((uint64_t)high << 32) | now;
+}
 
 // Currently-selected bus baud (so REID can leave it at TARGET_BAUD on success).
 static uint32_t current_bus_baud = DXL_BAUD;
@@ -395,6 +470,16 @@ void setup() {
     // calls become no-ops, so the host transparently degrades to "no
     // joystick" without per-frame I2C overhead.
     joy_init();
+
+    // Goal-current Sync Write: rebuilt for the active slots on every write.
+    sw_infos.packet.p_buf        = sw_pkt_buf;
+    sw_infos.packet.buf_capacity = sizeof(sw_pkt_buf);
+    sw_infos.packet.is_completed = false;
+    sw_infos.addr                = ADDR_GOAL_CURRENT;
+    sw_infos.addr_length         = LEN_GOAL_CURRENT;
+    sw_infos.p_xels              = sw_xels;
+    sw_infos.xel_count           = 0;
+    sw_infos.is_info_changed     = true;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -416,29 +501,36 @@ static void send_ident() {
 //   [7+4N]                 uint8        — joy_status (0=ok, 1=not present, 2=read err)
 //   [8+4N]                 uint8        — crc8 over preceding bytes
 // Total: 9 + 4N bytes (37 with N=7, was 31 before joystick fields).
-static void send_poll_reply(bool with_freshness = false) {
-    // Sync-read all servos in one bus transaction.  Missing servos retain
-    // their previous cached value so the host always gets N entries.
-    const uint32_t read_started_ms = millis();
+//
+// One Sync Read of every servo. Only a complete, error-free read refreshes
+// the cached positions, their sequence and their start time (conservatively
+// before any servo answered); missing servos keep their previous value.
+static void read_servos() {
+    const uint64_t started = clock_us();
     const uint8_t received = dxl.syncRead(&sr_infos);
     bool valid = received == DXL_NUM_SERVOS;
     for (uint8_t i = 0; i < received; ++i) {
         valid = valid && sr_xels[i].error == 0;
     }
-    if (valid) {
-        for (uint8_t i = 0; i < DXL_NUM_SERVOS; ++i) {
-            last_pos[i] = sr_data[i].present_position;
-        }
-        // Start-of-read time conservatively includes the full bus transaction.
-        position_sample_ms = read_started_ms;
-        ++position_sequence;
+    last_read_us = (uint32_t)(clock_us() - started);
+    if (last_read_us > max_read_us) max_read_us = last_read_us;
+    ++reads;
+    if (!valid) {
+        ++failed_reads;
+        if (read_fail_streak < 255) ++read_fail_streak;
+        return;
     }
+    for (uint8_t i = 0; i < DXL_NUM_SERVOS; ++i) {
+        last_pos[i] = sr_data[i].present_position;
+    }
+    position_sample_us = started;
+    ++position_sequence;
+    read_fail_streak = 0;
+}
 
-    // Refresh joystick state on every poll.  ~150 µs at 400 kHz for the two
-    // I2C transactions (5 bytes total payload), well under the dominant
-    // SyncRead cost above.  No-op if the unit was absent at boot.
-    joy_poll();
-
+// Reply from the cache. all_servos_valid: a complete read exists and reads
+// are not failing; a host skips (never reuses) a reply that says otherwise.
+static void send_poll_reply(bool with_freshness, bool valid) {
     uint8_t frame[2 + DXL_NUM_SERVOS * 4 + 6 + 13 + 1];
     const size_t length = with_freshness ? sizeof(frame) : sizeof(frame) - 13;
     frame[0] = with_freshness ? CMD_FRESH_POLL : REPLY_POLL_HDR;
@@ -458,7 +550,13 @@ static void send_poll_reply(bool with_freshness = false) {
     frame[off + 4] = joy_button;
     frame[off + 5] = joy_status;
     if (with_freshness) {
-        const uint32_t fields[] = {position_sequence, position_sample_ms, millis()};
+        // Read start rounded down, reply rounded up: never understates the age.
+        // The reply time never steps back either (a host faults on that).
+        static uint32_t last_reply_ms = 0;
+        uint32_t reply_ms = (uint32_t)((clock_us() + 999) / 1000);
+        if ((int32_t)(reply_ms - last_reply_ms) < 0) reply_ms = last_reply_ms;
+        last_reply_ms = reply_ms;
+        const uint32_t fields[] = {position_sequence, (uint32_t)(position_sample_us / 1000), reply_ms};
         for (uint8_t field = 0; field < 3; ++field) {
             for (uint8_t byte = 0; byte < 4; ++byte) {
                 frame[off + 6 + field * 4 + byte] = (uint8_t)(fields[field] >> (8 * byte));
@@ -469,6 +567,74 @@ static void send_poll_reply(bool with_freshness = false) {
     frame[length - 1] = crc8(frame, length - 1);
 
     Serial.write(frame, length);
+    Serial.flush();
+}
+
+// Answer a pending poll once it can be: with a sample newer than the last one
+// sent, or as invalid while reads are failing. Never the same sample twice
+// (a host faults on a repeated sequence); otherwise it waits for the next read.
+static void answer_poll() {
+    if (!poll_pending) return;
+    const bool failing = read_fail_streak > 0;
+    const bool fresh = position_sequence != replied_sequence && position_sequence > 0;
+    if (!fresh && !failing) return;
+    const bool valid = fresh && read_fail_streak < READ_FAIL_LIMIT;
+    send_poll_reply(poll_with_freshness, valid);
+    if (valid) replied_sequence = position_sequence;
+    poll_pending = false;
+}
+
+// One byte from a servo's control table; 0xFF if it did not answer.
+static uint8_t read_byte(uint8_t id, uint16_t addr) {
+    uint8_t value = 0xFF;
+    return dxl.read(id, addr, 1, &value, 1) == 1 ? value : 0xFF;
+}
+
+// INFO: firmware version, each servo's firmware, Return Delay Time and torque
+// state, and the continuous-read statistics. Diagnostic: reads stop meanwhile.
+static void send_info() {
+    uint8_t frame[3 + DXL_NUM_SERVOS * 4 + 16 + 1];
+    frame[0] = CMD_INFO;
+    frame[1] = LEADER_FIRMWARE_VERSION;
+    frame[2] = DXL_NUM_SERVOS;
+    for (uint8_t i = 0; i < DXL_NUM_SERVOS; ++i) {
+        const uint8_t id = DXL_IDS[i];
+        frame[3 + i * 4] = id;
+        frame[4 + i * 4] = read_byte(id, ADDR_FIRMWARE_VERSION);
+        frame[5 + i * 4] = read_byte(id, ADDR_RETURN_DELAY);
+        frame[6 + i * 4] = read_byte(id, ADDR_TORQUE_ENABLE);
+    }
+    const uint32_t stats[] = {reads, failed_reads, last_read_us, max_read_us};
+    uint8_t off = 3 + DXL_NUM_SERVOS * 4;
+    for (uint8_t s = 0; s < 4; ++s) {
+        for (uint8_t byte = 0; byte < 4; ++byte) frame[off++] = (uint8_t)(stats[s] >> (8 * byte));
+    }
+    frame[off] = crc8(frame, off);
+    Serial.write(frame, off + 1);
+    Serial.flush();
+}
+
+// RETURN_DELAY: set every torque-off servo's Return Delay Time (EEPROM area,
+// so torque must be off; a torque-on servo is left alone and reports it
+// unchanged). Each servo is read before and after; 0xFF where it did not answer.
+static void handle_return_delay(uint8_t value) {
+    uint8_t frame[2 + DXL_NUM_SERVOS * 3 + 1];
+    frame[0] = CMD_RETURN_DELAY;
+    frame[1] = DXL_NUM_SERVOS;
+    for (uint8_t i = 0; i < DXL_NUM_SERVOS; ++i) {
+        const uint8_t id = DXL_IDS[i];
+        const uint8_t before = read_byte(id, ADDR_RETURN_DELAY);
+        uint8_t after = before;
+        if (before != 0xFF && before != value && read_byte(id, ADDR_TORQUE_ENABLE) == 0) {
+            dxl.write(id, ADDR_RETURN_DELAY, &value, 1);
+            after = read_byte(id, ADDR_RETURN_DELAY);
+        }
+        frame[2 + i * 3] = id;
+        frame[3 + i * 3] = before;
+        frame[4 + i * 3] = after;
+    }
+    frame[sizeof(frame) - 1] = crc8(frame, sizeof(frame) - 1);
+    Serial.write(frame, sizeof(frame));
     Serial.flush();
 }
 
@@ -510,6 +676,17 @@ static void send_scan_reply() {
     size_t len = 2 + n_found * 2;
     frame[len] = crc8(frame, len);
     Serial.write(frame, len + 1);
+    Serial.flush();
+}
+
+static void send_reid_reply(uint8_t status, uint8_t found_id, uint8_t found_code) {
+    uint8_t frame[5];
+    frame[0] = REPLY_REID_HDR;
+    frame[1] = status;
+    frame[2] = found_id;
+    frame[3] = found_code;
+    frame[4] = crc8(frame, 4);
+    Serial.write(frame, sizeof(frame));
     Serial.flush();
 }
 
@@ -594,15 +771,7 @@ static void handle_reid(uint8_t target_id) {
     // Always restore TARGET_BAUD before replying so the next normal POLL
     // works without an extra round-trip.
     switch_bus_baud(TARGET_BAUD);
-
-    uint8_t frame[5];
-    frame[0] = REPLY_REID_HDR;
-    frame[1] = status;
-    frame[2] = found_id;
-    frame[3] = found_code;
-    frame[4] = crc8(frame, 4);
-    Serial.write(frame, sizeof(frame));
-    Serial.flush();
+    send_reid_reply(status, found_id, found_code);
 }
 
 // Send the CENTER reply: [0xC0][status][id][pos*4 bytes int32 LE][crc8]
@@ -719,62 +888,62 @@ static void ff_disable_all() {
     ff_zeroed   = false;
 }
 
-// Read a CMD_FF_CURRENT payload from Serial and apply it.  Payload layout
-// (after the 0xCC command byte):
-//     [1 byte  N]                 must equal DXL_NUM_SERVOS
+// Accept a complete CMD_FF_CURRENT payload, collected by the parser after the
+// 0xCC byte:
+//     [1 byte  N]                 equals DXL_NUM_SERVOS (the parser checks it)
 //     [int16 LE * N]              signed mA, INT16_MIN = disable that slot
 //     [1 byte  crc8]              over [CMD, N, payload]
-//
-// Invalid CRC -> drop silently (host watchdog will eventually disable FF).
-// Short payload -> drop silently.  Out-of-range currents -> clamped.
-static void handle_ff_current() {
-    // Read N with a short timeout so a stray 0xCC doesn't wedge the loop.
-    uint32_t deadline = millis() + 50;
-    while (Serial.available() == 0 && (int32_t)(millis() - deadline) < 0) { /* spin */ }
-    if (Serial.available() == 0) return;
-    int n_raw = Serial.read();
-    if (n_raw != DXL_NUM_SERVOS) {
-        // Drain any straggler bytes to keep the framing aligned.
-        deadline = millis() + 20;
-        while ((int32_t)(millis() - deadline) < 0) {
-            while (Serial.available() > 0) Serial.read();
-        }
-        return;
-    }
-    uint8_t n = (uint8_t)n_raw;
-    uint8_t buf[2 * DXL_NUM_SERVOS + 1];   // currents + crc
-    deadline = millis() + 100;
-    size_t got = 0;
-    while (got < sizeof(buf) && (int32_t)(millis() - deadline) < 0) {
-        if (Serial.available() > 0) buf[got++] = (uint8_t)Serial.read();
-    }
-    if (got < sizeof(buf)) return;
-
-    // CRC over [CMD, N, currents].  Build a small contiguous scratch.
+// A bad crc is dropped silently (the watchdog eventually disables FF);
+// out-of-range currents are clamped before anything reaches a servo. The
+// targets are applied between servo reads (ff_apply).
+static void accept_ff_current(const uint8_t* payload) {
     uint8_t crc_in[2 + 2 * DXL_NUM_SERVOS];
     crc_in[0] = CMD_FF_CURRENT;
-    crc_in[1] = n;
-    for (uint8_t i = 0; i < 2 * DXL_NUM_SERVOS; ++i) crc_in[2 + i] = buf[i];
-    uint8_t expected_crc = crc8(crc_in, sizeof(crc_in));
-    if (buf[2 * DXL_NUM_SERVOS] != expected_crc) return;
-
-    // Apply.  Sentinel -> disable; otherwise clamp and write goal current.
+    for (uint8_t i = 0; i < 1 + 2 * DXL_NUM_SERVOS; ++i) crc_in[1 + i] = payload[i];
+    if (payload[1 + 2 * DXL_NUM_SERVOS] != crc8(crc_in, sizeof(crc_in))) return;
     for (uint8_t i = 0; i < DXL_NUM_SERVOS; ++i) {
-        int16_t v = (int16_t)(buf[i * 2] | (buf[i * 2 + 1] << 8));
-        if (v == FF_DISABLE_SENTINEL) {
-            ff_disable_slot(i);
-            continue;
+        int16_t v = (int16_t)(payload[1 + i * 2] | (payload[2 + i * 2] << 8));
+        if (v != FF_DISABLE_SENTINEL) {
+            if (v >  MAX_FF_CURRENT_MA) v =  MAX_FF_CURRENT_MA;
+            if (v < -MAX_FF_CURRENT_MA) v = -MAX_FF_CURRENT_MA;
         }
-        // Clamp BEFORE enabling so a malformed/oversize value never
-        // becomes the first thing the servo sees.
-        if (v >  MAX_FF_CURRENT_MA) v =  MAX_FF_CURRENT_MA;
-        if (v < -MAX_FF_CURRENT_MA) v = -MAX_FF_CURRENT_MA;
-        if (!ff_enable_slot(i)) continue;
-        dxl.writeControlTableItem(GOAL_CURRENT, DXL_IDS[i], v);
+        ff_target[i] = v;
     }
+    ff_pending = true;
     ff_last_update_ms = millis();
     ff_zeroed   = false;
     ff_disabled = false;
+}
+
+// One Sync Write of goal current to every active slot. It has no status
+// replies, so the bus is busy ~0.2 ms instead of a reply wait per servo.
+static void ff_write_currents(bool zero) {
+    uint8_t n = 0;
+    for (uint8_t i = 0; i < DXL_NUM_SERVOS; ++i) {
+        if (!ff_active[i]) continue;
+        const int16_t v = zero ? 0 : ff_target[i];
+        ff_current_le[i][0] = (uint8_t)(v & 0xFF);
+        ff_current_le[i][1] = (uint8_t)((v >> 8) & 0xFF);
+        sw_xels[n].id     = DXL_IDS[i];
+        sw_xels[n].p_data = ff_current_le[i];
+        ++n;
+    }
+    if (n == 0) return;
+    sw_infos.xel_count       = n;
+    sw_infos.is_info_changed = true;   // The packet holds a copy of the data: rebuild it every time.
+    dxl.syncWrite(&sw_infos);
+}
+
+// Between servo reads: switch slots into or out of current control only when
+// that changes (slow; Operating Mode is EEPROM), then write the currents.
+static void ff_apply() {
+    if (!ff_pending) return;
+    ff_pending = false;
+    for (uint8_t i = 0; i < DXL_NUM_SERVOS; ++i) {
+        if (ff_target[i] == FF_DISABLE_SENTINEL) ff_disable_slot(i);
+        else ff_enable_slot(i);   // A servo that does not answer stays out of the write.
+    }
+    ff_write_currents(false);
 }
 
 // Called every loop tick to enforce the two-stage host-liveness watchdog.
@@ -791,80 +960,109 @@ static void ff_watchdog_tick() {
         return;
     }
     if (age >= FF_WATCHDOG_ZERO_MS && !ff_zeroed) {
-        for (uint8_t i = 0; i < DXL_NUM_SERVOS; ++i) {
-            if (ff_active[i]) dxl.writeControlTableItem(GOAL_CURRENT, DXL_IDS[i], 0);
-        }
+        ff_pending = false;   // Stale targets are never applied after the zeroing.
+        ff_write_currents(true);
         ff_zeroed = true;
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Main loop
+// Host commands and the main loop
 // ─────────────────────────────────────────────────────────────────────────────
-void loop() {
-    // Run the FF watchdog every tick regardless of inbound traffic so a
-    // hung host doesn't leave torque applied just because no fresh
-    // commands are arriving.
-    ff_watchdog_tick();
 
-    if (Serial.available() == 0) {
-        return;
+// Payload bytes each command takes after its command byte.
+static uint8_t payload_length(uint8_t code) {
+    switch (code) {
+        case CMD_REID:
+        case CMD_CENTER:       return 1;
+        case CMD_RETURN_DELAY: return 2;
+        case CMD_FF_CURRENT:   return 2 + 2 * DXL_NUM_SERVOS;
+        default:               return 0;
     }
-    int c = Serial.read();
-    if (c < 0) {
-        return;
-    }
-    switch ((uint8_t)c) {
-        case CMD_IDENT:
-            send_ident();
-            break;
-        case CMD_POLL:
-            send_poll_reply();
-            break;
-        case CMD_FRESH_POLL:
-            send_poll_reply(true);
-            break;
-        case CMD_SCAN:
-            send_scan_reply();
-            break;
-        case CMD_REID: {
-            // Wait briefly for the target_id payload byte.
-            uint32_t deadline = millis() + 100;
-            while (Serial.available() == 0 && (int32_t)(millis() - deadline) < 0) {
-                /* spin briefly — payload should arrive within ms */
-            }
-            if (Serial.available() == 0) {
-                // Malformed command — respond with NOT_FOUND so the host
-                // doesn't hang waiting for a reply.
-                handle_reid(0xFF);
-            } else {
-                int t = Serial.read();
-                handle_reid((uint8_t)(t < 0 ? 0xFF : t));
-            }
+}
+
+static void run_command(uint8_t code, const uint8_t* payload) {
+    switch (code) {
+        case CMD_IDENT:      send_ident(); break;
+        case CMD_POLL:       poll_pending = true; poll_with_freshness = false; break;
+        case CMD_FRESH_POLL: poll_pending = true; poll_with_freshness = true;  break;
+        case CMD_SCAN:       send_scan_reply(); break;
+        case CMD_REID:       handle_reid(payload[0]); break;
+        case CMD_CENTER:     handle_center(payload[0]); break;
+        case CMD_INFO:       send_info(); break;
+        case CMD_RETURN_DELAY: {
+            // A persistent servo write: only with a valid crc and no force feedback on.
+            const uint8_t check[] = {CMD_RETURN_DELAY, payload[0]};
+            if (payload[1] == crc8(check, sizeof(check)) && ff_disabled) handle_return_delay(payload[0]);
             break;
         }
-        case CMD_CENTER: {
-            uint32_t deadline = millis() + 100;
-            while (Serial.available() == 0 && (int32_t)(millis() - deadline) < 0) {
-                /* spin briefly — payload should arrive within ms */
-            }
-            if (Serial.available() == 0) {
-                send_center_reply(CENTER_NOT_FOUND, 0xFF, 0);
-            } else {
-                int t = Serial.read();
-                handle_center((uint8_t)(t < 0 ? 0xFF : t));
-            }
-            break;
-        }
-        case CMD_FF_CURRENT:
-            // Fire-and-forget: no reply, no ACK.  Host owns the cadence
-            // and watchdog backstop guarantees safe state if it stops.
-            handle_ff_current();
-            break;
-        default:
-            // Unknown byte — drop silently to keep the protocol
-            // forward-compatible.  Older firmware ignores newer commands
-            // instead of jamming with garbage replies.
-            break;
+        // Fire-and-forget: no reply. The host owns the cadence; the watchdog the safe state.
+        case CMD_FF_CURRENT: accept_ff_current(payload); break;
+        // Unknown byte: dropped, so older firmware ignores newer commands instead of jamming.
+        default: break;
     }
+}
+
+// Take whatever the host has sent without waiting for more: a command's
+// payload collects across passes, so servo reads never stall on USB.
+static void service_host() {
+    if (draining && (int32_t)(millis() - drain_until_ms) >= 0) draining = false;
+    if (cmd_code != 0 && millis() - cmd_started_ms > PAYLOAD_TIMEOUT_MS) {
+        // Its payload never came: setup tools get the same failure reply as
+        // before, and nothing is written to a servo.
+        if (cmd_code == CMD_CENTER) send_center_reply(CENTER_NOT_FOUND, 0xFF, 0);
+        else if (cmd_code == CMD_REID) send_reid_reply(STAT_NOT_FOUND, 0, 0xFF);
+        cmd_code = 0;
+    }
+    while (Serial.available() > 0) {
+        const int c = Serial.read();
+        if (c < 0) break;
+        if (draining) continue;
+        if (cmd_code == 0) {
+            const uint8_t need = payload_length((uint8_t)c);
+            if (need == 0) {
+                run_command((uint8_t)c, nullptr);
+            } else {
+                cmd_code = (uint8_t)c;
+                cmd_need = need;
+                cmd_len = 0;
+                cmd_started_ms = millis();
+            }
+            continue;
+        }
+        cmd_buf[cmd_len++] = (uint8_t)c;
+        if (cmd_code == CMD_FF_CURRENT && cmd_len == 1 && c != DXL_NUM_SERVOS) {
+            // A wrong servo count: drop what follows for a moment to keep the framing aligned.
+            cmd_code = 0;
+            draining = true;
+            drain_until_ms = millis() + 20;
+            continue;
+        }
+        if (cmd_len == cmd_need) {
+            const uint8_t code = cmd_code;
+            cmd_code = 0;
+            run_command(code, cmd_buf);
+        }
+    }
+}
+
+static void joy_tick() {
+    const uint64_t now = clock_us();
+    if (now < joy_due_us) return;
+    joy_due_us = now + JOY_PERIOD_US;
+    joy_poll();
+}
+
+// One Sync Read after another; host polls are answered right after each read
+// and again after the slower steps, from the newest complete sample.
+void loop() {
+    // Every pass, so a host that stops sending cannot leave torque applied.
+    ff_watchdog_tick();
+    read_servos();
+    service_host();
+    answer_poll();
+    ff_apply();
+    joy_tick();
+    service_host();
+    answer_poll();
 }
