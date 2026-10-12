@@ -82,6 +82,8 @@ model validation fixtures. Follow `docs/MINERVA_PHYSICS_MEASUREMENTS.md`.
 
 The next input is measured mass/COM or corrected CAD mass properties, not another
 simulator rewrite. Kinematic frame comparisons can proceed before those inputs.
+The kinematic MJCF and its frame comparison are on `claude/minerva-physical-model`; see
+[its brief](MINERVA_MJCF.md).
 Acceptance requires no placeholders, a clean structural audit, measured jaw/motor
 mapping, independent static-torque checks and held-out motion traces with declared
 tolerances. Keep physical validation incomplete while measurements are unavailable.
