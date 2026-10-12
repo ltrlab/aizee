@@ -13,6 +13,7 @@ the pinned SSH session, serves the leaders over the link from their own
 responsive process (LeaderLinkProcess) and relays frames. A servo sweep
 (bundle kind 'tune', helm.tune) runs the same way with no leader link.
 """
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import queue
@@ -224,12 +225,13 @@ class EdgeWorker:
     """
 
     def __init__(self, bundle, leader_profile, *, base_view, address=None, profile=None, open_ssh=None,
-                 serve_link=None, real_leaders=True, name='Teleop'):
+                 serve_link=None, real_leaders=True, name='Teleop', evidence=None):
         from robot_platform.ops.ssh import DEFAULT_PROFILE, TETHER
         self.bundle, self.leader_profile, self.base_view = bundle, leader_profile, base_view
         self.address, self.profile = address or TETHER, profile or DEFAULT_PROFILE
         self.open_ssh, self.serve_link, self.real_leaders = open_ssh, serve_link, real_leaders
         self.name = name
+        self.evidence = evidence  # A directory for the PC end's leader-link report, written as each session ends.
         self.views, self.commands = ArrivalInbox(), _Commands(self)
         self._lock = threading.Lock()
         self._writer = self._channel = None
@@ -298,9 +300,22 @@ class EdgeWorker:
             with self._lock:
                 self._writer = None
             if server is not None:
-                server.close()
+                self._save_link(server.close())
             if client is not None:
                 client.close()
+
+    def _save_link(self, report):
+        """The PC end's counts and request timing (teleop.leader_link.LinkTiming), beside Helm's other runs."""
+        if not self.evidence or not isinstance(report, dict) or not report:
+            return
+        try:
+            directory = Path(self.evidence)
+            directory.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+            (directory / f'leader-link-{stamp}.json').write_text(json.dumps(report, indent=1) + '\n',
+                                                                 encoding='utf-8')
+        except OSError:
+            pass  # Diagnostics only: never turn a clean session end into a failure.
 
 
 if __name__ == '__main__':

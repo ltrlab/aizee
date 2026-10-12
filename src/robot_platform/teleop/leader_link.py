@@ -13,7 +13,9 @@ each second) and the robot learns the PC's address from it, so the PC never
 has to accept unsolicited inbound traffic. On the PC, LeaderLinkProcess runs the
 server in its own process that Windows does not throttle, next to the leader USB.
 """
+from datetime import datetime, timezone
 import hashlib
+import heapq
 import hmac
 import socket
 import threading
@@ -53,6 +55,68 @@ def _checked_key(key):
     return key
 
 
+class LinkTiming:
+    """When the robot's requests reached the PC and how long each reply took, to tell a quiet network from a
+    stalled PC: a gap that ends in a burst of queued requests was held up on the way in (or the PC did not run);
+    one that ends without a burst lost them; a slow turnaround is the PC. Bounded: counts and the largest few.
+    Times are the PC's own; `utc` only places an event within a session, never against the robot's clock."""
+    KEEP = 20
+    BURST_S = .005
+
+    def __init__(self, clock=time.perf_counter, wall=time.time):
+        self.clock, self.wall = clock, wall
+        self.first = self.last = None
+        self.requests = 0
+        self.gaps_over_ms = {'20': 0, '50': 0, '100': 0}
+        self.gaps, self.turnarounds = [], []  # Min-heaps of the KEEP largest: (ms, tiebreak, record).
+        self.turnaround_max_ms, self.slow_turnarounds = 0., 0
+        self._gap = None  # The last large gap, counting the burst after it.
+
+    def _keep(self, heap, ms, record):
+        entry = (ms, self.requests, record)
+        if len(heap) < self.KEEP:
+            heapq.heappush(heap, entry)
+        elif ms > heap[0][0]:
+            heapq.heapreplace(heap, entry)
+
+    def _at(self, now):
+        return {'elapsed_s': round(now - self.first, 4),
+                'utc': datetime.fromtimestamp(self.wall(), timezone.utc).isoformat(timespec='milliseconds')}
+
+    def arrived(self):
+        now = self.clock()
+        if self.first is None:
+            self.first = now
+        elif self._gap is not None and now - self.last <= self.BURST_S:
+            self._gap['burst'] += 1
+        else:
+            self._gap = None
+            gap = (now - self.last) * 1000
+            for limit in self.gaps_over_ms:
+                self.gaps_over_ms[limit] += gap > int(limit)
+            if gap > 20:
+                self._gap = dict(self._at(now), gap_ms=round(gap, 2), burst=0)
+                self._keep(self.gaps, gap, self._gap)
+        self.last = now
+        self.requests += 1
+        return now
+
+    def replied(self, arrived_at):
+        now = self.clock()
+        ms = (now - arrived_at) * 1000
+        self.turnaround_max_ms = max(self.turnaround_max_ms, ms)
+        if ms > 2:
+            self.slow_turnarounds += 1
+            self._keep(self.turnarounds, ms, dict(self._at(now), turnaround_ms=round(ms, 2)))
+
+    def summary(self):
+        largest = lambda heap: [record for _ms, _n, record in sorted(heap, key=lambda e: -e[0])]
+        return {'requests': self.requests, 'span_s': round(self.last - self.first, 3) if self.requests else 0.,
+                'gaps_over_ms': dict(self.gaps_over_ms), 'largest_gaps': largest(self.gaps),
+                'turnaround_max_ms': round(self.turnaround_max_ms, 3), 'turnarounds_over_2ms': self.slow_turnarounds,
+                'slowest_turnarounds': largest(self.turnarounds)}
+
+
 class LeaderLinkServer:
     """Operator PC: answer authenticated sample requests from the latest USB pair."""
 
@@ -65,6 +129,7 @@ class LeaderLinkServer:
         self.socket.settimeout(.1)
         self.served = self.skipped = self.rejected = 0
         self.failure = None
+        self.timing = LinkTiming(clock)
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True, name='leader-link-server')
 
@@ -94,6 +159,7 @@ class LeaderLinkServer:
             if request is None:
                 self.rejected += 1
                 continue
+            arrived = self.timing.arrived()
             nonce = request.get('nonce')
             if self.failure:
                 reply = {'protocol_version': 1, 'epoch': self.epoch, 'nonce': nonce, 'error': self.failure}
@@ -111,6 +177,7 @@ class LeaderLinkServer:
                     self.failure = str(exc) or type(exc).__name__
                     reply = {'protocol_version': 1, 'epoch': self.epoch, 'nonce': nonce, 'error': self.failure}
             self._send(reply)
+            self.timing.replied(arrived)
 
     def close(self):
         self._stop.set()
@@ -224,8 +291,9 @@ def _serve(connection, profile, key, robot, local, real):
             connection.recv()  # Any message, or the parent going away, stops the server.
         except EOFError:
             pass
+        server.close()  # Stopped first, so its counts and timing are final.
         report = {'served': server.served, 'skipped': server.skipped, 'rejected': server.rejected,
-                  'failure': server.failure, 'usb_skipped': source.skipped}
+                  'failure': server.failure, 'usb_skipped': source.skipped, 'timing': server.timing.summary()}
     except Exception as exc:
         report = {'error': f'{type(exc).__name__}: {exc}'}
     finally:

@@ -1260,6 +1260,8 @@ class TeleopSession:
         self.profile_path = Path(profile_path).resolve()
         self.profile = load_profile(self.profile_path)
         self.routes_path = routes_path(runs, helm.asset_id)
+        # The PC end of each Jetson session's leader link reports its request timing here (helm.edge).
+        self.link_evidence = Path(runs) / (helm.asset_id + '-teleop') / 'leader-link'
         self.core_factory = core_factory  # Tests: run a core in a thread instead of a process.
         self.leader_factory = leader_factory  # Previews/tests: 'module:function' instead of USB leaders.
         if target not in self.TARGETS:
@@ -1408,7 +1410,8 @@ class TeleopSession:
                                             .read_text(encoding='utf-8'))
                 worker = (self.edge_factory or EdgeWorker)(bundle, leader_profile, base_view=dict(self._view),
                                                            real_leaders=self.leader_factory is None,
-                                                           address=getattr(self.helm, 'address', None))
+                                                           address=getattr(self.helm, 'address', None),
+                                                           evidence=self.link_evidence)
                 command_writer, view_reader = worker.commands, worker.views
                 message = ("Starting on Minerva's Jetson: connecting, loading the collision model and virtual "
                            'receiver, linking the leaders…') if self.receiver['mode'] == 'virtual' else (

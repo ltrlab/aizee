@@ -253,3 +253,13 @@ def test_a_live_session_needs_the_jetson_a_confirmation_and_carries_the_motor_mo
     teleop.set_target('pc')
     with pytest.raises(ValueError, match="loop on Minerva's Jetson"):
         teleop.set_receiver('live', 'right')
+
+
+def test_the_pc_end_saves_its_link_report_and_skips_nothing_to_save(tmp_path):
+    worker = EdgeWorker({}, PROFILE, base_view={}, evidence=tmp_path / 'leader-link')
+    worker._save_link(None)
+    worker._save_link({})
+    assert not (tmp_path / 'leader-link').exists()
+    worker._save_link({'served': 3, 'timing': {'requests': 3}})
+    saved = list((tmp_path / 'leader-link').glob('leader-link-*.json'))
+    assert len(saved) == 1 and json.loads(saved[0].read_text(encoding='utf-8'))['timing'] == {'requests': 3}

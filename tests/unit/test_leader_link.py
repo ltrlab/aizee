@@ -106,3 +106,34 @@ def test_the_pc_end_runs_in_its_own_responsive_process():
         robot.close()
     assert counts['served'] == 2 and counts['failure'] is None and counts['rejected'] == 0
     assert pc.close() is counts  # Closing twice is harmless.
+
+
+def test_link_timing_tells_a_queued_burst_from_lost_requests_and_a_slow_reply():
+    from robot_platform.teleop.leader_link import LinkTiming
+    clock = [0.]
+    timing = LinkTiming(clock=lambda: clock[0], wall=lambda: 1e9)
+    def arrive(at, turnaround=.0002):
+        clock[0] = at
+        arrived = timing.arrived()
+        clock[0] = at + turnaround
+        timing.replied(arrived)
+    for at in (0., .01, .02):
+        arrive(at)
+    for at in (.13, .1305, .131, .1315):  # 110 ms quiet, then the held requests at once: queued on the way in.
+        arrive(at)
+    arrive(.1415)
+    arrive(.30)  # 158.5 ms quiet and no burst: lost.
+    arrive(.31, turnaround=.003)  # The PC took 3 ms to answer.
+    summary = timing.summary()
+    assert summary['requests'] == 10 and summary['span_s'] == .31
+    assert summary['gaps_over_ms'] == {'20': 2, '50': 2, '100': 2}
+    assert [(g['gap_ms'], g['burst'], g['elapsed_s']) for g in summary['largest_gaps']] == [(158.5, 0, .3), (110., 3, .13)]
+    assert summary['turnarounds_over_2ms'] == 1 and summary['slowest_turnarounds'][0]['turnaround_ms'] == 3.
+    assert summary['largest_gaps'][0]['utc'].startswith('2001-09-09T01:46:40')
+
+
+def test_the_server_times_each_request(link):
+    robot, server, _inputs = link
+    robot.poll(), robot.poll()
+    summary = server.timing.summary()
+    assert summary['requests'] == 2 and 0 <= summary['turnaround_max_ms'] < 100
