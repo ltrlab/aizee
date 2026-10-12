@@ -2710,3 +2710,91 @@ fn under_a_motion_bound_a_joint_at_rest_keeps_its_rest_tracking_error() {
     assert!(matches!(c.status().state, State::Stopping | State::Stopped));
     assert!(h.enabled);
 }
+
+/// What a trip reports beside its reason: the joint, the check, the reading and the limit broken.
+fn last_trip(c: &Controller) -> (Reason, String, String, f64, f64) {
+    let trip = c
+        .status()
+        .last_trip
+        .expect("a trip names its joint and check");
+    (trip.reason, trip.joint, trip.check, trip.value, trip.limit)
+}
+
+#[test]
+fn a_trip_names_the_joint_the_check_and_the_reading_against_its_limit() {
+    // A drive over its temperature limit: the one limit a session's samples did not record.
+    let (mut c, mut h) = armed(2);
+    assert!(c.status().last_trip.is_none());
+    h.feedback[1].temperature = 75.5;
+    c.tick(2, &mut h);
+    assert_eq!(c.status().reason, Reason::LimitViolation);
+    assert_eq!(
+        last_trip(&c),
+        (
+            Reason::LimitViolation,
+            "axis-1".into(),
+            "temperature".into(),
+            75.5,
+            70.0
+        )
+    );
+    assert_eq!(c.status().last_trip.unwrap().at_ms, 2);
+
+    // Far over the speed allowed: the reading against three times it.
+    let (mut c, mut h) = armed(1);
+    h.feedback[0].velocity = 6.5;
+    c.tick(2, &mut h);
+    assert_eq!(
+        last_trip(&c),
+        (
+            Reason::LimitViolation,
+            "axis-0".into(),
+            "speed".into(),
+            6.5,
+            6.0
+        )
+    );
+
+    // Over it for three readings in a row.
+    let (mut c, mut h) = armed(1);
+    for now in 2..5 {
+        h.feedback[0].velocity = -2.5;
+        c.tick(now, &mut h);
+    }
+    assert_eq!(
+        last_trip(&c),
+        (
+            Reason::LimitViolation,
+            "axis-0".into(),
+            "sustained_speed".into(),
+            2.5,
+            2.0
+        )
+    );
+
+    // Trailing its command past the tracking bound.
+    let (mut c, mut h) = armed(1);
+    h.feedback[0].position = 0.6;
+    c.tick(2, &mut h);
+    assert_eq!(c.status().reason, Reason::TrackingError);
+    let (reason, joint, check, value, limit) = last_trip(&c);
+    assert_eq!(
+        (reason, joint.as_str(), check.as_str(), limit),
+        (Reason::TrackingError, "axis-0", "tracking_error", 0.5)
+    );
+    assert!((value - 0.6).abs() < 1e-12);
+}
+
+#[test]
+fn the_last_trip_stays_after_the_reading_recovers() {
+    let (mut c, mut h) = armed(1);
+    h.feedback[0].temperature = 71.0;
+    c.tick(2, &mut h);
+    h.feedback[0].temperature = 25.0;
+    for now in 3..400 {
+        c.tick(now, &mut h);
+    }
+    assert!(matches!(c.status().state, State::Stopped | State::Stopping));
+    // The trip stays after the reading recovers, for the session's evidence.
+    assert_eq!(last_trip(&c).2, "temperature");
+}

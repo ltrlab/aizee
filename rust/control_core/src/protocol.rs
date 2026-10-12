@@ -168,6 +168,19 @@ pub struct AppliedTarget {
     pub applied_at_ms: u64,
 }
 
+/// The last check that tripped, faulted or refused the receiver: which joint, which check (for
+/// example `speed` or `temperature`), the reading and the limit it broke, on the receiver clock.
+/// A status's reason alone could not say which of a joint's limits a live session broke (2026-10-12).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Trip {
+    pub reason: Reason,
+    pub joint: String,
+    pub check: String,
+    pub value: f64,
+    pub limit: f64,
+    pub at_ms: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Status {
     pub protocol_version: u32,
@@ -191,6 +204,8 @@ pub struct Status {
     /// Last target successfully written by the receiver, on the receiver clock.
     /// An acknowledgement may precede this when service writes are deferred.
     pub last_applied_target: Option<AppliedTarget>,
+    /// The last trip, fault or refusal a joint's check caused; kept until the next one.
+    pub last_trip: Option<Trip>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

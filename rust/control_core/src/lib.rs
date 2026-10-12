@@ -205,6 +205,7 @@ pub struct Controller {
     epoch: String,
     state: State,
     reason: Reason,
+    last_trip: Option<Trip>,
     now_ms: u64,
     lease: Option<Lease>,
     // Keep revoked strings alive until non-periodic acquisition cleans them up.
@@ -258,6 +259,7 @@ impl Controller {
             epoch,
             state: State::Disarmed,
             reason: Reason::Ok,
+            last_trip: None,
             now_ms: 0,
             lease: None,
             retired_lease: None,
@@ -343,6 +345,7 @@ impl Controller {
         Status {
             protocol_version: PROTOCOL_VERSION,
             last_applied_target: self.last_applied_target.clone(),
+            last_trip: self.last_trip.clone(),
             epoch: self.epoch.clone(),
             group: self.config.group.clone(),
             identity: self.config.identity.clone(),
@@ -517,39 +520,84 @@ impl Controller {
 
     /// Invalid feedback, a drive reporting a fault, or no drive answering at all (the bus is gone):
     /// nothing can be held, so these cut torque (a fault).
-    fn feedback_error(&self) -> Option<Reason> {
-        for f in &self.feedback {
+    fn feedback_error(&self) -> Option<Trip> {
+        for (i, f) in self.feedback.iter().enumerate() {
             if f.sequence == 0
                 || f.sampled_at_ms > self.now_ms
                 || [f.position, f.velocity, f.effort, f.temperature]
                     .iter()
                     .any(|v| !v.is_finite())
             {
-                return Some(Reason::FeedbackInvalid);
+                return Some(self.trip_at(
+                    Reason::FeedbackInvalid,
+                    i,
+                    "invalid_feedback",
+                    0.0,
+                    0.0,
+                ));
             }
             if f.fault {
-                return Some(Reason::HardwareFault);
+                return Some(self.trip_at(Reason::HardwareFault, i, "drive_fault", 1.0, 0.0));
             }
         }
         if self.feedback.iter().all(|f| self.stale(f)) {
-            return Some(Reason::FeedbackStale);
+            let timeout = self.config.feedback_timeout_ms as f64;
+            return Some(self.trip_at(
+                Reason::FeedbackStale,
+                0,
+                "all_feedback_age_ms",
+                self.age_ms(0),
+                timeout,
+            ));
         }
         None
+    }
+
+    /// Joint `i`'s check `check` broke: its reading `value` against `limit`, now.
+    fn trip_at(&self, reason: Reason, i: usize, check: &str, value: f64, limit: f64) -> Trip {
+        Trip {
+            reason,
+            joint: self.config.joints[i].name.clone(),
+            check: check.to_string(),
+            value,
+            limit,
+            at_ms: self.now_ms,
+        }
+    }
+
+    /// How long ago joint `i`'s reading was sampled, in milliseconds.
+    fn age_ms(&self, i: usize) -> f64 {
+        self.now_ms.saturating_sub(self.feedback[i].sampled_at_ms) as f64
+    }
+
+    /// Keep what tripped for the status and return its reason.
+    fn note(&mut self, trip: Trip) -> Reason {
+        let reason = trip.reason;
+        self.last_trip = Some(trip);
+        reason
     }
 
     /// Some drives, not all, have stopped answering: a trip, holding the arm on those that still do
     /// (each quiet one keeps its last command). The left gripper went quiet for over 30 ms with the
     /// left arm raised, and cutting every joint's torque dropped the arm (2026-09-30).
-    fn stale_error(&self) -> Option<Reason> {
-        self.feedback
-            .iter()
-            .any(|f| self.stale(f))
-            .then_some(Reason::FeedbackStale)
+    fn stale_error(&self) -> Option<Trip> {
+        let timeout = self.config.feedback_timeout_ms as f64;
+        (0..self.feedback.len())
+            .find(|&i| self.stale(&self.feedback[i]))
+            .map(|i| {
+                self.trip_at(
+                    Reason::FeedbackStale,
+                    i,
+                    "feedback_age_ms",
+                    self.age_ms(i),
+                    timeout,
+                )
+            })
     }
 
     /// A joint past a limit, over its allowed speed, effort or temperature, its state known: while
     /// the arm is held this trips it to a braking hold (trip), rather than dropping it.
-    fn limit_error(&self) -> Option<Reason> {
+    fn limit_error(&self) -> Option<Trip> {
         for (i, ((f, limit), &overspeed)) in self
             .feedback
             .iter()
@@ -557,16 +605,28 @@ impl Controller {
             .zip(&self.overspeed)
             .enumerate()
         {
-            if f.position < limit.lower
-                || f.position > limit.upper
-                || overspeed >= MOVING_READINGS
-                || f.velocity.abs()
-                    > OVERSPEED_FACTOR * self.allowed_speed(i, f.position, f.velocity)
-                || f.effort.abs() > limit.max_effort
-                || f.temperature > limit.max_temperature
-            {
-                return Some(Reason::LimitViolation);
-            }
+            let speed = f.velocity.abs();
+            let instant = OVERSPEED_FACTOR * self.allowed_speed(i, f.position, f.velocity);
+            let (check, value, bound) = if f.position < limit.lower {
+                ("position_below_lower", f.position, limit.lower)
+            } else if f.position > limit.upper {
+                ("position_above_upper", f.position, limit.upper)
+            } else if overspeed >= MOVING_READINGS {
+                (
+                    "sustained_speed",
+                    speed,
+                    self.sustained_speed(i, f.position, f.velocity),
+                )
+            } else if speed > instant {
+                ("speed", speed, instant)
+            } else if f.effort.abs() > limit.max_effort {
+                ("effort", f.effort.abs(), limit.max_effort)
+            } else if f.temperature > limit.max_temperature {
+                ("temperature", f.temperature, limit.max_temperature)
+            } else {
+                continue;
+            };
+            return Some(self.trip_at(Reason::LimitViolation, i, check, value, bound));
         }
         None
     }
@@ -628,8 +688,9 @@ impl Controller {
         if matches!(self.state, State::Stopping | State::Stopped) {
             return;
         }
-        if let Some(error) = self.feedback_error() {
-            self.fault(error, hardware);
+        if let Some(trip) = self.feedback_error() {
+            let reason = self.note(trip);
+            self.fault(reason, hardware);
             return;
         }
         for i in 0..self.stops.len() {
@@ -690,14 +751,16 @@ impl Controller {
             return;
         }
         // An unchanged sample cannot be given a younger timestamp or new values.
-        for (current, old) in self.feedback.iter().zip(&self.previous_feedback) {
-            if current.sequence < old.sequence
+        if let Some(i) = (0..self.feedback.len()).find(|&i| {
+            let (current, old) = (&self.feedback[i], &self.previous_feedback[i]);
+            current.sequence < old.sequence
                 || (current.sequence == old.sequence && current != old)
                 || current.sampled_at_ms < old.sampled_at_ms
-            {
-                self.fault(Reason::FeedbackInvalid, hardware);
-                return;
-            }
+        }) {
+            let trip = self.trip_at(Reason::FeedbackInvalid, i, "feedback_regressed", 0.0, 0.0);
+            let reason = self.note(trip);
+            self.fault(reason, hardware);
+            return;
         }
         self.decay_speed_bounds(now_ms);
         // Count each joint's new samples over its settled speed and its speed cap.
@@ -722,12 +785,14 @@ impl Controller {
                     };
             }
         }
-        if let Some(error) = self.feedback_error() {
-            self.fault(error, hardware);
+        if let Some(trip) = self.feedback_error() {
+            let reason = self.note(trip);
+            self.fault(reason, hardware);
             return;
         }
-        if let Some(error) = self.limit_error().or_else(|| self.stale_error()) {
-            self.trip(error, hardware);
+        if let Some(trip) = self.limit_error().or_else(|| self.stale_error()) {
+            let reason = self.note(trip);
+            self.trip(reason, hardware);
         }
         if self.state == State::Faulted {
             return;
@@ -735,31 +800,47 @@ impl Controller {
         if self.state == State::Executing {
             self.follow_targets();
         }
-        if self.collision_active
-            && self.active()
-            && self.feedback.iter().zip(&self.commands).enumerate().any(
-                |(i, (feedback, command))| {
-                    feedback.position < self.collision_lower[i]
-                        || feedback.position > self.collision_upper[i]
-                        || command.position < self.collision_lower[i]
-                        || command.position > self.collision_upper[i]
-                },
-            )
-        {
-            self.trip(Reason::CollisionViolation, hardware);
-        }
-        if self.active()
-            && self
+        if self.collision_active && self.active() {
+            // The first reading or command outside its joint's box, and the edge it crossed.
+            let outside = self
                 .feedback
                 .iter()
                 .zip(&self.commands)
-                .zip(&self.config.joints)
                 .enumerate()
-                .any(|(i, ((f, c), l))| {
-                    !l.gripper && (f.position - c.position).abs() > self.tracking_bound(i)
-                })
-        {
-            self.trip(Reason::TrackingError, hardware);
+                .find_map(|(i, (feedback, command))| {
+                    let (lower, upper) = (self.collision_lower[i], self.collision_upper[i]);
+                    [
+                        ("collision_box", feedback.position),
+                        ("collision_box_command", command.position),
+                    ]
+                    .into_iter()
+                    .find(|&(_, q)| q < lower || q > upper)
+                    .map(|(check, q)| (i, check, q, if q < lower { lower } else { upper }))
+                });
+            if let Some((i, check, value, edge)) = outside {
+                let trip = self.trip_at(Reason::CollisionViolation, i, check, value, edge);
+                let reason = self.note(trip);
+                self.trip(reason, hardware);
+            }
+        }
+        if self.active() {
+            let lagging = (0..self.feedback.len()).find(|&i| {
+                !self.config.joints[i].gripper
+                    && (self.feedback[i].position - self.commands[i].position).abs()
+                        > self.tracking_bound(i)
+            });
+            if let Some(i) = lagging {
+                let error = (self.feedback[i].position - self.commands[i].position).abs();
+                let trip = self.trip_at(
+                    Reason::TrackingError,
+                    i,
+                    "tracking_error",
+                    error,
+                    self.tracking_bound(i),
+                );
+                let reason = self.note(trip);
+                self.trip(reason, hardware);
+            }
         }
         if self.state == State::Faulted {
             return;
@@ -1172,12 +1253,12 @@ impl Controller {
                 ) {
                     return Err(Reason::InvalidState);
                 }
-                if let Some(error) = self
+                if let Some(trip) = self
                     .feedback_error()
                     .or_else(|| self.limit_error())
                     .or_else(|| self.stale_error())
                 {
-                    return Err(error);
+                    return Err(self.note(trip));
                 }
                 let entering = self.state != State::Idle;
                 let enabling = self.state == State::Disarmed;
@@ -1206,12 +1287,12 @@ impl Controller {
                 if !matches!(self.state, State::Disarmed | State::Idle | State::Stopped) {
                     return Err(Reason::InvalidState);
                 }
-                if let Some(error) = self
+                if let Some(trip) = self
                     .feedback_error()
                     .or_else(|| self.limit_error())
                     .or_else(|| self.stale_error())
                 {
-                    return Err(error);
+                    return Err(self.note(trip));
                 }
                 if self.fast_readings.iter().any(|&n| n >= MOVING_READINGS) {
                     return Err(Reason::InvalidState);
@@ -1449,12 +1530,12 @@ impl Controller {
                 if !matches!(self.state, State::Faulted | State::Stopped) {
                     return Err(Reason::InvalidState);
                 }
-                if let Some(error) = self
+                if let Some(trip) = self
                     .feedback_error()
                     .or_else(|| self.limit_error())
                     .or_else(|| self.stale_error())
                 {
-                    return Err(error);
+                    return Err(self.note(trip));
                 }
                 if self.fast_readings.iter().any(|&n| n >= MOVING_READINGS) {
                     return Err(Reason::InvalidState);
