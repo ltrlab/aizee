@@ -45,7 +45,8 @@ logged every CAN frame of every scan: ~32 KB/s before, ~67 KB/s (~240 MB per hou
 tether) at the faster rate; 31 GB were free on 2026-10-12. At the operator's request it now keeps the CAN trace
 for the preflight, the first frame and every rejected scan, as Check keeps its trace only on failure; later
 healthy frames log their positions alone. Live: ~18 KB/s (~65 MB per hour), 2.6 KB per frame, the first line
-holding all 168 preflight and first-scan events.
+holding all 168 preflight and first-scan events. Gate on `31ee57b`: 664 Python tests, zero
+failures/skips/xfails, Rust included (`build/dev-check/20261012T022420Z-0542ce01/report.json`).
 
 ## Remaining uncertainty
 
