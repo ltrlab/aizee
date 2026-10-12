@@ -596,11 +596,19 @@ impl Controller {
         self.now_ms.saturating_sub(self.feedback[i].sampled_at_ms) as f64
     }
 
-    /// Keep what tripped for the status and return its reason.
-    fn note(&mut self, trip: TripRecord) -> Reason {
-        let reason = trip.reason;
-        self.last_trip = Some(trip);
-        reason
+    /// Trip for `trip` (fault with `fault`), keeping it as the last trip only when it changed the
+    /// receiver's state or reason: a violation that persists while the arm brakes or stays faulted
+    /// never overwrites what stopped it.
+    fn trip_for(&mut self, trip: TripRecord, fault: bool, hardware: &mut impl Hardware) {
+        let before = (self.state, self.reason);
+        if fault {
+            self.fault(trip.reason, hardware);
+        } else {
+            self.trip(trip.reason, hardware);
+        }
+        if (self.state, self.reason) != before {
+            self.last_trip = Some(trip);
+        }
     }
 
     /// Some drives, not all, have stopped answering: a trip, holding the arm on those that still do
@@ -715,8 +723,7 @@ impl Controller {
             return;
         }
         if let Some(trip) = self.feedback_error() {
-            let reason = self.note(trip);
-            self.fault(reason, hardware);
+            self.trip_for(trip, true, hardware);
             return;
         }
         for i in 0..self.stops.len() {
@@ -784,8 +791,7 @@ impl Controller {
                 || current.sampled_at_ms < old.sampled_at_ms
         }) {
             let trip = self.trip_at(Reason::FeedbackInvalid, i, "feedback_regressed", 0.0, 0.0);
-            let reason = self.note(trip);
-            self.fault(reason, hardware);
+            self.trip_for(trip, true, hardware);
             return;
         }
         self.decay_speed_bounds(now_ms);
@@ -812,13 +818,11 @@ impl Controller {
             }
         }
         if let Some(trip) = self.feedback_error() {
-            let reason = self.note(trip);
-            self.fault(reason, hardware);
+            self.trip_for(trip, true, hardware);
             return;
         }
         if let Some(trip) = self.limit_error().or_else(|| self.stale_error()) {
-            let reason = self.note(trip);
-            self.trip(reason, hardware);
+            self.trip_for(trip, false, hardware);
         }
         if self.state == State::Faulted {
             return;
@@ -845,8 +849,7 @@ impl Controller {
                 });
             if let Some((i, check, value, edge)) = outside {
                 let trip = self.trip_at(Reason::CollisionViolation, i, check, value, edge);
-                let reason = self.note(trip);
-                self.trip(reason, hardware);
+                self.trip_for(trip, false, hardware);
             }
         }
         if self.active() {
@@ -864,8 +867,7 @@ impl Controller {
                     error,
                     self.tracking_bound(i),
                 );
-                let reason = self.note(trip);
-                self.trip(reason, hardware);
+                self.trip_for(trip, false, hardware);
             }
         }
         if self.state == State::Faulted {
@@ -1284,7 +1286,7 @@ impl Controller {
                     .or_else(|| self.limit_error())
                     .or_else(|| self.stale_error())
                 {
-                    return Err(self.note(trip));
+                    return Err(trip.reason);
                 }
                 let entering = self.state != State::Idle;
                 let enabling = self.state == State::Disarmed;
@@ -1318,7 +1320,7 @@ impl Controller {
                     .or_else(|| self.limit_error())
                     .or_else(|| self.stale_error())
                 {
-                    return Err(self.note(trip));
+                    return Err(trip.reason);
                 }
                 if self.fast_readings.iter().any(|&n| n >= MOVING_READINGS) {
                     return Err(Reason::InvalidState);
@@ -1561,7 +1563,7 @@ impl Controller {
                     .or_else(|| self.limit_error())
                     .or_else(|| self.stale_error())
                 {
-                    return Err(self.note(trip));
+                    return Err(trip.reason);
                 }
                 if self.fast_readings.iter().any(|&n| n >= MOVING_READINGS) {
                     return Err(Reason::InvalidState);

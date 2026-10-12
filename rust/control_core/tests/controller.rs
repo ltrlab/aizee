@@ -2798,3 +2798,21 @@ fn the_last_trip_stays_after_the_reading_recovers() {
     // The trip stays after the reading recovers, for the session's evidence.
     assert_eq!(last_trip(&c).2, "temperature");
 }
+
+#[test]
+fn a_violation_while_the_arm_brakes_does_not_overwrite_what_stopped_it() {
+    let (mut c, mut h) = armed(2);
+    h.feedback[0].temperature = 71.0;
+    c.tick(2, &mut h);
+    assert!(matches!(c.status().state, State::Stopping | State::Stopped));
+    // Another joint breaks a limit while stopped: the stop already made carries on.
+    h.feedback[1].effort = 9.0;
+    for now in 3..6 {
+        c.tick(now, &mut h);
+    }
+    let trip = c.status().last_trip.unwrap();
+    assert_eq!(
+        (trip.joint.as_str(), trip.check.as_str(), trip.at_ms),
+        ("axis-0", "temperature", 2)
+    );
+}
