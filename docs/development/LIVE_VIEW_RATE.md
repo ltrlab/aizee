@@ -38,12 +38,17 @@ stream passes `power_on=False`; Check's single scan still reads the power-on ran
 - Gate: 663 Python tests, zero failures/skips/xfails, Rust tests included, on `4945672`
   (`build/dev-check/20261012T012817Z-c1b1950b/report.json`). The scan tests now run in the gate.
 
+## Audit size
+
+The reader's audit on the Jetson (`~/aizee/device-maintenance/joint-calibration-*/captures/*-frames.jsonl`)
+logged every CAN frame of every scan: ~32 KB/s before, ~67 KB/s (~240 MB per hour while Helm is open on the
+tether) at the faster rate; 31 GB were free on 2026-10-12. At the operator's request it now keeps the CAN trace
+for the preflight, the first frame and every rejected scan, as Check keeps its trace only on failure; later
+healthy frames log their positions alone. Live: ~18 KB/s (~65 MB per hour), 2.6 KB per frame, the first line
+holding all 168 preflight and first-scan events.
+
 ## Remaining uncertainty
 
-- The reader's audit on the Jetson (`~/aizee/device-maintenance/joint-calibration-*/captures/*-frames.jsonl`)
-  logs every CAN frame of every scan: now ~67 KB/s (~240 MB per hour while Helm is open on the tether), was
-  ~32 KB/s. 31 GB were free on 2026-10-12. Keeping full CAN events only for rejected scans, as Check already
-  does, would cut it to the positions alone; that is an evidence-policy decision, not made here.
 - Check's scan uses the same alternating order but was not run live on this branch.
 - After a session ends, the reader still waits its 5 s handoff and repeats the identity preflight before the
   view is live again.
