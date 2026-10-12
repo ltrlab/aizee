@@ -155,3 +155,13 @@ def test_the_live_audit_keeps_the_can_trace_only_for_the_first_frame_and_rejecte
                                                   ['frame']]
     assert audit[0]['events'][0] == {'kind': 'identity', 'motor': 'm0'} and len(audit[0]['events']) == 9
     assert all(frame['frame']['motors'] for frame in audit if 'frame' in frame)
+
+
+def test_each_scan_row_carries_the_temperature_its_stop_reply_reported():
+    class Warm(Reader):
+        def request(self, motor, kind, parameter=None):
+            reply = super().request(motor, kind, parameter)
+            return dict(reply, temperature_c=40. + motor['id']) if kind == 'stop' else reply
+    rows = live_scan(Warm(), TWO_BUSES, power_on=False)
+    assert [row['temperature_c'] for row in rows] == [41., 42., 43., 41., 42., 43.]
+    assert all(row['temperature_c'] is None for row in live_scan(Reader(), TWO_BUSES, power_on=False))

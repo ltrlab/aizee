@@ -130,21 +130,23 @@ def alternating(motors):
 
 
 def live_scan(reader, motors, *, power_on=True):
-    """Stop and read every motor, rows in roster order. Requests alternate buses, so one adapter answers while
-    the other waits out its spacing. `power_on` also reads each drive's zero_sta, for Check's scan; the live
+    """Stop and read every motor, rows in roster order, each with the temperature its stop reply reports.
+    Requests alternate buses, so one adapter answers while the other waits out its spacing. `power_on` also reads each drive's zero_sta, for Check's scan; the live
     stream never uses it, and skipping it cuts each frame by a third."""
     def request(motor, *args):
         try:
             return reader.request(motor, *args)
         except TimeoutError as exc:
             raise MotorSilent('Missing stopped position: ' + motor['name'], motor['name']) from exc
-    rows = {}
+    rows, temperatures = {}, {}
     for rank in alternating(motors):
         for motor in rank:
-            request(motor, 'stop')
+            # The stop's own reply carries the drive's temperature: no extra request.
+            temperatures[motor['name']] = (request(motor, 'stop') or {}).get('temperature_c')
         for motor in rank:
             rows[motor['name']] = ({k: motor[k] for k in ('name', 'bus', 'id', 'uid', 'firmware')} |
-                                   {'position_rad': request(motor, 'read', 0x7019), 'reset_confirmed': True})
+                                   {'position_rad': request(motor, 'read', 0x7019), 'reset_confirmed': True,
+                                    'temperature_c': temperatures[motor['name']]})
         for motor in rank if power_on else ():
             try:
                 rows[motor['name']]['zero_sta'] = reader.request(motor, 'read', POWER_ON_RANGE)

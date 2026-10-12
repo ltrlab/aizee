@@ -112,7 +112,9 @@ class StoppedMaintenance:
             return ".".join(str(x) for x in data[3:7])
         if version:
             raise RuntimeError("Version is not position feedback")
-        return {"position_u16": int.from_bytes(data[:2], "big"), "mode": 0, "fault": 0}
+        # Bytes 6-7 carry the drive's temperature in tenths of a degree, as the receiver reads them.
+        return {"position_u16": int.from_bytes(data[:2], "big"), "mode": 0, "fault": 0,
+                "temperature_c": int.from_bytes(data[6:8], "big") / 10}
 
     def stationary(self, motor):
         samples = []

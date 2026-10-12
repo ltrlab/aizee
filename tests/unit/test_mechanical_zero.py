@@ -184,3 +184,8 @@ def test_a_faulted_or_running_drive_is_named_with_its_mode_and_latched_faults():
     faulted = lambda bus_name, frame, kind, parameter: ((2 << 24) | (0b000010 << 16) | (5 << 8) | 0xAA, bytes(8))
     with pytest.raises(RuntimeError, match='joint1 reports mode Reset; latched faults: overcurrent'):
         StoppedMaintenance(faulted, sleep=lambda _: None).request(roster()[1], 'stop')
+
+
+def test_a_stop_reply_reports_the_drive_temperature():
+    # Bytes 6-7 of the type-2 reply, big-endian tenths of a degree, as the receiver decodes them.
+    assert StoppedMaintenance(Bus(), sleep=lambda _: None).request(roster()[0], "stop")["temperature_c"] == 25.0
