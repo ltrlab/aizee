@@ -185,9 +185,10 @@ def build_mjcf(profile, output, *, meshes=True):
         key = (desc['asset'], tuple(desc['scale']))
         if key not in mesh_names:
             path = model.assets[desc['asset']]
-            name = path.stem
-            while name in mesh_names.values():
-                name += '_'
+            # Visual and collision sets reuse file names; the source path tells them apart.
+            name = _relative(path.with_suffix(''), profile.urdf.parent)
+            if desc['scale'] != [1., 1., 1.]:
+                name += '@' + 'x'.join(repr(float(v)) for v in desc['scale'])
             mesh_names[key] = name
             element = ET.SubElement(asset, 'mesh', name=name, file=_relative(mesh_file(path), profile.urdf.parent))
             if desc['scale'] != [1., 1., 1.]:

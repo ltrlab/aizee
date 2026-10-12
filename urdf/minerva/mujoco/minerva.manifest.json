@@ -5,7 +5,7 @@
   "model_id": "minerva",
   "source_urdf": "../minerva.urdf",
   "source_urdf_sha256": "792f32da597821bbab4d7e65365618519159ecbc657744133196325eaafddcf8",
-  "mjcf_sha256": "b8450437448e7c71cae992f80448c2a811dd7ec50ad7a03ec504d9e4658f4919",
+  "mjcf_sha256": "ef09975c3da3ded629c2a7a8e6dfa5660278ddb756a9fa4be3f823e38b5d1fa6",
   "meshes_included": true,
   "mesh_assets": [
     {
