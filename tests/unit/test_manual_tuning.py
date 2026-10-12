@@ -14,8 +14,9 @@ def derived_fixture():
         'config': {'joints': [dict(name=name, lower=-2., upper=2., hold_kp=10., hold_kd=1.,
             max_kp=20., max_kd=2., max_velocity=1., max_effort=5., max_tracking_error=.2,
             stop_acceleration=2.) for name in names]},
-        'lifecycle': [dict(name=name, lower=-2., upper=2., max_velocity=cap,
-                          hold_kp=10., hold_kd=1.) for name, cap in zip(names, (.8, .4))],
+        'lifecycle': [dict(name=name, lower=-2., upper=2., max_velocity=cap, hold_kp=10., hold_kd=1., max_lead=.12,
+                          friction_nm=friction, interpolation_s=0.)
+                      for name, cap, friction in zip(names, (.8, .4), (0., .5))],
     }
 
 
@@ -32,7 +33,7 @@ def preset_factory(tmp_path, monkeypatch):
         bindings={'reference': 'reference-digest', 'directions': 'direction-digest'},
         steps=[], mapping={}, transmissions=[], model=None, saved_limits={}, device={}, labels={})
     profile = {'id': 'manual-fixture', 'manual_tuning': True,
-               'receiver': {'collision_mode': 'disabled', 'direct': {'position_only': True}}}
+               'receiver': {'collision_mode': 'disabled', 'loop_hz': 100, 'direct': {'position_only': True}}}
     servo = {'schema': 1, 'kind': 'servo_calibration', 'joints': {'measured': {'hold_kp': 42.}}}
     servo_path = helm.profile_path.parent / f'{helm.asset_id}-servo.json'
     servo_path.parent.mkdir(parents=True)
@@ -217,3 +218,13 @@ def test_nonobject_saved_document_is_a_validation_error(preset_factory, document
     tuning.path.parent.mkdir(parents=True)
     tuning.path.write_text(json.dumps(document), encoding='utf-8')
     with pytest.raises(ValueError): preset_factory.make()
+
+
+def test_rows_carry_what_sets_each_joints_top_following_speed(preset_factory):
+    """The panel estimates top speed from each joint's lead, friction and how far ahead the lead is measured."""
+    tuning = preset_factory.make()
+    rows = tuning.snapshot(can_apply=False, reason='')['rows']
+    assert [row['following'] for row in rows] == [
+        dict(max_lead=.12, friction_nm=0., lead_ahead_s=.01, gripper=False),
+        dict(max_lead=.12, friction_nm=.5, lead_ahead_s=.01, gripper=False)]
+    assert all('following' not in row for row in values(tuning.rows))  # Display only: never saved or applied.

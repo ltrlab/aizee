@@ -149,6 +149,8 @@ body[data-teleop-state=FAULT] #t-state,#t-collision.bad{color:var(--bad)}#t-coll
 .manual-fields input:invalid{border-color:var(--bad)}
 .manual-fields input:disabled{opacity:.5}
 .manual-fields small{font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums}
+.manual-estimate{margin:8px 0 0;font-size:10.5px;line-height:1.5;color:var(--muted);font-variant-numeric:tabular-nums}
+.manual-estimate[data-binds=lead]{color:var(--warn)}
 .manual-draft-status{display:block;margin-top:6px;font-size:10.5px;color:var(--muted)}
 .manual-row[data-edited=true] .manual-draft-status{color:var(--warn)}
 @media(max-width:900px){.manual-fields{grid-template-columns:repeat(2,minmax(0,1fr))}}

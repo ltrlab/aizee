@@ -48,6 +48,15 @@ def receiver_rows(derived, models, labels=None):
     return rows
 
 
+def following(lifecycle, loop_s):
+    """What sets a joint's top following speed, for the panel's estimate (teleop.lifecycle `_approach`): a
+    command leads the joint's predicted position by at most `max_lead`, predicted `lead_ahead_s` ahead (its
+    feedback's age, about one loop, plus the receiver's interpolation), against the friction its servo sweep
+    measured (0 when not measured). A gripper's lead spans its whole range."""
+    return dict(max_lead=lifecycle['max_lead'], friction_nm=lifecycle['friction_nm'],
+                lead_ahead_s=loop_s + lifecycle['interpolation_s'], gripper=lifecycle.get('gripper') is True)
+
+
 def values(rows):
     return [{key: row[key] for key in FIELDS} for row in rows]
 
@@ -89,7 +98,10 @@ class ManualTuning:
             transmissions=helm.transmissions, model=helm.model, limits=helm.saved_limits,
             profile=profile, backend=None, servo=servo)
         models = motor_models(helm.device, Path(helm.profile_path).resolve().parents[2])
+        from .teleop import loop_period_s
         self.rows = receiver_rows(derived, models, helm.labels)
+        for row, lifecycle in zip(self.rows, derived['lifecycle']):
+            row['following'] = following(lifecycle, loop_period_s(profile))
         fit_motor_ranges(derived['config']['joints'], models)
         self.binding = dict(asset=helm.asset_id, profile=profile['id'], control='direct-position-only',
             calibration=helm.bindings, profile_sha256=digest(profile), servo_sha256=digest(servo),

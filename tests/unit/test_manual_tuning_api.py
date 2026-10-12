@@ -90,8 +90,8 @@ def setup(tmp_path, monkeypatch):
         'config': {'joints': [dict(name=name, lower=-2., upper=2., hold_kp=10., hold_kd=1.,
             max_kp=20., max_kd=2., max_velocity=1., max_effort=5., max_tracking_error=.2,
             stop_acceleration=2.) for name in names]},
-        'lifecycle': [dict(name=name, lower=-2., upper=2., max_velocity=.4,
-                          hold_kp=10., hold_kd=1.) for name in names],
+        'lifecycle': [dict(name=name, lower=-2., upper=2., max_velocity=.4, hold_kp=10., hold_kd=1.,
+                          max_lead=.12, friction_nm=0., interpolation_s=0.) for name in names],
     }
     monkeypatch.setattr(guarded_config, 'derive_receiver', lambda **_: deepcopy(derived))
     monkeypatch.setattr(commissioning, 'motor_models', lambda *_: {

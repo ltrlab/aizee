@@ -451,6 +451,36 @@ const manualCards = new Map();
 let manualState = null, manualBase = null, manualDraft = new Map(), manualPending = false, manualConflict = false;
 const manualRetiredSessions = [];
 const manualNumber = value => Number.isFinite(value) ? String(Number(value.toPrecision(6))) : '—';
+
+// Top following speed in open travel (teleop.lifecycle): a command leads the joint's predicted position by at most
+// its lead, so at a steady speed v the drive's pull Kp × (lead + v × ahead) meets its damping Kd × v plus friction.
+// At or below Kp × ahead of damping the lead never caps the speed.
+function leadLimitedSpeed(following, kp, kd) {
+  const pull = kp * following.max_lead - following.friction_nm, damping = kd - kp * following.lead_ahead_s;
+  return pull <= 0 ? 0 : damping > 0 ? pull / damping : Infinity;
+}
+
+function manualEstimate(row, draft) {
+  const f = row.following;
+  if (!f || f.gripper) return {text: '', binds: ''};
+  const [kp, kd, limit] = ['kp', 'kd', 'speed'].map(field => manualValue(draft, field, row));
+  if (![kp, kd, limit].every(Number.isFinite)) return {text: '', binds: ''};
+  const speed = leadLimitedSpeed(f, kp, kd), lead = `${f.max_lead.toFixed(3)} rad`;
+  const title = `(Kp × lead − friction) ÷ (Kd − Kp × ${(f.lead_ahead_s * 1000).toFixed(0)} ms) = `
+    + `(${manualNumber(kp)} × ${f.max_lead.toFixed(4)} − ${f.friction_nm.toFixed(2)}) ÷ (${manualNumber(kd)} − `
+    + `${manualNumber(kp)} × ${f.lead_ahead_s.toFixed(3)}). The lead is measured from where the joint will be once `
+    + 'its feedback catches up. Open travel only: commands slow near either end.';
+  if (speed >= limit) return {binds: 'limit', title, text: `Top speed is your ${manualNumber(limit)} rad/s limit; `
+    + (Number.isFinite(speed) ? `the ${lead} lead alone would allow ≈ ${speed.toFixed(2)} rad/s.`
+      : `the ${lead} lead doesn't cap it at these gains.`)};
+  // A drive that reports no torque leaves its sweep's friction at zero (left J1: 5e-20 Nm).
+  const friction = f.friction_nm >= .01 ? '' : ' No friction was measured for this joint, so expect less.';
+  return {binds: 'lead', title, text: speed > 0
+    ? `Top speed ≈ ${speed.toFixed(2)} rad/s, under your ${manualNumber(limit)} rad/s limit: the ${lead} lead caps it `
+      + `at these gains. Raise Kp or lower Kd to follow faster.${friction}`
+    : `At this Kp the ${lead} lead pulls with ${(kp * f.max_lead).toFixed(2)} Nm, under the joint's `
+      + `${f.friction_nm.toFixed(2)} Nm of friction: it may not follow.`};
+}
 // Draft text matches the Active line (9.799999999999999 shows as 9.8); text left as shown keeps the exact value.
 const manualText = value => value == null ? '' : manualNumber(value);
 
@@ -513,6 +543,11 @@ function updateManualActions() {
     const changed = row && manualRowChanged(motor, row);
     card.dataset.edited = String(!!changed);
     card.querySelector('.manual-draft-status').textContent = changed ? 'Draft · not applied' : 'Matches active';
+    const estimate = card.querySelector('.manual-estimate'), speed = row ? manualEstimate(row, manualDraft.get(motor)) : {};
+    estimate.textContent = speed.text || '';
+    estimate.hidden = !speed.text;
+    estimate.title = speed.title || '';
+    estimate.dataset.binds = speed.binds || '';
     for (const input of card.querySelectorAll('input')) input.disabled = manualPending;
   }
 }
@@ -523,7 +558,7 @@ function buildManualRow(row) {
   card.innerHTML = `<div class="manual-row-head"><div><b class="manual-label"></b><span class="motor"></span></div>
       <label class="manual-follow"><input type="checkbox" data-field="follow"> Follow</label></div>
     <p class="manual-active"></p><div class="manual-fields"></div>
-    <span class="manual-draft-status"></span>`;
+    <p class="manual-estimate"></p><span class="manual-draft-status"></span>`;
   card.querySelector('.manual-label').textContent = row.label;
   card.querySelector('.motor').textContent = row.motor;
   const fields = [['kp', 'Kp'], ['kd', 'Kd'], ['speed', 'Speed · rad/s'], ['travel_rad', 'Travel · ±rad']];
