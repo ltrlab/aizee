@@ -8,6 +8,7 @@ import pytest
 
 from robot_platform.control.commissioning import wire_ranges
 from robot_platform.control.live_receiver import (LiveReceiver, fault_detail, outside_limits, reference_offsets,
+                                                 trip_text,
                                                   service_config)
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -268,3 +269,33 @@ def test_a_startup_fault_names_what_the_receiver_saw_and_keeps_its_last_status(t
                         'request (limit 0.2 rad/s)')
     # Called from fault handlers: an unexpected response shape never raises.
     assert fault_detail({'feedback': [{'sequence': 1}, 'garbled']}, controller_config) == ''
+
+
+def trip(check, value, limit, reason='limit_violation', joint='left_arm_j3'):
+    return {'reason': reason, 'joint': joint, 'check': check, 'value': value, 'limit': limit, 'at_ms': 1}
+
+
+@pytest.mark.parametrize('check, value, limit, text', [
+    ('speed', 6.2, 4.8, 'Left J3 moving at 6.20 rad/s, over three times the 1.60 rad/s allowed there'),
+    ('sustained_speed', 1.9, 1.6, 'Left J3 moving at 1.90 rad/s for three readings, over the 1.60 rad/s allowed there'),
+    ('temperature', 71.5, 70., 'Left J3 at 71.5 °C, over its 70 °C limit'),
+    ('position_below_lower', -2.08, -2.0708, 'Left J3 at -2.0800 rad, below its lower limit -2.0708'),
+    ('effort', 61.2, 60., 'Left J3 torque 61.2 Nm, over its 60 Nm limit'),
+])
+def test_the_receiver_names_the_joint_and_reading_that_stopped_it(check, value, limit, text):
+    status = {'state': 'stopping', 'reason': 'limit_violation', 'last_trip': trip(check, value, limit)}
+    assert trip_text(status, {'left_arm_j3': 'Left J3'}) == text
+
+
+def test_an_earlier_trip_never_explains_a_different_stop():
+    earlier = {'state': 'stopping', 'reason': 'feedback_stale', 'last_trip': trip('temperature', 71., 70.)}
+    assert trip_text(earlier) == '' and trip_text({'reason': 'limit_violation'}) == '' and trip_text(None) == ''
+    assert trip_text({'reason': 'limit_violation', 'last_trip': {'reason': 'limit_violation'}}) == ''  # Never raises.
+
+
+def test_fault_detail_leads_with_the_receivers_own_account():
+    result = {'status': {'state': 'stopping', 'reason': 'tracking_error',
+                         'last_trip': trip('tracking_error', .0512, .0462, reason='tracking_error')},
+              'feedback': []}
+    detail = fault_detail(result, {'joints': []}, {'left_arm_j3': 'Left J3'})
+    assert detail == 'Left J3 0.0512 rad from its command, over its 0.0462 rad bound'

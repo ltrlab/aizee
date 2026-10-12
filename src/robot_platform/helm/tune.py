@@ -26,6 +26,7 @@ from robot_platform.control.servo_calibration import load_servo, save_servo, ser
 from robot_platform.control.scheduling import prefer_responsive
 from .limits import utc_now
 from robot_platform.control.guarded import GuardRejected
+from robot_platform.control.live_receiver import trip_text
 from .teleop import HELD, LOWERING_ATTEMPTS, WAIT_TO_REARM, AdvisoryCompiler, load_profile, loop_period_s
 
 PERIOD_S = .04
@@ -335,6 +336,9 @@ class TuneCore:
         except Exception as exc:
             status = getattr(exc, 'status', None) or (self.controller.status if self.controller else None) or {}
             reason = status.get('reason')
+            tripped = trip_text(status, self.labels)
+            if tripped:
+                reason = f'{reason} ({tripped})'
             if self.stage in ('sweeping', 'lowering') and self.engine is not None:
                 why = reason if status.get('state') in HELD else str(exc) or type(exc).__name__
                 if status.get('state') in ('holding', 'executing') and self.controller.owned:

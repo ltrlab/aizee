@@ -115,6 +115,42 @@ def outside_limits(positions, controller, *, margin=0.):
             if name in joints and not joints[name]['lower'] + margin <= value <= joints[name]['upper'] - margin]
 
 
+# The receiver's last_trip names a joint, a check, its reading and the limit broken (control_core Trip).
+TRIP_CHECKS = {
+    'position_below_lower': '{label} at {value:+.4f} rad, below its lower limit {limit:+.4f}',
+    'position_above_upper': '{label} at {value:+.4f} rad, above its upper limit {limit:+.4f}',
+    'speed': '{label} moving at {value:.2f} rad/s, over three times the {allowed:.2f} rad/s allowed there',
+    'sustained_speed': '{label} moving at {value:.2f} rad/s for three readings, over the {limit:.2f} rad/s '
+                       'allowed there',
+    'effort': '{label} torque {value:.1f} Nm, over its {limit:g} Nm limit',
+    'temperature': '{label} at {value:.1f} °C, over its {limit:g} °C limit',
+    'tracking_error': '{label} {value:.4f} rad from its command, over its {limit:.4f} rad bound',
+    'collision_box': '{label} at {value:+.4f} rad, past its collision box edge {limit:+.4f}',
+    'collision_box_command': "{label}'s command at {value:+.4f} rad, past its collision box edge {limit:+.4f}",
+    'feedback_age_ms': '{label} silent for {value:.0f} ms (limit {limit:.0f} ms)',
+    'all_feedback_age_ms': 'every drive silent for {value:.0f} ms (limit {limit:.0f} ms)',
+    'drive_fault': '{label} reports a drive fault',
+    'invalid_feedback': '{label} sent invalid feedback',
+    'feedback_regressed': "{label}'s feedback went backwards",
+}
+
+
+def trip_text(status, labels=None):
+    """The receiver's own account of what stopped it: '' unless its last trip is the one in `status`.
+
+    Diagnostic only, and called from fault handlers: it never raises."""
+    try:
+        trip = (status or {}).get('last_trip')
+        if not trip or trip.get('reason') != status.get('reason'):
+            return ''
+        label = (labels or {}).get(trip['joint'], trip['joint'])
+        template = TRIP_CHECKS.get(trip['check'], '{label}: {check} {value:g} (limit {limit:g})')
+        return template.format(label=label, check=trip['check'], value=trip['value'], limit=trip['limit'],
+                               allowed=trip['limit'] / 3)
+    except Exception:
+        return ''
+
+
 def fault_detail(result, controller, labels=None):
     """What in a receiver response explains its fault, joint by joint ('' when nothing in it does).
 
@@ -129,6 +165,10 @@ def _fault_detail(result, controller, labels):
     # The receiver's own words first: which motor failed which check, with the value.
     failure = (result or {}).get('hardware_failure')
     details = [f'the receiver reports {failure}'] if failure else []
+    tripped = trip_text((result or {}).get('status'), labels)
+    if tripped:
+        # It names the reading that tripped it; the feedback below is a later one.
+        return '; '.join([tripped] + details)
     for joint, row in zip(controller['joints'], (result or {}).get('feedback') or []):
         label = labels.get(joint['name'], joint['name'])
         position, velocity, effort, temperature = (row.get(key) for key in
