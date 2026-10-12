@@ -111,3 +111,47 @@ def test_requests_are_spaced_on_each_adapter_not_across_both():
         exchange(bus, None)
         clock[0] += .002  # Each reply takes 2 ms.
     assert waits == [0., 0., .006, 0.]  # The right adapter had its 10 ms while the left one waited.
+
+
+def test_the_live_audit_keeps_the_can_trace_only_for_the_first_frame_and_rejected_scans(tmp_path, monkeypatch, capsys):
+    import io
+    import json
+    from types import SimpleNamespace
+    from robot_platform.control import joint_capture as module
+
+    class Traced(Reader):
+        def __init__(self, result, slow_scans):
+            super().__init__()
+            self.result, self.slow_scans, self.scans = result, slow_scans, 0
+
+        def request(self, motor, kind, parameter=None):
+            if kind == 'stop' and motor is MOTORS[0]:
+                self.scans += 1
+                if self.scans in self.slow_scans:
+                    raise TimeoutError('dropped reply')
+            self.result['events'].append({'kind': kind, 'motor': motor['name']})
+            return super().request(motor, kind, parameter)
+
+    lines = [json.dumps({'device': {'asset_id': 'fixture'}, 'reference': {}, 'request_id': 'fixture'})]
+    lines += ['heartbeat ' + f'{n:032x}' for n in range(4)] + ['stop']
+    incoming = io.BytesIO(('\n'.join(lines) + '\n').encode())
+    monkeypatch.setattr(module.sys, 'argv', ['joint_capture.py', '--live'])
+    monkeypatch.setattr(module.sys, 'stdin', SimpleNamespace(buffer=SimpleNamespace(raw=incoming)))
+    monkeypatch.setattr(module, '__file__', str(tmp_path / 'joint_capture.py'))
+    monkeypatch.setattr(module.signal, 'SIGHUP', 1, raising=False)
+    monkeypatch.setattr(module.signal, 'signal', lambda *_: None)
+    monkeypatch.setattr(module.select, 'select', lambda *_: ([incoming], [], []))
+
+    def capture(device, reference, *, live):
+        result = {'success': True, 'events': [{'kind': 'identity', 'motor': 'm0'}]}  # From the preflight.
+        live(Traced(result, slow_scans={3}), MOTORS, result)
+        return result
+    monkeypatch.setattr(module, 'run_capture', capture)
+    module.main()
+    report = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert report['frames'] == 3 and report['rejected_scans'] == 1
+    audit = [json.loads(line) for line in open(report['raw_frames'])]
+    assert [sorted(entry) for entry in audit] == [['events', 'frame'], ['frame'], ['events', 'rejected_scan'],
+                                                  ['frame']]
+    assert audit[0]['events'][0] == {'kind': 'identity', 'motor': 'm0'} and len(audit[0]['events']) == 9
+    assert all(frame['frame']['motors'] for frame in audit if 'frame' in frame)

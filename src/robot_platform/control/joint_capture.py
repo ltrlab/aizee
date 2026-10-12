@@ -293,7 +293,10 @@ def main():
                              'request_nonce': nonce,
                              'asset_id': device['asset_id'], 'scan_seconds': span, 'motors': rows,
                              'enable_requested': False, 'parameter_writes_requested': False}
-                    audit.write(json.dumps({'frame': frame, 'events': result['events']}) + '\n')
+                    # The CAN trace is kept for the preflight, the first frame and every rejected scan; later
+                    # healthy frames log their positions alone, so hours of live view stay small.
+                    audit.write(json.dumps({'frame': frame, 'events': result['events']} if sequence == 1
+                                           else {'frame': frame}) + '\n')
                     audit.flush(); result['events'].clear()
                     print(json.dumps(frame), flush=True)
                 else:
