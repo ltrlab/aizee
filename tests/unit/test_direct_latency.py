@@ -23,17 +23,20 @@ def test_late_start_can_miss_a_deadline_with_fast_processing():
     assert result['start_lateness_ms']['p99'] == 7.
 
 
-def test_skipped_slots_do_not_shift_schedule_or_count_as_completed_cycles():
+def test_an_overrun_starts_the_next_cycle_at_once_and_still_counts():
+    assert next_scheduled_slot(0., .006, .01) == (pytest.approx(.01), 0)  # On time: the next slot.
     due, skipped = next_scheduled_slot(0., .027, .01)
-    assert due == pytest.approx(.03)
+    assert due == pytest.approx(.027)  # Overran two slots: the next cycle starts now, not at .03.
     assert skipped == 2
     result = summarize([move(cycle_ms=1., scheduled_at=0., completed_at=.027,
                              skipped_slots=skipped)], .01)
     assert result['cycles'] == 1
     assert result['skipped_slots'] == 2
     assert result['scheduled_deadline_misses'] == 1
-    next_due, skipped = next_scheduled_slot(due, .031, .01)
-    assert next_due == pytest.approx(.04) and skipped == 0
+    next_due, skipped = next_scheduled_slot(due, .031, .01)  # The schedule follows on from the late start.
+    assert next_due == pytest.approx(.037) and skipped == 0
+    # A 11.6 ms cycle (2026-10-13): the next command goes out 1.6 ms late, not 10 ms.
+    assert next_scheduled_slot(0., .0116, .01) == (pytest.approx(.0116), 1)
 
 
 def test_application_identity_survives_sequence_reuse_and_receiver_restart():

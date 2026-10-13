@@ -11,10 +11,17 @@ def distribution(values):
 
 
 def next_scheduled_slot(scheduled_at, completed_at, period_s):
-    """Advance after completion, preserving the executed cycle's original deadline."""
+    """When the next cycle starts, and how many slots this one overran: one period after this one was due, or at
+    once after an overrun, the schedule then following on from there.
+
+    Skipping to the next slot left the receiver a whole extra period without a command: an 11.6 ms cycle with both
+    arms live skipped one, the command it had sent lapsed 12 ms after acceptance (its lifetime runs from the offer
+    and the leader sample's age), and the receiver stopped the arms (command_expired, 2026-10-13). The overrun
+    still counts, as skipped slots and a scheduled deadline miss."""
     next_at = scheduled_at + period_s
-    skipped = int((completed_at-next_at)/period_s)+1 if completed_at >= next_at else 0
-    return next_at + skipped*period_s, skipped
+    if completed_at < next_at:
+        return next_at, 0
+    return completed_at, int((completed_at-next_at)/period_s)+1
 
 
 def trace_record(record):
