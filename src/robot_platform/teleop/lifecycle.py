@@ -31,6 +31,10 @@ def validate_trial(trial):
 # Settling speed is judged over at least this long, whatever the loop rate: one 20 ms cycle's change in position
 # reads the drives' position steps and noise as twice the speed of a 40 ms one, and alignment never settled.
 SETTLE_WINDOW_S = .04
+# How hard a gripper may squeeze while Shutdown returns it to its reference. Its command used to run on to the
+# closed reference regardless: holding something, the right gripper squeezed 6.2 Nm and skipped gear teeth when a
+# fault returned it (2026-10-13). Grip in teleop is the operator's and is not limited here.
+RETURN_SQUEEZE_NM = 1.
 
 class TeleopLifecycle:
     """Shared semantic operations, independent of each GUI's key bindings."""
@@ -333,6 +337,11 @@ class TeleopLifecycle:
             self.fault(str(exc))
             raise
 
+    @staticmethod
+    def _squeeze_lead(joint):
+        """How far a gripper's command may lead it while Shutdown returns it: RETURN_SQUEEZE_NM at its stiffness."""
+        return min(joint['max_lead'], RETURN_SQUEEZE_NM / joint['hold_kp']) if joint['hold_kp'] > 0 else joint['max_lead']
+
     def _settled(self, measured, goal, now, dt):
         # Speed from measured positions at least SETTLE_WINDOW_S apart, not the drives'
         # speed readings: at rest those read up to ~0.2 rad/s on Minerva, while
@@ -341,9 +350,12 @@ class TeleopLifecycle:
         # its stiffness, or on what it holds (the left one rested 0.074 rad from its reference, and Engage and
         # Shutdown never settled, 2026-10-09). Its command must have reached the goal and it must have stopped,
         # wherever it stopped.
+        # Returning, a gripper blocked by what it holds has also arrived: its command waits at the squeeze lead.
         then = next(((t, positions) for t, positions in reversed(self._history) if now - t >= SETTLE_WINDOW_S), None)
         arrived = then is not None and all(
-            abs((command if joint.get('gripper') else row['position'])-q) <= joint['tolerance']
+            (abs((command if joint.get('gripper') else row['position'])-q) <= joint['tolerance']
+             or (joint.get('gripper') and self.state == 'SHUTDOWN'
+                 and abs(command-row['position']) >= .99 * self._squeeze_lead(joint)))
             and abs(row['position']-p)/(now - then[0]) <= joint['settled_velocity']
             for row, q, p, joint, command in zip(measured, goal, then[1], self._joints, self.target))
         if not arrived:
@@ -411,6 +423,8 @@ class TeleopLifecycle:
                 gains = (joint['hold_kp'], joint['hold_kd'])
                 lead_up = lead_toward(curve, reaction, row['position'], 1, joint['max_lead'], cap, *gains)
                 lead_down = lead_toward(curve, reaction, row['position'], -1, joint['max_lead'], cap, *gains)
+            if joint.get('gripper') and self.state == 'SHUTDOWN':
+                lead_up = lead_down = self._squeeze_lead(joint)  # Returning, it squeezes no harder than this.
             # The lead is taken from where the joint will be once the receiver has ramped to this command.
             down_from, up_from = self._lead_origin(row, joint, last, dt, now)
             lead_lower, lead_upper = down_from-lead_down, up_from+lead_up

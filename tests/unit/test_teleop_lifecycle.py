@@ -527,3 +527,45 @@ def test_one_late_leader_sample_still_faults_a_joint_that_stopped_short():
     with pytest.raises(ValueError, match='holding lead bound'):
         lifecycle.step(wrist_feedback(now + .01, q), target=None, now=now + .01)  # Stuck where it was.
     assert lifecycle.state == 'FAULT'
+
+
+def gripper_joints():
+    return [dict(name='gripper', gripper=True, lower=-.07, upper=5.3, hold_kp=25., hold_kd=2., max_velocity=10.,
+                 align_speed=1., shutdown_speed=.5, max_lead=5.37, tolerance=.05, settled_velocity=.1,
+                 zero_position=0.)]
+
+
+def gripper_feedback(now, q):
+    return [dict(name='gripper', position=q, velocity=0., sampled_at=now-.001, sequence=round(now*1000)+1)]
+
+
+def test_shutdown_returns_a_blocked_gripper_with_a_gentle_squeeze_and_leaves_it_where_it_stopped():
+    # Holding something at 1.5 rad when a fault returned it, its command used to run on to the closed reference.
+    lifecycle = TeleopLifecycle(gripper_joints(), settle_time_s=.1)
+    lifecycle.action('idle', gripper_feedback(0., 1.5), now=0.)
+    lifecycle.action('enable', gripper_feedback(0., 1.5), now=0.)
+    lifecycle.action('shutdown', gripper_feedback(0., 1.5), now=0.)
+    squeeze_lead = 1. / 25.  # RETURN_SQUEEZE_NM at its Kp.
+    now, states = 0., []
+    for _ in range(60):  # 0.6 s: the jaws never move past what they hold.
+        now += .01
+        proposal = lifecycle.step(gripper_feedback(now, 1.5), now=now)
+        states.append(proposal['state'])
+        if proposal['positions'] is not None:
+            assert 1.5 - proposal['positions'][0] <= squeeze_lead + 1e-9  # At most 1 Nm of squeeze.
+    assert states[-1] == 'DISABLED'  # Arrived where it stopped, without crushing on toward its reference.
+
+
+def test_shutdown_still_closes_a_free_gripper_to_its_reference():
+    lifecycle = TeleopLifecycle(gripper_joints(), settle_time_s=.1)
+    lifecycle.action('idle', gripper_feedback(0., .3), now=0.)
+    lifecycle.action('enable', gripper_feedback(0., .3), now=0.)
+    lifecycle.action('shutdown', gripper_feedback(0., .3), now=0.)
+    q, now = .3, 0.
+    for _ in range(300):
+        now += .01
+        proposal = lifecycle.step(gripper_feedback(now, q), now=now)
+        if proposal['state'] == 'DISABLED':
+            break
+        q = proposal['positions'][0]  # A free gripper follows its command.
+    assert proposal['state'] == 'DISABLED' and abs(q) <= .05
