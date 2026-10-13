@@ -27,10 +27,12 @@ another, and answers a poll from the latest complete read instead of reading on
 request, so a poll costs the USB round trip. A poll is never answered twice with
 the same sample (the host faults on a repeated sequence): one that arrives before a
 newer read completes waits for it, and only after three failed reads in a row
-(3 ms each at most) is it answered with byte 48 = 0, which the host skips. The servo
-UART's interrupt preempts USB: with Return Delay Time 0 the seven replies arrive
-back to back, and at the core's default priorities a USB interrupt overran the
-receiver (reads failed under polling, not idle). Bytes 40–47 come from one
+(3 ms each at most) is it answered with byte 48 = 0, which the host skips. USB keeps
+the highest interrupt priority and the servo UART comes next. With the UART above
+USB the left board stopped answering USB altogether on 2026-10-12, most likely
+starved by a busy UART (not confirmed); with USB first, a USB interrupt during the seven back-to-back replies
+(Return Delay Time 0) can overrun the receiver and fail 0.02–0.07% of reads under
+polling, which the 3 ms timeout and a poll waiting for the next read absorb. Bytes 40–47 come from one
 microsecond clock, the read start rounded down and the reply rounded up, so their
 difference never understates a cached sample's age; the reply time never steps
 back. The frame layout is unchanged, so hosts need no change. Firmware 2 adds

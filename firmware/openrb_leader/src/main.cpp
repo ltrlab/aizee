@@ -417,15 +417,18 @@ static void joy_poll() {
     joy_fail_streak = 0;
 }
 
-// The servo UART's receive interrupt must preempt USB. The core starts USB at
-// the highest priority and every SERCOM at the lowest; with Return Delay Time
-// 0 the seven replies arrive back to back (a byte every 10 us at 1 Mbps), and
-// a USB interrupt during them overran the receiver: reads failed under host
-// polling (0.02-0.07%) but not idle (2026-10-12). The UART handler only moves
-// a byte, so USB barely notices. Again after every Serial1 begin, which resets it.
+// USB keeps the highest interrupt priority; the servo UART comes next, above
+// the core's default for every SERCOM (the lowest). With the UART above USB
+// the left board stopped answering USB on 2026-10-12: it enumerated, then hung
+// every port open and IDENT, its servos attached or not, most likely starved by
+// a busy UART (not confirmed). A servo bus must never take USB down. The cost: a USB
+// interrupt during the seven back-to-back replies (Return Delay Time 0) can
+// overrun the receiver, failing 0.02-0.07% of reads under polling; a failed
+// read costs SERVO_REPLY_TIMEOUT_MS and a poll waits for the next read.
+// Again after every Serial1 begin, which resets the UART's priority.
 static void prioritise_servo_uart() {
-    NVIC_SetPriority(SERCOM2_IRQn, 0);   // Serial1 (variant.cpp: sercom2)
-    NVIC_SetPriority(USB_IRQn, 1);
+    NVIC_SetPriority(USB_IRQn, 0);
+    NVIC_SetPriority(SERCOM2_IRQn, 1);   // Serial1 (variant.cpp: sercom2)
 }
 
 static void switch_bus_baud(uint32_t baud) {
