@@ -19,14 +19,17 @@ STATIC = Path(__file__).parent / 'static'
 RETURN_MOVED_RAD = .02  # A confirmed return starts only if no joint moved more than this since it was shown.
 
 
-def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None, live=False):
+def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None, live=False,
+               gripper_zero=None):
     """`live`: keep the stopped reader running whenever Minerva is online and nothing else holds the motors
     (helm.live_view); sessions then take the motors from it instead of asking for Disconnect first."""
     from aiohttp import web
     from robot_platform.viewer.server import create_app as viewer_app
+    from .gripper_zero import GripperZero
     from .live_view import LiveView
     from .telemetry import select_telemetry
     token = token or secrets.token_urlsafe(24)
+    grippers = gripper_zero or GripperZero(lambda: getattr(session, 'address', None) or session.device['address'])
 
     def owner():
         """What holds the motors, other than the reader."""
@@ -36,6 +39,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             return {'verify': 'the live joint sweep', 'return': 'the return'}.get(tune.mode, 'the servo sweep')
         if check is not None and check.running:
             return 'Minerva Check'
+        if grippers.running:
+            return 'the gripper zero'
         return None
 
     live_view = LiveView(session, link, owner)
@@ -74,6 +79,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         state['leaders'] = leaders.snapshot() if leaders is not None else None
         state['check'] = check.snapshot() if check is not None else None
         state['tune'] = tune.snapshot() if tune is not None else None
+        state['gripper_zero'] = grippers.snapshot()
         # The model's joint telemetry from the one source the 3D view shows: a running session, else the reader.
         state['telemetry'] = select_telemetry(state)
         state['action_token'] = token
@@ -86,6 +92,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         return state_response()
 
     def not_checking():
+        if grippers.running:
+            raise ValueError('A gripper zero is running; wait for it to finish')
         if check is not None and check.running:
             raise ValueError('Minerva Check is running; wait for it to finish')
         if tune is not None and tune.active:
@@ -263,8 +271,27 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         await off_loop(teleop.set_zero)
         return state_response()
 
+    async def gripper_zero_run(request):
+        """Zero one gripper at its fully closed jaws, after the operator's confirmation (helm.gripper_zero)."""
+        payload = await body(request)
+        if not set(payload) <= {'motor', 'confirm'}:
+            raise ValueError('Expected motor and confirm')
+        if teleop is not None and teleop.active:
+            raise ValueError('Stop the teleop session before zeroing a gripper')
+        not_checking()
+        if getattr(session, 'connection', 'tether') != 'tether':
+            raise ValueError('Gripper zero runs over the wired tether; choose Tether first')
+        motor, confirm = payload.get('motor'), payload.get('confirm') is True
+        if not confirm:
+            raise ValueError('Close the gripper fully by hand, then confirm the zero')
+        await take_motors()  # The live reader steps aside; the zero takes the motors.
+        await off_loop(lambda: grippers.zero(motor, confirm=confirm))
+        return state_response()
+
     async def check_run(request):
         await body(request)
+        if grippers.running:
+            raise ValueError('A gripper zero is running; wait for it to finish')
         if check is None:
             raise ValueError('Helm was started without Minerva Check')
         if teleop is not None and teleop.active:
@@ -291,6 +318,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     async def tune_start(request):
         payload = await body(request)
         need_tune()
+        if grippers.running:
+            raise ValueError('A gripper zero is running; wait for it to finish')
         if teleop is not None and teleop.active:
             raise ValueError('Stop the teleop session before the servo sweep')
         if check is not None and check.running:
@@ -402,6 +431,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     app.router.add_post('/api/helm/leaders/save', leaders_save)
     app.router.add_post('/api/helm/check/run', check_run)
     app.router.add_post('/api/helm/check/live', check_live)
+    app.router.add_post('/api/helm/grippers/zero', gripper_zero_run)
     app.router.add_post('/api/helm/tune/configure', tune_configure)
     app.router.add_post('/api/helm/tune/start', tune_start)
     app.router.add_post('/api/helm/tune/return', tune_return)
