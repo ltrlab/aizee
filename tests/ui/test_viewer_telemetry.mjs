@@ -129,6 +129,7 @@ test('gauge spec maps range, reference and shares of the receiver limits, never 
   const spec=gaugeSpec(state.snapshot(0).rows[0]);
   assert.deepEqual(spec.track,[-1,1]);assert.equal(spec.reference,.1);assert.equal(spec.value,-.2);
   assert.equal(spec.effort,.2);assert.equal(spec.heat,.5);assert.equal(spec.label,'−0.20 rad');assert.equal(spec.verified,true);
+  assert.equal(spec.temperature,'30.0 °C');assert.equal(gaugeSpec({...row,temperature_c:Infinity}).temperature,null);
   state.accept(packet({sequence:2,rows:[{...row,range:[2,1],reference:'0',effort_limit:0}]}),10,model);
   const bare=gaugeSpec(state.snapshot(10).rows[0]);
   assert.equal(bare.track,null);assert.equal(bare.reference,null);assert.equal(bare.effort,null);assert.equal(bare.heat,null);
@@ -237,6 +238,12 @@ test('on-model gauges sit in the joint frame with the needle at the joint angle'
   const kinds=gauge.parts.children.map(part=>part.geometry.type);
   assert.equal(kinds.filter(kind=>kind==='RingGeometry').length,3);  // Track, travel from reference, torque.
   assert.ok(kinds.includes('PlaneGeometry'));  // Reference tick.
+  assert.equal(gauge.label.text,'−0.20 rad · 30.0 °C');assert.equal(gauge.label.sprite.visible,true);  // As position is.
+  const labelFields=fields=>{listeners.message({source:parent,origin:location.origin,data:{type:'helm-viewer-overlay',
+    version:1,settings:{fields}}});overlay.update(1000);};
+  labelFields({position:false});assert.equal(gauge.label.text,'30.0 °C');assert.equal(gauge.label.sprite.visible,true);
+  labelFields({temperature:false});assert.equal(gauge.label.sprite.visible,false);
+  labelFields({position:true,temperature:true});assert.equal(gauge.label.text,'−0.20 rad · 30.0 °C');
   // Unverified direction: no dial, only the temperature hub and the label.
   overlay.telemetry.accept(packet({sequence:3,rows:[{...row,mapping_verified:false,range:[-1,1],reference:0,
     temperature_limit_c:60}]}),1010,overlay.model);

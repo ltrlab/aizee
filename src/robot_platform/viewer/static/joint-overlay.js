@@ -118,7 +118,7 @@ export class JointOverlay {
     const scope=this.settings.scope, onModel=scope === 'model';
     this.select.hidden=scope === 'all';
     this.toolbar.hidden=this.container.hidden=!this.settings.enabled;
-    this.legend.textContent=onModel ? 'Dial: range · reference · position | violet: torque | hub: temperature'
+    this.legend.textContent=onModel ? 'Dial: range · reference · position | violet: torque | hub & label: temperature'
       : 'Position · motor effort · temperature | blue + / amber − motion';
     // On the model every joint gets its gauge and motion arrow; only the selected joint keeps a card.
     const visible=this.settings.enabled ? snapshot.rows.filter(row=>scope === 'all' || onModel || row.motor===this.selected) : [];

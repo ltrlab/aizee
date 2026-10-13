@@ -157,7 +157,8 @@ export function gaugeSpec(row) {
       ? Math.min(1,Math.abs(row.effort)/row.effort_limit) : null,
     heat:finite(row.temperature_c) && finite(row.temperature_limit_c) && row.temperature_limit_c > 0
       ? Math.max(0,row.temperature_c/row.temperature_limit_c) : null,
-    label:signedValue(row.position,row.position_unit,rotary ? 2 : 3)};
+    label:signedValue(row.position,row.position_unit,rotary ? 2 : 3),
+    temperature:finite(row.temperature_c) ? `${row.temperature_c.toFixed(1)} °C` : null};
 }
 
 // Temperature as a share of its limit: pale slate up to half, amber by 80%, red at the limit.

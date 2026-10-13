@@ -4,8 +4,9 @@ import {gaugeSpec, heatColor, rotaryBasis} from './joint-telemetry.js';
 // Readings drawn on the model, display only. Around each joint's axis a dial shows its range (grey track), its
 // reference (white tick), its travel from the reference (blue arc) and its position (white needle). A violet ring
 // beside the needle grows with torque as a share of the receiver's limit; the hub at the joint is tinted by
-// temperature as a share of its limit. One short label carries the position. Dials need a verified direction
-// mapping, as motion arrows do; stale readings turn grey. A dial seen nearly edge-on hides; its hub and label stay.
+// temperature as a share of its limit. One short label carries the position and the temperature, the latter in
+// the hub's colour. Dials need a verified direction mapping, as motion arrows do; stale readings turn grey. A dial
+// seen nearly edge-on hides; its hub and label stay.
 const COLOR = {track:0x6b737c, reference:0xe9ebee, value:0x7cc4ff, needle:0xf4f6f8, stale:0x8a8f96, torque:0xc9b6ff};
 const LABEL_PX = 22;
 const EDGE_ON = .25;  // |axis · view| below this, a dial collapses to a line: hide it.
@@ -34,7 +35,7 @@ function arc(inner, outer, start, length, color, opacity) {
 class Label {
   constructor(doc) {
     this.canvas = doc.createElement('canvas');
-    this.canvas.width = 192;
+    this.canvas.width = 320;
     this.canvas.height = 48;
     this.texture = new THREE.CanvasTexture(this.canvas);
     this.texture.colorSpace = THREE.SRGBColorSpace;
@@ -44,16 +45,18 @@ class Label {
     this.sprite.renderOrder = 12;
     this.drawn = null;
   }
-  draw(text, color, selected) {
-    const key = `${text}|${color}|${selected}`;
+  // `parts`: [{text, color}], drawn in a row with a separator between them.
+  draw(parts, selected) {
+    const key = JSON.stringify([parts, selected]);
     if (key === this.drawn) return;
     this.drawn = key;
+    this.text = parts.map(part => part.text).join(' · ');
     const ctx = this.canvas.getContext?.('2d');
     if (!ctx) return;  // No canvas (tests): the sprite stays blank.
     const {width, height} = this.canvas;
     ctx.clearRect(0, 0, width, height);
     ctx.font = '600 26px system-ui, sans-serif';
-    const textWidth = Math.min(width - 16, ctx.measureText(text).width);
+    const textWidth = Math.min(width - 16, ctx.measureText(this.text).width);
     ctx.fillStyle = 'rgba(16,17,19,.84)';
     ctx.strokeStyle = selected ? '#7cc4ff' : 'rgba(255,255,255,.18)';
     ctx.lineWidth = 2;
@@ -61,9 +64,15 @@ class Label {
     ctx.roundRect?.(2, 4, textWidth + 14, height - 8, 8);
     ctx.fill();
     ctx.stroke();
-    ctx.fillStyle = color;
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, 9, height / 2 + 1, width - 16);
+    const scale = textWidth / Math.max(1, ctx.measureText(this.text).width);  // Squeezed to fit, as fillText would.
+    let x = 9;
+    parts.forEach((part, i) => {
+      const text = i ? ` · ${part.text}` : part.text, w = ctx.measureText(text).width * scale;
+      ctx.fillStyle = part.color;
+      ctx.fillText(text, x, height / 2 + 1, w);
+      x += w;
+    });
     this.texture.needsUpdate = true;
   }
   size(camera, viewportHeight) {
@@ -106,8 +115,12 @@ class Gauge {
       else this.rotary(spec, fields, selected);
     }
     const color = spec.stale ? '#a59b90' : spec.verified ? '#e9ebee' : '#c9cdd2';
-    this.label.sprite.visible = fields.position && spec.value != null;
-    this.label.draw(spec.label, color, selected);
+    const parts = [];
+    if (fields.position && spec.value != null) parts.push({text:spec.label, color});
+    if (fields.temperature && spec.temperature != null) parts.push({text:spec.temperature, color:spec.stale || spec.heat == null
+      ? color : `#${heatColor(spec.heat).toString(16).padStart(6, '0')}`});
+    this.label.sprite.visible = parts.length > 0;
+    this.label.draw(parts, selected);
   }
   rotary(spec, fields, selected) {
     const R = this.R, w = R * .07, live = spec.verified && !spec.stale, angle = spec.value;
