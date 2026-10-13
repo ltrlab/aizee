@@ -224,3 +224,10 @@ body[data-teleop-state=FAULT] #t-state,#t-collision.bad{color:var(--bad)}#t-coll
 @media(max-width:640px){.global-controls{left:8px;right:8px}.model-toolbar{top:6px;right:8px}
   .settings-panel{flex-direction:column}.settings-rail{width:auto;border-right:0;border-bottom:1px solid var(--line)}
   .settings-nav{flex-direction:row;overflow-x:auto}.settings-nav button{white-space:nowrap}.rail-group,.settings-meta{display:none}}
+/* Gripper zero (Settings): one block per gripper, its live reading and an inline confirmation. */
+.gripper-zero{margin:12px 0;padding:10px 12px;border:1px solid #2c3036;border-radius:6px}
+.gripper-zero-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:8px}
+.gripper-reading{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.gripper-zero-confirm{margin-top:8px}.gripper-zero-confirm p{font-size:12px;margin:0 0 8px}
+.gripper-zero-confirm[hidden]{display:none}
+#gripper-zero-feedback.bad{color:var(--bad)}

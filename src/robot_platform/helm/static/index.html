@@ -221,6 +221,34 @@
           </div>
           <div id="settings-fields"></div>
           <p id="settings-empty" class="empty-state" hidden>No settings match. Try a motor name, “speed”, or “timeout”.</p>
+          <section id="settings-grippers" class="settings-group" hidden>
+            <h2>Gripper zero</h2>
+            <p class="muted">Sets a gripper's motor zero where its jaws are and saves it on the drive. A gripper's zero is
+              fully closed: inner jaw faces together. Use it after a gear skip, when the closed gripper no longer reads
+              0 rad. The arms stay disabled and the live view pauses while it runs; a power cycle confirms the drive
+              kept the zero.</p>
+            <div class="gripper-zero" data-motor="left_gripper" data-label="left gripper">
+              <div class="gripper-zero-head"><b>Left gripper</b><span class="gripper-reading"></span></div>
+              <button class="gripper-zero-ask">Zero the left gripper…</button>
+              <div class="gripper-zero-confirm" hidden>
+                <p>Close the left gripper's jaws fully by hand, inner faces together, and hold them still. Its zero is
+                  set at this pose and saved on the drive.</p>
+                <button class="danger gripper-zero-yes">Zero it now</button>
+                <button class="gripper-zero-no">Cancel</button>
+              </div>
+            </div>
+            <div class="gripper-zero" data-motor="right_gripper" data-label="right gripper">
+              <div class="gripper-zero-head"><b>Right gripper</b><span class="gripper-reading"></span></div>
+              <button class="gripper-zero-ask">Zero the right gripper…</button>
+              <div class="gripper-zero-confirm" hidden>
+                <p>Close the right gripper's jaws fully by hand, inner faces together, and hold them still. Its zero is
+                  set at this pose and saved on the drive.</p>
+                <button class="danger gripper-zero-yes">Zero it now</button>
+                <button class="gripper-zero-no">Cancel</button>
+              </div>
+            </div>
+            <p id="gripper-zero-feedback" class="muted" role="status" aria-live="polite"></p>
+          </section>
           <section id="settings-display" class="settings-group" hidden>
             <h2>3D telemetry</h2><p class="muted">Display preferences apply immediately in this browser. They do not change robot control.</p>
             <label class="display-toggle"><input type="checkbox" data-display="enabled" checked> Show joint telemetry on the model</label>

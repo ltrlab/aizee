@@ -10,10 +10,10 @@ let pendingConfirm = null;  // An open live confirmation: {kind: 'start' | 'stop
 const signed = (q, digits = 3) => (q == null || !Number.isFinite(q)) ? '—' : `${q < 0 ? '−' : '+'}${Math.abs(q).toFixed(digits)}`;
 const range = entry => `${signed(entry.min_rad, 2)} … ${signed(entry.max_rad, 2)} rad`;
 
-async function request(path, payload) {
+async function request(path, payload, timeoutMs = 15000) {
   const options = payload === undefined
     ? {cache: 'no-store', signal: AbortSignal.timeout(3000)}
-    : {method: 'POST', cache: 'no-store', signal: AbortSignal.timeout(15000), body: JSON.stringify(payload),
+    : {method: 'POST', cache: 'no-store', signal: AbortSignal.timeout(timeoutMs), body: JSON.stringify(payload),
        headers: {'Content-Type': 'application/json', 'X-Helm-Token': token || ''}};
   const response = await fetch(path, options);
   let data = null;
@@ -133,9 +133,72 @@ function update(card, row, live) {
   }
 }
 
+// Gripper zero (helm.gripper_zero): an in-page confirmation, then the robot zeroes and saves that gripper.
+let gripperZeroPending = false, gripperZeroError = null;  // A refusal shows until a newer result arrives.
+function gripperZeroBlocked(state) {
+  if (['starting', 'running'].includes(state?.teleop?.phase)) return 'Stop the teleop session first.';
+  if (['starting', 'running'].includes(state?.tune?.phase)) return 'Finish or stop the servo sweep first.';
+  if (state?.check?.running) return 'Wait for Minerva Check to finish.';
+  if (state?.robot?.connection && state.robot.connection !== 'tether') return 'Choose Tether first.';
+  return '';
+}
+function renderGripperZero(state) {
+  const zero = state?.gripper_zero, busy = !!zero?.running || gripperZeroPending, blocked = gripperZeroBlocked(state);
+  for (const block of document.querySelectorAll('.gripper-zero')) {
+    const row = (state?.limits?.rows || []).find(r => r.name === block.dataset.motor);
+    block.querySelector('.gripper-reading').textContent = Number.isFinite(row?.current_rad)
+      ? `reads ${row.current_rad.toFixed(3)} rad now · closed should read 0` : 'no live reading';
+    const ask = block.querySelector('.gripper-zero-ask');
+    ask.disabled = busy || !!blocked;
+    ask.title = blocked;
+    block.querySelector('.gripper-zero-yes').disabled = busy || !!blocked;
+    if (busy || blocked) block.querySelector('.gripper-zero-confirm').hidden = true;
+  }
+  const node = $('gripper-zero-feedback'), last = zero?.last;
+  if (busy) return;
+  if (blocked) { node.textContent = blocked; node.classList.remove('bad'); return; }
+  if (gripperZeroError && !(last?.finished_at > gripperZeroError.at)) {
+    node.textContent = gripperZeroError.message; node.classList.add('bad'); return;
+  }
+  if (!last) return;
+  const name = last.motor === 'left_gripper' ? 'Left gripper' : 'Right gripper';
+  const value = v => Number.isFinite(v) ? `${v.toFixed(4)} rad` : '—';
+  node.classList.toggle('bad', !last.success);
+  node.textContent = last.success
+    ? `${name} zeroed: read ${value(last.before_rad)} before, ${value(last.after_save_rad ?? last.after_zero_rad)} after`
+      + `${last.save_response_missing ? ' (the drive gave no reply to the save)' : ''}. Saved on the drive; power-cycle `
+      + 'the arm, then check it still reads 0 when closed.'
+    : `${name} not zeroed: ${last.error || 'the robot reported a failure'}`;
+}
+for (const block of document.querySelectorAll('.gripper-zero')) {
+  const confirm = block.querySelector('.gripper-zero-confirm');
+  block.querySelector('.gripper-zero-ask').onclick = () => { confirm.hidden = false; };
+  block.querySelector('.gripper-zero-no').onclick = () => { confirm.hidden = true; };
+  block.querySelector('.gripper-zero-yes').onclick = async () => {
+    if (gripperZeroPending) return;
+    gripperZeroPending = true;
+    gripperZeroError = null;
+    confirm.hidden = true;
+    const node = $('gripper-zero-feedback');
+    node.classList.remove('bad');
+    node.textContent = `Zeroing the ${block.dataset.label}: the live view pauses, every drive is checked, then this one is `
+      + 'zeroed and saved. Keep the jaws closed and still…';
+    renderGripperZero(last);
+    try {
+      render(await request('/api/helm/grippers/zero', {motor: block.dataset.motor, confirm: true}, 90000));
+    } catch (error) {
+      gripperZeroError = {message: `Not zeroed: ${error.message}`, at: Date.now() / 1000};
+    } finally {
+      gripperZeroPending = false;
+      renderGripperZero(last);
+    }
+  };
+}
+
 function render(state) {
   if (!state) return;
   last = state;
+  renderGripperZero(state);
   token = state.action_token;
   const {feed, limits, robot, session} = state;
   $('robot-name').textContent = `${robot.model} · ${robot.asset_id} · ${robot.address}`;

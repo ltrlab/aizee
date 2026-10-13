@@ -115,7 +115,7 @@ export class SettingsPanel {
   renderNavigation() {
     const host=$('settings-nav');host.replaceChildren();
     const sections=this.state?.sections||[],session=sections.filter(section=>section.fields?.some(field=>field.editable));
-    const groups=[['Session',[{id:'changed',label:'Changed from profile'},{id:'motors',label:'Motor tuning'},...session]],
+    const groups=[['Session',[{id:'changed',label:'Changed from profile'},{id:'motors',label:'Motor tuning'},{id:'grippers',label:'Gripper zero'},...session]],
       ['Read-only',sections.filter(section=>!session.includes(section))],['View',[{id:'display',label:'3D display'}]]];
     for (const [title,items] of groups) {
       if (!items.length) continue;
@@ -174,6 +174,7 @@ export class SettingsPanel {
     }
     $('settings-motors').hidden=!!this.search||this.category!=='motors';
     $('settings-display').hidden=!!this.search||this.category!=='display';
+    $('settings-grippers').hidden=!!this.search||this.category!=='grippers';
     // Rows stay listed while this view is open, so one edited back to its profile value does not vanish mid-edit.
     let count=0,changed=null;
     if(this.category==='changed'&&!this.search) {
@@ -192,7 +193,7 @@ export class SettingsPanel {
     $('settings-empty').textContent=changed
       ? 'Nothing differs from the profile: every session setting is at its profile value.'
       : 'No settings match. Try a motor name, “speed”, or “timeout”.';
-    $('settings-footer').hidden=!this.search&&['motors','display'].includes(this.category);
+    $('settings-footer').hidden=!this.search&&['motors','display','grippers'].includes(this.category);
   }
   feedback(message,bad=false) {const node=$('settings-status');node.textContent=message;node.classList.toggle('bad',bad);}
   actions() {
