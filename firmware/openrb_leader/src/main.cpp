@@ -419,9 +419,9 @@ static void joy_poll() {
 
 // USB keeps the highest interrupt priority; the servo UART comes next, above
 // the core's default for every SERCOM (the lowest). With the UART above USB
-// the left board stopped answering USB on 2026-10-12: it enumerated, then hung
-// every port open and IDENT, its servos attached or not, most likely starved by
-// a busy UART (not confirmed). A servo bus must never take USB down. The cost: a USB
+// the left board stopped answering USB on 2026-10-12 with its servos attached:
+// it enumerated, then hung every port open and IDENT, possibly starved by a busy
+// UART (not confirmed). A servo bus must never take USB down. The cost: a USB
 // interrupt during the seven back-to-back replies (Return Delay Time 0) can
 // overrun the receiver, failing 0.02-0.07% of reads under polling; a failed
 // read costs SERVO_REPLY_TIMEOUT_MS and a poll waits for the next read.

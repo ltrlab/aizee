@@ -29,8 +29,8 @@ the same sample (the host faults on a repeated sequence): one that arrives befor
 newer read completes waits for it, and only after three failed reads in a row
 (3 ms each at most) is it answered with byte 48 = 0, which the host skips. USB keeps
 the highest interrupt priority and the servo UART comes next. With the UART above
-USB the left board stopped answering USB altogether on 2026-10-12, most likely
-starved by a busy UART (not confirmed); with USB first, a USB interrupt during the seven back-to-back replies
+USB the left board, its servos attached, stopped answering USB altogether on
+2026-10-12, possibly starved by a busy UART (not confirmed); with USB first, a USB interrupt during the seven back-to-back replies
 (Return Delay Time 0) can overrun the receiver and fail 0.02–0.07% of reads under
 polling, which the 3 ms timeout and a poll waiting for the next read absorb. Bytes 40–47 come from one
 microsecond clock, the read start rounded down and the reply rounded up, so their
