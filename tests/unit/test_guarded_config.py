@@ -227,3 +227,24 @@ def test_receiver_limits_fit_each_motors_protocol_ranges():
     with pytest.raises(ValueError, match='hold gains exceed'):
         fit_motor_ranges(held, {'right_arm_j4': 'ROBSTRIDE02'})
     assert fit_motor_ranges([dict(joints[0], max_kd=9.)], {})[0]['max_kd'] == 9.  # No model: as derived.
+
+
+def test_the_manual_tuning_profile_adds_its_extra_speed_to_every_joint_and_nothing_else_does():
+    base = derive()
+    manual = dict(profile(), manual_tuning=True)
+    manual['motion'] = dict(manual['motion'], extra_speed_rad_s=2.)
+    faster = derive(profile=manual)
+    for was, now in zip(base['lifecycle'], faster['lifecycle']):
+        assert now['max_velocity'] == pytest.approx(was['max_velocity'] + 2.)  # The commanded cap.
+    for was, now in zip(base['config']['joints'], faster['config']['joints']):
+        assert now['max_velocity'] == pytest.approx(was['max_velocity'] + 2. * 1.25)  # The receiver's, over it.
+        assert now['stop_acceleration'] == was['stop_acceleration']
+        assert now['max_tracking_error'] == was['max_tracking_error'] and now['max_effort'] == was['max_effort']
+    guarded = profile()
+    guarded['motion'] = dict(guarded['motion'], extra_speed_rad_s=2.)
+    with pytest.raises(ValueError, match='manual-tuning profile only'):
+        derive(profile=guarded)
+    for bad in (-1., 5.5, float('nan'), '2'):
+        manual['motion'] = dict(manual['motion'], extra_speed_rad_s=bad)
+        with pytest.raises(ValueError, match='extra_speed_rad_s must be'):
+            derive(profile=manual)

@@ -9,7 +9,7 @@
   "leader_ranges": "gello-dual-leader-ranges.json",
   "notes": [
     "Operator-controlled direct position mirroring without collision detection. Edit gains, Follow, speed and an optional fixed travel window in Helm while stopped or in HOLD. Apply never enables or resumes following.",
-    "Manual gains use explicit motor encoding caps; original native position, effort, feedback speed, braking, tracking, freshness and watchdog bounds remain. Physical behavior must be supervised.",
+    "Manual gains use explicit motor encoding caps; original native position, effort, braking, tracking, freshness and watchdog bounds remain. Every joint's speed is its calibrated one plus extra_speed_rad_s (operator's choice, 2026-10-12: +2 rad/s), and the receiver's speed cap follows it; servo calibration, sweeps and Minerva Check keep the calibrated speeds. Physical behavior must be supervised.",
     "Only one live arm at a time. Initial settings retain the bounded left J1 baseline until the operator changes them. Presets are stored separately from measured servo calibration."
   ],
   "receiver": {
@@ -33,6 +33,7 @@
     "note": "Explicit collision-disabled service for one or both arms. Pinned motor identities, watchdog setup, reference-pose checks and explicit operator enable/stop remain required."
   },
   "motion": {
+    "extra_speed_rad_s": 2.0,
     "defaults": {
       "max_velocity": 0.8,
       "stop_acceleration": 4.0,

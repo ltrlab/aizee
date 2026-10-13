@@ -127,6 +127,23 @@ def fit_motor_ranges(joints, models):
     return joints
 
 
+# The most a profile may add to every joint's calibrated speed (extra_speed_rad_s).
+MAX_EXTRA_SPEED_RAD_S = 5.
+
+
+def extra_speed(profile):
+    """What the manual-tuning profile adds to every joint's speed over its calibration, in rad/s (0 by default).
+
+    An operator's choice for direct teleop (2026-10-12: +2 rad/s), never a measured speed: the servo
+    calibration, its sweeps and Minerva Check keep their own. Only the manual-tuning profile may set it."""
+    extra = profile['motion'].get('extra_speed_rad_s', 0.)
+    if not _finite(extra) or not 0 <= extra <= MAX_EXTRA_SPEED_RAD_S:
+        raise ValueError(f'extra_speed_rad_s must be 0 to {MAX_EXTRA_SPEED_RAD_S:g} rad/s')
+    if extra and profile.get('manual_tuning') is not True:
+        raise ValueError('extra_speed_rad_s is for the manual-tuning profile only')
+    return float(extra)
+
+
 def servo_settings(settings, motor, servo):
     """A joint's motion settings with its saved servo calibration applied, if it has one.
 
@@ -176,12 +193,15 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
     terms = gravity_model(model, directions, reference['motors'], fits) if fits else {}
     joints, lifecycle, initial, report = [], [], [], []
     cad_limits = {}
+    extra = extra_speed(profile)
     for motor in reference['motors']:
         name = motor['name']
         saved = limits['joints'].get(name)
         if saved is None:
             raise ValueError(f'{name}: no saved joint limits; sweep it in Helm first')
         settings, calibrated = servo_settings(motion_settings(profile['motion'], name), motor, servo)
+        # The commanded cap, the receiver's cap over it and its braking curve all follow from this speed.
+        settings['max_velocity'] += extra
         gripper = settings.get('gripper') is True
         # The friction its servo sweep measured, for friction feed-forward (arm joints only: a gripper's
         # squeeze is its stiffness times its lead).
