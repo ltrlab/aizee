@@ -1,0 +1,202 @@
+{
+  "schema": 1,
+  "kind": "guarded_teleop_profile",
+  "id": "minerva-teleop-direct-tuning-vff",
+  "backend": "virtual",
+  "runtime_approved": false,
+  "calibration_profile": "minerva-joint-calibration.json",
+  "leader_profile": "gello-dual-viewer.json",
+  "leader_ranges": "gello-dual-leader-ranges.json",
+  "notes": [
+    "Opt-in A/B of minerva-teleop-direct-tuning.json (2026-10-14): the same direct manual tuning, bounds and routes, but arm joints get a smoothed velocity fed forward (the least-squares slope of the last four commands, teleop.lifecycle FEED_SAMPLES), so Kd damps each joint about its command's speed instead of dragging it. No friction or acceleration feed-forward; grippers carry none. Its presets are separate (bound to this profile and law).",
+    "Expected from a 1-DOF simulation (docs/development/VELOCITY_FEEDFORWARD.md): about a quarter of the position-only tracking lag and top speed set by the speed limit rather than Kd, but more overshoot when the leader stops (J2 at 600/20: 17 mrad abrupt vs 10.5) because nothing feeds the braking torque forward.",
+    "Manual gains use explicit motor encoding caps; original native position, effort, braking, tracking, freshness and watchdog bounds remain. Every joint's speed is its calibrated one plus extra_speed_rad_s (operator's choice, 2026-10-12: +2 rad/s), and the receiver's speed cap follows it; servo calibration, sweeps and Minerva Check keep the calibrated speeds. Physical behavior must be supervised.",
+    "Only one live arm at a time. Initial settings retain the bounded left J1 baseline until the operator changes them. Presets are stored separately from measured servo calibration."
+  ],
+  "receiver": {
+    "collision_mode": "disabled",
+    "lease_ms": 150,
+    "feedback_timeout_ms": 30,
+    "settled_velocity": 0.15,
+    "interpolation_ms": 0,
+    "loop_hz": 100,
+    "direct": {
+      "command_ms": 30,
+      "velocity_timeout_ms": 15,
+      "limit_reaction_ms": 10,
+      "position_only": false
+    }
+  },
+  "live": {
+    "reference_tolerance_rad": 0.1,
+    "period_us": 2500,
+    "maximum_lateness_us": 10000,
+    "note": "Explicit collision-disabled service for one or both arms. Pinned motor identities, watchdog setup, reference-pose checks and explicit operator enable/stop remain required."
+  },
+  "motion": {
+    "extra_speed_rad_s": 2.0,
+    "defaults": {
+      "max_velocity": 0.8,
+      "stop_acceleration": 4.0,
+      "max_tracking_error": 0.08,
+      "align_speed": 0.3,
+      "shutdown_speed": 0.2,
+      "tolerance": 0.03,
+      "settled_velocity": 0.05,
+      "max_temperature": 70.0
+    },
+    "joints": [
+      {
+        "match": "*_arm_j1",
+        "hold_kp": 150.0,
+        "hold_kd": 20.0,
+        "max_kp": 150.0,
+        "max_kd": 20.0,
+        "max_effort": 60.0,
+        "max_velocity": 1.5,
+        "stop_acceleration": 16.0
+      },
+      {
+        "match": "*_arm_j2",
+        "hold_kp": 220.0,
+        "hold_kd": 15.0,
+        "max_kp": 220.0,
+        "max_kd": 15.0,
+        "max_effort": 120.0,
+        "max_velocity": 1.5,
+        "stop_acceleration": 16.0
+      },
+      {
+        "match": "*_arm_j3",
+        "hold_kp": 215.0,
+        "hold_kd": 14.0,
+        "max_kp": 215.0,
+        "max_kd": 14.0,
+        "max_effort": 60.0,
+        "max_velocity": 1.5,
+        "stop_acceleration": 25.0,
+        "max_tracking_error": 0.05
+      },
+      {
+        "match": "*_arm_j4",
+        "hold_kp": 50.0,
+        "hold_kd": 4.0,
+        "max_kp": 50.0,
+        "max_kd": 4.0,
+        "max_effort": 17.0,
+        "max_velocity": 2.5,
+        "stop_acceleration": 16.0
+      },
+      {
+        "match": "*_arm_j5",
+        "hold_kp": 8.0,
+        "hold_kd": 1.0,
+        "max_kp": 8.0,
+        "max_kd": 1.0,
+        "max_effort": 17.0,
+        "max_velocity": 4.0,
+        "stop_acceleration": 16.0,
+        "max_tracking_error": 0.1
+      },
+      {
+        "match": "*_arm_j6",
+        "hold_kp": 8.0,
+        "hold_kd": 1.0,
+        "max_kp": 8.0,
+        "max_kd": 1.0,
+        "max_effort": 14.0,
+        "max_velocity": 4.0,
+        "stop_acceleration": 16.0
+      },
+      {
+        "match": "*_gripper",
+        "gripper": true,
+        "hold_kp": 2.0,
+        "hold_kd": 1.0,
+        "max_kp": 5.0,
+        "max_kd": 2.0,
+        "max_effort": 14.0,
+        "max_velocity": 10.0,
+        "stop_acceleration": 30.0,
+        "max_tracking_error": 0.06,
+        "align_speed": 1.0,
+        "shutdown_speed": 0.5,
+        "tolerance": 0.05,
+        "settled_velocity": 0.1
+      }
+    ]
+  },
+  "routes": {
+    "left_arm_j1": {
+      "leader": "left",
+      "channel": 1,
+      "sign": -1
+    },
+    "left_arm_j2": {
+      "leader": "left",
+      "channel": 2,
+      "sign": -1
+    },
+    "left_arm_j3": {
+      "leader": "left",
+      "channel": 3,
+      "sign": 1
+    },
+    "left_arm_j4": {
+      "leader": "left",
+      "channel": 4,
+      "sign": 1
+    },
+    "left_arm_j5": {
+      "leader": "left",
+      "channel": 5,
+      "sign": 1
+    },
+    "left_arm_j6": {
+      "leader": "left",
+      "channel": 6,
+      "sign": 1
+    },
+    "left_gripper": {
+      "leader": "left",
+      "channel": 7,
+      "sign": 1
+    },
+    "right_arm_j1": {
+      "leader": "right",
+      "channel": 1,
+      "sign": -1
+    },
+    "right_arm_j2": {
+      "leader": "right",
+      "channel": 2,
+      "sign": -1
+    },
+    "right_arm_j3": {
+      "leader": "right",
+      "channel": 3,
+      "sign": 1
+    },
+    "right_arm_j4": {
+      "leader": "right",
+      "channel": 4,
+      "sign": 1
+    },
+    "right_arm_j5": {
+      "leader": "right",
+      "channel": 5,
+      "sign": 1
+    },
+    "right_arm_j6": {
+      "leader": "right",
+      "channel": 6,
+      "sign": 1
+    },
+    "right_gripper": {
+      "leader": "right",
+      "channel": 7,
+      "sign": 1
+    }
+  },
+  "manual_tuning": true
+}
