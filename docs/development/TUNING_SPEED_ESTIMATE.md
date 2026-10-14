@@ -77,3 +77,21 @@ directions. At the lead limit its drive-side error (command − position at 400 
 The J1 rows fit without the ~2 Nm of friction the old form needed. p99 runs above the steady estimate in
 transients. Raising Kp is now the lever for speed: as Kp grows the estimate approaches lead ÷ lag. Lowering
 Kd also raises it but damps less.
+
+Every arm joint in the same session, the panel's estimate on Minerva's profile against the joint's speed in
+the cycles its command sat at the lead limit (`limits: tracking_lead` in `direct-latency.jsonl`, p50):
+
+| Joint | Left: panel / measured (rad/s) | Right: panel / measured (rad/s) |
+|---|---|---|
+| J1 | 0.69 / 0.69 | 0.68 / 0.61 |
+| J2 | 1.00 / 0.94 | 1.09 / 0.98 |
+| J3 | 0.75 / 0.75 | 0.70 / 0.71 |
+| J4 | 1.08 / 0.92 | 1.11 / 1.08 |
+| J5 | 2.15 / 2.17 | 1.09 / 1.09 |
+| J6 | 1.61 / 1.50 | 1.24 / 1.15 |
+
+Within 15%, mostly within 8%; where it errs it is high (friction or gravity left over).
+
+- Results: gate 700 Python tests, zero failures/skips/xfails, Rust included, on `f63aed1`
+  (`build/dev-check/20261014T005220Z-d1ece389/report.json`); the panel on Minerva's live tuning profile shows
+  the table's estimates.

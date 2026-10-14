@@ -535,7 +535,8 @@ function manualEstimate(row, draft) {
     + `${manualNumber(kp)} × ${f.command_lag_s.toFixed(3)}). Position-only control sends no velocity, so Kd drags `
     + 'against all motion; the drive sees each command about a loop late. Open travel only: commands slow near '
     + 'either end.';
-  if (speed >= limit) return {binds: 'limit', title, text: `Top speed is your ${manualNumber(limit)} rad/s limit; `
+  // As shown (two decimals): 0.998 under a 1 rad/s limit reads as the limit, not "1.00, under your 1".
+  if (Number(speed.toFixed(2)) >= limit) return {binds: 'limit', title, text: `Top speed is your ${manualNumber(limit)} rad/s limit; `
     + `the ${lead} lead alone would allow ≈ ${speed.toFixed(2)} rad/s.`};
   // A drive that reports no torque leaves its sweep's friction at zero (left J1: 5e-20 Nm).
   const friction = f.friction_nm >= .01 ? '' : ' No friction was measured for this joint, so expect less.';
