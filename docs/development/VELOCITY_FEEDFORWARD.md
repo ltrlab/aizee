@@ -70,3 +70,24 @@ inertia and friction, gravity 10% over the fed model), right arm, saved gains, ~
   gearbox or mount compliance, not the servo law.
 - During motion about 90% of the 2-4 Hz jiggle is in the leader signal (robot/leader 1.0-1.2); feed-forward
   follows it at least as faithfully.
+
+## Results
+
+- Gate: 713 Python tests, zero failures/skips/xfails, Rust included, on `c184c6d`
+  (`build/dev-check/20261014T020754Z-7f46af4c/report.json`), after the ARM64 rebuild.
+- Jetson private-vcan manual-tuning qualification of release `20261014T021323Z-c184c6d` (receiver
+  `cc82487c`), 125 s of following each, synthetic 90 Hz quantised leaders (about one repeat in ten):
+
+  | Run | Following cycles, all accepted | Misses / skips | Loop p99 / max | Gain writes | Velocity check |
+  |---|---|---|---|---|---|
+  | Feed-forward, left (`~/minerva/validation/vff-c184c6d-02/tuning-vff-left-125s`) | 13,011 | 0 / 0 | 5.41 / 6.11 ms | 2 | ok, 0 zero drops |
+  | Feed-forward, both (`vff-c184c6d-02/tuning-vff-both-125s`) | 13,012 | 0 / 0 | 5.77 / 6.37 ms | 2 | ok, 0 zero drops |
+  | Position-only, both (`vff-c184c6d-01/tuning-po-both-125s`) | 13,012 | 0 / 0 | 5.60 / 5.91 ms | 2 | ok (none sent) |
+
+- Route edits (`routes.json`, one per asset and runs folder) are bound to a profile id, so the feed-forward
+  profile runs from its own folder, `build/manual-tuning/operator-runs-vff`, holding a copy of the verified
+  signs (`copied_from` provenance) and a preset seeded from the position-only one (same gains, re-bound).
+  Helm launch config `helm-tuning-vff`; `helm-tuning` stays position-only.
+- Deployed: release `20261014T022244Z-c184c6d`, receiver binary identical to the qualified one. Helm relaunched
+  on the feed-forward profile: law shown in Motor tuning, preset loaded, all 14 drives answering.
+- Not yet run on the arms.
