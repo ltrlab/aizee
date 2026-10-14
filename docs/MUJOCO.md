@@ -69,8 +69,11 @@ Do not invent mass properties to obtain a green Minerva demo.
 the export no longer matches the URDF. After a URDF or mesh change, delete the export and regenerate:
 
 ```sh
-.venv-dev/Scripts/python.exe -m robot_platform.models.mjcf urdf/minerva/model.json --output urdf/minerva/mujoco/minerva.xml
+.venv-dev/Scripts/python.exe -m robot_platform.models.mjcf urdf/minerva/model.json --output urdf/minerva/mujoco/minerva.xml --limits config/devices/minerva-production-01-joint-limits.json --directions calibration_runs/minerva-production-01-directions/session.json
 ```
+
+`--directions` is Helm's direction session in the checkout Helm runs from (it is local state, not in
+Git). The export also regenerates after a new range sweep or direction change.
 
 - **Frames.** Every link is a named body at its URDF link frame. Tests compare the link frames with the
   project's URDF kinematics at 202 poses, and every mesh's placement with its source STL.
@@ -78,8 +81,11 @@ the export no longer matches the URDF. After a URDF or mesh change, delete the e
   are not modeled.
 - **Inertials.** These are the URDF's 17 placeholders, so the manifest says `dynamics_usable: false` and
   `MujocoPlant` refuses the model. Replacing them is the measurement task.
-- **Not physics.** Contacts are off, and ranges are the URDF limits, not hard stops. There is no damping,
-  friction, armature or actuator, and motor-to-joint bindings are not part of the model.
+- **Ranges.** The 12 arm joints take Helm's hand-swept travel, mapped through Helm's confirmed motor
+  directions (right J1, J3 and J4 are reversed). The swept ends are used exactly. The jaws keep their CAD
+  stroke, because their motor-to-jaw scale is unverified.
+- **Not physics.** Contacts are off. There is no damping, friction, armature or actuator, and
+  motor-to-joint bindings are not part of the model.
 
 View it, kinematics only:
 

@@ -28,7 +28,8 @@
 
 ## Change
 
-`python -m robot_platform.models.mjcf urdf/minerva/model.json --output urdf/minerva/mujoco/minerva.xml`
+`python -m robot_platform.models.mjcf urdf/minerva/model.json --output urdf/minerva/mujoco/minerva.xml
+--limits config/devices/minerva-production-01-joint-limits.json --directions <Helm direction session>`
 writes the MJCF and its manifest. It refuses to overwrite either; delete the old export to regenerate.
 
 - Each link becomes a named body at its URDF link frame, and each joint becomes a hinge or slide at the
@@ -42,6 +43,18 @@ writes the MJCF and its manifest. It refuses to overwrite either; delete the old
 - Meshes are referenced in place, named by their source path. The two RB04 motor-body visuals have about
   269,000 triangles, over MuJoCo's 200,000-face STL limit. They are stored as lossless OBJ (same triangles,
   exact duplicate vertices merged) under `urdf/minerva/mujoco/meshes/`, in LFS.
+- Arm ranges come from Helm (operator request, 2026-10-13). Each arm joint's hand-swept motor range
+  (`minerva-production-01-joint-limits.json`, reference `minerva-mechanical-reference-20261009`) goes
+  through Helm's confirmed direction mapping, `model = sign × motor + offset`, as the receiver's `cad_map`
+  applies it. Right J1, J3 and J4 have sign −1 and all offsets are 0. The swept ends are used exactly,
+  without the receiver's 0.02 rad overtravel, which is a fault margin. The wrist swivels span about
+  6.5 rad, past the URDF's ±π.
+  - **Mapping source.** The complete direction session (all 12 confirmed) from the Codex worktree that runs
+    Helm. A newer session in the main checkout has only J1s confirmed and was not used.
+  - **Manifest.** It records the session's bindings and each joint's motor, sign, offset and swept values,
+    so the export can be checked without the session.
+  - **Jaws.** These keep the CAD stroke. Their swept motor travel through the unverified preview scale is
+    48.0 mm, against 48.2 mm in CAD.
 - Contacts are off (`contype`/`conaffinity` 0). Visuals are geom group 2 and source collision meshes group 3.
   No damping, friction, armature or actuator is added.
 - `scene.xml` adds lights and a contact-free floor at the base. `scripts/view_mujoco.py` poses the model from
@@ -49,7 +62,9 @@ writes the MJCF and its manifest. It refuses to overwrite either; delete the old
 
 ## Results
 
-- 9 new tests. MuJoCo's link frames match `CollisionScene.link_transforms` at all 202 Minerva poses. All 220
+- 15 new tests, including the swept-range mapping (both signs), its refusals (unconfirmed direction, another
+  mechanical zero or URDF revision) and the committed ranges against the committed limits file.
+- MuJoCo's link frames match `CollisionScene.link_transforms` at all 202 Minerva poses. All 220
   meshes (129 visual, 91 collision) keep their triangle counts and placement. The synthetic fixture matches
   the URDF inertia tensor `R I Rᵀ` within 1e-12, and its coupling error is 2 µm (bound 0.1 mm).
 - Mutation check: a rotating-axis rpy convention, a conjugated quaternion and a 1 mm mesh shift each fail
@@ -61,6 +76,8 @@ writes the MJCF and its manifest. It refuses to overwrite either; delete the old
   (`build/dev-check/20261012T161039Z-538a042c/report.json`). The first run skipped the release test, because
   this new worktree had no ARM64 binaries. `scripts/build_jetson.ps1 -Offline -Package robot_control,robot_collision`
   built them locally; nothing was deployed.
+- Gate with the swept ranges: 662 Python tests, zero failures/skips/xfails, and 122 Rust tests, on `3443ca6`
+  (`build/dev-check/20261014T021953Z-455acccf/report.json`).
 
 ## Remaining uncertainty / physical inputs needed
 
@@ -71,9 +88,10 @@ writes the MJCF and its manifest. It refuses to overwrite either; delete the old
 - **Jaws.** The coupling is modeled rigid, with no backlash or compliance. The motor-to-jaw transmission is
   unverified: the 2026-09-24 right-gripper fit was rejected (1.2 mm residual, 1.1 mm direction separation),
   and the left scale is borrowed. Motor bindings for the grippers wait on it.
-- **Joint ranges.** These are the URDF's limits (±π, provisional for all 12 arm joints), not measured hard
-  stops. MuJoCo would treat them as stops once dynamics are enabled.
+- **Joint ranges.** The arm ranges are hand-swept (2026-09-26; left J4/J5 shifted for the 2026-10-09 re-zero).
+  A sweep can only fall short of a hard stop. MuJoCo will treat them as stops once dynamics are enabled.
+  The direction session is local Helm state, so a new sweep or direction change needs a regenerated export.
 - **Not run.** Contacts, gravity direction against the real mounting, and Linux CI.
-- **Next.** Map the 14 receiver motors to model joints (arms are identity, as the viewer and joint
-  calibration assume). Also import a measured link record (the checklist's schema) into a new MJCF revision,
+- **Next.** Map the 14 receiver motors to model joints. This is not identity: Helm's directions reverse right
+  J1, J3 and J4, and the grippers need their transmission. Also import a measured link record (the checklist's schema) into a new MJCF revision,
   with validation. Both can be built and tested on synthetic records before measurements exist.
