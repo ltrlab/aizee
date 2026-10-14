@@ -329,7 +329,10 @@ def test_trial_derivation_keeps_saved_gains_bounds_and_gravity_but_reports_no_fr
     assert all(j['position_only'] is True for j in after['lifecycle'])
     assert all(r['control_law']=='direct-position-only' and r['friction_ff']==0. for r in after['report'])
     assert all(r['speed_qualified_for_control_law'] is False for r in after['report'])
-    assert before['report'][0]['friction_ff']==.3
+    # Unramped direct control without position-only feeds a smoothed velocity forward, and no friction either.
+    assert before['report'][0]['control_law']=='direct-velocity-feedforward' and before['report'][0]['friction_ff']==0.
+    assert [j['velocity_feedforward'] for j in before['lifecycle']]==[True,False]  # Not the gripper.
+    assert not any(j['velocity_feedforward'] for j in after['lifecycle'])
     assert after['lifecycle'][0]['friction_nm']==.3  # Preserve measured data, suppress only its command term.
     assert [j['gravity'] for j in after['lifecycle']]==[j['gravity'] for j in before['lifecycle']]
     assert after['lifecycle'][0]['gravity']==[[2.,{'arm_j1':1}]]

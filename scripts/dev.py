@@ -41,6 +41,7 @@ CORE = [
     'tests/unit/test_helm_telemetry.py', 'tests/unit/test_helm_app.py', 'tests/unit/test_helm_live_view.py', 'tests/unit/test_qualify_manual_tuning.py', 'tests/unit/test_plain_data.py',
     'tests/unit/test_joint_capture_preflight.py', 'tests/unit/test_leader_link.py', 'tests/unit/test_helm_edge.py',
     'tests/unit/test_openrb_leader_setup.py', 'tests/unit/test_gripper_zero.py',
+    'tests/unit/test_velocity_feedforward.py',
 ]
 
 

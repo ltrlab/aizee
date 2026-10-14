@@ -35,6 +35,19 @@ SETTLE_WINDOW_S = .04
 # closed reference regardless: holding something, the right gripper squeezed 6.2 Nm and skipped gear teeth when a
 # fault returned it (2026-10-13). Grip in teleop is the operator's and is not limited here.
 RETURN_SQUEEZE_NM = 1.
+# Direct velocity feed-forward (`velocity_feedforward` joints): the velocity sent is the least-squares slope of the
+# last few slewed commands over their cycle times, not one cycle's step. Steps fed forward pulsed the drives (Kd x
+# each jump, about 100 ms apart) while the leaders repeated one sample in ten (2026-10-10); a slope over ~30 ms stays
+# smooth through a leader count's quantisation and reversals, and decays over that span when the command stops.
+FEED_SAMPLES = 4
+
+
+def direct_law(joints):
+    """Manual tuning's control laws: every joint position-only, or every arm joint with direct velocity
+    feed-forward (grippers then carry none: their squeeze is their stiffness times their lead)."""
+    return (all(j.get('position_only') is True for j in joints)
+            or all(j.get('velocity_feedforward') is True or (j.get('gripper') is True and not j.get('position_only'))
+                   for j in joints))
 
 class TeleopLifecycle:
     """Shared semantic operations, independent of each GUI's key bindings."""
@@ -61,6 +74,10 @@ class TeleopLifecycle:
         for joint in self._joints:
             if type(joint.get('position_only', False)) is not bool:
                 raise ValueError('position_only must be a boolean')
+            if type(joint.get('velocity_feedforward', False)) is not bool or joint.get('velocity_feedforward') and (
+                    joint.get('position_only') or joint.get('gripper') or joint.get('interpolation_s')
+                    or not joint.get('direct_velocity')):
+                raise ValueError('Velocity feed-forward is a direct, uninterpolated arm-joint law')
             if not isinstance(joint, dict) or not isinstance(joint.get('name'), str) or not joint['name']:
                 raise ValueError('Every joint needs a unique name')
             names.append(joint['name'])
@@ -102,6 +119,7 @@ class TeleopLifecycle:
         self._misses = 0
         self._velocities = None  # This cycle's slewed targets' velocities, for the next proposal.
         self._sent_velocities = None  # The last move's velocities, for the acceleration fed forward.
+        self._feed = deque()  # (time, positions) of the last slewed commands, for velocity feed-forward.
         self._before = None  # (target, sent velocities) before this cycle's proposal, for reduce().
         self._limits = {}
         self._proposed = None  # (target, velocities) of this cycle's move, as first proposed.
@@ -118,9 +136,9 @@ class TeleopLifecycle:
         """
         if self.state not in ('DISABLED', 'HOLD') or self.trial is not None:
             raise ValueError('Manual tuning requires DISABLED or HOLD and no fixed trial profile')
-        if ([r.get('motor') for r in settings] != list(self.names)
-                or not all(j.get('position_only') for j in self._joints)):
-            raise ValueError('Manual tuning needs every position-only joint in order')
+        if [r.get('motor') for r in settings] != list(self.names) or not direct_law(self._joints):
+            raise ValueError('Manual tuning needs every joint in order, position-only or with direct velocity '
+                             'feed-forward')
         updated = plain_copy(self._joints)
         held = list(self._manual_hold or self.target or (0.,) * len(updated))
         for i, (row, joint, base) in enumerate(zip(settings, updated, self._manual_base)):
@@ -205,20 +223,21 @@ class TeleopLifecycle:
         if velocities is None:
             self._limits = {}
         self._velocities = None
+        fed = self._fed_velocities(positions if velocities is not None else None, original)
         velocities = velocities or (0.,) * len(self._joints)
         if original:
             self._proposed = (tuple(positions), tuple(velocities)) if operation == 'move' and positions else None
         commands = None if positions is None else [
-            dict(position=q, velocity=0. if joint.get('position_only') else v,
+            dict(position=q, velocity=0. if joint.get('position_only') else f if joint.get('velocity_feedforward') else v,
                  effort=0. if zero_gains else self._effort(joint, v, positions),
                  kp=0. if zero_gains else joint['hold_kp'], kd=0. if zero_gains else joint['hold_kd'])
-            for q, v, joint in zip(positions, velocities, self._joints)]
+            for q, v, f, joint in zip(positions, velocities, fed, self._joints)]
         # The effort that accelerates each joint to its command's velocity from the last move's, which the
         # receiver adds only while it ramps to the command (a stop never holds it).
         previous = self._sent_velocities or (0.,) * len(self._joints)
         ramps = None
         if commands is not None and operation == 'move' and not zero_gains:
-            ramps = [0. if joint.get('position_only') else
+            ramps = [0. if joint.get('position_only') or joint.get('velocity_feedforward') else
                      ramp_effort(joint.get('inertia'), command['velocity'], before, joint.get('interpolation_s'),
                                  command['effort'], joint.get('max_effort', math.inf))
                      for command, before, joint in zip(commands, previous, self._joints)]
@@ -228,10 +247,37 @@ class TeleopLifecycle:
                     reference_velocities=list(velocities),
                     limits=plain_copy(self._limits))
 
+    def _fed_velocities(self, positions, original):
+        """Each joint's velocity feed-forward (FEED_SAMPLES): the slope of the last slewed commands over their
+        cycle times, within its speed cap. A target that was not slewed (a snap, hold or stop) clears them and
+        carries none, so a jump in the target never reads as speed."""
+        if not original and self._feed:
+            self._feed.pop()  # reduce() re-proposes this cycle's command.
+        if positions is None or self._last_time is None:
+            self._feed.clear()
+            return (0.,) * len(self._joints)
+        self._feed.append((self._last_time, tuple(positions)))
+        while len(self._feed) > FEED_SAMPLES:
+            self._feed.popleft()
+        times = [t for t, _ in self._feed]
+        mean = sum(times) / len(times)
+        spread = sum((t - mean) ** 2 for t in times)
+        if spread <= 0:
+            return (0.,) * len(self._joints)
+        result = []
+        for i, base in enumerate(self._manual_base):
+            values = [q[i] for _, q in self._feed]
+            centre = sum(values) / len(values)
+            slope = sum((t - mean) * (q - centre) for t, q in zip(times, values)) / spread
+            result.append(max(-base['max_velocity'], min(base['max_velocity'], slope)))
+        return tuple(result)
+
     def _effort(self, joint, velocity, positions):
         """Feed-forward: friction in the direction of motion and the arm's gravity at the commanded pose,
-        within 90% of the joint's effort limit."""
-        effort = 0. if joint.get('position_only') else friction_feedforward(joint.get('friction_nm', 0.), velocity)
+        within 90% of the joint's effort limit. Direct laws feed no friction forward: its sign flips with each
+        reversal and quantised step, which pulsed the drives (2026-10-10)."""
+        effort = (0. if joint.get('position_only') or joint.get('velocity_feedforward')
+                  else friction_feedforward(joint.get('friction_nm', 0.), velocity))
         if joint.get('gravity'):
             effort += gravity_effort(joint['gravity'], dict(zip(self.names, positions)))
         limit = .9 * joint.get('max_effort', math.inf)

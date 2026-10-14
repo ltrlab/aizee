@@ -179,8 +179,9 @@ def test_direct_repeated_moving_goal_keeps_bounded_motion_and_loss_requires_enga
             assert direction * (command['position']-previous['position']) > 0
             assert direction * (goal-command['position']) >= -1e-12
             assert direction * command['velocity'] > 0
-            assert command['velocity'] == pytest.approx(
-                (command['position']-previous['position']) / core.period_s)
+            # Unramped direct control feeds the commands' smoothed speed forward (test_velocity_feedforward), not
+            # one cycle's step: a repeated sample keeps it, in the direction of travel, within every bound.
+            assert joint['velocity_feedforward'] is True
             assert abs(command['velocity']) <= joint['max_velocity'] + 1e-9
             assert abs(command['velocity']) <= abs(previous['velocity']) + (
                 joint['approach']['stop_acceleration'] * core.period_s) + 1e-9

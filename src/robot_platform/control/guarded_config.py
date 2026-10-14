@@ -180,6 +180,7 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
     receiver = profile['receiver']
     disabled = receiver.get('collision_mode') == 'disabled'
     position_only = disabled and receiver.get('direct', {}).get('position_only', False)
+    feedforward = disabled and not position_only and int(receiver.get('interpolation_ms', 0)) == 0
     if disabled and (backend is not None or collision_bound is not None or receiver.get('collision')):
         raise ValueError('Disabled collision mode must not carry a collision backend or policy')
     if not disabled and backend is None:
@@ -260,6 +261,9 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
                           'interpolation_s': 0. if gripper else interpolation_ms / 1000, 'friction_nm': friction,
                           'direct_velocity': disabled and not gripper,
                           'position_only': position_only,
+                          # Direct and unramped, not position-only: a smoothed velocity is fed forward, so Kd damps
+                          # the joint about its command's speed instead of dragging it (teleop.lifecycle FEED_SAMPLES).
+                          'velocity_feedforward': feedforward and not gripper,
                           'inertia': inertia,
                           # Gravity feed-forward: [(coefficient, {motor: multiplier})], control.gravity.
                           'gravity': [[coefficient, angle] for coefficient, angle in terms.get(name, [])],
@@ -274,11 +278,12 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
         report.append({'motor': name, 'cad_joint': cad_joint, 'scale': row['scale'], 'offset': row['offset'],
                        'swept': [saved['min_rad'], saved['max_rad']], 'cad': cad_motor,
                        'operational': [lower, upper], 'usable': list(usable), 'reserve': margin,
-                       'receiver_cap': float(speed), 'friction_ff': 0. if position_only else friction,
+                       'receiver_cap': float(speed), 'friction_ff': 0. if position_only or feedforward else friction,
                        'gravity_ff': bool(terms.get(name)),
                        'receiver': [bounds['lower'], bounds['upper']],
                        'home': home, 'direction_verified': verified.get(name, False), 'servo_calibrated': calibrated,
                        'control_law': 'direct-position-only' if position_only else
+                                      'direct-velocity-feedforward' if feedforward else
                                       'direct-feedforward' if disabled else CONTROL_LAW,
                        'speed_qualified_for_control_law': bool(calibrated and not disabled and
                            (((servo or {}).get('joints') or {}).get(name) or {}).get('control') == CONTROL_LAW),
