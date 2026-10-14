@@ -29,6 +29,33 @@ from robot_platform.helm.teleop import TeleopCore, run_loop
 from robot_platform.teleop.latency import distribution, summarize
 
 
+def velocity_output(following, lifecycle):
+    """The velocity each following cycle sent, against the profile's law. Position-only: none at all. Velocity
+    fed forward: none for a gripper, within each joint's cap, and never dropping to zero for a cycle while its
+    command keeps moving one way (2026-10-10: a repeated leader sample zeroed one cycle's step and pulsed the
+    drives)."""
+    if not any(j.get('velocity_feedforward') for j in lifecycle):
+        return dict(law='direct-position-only', ok=bool(following) and all(
+            r.get('commanded_velocity') and all(v==0 for v in r['commanded_velocity']) for r in following))
+    rows=[r for r in following if r.get('accepted') and r.get('commanded') and r.get('commanded_velocity')]
+    drops=over=gripper=0
+    largest={}
+    for i,joint in enumerate(lifecycle):
+        v=[r['commanded_velocity'][i] for r in rows]
+        q=[r['commanded'][i] for r in rows]
+        if not joint.get('velocity_feedforward'):
+            gripper+=sum(x!=0 for x in v)
+            continue
+        over+=sum(abs(x)>joint['max_velocity']+1e-9 for x in v)
+        for k in range(1,len(q)-1):
+            before,after=q[k]-q[k-1],q[k+1]-q[k]
+            if v[k]==0 and v[k-1]!=0 and before*after>0 and min(abs(before),abs(after))>1e-6:
+                drops+=1
+        largest[joint['name']]=max((abs(b-a) for a,b in zip(v,v[1:])),default=0.)
+    return dict(law='direct-velocity-feedforward',ok=bool(rows) and not (drops or over or gripper),
+                zero_drops_while_moving=drops,over_cap=over,gripper_velocity=gripper,largest_cycle_change_rad_s=largest)
+
+
 def assert_namespace():
     rows=json.loads(subprocess.check_output(['ip','-details','-json','link']))
     if ({row['ifname'] for row in rows}!={'lo','vcanDirectL','vcanDirectR'} or
@@ -353,8 +380,8 @@ def main():
             return receiver
         def no_geometry(_): raise RuntimeError('Direct qualification attempted collision geometry')
         core=Core(bundle,open_leaders=open_source,open_receiver=open_receiver,open_backend=no_geometry)
-        if core.period_s!=.01 or not core.profile.get('manual_tuning') or not core.profile['receiver']['direct'].get('position_only'):
-            raise ValueError('Expected manual position-only 100 Hz profile')
+        if core.period_s!=.01 or not core.profile.get('manual_tuning') or not core.profile['receiver'].get('direct'):
+            raise ValueError('Expected a manual direct 100 Hz profile')
         core.scheduling['loop']=prefer_responsive()
         driver=Driver(core,args.seconds,args.arm); core.driver=driver
         reader,writer=Pipe(duplex=False)
@@ -416,7 +443,7 @@ def main():
         report['powered_scheduled_misses']=sum(bool(r.get('scheduled_deadline_miss')) for r in powered)
         report['powered_skipped_slots']=sum(r.get('skipped_slots',0) for r in powered)
         report['views_and_replies']=messages
-        report['position_only_output']=bool(following) and all(r.get('commanded_velocity') and all(v==0 for v in r['commanded_velocity']) for r in following)
+        report['velocity_output']=velocity_output(following,core.derived['lifecycle'] if core and core.derived else [])
         stages=Counter(r.get('scripted_source_stage') for r in following)
         commands=[r['commanded'] for r in following if r.get('accepted') and r.get('commanded')]
         names=[j['name'] for j in core.derived['config']['joints']] if core and core.derived else []
@@ -443,7 +470,7 @@ def main():
             and report.get('final_state')=='DISABLED' and report.get('final_snapshot',{}).get('hardware_enabled') is False
             and report['long_following_duration_s']>=120 and len(driver.checks)==5 and all(c['passed'] for c in driver.checks)
             and driver.engaged_rejection_seen and len(receiver.tuning_requests)==2
-            and timing['receiver_unobserved_targets']==0 and report['position_only_output'] and movement)
+            and timing['receiver_unobserved_targets']==0 and report['velocity_output']['ok'] and movement)
         (out/'report.json').write_text(json.dumps(report,indent=2,allow_nan=False)+'\n')
     print(json.dumps({k:report[k] for k in ('complete','failure','long_following_duration_s','processing_target_met','scheduling_target_met','fault_cycle_max_ms')},indent=2))
     return 0 if report['complete'] and report['processing_target_met'] and report['scheduling_target_met'] else 1

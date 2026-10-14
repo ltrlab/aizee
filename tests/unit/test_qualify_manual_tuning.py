@@ -37,3 +37,21 @@ def test_one_arm_qualification_keeps_its_original_tuning_step():
     assert rows['right_arm_j1'] == dict(motor='right_arm_j1', kp=100., kd=5., speed=.05, follow=False, travel_rad=None)
     _, _, invalid = qualify.Driver(core(), 125).tune('invalid')
     assert next(r for r in invalid['joints'] if r['motor'] == 'left_arm_j1')['kd'] == -1.
+
+
+def test_the_velocity_check_follows_the_profiles_law():
+    record = lambda q, v: dict(accepted=True, commanded=list(q), commanded_velocity=list(v))
+    arm = dict(name='left_arm_j1', max_velocity=1., velocity_feedforward=True)
+    gripper = dict(name='left_gripper', max_velocity=10., velocity_feedforward=False)
+    smooth = [record((.01 * k, 0.), (.5, 0.)) for k in range(6)]
+    assert qualify.velocity_output(smooth, [arm, gripper])['ok']
+    # A cycle whose velocity drops to zero while its command keeps moving one way: the 2026-10-10 pulse.
+    dropped = [record((.01 * k, 0.), (0. if k == 3 else .5, 0.)) for k in range(6)]
+    assert qualify.velocity_output(dropped, [arm, gripper])['zero_drops_while_moving'] == 1
+    assert not qualify.velocity_output(dropped, [arm, gripper])['ok']
+    assert not qualify.velocity_output([record((0., 0.), (1.5, 0.))] * 2, [arm, gripper])['ok']  # Over its cap.
+    assert not qualify.velocity_output([record((0., 0.), (0., .1))] * 2, [arm, gripper])['ok']  # A gripper's.
+    # Position-only: nothing but zero.
+    position = [dict(arm, velocity_feedforward=False), gripper]
+    assert qualify.velocity_output([record((0., 0.), (0., 0.))], position) == dict(law='direct-position-only', ok=True)
+    assert not qualify.velocity_output(smooth, position)['ok']
