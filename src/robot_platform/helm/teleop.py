@@ -16,6 +16,7 @@ the teleop profile plus local operator edits.
 from collections import deque
 from copy import deepcopy
 import gc
+import hashlib
 import itertools
 import json
 import multiprocessing
@@ -129,13 +130,23 @@ def routes_path(runs, asset_id):
     return Path(runs).resolve() / (asset_id + '-teleop') / 'routes.json'
 
 
+def routes_sha256(profile):
+    """The digest of a profile's route definitions."""
+    return hashlib.sha256(json.dumps(profile.get('routes') or {}, sort_keys=True, separators=(',', ':'))
+                          .encode()).hexdigest()
+
+
 def load_route_edits(path, profile, asset_id):
-    """Operator route edits ({motor: {sign, verified, history}}) saved by Helm for this profile and robot."""
+    """Operator route edits ({motor: {sign, verified, history}}) saved by Helm for this robot and these route
+    definitions. Profiles with the same routes share them (the position-only and velocity feed-forward tuning
+    profiles run from one folder), so a sign verified in one Helm holds in the other. A file saved without the
+    routes' digest is taken only by the profile that saved it."""
     path = Path(path)
     if not path.is_file():
         return {}
     data = json.loads(path.read_text(encoding='utf-8'))
-    if data.get('profile') != profile['id'] or data.get('asset_id') != asset_id:
+    shared = data.get('routes_sha256') == routes_sha256(profile)
+    if data.get('asset_id') != asset_id or not (shared or data.get('profile') == profile['id']):
         raise ValueError(f'{path} belongs to another teleop profile')
     # Trigger edits from the old released-opens mapping ('squeeze_sign') meant
     # something else; those grippers need verifying again.
@@ -145,8 +156,8 @@ def load_route_edits(path, profile, asset_id):
 def save_route_edits(path, profile, asset_id, edits):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    save_json(path, {'schema': 1, 'profile': profile['id'], 'asset_id': asset_id, 'runtime_approved': False,
-                     'routes': edits})
+    save_json(path, {'schema': 1, 'profile': profile['id'], 'routes_sha256': routes_sha256(profile),
+                     'asset_id': asset_id, 'runtime_approved': False, 'routes': edits})
 
 
 def merge_routes(routes, edits):

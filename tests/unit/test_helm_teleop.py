@@ -108,6 +108,31 @@ def test_route_edits_persist_per_profile_and_asset(tmp_path):
         core(tmp_path, asset='other-robot')
 
 
+def test_profiles_with_the_same_routes_share_their_edits_in_one_folder(tmp_path):
+    """The position-only and velocity feed-forward tuning profiles run from one folder: a sign verified under one
+    holds under the other. Other routes, or a file saved before the routes' digest, stay the saving profile's."""
+    from robot_platform.helm.teleop import load_route_edits, routes_sha256, save_route_edits
+    path = tmp_path / 'teleop' / 'routes.json'
+    profile = json.loads(TELEOP.read_text(encoding='utf-8'))
+    twin = dict(profile, id='twin-teleop')
+    other = dict(profile, id='other-teleop', routes=dict(profile['routes'], left_arm_j2=dict(
+        profile['routes']['left_arm_j2'], channel=5)))
+    edits = {'left_arm_j2': {'sign': 1, 'verified': True, 'history': [{'action': 'flip'}]}}
+    save_route_edits(path, profile, 'minerva-production-01', edits)
+    assert json.loads(path.read_text(encoding='utf-8'))['routes_sha256'] == routes_sha256(twin)
+    assert load_route_edits(path, twin, 'minerva-production-01') == edits
+    save_route_edits(path, twin, 'minerva-production-01', {**edits, 'left_arm_j3': {'sign': -1, 'verified': True}})
+    assert set(load_route_edits(path, profile, 'minerva-production-01')) == {'left_arm_j2', 'left_arm_j3'}
+    with pytest.raises(ValueError, match='another teleop profile'):
+        load_route_edits(path, other, 'minerva-production-01')
+    legacy = json.loads(path.read_text(encoding='utf-8'))
+    del legacy['routes_sha256']
+    path.write_text(json.dumps(legacy), encoding='utf-8')
+    assert set(load_route_edits(path, twin, 'minerva-production-01')) == {'left_arm_j2', 'left_arm_j3'}  # Its own.
+    with pytest.raises(ValueError, match='another teleop profile'):
+        load_route_edits(path, profile, 'minerva-production-01')
+
+
 def test_trigger_edits_from_the_released_opens_mapping_are_dropped(tmp_path):
     path = tmp_path / 'teleop' / 'routes.json'
     path.parent.mkdir()
