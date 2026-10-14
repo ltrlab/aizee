@@ -134,18 +134,66 @@ def _inertials(root):
     return result
 
 
-def build_mjcf(profile, output, *, meshes=True):
+def swept_ranges(limits, directions):
+    """Model-joint ranges from Helm's hand-swept joint limits.
+
+    `limits` is the saved joint_limit_calibration (motor radians from the mechanical
+    zero, swept by hand with the motors disabled). `directions` is Helm's direction
+    session: its preview_mapping gives each model joint's motor and model = sign *
+    motor + offset, as the receiver's cad_map applies it. Every direction must be
+    confirmed. The swept ends are the range exactly; the receiver's overtravel
+    allowance is a fault margin, not travel.
+    """
+    if limits.get('kind') != 'joint_limit_calibration' or limits.get('units') != 'motor_rad_from_mechanical_zero':
+        raise ValueError('Expected a hand-swept joint_limit_calibration in motor radians')
+    bindings = directions.get('bindings') or {}
+    if limits.get('reference_sha256') != bindings.get('reference'):
+        raise ValueError('The swept limits and the direction session are bound to different mechanical zeros')
+    ranges = {}
+    for joint, row in sorted((directions.get('preview_mapping') or {}).items()):
+        if row.get('direction_verified') is not True:
+            raise ValueError(f'{joint}: its motor direction is not confirmed in Helm')
+        sign, offset = row.get('sign'), row.get('offset_rad')
+        if sign not in (-1, 1) or type(offset) not in (int, float) or not math.isfinite(offset):
+            raise ValueError(f'{joint}: invalid direction mapping')
+        saved = limits['joints'].get(row['motor'])
+        if saved is None:
+            raise ValueError(f"{row['motor']}: no swept limits; sweep it in Helm")
+        swept = [float(saved['min_rad']), float(saved['max_rad'])]
+        if not all(map(math.isfinite, swept)) or swept[0] >= swept[1]:
+            raise ValueError(f"{row['motor']}: invalid swept limits")
+        ranges[joint] = {'motor': row['motor'], 'sign': sign, 'offset_rad': float(offset),
+                         'swept_motor_rad': swept, 'range': sorted(sign * q + offset for q in swept)}
+    if not ranges:
+        raise ValueError('The direction session maps no joints')
+    source = {'limits': {k: limits.get(k) for k in ('asset_id', 'reference', 'reference_sha256',
+                                                     'model_revision', 'updated_at', 'method')},
+              'directions': {'bindings': bindings}}
+    return {'ranges': ranges, 'source': source}
+
+
+def build_mjcf(profile, output, *, meshes=True, swept=None):
     """Return (MJCF text, manifest, derived meshes) for writing at `output`.
 
     Reads only. Derived meshes map a path relative to the output directory to its
     bytes: a lossless OBJ for each STL over MuJoCo's face limit. `meshes=False`
     keeps bodies, joints, inertials and constraints only: the same kinematic tree
-    without loading CAD, for fast frame comparisons.
+    without loading CAD, for fast frame comparisons. `swept` (from swept_ranges)
+    replaces those joints' URDF ranges with their hand-swept travel.
     """
     output = Path(output).resolve()
     model = UrdfModel(profile, apply_review=False)
     raw = profile.urdf.read_bytes()
     root = ET.fromstring(raw)
+    ranges = {}
+    if swept is not None:
+        ranges = {joint: entry['range'] for joint, entry in swept['ranges'].items()}
+        bindings = swept['source']['directions']['bindings']
+        if swept['source']['limits']['model_revision'] != model.sha256 or bindings.get('model') != model.sha256:
+            raise ValueError('The swept limits or directions were recorded against another URDF revision')
+        for joint in ranges:
+            if joint not in model.independent or model.by_name[joint]['type'] not in ('revolute', 'continuous'):
+                raise ValueError(f'{joint}: swept ranges apply to independent revolute model joints')
     inertials = _inertials(root)
     by_child = {j['child']: j for j in model.joints}
     children = {name: [] for name in model.links}
@@ -235,7 +283,9 @@ def build_mjcf(profile, output, *, meshes=True):
                 element = ET.SubElement(body, 'joint', name=joint['name'],
                                         type='slide' if joint['type'] == 'prismatic' else 'hinge',
                                         axis=text(joint['axis']))
-                if joint['bounds'] is not None:
+                if joint['name'] in ranges:
+                    element.set('range', text(ranges[joint['name']]))
+                elif joint['bounds'] is not None:
                     element.set('range', text(joint['bounds']))
         if link in inertials:
             values = inertials[link]
@@ -275,8 +325,13 @@ def build_mjcf(profile, output, *, meshes=True):
         'mimic_equalities': [{'follower': j['name'], 'source': j['mimic']['joint'],
                               'multiplier': j['mimic']['multiplier'], 'offset': j['mimic']['offset']}
                              for j in mimics],
+        'joint_ranges': {j['name']: ({'source': 'helm_swept', **swept['ranges'][j['name']]} if j['name'] in ranges
+                                     else {'source': 'urdf', 'range': j['bounds']})
+                         for j in model.joints if j['type'] != 'fixed'},
+        'range_source': swept['source'] if swept is not None else None,
         'assumptions': ['mimic couplings are rigid: stiffest stable equality, no backlash or compliance',
-                        'joint ranges are the URDF limits, not measured hard stops',
+                        'helm_swept ranges are the hand-swept ends exactly (motors disabled); a sweep can '
+                        'only fall short of a hard stop, never pass it; urdf ranges are CAD limits',
                         'gravity is -Z in the URDF root frame; the mounting pose is unverified'],
         'placeholder_inertial_links': placeholders,
         'physical_validation': 'unvalidated',
@@ -288,11 +343,11 @@ def build_mjcf(profile, output, *, meshes=True):
     return xml, manifest, derived
 
 
-def write_mjcf(profile, output, *, meshes=True):
+def write_mjcf(profile, output, *, meshes=True, swept=None):
     """Write a new MJCF, its derived meshes and manifest; refuses to overwrite any."""
     output = Path(output).resolve()
     manifest_path = output.with_suffix('.manifest.json')
-    xml, manifest, derived = build_mjcf(profile, output, meshes=meshes)
+    xml, manifest, derived = build_mjcf(profile, output, meshes=meshes, swept=swept)
     targets = [output, manifest_path, *(output.parent / name for name in derived)]
     if any(path.exists() for path in targets):
         raise FileExistsError('Refusing to overwrite an MJCF export; write a new revision directory')
@@ -313,8 +368,17 @@ def main():
     parser.add_argument('profile', type=Path, help='model.json profile (for example urdf/minerva/model.json)')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--no-meshes', action='store_true', help='kinematic tree only')
+    parser.add_argument('--limits', type=Path, help="Helm's saved joint limits (config/devices/<asset>-joint-limits.json)")
+    parser.add_argument('--directions', type=Path,
+                        help="Helm's direction session (calibration_runs/<asset>-directions/session.json)")
     args = parser.parse_args()
-    manifest = write_mjcf(ModelProfile.load(args.profile), args.output, meshes=not args.no_meshes)
+    if (args.limits is None) != (args.directions is None):
+        parser.error('--limits and --directions go together')
+    swept = None
+    if args.limits:
+        swept = swept_ranges(json.loads(args.limits.read_text(encoding='utf-8')),
+                             json.loads(args.directions.read_text(encoding='utf-8')))
+    manifest = write_mjcf(ModelProfile.load(args.profile), args.output, meshes=not args.no_meshes, swept=swept)
     print(json.dumps({k: manifest[k] for k in ('mjcf_sha256', 'dynamics_usable', 'physical_validation')}))
     return 0
 

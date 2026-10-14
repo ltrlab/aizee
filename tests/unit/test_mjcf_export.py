@@ -16,7 +16,7 @@ mujoco = pytest.importorskip('mujoco')
 
 from robot_platform.models import ModelProfile, UrdfModel
 from robot_platform.models import mjcf
-from robot_platform.models.mjcf import build_mjcf, stl_to_obj, write_mjcf
+from robot_platform.models.mjcf import build_mjcf, stl_to_obj, swept_ranges, write_mjcf
 from robot_platform.models.urdf import asset_digest
 from robot_platform.simulation.collision import CollisionScene
 from robot_platform.simulation.mujoco_plant import JointBinding, MujocoPlant
@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / 'tests/fixtures/physics'
 MINERVA = ROOT / 'urdf/minerva/model.json'
 MINERVA_MJCF = ROOT / 'urdf/minerva/mujoco/minerva.xml'
+MINERVA_LIMITS = ROOT / 'config/devices/minerva-production-01-joint-limits.json'
 # Declared before comparing: frames are copied, so only rounding error is allowed.
 FRAME_TOLERANCE = 1e-9
 # MuJoCo stores mesh vertices as float32 about the mesh centroid.
@@ -208,10 +209,20 @@ def assert_same_tree(actual, expected, path='mujoco'):
         assert_same_tree(a, e, f"{path}/{e[1].get('name', e[0])}")
 
 
+def committed_swept(manifest):
+    """The swept input the committed export was built from: Helm's direction session is
+    local state, so its bindings and confirmed mapping are kept in the manifest."""
+    mapping = {joint: {'motor': entry['motor'], 'sign': entry['sign'], 'offset_rad': entry['offset_rad'],
+                       'direction_verified': True}
+               for joint, entry in manifest['joint_ranges'].items() if entry['source'] == 'helm_swept'}
+    directions = {'bindings': manifest['range_source']['directions']['bindings'], 'preview_mapping': mapping}
+    return swept_ranges(json.loads(MINERVA_LIMITS.read_text(encoding='utf-8')), directions)
+
+
 def test_committed_minerva_mjcf_is_current_and_its_assets_match_the_manifest(tmp_path):
     profile = ModelProfile.load(MINERVA)
-    xml, expected, derived = build_mjcf(profile, MINERVA_MJCF)
     manifest = json.loads(MINERVA_MJCF.with_suffix('.manifest.json').read_text(encoding='utf-8'))
+    xml, expected, derived = build_mjcf(profile, MINERVA_MJCF, swept=committed_swept(manifest))
     # Text is compared numerically: last-digit libm differences are not drift.
     assert_same_tree(numeric_tree(ET.fromstring(MINERVA_MJCF.read_bytes())), numeric_tree(ET.fromstring(xml)))
     assert {k: v for k, v in manifest.items() if k != 'mjcf_sha256'} == {
@@ -256,3 +267,61 @@ def test_committed_minerva_meshes_land_where_the_urdf_puts_them():
                                    rtol=0, atol=VERTEX_TOLERANCE_M)
         checked += 1
     assert checked == model.ngeom == 220
+
+
+def fixture_swept(sign=-1, verified=True, reference='zero-a', model=None):
+    urdf = UrdfModel(ModelProfile.from_urdf(FIXTURES / 'coupled_jaws.urdf'), apply_review=False)
+    limits = {'kind': 'joint_limit_calibration', 'units': 'motor_rad_from_mechanical_zero',
+              'reference_sha256': 'zero-a', 'model_revision': model or urdf.sha256,
+              'joints': {'hinge_motor': {'min_rad': -.4, 'max_rad': 1.25}}}
+    directions = {'bindings': {'reference': reference, 'model': model or urdf.sha256},
+                  'preview_mapping': {'hinge': {'motor': 'hinge_motor', 'sign': sign, 'offset_rad': .1,
+                                                'direction_verified': verified}}}
+    return limits, directions
+
+
+@pytest.mark.parametrize('sign, expected', [(1, (-.3, 1.35)), (-1, (-1.15, .5))])
+def test_swept_motor_limits_become_model_ranges_through_the_confirmed_direction(tmp_path, sign, expected):
+    swept = swept_ranges(*fixture_swept(sign))
+    xml, manifest, _ = build_mjcf(ModelProfile.from_urdf(FIXTURES / 'coupled_jaws.urdf'), tmp_path / 'model.xml',
+                                  swept=swept)
+    model = load(xml, tmp_path)
+    hinge = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, 'hinge')
+    # model = sign * motor + offset; a reversed joint swaps its ends.
+    assert tuple(model.jnt_range[hinge]) == pytest.approx(expected, abs=1e-15)
+    entry = dict(manifest['joint_ranges']['hinge'])
+    assert entry.pop('range') == pytest.approx(expected, abs=1e-15)
+    assert entry == {'source': 'helm_swept', 'motor': 'hinge_motor', 'sign': sign, 'offset_rad': .1,
+                     'swept_motor_rad': [-.4, 1.25]}
+    slide = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, 'slide_a')
+    assert tuple(model.jnt_range[slide]) == (0, .04) and manifest['joint_ranges']['slide_a']['source'] == 'urdf'
+
+
+@pytest.mark.parametrize('change, message', [
+    (dict(verified=False), 'not confirmed'),
+    (dict(reference='zero-b'), 'different mechanical zeros'),
+    (dict(model='another-urdf'), 'another URDF revision'),
+])
+def test_swept_ranges_refuse_unconfirmed_or_mismatched_calibration(tmp_path, change, message):
+    with pytest.raises(ValueError, match=message):
+        swept = swept_ranges(*fixture_swept(**change))
+        build_mjcf(ModelProfile.from_urdf(FIXTURES / 'coupled_jaws.urdf'), tmp_path / 'model.xml', swept=swept)
+
+
+def test_committed_minerva_arm_ranges_are_helms_swept_travel():
+    manifest = json.loads(MINERVA_MJCF.with_suffix('.manifest.json').read_text(encoding='utf-8'))
+    limits = json.loads(MINERVA_LIMITS.read_text(encoding='utf-8'))
+    model = mujoco.MjModel.from_xml_path(str(MINERVA_MJCF))
+    urdf = UrdfModel(ModelProfile.load(MINERVA), apply_review=False)
+    swept = {j: e for j, e in manifest['joint_ranges'].items() if e['source'] == 'helm_swept'}
+    assert sorted(swept) == sorted(f'{side}_arm_j{i}' for side in ('left', 'right') for i in range(1, 7))
+    assert manifest['range_source']['limits']['reference_sha256'] == limits['reference_sha256']
+    for joint, entry in manifest['joint_ranges'].items():
+        index = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, joint)
+        if entry['source'] == 'helm_swept':
+            saved = limits['joints'][entry['motor']]
+            assert entry['swept_motor_rad'] == [saved['min_rad'], saved['max_rad']]
+            ends = sorted(entry['sign'] * q + entry['offset_rad'] for q in entry['swept_motor_rad'])
+        else:  # The jaws keep their CAD stroke: their motor-to-jaw scale is unverified.
+            ends = urdf.by_name[joint]['bounds']
+        assert tuple(model.jnt_range[index]) == pytest.approx(ends, abs=1e-12), joint

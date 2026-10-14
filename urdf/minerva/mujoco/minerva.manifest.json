@@ -5,7 +5,7 @@
   "model_id": "minerva",
   "source_urdf": "../minerva.urdf",
   "source_urdf_sha256": "792f32da597821bbab4d7e65365618519159ecbc657744133196325eaafddcf8",
-  "mjcf_sha256": "ef09975c3da3ded629c2a7a8e6dfa5660278ddb756a9fa4be3f823e38b5d1fa6",
+  "mjcf_sha256": "774a3eb8d0527cb118492cc6c04068e65e6929a899c1e34ce75f5a1c48d24c09",
   "meshes_included": true,
   "mesh_assets": [
     {
@@ -937,9 +937,226 @@
       "offset": 0.0
     }
   ],
+  "joint_ranges": {
+    "right_gripper_finger_a_slide": {
+      "source": "urdf",
+      "range": [
+        -0.0482,
+        -0.0
+      ]
+    },
+    "right_gripper_finger_b_slide": {
+      "source": "urdf",
+      "range": [
+        -0.0482,
+        -0.0
+      ]
+    },
+    "right_arm_j6": {
+      "source": "helm_swept",
+      "motor": "right_arm_j6",
+      "sign": 1,
+      "offset_rad": -0.0,
+      "swept_motor_rad": [
+        -0.9354215860366821,
+        0.972505509853363
+      ],
+      "range": [
+        -0.9354215860366821,
+        0.972505509853363
+      ]
+    },
+    "right_arm_j5": {
+      "source": "helm_swept",
+      "motor": "right_arm_j5",
+      "sign": 1,
+      "offset_rad": -0.0,
+      "swept_motor_rad": [
+        -3.413008213043213,
+        3.238481044769287
+      ],
+      "range": [
+        -3.413008213043213,
+        3.238481044769287
+      ]
+    },
+    "right_arm_j4": {
+      "source": "helm_swept",
+      "motor": "right_arm_j4",
+      "sign": -1,
+      "offset_rad": 0.0,
+      "swept_motor_rad": [
+        -1.494493007659912,
+        1.8270206451416016
+      ],
+      "range": [
+        -1.8270206451416016,
+        1.494493007659912
+      ]
+    },
+    "right_arm_j3": {
+      "source": "helm_swept",
+      "motor": "right_arm_j3",
+      "sign": -1,
+      "offset_rad": 0.0,
+      "swept_motor_rad": [
+        -2.151535987854004,
+        2.0244712829589844
+      ],
+      "range": [
+        -2.0244712829589844,
+        2.151535987854004
+      ]
+    },
+    "right_arm_j2": {
+      "source": "helm_swept",
+      "motor": "right_arm_j2",
+      "sign": 1,
+      "offset_rad": -0.0,
+      "swept_motor_rad": [
+        -1.5632119178771973,
+        1.6146000623703003
+      ],
+      "range": [
+        -1.5632119178771973,
+        1.6146000623703003
+      ]
+    },
+    "right_arm_j1": {
+      "source": "helm_swept",
+      "motor": "right_arm_j1",
+      "sign": -1,
+      "offset_rad": 0.0,
+      "swept_motor_rad": [
+        -0.8291166424751282,
+        1.6113617420196533
+      ],
+      "range": [
+        -1.6113617420196533,
+        0.8291166424751282
+      ]
+    },
+    "left_gripper_finger_a_slide": {
+      "source": "urdf",
+      "range": [
+        0.0,
+        0.0482
+      ]
+    },
+    "left_gripper_finger_b_slide": {
+      "source": "urdf",
+      "range": [
+        0.0,
+        0.0482
+      ]
+    },
+    "left_arm_j6": {
+      "source": "helm_swept",
+      "motor": "left_arm_j6",
+      "sign": 1,
+      "offset_rad": -0.0,
+      "swept_motor_rad": [
+        -1.1626040935516357,
+        1.0664618015289307
+      ],
+      "range": [
+        -1.1626040935516357,
+        1.0664618015289307
+      ]
+    },
+    "left_arm_j5": {
+      "source": "helm_swept",
+      "motor": "left_arm_j5",
+      "sign": 1,
+      "offset_rad": -0.0,
+      "swept_motor_rad": [
+        -3.2739601135253906,
+        3.267181396484375
+      ],
+      "range": [
+        -3.2739601135253906,
+        3.267181396484375
+      ]
+    },
+    "left_arm_j4": {
+      "source": "helm_swept",
+      "motor": "left_arm_j4",
+      "sign": 1,
+      "offset_rad": -0.0,
+      "swept_motor_rad": [
+        -1.1223297119140625,
+        1.281913161277771
+      ],
+      "range": [
+        -1.1223297119140625,
+        1.281913161277771
+      ]
+    },
+    "left_arm_j3": {
+      "source": "helm_swept",
+      "motor": "left_arm_j3",
+      "sign": 1,
+      "offset_rad": -0.0,
+      "swept_motor_rad": [
+        -2.0507619380950928,
+        2.1325316429138184
+      ],
+      "range": [
+        -2.0507619380950928,
+        2.1325316429138184
+      ]
+    },
+    "left_arm_j2": {
+      "source": "helm_swept",
+      "motor": "left_arm_j2",
+      "sign": 1,
+      "offset_rad": -0.0,
+      "swept_motor_rad": [
+        -1.600283145904541,
+        1.5730122327804565
+      ],
+      "range": [
+        -1.600283145904541,
+        1.5730122327804565
+      ]
+    },
+    "left_arm_j1": {
+      "source": "helm_swept",
+      "motor": "left_arm_j1",
+      "sign": 1,
+      "offset_rad": -0.0,
+      "swept_motor_rad": [
+        -1.5566496849060059,
+        0.8424964547157288
+      ],
+      "range": [
+        -1.5566496849060059,
+        0.8424964547157288
+      ]
+    }
+  },
+  "range_source": {
+    "limits": {
+      "asset_id": "minerva-production-01",
+      "reference": "minerva-mechanical-reference-20261009",
+      "reference_sha256": "fd9f5a401d1288cd601ce0f5b13b5f66bff2aed3ee78daa45c5ab89f425c1e5a",
+      "model_revision": "792f32da597821bbab4d7e65365618519159ecbc657744133196325eaafddcf8",
+      "updated_at": "2026-09-26T03:00:04.414136+00:00",
+      "method": "Operator hand sweep with motors disabled (stopped reads only). An end of travel counts after two consecutive complete scans agree on it."
+    },
+    "directions": {
+      "bindings": {
+        "plan": "15fd6ad45cfc5a8bc7c9bfa100861352a1553f21712bace525c282200ab5bdd0",
+        "device": "df18344dee90e6ef14f9bd1d1fe0cc801dca174ce66a92d46c970d98c45cb6f4",
+        "reference": "fd9f5a401d1288cd601ce0f5b13b5f66bff2aed3ee78daa45c5ab89f425c1e5a",
+        "model": "792f32da597821bbab4d7e65365618519159ecbc657744133196325eaafddcf8",
+        "model_profile": "01be559e67ff11c57249093908fed08fcf170d197c7b83ffd4accda8894d696c"
+      }
+    }
+  },
   "assumptions": [
     "mimic couplings are rigid: stiffest stable equality, no backlash or compliance",
-    "joint ranges are the URDF limits, not measured hard stops",
+    "helm_swept ranges are the hand-swept ends exactly (motors disabled); a sweep can only fall short of a hard stop, never pass it; urdf ranges are CAD limits",
     "gravity is -Z in the URDF root frame; the mounting pose is unverified"
   ],
   "placeholder_inertial_links": [

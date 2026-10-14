@@ -243,7 +243,7 @@
       <geom name="ikea_desk_leg/collision/5" type="mesh" mesh="collision-v1.2/meshes/part_152" pos="-0.0 0.0 1.24767" group="3" contype="0" conaffinity="0" />
       <geom name="ikea_desk_leg/collision/6" type="mesh" mesh="collision-v1.2/meshes/ikea_desk_leg" pos="-0.0 0.0 1.24767" group="3" contype="0" conaffinity="0" />
       <body name="bearing" pos="-0.125 0.0 1.09542" quat="1.3267948966775328e-06 -0.9999999999991198 -0.0 -0.0">
-        <joint name="right_arm_j1" type="hinge" axis="0.0 0.0 1.0" range="-3.141592653589793 3.141592653589793" />
+        <joint name="right_arm_j1" type="hinge" axis="0.0 0.0 1.0" range="-1.6113617420196533 0.8291166424751282" />
         <inertial pos="0.0 0.0 0.0" mass="1e-09" fullinertia="1e-09 1e-09 1e-09 0.0 0.0 0.0" />
         <geom name="bearing/visual/0" type="mesh" mesh="onshape-to-robot/meshes/rb04_motor_body" pos="0.125 0.0 -0.15225" quat="1.3267948966775328e-06 0.9999999999991198 -0.0 0.0" group="2" contype="0" conaffinity="0" rgba="0.160784 0.160784 0.160784 1.0" />
         <geom name="bearing/visual/1" type="mesh" mesh="onshape-to-robot/meshes/rb04_wire_bearing_mount" pos="0.125 0.0 -0.15225" quat="1.3267948966775328e-06 0.9999999999991198 -0.0 0.0" group="2" contype="0" conaffinity="0" rgba="0.160784 0.160784 0.160784 1.0" />
@@ -267,7 +267,7 @@
         <geom name="bearing/collision/5" type="mesh" mesh="collision-v1.2/meshes/rb03_wire_bearing_output_mount" pos="0.125 0.0 -0.15225" quat="1.3267948966775328e-06 0.9999999999991198 -0.0 0.0" group="3" contype="0" conaffinity="0" />
         <geom name="bearing/collision/6" type="mesh" mesh="collision-v1.2/meshes/bearing__3" pos="0.125 0.0 -0.15225" quat="1.3267948966775328e-06 0.9999999999991198 -0.0 0.0" group="3" contype="0" conaffinity="0" />
         <body name="part_66" pos="-0.165639 0.0 0.10673" quat="0.4999981633974483 -0.49999999999662686 0.5000018366025518 -0.49999999999662686">
-          <joint name="right_arm_j2" type="hinge" axis="0.0 0.0 1.0" range="-3.141592653589793 3.141592653589793" />
+          <joint name="right_arm_j2" type="hinge" axis="0.0 0.0 1.0" range="-1.5632119178771973 1.6146000623703003" />
           <inertial pos="0.0 0.0 0.0" mass="1e-09" fullinertia="1e-09 1e-09 1e-09 0.0 0.0 0.0" />
           <geom name="part_66/visual/0" type="mesh" mesh="onshape-to-robot/meshes/part_69" pos="0.0 0.25898 0.290639" quat="0.4999981633974483 -0.49999999999662686 -0.49999999999662686 -0.5000018366025518" group="2" contype="0" conaffinity="0" rgba="0.160784 0.160784 0.160784 1.0" />
           <geom name="part_66/visual/1" type="mesh" mesh="onshape-to-robot/meshes/part_71" pos="0.0 0.25898 0.290639" quat="0.4999981633974483 -0.49999999999662686 -0.49999999999662686 -0.5000018366025518" group="2" contype="0" conaffinity="0" rgba="0.160784 0.160784 0.160784 1.0" />
@@ -278,7 +278,7 @@
           <geom name="part_66/collision/2" type="mesh" mesh="collision-v1.2/meshes/part_66" pos="0.0 0.25898 0.290639" quat="0.4999981633974483 -0.49999999999662686 -0.49999999999662686 -0.5000018366025518" group="3" contype="0" conaffinity="0" />
           <geom name="part_66/collision/3" type="mesh" mesh="collision-v1.2/meshes/part_70" pos="0.0 0.25898 0.290639" quat="0.4999981633974483 -0.49999999999662686 -0.49999999999662686 -0.5000018366025518" group="3" contype="0" conaffinity="0" />
           <body name="42x30x7mm_bearing" pos="0.0 -0.325 0.01225">
-            <joint name="right_arm_j3" type="hinge" axis="0.0 0.0 1.0" range="-3.141592653589793 3.141592653589793" />
+            <joint name="right_arm_j3" type="hinge" axis="0.0 0.0 1.0" range="-2.0244712829589844 2.151535987854004" />
             <inertial pos="0.0 0.0 0.0" mass="1e-09" fullinertia="1e-09 1e-09 1e-09 0.0 0.0 0.0" />
             <geom name="42x30x7mm_bearing/visual/0" type="mesh" mesh="onshape-to-robot/meshes/rs02_bearing_mount" pos="-0.0 0.58398 0.278389" quat="0.4999981633974483 -0.49999999999662686 -0.49999999999662686 -0.5000018366025518" group="2" contype="0" conaffinity="0" rgba="0.160784 0.160784 0.160784 1.0" />
             <geom name="42x30x7mm_bearing/visual/1" type="mesh" mesh="onshape-to-robot/meshes/rs02" pos="-0.0 0.58398 0.278389" quat="0.4999981633974483 -0.49999999999662686 -0.49999999999662686 -0.5000018366025518" group="2" contype="0" conaffinity="0" rgba="0.647059 0.647059 0.647059 1.0" />
@@ -302,7 +302,7 @@
             <geom name="42x30x7mm_bearing/collision/7" type="mesh" mesh="collision-v1.2/meshes/rb03_output__2" pos="-0.0 0.58398 0.278389" quat="0.4999981633974483 -0.49999999999662686 -0.49999999999662686 -0.5000018366025518" group="3" contype="0" conaffinity="0" />
             <geom name="42x30x7mm_bearing/collision/8" type="mesh" mesh="collision-v1.2/meshes/42x30x7mm_bearing" pos="-0.0 0.58398 0.278389" quat="0.4999981633974483 -0.49999999999662686 -0.49999999999662686 -0.5000018366025518" group="3" contype="0" conaffinity="0" />
             <body name="part_73" pos="0.0 -0.25 0.0695" quat="1.3267948966775328e-06 -0.9999999999991198 0.0 -0.0">
-              <joint name="right_arm_j4" type="hinge" axis="0.0 0.0 1.0" range="-3.141592653589793 3.141592653589793" />
+              <joint name="right_arm_j4" type="hinge" axis="0.0 0.0 1.0" range="-1.8270206451416016 1.494493007659912" />
               <inertial pos="0.0 0.0 0.0" mass="1e-09" fullinertia="1e-09 1e-09 1e-09 0.0 0.0 0.0" />
               <geom name="part_73/visual/0" type="mesh" mesh="onshape-to-robot/meshes/rs02__2" pos="0.0 -0.83398 -0.208889" quat="0.4999981633974483 0.49999999999662686 0.49999999999662686 -0.5000018366025518" group="2" contype="0" conaffinity="0" rgba="0.647059 0.647059 0.647059 1.0" />
               <geom name="part_73/visual/1" type="mesh" mesh="onshape-to-robot/meshes/rs02_bearing_mount__2" pos="0.0 -0.83398 -0.208889" quat="0.4999981633974483 0.49999999999662686 0.49999999999662686 -0.5000018366025518" group="2" contype="0" conaffinity="0" rgba="0.160784 0.160784 0.160784 1.0" />
@@ -311,7 +311,7 @@
               <geom name="part_73/collision/1" type="mesh" mesh="collision-v1.2/meshes/rs02_bearing_mount__2" pos="0.0 -0.83398 -0.208889" quat="0.4999981633974483 0.49999999999662686 0.49999999999662686 -0.5000018366025518" group="3" contype="0" conaffinity="0" />
               <geom name="part_73/collision/2" type="mesh" mesh="collision-v1.2/meshes/part_73" pos="0.0 -0.83398 -0.208889" quat="0.4999981633974483 0.49999999999662686 0.49999999999662686 -0.5000018366025518" group="3" contype="0" conaffinity="0" />
               <body name="part_42" pos="-0.0 0.1385 0.03175" quat="0.4999981633974483 0.49999999999662686 0.49999999999662686 -0.5000018366025518">
-                <joint name="right_arm_j5" type="hinge" axis="0.0 0.0 1.0" range="-3.141592653589793 3.141592653589793" />
+                <joint name="right_arm_j5" type="hinge" axis="0.0 0.0 1.0" range="-3.413008213043213 3.238481044769287" />
                 <inertial pos="0.0 0.0 0.0" mass="1e-09" fullinertia="1e-09 1e-09 1e-09 0.0 0.0 0.0" />
                 <geom name="part_42/visual/0" type="mesh" mesh="onshape-to-robot/meshes/part_43" pos="0.240639 0.000782 0.97248" group="2" contype="0" conaffinity="0" rgba="0.768627 0.886275 0.952941 1.0" />
                 <geom name="part_42/visual/1" type="mesh" mesh="onshape-to-robot/meshes/rs00" pos="0.240639 0.000782 0.97248" group="2" contype="0" conaffinity="0" rgba="0.160784 0.160784 0.160784 1.0" />
@@ -320,7 +320,7 @@
                 <geom name="part_42/collision/1" type="mesh" mesh="collision-v1.2/meshes/rs00" pos="0.240639 0.000782 0.97248" group="3" contype="0" conaffinity="0" />
                 <geom name="part_42/collision/2" type="mesh" mesh="collision-v1.2/meshes/part_42" pos="0.240639 0.000782 0.97248" group="3" contype="0" conaffinity="0" />
                 <body name="1_1_02_eb571_960_stp" pos="0.0 0.045 -0.0775" quat="0.7071054825112364 -0.7071080798594737 0.0 0.0">
-                  <joint name="right_arm_j6" type="hinge" axis="0.0 0.0 1.0" range="-3.141592653589793 3.141592653589793" />
+                  <joint name="right_arm_j6" type="hinge" axis="0.0 0.0 1.0" range="-0.9354215860366821 0.972505509853363" />
                   <inertial pos="0.0 0.0 0.0" mass="1e-09" fullinertia="1e-09 1e-09 1e-09 0.0 0.0 0.0" />
                   <geom name="1_1_02_eb571_960_stp/visual/0" type="mesh" mesh="onshape-to-robot/meshes/scxxkl_stp" pos="0.240639 -1.04998 -0.044218" quat="0.7071054825112364 0.7071080798594737 0.0 0.0" group="2" contype="0" conaffinity="0" rgba="0.498039 0.498039 0.498039 1.0" />
                   <geom name="1_1_02_eb571_960_stp/visual/1" type="mesh" mesh="onshape-to-robot/meshes/1_1_04_eb572_5105_stp" pos="0.240639 -1.04998 -0.044218" quat="0.7071054825112364 0.7071080798594737 0.0 0.0" group="2" contype="0" conaffinity="0" rgba="0.615686 0.811765 0.929412 1.0" />
@@ -378,7 +378,7 @@
         </body>
       </body>
       <body name="bearing_2" pos="0.125 0.0 1.10517">
-        <joint name="left_arm_j1" type="hinge" axis="0.0 0.0 1.0" range="-3.141592653589793 3.141592653589793" />
+        <joint name="left_arm_j1" type="hinge" axis="0.0 0.0 1.0" range="-1.5566496849060059 0.8424964547157288" />
         <inertial pos="0.0 0.0 0.0" mass="1e-09" fullinertia="1e-09 1e-09 1e-09 0.0 0.0 0.0" />
         <geom name="bearing_2/visual/0" type="mesh" mesh="onshape-to-robot/meshes/rb03_wire_bearing_output_mount__3" pos="-0.125 -0.0 0.1425" group="2" contype="0" conaffinity="0" rgba="0.498039 0.498039 0.498039 1.0" />
         <geom name="bearing_2/visual/1" type="mesh" mesh="onshape-to-robot/meshes/part_6__3" pos="-0.125 -0.0 0.1425" group="2" contype="0" conaffinity="0" rgba="0.768627 0.886275 0.952941 1.0" />
@@ -402,7 +402,7 @@
         <geom name="bearing_2/collision/5" type="mesh" mesh="collision-v1.2/meshes/rb03_output__3" pos="-0.125 -0.0 0.1425" group="3" contype="0" conaffinity="0" />
         <geom name="bearing_2/collision/6" type="mesh" mesh="collision-v1.2/meshes/rb04_motor_output__2" pos="-0.125 -0.0 0.1425" group="3" contype="0" conaffinity="0" />
         <body name="part_66_2" pos="0.0744389 0.0 -0.11648" quat="0.4999981633974483 -0.49999999999662686 -0.5000018366025518 0.49999999999662686">
-          <joint name="left_arm_j2" type="hinge" axis="0.0 0.0 1.0" range="-3.141592653589793 3.141592653589793" />
+          <joint name="left_arm_j2" type="hinge" axis="0.0 0.0 1.0" range="-1.600283145904541 1.5730122327804565" />
           <inertial pos="0.0 0.0 0.0" mass="1e-09" fullinertia="1e-09 1e-09 1e-09 0.0 0.0 0.0" />
           <geom name="part_66_2/visual/0" type="mesh" mesh="onshape-to-robot/meshes/part_69__2" pos="0.0 -0.25898 0.199439" quat="0.4999981633974483 0.49999999999662686 0.49999999999662686 -0.5000018366025518" group="2" contype="0" conaffinity="0" rgba="0.160784 0.160784 0.160784 1.0" />
           <geom name="part_66_2/visual/1" type="mesh" mesh="onshape-to-robot/meshes/part_71__2" pos="0.0 -0.25898 0.199439" quat="0.4999981633974483 0.49999999999662686 0.49999999999662686 -0.5000018366025518" group="2" contype="0" conaffinity="0" rgba="0.160784 0.160784 0.160784 1.0" />
@@ -413,7 +413,7 @@
           <geom name="part_66_2/collision/2" type="mesh" mesh="collision-v1.2/meshes/part_70__2" pos="0.0 -0.25898 0.199439" quat="0.4999981633974483 0.49999999999662686 0.49999999999662686 -0.5000018366025518" group="3" contype="0" conaffinity="0" />
           <geom name="part_66_2/collision/3" type="mesh" mesh="collision-v1.2/meshes/part_66__2" pos="0.0 -0.25898 0.199439" quat="0.4999981633974483 0.49999999999662686 0.49999999999662686 -0.5000018366025518" group="3" contype="0" conaffinity="0" />
           <body name="42x30x7mm_bearing_2" pos="0.0 0.325 -0.0026" quat="1.3267948966775328e-06 0.9999999999991198 -0.0 0.0">
-            <joint name="left_arm_j3" type="hinge" axis="0.0 0.0 1.0" range="-3.141592653589793 3.141592653589793" />
+            <joint name="left_arm_j3" type="hinge" axis="0.0 0.0 1.0" range="-2.0507619380950928 2.1325316429138184" />
             <inertial pos="0.0 0.0 0.0" mass="1e-09" fullinertia="1e-09 1e-09 1e-09 0.0 0.0 0.0" />
             <geom name="42x30x7mm_bearing_2/visual/0" type="mesh" mesh="onshape-to-robot/meshes/bearing__9" pos="0.0 0.58398 -0.202039" quat="0.4999981633974483 -0.49999999999662686 -0.49999999999662686 -0.5000018366025518" group="2" contype="0" conaffinity="0" rgba="0.768627 0.886275 0.952941 1.0" />
             <geom name="42x30x7mm_bearing_2/visual/1" type="mesh" mesh="onshape-to-robot/meshes/part_7__4" pos="0.0 0.58398 -0.202039" quat="0.4999981633974483 -0.49999999999662686 -0.49999999999662686 -0.5000018366025518" group="2" contype="0" conaffinity="0" rgba="0.768627 0.886275 0.952941 1.0" />
@@ -437,7 +437,7 @@
             <geom name="42x30x7mm_bearing_2/collision/7" type="mesh" mesh="collision-v1.2/meshes/rb03_wire_bearing_output_mount__4" pos="0.0 0.58398 -0.202039" quat="0.4999981633974483 -0.49999999999662686 -0.49999999999662686 -0.5000018366025518" group="3" contype="0" conaffinity="0" />
             <geom name="42x30x7mm_bearing_2/collision/8" type="mesh" mesh="collision-v1.2/meshes/rs02__3" pos="0.0 0.58398 -0.202039" quat="0.4999981633974483 -0.49999999999662686 -0.49999999999662686 -0.5000018366025518" group="3" contype="0" conaffinity="0" />
             <body name="part_73_2" pos="-0.0 -0.25 0.0106" quat="1.3267948966775328e-06 0.9999999999991198 0.0 0.0">
-              <joint name="left_arm_j4" type="hinge" axis="0.0 0.0 1.0" range="-3.141592653589793 3.141592653589793" />
+              <joint name="left_arm_j4" type="hinge" axis="0.0 0.0 1.0" range="-1.1223297119140625 1.281913161277771" />
               <inertial pos="0.0 0.0 0.0" mass="1e-09" fullinertia="1e-09 1e-09 1e-09 0.0 0.0 0.0" />
               <geom name="part_73_2/visual/0" type="mesh" mesh="onshape-to-robot/meshes/rs02__4" pos="0.0 -0.83398 0.212639" quat="0.4999981633974483 0.49999999999662686 0.49999999999662686 -0.5000018366025518" group="2" contype="0" conaffinity="0" rgba="0.647059 0.647059 0.647059 1.0" />
               <geom name="part_73_2/visual/1" type="mesh" mesh="onshape-to-robot/meshes/rs02_bearing_mount__4" pos="0.0 -0.83398 0.212639" quat="0.4999981633974483 0.49999999999662686 0.49999999999662686 -0.5000018366025518" group="2" contype="0" conaffinity="0" rgba="0.160784 0.160784 0.160784 1.0" />
@@ -446,7 +446,7 @@
               <geom name="part_73_2/collision/1" type="mesh" mesh="collision-v1.2/meshes/rs02_bearing_mount__4" pos="0.0 -0.83398 0.212639" quat="0.4999981633974483 0.49999999999662686 0.49999999999662686 -0.5000018366025518" group="3" contype="0" conaffinity="0" />
               <geom name="part_73_2/collision/2" type="mesh" mesh="collision-v1.2/meshes/part_73__2" pos="0.0 -0.83398 0.212639" quat="0.4999981633974483 0.49999999999662686 0.49999999999662686 -0.5000018366025518" group="3" contype="0" conaffinity="0" />
               <body name="part_42_2" pos="-0.0 0.136 -0.028" quat="0.4999981633974483 0.49999999999662686 0.49999999999662686 -0.5000018366025518">
-                <joint name="left_arm_j5" type="hinge" axis="0.0 0.0 1.0" range="-3.141592653589793 3.141592653589793" />
+                <joint name="left_arm_j5" type="hinge" axis="0.0 0.0 1.0" range="-3.2739601135253906 3.267181396484375" />
                 <inertial pos="0.0 0.0 0.0" mass="1e-09" fullinertia="1e-09 1e-09 1e-09 0.0 0.0 0.0" />
                 <geom name="part_42_2/visual/0" type="mesh" mesh="onshape-to-robot/meshes/rs00__2" pos="-0.240639 0.000782 0.96998" group="2" contype="0" conaffinity="0" rgba="0.160784 0.160784 0.160784 1.0" />
                 <geom name="part_42_2/visual/1" type="mesh" mesh="onshape-to-robot/meshes/part_42__2" pos="-0.240639 0.000782 0.96998" group="2" contype="0" conaffinity="0" rgba="0.768627 0.886275 0.952941 1.0" />
@@ -455,7 +455,7 @@
                 <geom name="part_42_2/collision/1" type="mesh" mesh="collision-v1.2/meshes/part_42__2" pos="-0.240639 0.000782 0.96998" group="3" contype="0" conaffinity="0" />
                 <geom name="part_42_2/collision/2" type="mesh" mesh="collision-v1.2/meshes/part_43__2" pos="-0.240639 0.000782 0.96998" group="3" contype="0" conaffinity="0" />
                 <body name="1_1_02_eb571_960_stp_2" pos="0.0 0.045 -0.08" quat="0.7071054825112364 -0.7071080798594737 0.0 0.0">
-                  <joint name="left_arm_j6" type="hinge" axis="0.0 0.0 1.0" range="-3.141592653589793 3.141592653589793" />
+                  <joint name="left_arm_j6" type="hinge" axis="0.0 0.0 1.0" range="-1.1626040935516357 1.0664618015289307" />
                   <inertial pos="0.0 0.0 0.0" mass="1e-09" fullinertia="1e-09 1e-09 1e-09 0.0 0.0 0.0" />
                   <geom name="1_1_02_eb571_960_stp_2/visual/0" type="mesh" mesh="onshape-to-robot/meshes/linearrail_lwl7b_100mm__3" pos="-0.240639 -1.04998 -0.044218" quat="0.7071054825112364 0.7071080798594737 0.0 -0.0" group="2" contype="0" conaffinity="0" rgba="0.792157 0.819608 0.933333 1.0" />
                   <geom name="1_1_02_eb571_960_stp_2/visual/1" type="mesh" mesh="onshape-to-robot/meshes/part_44__2" pos="-0.240639 -1.04998 -0.044218" quat="0.7071054825112364 0.7071080798594737 0.0 -0.0" group="2" contype="0" conaffinity="0" rgba="0.768627 0.886275 0.952941 1.0" />
