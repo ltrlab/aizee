@@ -259,8 +259,8 @@ fn direct_hold_gain_commit_is_explicit_on_the_wire() {
 
 #[test]
 fn direct_hold_gains_preserve_pose_deadlines_and_stop_rearm_gains() {
-    for deferred in [false, true] {
-        let (mut c, mut h) = direct_armed_with_policy(10, true);
+    for (deferred, position_only) in [(false, true), (true, true), (false, false), (true, false)] {
+        let (mut c, mut h) = direct_armed_with_policy(10, position_only);
         let id = offer(&mut c, &mut h, 2);
         // A normal HOLD update first synchronizes the last accepted direct target.
         let first = c.handle(3, direct_request(&c, 2, id, 0.15, 0.0), &mut h);
@@ -416,23 +416,28 @@ fn direct_hold_gain_invalid_batches_preserve_gains_and_authority() {
 }
 
 #[test]
-fn direct_hold_gain_commit_requires_position_only_and_settled_feedback() {
-    for position_only in [false, true] {
+fn direct_hold_gain_commit_requires_a_still_settled_hold_under_either_law() {
+    for (position_only, moving) in [(true, false), (false, false), (true, true), (false, true)] {
         let (mut c, mut h) = direct_armed_with_policy(10, position_only);
         let id = offer(&mut c, &mut h, 2);
-        if position_only {
+        let mut request = hold_gain_request(&c, 2, id, 0.0);
+        if moving {
+            // Velocity fed forward with new gains: not a hold.
+            if let Request::DirectUpdate { joints, .. } = &mut request {
+                joints[1].velocity = 0.01;
+            }
+        } else {
             h.feedback[1].velocity = 0.0011; // Just above the configured 0.001 settled bound.
         }
         let before = c.status();
-        let request = hold_gain_request(&c, 2, id, 0.0);
         let reply = c.handle_deferred(3, request, &mut h);
         assert!(!reply.accepted);
         assert_eq!(
             reply.reason,
-            if position_only {
-                Reason::InvalidState
-            } else {
+            if moving {
                 Reason::InvalidCommand
+            } else {
+                Reason::InvalidState
             }
         );
         assert_eq!(reply.status.joints, before.joints);

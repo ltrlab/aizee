@@ -1393,7 +1393,10 @@ impl Controller {
                 }
                 let update_hold_gains = direct_offer.is_some_and(|(_, _, update)| update);
                 if update_hold_gains {
-                    if !self.config.direct.as_ref().is_some_and(|p| p.position_only)
+                    // Manual tuning, under either direct law (position-only, or velocity fed
+                    // forward): new hold gains only while the arm holds still at its target,
+                    // with no velocity or ramp sent and every joint settled.
+                    if self.config.direct.is_none()
                         || joints.iter().zip(&self.targets).any(|(command, target)| {
                             command.position != target.position || command.velocity != 0.0
                         })
