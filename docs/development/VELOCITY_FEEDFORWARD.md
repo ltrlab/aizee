@@ -104,3 +104,15 @@ Fixed by stopping Helm and copying the verified session (`e78c80c8`, identical t
 `seed-session-replaced-20261014.json`); Helm now reports every right-arm direction verified. The two
 folders still hold separate copies of directions and route edits, so a change made in one Helm does not reach
 the other.
+
+## One folder for both laws (2026-10-14, `185eeb8`)
+
+Route edits are now bound to the digest of the route definitions (`routes_sha256`) as well as the profile id:
+profiles with the same routes share one `routes.json` (a file without the digest stays its own profile's). The
+feed-forward Helm (`helm-tuning-vff`) runs from `build/manual-tuning/operator-runs` again, sharing the verified
+direction session and route edits with the position-only Helm; each law keeps its own preset file there. The
+existing `routes.json` got its digest added (original kept as `routes.before-shared-20261014.json`), and the
+feed-forward preset was copied in unchanged. `operator-runs-vff` is no longer used; it keeps the first
+feed-forward sessions' Helm records. Gate: 714 tests, zero failures/skips/xfails, on `185eeb8`
+(`build/dev-check/20261014T024318Z-cdba773d/report.json`). Deployed `20261014T024820Z-185eeb8`, receiver
+unchanged (`cc82487c`).
