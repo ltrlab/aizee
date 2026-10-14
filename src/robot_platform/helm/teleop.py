@@ -84,9 +84,11 @@ def validate_profile(profile):
     trial = validate_trial(profile.get('trial'))
     if trial and (mode != 'disabled' or receiver['direct'].get('position_only') is not True):
         raise ValueError('A bounded trial requires explicit direct position-only mode')
-    if ('manual_tuning' in profile and (profile['manual_tuning'] is not True or trial
-            or mode != 'disabled' or receiver['direct'].get('position_only') is not True)):
-        raise ValueError('Manual tuning requires direct position-only mode without a fixed trial')
+    # Manual tuning runs a direct law: position-only, or (unramped) with velocity fed forward (guarded_config).
+    if ('manual_tuning' in profile and (profile['manual_tuning'] is not True or trial or mode != 'disabled'
+            or not (receiver['direct'].get('position_only') is True or interpolation == 0))):
+        raise ValueError('Manual tuning requires direct position-only or unramped velocity feed-forward control '
+                         'without a fixed trial')
     live = profile.get('live')
     if live is not None and (
             set(live) - {'reference_tolerance_rad', 'period_us', 'maximum_lateness_us', 'note'}
@@ -101,6 +103,13 @@ def loop_period_s(profile):
     """Direct mode has an independent update rate; legacy modes use their ramp period."""
     receiver = profile['receiver']
     return 1 / receiver['loop_hz'] if receiver.get('collision_mode') == 'disabled' else receiver.get('interpolation_ms', 40) / 1000
+
+
+def velocity_feedforward(profile):
+    """Direct, unramped and not position-only: arm joints get a smoothed velocity fed forward (guarded_config)."""
+    receiver = profile['receiver']
+    return (receiver.get('collision_mode') == 'disabled' and receiver.get('interpolation_ms', 40) == 0
+            and not (receiver.get('direct') or {}).get('position_only', False))
 
 
 def source_misses(period_s):
@@ -412,8 +421,10 @@ class TeleopCore:
             from .manual_tuning import receiver_rows, validate, install_initial
             from robot_platform.control.commissioning import motor_models
             from robot_platform.ops.release import ROOT
-            if self.profile.get('trial') or not derived['config'].get('direct', {}).get('position_only'):
-                raise ValueError('Manual tuning requires position-only direct control without a fixed trial')
+            from robot_platform.teleop.lifecycle import direct_law
+            if self.profile.get('trial') or not derived['config'].get('direct') or not direct_law(derived['lifecycle']):
+                raise ValueError('Manual tuning requires direct position-only or velocity feed-forward control '
+                                 'without a fixed trial')
             models = (self.bundle.get('receiver') or {}).get('motor_models') or motor_models(device, ROOT)
             self._manual_rows = receiver_rows(derived, models, self.labels)
             selected = deepcopy(self.bundle.get('manual_tuning'))
@@ -1015,6 +1026,7 @@ class TeleopCore:
         result = {'phase': self.phase, 'message': self.message, 'fault': self.fault,
                   'trial': deepcopy(self.profile.get('trial')),
                   'position_only': self.profile['receiver'].get('direct', {}).get('position_only', False),
+                  'velocity_feedforward': velocity_feedforward(self.profile),
                   'state': self.session.lifecycle.state if self.session else None, 'receiver': receiver,
                   'manual_tuning_ack': self._manual_state,
                   'manual_tuning_pending': self._tuning_pending is not None or self._tuning_confirm is not None,

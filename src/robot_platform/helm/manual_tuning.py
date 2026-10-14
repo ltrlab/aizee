@@ -53,9 +53,11 @@ def following(lifecycle, loop_s):
     command leads the joint's position, predicted to when it is computed, by at most `max_lead`, against the
     friction its servo sweep measured (0 when not measured). The drive sees it `command_lag_s` later on
     average (its way to the drive and half the loop it holds, about one loop, plus the receiver's
-    interpolation), by when the joint has closed part of the lead. A gripper's lead spans its whole range."""
+    interpolation), by when the joint has closed part of the lead. With `velocity_feedforward` the drive's damping
+    acts about the command's speed, not against it. A gripper's lead spans its whole range."""
     return dict(max_lead=lifecycle['max_lead'], friction_nm=lifecycle['friction_nm'],
-                command_lag_s=loop_s + lifecycle['interpolation_s'], gripper=lifecycle.get('gripper') is True)
+                command_lag_s=loop_s + lifecycle['interpolation_s'], gripper=lifecycle.get('gripper') is True,
+                velocity_feedforward=lifecycle.get('velocity_feedforward') is True)
 
 
 def values(rows):
@@ -104,7 +106,9 @@ class ManualTuning:
         for row, lifecycle in zip(self.rows, derived['lifecycle']):
             row['following'] = following(lifecycle, loop_period_s(profile))
         fit_motor_ranges(derived['config']['joints'], models)
-        self.binding = dict(asset=helm.asset_id, profile=profile['id'], control='direct-position-only',
+        law = ('direct-velocity-feedforward' if any(j.get('velocity_feedforward') for j in derived['lifecycle'])
+               else 'direct-position-only')
+        self.binding = dict(asset=helm.asset_id, profile=profile['id'], control=law,
             calibration=helm.bindings, profile_sha256=digest(profile), servo_sha256=digest(servo),
             motors=[{k: motor[k] for k in ('name', 'uid', 'firmware')} for motor in helm.reference['motors']])
         self.path = Path(runs) / (helm.asset_id + '-teleop') / (profile['id'] + '-manual.json')
@@ -154,4 +158,4 @@ class ManualTuning:
         return dict(enabled=True, session_id=self.session_id, revision=self.revision,
             saved_revision=self.saved.get('updated_at') if self.saved else None,
             dirty=self.saved is None or self.active != self.saved['joints'],
-            can_apply=can_apply, can_save=can_apply, reason=reason, rows=rows)
+            can_apply=can_apply, can_save=can_apply, reason=reason, rows=rows, control=self.binding['control'])

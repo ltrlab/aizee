@@ -223,8 +223,26 @@ def test_nonobject_saved_document_is_a_validation_error(preset_factory, document
 def test_rows_carry_what_sets_each_joints_top_following_speed(preset_factory):
     """The panel estimates top speed from each joint's lead, friction and how late the drive sees a command."""
     tuning = preset_factory.make()
-    rows = tuning.snapshot(can_apply=False, reason='')['rows']
-    assert [row['following'] for row in rows] == [
-        dict(max_lead=.12, friction_nm=0., command_lag_s=.01, gripper=False),
-        dict(max_lead=.12, friction_nm=.5, command_lag_s=.01, gripper=False)]
+    snapshot = tuning.snapshot(can_apply=False, reason='')
+    assert [row['following'] for row in snapshot['rows']] == [
+        dict(max_lead=.12, friction_nm=0., command_lag_s=.01, gripper=False, velocity_feedforward=False),
+        dict(max_lead=.12, friction_nm=.5, command_lag_s=.01, gripper=False, velocity_feedforward=False)]
+    assert snapshot['control'] == tuning.binding['control'] == 'direct-position-only'
     assert all('following' not in row for row in values(tuning.rows))  # Display only: never saved or applied.
+
+
+def test_velocity_feedforward_is_the_presets_bound_control_law(preset_factory, monkeypatch):
+    """Presets made under one law are not loaded under the other: the same Kd damps differently."""
+    from robot_platform.control import guarded_config
+    derived = derived_fixture()
+    for joint in derived['lifecycle']:
+        joint['velocity_feedforward'] = True
+    monkeypatch.setattr(guarded_config, 'derive_receiver', lambda **kwargs: deepcopy(derived))
+    tuning = preset_factory.make()
+    snapshot = tuning.snapshot(can_apply=False, reason='')
+    assert snapshot['control'] == tuning.binding['control'] == 'direct-velocity-feedforward'
+    assert all(row['following']['velocity_feedforward'] for row in snapshot['rows'])
+    tuning.save()
+    monkeypatch.setattr(guarded_config, 'derive_receiver', lambda **kwargs: derived_fixture())
+    with pytest.raises(ValueError, match='belongs to another profile'):
+        preset_factory.make()  # Position-only again: the feed-forward preset is not taken for it.

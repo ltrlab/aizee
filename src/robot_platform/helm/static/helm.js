@@ -518,10 +518,11 @@ const manualNumber = value => Number.isFinite(value) ? String(Number(value.toPre
 // Top following speed in open travel (teleop.lifecycle): a command leads the joint's position, predicted to when
 // it is computed, by at most its lead, and the drive sees it about a loop later, when the joint has closed v × lag
 // of it. At a steady speed v the pull Kp × (lead − v × lag) meets the damping Kd × v plus friction. J3 at 320 / 8
-// (live-20261013T031504Z): 0.70–0.75 rad/s estimated, 0.69–0.71 measured.
+// (live-20261013T031504Z): 0.70–0.75 rad/s estimated, 0.69–0.71 measured. With velocity fed forward the damping
+// acts about the command's speed, so Kd drops out: Kp × (lead − v × lag) meets friction alone.
 function leadLimitedSpeed(following, kp, kd) {
   const pull = kp * following.max_lead - following.friction_nm;
-  return pull <= 0 ? 0 : pull / (kd + kp * following.command_lag_s);
+  return pull <= 0 ? 0 : pull / ((following.velocity_feedforward ? 0 : kd) + kp * following.command_lag_s);
 }
 
 function manualEstimate(row, draft) {
@@ -530,11 +531,14 @@ function manualEstimate(row, draft) {
   const [kp, kd, limit] = ['kp', 'kd', 'speed'].map(field => manualValue(draft, field, row));
   if (![kp, kd, limit].every(Number.isFinite)) return {text: '', binds: ''};
   const speed = leadLimitedSpeed(f, kp, kd), lead = `${f.max_lead.toFixed(3)} rad`;
-  const title = `(Kp × lead − friction) ÷ (Kd + Kp × ${(f.command_lag_s * 1000).toFixed(0)} ms) = `
-    + `(${manualNumber(kp)} × ${f.max_lead.toFixed(4)} − ${f.friction_nm.toFixed(2)}) ÷ (${manualNumber(kd)} + `
-    + `${manualNumber(kp)} × ${f.command_lag_s.toFixed(3)}). Position-only control sends no velocity, so Kd drags `
-    + 'against all motion; the drive sees each command about a loop late. Open travel only: commands slow near '
-    + 'either end.';
+  const lag = `${(f.command_lag_s * 1000).toFixed(0)} ms`, values = `(${manualNumber(kp)} × ${f.max_lead.toFixed(4)} − `
+    + `${f.friction_nm.toFixed(2)})`;
+  const title = (f.velocity_feedforward
+    ? `(Kp × lead − friction) ÷ (Kp × ${lag}) = ${values} ÷ (${manualNumber(kp)} × ${f.command_lag_s.toFixed(3)}). `
+      + 'The command\'s speed is fed forward, so Kd damps the joint about it instead of dragging it.'
+    : `(Kp × lead − friction) ÷ (Kd + Kp × ${lag}) = ${values} ÷ (${manualNumber(kd)} + ${manualNumber(kp)} × `
+      + `${f.command_lag_s.toFixed(3)}). Position-only control sends no velocity, so Kd drags against all motion.`)
+    + ' The drive sees each command about a loop late. Open travel only: commands slow near either end.';
   // As shown (two decimals): 0.998 under a 1 rad/s limit reads as the limit, not "1.00, under your 1".
   if (Number(speed.toFixed(2)) >= limit) return {binds: 'limit', title, text: `Top speed is your ${manualNumber(limit)} rad/s limit; `
     + `the ${lead} lead alone would allow ≈ ${speed.toFixed(2)} rad/s.`};
@@ -542,7 +546,8 @@ function manualEstimate(row, draft) {
   const friction = f.friction_nm >= .01 ? '' : ' No friction was measured for this joint, so expect less.';
   return {binds: 'lead', title, text: speed > 0
     ? `Top speed ≈ ${speed.toFixed(2)} rad/s, under your ${manualNumber(limit)} rad/s limit: the ${lead} lead caps it `
-      + `at these gains. Raise Kp to follow faster (lowering Kd does too, but damps less).${friction}`
+      + `at these gains. Raise Kp to follow faster${f.velocity_feedforward ? '' : ' (lowering Kd does too, but damps less)'}.`
+      + friction
     : `At this Kp the ${lead} lead pulls with ${(kp * f.max_lead).toFixed(2)} Nm, under the joint's `
       + `${f.friction_nm.toFixed(2)} Nm of friction: it may not follow.`};
 }
@@ -705,7 +710,10 @@ function renderManual(t) {
     if (t.phase === 'running' && Number.isFinite(t.observation_age_ms) && t.observation_age_ms > 500)
       $('manual-state').textContent += ` · joint display is ${(t.observation_age_ms / 1000).toFixed(1)} s old`;
   const following = settings.rows.filter(row => row.follow);
-  $('manual-scope').textContent = `Applied follow selection: ${following.length ? following.map(row => row.label).join(', ') : 'none; all joints hold'}.`;
+  $('manual-scope').textContent = `Applied follow selection: ${following.length ? following.map(row => row.label).join(', ') : 'none; all joints hold'}.`
+    + (settings.control === 'direct-velocity-feedforward'
+      ? ' Control: velocity fed forward, so Kd damps each joint about its command\'s speed (raise it to damp wobble).'
+      : settings.control === 'direct-position-only' ? ' Control: position only, so Kd also drags against motion.' : '');
   for (const row of settings.rows) {
     const card = manualCards.get(row.motor);
     card.querySelector('.manual-active').textContent = `Active: Kp ${manualNumber(row.kp)} · Kd ${manualNumber(row.kd)} · `

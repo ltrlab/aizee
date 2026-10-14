@@ -11,10 +11,11 @@ from robot_platform.helm.teleop import TeleopCore, TeleopSession
 from tests.contract.test_helm_teleop_live import bundle, Clock, Leaders, Receiver, run, DEVICES, SEED
 
 
-@pytest.fixture
-def manual_bundle(bundle, tmp_path):
+@pytest.fixture(params=['minerva-teleop-direct-tuning.json', 'minerva-teleop-direct-tuning-vff.json'])
+def manual_bundle(bundle, tmp_path, request):
+    """Each manual-tuning profile: position-only, and the opt-in velocity feed-forward one."""
     data, path = bundle
-    profile = json.loads((DEVICES / 'minerva-teleop-direct-tuning.json').read_text(encoding='utf-8'))
+    profile = json.loads((DEVICES / request.param).read_text(encoding='utf-8'))
     profile['leader_profile'] = str(DEVICES / 'gello-dual-viewer.json')
     path.write_text(json.dumps(profile))
     helm = HelmSession(DEVICES / 'minerva-joint-calibration.json', runs=tmp_path / 'other',
@@ -139,6 +140,15 @@ def test_manual_tuning_drives_both_live_arms_in_one_receiver(manual_bundle):
                 assert abs(target[index] - previous[index]) <= .08 * core.period_s + 1e-9
             assert all(target[i] == before[i] for i in range(len(names)) if i not in (left, right))
         assert target[left] != before[left] and target[right] != before[right]  # Both arms followed.
+        # What the receiver took while following: the law's velocity, held joints and grippers none.
+        moves = [r for r in requests[-20:] if r.get('type') == 'direct_update' and not r.get('update_hold_gains')]
+        held = [i for i, name in enumerate(names) if i not in (left, right)]
+        assert moves and all(r['joints'][i]['velocity'] == 0. for r in moves for i in held)
+        followed = [r['joints'][i]['velocity'] for r in moves for i in (left, right)]
+        if core.derived['config']['direct']['position_only']:
+            assert all(v == 0. for v in followed)
+        else:
+            assert all(0. < abs(v) <= .08 + 1e-9 for v in followed[-4:]), followed  # Its smoothed speed, in the cap.
         run(core, clock, 'H')
     finally:
         core.close()
