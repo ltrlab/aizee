@@ -515,12 +515,13 @@ let manualState = null, manualBase = null, manualDraft = new Map(), manualPendin
 const manualRetiredSessions = [];
 const manualNumber = value => Number.isFinite(value) ? String(Number(value.toPrecision(6))) : '—';
 
-// Top following speed in open travel (teleop.lifecycle): a command leads the joint's predicted position by at most
-// its lead, so at a steady speed v the drive's pull Kp × (lead + v × ahead) meets its damping Kd × v plus friction.
-// At or below Kp × ahead of damping the lead never caps the speed.
+// Top following speed in open travel (teleop.lifecycle): a command leads the joint's position, predicted to when
+// it is computed, by at most its lead, and the drive sees it about a loop later, when the joint has closed v × lag
+// of it. At a steady speed v the pull Kp × (lead − v × lag) meets the damping Kd × v plus friction. J3 at 320 / 8
+// (live-20261013T031504Z): 0.70–0.75 rad/s estimated, 0.69–0.71 measured.
 function leadLimitedSpeed(following, kp, kd) {
-  const pull = kp * following.max_lead - following.friction_nm, damping = kd - kp * following.lead_ahead_s;
-  return pull <= 0 ? 0 : damping > 0 ? pull / damping : Infinity;
+  const pull = kp * following.max_lead - following.friction_nm;
+  return pull <= 0 ? 0 : pull / (kd + kp * following.command_lag_s);
 }
 
 function manualEstimate(row, draft) {
@@ -529,18 +530,18 @@ function manualEstimate(row, draft) {
   const [kp, kd, limit] = ['kp', 'kd', 'speed'].map(field => manualValue(draft, field, row));
   if (![kp, kd, limit].every(Number.isFinite)) return {text: '', binds: ''};
   const speed = leadLimitedSpeed(f, kp, kd), lead = `${f.max_lead.toFixed(3)} rad`;
-  const title = `(Kp × lead − friction) ÷ (Kd − Kp × ${(f.lead_ahead_s * 1000).toFixed(0)} ms) = `
-    + `(${manualNumber(kp)} × ${f.max_lead.toFixed(4)} − ${f.friction_nm.toFixed(2)}) ÷ (${manualNumber(kd)} − `
-    + `${manualNumber(kp)} × ${f.lead_ahead_s.toFixed(3)}). The lead is measured from where the joint will be once `
-    + 'its feedback catches up. Open travel only: commands slow near either end.';
+  const title = `(Kp × lead − friction) ÷ (Kd + Kp × ${(f.command_lag_s * 1000).toFixed(0)} ms) = `
+    + `(${manualNumber(kp)} × ${f.max_lead.toFixed(4)} − ${f.friction_nm.toFixed(2)}) ÷ (${manualNumber(kd)} + `
+    + `${manualNumber(kp)} × ${f.command_lag_s.toFixed(3)}). Position-only control sends no velocity, so Kd drags `
+    + 'against all motion; the drive sees each command about a loop late. Open travel only: commands slow near '
+    + 'either end.';
   if (speed >= limit) return {binds: 'limit', title, text: `Top speed is your ${manualNumber(limit)} rad/s limit; `
-    + (Number.isFinite(speed) ? `the ${lead} lead alone would allow ≈ ${speed.toFixed(2)} rad/s.`
-      : `the ${lead} lead doesn't cap it at these gains.`)};
+    + `the ${lead} lead alone would allow ≈ ${speed.toFixed(2)} rad/s.`};
   // A drive that reports no torque leaves its sweep's friction at zero (left J1: 5e-20 Nm).
   const friction = f.friction_nm >= .01 ? '' : ' No friction was measured for this joint, so expect less.';
   return {binds: 'lead', title, text: speed > 0
     ? `Top speed ≈ ${speed.toFixed(2)} rad/s, under your ${manualNumber(limit)} rad/s limit: the ${lead} lead caps it `
-      + `at these gains. Raise Kp or lower Kd to follow faster.${friction}`
+      + `at these gains. Raise Kp to follow faster (lowering Kd does too, but damps less).${friction}`
     : `At this Kp the ${lead} lead pulls with ${(kp * f.max_lead).toFixed(2)} Nm, under the joint's `
       + `${f.friction_nm.toFixed(2)} Nm of friction: it may not follow.`};
 }

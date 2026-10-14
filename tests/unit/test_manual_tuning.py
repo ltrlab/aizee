@@ -221,10 +221,10 @@ def test_nonobject_saved_document_is_a_validation_error(preset_factory, document
 
 
 def test_rows_carry_what_sets_each_joints_top_following_speed(preset_factory):
-    """The panel estimates top speed from each joint's lead, friction and how far ahead the lead is measured."""
+    """The panel estimates top speed from each joint's lead, friction and how late the drive sees a command."""
     tuning = preset_factory.make()
     rows = tuning.snapshot(can_apply=False, reason='')['rows']
     assert [row['following'] for row in rows] == [
-        dict(max_lead=.12, friction_nm=0., lead_ahead_s=.01, gripper=False),
-        dict(max_lead=.12, friction_nm=.5, lead_ahead_s=.01, gripper=False)]
+        dict(max_lead=.12, friction_nm=0., command_lag_s=.01, gripper=False),
+        dict(max_lead=.12, friction_nm=.5, command_lag_s=.01, gripper=False)]
     assert all('following' not in row for row in values(tuning.rows))  # Display only: never saved or applied.

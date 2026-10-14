@@ -49,3 +49,31 @@ leader up to the speed cap and the 32 rad/s² acceleration bound.
   15 Nm. Its servo sweep therefore stored 5e-20 Nm of friction, and the panel treats under 0.01 Nm as not
   measured. The fit above puts it near 2 Nm. Why the drive reports none is not yet known.
 - The model is steady state in open travel; near either end the approach curve shrinks the lead and the speed.
+
+## Correction (2026-10-13, branch `claude/speed-estimate-fix`)
+
+The delay term had the wrong sign. The 0.029 rad above is the error the loop sees against its own (aged)
+feedback. The lead origin already carries the joint forward by the feedback's age, so the command leads the
+joint's position *at computation* by the lead. The drive then sees the command about one loop later (its way
+to the drive and half the 10 ms it holds), when the joint has closed v × lag of the lead. At a steady speed:
+Kp × (lead − v × lag) = Kd × v + friction, so **v = (Kp × lead − friction) ÷ (Kd + Kp × lag)**, lag one loop
+(`following.command_lag_s`, formerly `lead_ahead_s`). The old form put the lag on the other side, which placed
+most gains far above their limit.
+
+Evidence, both-arm session `~/minerva/evidence/live-20261013T031504Z` (manual tuning, 400 Hz samples and the
+per-cycle log): J3 at 320 / 8 trailed the leader by up to 0.7–1.0 rad while held near 0.7 rad/s in both
+directions. At the lead limit its drive-side error (command − position at 400 Hz) was 0.021–0.022 rad, against
+0.035 rad loop-side.
+
+| Joint, Kp / Kd | Corrected estimate | Measured | Old estimate |
+|---|---|---|---|
+| Left J3, 320 / 8, lead 0.0277, friction 0.46 | 0.75 rad/s | 0.69–0.71 (p50 while lead-limited) | 1.75 (shown as the 1.5 limit) |
+| Right J3, 320 / 8, lead 0.0259, friction 0.46 | 0.70 | 0.69–0.71 | 1.6 |
+| Left J1, 250 / 9.8, lead 0.0234, friction 0 | 0.48 | 0.55 (p99) | 0.80 |
+| Left J1, 300 / 4 | 1.00 | 1.03–1.12 (p99) | 7.0 |
+| Left J1, 350 / 5 | 0.96 | 0.93–0.99 (p99) | 5.45 |
+| Left J1, 500 / 6 | 1.06 | 1.23 (p99) | 11.7 |
+
+The J1 rows fit without the ~2 Nm of friction the old form needed. p99 runs above the steady estimate in
+transients. Raising Kp is now the lever for speed: as Kp grows the estimate approaches lead ÷ lag. Lowering
+Kd also raises it but damps less.

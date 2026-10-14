@@ -50,11 +50,12 @@ def receiver_rows(derived, models, labels=None):
 
 def following(lifecycle, loop_s):
     """What sets a joint's top following speed, for the panel's estimate (teleop.lifecycle `_approach`): a
-    command leads the joint's predicted position by at most `max_lead`, predicted `lead_ahead_s` ahead (its
-    feedback's age, about one loop, plus the receiver's interpolation), against the friction its servo sweep
-    measured (0 when not measured). A gripper's lead spans its whole range."""
+    command leads the joint's position, predicted to when it is computed, by at most `max_lead`, against the
+    friction its servo sweep measured (0 when not measured). The drive sees it `command_lag_s` later on
+    average (its way to the drive and half the loop it holds, about one loop, plus the receiver's
+    interpolation), by when the joint has closed part of the lead. A gripper's lead spans its whole range."""
     return dict(max_lead=lifecycle['max_lead'], friction_nm=lifecycle['friction_nm'],
-                lead_ahead_s=loop_s + lifecycle['interpolation_s'], gripper=lifecycle.get('gripper') is True)
+                command_lag_s=loop_s + lifecycle['interpolation_s'], gripper=lifecycle.get('gripper') is True)
 
 
 def values(rows):
