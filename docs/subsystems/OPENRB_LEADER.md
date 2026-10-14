@@ -27,10 +27,14 @@ another, and answers a poll from the latest complete read instead of reading on
 request, so a poll costs the USB round trip. A poll is never answered twice with
 the same sample (the host faults on a repeated sequence): one that arrives before a
 newer read completes waits for it, and only after three failed reads in a row
-(3 ms each at most) is it answered with byte 48 = 0, which the host skips. The servo
-UART's interrupt preempts USB: with Return Delay Time 0 the seven replies arrive
-back to back, and at the core's default priorities a USB interrupt overran the
-receiver (reads failed under polling, not idle). Bytes 40–47 come from one
+(3 ms each at most) is it answered with byte 48 = 0, which the host skips. USB keeps
+the highest interrupt priority and the servo UART comes next (firmware 3). Firmware 2
+put the UART above USB, against overruns of the seven back-to-back replies (Return
+Delay Time 0, 0.02–0.07% of reads under polling); the left board then stopped
+answering USB setup requests (hung opens after a close, failed enumeration) on
+2026-10-12 and again on 2026-10-14 on a bench supply. Firmware 3 also resets the
+board if its loop stops for about a second (watchdog) and answers `0x57` with why it
+last reset (`info` prints it: power-on, brown-out, watchdog, ...). Bytes 40–47 come from one
 microsecond clock, the read start rounded down and the reply rounded up, so their
 difference never understates a cached sample's age; the reply time never steps
 back. The frame layout is unchanged, so hosts need no change. Firmware 2 adds
@@ -74,7 +78,7 @@ reply.
 | Dynamixel XL330-M077-T | 7 | Protocol 2.0, 12-bit encoder, 1 Mbps bus |
 | 3-pin TTL daisy-chain cable | 7 | Robotis standard |
 | M5Stack Joystick2 (U156) | 0–1 | Optional; I2C 0x63 on D11/D12 |
-| 5 V supply for the DXL rail | 1 | Required for Minerva's leaders: on USB power alone the left board browned out (2026-10-12: failed USB enumeration, hung port opens, "Access is denied") and ran cleanly once the arms had a bench supply; force feedback needs it too |
+| 5 V supply for the DXL rail | 1 | Used on Minerva's leaders and needed for force feedback. The left board's USB failures (failed enumeration, hung port opens, "Access is denied") were first put down to USB power on 2026-10-12; they came back on the bench supply on 2026-10-14 and are now attributed to firmware 2's interrupt priority (see the protocol notes). With the supply on, unplugging USB does not reset a board: power it off too |
 
 Joint mapping mirrors the SO-101 leader, so calibration files and downstream code
 are interchangeable. The AIZEE follower arm is 7-DoF swivel-first.
