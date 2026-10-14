@@ -38,6 +38,10 @@
 //                                          crc8 over [0x44, value]; a bad crc or
 //                                          force feedback on refuses it (no reply).
 //     0xCC [N][int16 LE * N][crc8] FF_CURRENT -> no reply (see force feedback)
+//     0x57                       RESET_CAUSE -> [0x57][PM->RCAUSE at boot][crc8]
+//                                          (0x01 power-on, 0x02/0x04 brown-out 1.2/3.3 V,
+//                                          0x10 reset pin, 0x20 watchdog, 0x40 software).
+//                                          Firmware 3; older boards ignore the byte.
 //
 //   POLL reply now embeds M5Stack Joystick2 state (I2C, addr 0x63 on Wire,
 //   D11=SDA D12=SCL).  joy_x / joy_y are int16 LE in the unit's centred
@@ -104,7 +108,8 @@ static const uint16_t ADDR_RETURN_DELAY     = 9;
 static const uint16_t ADDR_TORQUE_ENABLE    = 64;
 
 // Reported by INFO. 2: continuous reads, cached replies, RETURN_DELAY, INFO.
-static const uint8_t  LEADER_FIRMWARE_VERSION = 2;
+// 3: USB above the servo UART again, a watchdog, RESET_CAUSE.
+static const uint8_t  LEADER_FIRMWARE_VERSION = 3;
 // A poll with no newer sample is answered invalid once this many reads in a
 // row have failed (each failure costs at most SERVO_REPLY_TIMEOUT_MS).
 static const uint8_t  READ_FAIL_LIMIT       = 3;
@@ -124,6 +129,7 @@ static const uint8_t  CMD_CENTER       = 0xC0;   // payload [id]; one servo to 2
 static const uint8_t  CMD_FF_CURRENT   = 0xCC;   // payload [N][int16 LE * N][crc8]
 static const uint8_t  CMD_INFO         = 0x49;
 static const uint8_t  CMD_RETURN_DELAY = 0x44;   // payload [value][crc8]
+static const uint8_t  CMD_RESET_CAUSE  = 0x57;
 static const uint8_t  REPLY_POLL_HDR   = 0xA5;
 static const uint8_t  REPLY_SCAN_HDR   = 0x53;
 static const uint8_t  REPLY_REID_HDR   = 0x52;
@@ -417,15 +423,50 @@ static void joy_poll() {
     joy_fail_streak = 0;
 }
 
-// The servo UART's receive interrupt must preempt USB. The core starts USB at
-// the highest priority and every SERCOM at the lowest; with Return Delay Time
-// 0 the seven replies arrive back to back (a byte every 10 us at 1 Mbps), and
-// a USB interrupt during them overran the receiver: reads failed under host
-// polling (0.02-0.07%) but not idle (2026-10-12). The UART handler only moves
-// a byte, so USB barely notices. Again after every Serial1 begin, which resets it.
+// USB keeps the highest interrupt priority; the servo UART comes next, above the
+// core's default for every SERCOM (the lowest). Firmware 2 put the UART above USB,
+// and the left board then stopped answering USB requests: it hung port opens
+// after a close and failed enumeration (2026-10-12, and again 2026-10-14 on a
+// bench supply), while it answered polls throughout. The core handles each USB
+// setup request inside the USB interrupt, busy-waiting on endpoint 0 and then
+// clearing its pending flags; a UART interrupting it every 10 us through each
+// read stretches that handler, so a request's next stage can be cleared unseen
+// and the request never completes. A servo bus must never take USB down. The
+// cost: a USB interrupt during the seven back-to-back replies (Return Delay Time
+// 0) can overrun the receiver, failing 0.02-0.07% of reads under polling; a
+// failed read costs SERVO_REPLY_TIMEOUT_MS and a poll waits for the next read.
+// Again after every Serial1 begin, which resets the UART's priority.
 static void prioritise_servo_uart() {
-    NVIC_SetPriority(SERCOM2_IRQn, 0);   // Serial1 (variant.cpp: sercom2)
-    NVIC_SetPriority(USB_IRQn, 1);
+    NVIC_SetPriority(USB_IRQn, 0);
+    NVIC_SetPriority(SERCOM2_IRQn, 1);   // Serial1 (variant.cpp: sercom2)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Watchdog
+// ─────────────────────────────────────────────────────────────────────────────
+// Fed on every loop pass (and while centring a servo): a board whose loop stops
+// for about a second resets itself and reconnects over USB, instead of hanging
+// until it is power-cycled. A wedged USB request stops the loop too (it spins in
+// the USB interrupt), so this covers it. RESET_CAUSE reports afterwards whether
+// the watchdog fired (0x20) or the board browned out (0x02/0x04). Generator 2
+// is the core's for the WDT (startup.c): the 32 kHz ultra-low-power oscillator.
+static uint8_t reset_cause = 0;   // PM->RCAUSE, read before anything else at boot
+
+static void watchdog_start() {
+    GCLK->GENDIV.reg = GCLK_GENDIV_ID(2) | GCLK_GENDIV_DIV(4);   // 2^(4+1) = 32: 1.024 kHz
+    GCLK->GENCTRL.reg = GCLK_GENCTRL_ID(2) | GCLK_GENCTRL_GENEN | GCLK_GENCTRL_SRC_OSCULP32K | GCLK_GENCTRL_DIVSEL;
+    while (GCLK->STATUS.bit.SYNCBUSY) {}
+    GCLK->CLKCTRL.reg = GCLK_CLKCTRL_ID_WDT | GCLK_CLKCTRL_CLKEN | GCLK_CLKCTRL_GEN_GCLK2;
+    WDT->CTRL.reg = 0;                       // configured while disabled
+    while (WDT->STATUS.bit.SYNCBUSY) {}
+    WDT->CONFIG.reg = WDT_CONFIG_PER_1K;     // 1024 cycles: 1 s
+    WDT->CTRL.reg = WDT_CTRL_ENABLE;
+    while (WDT->STATUS.bit.SYNCBUSY) {}
+}
+
+static void watchdog_feed() {
+    // A clear takes a few slow-clock cycles to synchronise; one in flight is enough.
+    if (!WDT->STATUS.bit.SYNCBUSY) WDT->CLEAR.reg = WDT_CLEAR_CLEAR_KEY;
 }
 
 static void switch_bus_baud(uint32_t baud) {
@@ -447,6 +488,7 @@ static void switch_bus_baud(uint32_t baud) {
 // Setup
 // ─────────────────────────────────────────────────────────────────────────────
 void setup() {
+    reset_cause = PM->RCAUSE.reg;
     Serial.begin(1000000);   // USB-CDC: baud is informational only
 
     // Bring up the Dynamixel bus at TARGET_BAUD.  Servos still on their
@@ -495,6 +537,9 @@ void setup() {
     sw_infos.p_xels              = sw_xels;
     sw_infos.xel_count           = 0;
     sw_infos.is_info_changed     = true;
+
+    // Last: a setup that never finishes is not reset over and over.
+    watchdog_start();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -790,6 +835,14 @@ static void handle_reid(uint8_t target_id) {
     send_reid_reply(status, found_id, found_code);
 }
 
+// RESET_CAUSE: why the board last started (PM->RCAUSE, read first thing at boot).
+static void send_reset_cause() {
+    uint8_t frame[3] = {CMD_RESET_CAUSE, reset_cause, 0};
+    frame[2] = crc8(frame, 2);
+    Serial.write(frame, sizeof(frame));
+    Serial.flush();
+}
+
 // Send the CENTER reply: [0xC0][status][id][pos*4 bytes int32 LE][crc8]
 static void send_center_reply(uint8_t status, uint8_t id, int32_t pos) {
     uint8_t frame[8];
@@ -844,6 +897,7 @@ static void handle_center(uint8_t id) {
     uint32_t deadline = millis() + CENTER_TIMEOUT_MS;
     int32_t  pos      = CENTER_GOAL;
     while ((int32_t)(millis() - deadline) < 0) {
+        watchdog_feed();   // Up to CENTER_TIMEOUT_MS here, longer than the watchdog's second.
         pos = dxl.readControlTableItem(PRESENT_POSITION, id);
         int32_t err = pos - CENTER_GOAL;
         if (err < 0) err = -err;
@@ -1006,6 +1060,7 @@ static void run_command(uint8_t code, const uint8_t* payload) {
         case CMD_REID:       handle_reid(payload[0]); break;
         case CMD_CENTER:     handle_center(payload[0]); break;
         case CMD_INFO:       send_info(); break;
+        case CMD_RESET_CAUSE: send_reset_cause(); break;
         case CMD_RETURN_DELAY: {
             // A persistent servo write: only with a valid crc and no force feedback on.
             const uint8_t check[] = {CMD_RETURN_DELAY, payload[0]};
@@ -1072,6 +1127,7 @@ static void joy_tick() {
 // One Sync Read after another; host polls are answered right after each read
 // and again after the slower steps, from the newest complete sample.
 void loop() {
+    watchdog_feed();
     // Every pass, so a host that stops sending cannot leave torque applied.
     ff_watchdog_tick();
     read_servos();
