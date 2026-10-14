@@ -1,7 +1,8 @@
-"""OpenRB leader boards (firmware 2): read their INFO, or set their servos' Return Delay Time.
+"""OpenRB leader boards (firmware 2+): read their INFO, or set their servos' Return Delay Time.
 
   info                          each board's firmware, each servo's firmware, Return Delay Time and torque,
-                                and the board's continuous-read count, failures and read time
+                                and the board's continuous-read count, failures and read time; from firmware 3
+                                also why the board last reset (power-on, brown-out, watchdog, ...)
   return-delay VALUE            show what would change (2 us per unit; the XL330 factory value is 250)
   return-delay VALUE --confirm  write it: one EEPROM write per torque-off servo that differs, read back
 
@@ -18,7 +19,10 @@ import struct
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
-INFO, RETURN_DELAY, SERVOS = 0x49, 0x44, 7
+INFO, RETURN_DELAY, RESET_CAUSE, SERVOS = 0x49, 0x44, 0x57, 7
+# PM->RCAUSE bits (SAMD21): a brown-out means the board's supply dipped; the watchdog, that its loop stopped.
+CAUSES = {0x01: 'power-on', 0x02: 'brown-out (1.2 V core)', 0x04: 'brown-out (3.3 V)', 0x10: 'reset pin',
+          0x20: 'watchdog (its loop stopped)', 0x40: 'software (bootloader entry or upload)'}
 
 
 def crc8(data):
@@ -56,6 +60,11 @@ def decode_info(frame):
                 max_read_us=max_us)
 
 
+def decode_reset_cause(frame):
+    _checked(frame, RESET_CAUSE, 3)
+    return [name for bit, name in CAUSES.items() if frame[1] & bit] or [f'unknown 0x{frame[1]:02X}']
+
+
 def decode_return_delay(frame):
     _checked(frame, RETURN_DELAY, 2 + 3 * SERVOS + 1)
     return [dict(id=frame[2 + 3 * i], before=unknown(frame[3 + 3 * i]), after=unknown(frame[4 + 3 * i]))
@@ -90,6 +99,9 @@ def main():
             rate = f"{info['reads']} reads, {info['failed_reads']} failed, last {info['last_read_us']} us, " \
                    f"max {info['max_read_us']} us"
             print(f"{name} ({reader.port}): firmware {info['firmware']}; {rate}")
+            if info['firmware'] >= 3:
+                causes = decode_reset_cause(exchange(reader.serial, bytes((RESET_CAUSE,)), 3))
+                print(f"  last reset: {', '.join(causes)}")
             for servo in info['servos']:
                 print(f"  servo {servo['id']}: firmware {servo['firmware']}, return delay {servo['return_delay']}, "
                       f"torque {servo['torque']}")

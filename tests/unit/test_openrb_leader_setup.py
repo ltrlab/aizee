@@ -38,3 +38,11 @@ def test_return_delay_request_and_reply():
 def test_a_missing_or_foreign_reply_is_refused(frame):
     with pytest.raises(ValueError):
         setup.decode_info(frame)
+
+
+def test_firmware_3_says_why_the_board_last_reset():
+    assert setup.decode_reset_cause(sealed(bytes((0x57, 0x20)))) == ['watchdog (its loop stopped)']
+    assert setup.decode_reset_cause(sealed(bytes((0x57, 0x05)))) == ['power-on', 'brown-out (3.3 V)']
+    assert setup.decode_reset_cause(sealed(bytes((0x57, 0x80)))) == ['unknown 0x80']
+    with pytest.raises(ValueError):
+        setup.decode_reset_cause(bytes((0x57, 0x20, 0x00)))  # Bad crc.
