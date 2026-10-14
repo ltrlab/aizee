@@ -91,3 +91,16 @@ inertia and friction, gravity 10% over the fed model), right arm, saved gains, ~
 - Deployed: release `20261014T022244Z-c184c6d`, receiver binary identical to the qualified one. Helm relaunched
   on the feed-forward profile: law shown in Motor tuning, preset loaded, all 14 drives answering.
 - Not yet run on the arms.
+
+## Correction: the new runs folder lacked the verified directions (2026-10-14)
+
+`operator-runs-vff` was created with the routes and preset only. Helm then made a fresh direction session from
+the 2026-09-24 seed, which lacks the operator's verified directions: right J3 and J4 are -1 there, +1 in the
+seed. In the first feed-forward session the viewer mirrored right J3 and J4 (reported by the operator), and the
+right arm's gravity feed-forward used the seed's pitch chain: J2's term was +6.1 Nm instead of -6.1 Nm with J3 at
+1 rad, and up to ~9-12 Nm off elsewhere (about 20 mrad at Kp 600; no trips). The left arm was unaffected.
+Fixed by stopping Helm and copying the verified session (`e78c80c8`, identical to `operator-runs`) into
+`operator-runs-vff/minerva-production-01-directions/session.json` (the seed one kept as
+`seed-session-replaced-20261014.json`); Helm now reports every right-arm direction verified. The two
+folders still hold separate copies of directions and route edits, so a change made in one Helm does not reach
+the other.
