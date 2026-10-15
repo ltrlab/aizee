@@ -216,7 +216,7 @@ class TeleopCore:
     """The loop body, built from plain data. Openers are injectable for tests."""
 
     def __init__(self, bundle, *, open_leaders=None, open_backend=None, open_harness=None, open_receiver=None,
-                 clock=time.perf_counter):
+                 open_simulation=None, clock=time.perf_counter):
         self.bundle, self.clock = deepcopy(bundle), clock
         self.base_profile = self.profile = load_profile(bundle['teleop_profile'])
         if bundle.get('operator_settings') is not None:
@@ -241,6 +241,10 @@ class TeleopCore:
         if self.collision_mode == 'disabled' and receiver.get('collision') is not None:
             raise ValueError('Direct teleop cannot request a collision bound')
         self.open_receiver = open_receiver or self._open_receiver
+        # Helm started with --sim: the virtual receiver drives a simulated Minerva (simulation.minerva_sim) whose
+        # joints move under the receiver's commands, instead of joints that follow them exactly.
+        self.simulation = bundle.get('simulation') if receiver.get('mode') == 'virtual' else None
+        self.open_simulation = open_simulation or self._open_simulation
         self._powered = False  # Live: the receiver's enable permit is single-use.
         # No routes_path: a loop on the robot computer, where Helm keeps the file (route_edits).
         self.routes_path = Path(bundle['routes_path']) if bundle.get('routes_path') else None
@@ -256,6 +260,7 @@ class TeleopCore:
         self.open_harness = open_harness or self._open_harness
         self.phase = 'starting'
         self.message = (f'Checking {self._the_arm}, then starting the live receiver…' if self.live_arm
+                        else 'Loading the simulated Minerva and its window; opening the leaders…' if self.simulation
                         else 'Loading the collision model and virtual receiver; opening the leaders…')
         self.derived = self.session = self.mapper = self.leaders = self.harness = self.compiler = None
         self.scales = {}
@@ -301,6 +306,16 @@ class TeleopCore:
         harness.step(0)
         harness.timeout_s = .035
         return harness
+
+    def _open_simulation(self, derived, model, reference):
+        from robot_platform.simulation.minerva_sim import open_simulation
+        directory = Path(self.simulation['directory']) / time.strftime('sim-%Y%m%dT%H%M%SZ', time.gmtime())
+        receiver = open_simulation(derived, model=model, directions=self.bundle['directions'],
+                                   motors=reference['motors'], servo=self.bundle.get('servo'), directory=directory,
+                                   clock=self.clock, viewer=self.simulation.get('viewer', True),
+                                   seed=self.simulation.get('seed', 1))
+        self.scheduling['receiver'] = prefer_responsive(receiver.harness.process.pid)
+        return receiver
 
     def _open_receiver(self, config, device, reference):
         from robot_platform.control.live_receiver import LiveReceiver, service_config
@@ -465,6 +480,14 @@ class TeleopCore:
             harness = self.open_receiver(derived['config'], device, reference)
             self._closers.append(harness.close)
             self._start_recording(harness, derived['config'])
+            exchange = harness.exchange
+        elif self.simulation is not None:
+            # The simulated arms tick with the receiver, as the live service does; their ticks are recorded as a
+            # live session's are.
+            harness = self.open_simulation(derived, model, reference)
+            self._closers.append(harness.close)
+            self._start_recording(harness, derived['config'])
+            self._event('simulation', nominal=harness.nominal)
             exchange = harness.exchange
         else:
             harness = self.open_harness(derived['config'], derived['initial'])
@@ -953,7 +976,8 @@ class TeleopCore:
     def _receiver_name(self):
         if self.live_arm == 'both':
             return 'LIVE BOTH ARMS'
-        return f'LIVE {self.live_arm.upper()} ARM' if self.live_arm else 'VIRTUAL RECEIVER'
+        return (f'LIVE {self.live_arm.upper()} ARM' if self.live_arm
+                else 'SIMULATED MINERVA' if self.simulation else 'VIRTUAL RECEIVER')
 
     @property
     def _the_arm(self):
@@ -1278,7 +1302,7 @@ class TeleopSession:
     TARGETS = ('jetson', 'pc')
 
     def __init__(self, helm, profile_path, *, runs, leaders=None, core_factory=None, leader_factory=None,
-                 target='pc', edge_factory=None):
+                 target='pc', edge_factory=None, simulation=None):
         self.helm, self.leaders = helm, leaders  # leaders: the Leaders workspace holding saved ranges.
         self.profile_path = Path(profile_path).resolve()
         self.profile = load_profile(self.profile_path)
@@ -1289,6 +1313,11 @@ class TeleopSession:
         self.leader_factory = leader_factory  # Previews/tests: 'module:function' instead of USB leaders.
         if target not in self.TARGETS:
             raise ValueError(f'The loop runs on one of {", ".join(self.TARGETS)}')
+        # {'viewer': bool, 'seed': int} or None: the virtual receiver drives a simulated Minerva on this PC.
+        self.simulation = dict(simulation) if simulation is not None else None
+        if self.simulation is not None and target != 'pc':
+            raise ValueError('The simulated Minerva runs on this PC')
+        self.sim_directory = Path(runs) / (helm.asset_id + '-sim')
         self.target, self.edge_factory = target, edge_factory  # edge_factory: tests build the EdgeWorker.
         # Or live on one arm, or both ({'mode': 'live', 'arm': 'left' | 'right' | 'both'}); virtual may enforce the
         # two-arm bound ({'mode': 'virtual', 'collision': 'motion'}).
@@ -1331,6 +1360,8 @@ class TeleopSession:
                 'asset_id': helm.asset_id, 'leader_factory': self.leader_factory, 'receiver': dict(self.receiver),
                 'leader_ranges': deepcopy(self.leaders.saved) if self.leaders is not None else None,
                 'servo': self._servo(),
+                **({'simulation': dict(self.simulation, directory=str(self.sim_directory))}
+                   if self.simulation is not None and self.receiver['mode'] == 'virtual' else {}),
                 **({'manual_tuning': self.manual.bundle()} if self.manual else {}),
                 **({'operator_settings': self.settings.bundle()} if self.settings and self.settings.enabled else {})}
 
@@ -1349,6 +1380,8 @@ class TeleopSession:
                 raise ValueError('Stop the session before choosing where the loop runs')
             if target != 'jetson' and self.receiver['mode'] == 'live':
                 raise ValueError("The live receiver runs on Minerva's Jetson; choose the virtual receiver first")
+            if target != 'pc' and self.simulation is not None:
+                raise ValueError('The simulated Minerva runs on this PC (Helm was started with --sim)')
             self.target = target
 
     def set_receiver(self, mode, arm=None, collision=None):
@@ -1426,7 +1459,9 @@ class TeleopSession:
                 else:
                     worker = threading.Thread(target=run_loop, daemon=True, name='helm-teleop',
                                               args=(command_reader, view_writer, self.core_factory(bundle)))
-                message = 'Starting: loading the collision model and virtual receiver; opening the leaders…'
+                message = ('Starting: loading the simulated Minerva and its window; opening the leaders…'
+                           if 'simulation' in bundle else
+                           'Starting: loading the collision model and virtual receiver; opening the leaders…')
             else:
                 from .edge import EdgeWorker
                 leader_profile = json.loads((self.profile_path.parent / self.profile['leader_profile'])
