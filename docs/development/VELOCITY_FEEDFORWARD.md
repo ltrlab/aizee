@@ -7,6 +7,9 @@
 - Saved evidence: both-arm sessions `~/minerva/evidence/live-20261013T031504Z` (J1 375/9, J2 350/10, J3 320/8) and
   `live-20261014T011541Z` (J1 550/15, J2 600/20, J3 600/11), manual tuning, position-only
 
+- Superseded 2026-10-15: the separate profile and the `helm-tuning-vff` launch config are gone; velocity
+  feed-forward is a Motor tuning switch with a near-end rule (last section).
+
 ## Why
 
 Manual tuning ran position-only: the drives got a target and no velocity, so Kd opposes every motion. Top
@@ -116,3 +119,40 @@ feed-forward preset was copied in unchanged. `operator-runs-vff` is no longer us
 feed-forward sessions' Helm records. Gate: 714 tests, zero failures/skips/xfails, on `185eeb8`
 (`build/dev-check/20261014T024318Z-cdba773d/report.json`). Deployed `20261014T024820Z-185eeb8`, receiver
 unchanged (`cc82487c`).
+
+## Motor tuning's switch, and the near-end fault (2026-10-15)
+
+Fault: both-arm session `~/minerva/evidence/live-20261015T021209Z`, feed-forward at the saved gains, 85 s into
+teleop: receiver `limit_violation` (`sustained_speed`), left J6 at 1.648 rad/s where 1.519 was allowed, 0.10 rad
+from its upper end. The near-end limits (`tracking_lead`, `speed_or_limit_approach`) held the command back and it
+led the joint by ~0.034 rad; the joint then caught up faster than the command moved. `approach.lead_toward`
+bounds the speed a lead can pull by Kd's drag (lead at most allowed x Kd / Kp); with velocity fed forward the
+joint settles near the command's speed plus Kp x lead / Kd (J6 at 100/2: about 1.7 rad/s more). The receiver
+held the arms and the lifecycle returned them to the reference and disabled them, as designed.
+
+Fix (`aec6185`): toward an end, nothing is fed forward from `FEED_END_LOOKAHEAD_S` (0.1 s) at the joint's
+speed before the braking curve holds its command, so there the joint follows position-only, which is what the
+near-end lead was designed for. In open travel and moving away from an end, it is fed as before.
+
+Worst joint speed toward an end as a share of the receiver's allowance there (sustained over three readings,
+as the receiver checks it):
+
+| Source | Worst |
+|---|---|
+| Real arm, feed-forward, the faulted session (1.5 min) | left J6 1.03, right J1 0.86, right J6 0.86 |
+| Real arm, position-only 600/20 (`live-20261014T011541Z`, 14 min) | right J1 0.76 |
+| Real arm, position-only 375/9 (`live-20261013T031504Z`, 5 min) | right J3 0.69 |
+| Simulated arm, left J6 driven into its end: feed-forward without the rule | 0.78 |
+| ... with the rule, no look-ahead / 0.1 s look-ahead | 0.70 / 0.62 |
+| ... position-only | 0.62 |
+
+The simulated wrist is better damped than the real one; it did not trip even without the rule. A fixed zone
+margin (1.5x the cap) was rejected: on the wrists it covers most of their range.
+
+Switch (`5ae076b`): Motor tuning, "Velocity feed-forward", off by default (position-only); a preset saved before
+the switch loads as off. It is saved with the gains and set with Apply between sessions, and the next session
+start takes it: TeleopCore takes the profile's receiver out of position-only, on the PC and the Jetson alike. A
+running session refuses a change. There is one manual-tuning profile again; the unused `-vff-manual.json`
+presets are left in place. `scripts/qualify_manual_tuning_loop.py --velocity-feedforward` qualifies with it on.
+Gate: 717 tests, zero failures/skips/xfails, on `5ae076b` (`build/dev-check/20261015T023017Z-e7072953/report.json`).
+
