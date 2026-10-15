@@ -37,8 +37,12 @@ struct Bus {
     post_stop_speed: bool,
     /// Stop replies still to report a speed reading, whatever the position.
     spikes: u32,
-    /// Every feedback reply reports a speed, as from a motor that is really turning.
+    /// Every feedback reply reports a speed and a moved position, as from a motor that is
+    /// really turning.
     moving: bool,
+    /// Every feedback reply reports a speed while the position stays put: a resting drive's
+    /// speed noise (a right wrist read over 0.2 rad/s three times in a row, 2026-10-15).
+    still_speed: bool,
     damping_fault: Option<&'static str>,
 }
 impl CanIo for Bus {
@@ -167,8 +171,13 @@ impl CanIo for Bus {
         if reply.id >> 24 == 2 && self.enabled {
             reply.id |= 2 << 22;
         }
-        if reply.id >> 24 == 2 && self.moving && reply.data[1] != 0xc4 {
+        if reply.id >> 24 == 2 && (self.moving || self.still_speed) && reply.data[1] != 0xc4 {
             reply.data[2..4].copy_from_slice(&33016u16.to_be_bytes());
+            if self.moving {
+                // About 1.2 mrad a reply.
+                self.position = self.position.wrapping_add(3);
+                reply.data[..2].copy_from_slice(&self.position.to_be_bytes());
+            }
         }
         self.rx.push_back(Received {
             bus,
@@ -206,6 +215,7 @@ fn fixture() -> (Bus, TestClock, Motor, Identity) {
         post_stop_speed: false,
         spikes: 0,
         moving: false,
+        still_speed: false,
         damping_fault: None,
     };
     let motor = Motor {
@@ -433,9 +443,26 @@ fn a_moving_motor_fails_startup_with_its_measured_speed() {
     let reason = hw.failure().unwrap_or_default();
     assert!(
         reason.starts_with("test_gripper: moving at +0.2")
-            && reason.ends_with("3 readings in a row over 0.2 rad/s"),
+            && reason.contains("3 readings in a row over 0.2 rad/s")
+            && reason.ends_with("mrad from where they began"),
         "{reason}"
     );
+}
+
+#[test]
+fn a_run_of_speed_readings_on_a_still_motor_does_not_fail_startup() {
+    // live-20261015T223503Z: right J4 read +0.225..+0.257 rad/s while its position held.
+    let (mut bus, mut clock, motor, identity) = fixture();
+    bus.still_speed = true;
+    let mut hw = CanHardware::new(bus, vec![motor], 170, true).unwrap();
+    hw.configure_watchdogs(vec![identity]).unwrap();
+    let mut out = [JointFeedback::default()];
+    for _ in 0..60 {
+        hw.read(clock.now_ms(), &mut out).unwrap();
+        clock.wait_ms(2);
+    }
+    assert_eq!(hw.watchdog_status(), "ready");
+    assert!(hw.failure().is_none());
 }
 
 #[test]

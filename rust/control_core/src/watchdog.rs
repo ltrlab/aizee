@@ -4,7 +4,7 @@ use crate::{
     can_adapter::{CanIo, Motor, Received},
     hardware::HardwareError,
     protocol::JointCommand,
-    reference::{MOVING_READINGS, STILL_RAD_S},
+    reference::{Motion, STILL_RAD_S},
     robstride,
     watchdog_trial::Identity,
 };
@@ -31,8 +31,8 @@ struct Entry {
     verified: Option<u64>,
     identified: bool,
     position: f64,
-    /// Feedback readings in a row over STILL_RAD_S.
-    moving: u8,
+    /// Feedback readings in a row over STILL_RAD_S and where they began.
+    motion: Motion,
 }
 pub struct Gate {
     entries: Vec<Entry>,
@@ -56,7 +56,7 @@ impl Gate {
                     verified: None,
                     identified: false,
                     position: 0.,
-                    moving: 0,
+                    motion: Motion::default(),
                 })
                 .collect(),
             consumed: false,
@@ -201,18 +201,17 @@ impl Gate {
                         m.name, fb.temperature
                     ));
                 }
-                // One reading over the still speed is drive noise; a run of them is motion.
-                if fb.velocity.abs() > STILL_RAD_S {
-                    e.moving = e.moving.saturating_add(1);
-                    if e.moving >= MOVING_READINGS {
-                        return Err(format!(
-                            "{}: moving at {:+.3} rad/s at the {step}, {} readings in a row over \
-                             {STILL_RAD_S} rad/s",
-                            m.name, fb.velocity, e.moving
-                        ));
-                    }
-                } else {
-                    e.moving = 0;
+                // A reading over the still speed is drive noise, and so is a run of them that
+                // leaves the position where it was; motion moves it.
+                if e.motion.observe(fb.velocity, fb.position) {
+                    return Err(format!(
+                        "{}: moving at {:+.3} rad/s at the {step}, {} readings in a row over \
+                         {STILL_RAD_S} rad/s, {:.1} mrad from where they began",
+                        m.name,
+                        fb.velocity,
+                        e.motion.readings,
+                        1e3 * e.motion.moved(fb.position)
+                    ));
                 }
                 e.position = fb.position;
                 if e.phase == 6 {
