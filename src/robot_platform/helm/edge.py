@@ -26,6 +26,11 @@ from robot_platform.transport.wire import pack_msg, unpack_msg
 
 ROOT = Path(__file__).resolve().parents[3]
 MAX_FRAME = 1 << 22
+# Helm sends a frame at least every BEAT_S; the robot ends a session that hears nothing for SILENCE_S, as if
+# Helm had closed it (the arm lowered first). A dropped tether leaves the robot's SSH session half-open, with
+# no end of stream until TCP keepalive gives up two hours on: a loop then held the receiver (2026-10-15).
+BEAT_S = .5
+SILENCE_S = 5.
 
 
 def write_frame(stream, message):
@@ -151,6 +156,9 @@ def serve(start, commands, views, *, root=ROOT, core_factory=None):
     """One session after its start frame; returns when the loop ends."""
     from .teleop import TeleopCore, run_loop
     tune = (start.get('bundle') or {}).get('kind') == 'tune'
+    # A Helm that beats says how long a silence ends the session; an older one never beats.
+    silence = start.get('silence_s')
+    silence = silence if type(silence) in (int, float) and silence > 0 else None
     try:
         bundle, link = prepare(start, root, leaders=False) if tune else prepare(start, root)
     except Exception as exc:
@@ -160,7 +168,7 @@ def serve(start, commands, views, *, root=ROOT, core_factory=None):
     if tune:
         from .tune import TuneCore, run_tune_loop
         views.send(['link', 0])  # No leaders: the sweep plans its own motion.
-        run_tune_loop(commands, views, (core_factory or TuneCore)(bundle))
+        run_tune_loop(commands, views, (core_factory or TuneCore)(bundle), silence_s=silence)
         return 0
     views.send(['link', link.address[1]])
 
@@ -169,7 +177,7 @@ def serve(start, commands, views, *, root=ROOT, core_factory=None):
         return link
 
     core = (core_factory or TeleopCore)(bundle, open_leaders=open_leaders)
-    run_loop(commands, views, core)
+    run_loop(commands, views, core, silence_s=silence)
     return 0
 
 
@@ -235,7 +243,7 @@ class EdgeWorker:
         self.views, self.commands = ArrivalInbox(), _Commands(self)
         self._lock = threading.Lock()
         self._writer = self._channel = None
-        self._aborted = threading.Event()
+        self._aborted, self._ended = threading.Event(), threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True, name='helm-edge')
 
     def start(self):
@@ -265,7 +273,8 @@ class EdgeWorker:
                 f'cd {CURRENT} && PYTHONPATH=src exec python3 -u -m robot_platform.helm.edge')
             self._channel = stdout.channel
             key = secrets.token_bytes(32)
-            write_frame(stdin, {'bundle': self.bundle, 'key': key.hex(), 'bind': self.address})
+            write_frame(stdin, {'bundle': self.bundle, 'key': key.hex(), 'bind': self.address,
+                                'silence_s': SILENCE_S})
             try:
                 first = read_frame(stdout)
             except EOFError:
@@ -285,6 +294,7 @@ class EdgeWorker:
                                          local=(route_source(self.address) or '0.0.0.0', 0), real=self.real_leaders)
             with self._lock:
                 self._writer = stdin
+            threading.Thread(target=self._beat, args=(stdin,), daemon=True, name='helm-edge-beat').start()
             reason = pump(stdout, self.views)
             status = stdout.channel.recv_exit_status()
             if status not in (0, -1) and not self._aborted.is_set():  # -1: we closed the channel.
@@ -297,12 +307,24 @@ class EdgeWorker:
                                          message=f"{self.name} on Minerva's Jetson stopped: {reason}"), None])
             self.views.end(reason)
         finally:
+            self._ended.set()
             with self._lock:
                 self._writer = None
             if server is not None:
                 self._save_link(server.close())
             if client is not None:
                 client.close()
+
+    def _beat(self, stdin):
+        """Tell the robot Helm is still there: it ends a session that hears nothing for SILENCE_S."""
+        while not self._ended.wait(BEAT_S):
+            with self._lock:
+                if self._writer is not stdin:
+                    return
+                try:
+                    write_frame(stdin, ['beat'])
+                except (OSError, EOFError, ValueError):
+                    return
 
     def _save_link(self, report):
         """The PC end's counts and request timing (teleop.leader_link.LinkTiming), beside Helm's other runs."""

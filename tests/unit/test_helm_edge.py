@@ -38,10 +38,20 @@ class Core:
     """A loop core that reads the leaders over the link each cycle, like TeleopCore."""
     period_s = .01
     clock = staticmethod(time.perf_counter)
+    landing = False  # No arm to lower before closing.
+    made = []
 
     def __init__(self, bundle, *, open_leaders):
         self.bundle, self.open_leaders = bundle, open_leaders
         self.keys, self.samples, self.closed, self.fault, self.scheduling = [], 0, False, None, {}
+        self.gone = []
+        Core.made.append(self)
+
+    def land(self):
+        return False
+
+    def helm_gone(self, reason):
+        self.gone.append(reason)
 
     def build(self):
         self.leaders = self.open_leaders(None)
@@ -263,3 +273,30 @@ def test_the_pc_end_saves_its_link_report_and_skips_nothing_to_save(tmp_path):
     worker._save_link({'served': 3, 'timing': {'requests': 3}})
     saved = list((tmp_path / 'leader-link').glob('leader-link-*.json'))
     assert len(saved) == 1 and json.loads(saved[0].read_text(encoding='utf-8'))['timing'] == {'requests': 3}
+
+
+def test_beats_keep_a_quiet_session_alive_and_silence_ends_it(tmp_path, monkeypatch):
+    """A dropped tether leaves the robot's SSH session half-open, with no end of stream for about two hours: the
+    loop of live-20261015T223850Z held the receiver until the Jetson was power-cycled. Helm beats; the robot ends a
+    session that goes silent, as if Helm had closed it."""
+    monkeypatch.setattr(edge, 'prepare', fake_prepare)
+    monkeypatch.setattr(edge, 'BEAT_S', .05)
+    monkeypatch.setattr(edge, 'SILENCE_S', .3)
+    teleop = session(tmp_path, Robot())
+    teleop.start()
+    try:
+        wait_until(lambda: teleop.snapshot()['phase'] == 'running')
+        time.sleep(1.)  # Over three silences, with nothing but beats.
+        assert teleop.snapshot()['phase'] == 'running' and not Core.made[-1].gone
+    finally:
+        teleop.stop()
+    monkeypatch.setattr(edge, 'BEAT_S', 30.)  # Helm still connected, but nothing reaches the robot.
+    teleop = session(tmp_path, Robot())
+    teleop.start()
+    try:
+        wait_until(lambda: teleop.snapshot()['phase'] == 'running')
+        wait_until(lambda: Core.made[-1].closed, timeout=3.)
+        assert Core.made[-1].gone == ['Helm went silent for 0.3 s']
+        wait_until(lambda: teleop.snapshot()['phase'] != 'running')
+    finally:
+        teleop.stop()

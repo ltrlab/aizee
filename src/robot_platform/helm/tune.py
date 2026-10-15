@@ -587,9 +587,10 @@ class TuneCore:
         return view
 
 
-def run_tune_loop(commands, views, core):
+def run_tune_loop(commands, views, core, *, silence_s=None):
     """Like helm.teleop.run_loop: keys in, views out. The loop ends when the sweep finishes, is
-    disabled or faults; the last view carries the results."""
+    disabled or faults; the last view carries the results. With `silence_s` (helm.edge), a sweep
+    that hears nothing from Helm for that long stops as if Helm had closed it."""
     clock = core.clock
     closing = False  # Asked to stop, or Helm is gone: lowering the arm before the receiver closes.
     listening = True
@@ -597,16 +598,22 @@ def run_tune_loop(commands, views, core):
         views.send(('view', core.view(results=False), None))
         core.build()
         views.send(('view', core.view(), None))
+        heard = clock()
         while True:
             started = clock()
             key = None
             while listening:
                 try:
                     if not commands.poll():
-                        break
+                        if silence_s is None or started - heard <= silence_s:
+                            break
+                        raise EOFError(f'Helm went silent for {silence_s:g} s')
                     message = commands.recv()
+                    heard = clock()
                 except (EOFError, OSError):
                     listening, message = False, ('stop',)
+                if message[0] == 'beat':
+                    continue  # Helm is still there.
                 if message[0] == 'stop':
                     # Closing the receiver cuts torque: a raised arm is lowered first (H still disables at once).
                     if not closing:

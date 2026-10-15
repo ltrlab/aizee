@@ -958,6 +958,10 @@ class TeleopCore:
                 self.message = (f'{self._receiver_name} FAULT · {self.fault} · Lowering stopped: {exc}. '
                                 'Stop the session and start it again.')
 
+    def helm_gone(self, reason):
+        """Helm closed the channel or went silent (run_loop) without asking to stop; the loop lands and closes."""
+        self._event('helm_gone', reason=reason)
+
     def land(self):
         """Before the session closes (closing the receiver cuts torque): lower an enabled arm to the reference
         (the lifecycle's shutdown, as X does), then disable it. True while there is an arm to lower."""
@@ -1126,12 +1130,21 @@ class TeleopCore:
         return result
 
 
-def run_loop(commands, views, core):
+def _helm_gone(core, exc):
+    gone = getattr(core, 'helm_gone', None)
+    if gone is not None:
+        gone(str(exc) or type(exc).__name__)
+
+
+def run_loop(commands, views, core, *, silence_s=None):
     """Serve one session: keys and route edits arrive on `commands`, state leaves on `views`.
 
     The control loop only drops its latest state into a slot; a sender thread does
     the (possibly blocking) pipe writes, so a slow reader drops stale views
     instead of stalling a cycle.
+
+    With `silence_s` (on the robot, helm.edge) Helm beats, and a session that hears nothing for that long
+    ends as if Helm had closed it: a dropped tether leaves the channel open, so no end of stream comes.
     """
     clock = core.clock
     keys = []
@@ -1217,16 +1230,24 @@ def run_loop(commands, views, core):
         scheduled = clock()
         budget_views = direct and hasattr(core, 'status_view')
         next_view_at = scheduled + .1
+        heard = clock()
         while True:
             started = clock()
             view_changed = False
             while listening:
                 try:
                     if not commands.poll():
-                        break
+                        if silence_s is None or started - heard <= silence_s:
+                            break
+                        raise EOFError(f'Helm went silent for {silence_s:g} s')
                     message = commands.recv()
-                except (EOFError, OSError):
+                    heard = clock()
+                except (EOFError, OSError) as exc:
                     listening, message = False, ('stop',)  # Helm went away: stop and clean up.
+                    if not closing:
+                        _helm_gone(core, exc)
+                if message[0] == 'beat':
+                    continue  # Helm is still there.
                 if message[0] == 'stop':
                     # Closing the receiver cuts torque: an enabled arm is lowered first (H still disables at once).
                     if not closing:

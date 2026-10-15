@@ -379,3 +379,37 @@ def test_scheduling_hints_applied_to_itself_also_get_a_1ms_timer():
 def test_scheduling_hints_are_a_no_op_elsewhere(monkeypatch):
     monkeypatch.setattr(sys, 'platform', 'linux')
     assert prefer_responsive() == []
+
+
+def test_a_silent_helm_ends_the_loop_after_lowering_the_arm():
+    """helm.edge: a dropped tether sends no end of stream, so the robot's loop ends a session that hears nothing
+    for `silence_s`, as if Helm had closed it; an engaged arm is lowered first, and the reason is logged."""
+    from robot_platform.helm.edge import Inbox
+    from robot_platform.helm.teleop import run_loop
+
+    class Lowering(FakeCore):
+        def __init__(self):
+            super().__init__()
+            self.lowering, self.gone = 0, []
+
+        def land(self):
+            self.lowering = 3  # Cycles to lower the arm.
+            return True
+
+        @property
+        def landing(self):
+            return self.lowering > 0
+
+        def tick(self, key, started):
+            super().tick(key, started)
+            self.lowering = max(0, self.lowering - 1)
+
+        def helm_gone(self, reason):
+            self.gone.append(reason)
+
+    core, commands, sent = Lowering(), Inbox(), []
+    commands.put(['beat'])
+    started = time.monotonic()
+    run_loop(commands, SimpleNamespace(send=sent.append, close=lambda: None), core, silence_s=.2)
+    assert .2 <= time.monotonic() - started < 2.
+    assert core.gone == ['Helm went silent for 0.2 s'] and core.lowering == 0 and core.closed
