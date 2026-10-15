@@ -8,7 +8,8 @@ from collections import deque
 import math
 import time
 
-from robot_platform.control.approach import command_step, end_margin, friction_feedforward, lead_toward, ramp_effort
+from robot_platform.control.approach import (command_speed, command_step, end_margin, friction_feedforward, lead_toward,
+                                             ramp_effort)
 from robot_platform.control.gravity import gravity_effort
 from robot_platform.control.plain_data import plain_copy
 
@@ -40,6 +41,10 @@ RETURN_SQUEEZE_NM = 1.
 # each jump, about 100 ms apart) while the leaders repeated one sample in ten (2026-10-10); a slope over ~30 ms stays
 # smooth through a leader count's quantisation and reversals, and decays over that span when the command stops.
 FEED_SAMPLES = 4
+# Toward an end none is fed from this long before the joint, at its speed, reaches where the braking curve holds
+# its command: fed forward, a joint enters the curve faster than the lead's position-only bound assumes
+# (lifecycle._approach near_end).
+FEED_END_LOOKAHEAD_S = .1
 
 
 def direct_law(joints):
@@ -120,6 +125,7 @@ class TeleopLifecycle:
         self._velocities = None  # This cycle's slewed targets' velocities, for the next proposal.
         self._sent_velocities = None  # The last move's velocities, for the acceleration fed forward.
         self._feed = deque()  # (time, positions) of the last slewed commands, for velocity feed-forward.
+        self._near_end = ()  # Per joint, (toward lower, toward upper): inside that end's braking zone.
         self._before = None  # (target, sent velocities) before this cycle's proposal, for reduce().
         self._limits = {}
         self._proposed = None  # (target, velocities) of this cycle's move, as first proposed.
@@ -250,7 +256,9 @@ class TeleopLifecycle:
     def _fed_velocities(self, positions, original):
         """Each joint's velocity feed-forward (FEED_SAMPLES): the slope of the last slewed commands over their
         cycle times, within its speed cap. A target that was not slewed (a snap, hold or stop) clears them and
-        carries none, so a jump in the target never reads as speed."""
+        carries none, so a jump in the target never reads as speed. None toward an end inside its braking zone
+        (_approach's near_end): there the joint follows position-only, as the near-end lead was made for; fed
+        forward, left J6 caught up with its command at 1.65 rad/s where 1.52 was allowed (2026-10-15)."""
         if not original and self._feed:
             self._feed.pop()  # reduce() re-proposes this cycle's command.
         if positions is None or self._last_time is None:
@@ -269,6 +277,9 @@ class TeleopLifecycle:
             values = [q[i] for _, q in self._feed]
             centre = sum(values) / len(values)
             slope = sum((t - mean) * (q - centre) for t, q in zip(times, values)) / spread
+            toward_lower, toward_upper = self._near_end[i] if i < len(self._near_end) else (False, False)
+            if (slope > 0 and toward_upper) or (slope < 0 and toward_lower):
+                slope = 0.
             result.append(max(-base['max_velocity'], min(base['max_velocity'], slope)))
         return tuple(result)
 
@@ -436,6 +447,7 @@ class TeleopLifecycle:
 
     def _approach(self, measured, goal, speed, dt, now):
         proposed, velocities = [], []
+        near_end = [(False, False)] * len(self._joints)
         before = self._last_measured or tuple(row['position'] for row in measured)
         sent = self._sent_velocities or (0.,) * len(self._joints)
         for index, (previous, row, target, joint, last, was) in enumerate(zip(self.target, measured, goal, self._joints, before, sent)):
@@ -469,6 +481,14 @@ class TeleopLifecycle:
                 gains = (joint['hold_kp'], joint['hold_kd'])
                 lead_up = lead_toward(curve, reaction, row['position'], 1, joint['max_lead'], cap, *gains)
                 lead_down = lead_toward(curve, reaction, row['position'], -1, joint['max_lead'], cap, *gains)
+                if joint.get('velocity_feedforward'):
+                    # lead_toward bounds the speed a lead can pull by Kd's drag; velocity fed forward removes
+                    # that drag, so toward an end, where the curve allows less than the cap, none is fed.
+                    # The joint's speed: the drive's, or between the last two cycles' positions (as _lead_origin).
+                    moving = max(abs(row['velocity']), abs(row['position'] - last) / dt if dt > 0 else 0.)
+                    ahead = FEED_END_LOOKAHEAD_S * moving
+                    near_end[index] = tuple(command_speed(curve, reaction, row['position'] + d * ahead, d, cap) < cap
+                                            for d in (-1, 1))
             if joint.get('gripper') and self.state == 'SHUTDOWN':
                 lead_up = lead_down = self._squeeze_lead(joint)  # Returning, it squeezes no harder than this.
             # The lead is taken from where the joint will be once the receiver has ramped to this command.
@@ -521,6 +541,7 @@ class TeleopLifecycle:
             velocities.append(0. if velocity_period <= 0 else
                               max(-velocity_cap, min(velocity_cap, (q-previous)/velocity_period)))
         self._velocities = tuple(velocities)
+        self._near_end = tuple(near_end)
         return tuple(proposed)
 
     def _trial_goal(self, goal):

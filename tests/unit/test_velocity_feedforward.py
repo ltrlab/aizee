@@ -30,9 +30,8 @@ def rows(now, positions, *, source=False):
     return [{k: v for k, v in row.items() if k != 'velocity'} for row in result] if source else result
 
 
-def engaged():
-    lifecycle = TeleopLifecycle(joints(), settle_time_s=0.)
-    pose = (0., 0., 0.)
+def engaged(pose=(0., 0., 0.), config=None):
+    lifecycle = TeleopLifecycle(config or joints(), settle_time_s=0.)
     lifecycle.action('idle', rows(0., pose), now=0.)
     lifecycle.action('enable', rows(0., pose), now=0.)
     lifecycle.action('engage', rows(.01, pose), target=rows(.01, pose, source=True), now=.01)
@@ -146,3 +145,21 @@ def test_velocity_feedforward_is_only_a_direct_unramped_arm_law():
     assert not direct_law(mixed)
     position_only = [dict(j, position_only=True, velocity_feedforward=False) for j in joints()]
     assert direct_law(position_only)
+
+
+def test_toward_an_end_inside_its_braking_zone_the_joint_follows_position_only():
+    """The near-end lead (approach.lead_toward) bounds the speed a lead can pull by Kd's drag; fed forward, left J6
+    caught up with its command at 1.65 rad/s where the receiver allowed 1.52 (live-20261015T021209Z)."""
+    config = joints()
+    curve = dict(lower=-2., upper=2., max_velocity=1.875, max_tracking_error=.4, stop_acceleration=16., reaction_s=.04)
+    config[0]['approach'] = curve
+    lifecycle, now = engaged((1.5, 0., 0.), config)
+    # Up toward the end at 0.3 rad/s: fed forward in open travel, none from 0.1 s before the last ~0.18 rad.
+    now, sent = drive(lifecycle, now, [(1.5 + .003 * k, 0., 0.) for k in range(1, 121)])
+    fed = [(p['positions'][0], p['joints'][0]['velocity']) for p in sent]
+    assert all(v > .25 for q, v in fed[FEED_SAMPLES:] if q < 1.76)
+    assert all(v == 0. for q, v in fed if q > 1.80)  # 0.1 s at 0.3 rad/s before the curve.
+    assert any(q > 1.85 for q, _ in fed)
+    # Back away from the end, still inside the zone: fed forward again (only motion toward the end is damped).
+    _, back = drive(lifecycle, now, [(1.86 - .003 * k, 0., 0.) for k in range(1, 15)])
+    assert all(p['joints'][0]['velocity'] < -.25 for p in back[FEED_SAMPLES + 1:])
