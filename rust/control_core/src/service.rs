@@ -75,7 +75,8 @@ struct Output<'a> {
     timing: &'a Timing,
     observations: &'a [linux_can::Observation],
     /// Recorder rows since the previous response: [t_ms, then per joint position,
-    /// velocity, effort, commanded position].
+    /// velocity, effort, commanded position, then per joint commanded velocity, effort,
+    /// kp, kd] (recorder::Recorder).
     recent: Vec<&'a [f64]>,
     recent_dropped: u64,
 }

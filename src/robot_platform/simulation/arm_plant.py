@@ -117,9 +117,14 @@ class PlantReceiver:
         return (self.clock() - self.epoch) * 1000
 
     def _row(self, result, t_ms):
+        """A live recorder row (servo_sweep.recorder_columns): measured and commanded position per joint, then each
+        drive's commanded velocity, effort and gains."""
         row = [t_ms]
-        for feedback, command in zip(result['feedback'], result['status']['joints']):
+        commands = result['status']['joints']
+        for feedback, command in zip(result['feedback'], commands):
             row += [feedback['position'], feedback['velocity'], feedback['effort'], command['position']]
+        for command in commands:
+            row += [command['velocity'], command['effort'], command['kp'], command['kd']]
         return row
 
     def _tick(self):

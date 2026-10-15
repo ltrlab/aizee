@@ -198,12 +198,43 @@ class JointReport:
     status: str = 'pending'
 
 
+# A receiver recorder row (rust/control_core/src/recorder.rs): t_ms; per joint the measured position, velocity and
+# effort and the commanded position; then per joint the rest of the drive's command. Older receivers recorded the
+# first block only.
+MEASURED_FIELDS = ('position', 'velocity', 'effort', 'command')
+COMMAND_FIELDS = ('command_velocity', 'command_effort', 'kp', 'kd')
+
+
+def row_width(count):
+    return 1 + (len(MEASURED_FIELDS) + len(COMMAND_FIELDS)) * count
+
+
+def recorder_columns(names):
+    """columns.json names for recorder rows of these joints, in receiver order."""
+    return (['t_ms'] + [f'{name}.{field}' for name in names for field in MEASURED_FIELDS]
+            + [f'{name}.{field}' for name in names for field in COMMAND_FIELDS])
+
+
+def full_rows(rows, count):
+    """Recorder rows as a (n, row_width) array. A row from an older receiver, without the command block, gets NaN
+    there: unknown, never zero."""
+    rows = np.asarray(rows, dtype=float)
+    width, short = row_width(count), 1 + len(MEASURED_FIELDS) * count
+    if rows.size == 0:
+        return np.empty((0, width))
+    if rows.ndim != 2 or rows.shape[1] not in (width, short):
+        raise ValueError(f'Recorder rows for {count} joints are {short} or {width} wide, not {rows.shape}')
+    if rows.shape[1] == short:
+        rows = np.hstack([rows, np.full((len(rows), width - short), np.nan)])
+    return rows
+
+
 class Recording:
     """The receiver's rows, a rolling window for segments and guards, optionally appended to a file."""
 
     def __init__(self, names, *, window_s=90., sink=None):
         self.names = list(names)
-        self.width = 1 + 4 * len(self.names)
+        self.width = row_width(len(self.names))
         self.window_ms = window_s * 1000
         self.chunks = deque()
         self.sink = sink  # A binary file: float32 rows.
@@ -211,7 +242,7 @@ class Recording:
         self.last_t = None
 
     def add(self, rows, dropped=0):
-        rows = np.asarray(rows, dtype=float).reshape(-1, self.width)
+        rows = full_rows(rows, len(self.names))
         self.dropped += int(dropped)
         if not len(rows):
             return rows
@@ -242,11 +273,15 @@ class Recording:
 
 
 def result_rows(result, names):
-    """A receiver result's recorder rows, or one row from its status and feedback (the virtual
+    """A receiver result's recorder rows (full_rows), or one row from its status and feedback (the virtual
     harness, which steps once per request and keeps no record)."""
     recent = result.get('recent')
     if recent:
-        return recent, result.get('recent_dropped', 0)
+        if all(len(row) == row_width(len(names)) for row in recent):
+            # The current receiver's rows, as they came: converting them every cycle cost the Jetson's 100 Hz
+            # loop ~0.1 ms (qualification of 3bdae8f, 2026-10-15).
+            return recent, result.get('recent_dropped', 0)
+        return full_rows(recent, len(names)).tolist(), result.get('recent_dropped', 0)
     status, feedback = result.get('status') or {}, result.get('feedback') or []
     if not feedback or 'now_ms' not in status:
         return [], 0
@@ -254,6 +289,8 @@ def result_rows(result, names):
     commands = status.get('joints') or [{}] * len(feedback)
     for sample, command in zip(feedback, commands):
         row += [sample['position'], sample['velocity'], sample['effort'], command.get('position', sample['position'])]
+    for command in commands:
+        row += [command.get(key, math.nan) for key in ('velocity', 'effort', 'kp', 'kd')]
     return [row], 0
 
 
