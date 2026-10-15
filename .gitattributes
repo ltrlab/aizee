@@ -2,6 +2,10 @@ urdf/*/meshes/*.stl filter=lfs diff=lfs merge=lfs -text
 urdf/*/meshes/*.gltf filter=lfs diff=lfs merge=lfs -text
 urdf/minerva/onshape-to-robot/meshes/*.stl filter=lfs diff=lfs merge=lfs -text
 urdf/minerva/collision-v1.2/meshes/*.stl filter=lfs diff=lfs merge=lfs -text
+urdf/minerva/mujoco/meshes/*.obj filter=lfs diff=lfs merge=lfs -text
+# The generated MJCF manifest hashes the export's exact LF bytes.
+urdf/minerva/mujoco/minerva.xml -text
+urdf/minerva/mujoco/minerva.manifest.json -text
 # Model revisions/manifests hash exact CAD bytes on Windows and Linux.
 urdf/**/*.urdf -text whitespace=cr-at-eol
 urdf/**/*.part -text whitespace=cr-at-eol

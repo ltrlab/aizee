@@ -1,0 +1,40 @@
+<!-- Synthetic fixture, not Minerva: explicit test masses, a rotated off-diagonal
+     inertial, rotated joint frames and a mimic jaw with a nonunit multiplier/offset. -->
+<robot name="synthetic_coupled_jaws">
+  <link name="base">
+    <inertial><mass value="1"/><inertia ixx=".01" ixy="0" ixz="0" iyy=".01" iyz="0" izz=".01"/></inertial>
+    <collision><geometry><box size=".1 .1 .02"/></geometry></collision>
+  </link>
+  <link name="arm">
+    <inertial>
+      <origin xyz=".2 .01 -.03" rpy=".3 -.2 .5"/>
+      <mass value=".7"/>
+      <inertia ixx=".004" ixy=".0005" ixz="-.0003" iyy=".006" iyz=".0002" izz=".008"/>
+    </inertial>
+    <collision><origin xyz=".15 0 0" rpy="0 1.5707963267948966 0"/><geometry><cylinder radius=".02" length=".3"/></geometry></collision>
+  </link>
+  <link name="jaw_a">
+    <inertial><origin xyz="0 .01 0"/><mass value=".05"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
+    <collision><geometry><box size=".01 .02 .03"/></geometry></collision>
+  </link>
+  <link name="jaw_b">
+    <inertial><origin xyz="0 .01 0"/><mass value=".05"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
+    <collision><geometry><sphere radius=".01"/></geometry></collision>
+  </link>
+  <joint name="hinge" type="revolute">
+    <origin xyz="0 0 .05" rpy="0 .4 0"/>
+    <parent link="base"/><child link="arm"/>
+    <axis xyz="0 0 1"/><limit lower="-2" upper="2" effort="20" velocity="2"/>
+  </joint>
+  <joint name="slide_a" type="prismatic">
+    <origin xyz=".3 0 0" rpy="1.5707963267948966 0 .2"/>
+    <parent link="arm"/><child link="jaw_a"/>
+    <axis xyz="0 1 0"/><limit lower="0" upper=".04" effort="10" velocity="1"/>
+  </joint>
+  <joint name="slide_b" type="prismatic">
+    <origin xyz=".3 0 0" rpy="-1.5707963267948966 0 -.2"/>
+    <parent link="arm"/><child link="jaw_b"/>
+    <axis xyz="0 1 0"/><limit lower="-.03" upper=".01" effort="10" velocity="1"/>
+    <mimic joint="slide_a" multiplier="-.5" offset=".01"/>
+  </joint>
+</robot>

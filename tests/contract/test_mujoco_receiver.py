@@ -56,6 +56,39 @@ def test_receiver_commands_drive_mujoco_and_feedback_returns_to_rust(tmp_path):
         receiver.close()
 
 
+@pytest.mark.parametrize('service_latency', [True, False])
+@pytest.mark.parametrize('every', [3, 5, 7])
+def test_a_request_never_steps_the_receiver_back_when_the_clock_runs_on_while_it_ticks(tmp_path, service_latency,
+                                                                                      every):
+    # A real clock moves while the plant ticks. Helm's simulated Minerva faulted clock_regression at its first
+    # request (2026-10-14): a hiccup during the ticks (its window starting) put the request past the next scheduled
+    # tick, which then stepped the receiver back. Here every few readings jump 6 ms (both modes faulted before).
+    cfg = config()
+    reads = [0]
+    now = [100.]
+
+    def clock():
+        reads[0] += 1
+        now[0] += .006 if reads[0] % every == 0 else .0005
+        return now[0]
+    plant = MujocoPlant(FIXTURES / 'slider.xml', [JointBinding('motor', 'slide', 5.)], position_step=0.)
+    receiver = PlantReceiver(cfg, plant, clock=clock, directory=tmp_path, service_latency=service_latency)
+    client = GuardedControllerClient(receiver.exchange, group=cfg['group'], identity=cfg['identity'],
+                                     joint_names=('motor',))
+    try:
+        try:
+            client.acquire()
+            client.arm()
+            for _ in range(100):
+                client.renew()
+                client.move([{'position': .05, 'velocity': 0., 'effort': 0., 'kp': 10., 'kd': 1.}])
+        except Exception as exc:
+            raise AssertionError(receiver.last['status']) from exc
+        assert receiver.last['status']['state'] == 'executing', receiver.last['status']
+    finally:
+        receiver.close()
+
+
 @settings(max_examples=12, deadline=None)
 @given(gaps=st.lists(st.integers(min_value=1, max_value=80), min_size=1, max_size=8))
 def test_generated_silent_intervals_cannot_renew_receiver_authority(gaps):
