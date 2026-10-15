@@ -277,6 +277,10 @@ def result_rows(result, names):
     harness, which steps once per request and keeps no record)."""
     recent = result.get('recent')
     if recent:
+        if all(len(row) == row_width(len(names)) for row in recent):
+            # The current receiver's rows, as they came: converting them every cycle cost the Jetson's 100 Hz
+            # loop ~0.1 ms (qualification of 3bdae8f, 2026-10-15).
+            return recent, result.get('recent_dropped', 0)
         return full_rows(recent, len(names)).tolist(), result.get('recent_dropped', 0)
     status, feedback = result.get('status') or {}, result.get('feedback') or []
     if not feedback or 'now_ms' not in status:
