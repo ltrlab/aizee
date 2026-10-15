@@ -300,3 +300,47 @@ def test_beats_keep_a_quiet_session_alive_and_silence_ends_it(tmp_path, monkeypa
         wait_until(lambda: teleop.snapshot()['phase'] != 'running')
     finally:
         teleop.stop()
+
+
+def test_a_silent_helm_stops_a_sweep_after_lowering_the_arm():
+    """helm.edge: behind a dropped tether no end of stream comes, so a sweep that hears nothing from Helm for
+    `silence_s` stops as if Helm had closed it: the raised arm is lowered and the sweep ends disabled."""
+    from robot_platform.helm.tune import run_tune_loop
+
+    class Sweep:
+        period_s, fault, stage = .01, None, 'sweeping'
+        clock = staticmethod(time.perf_counter)
+
+        def __init__(self):
+            self.lowering, self.closed = 0, False
+
+        def view(self, results=True):
+            return {'stage': self.stage}
+
+        def build(self):
+            pass
+
+        def land(self):
+            self.lowering = 3  # Cycles to lower the arm, then the sweep disables it.
+            return True
+
+        def tick(self, key, started):
+            if self.lowering:
+                self.lowering -= 1
+                self.stage = 'disabled' if not self.lowering else self.stage
+
+        def note_cycle(self, *times):
+            pass
+
+        def close(self):
+            self.closed = True
+
+        def fail(self, reason):
+            self.fault = reason
+
+    core, commands, sent = Sweep(), Inbox(), []
+    commands.put(['beat'])
+    started = time.monotonic()
+    run_tune_loop(commands, SimpleNamespace(send=sent.append, close=lambda: None), core, silence_s=.2)
+    assert .2 <= time.monotonic() - started < 2.
+    assert core.stage == 'disabled' and core.closed and core.fault is None
