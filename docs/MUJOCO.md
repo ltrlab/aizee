@@ -62,6 +62,41 @@ input task. Start with one arm, verify its joint frames independently, then comp
 static torque and motion traces before enabling dual-arm or contact scenarios.
 Do not invent mass properties to obtain a green Minerva demo.
 
+## Minerva's MJCF (kinematic)
+
+`urdf/minerva/mujoco/minerva.xml` is generated from the active URDF and committed with its
+`minerva.manifest.json`, which lists the source URDF, every mesh and their hashes. The gate fails if
+the export no longer matches the URDF. After a URDF or mesh change, delete the export and regenerate:
+
+```sh
+.venv-dev/Scripts/python.exe -m robot_platform.models.mjcf urdf/minerva/model.json --output urdf/minerva/mujoco/minerva.xml --limits config/devices/minerva-production-01-joint-limits.json --directions calibration_runs/minerva-production-01-directions/session.json
+```
+
+`--directions` is Helm's direction session in the checkout Helm runs from (it is local state, not in
+Git). The export also regenerates after a new range sweep or direction change.
+
+- **Frames.** Every link is a named body at its URDF link frame. Tests compare the link frames with the
+  project's URDF kinematics at 202 poses, and every mesh's placement with its source STL.
+- **Jaws.** Each mimic is a rigid joint equality with time constant 2 × timestep. Backlash and compliance
+  are not modeled.
+- **Inertials.** These are the URDF's 17 placeholders, so the manifest says `dynamics_usable: false` and
+  `MujocoPlant` refuses the model. Replacing them is the measurement task.
+- **Ranges.** The 12 arm joints take Helm's hand-swept travel, mapped through Helm's confirmed motor
+  directions (right J1, J3 and J4 are reversed). The swept ends are used exactly. The jaws keep their CAD
+  stroke, because their motor-to-jaw scale is unverified.
+- **Not physics.** Contacts are off. There is no damping, friction, armature or actuator, and
+  motor-to-joint bindings are not part of the model.
+
+View it, kinematics only:
+
+```sh
+.venv-dev/Scripts/python.exe scripts/view_mujoco.py
+.venv-dev/Scripts/python.exe scripts/view_mujoco.py --render minerva.png --pose '{"left_arm_j2": 0.5}'
+```
+
+`--collision` shows the source collision meshes instead of the visuals. The viewer's joint sliders
+recompute kinematics only. See [the task brief](development/MINERVA_MJCF.md) for results and limits.
+
 ## Import decisions
 
 Keep CAD/URDF as the source of geometry, frames and inertial evidence, and keep
