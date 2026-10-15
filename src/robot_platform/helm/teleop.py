@@ -24,7 +24,7 @@ from pathlib import Path
 import threading
 import time
 
-from robot_platform.control.guarded_config import arm_subset, derive_receiver, fit_motor_ranges, to_cad
+from robot_platform.control.guarded_config import CONTROL_LAW, arm_subset, derive_receiver, fit_motor_ranges, to_cad
 from robot_platform.control.joint_calibration import save_json
 from robot_platform.control.live_receiver import fault_detail
 from robot_platform.control.scheduling import prefer_responsive
@@ -111,6 +111,31 @@ def velocity_feedforward(profile):
     receiver = profile['receiver']
     return (receiver.get('collision_mode') == 'disabled' and receiver.get('interpolation_ms', 40) == 0
             and not (receiver.get('direct') or {}).get('position_only', False))
+
+
+def control_law(direct, position_only, feedforward):
+    """The receiver's control law, as guarded_config names it in each joint's report."""
+    if not direct:
+        return CONTROL_LAW
+    return ('direct-position-only' if position_only else 'direct-velocity-feedforward' if feedforward
+            else 'direct-feedforward')
+
+
+def profile_law(profile):
+    receiver = profile['receiver']
+    return control_law(receiver.get('collision_mode') == 'disabled',
+                       (receiver.get('direct') or {}).get('position_only', False), velocity_feedforward(profile))
+
+
+def switched_profile(profile, manual):
+    """The profile a session runs. Motor tuning's velocity feed-forward switch (helm.manual_tuning), on, takes a
+    manual-tuning profile out of position-only: the receiver then accepts the smoothed velocity the lifecycle
+    feeds forward (guarded_config). A session takes it at start."""
+    if profile.get('manual_tuning') is True and isinstance(manual, dict) and manual.get('velocity_feedforward') is True:
+        profile = deepcopy(profile)
+        profile['receiver']['direct']['position_only'] = False
+        validate_profile(profile)
+    return profile
 
 
 def source_misses(period_s):
@@ -224,14 +249,7 @@ class TeleopCore:
             # the result, and build() takes the lifecycle's speeds and freshness from them.
             from .settings import resolve_profile
             self.profile = resolve_profile(self.base_profile, bundle['operator_settings'])
-        manual = bundle.get('manual_tuning')
-        if (self.profile.get('manual_tuning') is True and isinstance(manual, dict)
-                and manual.get('velocity_feedforward') is True):
-            # Motor tuning's velocity feed-forward switch, taken at session start (helm.manual_tuning): the
-            # receiver then accepts the smoothed velocity the lifecycle feeds forward (guarded_config).
-            self.profile = deepcopy(self.profile)
-            self.profile['receiver']['direct']['position_only'] = False
-            validate_profile(self.profile)
+        self.profile = switched_profile(self.profile, bundle.get('manual_tuning'))
         self.period_s = loop_period_s(self.profile)
         self.collision_mode = self.profile['receiver'].get('collision_mode', 'enforced')
         receiver = bundle.get('receiver') or {'mode': 'virtual'}
@@ -1566,11 +1584,21 @@ class TeleopSession:
                 # Aged since it was observed; a cached packet never looks fresher than its source.
                 from .telemetry import age_packet
                 view['telemetry'] = age_packet(view['telemetry'], age / 1000 if age is not None else None)
+            law, upcoming = self._control_law(view)
             return dict(view, target=self.target, receiver_choice=dict(self.receiver),
                         live_available='live' in self.profile, receiver_choices=choices,
-                        observation_age_ms=age,
+                        observation_age_ms=age, control_law=law, control_law_next=upcoming,
                         tuning=self.manual.snapshot(can_apply=allowed, reason=reason) if self.manual else
                         {'enabled': False})
+
+    def _control_law(self, view):
+        """The receiver's law for the status row, and whether it is the next session's: a running session's as
+        its core reports it (a release that ignores the switch shows), else the law a session starts with."""
+        if self.active and view.get('phase') == 'running' and 'position_only' in view:
+            direct = self.profile['receiver'].get('collision_mode') == 'disabled'
+            return control_law(direct, view['position_only'], view.get('velocity_feedforward', False)), False
+        manual = {'velocity_feedforward': self.manual.feedforward} if self.manual else None
+        return profile_law(switched_profile(self.profile, manual)), not self.active
 
     def _sync_tuning(self):
         """Recover an applied acknowledgement even if the HTTP caller timed out."""

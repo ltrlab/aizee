@@ -156,3 +156,17 @@ running session refuses a change. There is one manual-tuning profile again; the 
 presets are left in place. `scripts/qualify_manual_tuning_loop.py --velocity-feedforward` qualifies with it on.
 Gate: 717 tests, zero failures/skips/xfails, on `5ae076b` (`build/dev-check/20261015T023017Z-e7072953/report.json`).
 
+## The status row names the law (2026-10-15)
+
+The next session, `live-20261015T025810Z` (3 min), was run believing feed-forward was on. It was position-only:
+the switch had never been applied, and no cycle sent a velocity. Helm's teleop status row now has a Control cell.
+While a session runs, it shows the law its receiver reports (`position_only` and `velocity_feedforward` in
+`TeleopCore.status_view`). Between sessions, it shows the law the next one starts with, marked "next session".
+It turns red if a running receiver isn't running Motor tuning's switch setting. Only Helm changes: the active
+release already reports both fields.
+
+The faulted session above was also the first with the leader ranges swept on 2026-10-15 (`cbd4a06`). They
+raised left J6's gain (robot rad per leader rad, from the leader zero) from 1.09 to 3.27, and right J6's from
+0.60 to 1.78; both J6 sweeps covered less travel than September's. The same hand roll now asks for three times
+the wrist speed.
+

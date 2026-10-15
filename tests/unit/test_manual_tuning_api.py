@@ -29,6 +29,9 @@ class AcknowledgingCore:
 
     def __init__(self, bundle):
         self.ack = deepcopy(bundle['manual_tuning'])
+        # The law it took at start, reported as TeleopCore.status_view does.
+        switch = self.ack.get('velocity_feedforward') is True
+        self.law = dict(position_only=not switch, velocity_feedforward=switch)
         self.phase, self.state, self.fault = 'starting', 'HOLD', None
         self.keys, self.requests = [], []
         self.pending = self._tuning_result = None
@@ -57,7 +60,7 @@ class AcknowledgingCore:
             self.release.clear()
 
     def view(self):
-        return dict(phase=self.phase, state=self.state, fault=self.fault,
+        return dict(phase=self.phase, state=self.state, fault=self.fault, **self.law,
                     manual_tuning_ack=deepcopy(self.ack), manual_tuning_pending=self.pending is not None)
 
     def guide(self):
@@ -382,4 +385,26 @@ def test_velocity_feedforward_switches_between_sessions_only(setup):
         assert setup.teleop.manual.feedforward is True and not core.requests
         with pytest.raises(ValueError, match='Invalid manual tuning request'):
             setup.teleop.manual_tuning('apply', dict(payload(setup.teleop), velocity_feedforward='on'))
+    asyncio.run(run())
+
+
+def test_status_names_the_next_sessions_law_then_the_one_the_receiver_runs(setup):
+    """The teleop status row's Control cell: between sessions, the law the next one starts with; while one runs,
+    the law its core reports, so a receiver that did not take the switch shows."""
+    def law():
+        snapshot = setup.teleop.snapshot()
+        return snapshot['control_law'], snapshot['control_law_next']
+
+    async def run():
+        assert law() == ('direct-position-only', True)
+        update = payload(setup.teleop)
+        update['velocity_feedforward'] = True
+        setup.teleop.manual_tuning('apply', update)
+        assert law() == ('direct-velocity-feedforward', True)
+        core = await start(setup)
+        assert law() == ('direct-velocity-feedforward', False)
+        core.law = dict(position_only=True, velocity_feedforward=False)  # A release that ignores the switch.
+        await wait_until(lambda: law() == ('direct-position-only', False))
+        await asyncio.to_thread(setup.teleop.stop, 2.)
+        assert law() == ('direct-velocity-feedforward', True)
     asyncio.run(run())

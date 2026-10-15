@@ -872,6 +872,18 @@ function updateTeleop(card, joint, editable) {
   accept.hidden = route.verified;
 }
 
+// The receiver's control law (guarded_config names it): its label in the status row and what it does.
+const CONTROL_LAWS = {
+  'direct-position-only': ['Position only', 'No velocity is sent: Kd damps and also drags against motion.'],
+  'direct-velocity-feedforward': ['Velocity feed-forward',
+    "Each joint's command speed is fed forward, so Kd damps about it instead of dragging. None is fed toward "
+      + 'an end inside its braking zone.'],
+  'direct-feedforward': ['Ramped feed-forward',
+    'Each command ramps over the loop period with its velocity and friction fed forward.'],
+  'interpolated-feedforward': ['Interpolated feed-forward',
+    'The receiver ramps each command over the loop period with its velocity and measured friction fed forward.'],
+};
+
 function renderTeleop(t) {
   const tab = document.querySelector('.tab[data-tab=teleop]');
   tab.disabled = !t;
@@ -912,6 +924,17 @@ function renderTeleop(t) {
     : c.mode !== 'advisory' ? ''
     : live ? 'Advisory: the target pose is checked every cycle, but nothing stops the arm on a contact.'
     : 'Advisory: the target pose is checked every cycle but the virtual receiver is not blocked.';
+  // A running session's law as its receiver reports it; otherwise the law the next session starts with.
+  const [lawLabel, lawTitle] = CONTROL_LAWS[t.control_law] || [], control = $('t-control');
+  const ignored = !t.control_law_next && running && t.tuning?.enabled
+    && (t.control_law === 'direct-velocity-feedforward') !== (t.tuning.velocity_feedforward === true);
+  control.textContent = lawLabel || '—';
+  if (lawLabel && t.control_law_next)
+    control.append(Object.assign(document.createElement('small'), {textContent: 'next session'}));
+  control.className = ignored ? 'bad' : '';
+  control.title = !lawLabel ? '' : (ignored ? "This session's receiver is not running Motor tuning's velocity "
+      + 'feed-forward setting. ' : '') + lawTitle
+    + (t.control_law_next && t.tuning?.enabled ? ' Switch it in Motor tuning, between sessions.' : '');
   $('t-message').textContent = t.message || '';
   const where = t.target === 'jetson' ? "ON MINERVA'S JETSON" : 'ON THIS PC';
   const eyebrow = $('t-eyebrow');

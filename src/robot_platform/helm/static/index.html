@@ -114,9 +114,10 @@
             <button data-receiver="live" data-arm="both" title="Both arms' motors in one receiver. Loop on Minerva's Jetson only.">Live · both</button>
           </div>
           <p class="choice-note" id="t-choice-note" hidden></p>
-          <div class="teleop-status">
+          <div class="teleop-status" id="t-status">
             <span>Phase<b id="t-state">—</b></span><span>Receiver<b id="t-receiver">—</b></span>
             <span>Cycle<b id="t-cycle">—</b></span><span>Collision<b id="t-collision">—</b></span>
+            <span>Control<b id="t-control">—</b></span>
           </div>
           <div class="lifecycle" role="group" aria-label="Lifecycle">
             <button data-key="I" title="Idle: motors on, zero torque (I)">Idle <kbd>I</kbd></button>

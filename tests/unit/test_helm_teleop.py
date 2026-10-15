@@ -243,6 +243,20 @@ def test_session_relays_keys_and_route_edits_and_stops_cleanly(tmp_path):
         session.key('I')
 
 
+def test_status_names_the_guarded_profiles_interpolated_law(tmp_path):
+    """The status row's Control cell for a profile without Motor tuning: its own law, next and while running."""
+    session = TeleopSession(helm_stub(), TELEOP, runs=tmp_path, core_factory=lambda bundle: FakeCore())
+    snapshot = session.snapshot()
+    assert (snapshot['control_law'], snapshot['control_law_next']) == ('interpolated-feedforward', True)
+    session.start()
+    try:
+        wait_until(lambda: session.snapshot()['phase'] == 'running')
+        snapshot = session.snapshot()
+        assert (snapshot['control_law'], snapshot['control_law_next']) == ('interpolated-feedforward', False)
+    finally:
+        session.stop()
+
+
 def test_session_reports_a_failed_start_and_needs_saved_limits(tmp_path):
     with pytest.raises(ValueError, match='Save joint limits'):
         TeleopSession(helm_stub(limits=False), TELEOP, runs=tmp_path).start()

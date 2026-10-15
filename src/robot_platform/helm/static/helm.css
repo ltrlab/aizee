@@ -58,10 +58,12 @@ h1{font-size:20px;margin:6px 0 8px}.lead{font-size:12.5px;line-height:1.55;color
 .eyebrow.warn{color:var(--warn)}
 kbd{font:600 10px ui-monospace,monospace;border:1px solid #41464d;border-bottom-width:2px;border-radius:4px;padding:0 4px;margin-left:4px;color:var(--muted)}
 .teleop-status{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:6px 0 10px;font-size:11px;color:var(--muted)}
+#t-status{grid-template-columns:repeat(auto-fit,minmax(88px,1fr))}
+#t-control small{display:block;font-size:11px;font-weight:400;color:var(--muted)}
 .teleop-status b{display:block;color:var(--text);font-size:13px;font-weight:600;margin-top:2px;overflow-wrap:anywhere}
 .lifecycle{display:flex;flex-wrap:wrap;gap:6px}.lifecycle button{flex:1 1 auto;padding:7px 8px}
 body[data-teleop-state=TELEOP] #t-state{color:var(--good)}body[data-teleop-state=ENGAGING] #t-state,body[data-teleop-state=SHUTDOWN] #t-state{color:var(--warn)}
-body[data-teleop-state=FAULT] #t-state,#t-collision.bad{color:var(--bad)}#t-collision.near{color:var(--warn)}
+body[data-teleop-state=FAULT] #t-state,#t-collision.bad,#t-control.bad{color:var(--bad)}#t-collision.near{color:var(--warn)}
 .tjoint{border:1px solid var(--line);border-radius:8px;background:var(--raised);padding:8px 12px;margin:7px 0}
 .tbar{position:relative;height:16px;margin:8px 0 5px;border-radius:4px;background:#0e0f11;border:1px solid #2a2e33}
 .tbar .usable{position:absolute;top:3px;bottom:3px;background:#1d3348;border-radius:2px}
