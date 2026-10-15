@@ -18,6 +18,11 @@ def _finite(value):
     return type(value) in (int, float) and math.isfinite(value)
 
 
+def _source_stamp(row):
+    """Whether a row carries its source's own sample time (`source_ms`, integer milliseconds on that clock)."""
+    return type(row.get('source_ms')) is int
+
+
 def validate_trial(trial):
     """An explicit bounded position-only experiment, never an implicit default."""
     if trial is not None and (not isinstance(trial, dict)
@@ -192,11 +197,14 @@ class TeleopLifecycle:
             if previous is not None:
                 before = previous[index]
                 delta = (row['sequence']-before['sequence']) & 0xffffffff
+                # A source's own stamp orders its samples. `sampled_at` maps it onto this clock through each
+                # cycle's request, which shifts with that request's timing (live-20261015T223714Z).
+                stamp = 'source_ms' if _source_stamp(row) and _source_stamp(before) else 'sampled_at'
                 if delta == 0:
-                    keys = ('position', 'sampled_at', 'velocity') if feedback else ('position', 'sampled_at')
+                    keys = ('position', stamp, 'velocity') if feedback else ('position', stamp)
                     if any(row.get(key) != before.get(key) for key in keys):
                         raise ValueError(f'{label} changed without a new source sequence')
-                elif delta >= 0x80000000 or row['sampled_at'] < before['sampled_at']:
+                elif delta >= 0x80000000 or row[stamp] < before[stamp]:
                     raise ValueError(f'{label} sequence or timestamp moved backwards')
         stamps = [row['sampled_at'] for row in rows]
         if max(stamps)-min(stamps) > self.max_skew_s:

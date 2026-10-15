@@ -123,8 +123,10 @@ class GuardedLifecycleSession:
             age = (now_ms - item["sampled_at_ms"]) / 1000
             if item["fault"] or not math.isfinite(age) or age < 0:
                 raise ValueError("Faulted or invalid receiver feedback")
+            # source_ms: the receiver's own stamp, which orders its samples (lifecycle._read).
             rows.append(dict(name=name, position=item["position"], velocity=item["velocity"],
-                             sequence=item["sequence"], sampled_at=offer_started - age))
+                             sequence=item["sequence"], sampled_at=offer_started - age,
+                             source_ms=item["sampled_at_ms"]))
         return rows
 
     def recover(self):

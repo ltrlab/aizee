@@ -569,3 +569,43 @@ def test_shutdown_still_closes_a_free_gripper_to_its_reference():
             break
         q = proposal['positions'][0]  # A free gripper follows its command.
     assert proposal['state'] == 'DISABLED' and abs(q) <= .05
+
+
+def receiver_feedback(offer_started, now_ms, stamps_ms, sequences, positions=(.3, .02)):
+    """Rows as guarded_lifecycle._rows builds them: each receiver stamp mapped through the offer's start."""
+    return [dict(name=joint['name'], position=q, velocity=0., sequence=sequence, source_ms=stamp,
+                 sampled_at=offer_started-(now_ms-stamp)/1000)
+            for joint, q, stamp, sequence in zip(joints(), positions, stamps_ms, sequences)]
+
+
+def test_feedback_order_is_the_receivers_own_not_its_mapping_onto_this_clock():
+    """live-20261015T223714Z faulted 13 ms after Enable: a joint's newer sample, stamped in the same receiver
+    millisecond as the last, mapped 0.1 ms earlier through the next offer's start. Order is the receiver's."""
+    lifecycle = in_state('IDLE')
+    lifecycle.action('enable', receiver_feedback(.0400, 1000, (999, 999), (5103, 5099)), now=.0400)
+    # The next offer started 9.9 ms later by this clock; the receiver's clock read 10 ms later. The slide has
+    # nothing new: the same sample, mapped through the later offer, lands 0.1 ms elsewhere.
+    held = lifecycle.step(receiver_feedback(.0499, 1010, (999, 999), (5105, 5099)), now=.0499)
+    assert held['state'] == 'HOLD' and lifecycle.state == 'HOLD'
+    with pytest.raises(ValueError, match='moved backwards'):
+        lifecycle.step(receiver_feedback(.0599, 1020, (998, 1012), (5107, 5100)), now=.0599)
+    assert lifecycle.state == 'FAULT'
+
+
+def test_a_sample_without_its_receiver_stamp_keeps_the_mapped_order_check():
+    lifecycle = in_state('IDLE')
+    lifecycle.action('enable', feedback(.04), now=.04)
+    later = feedback(.05)
+    later[0]['sampled_at'] = .038  # Older than the last sample, with a newer sequence.
+    with pytest.raises(ValueError, match='moved backwards'):
+        lifecycle.step(later, now=.05)
+
+
+def test_receiver_feedback_rows_carry_the_receivers_own_stamp():
+    from types import SimpleNamespace
+    from robot_platform.teleop.guarded_lifecycle import GuardedLifecycleSession
+    adapter = SimpleNamespace(controller=SimpleNamespace(joint_names=['arm']))
+    item = dict(position=.3, velocity=0., sequence=7, sampled_at_ms=999, fault=False)
+    rows = GuardedLifecycleSession._rows(adapter, {'status': {'now_ms': 1010}}, [item], 5.)
+    assert rows == [dict(name='arm', position=.3, velocity=0., sequence=7, sampled_at=5.-(1010-999)/1000,
+                         source_ms=999)]
