@@ -674,16 +674,14 @@ class TeleopCore:
         as columns.json names them) and every key, lifecycle state, fault and message (events.jsonl). The
         receiver's -last.json keeps its final two ticks only: what tripped Engage on 2026-10-09 could not be told."""
         import numpy as np
-        from robot_platform.control.servo_sweep import result_rows
+        from robot_platform.control.servo_sweep import recorder_columns, result_rows
         transport, directory = getattr(receiver, 'transport', None), getattr(receiver, 'directory', None)
         if transport is None or directory is None:
             return
         directory = Path(directory)
         names = [joint['name'] for joint in config['joints']]
         (directory / 'columns.json').write_text(json.dumps(
-            {'dtype': 'float32', 'columns': ['t_ms'] + [f'{name}.{field}' for name in names
-                                                       for field in ('position', 'velocity', 'effort', 'command')]},
-            indent=1) + '\n', encoding='utf-8')
+            {'dtype': 'float32', 'columns': recorder_columns(names)}, indent=1) + '\n', encoding='utf-8')
         self._recorder = RecordingWriter(directory)
         self._samples = self._recorder.stream('samples.f32', binary=True)
         self._events = self._recorder.stream('events.jsonl')

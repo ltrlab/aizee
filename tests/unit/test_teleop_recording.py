@@ -22,7 +22,9 @@ def core(tmp_path):
 
 
 def sample():
-    return dict(recent=[[10., .1, .2, .3, .4]])
+    # One joint's recorder row: time, measured position, velocity, effort, commanded position, then the drive's
+    # commanded velocity, effort, kp and kd.
+    return dict(recent=[[10., .1, .2, .3, .4, .5, .6, 30., 2.]])
 
 
 class BlockedSink:
@@ -75,7 +77,7 @@ def test_real_core_cycles_continue_while_latency_disk_write_is_blocked(monkeypat
         instance.close()
     assert [json.loads(row)['index'] for row in sinks['direct-latency.jsonl'].chunks] == list(range(-1, 100))
     data = b''.join(sinks['samples.f32'].chunks)
-    assert np.frombuffer(data, dtype=np.float32).reshape(-1, 5).shape == (100, 5)
+    assert np.frombuffer(data, dtype=np.float32).reshape(-1, 9).shape == (100, 9)
     assert all(sink.closed for sink in sinks.values())
     assert instance.phase == 'stopped' and instance.fault is None
 
@@ -160,7 +162,7 @@ def test_recording_drains_final_cycle_samples_and_closed_event(tmp_path):
     assert json.loads((tmp_path/'direct-latency.jsonl').read_text()) == {'index': 17}
     events = [json.loads(line) for line in (tmp_path/'events.jsonl').read_text().splitlines()]
     assert events[0]['kind'] == 'session' and events[-1]['kind'] == 'closed'
-    assert np.fromfile(tmp_path/'samples.f32', dtype=np.float32).reshape(-1, 5).shape == (2, 5)
+    assert np.fromfile(tmp_path/'samples.f32', dtype=np.float32).reshape(-1, 9).shape == (2, 9)
     receiver.transport.on_result(sample())  # Detached recording never accepts late callbacks.
     instance.close()  # Idempotent cleanup.
 

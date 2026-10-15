@@ -14,10 +14,10 @@ fn sample(position: f64, velocity: f64, effort: f64) -> JointFeedback {
 fn command(position: f64) -> JointCommand {
     JointCommand {
         position,
-        velocity: 0.0,
-        effort: 0.0,
-        kp: 10.0,
-        kd: 1.0,
+        velocity: position + 0.05,
+        effort: position + 0.06,
+        kp: 10.0 + position,
+        kd: 1.0 + position,
     }
 }
 
@@ -31,7 +31,15 @@ fn each_row_holds_time_then_measured_and_commanded_per_joint_and_is_reported_onc
     let (rows, dropped) = recorder.take();
     assert_eq!(dropped, 0);
     assert_eq!(rows.len(), 2);
-    assert_eq!(rows[0], &[2.5, 0.1, 0.2, 0.3, 0.4, 1.1, 1.2, 1.3, 1.4]);
+    // Measured position, velocity, effort and commanded position per joint, in their earlier places; then each
+    // drive's commanded velocity, effort, kp and kd.
+    assert_eq!(
+        rows[0],
+        &[
+            2.5, 0.1, 0.2, 0.3, 0.4, 1.1, 1.2, 1.3, 1.4, 0.45, 0.46, 10.4, 1.4, 1.45, 1.46, 11.4,
+            2.4
+        ]
+    );
     assert_eq!(rows[1][0], 5.0);
     assert!(recorder.take().0.is_empty()); // Reported rows are not sent again.
     recorder.record(7.5, &feedback, &commands);

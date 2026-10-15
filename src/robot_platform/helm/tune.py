@@ -240,10 +240,9 @@ class TuneCore:
         if self.evidence is not None:
             self.sink = (self.evidence / 'samples.f32').open('ab')
             self.engine.recording.sink = self.sink
+            from robot_platform.control.servo_sweep import recorder_columns
             (self.evidence / 'columns.json').write_text(json.dumps(
-                {'dtype': 'float32', 'columns': ['t_ms'] + [f'{name}.{field}' for name in names
-                                                           for field in ('position', 'velocity', 'effort', 'command')]},
-                indent=1) + '\n', encoding='utf-8')
+                {'dtype': 'float32', 'columns': recorder_columns(names)}, indent=1) + '\n', encoding='utf-8')
         # As teleop does (helm.teleop.TeleopCore.build): a full garbage-collector pass over the collision model's
         # object graphs took 46 ms on the Jetson, and one in the middle of a right J1 sweep (2026-09-29) let the
         # receiver's 80 ms collision verdict expire. Freeze everything long-lived; later passes walk only new objects.

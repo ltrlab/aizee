@@ -6,7 +6,8 @@ import pytest
 
 from robot_platform.control.approach import limit_speed
 from robot_platform.control.guarded_config import usable_margin
-from robot_platform.control.servo_sweep import (DEFAULTS, Recording, SweepEngine, damping_for, loosened, result_rows,
+from robot_platform.control.servo_sweep import (DEFAULTS, Recording, SweepEngine, damping_for, loosened, recorder_columns,
+                                                result_rows,
                                                 sweep_profile, sweep_settings)
 
 TICK = .0025
@@ -215,12 +216,24 @@ def test_the_sweep_profile_raises_only_the_ceilings_and_damping_keeps_its_ratio(
 
 def test_rows_come_from_the_recorder_or_one_per_virtual_step():
     names = ['a', 'b']
-    recorded = {'recent': [[1., 0., 0., 0., 0., 1., 1., 1., 1.]], 'recent_dropped': 2}
-    assert result_rows(recorded, names) == ([[1., 0., 0., 0., 0., 1., 1., 1., 1.]], 2)
-    virtual = {'status': {'now_ms': 7, 'joints': [{'position': .1}, {'position': .2}]},
+    # Measured and commanded position per joint, then each drive's commanded velocity, effort, kp and kd.
+    full = [1., 0., 0., 0., 0., 1., 1., 1., 1., .1, .2, 10., 1., .3, .4, 20., 2.]
+    assert recorder_columns(names) == [
+        't_ms', 'a.position', 'a.velocity', 'a.effort', 'a.command', 'b.position', 'b.velocity', 'b.effort',
+        'b.command', 'a.command_velocity', 'a.command_effort', 'a.kp', 'a.kd', 'b.command_velocity',
+        'b.command_effort', 'b.kp', 'b.kd']
+    assert result_rows({'recent': [full], 'recent_dropped': 2}, names) == ([full], 2)
+    # An older receiver's row has no command block: unknown, so NaN, never zero.
+    rows, _ = result_rows({'recent': [full[:9]]}, names)
+    assert rows[0][:9] == full[:9] and all(math.isnan(v) for v in rows[0][9:])
+    with pytest.raises(ValueError, match='wide'):
+        result_rows({'recent': [full[:12]]}, names)
+    virtual = {'status': {'now_ms': 7, 'joints': [{'position': .1, 'velocity': .5, 'effort': .2, 'kp': 30., 'kd': 2.},
+                                                  {'position': .2, 'velocity': 0., 'effort': 0., 'kp': 10., 'kd': 1.}]},
                'feedback': [{'position': .09, 'velocity': 0., 'effort': 1.},
                             {'position': .2, 'velocity': .1, 'effort': 0.}]}
-    assert result_rows(virtual, names) == ([[7., .09, 0., 1., .1, .2, .1, 0., .2]], 0)
+    assert result_rows(virtual, names) == ([[7., .09, 0., 1., .1, .2, .1, 0., .2, .5, .2, 30., 2., 0., 0., 10., 1.]],
+                                           0)
     recording = Recording(names)
     recording.add([[1., 0, 0, 0, 0, 0, 0, 0, 0], [2., 0, 0, 0, 0, 0, 0, 0, 0]])
     assert len(recording.add([[2., 0, 0, 0, 0, 0, 0, 0, 0], [3., 0, 0, 0, 0, 0, 0, 0, 0]])) == 1  # No tick twice.
