@@ -11,17 +11,18 @@ from robot_platform.helm.teleop import TeleopCore, TeleopSession
 from tests.contract.test_helm_teleop_live import bundle, Clock, Leaders, Receiver, run, DEVICES, SEED
 
 
-@pytest.fixture(params=['minerva-teleop-direct-tuning.json', 'minerva-teleop-direct-tuning-vff.json'])
+@pytest.fixture(params=[False, True], ids=['position-only', 'velocity-feedforward'])
 def manual_bundle(bundle, tmp_path, request):
-    """Each manual-tuning profile: position-only, and the opt-in velocity feed-forward one."""
+    """The manual-tuning profile with Motor tuning's velocity feed-forward switch off, and on."""
     data, path = bundle
-    profile = json.loads((DEVICES / request.param).read_text(encoding='utf-8'))
+    profile = json.loads((DEVICES / 'minerva-teleop-direct-tuning.json').read_text(encoding='utf-8'))
     profile['leader_profile'] = str(DEVICES / 'gello-dual-viewer.json')
     path.write_text(json.dumps(profile))
     helm = HelmSession(DEVICES / 'minerva-joint-calibration.json', runs=tmp_path / 'other',
                        limits=DEVICES / 'minerva-production-01-joint-limits.json', seed=SEED)
     try:
         manual = ManualTuning(helm, profile, tmp_path / 'manual', None)
+        manual.feedforward = request.param
         yield dict(data, manual_tuning=manual.bundle()), manual
     finally:
         helm.close()

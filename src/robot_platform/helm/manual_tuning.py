@@ -53,11 +53,10 @@ def following(lifecycle, loop_s):
     command leads the joint's position, predicted to when it is computed, by at most `max_lead`, against the
     friction its servo sweep measured (0 when not measured). The drive sees it `command_lag_s` later on
     average (its way to the drive and half the loop it holds, about one loop, plus the receiver's
-    interpolation), by when the joint has closed part of the lead. With `velocity_feedforward` the drive's damping
-    acts about the command's speed, not against it. A gripper's lead spans its whole range."""
+    interpolation), by when the joint has closed part of the lead. With velocity fed forward (the preset's switch)
+    the drive's damping acts about the command's speed, not against it. A gripper's lead spans its whole range."""
     return dict(max_lead=lifecycle['max_lead'], friction_nm=lifecycle['friction_nm'],
-                command_lag_s=loop_s + lifecycle['interpolation_s'], gripper=lifecycle.get('gripper') is True,
-                velocity_feedforward=lifecycle.get('velocity_feedforward') is True)
+                command_lag_s=loop_s + lifecycle['interpolation_s'], gripper=lifecycle.get('gripper') is True)
 
 
 def values(rows):
@@ -116,6 +115,9 @@ class ManualTuning:
         self.revision = 0
         self.saved = self._load()
         self.active = deepcopy(self.saved['joints']) if self.saved else values(self.rows)
+        # The operator's velocity feed-forward switch, taken at the next session start (helm.teleop TeleopCore):
+        # off is position-only. Saved with the gains; a preset saved before it had the switch is off.
+        self.feedforward = bool(self.saved) and self.saved.get('velocity_feedforward') is True
 
     def _load(self):
         if not self.path.is_file():
@@ -125,6 +127,8 @@ class ManualTuning:
                 or document['schema'] != 1 or document.get('kind') != 'manual_teleop_tuning'
                 or document.get('binding') != self.binding or document.get('measured_calibration') is not False):
             raise ValueError('Saved manual tuning belongs to another profile, calibration or motor; review it before use')
+        if type(document.get('velocity_feedforward', False)) is not bool:
+            raise ValueError('Saved manual tuning has an invalid velocity feed-forward switch')
         document['joints'] = validate(document.get('joints'), self.rows)
         return document
 
@@ -133,20 +137,27 @@ class ManualTuning:
             raise ValueError('Tuning changed or the session restarted. Revert edits to review current settings.')
 
     def bundle(self):
-        return dict(session_id=self.session_id, revision=self.revision, joints=deepcopy(self.active))
+        return dict(session_id=self.session_id, revision=self.revision, joints=deepcopy(self.active),
+                    velocity_feedforward=self.feedforward)
 
     def new_session(self):
         self.session_id = str(uuid.uuid4())
 
-    def accept(self, candidate):
+    def accept(self, candidate, feedforward=None):
+        """Take validated gains and, between sessions, the velocity feed-forward switch (None: unchanged)."""
+        if feedforward is not None and type(feedforward) is not bool:
+            raise ValueError('Velocity feed-forward is on or off')
         self.active = validate(candidate, self.rows)
+        if feedforward is not None:
+            self.feedforward = feedforward
         self.revision += 1
         return self.bundle()
 
     def save(self):
         document = dict(schema=1, kind='manual_teleop_tuning', measured_calibration=False,
             provenance='operator-selected values; not an automatic servo sweep result', binding=self.binding,
-            updated_at=datetime.now(timezone.utc).isoformat(), joints=deepcopy(self.active))
+            updated_at=datetime.now(timezone.utc).isoformat(), joints=deepcopy(self.active),
+            velocity_feedforward=self.feedforward)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix('.json.tmp')
         temporary.write_text(json.dumps(document, indent=2) + '\n', encoding='utf-8')
@@ -157,5 +168,7 @@ class ManualTuning:
         rows = [dict(template, **row) for template, row in zip(self.rows, self.active)]
         return dict(enabled=True, session_id=self.session_id, revision=self.revision,
             saved_revision=self.saved.get('updated_at') if self.saved else None,
-            dirty=self.saved is None or self.active != self.saved['joints'],
-            can_apply=can_apply, can_save=can_apply, reason=reason, rows=rows, control=self.binding['control'])
+            dirty=(self.saved is None or self.active != self.saved['joints']
+                   or self.feedforward != (self.saved.get('velocity_feedforward') is True)),
+            can_apply=can_apply, can_save=can_apply, reason=reason, rows=rows, velocity_feedforward=self.feedforward,
+            control='direct-velocity-feedforward' if self.feedforward else 'direct-position-only')

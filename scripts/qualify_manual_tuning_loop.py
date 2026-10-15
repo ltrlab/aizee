@@ -348,6 +348,7 @@ def main():
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--seconds',type=float,default=125.)
     p.add_argument('--profile',default='config/devices/minerva-teleop-direct-tuning.json')
+    p.add_argument('--velocity-feedforward',action='store_true',help="Motor tuning's switch on: the smoothed velocity is fed forward")
     p.add_argument('--arm',choices=('left','right','both'),default='left')
     args=p.parse_args()
     root,out=args.root.resolve(),args.output.resolve()
@@ -369,6 +370,8 @@ def main():
         report['binary_sha256']=bench.sha(binary)
         bundle,ranges,report['inputs']=bench.make_bundle(root,out,args.arm,args.runs.resolve(),root/args.profile)
         if not bundle.get('manual_tuning'): raise ValueError('Saved-derived, explicit manual tuning bundle is required')
+        bundle['manual_tuning']['velocity_feedforward']=args.velocity_feedforward
+        report['velocity_feedforward_switch']=args.velocity_feedforward
         def open_source(profile):
             driver.leaders=bench.QuantizedLeaders(ranges)
             return driver.leaders

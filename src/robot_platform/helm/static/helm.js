@@ -512,6 +512,8 @@ const fixed = q => (q == null || !Number.isFinite(q)) ? '—' : signed(q, 2);
 const manualFields = ['kp', 'kd', 'speed', 'follow', 'travel_rad'];
 const manualCards = new Map();
 let manualState = null, manualBase = null, manualDraft = new Map(), manualPending = false, manualConflict = false;
+// The velocity feed-forward switch as drafted, and whether a session runs (it switches only at a session start).
+let manualFeedforward = false, manualSessionRunning = false;
 const manualRetiredSessions = [];
 const manualNumber = value => Number.isFinite(value) ? String(Number(value.toPrecision(6))) : '—';
 
@@ -520,9 +522,9 @@ const manualNumber = value => Number.isFinite(value) ? String(Number(value.toPre
 // of it. At a steady speed v the pull Kp × (lead − v × lag) meets the damping Kd × v plus friction. J3 at 320 / 8
 // (live-20261013T031504Z): 0.70–0.75 rad/s estimated, 0.69–0.71 measured. With velocity fed forward the damping
 // acts about the command's speed, so Kd drops out: Kp × (lead − v × lag) meets friction alone.
-function leadLimitedSpeed(following, kp, kd) {
+function leadLimitedSpeed(following, kp, kd, feedforward) {
   const pull = kp * following.max_lead - following.friction_nm;
-  return pull <= 0 ? 0 : pull / ((following.velocity_feedforward ? 0 : kd) + kp * following.command_lag_s);
+  return pull <= 0 ? 0 : pull / ((feedforward ? 0 : kd) + kp * following.command_lag_s);
 }
 
 function manualEstimate(row, draft) {
@@ -530,10 +532,10 @@ function manualEstimate(row, draft) {
   if (!f || f.gripper) return {text: '', binds: ''};
   const [kp, kd, limit] = ['kp', 'kd', 'speed'].map(field => manualValue(draft, field, row));
   if (![kp, kd, limit].every(Number.isFinite)) return {text: '', binds: ''};
-  const speed = leadLimitedSpeed(f, kp, kd), lead = `${f.max_lead.toFixed(3)} rad`;
+  const vff = manualFeedforward, speed = leadLimitedSpeed(f, kp, kd, vff), lead = `${f.max_lead.toFixed(3)} rad`;
   const lag = `${(f.command_lag_s * 1000).toFixed(0)} ms`, values = `(${manualNumber(kp)} × ${f.max_lead.toFixed(4)} − `
     + `${f.friction_nm.toFixed(2)})`;
-  const title = (f.velocity_feedforward
+  const title = (vff
     ? `(Kp × lead − friction) ÷ (Kp × ${lag}) = ${values} ÷ (${manualNumber(kp)} × ${f.command_lag_s.toFixed(3)}). `
       + 'The command\'s speed is fed forward, so Kd damps the joint about it instead of dragging it.'
     : `(Kp × lead − friction) ÷ (Kd + Kp × ${lag}) = ${values} ÷ (${manualNumber(kd)} + ${manualNumber(kp)} × `
@@ -546,7 +548,7 @@ function manualEstimate(row, draft) {
   const friction = f.friction_nm >= .01 ? '' : ' No friction was measured for this joint, so expect less.';
   return {binds: 'lead', title, text: speed > 0
     ? `Top speed ≈ ${speed.toFixed(2)} rad/s, under your ${manualNumber(limit)} rad/s limit: the ${lead} lead caps it `
-      + `at these gains. Raise Kp to follow faster${f.velocity_feedforward ? '' : ' (lowering Kd does too, but damps less)'}.`
+      + `at these gains. Raise Kp to follow faster${vff ? '' : ' (lowering Kd does too, but damps less)'}.`
       + friction
     : `At this Kp the ${lead} lead pulls with ${(kp * f.max_lead).toFixed(2)} Nm, under the joint's `
       + `${f.friction_nm.toFixed(2)} Nm of friction: it may not follow.`};
@@ -568,11 +570,14 @@ function manualRowChanged(motor, row) {
 
 function manualHasEdits() {
   return !!manualBase && (manualBase.rows.some(row => manualRowChanged(row.motor, row))
+    || manualFeedforward !== (manualBase.velocity_feedforward === true)
     || [...manualCards.values()].some(card => [...card.querySelectorAll('input')].some(input => input.validity.badInput)));
 }
 
 function resetManualDraft(settings) {
   manualBase = settings;
+  manualFeedforward = settings.velocity_feedforward === true;
+  $('manual-vff').checked = manualFeedforward;
   manualDraft = new Map(settings.rows.map(row => [row.motor, Object.fromEntries(manualFields.map(field =>
     [field, field === 'follow' ? row[field] : manualText(row[field])]))]));
   manualConflict = false;
@@ -602,6 +607,13 @@ function updateManualActions() {
   $('manual-revert').disabled = manualPending || (!edits && !manualConflict);
   $('manual-save').disabled = manualPending || manualConflict || edits || !manualState.can_save;
   $('manual-restore').disabled = manualPending || manualConflict || edits || !manualState.saved_revision || !manualState.can_apply;
+  $('manual-vff').disabled = manualPending || manualConflict || manualSessionRunning || !manualState.can_apply;
+  $('manual-vff-note').textContent = manualSessionRunning
+    ? `${manualState.velocity_feedforward ? 'On' : 'Off'} for this session; it switches at the next session start.`
+    : manualFeedforward
+      ? 'From the next session: Kd damps each joint about its command's speed instead of dragging it. None is fed '
+        + 'toward an end inside its braking zone. Expect more overshoot when a fast move stops.'
+      : 'Off: position only. Kd damps and also drags against motion (the safer, slower default).';
   $('manual-mirror-left').disabled = manualPending || manualConflict || !mirrorPairs('left', 'right').length;
   $('manual-mirror-right').disabled = manualPending || manualConflict || !mirrorPairs('right', 'left').length;
   $('manual-gate').textContent = manualPending ? 'Waiting for the receiver to acknowledge the settings…'
@@ -684,6 +696,7 @@ function renderManual(t) {
     else resetManualDraft(settings);
   }
   manualState = settings;
+  manualSessionRunning = t.phase === 'running';
   const container = $('manual-rows'), layout = settings.rows.map(row => row.motor).join(',');
   if (container.dataset.layout !== layout) {
     container.dataset.layout = layout;
@@ -735,8 +748,11 @@ async function manualAction(action) {
   if (manualConflict || (action === 'apply' ? !edits || !manualValid() || !manualState.can_apply
     : edits || (action === 'save' ? !manualState.can_save : !manualState.can_apply))) return;
   const payload = {session_id: manualState.session_id, revision: manualState.revision};
-  if (action === 'apply') payload.joints = manualState.rows.map(row => ({motor: row.motor,
-    ...Object.fromEntries(manualFields.map(field => [field, manualValue(manualDraft.get(row.motor), field, row)]))}));
+  if (action === 'apply') {
+    payload.joints = manualState.rows.map(row => ({motor: row.motor,
+      ...Object.fromEntries(manualFields.map(field => [field, manualValue(manualDraft.get(row.motor), field, row)]))}));
+    payload.velocity_feedforward = manualFeedforward;
+  }
   manualPending = busy = true;
   manualFeedback();
   updateManualActions();
@@ -760,6 +776,10 @@ async function manualAction(action) {
 }
 
 $('manual-apply').onclick = () => manualAction('apply');
+$('manual-vff').onchange = () => {
+  manualFeedforward = $('manual-vff').checked;
+  updateManualActions();
+};
 $('manual-save').onclick = () => manualAction('save');
 $('manual-restore').onclick = () => manualAction('restore');
 $('manual-revert').onclick = () => {

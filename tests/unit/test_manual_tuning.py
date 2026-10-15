@@ -225,24 +225,34 @@ def test_rows_carry_what_sets_each_joints_top_following_speed(preset_factory):
     tuning = preset_factory.make()
     snapshot = tuning.snapshot(can_apply=False, reason='')
     assert [row['following'] for row in snapshot['rows']] == [
-        dict(max_lead=.12, friction_nm=0., command_lag_s=.01, gripper=False, velocity_feedforward=False),
-        dict(max_lead=.12, friction_nm=.5, command_lag_s=.01, gripper=False, velocity_feedforward=False)]
+        dict(max_lead=.12, friction_nm=0., command_lag_s=.01, gripper=False),
+        dict(max_lead=.12, friction_nm=.5, command_lag_s=.01, gripper=False)]
     assert snapshot['control'] == tuning.binding['control'] == 'direct-position-only'
     assert all('following' not in row for row in values(tuning.rows))  # Display only: never saved or applied.
 
 
-def test_velocity_feedforward_is_the_presets_bound_control_law(preset_factory, monkeypatch):
-    """Presets made under one law are not loaded under the other: the same Kd damps differently."""
-    from robot_platform.control import guarded_config
-    derived = derived_fixture()
-    for joint in derived['lifecycle']:
-        joint['velocity_feedforward'] = True
-    monkeypatch.setattr(guarded_config, 'derive_receiver', lambda **kwargs: deepcopy(derived))
+def test_velocity_feedforward_is_a_switch_saved_with_the_gains(preset_factory):
+    """Off by default and in presets saved before the switch; Apply sets it for the next session, Save keeps it."""
     tuning = preset_factory.make()
-    snapshot = tuning.snapshot(can_apply=False, reason='')
-    assert snapshot['control'] == tuning.binding['control'] == 'direct-velocity-feedforward'
-    assert all(row['following']['velocity_feedforward'] for row in snapshot['rows'])
+    assert tuning.feedforward is False and tuning.bundle()['velocity_feedforward'] is False
     tuning.save()
-    monkeypatch.setattr(guarded_config, 'derive_receiver', lambda **kwargs: derived_fixture())
-    with pytest.raises(ValueError, match='belongs to another profile'):
-        preset_factory.make()  # Position-only again: the feed-forward preset is not taken for it.
+    document = json.loads(tuning.path.read_text(encoding='utf-8'))
+    del document['velocity_feedforward']  # A preset saved before the switch existed.
+    tuning.path.write_text(json.dumps(document), encoding='utf-8')
+    tuning = preset_factory.make()
+    assert tuning.feedforward is False and not tuning.snapshot(can_apply=True, reason='')['dirty']
+    tuning.accept(values(tuning.rows), feedforward=True)
+    snapshot = tuning.snapshot(can_apply=True, reason='')
+    assert snapshot['velocity_feedforward'] is True and snapshot['dirty']
+    assert snapshot['control'] == 'direct-velocity-feedforward' and tuning.bundle()['velocity_feedforward'] is True
+    tuning.accept(values(tuning.rows))  # Gains only: the switch stays.
+    assert tuning.feedforward is True
+    tuning.save()
+    assert preset_factory.make().feedforward is True
+    with pytest.raises(ValueError, match='on or off'):
+        tuning.accept(values(tuning.rows), feedforward='yes')
+    document = json.loads(tuning.path.read_text(encoding='utf-8'))
+    document['velocity_feedforward'] = 1
+    tuning.path.write_text(json.dumps(document), encoding='utf-8')
+    with pytest.raises(ValueError, match='velocity feed-forward'):
+        preset_factory.make()

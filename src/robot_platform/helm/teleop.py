@@ -224,6 +224,14 @@ class TeleopCore:
             # the result, and build() takes the lifecycle's speeds and freshness from them.
             from .settings import resolve_profile
             self.profile = resolve_profile(self.base_profile, bundle['operator_settings'])
+        manual = bundle.get('manual_tuning')
+        if (self.profile.get('manual_tuning') is True and isinstance(manual, dict)
+                and manual.get('velocity_feedforward') is True):
+            # Motor tuning's velocity feed-forward switch, taken at session start (helm.manual_tuning): the
+            # receiver then accepts the smoothed velocity the lifecycle feeds forward (guarded_config).
+            self.profile = deepcopy(self.profile)
+            self.profile['receiver']['direct']['position_only'] = False
+            validate_profile(self.profile)
         self.period_s = loop_period_s(self.profile)
         self.collision_mode = self.profile['receiver'].get('collision_mode', 'enforced')
         receiver = bundle.get('receiver') or {'mode': 'virtual'}
@@ -439,7 +447,8 @@ class TeleopCore:
             models = (self.bundle.get('receiver') or {}).get('motor_models') or motor_models(device, ROOT)
             self._manual_rows = receiver_rows(derived, models, self.labels)
             selected = deepcopy(self.bundle.get('manual_tuning'))
-            if (not isinstance(selected, dict) or set(selected) != {'session_id', 'revision', 'joints'}
+            if (not isinstance(selected, dict) or set(selected) - {'velocity_feedforward'} != {'session_id', 'revision', 'joints'}
+                    or type(selected.get('velocity_feedforward', False)) is not bool
                     or not isinstance(selected['session_id'], str) or not selected['session_id']
                     or type(selected['revision']) is not int or selected['revision'] < 0):
                 raise ValueError('Manual tuning needs a versioned complete operator preset')
@@ -632,10 +641,12 @@ class TeleopCore:
                 or self.session.lifecycle.state != 'HOLD' or self._tuning_pending is not None
                 or self._tuning_confirm is not None):
             raise ValueError('Hold the running arm before applying manual tuning')
-        if (not isinstance(payload, dict) or set(payload) != {'session_id', 'revision', 'joints'}
+        if (not isinstance(payload, dict) or set(payload) - {'velocity_feedforward'} != {'session_id', 'revision', 'joints'}
                 or payload['session_id'] != self._manual_state['session_id']
                 or payload['revision'] != self._manual_state['revision']):
             raise ValueError('Tuning revision changed; review the current settings')
+        if payload.get('velocity_feedforward', False) is not self._manual_state.get('velocity_feedforward', False):
+            raise ValueError('Velocity feed-forward switches at the next session start; stop the session to change it')
         known = [r['motor'] for r in self._manual_state['joints']]
         if [r.get('motor') for r in payload['joints']] != known:
             raise ValueError('The tuning motor roster changed')
@@ -1586,7 +1597,9 @@ class TeleopSession:
     def manual_tuning(self, action, payload):
         """Serialize edits without blocking emergency keys or the receive thread."""
         expected = {'session_id', 'revision'} | ({'joints'} if action == 'apply' else set())
-        if action not in ('apply', 'save', 'restore') or set(payload) != expected:
+        if (action not in ('apply', 'save', 'restore') or not isinstance(payload, dict)
+                or set(payload) - ({'velocity_feedforward'} if action == 'apply' else set()) != expected
+                or type(payload.get('velocity_feedforward', False)) is not bool):
             raise ValueError('Invalid manual tuning request')
         with self._lock:
             self._sync_tuning()
@@ -1604,16 +1617,21 @@ class TeleopSession:
             if action == 'restore' and self.manual.saved is None:
                 raise ValueError('No manual preset has been saved')
             rows = validate(payload['joints'] if action == 'apply' else self.manual.saved['joints'], self.manual.rows)
+            feedforward = (payload.get('velocity_feedforward') if action == 'apply'
+                           else self.manual.saved.get('velocity_feedforward') is True)
             if self.settings:
                 self.settings.validate_manual(rows)  # Within the operator's following-speed ceilings.
             if self.active:
+                if feedforward is not None and feedforward != self.manual.feedforward:
+                    raise ValueError('Velocity feed-forward switches at the next session start; '
+                                     'stop the session to change it')
                 ack = self._request('manual_tuning', dict(self.manual.bundle(), joints=rows))
                 with self._lock:
                     self.manual.active = validate(ack['joints'], self.manual.rows)
                     self.manual.revision = ack['revision']
             else:
                 with self._lock:
-                    self.manual.accept(rows)
+                    self.manual.accept(rows, feedforward=feedforward)
         finally:
             self._tuning_lock.release()
 

@@ -231,3 +231,7 @@ body[data-teleop-state=FAULT] #t-state,#t-collision.bad{color:var(--bad)}#t-coll
 .gripper-zero-confirm{margin-top:8px}.gripper-zero-confirm p{font-size:12px;margin:0 0 8px}
 .gripper-zero-confirm[hidden]{display:none}
 #gripper-zero-feedback.bad{color:var(--bad)}
+/* Motor tuning's velocity feed-forward switch (it takes effect at the next session start). */
+.manual-vff{display:flex;align-items:center;gap:6px;margin:8px 0 0;font-weight:600}
+.manual-vff .muted{font-weight:400}
+#manual-vff-note{margin:2px 0 0;font-size:12px}

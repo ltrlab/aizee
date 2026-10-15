@@ -124,7 +124,7 @@ def setup(tmp_path, monkeypatch):
 def payload(teleop, *, kp=None, action='apply'):
     result = teleop.manual.bundle()
     if action != 'apply':
-        result.pop('joints')
+        result.pop('joints'), result.pop('velocity_feedforward')  # As the page sends Save and Restore.
     elif kp is not None:
         result['joints'][0]['kp'] = kp
     return result
@@ -364,3 +364,22 @@ def test_fault_disable_failure_preserves_original_fault_and_reports_unconfirmed_
     assert 'Disable could not be confirmed' in core.message and 'receiver channel closed' in core.message
     assert 'Disabled at your request' not in core.message
     core._tick(None, .01)
+
+
+def test_velocity_feedforward_switches_between_sessions_only(setup):
+    """Apply sets Motor tuning's switch for the next session; a running session keeps the law it started with."""
+    async def run():
+        update = payload(setup.teleop)
+        update['velocity_feedforward'] = True
+        setup.teleop.manual_tuning('apply', update)
+        assert setup.teleop.manual.feedforward is True
+        assert setup.teleop._bundle()['manual_tuning']['velocity_feedforward'] is True
+        core = await start(setup)
+        change = payload(setup.teleop)
+        change['velocity_feedforward'] = False
+        with pytest.raises(ValueError, match='next session start'):
+            await asyncio.to_thread(setup.teleop.manual_tuning, 'apply', change)
+        assert setup.teleop.manual.feedforward is True and not core.requests
+        with pytest.raises(ValueError, match='Invalid manual tuning request'):
+            setup.teleop.manual_tuning('apply', dict(payload(setup.teleop), velocity_feedforward='on'))
+    asyncio.run(run())
