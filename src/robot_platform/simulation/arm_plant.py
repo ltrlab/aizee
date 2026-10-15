@@ -127,19 +127,26 @@ class PlantReceiver:
         self.plant.step(self.last['status']['joints'] if enabled else None, TICK_S)
         self.ticks += 1
         t_ms = self.ticks * TICK_S * 1000
-        self.last = dict(self.harness.step(int(t_ms), feedback=self.plant.measured()), hardware_dropped=self._dropped())
+        # Whole milliseconds of the tick's own time: 1606 ticks are 4015 ms, not int(4014.9999999999995).
+        self.last = dict(self.harness.step(int(round(t_ms, 6)), feedback=self.plant.measured()),
+                         hardware_dropped=self._dropped())
         self.rows.append(self._row(self.last, t_ms))
 
-    def advance(self):
-        """Tick the receiver and the plant up to the caller's clock."""
-        while (self.ticks + 1) * TICK_S * 1000 <= self._now_ms():
+    def advance(self, now_ms=None):
+        """Tick the receiver and the plant up to the caller's clock (`now_ms`, or one reading of it)."""
+        now_ms = self._now_ms() if now_ms is None else now_ms
+        while (self.ticks + 1) * TICK_S * 1000 <= now_ms:
             self._tick()
 
     def exchange(self, request):
-        self.advance()
+        # One reading of the caller's clock. A real clock runs on while the plant ticks: read again afterwards, a
+        # slow tick put the request past the next scheduled tick, which then stepped the receiver back
+        # (clock_regression in Helm's simulated Minerva, 2026-10-14).
+        now_ms = self._now_ms()
+        self.advance(now_ms)
         if self.service_latency:
-            self._tick()
-        now_ms = max(self.harness.now_ms, int(self._now_ms()))
+            self._tick()  # The live service takes a request at its next tick.
+        now_ms = max(self.harness.now_ms, int(now_ms))
         result = self.harness.step(now_ms, request, feedback=self.plant.measured())
         result = dict(result, recent=self.rows, recent_dropped=0, hardware_dropped=self._dropped())
         self.rows = []
