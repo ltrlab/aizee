@@ -611,7 +611,7 @@ function updateManualActions() {
   $('manual-vff-note').textContent = manualSessionRunning
     ? `${manualState.velocity_feedforward ? 'On' : 'Off'} for this session; it switches at the next session start.`
     : manualFeedforward
-      ? 'From the next session: Kd damps each joint about its command's speed instead of dragging it. None is fed '
+      ? "From the next session: Kd damps each joint about its command's speed instead of dragging it. None is fed "
         + 'toward an end inside its braking zone. Expect more overshoot when a fast move stops.'
       : 'Off: position only. Kd damps and also drags against motion (the safer, slower default).';
   $('manual-mirror-left').disabled = manualPending || manualConflict || !mirrorPairs('left', 'right').length;
