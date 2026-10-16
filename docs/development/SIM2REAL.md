@@ -16,7 +16,8 @@
 - Shared interfaces held fixed: `simulation.arm_plant.ArmPlant`, `simulation.minerva_sim.joint_specs`,
   `control.gravity`, and the recorder's command columns (`5852fe2`).
 - Acceptance: the gate. The replay equals `ArmPlant` stepped tick by tick to within 1e-12 rad
-  (`test_the_replay_is_the_simulators_plant`).
+  (`test_the_replay_is_the_simulators_plant`). The gate passed on `956cacb`: 761 tests, with zero failures, skips
+  or xfails (`build/dev-check/20261016T000750Z-937d8d50/report.json`).
 
 ## Method
 
