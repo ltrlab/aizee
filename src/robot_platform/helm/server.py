@@ -20,16 +20,21 @@ RETURN_MOVED_RAD = .02  # A confirmed return starts only if no joint moved more 
 
 
 def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None, live=False,
-               gripper_zero=None):
+               gripper_zero=None, simulation_only=False):
     """`live`: keep the stopped reader running whenever Minerva is online and nothing else holds the motors
     (helm.live_view); sessions then take the motors from it instead of asking for Disconnect first."""
     from aiohttp import web
     from robot_platform.viewer.server import create_app as viewer_app
-    from .gripper_zero import GripperZero
     from .live_view import LiveView
     from .telemetry import select_telemetry
     token = token or secrets.token_urlsafe(24)
-    grippers = gripper_zero or GripperZero(lambda: getattr(session, 'address', None) or session.device['address'])
+    if simulation_only and live:
+        raise ValueError('Simulation-only Helm cannot start the physical live reader')
+    if simulation_only:
+        grippers = None
+    else:
+        from .gripper_zero import GripperZero
+        grippers = gripper_zero or GripperZero(lambda: getattr(session, 'address', None) or session.device['address'])
 
     def owner():
         """What holds the motors, other than the reader."""
@@ -39,7 +44,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             return {'verify': 'the live joint sweep', 'return': 'the return'}.get(tune.mode, 'the servo sweep')
         if check is not None and check.running:
             return 'Minerva Check'
-        if grippers.running:
+        if grippers is not None and grippers.running:
             return 'the gripper zero'
         return None
 
@@ -48,7 +53,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
 
     async def take_motors():
         """The reader steps aside for a session that needs the motors (it starts again once they're free)."""
-        await off_loop(live_view.yield_motors)
+        if not simulation_only:
+            await off_loop(live_view.yield_motors)
 
     def guide():
         for source in (teleop, tune):
@@ -69,6 +75,22 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         payload = await request.json()
         if not isinstance(payload, dict):
             raise ValueError('Expected a JSON object')
+        if simulation_only:
+            allowed = {
+                '/api/helm/teleop/start', '/api/helm/teleop/stop', '/api/helm/teleop/key',
+                '/api/helm/teleop/route', '/api/helm/teleop/zero', '/api/helm/teleop/target',
+                '/api/helm/teleop/receiver', '/api/helm/settings/apply', '/api/helm/settings/reset',
+                '/api/helm/leaders/connect', '/api/helm/leaders/disconnect', '/api/helm/leaders/range',
+                '/api/helm/leaders/reference', '/api/helm/leaders/save',
+                '/api/helm/teleop/tuning/apply', '/api/helm/teleop/tuning/save',
+                '/api/helm/teleop/tuning/restore', '/api/helm/task',
+            }
+            if request.path not in allowed:
+                raise ValueError('Simulation mode cannot operate or calibrate the physical robot')
+            if request.path.endswith('/teleop/target') and payload.get('target') != 'pc':
+                raise ValueError('Simulation mode runs on this PC only')
+            if request.path.endswith('/teleop/receiver') and payload.get('mode') != 'virtual':
+                raise ValueError('Simulation mode cannot select a physical receiver')
         return payload
 
     def state_response():
@@ -79,7 +101,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         state['leaders'] = leaders.snapshot() if leaders is not None else None
         state['check'] = check.snapshot() if check is not None else None
         state['tune'] = tune.snapshot() if tune is not None else None
-        state['gripper_zero'] = grippers.snapshot()
+        state['gripper_zero'] = grippers.snapshot() if grippers is not None else None
+        state['mode'] = 'simulation' if simulation_only else 'robot'
         # The model's joint telemetry from the one source the 3D view shows: a running session, else the reader.
         state['telemetry'] = select_telemetry(state)
         state['action_token'] = token
@@ -92,7 +115,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         return state_response()
 
     def not_checking():
-        if grippers.running:
+        if grippers is not None and grippers.running:
             raise ValueError('A gripper zero is running; wait for it to finish')
         if check is not None and check.running:
             raise ValueError('Minerva Check is running; wait for it to finish')
@@ -146,8 +169,19 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         if leaders is not None and leaders.running:
             raise ValueError('Disconnect the leaders in the Leaders tab before starting teleop')
         not_checking()
+        if simulation_only and (getattr(teleop, 'simulation', None) is None
+                                or teleop.target != 'pc' or teleop.receiver['mode'] != 'virtual'):
+            raise ValueError('Simulation mode needs the virtual receiver on this PC')
         await take_motors()
         teleop.start(confirm=payload.get('confirm') is True)
+        return state_response()
+
+    async def task_action(request):
+        payload = await body(request)
+        need_teleop()
+        if set(payload) != {'action'} or payload['action'] not in ('setup', 'reset', 'start_record', 'stop_record'):
+            raise ValueError('Expected task action: setup, reset, start_record or stop_record')
+        await off_loop(lambda: teleop.task_action(payload['action']))
         return state_response()
 
     async def teleop_stop(request):
@@ -290,7 +324,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
 
     async def check_run(request):
         await body(request)
-        if grippers.running:
+        if grippers is not None and grippers.running:
             raise ValueError('A gripper zero is running; wait for it to finish')
         if check is None:
             raise ValueError('Helm was started without Minerva Check')
@@ -318,7 +352,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     async def tune_start(request):
         payload = await body(request)
         need_tune()
-        if grippers.running:
+        if grippers is not None and grippers.running:
             raise ValueError('A gripper zero is running; wait for it to finish')
         if teleop is not None and teleop.active:
             raise ValueError('Stop the teleop session before the servo sweep')
@@ -403,7 +437,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             await off_loop(teleop.stop)
         if leaders is not None:
             await off_loop(leaders.disconnect)
-        await off_loop(link.disconnect)
+        if not simulation_only:
+            await off_loop(link.disconnect)
 
     app.on_startup.append(startup)
     app.on_shutdown.append(shutdown)
@@ -414,6 +449,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     app.router.add_post('/api/helm/limits', limits)
     app.router.add_post('/api/helm/limits/save', save)
     app.router.add_post('/api/helm/direction', direction)
+    app.router.add_post('/api/helm/task', task_action)
     app.router.add_post('/api/helm/teleop/start', teleop_start)
     app.router.add_post('/api/helm/teleop/stop', teleop_stop)
     app.router.add_post('/api/helm/teleop/key', teleop_key)

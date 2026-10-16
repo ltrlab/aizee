@@ -220,13 +220,21 @@ class SimulatedReceiver(PlantReceiver):
     def __init__(self, config, plant, *, clock, directory, view=None, nominal=None, actuators=None):
         super().__init__(config, plant, clock=clock, directory=directory)
         self.view, self.nominal = view, dict(nominal or {})
+        self.task_view = view if hasattr(view, 'command') else None
         self.actuators = actuators  # What the actuator file gave (calibrated_actuators), when one was named.
         if view is not None:
             view.show(plant.q)
 
     def exchange(self, request):
         reply = super().exchange(request)
-        if self.view is not None:
+        if self.task_view is not None:
+            recent = (self.last or {}).get('recent') or []
+            if recent:
+                row = recent[-1]
+                self.task_view.show([row[1 + 4*i] for i in range(len(self.plant.names))],
+                                    qcmd=[row[4 + 4*i] for i in range(len(self.plant.names))],
+                                    source_time=self.epoch + row[0] / 1000)
+        elif self.view is not None:
             self.view.show(self.plant.q)
         return reply
 
@@ -245,7 +253,7 @@ def _holding(terms, scale):
 
 
 def open_simulation(derived, *, model, directions, motors, servo, directory, clock, scene=SCENE, viewer=True,
-                    seed=1, actuators=None):
+                    seed=1, actuators=None, task_scene=False):
     """A SimulatedReceiver for a derived receiver (guarded_config.derive_receiver), resting at its initial pose.
 
     `model` is the URDF model the receiver was derived against, `directions` Helm's confirmed mapping and
@@ -261,6 +269,13 @@ def open_simulation(derived, *, model, directions, motors, servo, directory, clo
     plant = ArmPlant(specs, gravity={n: _holding(terms[n], calibrated.get(n, {}).get('gravity_scale', 1.))
                                      for n in names if n in terms},
                      position_noise=POSITION_NOISE_RAD, seed=seed)
-    view = ModelView(scene, derived['joint_map'], names) if viewer else None
+    if task_scene:
+        from .task_scene import TaskSceneView
+        view = TaskSceneView(scene, derived['joint_map'], names, directory=Path(directory) / 'episodes',
+                             metadata={'actuators': record, 'nominal': nominal,
+                                       'receiver_identity': config['identity']},
+                             seed=seed, viewer=viewer)
+    else:
+        view = ModelView(scene, derived['joint_map'], names) if viewer else None
     return SimulatedReceiver(config, plant, clock=clock, directory=directory, view=view, nominal=nominal,
                              actuators=record)
