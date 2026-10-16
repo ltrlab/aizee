@@ -9,7 +9,7 @@ import pytest
 import zmq
 
 from robot_platform.helm.task_capture import CAMERAS, CameraCache, LiveTaskCapture, paired_receiver_sample, validate_config
-from robot_platform.transport.wire import pack_camera
+from robot_platform.transport.wire import pack_camera, unpack_camera
 
 NAMES = tuple(f'{side}_arm_j{k}' for side in ('left', 'right') for k in range(1, 7)) + ('left_gripper', 'right_gripper')
 
@@ -19,16 +19,46 @@ def config():
                 camera_id=n, timestamp_clock='local_unix', timestamp_semantics='host_read_complete') for i, n in enumerate(CAMERAS)})
 
 
-def camera(name, stamp=1000., frame=99, width=8):
+def camera(name, stamp=1000., frame=99, width=8, rotation=None):
     payload = BytesIO()
     Image.fromarray(np.full((6, 8, 3), 80, dtype=np.uint8)).save(payload, format='JPEG')
-    return pack_camera(dict(camera_id=name, timestamp=stamp, frame_number=frame,
-                       color=dict(format='jpeg', width=width, height=6)), payload.getvalue())
+    header = dict(camera_id=name, timestamp=stamp, frame_number=frame,
+                  color=dict(format='jpeg', width=width, height=6))
+    if rotation is not None:
+        header['image_rotation_deg'] = rotation
+    return pack_camera(header, payload.getvalue())
 
 
 def fill(cache, *, stamp=1000., received=10.01, frame=99):
     for name in CAMERAS:
         assert cache.ingest(name, camera(name, stamp, frame), received_at=received, wall_time=stamp+.01)
+
+
+@pytest.mark.parametrize('rotation', [None, 0, 180])
+def test_camera_orientation_preserved_in_selected_frame_provenance_and_status(rotation):
+    cache = CameraCache(config())
+    fill(cache)
+    message = unpack_camera(camera('head', stamp=1000.02))
+    payload = message['color'].pop('data_bytes')
+    if rotation is not None:
+        message['image_rotation_deg'] = rotation
+    assert cache.ingest('head', pack_camera(message, payload), received_at=10.03, wall_time=1000.03)
+    assert cache.select(10.031)['head']['image_rotation_deg'] == rotation
+    assert cache.status(10.031)['head']['image_rotation_deg'] == rotation
+    # No inference that legacy, unlabelled publishers applied zero correction.
+    assert cache.status(10.031)['right_wrist']['image_rotation_deg'] is None
+
+
+@pytest.mark.parametrize('rotation', [True, 90, 180., '180', {}])
+def test_invalid_orientation_metadata_invalidates_cached_frame(rotation):
+    cache = CameraCache(config())
+    fill(cache)
+    message = unpack_camera(camera('head', stamp=1000.02))
+    payload = message['color'].pop('data_bytes')
+    message['image_rotation_deg'] = rotation
+    assert not cache.ingest('head', pack_camera(message, payload), received_at=10.03, wall_time=1000.03)
+    with pytest.raises(ValueError, match='image_rotation_deg'):
+        cache.select(10.031)
 
 
 def test_camera_counter_can_reset_but_duplicate_acquisition_never_renews_freshness():
@@ -240,7 +270,8 @@ def socket_capture(tmp_path, request):
             clock[0] += .004
             for name, pub in publishers.items():
                 if name not in missing:
-                    pub.send_multipart(camera(name, clock[0]+990.-.01, frame=0))
+                    pub.send_multipart(camera(name, clock[0]+990.-.01, frame=0,
+                                              rotation=180 if name == 'head' else None))
             if receiver:
                 response, rows = result()
                 capture.receive(response, rows, started_at=clock[0]-.001, received_at=clock[0])
@@ -269,6 +300,8 @@ def test_socket_worker_requires_all_cameras_and_explicit_finish(socket_capture):
     frame = writers[0].frames[0]
     assert all(t <= frame['source_time'] for t in frame['camera_times'].values())
     assert 'publisher_frame_number' in frame['task_state']['cameras']['head']
+    assert frame['task_state']['cameras']['head']['image_rotation_deg'] == 180
+    assert frame['task_state']['cameras']['right_wrist']['image_rotation_deg'] is None
     assert not capture.snapshot()['failed']
 
 

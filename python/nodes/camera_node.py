@@ -36,6 +36,37 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _image_rotation(value: int) -> int:
+    """Only whole half-turns preserve both native image dimensions."""
+    if type(value) is not int or value not in (0, 180):
+        raise ValueError("image_rotation_deg must be the integer 0 or 180")
+    return value
+
+
+def _rotate_rgbd(color: np.ndarray, depth: np.ndarray, rotation: int) -> tuple:
+    """Rotate each native grid equally; this does not register depth to RGB."""
+    if _image_rotation(rotation) == 0:
+        return color, depth
+    return (np.ascontiguousarray(color[::-1, ::-1]),
+            np.ascontiguousarray(depth[::-1, ::-1]))
+
+
+def _rotate_depth_intrinsics(intrinsics: dict, rotation: int) -> dict:
+    """Return K'=A*K for the rotated raster, retaining sensor optical XYZ.
+
+    At 180 degrees u'=width-1-u and v'=height-1-v. Signed focal lengths
+    keep (u'-cx')/fx' == (u-cx)/fx, so existing depth backprojection and
+    extrinsics remain in the original sensor frame. No mount calibration
+    or optical-frame rotation is inferred from the image correction.
+    """
+    result = dict(intrinsics)
+    if _image_rotation(rotation) == 180:
+        result.update(fx=-intrinsics['fx'], fy=-intrinsics['fy'],
+                      cx=intrinsics['width']-1-intrinsics['cx'],
+                      cy=intrinsics['height']-1-intrinsics['cy'])
+    return result
+
+
 class CameraNode:
     """Intel RealSense D455 camera node with ZeroMQ publishing"""
 
@@ -48,6 +79,7 @@ class CameraNode:
         fps: int = 30,
         jpeg_quality: int = 85,
         output_resolution: Optional[tuple] = None,
+        image_rotation_deg: int = 0,
     ):
         """Initialize camera node
 
@@ -60,6 +92,7 @@ class CameraNode:
             jpeg_quality: JPEG compression quality (1-100)
             output_resolution: optional (width, height) to downscale color
                 to before JPEG encode.  None = publish at capture resolution.
+            image_rotation_deg: 0 or 180, applied to color and native depth.
         """
         self.camera_id = camera_id
         self.zmq_endpoint = zmq_endpoint
@@ -68,6 +101,7 @@ class CameraNode:
         self.fps = fps
         self.jpeg_quality = jpeg_quality
         self.output_resolution = output_resolution
+        self.image_rotation_deg = _image_rotation(image_rotation_deg)
 
         self.pipeline: Optional[rs.pipeline] = None
         self.config: Optional[rs.config] = None
@@ -131,11 +165,11 @@ class CameraNode:
             # Get depth intrinsics (used by rerun_bridge to compute pointclouds)
             depth_stream = profile.get_stream(rs.stream.depth)
             di = depth_stream.as_video_stream_profile().get_intrinsics()
-            self.depth_intrinsics = {
+            self.depth_intrinsics = _rotate_depth_intrinsics({
                 "fx": di.fx, "fy": di.fy,
                 "cx": di.ppx, "cy": di.ppy,
                 "width": di.width, "height": di.height,
-            }
+            }, self.image_rotation_deg)
             logger.info(
                 f"Depth intrinsics: {di.width}x{di.height}, "
                 f"fx={di.fx:.2f}, fy={di.fy:.2f}, "
@@ -146,6 +180,8 @@ class CameraNode:
             depth_sensor = profile.get_device().first_depth_sensor()
             self.depth_scale = depth_sensor.get_depth_scale()
             logger.info(f"Depth scale: {self.depth_scale:.6f} m/unit")
+            logger.info("Published image rotation: %d degrees; depth XYZ remains in sensor optical frame",
+                        self.image_rotation_deg)
 
         except RuntimeError as e:
             logger.error(f"Failed to start camera pipeline: {e}")
@@ -227,6 +263,8 @@ class CameraNode:
                 # Convert to numpy arrays
                 color_image = np.asanyarray(color_frame.get_data())
                 depth_image = np.asanyarray(depth_frame.get_data())
+                color_image, depth_image = _rotate_rgbd(
+                    color_image, depth_image, self.image_rotation_deg)
 
                 # Compress color image
                 color_jpeg, _cw, _ch = self.compress_color_image(color_image)
@@ -237,6 +275,7 @@ class CameraNode:
                     'camera_id': self.camera_id,
                     'timestamp': timestamp,
                     'frame_number': self.frame_count,
+                    'image_rotation_deg': self.image_rotation_deg,
                     'color': {
                         'format': 'jpeg',
                         'width': _cw,
@@ -244,9 +283,10 @@ class CameraNode:
                     },
                     'depth': {
                         'format': 'uint16',
-                        'width': self.depth_resolution[0],
-                        'height': self.depth_resolution[1],
+                        'width': depth_image.shape[1],
+                        'height': depth_image.shape[0],
                         'intrinsics': self.depth_intrinsics,
+                        'intrinsics_frame': 'sensor_optical',
                         'scale': self.depth_scale,
                     }
                 }
@@ -411,6 +451,7 @@ def _kwargs_from_config(config: dict) -> dict:
                               int(depth.get("height", 480))),
         "fps":              int(color.get("fps", 30)),
         "jpeg_quality":     int(color.get("quality", 85)),
+        "image_rotation_deg": cam_cfg.get("image_rotation_deg", 0),
     }
 
     out_w = color.get("output_width")
@@ -457,6 +498,10 @@ def main():
         help='JPEG compression quality (1-100)'
     )
     parser.add_argument(
+        '--image-rotation-deg', type=int, choices=(0, 180), default=0,
+        help='Rotate both RGB and native depth by 0 or 180 degrees'
+    )
+    parser.add_argument(
         '--output-size',
         type=str,
         default=None,
@@ -491,6 +536,7 @@ def main():
             "fps":          args.fps,
             "jpeg_quality": args.jpeg_quality,
             "output_resolution": output_resolution,
+            "image_rotation_deg": args.image_rotation_deg,
         }
 
     node = CameraNode(**kwargs)

@@ -82,6 +82,9 @@ class CameraCache:
                 return False
             if previous and stamp < previous['publisher_time']:
                 raise ValueError('publisher clock moved backwards; restart capture after checking its clock')
+            rotation = msg.get('image_rotation_deg')
+            if rotation is not None and (type(rotation) is not int or rotation not in (0, 180)):
+                raise ValueError('publisher image_rotation_deg must be 0 or 180 when supplied')
             color = msg.get('color') or {}
             raw = color.get('data_bytes')
             if color.get('format') != 'jpeg' or not isinstance(raw, bytes) or not 0 < len(raw) <= 16 * 1024 * 1024:
@@ -97,6 +100,7 @@ class CameraCache:
             frame = dict(image=rgb, publisher_time=float(stamp), sampled_at=received_at-age,
                          received_at=received_at, mapping_uncertainty_s=max(0., (mapped_at or received_at)-received_at),
                          receive_id=self.sequence, publisher_frame_number=msg.get('frame_number'),
+                         image_rotation_deg=rotation,
                          timestamp_semantics=expected['timestamp_semantics'], exposure_time_known=False)
             self.frames[name].append(frame)
             self.errors.pop(name, None)
@@ -141,6 +145,7 @@ class CameraCache:
             result[name] = dict(fresh=bool(row and name not in self.errors and 0 <= age <= self.config['max_camera_age_s']),
                                 age_s=age, error=self.errors.get(name),
                                 publisher_time=row['publisher_time'] if row else None,
+                                image_rotation_deg=row['image_rotation_deg'] if row else None,
                                 receive_id=row['receive_id'] if row else None)
         return result
 
