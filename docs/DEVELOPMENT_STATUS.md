@@ -7,17 +7,20 @@ its mounting transform has not been calibrated.
 
 ## Accepted source and delivery
 
-`codex/overhaul-integration` at `610c66b` includes completed fault fixes, later
-receiver ramp fix `6b47de8`, and calibrated simulation `d7a1610`. The fault
-checkpoint passed 741 Python / 132 Rust tests; the merged simulation passed
-796 / 132; the delivery baseline passed **801 / 132**, zero required skips/xfails.
+`codex/overhaul-integration` at `2c7867c` includes completed fault fixes, the
+receiver ramp fix `6b47de8`, calibrated simulation `d7a1610`, task capture and GUI,
+portable release packaging, and synchronized right-wrist/head camera selection.
+The frozen gate passed **879 Python / 132 Rust** with zero required skips/xfails.
+[Windows and Ubuntu CI](https://github.com/ltrlab/aizee/actions/runs/38955598530)
+both passed on that exact commit, including mandatory ARM64 release artifacts.
+Both checks are now required on the integration branch, including administrators;
+force pushes and branch deletion are disabled. Main has not been promoted.
 Original overhaul edits and untracked work remain preserved by hash/inventory.
-[Windows/Linux CI](https://github.com/ltrlab/aizee/actions/runs/38952454408) is
-qualifying this published baseline, including mandatory ARM64 release artifacts.
 
-The next candidate adds simulation isolation, the task GUI/contact scene and
-atomic raw capture. Its focused tests pass; full candidate qualification is
-pending. See [the integration record](development/PLATFORM_INTEGRATION_20261016.md),
+The next candidate isolates live camera capture, task physics and rendering from
+control, with explicit worker-failure and recording-publication boundaries.
+It remains under timing and lifecycle qualification; accepted CI does not establish
+hardware or interactive scene throughput. See [the integration record](development/PLATFORM_INTEGRATION_20261016.md),
 [operator workflow](development/HELM_TASK_WORKFLOW.md) and
 [physics limitations](development/MINERVA_TASK_SCENE.md).
 

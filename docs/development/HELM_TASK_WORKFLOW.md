@@ -29,7 +29,9 @@ Close other programs that own their serial ports before that operator action.
    Setup selects the cube/table/bucket contact scene; it does not open USB.
 2. Check the saved leader identities, ranges and robot mappings in **Leaders**.
    Use the existing explicit connection controls when ready to operate the leaders.
-3. **Start session**. A separate MuJoCo scene window shows both arms, the cube,
+3. **Start session**. Helm unloads its duplicate CAD preview while the task
+   session runs, preserving the controls and telemetry. A separate MuJoCo scene
+   window shows both arms, the cube,
    table and bucket. **Reset simulated scene** is available only in disabled or
    idle lifecycle states and never during a recording. Reset does not reposition
    the arms or recapture leader zero.
