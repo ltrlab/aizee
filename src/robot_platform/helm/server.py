@@ -52,6 +52,16 @@ def camera_preflight(cameras, roles=('left_wrist', 'right_wrist', 'head')):
         result += '; missing or stale: ' + ', '.join(missing)
     return result
 
+
+def task_visual_label(capabilities):
+    """Describe the worker's actual appearance provenance, not a requested CLI mode."""
+    mode = capabilities.get('visual_mode')
+    if mode == 'collision_proxy':
+        return 'Camera appearance: collision proxy geometry, not full CAD visuals.'
+    if mode == 'cad':
+        return 'Camera appearance: full CAD visuals.'
+    return 'Camera appearance is not reported yet.'
+
 def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None, live=False,
                gripper_zero=None, simulation_only=False):
     """`live`: keep the stopped reader running whenever Minerva is online and nothing else holds the motors
@@ -139,6 +149,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         task = (state['teleop'] or {}).get('task')
         if simulation_only and task is not None:
             task['display_phase'] = task_phase(task.get('task') or {})
+            task['display_visual'] = task_visual_label(task.get('capabilities') or {})
         elif task is not None:
             task['camera_summary'] = camera_preflight(task.get('cameras') or {}, task.get('camera_roles')
                                                        or ('left_wrist', 'right_wrist', 'head'))

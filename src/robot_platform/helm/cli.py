@@ -27,6 +27,8 @@ def main(argv=None):
                         help="where the teleop loop runs at first: Minerva's Jetson (default) or this PC")
     parser.add_argument('--sim', action='store_true',
                         help="Teleop's virtual receiver drives a simulated Minerva in a MuJoCo window (loop on this PC)")
+    parser.add_argument('--sim-visual-mode', choices=('cad', 'collision_proxy'),
+                        help='Task camera appearance: collision_proxy (default) or full CAD; contact physics is unchanged')
     parser.add_argument('--capture-profile', type=Path,
                         help='JSON camera identity/clock configuration for bimanual live task recording')
     parser.add_argument('--port', type=int, default=8760)
@@ -35,6 +37,8 @@ def main(argv=None):
         parser.error('port must be in 1..65535')
     if args.sim and not args.teleop:
         parser.error('--sim needs --teleop')
+    if args.sim_visual_mode is not None and not args.sim:
+        parser.error('--sim-visual-mode needs --sim')
     from aiohttp import web
     from .server import create_app
     from .session import HelmSession
@@ -64,7 +68,8 @@ def main(argv=None):
                 # The simulator's actuator file, beside the servo calibration: the motors it matches take the values
                 # sim2real fitted on real teleop.
                 from robot_platform.simulation.minerva_sim import actuators_path
-                simulation = {'actuators': str(actuators_path(session.profile_path, session.asset_id))}
+                simulation = {'actuators': str(actuators_path(session.profile_path, session.asset_id)),
+                              'visual_mode': args.sim_visual_mode or 'collision_proxy'}
             teleop = TeleopSession(session, args.teleop, runs=args.runs, leaders=leaders,
                                    target='pc' if args.sim else args.loop, simulation=simulation,
                                    capture_profile=args.capture_profile)
