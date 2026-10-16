@@ -169,7 +169,7 @@ def test_observed_cost_spike_remains_counted_then_prevents_repeated_ui_overruns(
 def test_status_view_does_not_rebuild_routes_pose_rows_or_quantiles():
     # Exercise the real split with only status data; heavy fields are absent.
     core=object.__new__(teleop.TeleopCore)
-    core.phase='running'; core.message='following'; core.fault=None; core.live_arm=None
+    core.phase='running'; core.message='following'; core.fault=None; core.recording_fault=None; core.live_arm=None
     core.harness=None; core.compiler=None; core.session=SimpleNamespace(lifecycle=SimpleNamespace(state='TELEOP'),blocked=None)
     core.profile={'receiver':{'direct':{'position_only':True}}}
     core.collision_mode='disabled'; core.input_error=None; core.late_targets=0; core.scheduling={}

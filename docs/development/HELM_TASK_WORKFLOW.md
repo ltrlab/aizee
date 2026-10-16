@@ -165,6 +165,24 @@ session closure cancels pending publication, including a finish waiting on disk.
 Each process keeps a bounded `capture-worker-*.stderr.log` under its episode
 directory for startup/native diagnostics.
 
+A recording or diagnostics failure latches **RECORDING FAILED** for that session,
+requests episode abort, and stops following the leaders. An enabled, healthy
+receiver moves into its existing guarded HOLD; control cycles, lease renewal,
+feedback freshness and configured collision checks continue. A failure detected
+after a cycle requests HOLD on the next scheduled cycle. It does not automatically
+return the arms or disable their torque merely because a camera or disk failed.
+Enable, engage, route/zero edits, tuning and new recordings stay locked until the
+session is stopped and restarted. H still disables immediately. X and Stop session
+request the existing controlled return to the reference, so first ensure that
+return path is clear of the table, object and other obstacles. Operator channel
+loss retains the existing controlled shutdown behavior. A real receiver fault,
+or a HOLD that cannot be confirmed, retains the receiver's brake/recovery path.
+
+Transitioning from following into this HOLD captures measured positions for all
+14 axes, including both grippers. It may remove an existing grip squeeze; **object retention is not qualified**. This
+change verifies continued bounded arm control after capture failure, not a safe
+physical grasp-retention policy. Qualify that policy before a physical object task.
+
 The raw v8 capture declares camera_roles and joint names; paired measured and emitted commanded
 motor coordinates; RGB images; source, scene and camera clocks; per-frame task
 state; authority; terminal/authority-boundary action-validity masks; and source

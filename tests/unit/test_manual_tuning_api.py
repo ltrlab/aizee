@@ -408,3 +408,21 @@ def test_status_names_the_next_sessions_law_then_the_one_the_receiver_runs(setup
         await asyncio.to_thread(setup.teleop.stop, 2.)
         assert law() == ('direct-velocity-feedforward', True)
     asyncio.run(run())
+
+
+def test_capture_failure_blocks_tuning_while_h_and_x_remain_available(setup,monkeypatch):
+    async def run():
+        core=await start(setup)
+        original=core.view
+        monkeypatch.setattr(core,'view',lambda:dict(original(),recording_fault='camera worker failed'))
+        await wait_until(lambda:setup.teleop.snapshot().get('recording_fault'))
+        snapshot=setup.teleop.snapshot()
+        assert not snapshot['tuning']['can_apply']
+        assert 'Recording failed' in snapshot['tuning']['reason']
+        before=setup.teleop.manual.bundle()
+        with pytest.raises(ValueError,match='Recording failed'):
+            setup.teleop.manual_tuning('apply',payload(setup.teleop,kp=20.))
+        for key in ('H','X'):setup.teleop.key(key)
+        await wait_until(lambda:core.keys==['H','X'])
+        assert setup.teleop.manual.bundle()==before and not core.requests
+    asyncio.run(run())

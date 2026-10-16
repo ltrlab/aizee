@@ -91,7 +91,7 @@ def test_scene_reset_is_refused_while_following_and_recording_requires_ready_lif
     core = TeleopCore.__new__(TeleopCore)
     core.task_capture = SimpleNamespace(command=lambda action: calls.append(action))
     core.session = SimpleNamespace(lifecycle=SimpleNamespace(state='TELEOP'))
-    core.live_arm, core.fault = None, None
+    core.live_arm, core.fault, core.recording_fault = None, None, None
     with pytest.raises(ValueError, match='disabled or idle'):
         core.task_action('reset')
     core.task_action('start_record')
