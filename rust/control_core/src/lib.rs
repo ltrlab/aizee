@@ -254,6 +254,11 @@ pub struct Controller {
     /// zero velocity every command period: damping times speed kicked right J2 by about 37 Nm at
     /// 50 Hz in the sweeps and checks of 2026-10-16.
     ramp_from_ms: Option<u64>,
+    /// The first tick that drove the target after its ramp had run (None until then). That tick keeps
+    /// the stream's velocity at the target: the loop's period slips against the receiver's ticks, so
+    /// about every 36th command came a tick late, and braking at zero velocity for that tick stuttered
+    /// the joints every 0.7 s (right J5 lost up to 0.8 rad/s, J4 1.6 rad/s; 2026-10-16).
+    ramp_overrun_ms: Option<u64>,
     target_sequence: Option<u64>,
     last_applied_target: Option<AppliedTarget>,
     stops: Vec<JointStop>,
@@ -319,6 +324,7 @@ impl Controller {
             ramp_efforts: vec![0.0; count],
             target_at_ms: 0,
             ramp_from_ms: None,
+            ramp_overrun_ms: None,
             target_sequence: None,
             last_applied_target: None,
             stops: vec![JointStop::default(); count],
@@ -333,12 +339,15 @@ impl Controller {
 
     /// Ramp the reference toward the last Move: from where its velocity says the stream came from
     /// to its position, over one interpolation period, with its velocity fed forward and its ramp
-    /// effort added (to accelerate the joint to that velocity); then hold it, without either.
+    /// effort added (to accelerate the joint to that velocity); then hold it, without either. The
+    /// first tick to drive it after the ramp holds it at the target with the velocity still fed
+    /// forward, for a next command a tick late; the reference never passes the target.
     fn follow_targets(&mut self) {
         let period = self.interpolation_s();
         // The ramp runs from the first tick that drives the target: until it is driven, it starts now.
         let from = self.ramp_from_ms.unwrap_or(self.now_ms);
         let elapsed = (self.now_ms.saturating_sub(from)) as f64 / 1000.0;
+        let grace = self.ramp_overrun_ms.is_none_or(|at| at == self.now_ms);
         for (((command, target), limit), ramp) in self
             .commands
             .iter_mut()
@@ -359,7 +368,7 @@ impl Controller {
                 command.position = (target.position - target.velocity * (period - elapsed))
                     .clamp(limit.lower, limit.upper);
                 command.effort += ramp;
-            } else {
+            } else if !grace {
                 command.velocity = 0.0;
             }
         }
@@ -976,6 +985,15 @@ impl Controller {
         if self.ramp_from_ms.is_none() {
             self.ramp_from_ms = Some(self.now_ms); // The first tick that drives the target.
         }
+        let period_ms = self.config.interpolation_ms;
+        if period_ms > 0
+            && self.ramp_overrun_ms.is_none()
+            && self
+                .ramp_from_ms
+                .is_some_and(|from| self.now_ms.saturating_sub(from) >= period_ms)
+        {
+            self.ramp_overrun_ms = Some(self.now_ms); // The one tick past the ramp that keeps its velocity.
+        }
         if let Some(sequence) = self.target_sequence {
             if self.last_applied_target.as_ref().is_none_or(|last| {
                 last.sequence != sequence || last.accepted_at_ms != self.target_at_ms
@@ -1561,6 +1579,7 @@ impl Controller {
                 }
                 self.target_at_ms = self.now_ms;
                 self.ramp_from_ms = None; // Its ramp begins at the first tick that drives it.
+                self.ramp_overrun_ms = None;
                 self.target_sequence = Some(authority.sequence);
                 self.follow_targets();
                 self.consume_sequence(&authority);

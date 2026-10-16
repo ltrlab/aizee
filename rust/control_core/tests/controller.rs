@@ -2243,9 +2243,14 @@ fn a_move_ramps_from_where_the_stream_came_from_then_holds() {
     c.tick(30, &mut h);
     let halfway = c.status().joints[0];
     assert!((halfway.position - 0.38).abs() < 1e-9 && halfway.velocity == 1.0);
+    // The ramp has run: the first tick after it holds the target with the stream's velocity (for a next
+    // command a tick late), and the next holds it at zero velocity.
     c.tick(50, &mut h);
     let there = c.status().joints[0];
-    assert!((there.position - 0.4).abs() < 1e-9 && there.velocity == 0.0);
+    assert!((there.position - 0.4).abs() < 1e-9 && there.velocity == 1.0);
+    c.tick(52, &mut h);
+    let held = c.status().joints[0];
+    assert!((held.position - 0.4).abs() < 1e-9 && held.velocity == 0.0);
 }
 
 /// The live receiver's timing: requests are taken between ticks (`handle_deferred`) and first
@@ -2326,7 +2331,8 @@ fn a_stream_of_deferred_moves_keeps_its_velocity_through_every_handover() {
 #[test]
 fn a_deferred_move_that_is_not_followed_stops_at_its_target_once_its_ramp_has_run() {
     // Without a next command, the joint arrives at the target one ramp after the first tick that
-    // drove it, and holds there at zero velocity.
+    // drove it. The tick after the ramp keeps the stream's velocity there (a next command could be a
+    // tick late); from the one after, it holds there at zero velocity.
     let (mut c, mut h) = deferred_ramp_fixture();
     c.tick(tick_ms(0), &mut h);
     assert!(move_deferred(&mut c, &mut h, tick_ms(0), 2, 0.02, 1.0).accepted);
@@ -2334,11 +2340,45 @@ fn a_deferred_move_that_is_not_followed_stops_at_its_target_once_its_ramp_has_ru
         c.tick(tick_ms(k), &mut h); // Ticks at 12..30 ms: the ramp, from 12 ms, runs to 32 ms.
         assert_eq!(h.feedback[0].velocity, 1.0, "at {} ms", tick_ms(k));
     }
-    c.tick(tick_ms(9), &mut h); // 32 ms: the ramp has run.
+    c.tick(tick_ms(9), &mut h); // 32 ms: the ramp has run; its velocity is kept at the target.
+    assert_eq!(h.feedback[0].velocity, 1.0);
+    assert!((h.feedback[0].position - 0.02).abs() < 1e-12);
+    c.tick(tick_ms(10), &mut h); // 35 ms: held.
     assert_eq!(h.feedback[0].velocity, 0.0);
     assert!((h.feedback[0].position - 0.02).abs() < 1e-12);
     c.tick(tick_ms(20), &mut h);
     assert_eq!((h.feedback[0].position, h.feedback[0].velocity), (0.02, 0.0));
+}
+
+#[test]
+fn a_command_a_tick_late_takes_over_without_the_joint_braking_or_passing_its_target() {
+    // The loop's 20 ms period slips against the receiver's 2.5 ms ticks, so now and then a command is
+    // taken a tick later than the last. The tick between the old ramp's end and the late command keeps
+    // the stream's velocity at the old target instead of braking the joint at zero velocity: right J5
+    // and J4 stuttered every 0.7 s on it (2026-10-16). A command two ticks late still stops it.
+    let (mut c, mut h) = deferred_ramp_fixture();
+    let speed = 1.0;
+    let mut driven = Vec::new();
+    let mut target = 0.0;
+    let (mut sequence, mut next) = (2, 0);
+    for k in 0..8 * 6 + 1 {
+        let now = tick_ms(k);
+        c.tick(now, &mut h);
+        driven.push((now, h.feedback[0].position, h.feedback[0].velocity, target));
+        if k == next {
+            target += speed * 0.020;
+            let reply = move_deferred(&mut c, &mut h, now, sequence, target, speed);
+            assert!(reply.accepted, "{:?}", reply.reason);
+            sequence += 1;
+            next += if sequence == 5 { 9 } else { 8 }; // The fourth command comes a tick late.
+        }
+    }
+    for pair in driven[1..].windows(2) {
+        let ((_, q0, _, _), (t1, q1, v1, goal)) = (pair[0], pair[1]);
+        assert_eq!(v1, speed, "braked at {t1} ms: {driven:?}");
+        assert!(q1 <= goal + 1e-12, "passed the target at {t1} ms: {q1} > {goal}");
+        assert!(q1 >= q0 - 1e-12 && q1 - q0 <= speed * 0.003 + 1e-12, "{t1} ms: {q0} -> {q1}");
+    }
 }
 
 #[test]
