@@ -249,6 +249,11 @@ Written from the report by:
   shoulders and elbows moved, wrists held.
 - **The plant's delay is the fit's.** ArmPlant with a 0.37 or 0.9 tick delay equals sim2real's delayed replay to
   1e-15 rad (asserted to 1e-12).
+- **Gate:** passed on `6138988`, a clean tree: 772 Python tests and 125 Rust tests, with zero failures, skips or
+  xfails (`build/dev-check/20261016T004727Z-15dc3db9/report.json`).
+  - The release test's ARM64 binaries were copied from `aizee-actuator-response`, built from the same Rust sources.
+    Nothing was deployed.
+  - Only documentation changed after the gate.
 
 ### Unverified
 

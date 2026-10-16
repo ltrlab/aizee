@@ -114,7 +114,8 @@ session scratchpad (`sweep-fits.jsonl`).
 - **Model scope.** One joint at a time; others held. Multi-joint teleop needs the pitch-chain gravity
   (control.gravity) or the MuJoCo model with masses. Torque saturation, backlash and a velocity-dependent friction
   curve are not modelled.
-- **Into the simulator.** Fitted values should go into a per-motor file bound to the motor's UID and firmware (as the
-  servo file is), read by `simulation/minerva_sim.py` in place of the servo file's inertia and the nominal values.
+- **Into the simulator.** Done for the sim2real fits: `config/devices/simulation/minerva-production-01-actuators.json`,
+  bound to each motor's UID and firmware and read by `simulation/minerva_sim.py` (SIM2REAL.md, "Into the
+  simulator").
 - **Excitation protocol.** A short per-joint sequence in Helm Tune (steps and ramps at two or three stiffnesses)
   would give every joint a clean closed-loop fit.

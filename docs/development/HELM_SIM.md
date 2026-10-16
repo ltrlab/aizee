@@ -81,8 +81,8 @@ Tick times also round to whole milliseconds: tick 1606 is 4015 ms, not int(4014.
 Close any running Helm first: two would share the runs folder's lock and the leaders' USB ports. Use the operator
 runs folder, which holds the verified directions. A fresh runs folder falls back to the seed and mirrors right
 J3/J4; there the right arm's J2–J4 also lose their fitted gravity scales, and the session's `simulation` event
-lists them under `gravity_unscaled`. `--sim` reads the actuator file beside the servo file without an option.
-From this worktree:
+lists them under `gravity_unscaled`. `--sim` reads the actuator file in `simulation/` beside the servo file; no
+option is needed. From this worktree:
 
 ```powershell
 .venv-dev/Scripts/python.exe -m robot_platform helm --profile config/devices/minerva-joint-calibration.json --runs C:/Users/ltr/.codex/worktrees/dev-baseline/aizee/build/manual-tuning/operator-runs --seed docs/devices/MINERVA_ARM_DIRECTIONS_20260924.json --teleop config/devices/minerva-teleop-direct-tuning.json --sim --port 8760
