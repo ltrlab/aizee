@@ -308,6 +308,8 @@ class TeleopCore:
         self._latency = None
         self._recorder = None
         self._recording_error = None
+        self.recording_fault = None  # Evidence failure locks following, without becoming a receiver fault.
+        self._recording_hold_confirmed = False
         self.task_capture = None
         self._capture_exchange_started = None
         self._pending_latency = None
@@ -342,7 +344,8 @@ class TeleopCore:
                                    motors=reference['motors'], servo=self.bundle.get('servo'), directory=directory,
                                    clock=self.clock, viewer=self.simulation.get('viewer', True),
                                    seed=self.simulation.get('seed', 1), actuators=self.simulation.get('actuators'),
-                                   task_scene=self.simulation.get('task_scene', False))
+                                   task_scene=self.simulation.get('task_scene', False),
+                                   visual_mode=self.simulation.get('visual_mode', 'collision_proxy'))
         self.scheduling['receiver'] = prefer_responsive(receiver.harness.process.pid)
         return receiver
 
@@ -385,6 +388,8 @@ class TeleopCore:
         return merge_routes(self.profile['routes'], self.route_edits)
 
     def route(self, action, motor):
+        if self.recording_fault:
+            raise ValueError('Recording failed; restart the session before changing routes')
         if self.session is not None and self.session.lifecycle.state in ENGAGED:
             raise ValueError('Hold (T) before changing a leader route')
         current = self.routes().get(motor)
@@ -406,7 +411,7 @@ class TeleopCore:
         jumping to the new mapping; Engage (T) aligns to it slowly. Returns the
         zero as {leader: {channel name: reading_rad}} for saving.
         """
-        if self.derived is None or self.phase != 'running' or self.fault:
+        if self.derived is None or self.phase != 'running' or self.fault or self.recording_fault:
             raise ValueError('Set the zero in a running session')
         samples = self.leaders.poll()
         self.references = {name: list(sample.positions_rad) for name, sample in samples.items()}
@@ -685,7 +690,7 @@ class TeleopCore:
 
     def queue_tuning(self, payload):
         from .manual_tuning import validate
-        if (self._manual_state is None or self.phase != 'running' or self.fault
+        if (self._manual_state is None or self.phase != 'running' or self.fault or self.recording_fault
                 or self.session.lifecycle.state != 'HOLD' or self._tuning_pending is not None
                 or self._tuning_confirm is not None):
             raise ValueError('Hold the running arm before applying manual tuning')
@@ -731,8 +736,8 @@ class TeleopCore:
         if self.live_arm and self.bundle.get('task_capture') is not None:
             if self.live_arm != 'both':
                 raise ValueError('Task capture requires both arms and both grippers')
-            from .task_capture import LiveTaskCapture
-            self.task_capture = LiveTaskCapture(directory / 'episodes', names, self.bundle['task_capture'],
+            from .task_capture_process import LiveTaskCaptureProcess
+            self.task_capture = LiveTaskCaptureProcess(directory / 'episodes', names, self.bundle['task_capture'],
                 metadata={'source': 'real', 'asset_id': self.bundle['asset_id'],
                           'bindings': self.bundle['bindings'], 'receiver_identity': config['identity'],
                           'action_semantics': 'receiver_emitted_position_at_sample'})
@@ -800,6 +805,8 @@ class TeleopCore:
             self._flushed = clock
 
     def task_action(self, action):
+        if self.recording_fault:
+            raise ValueError('Recording failed; stop this session before starting another episode')
         if self.task_capture is None:
             raise ValueError('Set up the task before starting this session')
         state = self.session.lifecycle.state if self.session else None
@@ -823,6 +830,48 @@ class TeleopCore:
         if self._recorder is not None:
             self._recorder.check()
 
+    def _recording_notice(self):
+        state = self.session.lifecycle.state if self.session else None
+        if state == 'SHUTDOWN':
+            response = 'Controlled return to the reference is in progress.'
+        elif state == 'DISABLED':
+            response = 'Disabled. Stop this session before restarting.'
+        elif state == 'IDLE':
+            response = 'Idle; enabling is locked. Stop this session before restarting.'
+        else:
+            response = ('Guarded hold active.' if self._recording_hold_confirmed else 'Guarded hold requested.')
+            response += ' Following is locked. H disables; X or Stop session requests return to the reference.'
+        return f'RECORDING FAILED · {self.recording_fault} · {response}'
+
+    def _poll_recording(self):
+        """Latch evidence failure without draining I/O or abandoning a powered receiver.
+
+        Pre-cycle detection holds in this cycle; asynchronous post-cycle detection
+        holds on the next scheduled cycle. Receiver faults retain their own path.
+        """
+        if self.recording_fault:
+            return
+        try:
+            self._check_recording()
+        except RecordingError as exc:
+            self.recording_fault = str(exc) or 'Recording failed'
+            self._recording_hold_confirmed = False
+            self._hold = False  # A queued zero must never replace H/X/Stop after a capture fault.
+            if self.task_capture is not None:
+                try:
+                    self.task_capture.abort(self.recording_fault)
+                except Exception as abort_error:
+                    self.recording_fault += f'; capture abort could not be confirmed: {abort_error}'
+            # No more diagnostic enqueues. Retain the worker for cleanup only
+            # after disable; an OS write must never block a powered control tick.
+            self._samples = self._events = self._latency = None
+            self._pending_latency = None
+            if self._tuning_pending is not None or self._tuning_confirm is not None:
+                self._tuning_result = ('Recording failed; tuning was cancelled. Restart the session.', None)
+            self._tuning_pending = self._tuning_confirm = None
+            if not self.fault:
+                self.message = self._recording_notice()
+
     def _stop_recording(self, *, timeout=5.):
         recorder, self._recorder = self._recorder, None
         if recorder is None:
@@ -841,16 +890,16 @@ class TeleopCore:
     def tick(self, key, started):
         # Persist the previous, finalized loop record inside this cycle's measured
         # workload. Its full-loop timestamp is only known after UI construction.
-        self._check_recording()
+        self._poll_recording()
         self._flush_latency()
-        self._check_recording()
+        self._poll_recording()
         if key:
             self._event('key', key=key, lifecycle=self.session.lifecycle.state if self.session else None)
         try:
             self._tick(key, started)
         finally:
             self._note()
-        self._check_recording()
+        self._poll_recording()
 
     def _tick(self, key, started):
         from robot_platform.teleop.guarded_lifecycle import minerva_action
@@ -887,8 +936,16 @@ class TeleopCore:
             if engaged:
                 action = 'disengage'  # A new zero never moves an engaged arm.
                 notice = 'Leader zero set. Holding: engage (T) to follow from it.'
+        capture_hold = False
+        if self.recording_fault and action not in ('disable', 'shutdown'):
+            # Never poll/reuse leader targets or allow a queued enable/engage
+            # after evidence failed. Only the first transition captures measured
+            # hold; later HOLD cycles keep that target rather than following drift.
+            action = 'disengage' if previous in ENGAGED else None
+            capture_hold = previous in ('HOLD', *ENGAGED)
+            notice = self._recording_notice()
         target = None
-        if key != 'H':
+        if key != 'H' and not self.recording_fault:
             target, self.input_error = self._leader_target(engaged)
         allowed = {'enable': ('IDLE',), 'engage': ('IDLE', 'HOLD'), 'disengage': ENGAGED,
                    'shutdown': ('IDLE', 'HOLD', 'ENGAGING', 'TELEOP')}
@@ -922,6 +979,14 @@ class TeleopCore:
                 else:
                     self._tuning_confirm = (dict(tuning, revision=tuning['revision'] + 1), record['request_sequence'])
                 self._tuning_pending = None
+            if capture_hold:
+                if (record.get('accepted') is not True or record.get('skipped')
+                        or (record.get('status') or {}).get('state') not in ('holding', 'executing')
+                        or lifecycle.state != 'HOLD'):
+                    reason = 'Recording failed and guarded hold could not be confirmed'
+                    self.session.fault(reason)  # Existing receiver brake/recovery path.
+                    raise RuntimeError(reason)
+                self._recording_hold_confirmed = True
             if self._tuning_confirm is not None:
                 candidate, sequence = self._tuning_confirm
                 applied = (self.harness.last or {}).get('status', {}).get('last_applied_target') or {}
@@ -973,6 +1038,8 @@ class TeleopCore:
             if current == 'DISABLED' and self.live_arm:
                 self.message += (f' · {self._the_arm} {"are" if self.live_arm == "both" else "is"} limp. Stop the '
                                  'session; a new one checks the reference pose again.')
+        if self.recording_fault and not self.fault:
+            self.message = self._recording_notice()
 
     def _held(self):
         """Whether the receiver brakes or holds the arm itself (after a trip, or the stop a failed cycle asked
@@ -1140,6 +1207,7 @@ class TeleopCore:
         verdict = getattr(self.compiler, 'last_verdict', None) or {}
         last = (self.harness.last or {}) if self.harness else {}
         result = {'phase': self.phase, 'message': self.message, 'fault': self.fault,
+                  'recording_fault': self.recording_fault,
                   'trial': deepcopy(self.profile.get('trial')),
                   'position_only': self.profile['receiver'].get('direct', {}).get('position_only', False),
                   'velocity_feedforward': velocity_feedforward(self.profile),
@@ -1255,7 +1323,7 @@ def run_loop(commands, views, core, *, silence_s=None):
     def status_key(view):
         tuning = view.get('manual_tuning_ack') or {}
         # Compare immutable revision values, not a reference to a mutable payload.
-        return (tuple(view.get(k) for k in ('phase', 'state', 'fault', 'message', 'receiver', 'input_error'))
+        return (tuple(view.get(k) for k in ('phase', 'state', 'fault', 'recording_fault', 'message', 'receiver', 'input_error'))
                 + (tuning.get('session_id'), tuning.get('revision'), view.get('manual_tuning_pending')))
 
     def publish(guide=True):
@@ -1763,6 +1831,8 @@ class TeleopSession:
             return False, 'Waiting for the tuning operation to finish'
         if not self.active:
             return True, 'Apply prepares the next session; it does not enable motors'
+        if self._view.get('recording_fault'):
+            return False, 'Recording failed; stop this session before changing tuning'
         if self._view.get('manual_tuning_pending'):
             return False, 'Waiting for the receiver to confirm the pending tuning change'
         if self._view.get('phase') == 'running' and self._view.get('state') == 'HOLD' and not self._view.get('fault'):

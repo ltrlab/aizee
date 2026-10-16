@@ -25,7 +25,8 @@ CORE = [
     'tests/unit/test_response_fit.py', 'tests/unit/test_sim2real.py',
     'tests/unit/test_mjcf_export.py',
     'tests/contract/test_mujoco_receiver.py',
-    'tests/contract/test_helm_sim.py',
+    'tests/contract/test_helm_sim.py', 'tests/contract/test_helm_capture_failure.py',
+    'tests/contract/test_two_arm_teleop.py',
     'tests/contract/test_direct_teleop.py',
     'tests/contract/test_manual_teleop.py', 'tests/unit/test_manual_tuning.py',
     'tests/unit/test_manual_teleop_lifecycle.py', 'tests/unit/test_manual_tuning_api.py',
@@ -47,7 +48,8 @@ CORE = [
     'tests/unit/test_velocity_feedforward.py', 'tests/unit/test_browser_scripts.py',
     'tests/unit/test_helm_task_workflow.py', 'tests/unit/test_helm_task_capture.py',
     'tests/unit/test_task_capture.py', 'tests/unit/test_task_scene.py',
-    'tests/unit/test_dev_gate.py',
+    'tests/unit/test_capture_process.py', 'tests/contract/test_task_receiver_capture.py',
+    'tests/unit/test_ci_windows_gl.py', 'tests/unit/test_dev_gate.py',
     'tests/unit/test_platform_packaging.py',
 ]
 

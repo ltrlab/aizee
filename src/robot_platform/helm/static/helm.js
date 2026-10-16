@@ -270,6 +270,7 @@ function render(state) {
   renderGlobalControls(state);
   renderMode(state);
   renderTask(state);
+  renderTaskViewer(state);
   publishTelemetry(state);
 }
 
@@ -285,6 +286,26 @@ function renderMode(state) {
   }
 }
 
+const modelViewerSource = $('model-view').getAttribute('src');
+let modelViewerPaused = false;
+
+function taskOwnsViewer(state) {
+  return state?.mode === 'simulation' && state.teleop?.task_configured === true
+    && ['starting', 'running'].includes(state.teleop?.phase);
+}
+
+function renderTaskViewer(state) {
+  const paused = taskOwnsViewer(state);
+  if (paused !== modelViewerPaused) {
+    // Unload the duplicate WebGL document; hiding it leaves its animation loop running.
+    $('model-view').src = paused ? 'about:blank' : modelViewerSource;
+    modelViewerPaused = paused;
+  }
+  $('model-view').hidden = paused;
+  $('task-window-note').hidden = !paused;
+  $('model-heading').textContent = paused ? 'LIVE TELEMETRY' : 'MODEL & TELEMETRY';
+}
+
 function renderTask(state) {
   const t = state.teleop, task = t?.task || {}, configured = !!t?.task_configured;
   const running = ['starting', 'running'].includes(t?.phase), simulation = state.mode === 'simulation';
@@ -292,16 +313,16 @@ function renderTask(state) {
   const pending = task.last_command?.state === 'pending';
   $('task-mode').textContent = simulation ? 'SIMULATED CONTACT TASK' : 'BIMANUAL ROBOT CAPTURE';
   $('task-capability').textContent = simulation
-    ? 'Dynamic object contacts with posed fingers; simulated arm response is not a validated coupled physics model. No synthetic grasp attachment.'
+    ? `${task.display_visual || 'Camera appearance is not reported yet.'} Dynamic object contacts with posed fingers; simulated arm response is not a validated coupled physics model. No synthetic grasp attachment.`
     : 'Records the current guarded receiver and existing camera streams. Both arms and grippers must be healthy; camera timing must be verified.';
   $('task-setup').disabled = running || !t;
   $('task-setup').textContent = configured ? 'Task configured' : 'Set up task';
   $('task-reset').hidden = !simulation;
-  $('task-reset').disabled = !task.available || !running || active || !['DISABLED', 'IDLE'].includes(t?.state);
-  $('task-record').disabled = !task.available || !task.capture_ready || !running || active || pending || task.failed || !['HOLD', 'TELEOP'].includes(t?.state);
-  $('task-stop').disabled = !running || !active || pending;
+  $('task-reset').disabled = !!t?.recording_fault || !task.available || !running || active || !['DISABLED', 'IDLE'].includes(t?.state);
+  $('task-record').disabled = !task.available || !task.capture_ready || !running || active || pending || task.failed || t?.recording_fault || !['HOLD', 'TELEOP'].includes(t?.state);
+  $('task-stop').disabled = !!t?.recording_fault || !running || !active || pending;
   const progress = task.task || {};
-  $('task-state').textContent = task.error ? 'Task needs attention.' : !configured ? 'Task not configured.'
+  $('task-state').textContent = t?.recording_fault || task.error ? 'Task needs attention.' : !configured ? 'Task not configured.'
     : !running ? 'Ready to start a session. Task controls do not enable motors.'
     : task.display_phase || progress.phase || progress.stage || (task.available ? 'Task ready.' : 'Preparing task…');
   $('task-cameras').hidden = simulation;
@@ -312,7 +333,7 @@ function renderTask(state) {
     + (recording.path || recording.directory ? ` · ${recording.path || recording.directory}` : '')
     + (simulation ? (task.cameras?.ready ? ' · simulated cameras rendered' : '')
       : task.cameras ? ` · cameras: ${Object.entries(task.cameras).map(([name, c]) => `${name} ${c.fresh ? 'fresh' : c.error || 'waiting'}`).join(', ')}` : '');
-  const error = task.error || recording.error || task.last_command?.error || '';
+  const error = t?.recording_fault || task.error || recording.error || task.last_command?.error || '';
   $('task-error').hidden = !error;
   $('task-error').textContent = error;
 }
@@ -1026,7 +1047,8 @@ function renderTeleop(t) {
   session.className = running || starting || live ? 'danger' : 'primary';
   session.disabled = starting;
   for (const button of document.querySelectorAll('.lifecycle button'))
-    button.disabled = !running || (!!t.fault && button.dataset.key !== 'H');
+    button.disabled = !running || (!!t.fault && button.dataset.key !== 'H')
+      || (!!t.recording_fault && !['H', 'X'].includes(button.dataset.key));
   $('t-engage').innerHTML = ENGAGED.includes(t.state) ? 'Hold <kbd>T</kbd>' : 'Engage <kbd>T</kbd>';
   renderManual(t);
   $('t-tuning-summary').textContent=t.tuning?.enabled
@@ -1476,7 +1498,7 @@ $('open-display').onclick=()=>{showTab('settings');settingsPanel.show('display')
 function publishTelemetry() {
   const frame=$('model-view').contentWindow;
   const telemetry=last?.telemetry;
-  if(frame) frame.postMessage({type:'helm-viewer-overlay',version:1,settings:settingsPanel.display,telemetry},location.origin);
+  if(frame && !modelViewerPaused) frame.postMessage({type:'helm-viewer-overlay',version:1,settings:settingsPanel.display,telemetry},location.origin);
   const reading=(telemetry?.rows||[]).filter(row=>Number.isFinite(row.position));
   $('model-source').textContent=reading.length
     ? `${reading[0].source==='simulated'?'Virtual feedback':'Measured feedback'} · ${telemetry.stale?'stale':Number.isFinite(telemetry.age_seconds)?Math.round(telemetry.age_seconds*1000)+' ms old':'age unavailable'}`
@@ -1496,7 +1518,7 @@ function renderGlobalControls(state) {
   $('global-controls').hidden=!visible;document.body.classList.toggle('has-controls',visible);
   $('global-session-state').textContent=sweeping?`Servo task · ${state.tune.phase}`:`Teleop · ${state.teleop?.state||state.teleop?.phase||'stopped'}`;
   $('global-hold').hidden=sweeping;
-  $('global-hold').disabled=!running||!!state.teleop?.fault||!['HOLD','ENGAGING','TELEOP'].includes(state.teleop?.state);
+  $('global-hold').disabled=!running||!!state.teleop?.fault||!!state.teleop?.recording_fault||!['HOLD','ENGAGING','TELEOP'].includes(state.teleop?.state);
   $('global-hold').innerHTML=ENGAGED.includes(state.teleop?.state)?'Hold <kbd>T</kbd>':'Engage <kbd>T</kbd>';
   $('global-shutdown').disabled=!sweeping&&(!running||!!state.teleop?.fault);
   $('global-disable').disabled=!visible;

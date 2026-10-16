@@ -35,11 +35,20 @@ PHYSICS_DT = .0005
 MAX_SOURCE_GAP_S = .25
 
 
+def _world_aabbs(model, data, ids):
+    """Conservative world bounds of compiled local geom bounds, including rotation."""
+    local = model.geom_aabb[ids]
+    rotation = data.geom_xmat[ids].reshape(-1, 3, 3)
+    centers = data.geom_xpos[ids] + np.einsum("nij,nj->ni", rotation, local[:, :3])
+    half_sizes = np.einsum("nij,nj->ni", np.abs(rotation), local[:, 3:])
+    return centers, half_sizes
+
+
 def _numbers(values):
     return " ".join(str(float(v)) for v in values)
 
 
-def _scene_xml(source, fk_model, fk_data):
+def _scene_xml(source, fk_model, fk_data, visual_mode="cad"):
     """Flatten CAD bodies into mocap bodies, preserving local visual/collision geometry.
 
     The source's placeholder inertias and joints are deliberately not copied. All
@@ -100,6 +109,8 @@ def _scene_xml(source, fk_model, fk_data):
         for geom in body.findall("geom"):
             item = copy.deepcopy(geom)
             collides = "/collision/" in item.get("name", "")
+            if visual_mode == "collision_proxy" and not collides:
+                continue
             item.set("contype", "2" if collides else "0")
             item.set("conaffinity", "1" if collides else "0")
             if collides and name in {n for pair in JAW_BODIES.values() for n in pair} and \
@@ -138,16 +149,27 @@ def _scene_xml(source, fk_model, fk_data):
     # Head overview is fixed to the unactuated torso, aimed at the workspace.
     ET.SubElement(world, "camera", name="head", pos="0 -.18 1.10",
                   xyaxes="1 0 0 0 .975 -.222", fovy="75")
+    # Hidden CAD meshes still allocate/upload GPU assets in MuJoCo. Remove them
+    # from the explicit proxy model; the full CAD mode retains every visual.
+    used_meshes = {g.get("mesh") for g in world.iter("geom") if g.get("mesh")}
+    asset = root.find("asset")
+    for mesh in list(asset.findall("mesh")):
+        if mesh.get("name") not in used_meshes:
+            asset.remove(mesh)
     return ET.tostring(root, encoding="unicode"), bodies, collision_names, environment
 
 
 class MinervaTaskScene:
     """Single-thread-owned MuJoCo scene. q uses receiver motor coordinates/names."""
 
-    def __init__(self, joint_map, names, *, scene=SCENE, seed=1, width=320, height=240):
+    def __init__(self, joint_map, names, *, scene=SCENE, seed=1, width=320, height=240, visual_mode="collision_proxy"):
         import mujoco
         if tuple(int(x) for x in mujoco.__version__.split(".")[:2]) < (3, 15):
             raise RuntimeError("Minerva task contacts require MuJoCo >=3.15 with native geom_surfacevel support")
+        if visual_mode not in {"collision_proxy", "cad"}:
+            raise ValueError("visual_mode must be collision_proxy or cad")
+        self.source = Path(scene).resolve()
+        self.visual_mode = visual_mode
         self.mj = mujoco
         self.names = tuple(names)
         if len(set(self.names)) != len(self.names) or not self.names:
@@ -158,10 +180,11 @@ class MinervaTaskScene:
         self.fk_model = mujoco.MjModel.from_xml_path(str(scene))
         self.fk_data = mujoco.MjData(self.fk_model)
         self.pose = ModelPose(self.fk_model, joint_map, self.names)
-        xml, bodies, collision_names, environment = _scene_xml(scene, self.fk_model, self.fk_data)
+        xml, bodies, collision_names, environment = _scene_xml(scene, self.fk_model, self.fk_data, visual_mode)
         self.model = mujoco.MjModel.from_xml_string(xml)
         self.data = mujoco.MjData(self.model)
         self.model.flg_surfacevel = True
+        self.model.vis.quality.offsamples = 0
         self._body_pairs = [(self._id("body", n, self.fk_model),
                              int(self.model.body_mocapid[self._id("body", n)])) for n in bodies]
         self._fk_ids = np.array([p[0] for p in self._body_pairs])
@@ -171,6 +194,19 @@ class MinervaTaskScene:
         self.cube_qadr = int(self.model.jnt_qposadr[self._id("joint", "task/cube/free")])
         self._collision_ids = [self._id("geom", n) for n in collision_names]
         self._environment_ids = [self._id("geom", n) for n in environment]
+        contact_hash = hashlib.sha256()
+        for gid, name in zip(self._collision_ids, collision_names):
+            contact_hash.update(name.encode())
+            for value in (self.model.geom_type[gid:gid+1], self.model.geom_pos[gid],
+                          self.model.geom_quat[gid], self.model.geom_size[gid]):
+                contact_hash.update(value.tobytes())
+            if int(self.model.geom_type[gid]) == int(mujoco.mjtGeom.mjGEOM_MESH):
+                mid = int(self.model.geom_dataid[gid])
+                first, count = int(self.model.mesh_vertadr[mid]), int(self.model.mesh_vertnum[mid])
+                contact_hash.update(self.model.mesh_vert[first:first+count].tobytes())
+                first, count = int(self.model.mesh_faceadr[mid]), int(self.model.mesh_facenum[mid])
+                contact_hash.update(self.model.mesh_face[first:first+count].tobytes())
+
         self._audit_radii = (self.model.geom_rbound[self._collision_ids, None] +
                              self.model.geom_rbound[None, self._environment_ids])
         self._jaw_ids = {self._id("body", n): (side, jaw) for side, ns in JAW_BODIES.items()
@@ -189,6 +225,9 @@ class MinervaTaskScene:
             "robot_self_collision": False, "robot_environment_response": False,
             "robot_environment_penetration_audit": True,
             "collision_geometries": collision_names,
+            "contact_geometry_sha256": contact_hash.hexdigest(),
+            "mesh_vertices": int(self.model.nmeshvert), "mesh_faces": int(self.model.nmeshface),
+            "render_geometry_count": int(sum(self.model.geom_group == (3 if visual_mode == "collision_proxy" else 2))),
             "scene_sha256": hashlib.sha256(xml.encode()).hexdigest(),
             "physics_timestep_s": PHYSICS_DT, "mujoco_version": mujoco.__version__,
             "moving_contact_velocity": "native MuJoCo geom_surfacevel from finite-difference FK poses",
@@ -197,6 +236,9 @@ class MinervaTaskScene:
                                 "cube_start_m": CUBE_START, "bucket_center_m": BUCKET_CENTER},
             "contact_parameters_measured": False, "sim2real_validated": False,
             "cameras": list(CAMERAS), "camera_calibration": "synthetic task viewpoints",
+            "visual_mode": visual_mode,
+            "visual_geometry": "source collision meshes" if visual_mode == "collision_proxy" else "full CAD visuals",
+            "render_shadows": False, "render_reflections": False, "offscreen_msaa": 0,
             "limitations": ["Robot motion ignores contact reaction and motor force limits at the fingers",
                             "Finger stems are omitted from contact; terminal pads use CAD-bounds boxes; other meshes are convex",
                             "Real contact properties are unmeasured",
@@ -232,6 +274,7 @@ class MinervaTaskScene:
         self.dropped = False
         self._drop_time = 0.
         self._invalid_contacts = {}
+        self._audited_poses = None
         self._contacts = {"left": [], "right": []}
         self._contact_names = []
         self._pose(self._q if self._q is not None else np.zeros(len(self.names)))
@@ -335,11 +378,20 @@ class MinervaTaskScene:
             self._emit("bucket_settled", task_success=self.success)
 
     def _audit_penetration(self):
-        # MuJoCo does not resolve mocap-vs-world contacts. Explicit distance queries
-        # detect forbidden table/bucket/leg overlap; bounding spheres cull most pairs.
-        delta = (self.data.geom_xpos[self._collision_ids, None, :] -
-                 self.data.geom_xpos[None, self._environment_ids, :])
-        candidates = np.argwhere(np.einsum("ijk,ijk->ij", delta, delta) <= self._audit_radii**2)
+        # MuJoCo does not resolve mocap-vs-world contacts. Rotated world AABBs
+        # conservatively cull separated pairs; every overlapping changed substep
+        # still uses the same exact signed-distance query and verdict.
+        centers, halves = _world_aabbs(self.model, self.data, self._collision_ids)
+        env_centers, env_halves = _world_aabbs(self.model, self.data, self._environment_ids)
+        overlap = np.all(np.abs(centers[:, None]-env_centers[None, :]) <=
+                         halves[:, None]+env_halves[None, :]+1e-12, axis=2)
+        # Environment is fixed. Reuse only exactly identical robot geometry poses;
+        # every changed interpolated substep still gets the penetration audit.
+        poses = np.concatenate((self.data.geom_xpos[self._collision_ids],
+                                self.data.geom_xmat[self._collision_ids]), axis=1)
+        changed = np.ones(len(poses), dtype=bool) if self._audited_poses is None else np.any(poses != self._audited_poses, axis=1)
+        self._audited_poses = poses.copy()
+        candidates = np.argwhere(overlap & changed[:, None])
         for r, e in candidates:
             robot, env = self._collision_ids[r], self._environment_ids[e]
             key = (robot, env)
@@ -363,24 +415,34 @@ class MinervaTaskScene:
                 "sim2real_validated": False,
                 "forbidden_contacts": list(self._invalid_contacts.values()), "events": copy.deepcopy(self.events)}
 
-    def render(self, camera_roles=CAMERAS):
+    @property
+    def visual_groups(self):
+        return [1, 0, 0, 1, 0, 0] if self.visual_mode == "collision_proxy" else [1, 0, 1, 0, 0, 0]
+
+    def render(self, camera_roles=CAMERAS, *, data=None):
         if isinstance(camera_roles, str) or not camera_roles or len(set(camera_roles)) != len(camera_roles) or \
                 not set(camera_roles).issubset(CAMERAS):
             raise ValueError("render camera roles must be a distinct supported nonempty subset")
         if self._renderer is None:
             self._renderer = self.mj.Renderer(self.model, height=self.height, width=self.width)
+        data = self.data if data is None else data
         images = {}
         options = self.mj.MjvOption()
-        options.geomgroup[:] = [1, 0, 1, 0, 0, 0]
+        options.geomgroup[:] = self.visual_groups
         for name in camera_roles:
-            self._renderer.update_scene(self.data, camera=name, scene_option=options)
+            self._renderer.update_scene(data, camera=name, scene_option=options)
+            for flag in (self.mj.mjtRndFlag.mjRND_SHADOW, self.mj.mjtRndFlag.mjRND_REFLECTION, self.mj.mjtRndFlag.mjRND_FOG):
+                self._renderer.scene.flags[flag] = False
             images[name] = self._renderer.render().copy()
-        return images, {name: float(self.data.time) for name in camera_roles}
+        return images, {name: float(data.time) for name in camera_roles}
 
     def close(self):
         if self._renderer is not None:
             self._renderer.close()
             self._renderer = None
+
+
+from .task_render_process import SceneRenderer as _SceneRenderer
 
 
 class SourceTimeline:
@@ -405,12 +467,12 @@ class SourceTimeline:
         return duration, interval
 
 
-class TaskSceneView:
+class _ThreadTaskSceneView:
     """Latest-sample mailbox; all scene, renderer and episode work runs off control thread."""
 
     def __init__(self, scene, joint_map, names, *, directory, metadata=None, seed=1,
                  viewer=True, rate_hz=30., record_hz=20., width=320, height=240,
-                 camera_roles=("right_wrist", "head")):
+                 camera_roles=("right_wrist", "head"), visual_mode="collision_proxy"):
         if rate_hz <= 0 or record_hz <= 0 or record_hz > rate_hz:
             raise ValueError("rates must satisfy 0 < record_hz <= rate_hz")
         if isinstance(camera_roles, str) or not camera_roles or len(set(camera_roles)) != len(camera_roles) or \
@@ -418,11 +480,12 @@ class TaskSceneView:
             raise ValueError("capture camera roles must be a distinct supported nonempty subset")
         self.camera_roles = tuple(camera_roles)
         self._args = (joint_map, tuple(names))
-        self._kwargs = dict(scene=scene, seed=seed, width=width, height=height)
+        self._kwargs = dict(scene=scene, seed=seed, width=width, height=height, visual_mode=visual_mode)
         self.directory = Path(directory)
         self.metadata = copy.deepcopy(metadata or {})
         self.metadata["camera_roles"] = list(self.camera_roles)
         self.viewer, self.rate_hz, self.record_hz = viewer, rate_hz, record_hz
+        self._writer = None
         self._latest = None
         self._source_changed_wall = None
         self._lock = threading.Lock()
@@ -434,8 +497,8 @@ class TaskSceneView:
         self._thread = threading.Thread(target=self._run, daemon=True, name="minerva-task-scene")
         self._thread.start()
 
-    def show(self, q, qcmd=None, source_time=None, authority="human"):
-        sample = (tuple(q), None if qcmd is None else tuple(qcmd), source_time, str(authority))
+    def show(self, q, qcmd=None, source_time=None, authority="human", command_valid=True):
+        sample = (tuple(q), None if qcmd is None else tuple(qcmd), source_time, str(authority), command_valid is True)
         with self._lock:
             if self._latest is None or source_time != self._latest[2]:
                 self._source_changed_wall = time.monotonic()
@@ -481,21 +544,36 @@ class TaskSceneView:
             self._state.update(values)
 
     def _run(self):
-        scene, window, writer = None, None, None
+        scene, writer, renderer = None, None, None
+        render_pending, pending_stop = False, None
         next_record = 0.
         last_source = None
         timeline = SourceTimeline()
         try:
             from robot_platform.data.task_capture import TaskEpisodeWriter
             scene = MinervaTaskScene(*self._args, **self._kwargs)
-            if self.viewer:
-                from mujoco import viewer
-                window = viewer.launch_passive(scene.model, scene.data, show_left_ui=False, show_right_ui=False)
-                window.opt.geomgroup[:] = [1, 0, 1, 0, 0, 0]
-            self._publish(available=True, capabilities=scene.capabilities, task=scene.snapshot())
+            # Compile/upload render assets before advertising readiness or admitting a recording.
+            renderer = _SceneRenderer(scene, self.camera_roles, directory=self.directory, viewer=self.viewer)
+            if not renderer.ready.wait(30):
+                raise RuntimeError("camera renderer initialization timed out")
+            if renderer.error:
+                raise RuntimeError(renderer.error)
+            self._publish(available=True, capabilities=scene.capabilities, task=scene.snapshot(),
+                          renderer={"pid": getattr(getattr(renderer, "_process", None), "pid", None)})
             dt = max(PHYSICS_DT, round(1/self.rate_hz/PHYSICS_DT)*PHYSICS_DT)
-            while not self._stop.is_set() and (window is None or window.is_running()):
+            while not self._stop.is_set():
                 started = time.monotonic()
+                rendered = renderer.result()
+                if rendered is not None:
+                    render_pending = False
+                if rendered is not None and not rendered.get("preview"):
+                    if writer is None:
+                        raise RuntimeError("rendered frame lost its recording owner")
+                    writer.append(**rendered)
+                    render_pending = False
+                    self._publish(recording=writer.status(), cameras={"ready": True,
+                        "timestamps": rendered["camera_times"], "source_time": rendered["source_time"],
+                        "clock": "simulation seconds"})
                 with self._lock:
                     sample = self._latest
                 while True:
@@ -521,13 +599,15 @@ class TaskSceneView:
                                             max_source_gap_s=MAX_SOURCE_GAP_S,
                                             language_instruction=payload.get("language_instruction", "Pick up the cube, pass it to the other gripper, then drop it into the bucket"))
                             writer = TaskEpisodeWriter(self.directory, self._args[1], metadata, hz=self.record_hz)
+                            self._writer = writer
                             next_record, last_source = float(scene.data.time), None
                         elif action == "stop_record":
                             if writer is None:
                                 raise ValueError("no recording is active")
-                            writer.finish()
-                            self._publish(recording=writer.status())
-                            writer = None
+                            if pending_stop is not None:
+                                raise ValueError("recording stop is already pending")
+                            pending_stop = result
+                            continue
                         result["ok"] = True
                     except Exception as exc:
                         result["error"] = str(exc)
@@ -537,10 +617,10 @@ class TaskSceneView:
                     self._publish(last_command=result)
                 if sample is not None:
                     age = time.monotonic() - self._source_changed_wall
-                    ready = sample[1] is not None and sample[2] is not None and age <= MAX_SOURCE_GAP_S
+                    ready = sample[1] is not None and sample[2] is not None and sample[4] and age <= MAX_SOURCE_GAP_S
                     self._publish(capture_ready=ready)
                     if writer is not None and not ready:
-                        raise RuntimeError("paired motor source stalled or became incomplete during recording")
+                        raise RuntimeError("paired motor source stalled, became incomplete, or lost valid armed commands during recording")
                     timing = {"max_source_gap_s": MAX_SOURCE_GAP_S, "source_interval_s": 0., "physics_interval_s": 0.}
                     if sample[2] is not None and sample[2] != timeline.previous:
                         duration, interval = timeline.advance(sample[2])
@@ -560,30 +640,32 @@ class TaskSceneView:
                                 count = min(200, steps-completed)
                                 completed += count
                                 here = initial + (target-initial)*(completed/steps)
-                                if window is None:
-                                    scene.update(here, count*PHYSICS_DT)
-                                else:
-                                    with window.lock():
-                                        scene.update(here, count*PHYSICS_DT)
+                                scene.update(here, count*PHYSICS_DT)
                     self._publish(timing=timing)
                     if writer is not None and sample[2] != last_source and scene.data.time >= next_record-1e-8:
                         if sample[2] is None or sample[2] == last_source:
                             raise RuntimeError("motor source stalled while recording")
-                        images, stamps = scene.render(self.camera_roles)
-                        writer.append(q=sample[0], qcmd=sample[1], source_time=sample[2],
-                                      scene_time=float(scene.data.time), images=images, camera_times=stamps,
-                                      task_state=dict(scene.snapshot(), timing=timing), authority=sample[3])
-                        while next_record <= scene.data.time + 1e-8:
-                            next_record += 1/self.record_hz
-                        last_source = sample[2]
-                        self._publish(recording=writer.status(), cameras={"ready": True, "timestamps": stamps,
-                                      "source_time": sample[2], "clock": "simulation seconds"})
+                        if not render_pending and pending_stop is None:
+                            renderer.submit(dict(q=sample[0], qcmd=sample[1], source_time=sample[2],
+                                scene_time=float(scene.data.time), task_state=dict(scene.snapshot(), timing=timing, command_valid=sample[4]),
+                                authority=sample[3]))
+                            render_pending = True
+                            while next_record <= scene.data.time + 1e-8:
+                                next_record += 1/self.record_hz
+                            last_source = sample[2]
+                if writer is not None and (scene.snapshot().get("forbidden_contacts") or scene.snapshot().get("dropped")):
+                    raise RuntimeError("task became invalid during recording: forbidden contact or dropped cube")
+                if pending_stop is not None and not render_pending:
+                    writer.finish()
+                    self._publish(recording=writer.status(), last_command=dict(pending_stop, ok=True, state="complete"))
+                    writer = self._writer = pending_stop = None
                 self._publish(task=scene.snapshot())
-                if window is not None:
-                    window.sync()
+                if self.viewer and writer is None and not render_pending:
+                    renderer.submit(None)  # Bounded exact-state preview; no episode row or pixels copied.
+                    render_pending = True
                 self._stop.wait(max(0., dt-(time.monotonic()-started)))
         except Exception as exc:
-            self._publish(error=f"{type(exc).__name__}: {exc}")
+            self._publish(error=f"{type(exc).__name__}: {exc}", available=False, capture_ready=False)
             if writer is not None:
                 writer.abort(str(exc))
                 self._publish(recording=writer.status())
@@ -592,15 +674,26 @@ class TaskSceneView:
             if writer is not None:
                 writer.abort("scene or session closed before explicit stop_record")
                 self._publish(recording=writer.status())
-            if window is not None:
-                window.close()
+            if renderer is not None:
+                renderer.close()
             if scene is not None:
                 scene.close()
             self._stop.set()
             self._publish(available=False, capture_ready=False)
 
+    def abort(self, reason):
+        writer = self._writer
+        if writer is not None:
+            writer.abort(reason)
+            self._publish(recording=writer.status())
+
     def close(self):
+        self.abort("scene or session closed before explicit stop_record")
         self._stop.set()
         self._thread.join(timeout=10)
         if self._thread.is_alive():
             self._publish(error="task scene shutdown still draining; partial episode is not published")
+
+
+# A subprocess isolates CAD rendering and Python physics/audit work from the control GIL.
+from .task_scene_process import TaskSceneView

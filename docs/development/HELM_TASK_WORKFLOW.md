@@ -9,10 +9,19 @@ The task controls never create another motor publisher or enable the robot.
 From the repository root, with the project's development environment prepared:
 
 ```powershell
-.\.venv-dev\Scripts\python.exe -m robot_platform helm --profile config/devices/minerva-joint-calibration.json --teleop config/devices/minerva-teleop.json --sim
+.\.venv-dev\Scripts\python.exe -m robot_platform helm --profile config/devices/minerva-joint-calibration.json --teleop config/devices/minerva-teleop-direct.json --sim
 ```
 
 Open `http://127.0.0.1:8760/`. The header must say **Simulation only**.
+This simulation command uses the 100 Hz direct profile from the visible-scene
+probe: collision enforcement is disabled, but the guarded receiver and task
+contact validity checks remain. It is not a hardware operating prescription. The task
+scene defaults to `--sim-visual-mode collision_proxy`: its camera images use the
+source collision geometry to reduce rendering cost. `--sim-visual-mode cad`
+selects full CAD visuals. The worker reports the actual mode in Helm and episode
+provenance. This changes image appearance, not contact geometry or the control
+watchdogs; full CAD capture still has to meet the same timing checks.
+
 This mode does not construct an SSH connection or stopped live reader and refuses
 physical connection, calibration, tuning, receiver and Jetson-target API actions.
 It reads the saved robot calibration and actuator parameters locally. Both leader
@@ -23,7 +32,9 @@ Close other programs that own their serial ports before that operator action.
    Setup selects the cube/table/bucket contact scene; it does not open USB.
 2. Check the saved leader identities, ranges and robot mappings in **Leaders**.
    Use the existing explicit connection controls when ready to operate the leaders.
-3. **Start session**. A separate MuJoCo scene window shows both arms, the cube,
+3. **Start session**. Helm unloads its duplicate CAD preview while the task
+   session runs, preserving the controls and telemetry. A separate MuJoCo scene
+   window shows both arms, the cube,
    table and bucket. **Reset simulated scene** is available only in disabled or
    idle lifecycle states and never during a recording. Reset does not reposition
    the arms or recapture leader zero.
@@ -51,12 +62,24 @@ and automatic quarantine conditions.
 ## Attended real capture with both arms
 
 Prepare the existing production Helm connection and calibrated device profile.
-The capture worker runs in the Jetson teleop process beside the current receiver;
-The selected RGB JPEGs stay on that host and do not traverse Helm's control/SSH status RPC.
+An owned subprocess on the Jetson receives bounded scalar snapshots from the
+existing teleop receiver. It owns the camera subscriptions, JPEG decoding and
+HDF5 writer; RGB images stay on that host and do not traverse the control loop's
+IPC or Helm's control/SSH status RPC. Imports initialize in the child, and camera
+readiness requires actual decoded frames. Worker startup, status stalls and exit
+are reported as failures. This isolation still requires a loaded receiver and
+recorder timing check on the Jetson before hardware collection is qualified.
 
 ```powershell
 .\.venv-dev\Scripts\python.exe -m robot_platform helm --profile config/devices/minerva-joint-calibration.json --teleop config/devices/minerva-teleop.json --capture-profile config/devices/minerva-task-capture.json
 ```
+
+The robot example deliberately retains `minerva-teleop.json`, whose bimanual
+live session enforces the existing motion envelope. It is a different workload
+from the 100 Hz collision-disabled `minerva-teleop-direct-tuning.json` used for
+isolated Jetson capture timing. A direct-profile timing pass does not qualify
+this profile or overlapping physical handoff. The intended live profile must
+pass its own timing and attended readiness checks before collection.
 
 Robot mode retains the existing stopped reader and live connection behavior.
 Select **Tether**, **Minerva's Jetson**, and **Live · both**, then **Set up task**.
@@ -99,7 +122,8 @@ three-camera profile will require the left wrist too.
    future, wrong-identity and malformed camera data. It never fills missing images.
 3. Verify the saved limits and both arms/grippers' fresh receiver feedback before
    Idle/Enable/Engage. **Record episode** becomes available only with a paired
-   receiver sample and all configured cameras at its conservative observation cutoff.
+   receiver sample, active command authority in Holding/Executing, and all
+   configured cameras at its conservative observation cutoff.
 4. Perform the attended task and finish the episode explicitly as in simulation.
    Inspect the final path and completed frame count. Evaluate task success by
    operator review; the physical collector does not infer object contact/success.
@@ -116,6 +140,15 @@ frames are recorded. Actual achieved rate and recorded timing must be checked;
 recording does not silently relax these bounds. Publisher frame counters can reset,
 so capture preserves the raw counter and adds its own monotonic receive identity.
 
+Receiver status exposes elapsed whole milliseconds while recorder rows retain
+fractional milliseconds. Capture admits a row only below the next millisecond
+boundary and evaluates the 30 ms age limit and camera cutoff conservatively from
+that upper boundary. Feedback stamps must remain at/before the status value.
+Raw receiver stamps, the status interval, the 1 ms quantization uncertainty and
+RPC round-trip duration remain separate provenance fields; total clock uncertainty
+includes both the quantization and RPC duration. A row from a later millisecond
+bucket is rejected rather than assumed to share the status time.
+
 ## Files, failures and downstream use
 
 Existing `samples.f32`, column metadata and event logs remain diagnostic outputs.
@@ -124,7 +157,31 @@ receiver session directory, on the PC in simulation and on the Jetson for live
 capture. The GUI shows the actual path. Files remain `.partial.hdf5` until explicit
 successful finish drains and validates the writer, then they are atomically
 published. Stale receiver/camera data, queue overflow, decode errors, disk errors
-or interrupted closure retain incomplete data and report a failure.
+or interrupted closure retain incomplete data and report a failure. Loss of the
+receiver's enabled Holding/Executing authority also aborts the active episode;
+stopped observations cannot become emitted-command training rows. Stop recording
+and wait for completion before disabling or ending the session. Parent loss or
+session closure cancels pending publication, including a finish waiting on disk.
+Each process keeps a bounded `capture-worker-*.stderr.log` under its episode
+directory for startup/native diagnostics.
+
+A recording or diagnostics failure latches **RECORDING FAILED** for that session,
+requests episode abort, and stops following the leaders. An enabled, healthy
+receiver moves into its existing guarded HOLD; control cycles, lease renewal,
+feedback freshness and configured collision checks continue. A failure detected
+after a cycle requests HOLD on the next scheduled cycle. It does not automatically
+return the arms or disable their torque merely because a camera or disk failed.
+Enable, engage, route/zero edits, tuning and new recordings stay locked until the
+session is stopped and restarted. H still disables immediately. X and Stop session
+request the existing controlled return to the reference, so first ensure that
+return path is clear of the table, object and other obstacles. Operator channel
+loss retains the existing controlled shutdown behavior. A real receiver fault,
+or a HOLD that cannot be confirmed, retains the receiver's brake/recovery path.
+
+Transitioning from following into this HOLD captures measured positions for all
+14 axes, including both grippers. It may remove an existing grip squeeze; **object retention is not qualified**. This
+change verifies continued bounded arm control after capture failure, not a safe
+physical grasp-retention policy. Qualify that policy before a physical object task.
 
 The raw v8 capture declares camera_roles and joint names; paired measured and emitted commanded
 motor coordinates; RGB images; source, scene and camera clocks; per-frame task
