@@ -24,3 +24,6 @@ config/systemd/* text eol=lf
 config/udev/*.rules text eol=lf
 # Preserve the vendored upstream source checksums across Windows checkouts.
 src/robot_platform/viewer/static/vendor/* text eol=lf -whitespace
+# The qualified joint limits bind this reference's original CRLF bytes exactly.
+# Keep that calibration evidence identical in every checkout; never normalize it.
+config/devices/minerva-reference-20261009.json -text whitespace=cr-at-eol

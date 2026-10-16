@@ -1,8 +1,8 @@
 # CI and mandatory release prerequisites
 
 Base: `e20443178df85ef99ae12a8989749f9a005beaf0`.
-Scope: developer/CI build orchestration, mandatory release evidence and its tests.
-Runtime, control bounds, receiver behavior and robot operation are unchanged.
+Scope: developer/CI build orchestration, mandatory release evidence and portability.
+Control bounds, receiver behavior and robot operation are unchanged.
 
 ## Failure reproduced
 
@@ -62,6 +62,31 @@ Acceptance: clean Windows and Linux jobs both complete without required skips or
 xfails; source identity remains unchanged; native and ARM64 artifact hashes and a
 verified release archive are present in the required gate evidence. The integrator
 must record actual CI results; workflow configuration alone is not a passing run.
+
+## First clean runner results and portability corrections
+
+Run [38952454408](https://github.com/ltrlab/aizee/actions/runs/38952454408) tested
+integration commit `610c66bb67586f39cd48dc642d755a1459cc6740` on 2026-10-16.
+Both runners built the mandatory ARM64 inputs and native libraries successfully.
+Windows passed its strict gate. Ubuntu exposed three independent portability gaps:
+
+- The qualified joint limits bind the original CRLF bytes of
+  `config/devices/minerva-reference-20261009.json`; an LF checkout changed its
+  SHA256 from `fd9f5a401d1288cd601ce0f5b13b5f66bff2aed3ee78daa45c5ab89f425c1e5a`
+  to `834af0c1176992548184c44ee550950114b9303543e1a0071a3ce62f0dfc3225`.
+  Git now preserves that reference's qualified bytes. Checksum validation remains
+  exact, and a regression checks real Git exports with both checkout policies.
+- MuJoCo joint validation compared NumPy scalars directly with platform-specific
+  pybind enums. It now compares their numeric values, preserving hinge/slide-only
+  acceptance and rejection of a ball joint.
+- Two scheduling tests previously skipped on Linux. They now exercise the
+  documented Linux no-op contract while retaining the real Windows process-priority
+  and timer assertions. No required skip is accepted by the gate.
+
+The failing Ubuntu evidence is artifact `12069024899`, report
+`dev-check/20261016T191031Z-b5357ede/report.json`; its pytest result was 720 passed,
+67 failed, 12 errors and 2 skipped. These corrections require a new complete CI run;
+the successful Windows result does not establish Linux acceptance.
 
 ## Wheel and capture dependencies
 
