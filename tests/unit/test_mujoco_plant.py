@@ -1,5 +1,6 @@
 """Independent physics expectations, coordinate conventions and fault semantics."""
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -103,6 +104,36 @@ def test_bindings_must_identify_real_unique_joints():
         MujocoPlant(FIXTURES / 'pendulum.xml', [JointBinding('motor', 'missing', 5.)])
     with pytest.raises(ValueError, match='one motor'):
         MujocoPlant(FIXTURES / 'pendulum.xml', [JointBinding('a', 'hinge', 5.), JointBinding('b', 'hinge', 5.)])
+
+
+@pytest.mark.parametrize('fixture,joint', [('pendulum.xml', 'hinge'), ('slider.xml', 'slide')])
+def test_joint_validation_accepts_numeric_enums_without_numpy_equality(monkeypatch, fixture, joint):
+    import mujoco
+
+    class NumericEnum:
+        def __init__(self, value):
+            self.value = int(value)
+
+        def __int__(self):
+            return self.value
+
+        def __eq__(self, other):
+            return False
+
+    # Some platform wheels expose enum equality that does not accept NumPy scalars.
+    monkeypatch.setattr(mujoco, 'mjtJoint', SimpleNamespace(
+        mjJNT_HINGE=NumericEnum(mujoco.mjtJoint.mjJNT_HINGE),
+        mjJNT_SLIDE=NumericEnum(mujoco.mjtJoint.mjJNT_SLIDE)))
+    plant = MujocoPlant(FIXTURES / fixture, [JointBinding('motor', joint, 5.)])
+    assert plant.q.shape == (1,)
+
+
+def test_ball_joint_cannot_be_bound_to_a_single_motor(tmp_path):
+    path = tmp_path / 'ball.xml'
+    path.write_text('<mujoco><worldbody><body><joint name="ball" type="ball"/>'
+                    '<geom type="sphere" size=".1" mass="1"/></body></worldbody></mujoco>')
+    with pytest.raises(ValueError, match='hinge and slide'):
+        MujocoPlant(path, [JointBinding('motor', 'ball', 5.)])
 
 
 def test_embedded_actuators_cannot_double_apply_control(tmp_path):

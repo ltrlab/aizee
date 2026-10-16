@@ -72,8 +72,9 @@ class MujocoPlant:
         ids = [mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, b.joint) for b in self.bindings]
         if any(i < 0 for i in ids):
             raise ValueError('Binding references a missing MuJoCo joint')
-        if any(self.model.jnt_type[i] not in (mujoco.mjtJoint.mjJNT_HINGE,
-                                            mujoco.mjtJoint.mjJNT_SLIDE) for i in ids):
+        # NumPy scalars and pybind enums do not compare equally in every wheel.
+        motor_joint_types = (int(mujoco.mjtJoint.mjJNT_HINGE), int(mujoco.mjtJoint.mjJNT_SLIDE))
+        if any(int(self.model.jnt_type[i]) not in motor_joint_types for i in ids):
             raise ValueError('Motor bindings support hinge and slide joints only')
         self._qadr = np.array([self.model.jnt_qposadr[i] for i in ids])
         self._vadr = np.array([self.model.jnt_dofadr[i] for i in ids])

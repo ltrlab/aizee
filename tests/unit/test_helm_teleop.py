@@ -348,32 +348,37 @@ def test_web_endpoints_drive_teleop_and_take_the_motors_from_the_reader(tmp_path
         session.close()
 
 
-@pytest.mark.skipif(sys.platform != 'win32', reason='Windows scheduling hints')
 def test_scheduling_hints_apply_to_another_process():
     import ctypes
     child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
     try:
-        assert prefer_responsive(child.pid) == ['no_power_throttling', 'high_priority']
-        kernel32 = ctypes.WinDLL('kernel32')
-        kernel32.OpenProcess.restype = ctypes.c_void_p
-        handle = kernel32.OpenProcess(0x1000, False, child.pid)  # PROCESS_QUERY_LIMITED_INFORMATION
-        try:
-            assert kernel32.GetPriorityClass(ctypes.c_void_p(handle)) == 0x80
-        finally:
-            kernel32.CloseHandle(ctypes.c_void_p(handle))
+        applied = prefer_responsive(child.pid)
+        if sys.platform == 'win32':
+            assert applied == ['no_power_throttling', 'high_priority']
+            kernel32 = ctypes.WinDLL('kernel32')
+            kernel32.OpenProcess.restype = ctypes.c_void_p
+            handle = kernel32.OpenProcess(0x1000, False, child.pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+            try:
+                assert kernel32.GetPriorityClass(ctypes.c_void_p(handle)) == 0x80
+            finally:
+                kernel32.CloseHandle(ctypes.c_void_p(handle))
+        else:
+            assert applied == []
+        assert child.poll() is None
     finally:
         child.kill()
         child.wait()
 
 
-@pytest.mark.skipif(sys.platform != 'win32', reason='Windows scheduling hints')
-def test_scheduling_hints_applied_to_itself_also_get_a_1ms_timer():
+def test_scheduling_hints_applied_to_itself_use_the_platform_contract():
     # Run in a child: the timer resolution lasts for the life of the process that asks.
     code = ('from robot_platform.control.scheduling import prefer_responsive; '
             'print(",".join(prefer_responsive()))')
     result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, timeout=60,
                             env={**os.environ, 'PYTHONPATH': str(Path(__file__).resolve().parents[2] / 'src')})
-    assert result.stdout.strip().split(',') == ['no_power_throttling', 'high_priority', 'timer_1ms'], result.stderr
+    assert result.returncode == 0, result.stderr
+    expected = ['no_power_throttling', 'high_priority', 'timer_1ms'] if sys.platform == 'win32' else []
+    assert [hint for hint in result.stdout.strip().split(',') if hint] == expected, result.stderr
 
 
 def test_scheduling_hints_are_a_no_op_elsewhere(monkeypatch):

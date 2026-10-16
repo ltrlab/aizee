@@ -1,6 +1,9 @@
 """A successful pytest process cannot turn missing required evidence into a pass."""
 import importlib.util
+import hashlib
+import json
 from pathlib import Path
+import subprocess
 import sys
 
 import pytest
@@ -46,3 +49,27 @@ def test_release_preflight_refuses_an_empty_checkout_before_native_build(tmp_pat
     result = subprocess.run([sys.executable, '-c', script], capture_output=True, text=True)
     assert result.returncode != 0
     assert 'missing or not an AArch64 build' in result.stderr
+
+
+def test_qualified_reference_bytes_survive_both_git_checkout_policies(tmp_path):
+    """A fresh checkout must still satisfy the recorded calibration checksum."""
+    relative = Path('config/devices/minerva-reference-20261009.json')
+    expected = json.loads((ROOT / 'config/devices/minerva-production-01-joint-limits.json')
+                          .read_text(encoding='utf-8'))['reference_sha256']
+    repository = tmp_path / 'repository'
+    target = repository / relative
+    target.parent.mkdir(parents=True)
+    target.write_bytes((ROOT / relative).read_bytes())
+    (repository / '.gitattributes').write_bytes((ROOT / '.gitattributes').read_bytes())
+
+    def git(*args):
+        subprocess.run(['git', '-C', str(repository), *args], check=True, capture_output=True)
+
+    git('init', '--quiet')
+    git('-c', 'core.autocrlf=true', 'add', '.gitattributes', relative.as_posix())
+    for policy in ('true', 'false'):
+        checkout = tmp_path / ('checkout-' + policy)
+        checkout.mkdir()
+        git('-c', 'core.autocrlf=' + policy, 'checkout-index', '--all',
+            '--prefix=' + checkout.as_posix() + '/')
+        assert hashlib.sha256((checkout / relative).read_bytes()).hexdigest() == expected
