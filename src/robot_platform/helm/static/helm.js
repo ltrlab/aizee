@@ -298,12 +298,14 @@ function renderTask(state) {
   $('task-setup').textContent = configured ? 'Task configured' : 'Set up task';
   $('task-reset').hidden = !simulation;
   $('task-reset').disabled = !task.available || !running || active || !['DISABLED', 'IDLE'].includes(t?.state);
-  $('task-record').disabled = !task.available || (!simulation && !task.capture_ready) || !running || active || pending || task.failed || !['HOLD', 'TELEOP'].includes(t?.state);
+  $('task-record').disabled = !task.available || !task.capture_ready || !running || active || pending || task.failed || !['HOLD', 'TELEOP'].includes(t?.state);
   $('task-stop').disabled = !running || !active || pending;
   const progress = task.task || {};
   $('task-state').textContent = task.error ? 'Task needs attention.' : !configured ? 'Task not configured.'
     : !running ? 'Ready to start a session. Task controls do not enable motors.'
     : task.display_phase || progress.phase || progress.stage || (task.available ? 'Task ready.' : 'Preparing task…');
+  $('task-cameras').hidden = simulation;
+  $('task-cameras').textContent = task.camera_summary || 'Camera preflight starts with the bimanual session; all configured streams are required.';
   const summary = recording.state || (active ? 'recording' : configured ? 'idle' : 'not started');
   $('task-recording').textContent = `Recording: ${summary}`
     + (Number.isFinite(recording.frames) ? ` · ${recording.frames} frames` : '')

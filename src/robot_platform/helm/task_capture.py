@@ -22,9 +22,14 @@ CAMERAS = ('left_wrist', 'right_wrist', 'head')
 def validate_config(value):
     if not isinstance(value, dict) or value.get('schema') != 1:
         raise ValueError('Task capture needs a schema 1 camera profile')
+    roles = value.get('camera_roles')
+    if (not isinstance(roles, list) or len(roles) not in (2, 3)
+            or any(not isinstance(role, str) or role not in CAMERAS for role in roles)
+            or len(set(roles)) != len(roles)):
+        raise ValueError('Task capture requires an explicit list of two or three distinct supported camera_roles')
     cameras = value.get('cameras')
-    if not isinstance(cameras, dict) or set(cameras) != set(CAMERAS):
-        raise ValueError('Task capture requires left_wrist, right_wrist and head cameras')
+    if not isinstance(cameras, dict) or set(cameras) != set(roles):
+        raise ValueError('Camera configuration must match the declared camera_roles exactly')
     result = deepcopy(value)
     for name, camera in cameras.items():
         if not isinstance(camera, dict):
@@ -52,7 +57,8 @@ class CameraCache:
     """Bounded decoded camera history; duplicate publisher stamps never renew freshness."""
     def __init__(self, config):
         self.config = validate_config(config)
-        self.frames = {name: deque(maxlen=8) for name in CAMERAS}
+        self.roles = tuple(self.config['camera_roles'])
+        self.frames = {name: deque(maxlen=8) for name in self.roles}
         self.errors = {}
         self.sequence = 0
 
@@ -100,7 +106,7 @@ class CameraCache:
 
     def select(self, cutoff):
         chosen = {}
-        for name in CAMERAS:
+        for name in self.roles:
             if name in self.errors:
                 raise ValueError(f'{name}: {self.errors[name]}')
             row = next((f for f in reversed(self.frames[name])
@@ -115,7 +121,7 @@ class CameraCache:
 
     def status(self, now):
         result = {}
-        for name in CAMERAS:
+        for name in self.roles:
             row = self.frames[name][-1] if self.frames[name] else None
             age = now-row['sampled_at'] if row else None
             result[name] = dict(fresh=bool(row and name not in self.errors and 0 <= age <= self.config['max_camera_age_s']),
@@ -130,10 +136,11 @@ class LiveTaskCapture:
                  wall_clock=time.time, writer_factory=None, context_factory=None):
         self.config = validate_config(config)
         self.names = tuple(names)
+        self.camera_roles = tuple(self.config['camera_roles'])
         expected = {f'{side}_arm_j{k}' for side in ('left', 'right') for k in range(1, 7)} | {'left_gripper', 'right_gripper'}
         if len(self.names) != 14 or set(self.names) != expected:
             raise ValueError('Live task capture needs the complete 14-axis Minerva roster')
-        self.directory, self.metadata = Path(directory), dict(metadata or {}, data_source='real')
+        self.directory, self.metadata = Path(directory), dict(metadata or {}, data_source='real', camera_roles=list(self.camera_roles))
         self.clock, self.wall_clock = clock, wall_clock
         self.writer_factory, self.context_factory = writer_factory, context_factory
         self._sample = None
@@ -143,7 +150,8 @@ class LiveTaskCapture:
         self._request = 0
         self._state = dict(available=True, capabilities={'source': 'real', 'contacts': 'unobserved',
                            'task_success': 'operator_review_required'}, task={'phase': 'camera preflight'},
-                           recording={'state': 'idle', 'active': False}, cameras={}, capture_ready=False, error=None,
+                           recording={'state': 'idle', 'active': False}, cameras={}, camera_roles=list(self.camera_roles),
+                           capture_ready=False, error=None,
                            failed=False, last_command=None)
         self._thread = threading.Thread(target=self._run, daemon=True, name='helm-task-capture')
         self._thread.start()
@@ -193,9 +201,24 @@ class LiveTaskCapture:
             self._state['last_command'] = dict(id=request, action=action, state='pending')
         return {'accepted': True, 'id': request}
 
+    def health(self):
+        """Small control-loop status; never copy camera/UI diagnostics or touch worker I/O."""
+        sample = self._sample
+        age = self.clock()-sample['source_time'] if sample and not sample.get('error') else None
+        with self._lock:
+            recording = self._state['recording']
+            return dict(available=self._state['available'], error=self._state['error'],
+                        failed=self._state['failed'], source_age_s=age,
+                        capture_ready=bool(self._state['capture_ready'] and age is not None
+                            and 0 <= age <= self.config['max_receiver_age_s']),
+                        recording={key: recording.get(key) for key in ('active', 'error', 'state', 'complete')})
+
     def snapshot(self):
         with self._lock:
-            return deepcopy(self._state)
+            state = dict(self._state)
+        result = deepcopy(state)
+        result.update({key: value for key, value in self.health().items() if key != 'recording'})
+        return result
 
     def _run(self):
         import zmq
@@ -269,7 +292,7 @@ class LiveTaskCapture:
                 if writer is not None and now >= next_frame:
                     self._ready(sample, now)
                     frames = cache.select(sample['source_time'])
-                    sources = (sample['source_time'], *(frames[n]['publisher_time'] for n in CAMERAS))
+                    sources = (sample['source_time'], *(frames[n]['publisher_time'] for n in self.camera_roles))
                     # Wait for a new acquisition from every camera; never relabel a repeated frame as new.
                     if last_sources is None or all(a > b for a, b in zip(sources, last_sources)):
                         provenance = {n: {k: v for k, v in f.items() if k != 'image'} for n, f in frames.items()}
@@ -291,7 +314,8 @@ class LiveTaskCapture:
                     except ValueError:
                         self._state['capture_ready'] = False
                     self._state['task'] = {'phase': 'recording' if writer else
-                                           'ready for recording' if fresh else 'waiting for cameras'}
+                                           'ready for recording' if self._state['capture_ready'] else
+                                           'waiting for fresh paired receiver and camera timing' if fresh else 'waiting for cameras'}
                     if writer is not None:
                         self._state['recording'] = writer.status()
                         if self._state['recording'].get('error'):

@@ -15,7 +15,7 @@ NAMES = tuple(f'{side}_arm_j{k}' for side in ('left', 'right') for k in range(1,
 
 
 def config():
-    return dict(schema=1, cameras={n: dict(endpoint=f'tcp://127.0.0.1:{5600+i}',
+    return dict(schema=1, camera_roles=list(CAMERAS), cameras={n: dict(endpoint=f'tcp://127.0.0.1:{5600+i}',
                 camera_id=n, timestamp_clock='local_unix', timestamp_semantics='host_read_complete') for i, n in enumerate(CAMERAS)})
 
 
@@ -71,7 +71,7 @@ def test_camera_cutoff_never_uses_future_received_frame_and_skew_is_bounded():
 
 
 @pytest.mark.parametrize('change', ['remote', 'clock', 'missing', 'budget'])
-def test_live_capture_profile_requires_same_host_explicit_clock_and_all_cameras(change):
+def test_live_capture_profile_requires_same_host_clock_and_complete_declared_roster(change):
     value = config()
     if change == 'remote': value['cameras']['head']['endpoint'] = 'tcp://10.42.0.1:5564'
     if change == 'clock': value['cameras']['head']['timestamp_clock'] = 'unspecified'
@@ -112,10 +112,11 @@ def test_receiver_pairs_preserve_emitted_commands_and_conservative_clock_interva
 class Writer:
     def __init__(self, directory, names, metadata, *, hz):
         assert metadata['data_source'] == 'real'
+        self.roles = tuple(metadata['camera_roles'])
         self.frames, self.active, self.complete, self.error = [], True, False, None
     def append(self, **frame):
         assert frame['scene_time'] is None
-        assert set(frame['images']) == set(CAMERAS)
+        assert set(frame['images']) == set(self.roles)
         assert len(frame['q']) == len(frame['qcmd']) == 14
         self.frames.append(frame)
     def status(self):
@@ -128,12 +129,15 @@ class Writer:
 
 
 @pytest.fixture
-def socket_capture(tmp_path):
+def socket_capture(tmp_path, request):
     # A simulated host clock makes these scheduler-independent; real local PUB/SUB transport is exercised.
     clock = [10.]
     context = zmq.Context()
     publishers, cfg = {}, config()
-    for name in CAMERAS:
+    roles = tuple(getattr(request, 'param', CAMERAS))
+    cfg['camera_roles'] = list(roles)
+    cfg['cameras'] = {name: cfg['cameras'][name] for name in roles}
+    for name in roles:
         pub = context.socket(zmq.PUB)
         pub.setsockopt(zmq.LINGER, 0)
         port = pub.bind_to_random_port('tcp://127.0.0.1')
@@ -211,3 +215,63 @@ def test_worker_initialization_failure_is_visible(tmp_path):
     assert capture.snapshot()['failed']
     assert 'fixture unavailable' in capture.snapshot()['error']
     capture.close()
+
+
+def test_health_does_not_copy_diagnostics_and_expires_without_worker_progress():
+    import threading
+    class NoCopy:
+        def __deepcopy__(self, memo):
+            pytest.fail('Control health copied full UI diagnostics')
+    capture = LiveTaskCapture.__new__(LiveTaskCapture)
+    now = [10.01]
+    capture.clock, capture.config = lambda: now[0], validate_config(config())
+    capture._lock = threading.Lock()
+    capture._sample = {'source_time': 10., 'error': None}
+    capture._state = dict(available=True, error=None, failed=False, capture_ready=True,
+                          recording={'active': True, 'state': 'recording', 'error': None, 'complete': False},
+                          task=NoCopy(), capabilities=NoCopy())
+    assert capture.health()['capture_ready']
+    now[0] = 10.04
+    health = capture.health()
+    assert not health['capture_ready']
+    assert health['source_age_s'] == pytest.approx(.04)
+    assert health['recording']['active']
+
+
+def test_two_actual_socket_streams_do_not_admit_recording_without_left_wrist(socket_capture):
+    from robot_platform.helm.server import camera_preflight
+    capture, writers, pump = socket_capture
+    pump(lambda: all(capture.snapshot()['cameras'].get(n, {}).get('fresh')
+                     for n in ('right_wrist', 'head')), missing=('left_wrist',))
+    status = capture.snapshot()
+    assert camera_preflight(status['cameras']) == '2/3 cameras fresh; missing or stale: left_wrist'
+    assert not status['capture_ready']
+    capture.command('start_record')
+    pump(lambda: (capture.snapshot()['last_command'] or {}).get('state') == 'failed', missing=('left_wrist',))
+    assert not writers
+
+
+@pytest.mark.parametrize('socket_capture', [('right_wrist', 'head')], indirect=True)
+def test_explicit_two_camera_capture_has_no_left_placeholder(socket_capture):
+    from robot_platform.helm.server import camera_preflight
+    capture, writers, pump = socket_capture
+    pump(lambda: capture.snapshot()['capture_ready'])
+    status = capture.snapshot()
+    assert status['camera_roles'] == ['right_wrist', 'head']
+    assert camera_preflight(status['cameras'], status['camera_roles']) == '2/2 cameras fresh'
+    capture.command('start_record')
+    pump(lambda: writers and len(writers[0].frames) >= 2)
+    capture.command('stop_record')
+    pump(lambda: capture.snapshot()['recording'].get('complete'))
+    assert writers[0].roles == ('right_wrist', 'head')
+    for frame in writers[0].frames:
+        assert set(frame['images']) == set(frame['camera_times']) == {'right_wrist', 'head'}
+        assert len(frame['q']) == len(frame['qcmd']) == 14
+
+
+@pytest.mark.parametrize('roles', [None, ['head'], ['head', 'head'], ['head', 'unknown']])
+def test_capture_camera_roster_must_be_explicit_supported_and_distinct(roles):
+    value = config()
+    value['camera_roles'] = roles
+    with pytest.raises(ValueError, match='camera_roles'):
+        validate_config(value)

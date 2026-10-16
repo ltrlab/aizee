@@ -41,6 +41,17 @@ def task_phase(progress):
         return 'Cube on the table; pick it up with either gripper.'
     return None
 
+
+def camera_preflight(cameras, roles=('left_wrist', 'right_wrist', 'head')):
+    """Count observed required streams; service or device presence alone is not readiness."""
+    names = tuple(roles)
+    fresh = [name for name in names if (cameras.get(name) or {}).get('fresh') is True]
+    missing = [name for name in names if name not in fresh]
+    result = f'{len(fresh)}/{len(names)} cameras fresh'
+    if missing:
+        result += '; missing or stale: ' + ', '.join(missing)
+    return result
+
 def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None, live=False,
                gripper_zero=None, simulation_only=False):
     """`live`: keep the stopped reader running whenever Minerva is online and nothing else holds the motors
@@ -128,6 +139,9 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         task = (state['teleop'] or {}).get('task')
         if simulation_only and task is not None:
             task['display_phase'] = task_phase(task.get('task') or {})
+        elif task is not None:
+            task['camera_summary'] = camera_preflight(task.get('cameras') or {}, task.get('camera_roles')
+                                                       or ('left_wrist', 'right_wrist', 'head'))
         # The model's joint telemetry from the one source the 3D view shows: a running session, else the reader.
         state['telemetry'] = select_telemetry(state)
         state['action_token'] = token

@@ -5,14 +5,32 @@
   "max_receiver_age_s": 0.03,
   "max_camera_skew_s": 0.02,
   "cameras": {
-    "left_wrist": {"endpoint": "tcp://127.0.0.1:5563", "camera_id": "left_wrist", "timestamp_clock": "local_unix", "timestamp_semantics": "host_read_complete"},
-    "right_wrist": {"endpoint": "tcp://127.0.0.1:5565", "camera_id": "right_wrist", "timestamp_clock": "local_unix", "timestamp_semantics": "host_read_complete"},
-    "head": {"endpoint": "tcp://127.0.0.1:5564", "camera_id": "scene_cam", "timestamp_clock": "local_unix", "timestamp_semantics": "host_read_complete"}
+    "right_wrist": {
+      "endpoint": "tcp://127.0.0.1:5565",
+      "camera_id": "right_wrist",
+      "timestamp_clock": "local_unix",
+      "timestamp_semantics": "host_read_complete"
+    },
+    "head": {
+      "endpoint": "tcp://127.0.0.1:5564",
+      "camera_id": "scene_cam",
+      "timestamp_clock": "local_unix",
+      "timestamp_semantics": "host_read_complete",
+      "camera_model": "Intel RealSense D435",
+      "mount": "static neck",
+      "extrinsics_calibration": "unknown"
+    }
   },
   "notes": [
     "Capture runs on the Jetson beside the existing guarded receiver; these are Jetson loopback endpoints.",
     "Verify camera identity and same-host Unix timestamps before recording. A relay from another clock is not supported by this profile.",
     "Left wrist USB 05a3:9230, right wrist USB 32e4:9230; configured wrist JPEG resolution 640x480 at 30 Hz.",
-    "These are capture admission limits, not physical motion qualification. All three cameras are required; missing frames are never filled."
+    "These are capture admission limits, not physical motion qualification. The initial right_wrist and head camera_roles are both required; no left-camera stream or placeholder is written.",
+    "The head D435 is mounted on the static neck. Physical camera extrinsics are not calibrated; no camera-to-robot transform is supplied.",
+    "The operator selected right wrist and head initially. To add left_wrist later, declare it in camera_roles and supply its verified camera configuration; changing the roster creates a different dataset contract."
+  ],
+  "camera_roles": [
+    "right_wrist",
+    "head"
   ]
 }

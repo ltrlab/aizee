@@ -161,3 +161,51 @@ def test_scene_progress_is_delivered_to_gui_without_changing_recorded_facts(helm
             assert task['display_phase'] == 'Task complete: pickup, handoff and bucket placement.'
             assert task['task'] == facts
     asyncio.run(run())
+
+
+def test_control_recording_check_uses_small_health_and_reports_nested_writer_failure():
+    from robot_platform.helm.recording import RecordingError
+    state = {'recording': {'active': True, 'state': 'recording', 'error': None}}
+    def forbidden():
+        pytest.fail('Control loop requested full task/UI snapshot')
+    core = TeleopCore.__new__(TeleopCore)
+    core.task_capture = SimpleNamespace(health=lambda: state, snapshot=forbidden)
+    core._recording_error, core._recorder = None, None
+    core._check_recording()
+    state['recording'] = {'active': False, 'state': 'failed', 'error': 'scene closed before completion'}
+    with pytest.raises(RecordingError, match='scene closed'):
+        core._check_recording()
+
+
+@pytest.mark.parametrize('roles, expected', [
+    (['left_wrist', 'right_wrist', 'head'], '2/3 cameras fresh; missing or stale: left_wrist'),
+    (['right_wrist', 'head'], '2/2 cameras fresh'),
+])
+def test_live_camera_count_reaches_gui_with_two_fresh_streams(helm, tmp_path, monkeypatch, roles, expected):
+    from copy import deepcopy
+    from aiohttp.test_utils import TestClient, TestServer
+    teleop = TeleopSession(helm, DEVICES / 'minerva-teleop.json', runs=tmp_path)
+    state = teleop.snapshot()
+    state['task'] = {'available': True, 'capture_ready': False, 'camera_roles': roles,
+                     'cameras': {name: {'fresh': name != 'left_wrist'} for name in roles}}
+    monkeypatch.setattr(teleop, 'snapshot', lambda: deepcopy(state))
+    grippers = SimpleNamespace(running=False, snapshot=lambda: {})
+    async def run():
+        async with TestClient(TestServer(create_app(helm, SimulationLink(), teleop=teleop,
+                                                   gripper_zero=grippers))) as client:
+            result = await (await client.get('/api/helm/state')).json()
+            assert result['teleop']['task']['camera_summary'] == expected
+            assert not result['teleop']['task']['capture_ready']
+            assert 'task-cameras' in await (await client.get('/')).text()
+    asyncio.run(run())
+
+
+def test_initial_live_profile_declares_right_wrist_head_and_unknown_static_neck_extrinsics():
+    import json
+    from robot_platform.helm.task_capture import validate_config
+    profile = validate_config(json.loads((DEVICES / 'minerva-task-capture.json').read_text(encoding='utf-8')))
+    assert profile['camera_roles'] == ['right_wrist', 'head']
+    assert set(profile['cameras']) == {'right_wrist', 'head'}
+    head = profile['cameras']['head']
+    assert head['mount'] == 'static neck' and head['extrinsics_calibration'] == 'unknown'
+    assert not any(key in head for key in ('transform', 'translation', 'rotation', 'extrinsics'))

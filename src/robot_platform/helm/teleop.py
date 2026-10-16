@@ -811,11 +811,13 @@ class TeleopCore:
 
     def _check_recording(self):
         if self.task_capture is not None:
-            task = self.task_capture.snapshot()
+            health = getattr(self.task_capture, 'health', None)
+            task = health() if health is not None else self.task_capture.snapshot()
             recording = task.get('recording') or {}
-            if task.get('failed') or (task.get('error') and (recording.get('active')
+            error = task.get('error') or recording.get('error')
+            if task.get('failed') or (error and (recording.get('active')
                     or recording.get('state') in ('failed', 'aborted'))):
-                raise RecordingError(task.get('error') or 'Task capture failed')
+                raise RecordingError(error or 'Task capture failed')
         if self._recording_error is not None:
             raise RecordingError(self._recording_error)
         if self._recorder is not None:
