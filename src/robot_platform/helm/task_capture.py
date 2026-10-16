@@ -15,6 +15,7 @@ import time
 from urllib.parse import urlparse
 
 from robot_platform.transport.wire import unpack_camera
+from robot_platform.data.capture_process import STATUS_TIMEOUT_S
 
 CAMERAS = ('left_wrist', 'right_wrist', 'head')
 
@@ -144,6 +145,43 @@ class CameraCache:
         return result
 
 
+def paired_receiver_sample(result, rows, names, config, *, dropped=0, started_at, received_at):
+    """Bounded scalar snapshot shared by the thread worker and its process adapter."""
+    try:
+        if not rows or started_at is None:
+            return
+        if (type(started_at) not in (int, float) or type(received_at) not in (int, float)
+                or not math.isfinite(started_at) or not math.isfinite(received_at) or received_at < started_at):
+            raise ValueError('Receiver exchange timestamps are invalid')
+        status = result.get('status') or {}
+        feedback = result.get('feedback') or []
+        if (dropped or len(feedback) != len(names) or status.get('set_aside')
+                or tuple(status.get('joint_names', ())) != names
+                or any(f.get('fault') is True for f in feedback)):
+            raise ValueError('Receiver capture lost rows or a required motor is unavailable')
+        now_ms = status['now_ms']
+        stamps = [f['sampled_at_ms'] for f in feedback]
+        if (not math.isfinite(now_ms) or any(not math.isfinite(stamp)
+                or not 0 <= now_ms-stamp <= config['max_receiver_age_s']*1000 for stamp in stamps)):
+            raise ValueError('Required motor feedback is stale')
+        row = rows[-1]
+        if not math.isfinite(row[0]) or not 0 <= now_ms-row[0] <= config['max_receiver_age_s']*1000:
+            raise ValueError('Receiver recorder row is stale or in the future')
+        q, qcmd = tuple(row[1+4*i] for i in range(14)), tuple(row[4+4*i] for i in range(14))
+        if not all(math.isfinite(v) for v in q+qcmd):
+            raise ValueError('Receiver positions or emitted commands are not finite')
+        sampled_ms = min(row[0], *stamps)
+        cutoff = started_at-max(0., now_ms-sampled_ms)/1000
+        return dict(q=q, qcmd=qcmd, source_time=cutoff, received_at=received_at,
+                            receiver_ms=row[0], receiver_feedback_ms=stamps,
+                            clock_uncertainty_s=max(0., received_at-started_at), error=None,
+                            command_valid=result.get('hardware_enabled') is True
+                                and status.get('state') in ('holding', 'executing'),
+                            hardware_enabled=result.get('hardware_enabled'), receiver_state=status.get('state'))
+    except (ValueError, KeyError, TypeError, IndexError) as exc:
+        return dict(error=str(exc), received_at=received_at)
+
+
 class LiveTaskCapture:
     def __init__(self, directory, names, config, *, metadata=None, clock=time.perf_counter,
                  wall_clock=time.time, writer_factory=None, context_factory=None):
@@ -157,47 +195,42 @@ class LiveTaskCapture:
         self.clock, self.wall_clock = clock, wall_clock
         self.writer_factory, self.context_factory = writer_factory, context_factory
         self._sample = None
+        self._writer, self._abort_reason = None, None
+        self._last_progress, self._finalizing = self.clock(), False
         self._commands = queue.Queue(maxsize=4)
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self._request = 0
-        self._state = dict(available=True, capabilities={'source': 'real', 'contacts': 'unobserved',
+        self._state = dict(available=False, capabilities={'source': 'real', 'contacts': 'unobserved',
                            'task_success': 'operator_review_required'}, task={'phase': 'camera preflight'},
                            recording={'state': 'idle', 'active': False}, cameras={}, camera_roles=list(self.camera_roles),
-                           capture_ready=False, error=None,
+                           capture_ready=False, camera_valid_until=None, error=None,
                            failed=False, last_command=None)
         self._thread = threading.Thread(target=self._run, daemon=True, name='helm-task-capture')
         self._thread.start()
 
     def receive(self, result, rows, *, dropped=0, started_at, received_at):
-        """Called after the receiver RPC; never decode, allocate images, block on I/O or publish commands."""
-        try:
-            if not rows or started_at is None:
-                return
-            status = result.get('status') or {}
-            feedback = result.get('feedback') or []
-            if (dropped or len(feedback) != len(self.names) or status.get('set_aside')
-                    or tuple(status.get('joint_names', ())) != self.names
-                    or any(f.get('fault') is True for f in feedback)):
-                raise ValueError('Receiver capture lost rows or a required motor is unavailable')
-            now_ms = status['now_ms']
-            stamps = [f['sampled_at_ms'] for f in feedback]
-            if (not math.isfinite(now_ms) or any(not math.isfinite(stamp)
-                    or not 0 <= now_ms-stamp <= self.config['max_receiver_age_s']*1000 for stamp in stamps)):
-                raise ValueError('Required motor feedback is stale')
-            row = rows[-1]
-            if not math.isfinite(row[0]) or not 0 <= now_ms-row[0] <= self.config['max_receiver_age_s']*1000:
-                raise ValueError('Receiver recorder row is stale or in the future')
-            q, qcmd = tuple(row[1+4*i] for i in range(14)), tuple(row[4+4*i] for i in range(14))
-            if not all(math.isfinite(v) for v in q+qcmd):
-                raise ValueError('Receiver positions or emitted commands are not finite')
-            sampled_ms = min(row[0], *stamps)
-            cutoff = started_at-max(0., now_ms-sampled_ms)/1000
-            self._sample = dict(q=q, qcmd=qcmd, source_time=cutoff, received_at=received_at,
-                                receiver_ms=row[0], receiver_feedback_ms=stamps,
-                                clock_uncertainty_s=max(0., received_at-started_at), error=None)
-        except (ValueError, KeyError, TypeError, IndexError) as exc:
-            self._sample = dict(error=str(exc), received_at=received_at)
+        """Snapshot paired receiver values; never decode images, perform I/O or send commands."""
+        sample = paired_receiver_sample(result, rows, self.names, self.config, dropped=dropped,
+                                        started_at=started_at, received_at=received_at)
+        if sample is not None:
+            self.receive_sample(sample)
+
+    def receive_sample(self, sample):
+        self._sample = sample
+        writer = getattr(self, '_writer', None)
+        if writer is not None and (sample.get('error') or not sample.get('command_valid')):
+            self.abort(sample.get('error') or 'Receiver no longer has active emitted command authority')
+
+    def abort(self, reason):
+        """Fence publication immediately, including while finish waits on disk, without joining."""
+        with self._lock:
+            self._abort_reason = self._abort_reason or str(reason)
+            writer = self._writer
+            self._state.update(error=self._abort_reason, failed=True, capture_ready=False)
+        self._stop.set()
+        if writer is not None:
+            writer.abort(self._abort_reason)
 
     def command(self, action, payload=None):
         if action not in ('start_record', 'stop_record') or payload:
@@ -220,9 +253,18 @@ class LiveTaskCapture:
         age = self.clock()-sample['source_time'] if sample and not sample.get('error') else None
         with self._lock:
             recording = self._state['recording']
-            return dict(available=self._state['available'], error=self._state['error'],
-                        failed=self._state['failed'], source_age_s=age,
-                        capture_ready=bool(self._state['capture_ready'] and age is not None
+            progress = getattr(self, '_last_progress', None)
+            finalizing = getattr(self, '_finalizing', False)
+            stalled = bool(progress is not None and not finalizing
+                           and self.clock()-progress > STATUS_TIMEOUT_S)
+            camera_deadline = self._state.get('camera_valid_until')
+            camera_expired = 'camera_valid_until' in self._state and (camera_deadline is None
+                              or self.clock() > camera_deadline)
+            return dict(available=self._state['available'] and not stalled,
+                        error='Capture camera worker stalled' if stalled else self._state['error'],
+                        failed=self._state['failed'] or stalled, source_age_s=age, camera_valid_until=camera_deadline,
+                        capture_ready=bool(self._state['capture_ready'] and not camera_expired
+                            and not stalled and not finalizing and age is not None
                             and 0 <= age <= self.config['max_receiver_age_s']),
                         recording={key: recording.get(key) for key in ('active', 'error', 'state', 'complete')})
 
@@ -279,7 +321,7 @@ class LiveTaskCapture:
                         if action == 'start_record':
                             if writer is not None:
                                 raise ValueError('An episode is already recording')
-                            self._ready(sample, now)
+                            self._ready(sample, now, require_commands=True)
                             cache.select(sample['source_time'])
                             writer = factory(self.directory, self.names,
                                 dict(self.metadata, capture_profile=self.config,
@@ -290,13 +332,26 @@ class LiveTaskCapture:
                                                     'camera_times': 'mapped host read-complete stamps; sensor exposure time unknown'},
                                      action_semantics='receiver_emitted_position_at_sample',
                                      task_success='operator_review_required'), hz=self.config['hz'])
+                            with self._lock:
+                                self._writer = writer
+                                cancelled = self._abort_reason
+                            if cancelled:
+                                writer.abort(cancelled)
+                                raise RuntimeError(cancelled)
                             next_frame, last_sources = 0., None
                         else:
                             if writer is None:
                                 raise ValueError('No episode is recording')
-                            writer.finish()
+                            with self._lock:
+                                self._finalizing = True
+                            try:
+                                writer.finish()
+                            finally:
+                                with self._lock:
+                                    self._finalizing = False
                             with self._lock:
                                 self._state['recording'] = writer.status()
+                                self._writer = None
                             writer = None
                     except Exception as exc:
                         error = str(exc)
@@ -304,7 +359,7 @@ class LiveTaskCapture:
                         self._state.update(error=error, last_command=dict(id=request, action=action,
                                            state='failed' if error else 'complete', error=error))
                 if writer is not None and now >= next_frame:
-                    self._ready(sample, now)
+                    self._ready(sample, now, require_commands=True)
                     frames = cache.select(sample['source_time'])
                     sources = (sample['source_time'], *(frames[n]['publisher_time'] for n in self.camera_roles))
                     # Wait for a new acquisition from every camera; never relabel a repeated frame as new.
@@ -319,14 +374,22 @@ class LiveTaskCapture:
                         last_sources = sources
                     next_frame = now+1/self.config['hz']
                 with self._lock:
+                    self._last_progress = self.clock()
+                    self._state['available'] = True
                     self._state['cameras'] = cache.status(now)
+                    for camera in self._state['cameras'].values():
+                        camera['valid_until'] = (now+self.config['max_camera_age_s']-camera['age_s']
+                                                  if camera['age_s'] is not None else None)
                     fresh = all(row['fresh'] for row in self._state['cameras'].values())
                     try:
-                        self._ready(sample, now)
-                        cache.select(sample['source_time'])
+                        self._ready(sample, now, require_commands=True)
+                        selected = cache.select(sample['source_time'])
+                        self._state['camera_valid_until'] = min(frame['sampled_at']
+                            + self.config['max_camera_age_s'] for frame in selected.values())
                         self._state['capture_ready'] = True
                     except ValueError:
                         self._state['capture_ready'] = False
+                        self._state['camera_valid_until'] = None
                     self._state['task'] = {'phase': 'recording' if writer else
                                            'ready for recording' if self._state['capture_ready'] else
                                            'waiting for fresh paired receiver and camera timing' if fresh else 'waiting for cameras'}
@@ -354,13 +417,21 @@ class LiveTaskCapture:
                 if writer is not None:
                     self._state['recording'] = writer.status()
 
-    def _ready(self, sample, now):
+    def _ready(self, sample, now, *, require_commands=False):
         if sample is None or sample.get('error'):
             raise ValueError((sample or {}).get('error') or 'Waiting for complete receiver feedback')
         if not 0 <= now-sample['source_time'] <= self.config['max_receiver_age_s']:
             raise ValueError('Receiver sample expired before capture')
+        if require_commands and not sample.get('command_valid'):
+            raise ValueError('Receiver has no active emitted command authority')
 
     def close(self):
+        # A requested stop_record is the sole successful completion path. Closing
+        # the owning session must win an in-progress finish before its rename.
+        with self._lock:
+            unfinished = self._writer is not None or not self._commands.empty()
+        if unfinished:
+            self.abort('Capture session ended before explicit recording completion')
         self._stop.set()
         self._thread.join(timeout=5.)
         if self._thread.is_alive():

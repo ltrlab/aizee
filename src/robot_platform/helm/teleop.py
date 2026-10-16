@@ -732,8 +732,8 @@ class TeleopCore:
         if self.live_arm and self.bundle.get('task_capture') is not None:
             if self.live_arm != 'both':
                 raise ValueError('Task capture requires both arms and both grippers')
-            from .task_capture import LiveTaskCapture
-            self.task_capture = LiveTaskCapture(directory / 'episodes', names, self.bundle['task_capture'],
+            from .task_capture_process import LiveTaskCaptureProcess
+            self.task_capture = LiveTaskCaptureProcess(directory / 'episodes', names, self.bundle['task_capture'],
                 metadata={'source': 'real', 'asset_id': self.bundle['asset_id'],
                           'bindings': self.bundle['bindings'], 'receiver_identity': config['identity'],
                           'action_semantics': 'receiver_emitted_position_at_sample'})

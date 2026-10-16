@@ -117,7 +117,8 @@ def result(now_ms=100):
     row = [now_ms]
     for i in range(14): row += [float(i), .0, .0, i+.2]
     feedback = [dict(sampled_at_ms=now_ms, fault=False) for _ in NAMES]
-    return dict(status=dict(now_ms=now_ms, joint_names=list(NAMES)), feedback=feedback), [row]
+    return dict(status=dict(now_ms=now_ms, joint_names=list(NAMES), state='executing'),
+                hardware_enabled=True, feedback=feedback), [row]
 
 
 def test_receiver_pairs_preserve_emitted_commands_and_conservative_clock_interval():

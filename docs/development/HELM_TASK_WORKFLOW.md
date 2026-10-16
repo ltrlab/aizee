@@ -57,8 +57,13 @@ and automatic quarantine conditions.
 ## Attended real capture with both arms
 
 Prepare the existing production Helm connection and calibrated device profile.
-The capture worker runs in the Jetson teleop process beside the current receiver;
-The selected RGB JPEGs stay on that host and do not traverse Helm's control/SSH status RPC.
+An owned subprocess on the Jetson receives bounded scalar snapshots from the
+existing teleop receiver. It owns the camera subscriptions, JPEG decoding and
+HDF5 writer; RGB images stay on that host and do not traverse the control loop's
+IPC or Helm's control/SSH status RPC. Imports initialize in the child, and camera
+readiness requires actual decoded frames. Worker startup, status stalls and exit
+are reported as failures. This isolation still requires a loaded receiver and
+recorder timing check on the Jetson before hardware collection is qualified.
 
 ```powershell
 .\.venv-dev\Scripts\python.exe -m robot_platform helm --profile config/devices/minerva-joint-calibration.json --teleop config/devices/minerva-teleop.json --capture-profile config/devices/minerva-task-capture.json
@@ -105,7 +110,8 @@ three-camera profile will require the left wrist too.
    future, wrong-identity and malformed camera data. It never fills missing images.
 3. Verify the saved limits and both arms/grippers' fresh receiver feedback before
    Idle/Enable/Engage. **Record episode** becomes available only with a paired
-   receiver sample and all configured cameras at its conservative observation cutoff.
+   receiver sample, active command authority in Holding/Executing, and all
+   configured cameras at its conservative observation cutoff.
 4. Perform the attended task and finish the episode explicitly as in simulation.
    Inspect the final path and completed frame count. Evaluate task success by
    operator review; the physical collector does not infer object contact/success.
@@ -130,7 +136,13 @@ receiver session directory, on the PC in simulation and on the Jetson for live
 capture. The GUI shows the actual path. Files remain `.partial.hdf5` until explicit
 successful finish drains and validates the writer, then they are atomically
 published. Stale receiver/camera data, queue overflow, decode errors, disk errors
-or interrupted closure retain incomplete data and report a failure.
+or interrupted closure retain incomplete data and report a failure. Loss of the
+receiver's enabled Holding/Executing authority also aborts the active episode;
+stopped observations cannot become emitted-command training rows. Stop recording
+and wait for completion before disabling or ending the session. Parent loss or
+session closure cancels pending publication, including a finish waiting on disk.
+Each process keeps a bounded `capture-worker-*.stderr.log` under its episode
+directory for startup/native diagnostics.
 
 The raw v8 capture declares camera_roles and joint names; paired measured and emitted commanded
 motor coordinates; RGB images; source, scene and camera clocks; per-frame task

@@ -222,7 +222,9 @@ class SimulatedReceiver(PlantReceiver):
         self.view, self.nominal = view, dict(nominal or {})
         self.task_view = view if hasattr(view, 'command') else None
         self.actuators = actuators  # What the actuator file gave (calibrated_actuators), when one was named.
-        if view is not None:
+        if self.task_view is not None:
+            view.show(plant.q, command_valid=False)
+        elif view is not None:
             view.show(plant.q)
 
     def exchange(self, request):
@@ -233,7 +235,9 @@ class SimulatedReceiver(PlantReceiver):
                 row = recent[-1]
                 self.task_view.show([row[1 + 4*i] for i in range(len(self.plant.names))],
                                     qcmd=[row[4 + 4*i] for i in range(len(self.plant.names))],
-                                    source_time=self.epoch + row[0] / 1000)
+                                    source_time=self.epoch + row[0] / 1000,
+                                    command_valid=(self.last.get('hardware_enabled') is True
+                                        and (self.last.get('status') or {}).get('state') in ('holding', 'executing')))
         elif self.view is not None:
             self.view.show(self.plant.q)
         return reply
