@@ -252,6 +252,8 @@ pub struct Controller {
     last_applied_target: Option<AppliedTarget>,
     stops: Vec<JointStop>,
     stop_started_ms: u64,
+    /// Grippers set aside (set_aside_quiet_grippers), until the arm is disabled.
+    aside: Vec<bool>,
 }
 
 impl Controller {
@@ -314,6 +316,7 @@ impl Controller {
             last_applied_target: None,
             stops: vec![JointStop::default(); count],
             stop_started_ms: 0,
+            aside: vec![false; count],
         })
     }
 
@@ -389,6 +392,10 @@ impl Controller {
                     _ => self.commands[i].position,
                 })
                 .collect(),
+            set_aside: (0..self.aside.len())
+                .filter(|&i| self.aside[i])
+                .map(|i| self.config.joints[i].name.clone())
+                .collect(),
         }
     }
 
@@ -430,6 +437,7 @@ impl Controller {
         self.command_deadline = None;
         self.collision_deadline = None;
         self.collision_active = false;
+        self.aside.fill(false); // Arming again needs every drive.
         self.zero_gain_at_measured();
         if hardware.disable().is_err() {
             self.fault(Reason::HardwareFault, hardware);
@@ -613,11 +621,12 @@ impl Controller {
 
     /// Some drives, not all, have stopped answering: a trip, holding the arm on those that still do
     /// (each quiet one keeps its last command). The left gripper went quiet for over 30 ms with the
-    /// left arm raised, and cutting every joint's torque dropped the arm (2026-09-30).
+    /// left arm raised, and cutting every joint's torque dropped the arm (2026-09-30). A gripper set
+    /// aside no longer counts.
     fn stale_error(&self) -> Option<TripRecord> {
         let timeout = self.config.feedback_timeout_ms as f64;
         (0..self.feedback.len())
-            .find(|&i| self.stale(&self.feedback[i]))
+            .find(|&i| !self.aside[i] && self.stale(&self.feedback[i]))
             .map(|i| {
                 self.trip_at(
                     Reason::FeedbackStale,
@@ -630,7 +639,8 @@ impl Controller {
     }
 
     /// A joint past a limit, over its allowed speed, effort or temperature, its state known: while
-    /// the arm is held this trips it to a braking hold (trip), rather than dropping it.
+    /// the arm is held this trips it to a braking hold (trip), rather than dropping it. A gripper set
+    /// aside is not known: its last reading is not checked.
     fn limit_error(&self) -> Option<TripRecord> {
         for (i, ((f, limit), &overspeed)) in self
             .feedback
@@ -639,6 +649,9 @@ impl Controller {
             .zip(&self.overspeed)
             .enumerate()
         {
+            if self.aside[i] {
+                continue;
+            }
             let speed = f.velocity.abs();
             let instant = OVERSPEED_FACTOR * self.allowed_speed(i, f.position, f.velocity);
             let (check, value, bound) = if f.position < limit.lower {
@@ -663,6 +676,22 @@ impl Controller {
             return Some(self.trip_at(Reason::LimitViolation, i, check, value, bound));
         }
         None
+    }
+
+    /// A gripper that stopped answering while the arm is braked or held is set aside until the arm is
+    /// disabled: it keeps its last command, and its silence and its last readings no longer stop the arm
+    /// being re-armed and lowered without it. The right gripper went silent mid-move, and its last
+    /// reading (0.84 rad/s) kept the receiver braking, the arm held up, for 7 minutes (2026-10-15). An
+    /// arm joint is never set aside: the arm cannot be lowered without it.
+    fn set_aside_quiet_grippers(&mut self) {
+        if !matches!(self.state, State::Stopping | State::Stopped) {
+            return;
+        }
+        for i in 0..self.aside.len() {
+            if self.config.joints[i].gripper && self.stale(&self.feedback[i]) {
+                self.aside[i] = true;
+            }
+        }
     }
 
     /// A limit, tracking or collision-box trip with the joints' state known. While the arm is held
@@ -824,6 +853,7 @@ impl Controller {
         if let Some(trip) = self.limit_error().or_else(|| self.stale_error()) {
             self.trip_for(trip, false, hardware);
         }
+        self.set_aside_quiet_grippers();
         if self.state == State::Faulted {
             return;
         }
@@ -837,6 +867,7 @@ impl Controller {
                 .iter()
                 .zip(&self.commands)
                 .enumerate()
+                .filter(|&(i, _)| !self.aside[i])
                 .find_map(|(i, (feedback, command))| {
                     let (lower, upper) = (self.collision_lower[i], self.collision_upper[i]);
                     [
@@ -903,11 +934,13 @@ impl Controller {
                 *command = stop.sample(elapsed, limit.hold_kp, limit.hold_kd);
                 complete &= elapsed >= stop.duration_s;
             }
+            // A quiet drive's speed is unknown, not moving: its last reading never settles (a gripper's,
+            // 0.84 rad/s, kept the arm braking for 7 minutes, 2026-10-15). It holds its command.
             if complete
                 && self
                     .feedback
                     .iter()
-                    .all(|f| f.velocity.abs() <= self.config.settled_velocity)
+                    .all(|f| self.stale(f) || f.velocity.abs() <= self.config.settled_velocity)
             {
                 self.state = State::Stopped;
             }
@@ -1322,7 +1355,9 @@ impl Controller {
                 {
                     return Err(trip.reason);
                 }
-                if self.fast_readings.iter().any(|&n| n >= MOVING_READINGS) {
+                if (0..self.fast_readings.len())
+                    .any(|i| !self.aside[i] && self.fast_readings[i] >= MOVING_READINGS)
+                {
                     return Err(Reason::InvalidState);
                 }
                 // From a stop the arm is re-armed where the stop holds it: that target and its
@@ -1404,11 +1439,10 @@ impl Controller {
                     {
                         return Err(Reason::InvalidCommand);
                     }
-                    if self
-                        .feedback
-                        .iter()
-                        .any(|feedback| feedback.velocity.abs() > self.config.settled_velocity)
-                    {
+                    if (0..self.feedback.len()).any(|i| {
+                        !self.aside[i]
+                            && self.feedback[i].velocity.abs() > self.config.settled_velocity
+                    }) {
                         return Err(Reason::InvalidState);
                     }
                 }

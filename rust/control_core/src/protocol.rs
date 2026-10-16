@@ -207,6 +207,10 @@ pub struct Status {
     /// The last trip or fault a joint's check caused; kept until the next one. A refused request
     /// returns its reason only: one before the first feedback is routine at startup.
     pub last_trip: Option<Trip>,
+    /// Grippers set aside this session: they stopped answering while the arm was held, and the arm is
+    /// re-armed and lowered without them; each keeps its last command until the arm is disabled.
+    #[serde(default)]
+    pub set_aside: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

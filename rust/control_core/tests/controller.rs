@@ -2821,3 +2821,103 @@ fn a_violation_while_the_arm_brakes_does_not_overwrite_what_stopped_it() {
         ("axis-0", "temperature", 2)
     );
 }
+
+fn armed_with(cfg: Config) -> (Controller, Loopback) {
+    let count = cfg.joints.len();
+    let mut c = Controller::new(cfg, "boot-a".into()).unwrap();
+    let mut h = Loopback::new(&vec![0.0; count]);
+    assert!(claim(&mut c, &mut h, 0).accepted);
+    let arm = Request::Arm {
+        collision: None,
+        authority: auth(&c, 1),
+    };
+    assert!(c.handle(1, arm, &mut h).accepted);
+    (c, h)
+}
+
+/// Joint 1 reads 0.84 rad/s, then stops answering (live-20261015T234712Z: the right gripper, mid-move).
+fn quiet_while_moving(c: &mut Controller, h: &mut Loopback) {
+    let mut moving = joints(2, 0.5, 0.0);
+    moving[1].velocity = 0.84;
+    let r = Request::Move {
+        collision: None,
+        authority: auth(c, 2),
+        identity: identity(),
+        ramp_efforts: Vec::new(),
+        joints: moving,
+    };
+    assert!(c.handle(2, r, h).accepted);
+    c.tick(3, h);
+    h.quiet = vec![false, true];
+    for now in 4..60 {
+        c.tick(now, h);
+    }
+}
+
+#[test]
+fn a_gripper_that_goes_quiet_is_set_aside_and_the_arm_re_armed_without_it() {
+    // The right gripper stopped answering mid-move (2026-10-15). Its last reading, 0.84 rad/s, never
+    // settled, so the receiver braked for 7 minutes, holding the arm up, and could not have re-armed it
+    // to lower it. A quiet gripper is set aside: the stop completes, the arm is re-armed without it and
+    // moved on the drives that answer, and the gripper keeps its last command.
+    let mut cfg = config(2);
+    cfg.joints[1].gripper = true;
+    let (mut c, mut h) = armed_with(cfg);
+    quiet_while_moving(&mut c, &mut h);
+    let status = c.status();
+    assert_eq!(status.state, State::Stopped);
+    assert_eq!(status.reason, Reason::FeedbackStale);
+    assert_eq!(status.set_aside, vec!["axis-1".to_string()]);
+    assert!(h.enabled);
+    assert!(claim(&mut c, &mut h, 60).accepted);
+    let arm = Request::Arm {
+        collision: None,
+        authority: auth(&c, 1),
+    };
+    let reply = c.handle(61, arm, &mut h);
+    assert!(reply.accepted, "{:?}", reply.reason);
+    let mut lowered = joints(2, 0.0, 0.0);
+    lowered[1].position = c.status().joints[1].position;
+    let r = Request::Move {
+        collision: None,
+        authority: auth(&c, 2),
+        identity: identity(),
+        ramp_efforts: Vec::new(),
+        joints: lowered,
+    };
+    assert!(c.handle(62, r, &mut h).accepted);
+    for now in 63..90 {
+        c.tick(now, &mut h);
+    }
+    let status = c.status();
+    assert_eq!(status.state, State::Executing, "{:?}", status.reason);
+    assert_eq!(
+        (status.joints[0].position, status.joints[1].position),
+        (0.0, 0.5)
+    );
+    // Disabling ends the session's set-aside: re-arming again needs every drive.
+    let disable = Request::Disable {
+        authority: auth(&c, 3),
+    };
+    assert!(c.handle(90, disable, &mut h).accepted);
+    assert!(c.status().set_aside.is_empty());
+}
+
+#[test]
+fn a_quiet_arm_joints_last_speed_does_not_keep_the_arm_braking() {
+    // An arm joint is never set aside (the arm cannot be lowered without it), but its last reading no
+    // longer keeps the receiver braking: the stop completes and holds the arm, re-arming is refused
+    // until it answers, and the client can ask the operator to support the arm and disable it.
+    let (mut c, mut h) = armed(2);
+    quiet_while_moving(&mut c, &mut h);
+    let status = c.status();
+    assert_eq!(status.state, State::Stopped);
+    assert!(status.set_aside.is_empty());
+    assert!(claim(&mut c, &mut h, 60).accepted);
+    let arm = Request::Arm {
+        collision: None,
+        authority: auth(&c, 1),
+    };
+    assert_eq!(c.handle(61, arm, &mut h).reason, Reason::FeedbackStale);
+    assert!(h.enabled);
+}
