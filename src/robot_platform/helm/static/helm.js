@@ -303,14 +303,14 @@ function renderTask(state) {
   const progress = task.task || {};
   $('task-state').textContent = task.error ? 'Task needs attention.' : !configured ? 'Task not configured.'
     : !running ? 'Ready to start a session. Task controls do not enable motors.'
-    : progress.phase || progress.stage || (task.available ? 'Task ready.' : 'Preparing task…');
+    : task.display_phase || progress.phase || progress.stage || (task.available ? 'Task ready.' : 'Preparing task…');
   const summary = recording.state || (active ? 'recording' : configured ? 'idle' : 'not started');
   $('task-recording').textContent = `Recording: ${summary}`
     + (Number.isFinite(recording.frames) ? ` · ${recording.frames} frames` : '')
     + (recording.path || recording.directory ? ` · ${recording.path || recording.directory}` : '')
     + (simulation ? (task.cameras?.ready ? ' · simulated cameras rendered' : '')
       : task.cameras ? ` · cameras: ${Object.entries(task.cameras).map(([name, c]) => `${name} ${c.fresh ? 'fresh' : c.error || 'waiting'}`).join(', ')}` : '');
-  const error = task.error || task.last_command?.error || '';
+  const error = task.error || recording.error || task.last_command?.error || '';
   $('task-error').hidden = !error;
   $('task-error').textContent = error;
 }

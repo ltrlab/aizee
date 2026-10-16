@@ -125,3 +125,39 @@ def test_simulation_cli_constructs_no_physical_workspaces(monkeypatch, tmp_path)
     assert captured['teleop']['target'] == 'pc'
     assert captured['app']['simulation_only'] is True and captured['app']['live'] is False
     assert captured['app']['check'] is captured['app']['tune'] is None
+
+
+@pytest.mark.parametrize('facts, message', [
+    ({'cube_position': [0., 0., 0.]}, 'Cube on the table'),
+    ({'first_gripper': 'left'}, 'Left gripper picked up'),
+    ({'first_gripper': 'right'}, 'Right gripper picked up'),
+    ({'first_gripper': 'left', 'handoff': True}, 'Handoff complete'),
+    ({'first_gripper': 'left', 'handoff': True, 'bucket_settled': True, 'success': True}, 'Task complete'),
+    ({'bucket_settled': True, 'success': True}, 'Cube settled in the bucket; the complete'),
+    ({'first_gripper': 'left', 'dropped': True, 'success': True}, 'Cube dropped'),
+    ({'success': True, 'bucket_settled': True, 'training_eligible': False}, 'Invalid scene contact'),
+    ({'success': True, 'forbidden_contacts': [['finger', 'table']]}, 'Invalid scene contact'),
+])
+def test_task_progress_uses_recorded_outcomes_and_invalidity_overrides_success(facts, message):
+    from robot_platform.helm.server import task_phase
+    assert task_phase(facts).startswith(message)
+    assert task_phase({}) is None
+
+
+def test_scene_progress_is_delivered_to_gui_without_changing_recorded_facts(helm, tmp_path, monkeypatch):
+    from copy import deepcopy
+    from aiohttp.test_utils import TestClient, TestServer
+    teleop = TeleopSession(helm, DEVICES / 'minerva-teleop.json', runs=tmp_path, simulation={})
+    state = teleop.snapshot()
+    facts = {'first_gripper': 'left', 'handoff': True, 'bucket_settled': True,
+             'success': True, 'training_eligible': True}
+    state['task'] = {'available': True, 'task': facts}
+    monkeypatch.setattr(teleop, 'snapshot', lambda: deepcopy(state))
+    async def run():
+        async with TestClient(TestServer(create_app(helm, SimulationLink(), teleop=teleop,
+                                                   simulation_only=True))) as client:
+            result = await (await client.get('/api/helm/state')).json()
+            task = result['teleop']['task']
+            assert task['display_phase'] == 'Task complete: pickup, handoff and bucket placement.'
+            assert task['task'] == facts
+    asyncio.run(run())
