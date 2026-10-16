@@ -35,20 +35,25 @@ def recording(n=4000, *, kp=None, gap_at=None):
     return {'joints': {'a': a, 'b': b}}
 
 
-def plant_positions(replay, start, n, delay=0):
-    """ArmPlant itself, stepped tick by tick with the recorded commands and b's measured position."""
+def plant_positions(replay, start, n, delay=0, *, late_s=0.):
+    """ArmPlant itself, stepped tick by tick with the recorded commands and b's measured position. With `late_s`
+    the plant's drive applies them that late, from the tick before `start` on."""
     joint, context = replay.joint, replay.context['b']
     pose = {'b': 0.}
-    plant = ArmPlant([dict(name='a', q=replay.q0[start], **SPEC)],
+    plant = ArmPlant([dict(name='a', q=replay.q0[start], **SPEC, **({'delay': late_s} if late_s else {}))],
                      gravity={'a': lambda p: gravity_effort(TERMS, {'a': p['a'], 'b': pose['b']})})
     plant.v[0] = replay.v0[start]
     c = joint.commands
+
+    def command(row):
+        return [{'position': joint.command[row], 'velocity': c['command_velocity'][row],
+                 'effort': c['command_effort'][row], 'kp': c['kp'][row], 'kd': c['kd'][row]}]
+    if late_s:
+        plant.previous = command(start - 1)
     out = []
     for k in range(n):
-        row = start + k - delay
         pose['b'] = context[start + k]
-        plant.step([{'position': joint.command[row], 'velocity': c['command_velocity'][row],
-                     'effort': c['command_effort'][row], 'kp': c['kp'][row], 'kd': c['kd'][row]}], TICK_S)
+        plant.step(command(start + k - delay), TICK_S)
         out.append(plant.q[0])
     return np.array(out)
 
@@ -60,6 +65,33 @@ def test_the_replay_is_the_simulators_plant(delay):
     simulated = replay.simulate(starts, n, SPEC, delay)
     for i, start in enumerate(starts):
         np.testing.assert_allclose(simulated[i], plant_positions(replay, start, n, delay), rtol=0, atol=1e-12)
+
+
+@pytest.mark.parametrize('delay', [.37, .9])
+def test_a_drive_that_applies_commands_late_in_the_simulator_is_the_replays_delay(delay):
+    """The simulator's plant takes each tick's command as the receiver gives it and applies it `delay` ticks late; the
+    replay takes the recorded commands that much older. They agree to rounding (they interpolate in another order)."""
+    replay = sim2real.Replay(recording(), 'a', TERMS)
+    starts, n = np.array([600, 1500, 2700]), 400
+    simulated = replay.simulate(starts, n, SPEC, delay)
+    for i, start in enumerate(starts):
+        late = plant_positions(replay, start, n, late_s=delay * TICK_S)
+        np.testing.assert_allclose(simulated[i], late, rtol=0, atol=1e-12)
+        assert np.max(np.abs(late - plant_positions(replay, start, n))) > 1e-4  # The delay matters here.
+
+
+def test_a_drive_just_enabled_has_only_this_ticks_command_and_a_delay_is_at_most_a_tick():
+    commands = [{'position': .5, 'velocity': 0., 'effort': 0., 'kp': 40., 'kd': 2.}]
+    plain = ArmPlant([dict(name='a', **SPEC)])
+    late = ArmPlant([dict(name='a', delay=.5 * TICK_S, **SPEC)])
+    for plant in (plain, late):
+        plant.step(None, TICK_S)  # Limp: there is no older command to apply.
+        plant.step(commands, TICK_S)
+    assert (late.q, late.v) == (plain.q, plain.v) and late.q[0] > 0
+    too_late = ArmPlant([dict(name='a', delay=2 * TICK_S, **SPEC)])
+    too_late.step(commands, TICK_S)
+    with pytest.raises(ValueError, match='longer than one step'):
+        too_late.step(commands, TICK_S)
 
 
 def test_a_fractional_delay_takes_commands_between_whole_ticks():

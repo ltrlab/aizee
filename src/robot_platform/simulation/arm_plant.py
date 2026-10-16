@@ -24,13 +24,22 @@ from .control_harness import NativeControlHarness
 TICK_S = .0025  # The live receiver's period.
 SUBSTEPS = 5
 POSITION_STEP_RAD = 8 * math.pi / 65535  # RobStride feedback: 16 bits over +-4 pi.
+COMMAND_FIELDS = ('position', 'velocity', 'effort', 'kp', 'kd')
+
+
+def _late(command, previous, fraction):
+    """The command `fraction` of a step older: linearly between the last step's and this one's."""
+    if fraction > 1:
+        raise ValueError('A command delay longer than one step is not modelled')
+    return {field: command[field] * (1 - fraction) + previous[field] * fraction for field in COMMAND_FIELDS}
 
 
 class ArmPlant:
     """Independent joints (their gravity may depend on the whole pose), in the receiver's joint order.
 
     joints: [{'name', 'inertia', 'friction', 'static' (default: friction), 'viscous' (Nm per rad/s, default 0:
-    the gearbox's damping), 'q' (default 0)}].
+    the gearbox's damping), 'delay' (s, default 0: the drive applies each command as it arrives; at most one
+    step), 'q' (default 0)}].
     gravity: {name: callable(pose) -> the torque that holds the joint against gravity}.
     """
 
@@ -49,6 +58,7 @@ class ArmPlant:
         self.quiet = set()  # Drives that have stopped answering: the receiver sees no new reading from them.
         # Drives that rebooted while driven: limp, and (their readings withheld by the adapter) quiet for good.
         self.dropped = set()
+        self.previous = None  # The last step's commands, which a drive with a delay still applies for part of a step.
 
     def pose(self):
         return dict(zip(self.names, self.q))
@@ -58,7 +68,14 @@ class ArmPlant:
         return [self.gravity[name](pose) if name in self.gravity else 0. for name in self.names]
 
     def step(self, commands, dt):
-        """Integrate `dt` s under `commands` (the receiver's, per joint), or limp when None."""
+        """Integrate `dt` s under `commands` (the receiver's, per joint), or limp when None.
+
+        A joint with a `delay` takes its command that much older, between the last step's and this one's, as
+        characterization.sim2real fits it; just after the drive was limp it has only this step's."""
+        previous, self.previous = self.previous, commands
+        if commands is not None and previous is not None and any(spec.get('delay') for spec in self.specs):
+            commands = [_late(c, p, spec['delay'] / dt) if spec.get('delay') else c
+                        for c, p, spec in zip(commands, previous, self.specs)]
         h = dt / SUBSTEPS
         for _ in range(SUBSTEPS):
             holding = self.holding()
