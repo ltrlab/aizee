@@ -111,6 +111,29 @@ before activating a release; copying the release archive does not install packag
 The task receiver/capture contract renders the configured head and right-wrist
 cameras through MuJoCo. Ubuntu uses the system `libosmesa6` software renderer and
 `MUJOCO_GL=osmesa`, selected before Python imports MuJoCo. This requires no display
-server or GPU. Windows keeps its offscreen GLFW backend. Both jobs must execute
+server or GPU. Hosted Windows keeps its offscreen GLFW backend and explicitly
+loads the pinned Mesa 26.2.4 MSVC x64 software driver. Both jobs must execute
 the render contract; missing graphics support is a failed prerequisite, not an
 allowed skip. Rendered simulation frames do not qualify physical camera calibration.
+
+Windows run [38959205082](https://github.com/ltrlab/aizee/actions/runs/38959205082)
+at candidate `5aab2da` failed its actual scene/camera contract with `gladLoadGL error`;
+942 Python tests passed, one failed, and no test skipped. Ubuntu's OSMesa job passed
+all 943 Python tests. The same scene passed locally with hardware OpenGL. This
+identifies missing hosted Windows rendering support, not a camera-contract waiver.
+
+`python scripts/ci_windows_gl.py` downloads the [Mesa distribution](https://github.com/pal1000/mesa-dist-win/releases/tag/26.2.4)
+into ignored `build/ci-mesa/`, verifies the fixed archive SHA256 before extraction,
+and verifies both selected DLL hashes before loading. It installs an opt-in startup
+hook only in this checkout's `.venv-dev`; it never installs a system driver or
+changes the global Python runtime. The hook is inert without `ROBOT_CI_MESA_DIR`.
+With that variable set, a missing or corrupt DLL aborts interpreter startup.
+Ordinary local development continues using its existing graphics backend.
+
+Before enabling the gate environment, the setup launches a fresh Python child
+which launches another renderer child. The latter must render nonblank MuJoCo RGB
+and report actual OpenGL vendor `Mesa`, renderer `llvmpipe`, and the pinned version.
+The uploaded `build/ci-mesa/report.json` records those strings, child identity,
+image hash and dependency hashes. The ordinary receiver/capture test then exercises
+its actual process renderer under the inherited environment. No rendering test is
+replaced or skipped, and no control timing or freshness bound changes.
