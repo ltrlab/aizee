@@ -14,10 +14,14 @@ def main(argv=None):
                         help='Guarded teleop profile (virtual receiver) for the Leaders and Teleop workspaces')
     parser.add_argument('--loop', choices=('jetson', 'pc'), default='jetson',
                         help="where the teleop loop runs at first: Minerva's Jetson (default) or this PC")
+    parser.add_argument('--sim', action='store_true',
+                        help="Teleop's virtual receiver drives a simulated Minerva in a MuJoCo window (loop on this PC)")
     parser.add_argument('--port', type=int, default=8760)
     args = parser.parse_args(argv)
     if not 1 <= args.port <= 65535:
         parser.error('port must be in 1..65535')
+    if args.sim and not args.teleop:
+        parser.error('--sim needs --teleop')
     from aiohttp import web
     from robot_platform.control.joint_calibration import SshCapture
     from .link import LiveLink
@@ -38,7 +42,14 @@ def main(argv=None):
             from .leaders import LeaderWorkspace
             from .teleop import TeleopSession
             leaders = LeaderWorkspace(args.teleop, labels=session.labels, evidence=session.evidence)
-            teleop = TeleopSession(session, args.teleop, runs=args.runs, leaders=leaders, target=args.loop)
+            simulation = None
+            if args.sim:
+                # The simulator's actuator file, beside the servo calibration: the motors it matches take the values
+                # sim2real fitted on real teleop.
+                from robot_platform.simulation.minerva_sim import actuators_path
+                simulation = {'actuators': str(actuators_path(session.profile_path, session.asset_id))}
+            teleop = TeleopSession(session, args.teleop, runs=args.runs, leaders=leaders,
+                                   target='pc' if args.sim else args.loop, simulation=simulation)
             from .tune import TuneSession
             tune = TuneSession(session, args.teleop, target=args.loop)
         from robot_platform.ops.check import DEFAULT_TELEOP

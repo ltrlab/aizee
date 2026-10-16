@@ -7,6 +7,13 @@ offsets/signs live separately in `calibration_runs/gello-dual/display.json`.
 for the virtual teleop test; it is not a physical motor profile.
 See [dual GELLO setup](../docs/GELLO_TELEOP.md).
 
+`devices/simulation/minerva-production-01-actuators.json` holds the actuator values the
+simulated Minerva (`robot-platform helm --sim`) runs on. They were fitted on real teleop
+and written by `characterization.sim2real --write-sim-params`, and each is bound to its
+motor's UID and firmware. It is simulation-only: robot releases leave `devices/simulation/`
+out, and nothing on the robot reads it. See
+[sim-to-real](../docs/development/SIM2REAL.md#into-the-simulator-sim-only-actuator-file).
+
 `devices/minerva-leaders-01.json` pins the dual GELLO/OpenRB USB serials and input
 age/skew limits. It contains no motor-to-CAD calibration or enable permission.
 The guarded physical zero-torque service now requires ordered

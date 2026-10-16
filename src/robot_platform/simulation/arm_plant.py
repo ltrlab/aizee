@@ -24,13 +24,22 @@ from .control_harness import NativeControlHarness
 TICK_S = .0025  # The live receiver's period.
 SUBSTEPS = 5
 POSITION_STEP_RAD = 8 * math.pi / 65535  # RobStride feedback: 16 bits over +-4 pi.
+COMMAND_FIELDS = ('position', 'velocity', 'effort', 'kp', 'kd')
+
+
+def _late(command, previous, fraction):
+    """The command `fraction` of a step older: linearly between the last step's and this one's."""
+    if fraction > 1:
+        raise ValueError('A command delay longer than one step is not modelled')
+    return {field: command[field] * (1 - fraction) + previous[field] * fraction for field in COMMAND_FIELDS}
 
 
 class ArmPlant:
     """Independent joints (their gravity may depend on the whole pose), in the receiver's joint order.
 
     joints: [{'name', 'inertia', 'friction', 'static' (default: friction), 'viscous' (Nm per rad/s, default 0:
-    the gearbox's damping), 'q' (default 0)}].
+    the gearbox's damping), 'delay' (s, default 0: the drive applies each command as it arrives; at most one
+    step), 'q' (default 0)}].
     gravity: {name: callable(pose) -> the torque that holds the joint against gravity}.
     """
 
@@ -49,6 +58,7 @@ class ArmPlant:
         self.quiet = set()  # Drives that have stopped answering: the receiver sees no new reading from them.
         # Drives that rebooted while driven: limp, and (their readings withheld by the adapter) quiet for good.
         self.dropped = set()
+        self.previous = None  # The last step's commands, which a drive with a delay still applies for part of a step.
 
     def pose(self):
         return dict(zip(self.names, self.q))
@@ -58,7 +68,14 @@ class ArmPlant:
         return [self.gravity[name](pose) if name in self.gravity else 0. for name in self.names]
 
     def step(self, commands, dt):
-        """Integrate `dt` s under `commands` (the receiver's, per joint), or limp when None."""
+        """Integrate `dt` s under `commands` (the receiver's, per joint), or limp when None.
+
+        A joint with a `delay` takes its command that much older, between the last step's and this one's, as
+        characterization.sim2real fits it; just after the drive was limp it has only this step's."""
+        previous, self.previous = self.previous, commands
+        if commands is not None and previous is not None and any(spec.get('delay') for spec in self.specs):
+            commands = [_late(c, p, spec['delay'] / dt) if spec.get('delay') else c
+                        for c, p, spec in zip(commands, previous, self.specs)]
         h = dt / SUBSTEPS
         for _ in range(SUBSTEPS):
             holding = self.holding()
@@ -142,20 +159,27 @@ class PlantReceiver:
         self.plant.step(self.driven if enabled else None, TICK_S)
         self.ticks += 1
         t_ms = self.ticks * TICK_S * 1000
-        self.last = dict(self.harness.step(int(t_ms), feedback=self.plant.measured()), hardware_dropped=self._dropped())
+        # Whole milliseconds of the tick's own time: 1606 ticks are 4015 ms, not int(4014.9999999999995).
+        self.last = dict(self.harness.step(int(round(t_ms, 6)), feedback=self.plant.measured()),
+                         hardware_dropped=self._dropped())
         self._note_driven(self.last)
         self.rows.append(self._row(self.last, t_ms))
 
-    def advance(self):
-        """Tick the receiver and the plant up to the caller's clock."""
-        while (self.ticks + 1) * TICK_S * 1000 <= self._now_ms():
+    def advance(self, now_ms=None):
+        """Tick the receiver and the plant up to the caller's clock (`now_ms`, or one reading of it)."""
+        now_ms = self._now_ms() if now_ms is None else now_ms
+        while (self.ticks + 1) * TICK_S * 1000 <= now_ms:
             self._tick()
 
     def exchange(self, request):
-        self.advance()
+        # One reading of the caller's clock. A real clock runs on while the plant ticks: read again afterwards, a
+        # slow tick put the request past the next scheduled tick, which then stepped the receiver back
+        # (clock_regression in Helm's simulated Minerva, 2026-10-14).
+        now_ms = self._now_ms()
+        self.advance(now_ms)
         if self.service_latency:
-            self._tick()
-        now_ms = max(self.harness.now_ms, int(self._now_ms()))
+            self._tick()  # The live service takes a request after its next tick.
+        now_ms = max(self.harness.now_ms, int(now_ms))
         result = self.harness.step(now_ms, request, feedback=self.plant.measured(), deferred=self.service_latency)
         self._note_driven(result)
         result = dict(result, recent=self.rows, recent_dropped=0, hardware_dropped=self._dropped())
