@@ -9,10 +9,13 @@ The task controls never create another motor publisher or enable the robot.
 From the repository root, with the project's development environment prepared:
 
 ```powershell
-.\.venv-dev\Scripts\python.exe -m robot_platform helm --profile config/devices/minerva-joint-calibration.json --teleop config/devices/minerva-teleop.json --sim
+.\.venv-dev\Scripts\python.exe -m robot_platform helm --profile config/devices/minerva-joint-calibration.json --teleop config/devices/minerva-teleop-direct.json --sim
 ```
 
-Open `http://127.0.0.1:8760/`. The header must say **Simulation only**. The task
+Open `http://127.0.0.1:8760/`. The header must say **Simulation only**.
+This simulation command uses the 100 Hz direct profile from the visible-scene
+probe: collision enforcement is disabled, but the guarded receiver and task
+contact validity checks remain. It is not a hardware operating prescription. The task
 scene defaults to `--sim-visual-mode collision_proxy`: its camera images use the
 source collision geometry to reduce rendering cost. `--sim-visual-mode cad`
 selects full CAD visuals. The worker reports the actual mode in Helm and episode
@@ -70,6 +73,13 @@ recorder timing check on the Jetson before hardware collection is qualified.
 ```powershell
 .\.venv-dev\Scripts\python.exe -m robot_platform helm --profile config/devices/minerva-joint-calibration.json --teleop config/devices/minerva-teleop.json --capture-profile config/devices/minerva-task-capture.json
 ```
+
+The robot example deliberately retains `minerva-teleop.json`, whose bimanual
+live session enforces the existing motion envelope. It is a different workload
+from the 100 Hz collision-disabled `minerva-teleop-direct-tuning.json` used for
+isolated Jetson capture timing. A direct-profile timing pass does not qualify
+this profile or overlapping physical handoff. The intended live profile must
+pass its own timing and attended readiness checks before collection.
 
 Robot mode retains the existing stopped reader and live connection behavior.
 Select **Tether**, **Minerva's Jetson**, and **Live · both**, then **Set up task**.
