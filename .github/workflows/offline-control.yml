@@ -13,7 +13,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -22,14 +22,23 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-          cache-dependency-path: requirements/dev.lock
+          cache-dependency-path: |
+            requirements/dev.lock
+            requirements/cross-build.lock
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - name: Select baseline Rust
         run: rustup toolchain install 1.98.1 --profile minimal
       - run: rustup override set 1.98.1
       - run: python scripts/dev.py setup
+      - name: Build mandatory ARM64 release inputs
+        run: python scripts/build_release.py --bootstrap
       - run: python scripts/dev.py check
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: offline-control-${{ matrix.os }}
-          path: build/dev-check/
+          path: |
+            build/dev-check/
+            build/cross-build/

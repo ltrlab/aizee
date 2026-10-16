@@ -1,11 +1,12 @@
 # Development workflow
 
-Use CPython 3.12, Git LFS and Rust 1.98.1 for the offline control gate. This is a
+Use CPython 3.12, Git LFS, Node.js 22 and Rust 1.98.1 for the offline control gate. This is a
 development environment; Jetson deployment keeps its existing build/release flow.
 
 ```sh
 git lfs pull
 python scripts/dev.py setup
+python scripts/build_release.py --bootstrap
 python scripts/dev.py check
 ```
 
@@ -15,7 +16,15 @@ Check builds/tests both portable Rust crates, builds the receiver harness and
 collision library, checks their presence/ABI, then runs the required control and
 rehearsal tests. A skip or xfail fails this gate. `--offline` uses Cargo's cache.
 Other suites remain available through this environment's `python -m pytest`;
-the focused gate does not claim to cover learning, UI, Linux services or hardware.
+the focused gate does not claim to cover learning, full UI behavior, Linux services or hardware.
+Node checks all shipped browser modules. ARM64 release inputs are mandatory even
+on a Windows/x86_64 host: the gate validates and hashes them, then builds and
+verifies the release archive without executing those binaries. The portable
+cross-build command above installs separately hash-locked tools and targets
+JetPack 6's glibc 2.35 baseline; after provisioning, use `--offline` instead of
+`--bootstrap` when all Cargo dependencies are cached. The existing provisioned
+Windows `build_jetson.ps1 -Offline -Package robot_control,robot_collision` is also
+supported. See [CI and release prerequisites](development/CI_RELEASE_GATE.md).
 
 On a Windows host with the repository's existing downloaded toolchain, share its
 compiler/cache by setting `ROBOT_RUST_TOOLCHAIN_ROOT` to the absolute directory
