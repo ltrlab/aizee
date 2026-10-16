@@ -25,6 +25,8 @@ def main(argv=None):
                         help='Guarded teleop profile (virtual receiver) for the Leaders and Teleop workspaces')
     parser.add_argument('--loop', choices=('jetson', 'pc'), default='jetson',
                         help="where the teleop loop runs at first: Minerva's Jetson (default) or this PC")
+    parser.add_argument('--no-live', action='store_true',
+                        help='Start without the automatic stopped-motor reader; camera setup remains available')
     parser.add_argument('--sim', action='store_true',
                         help="Teleop's virtual receiver drives a simulated Minerva in a MuJoCo window (loop on this PC)")
     parser.add_argument('--sim-visual-mode', choices=('cad', 'collision_proxy'),
@@ -76,10 +78,12 @@ def main(argv=None):
             if not args.sim:
                 from .tune import TuneSession
                 tune = TuneSession(session, args.teleop, target=args.loop)
-        check = None
+        check = cameras = None
         if not args.sim:
             from robot_platform.ops.check import DEFAULT_TELEOP
             from .check import CheckWorkspace
+            from .cameras import CameraSettings
+            cameras = CameraSettings(session.profile_path, address=lambda: session.address)
             check = CheckWorkspace(profile=session.profile_path, teleop=args.teleop or DEFAULT_TELEOP,
                                    runs=args.runs, limits=session.limits_path, address=lambda: session.address)
         if tune is not None:
@@ -87,10 +91,11 @@ def main(argv=None):
             tune.on_finished = lambda mode, arm, results, fault: (
                 check.record_live(arm, results, fault=fault) if mode == 'verify' else None)
         app = create_app(session, link, teleop=teleop, leaders=leaders, check=check, tune=tune,
-                         live=not args.sim, simulation_only=args.sim)
+                         live=not (args.sim or args.no_live), simulation_only=args.sim, cameras=cameras)
         if session.stale_lock_pid:
             print(f'Took over a calibration lock left by exited process {session.stale_lock_pid}.', flush=True)
         mode = ('SIMULATION ONLY; no physical robot connection' if args.sim else
+                'robot mode; automatic stopped-motor reader off' if args.no_live else
                 'robot mode; reads the arms, motors disabled, whenever Minerva is online')
         print(f'Helm: http://127.0.0.1:{args.port}/  ({session.asset_id}; {mode})', flush=True)
         web.run_app(app, host='127.0.0.1', port=args.port, print=None)
