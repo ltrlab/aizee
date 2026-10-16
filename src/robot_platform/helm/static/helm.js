@@ -318,11 +318,11 @@ function renderTask(state) {
   $('task-setup').disabled = running || !t;
   $('task-setup').textContent = configured ? 'Task configured' : 'Set up task';
   $('task-reset').hidden = !simulation;
-  $('task-reset').disabled = !task.available || !running || active || !['DISABLED', 'IDLE'].includes(t?.state);
-  $('task-record').disabled = !task.available || !task.capture_ready || !running || active || pending || task.failed || !['HOLD', 'TELEOP'].includes(t?.state);
-  $('task-stop').disabled = !running || !active || pending;
+  $('task-reset').disabled = !!t?.recording_fault || !task.available || !running || active || !['DISABLED', 'IDLE'].includes(t?.state);
+  $('task-record').disabled = !task.available || !task.capture_ready || !running || active || pending || task.failed || t?.recording_fault || !['HOLD', 'TELEOP'].includes(t?.state);
+  $('task-stop').disabled = !!t?.recording_fault || !running || !active || pending;
   const progress = task.task || {};
-  $('task-state').textContent = task.error ? 'Task needs attention.' : !configured ? 'Task not configured.'
+  $('task-state').textContent = t?.recording_fault || task.error ? 'Task needs attention.' : !configured ? 'Task not configured.'
     : !running ? 'Ready to start a session. Task controls do not enable motors.'
     : task.display_phase || progress.phase || progress.stage || (task.available ? 'Task ready.' : 'Preparing task…');
   $('task-cameras').hidden = simulation;
@@ -333,7 +333,7 @@ function renderTask(state) {
     + (recording.path || recording.directory ? ` · ${recording.path || recording.directory}` : '')
     + (simulation ? (task.cameras?.ready ? ' · simulated cameras rendered' : '')
       : task.cameras ? ` · cameras: ${Object.entries(task.cameras).map(([name, c]) => `${name} ${c.fresh ? 'fresh' : c.error || 'waiting'}`).join(', ')}` : '');
-  const error = task.error || recording.error || task.last_command?.error || '';
+  const error = t?.recording_fault || task.error || recording.error || task.last_command?.error || '';
   $('task-error').hidden = !error;
   $('task-error').textContent = error;
 }
@@ -1047,7 +1047,8 @@ function renderTeleop(t) {
   session.className = running || starting || live ? 'danger' : 'primary';
   session.disabled = starting;
   for (const button of document.querySelectorAll('.lifecycle button'))
-    button.disabled = !running || (!!t.fault && button.dataset.key !== 'H');
+    button.disabled = !running || (!!t.fault && button.dataset.key !== 'H')
+      || (!!t.recording_fault && !['H', 'X'].includes(button.dataset.key));
   $('t-engage').innerHTML = ENGAGED.includes(t.state) ? 'Hold <kbd>T</kbd>' : 'Engage <kbd>T</kbd>';
   renderManual(t);
   $('t-tuning-summary').textContent=t.tuning?.enabled
@@ -1517,7 +1518,7 @@ function renderGlobalControls(state) {
   $('global-controls').hidden=!visible;document.body.classList.toggle('has-controls',visible);
   $('global-session-state').textContent=sweeping?`Servo task · ${state.tune.phase}`:`Teleop · ${state.teleop?.state||state.teleop?.phase||'stopped'}`;
   $('global-hold').hidden=sweeping;
-  $('global-hold').disabled=!running||!!state.teleop?.fault||!['HOLD','ENGAGING','TELEOP'].includes(state.teleop?.state);
+  $('global-hold').disabled=!running||!!state.teleop?.fault||!!state.teleop?.recording_fault||!['HOLD','ENGAGING','TELEOP'].includes(state.teleop?.state);
   $('global-hold').innerHTML=ENGAGED.includes(state.teleop?.state)?'Hold <kbd>T</kbd>':'Engage <kbd>T</kbd>';
   $('global-shutdown').disabled=!sweeping&&(!running||!!state.teleop?.fault);
   $('global-disable').disabled=!visible;

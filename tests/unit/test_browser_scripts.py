@@ -40,3 +40,11 @@ def test_task_viewer_unloads_duplicate_rendering_and_restores_after_stop():
     result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_task_viewer.mjs')],
                             capture_output=True, timeout=60)
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-1200:]
+
+
+def test_capture_failure_locks_following_but_keeps_disable_shutdown_and_stop():
+    node = shutil.which('node')
+    assert node, 'Node.js is required to check the browser lifecycle'
+    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_capture_failure.mjs')],
+                            capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stderr.decode(errors='replace')[-1200:]
