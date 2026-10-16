@@ -206,12 +206,12 @@ def test_live_camera_count_reaches_gui_with_two_fresh_streams(helm, tmp_path, mo
     asyncio.run(run())
 
 
-def test_initial_live_profile_declares_right_wrist_head_and_unknown_static_neck_extrinsics():
+def test_live_profile_declares_three_verified_views_and_unknown_static_neck_extrinsics():
     import json
     from robot_platform.helm.task_capture import validate_config
     profile = validate_config(json.loads((DEVICES / 'minerva-task-capture.json').read_text(encoding='utf-8')))
-    assert profile['camera_roles'] == ['right_wrist', 'head']
-    assert set(profile['cameras']) == {'right_wrist', 'head'}
+    assert profile['camera_roles'] == ['left_wrist', 'right_wrist', 'head']
+    assert set(profile['cameras']) == {'left_wrist', 'right_wrist', 'head'}
     head = profile['cameras']['head']
     assert head['mount'] == 'static neck' and head['extrinsics_calibration'] == 'unknown'
     assert not any(key in head for key in ('transform', 'translation', 'rotation', 'extrinsics'))

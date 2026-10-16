@@ -5,6 +5,12 @@
   "max_receiver_age_s": 0.03,
   "max_camera_skew_s": 0.02,
   "cameras": {
+    "left_wrist": {
+      "endpoint": "tcp://127.0.0.1:5563",
+      "camera_id": "left_wrist",
+      "timestamp_clock": "local_unix",
+      "timestamp_semantics": "host_read_complete"
+    },
     "right_wrist": {
       "endpoint": "tcp://127.0.0.1:5565",
       "camera_id": "right_wrist",
@@ -25,11 +31,12 @@
     "Capture runs on the Jetson beside the existing guarded receiver; these are Jetson loopback endpoints.",
     "Verify camera identity and same-host Unix timestamps before recording. A relay from another clock is not supported by this profile.",
     "Left wrist USB 05a3:9230, right wrist USB 32e4:9230; configured wrist JPEG resolution 640x480 at 30 Hz.",
-    "These are capture admission limits, not physical motion qualification. The initial right_wrist and head camera_roles are both required; no left-camera stream or placeholder is written.",
+    "These are capture admission limits, not physical motion qualification. All three declared camera roles are required; no placeholder image is written.",
     "The head D435 is mounted on the static neck. Physical camera extrinsics are not calibrated; no camera-to-robot transform is supplied.",
-    "The operator selected right wrist and head initially. To add left_wrist later, declare it in camera_roles and supply its verified camera configuration; changing the roster creates a different dataset contract."
+    "The operator connected the left wrist on 2026-10-16. All three identities and live JPEG streams were verified on the Jetson; this three-view roster is a different dataset contract from earlier two-view recordings."
   ],
   "camera_roles": [
+    "left_wrist",
     "right_wrist",
     "head"
   ]

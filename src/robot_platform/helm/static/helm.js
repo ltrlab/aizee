@@ -10,9 +10,9 @@ let pendingConfirm = null;  // An open live confirmation: {kind: 'start' | 'stop
 const signed = (q, digits = 3) => (q == null || !Number.isFinite(q)) ? '—' : `${q < 0 ? '−' : '+'}${Math.abs(q).toFixed(digits)}`;
 const range = entry => `${signed(entry.min_rad, 2)} … ${signed(entry.max_rad, 2)} rad`;
 
-async function request(path, payload, timeoutMs = 15000) {
+async function request(path, payload, timeoutMs = payload === undefined ? 3000 : 15000) {
   const options = payload === undefined
-    ? {cache: 'no-store', signal: AbortSignal.timeout(3000)}
+    ? {cache: 'no-store', signal: AbortSignal.timeout(timeoutMs)}
     : {method: 'POST', cache: 'no-store', signal: AbortSignal.timeout(timeoutMs), body: JSON.stringify(payload),
        headers: {'Content-Type': 'application/json', 'X-Helm-Token': token || ''}};
   const response = await fetch(path, options);
