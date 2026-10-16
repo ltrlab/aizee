@@ -199,6 +199,13 @@ def test_helm_sim_reads_the_actuator_file_beside_the_servo_calibration_and_it_fi
                        'right_gripper': ['inertia', 'friction', 'static']}
 
 
+def test_robot_releases_leave_the_simulators_actuator_file_out():
+    from robot_platform.ops.release import ROOT, collect
+    keys = set(collect(ROOT))
+    assert 'config/devices/minerva-production-01-servo.json' in keys
+    assert not any(key.startswith('config/devices/simulation/') for key in keys)
+
+
 def test_an_actuator_file_for_other_motors_or_none_leaves_their_joints_as_they_were(tmp_path):
     servo, document = load_servo(SERVO), json.loads(ACTUATORS.read_text(encoding='utf-8'))
     terms = fitted_terms(document)
