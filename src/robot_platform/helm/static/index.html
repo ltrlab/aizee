@@ -30,8 +30,13 @@
   <p id="banner" role="status" hidden></p>
   <main>
     <section class="view" aria-label="Live robot model">
-      <div class="model-toolbar"><div><span class="eyebrow">MODEL &amp; TELEMETRY</span><span id="model-source" class="muted">Waiting for feedback</span></div><button id="open-display">Display options</button></div>
+      <div class="model-toolbar"><div><span id="model-heading" class="eyebrow">MODEL &amp; TELEMETRY</span><span id="model-source" class="muted">Waiting for feedback</span></div><button id="open-display">Display options</button></div>
       <iframe id="model-view" src="viewer?embed=1" title="Live robot model"></iframe>
+      <div id="task-window-note" class="task-window-note" role="status" hidden>
+        <h2>Task scene is in the Minerva simulation window</h2>
+        <p>Use that window to watch the cube, grippers and bucket.</p>
+        <p>Live joint telemetry and session controls remain available in Teleop.</p>
+      </div>
     </section>
     <aside>
       <section id="panel-check" class="panel" aria-label="Minerva Check">
