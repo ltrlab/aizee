@@ -12,7 +12,13 @@ From the repository root, with the project's development environment prepared:
 .\.venv-dev\Scripts\python.exe -m robot_platform helm --profile config/devices/minerva-joint-calibration.json --teleop config/devices/minerva-teleop.json --sim
 ```
 
-Open `http://127.0.0.1:8760/`. The header must say **Simulation only**.
+Open `http://127.0.0.1:8760/`. The header must say **Simulation only**. The task
+scene defaults to `--sim-visual-mode collision_proxy`: its camera images use the
+source collision geometry to reduce rendering cost. `--sim-visual-mode cad`
+selects full CAD visuals. The worker reports the actual mode in Helm and episode
+provenance. This changes image appearance, not contact geometry or the control
+watchdogs; full CAD capture still has to meet the same timing checks.
+
 This mode does not construct an SSH connection or stopped live reader and refuses
 physical connection, calibration, tuning, receiver and Jetson-target API actions.
 It reads the saved robot calibration and actuator parameters locally. Both leader

@@ -253,7 +253,7 @@ def _holding(terms, scale):
 
 
 def open_simulation(derived, *, model, directions, motors, servo, directory, clock, scene=SCENE, viewer=True,
-                    seed=1, actuators=None, task_scene=False):
+                    seed=1, actuators=None, task_scene=False, visual_mode='collision_proxy'):
     """A SimulatedReceiver for a derived receiver (guarded_config.derive_receiver), resting at its initial pose.
 
     `model` is the URDF model the receiver was derived against, `directions` Helm's confirmed mapping and
@@ -274,7 +274,7 @@ def open_simulation(derived, *, model, directions, motors, servo, directory, clo
         view = TaskSceneView(scene, derived['joint_map'], names, directory=Path(directory) / 'episodes',
                              metadata={'actuators': record, 'nominal': nominal,
                                        'receiver_identity': config['identity']},
-                             seed=seed, viewer=viewer)
+                             seed=seed, viewer=viewer, visual_mode=visual_mode)
     else:
         view = ModelView(scene, derived['joint_map'], names) if viewer else None
     return SimulatedReceiver(config, plant, clock=clock, directory=directory, view=view, nominal=nominal,

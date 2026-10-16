@@ -292,7 +292,7 @@ function renderTask(state) {
   const pending = task.last_command?.state === 'pending';
   $('task-mode').textContent = simulation ? 'SIMULATED CONTACT TASK' : 'BIMANUAL ROBOT CAPTURE';
   $('task-capability').textContent = simulation
-    ? 'Dynamic object contacts with posed fingers; simulated arm response is not a validated coupled physics model. No synthetic grasp attachment.'
+    ? `${task.display_visual || 'Camera appearance is not reported yet.'} Dynamic object contacts with posed fingers; simulated arm response is not a validated coupled physics model. No synthetic grasp attachment.`
     : 'Records the current guarded receiver and existing camera streams. Both arms and grippers must be healthy; camera timing must be verified.';
   $('task-setup').disabled = running || !t;
   $('task-setup').textContent = configured ? 'Task configured' : 'Set up task';
