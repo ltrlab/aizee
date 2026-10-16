@@ -2,8 +2,19 @@
 
 Updated 2026-10-16. Current milestone: both Minerva arms and grippers (14 axes),
 collecting a cube pickup, handoff and bucket placement in simulation and on the
-robot. Initial cameras: **right wrist + head**. The D435 head is on a static neck;
+robot. Current cameras: **left wrist + right wrist + head**, all three identities
+and JPEG streams verified on 2026-10-16. Earlier recordings retain their two-view
+contract. The D435 head is on a static neck;
 its mounting transform has not been calibrated.
+
+Helm camera-console candidate adds Settings → Cameras with verified wrist
+exposure/gain controls and explicit snapshots, plus a persistent touch toggle.
+`--no-live` opens the console without starting the stopped motor reader. Camera
+changes are rejected during teleop/capture; uncertain writes block a new session
+until camera-service recovery and Helm restart. Head exposure is unsupported by
+the current service. Configurable 180-degree head RGB/depth rotation preserves
+sensor-frame depth projection and recording provenance. These UI/camera changes
+do not qualify physical motion. See `development/HEAD_CAMERA_ORIENTATION.md`.
 
 ## Accepted source and delivery
 

@@ -20,7 +20,12 @@ camera:
       compression: JPEG
       quality: 85
       flip: "none"
-  v4l2_controls: {}              # v4l-utils not installed; use camera defaults for now
+  # Verified via camera control readback on 2026-10-16. Helm can adjust these
+  # at runtime; this startup preset survives camera-service restarts.
+  v4l2_controls:
+    auto_exposure: 1
+    exposure_time_absolute: 150  # 15 ms; V4L2 units are 100 microseconds
+    gain: 30
 
 network:
   device:
