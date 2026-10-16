@@ -73,6 +73,8 @@ def rep(monkeypatch):
             if request['op'] == 'get_ctrls':
                 result = {'ok': True, 'ctrls': state.controls}
             else:
+                if hasattr(state, 'release_set'):
+                    assert state.release_set.wait(4)
                 if state.apply:
                     state.controls[request['name']]['value'] = request['value']
                 result = {'ok': True}
@@ -361,3 +363,76 @@ def test_cancelled_http_write_keeps_start_fenced_until_remote_completion(helm):
             with pytest.raises(asyncio.CancelledError):
                 await pending
     asyncio.run(run())
+
+
+def test_delayed_legacy_set_remains_fenced_after_timeout_and_read_only_refresh(rep, tmp_path, monkeypatch):
+    import ast
+    rep.release_set = threading.Event()
+    monkeypatch.setattr(cam, 'ROLES', {'right_wrist':cam.ROLES['right_wrist']})
+    class LocalSSH:
+        def exec_command(self, *args, **kwargs):
+            source = []
+            channel = SSHChannel({})
+            def execute():
+                request = ast.literal_eval(source[0].splitlines()[-1][len('remote_main('):-1])
+                try:
+                    response = {'ok':True, 'result':cam.remote_operation(request)}
+                except Exception as exc:
+                    response = {'ok':False, 'error':str(exc), 'write_uncertain':isinstance(exc, cam.CameraWriteUncertain)}
+                channel.output = json.dumps(response).encode()
+            channel.shutdown_write = execute
+            return SimpleNamespace(write=source.append, flush=lambda:None), SimpleNamespace(channel=channel), None
+        def close(self): pass
+    manager = cam.CameraSettings(tmp_path/'profile', address=lambda:'local-fixture', open_ssh=lambda *a, **k: LocalSSH())
+    try:
+        with pytest.raises(cam.CameraWriteUncertain, match='outcome is uncertain'):
+            manager.set('right_wrist', 'gain', 42)
+        # The camera service has received the set request but has not applied it.
+        assert rep.controls['gain']['value'] == 30
+        assert manager.write_fault
+    finally:
+        rep.release_set.set()
+    # An ordinary read after the delayed request applies does not authorize reuse.
+    current = manager._call({'operation':'snapshot'})
+    assert current['cameras']['right_wrist']['controls']['gain']['value'] == 42
+    assert manager.write_fault
+    with pytest.raises(ValueError, match='outcome is uncertain'):
+        manager.set('right_wrist', 'gain', 44)
+    assert [item['op'] for item in rep.requests].count('set_ctrl') == 1
+
+
+def test_uncertain_write_blocks_session_start_capture_and_further_writes(helm):
+    backend, teleop = FakeCameras(), FakeTeleop()
+    backend.write_fault = 'Camera write outcome is uncertain; restart camera service and verify'
+    async def scenario(client):
+        state = await (await client.get('/api/helm/cameras')).json()
+        assert not state['can_apply'] and 'uncertain' in state['reason']
+        for path, body in [('/cameras/right_wrist', {'name':'gain','value':1}),
+                           ('/teleop/start', {}), ('/task', {'action':'start_record'})]:
+            response = await client.post('/api/helm'+path, json=body, headers={'X-Helm-Token':'secret'})
+            assert response.status == 422 and 'uncertain' in (await response.json())['error']
+        assert not teleop.active
+    api(helm, backend, scenario, teleop=teleop)
+    assert [call[0] for call in backend.calls] == ['get']
+
+
+def test_remote_validation_rejection_does_not_latch_unknown_mutation(tmp_path):
+    channel = SSHChannel({'ok':False, 'write_uncertain':False, 'error':'Value is not a reported camera menu entry'})
+    client = SimpleNamespace(exec_command=lambda *a, **k: (SimpleNamespace(write=lambda _:None, flush=lambda:None),
+                             SimpleNamespace(channel=channel), None), close=lambda:None)
+    manager = cam.CameraSettings(tmp_path/'profile', address=lambda:'fixture', open_ssh=lambda *a, **k:client)
+    with pytest.raises(ValueError, match='menu entry'):
+        manager.set('right_wrist', 'auto_exposure', 2)
+    assert manager.write_fault is None
+
+
+def test_disconnect_while_sending_write_helper_latches_uncertainty(tmp_path):
+    channel = SSHChannel({})
+    def disconnected(_):
+        raise OSError('link lost after sending some or all helper bytes')
+    client = SimpleNamespace(exec_command=lambda *a, **k: (SimpleNamespace(write=disconnected, flush=lambda:None),
+                             SimpleNamespace(channel=channel), None), close=lambda:None)
+    manager = cam.CameraSettings(tmp_path/'profile', address=lambda:'fixture', open_ssh=lambda *a, **k:client)
+    with pytest.raises(cam.CameraWriteUncertain, match='outcome is uncertain'):
+        manager.set('right_wrist', 'gain', 42)
+    assert manager.write_fault

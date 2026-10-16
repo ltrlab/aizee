@@ -170,6 +170,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             return 'Simulation mode cannot access physical cameras'
         if cameras is None:
             return 'Camera settings are not configured'
+        if getattr(cameras, 'write_fault', None):
+            return cameras.write_fault
         if camera_change.locked():
             return 'A camera change is running; wait for readback'
         if teleop is not None:
@@ -278,6 +280,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         if simulation_only and (getattr(teleop, 'simulation', None) is None
                                 or teleop.target != 'pc' or teleop.receiver['mode'] != 'virtual'):
             raise ValueError('Simulation mode needs the virtual receiver on this PC')
+        if getattr(cameras, 'write_fault', None):
+            raise ValueError(cameras.write_fault)
         if camera_change.locked():
             raise ValueError('A camera change is running; wait for readback before starting teleop')
         async with camera_change:
@@ -290,6 +294,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         need_teleop()
         if set(payload) != {'action'} or payload['action'] not in ('setup', 'reset', 'start_record', 'stop_record'):
             raise ValueError('Expected task action: setup, reset, start_record or stop_record')
+        if payload['action'] == 'start_record' and getattr(cameras, 'write_fault', None):
+            raise ValueError(cameras.write_fault)
         await off_loop(lambda: teleop.task_action(payload['action']))
         return state_response()
 
