@@ -8,6 +8,7 @@
 <body data-feed="disconnected" data-tab="check">
   <header>
     <div class="brand"><span class="mark" aria-hidden="true">⎈</span><div><span class="name">Helm</span><small id="robot-name">Loading robot…</small></div></div>
+    <button type="button" class="touch-shortcut" data-touch-toggle aria-pressed="false" title="Larger controls for a touchscreen; also in Settings → 3D display">Touch mode: Off</button>
     <nav aria-label="Workspaces">
       <button class="tab" data-tab="check" aria-current="page">Check</button>
       <button class="tab" data-tab="limits">Limits</button>
@@ -281,6 +282,12 @@
             <p id="gripper-zero-feedback" class="muted" role="status" aria-live="polite"></p>
           </section>
           <section id="settings-display" class="settings-group" hidden>
+            <div class="touch-preference">
+              <h2>Touchscreen layout</h2>
+              <p class="muted" id="touch-description">Larger controls and scrollable panels for a small touch console. Applies immediately and is saved in this browser.</p>
+              <button type="button" data-touch-toggle aria-pressed="false" aria-describedby="touch-description">Touch mode: Off</button>
+              <p id="touch-status" class="muted" role="status" aria-live="polite"></p>
+            </div>
             <h2>3D telemetry</h2><p class="muted">Display preferences apply immediately in this browser. They do not change robot control.</p>
             <label class="display-toggle"><input type="checkbox" data-display="enabled" checked> Show joint telemetry on the model</label>
             <label class="display-select">Show readings as <select data-display="scope"><option value="selected">Selected joint only</option><option value="all">Tags for all joints</option><option value="model">On the model (dials)</option></select></label>
@@ -316,6 +323,7 @@
     <button id="global-shutdown">Return &amp; disable <kbd>X</kbd></button>
     <button id="global-disable" class="danger">Disable now <kbd>H</kbd></button>
   </div>
+  <script type="module" src="helm/touch.js"></script>
   <script type="module" src="helm/helm.js"></script>
 </body>
 </html>
