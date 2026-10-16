@@ -22,6 +22,8 @@ TERMS = [(6.5, {'a': 1., 'b': 1.}), (2.2, {'a': 1.})]  # A pitch chain: b's meas
 SPEC = {'inertia': .3, 'friction': .4, 'static': .55, 'viscous': .2}
 ROOT = Path(__file__).resolve().parents[2]
 DEVICES = ROOT / 'config/devices'
+ACTUATORS = DEVICES / 'simulation' / 'minerva-production-01-actuators.json'
+ARM = [f'{side}_arm_j{k}' for side in ('left', 'right') for k in range(1, 7)]
 
 
 def recording(n=4000, *, kp=None, gap_at=None):
@@ -175,6 +177,23 @@ def seeded_runs(tmp_path):
                 limits=DEVICES / 'minerva-production-01-joint-limits.json',
                 seed=ROOT / 'docs/devices/MINERVA_ARM_DIRECTIONS_20260924.json').close()
     return tmp_path / 'runs'
+
+
+def test_the_simulator_is_built_with_its_actuator_file_as_helm_sim_builds_it(tmp_path):
+    built = sim2real.simulator(DEVICES / 'minerva-joint-calibration.json', seeded_runs(tmp_path), actuators=ACTUATORS)
+    document = json.loads(ACTUATORS.read_text(encoding='utf-8'))
+    for name in ARM:
+        entry = document['motors'][name]
+        assert built['specs'][name] == dict(name=name, **{key: entry[key] for key in FITTED},
+                                            delay=entry['delay_ticks'] * TICK_S)
+    # The seed's right-arm directions are not those the right arm's gravity scales were fitted against.
+    unscaled = ('right_arm_j2', 'right_arm_j3', 'right_arm_j4')
+    assert built['gravity_scale'] == {name: 1. if name in unscaled else document['motors'][name]['gravity_scale']
+                                      for name in ARM}
+    assert built['identity']['actuators']['used'] == ARM
+    assert sorted(built['identity']['actuators']['gravity_unscaled']) == ['right_arm_j2', 'right_arm_j3',
+                                                                           'right_arm_j4']
+    assert sorted(built['nominal']) == ['left_gripper', 'right_gripper']
 
 
 def test_the_current_simulator_is_replayed_with_its_gravity_scale_and_delay(monkeypatch):

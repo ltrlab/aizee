@@ -321,7 +321,7 @@ class TeleopCore:
         receiver = open_simulation(derived, model=model, directions=self.bundle['directions'],
                                    motors=reference['motors'], servo=self.bundle.get('servo'), directory=directory,
                                    clock=self.clock, viewer=self.simulation.get('viewer', True),
-                                   seed=self.simulation.get('seed', 1))
+                                   seed=self.simulation.get('seed', 1), actuators=self.simulation.get('actuators'))
         self.scheduling['receiver'] = prefer_responsive(receiver.harness.process.pid)
         return receiver
 
@@ -496,7 +496,8 @@ class TeleopCore:
             harness = self.open_simulation(derived, model, reference)
             self._closers.append(harness.close)
             self._start_recording(harness, derived['config'])
-            self._event('simulation', nominal=harness.nominal)
+            actuators = getattr(harness, 'actuators', None)
+            self._event('simulation', nominal=harness.nominal, **({'actuators': actuators} if actuators else {}))
             exchange = harness.exchange
         else:
             harness = self.open_harness(derived['config'], derived['initial'])
@@ -1322,7 +1323,8 @@ class TeleopSession:
         self.leader_factory = leader_factory  # Previews/tests: 'module:function' instead of USB leaders.
         if target not in self.TARGETS:
             raise ValueError(f'The loop runs on one of {", ".join(self.TARGETS)}')
-        # {'viewer': bool, 'seed': int} or None: the virtual receiver drives a simulated Minerva on this PC.
+        # {'viewer': bool, 'seed': int, 'actuators': the simulator's actuator file} or None: the virtual receiver
+        # drives a simulated Minerva on this PC.
         self.simulation = dict(simulation) if simulation is not None else None
         if self.simulation is not None and target != 'pc':
             raise ValueError('The simulated Minerva runs on this PC')

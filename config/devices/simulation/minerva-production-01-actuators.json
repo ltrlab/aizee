@@ -1,0 +1,1299 @@
+{
+ "schema": 1,
+ "kind": "sim_actuator_calibration",
+ "asset_id": "minerva-production-01",
+ "use": "Simulation only: simulation.minerva_sim (robot-platform helm --sim) and sim2real --sim-params. Nothing on the robot reads it; robot releases leave config/devices/simulation/ out.",
+ "source": {
+  "report": {
+   "path": "C:\\Users\\ltr\\Workspace\\minerva-evidence\\analysis\\sim2real-20261015\\report.json",
+   "sha256": "44364a2e90d311c1bcb44d6fad1cd9b6bd112b415bf1aa6904d349dd19746229"
+  },
+  "recordings": [
+   {
+    "session": "C:\\Users\\ltr\\Workspace\\minerva-evidence\\jetson\\evidence\\live-20261015T223503Z",
+    "samples_sha256": "5bbcb3def911f6b7ce239a691df97fee540a40d02e2ce93d0f23a487d83f492c",
+    "rows": 21426,
+    "span_s": 110.3849059753418,
+    "gaps": 1,
+    "command_block": true,
+    "faults_receiver_ms": [
+     "unplaced: every window left out"
+    ]
+   },
+   {
+    "session": "C:\\Users\\ltr\\Workspace\\minerva-evidence\\jetson\\evidence\\live-20261015T223714Z",
+    "samples_sha256": "57bff02ffd8f3e29d73d75c60f3fbc3691e9ed1dfec1b357cb752705885b612e",
+    "rows": 10459,
+    "span_s": 26.145169982910158,
+    "gaps": 0,
+    "command_block": true,
+    "faults_receiver_ms": [
+     25951.298363685608
+    ]
+   },
+   {
+    "session": "C:\\Users\\ltr\\Workspace\\minerva-evidence\\jetson\\evidence\\live-20261015T223850Z",
+    "samples_sha256": "91ff870f212be4be8eb9c19b4360b35408437f2286dd936f8b00c3fa98c4e4c1",
+    "rows": 56964,
+    "span_s": 142.40751000976564,
+    "gaps": 1,
+    "command_block": true,
+    "faults_receiver_ms": [
+     142680.88295602798
+    ]
+   },
+   {
+    "session": "C:\\Users\\ltr\\Workspace\\minerva-evidence\\jetson\\evidence\\live-20261015T230538Z",
+    "samples_sha256": "9151def4ad786cdace86b031785b62f47e4fafd53081f770ac52e75fe9a6d6c0",
+    "rows": 133109,
+    "span_s": 332.7877066650391,
+    "gaps": 8,
+    "command_block": true,
+    "faults_receiver_ms": [
+     333064.328999
+    ]
+   }
+  ],
+  "servo": {
+   "path": "C:\\Users\\ltr\\Workspace\\aizee-actuator-response\\config\\devices\\minerva-production-01-servo.json",
+   "sha256": "9b0003c5a17d69203ef695bacdc5fe923fe264991c6b311e5122f0402dbed881"
+  },
+  "directions": {
+   "plan": "15fd6ad45cfc5a8bc7c9bfa100861352a1553f21712bace525c282200ab5bdd0",
+   "device": "df18344dee90e6ef14f9bd1d1fe0cc801dca174ce66a92d46c970d98c45cb6f4",
+   "reference": "fd9f5a401d1288cd601ce0f5b13b5f66bff2aed3ee78daa45c5ab89f425c1e5a",
+   "model": "792f32da597821bbab4d7e65365618519159ecbc657744133196325eaafddcf8",
+   "model_profile": "01be559e67ff11c57249093908fed08fcf170d197c7b83ffd4accda8894d696c"
+  },
+  "method": {
+   "window_s": 1.0,
+   "block_s": 10.0,
+   "tick_s": 0.0025,
+   "plant": "ArmPlant equations",
+   "context": "the arm's other joints at their measured positions"
+  }
+ },
+ "units": {
+  "inertia": "kg m2",
+  "friction": "Nm (Coulomb, sliding)",
+  "static": "Nm (breakaway)",
+  "viscous": "Nm s/rad",
+  "gravity_scale": "times the holding torque of gravity_terms",
+  "delay_ticks": "receiver ticks of 2.5 ms",
+  "delay_ms": "ms",
+  "gravity_terms": "[[coefficient Nm, {motor: multiplier}]]: sum coefficient sin(sum multiplier q)",
+  "scores": "max and rms position error per 1 s window, mrad"
+ },
+ "motors": {
+  "left_arm_j1": {
+   "uid": "3c56300214713704",
+   "firmware": "0.3.1.30",
+   "inertia": 0.2058780853183069,
+   "friction": 0.13202692410291417,
+   "static": 0.14043178836991482,
+   "viscous": 0.8101409395621152,
+   "gravity_scale": 0.9999999999999996,
+   "delay_ticks": 0.24073944342297662,
+   "delay_ms": 0.6018486085574416,
+   "gravity_terms": [],
+   "at_bounds": [],
+   "fit": {
+    "fit_windows": 150,
+    "fit_rms_mrad": 0.5912066737434056,
+    "converged": true,
+    "evaluations": 29
+   },
+   "held_out": {
+    "windows": 226,
+    "calibrated": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 0.3479774547161486,
+      "max_mrad_p50": 0.7145934486468414,
+      "max_mrad_p95": 2.9090742400705687
+     },
+     "moving": {
+      "windows": 107,
+      "rms_mrad_p50": 0.6104954959157953,
+      "max_mrad_p50": 1.6607229437369826,
+      "max_mrad_p95": 3.407299989786777
+     },
+     "holding": {
+      "windows": 119,
+      "rms_mrad_p50": 0.19555419720617426,
+      "max_mrad_p50": 0.24659228942919276,
+      "max_mrad_p95": 0.8107162651802138
+     }
+    },
+    "replaced_simulator": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 0.2818057976125658,
+      "max_mrad_p50": 0.7520152273582408,
+      "max_mrad_p95": 3.562824661085153
+     },
+     "moving": {
+      "windows": 107,
+      "rms_mrad_p50": 0.77555378764371,
+      "max_mrad_p50": 1.8835629432529255,
+      "max_mrad_p95": 3.7830418072770535
+     },
+     "holding": {
+      "windows": 119,
+      "rms_mrad_p50": 0.19436858125571158,
+      "max_mrad_p50": 0.23642732093172303,
+      "max_mrad_p95": 0.8448359941329752
+     }
+    },
+    "follows_command": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 0.5404288666330392,
+      "max_mrad_p50": 0.90864222147502,
+      "max_mrad_p95": 23.054152028635144
+     },
+     "moving": {
+      "windows": 107,
+      "rms_mrad_p50": 1.190751569037191,
+      "max_mrad_p50": 4.711605608463287,
+      "max_mrad_p95": 23.31753522157669
+     },
+     "holding": {
+      "windows": 119,
+      "rms_mrad_p50": 0.32228015662268417,
+      "max_mrad_p50": 0.45561790466308594,
+      "max_mrad_p95": 0.9501732885837549
+     }
+    }
+   },
+   "replaced": {
+    "params": {
+     "inertia": 0.3,
+     "friction": 0.33,
+     "static": 0.45,
+     "viscous": 0.0
+    },
+    "nominal": [
+     "inertia",
+     "friction",
+     "static"
+    ]
+   }
+  },
+  "left_arm_j2": {
+   "uid": "a5493bc000203018",
+   "firmware": "0.4.1.32",
+   "inertia": 0.28039095922928764,
+   "friction": 0.49083658250859635,
+   "static": 0.5849571879574162,
+   "viscous": 3.2884861842277857,
+   "gravity_scale": 1.068936571821304,
+   "delay_ticks": 3.147839531491819e-06,
+   "delay_ms": 7.869598828729547e-06,
+   "gravity_terms": [
+    [
+     10.634642705553816,
+     {
+      "left_arm_j2": 1
+     }
+    ],
+    [
+     4.513452166098592,
+     {
+      "left_arm_j2": 1,
+      "left_arm_j3": -1
+     }
+    ],
+    [
+     2.72798314251795,
+     {
+      "left_arm_j2": 1,
+      "left_arm_j3": -1,
+      "left_arm_j4": 1
+     }
+    ]
+   ],
+   "at_bounds": [],
+   "fit": {
+    "fit_windows": 150,
+    "fit_rms_mrad": 1.3305165703314739,
+    "converged": true,
+    "evaluations": 27
+   },
+   "held_out": {
+    "windows": 226,
+    "calibrated": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 0.4449830019392538,
+      "max_mrad_p50": 0.9898694866907103,
+      "max_mrad_p95": 5.328106831528928
+     },
+     "moving": {
+      "windows": 125,
+      "rms_mrad_p50": 1.0496900148991142,
+      "max_mrad_p50": 2.4475311965371183,
+      "max_mrad_p95": 5.628818684494169
+     },
+     "holding": {
+      "windows": 101,
+      "rms_mrad_p50": 0.1279880586573789,
+      "max_mrad_p50": 0.3494191453005113,
+      "max_mrad_p95": 0.6601257126161979
+     }
+    },
+    "replaced_simulator": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 0.5467095148844525,
+      "max_mrad_p50": 1.4396081260325266,
+      "max_mrad_p95": 11.04706131041963
+     },
+     "moving": {
+      "windows": 125,
+      "rms_mrad_p50": 1.291375540253201,
+      "max_mrad_p50": 3.187808448106122,
+      "max_mrad_p95": 12.580231351590497
+     },
+     "holding": {
+      "windows": 101,
+      "rms_mrad_p50": 0.12798149996233787,
+      "max_mrad_p50": 0.3523572460010782,
+      "max_mrad_p95": 0.661591076733711
+     }
+    },
+    "follows_command": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 1.190674688312582,
+      "max_mrad_p50": 2.2896677255630493,
+      "max_mrad_p95": 37.951380014419556
+     },
+     "moving": {
+      "windows": 125,
+      "rms_mrad_p50": 3.1579680749996757,
+      "max_mrad_p50": 8.047468960285187,
+      "max_mrad_p95": 39.862579107284546
+     },
+     "holding": {
+      "windows": 101,
+      "rms_mrad_p50": 0.24156199617649293,
+      "max_mrad_p50": 0.383501872420311,
+      "max_mrad_p95": 1.5340447425842285
+     }
+    }
+   },
+   "replaced": {
+    "params": {
+     "inertia": 1.3455291464742491,
+     "friction": 0.9040803537373372,
+     "static": 1.2054404716497829,
+     "viscous": 0.0
+    },
+    "nominal": []
+   }
+  },
+  "left_arm_j3": {
+   "uid": "797a30020c323817",
+   "firmware": "0.3.1.42",
+   "inertia": 0.17260714839531816,
+   "friction": 0.3671511534901364,
+   "static": 0.9087201896839042,
+   "viscous": 1.6623294534414574,
+   "gravity_scale": 0.9884961526856784,
+   "delay_ticks": 6.303818501993407e-11,
+   "delay_ms": 1.575954625498352e-10,
+   "gravity_terms": [
+    [
+     -4.513452166098592,
+     {
+      "left_arm_j2": 1,
+      "left_arm_j3": -1
+     }
+    ],
+    [
+     -2.72798314251795,
+     {
+      "left_arm_j2": 1,
+      "left_arm_j3": -1,
+      "left_arm_j4": 1
+     }
+    ]
+   ],
+   "at_bounds": [
+    "delay_ticks"
+   ],
+   "fit": {
+    "fit_windows": 150,
+    "fit_rms_mrad": 0.7988936823027177,
+    "converged": true,
+    "evaluations": 33
+   },
+   "held_out": {
+    "windows": 226,
+    "calibrated": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 0.3614885973869896,
+      "max_mrad_p50": 0.7834680821298246,
+      "max_mrad_p95": 3.5264314640413574
+     },
+     "moving": {
+      "windows": 123,
+      "rms_mrad_p50": 0.7156993717341755,
+      "max_mrad_p50": 1.681197977111637,
+      "max_mrad_p95": 3.7694768822137403
+     },
+     "holding": {
+      "windows": 103,
+      "rms_mrad_p50": 0.14147062696789028,
+      "max_mrad_p50": 0.33312422833668354,
+      "max_mrad_p95": 0.6323530222022833
+     }
+    },
+    "replaced_simulator": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 0.3801012709178883,
+      "max_mrad_p50": 0.8032232593177795,
+      "max_mrad_p95": 7.479570006527214
+     },
+     "moving": {
+      "windows": 123,
+      "rms_mrad_p50": 1.0506484837713541,
+      "max_mrad_p50": 2.4226182636610805,
+      "max_mrad_p95": 10.557453830973584
+     },
+     "holding": {
+      "windows": 103,
+      "rms_mrad_p50": 0.14161504382232024,
+      "max_mrad_p50": 0.33720734700004584,
+      "max_mrad_p95": 0.6361101427956606
+     }
+    },
+    "follows_command": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 0.635692763193406,
+      "max_mrad_p50": 1.5425682067871094,
+      "max_mrad_p95": 20.942270755767822
+     },
+     "moving": {
+      "windows": 123,
+      "rms_mrad_p50": 2.4197126005494396,
+      "max_mrad_p50": 6.431937217712402,
+      "max_mrad_p95": 26.30524635314941
+     },
+     "holding": {
+      "windows": 103,
+      "rms_mrad_p50": 0.42411363427984794,
+      "max_mrad_p50": 0.5943775177001953,
+      "max_mrad_p95": 1.0359957814216614
+     }
+    }
+   },
+   "replaced": {
+    "params": {
+     "inertia": 0.3215678608449918,
+     "friction": 0.4615929898834854,
+     "static": 0.6154573198446471,
+     "viscous": 6.477845945774542
+    },
+    "nominal": []
+   }
+  },
+  "left_arm_j4": {
+   "uid": "a5283b8f2450b00e",
+   "firmware": "0.2.3.34",
+   "inertia": 0.04079406165353689,
+   "friction": 0.1443046531086923,
+   "static": 0.2540594516723826,
+   "viscous": 0.4756880988264656,
+   "gravity_scale": 0.9613976587147692,
+   "delay_ticks": 2.305988931791546e-11,
+   "delay_ms": 5.7649723294788653e-11,
+   "gravity_terms": [
+    [
+     2.72798314251795,
+     {
+      "left_arm_j2": 1,
+      "left_arm_j3": -1,
+      "left_arm_j4": 1
+     }
+    ]
+   ],
+   "at_bounds": [
+    "delay_ticks"
+   ],
+   "fit": {
+    "fit_windows": 150,
+    "fit_rms_mrad": 2.181128987864186,
+    "converged": true,
+    "evaluations": 22
+   },
+   "held_out": {
+    "windows": 226,
+    "calibrated": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 0.5890559710097583,
+      "max_mrad_p50": 1.1475167385064933,
+      "max_mrad_p95": 8.69756769214039
+     },
+     "moving": {
+      "windows": 148,
+      "rms_mrad_p50": 1.4724037345363,
+      "max_mrad_p50": 3.235888385220081,
+      "max_mrad_p95": 9.739510366100824
+     },
+     "holding": {
+      "windows": 78,
+      "rms_mrad_p50": 0.21252180874996707,
+      "max_mrad_p50": 0.401225444217973,
+      "max_mrad_p95": 1.5524065457724583
+     }
+    },
+    "replaced_simulator": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 0.5302086415421774,
+      "max_mrad_p50": 1.1927974394280172,
+      "max_mrad_p95": 8.625502180084816
+     },
+     "moving": {
+      "windows": 148,
+      "rms_mrad_p50": 1.6146269910234103,
+      "max_mrad_p50": 3.5419619714795907,
+      "max_mrad_p95": 9.838255648107086
+     },
+     "holding": {
+      "windows": 78,
+      "rms_mrad_p50": 0.16185480176679026,
+      "max_mrad_p50": 0.38744203696200463,
+      "max_mrad_p95": 1.6275381343224677
+     }
+    },
+    "follows_command": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 1.852158136145309,
+      "max_mrad_p50": 2.571284770965576,
+      "max_mrad_p95": 13.647256419062614
+     },
+     "moving": {
+      "windows": 148,
+      "rms_mrad_p50": 2.4568271785454403,
+      "max_mrad_p50": 5.141258239746094,
+      "max_mrad_p95": 14.86674249172211
+     },
+     "holding": {
+      "windows": 78,
+      "rms_mrad_p50": 0.7564943295946237,
+      "max_mrad_p50": 1.1504888534545898,
+      "max_mrad_p95": 2.9717810451984397
+     }
+    }
+   },
+   "replaced": {
+    "params": {
+     "inertia": 0.058317375206033535,
+     "friction": 0.16763663669254136,
+     "static": 0.25,
+     "viscous": 0.6491098103406796
+    },
+    "nominal": []
+   }
+  },
+  "left_arm_j5": {
+   "uid": "3e4330021c40b614",
+   "firmware": "0.2.3.34",
+   "inertia": 0.005501813164466956,
+   "friction": 0.1425968520021335,
+   "static": 0.14381130925759397,
+   "viscous": 0.11033831203130053,
+   "gravity_scale": 1.0,
+   "delay_ticks": 0.9016622157236183,
+   "delay_ms": 2.2541555393090458,
+   "gravity_terms": [],
+   "at_bounds": [],
+   "fit": {
+    "fit_windows": 150,
+    "fit_rms_mrad": 1.532894635126192,
+    "converged": true,
+    "evaluations": 34
+   },
+   "held_out": {
+    "windows": 226,
+    "calibrated": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 1.0204637283683657,
+      "max_mrad_p50": 2.0226522192342555,
+      "max_mrad_p95": 4.851512814172343
+     },
+     "moving": {
+      "windows": 129,
+      "rms_mrad_p50": 1.241287301020122,
+      "max_mrad_p50": 2.630474832181484,
+      "max_mrad_p95": 5.05981359368125
+     },
+     "holding": {
+      "windows": 97,
+      "rms_mrad_p50": 0.1986542052967388,
+      "max_mrad_p50": 0.38538529332338145,
+      "max_mrad_p95": 2.4061403255626557
+     }
+    },
+    "replaced_simulator": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 1.0386112910245422,
+      "max_mrad_p50": 2.1396808810065227,
+      "max_mrad_p95": 8.181592926271849
+     },
+     "moving": {
+      "windows": 129,
+      "rms_mrad_p50": 1.446822047780655,
+      "max_mrad_p50": 2.7317295461334323,
+      "max_mrad_p95": 8.795335732252594
+     },
+     "holding": {
+      "windows": 97,
+      "rms_mrad_p50": 0.18618689647759495,
+      "max_mrad_p50": 0.3850603003140024,
+      "max_mrad_p95": 2.5231978037880687
+     }
+    },
+    "follows_command": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 3.224964416707766,
+      "max_mrad_p50": 4.154801368713379,
+      "max_mrad_p95": 77.36129313707352
+     },
+     "moving": {
+      "windows": 129,
+      "rms_mrad_p50": 4.800712071850562,
+      "max_mrad_p50": 16.01952686905861,
+      "max_mrad_p95": 82.4370801448822
+     },
+     "holding": {
+      "windows": 97,
+      "rms_mrad_p50": 0.4014787955846555,
+      "max_mrad_p50": 0.611133873462677,
+      "max_mrad_p95": 3.835022449493408
+     }
+    }
+   },
+   "replaced": {
+    "params": {
+     "inertia": 0.0059874316792102875,
+     "friction": 0.13090641524493518,
+     "static": 0.2,
+     "viscous": 0.0
+    },
+    "nominal": []
+   }
+  },
+  "left_arm_j6": {
+   "uid": "2f3d30031064b401",
+   "firmware": "0.0.3.32",
+   "inertia": 0.003925962662519983,
+   "friction": 0.09858790119791927,
+   "static": 0.1077465330639273,
+   "viscous": 0.20826545493882057,
+   "gravity_scale": 0.9999999999999984,
+   "delay_ticks": 0.3832344425208075,
+   "delay_ms": 0.9580861063020188,
+   "gravity_terms": [],
+   "at_bounds": [],
+   "fit": {
+    "fit_windows": 150,
+    "fit_rms_mrad": 0.4897352133604423,
+    "converged": true,
+    "evaluations": 35
+   },
+   "held_out": {
+    "windows": 226,
+    "calibrated": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 0.13585046685966284,
+      "max_mrad_p50": 0.383470736203817,
+      "max_mrad_p95": 3.2742057109659273
+     },
+     "moving": {
+      "windows": 38,
+      "rms_mrad_p50": 0.9881381546249222,
+      "max_mrad_p50": 2.2917233036158433,
+      "max_mrad_p95": 7.500797402306824
+     },
+     "holding": {
+      "windows": 188,
+      "rms_mrad_p50": 0.1153906831130809,
+      "max_mrad_p50": 0.365662288198787,
+      "max_mrad_p95": 0.7260995111067549
+     }
+    },
+    "replaced_simulator": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 0.13319233015316634,
+      "max_mrad_p50": 0.383470736203817,
+      "max_mrad_p95": 5.396136963724084
+     },
+     "moving": {
+      "windows": 38,
+      "rms_mrad_p50": 1.1821788071335235,
+      "max_mrad_p50": 3.0320879571247157,
+      "max_mrad_p95": 9.199547038992227
+     },
+     "holding": {
+      "windows": 188,
+      "rms_mrad_p50": 0.11697595421650442,
+      "max_mrad_p50": 0.365662288198787,
+      "max_mrad_p95": 0.8048249983375333
+     }
+    },
+    "follows_command": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 0.3166182827734596,
+      "max_mrad_p50": 0.3834981471300125,
+      "max_mrad_p95": 28.34989468101412
+     },
+     "moving": {
+      "windows": 38,
+      "rms_mrad_p50": 4.887073575997373,
+      "max_mrad_p50": 15.602553263306618,
+      "max_mrad_p95": 46.314962953329086
+     },
+     "holding": {
+      "windows": 188,
+      "rms_mrad_p50": 0.3074594294967825,
+      "max_mrad_p50": 0.3834962844848633,
+      "max_mrad_p95": 1.1504888534545898
+     }
+    }
+   },
+   "replaced": {
+    "params": {
+     "inertia": 0.003920610687815607,
+     "friction": 0.09895664675315267,
+     "static": 0.15,
+     "viscous": 0.0
+    },
+    "nominal": []
+   }
+  },
+  "right_arm_j1": {
+   "uid": "4e8230021471b10a",
+   "firmware": "0.3.1.30",
+   "inertia": 0.2669265117277459,
+   "friction": 0.37909851914799214,
+   "static": 0.5953023826838089,
+   "viscous": 2.166335591125696,
+   "gravity_scale": 1.0,
+   "delay_ticks": 6.22212186209472e-11,
+   "delay_ms": 1.55553046552368e-10,
+   "gravity_terms": [],
+   "at_bounds": [
+    "delay_ticks"
+   ],
+   "fit": {
+    "fit_windows": 150,
+    "fit_rms_mrad": 1.0732355618722633,
+    "converged": true,
+    "evaluations": 28
+   },
+   "held_out": {
+    "windows": 226,
+    "calibrated": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 0.48130366261767,
+      "max_mrad_p50": 0.9844206268563443,
+      "max_mrad_p95": 4.7666003370685495
+     },
+     "moving": {
+      "windows": 159,
+      "rms_mrad_p50": 0.5947005048780599,
+      "max_mrad_p50": 1.5679975087274367,
+      "max_mrad_p95": 5.582374195932302
+     },
+     "holding": {
+      "windows": 67,
+      "rms_mrad_p50": 0.46799994736564593,
+      "max_mrad_p50": 0.5791733241965469,
+      "max_mrad_p95": 0.8728574771172837
+     }
+    },
+    "replaced_simulator": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 0.5623297450053817,
+      "max_mrad_p50": 0.9577506784316792,
+      "max_mrad_p95": 4.667952512835999
+     },
+     "moving": {
+      "windows": 159,
+      "rms_mrad_p50": 0.7042490315465695,
+      "max_mrad_p50": 1.8798491374944493,
+      "max_mrad_p95": 6.024788481752816
+     },
+     "holding": {
+      "windows": 67,
+      "rms_mrad_p50": 0.4669163382606694,
+      "max_mrad_p50": 0.61392457389009,
+      "max_mrad_p95": 0.9653624492508395
+     }
+    },
+    "follows_command": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 1.1597193784501991,
+      "max_mrad_p50": 2.375990152359009,
+      "max_mrad_p95": 23.632802069187164
+     },
+     "moving": {
+      "windows": 159,
+      "rms_mrad_p50": 3.054335369908037,
+      "max_mrad_p50": 10.781526565551758,
+      "max_mrad_p95": 23.743784427642822
+     },
+     "holding": {
+      "windows": 67,
+      "rms_mrad_p50": 0.6139602888661928,
+      "max_mrad_p50": 1.1504888534545898,
+      "max_mrad_p95": 1.6515195369720452
+     }
+    }
+   },
+   "replaced": {
+    "params": {
+     "inertia": 0.3,
+     "friction": 0.3311696502095174,
+     "static": 0.45,
+     "viscous": 3.0498447189992426
+    },
+    "nominal": [
+     "inertia"
+    ]
+   }
+  },
+  "right_arm_j2": {
+   "uid": "4fa930020c34380b",
+   "firmware": "0.4.1.24",
+   "inertia": 0.4704602065698415,
+   "friction": 0.562585583093303,
+   "static": 0.5904411867970707,
+   "viscous": 3.0581561238664925,
+   "gravity_scale": 1.0045329212875638,
+   "delay_ticks": 8.714101823604336e-05,
+   "delay_ms": 0.0002178525455901084,
+   "gravity_terms": [
+    [
+     11.308509077060073,
+     {
+      "right_arm_j2": 1
+     }
+    ],
+    [
+     4.5442278748812495,
+     {
+      "right_arm_j2": 1,
+      "right_arm_j3": -1
+     }
+    ],
+    [
+     2.6931954794669886,
+     {
+      "right_arm_j2": 1,
+      "right_arm_j3": -1,
+      "right_arm_j4": 1
+     }
+    ]
+   ],
+   "at_bounds": [],
+   "fit": {
+    "fit_windows": 150,
+    "fit_rms_mrad": 1.307799480444931,
+    "converged": true,
+    "evaluations": 32
+   },
+   "held_out": {
+    "windows": 226,
+    "calibrated": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 0.7323380474294423,
+      "max_mrad_p50": 1.767688774936875,
+      "max_mrad_p95": 6.634282264294855
+     },
+     "moving": {
+      "windows": 167,
+      "rms_mrad_p50": 1.1429625763283808,
+      "max_mrad_p50": 2.437692748347653,
+      "max_mrad_p95": 7.175358395949854
+     },
+     "holding": {
+      "windows": 59,
+      "rms_mrad_p50": 0.2145310420020904,
+      "max_mrad_p50": 0.49236550696563075,
+      "max_mrad_p95": 1.8133523279673762
+     }
+    },
+    "replaced_simulator": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 0.9065305335468746,
+      "max_mrad_p50": 2.12313340752124,
+      "max_mrad_p95": 10.613931087260138
+     },
+     "moving": {
+      "windows": 167,
+      "rms_mrad_p50": 1.4922798614090302,
+      "max_mrad_p50": 3.599755599271476,
+      "max_mrad_p95": 11.173900596474773
+     },
+     "holding": {
+      "windows": 59,
+      "rms_mrad_p50": 0.14460424830779114,
+      "max_mrad_p50": 0.33852485069252314,
+      "max_mrad_p95": 1.660585527434521
+     }
+    },
+    "follows_command": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 1.4760633514234163,
+      "max_mrad_p50": 3.2220538705587387,
+      "max_mrad_p95": 39.02756609022617
+     },
+     "moving": {
+      "windows": 167,
+      "rms_mrad_p50": 2.886465789877201,
+      "max_mrad_p50": 7.684335112571716,
+      "max_mrad_p95": 41.26899838447569
+     },
+     "holding": {
+      "windows": 59,
+      "rms_mrad_p50": 1.2083176199251002,
+      "max_mrad_p50": 1.5339851379394531,
+      "max_mrad_p95": 1.9306898117065423
+     }
+    }
+   },
+   "replaced": {
+    "params": {
+     "inertia": 1.316667805030475,
+     "friction": 0.8287648646031385,
+     "static": 1.1050198194708512,
+     "viscous": 0.0
+    },
+    "nominal": []
+   }
+  },
+  "right_arm_j3": {
+   "uid": "379b93c79c90b014",
+   "firmware": "0.3.1.37",
+   "inertia": 0.09641748387677301,
+   "friction": 0.4323415841138639,
+   "static": 0.7584606954312871,
+   "viscous": 0.025127460168714703,
+   "gravity_scale": 1.0557115588454224,
+   "delay_ticks": 0.7469024232432977,
+   "delay_ms": 1.8672560581082442,
+   "gravity_terms": [
+    [
+     -4.5442278748812495,
+     {
+      "right_arm_j2": 1,
+      "right_arm_j3": -1
+     }
+    ],
+    [
+     -2.6931954794669886,
+     {
+      "right_arm_j2": 1,
+      "right_arm_j3": -1,
+      "right_arm_j4": 1
+     }
+    ]
+   ],
+   "at_bounds": [],
+   "fit": {
+    "fit_windows": 150,
+    "fit_rms_mrad": 0.7208593900831007,
+    "converged": true,
+    "evaluations": 41
+   },
+   "held_out": {
+    "windows": 226,
+    "calibrated": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 0.5068176119810288,
+      "max_mrad_p50": 1.2276663719131413,
+      "max_mrad_p95": 3.6720709953418917
+     },
+     "moving": {
+      "windows": 144,
+      "rms_mrad_p50": 0.6793288578361749,
+      "max_mrad_p50": 1.6367270651110617,
+      "max_mrad_p95": 4.610044982414219
+     },
+     "holding": {
+      "windows": 82,
+      "rms_mrad_p50": 0.12935077646457924,
+      "max_mrad_p50": 0.35598599622819765,
+      "max_mrad_p95": 0.3879389120256538
+     }
+    },
+    "replaced_simulator": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 0.5419941912141892,
+      "max_mrad_p50": 1.3687501616398146,
+      "max_mrad_p95": 4.131197242786405
+     },
+     "moving": {
+      "windows": 144,
+      "rms_mrad_p50": 0.8563125492936636,
+      "max_mrad_p50": 1.8531389137873,
+      "max_mrad_p95": 5.112133917250247
+     },
+     "holding": {
+      "windows": 82,
+      "rms_mrad_p50": 0.1306624465238813,
+      "max_mrad_p50": 0.3502170425578946,
+      "max_mrad_p95": 0.40615742595369597
+     }
+    },
+    "follows_command": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 0.9097604489974078,
+      "max_mrad_p50": 2.7802586555480957,
+      "max_mrad_p95": 18.678978085517883
+     },
+     "moving": {
+      "windows": 144,
+      "rms_mrad_p50": 1.932336463694862,
+      "max_mrad_p50": 5.886474740691483,
+      "max_mrad_p95": 21.559399366378774
+     },
+     "holding": {
+      "windows": 82,
+      "rms_mrad_p50": 0.37409168084970135,
+      "max_mrad_p50": 0.38350000977516174,
+      "max_mrad_p95": 0.7617876864969734
+     }
+    }
+   },
+   "replaced": {
+    "params": {
+     "inertia": 0.08,
+     "friction": 0.4634086823236707,
+     "static": 0.6178782430982276,
+     "viscous": 0.0
+    },
+    "nominal": [
+     "inertia"
+    ]
+   }
+  },
+  "right_arm_j4": {
+   "uid": "3d93302110703018",
+   "firmware": "0.2.3.34",
+   "inertia": 0.008161682081011775,
+   "friction": 0.1996284438633771,
+   "static": 0.21129897464514474,
+   "viscous": 0.3413460374428139,
+   "gravity_scale": 0.935168383559263,
+   "delay_ticks": 0.4068119138189056,
+   "delay_ms": 1.017029784547264,
+   "gravity_terms": [
+    [
+     2.6931954794669886,
+     {
+      "right_arm_j2": 1,
+      "right_arm_j3": -1,
+      "right_arm_j4": 1
+     }
+    ]
+   ],
+   "at_bounds": [],
+   "fit": {
+    "fit_windows": 150,
+    "fit_rms_mrad": 2.4126527985963757,
+    "converged": true,
+    "evaluations": 69
+   },
+   "held_out": {
+    "windows": 226,
+    "calibrated": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 1.154413920432022,
+      "max_mrad_p50": 2.341659866712878,
+      "max_mrad_p95": 10.761038756578328
+     },
+     "moving": {
+      "windows": 135,
+      "rms_mrad_p50": 2.3713996862930053,
+      "max_mrad_p50": 5.1065266404578535,
+      "max_mrad_p95": 12.234138634382608
+     },
+     "holding": {
+      "windows": 91,
+      "rms_mrad_p50": 0.2066430064023148,
+      "max_mrad_p50": 0.40737377771649097,
+      "max_mrad_p95": 2.319375651101241
+     }
+    },
+    "replaced_simulator": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 1.3828412341990957,
+      "max_mrad_p50": 2.5612329195231487,
+      "max_mrad_p95": 11.786961406938579
+     },
+     "moving": {
+      "windows": 135,
+      "rms_mrad_p50": 2.9709798988246217,
+      "max_mrad_p50": 6.331534598850997,
+      "max_mrad_p95": 14.736030717683922
+     },
+     "holding": {
+      "windows": 91,
+      "rms_mrad_p50": 0.2897890489179457,
+      "max_mrad_p50": 0.4799859034563536,
+      "max_mrad_p95": 2.8265725655789167
+     }
+    },
+    "follows_command": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 3.067550795798918,
+      "max_mrad_p50": 4.682872444391251,
+      "max_mrad_p95": 30.259529128670692
+     },
+     "moving": {
+      "windows": 135,
+      "rms_mrad_p50": 4.755243206595813,
+      "max_mrad_p50": 11.42948865890503,
+      "max_mrad_p95": 32.8124076128006
+     },
+     "holding": {
+      "windows": 91,
+      "rms_mrad_p50": 1.3468442729500483,
+      "max_mrad_p50": 1.5296787023544312,
+      "max_mrad_p95": 4.804179072380066
+     }
+    }
+   },
+   "replaced": {
+    "params": {
+     "inertia": 0.01,
+     "friction": 0.2125062910624692,
+     "static": 0.2833417214166256,
+     "viscous": 0.0
+    },
+    "nominal": [
+     "inertia"
+    ]
+   }
+  },
+  "right_arm_j5": {
+   "uid": "0965302110703016",
+   "firmware": "0.2.3.34",
+   "inertia": 0.0039776700791775785,
+   "friction": 0.1582458166183744,
+   "static": 0.307121738705759,
+   "viscous": 0.2733156146704581,
+   "gravity_scale": 1.0,
+   "delay_ticks": 0.15773118770499808,
+   "delay_ms": 0.39432796926249525,
+   "gravity_terms": [],
+   "at_bounds": [],
+   "fit": {
+    "fit_windows": 150,
+    "fit_rms_mrad": 1.3582381026938006,
+    "converged": true,
+    "evaluations": 21
+   },
+   "held_out": {
+    "windows": 226,
+    "calibrated": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 1.0087711098354566,
+      "max_mrad_p50": 2.249363966278617,
+      "max_mrad_p95": 4.433394884708841
+     },
+     "moving": {
+      "windows": 141,
+      "rms_mrad_p50": 1.1142956295823192,
+      "max_mrad_p50": 2.5349845786207803,
+      "max_mrad_p95": 4.717580914310959
+     },
+     "holding": {
+      "windows": 85,
+      "rms_mrad_p50": 0.37688924775625,
+      "max_mrad_p50": 0.5351135509625016,
+      "max_mrad_p95": 2.2493969092748145
+     }
+    },
+    "replaced_simulator": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 1.1219678202537198,
+      "max_mrad_p50": 2.229059448244586,
+      "max_mrad_p95": 5.7244676536578885
+     },
+     "moving": {
+      "windows": 141,
+      "rms_mrad_p50": 1.2735395906737774,
+      "max_mrad_p50": 2.8971323082227496,
+      "max_mrad_p95": 5.870145730366483
+     },
+     "holding": {
+      "windows": 85,
+      "rms_mrad_p50": 0.38645337891455317,
+      "max_mrad_p50": 0.5462753900104256,
+      "max_mrad_p95": 2.2290823539698135
+     }
+    },
+    "follows_command": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 3.5146445904883175,
+      "max_mrad_p50": 7.8278034925460815,
+      "max_mrad_p95": 43.53606328368187
+     },
+     "moving": {
+      "windows": 141,
+      "rms_mrad_p50": 7.550254872992738,
+      "max_mrad_p50": 24.15597438812256,
+      "max_mrad_p95": 43.586015701293945
+     },
+     "holding": {
+      "windows": 85,
+      "rms_mrad_p50": 0.9663948061772547,
+      "max_mrad_p50": 1.1505037546157837,
+      "max_mrad_p95": 3.834962844848633
+     }
+    }
+   },
+   "replaced": {
+    "params": {
+     "inertia": 0.004,
+     "friction": 0.16030629552030612,
+     "static": 0.21374172736040814,
+     "viscous": 0.0
+    },
+    "nominal": [
+     "inertia"
+    ]
+   }
+  },
+  "right_arm_j6": {
+   "uid": "961430020c343701",
+   "firmware": "0.0.3.32",
+   "inertia": 0.002932657296369321,
+   "friction": 0.10775106165269477,
+   "static": 0.11133731156149858,
+   "viscous": 0.19437363450966558,
+   "gravity_scale": 1.0000000000000009,
+   "delay_ticks": 0.41473659638395194,
+   "delay_ms": 1.03684149095988,
+   "gravity_terms": [],
+   "at_bounds": [],
+   "fit": {
+    "fit_windows": 150,
+    "fit_rms_mrad": 0.8262066060299738,
+    "converged": true,
+    "evaluations": 22
+   },
+   "held_out": {
+    "windows": 226,
+    "calibrated": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 0.3458945926263811,
+      "max_mrad_p50": 0.628835992111193,
+      "max_mrad_p95": 4.547116173975879
+     },
+     "moving": {
+      "windows": 103,
+      "rms_mrad_p50": 0.9282224870597988,
+      "max_mrad_p50": 1.9772410505564664,
+      "max_mrad_p95": 5.034846439028924
+     },
+     "holding": {
+      "windows": 123,
+      "rms_mrad_p50": 0.19440968256147226,
+      "max_mrad_p50": 0.38337308767000255,
+      "max_mrad_p95": 0.7565742928535142
+     }
+    },
+    "replaced_simulator": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 0.3459526161197861,
+      "max_mrad_p50": 0.5793829484200819,
+      "max_mrad_p95": 6.069086975263659
+     },
+     "moving": {
+      "windows": 103,
+      "rms_mrad_p50": 1.1011688747044097,
+      "max_mrad_p50": 2.3604664843321355,
+      "max_mrad_p95": 6.745099196542142
+     },
+     "holding": {
+      "windows": 123,
+      "rms_mrad_p50": 0.18804473362121193,
+      "max_mrad_p50": 0.3832581120238876,
+      "max_mrad_p95": 0.7062123351491617
+     }
+    },
+    "follows_command": {
+     "all": {
+      "windows": 226,
+      "rms_mrad_p50": 0.9777735733379681,
+      "max_mrad_p50": 1.0983198881149292,
+      "max_mrad_p95": 35.864703357219696
+     },
+     "moving": {
+      "windows": 103,
+      "rms_mrad_p50": 3.8375693157188584,
+      "max_mrad_p50": 12.976884841918945,
+      "max_mrad_p95": 36.2408310174942
+     },
+     "holding": {
+      "windows": 123,
+      "rms_mrad_p50": 0.5081192662288063,
+      "max_mrad_p50": 0.7225014269351959,
+      "max_mrad_p95": 1.3198032975196818
+     }
+    }
+   },
+   "replaced": {
+    "params": {
+     "inertia": 0.003,
+     "friction": 0.10790025163125562,
+     "static": 0.15,
+     "viscous": 0.0
+    },
+    "nominal": [
+     "inertia"
+    ]
+   }
+  }
+ },
+ "left_out": {
+  "left_gripper": "grippers grasp objects the simulator does not have",
+  "right_gripper": "grippers grasp objects the simulator does not have"
+ }
+}
