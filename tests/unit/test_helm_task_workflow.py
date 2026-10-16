@@ -105,7 +105,8 @@ def test_scene_reset_is_refused_while_following_and_recording_requires_ready_lif
     assert calls == ['start_record', 'reset']
 
 
-def test_simulation_cli_constructs_no_physical_workspaces(monkeypatch, tmp_path):
+@pytest.mark.parametrize('visual_mode', [None, 'cad', 'collision_proxy'])
+def test_simulation_cli_constructs_no_physical_workspaces(monkeypatch, tmp_path, visual_mode):
     from aiohttp import web
     from robot_platform.helm import cli, session, leaders, teleop, server, link, tune, check, gripper_zero
     fake = SimpleNamespace(profile_path=tmp_path/'profile.json', asset_id='test', labels={}, evidence=tmp_path,
@@ -121,7 +122,11 @@ def test_simulation_cli_constructs_no_physical_workspaces(monkeypatch, tmp_path)
     monkeypatch.setattr(teleop, 'TeleopSession', lambda *a, **k: captured.update(teleop=k) or object())
     monkeypatch.setattr(server, 'create_app', lambda *a, **k: captured.update(app=k) or object())
     monkeypatch.setattr(web, 'run_app', lambda *a, **k: None)
-    assert cli.main(['--profile', str(fake.profile_path), '--teleop', str(tmp_path/'teleop.json'), '--sim']) == 0
+    argv = ['--profile', str(fake.profile_path), '--teleop', str(tmp_path/'teleop.json'), '--sim']
+    if visual_mode is not None:
+        argv += ['--sim-visual-mode', visual_mode]
+    assert cli.main(argv) == 0
+    assert captured['teleop']['simulation']['visual_mode'] == (visual_mode or 'collision_proxy')
     assert captured['teleop']['target'] == 'pc'
     assert captured['app']['simulation_only'] is True and captured['app']['live'] is False
     assert captured['app']['check'] is captured['app']['tune'] is None
@@ -151,7 +156,7 @@ def test_scene_progress_is_delivered_to_gui_without_changing_recorded_facts(helm
     state = teleop.snapshot()
     facts = {'first_gripper': 'left', 'handoff': True, 'bucket_settled': True,
              'success': True, 'training_eligible': True}
-    state['task'] = {'available': True, 'task': facts}
+    state['task'] = {'available': True, 'task': facts, 'capabilities': {'visual_mode': 'cad'}}
     monkeypatch.setattr(teleop, 'snapshot', lambda: deepcopy(state))
     async def run():
         async with TestClient(TestServer(create_app(helm, SimulationLink(), teleop=teleop,
@@ -160,6 +165,7 @@ def test_scene_progress_is_delivered_to_gui_without_changing_recorded_facts(helm
             task = result['teleop']['task']
             assert task['display_phase'] == 'Task complete: pickup, handoff and bucket placement.'
             assert task['task'] == facts
+            assert task['display_visual'] == 'Camera appearance: full CAD visuals.'
     asyncio.run(run())
 
 
@@ -209,3 +215,48 @@ def test_initial_live_profile_declares_right_wrist_head_and_unknown_static_neck_
     head = profile['cameras']['head']
     assert head['mount'] == 'static neck' and head['extrinsics_calibration'] == 'unknown'
     assert not any(key in head for key in ('transform', 'translation', 'rotation', 'extrinsics'))
+
+
+@pytest.mark.parametrize('capabilities, expected', [
+    ({}, 'Camera appearance is not reported yet.'),
+    ({'visual_mode': 'cad'}, 'Camera appearance: full CAD visuals.'),
+    ({'visual_mode': 'collision_proxy'}, 'Camera appearance: collision proxy geometry, not full CAD visuals.'),
+])
+def test_visual_label_follows_actual_worker_provenance(capabilities, expected):
+    from robot_platform.helm.server import task_visual_label
+    assert task_visual_label(capabilities) == expected
+
+
+def test_visual_mode_requires_simulation_before_constructing_workspaces(tmp_path):
+    from robot_platform.helm.cli import main
+    with pytest.raises(SystemExit) as failure:
+        main(['--profile', str(tmp_path/'unused.json'), '--sim-visual-mode', 'cad'])
+    assert failure.value.code == 2
+
+
+@pytest.mark.parametrize('mode', ['cad', 'collision_proxy'])
+def test_visual_selection_crosses_core_and_simulation_adapter_without_opening_devices(monkeypatch, tmp_path, mode):
+    from robot_platform.helm import teleop as teleop_module
+    from robot_platform.simulation import minerva_sim, task_scene
+    captured = {}
+    fake_receiver = SimpleNamespace(harness=SimpleNamespace(process=SimpleNamespace(pid=1)))
+    def simulated(derived, **kwargs):
+        captured['core'] = kwargs
+        return fake_receiver
+    original = minerva_sim.open_simulation
+    monkeypatch.setattr(minerva_sim, 'open_simulation', simulated)
+    monkeypatch.setattr(teleop_module, 'prefer_responsive', lambda pid: {'fixture': True})
+    core = TeleopCore.__new__(TeleopCore)
+    core.simulation = {'directory': str(tmp_path), 'task_scene': True, 'visual_mode': mode}
+    core.bundle, core.scheduling, core.clock = {'directions': {}}, {}, lambda: 1.
+    assert core._open_simulation({}, None, {'motors': []}) is fake_receiver
+    assert captured['core']['visual_mode'] == mode
+    monkeypatch.setattr(minerva_sim, 'gravity_model', lambda *a: {})
+    monkeypatch.setattr(minerva_sim, 'joint_specs', lambda *a: ([{'name': 'fixture'}], {}))
+    monkeypatch.setattr(minerva_sim, 'ArmPlant', lambda *a, **k: object())
+    monkeypatch.setattr(minerva_sim, 'SimulatedReceiver', lambda *a, **k: captured.update(receiver=k) or fake_receiver)
+    monkeypatch.setattr(task_scene, 'TaskSceneView', lambda *a, **k: captured.update(view=k) or object())
+    derived = {'config': {'joints': [{'name': 'fixture'}], 'identity': {}}, 'joint_map': {}, 'initial': [0.]}
+    assert original(derived, model=None, directions={}, motors=[], servo=None, directory=tmp_path,
+                    clock=lambda: 1., task_scene=True, viewer=False, visual_mode=mode) is fake_receiver
+    assert captured['view']['visual_mode'] == mode
