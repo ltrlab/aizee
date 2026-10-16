@@ -128,6 +128,15 @@ frames are recorded. Actual achieved rate and recorded timing must be checked;
 recording does not silently relax these bounds. Publisher frame counters can reset,
 so capture preserves the raw counter and adds its own monotonic receive identity.
 
+Receiver status exposes elapsed whole milliseconds while recorder rows retain
+fractional milliseconds. Capture admits a row only below the next millisecond
+boundary and evaluates the 30 ms age limit and camera cutoff conservatively from
+that upper boundary. Feedback stamps must remain at/before the status value.
+Raw receiver stamps, the status interval, the 1 ms quantization uncertainty and
+RPC round-trip duration remain separate provenance fields; total clock uncertainty
+includes both the quantization and RPC duration. A row from a later millisecond
+bucket is rejected rather than assumed to share the status time.
+
 ## Files, failures and downstream use
 
 Existing `samples.f32`, column metadata and event logs remain diagnostic outputs.

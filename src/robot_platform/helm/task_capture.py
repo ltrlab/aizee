@@ -160,21 +160,33 @@ def paired_receiver_sample(result, rows, names, config, *, dropped=0, started_at
                 or any(f.get('fault') is True for f in feedback)):
             raise ValueError('Receiver capture lost rows or a required motor is unavailable')
         now_ms = status['now_ms']
+        if (type(now_ms) not in (int, float) or not math.isfinite(now_ms)
+                or now_ms < 0 or now_ms != math.floor(now_ms)):
+            raise ValueError('Receiver status clock must be a finite nonnegative integer millisecond')
+        # Rust status floors elapsed milliseconds; its later recorder sample retains
+        # fractions. Admit only the same half-open bucket, and use its upper bound
+        # for every age/cutoff calculation rather than adding grace to the timeout.
+        status_upper_ms = now_ms+1
+        max_age_ms = config['max_receiver_age_s']*1000
         stamps = [f['sampled_at_ms'] for f in feedback]
-        if (not math.isfinite(now_ms) or any(not math.isfinite(stamp)
-                or not 0 <= now_ms-stamp <= config['max_receiver_age_s']*1000 for stamp in stamps)):
-            raise ValueError('Required motor feedback is stale')
+        if any(type(stamp) not in (int, float) or not math.isfinite(stamp)
+               or not 0 <= stamp <= now_ms or status_upper_ms-stamp > max_age_ms for stamp in stamps):
+            raise ValueError('Required motor feedback is stale or in the future')
         row = rows[-1]
-        if not math.isfinite(row[0]) or not 0 <= now_ms-row[0] <= config['max_receiver_age_s']*1000:
+        if (type(row[0]) not in (int, float) or not math.isfinite(row[0])
+                or not 0 <= row[0] < status_upper_ms or status_upper_ms-row[0] > max_age_ms):
             raise ValueError('Receiver recorder row is stale or in the future')
         q, qcmd = tuple(row[1+4*i] for i in range(14)), tuple(row[4+4*i] for i in range(14))
         if not all(math.isfinite(v) for v in q+qcmd):
             raise ValueError('Receiver positions or emitted commands are not finite')
         sampled_ms = min(row[0], *stamps)
-        cutoff = started_at-max(0., now_ms-sampled_ms)/1000
+        cutoff = started_at-(status_upper_ms-sampled_ms)/1000
+        rpc_round_trip_s = received_at-started_at
         return dict(q=q, qcmd=qcmd, source_time=cutoff, received_at=received_at,
                             receiver_ms=row[0], receiver_feedback_ms=stamps,
-                            clock_uncertainty_s=max(0., received_at-started_at), error=None,
+                            receiver_status_ms=now_ms, receiver_status_upper_ms=status_upper_ms,
+                            status_clock_quantization_s=.001, rpc_round_trip_s=rpc_round_trip_s,
+                            clock_uncertainty_s=rpc_round_trip_s+.001, error=None,
                             command_valid=result.get('hardware_enabled') is True
                                 and status.get('state') in ('holding', 'executing'),
                             hardware_enabled=result.get('hardware_enabled'), receiver_state=status.get('state'))

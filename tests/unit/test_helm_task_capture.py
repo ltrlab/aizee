@@ -8,7 +8,7 @@ from PIL import Image
 import pytest
 import zmq
 
-from robot_platform.helm.task_capture import CAMERAS, CameraCache, LiveTaskCapture, validate_config
+from robot_platform.helm.task_capture import CAMERAS, CameraCache, LiveTaskCapture, paired_receiver_sample, validate_config
 from robot_platform.transport.wire import pack_camera
 
 NAMES = tuple(f'{side}_arm_j{k}' for side in ('left', 'right') for k in range(1, 7)) + ('left_gripper', 'right_gripper')
@@ -130,8 +130,8 @@ def test_receiver_pairs_preserve_emitted_commands_and_conservative_clock_interva
     sample = capture._sample
     assert sample['q'] == tuple(float(i) for i in range(14))
     assert sample['qcmd'] == tuple(i+.2 for i in range(14))
-    assert sample['source_time'] == pytest.approx(9.998)
-    assert sample['clock_uncertainty_s'] == pytest.approx(.004)
+    assert sample['source_time'] == pytest.approx(9.997)
+    assert sample['clock_uncertainty_s'] == pytest.approx(.005)
     for change in ('order', 'fault', 'stale', 'future', 'dropped'):
         response, rows = result()
         if change == 'order': response['status']['joint_names'].reverse()
@@ -140,6 +140,57 @@ def test_receiver_pairs_preserve_emitted_commands_and_conservative_clock_interva
         if change == 'future': rows[0][0] = 101
         capture.receive(response, rows, dropped=int(change == 'dropped'), started_at=10., received_at=10.004)
         assert capture._sample['error'], change
+
+
+def test_receiver_fractional_recorder_stamp_preserves_observed_snapshot_and_uncertainty():
+    # Saved Jetson loaded-camera failure: status floors milliseconds while the
+    # recorder reads the clock later within that same millisecond.
+    response, rows = result(2106)
+    response['status']['state'], response['hardware_enabled'] = 'disarmed', False
+    rows[0][0] = 2106.23714
+    for feedback in response['feedback']:
+        feedback['sampled_at_ms'] = 2103
+    sample = paired_receiver_sample(response, rows, NAMES, validate_config(config()),
+                                    started_at=10., received_at=10.004)
+    assert sample['error'] is None
+    assert sample['receiver_ms'] == 2106.23714
+    assert sample['receiver_feedback_ms'] == [2103]*14
+    assert sample['receiver_status_ms'] == 2106
+    assert sample['receiver_status_upper_ms'] == 2107
+    assert sample['source_time'] == pytest.approx(9.996)
+    assert sample['rpc_round_trip_s'] == pytest.approx(.004)
+    assert sample['status_clock_quantization_s'] == .001
+    assert sample['clock_uncertainty_s'] == pytest.approx(.005)
+    assert not sample['command_valid']  # Parsing fresh stopped evidence never grants authority.
+
+
+@pytest.mark.parametrize('now_ms', [-1, 100.5, float('nan'), float('inf'), True, '100'])
+def test_receiver_quantization_requires_integral_nonnegative_status_clock(now_ms):
+    response, rows = result()
+    response['status']['now_ms'] = now_ms
+    sample = paired_receiver_sample(response, rows, NAMES, validate_config(config()),
+                                    started_at=10., received_at=10.004)
+    assert 'finite nonnegative integer' in sample['error']
+
+
+@pytest.mark.parametrize('row_ms,feedback_ms,accepted', [
+    (100.999999, 100, True),  # Strictly inside status [100, 101).
+    (101, 100, False), (101.000001, 100, False),  # A later recorder bucket is unproven.
+    (71, 100, True), (70.999999, 100, False),  # Conservative row age <=30 ms.
+    (100, 71, True), (100, 70.999999, False),  # Same bound for every feedback stamp.
+    (100, 100.000001, False),  # Feedback must not be later than integer status.
+    (-.001, 100, False), (100, -.001, False),
+    (True, 100, False), (100, True, False),
+])
+def test_receiver_quantization_half_open_bucket_and_strict_age_bounds(row_ms, feedback_ms, accepted):
+    response, rows = result(100.)  # Integral numeric representation is supported.
+    rows[0][0] = row_ms
+    response['feedback'][0]['sampled_at_ms'] = feedback_ms
+    sample = paired_receiver_sample(response, rows, NAMES, validate_config(config()),
+                                    started_at=10., received_at=10.004)
+    assert (sample['error'] is None) is accepted
+    if accepted:
+        assert sample['source_time'] == pytest.approx(10.-(101-min(row_ms, feedback_ms))/1000)
 
 
 class Writer:

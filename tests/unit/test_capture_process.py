@@ -159,8 +159,8 @@ def test_stderr_is_saved_but_bounded_and_child_can_continue(process_worker):
 def test_receiver_command_validity_is_distinct_from_fresh_observation(state, enabled, valid):
     response, rows = receiver(state, enabled)
     sample = paired_receiver_sample(response, rows, NAMES, config(), started_at=10., received_at=10.004)
-    assert sample['source_time'] == pytest.approx(9.998)
-    assert sample['clock_uncertainty_s'] == pytest.approx(.004)
+    assert sample['source_time'] == pytest.approx(9.997)
+    assert sample['clock_uncertainty_s'] == pytest.approx(.005)
     assert sample['qcmd'][3] == pytest.approx(3.2)
     assert sample['command_valid'] is valid
     view = LiveTaskCapture.__new__(LiveTaskCapture)
