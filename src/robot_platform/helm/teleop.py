@@ -308,6 +308,8 @@ class TeleopCore:
         self._latency = None
         self._recorder = None
         self._recording_error = None
+        self.task_capture = None
+        self._capture_exchange_started = None
         self._pending_latency = None
         self._loop_timings = deque(maxlen=CYCLE_HISTORY)
         self._loop_max_ms = self._loop_misses = self._loop_skipped = 0
@@ -339,7 +341,8 @@ class TeleopCore:
         receiver = open_simulation(derived, model=model, directions=self.bundle['directions'],
                                    motors=reference['motors'], servo=self.bundle.get('servo'), directory=directory,
                                    clock=self.clock, viewer=self.simulation.get('viewer', True),
-                                   seed=self.simulation.get('seed', 1), actuators=self.simulation.get('actuators'))
+                                   seed=self.simulation.get('seed', 1), actuators=self.simulation.get('actuators'),
+                                   task_scene=self.simulation.get('task_scene', False))
         self.scheduling['receiver'] = prefer_responsive(receiver.harness.process.pid)
         return receiver
 
@@ -507,12 +510,15 @@ class TeleopCore:
             harness = self.open_receiver(derived['config'], device, reference)
             self._closers.append(harness.close)
             self._start_recording(harness, derived['config'])
-            exchange = harness.exchange
+            def exchange(request):
+                self._capture_exchange_started = self.clock()
+                return harness.exchange(request)
         elif self.simulation is not None:
             # The simulated arms tick with the receiver, as the live service does; their ticks are recorded as a
             # live session's are.
             harness = self.open_simulation(derived, model, reference)
             self._closers.append(harness.close)
+            self.task_capture = getattr(harness, 'task_view', None)
             self._start_recording(harness, derived['config'])
             actuators = getattr(harness, 'actuators', None)
             self._event('simulation', nominal=harness.nominal, **({'actuators': actuators} if actuators else {}))
@@ -722,6 +728,15 @@ class TeleopCore:
             return
         directory = Path(directory)
         names = [joint['name'] for joint in config['joints']]
+        if self.live_arm and self.bundle.get('task_capture') is not None:
+            if self.live_arm != 'both':
+                raise ValueError('Task capture requires both arms and both grippers')
+            from .task_capture import LiveTaskCapture
+            self.task_capture = LiveTaskCapture(directory / 'episodes', names, self.bundle['task_capture'],
+                metadata={'source': 'real', 'asset_id': self.bundle['asset_id'],
+                          'bindings': self.bundle['bindings'], 'receiver_identity': config['identity'],
+                          'action_semantics': 'receiver_emitted_position_at_sample'})
+            self._closers.append(self.task_capture.close)
         (directory / 'columns.json').write_text(json.dumps(
             {'dtype': 'float32', 'columns': recorder_columns(names)}, indent=1) + '\n', encoding='utf-8')
         self._recorder = RecordingWriter(directory)
@@ -734,6 +749,9 @@ class TeleopCore:
             if self._samples is None:
                 return
             rows, dropped = result_rows(result, names)
+            if self.live_arm and self.task_capture is not None:
+                self.task_capture.receive(result, rows, dropped=dropped,
+                    started_at=self._capture_exchange_started, received_at=self.clock())
             if dropped:
                 self._event('rows_dropped', count=dropped)
             if rows and self._recorded < RECORDING_BYTES:
@@ -781,7 +799,23 @@ class TeleopCore:
                 self._recording_error = str(exc)
             self._flushed = clock
 
+    def task_action(self, action):
+        if self.task_capture is None:
+            raise ValueError('Set up the task before starting this session')
+        state = self.session.lifecycle.state if self.session else None
+        if action == 'reset' and (self.live_arm or state not in ('DISABLED', 'IDLE')):
+            raise ValueError('Reset is only available with the simulated receiver disabled or idle')
+        if action == 'start_record' and (self.fault or state not in ('HOLD', 'TELEOP')):
+            raise ValueError('Hold or engage both arms before recording')
+        return self.task_capture.command(action)
+
     def _check_recording(self):
+        if self.task_capture is not None:
+            task = self.task_capture.snapshot()
+            recording = task.get('recording') or {}
+            if task.get('failed') or (task.get('error') and (recording.get('active')
+                    or recording.get('state') in ('failed', 'aborted'))):
+                raise RecordingError(task.get('error') or 'Task capture failed')
         if self._recording_error is not None:
             raise RecordingError(self._recording_error)
         if self._recorder is not None:
@@ -1120,6 +1154,7 @@ class TeleopCore:
                                 'clearance_m': verdict.get('clearance_lower_bound_m'),
                                 'blocked': getattr(self.compiler, 'blocked', 0),
                                 'holding': self.session.blocked if self.session else None},
+                  'task': self.task_capture.snapshot() if getattr(self, 'task_capture', None) is not None else None,
                   'scheduling': self.scheduling, 'cycle_ms': None, 'joints': []}
         if self.profile.get('trial'):
             trial = self.profile['trial']
@@ -1295,6 +1330,15 @@ def run_loop(commands, views, core, *, silence_s=None):
                     continue
                 if message[0] == 'key':
                     keys.append(message[1])
+                elif message[0] == 'task':
+                    view_changed = True
+                    _, request, action = message
+                    try:
+                        if closing:
+                            raise ValueError('The session is shutting down')
+                        reply(request, None, core.task_action(action))
+                    except Exception as exc:
+                        reply(request, str(exc) or type(exc).__name__)
                 elif message[0] in ('route', 'zero'):
                     view_changed = True
                     _, request, *arguments = message
@@ -1364,7 +1408,7 @@ class TeleopSession:
     TARGETS = ('jetson', 'pc')
 
     def __init__(self, helm, profile_path, *, runs, leaders=None, core_factory=None, leader_factory=None,
-                 target='pc', edge_factory=None, simulation=None):
+                 target='pc', edge_factory=None, simulation=None, capture_profile=None):
         self.helm, self.leaders = helm, leaders  # leaders: the Leaders workspace holding saved ranges.
         self.profile_path = Path(profile_path).resolve()
         self.profile = load_profile(self.profile_path)
@@ -1381,6 +1425,9 @@ class TeleopSession:
         if self.simulation is not None and target != 'pc':
             raise ValueError('The simulated Minerva runs on this PC')
         self.sim_directory = Path(runs) / (helm.asset_id + '-sim')
+        self.capture_profile = Path(capture_profile).resolve() if capture_profile is not None else None
+        self.task_configured = False
+        self.task_capture_config = None
         self.target, self.edge_factory = target, edge_factory  # edge_factory: tests build the EdgeWorker.
         # Or live on one arm, or both ({'mode': 'live', 'arm': 'left' | 'right' | 'both'}); virtual may enforce the
         # two-arm bound ({'mode': 'virtual', 'collision': 'motion'}).
@@ -1423,6 +1470,7 @@ class TeleopSession:
                 'asset_id': helm.asset_id, 'leader_factory': self.leader_factory, 'receiver': dict(self.receiver),
                 'leader_ranges': deepcopy(self.leaders.saved) if self.leaders is not None else None,
                 'servo': self._servo(),
+                **({'task_capture': deepcopy(self.task_capture_config)} if self.task_capture_config is not None else {}),
                 **({'simulation': dict(self.simulation, directory=str(self.sim_directory))}
                    if self.simulation is not None and self.receiver['mode'] == 'virtual' else {}),
                 **({'manual_tuning': self.manual.bundle()} if self.manual else {}),
@@ -1434,6 +1482,26 @@ class TeleopSession:
         if not hasattr(self.helm, 'profile_path') or not hasattr(self.helm, 'asset_id'):
             return None
         return load_servo(servo_path(self.helm.profile_path, self.helm.asset_id))
+
+    def task_action(self, action):
+        if action == 'setup':
+            with self._lock:
+                if self.active:
+                    raise ValueError('Stop the session before task setup')
+                if self.simulation is not None:
+                    self.simulation['task_scene'] = True
+                else:
+                    if self.receiver != {'mode': 'live', 'arm': 'both'}:
+                        raise ValueError('Select Live both arms before task setup')
+                    if self.capture_profile is None:
+                        raise ValueError('Live capture needs --capture-profile with verified camera identities and clocks')
+                    from .task_capture import validate_config
+                    self.task_capture_config = validate_config(json.loads(self.capture_profile.read_text(encoding='utf-8')))
+                self.task_configured = True
+            return
+        if action not in ('reset', 'start_record', 'stop_record'):
+            raise ValueError('Unknown task action')
+        return self._request('task', action)
 
     def set_target(self, target):
         if target not in self.TARGETS:
@@ -1454,6 +1522,8 @@ class TeleopSession:
                 or collision not in (None, 'motion') or (collision and mode != 'virtual')):
             raise ValueError('Choose the virtual receiver (the two-arm bound enforced or not), or live on the left, '
                              'right or both arms')
+        if self.simulation is not None and mode != 'virtual':
+            raise ValueError('Simulation mode cannot select a physical receiver')
         with self._lock:
             if self.active:
                 raise ValueError('Stop the session before choosing the receiver')
@@ -1490,6 +1560,10 @@ class TeleopSession:
         with self._lock:
             if self.active:
                 raise ValueError('Teleop is already running')
+            if self.simulation is not None and (self.target != 'pc' or self.receiver['mode'] != 'virtual'):
+                raise ValueError('Simulation mode needs the virtual receiver on this PC')
+            if self.task_capture_config is not None and self.receiver != {'mode': 'live', 'arm': 'both'}:
+                raise ValueError('Configured task capture requires Live both arms')
             if self._tuning_lock.locked():
                 raise ValueError('Wait for the tuning operation before starting')
             if self.receiver['mode'] == 'live' and getattr(self.helm, 'connection', 'tether') != 'tether':
@@ -1655,7 +1729,9 @@ class TeleopSession:
                 view['telemetry'] = age_packet(view['telemetry'], age / 1000 if age is not None else None)
             law, upcoming = self._control_law(view)
             return dict(view, target=self.target, receiver_choice=dict(self.receiver),
-                        live_available='live' in self.profile, receiver_choices=choices,
+                        live_available=self.simulation is None and 'live' in self.profile,
+                        receiver_choices=choices if self.simulation is None else ['virtual'],
+                        simulation=self.simulation is not None, task_configured=self.task_configured,
                         observation_age_ms=age, control_law=law, control_law_next=upcoming,
                         tuning=self.manual.snapshot(can_apply=allowed, reason=reason) if self.manual else
                         {'enabled': False})

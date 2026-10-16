@@ -268,7 +268,55 @@ function render(state) {
   renderCheck(state.check);
   settingsPanel.updateContext(state);
   renderGlobalControls(state);
+  renderMode(state);
+  renderTask(state);
   publishTelemetry(state);
+}
+
+// Mode is fixed at launch. The server enforces the same separation for every action.
+function renderMode(state) {
+  const simulation = state.mode === 'simulation';
+  document.body.dataset.mode = simulation ? 'simulation' : 'robot';
+  $('mode-pill').textContent = simulation ? 'Simulation only' : 'Robot mode';
+  if (simulation) {
+    $('feed-text').textContent = 'Physical robot disconnected';
+    $('robot-name').textContent = `${state.robot.model} · simulation on this PC`;
+    if (['check', 'limits', 'tune'].includes(document.body.dataset.tab)) showTab('teleop');
+  }
+}
+
+function renderTask(state) {
+  const t = state.teleop, task = t?.task || {}, configured = !!t?.task_configured;
+  const running = ['starting', 'running'].includes(t?.phase), simulation = state.mode === 'simulation';
+  const recording = task.recording || {}, active = recording.active === true || recording.state === 'recording';
+  const pending = task.last_command?.state === 'pending';
+  $('task-mode').textContent = simulation ? 'SIMULATED CONTACT TASK' : 'BIMANUAL ROBOT CAPTURE';
+  $('task-capability').textContent = simulation
+    ? 'Dynamic object contacts with posed fingers; simulated arm response is not a validated coupled physics model. No synthetic grasp attachment.'
+    : 'Records the current guarded receiver and existing camera streams. Both arms and grippers must be healthy; camera timing must be verified.';
+  $('task-setup').disabled = running || !t;
+  $('task-setup').textContent = configured ? 'Task configured' : 'Set up task';
+  $('task-reset').hidden = !simulation;
+  $('task-reset').disabled = !task.available || !running || active || !['DISABLED', 'IDLE'].includes(t?.state);
+  $('task-record').disabled = !task.available || (!simulation && !task.capture_ready) || !running || active || pending || task.failed || !['HOLD', 'TELEOP'].includes(t?.state);
+  $('task-stop').disabled = !running || !active || pending;
+  const progress = task.task || {};
+  $('task-state').textContent = task.error ? 'Task needs attention.' : !configured ? 'Task not configured.'
+    : !running ? 'Ready to start a session. Task controls do not enable motors.'
+    : progress.phase || progress.stage || (task.available ? 'Task ready.' : 'Preparing task…');
+  const summary = recording.state || (active ? 'recording' : configured ? 'idle' : 'not started');
+  $('task-recording').textContent = `Recording: ${summary}`
+    + (Number.isFinite(recording.frames) ? ` · ${recording.frames} frames` : '')
+    + (recording.path || recording.directory ? ` · ${recording.path || recording.directory}` : '')
+    + (simulation ? (task.cameras?.ready ? ' · simulated cameras rendered' : '')
+      : task.cameras ? ` · cameras: ${Object.entries(task.cameras).map(([name, c]) => `${name} ${c.fresh ? 'fresh' : c.error || 'waiting'}`).join(', ')}` : '');
+  const error = task.error || task.last_command?.error || '';
+  $('task-error').hidden = !error;
+  $('task-error').textContent = error;
+}
+for (const [id, action] of [['task-setup', 'setup'], ['task-reset', 'reset'],
+                           ['task-record', 'start_record'], ['task-stop', 'stop_record']]) {
+  $(id).onclick = () => act('/api/helm/task', {action}, action === 'setup' ? 'Task configured; start the session when ready.' : null);
 }
 
 // ---- Minerva Check -------------------------------------------------------------
@@ -940,16 +988,18 @@ function renderTeleop(t) {
   const eyebrow = $('t-eyebrow');
   eyebrow.textContent = live
     ? `TELEOP · LIVE ${choice.arm === 'both' ? 'BOTH ARMS' : choice.arm.toUpperCase() + ' ARM'} ${where} · MOTORS MOVE · FOOT SWITCH IN REACH`
-    : `TELEOP · VIRTUAL RECEIVER${choice.collision === 'motion' ? ' · TWO-ARM BOUND' : ''} ${where} · NO MOTORS MOVE`;
+    : `TELEOP · ${last?.mode === 'simulation' ? 'SIMULATED MINERVA' : 'VIRTUAL RECEIVER'}${choice.collision === 'motion' ? ' · TWO-ARM BOUND' : ''} ${where} · NO MOTORS MOVE`;
   eyebrow.className = `eyebrow ${live ? 'live' : 'warn'}`;
   for (const button of document.querySelectorAll('#t-target button')) {
     button.setAttribute('aria-pressed', String(button.dataset.target === t.target));
-    button.disabled = running || starting || (live && button.dataset.target !== 'jetson');
+    button.disabled = running || starting || (live && button.dataset.target !== 'jetson')
+      || (last?.mode === 'simulation' && button.dataset.target !== 'pc');
+    button.hidden = last?.mode === 'simulation' && button.dataset.target !== 'pc';
   }
   for (const button of document.querySelectorAll('#t-receiver-choice button')) {
     const liveButton = button.dataset.receiver === 'live';
     const choiceKey = liveButton ? button.dataset.arm : 'virtual';
-    button.hidden = (direct && !!button.dataset.collision)
+    button.hidden = (last?.mode === 'simulation' && liveButton) || (direct && !!button.dataset.collision)
       || (Array.isArray(t.receiver_choices) && !t.receiver_choices.includes(choiceKey));
     if (!button.dataset.collision) button.title = liveButton
       ? `${button.dataset.arm === 'both' ? 'Both arms' : `The ${button.dataset.arm} arm`}; ${direct ? 'no collision detection' : button.dataset.arm === 'both' ? 'two-arm collision bound enforced' : 'collision checks advisory'}. Loop on Minerva's Jetson only.`
@@ -961,7 +1011,8 @@ function renderTeleop(t) {
         || (t.trial && button.dataset.arm !== (t.trial.motor.startsWith('left_') ? 'left' : 'right'))));
   }
   // Say why live is unavailable, instead of leaving the operator to guess at greyed-out buttons.
-  const note = running || starting ? '' : !t.live_available ? 'Live teleop needs a live block in the teleop profile.'
+  const note = last?.mode === 'simulation' ? 'Simulation only · physical robot operations are unavailable in this process.'
+    : running || starting ? '' : !t.live_available ? 'Live teleop needs a live block in the teleop profile.'
     : !tether ? 'Live teleop runs over the wired tether: choose Via Tether at the top.'
     : t.target !== 'jetson' ? "Live teleop runs its loop on Minerva's Jetson." : '';
   $('t-choice-note').textContent = note;

@@ -237,3 +237,13 @@ body[data-teleop-state=FAULT] #t-state,#t-collision.bad,#t-control.bad{color:var
 .manual-vff{display:flex;align-items:center;gap:6px;margin:8px 0 0;font-weight:600}
 .manual-vff .muted{font-weight:400}
 #manual-vff-note{margin:2px 0 0;font-size:12px}
+
+.task-workflow { margin: 12px 14px; padding: 16px; border: 1px solid var(--line, #d8dee6); border-radius: 10px; }
+.task-workflow h2 { margin: 5px 0 10px; font-size: 1.12rem; }
+.task-workflow ol { padding-left: 22px; line-height: 1.55; }
+.task-actions { display: flex; flex-wrap: wrap; gap: 7px; margin: 12px 0; }
+#task-recording { overflow-wrap: anywhere; }
+body[data-mode="simulation"] #mode-pill { color: #266344; background: #e6f5eb; }
+body[data-mode="simulation"] #via, body[data-mode="simulation"] #connect,
+body[data-mode="simulation"] .tab[data-tab="check"], body[data-mode="simulation"] .tab[data-tab="limits"],
+body[data-mode="simulation"] .tab[data-tab="tune"], body[data-mode="simulation"] #settings-grippers { display: none !important; }

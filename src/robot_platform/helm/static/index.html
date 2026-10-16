@@ -22,6 +22,7 @@
         <button data-connection="tether">Tether</button>
         <button data-connection="wifi">Wi-Fi</button>
       </div>
+      <span id="mode-pill" class="pill" role="status">Robot mode</span>
       <span id="feed-pill" class="pill" role="status"><span class="dot"></span><span id="feed-text">Not connected</span></span>
       <button id="connect" class="primary">Connect</button>
     </div>
@@ -130,6 +131,26 @@
           <p id="t-message" class="muted" role="status"></p>
         </div>
         <div id="teleop-content" class="scroll">
+          <section class="task-workflow" aria-labelledby="task-title">
+            <div class="eyebrow" id="task-mode">BIMANUAL DATA COLLECTION</div>
+            <h2 id="task-title">Cube → handoff → bucket</h2>
+            <p id="task-capability" class="muted">Set up the task before starting the session.</p>
+            <ol id="task-guide">
+              <li>Set up the task. Check both leaders and the saved robot ranges.</li>
+              <li>Start the session, then Idle, Enable and Engage. Both arms and grippers participate.</li>
+              <li>Record; pick up the cube, pass it to the other gripper, then release it into the bucket.</li>
+              <li>Stop recording and check its completion. Shutdown returns the arms; Stop session closes it.</li>
+            </ol>
+            <div class="task-actions" role="group" aria-label="Task and recording">
+              <button id="task-setup">Set up task</button>
+              <button id="task-reset">Reset simulated scene</button>
+              <button id="task-record" class="primary">Record episode</button>
+              <button id="task-stop">Stop recording</button>
+            </div>
+            <p id="task-state" role="status">Task not configured.</p>
+            <p id="task-recording" class="muted" role="status"></p>
+            <p id="task-error" class="bad" role="alert" hidden></p>
+          </section>
           <div class="tuning-shortcut"><div><b>Motor tuning &amp; session settings</b><p id="t-tuning-summary" class="muted">Configure gains, following and return speeds in Settings.</p></div><button id="open-motor-settings">Open Settings</button></div>
           <div id="teleop-joints"></div>
         </div>
