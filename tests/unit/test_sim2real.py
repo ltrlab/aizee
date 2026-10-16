@@ -2,8 +2,10 @@
 
 These check the machinery only. How well the simulator matches the arm is measured on real recordings, never here.
 """
+import hashlib
 import json
 import math
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -14,9 +16,12 @@ from robot_platform.characterization import sim2real
 from robot_platform.characterization.response_fit import TICK_S, Joint
 from robot_platform.control.gravity import gravity_effort
 from robot_platform.simulation.arm_plant import ArmPlant
+from robot_platform.simulation.minerva_sim import ACTUATORS_KIND, FITTED, calibrated_actuators
 
 TERMS = [(6.5, {'a': 1., 'b': 1.}), (2.2, {'a': 1.})]  # A pitch chain: b's measured position couples into a.
 SPEC = {'inertia': .3, 'friction': .4, 'static': .55, 'viscous': .2}
+ROOT = Path(__file__).resolve().parents[2]
+DEVICES = ROOT / 'config/devices'
 
 
 def recording(n=4000, *, kp=None, gap_at=None):
@@ -161,3 +166,92 @@ def test_the_simulator_is_built_from_helms_files(tmp_path):
     assert built['nominal']['left_arm_j1'] == ['inertia', 'friction', 'static']
     assert len(built['identity']['servo_sha256']) == 64
     assert math.isfinite(built['specs']['left_gripper']['inertia'])
+
+
+def seeded_runs(tmp_path):
+    """A Helm runs folder holding the seed's confirmed directions (which mirror right J3 and J4: HELM_SIM.md)."""
+    from robot_platform.helm.session import HelmSession
+    HelmSession(DEVICES / 'minerva-joint-calibration.json', runs=tmp_path / 'runs',
+                limits=DEVICES / 'minerva-production-01-joint-limits.json',
+                seed=ROOT / 'docs/devices/MINERVA_ARM_DIRECTIONS_20260924.json').close()
+    return tmp_path / 'runs'
+
+
+def test_the_current_simulator_is_replayed_with_its_gravity_scale_and_delay(monkeypatch):
+    """With an actuator file the simulator scales a joint's gravity and delays its drive, and the comparison replays
+    exactly that. Without one, as before: unscaled and undelayed."""
+    session = dict(recording(8000), provenance={'session': 'synthetic'})
+    monkeypatch.setattr(sim2real, 'load_session', lambda path: session)
+    monkeypatch.setattr(sim2real, 'fault_times_ms', lambda path: [])
+    replay = sim2real.Replay(session, 'a', TERMS)
+    starts, fit, n = replay.windows()
+    held = starts[~fit]
+    assert len(held)
+
+    def expected(params, delay=0.):
+        return sim2real.score(replay.simulate(held, n, params, delay) - replay.measured(held, n),
+                              replay.moving(held, n))
+    plain = {'specs': {'a': dict(name='a', **SPEC)}, 'terms': {'a': TERMS}, 'nominal': {}, 'identity': {}}
+    entry = sim2real.compare(['synthetic'], plain, ['a'], calibrate_joints=False)['joints']['a']
+    assert entry['current_params'] == SPEC and entry['current_simulator'] == expected(dict(SPEC, gravity_scale=1.))
+    late = dict(plain, specs={'a': dict(name='a', delay=.4 * TICK_S, **SPEC)}, gravity_scale={'a': 1.1})
+    entry = sim2real.compare(['synthetic'], late, ['a'], calibrate_joints=False)['joints']['a']
+    delay = .4 * TICK_S / TICK_S  # As the plant takes it: ArmPlant.step divides by its step.
+    assert entry['current_params'] == dict(SPEC, gravity_scale=1.1, delay_ticks=delay)
+    assert entry['current_simulator'] == expected(dict(SPEC, gravity_scale=1.1), delay)
+    assert entry['current_simulator'] != expected(dict(SPEC, gravity_scale=1.))
+
+
+def test_the_simulators_actuator_file_is_written_from_a_saved_report(tmp_path, monkeypatch):
+    """--write-sim-params: each converged arm-joint fit, bound to its motor's UID and firmware and to the report,
+    recordings and servo calibration it came from, and read back by the simulator as written. It is never
+    overwritten, and a report made against another servo calibration is refused."""
+    runs, profile = seeded_runs(tmp_path), DEVICES / 'minerva-joint-calibration.json'
+    built = sim2real.simulator(profile, runs)
+    scores = {part: {'windows': 3, 'rms_mrad_p50': 1., 'max_mrad_p50': 2., 'max_mrad_p95': 3.}
+              for part in ('all', 'moving', 'holding')}
+    params = {'inertia': .3, 'friction': .5, 'static': .6, 'viscous': 3.3, 'gravity_scale': 1.07, 'delay_ticks': .25,
+              'delay_ms': .625}
+    fitted = {'params': params, 'fit_windows': 5, 'fit_rms_mrad': 1.2, 'converged': True, 'at_bounds': [],
+              'evaluations': 9, 'holdout': scores}
+
+    def joint(calibrated):
+        return {'current_params': {'inertia': 1.3, 'friction': .9, 'static': 1.2, 'viscous': 0.}, 'nominal': [],
+                'windows': {'fit': 5, 'holdout': 3}, 'follows_command': scores, 'current_simulator': scores,
+                'calibrated': calibrated}
+    report = {'schema': 1, 'kind': 'sim2real_comparison', 'method': {'window_s': 1.},
+              'recordings': [{'session': 'live-x', 'samples_sha256': '5' * 64, 'rows': 10, 'span_s': 1., 'gaps': 0,
+                              'command_block': True, 'faults_receiver_ms': []}],
+              'simulator': dict(built['identity'], nominal=built['nominal']),
+              'joints': {'left_arm_j2': joint(fitted), 'left_arm_j3': joint(dict(fitted, converged=False)),
+                         'left_gripper': joint({'unavailable': 'grippers grasp objects the simulator does not have'})}}
+    report_path, out = tmp_path / 'report.json', tmp_path / 'simulation' / 'actuators.json'
+    report_path.write_text(json.dumps(report), encoding='utf-8')
+    monkeypatch.setattr('sys.argv', ['sim2real', '--report', str(report_path), '--runs', str(runs),
+                                     '--profile', str(profile), '--write-sim-params', str(out)])
+    assert sim2real.main() == 0
+    document = json.loads(out.read_text(encoding='utf-8'))
+    assert (document['schema'], document['kind'], document['asset_id']) == (1, ACTUATORS_KIND, 'minerva-production-01')
+    assert list(document['motors']) == ['left_arm_j2']
+    assert document['left_out'] == {'left_arm_j3': 'its fit did not converge',
+                                    'left_gripper': 'grippers grasp objects the simulator does not have'}
+    entry, bound = document['motors']['left_arm_j2'], built['servo']['joints']['left_arm_j2']
+    assert (entry['uid'], entry['firmware']) == (bound['uid'], bound['firmware'])
+    assert {key: entry[key] for key in params} == params
+    assert entry['gravity_terms'] == [[coefficient, angle] for coefficient, angle in built['terms']['left_arm_j2']]
+    assert entry['fit'] == {'fit_windows': 5, 'fit_rms_mrad': 1.2, 'converged': True, 'evaluations': 9}
+    assert entry['held_out']['calibrated'] == scores and entry['at_bounds'] == []
+    assert document['source']['report'] == {'path': str(report_path),
+                                            'sha256': hashlib.sha256(report_path.read_bytes()).hexdigest()}
+    assert document['source']['recordings'] == report['recordings']
+    assert document['source']['servo'] == {'path': built['identity']['servo'],
+                                           'sha256': built['identity']['servo_sha256']}
+    calibrated, record = calibrated_actuators(out, built['servo'], list(built['specs']), built['terms'])
+    assert record['used'] == ['left_arm_j2']
+    assert calibrated['left_arm_j2'] == dict({key: params[key] for key in FITTED}, gravity_scale=1.07,
+                                             delay=.25 * TICK_S)
+    with pytest.raises(FileExistsError):
+        sim2real.main()
+    other = dict(report, simulator=dict(report['simulator'], servo_sha256='0' * 64))
+    with pytest.raises(ValueError, match='another servo calibration'):
+        sim2real.sim_params(other, report_path, built)

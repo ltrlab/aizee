@@ -18,6 +18,10 @@ command delay) to real responses on alternate 10 s blocks and scores them on the
 as good as the real response it reproduces: nothing here is checked against simulated ground truth.
 
 Windows overlapping a disabled drive, a recorder gap, or the last WINDOW_FAULT_S before a FAULT event are left out.
+
+`--write-sim-params` turns a saved report into the simulator's actuator file (simulation.minerva_sim.actuators_path):
+each calibrated arm joint's fitted values, bound to the motor and files they were fitted on. `--sim-params` replays
+the simulator as helm --sim runs it with such a file.
 """
 from __future__ import annotations
 
@@ -42,13 +46,14 @@ MAX_DELAY_TICKS = 8.
 CALIBRATED = ('inertia', 'friction', 'static', 'viscous', 'gravity_scale', 'delay_ticks')
 
 
-def simulator(calibration_profile, runs, *, servo=None):
-    """The plant helm --sim builds: per motor its ArmPlant spec and gravity terms, and their sources' identity."""
+def simulator(calibration_profile, runs, *, servo=None, actuators=None):
+    """The plant helm --sim builds: per motor its ArmPlant spec, gravity terms and gravity scale, and their sources'
+    identity. `actuators`: the simulator's actuator file helm --sim reads (simulation.minerva_sim.actuators_path)."""
     from robot_platform.control.gravity import gravity_model
     from robot_platform.control.joint_calibration import load_plan
     from robot_platform.control.servo_calibration import load_servo, servo_path
     from robot_platform.ops.check import direction_session
-    from robot_platform.simulation.minerva_sim import joint_specs
+    from robot_platform.simulation.minerva_sim import calibrated_actuators, joint_specs
     calibration_profile = Path(calibration_profile)
     _plan, _paths, device, reference, model, _pose, bindings = load_plan(calibration_profile)
     session = direction_session(Path(runs), device['asset_id'], bindings)
@@ -57,13 +62,15 @@ def simulator(calibration_profile, runs, *, servo=None):
     servo_file = Path(servo) if servo else servo_path(calibration_profile, device['asset_id'])
     calibration = load_servo(servo_file)
     names = [m['name'] for m in reference['motors']]
-    specs, nominal = joint_specs(names, calibration)
     terms = gravity_model(model, session['preview_mapping'], reference['motors'], (calibration or {}).get('gravity'))
-    return {'specs': {s['name']: s for s in specs}, 'terms': terms, 'nominal': nominal,
+    calibrated, used = ({}, None) if actuators is None else calibrated_actuators(actuators, calibration, names, terms)
+    specs, nominal = joint_specs(names, calibration, calibrated)
+    return {'specs': {s['name']: s for s in specs}, 'terms': terms, 'nominal': nominal, 'servo': calibration,
+            'gravity_scale': {name: c['gravity_scale'] for name, c in calibrated.items()},
             'identity': {'calibration_profile': str(calibration_profile.resolve()),
                          'servo': str(servo_file.resolve()),
                          'servo_sha256': hashlib.sha256(servo_file.read_bytes()).hexdigest(),
-                         'directions': session['bindings']}}
+                         'directions': session['bindings'], **({'actuators': used} if used else {})}}
 
 
 def _json_lines(path):
@@ -261,6 +268,10 @@ def compare(recordings, simulator_, motors=None, *, calibrate_joints=True):
     for motor in names:
         spec = simulator_['specs'][motor]
         current = {k: spec[k] for k in ('inertia', 'friction', 'static', 'viscous')}
+        if motor in simulator_.get('gravity_scale', {}):
+            current['gravity_scale'] = simulator_['gravity_scale'][motor]
+        if spec.get('delay'):
+            current['delay_ticks'] = spec['delay'] / TICK_S  # The plant's: ArmPlant.step takes it per tick.
         replays, held = [], []
         travel = 0.
         for path, session, faults in sessions:
@@ -289,7 +300,8 @@ def compare(recordings, simulator_, motors=None, *, calibrate_joints=True):
         moving = np.concatenate([r.moving(s, n) for r, s, n in held if len(s)])
         baseline = np.concatenate([r.follows(s, n) - r.measured(s, n) for r, s, n in held if len(s)])
         entry['follows_command'] = score(baseline, moving)
-        entry['current_simulator'] = evaluate(dict(current, gravity_scale=1.))
+        entry['current_simulator'] = evaluate(dict(current, gravity_scale=current.get('gravity_scale', 1.)),
+                                              current.get('delay_ticks', 0.))
         if calibrate_joints and not motor.endswith('gripper'):
             fitted = calibrate(replays, current)
             if 'params' in fitted:
@@ -301,18 +313,98 @@ def compare(recordings, simulator_, motors=None, *, calibrate_joints=True):
     return report
 
 
+SIM_PARAMS_UNITS = {'inertia': 'kg m2', 'friction': 'Nm (Coulomb, sliding)', 'static': 'Nm (breakaway)',
+                    'viscous': 'Nm s/rad', 'gravity_scale': 'times the holding torque of gravity_terms',
+                    'delay_ticks': 'receiver ticks of 2.5 ms', 'delay_ms': 'ms',
+                    'gravity_terms': '[[coefficient Nm, {motor: multiplier}]]: sum coefficient sin(sum multiplier q)',
+                    'scores': 'max and rms position error per 1 s window, mrad'}
+
+
+def sim_params(report, report_path, simulator_):
+    """The simulator's actuator file (simulation.minerva_sim) from a comparison report and the simulator it was made
+    against: per arm joint calibrated on real responses, its fitted values and how they scored on the held-out
+    windows, bound to the motor the servo calibration bound there (UID, firmware), and the recordings, report and
+    servo file they come from. Grippers and fits that did not converge are left out, with the reason."""
+    from robot_platform.simulation.minerva_sim import ACTUATORS_KIND
+    if report.get('kind') != 'sim2real_comparison':
+        raise ValueError(f'{report_path} is not a sim2real comparison report')
+    identity, made = simulator_['identity'], report['simulator']
+    if made['servo_sha256'] != identity['servo_sha256'] or made['directions'] != identity['directions']:
+        raise ValueError(f'{report_path} was made against another servo calibration or other directions than '
+                         f"{identity['servo']} and these runs' confirmed directions")
+    servo = simulator_['servo'] or {}
+    motors, left_out = {}, {}
+    for motor, entry in report['joints'].items():
+        fitted = entry.get('calibrated') or {}
+        if 'params' not in fitted or not fitted.get('converged'):
+            left_out[motor] = (fitted.get('unavailable') or entry.get('unavailable')
+                               or ('its fit did not converge' if 'params' in fitted else 'not calibrated'))
+            continue
+        bound = (servo.get('joints') or {}).get(motor) or {}
+        values = fitted['params']
+        motors[motor] = {
+            'uid': bound.get('uid'), 'firmware': bound.get('firmware'),
+            **{key: values[key] for key in ('inertia', 'friction', 'static', 'viscous', 'gravity_scale',
+                                             'delay_ticks', 'delay_ms')},
+            'gravity_terms': [[coefficient, angle] for coefficient, angle in simulator_['terms'].get(motor, ())],
+            'at_bounds': fitted['at_bounds'],
+            'fit': {key: fitted[key] for key in ('fit_windows', 'fit_rms_mrad', 'converged', 'evaluations')},
+            'held_out': {'windows': entry['windows']['holdout'], 'calibrated': fitted['holdout'],
+                         'replaced_simulator': entry['current_simulator'], 'follows_command': entry['follows_command']},
+            'replaced': {'params': entry['current_params'], 'nominal': entry['nominal']}}
+    return {'schema': 1, 'kind': ACTUATORS_KIND, 'asset_id': servo.get('asset_id'),
+            'use': 'Simulation only: simulation.minerva_sim (robot-platform helm --sim) and sim2real --sim-params. '
+                   'Nothing on the robot reads it; robot releases leave config/devices/simulation/ out.',
+            'source': {'report': {'path': str(report_path), 'sha256': hashlib.sha256(
+                           Path(report_path).read_bytes()).hexdigest()},
+                       'recordings': report['recordings'],
+                       'servo': {'path': made['servo'], 'sha256': made['servo_sha256']},
+                       'directions': made['directions'], 'method': report['method']},
+            'units': SIM_PARAMS_UNITS, 'motors': motors, 'left_out': left_out}
+
+
+def write_sim_params(report_path, simulator_, path):
+    """Write sim_params to `path` (never overwritten); returns the document."""
+    report_path, path = Path(report_path), Path(path)
+    document = sim_params(json.loads(report_path.read_text(encoding='utf-8')), report_path, simulator_)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open('x', encoding='utf-8', newline='\n') as stream:
+        stream.write(json.dumps(document, indent=1) + '\n')
+    return document
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('recordings', type=Path, nargs='+', help='recording folders (columns.json, samples.f32)')
+    parser.add_argument('recordings', type=Path, nargs='*', help='recording folders (columns.json, samples.f32)')
     parser.add_argument('--profile', type=Path, default=Path('config/devices/minerva-joint-calibration.json'))
     parser.add_argument('--runs', type=Path, required=True, help="Helm's runs folder with the confirmed directions")
     parser.add_argument('--servo', type=Path, help='servo calibration (default: beside the profile, as Helm)')
+    parser.add_argument('--sim-params', type=Path,
+                        help="the simulator's actuator file: replay the simulator as helm --sim runs with it")
     parser.add_argument('--joint', action='append', help='only these motors')
     parser.add_argument('--no-calibration', action='store_true')
     parser.add_argument('--output', type=Path, help='write the report here (never overwritten)')
+    parser.add_argument('--report', type=Path,
+                        help='a saved report to write --write-sim-params from, instead of recordings')
+    parser.add_argument('--write-sim-params', type=Path,
+                        help="write the simulator's actuator file from the report (never overwritten)")
     args = parser.parse_args()
-    report = compare(args.recordings, simulator(args.profile, args.runs, servo=args.servo), args.joint,
-                     calibrate_joints=not args.no_calibration)
+    if bool(args.recordings) == bool(args.report):
+        parser.error('give recordings to compare, or --report with --write-sim-params')
+    if args.report and not args.write_sim_params:
+        parser.error('--report is read only by --write-sim-params')
+    if args.write_sim_params and not (args.report or args.output):
+        parser.error('--write-sim-params needs the report saved: --output, or --report')
+    built = simulator(args.profile, args.runs, servo=args.servo, actuators=args.sim_params)
+
+    def write(report_path):
+        written = write_sim_params(report_path, built, args.write_sim_params)
+        print(f"{args.write_sim_params}: {', '.join(written['motors'])}; left out: "
+              + ', '.join(f'{motor} ({why})' for motor, why in written['left_out'].items()))
+    if args.report:
+        write(args.report)
+        return 0
+    report = compare(args.recordings, built, args.joint, calibrate_joints=not args.no_calibration)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         with args.output.open('x', encoding='utf-8') as stream:
@@ -333,6 +425,8 @@ def main():
                      f"static {p['static']:.2f}, b {p['viscous']:.2f}, g x{p['gravity_scale']:.2f}, "
                      f"delay {p['delay_ms']:.1f} ms{', at bounds ' + ', '.join(calibrated['at_bounds']) if calibrated['at_bounds'] else ''})")
         print(line)
+    if args.write_sim_params:
+        write(args.output)
     return 0
 
 

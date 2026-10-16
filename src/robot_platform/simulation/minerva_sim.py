@@ -7,18 +7,24 @@ takes the rough value in NOMINAL (the rehearsals' values), and `nominal` lists i
 window draws the arms from those joints, mapped into the model through Helm's confirmed
 directions and the grippers' preview transmissions.
 
-This is the receiver and operator loop on sweep-measured joints, not a physics scene: there
-are no objects or contacts, and the joints do not load one another beyond the measured gravity.
+A motor in the simulator's actuator file (`actuators_path`, written by characterization.sim2real
+from real teleop) takes the values fitted there instead: inertia, friction, damping, its drive's
+command delay and a scale on its gravity. The file binds each to the motor it was fitted on.
+
+This is the receiver and operator loop on measured joints, not a physics scene: there are no
+objects or contacts, and the joints do not load one another beyond the measured gravity.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from pathlib import Path
 import threading
 import time
 
 from robot_platform.control.gravity import gravity_effort, gravity_model
-from .arm_plant import ArmPlant, PlantReceiver
+from .arm_plant import TICK_S, ArmPlant, PlantReceiver
 
 ROOT = Path(__file__).resolve().parents[3]
 SCENE = ROOT / 'urdf/minerva/mujoco/scene.xml'
@@ -32,12 +38,92 @@ POSITION_NOISE_RAD = .0006  # Reading noise before the drives' 16-bit steps, as 
 DAMPING_RATIO = .6
 VIEW_HZ = 30.
 VIEW_GROUPS = (0, 2)  # The floor and the source visuals.
+ACTUATORS_KIND = 'sim_actuator_calibration'  # The simulator's actuator file (characterization.sim2real).
+FITTED = ('inertia', 'friction', 'static', 'viscous')
 
 
-def joint_specs(names, servo):
-    """ArmPlant joints for the receiver's `names`, and {name: [the fields taken from NOMINAL]}."""
+def actuators_path(profile_path, asset_id):
+    """The simulator's actuator file: beside the servo calibration, in `simulation/`, which robot releases leave out
+    (ops.release ships config/devices/*.json only)."""
+    return Path(profile_path).resolve().parent / 'simulation' / f'{asset_id}-actuators.json'
+
+
+def _fitted(entry):
+    """A motor's fitted values from the actuator file, or why they cannot drive the plant."""
+    values = {key: entry.get(key) for key in FITTED + ('gravity_scale', 'delay_ticks')}
+    if not all(isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) for x in values.values()):
+        return None, 'a value is missing or not a finite number'
+    if not (values['inertia'] > 0 and 0 <= values['friction'] <= values['static'] and values['viscous'] >= 0
+            and values['gravity_scale'] > 0):
+        return None, 'a value is out of range'
+    if not 0 <= values['delay_ticks'] <= 1:
+        return None, 'a command delay over one tick is not modelled'
+    fitted = {key: float(values[key]) for key in FITTED + ('gravity_scale',)}
+    return dict(fitted, delay=float(values['delay_ticks']) * TICK_S), None
+
+
+def calibrated_actuators(path, servo, names, terms):
+    """{motor: values fitted on real responses} from the simulator's actuator file at `path`, and what was used.
+
+    A motor of `names` takes the file's values only where the file was fitted on the motor the servo calibration
+    binds there now: the same asset, UID and firmware. Any other keeps its current values, and the record says why.
+    A motor's gravity scale applies only to the gravity terms it was fitted against (`terms`, control.gravity);
+    with other terms (a new gravity sweep, other directions) its gravity is unscaled."""
+    path = Path(path)
+    record = {'path': str(path), 'used': []}
+    if not path.is_file():
+        return {}, dict(record, reason='no file')
+    raw = path.read_bytes()
+    record['sha256'] = hashlib.sha256(raw).hexdigest()
+    try:
+        document = json.loads(raw.decode('utf-8'))
+    except ValueError as exc:
+        return {}, dict(record, reason=f'not JSON: {exc}')
+    if not isinstance(document, dict) or document.get('schema') != 1 or document.get('kind') != ACTUATORS_KIND:
+        return {}, dict(record, reason='not a simulator actuator file')
+    asset = (servo or {}).get('asset_id')
+    if document.get('asset_id') != asset:
+        return {}, dict(record, reason=f"fitted on {document.get('asset_id')}, not {asset}")
+    motors = document.get('motors') if isinstance(document.get('motors'), dict) else {}
+    bound = (servo or {}).get('joints') or {}
+    calibrated, refused, unscaled = {}, {}, {}
+    for name in names:
+        entry = motors.get(name)
+        if not isinstance(entry, dict):
+            continue
+        fitted_on = (entry.get('uid'), entry.get('firmware'))
+        binds = ((bound.get(name) or {}).get('uid'), (bound.get(name) or {}).get('firmware'))
+        if fitted_on != binds:
+            refused[name] = (f'fitted on UID {fitted_on[0]} firmware {fitted_on[1]}; the servo calibration binds UID '
+                             f'{binds[0]} firmware {binds[1]}')
+            continue
+        fitted, problem = _fitted(entry)
+        if problem:
+            refused[name] = problem
+            continue
+        here = [[float(coefficient), dict(angle)] for coefficient, angle in terms.get(name, ())]
+        if fitted['gravity_scale'] != 1 and here != entry.get('gravity_terms'):
+            unscaled[name] = 'its gravity terms differ from those the scale was fitted against'
+            fitted['gravity_scale'] = 1.
+        calibrated[name] = fitted
+    record['used'] = list(calibrated)
+    if refused:
+        record['refused'] = refused
+    if unscaled:
+        record['gravity_unscaled'] = unscaled
+    return calibrated, record
+
+
+def joint_specs(names, servo, calibrated=None):
+    """ArmPlant joints for the receiver's `names`, and {name: [the fields taken from NOMINAL]}. A joint in
+    `calibrated` (calibrated_actuators) takes its values fitted on real responses instead."""
     specs, nominal = [], {}
     for name in names:
+        fitted = (calibrated or {}).get(name)
+        if fitted:
+            specs.append(dict(name=name, **{key: fitted[key] for key in FITTED},
+                              **({'delay': fitted['delay']} if fitted['delay'] else {})))
+            continue
         inertia, friction, static = NOMINAL[name.split('_')[-1]]
         saved = ((servo or {}).get('joints') or {}).get(name) or {}
         torque = (saved.get('measured') or {}).get('torque') or {}
@@ -131,9 +217,10 @@ class ModelView:
 class SimulatedReceiver(PlantReceiver):
     """The live receiver's interface over the simulated arms, plus the window that shows them."""
 
-    def __init__(self, config, plant, *, clock, directory, view=None, nominal=None):
+    def __init__(self, config, plant, *, clock, directory, view=None, nominal=None, actuators=None):
         super().__init__(config, plant, clock=clock, directory=directory)
         self.view, self.nominal = view, dict(nominal or {})
+        self.actuators = actuators  # What the actuator file gave (calibrated_actuators), when one was named.
         if view is not None:
             view.show(plant.q)
 
@@ -151,19 +238,29 @@ class SimulatedReceiver(PlantReceiver):
                 self.view.close()
 
 
+def _holding(terms, scale):
+    if scale == 1:
+        return lambda pose: gravity_effort(terms, pose)
+    return lambda pose: scale * gravity_effort(terms, pose)
+
+
 def open_simulation(derived, *, model, directions, motors, servo, directory, clock, scene=SCENE, viewer=True,
-                    seed=1):
+                    seed=1, actuators=None):
     """A SimulatedReceiver for a derived receiver (guarded_config.derive_receiver), resting at its initial pose.
 
     `model` is the URDF model the receiver was derived against, `directions` Helm's confirmed mapping and
-    `motors` the reference roster, for the gravity each joint's sweep fitted (control.gravity)."""
+    `motors` the reference roster, for the gravity each joint's sweep fitted (control.gravity). `actuators` names
+    the simulator's actuator file (actuators_path), if any: the motors it matches take its fitted values."""
     config = derived['config']
     names = [joint['name'] for joint in config['joints']]
-    specs, nominal = joint_specs(names, servo)
+    terms = gravity_model(model, directions, [m for m in motors if m['name'] in names], (servo or {}).get('gravity'))
+    calibrated, record = calibrated_actuators(actuators, servo, names, terms) if actuators is not None else ({}, None)
+    specs, nominal = joint_specs(names, servo, calibrated)
     for spec, q in zip(specs, derived['initial']):
         spec['q'] = float(q)
-    terms = gravity_model(model, directions, [m for m in motors if m['name'] in names], (servo or {}).get('gravity'))
-    plant = ArmPlant(specs, gravity={n: (lambda pose, t=terms[n]: gravity_effort(t, pose)) for n in names if n in terms},
+    plant = ArmPlant(specs, gravity={n: _holding(terms[n], calibrated.get(n, {}).get('gravity_scale', 1.))
+                                     for n in names if n in terms},
                      position_noise=POSITION_NOISE_RAD, seed=seed)
     view = ModelView(scene, derived['joint_map'], names) if viewer else None
-    return SimulatedReceiver(config, plant, clock=clock, directory=directory, view=view, nominal=nominal)
+    return SimulatedReceiver(config, plant, clock=clock, directory=directory, view=view, nominal=nominal,
+                             actuators=record)
