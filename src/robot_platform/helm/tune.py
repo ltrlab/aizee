@@ -466,13 +466,18 @@ class TuneCore:
                     return
                 # A drive not answering, or a joint not yet settled: the receiver holds the arm meanwhile.
                 self.message = (f'The receiver stopped the arm ({self.stopped_by}) and holds it; waiting to re-arm '
-                                f'it ({exc.reason})…')
+                                f'it ({exc.reason}). If it stays held, support the arm, then press H to disable it '
+                                '(it goes limp).')
                 return
             self._lowerings += 1
+            # A gripper that stopped answering is set aside by the receiver: it keeps its last command.
+            aside = status.get('set_aside') or []
             self.engine.lower({name: joint['position'] for name, joint in zip(self.engine.names, status['joints'])},
                               f'the receiver stopped the arm ({self.stopped_by})' if self.stopped_by
-                              else 'the receiver stopped the arm')
-            self.message = 'Re-armed where the receiver held it; lowering the arm to the reference…'
+                              else 'the receiver stopped the arm', aside=aside)
+            self.message = ((f'{" and ".join(aside)} stopped answering and {"is" if len(aside) == 1 else "are"} set '
+                             'aside. ' if aside else '')
+                            + 'Re-armed where the receiver held it; lowering the arm to the reference…')
             return
         if state not in ('holding', 'executing') or not self.controller.owned:
             raise RuntimeError(f"the receiver is {state} ({status.get('reason')}): the arm's torque is off")

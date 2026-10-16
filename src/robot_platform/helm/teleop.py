@@ -936,15 +936,18 @@ class TeleopCore:
                     return
                 if session.recover():
                     self._lowerings += 1
-                    self.message = (f'{self._receiver_name} FAULT · {self.fault} · Re-armed where the receiver '
-                                    'held it; lowering the arm to the reference…')
+                    self.message = (f'{self._receiver_name} FAULT · {self.fault} · {self._set_aside()}Re-armed '
+                                    'where the receiver held it; lowering the arm to the reference…')
                 return
             record = session.cycle(action=None, target=None, started_at=started)
             self._record(record)
             if session.lifecycle.state == 'DISABLED':
                 self._lowering = False
-                self.message = (f'{self._receiver_name} FAULT · {self.fault} · The arm was lowered to the '
-                                'reference and disabled. Stop the session and start it again.')
+                aside = self._set_aside()
+                self.message = (f'{self._receiver_name} FAULT · {self.fault} · {aside}The arm was lowered to the '
+                                'reference and disabled. ' + ('Check that drive\'s power and wiring, then stop the '
+                                                             'session and start it again.' if aside else
+                                                             'Stop the session and start it again.'))
         except Exception as exc:
             self._record(session.last_cycle or {}, failure=str(exc))
             if getattr(exc, 'reason', None) in WAIT_TO_REARM and self._held():
@@ -952,11 +955,21 @@ class TeleopCore:
                 self.message = (f'{self._receiver_name} FAULT · {self.fault} · ' + (
                     f'{dropped}. The receiver holds the arm on the other drives and cannot re-arm it this session. '
                     'Support the arm, then press H to disable it (it goes limp).' if dropped else
-                    f'The receiver holds the arm; waiting to re-arm it ({exc.reason})…'))
+                    f'The receiver holds the arm; waiting to re-arm it ({exc.reason}). If it stays held, support '
+                    'the arm, then press H to disable it (it goes limp).'))
             if not self._held():  # The receiver cut the arm's torque: nothing left to lower.
                 self._lowering = False
                 self.message = (f'{self._receiver_name} FAULT · {self.fault} · Lowering stopped: {exc}. '
                                 'Stop the session and start it again.')
+
+    def _set_aside(self):
+        """The grippers the receiver set aside (they stopped answering; the arm is lowered without them), as the
+        start of a sentence, or ''."""
+        names = (((self.harness.last or {}).get('status') or {}).get('set_aside') or []) if self.harness else []
+        if not names:
+            return ''
+        labels = ' and '.join(self.labels.get(name, name) for name in names)
+        return f'{labels} stopped answering and {"is" if len(names) == 1 else "are"} set aside. '
 
     def helm_gone(self, reason):
         """Helm closed the channel or went silent (run_loop) without asking to stop; the loop lands and closes."""

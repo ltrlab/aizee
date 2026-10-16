@@ -188,6 +188,12 @@ class TeleopLifecycle:
         max_age = self.feedback_max_age_s if feedback else self.target_max_age_s
         previous = self._feedback if feedback else self._source
         for index, (row, limit) in enumerate(zip(rows, self._joints)):
+            if feedback and row.get('aside') is True:
+                # A gripper the receiver set aside: it stopped answering, and the arm is taken back after the
+                # fault and lowered without it (its last reading is kept, not checked). Never an arm joint.
+                if not limit.get('gripper') or self.state not in ('FAULT', 'SHUTDOWN') or not _finite(row.get('position')):
+                    raise ValueError(f'Only a gripper is set aside, while the arm is lowered: {limit["name"]}')
+                continue
             if (not _finite(row.get('position')) or not limit['lower'] <= row['position'] <= limit['upper']
                     or not _finite(row.get('sampled_at')) or not 0 <= now-row['sampled_at'] < max_age
                     or type(row.get('sequence')) is not int or not 0 < row['sequence'] < (1 << 32)
@@ -206,7 +212,7 @@ class TeleopLifecycle:
                         raise ValueError(f'{label} changed without a new source sequence')
                 elif delta >= 0x80000000 or row[stamp] < before[stamp]:
                     raise ValueError(f'{label} sequence or timestamp moved backwards')
-        stamps = [row['sampled_at'] for row in rows]
+        stamps = [row['sampled_at'] for row in rows if not (feedback and row.get('aside') is True)]
         if max(stamps)-min(stamps) > self.max_skew_s:
             raise ValueError(f'{label} exceeds the whole-robot skew bound')
         result = plain_copy(list(rows))
@@ -416,11 +422,13 @@ class TeleopLifecycle:
         # Shutdown never settled, 2026-10-09). Its command must have reached the goal and it must have stopped,
         # wherever it stopped.
         # Returning, a gripper blocked by what it holds has also arrived: its command waits at the squeeze lead.
+        # A gripper set aside (_read) keeps its last command and is not waited for.
         then = next(((t, positions) for t, positions in reversed(self._history) if now - t >= SETTLE_WINDOW_S), None)
         arrived = then is not None and all(
-            (abs((command if joint.get('gripper') else row['position'])-q) <= joint['tolerance']
-             or (joint.get('gripper') and self.state == 'SHUTDOWN'
-                 and abs(command-row['position']) >= .99 * self._squeeze_lead(joint)))
+            row.get('aside') is True
+            or (abs((command if joint.get('gripper') else row['position'])-q) <= joint['tolerance']
+                or (joint.get('gripper') and self.state == 'SHUTDOWN'
+                    and abs(command-row['position']) >= .99 * self._squeeze_lead(joint)))
             and abs(row['position']-p)/(now - then[0]) <= joint['settled_velocity']
             for row, q, p, joint, command in zip(measured, goal, then[1], self._joints, self.target))
         if not arrived:
@@ -459,6 +467,11 @@ class TeleopLifecycle:
         before = self._last_measured or tuple(row['position'] for row in measured)
         sent = self._sent_velocities or (0.,) * len(self._joints)
         for index, (previous, row, target, joint, last, was) in enumerate(zip(self.target, measured, goal, self._joints, before, sent)):
+            if row.get('aside') is True:  # Set aside (_read): it keeps its last command.
+                proposed.append(previous)
+                velocities.append(0.)
+                self._limits[joint['name']] = []
+                continue
             inactive = (self.trial and joint['name'] != self.trial['motor']) or (self._manual and not self._manual[index]['follow'])
             if inactive and self.state in ('ENGAGING', 'TELEOP'):
                 if abs(target-row['position']) > joint['max_lead']:

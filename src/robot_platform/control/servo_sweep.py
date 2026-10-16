@@ -389,6 +389,7 @@ class SweepEngine:
         self.recovering = False
         self.stopping = False
         self.done = False
+        self.aside = set()  # Grippers the receiver set aside (lower): they keep their last command.
         self.events = []
         self.latest = None
         self._fresh = []  # The rows observed since the last command, for the guard.
@@ -494,11 +495,13 @@ class SweepEngine:
             self._event(f'the session ended: {reason}')
         self.task, self.current, self.done = 'stopped', None, True
 
-    def lower(self, held, why):
+    def lower(self, held, why, aside=()):
         """End the sweep by taking every joint from where the receiver holds it (`held`: {motor: rad}; None: the
         last command, which it ramps to) to its reference at its characterisation speed: after the receiver
         braked the arm to a hold (a trip) and was re-armed there, or before the session closes. The loop then
-        disables the arm, which hangs."""
+        disables the arm, which hangs. A gripper the receiver set aside (`aside`: it stopped answering) keeps
+        its last command."""
+        self.aside = set(aside)
         report = self.reports.get(self.current)
         if report is not None and report.status == 'running':
             report.status = 'stopped'
@@ -719,7 +722,7 @@ class SweepEngine:
         """Every joint to its reference together, each at its characterisation speed."""
         self._task('to the reference pose')
         moves = [self._go(name, self.home[name], (self.settings.get(name) or self.settings[(self.sweep or self.names)[0]])
-                          ['characterize_speed']) for name in self.names]
+                          ['characterize_speed']) for name in self.names if name not in self.aside]
         while moves:
             for move in list(moves):
                 try:

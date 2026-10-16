@@ -118,6 +118,7 @@ class GuardedLifecycleSession:
         now_ms = offered["status"]["now_ms"]
         if len(feedback) != len(self.controller.joint_names):
             raise ValueError("Complete robot feedback required")
+        aside = set(offered["status"].get("set_aside") or ())  # Grippers the receiver lowers the arm without.
         rows = []
         for name, item in zip(self.controller.joint_names, feedback):
             age = (now_ms - item["sampled_at_ms"]) / 1000
@@ -126,7 +127,7 @@ class GuardedLifecycleSession:
             # source_ms: the receiver's own stamp, which orders its samples (lifecycle._read).
             rows.append(dict(name=name, position=item["position"], velocity=item["velocity"],
                              sequence=item["sequence"], sampled_at=offer_started - age,
-                             source_ms=item["sampled_at_ms"]))
+                             source_ms=item["sampled_at_ms"], **({"aside": True} if name in aside else {})))
         return rows
 
     def recover(self):

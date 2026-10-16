@@ -609,3 +609,57 @@ def test_receiver_feedback_rows_carry_the_receivers_own_stamp():
     rows = GuardedLifecycleSession._rows(adapter, {'status': {'now_ms': 1010}}, [item], 5.)
     assert rows == [dict(name='arm', position=.3, velocity=0., sequence=7, sampled_at=5.-(1010-999)/1000,
                          source_ms=999)]
+
+
+def arm_and_gripper():
+    return [joints()[0]] + gripper_joints()
+
+
+def arm_and_gripper_rows(now, arm_q, sequence, *, quiet=None):
+    """Both answering; with `quiet` ('gripper' or 'arm'), that drive's last reading kept from 5 s ago and set aside
+    by the receiver."""
+    rows = [dict(name='arm', position=arm_q, velocity=0., sampled_at=now-.001, sequence=sequence),
+            dict(name='gripper', position=2.92, velocity=0., sampled_at=now-.001, sequence=sequence)]
+    for row in rows:
+        if row['name'] == quiet:
+            row.update(velocity=-.84, sampled_at=now-5., sequence=100, aside=True)
+    return rows
+
+
+def held_arm_and_gripper():
+    lifecycle = TeleopLifecycle(arm_and_gripper(), settle_time_s=.1)
+    lifecycle.action('idle', arm_and_gripper_rows(0., .04, 1), now=0.)
+    lifecycle.action('enable', arm_and_gripper_rows(.01, .04, 2), now=.01)
+    return lifecycle
+
+
+def test_a_gripper_set_aside_is_held_while_the_arm_is_lowered_without_it():
+    """live-20261015T234712Z: the right gripper stopped answering mid-move, and the arm stayed held up for 7 minutes.
+    The receiver sets a quiet gripper aside and re-arms the arm where it holds it; the shutdown lowers the arm
+    without the gripper, which keeps its last command, and ends disabled."""
+    lifecycle = held_arm_and_gripper()
+    lifecycle.fault('Receiver stopping: feedback_stale (Right gripper silent for 31 ms)')
+    now, arm = 1., .04
+    proposal = lifecycle.recover(arm_and_gripper_rows(now, arm, 10, quiet='gripper'), [arm, 2.9], now=now)
+    assert lifecycle.state == 'SHUTDOWN' and proposal['positions'] == [arm, 2.9]
+    for k in range(400):
+        now += .01
+        proposal = lifecycle.step(arm_and_gripper_rows(now, arm, 11 + k, quiet='gripper'), now=now)
+        if proposal['state'] == 'DISABLED':
+            break
+        assert proposal['positions'][1] == 2.9  # Held at its last command.
+        arm = proposal['positions'][0]  # The arm follows its command.
+    assert proposal['state'] == 'DISABLED' and abs(arm) <= joints()[0]['tolerance']
+
+
+@pytest.mark.parametrize('case', ['arm_joint', 'holding'])
+def test_only_a_gripper_is_set_aside_and_only_while_the_arm_is_taken_back(case):
+    lifecycle = held_arm_and_gripper()
+    now = 1.
+    with pytest.raises(ValueError, match='Only a gripper is set aside'):
+        if case == 'arm_joint':
+            lifecycle.fault('Receiver stopping: feedback_stale')
+            lifecycle.recover(arm_and_gripper_rows(now, .04, 10, quiet='arm'), [.04, 2.9], now=now)
+        else:
+            lifecycle.step(arm_and_gripper_rows(.02, .04, 3, quiet='gripper'), now=.02)
+    assert lifecycle.state == 'FAULT'

@@ -216,6 +216,51 @@ def test_a_drive_that_stops_answering_with_the_arm_raised_holds_it_then_lowers_i
         core.close()
 
 
+
+def test_a_gripper_that_stops_answering_for_good_is_set_aside_and_the_sweep_lowers_the_arm(helm, tmp_path):
+    # A gripper that never answers again (live-20261015T234712Z) left the arm held up until the motors were
+    # power-cycled. Here the right gripper goes quiet for good with J2 raised: the receiver holds the arm, sets the
+    # gripper aside, and the sweep lowers the arm without it, then disables it.
+    profile = json.loads((DEVICES / 'minerva-teleop.json').read_text(encoding='utf-8'))
+    profile.update(live=LIVE, sweep=dict(profile['sweep'], defaults={
+        'amplitudes': [.6], 'kp_ladder': [1.], 'damping': [1.], 'speeds': [.4], 'decelerations': [16.],
+        'hold_s': .2, 'rest_s': .1}))
+    path = tmp_path / 'teleop.json'
+    path.write_text(json.dumps(profile))
+    session = TuneSession(helm, path)
+    session.configure(arm='right', joints=['right_arm_j2'])
+    clock = Clock()
+    bundle = session._bundle()
+    quiet = {}
+
+    def silence(plant):  # Rides the disturbance hook, which runs every substep: pushes nothing.
+        if 'at' not in quiet and plant.q[plant.names.index('right_arm_j2')] > .45:
+            quiet['at'] = plant.t
+        plant.quiet = {'right_gripper'} if 'at' in quiet else set()
+        return {}
+    open_receiver, opened = plant_receiver(helm, bundle.get('servo'), clock, tmp_path / 'receiver', silence)
+    core = TuneCore(bundle, open_receiver=open_receiver, clock=clock, evidence_root=tmp_path / 'evidence')
+    try:
+        core.build()
+        aside, fastest = set(), 0.
+        for _ in range(20000):
+            core.tick(None, clock())
+            clock.now += core.period_s
+            assert core.fault is None, core.fault
+            plant = opened[0].plant
+            aside.update(opened[0].last['status'].get('set_aside') or [])
+            if 'at' in quiet:
+                fastest = max(fastest, abs(plant.v[plant.names.index('right_arm_j2')]))
+            if core.stage in ('finished', 'disabled', 'held'):
+                break
+        assert 'at' in quiet and aside == {'right_gripper'}
+        assert core.stage == 'disabled' and 'lowered to the reference and disabled' in core.message, core.message
+        plant = opened[0].plant
+        assert abs(plant.q[plant.names.index('right_arm_j2')]) < .05  # Lowered to hanging.
+        assert fastest < .5  # Held, never fell.
+    finally:
+        core.close()
+
 def test_a_drive_that_reboots_with_the_arm_raised_leaves_it_held_on_the_others(helm, tmp_path):
     # A drive that reboots (as left J4 and J6 did after the 2026-09-30 fall) comes back in Reset mode: limp, never
     # re-enabled in the session. The adapter withholds its readings, so the receiver holds the arm on the others,
@@ -453,3 +498,79 @@ def test_an_arm_engages_follows_and_shuts_down_with_its_gripper_resting_short_on
     assert [e['key'] for e in events if e['kind'] == 'key'] == ['I', 'E', 'T', 'X']
     states = [e['lifecycle'] for e in events if e['kind'] == 'state']
     assert {'TELEOP', 'SHUTDOWN', 'DISABLED'} <= set(states) and events[-1]['kind'] == 'closed'
+
+
+
+def test_a_gripper_that_stops_answering_mid_move_is_set_aside_and_the_arm_lowered(helm, tmp_path):
+    # live-20261015T234712Z: the right gripper stopped answering while it moved and never answered again. Its last
+    # reading (0.84 rad/s) kept the receiver braking, the arm held up, for 7 minutes until the motors were
+    # power-cycled. Here the right gripper, pushed into motion, goes quiet for good while it moves: the receiver holds
+    # the arm and sets the gripper aside, and the loop lowers the arm to the reference without it and disables it.
+    leader_profile = json.loads((DEVICES / 'gello-dual-viewer.json').read_text(encoding='utf-8'))
+    ranges = {'schema': SCHEMA, 'kind': KIND, 'profile': leader_profile['id'], 'pins': pins(leader_profile),
+              'units': UNITS, 'runtime_approved': False, 'leaders': {
+                  name: {joint['name']: {'center_rad': center, 'span_rad': span}
+                         for joint, center, span in zip(item['joints'], CENTERS[name], SPANS)}
+                  for name, item in leader_profile['leaders'].items()},
+              'reference': {'captured_at': 'fixture', 'leaders': {
+                  name: {joint['name']: (center + HANG) % (2 * math.pi)
+                         for joint, center in zip(item['joints'], CENTERS[name])}
+                  for name, item in leader_profile['leaders'].items()}}}
+    profile = json.loads((DEVICES / 'minerva-teleop.json').read_text(encoding='utf-8'))
+    profile.update(leader_profile=str(DEVICES / 'gello-dual-viewer.json'), live=LIVE)
+    path = tmp_path / 'teleop.json'
+    path.write_text(json.dumps(profile))
+    bundle = TeleopSession(helm, path, runs=tmp_path / 'runs',
+                           leaders=SimpleNamespace(saved=ranges, missing=lambda routes: []))._bundle()
+    bundle = dict(bundle, receiver={'mode': 'live', 'arm': 'right', 'motor_models': {}})
+    clock = Clock()
+    quiet = {}
+
+    def silence(plant):  # Rides the disturbance hook, which runs every substep: a push moves the gripper.
+        if quiet.get('armed') and 'at' not in quiet and abs(plant.v[plant.names.index('right_gripper')]) > .3:
+            quiet['at'] = plant.t
+        plant.quiet = {'right_gripper'} if 'at' in quiet else set()
+        return {'right_gripper': -1.} if quiet.get('armed') and 'at' not in quiet else {}
+    open_receiver, opened = plant_receiver(helm, bundle.get('servo'), clock, tmp_path / 'receiver', silence,
+                                           arm='right', measured=True)
+    leaders = Leaders(clock)
+    core = TeleopCore(bundle, open_leaders=lambda _profile: leaders, open_receiver=open_receiver, clock=clock)
+
+    def run(key=None, *, until=None, seconds):
+        for k in range(max(1, round(seconds / core.period_s))):
+            core.tick(key if k == 0 else None, clock())
+            clock.now += core.period_s
+            assert core.fault is None, core.fault
+            if until is not None and core.session.lifecycle.state == until:
+                return
+        assert until is None, f'still {core.session.lifecycle.state}, expected {until}: {core.message}'
+    try:
+        core.build()
+        run('I', seconds=.1)
+        run('E', seconds=.4)
+        leaders.offsets['right'][6] = HANG + .15
+        run('T', until='TELEOP', seconds=20)
+        for k in range(4):  # Shoulder and elbow raised a little.
+            leaders.offsets['right'][k] = HANG + .25
+        run(seconds=2.)
+        quiet['armed'] = True
+        aside, fastest = set(), 0.
+        for _ in range(round(40 / core.period_s)):
+            core.tick(None, clock())
+            clock.now += core.period_s
+            plant = opened[0].plant
+            aside.update(opened[0].last['status'].get('set_aside') or [])
+            if 'at' in quiet:
+                fastest = max(fastest, abs(plant.v[plant.names.index('right_arm_j2')]))
+            if core.session.lifecycle.state == 'DISABLED' and not core.landing:
+                break
+        assert 'at' in quiet and 'feedback_stale' in (core.fault or '') and aside == {'right_gripper'}
+        assert core.session.lifecycle.state == 'DISABLED', core.message
+        assert 'set aside' in core.message and 'lowered to the reference and disabled' in core.message, core.message
+        plant = opened[0].plant
+        arms = {n: q for n, q in zip(plant.names, plant.q) if 'gripper' not in n}
+        assert all(abs(q) < .05 for q in arms.values()), arms
+        assert fastest < .5  # Held, then lowered; never fell.
+        assert opened[0].last['status']['state'] == 'disarmed'
+    finally:
+        core.close()
