@@ -52,7 +52,7 @@ and automatic quarantine conditions.
 
 Prepare the existing production Helm connection and calibrated device profile.
 The capture worker runs in the Jetson teleop process beside the current receiver;
-JPEGs stay on that host and do not traverse Helm's control/SSH status RPC.
+The selected RGB JPEGs stay on that host and do not traverse Helm's control/SSH status RPC.
 
 ```powershell
 .\.venv-dev\Scripts\python.exe -m robot_platform helm --profile config/devices/minerva-joint-calibration.json --teleop config/devices/minerva-teleop.json --capture-profile config/devices/minerva-task-capture.json
@@ -69,22 +69,29 @@ existing physical stop accessible. This addition records data; it does not chang
 motion gains, watchdogs or collision enforcement, and does not qualify a
 collision-disabled profile for overlapping bimanual motion.
 
-The three camera roles are mandatory:
+The initial profile explicitly requires right_wrist and head, per the operator choice.
+Both arms and both grippers still participate. A later three-camera profile may add
+left_wrist; the file records its exact camera roster and never fills an omitted role:
 
 | Capture role | Publisher identity | Jetson loopback endpoint | Physical identity |
 | --- | --- | --- | --- |
 | left_wrist | `left_wrist` | `tcp://127.0.0.1:5563` | USB `05a3:9230` |
 | right_wrist | `right_wrist` | `tcp://127.0.0.1:5565` | USB `32e4:9230` |
-| head | `scene_cam` | `tcp://127.0.0.1:5564` | Verify the configured scene camera |
+| head | `scene_cam` | `tcp://127.0.0.1:5564` | Intel RealSense D435, static neck mount; extrinsics unknown |
 
 The wrist configurations request JPEG 640 × 480 at 30 Hz. Service status alone
 does not prove image availability. On the read-only device check of 2026-10-16,
-no cameras were enumerated on the Jetson, both wrist services were waiting for
-missing devices, and the head service/listener was inactive. Connect the cameras
-and verify actual frames and identities before attempting recording. This is a
-recorded observation of that check, not a permanent statement of device state.
+the initial check found no cameras. After the operator connected the right wrist
+camera and static-neck Intel RealSense D435, the subsequent check verified fresh
+640 × 480 right_wrist and scene_cam RGB streams (and D435 depth at its publisher).
+The left wrist camera was still absent. This capture boundary stores RGB; it does
+not silently add a depth modality. The D435 mount is recorded as static neck and
+its extrinsic calibration remains unknown: no camera-to-robot transform is invented.
+These are dated observations, not permanent device state. The GUI counts actual
+fresh streams once the bimanual session starts: 2/2 for the initial profile. A future
+three-camera profile will require the left wrist too.
 
-1. Connect/verify all three cameras and their existing publishers. Confirm that
+1. Connect/verify both configured cameras and their existing publishers. Confirm that
    each publisher's read-complete timestamp uses the same Jetson Unix clock; the
    supplied loopback profile is invalid for a relay from another host clock.
 2. Start the existing bimanual session. The task panel reports each camera as
@@ -92,11 +99,11 @@ recorded observation of that check, not a permanent statement of device state.
    future, wrong-identity and malformed camera data. It never fills missing images.
 3. Verify the saved limits and both arms/grippers' fresh receiver feedback before
    Idle/Enable/Engage. **Record episode** becomes available only with a paired
-   receiver sample and all cameras at its conservative observation cutoff.
+   receiver sample and all configured cameras at its conservative observation cutoff.
 4. Perform the attended task and finish the episode explicitly as in simulation.
    Inspect the final path and completed frame count. Evaluate task success by
    operator review; the physical collector does not infer object contact/success.
-5. Confirm file readability, all 14 named axes, all three RGB streams, timestamps,
+5. Confirm file readability, all 14 named axes, both configured RGB streams, timestamps,
    action validity and provenance before promoting the episode into a dataset.
 
 The profile's current capture admission bounds are 20 Hz requested recording,
@@ -119,7 +126,7 @@ successful finish drains and validates the writer, then they are atomically
 published. Stale receiver/camera data, queue overflow, decode errors, disk errors
 or interrupted closure retain incomplete data and report a failure.
 
-The raw v8 capture includes joint names; paired measured and emitted commanded
+The raw v8 capture declares camera_roles and joint names; paired measured and emitted commanded
 motor coordinates; RGB images; source, scene and camera clocks; per-frame task
 state; authority; terminal/authority-boundary action-validity masks; and source
 provenance. Physical scene time is absent, and unavailable torque is explicitly
