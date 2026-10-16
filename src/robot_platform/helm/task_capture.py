@@ -105,19 +105,32 @@ class CameraCache:
             return False
 
     def select(self, cutoff):
-        chosen = {}
+        """Newest coherent set already received by cutoff, within the existing age/skew limits.
+
+        Publishers need not run at the same rate. The most recent wrist frame can
+        be too new for the head even when a valid wrist frame is in bounded history.
+        Never wait, synthesize a frame or move a timestamp to make a set admissible.
+        """
+        candidates = {}
         for name in self.roles:
             if name in self.errors:
                 raise ValueError(f'{name}: {self.errors[name]}')
-            row = next((f for f in reversed(self.frames[name])
-                        if f['received_at'] <= cutoff and f['sampled_at'] <= cutoff), None)
-            if row is None or not 0 <= cutoff-row['sampled_at'] <= self.config['max_camera_age_s']:
+            candidates[name] = sorted((f for f in self.frames[name]
+                if f['received_at'] <= cutoff and 0 <= cutoff-f['sampled_at'] <= self.config['max_camera_age_s']),
+                key=lambda f: f['sampled_at'], reverse=True)
+            if not candidates[name]:
                 raise ValueError(f'{name}: no fresh camera frame available at the observation cutoff')
-            chosen[name] = row
-        times = [f['sampled_at'] for f in chosen.values()]
-        if max(times)-min(times) > self.config['max_camera_skew_s']:
-            raise ValueError('camera publisher timestamp skew exceeds the capture profile')
-        return chosen
+        # Descending lower edges maximize the oldest timestamp in the chosen set;
+        # each role then takes its newest frame inside that window. At most 24
+        # bounded windows are examined for the supported three-camera roster.
+        lower_edges = sorted({f['sampled_at'] for rows in candidates.values() for f in rows}, reverse=True)
+        for lower in lower_edges:
+            chosen = {name: next((f for f in rows
+                if 0 <= f['sampled_at']-lower <= self.config['max_camera_skew_s']), None)
+                for name, rows in candidates.items()}
+            if all(chosen.values()):
+                return chosen
+        raise ValueError('camera publisher timestamp skew exceeds the capture profile')
 
     def status(self, now):
         result = {}
@@ -271,6 +284,7 @@ class LiveTaskCapture:
                             writer = factory(self.directory, self.names,
                                 dict(self.metadata, capture_profile=self.config,
                                      clock='host_monotonic_seconds', camera_clock='mapped_same_host_unix',
+                                     camera_selection='newest coherent received history within configured age and skew bounds',
                                      clock_domains={'source_time': 'conservative host mapping of paired receiver row',
                                                     'scene_time': 'absent',
                                                     'camera_times': 'mapped host read-complete stamps; sensor exposure time unknown'},

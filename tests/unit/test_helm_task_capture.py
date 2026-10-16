@@ -66,8 +66,40 @@ def test_camera_cutoff_never_uses_future_received_frame_and_skew_is_bounded():
     with pytest.raises(ValueError, match='no fresh'):
         cache.select(10.005)
     assert cache.ingest('head', camera('head', 1000.04), received_at=10.05, wall_time=1000.05)
+    # The earlier head frame remains a valid coherent set; the newer head
+    # cannot force selection of an incoherent set while history is available.
+    assert cache.select(10.06)['head']['publisher_time'] == 1000.
+    cache.frames['head'].popleft()
     with pytest.raises(ValueError, match='skew'):
         cache.select(10.06)
+
+
+def test_unequal_camera_rates_select_real_history_without_relaxing_limits():
+    cfg = config()
+    cfg['camera_roles'] = ['right_wrist', 'head']
+    cfg['cameras'] = {n: cfg['cameras'][n] for n in cfg['camera_roles']}
+    cache = CameraCache(cfg)
+    # Observed hardware rates: wrist about 50 Hz, head about 15 Hz.
+    chose_older_wrist = False
+    for tick in range(120):
+        stamp = tick / 300.
+        for name, every in [('right_wrist', 6), ('head', 20)]:
+            if tick % every == 0:
+                assert cache.ingest(name, camera(name, 1000.+stamp, tick),
+                                    received_at=10.+stamp+.004, wall_time=1000.+stamp+.004)
+        if tick < 20 or tick % 3:
+            continue
+        cutoff = 10.+stamp+.005
+        chosen = cache.select(cutoff)
+        times = [frame['sampled_at'] for frame in chosen.values()]
+        assert max(times)-min(times) <= .02
+        assert all(0 <= cutoff-t <= .2 for t in times)
+        assert all(frame['received_at'] <= cutoff for frame in chosen.values())
+        assert all(any(frame is original for original in cache.frames[name]) for name, frame in chosen.items())
+        chose_older_wrist |= chosen['right_wrist'] is not cache.frames['right_wrist'][-1]
+    assert chose_older_wrist
+    with pytest.raises(ValueError, match='no fresh'):
+        cache.select(11.)
 
 
 @pytest.mark.parametrize('change', ['remote', 'clock', 'missing', 'budget'])
