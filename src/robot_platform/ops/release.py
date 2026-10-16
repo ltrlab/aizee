@@ -122,7 +122,7 @@ def build(out_dir, root=ROOT, *, robot='minerva-production-01', now=None):
                 'created_at': datetime.now(timezone.utc).isoformat(), 'content_sha256': content_sha,
                 'source': {'commit': commit, 'branch': _git('branch', '--show-current', root=root), 'dirty': dirty},
                 'verified': {**facts, 'assets_lock_sha256': _sha(lock)},
-                'requires': {'python': '>=3.10', 'modules': ['numpy', 'scipy', 'msgpack', 'zmq']},
+                'requires': {'python': '>=3.10', 'modules': ['numpy', 'scipy', 'msgpack', 'zmq', 'h5py', 'PIL']},
                 'files': listing}
     out_dir.mkdir(parents=True, exist_ok=True)
     archive = out_dir / f'{release_id}.tar.gz'

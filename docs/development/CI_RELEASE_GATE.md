@@ -62,3 +62,21 @@ Acceptance: clean Windows and Linux jobs both complete without required skips or
 xfails; source identity remains unchanged; native and ARM64 artifact hashes and a
 verified release archive are present in the required gate evidence. The integrator
 must record actual CI results; workflow configuration alone is not a passing run.
+
+## Wheel and capture dependencies
+
+The required packaging regression builds a real wheel, installs it into a temporary
+directory, then verifies Helm's HTML/CSS/JavaScript from outside the checkout.
+It also checks the wheel's dependency metadata. Install the `helm` extra for the
+operator UI and live capture dependencies; use the smaller `capture` extra for the
+robot-side capture dependencies alongside the existing robot runtime. Both include
+the base package's MessagePack dependency. Add the `physics` extra on a simulation
+host; task scenes require MuJoCo 3.15's surface-velocity support. The existing
+development lock already pins MuJoCo 3.15.0 and did not need regeneration.
+
+Robot release manifests declare `h5py` and `PIL` in addition to the existing runtime
+modules. Smoke checks import every declared module before loading the model or
+starting the native synthetic harness. A missing/broken dependency names the module
+and fails smoke, allowing the existing deployment rollback behavior to apply.
+Host task simulation is not a robot release dependency. Provision robot dependencies
+before activating a release; copying the release archive does not install packages.
