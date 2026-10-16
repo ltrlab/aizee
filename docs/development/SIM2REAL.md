@@ -26,6 +26,9 @@
 - **The simulator** is built from the same files as Helm's: the calibration profile, the servo file beside it, and
   the runs folder's confirmed directions. That gives each motor's ArmPlant spec (Tune-sweep values where a sweep
   measured them, otherwise the rehearsals' nominal values) and its pitch-chain gravity terms.
+  - `--sim-params <file>` builds it with the simulator's actuator file, as `helm --sim` does
+    ([Into the simulator](#into-the-simulator-sim-only-actuator-file)). The "current simulator" score then replays
+    that plant, with its drive delay and gravity scale.
 - **The replay.** Each 1 s window is replayed one joint at a time:
   - the joint starts from its measured state;
   - each tick it takes the command the real drive took (position, velocity, feed-forward effort, kp, kd);
@@ -141,5 +144,115 @@ The check holds J2's inertia fixed at each value and refits the other five param
     velocity-fed-forward. The Tune sweep feeds its own inertia fit forward the same way.
   - If J2's real inertia is 0.3–0.5, that path feeds about 2–3× the needed torque forward.
   - Today's sessions did not exercise it. It is not changed here, because it belongs to the motion-contract owner.
-- **Into the simulator.** The calibrated values belong in a sim-only per-motor file read by
-  `simulation/minerva_sim.py`, bound to the recordings and the motors' UIDs, not in the servo file.
+- **Into the simulator.** Done: `helm --sim` runs on these values from a sim-only file (next section).
+
+## Into the simulator: sim-only actuator file
+
+- Branch and worktree: `claude/sim-calibrated-params`,
+  `C:/Users/ltr/Workspace/aizee/.claude/worktrees/loving-austin-9e828d`.
+- Base commit (full SHA): `8a84b0ee1dec906b285f9c61af81f30807cc0079` (`claude/sim2real`). Offline only: Helm was not
+  started, the Jetson was not touched and no motor was commanded.
+- Owner: Claude Code, at the operator's request through the sim2real session (2026-10-15).
+- Hypothesis: the simulator built with the 10-15 fits reproduces the report's held-out scores exactly. The fits are
+  kept in a sim-only file and bound to the motors they were fitted on. A missing or mismatched file leaves the
+  simulator unchanged.
+- Owned files:
+  - `config/devices/simulation/minerva-production-01-actuators.json`;
+  - the reader in `simulation/minerva_sim.py`;
+  - the optional drive delay in `simulation/arm_plant.py`;
+  - the writer and `--sim-params` in `characterization/sim2real.py`;
+  - small hooks in `helm/cli.py` and `helm/teleop.py`;
+  - their tests: `tests/contract/test_helm_sim.py`, `tests/unit/test_sim2real.py` and
+    `tests/evidence/test_sim2real_20261015.py`;
+  - this section and `HELM_SIM.md`.
+- Untouched: the servo file, the guarded controller's configuration, the receiver, and PlantReceiver's timing.
+
+### The file
+
+Written from the report by:
+
+```powershell
+.venv-dev/Scripts/python.exe -m robot_platform.characterization.sim2real --report C:/Users/ltr/Workspace/minerva-evidence/analysis/sim2real-20261015/report.json --runs C:/Users/ltr/.codex/worktrees/dev-baseline/aizee/build/manual-tuning/operator-runs --write-sim-params config/devices/simulation/minerva-production-01-actuators.json
+```
+
+- **Location and name.** Device files are named `<asset id>-<kind>.json` and sit beside the calibration profile;
+  Helm finds the servo file there (`servo_path`). This file is found the same way (`minerva_sim.actuators_path`),
+  in a `simulation/` folder.
+  - Robot releases take `config/devices/*.json` only (`ops.release.collect`, not recursive), so the file never
+    reaches the robot. A gate test checks this.
+  - Nothing the controller or Minerva Check reads names it.
+- **Contents, per arm joint:**
+  - the report's fitted inertia, Coulomb and breakaway friction, damping, gravity scale and command delay, unchanged;
+  - the fit (windows, rms, convergence, evaluations) and any parameters at bounds;
+  - the held-out scores: calibrated, the simulator it replaces, and follows-command;
+  - the values it replaces.
+  - Grippers are left out, with the report's reason.
+- **Provenance:**
+  - the report's path and sha256 (`44364a2e…`);
+  - each recording's path and `samples_sha256`, as the report lists them. All four sessions are listed; only
+    `223850Z` (70 held-out windows) and `230538Z` (156) contribute any;
+  - the servo file's path and sha256 (`9b0003c5…`), and the confirmed directions' hashes;
+  - per motor, the UID and firmware the servo file binds to it, and the gravity terms its scale was fitted against.
+- **The writer** refuses a report made against another servo file or other directions, and writes only converged
+  fits. It never overwrites and writes no timestamp, so the same report gives the same file.
+
+### How the simulator uses it
+
+- **Matching.** `helm --sim` names the file, and `minerva_sim.open_simulation` reads it (`calibrated_actuators`).
+  A motor takes the file's inertia, friction, static friction, damping and drive delay only while the asset, UID and
+  firmware match what the servo file binds now. A swapped or reflashed motor, or invalid values, leave that motor
+  on its current values.
+- **Gravity scale** multiplies the joint's holding torque, default 1. It applies only where the simulator's gravity
+  terms equal those it was fitted against; a new gravity sweep or other directions drop it to 1.
+  - With Helm's operator runs folder (the verified directions the fit used) every scale applies.
+  - A runs folder seeded from `MINERVA_ARM_DIRECTIONS_20260924.json` mirrors right J3/J4, so right J2–J4 run
+    unscaled there. The gate's tests use such a folder.
+- **Command delay: modelled.** The fit takes the command that fraction of a tick older, linearly between the last
+  tick's command and this one's.
+  - `ArmPlant` now does exactly that, with an optional per-joint `delay` of at most one tick: it keeps the last
+    step's commands and blends them in.
+  - PlantReceiver's ticking, request timing and recorded rows are unchanged.
+  - It costs about 11 µs per 2.5 ms tick for 14 joints on this PC (37 → 49 µs).
+  - Leaving it out would cost this much on the held-out moving windows (max error per window, median / p95, mrad):
+
+    | Joint | Delay | With it (the report) | Without it |
+    |---|---|---|---|
+    | Left J1 | 0.60 ms | 1.66 / 3.41 | 1.67 / 3.49 |
+    | Left J5 | 2.25 ms | 2.63 / 5.06 | 2.74 / 7.66 |
+    | Left J6 | 0.96 ms | 2.29 / 7.50 | 2.60 / 7.46 |
+    | Right J3 | 1.87 ms | 1.64 / 4.61 | 1.81 / 4.69 |
+    | Right J4 | 1.02 ms | 5.11 / 12.23 | 5.14 / 12.24 |
+    | Right J5 | 0.39 ms | 2.54 / 4.72 | 2.57 / 4.84 |
+    | Right J6 | 1.04 ms | 1.98 / 5.04 | 2.19 / 5.33 |
+
+  - The other five joints fitted essentially no delay (under 0.0003 ms).
+- **The session record.** Each session's `simulation` event records the file's path and sha256, the motors that
+  took it, and why any did not (`refused`, `gravity_unscaled`). Grippers stay on nominal values and are listed under
+  `nominal`.
+
+### Results
+
+- **It reproduces the report.** `tests/evidence/test_sim2real_20261015.py` builds the simulator as `helm --sim`
+  does, with the file and the operator runs folder. It replays it on the four recordings, checking their samples'
+  sha256. All 12 arm joints score the report's held-out values for their calibration, to rel 1e-9 (12 passed,
+  12 s). It needs the evidence, so it runs by name, outside the gate:
+
+  ```powershell
+  .venv-dev/Scripts/python.exe -m pytest tests/evidence/test_sim2real_20261015.py
+  ```
+
+- **No file, no change.** The same scripted Helm session (direct profile, 2 s of both-arm following, X shutdown)
+  recorded byte-identical `samples.f32` (3,616,904 bytes, sha256 `18ef9e3d…`) on the base's source (`956cacb`; the
+  base commit changed only this brief), and on this branch both with no file named and with a missing file. The gate keeps the last two equal
+  (`test_without_an_actuator_file_the_simulated_arms_record_the_same_ticks`).
+- **Through the real receiver.** Scripted leaders engage, follow and shut down both calibrated arms with no fault:
+  shoulders and elbows moved, wrists held.
+- **The plant's delay is the fit's.** ArmPlant with a 0.37 or 0.9 tick delay equals sim2real's delayed replay to
+  1e-15 rad (asserted to 1e-12).
+
+### Unverified
+
+- No live `helm --sim` run with the real leaders or the MuJoCo window: Helm was not started.
+- The values reproduce the arm only as it was recorded: one gain set, position-only, one day, one joint at a time
+  (see Remaining uncertainty).
+- J4 remains structural on both arms. Grippers remain nominal.

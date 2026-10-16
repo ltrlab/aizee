@@ -30,11 +30,18 @@
 simulated Minerva:
 
 - The receiver is the one Helm derives for the real arms. It ticks every 2.5 ms against an `ArmPlant`.
-- Each joint carries its Tune sweep's inertia, friction and gravity slices. Where a sweep measured none, the joint
-  takes the rehearsals' rough `NOMINAL` value, and the session's `events.jsonl` lists which ones:
-  - left J1 and both grippers are fully nominal;
-  - right J1 and J3–J6 have nominal inertia.
-- Gearbox damping makes up a 0.6 damping ratio where the sweep's gains fall short, as the rehearsals assume.
+- **Since 2026-10-15 every arm joint runs on values fitted on real teleop:** inertia, friction, damping, its drive's
+  command delay and a gravity scale.
+  - They come from `config/devices/simulation/minerva-production-01-actuators.json`, for each motor whose UID and
+    firmware match the servo file's. See SIM2REAL.md, "Into the simulator".
+  - The session's `simulation` event records the file (path, sha256) and which motors took it.
+- A joint the file does not cover (both grippers) or does not match carries its Tune sweep's inertia, friction and
+  gravity slices. Where a sweep measured none, the joint takes the rehearsals' rough `NOMINAL` value, and the
+  session's `events.jsonl` lists which ones:
+  - without the file, left J1 and both grippers are fully nominal, and right J1 and J3–J6 have nominal inertia;
+  - with it, only the grippers are nominal.
+- Gearbox damping makes up a 0.6 damping ratio where the sweep's gains fall short, as the rehearsals assume. The
+  fitted damping replaces it where the file applies.
 - A MuJoCo window shows the arms through Helm's confirmed directions and the grippers' preview transmissions. The
   window draws at 30 Hz in its own thread and never steps physics.
 - Sessions record every tick (`samples.f32`) and event under `<runs>/<asset>-sim/sim-<UTC>/`, as a live session
@@ -72,8 +79,10 @@ Tick times also round to whole milliseconds: tick 1606 is 4015 ms, not int(4014.
 ## Running it
 
 Close any running Helm first: two would share the runs folder's lock and the leaders' USB ports. Use the operator
-runs folder, which holds the verified directions; a fresh runs folder falls back to the seed and mirrors right
-J3/J4. From this worktree:
+runs folder, which holds the verified directions. A fresh runs folder falls back to the seed and mirrors right
+J3/J4; there the right arm's J2–J4 also lose their fitted gravity scales, and the session's `simulation` event
+lists them under `gravity_unscaled`. `--sim` reads the actuator file beside the servo file without an option.
+From this worktree:
 
 ```powershell
 .venv-dev/Scripts/python.exe -m robot_platform helm --profile config/devices/minerva-joint-calibration.json --runs C:/Users/ltr/.codex/worktrees/dev-baseline/aizee/build/manual-tuning/operator-runs --seed docs/devices/MINERVA_ARM_DIRECTIONS_20260924.json --teleop config/devices/minerva-teleop-direct-tuning.json --sim --port 8760
@@ -89,6 +98,8 @@ which matches the operator's current file.
   measured gravity. Pick-and-place needs `MujocoPlant` on the MJCF with masses, jaw contact geometry, a table and
   objects, and the three cameras. It also needs episode recording in the trainers' HDF5 format. Masses come from
   the operator's Onshape actuator masses plus weighed printed parts.
-- **Nominal values.** Nominal joints and the gearbox damping are rehearsal assumptions, not measurements. The
-  actuator-response track replaces them with fitted values.
+- **Nominal values.** Nominal joints and the gearbox damping are rehearsal assumptions, not measurements.
+  - Since 2026-10-15 the arm joints run on values fitted on real teleop instead (SIM2REAL.md).
+  - Those hold at the gains and on the day they were recorded.
+  - The grippers stay nominal: calibrating them needs objects to grasp.
 - **Not run here.** Real leaders were not connected to the simulated loop: the operator's Helm held them.
