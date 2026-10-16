@@ -248,6 +248,12 @@ pub struct Controller {
     /// Its ramp efforts: added to each joint's effort only while it ramps.
     ramp_efforts: Vec<f64>,
     target_at_ms: u64,
+    /// When the target's ramp began: the first tick that drove it (None until then). A deferred
+    /// request is accepted between ticks and first driven at the next, so a ramp timed from its
+    /// acceptance ended a tick before the next command took over, and that tick held the joint at
+    /// zero velocity every command period: damping times speed kicked right J2 by about 37 Nm at
+    /// 50 Hz in the sweeps and checks of 2026-10-16.
+    ramp_from_ms: Option<u64>,
     target_sequence: Option<u64>,
     last_applied_target: Option<AppliedTarget>,
     stops: Vec<JointStop>,
@@ -312,6 +318,7 @@ impl Controller {
             ],
             ramp_efforts: vec![0.0; count],
             target_at_ms: 0,
+            ramp_from_ms: None,
             target_sequence: None,
             last_applied_target: None,
             stops: vec![JointStop::default(); count],
@@ -329,7 +336,9 @@ impl Controller {
     /// effort added (to accelerate the joint to that velocity); then hold it, without either.
     fn follow_targets(&mut self) {
         let period = self.interpolation_s();
-        let elapsed = (self.now_ms.saturating_sub(self.target_at_ms)) as f64 / 1000.0;
+        // The ramp runs from the first tick that drives the target: until it is driven, it starts now.
+        let from = self.ramp_from_ms.unwrap_or(self.now_ms);
+        let elapsed = (self.now_ms.saturating_sub(from)) as f64 / 1000.0;
         for (((command, target), limit), ramp) in self
             .commands
             .iter_mut()
@@ -964,6 +973,9 @@ impl Controller {
         if self.state != State::Executing {
             return;
         }
+        if self.ramp_from_ms.is_none() {
+            self.ramp_from_ms = Some(self.now_ms); // The first tick that drives the target.
+        }
         if let Some(sequence) = self.target_sequence {
             if self.last_applied_target.as_ref().is_none_or(|last| {
                 last.sequence != sequence || last.accepted_at_ms != self.target_at_ms
@@ -1548,6 +1560,7 @@ impl Controller {
                     self.ramp_efforts.copy_from_slice(&ramp_efforts);
                 }
                 self.target_at_ms = self.now_ms;
+                self.ramp_from_ms = None; // Its ramp begins at the first tick that drives it.
                 self.target_sequence = Some(authority.sequence);
                 self.follow_targets();
                 self.consume_sequence(&authority);

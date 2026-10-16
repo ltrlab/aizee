@@ -2248,6 +2248,99 @@ fn a_move_ramps_from_where_the_stream_came_from_then_holds() {
     assert!((there.position - 0.4).abs() < 1e-9 && there.velocity == 0.0);
 }
 
+/// The live receiver's timing: requests are taken between ticks (`handle_deferred`) and first
+/// driven at the next tick; ticks come every 2.5 ms on a whole-millisecond clock.
+fn deferred_ramp_fixture() -> (Controller, Loopback) {
+    let mut cfg = config(2);
+    cfg.interpolation_ms = 20;
+    cfg.collision = Some(robot_control::collision::CollisionPolicy {
+        world_revision: "fixed-world".into(),
+        scope: "inter_branch".into(),
+        max_verdict_ms: 100,
+        reaction_ms: 10,
+        bound: Default::default(),
+    });
+    let mut c = Controller::new(cfg, "boot-a".into()).unwrap();
+    let mut h = Loopback::new(&[0.0, 0.0]);
+    assert!(claim(&mut c, &mut h, 0).accepted);
+    let checked = envelope(&mut c, &mut h, 1);
+    let arm = Request::Arm {
+        authority: auth(&c, 1),
+        collision: Some(checked),
+    };
+    assert!(c.handle(1, arm, &mut h).accepted);
+    (c, h)
+}
+
+fn move_deferred(c: &mut Controller, h: &mut Loopback, now: u64, sequence: u64, q: f64, v: f64) -> Reply {
+    let offer = c.handle_deferred(now, Request::Offer, h).offer.unwrap().id;
+    let checked = robot_control::collision::MotionEnvelope {
+        offer,
+        world_revision: "fixed-world".into(),
+        scope: "inter_branch".into(),
+        lower: vec![-2.5; 2],
+        upper: vec![2.5; 2],
+    };
+    let request = Request::Move {
+        collision: Some(checked),
+        authority: auth(c, sequence),
+        identity: identity(),
+        ramp_efforts: Vec::new(),
+        joints: joints(2, q, v),
+    };
+    c.handle_deferred(now, request, h)
+}
+
+fn tick_ms(k: u64) -> u64 {
+    10 + k * 5 / 2 // 10, 12, 15, 17, 20, ...: every 2.5 ms on a whole-millisecond clock.
+}
+
+#[test]
+fn a_stream_of_deferred_moves_keeps_its_velocity_through_every_handover() {
+    // A loop moving a joint at 1 rad/s sends a target every 20 ms (the ramp period), each taken just
+    // after a tick. Every tick that drives the stream must carry its velocity: a ramp timed from the
+    // request's acceptance ended a tick before the next command was driven, and that tick held the
+    // joint at zero velocity, so damping braked it every command period (50 Hz judder, 2026-10-16).
+    let (mut c, mut h) = deferred_ramp_fixture();
+    let speed = 1.0;
+    let mut driven = Vec::new();
+    for k in 0..8 * 6 {
+        let now = tick_ms(k);
+        c.tick(now, &mut h);
+        driven.push((now, h.feedback[0].position, h.feedback[0].velocity));
+        if k % 8 == 0 {
+            let target = speed * 0.020 * (k / 8 + 1) as f64;
+            let reply = move_deferred(&mut c, &mut h, now, k / 8 + 2, target, speed);
+            assert!(reply.accepted, "{:?}", reply.reason);
+        }
+    }
+    // From the first tick that drives the stream on, every tick moves at its speed, along one line.
+    for pair in driven[1..].windows(2) {
+        let ((t0, q0, _), (t1, q1, v1)) = (pair[0], pair[1]);
+        assert_eq!(v1, speed, "zero-velocity tick at {t1} ms: {driven:?}");
+        let expected = speed * (t1 - t0) as f64 / 1000.0;
+        assert!((q1 - q0 - expected).abs() < 1e-9, "{t0}->{t1}: {q0} -> {q1}");
+    }
+}
+
+#[test]
+fn a_deferred_move_that_is_not_followed_stops_at_its_target_once_its_ramp_has_run() {
+    // Without a next command, the joint arrives at the target one ramp after the first tick that
+    // drove it, and holds there at zero velocity.
+    let (mut c, mut h) = deferred_ramp_fixture();
+    c.tick(tick_ms(0), &mut h);
+    assert!(move_deferred(&mut c, &mut h, tick_ms(0), 2, 0.02, 1.0).accepted);
+    for k in 1..=8 {
+        c.tick(tick_ms(k), &mut h); // Ticks at 12..30 ms: the ramp, from 12 ms, runs to 32 ms.
+        assert_eq!(h.feedback[0].velocity, 1.0, "at {} ms", tick_ms(k));
+    }
+    c.tick(tick_ms(9), &mut h); // 32 ms: the ramp has run.
+    assert_eq!(h.feedback[0].velocity, 0.0);
+    assert!((h.feedback[0].position - 0.02).abs() < 1e-12);
+    c.tick(tick_ms(20), &mut h);
+    assert_eq!((h.feedback[0].position, h.feedback[0].velocity), (0.02, 0.0));
+}
+
 #[test]
 fn a_ramp_that_would_start_within_the_stopping_margin_is_refused() {
     let (mut c, mut h) = interpolated_fixture();
