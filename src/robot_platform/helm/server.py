@@ -63,7 +63,7 @@ def task_visual_label(capabilities):
     return 'Camera appearance is not reported yet.'
 
 def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None, live=False,
-               gripper_zero=None, simulation_only=False):
+               gripper_zero=None, simulation_only=False, cameras=None):
     """`live`: keep the stopped reader running whenever Minerva is online and nothing else holds the motors
     (helm.live_view); sessions then take the motors from it instead of asking for Disconnect first."""
     from aiohttp import web
@@ -71,6 +71,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     from .live_view import LiveView
     from .telemetry import select_telemetry
     token = token or secrets.token_urlsafe(24)
+    camera_change = asyncio.Lock()
     if simulation_only and live:
         raise ValueError('Simulation-only Helm cannot start the physical live reader')
     if simulation_only:
@@ -164,6 +165,61 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     async def state(_request):
         return state_response()
 
+    def camera_apply_reason():
+        if simulation_only:
+            return 'Simulation mode cannot access physical cameras'
+        if cameras is None:
+            return 'Camera settings are not configured'
+        if camera_change.locked():
+            return 'A camera change is running; wait for readback'
+        if teleop is not None:
+            task = (teleop.snapshot().get('task') or {})
+            recording = task.get('recording') or {}
+            if teleop.active or recording.get('active') or recording.get('state') in ('starting', 'recording', 'stopping', 'finishing'):
+                return 'Stop the teleop session and capture before changing camera settings'
+        return None
+
+    def need_cameras():
+        if simulation_only:
+            raise ValueError('Simulation mode cannot access physical cameras')
+        if cameras is None:
+            raise ValueError('Camera settings are not configured')
+
+    async def camera_get(_request):
+        need_cameras()
+        result = await off_loop(cameras.snapshot)
+        reason = camera_apply_reason()
+        return web.json_response(dict(result, can_apply=reason is None, reason=reason),
+                                 headers={'Cache-Control': 'no-store'})
+
+    async def camera_set(request):
+        payload = await body(request)
+        need_cameras()
+        if set(payload) != {'name', 'value'}:
+            raise ValueError('Expected camera control name and value')
+        reason = camera_apply_reason()
+        if reason:
+            raise ValueError(reason)
+        # The lock is acquired before yielding. Session start shares this fence,
+        # including its stopped-reader handoff, so it cannot race a remote write.
+        async with camera_change:
+            pending = asyncio.create_task(off_loop(lambda: cameras.set(
+                request.match_info['role'], payload['name'], payload['value'])))
+            try:
+                result = await asyncio.shield(pending)
+            except asyncio.CancelledError:
+                # A disconnected HTTP client cannot release the start fence while
+                # its finite camera operation might still change exposure.
+                await pending
+                raise
+        return web.json_response(result, headers={'Cache-Control': 'no-store'})
+
+    async def camera_frame(request):
+        need_cameras()
+        jpeg = await off_loop(lambda: cameras.frame(request.match_info['role']))
+        return web.Response(body=jpeg, content_type='image/jpeg', headers={'Cache-Control': 'no-store'})
+
+
     def not_checking():
         if grippers is not None and grippers.running:
             raise ValueError('A gripper zero is running; wait for it to finish')
@@ -222,8 +278,11 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         if simulation_only and (getattr(teleop, 'simulation', None) is None
                                 or teleop.target != 'pc' or teleop.receiver['mode'] != 'virtual'):
             raise ValueError('Simulation mode needs the virtual receiver on this PC')
-        await take_motors()
-        teleop.start(confirm=payload.get('confirm') is True)
+        if camera_change.locked():
+            raise ValueError('A camera change is running; wait for readback before starting teleop')
+        async with camera_change:
+            await take_motors()
+            teleop.start(confirm=payload.get('confirm') is True)
         return state_response()
 
     async def task_action(request):
@@ -492,6 +551,9 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
 
     app.on_startup.append(startup)
     app.on_shutdown.append(shutdown)
+    app.router.add_get('/api/helm/cameras', camera_get)
+    app.router.add_post('/api/helm/cameras/{role}', camera_set)
+    app.router.add_get('/api/helm/cameras/{role}/frame', camera_frame)
     app.router.add_get('/api/helm/state', state)
     app.router.add_post('/api/helm/connect', connect)
     app.router.add_post('/api/helm/disconnect', disconnect)

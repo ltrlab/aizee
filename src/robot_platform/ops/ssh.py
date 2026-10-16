@@ -54,9 +54,14 @@ def connect(profile_path=DEFAULT_PROFILE, *, address=TETHER, timeout=8.):
                    look_for_keys=False, allow_agent=False, timeout=timeout, auth_timeout=timeout,
                    banner_timeout=timeout)
     try:
-        with client.open_sftp() as sftp, sftp.open('/etc/machine-id', 'rb') as handle:
-            if handle.read().strip().decode() != device['machine_id']:
-                raise RuntimeError('Wrong robot computer: machine id differs from the device profile')
+        # Bound identity verification too: TCP/auth timeouts do not cover a
+        # stalled SFTP channel open or machine-id read on an established link.
+        client.get_transport().channel_timeout = timeout
+        with client.open_sftp() as sftp:
+            sftp.get_channel().settimeout(timeout)
+            with sftp.open('/etc/machine-id', 'rb') as handle:
+                if handle.read(256).strip().decode() != device['machine_id']:
+                    raise RuntimeError('Wrong robot computer: machine id differs from the device profile')
     except BaseException:
         client.close()
         raise
