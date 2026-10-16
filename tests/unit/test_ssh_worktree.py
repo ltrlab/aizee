@@ -65,3 +65,29 @@ def test_identity_sftp_open_and_read_have_timeout_and_failure_closes_client(monk
     else:
         assert ssh.connect(tmp_path/'profile.json', timeout=3.) is client
         assert not client.closed
+
+
+def test_stalled_sftp_subsystem_negotiation_is_interrupted_by_identity_watchdog(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    import threading
+    import time
+    import paramiko
+    from robot_platform.ops import ssh
+    closed = threading.Event()
+    transport = SimpleNamespace(channel_timeout=None)
+    class Client:
+        def set_missing_host_key_policy(self, policy): pass
+        def connect(self, *a, **kw): pass
+        def get_transport(self): return transport
+        def open_sftp(self):
+            assert closed.wait(1), 'Watchdog did not close stalled subsystem negotiation'
+            raise OSError('Transport closed during SFTP handshake')
+        def close(self): closed.set()
+    monkeypatch.setattr(paramiko, 'SSHClient', Client)
+    monkeypatch.setattr(ssh, 'robot_identity', lambda _: (
+        {'machine_id':'fixture'}, {'host_key_sha256':'pin', 'username':'operator', 'key_file':'key'}, tmp_path))
+    monkeypatch.delenv('AIZEE_SSH_KEY_FILE', raising=False)
+    before = time.monotonic()
+    with pytest.raises(TimeoutError, match='identity verification timed out'):
+        ssh.connect(tmp_path/'profile', timeout=.03)
+    assert closed.is_set() and time.monotonic() - before < .5

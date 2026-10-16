@@ -19,6 +19,10 @@ ROLES = {
 MAX_REPLY = 3 * 1024 * 1024
 
 
+class CameraWriteUncertain(RuntimeError):
+    """Legacy REP has no request TTL: a timed-out write may apply later."""
+
+
 def role_config(role):
     if role not in ROLES:
         raise ValueError('Expected camera role left_wrist, right_wrist or head')
@@ -228,12 +232,15 @@ def remote_operation(request):
         raise ValueError(state['error'])
     name, value = request.get('name'), request.get('value')
     validate_value(state['controls'], name, value)
-    _request(config, {'op': 'set_ctrl', 'name': name, 'value': value})
-    updated = _snapshot_role(role)
-    readback = updated['controls'].get(name, {}).get('value')
-    if not updated['available'] or type(readback) is not int or readback != value:
-        raise RuntimeError('Camera write was sent but readback did not confirm it; refresh settings: ' + str(updated['error'] or readback))
-    return {'camera': updated, 'name': name, 'value': value, 'readback': readback}
+    try:
+        _request(config, {'op': 'set_ctrl', 'name': name, 'value': value})
+        updated = _snapshot_role(role)
+        readback = updated['controls'].get(name, {}).get('value')
+        if not updated['available'] or type(readback) is not int or readback != value:
+            raise RuntimeError('Camera write was sent but readback did not confirm it: ' + str(updated['error'] or readback))
+        return {'camera': updated, 'name': name, 'value': value, 'readback': readback}
+    except Exception as exc:
+        raise CameraWriteUncertain(str(exc)) from exc
 
 
 def remote_main(request):
@@ -245,7 +252,8 @@ def remote_main(request):
     try:
         print(json.dumps({'ok': True, 'result': remote_operation(request)}), flush=True)
     except Exception as exc:
-        print(json.dumps({'ok': False, 'error': str(exc)}), flush=True)
+        print(json.dumps({'ok': False, 'error': str(exc),
+                          'write_uncertain': isinstance(exc, CameraWriteUncertain)}), flush=True)
     finally:
         signal.alarm(0)
 
@@ -255,18 +263,24 @@ class CameraSettings:
     def __init__(self, profile, *, address, open_ssh=None):
         self.profile, self.address, self.open_ssh = Path(profile), address, open_ssh
         self._lock = threading.Lock()
+        self.write_fault = None
 
     def _call(self, request):
         from robot_platform.ops.ssh import connect
         if not self._lock.acquire(blocking=False):
             raise ValueError('Another camera request is running; wait for it to finish')
         client = channel = None
+        submitted_write = False
         try:
+            if request.get('operation') == 'set' and self.write_fault:
+                raise ValueError(self.write_fault)
             client = (self.open_ssh or connect)(self.profile, address=self.address(), timeout=3.)
             script = Path(__file__).read_text(encoding='utf-8') + '\nremote_main(' + repr(request) + ')\n'
             stdin, out, err = client.exec_command('python3 -', timeout=3.)
             channel = out.channel
             channel.settimeout(3.)
+            # A failed send/EOF can still leave a complete script at the peer.
+            submitted_write = request.get('operation') == 'set'
             stdin.write(script)
             stdin.flush()
             channel.shutdown_write()
@@ -286,12 +300,22 @@ class CameraSettings:
             if channel.recv_exit_status():
                 raise RuntimeError('Camera helper failed: ' + stderr.decode(errors='replace')[:1000])
             reply = json.loads(stdout)
-            if reply.get('ok') is not True:
+            if reply.get('write_uncertain') is True:
+                raise CameraWriteUncertain(reply.get('error') or 'Camera write was not confirmed')
+            if reply.get('ok') is False and reply.get('write_uncertain') is False:
+                # The helper rejected validation before attempting any mutation.
+                submitted_write = False
                 raise ValueError(reply.get('error') or 'Camera helper failed')
+            if reply.get('ok') is not True or 'result' not in reply:
+                raise RuntimeError('Malformed camera helper reply')
             return reply['result']
-        except (ValueError, RuntimeError):
-            raise
         except Exception as exc:
+            if submitted_write or isinstance(exc, CameraWriteUncertain):
+                self.write_fault = ('Camera write outcome is uncertain; session start and further changes are blocked. '
+                    'Restart the camera service, verify its settings, then restart Helm. Details: ' + str(exc))
+                raise CameraWriteUncertain(self.write_fault) from exc
+            if isinstance(exc, (ValueError, RuntimeError)):
+                raise
             raise RuntimeError('Camera SSH request failed: ' + str(exc)) from exc
         finally:
             if channel is not None:
