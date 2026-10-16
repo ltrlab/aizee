@@ -100,6 +100,7 @@ def test_transient_penetration_is_audited_and_revokes_latched_success(scene, mon
     original = mujoco.mj_geomDistance
     # This fixture injects a substep-only narrow-phase failure. Make broadphase
     # bounds conservatively huge so it does not cull the deliberately fake contact.
+    previous_bounds = scene.model.geom_aabb[scene._environment_ids].copy()
     scene.model.geom_aabb[scene._environment_ids, 3:] = 10.
     def transient(model, data, *args):
         if .009 <= data.time <= .011:
@@ -107,7 +108,10 @@ def test_transient_penetration_is_audited_and_revokes_latched_success(scene, mon
         return original(model, data, *args)
     monkeypatch.setattr(mujoco, "mj_geomDistance", transient)
     target = q.copy(); target[0] += .001
-    state = scene.update(target, .025)
+    try:
+        state = scene.update(target, .025)
+    finally:
+        scene.model.geom_aabb[scene._environment_ids] = previous_bounds
     invalid = [e for e in state["events"] if e["kind"] == "forbidden_robot_environment_penetration"]
     assert invalid and invalid[0]["scene_time"] < .025
     assert not state["training_eligible"] and not state["success"]

@@ -270,6 +270,7 @@ function render(state) {
   renderGlobalControls(state);
   renderMode(state);
   renderTask(state);
+  renderTaskViewer(state);
   publishTelemetry(state);
 }
 
@@ -283,6 +284,26 @@ function renderMode(state) {
     $('robot-name').textContent = `${state.robot.model} · simulation on this PC`;
     if (['check', 'limits', 'tune'].includes(document.body.dataset.tab)) showTab('teleop');
   }
+}
+
+const modelViewerSource = $('model-view').getAttribute('src');
+let modelViewerPaused = false;
+
+function taskOwnsViewer(state) {
+  return state?.mode === 'simulation' && state.teleop?.task_configured === true
+    && ['starting', 'running'].includes(state.teleop?.phase);
+}
+
+function renderTaskViewer(state) {
+  const paused = taskOwnsViewer(state);
+  if (paused !== modelViewerPaused) {
+    // Unload the duplicate WebGL document; hiding it leaves its animation loop running.
+    $('model-view').src = paused ? 'about:blank' : modelViewerSource;
+    modelViewerPaused = paused;
+  }
+  $('model-view').hidden = paused;
+  $('task-window-note').hidden = !paused;
+  $('model-heading').textContent = paused ? 'LIVE TELEMETRY' : 'MODEL & TELEMETRY';
 }
 
 function renderTask(state) {
@@ -1476,7 +1497,7 @@ $('open-display').onclick=()=>{showTab('settings');settingsPanel.show('display')
 function publishTelemetry() {
   const frame=$('model-view').contentWindow;
   const telemetry=last?.telemetry;
-  if(frame) frame.postMessage({type:'helm-viewer-overlay',version:1,settings:settingsPanel.display,telemetry},location.origin);
+  if(frame && !modelViewerPaused) frame.postMessage({type:'helm-viewer-overlay',version:1,settings:settingsPanel.display,telemetry},location.origin);
   const reading=(telemetry?.rows||[]).filter(row=>Number.isFinite(row.position));
   $('model-source').textContent=reading.length
     ? `${reading[0].source==='simulated'?'Virtual feedback':'Measured feedback'} · ${telemetry.stale?'stale':Number.isFinite(telemetry.age_seconds)?Math.round(telemetry.age_seconds*1000)+' ms old':'age unavailable'}`
