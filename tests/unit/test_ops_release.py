@@ -68,6 +68,8 @@ def test_pruning_keeps_the_newest_and_never_the_current_or_previous():
 def test_a_built_release_is_small_complete_and_verifiable(tmp_path):
     manifest, archive = build(tmp_path / 'out')
     assert RELEASE_ID.match(manifest['id'])
+    assert {'numpy', 'scipy', 'msgpack', 'zmq', 'h5py', 'PIL'} <= set(manifest['requires']['modules'])
+    assert 'mujoco' not in manifest['requires']['modules']  # Task simulation runs on the host.
     keys = set(manifest['files'])
     assert {'bin/guarded_controller', 'bin/control_harness', 'lib/librobot_collision.so', LOCK,
             'config/devices/minerva-teleop.json', 'urdf/minerva/minerva.urdf'} <= keys

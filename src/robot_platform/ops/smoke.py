@@ -4,15 +4,35 @@ Opens no device and touches no CAN interface. Prints one JSON object.
 Usage (on the robot): python3 -m robot_platform.ops.smoke <release root>
 """
 import json
+from importlib import import_module
 from pathlib import Path
 import sys
 import time
+
+
+def check_requirements(manifest):
+    """Check the verified release's declared modules before model/native startup."""
+    names = manifest.get('requires', {}).get('modules', [])
+    if not isinstance(names, list) or any(not isinstance(name, str) or not name
+                                         for name in names):
+        raise RuntimeError('Release requires.modules must be a list of module names')
+    modules = {}
+    for name in names:
+        try:
+            module = import_module(name)
+        except ModuleNotFoundError as exc:
+            raise ModuleNotFoundError(f'Release requires Python module {name}: {exc}', name=exc.name) from exc
+        except Exception as exc:
+            raise RuntimeError(f'Release requires Python module {name}: {exc}') from exc
+        modules[name] = getattr(module, '__version__', 'available')
+    return modules
 
 
 def run(root):
     started = time.perf_counter()
     from .release import CALIBRATION, activate
     manifest = activate(root)
+    modules = check_requirements(manifest)
     root = Path(root)
     import msgpack
     import numpy
@@ -24,7 +44,8 @@ def run(root):
     from robot_platform.simulation.runtime_model import RuntimeCollisionModel
     report = {'release': manifest['id'], 'commit': manifest['source']['commit'],
               'python': sys.version.split()[0], 'numpy': numpy.__version__, 'scipy': scipy.__version__,
-              'msgpack': '.'.join(map(str, msgpack.version)), 'pyzmq': zmq.__version__}
+              'msgpack': '.'.join(map(str, msgpack.version)), 'pyzmq': zmq.__version__,
+              'required_modules': modules}
     _plan, _paths, _device, _reference, model, pose, _bindings = load_plan(root / CALIBRATION)
     runtime = RuntimeCollisionModel(model.profile)
     if not runtime.kinematics_only:

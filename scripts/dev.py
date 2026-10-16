@@ -46,6 +46,7 @@ CORE = [
     'tests/unit/test_openrb_leader_setup.py', 'tests/unit/test_gripper_zero.py',
     'tests/unit/test_velocity_feedforward.py', 'tests/unit/test_browser_scripts.py',
     'tests/unit/test_dev_gate.py',
+    'tests/unit/test_platform_packaging.py',
 ]
 
 
