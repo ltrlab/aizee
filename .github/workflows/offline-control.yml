@@ -34,6 +34,13 @@ jobs:
       - run: python scripts/dev.py setup
       - name: Build mandatory ARM64 release inputs
         run: python scripts/build_release.py --bootstrap
+      - name: Configure Linux offscreen rendering
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libosmesa6
+          echo "MUJOCO_GL=osmesa" >> "$GITHUB_ENV"
       - run: python scripts/dev.py check
       - uses: actions/upload-artifact@v4
         if: always()

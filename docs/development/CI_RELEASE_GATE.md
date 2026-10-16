@@ -105,3 +105,12 @@ starting the native synthetic harness. A missing/broken dependency names the mod
 and fails smoke, allowing the existing deployment rollback behavior to apply.
 Host task simulation is not a robot release dependency. Provision robot dependencies
 before activating a release; copying the release archive does not install packages.
+
+## Actual camera rendering on CI
+
+The task receiver/capture contract renders the configured head and right-wrist
+cameras through MuJoCo. Ubuntu uses the system `libosmesa6` software renderer and
+`MUJOCO_GL=osmesa`, selected before Python imports MuJoCo. This requires no display
+server or GPU. Windows keeps its offscreen GLFW backend. Both jobs must execute
+the render contract; missing graphics support is a failed prerequisite, not an
+allowed skip. Rendered simulation frames do not qualify physical camera calibration.
