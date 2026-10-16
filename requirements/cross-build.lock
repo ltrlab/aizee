@@ -1,0 +1,8 @@
+# Pinned cross-build tools for Windows/Linux x86_64 CI. Wheel-only installation.
+# Hashes are PyPI release metadata for these exact versions (2026-10-16).
+cargo-zigbuild==0.23.3 \
+    --hash=sha256:9a6ef2d10f21c67048aa769483aaf618c580ecae9ba13f731cb8e30e42721b9a \
+    --hash=sha256:b3c6cd99a0361cbf42f342ba51e4f4576aca5c6fd45b83e93cd50099631f41a1
+ziglang==0.14.1 \
+    --hash=sha256:e4f7e089a44d5ce34181853a90cdb8456e63c6640f5d44b844a117055326c375 \
+    --hash=sha256:6eb9d4d759b292c83810dbee2e9e8e3fbfbf01d864e6e9811bae711fd74e1c2f

@@ -45,6 +45,7 @@ CORE = [
     'tests/unit/test_joint_capture_preflight.py', 'tests/unit/test_leader_link.py', 'tests/unit/test_helm_edge.py',
     'tests/unit/test_openrb_leader_setup.py', 'tests/unit/test_gripper_zero.py',
     'tests/unit/test_velocity_feedforward.py', 'tests/unit/test_browser_scripts.py',
+    'tests/unit/test_dev_gate.py',
 ]
 
 
@@ -81,6 +82,7 @@ def rust_environment():
     if not shutil.which('cargo', path=env['PATH']):
         raise RuntimeError('Install Rust 1.98.1, or set ROBOT_RUST_TOOLCHAIN_ROOT to an existing toolchain root')
     env['CARGO_TARGET_DIR'] = str(ROOT / 'rust/target')
+    env.setdefault('CARGO_BUILD_JOBS', '2')
     env['ROBOT_CONTROL_HARNESS'] = str(ROOT / 'rust/target/debug' / (
         'control_harness.exe' if os.name == 'nt' else 'control_harness'))
     lib = 'robot_collision.dll' if os.name == 'nt' else (
@@ -101,6 +103,31 @@ def setup():
                     '-r', str(ROOT / 'requirements/dev.lock')], cwd=ROOT, check=True)
     subprocess.run([str(PYTHON), '-m', 'pip', 'install', '--no-deps', '--no-build-isolation',
                     '-e', '.'], cwd=ROOT, check=True)
+
+
+def release_artifacts(env):
+    """Fail early on absent/stale/wrong-architecture mandatory release inputs."""
+    result = subprocess.run([str(PYTHON), '-c',
+        'import hashlib, json; from robot_platform.ops.release import collect, check_binaries; '
+        'files = collect(); check_binaries(files); '
+        'print(json.dumps({key: {"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()} '
+        'for key, path in files.items() if key.startswith(("bin/", "lib/"))}))'],
+        cwd=ROOT, env=env, capture_output=True, text=True)
+    if result.returncode:
+        raise RuntimeError('Release prerequisites failed. Run python scripts/build_release.py --bootstrap '
+                           '(or the existing provisioned Windows cross-build).\n' + result.stderr.strip())
+    return json.loads(result.stdout)
+
+
+def required_test_results(path, report=None):
+    cases = ET.parse(path).findall('.//testcase')
+    skipped = [case.get('name') for case in cases if case.find('skipped') is not None]
+    results = {'collected': len(cases), 'skipped': skipped}
+    if report is not None:
+        report['tests'] = results
+    if not cases or skipped:
+        raise RuntimeError(f'Required gate must execute every test; skipped: {skipped}')
+    return results
 
 
 def check(offline=False):
@@ -141,6 +168,7 @@ def check(offline=False):
         if not report['python'].startswith('Python 3.12.'):
             raise RuntimeError('The development gate requires Python 3.12')
         report['packages'] = json.loads(capture(str(PYTHON), '-m', 'pip', 'list', '--format=json'))
+        report['release_binaries'] = release_artifacts(env)
         rustc = shutil.which('rustc', path=env['PATH'])
         if not rustc:
             raise RuntimeError('Rust compiler missing from the selected toolchain')
@@ -159,11 +187,7 @@ def check(offline=False):
              'assert lib.rpc_abi_version() == 3; import fcl, numpy, scipy, pytest, mujoco, hypothesis'], env)
         run([PYTHON, '-m', 'pytest', '-q', '--strict-markers', '-o', 'xfail_strict=true',
              '--basetemp', run_dir / 'pytest', '--junitxml', run_dir / 'tests.xml', *CORE], env)
-        cases = ET.parse(run_dir / 'tests.xml').findall('.//testcase')
-        skipped = [case.get('name') for case in cases if case.find('skipped') is not None]
-        report['tests'] = {'collected': len(cases), 'skipped': skipped}
-        if not cases or skipped:
-            raise RuntimeError(f'Required gate must execute every test; skipped: {skipped}')
+        required_test_results(run_dir / 'tests.xml', report)
         report['source_after'] = source_identity()
         if report['source_before'] != report['source_after']:
             raise RuntimeError('Source changed during verification; rerun in an isolated worktree')
