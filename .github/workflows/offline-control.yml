@@ -32,6 +32,9 @@ jobs:
         run: rustup toolchain install 1.98.1 --profile minimal
       - run: rustup override set 1.98.1
       - run: python scripts/dev.py setup
+      - name: Configure Windows software rendering and verify a fresh renderer child
+        if: runner.os == 'Windows'
+        run: python scripts/ci_windows_gl.py
       - name: Build mandatory ARM64 release inputs
         run: python scripts/build_release.py --bootstrap
       - name: Configure Linux offscreen rendering
@@ -49,3 +52,4 @@ jobs:
           path: |
             build/dev-check/
             build/cross-build/
+            build/ci-mesa/report.json
