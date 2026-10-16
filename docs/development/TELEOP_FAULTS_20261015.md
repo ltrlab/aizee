@@ -70,8 +70,8 @@ private-vcan manual-tuning qualification runs both arms, position-only and feed-
   | Position-only, both arms | disconnected | 0 of 13,012 | 5.62 / 8.37 ms |
 
   The two misses were single stalls in different stages: Python poll and map with a normal receiver call, then
-  one 7.6 ms receiver call. Helm's live view reads the real arms on the Jetson while it is connected, and
-  teleop stops it, so the last run matches operation. Deployed as `20261015T234351Z-b7de042` (receiver
+  one 7.6 ms receiver call. They were first put down to Helm's live view reading the arms beside the
+  qualification; a later run with it disconnected also missed once (next section), so that was wrong. Deployed as `20261015T234351Z-b7de042` (receiver
   `a7213954...`, the qualified binary); smoke test passed.
 
 ## Remaining uncertainty
@@ -82,3 +82,56 @@ private-vcan manual-tuning qualification runs both arms, position-only and feed-
 - Session `223157Z`'s leader link never connected; Helm's message for it was not kept.
 - Two sessions deploy to the robot (this branch and `claude/actuator-response`). A release from either must
   carry the other's deployed commits, or it silently removes them.
+
+## A gripper that never answers again (2026-10-15, later)
+
+Session `live-20261015T234712Z` (position-only; the switch had not been applied since Helm restarted) on release
+`20261015T234351Z-b7de042`:
+
+- 21 s into teleop, the right gripper's drive stopped answering while it moved: 2.92 rad of its 5.3 rad range,
+  -0.84 rad/s, about 0.1 Nm. It was not at an end and not loaded. Its last samples arrived in a burst, then none
+  for the 403 s until the motors were power-cycled. Afterwards Helm's reader still found it "Not answering", so
+  its power or CAN connection is lost (hardware).
+- The receiver tripped (`feedback_stale`) and braked the arm to a hold, as designed. But a stop completed only
+  when every joint read at or below `settled_velocity` (0.15 rad/s), and the gripper's frozen last reading never
+  did. The receiver stayed "stopping" and held the arm up, and the loop, which lowers the arm only after the
+  stop, waited with an unchanged message. The receiver would also have refused to re-arm while any drive was
+  quiet.
+
+Fix (the operator's choice: lower without a lost gripper):
+
+- `fd19868` receiver: a quiet drive's speed is unknown, so a stop completes on the readings that still arrive. A
+  gripper quiet while the arm is braked or held is set aside until the arm is disabled. It keeps its last
+  command; its silence and frozen readings no longer block re-arming or trip the lowering; the status lists it
+  (`set_aside`). A quiet arm joint is never set aside: the arm holds, and re-arming stays refused until it
+  answers.
+- `95a9903` clients: rows carry `aside`, accepted only for a gripper and only while the arm is taken back after
+  a fault. The shutdown, and the sweep's lowering, hold that gripper and do not wait for it. Helm names it and
+  asks to check its power and wiring. While a quiet arm joint keeps the arm held, Helm says to support the arm
+  and press H if it stays that way.
+
+Reproducers: `tests/controller.rs` (quiet gripper and quiet arm joint, both stuck "stopping" before),
+`tests/unit/test_teleop_lifecycle.py` (the stale gripper row was rejected before), and
+`tests/contract/test_rehearsal.py`. In the rehearsals, with the real receiver against a simulated arm, the right
+gripper goes quiet for good while moving in teleop, and with J2 raised in a sweep. The arm is lowered to the
+reference and disabled and never falls. Without the lifecycle change the teleop rehearsal ends "Lowering
+stopped ... stale feedback: right_gripper", as live.
+
+Gate on `95a9903`: 740 tests, zero failures, skips or xfails (`build/dev-check/20261016T001838Z-85d61df1/
+report.json`). Receiver `guarded_controller` SHA-256 `81b685a3...`. 
+
+Qualified in `~/minerva/validation/aside-95a9903-01` on private virtual CAN, Helm's live view disconnected,
+125 s each:
+
+| Run | Following misses | Full loop p99 / max |
+|---|---|---|
+| Feed-forward, both arms | 1 of 13,011 (12.6 ms) | 5.60 / 12.63 ms |
+| Position-only, both arms | 0 of 13,012 | 5.57 / 5.87 ms |
+| Feed-forward, left arm | 0 of 13,011 | 4.75 / 5.63 ms |
+
+The live view was off, so it is not why `b7de042`'s runs missed (corrected above). Since the recorder commits
+(`3bdae8f`, `5852fe2`), qualification runs show a single 10-12.6 ms stall in 4 of 13 runs, against none in
+`5a28ad7`'s 3. Each stall inflates whichever stage the loop is in (poll and map, or one receiver call), and p99 is
+unchanged. The release it replaced has the same recorder path. Deployed as `20261016T003435Z-95a9903` (receiver
+`81b685a3...`) after the operator chose this fix; the smoke test passed. Right J5's and the right gripper's
+drives remain hardware items: after the power cycle the gripper still did not answer.
