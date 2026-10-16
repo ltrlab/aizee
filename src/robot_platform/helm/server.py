@@ -19,6 +19,28 @@ STATIC = Path(__file__).parent / 'static'
 RETURN_MOVED_RAD = .02  # A confirmed return starts only if no joint moved more than this since it was shown.
 
 
+
+def task_phase(progress):
+    """Operator text from recorded scene facts; never invent a successful outcome."""
+    if progress.get('training_eligible') is False or progress.get('forbidden_contacts'):
+        return 'Invalid scene contact; episode is ineligible.'
+    if progress.get('dropped'):
+        return 'Cube dropped outside the bucket; reset before retrying.'
+    picked_up = progress.get('first_gripper') in ('left', 'right')
+    if progress.get('bucket_settled'):
+        if progress.get('success') and picked_up and progress.get('handoff'):
+            return 'Task complete: pickup, handoff and bucket placement.'
+        return 'Cube settled in the bucket; the complete pickup and handoff sequence is not confirmed.'
+    if progress.get('handoff'):
+        return 'Handoff complete; place the cube in the bucket.'
+    if picked_up:
+        giver = progress['first_gripper']
+        receiver = 'right' if giver == 'left' else 'left'
+        return f'{giver.capitalize()} gripper picked up the cube; hand it to the {receiver} gripper.'
+    if 'cube_position' in progress:
+        return 'Cube on the table; pick it up with either gripper.'
+    return None
+
 def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None, live=False,
                gripper_zero=None, simulation_only=False):
     """`live`: keep the stopped reader running whenever Minerva is online and nothing else holds the motors
@@ -103,6 +125,9 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         state['tune'] = tune.snapshot() if tune is not None else None
         state['gripper_zero'] = grippers.snapshot() if grippers is not None else None
         state['mode'] = 'simulation' if simulation_only else 'robot'
+        task = (state['teleop'] or {}).get('task')
+        if simulation_only and task is not None:
+            task['display_phase'] = task_phase(task.get('task') or {})
         # The model's joint telemetry from the one source the 3D view shows: a running session, else the reader.
         state['telemetry'] = select_telemetry(state)
         state['action_token'] = token
