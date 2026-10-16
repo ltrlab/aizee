@@ -14,7 +14,7 @@ Prerequisites: this checkout's `.venv-dev` (`python scripts/dev.py setup`, MuJoC
 .venv-dev/Scripts/python.exe -m robot_platform.evaluation run --policy my_package.policies:load_checkpoint --out build/eval/dit-step40k
 ```
 
-`--policy` takes a reference policy name or `module:factory` (called with no arguments). Each run writes `trials.jsonl` (one record per trial, with the scene's own events), `report.json` and `report.md` to `--out` (default `build/eval/<policy>-<plant>-<UTC time>`, ignored by git), plus the simulated receiver's evidence under `receiver/`. Other options: `--trials 0,3,5`, `--timeout` (s, default 30), `--grid 4x4`, `--seed`, `--jitter`, `--yaw`, `--no-nominal`, `--directions <Helm session.json>`, `--plant-seed`, `--scene-pose measured`. Runs are deterministic for a given policy, grid seed and plant seed.
+`--policy` takes a reference policy name or `module:factory` (called with no arguments). Each run writes `trials.jsonl` (one record per trial, with the scene's own events), `report.json` and `report.md` to `--out` (default `build/eval/<policy>-<plant>-<UTC time>`, ignored by git). An `armplant` run also writes the configuration each simulated receiver started with (`receiver/receiver-N/setup.json`). A report's `provenance.git` gives the commit and the number of uncommitted paths: only a run with 0 uncommitted paths reproduces from its commit. Other options: `--trials 0,3,5`, `--timeout` (s, default 30), `--grid 4x4`, `--seed`, `--jitter`, `--yaw`, `--no-nominal`, `--directions <Helm session.json>`, `--plant-seed`, `--scene-pose measured`. Runs are deterministic for a given policy, grid seed and plant seed.
 
 ## The policy interface
 
