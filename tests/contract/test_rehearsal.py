@@ -121,6 +121,43 @@ def test_a_sweep_runs_to_the_edges_of_a_joints_range_on_a_simulated_arm(helm, tm
         core.close()
 
 
+def test_a_swept_joints_commanded_speed_never_drops_to_zero_between_its_commands(helm, tmp_path):
+    # Live, the receiver takes each command after a tick and first drives it at the next. It timed the
+    # ramp from the acceptance, so the ramp ended a tick early, and that tick held the joint at zero
+    # velocity every 20 ms command: damping turned it into a 50 Hz judder (right J2 kicked by about 37 Nm
+    # per command in the sweeps and checks of 2026-10-16). The plant moves under what each tick drove.
+    profile = json.loads((DEVICES / 'minerva-teleop.json').read_text(encoding='utf-8'))
+    profile.update(live=LIVE, sweep=dict(profile['sweep'], defaults={
+        'amplitudes': [.5], 'kp_ladder': [1.], 'damping': [1.], 'speeds': [.8], 'decelerations': [16.],
+        'hold_s': .2, 'rest_s': .1}))
+    path = tmp_path / 'teleop.json'
+    path.write_text(json.dumps(profile))
+    session = TuneSession(helm, path)
+    session.configure(arm='right', joints=['right_arm_j6'])
+    clock = Clock()
+    bundle = session._bundle()
+    open_receiver, _ = plant_receiver(helm, bundle.get('servo'), clock, tmp_path / 'receiver')
+    core = TuneCore(bundle, open_receiver=open_receiver, clock=clock, evidence_root=tmp_path / 'evidence')
+    try:
+        core.build()
+        for _ in range(20000):
+            core.tick(None, clock())
+            clock.now += core.period_s
+            assert core.fault is None, core.fault
+            if core.stage == 'finished':
+                break
+    finally:
+        core.close()
+    recording = next((tmp_path / 'evidence').glob('sweep-*'))
+    columns = json.loads((recording / 'columns.json').read_text(encoding='utf-8'))['columns']
+    rows = np.fromfile(recording / 'samples.f32', dtype=np.float32).reshape(-1, len(columns))
+    velocity = rows[:, columns.index('right_arm_j6.command_velocity')]
+    moving = np.abs(velocity) > .2
+    stalled = (velocity[1:-1] == 0) & moving[:-2] & moving[2:]
+    assert moving.sum() > 400, moving.sum()
+    assert not stalled.any(), f'{stalled.sum()} zero-velocity ticks among {moving.sum()} moving ticks'
+
+
 def test_a_trip_with_the_arm_raised_holds_it_and_lowers_it_to_the_reference(helm, tmp_path):
     # Right J2, 2026-09-29: raised near horizontal, a trip cut its torque and it fell. Here a push drives
     # J2 past its command while it is raised: the receiver brakes it to a hold, and the sweep takes it

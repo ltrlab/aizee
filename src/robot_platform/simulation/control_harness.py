@@ -76,16 +76,20 @@ class NativeControlHarness:
         except Exception as exc:
             self._responses.put(exc)
 
-    def step(self, now_ms: int, request: dict | None = None, *, faults=None, feedback=None) -> dict:
+    def step(self, now_ms: int, request: dict | None = None, *, faults=None, feedback=None,
+             deferred=False) -> dict:
         """Advance the receiver to `now_ms`, handling `request` if any. `feedback` ([{position, velocity,
         effort}] per joint) is what the next read reports, as a simulated plant measured it; without it the
-        joints follow their commands exactly."""
+        joints follow their commands exactly. `deferred`: take the request as the live service does, first
+        driven at the next tick, instead of applied at once."""
         if type(now_ms) is not int or now_ms < 0:
             raise ValueError("now_ms must be a nonnegative integer in the receiver clock")
         self.now_ms = now_ms
         frame = {"protocol_version": 1, "now_ms": now_ms, "request": request, "faults": faults}
         if feedback is not None:
             frame["feedback"] = feedback
+        if deferred:
+            frame["deferred"] = True
         frame = pack_msg(frame)
         if len(frame) > 256 * 1024:
             raise ValueError("Controller harness frame exceeds 256 KiB")

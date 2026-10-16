@@ -93,7 +93,11 @@ class PlantReceiver:
 
     `clock` is the caller's clock (s); the receiver's time is milliseconds since construction.
     As the live service does, it takes each request at its next tick (`service_latency`), so a
-    loop's requests span ticks and each result brings the rows since the last.
+    loop's requests span ticks and each result brings the rows since the last: after that tick it is
+    validated and acknowledged, and first driven at the tick after (the receiver's handle_deferred). The
+    plant moves under the commands the drives were last sent, never a status's undriven ones: a tick that
+    drove a stale target at zero velocity, as live, reaches the plant (the 50 Hz judder of 2026-10-16
+    hid from rehearsals while the plant took each request's new commands at once).
     """
 
     def __init__(self, config, plant, *, clock, directory=None, binary=None, service_latency=True):
@@ -110,6 +114,7 @@ class PlantReceiver:
         self.ticks = 0
         self.rows = []
         self.last = self.harness.step(0, feedback=plant.measured())
+        self.driven, self._writes = self.last['status']['joints'], self.last.get('writes', 0)
         self.transport = SimpleNamespace(on_result=None)
         self.closed = False
 
@@ -127,12 +132,18 @@ class PlantReceiver:
             row += [command['velocity'], command['effort'], command['kp'], command['kd']]
         return row
 
+    def _note_driven(self, result):
+        """The commands the drives hold from now on: the status's, when this step wrote them."""
+        if result.get('writes', 0) != self._writes:
+            self.driven, self._writes = result['status']['joints'], result.get('writes', 0)
+
     def _tick(self):
         enabled = self.last.get('hardware_enabled')
-        self.plant.step(self.last['status']['joints'] if enabled else None, TICK_S)
+        self.plant.step(self.driven if enabled else None, TICK_S)
         self.ticks += 1
         t_ms = self.ticks * TICK_S * 1000
         self.last = dict(self.harness.step(int(t_ms), feedback=self.plant.measured()), hardware_dropped=self._dropped())
+        self._note_driven(self.last)
         self.rows.append(self._row(self.last, t_ms))
 
     def advance(self):
@@ -145,7 +156,8 @@ class PlantReceiver:
         if self.service_latency:
             self._tick()
         now_ms = max(self.harness.now_ms, int(self._now_ms()))
-        result = self.harness.step(now_ms, request, feedback=self.plant.measured())
+        result = self.harness.step(now_ms, request, feedback=self.plant.measured(), deferred=self.service_latency)
+        self._note_driven(result)
         result = dict(result, recent=self.rows, recent_dropped=0, hardware_dropped=self._dropped())
         self.rows = []
         self.last = result

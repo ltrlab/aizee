@@ -53,6 +53,10 @@ struct Input {
     /// Drive the feedback from a plant instead of following the commands (the default).
     #[serde(default)]
     feedback: Option<Vec<Measured>>,
+    /// Take the request as the live service does: validated and acknowledged after this frame's tick,
+    /// first driven at the next tick (`handle_deferred`), instead of applied at once.
+    #[serde(default)]
+    deferred: bool,
 }
 
 #[derive(Serialize)]
@@ -135,7 +139,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 let reply = if let Some(request) = frame.request {
-                    Some(controller.handle(frame.now_ms, request, &mut hardware))
+                    Some(if frame.deferred {
+                        controller.handle_deferred(frame.now_ms, request, &mut hardware)
+                    } else {
+                        controller.handle(frame.now_ms, request, &mut hardware)
+                    })
                 } else {
                     controller.tick(frame.now_ms, &mut hardware);
                     None
