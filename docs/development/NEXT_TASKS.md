@@ -1,3 +1,24 @@
+# Current consolidation work
+
+2026-10-16: follow the [platform consolidation plan](../architecture/PLATFORM_CONSOLIDATION_PLAN.md).
+I1 is integrated; I2 public Windows/Linux qualification and branch protection are
+in progress. The task scene and two-camera capture are the next candidate.
+
+1. Complete clean remote CI and require both platform checks on integration.
+2. Qualify the combined receiver, leader input, scene and recording workload;
+   distinguish scripted contact fixtures from actual runtime evidence.
+3. Resolve recorded right-wrist lag failures, finish the left sweep, and calibrate
+   the static-head/right-wrist views and workcell dimensions.
+4. Record an attended real pickup, handoff and bucket placement with both arms;
+   retain interrupted trials as incomplete evidence.
+5. Implement raw-episode validation and training adapters, then evaluation,
+   inference, human takeover/correction and promotion. No autonomous promotion yet.
+
+Both arms are required for the first hardware milestone. Individual component
+diagnostics do not satisfy it. The older briefs below are historical priorities.
+
+---
+
 # Ready work lanes after the baseline
 
 Resolve `codex/overhaul-integration` to a full SHA before starting each task, record

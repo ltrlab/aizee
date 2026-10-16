@@ -1,5 +1,48 @@
 # Current development status
 
+Updated 2026-10-16. Current milestone: both Minerva arms and grippers (14 axes),
+collecting a cube pickup, handoff and bucket placement in simulation and on the
+robot. Initial cameras: **right wrist + head**. The D435 head is on a static neck;
+its mounting transform has not been calibrated.
+
+## Accepted source and delivery
+
+`codex/overhaul-integration` at `610c66b` includes completed fault fixes, later
+receiver ramp fix `6b47de8`, and calibrated simulation `d7a1610`. The fault
+checkpoint passed 741 Python / 132 Rust tests; the merged simulation passed
+796 / 132; the delivery baseline passed **801 / 132**, zero required skips/xfails.
+Original overhaul edits and untracked work remain preserved by hash/inventory.
+[Windows/Linux CI](https://github.com/ltrlab/aizee/actions/runs/38952454408) is
+qualifying this published baseline, including mandatory ARM64 release artifacts.
+
+The next candidate adds simulation isolation, the task GUI/contact scene and
+atomic raw capture. Its focused tests pass; full candidate qualification is
+pending. See [the integration record](development/PLATFORM_INTEGRATION_20261016.md),
+[operator workflow](development/HELM_TASK_WORKFLOW.md) and
+[physics limitations](development/MINERVA_TASK_SCENE.md).
+
+## Observed robot state
+
+Read-only verification found release `20261016T181317Z-6b47de8`, from clean source.
+The existing operator report recorded all 14 stopped identity/position checks and
+right-gripper travel passing. Right J5/J6 failed the sweep lag limits at
+0.053/0.042 rad; the left sweep remains pending. These observations do not waive
+bimanual readiness. After operator connection, right wrist and D435 head supplied
+valid 640x480 JPEGs. The recorder uses RGB; D435 depth is not stored in this format.
+Exposure timestamps/extrinsics remain uncalibrated. h5py 3.14.0 was installed in the
+Jetson user environment without changing NumPy 1.21.5; HDF5 write/read passed.
+No new task runtime has been activated or motors commanded by this integration.
+
+The task fixture demonstrates contact-driven handoff using FK-driven robot links,
+approximate terminal finger pads and unmeasured contact properties. Coupled robot
+dynamics, leader/controller workload and sim-to-real transfer remain unqualified.
+Raw captures are not automatically training datasets. Validation, training,
+evaluation, inference takeover/correction and promotion remain plan work packages.
+
+---
+
+# Earlier development status (historical evidence)
+
 Updated 2026-10-11. This file is the current entry point; dated phase tables and
 device logs retain historical evidence, not an implicit statement of readiness.
 

@@ -4,6 +4,9 @@ Guides for the shared platform, robot applications and device deployments.
 
 ## Repository architecture
 
+- **[Platform consolidation plan](architecture/PLATFORM_CONSOLIDATION_PLAN.md)** — integration order and acceptance for the bimanual learning/correction loop
+- **[October 16 integration record](development/PLATFORM_INTEGRATION_20261016.md)** — accepted source, CI, task scene, capture and physical validation
+
 - **[Implemented monorepo guide](architecture/MONOREPO_IMPLEMENTATION.md)** — package installation, interchangeable profiles/settings, application launchers, shared backend APIs, and current migration status
 - **[Session backend migration](architecture/SESSION_BACKEND_MIGRATION.md)** — collector/inference integration, command lifecycle, freshness and remaining legacy tools
 - **[Guarded controller core](architecture/GUARDED_CONTROLLER.md)** — receiver-owned permits, explicit recovery, CAN adapter, Linux commissioning service and protocol/fault tests

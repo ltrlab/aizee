@@ -45,6 +45,8 @@ CORE = [
     'tests/unit/test_joint_capture_preflight.py', 'tests/unit/test_leader_link.py', 'tests/unit/test_helm_edge.py',
     'tests/unit/test_openrb_leader_setup.py', 'tests/unit/test_gripper_zero.py',
     'tests/unit/test_velocity_feedforward.py', 'tests/unit/test_browser_scripts.py',
+    'tests/unit/test_helm_task_workflow.py', 'tests/unit/test_helm_task_capture.py',
+    'tests/unit/test_task_capture.py', 'tests/unit/test_task_scene.py',
     'tests/unit/test_dev_gate.py',
     'tests/unit/test_platform_packaging.py',
 ]
