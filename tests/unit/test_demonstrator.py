@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from robot_platform.evaluation.demonstrator import HANDOFF, HandoffDemonstrator
+from robot_platform.evaluation.demonstrator import HANDOFF, PACE_STOP, HandoffDemonstrator
 from robot_platform.evaluation.plants import _Stack, derive_stack
 from robot_platform.simulation.workcell import load_workcell
 
@@ -19,6 +19,7 @@ def planned():
     limits = _Stack(stack)
     context = SimpleNamespace(joint_names=stack['names'], joint_map=stack['derived']['joint_map'], lower=limits.lower,
                               upper=limits.upper, home=limits.home, workcell=workcell, period_s=limits.period_s,
+                              lead=limits.lead,
                               cube_start={'x': workcell.cube_start[0], 'y': workcell.cube_start[1], 'yaw': 0.})
     demo = HandoffDemonstrator()
     demo.reset(context)
@@ -62,3 +63,26 @@ def test_every_planned_move_clears_the_table_and_bucket(planned):
     # No move spins a wrist the long way round (one took 41 s before the plan chose its wrist-roll branch).
     moves = [frame.duration for frame in demo.frames if frame.kind == 'move']
     assert max(moves) < 10. and 10. < sum(moves) < 40.
+
+
+def test_a_move_waits_for_an_arm_that_falls_behind(planned):
+    demo, context, _ = planned
+    demo._timeline(demo.frames)
+    demo.bias = np.zeros(len(context.joint_names))
+    arms = demo.arms['left'] + demo.arms['right']
+    first = demo.frames[0]
+    assert first.kind == 'move'
+    # An arm stuck at the start: the plan leads each joint by at most PACE_STOP of its lead and one cycle's step, and
+    # stays on the move.
+    still = demo.ready.copy()
+    commands = [demo({'t': k * .01, 'q': still})[0] for k in range(500)]
+    beyond = max(float((np.abs(c[arms] - still[arms]) - PACE_STOP * context.lead[arms]).max()) for c in commands)
+    assert beyond < .01
+    assert demo.current == 0
+    # An arm that keeps up with its commands finishes the move in its planned time.
+    q, t = commands[-1].copy(), 5.
+    while demo.current == 0 and t < 5. + first.duration + 1.:
+        t += .01
+        q = demo({'t': t, 'q': q})[0]
+    assert demo.current == 1 and t - 5. <= first.duration + .02
+    demo._timeline(demo.frames)

@@ -70,6 +70,14 @@ SLOW = .15  # rad/s on approaches and lifts.
 SETTLE_TOLERANCE = .004  # rad: a pose is held once every joint of the moving arm is this close ...
 SETTLE_TIMEOUT = 1.5  # ... or after this long.
 CORRECTION_GAIN, CORRECTION_LIMIT = .1, .03  # Integral correction toward a held pose (fraction per cycle, rad).
+# Position-only following lets each command lead its joint by a bounded lead, so a joint's top speed is about
+# (kp x lead - friction) / (kd + kp x 10 ms): 0.23-0.35 rad/s for left J1 and J2 and right J2 and J3 on the direct
+# profile, under the 0.75 rad/s peak of a transit move. Carrying the cube over the bucket, right J1 fell 0.5 rad
+# behind its command, off the planned path. A move's clock runs at full rate while every arm joint trails its last
+# planned command by less than PACE_LAG of the lead following allows it (TrialContext.lead), slows as one trails
+# further, and stops at PACE_STOP of it: the arms keep to the planned path and arrive later. The soft wrists may
+# lead 0.087 rad and J1 0.023, so one bound in radians would hold the wrists back. Without a lead, PACE_LEAD rad.
+PACE_LAG, PACE_STOP, PACE_LEAD = .5, 1., .03
 # A gripper step ends once that gripper's reading has moved less than GRIP_STILL over the last GRIP_SETTLE (stalled
 # on the cube, or open), after at least GRIP_MIN and at most GRIP_WAIT. A fixed wait let the left open before the
 # right had both jaws on the cube: the right needs more than 0.6 s to close from open at the receiver's gripper
@@ -244,6 +252,8 @@ class HandoffDemonstrator:
         workcell = context.workcell or scene.workcell
         names = list(context.joint_names)
         self.names, self.period = names, context.period_s
+        lead = getattr(context, 'lead', None)
+        self.lead = np.full(len(names), PACE_LEAD) if lead is None else np.asarray(lead, dtype=float)
         index = {name: i for i, name in enumerate(names)}
         self.arms = {side: [index[f'{side}_arm_j{k}'] for k in range(1, 7)] for side in ('left', 'right')}
         grip = {side: index[f'{side}_gripper'] for side in ('left', 'right')}
@@ -380,6 +390,7 @@ class HandoffDemonstrator:
                 frame.duration = SETTLE_TIMEOUT
         self.frames = frames
         self.current, self.started, self.grip_trace = 0, 0., []
+        self.paced, self.ticked, self.planned = 0., 0., None  # The move's clock, the last call's time and command.
         self.log = []
 
     def start_pose(self, context):
@@ -410,8 +421,16 @@ class HandoffDemonstrator:
 
     def __call__(self, observation):
         t, q = float(observation['t']), np.asarray(observation['q'], dtype=float)
+        arms = self.arms['left'] + self.arms['right']
         frame = self.frames[self.current]
-        elapsed = t - self.started
+        if frame.kind == 'move':
+            trail = 0. if self.planned is None else np.abs(self.planned[arms] - q[arms]) / self.lead[arms]
+            behind = float(np.max(trail))
+            self.paced += (t - self.ticked) * min(1., max(0., (PACE_STOP - behind) / (PACE_STOP - PACE_LAG)))
+            elapsed = self.paced
+        else:
+            elapsed = t - self.started
+        self.ticked = t
         done = elapsed >= frame.duration - 1e-9
         if frame.kind == 'grip' and frame.arm is not None and not done:
             self.grip_trace.append((t, float(q[self.names.index(f'{frame.arm}_gripper')])))
@@ -424,7 +443,7 @@ class HandoffDemonstrator:
         if done and self.current < len(self.frames) - 1:
             self.log.append((frame.label, round(t, 3)))
             self.current += 1
-            self.started, self.grip_trace = t, []
+            self.started, self.grip_trace, self.paced = t, [], 0.
             frame, elapsed = self.frames[self.current], 0.
         if frame.kind == 'move':
             s = min(1., elapsed / frame.duration)
@@ -441,7 +460,7 @@ class HandoffDemonstrator:
                 joints = self.arms[frame.arm]
                 self.bias[joints] = np.clip(self.bias[joints] + CORRECTION_GAIN * (frame.target[joints] - q[joints]),
                                             -CORRECTION_LIMIT, CORRECTION_LIMIT)
-        arms = self.arms['left'] + self.arms['right']
+        self.planned = command.copy()
         command[arms] += self.bias[arms]
         return command[None, :]
 

@@ -46,7 +46,11 @@ Every pose below came out of a reach or clearance check, not a guess. The script
 - **Grasps.** The jaws open to the cube plus 2 cm each side and close 1 rad past touching, so the drive squeezes with kp x 1 rad.
 - **Gripper steps.** A gripper step ends once that gripper's reading has moved less than 0.01 rad over 0.2 s (stalled on the cube, or open), after at least 0.3 s and at most 3 s. A fixed 0.6 s wait let the left open before the right had both jaws on the cube, because the right needs about 1 s to close from open at the receiver's gripper gains. The two grippers then overlapped for 40 ms, short of the 50 ms the scene requires of a handoff, so 4 of 10 trials ended out of sequence. The settle test reads position: the speed reading carries the drives' noise.
 - **Holds.** Holds correct toward the pose (at most 0.03 rad) until the arm settles within 0.004 rad or 1.5 s pass.
-- **Speed.** Moves run at up to 0.5 rad/s per joint in transit and 0.15 rad/s on approaches and lifts. The right's lift at the handoff, which includes its half-turn roll, runs at transit speed in free space.
+- **Speed.** Moves are planned at up to 0.5 rad/s per joint in transit and 0.15 rad/s on approaches and lifts. With the smooth start and stop, a transit move peaks at 0.75 rad/s. The right's lift at the handoff, which includes its half-turn roll, runs at transit speed in free space.
+- **Pacing.** The direct profile's commands are position-only, and following lets each command lead its joint by at most a bounded lead (the lifecycle's `max_lead`, 0.023-0.087 rad, passed to policies as `TrialContext.lead`). That caps how fast a joint follows: by (kp x lead - friction) / (kd + kp x 10 ms), about 0.23-0.35 rad/s for left J1 and J2 and right J2 and J3.
+  - Unpaced, four joints trailed their commands by more than their lead. Right J1 fell 0.5 rad behind while carrying the cube to the bucket, so the arm left the planned path, and the slide over the near wall started with J1 still 0.45 rad short.
+  - A move's clock now runs at full rate while every arm joint trails its last planned command by less than half its lead. It slows as one trails further and stops at the full lead.
+  - With pacing, every arm joint stays within its lead (right J1 within 0.019 rad), and the nominal trial takes 39.4 s instead of 32.5 s. A single bound in radians for every joint held the soft wrists back and took 59 s.
 
 ## Where the cube can be
 
@@ -61,12 +65,13 @@ The workcell's cube region is now x 0.02-0.26 m, y -0.32 to -0.50 m, inside that
 
 Through the receiver with driven grippers on the measured bench:
 
-- **Nominal cube start (0.15, -0.35):** success. Pickup at 6.0 s, handoff at 16.7 s, bucket settled at 32.5 s, with no clipped commands. `tests/contract/test_demonstrator.py` runs this trial.
+- **Nominal cube start (0.15, -0.35):** success. Pickup at 6.3 s, handoff at 19.5 s, bucket settled at 39.4 s, with no clipped commands. `tests/contract/test_demonstrator.py` runs this trial.
 - **Default 3x3 grid, first placeholder region:** 5/10 succeeded (Wilson 95% 0.24-0.76).
   - Every trial that planned succeeded.
   - The other five could not plan their pick, at the region's far edge (y -0.41 to -0.42) and near edge (y -0.28), at x 0.08-0.22.
 - **Default 3x3 grid, reachable region, with the alternative grasp orientations:** 6/10. The other 4 ended out of sequence: the cube reached the bucket but the scene saw no handoff (see "Gripper steps").
 - **The same grid with the gripper settle test:** 10/10 succeeded (Wilson 95% 0.72-1.00), median time to complete 46.1 s (p90 46.8 s). With the right's lift at transit speed, also 10/10, median 32.0 s (p90 32.7 s).
+- **The same grid with paced moves:** 10/10 succeeded (Wilson 95% 0.72-1.00), median time to complete 40.8 s (p90 41.8 s). No arm joint trailed its command by more than 0.89 of its lead. Unpaced, five did somewhere on the grid, right J1 by 0.52 rad (21 times its lead).
 
 ## Limits
 

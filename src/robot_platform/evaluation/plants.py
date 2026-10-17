@@ -122,6 +122,9 @@ class _Stack:
         margin = np.array([0. if config[n].get('gripper') else end_margin(config[n], reaction) for n in self.names])
         self.lower = np.array([rows[n]['lower'] for n in self.names]) + margin
         self.upper = np.array([rows[n]['upper'] for n in self.names]) - margin
+        # How far following lets a command lead its joint (the lifecycle's max_lead): with position-only commands
+        # it bounds how fast each joint can follow.
+        self.lead = np.array([rows[n]['max_lead'] for n in self.names], dtype=float)
         self.home = np.array(derived['initial'], dtype=float)
         self.period_s = loop_period_s(stack['profile'])
         self.time_s = 0.
