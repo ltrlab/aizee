@@ -75,6 +75,26 @@ def run(args):
     return 0
 
 
+def generate(args):
+    from .generate import generate as run_generation
+    from .policies import load_policy
+    from .plants import derive_stack
+    from .runner import RunConfig
+    width, height = parse_counts(args.camera_size)
+    grid = _grid(args)
+    from dataclasses import replace
+    grid = replace(grid, nominal=False)  # The evaluation's own trial 0 is never generated.
+    config = RunConfig(plant='armplant', timeout_s=args.timeout, grid=grid, plant_seed=args.plant_seed,
+                       camera_size=(width, height), visual_mode=args.visual_mode, workcell=args.workcell,
+                       grippers='driven')
+    out = Path(args.out) if args.out else ROOT / 'build/generated' / time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
+    made, attempts = run_generation(load_policy(args.policy), config, out, episodes=args.episodes,
+                                    stack=derive_stack(profile=args.profile, directions=args.directions), hz=args.hz,
+                                    progress=lambda line: print(line, flush=True))
+    print(f'{len(made)} episodes from {attempts} attempts: {out / "episodes"} (manifest {out / "manifest.jsonl"})')
+    return 0 if made else 1
+
+
 def report(args):
     from . import report as reports, trials as trial_records
     records = trial_records.load(args.trials)
@@ -152,6 +172,20 @@ def parser():
                         'the scene and stall on the cube, and the receiver reads that back (armplant only)')
     _grid_arguments(r)
     r.set_defaults(handler=run)
+    n = sub.add_parser('generate', help='record synthetic demonstrations: the episodes a demonstrator completes')
+    n.add_argument('--policy', default='handoff_demonstrator', help='the demonstrator (default handoff_demonstrator)')
+    n.add_argument('--episodes', type=int, required=True, help='successful episodes to record')
+    n.add_argument('--out', help='output directory (default build/generated/<time>)')
+    n.add_argument('--hz', type=float, default=15., help='record rate in scene time (default 15, near real capture)')
+    n.add_argument('--camera-size', default='320x240', help='rendered camera size WxH (default 320x240, as recorded)')
+    n.add_argument('--visual-mode', choices=('cad', 'collision_proxy'), default='cad',
+                   help='camera appearance (default cad: the full CAD visuals)')
+    n.add_argument('--timeout', type=float, default=70., help='seconds per attempt (default 70)')
+    n.add_argument('--profile', default='minerva-teleop-direct.json', help='collision-disabled teleop profile')
+    n.add_argument('--directions', help="a Helm direction session's session.json (default: documented directions)")
+    n.add_argument('--plant-seed', type=int, default=1, help='simulated feedback noise seed (default 1)')
+    _grid_arguments(n)
+    n.set_defaults(handler=generate, seed=1000)
     m = sub.add_parser('report', help='report trials from a .jsonl or hand-logged .csv file')
     m.add_argument('trials')
     m.add_argument('--source', choices=('real', 'simulation'), default='real')

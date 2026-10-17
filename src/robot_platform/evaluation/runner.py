@@ -210,7 +210,15 @@ class TrialRunner:
                 return f'cube placed inside {name} ({-contact.dist * 1000:.1f} mm) at the start pose'
         return None
 
-    def run_trial(self, policy, pose, index):
+    def run_trial(self, policy, pose, index, recorder=None):
+        """One trial's record. A `recorder` (generate.EpisodeRecorder) starts once the scene is reset with the cube in
+        place, samples after every control cycle, and is finished with the record."""
+        record = self._run_trial(policy, pose, index, recorder)
+        if recorder is not None:
+            recorder.finish(record)
+        return record
+
+    def _run_trial(self, policy, pose, index, recorder):
         config, name = self.config, policy_name(policy)
         plant, scene = self._open_plant(), self._open_scene()
         context = TrialContext(index=index, cube_start=dict(pose), joint_names=tuple(plant.names),
@@ -252,6 +260,8 @@ class TrialRunner:
                 # The reset placed the scene's gripper drives where the plant's grippers are; from here on the
                 # scene moves them, tick by tick, inside plant.step.
                 plant.couple(scene)
+            if recorder is not None:
+                recorder.start(scene, plant, context, policy)
             action_dt = float(getattr(policy, 'action_dt', None) or plant.period_s)
             execute = getattr(policy, 'execute_steps', None)
             roles = tuple(getattr(policy, 'camera_roles', None) or ())
@@ -279,6 +289,8 @@ class TrialRunner:
                     state = scene.snapshot()  # The plant's ticks already stepped the scene.
                 elif dt > 0:
                     state = self._advance_scene(q, dt)
+                if recorder is not None:
+                    recorder.sample(scene, plant)
                 t = float(scene.data.time)
                 if state and (state['forbidden_contacts'] or state['dropped'] or state['bucket_settled']):
                     break
