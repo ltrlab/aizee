@@ -25,6 +25,7 @@ import tempfile
 
 import numpy as np
 
+from robot_platform.control.approach import end_margin
 from robot_platform.simulation.arm_plant import TICK_S
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -112,9 +113,15 @@ class _Stack:
         self.names = stack['names']
         self.joint_map = deepcopy(derived['joint_map'])
         rows = {row['name']: row for row in derived['lifecycle']}
-        # The lifecycle refuses a target outside [lower, upper]; commands are clipped into it first.
-        self.lower = np.array([rows[n]['lower'] for n in self.names])
-        self.upper = np.array([rows[n]['upper'] for n in self.names])
+        # The lifecycle refuses a target outside [lower, upper], and the direct receiver refuses an arm joint's
+        # command within the stopping margin of its approach floor at either end (control_core Move validation;
+        # approach.end_margin). Commands are clipped into that usable range first.
+        config = {joint['name']: joint for joint in derived['config']['joints']}
+        direct = derived['config'].get('direct') or {}
+        reaction = (derived['config']['feedback_timeout_ms'] + direct.get('limit_reaction_ms', 0)) / 1000
+        margin = np.array([0. if config[n].get('gripper') else end_margin(config[n], reaction) for n in self.names])
+        self.lower = np.array([rows[n]['lower'] for n in self.names]) + margin
+        self.upper = np.array([rows[n]['upper'] for n in self.names]) - margin
         self.home = np.array(derived['initial'], dtype=float)
         self.period_s = loop_period_s(stack['profile'])
         self.time_s = 0.
