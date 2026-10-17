@@ -33,11 +33,16 @@
     "Left wrist USB 05a3:9230, right wrist USB 32e4:9230; configured wrist JPEG resolution 640x480 at 30 Hz.",
     "These are capture admission limits, not physical motion qualification. All three declared camera roles are required; no placeholder image is written.",
     "The head D435 is mounted on the static neck. Physical camera extrinsics are not calibrated; no camera-to-robot transform is supplied.",
-    "The operator connected the left wrist on 2026-10-16. All three identities and live JPEG streams were verified on the Jetson; this three-view roster is a different dataset contract from earlier two-view recordings."
+    "The operator connected the left wrist on 2026-10-16. All three identities and live JPEG streams were verified on the Jetson; this three-view roster is a different dataset contract from earlier two-view recordings.",
+    "Recording downsamples each selected RGB triplet to 320x240 using Pillow BOX; live previews and publisher resolution stay unchanged. Source/stored shapes and the transform are recorded; stored-image intrinsics remain unavailable."
   ],
   "camera_roles": [
     "left_wrist",
     "right_wrist",
     "head"
+  ],
+  "recording_image_size": [
+    320,
+    240
   ]
 }

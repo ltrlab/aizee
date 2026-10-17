@@ -51,7 +51,40 @@ def validate_config(value):
         if isinstance(v, bool) or not isinstance(v, (float, int)) or not math.isfinite(v) or not 0 < v <= high:
             raise ValueError(f'{field} must be finite and in (0, {high}]')
         result[field] = float(v)
+    size = value.get('recording_image_size')
+    if size is not None and (not isinstance(size, list) or len(size) != 2
+            or any(type(v) is not int for v in size)
+            or not 0 < size[0] <= 1280 or not 0 < size[1] <= 960):
+        raise ValueError('recording_image_size must be [width, height] within 1280x960, or null')
+    result['recording_image_size'] = list(size) if size is not None else None
     return result
+
+
+def recording_images(frames, size):
+    """Transform only an admitted coherent set; preserve cached RGB and its clocks.
+
+    This is spatial downsampling, not lossless image preservation. The episode
+    stores the transformed RGB losslessly; no stored-image intrinsics are known.
+    """
+    import numpy as np
+    import PIL
+    from PIL import Image
+    images, provenance = {}, {}
+    for name, frame in frames.items():
+        source = frame['image']
+        height, width = source.shape[:2]
+        target = tuple(size) if size is not None else (width, height)
+        if target[0] > width or target[1] > height or target[0]*height != target[1]*width:
+            raise ValueError(f'{name}: recording_image_size must downsample without changing aspect ratio')
+        changed = target != (width, height)
+        images[name] = (np.asarray(Image.fromarray(source).resize(
+            target, getattr(Image, 'Resampling', Image).BOX)).copy() if changed else source)
+        provenance[name] = {k: v for k, v in frame.items() if k != 'image'}
+        provenance[name]['image_transform'] = dict(operation='resize' if changed else 'identity',
+            source_shape=list(source.shape), stored_shape=list(images[name].shape),
+            algorithm='Pillow.BOX' if changed else 'identity', pillow_version=PIL.__version__,
+            color_order='RGB', stored_image_intrinsics=None)
+    return images, provenance
 
 
 class CameraCache:
@@ -381,13 +414,7 @@ class LiveTaskCapture:
                     sources = (sample['source_time'], *(frames[n]['publisher_time'] for n in self.camera_roles))
                     # Wait for a new acquisition from every camera; never relabel a repeated frame as new.
                     if last_sources is None or all(a > b for a, b in zip(sources, last_sources)):
-                        provenance = {n: {k: v for k, v in f.items() if k != 'image'} for n, f in frames.items()}
-                        writer.append(q=sample['q'], qcmd=sample['qcmd'], source_time=sample['source_time'], scene_time=None,
-                                      images={n: f['image'] for n, f in frames.items()},
-                                      camera_times={n: f['sampled_at'] for n, f in frames.items()},
-                                      task_state={'capture': {k: v for k, v in sample.items() if k not in ('q', 'qcmd')},
-                                                  'cameras': provenance, 'success': 'operator_review_required'},
-                                      authority='human')
+                        self._append_frame(writer, sample, frames)
                         last_sources = sources
                     next_frame = now+1/self.config['hz']
                 with self._lock:
@@ -433,6 +460,23 @@ class LiveTaskCapture:
                 self._state['capture_ready'] = False
                 if writer is not None:
                     self._state['recording'] = writer.status()
+
+    def _append_frame(self, writer, sample, frames):
+        images, provenance = recording_images(frames, self.config['recording_image_size'])
+        # Resizing may take time or overlap an authority-loss notification. Keep
+        # the original paired sample and acquisitions; never restamp or replace q.
+        now = self.clock()
+        self._ready(sample, now, require_commands=True)
+        if self._abort_reason:
+            raise ValueError(self._abort_reason)
+        for name, frame in frames.items():
+            if not 0 <= now-frame['sampled_at'] <= self.config['max_camera_age_s']:
+                raise ValueError(f'{name}: camera frame expired during recording preprocessing')
+        writer.append(q=sample['q'], qcmd=sample['qcmd'], source_time=sample['source_time'], scene_time=None,
+                      images=images, camera_times={n: f['sampled_at'] for n, f in frames.items()},
+                      task_state={'capture_admission_at': now,
+                                  'capture': {k: v for k, v in sample.items() if k not in ('q', 'qcmd')},
+                                  'cameras': provenance, 'success': 'operator_review_required'}, authority='human')
 
     def _ready(self, sample, now, *, require_commands=False):
         if sample is None or sample.get('error'):
