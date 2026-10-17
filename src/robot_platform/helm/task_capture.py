@@ -77,13 +77,24 @@ def recording_images(frames, size):
         if target[0] > width or target[1] > height or target[0]*height != target[1]*width:
             raise ValueError(f'{name}: recording_image_size must downsample without changing aspect ratio')
         changed = target != (width, height)
-        images[name] = (np.asarray(Image.fromarray(source).resize(
-            target, getattr(Image, 'Resampling', Image).BOX)).copy() if changed else source)
+        integer_reduce = width == target[0]*2 and height == target[1]*2
+        if changed:
+            image = Image.fromarray(source)
+            # Exact integer reduction avoids the general BOX filter overhead.
+            # Its rounding differs from BOX, so record the actual algorithm.
+            image = (image.reduce(2) if integer_reduce else
+                     image.resize(target, getattr(Image, 'Resampling', Image).BOX))
+            images[name] = np.asarray(image).copy()
+        else:
+            images[name] = source
         provenance[name] = {k: v for k, v in frame.items() if k != 'image'}
-        provenance[name]['image_transform'] = dict(operation='resize' if changed else 'identity',
+        provenance[name]['image_transform'] = dict(
+            operation='integer_reduce' if integer_reduce else 'resize' if changed else 'identity',
             source_shape=list(source.shape), stored_shape=list(images[name].shape),
-            algorithm='Pillow.BOX' if changed else 'identity', pillow_version=PIL.__version__,
-            color_order='RGB', stored_image_intrinsics=None)
+            algorithm='Pillow.Image.reduce' if integer_reduce else 'Pillow.BOX' if changed else 'identity',
+            pillow_version=PIL.__version__, color_order='RGB', stored_image_intrinsics=None)
+        if integer_reduce:
+            provenance[name]['image_transform']['factor'] = [2, 2]
     return images, provenance
 
 

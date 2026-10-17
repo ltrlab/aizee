@@ -464,7 +464,9 @@ def test_resized_rgb_hdf5_preserves_pairing_source_pixels_and_declared_geometry(
         if not writer.status()['complete']:
             writer.abort('test teardown')
             writer.wait_closed(timeout=2.)
-    expected = np.asarray(Image.fromarray(original).resize((320, 240), Image.Resampling.BOX))
+    # Independent integer arithmetic, not the production Pillow operation.
+    summed = original.astype(np.uint16).reshape(240, 2, 320, 2, 3).sum(axis=(1, 3), dtype=np.uint16)
+    expected = ((summed+2)//4).astype(np.uint8)
     np.testing.assert_array_equal(source, original)
     assert not source.flags.writeable
     with h5py.File(path) as f:
@@ -486,9 +488,9 @@ def test_resized_rgb_hdf5_preserves_pairing_source_pixels_and_declared_geometry(
             provenance = state['cameras'][role]
             assert {k: v for k, v in provenance.items() if k != 'image_transform'} == {
                 k: v for k, v in frames[role].items() if k != 'image'}
-            assert provenance['image_transform'] == dict(operation='resize', source_shape=[480, 640, 3],
-                stored_shape=[240, 320, 3], algorithm='Pillow.BOX', pillow_version=PIL.__version__,
-                color_order='RGB', stored_image_intrinsics=None)
+            assert provenance['image_transform'] == dict(operation='integer_reduce', source_shape=[480, 640, 3],
+                stored_shape=[240, 320, 3], algorithm='Pillow.Image.reduce', pillow_version=PIL.__version__,
+                color_order='RGB', stored_image_intrinsics=None, factor=[2, 2])
 
 
 @pytest.mark.parametrize('expired', ['receiver', 'camera'])
@@ -566,11 +568,45 @@ def test_recording_transform_supports_legacy_pillow_without_resampling_enum(monk
     cache = CameraCache(config())
     fill(cache)
     frames = cache.select(10.02)
-    expected = np.asarray(Image.fromarray(frames['head']['image']).resize((4, 3), Image.Resampling.BOX))
+    for frame in frames.values():
+        frame['image'] = np.arange(8*12*3, dtype=np.uint8).reshape(8, 12, 3)
+    expected = np.asarray(Image.fromarray(frames['head']['image']).resize((3, 2), Image.Resampling.BOX))
     # Jetson currently has Pillow9.0.1: constants live directly on Image. Keep
     # the installed module's internal globals untouched while testing that API.
     legacy_image = SimpleNamespace(fromarray=Image.fromarray, BOX=Image.Resampling.BOX)
     monkeypatch.setattr(PIL, 'Image', legacy_image)
-    images, provenance = recording_images(frames, [4, 3])
+    images, provenance = recording_images(frames, [3, 2])
     np.testing.assert_array_equal(images['head'], expected)
     assert provenance['head']['image_transform']['algorithm'] == 'Pillow.BOX'
+    assert 'factor' not in provenance['head']['image_transform']
+
+
+
+def test_integer_reduction_has_explicit_rounding_distinct_from_box():
+    # Each 2x2 block has channel sum1: integer reduction rounds1/4 to0,
+    # whereas the separable BOX operation rounds twice and produces1.
+    plane = np.tile(np.array([[0, 0], [0, 1]], dtype=np.uint8), (2, 2))
+    source = np.repeat(plane[:, :, None], 3, axis=2)
+    frames = {'head': dict(image=source, sampled_at=10.)}
+    images, provenance = recording_images(frames, [2, 2])
+    assert not images['head'].any()
+    assert np.asarray(Image.fromarray(source).resize((2, 2), Image.Resampling.BOX)).min() == 1
+    assert provenance['head']['image_transform']['operation'] == 'integer_reduce'
+    assert provenance['head']['image_transform']['algorithm'] == 'Pillow.Image.reduce'
+    assert provenance['head']['image_transform']['factor'] == [2, 2]
+    np.testing.assert_array_equal(source[:, :, 0], plane)
+
+
+@pytest.mark.parametrize('shape,target', [((9, 15, 3), [5, 3]), ((8, 12, 3), [3, 2])])
+def test_other_downsample_ratios_keep_box_without_integer_round_up(shape, target, monkeypatch):
+    source = np.arange(np.prod(shape), dtype=np.uint8).reshape(shape)
+    expected = np.asarray(Image.fromarray(source).resize(tuple(target), Image.Resampling.BOX))
+    def forbidden_reduce(*args, **kwargs):
+        pytest.fail('Non-2x shape used integer reduce/round-up')
+    monkeypatch.setattr(Image.Image, 'reduce', forbidden_reduce)
+    images, provenance = recording_images({'head': {'image': source}}, target)
+    np.testing.assert_array_equal(images['head'], expected)
+    assert images['head'].shape == (target[1], target[0], 3)
+    assert provenance['head']['image_transform']['operation'] == 'resize'
+    assert provenance['head']['image_transform']['algorithm'] == 'Pillow.BOX'
+    assert 'factor' not in provenance['head']['image_transform']
