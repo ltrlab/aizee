@@ -31,6 +31,7 @@ from robot_platform.control.scheduling import prefer_responsive
 from robot_platform.control.plain_data import plain_copy
 from .limits import utc_now
 from .recording import RecordingError, RecordingWriter
+from .pedals import Pedals
 
 # Recent cycle timings kept in memory: the most any reader uses (the view's last 100). The full trace goes to the
 # latency file. A bounded deque drops one small entry per cycle; trimming 100 full trace entries at once stalled
@@ -321,6 +322,9 @@ class TeleopCore:
         self._manual_rows = None
         self._tuning_pending = self._tuning_result = None
         self._tuning_confirm = None
+        self.pedals = Pedals()
+        self._pedal_task = None
+        self._pedal_closing = False
 
     # -- resources -------------------------------------------------------
 
@@ -814,7 +818,31 @@ class TeleopCore:
             raise ValueError('Reset is only available with the simulated receiver disabled or idle')
         if action == 'start_record' and (self.fault or state not in ('HOLD', 'TELEOP')):
             raise ValueError('Hold or engage both arms before recording')
-        return self.task_capture.command(action)
+        result = self.task_capture.command(action)
+        if isinstance(result, dict) and 'id' in result:
+            self.pedals.capture_command(action, result)
+        return result
+
+    def _pedal_context(self, task=None):
+        state = self.session.lifecycle.state if self.session else None
+        return dict(phase=self.phase, state=state, fault=self.fault, recording_fault=self.recording_fault,
+                    spent=bool(self.live_arm and self._powered), closing=self._pedal_closing,
+                    task=self._pedal_task if task is None else task)
+
+    def prepare_pedal(self, payload):
+        self._poll_recording()
+        task = self._pedal_task
+        if self.task_capture is not None and hasattr(self.task_capture, 'health'):
+            # Scalar health only; never copy images or wait on a writer in a control cycle.
+            task = dict(task or {}, **self.task_capture.health())
+        return self.pedals.prepare(payload, self._pedal_context(task), self.clock())
+
+    def finish_pedal(self, intent, *, error=None, command_id=None):
+        if error is None and intent['pedal'] != 'a':
+            record = self.session.last_cycle if self.session else None
+            if not record or record.get('accepted') is not True or record.get('skipped'):
+                error = 'Pedal command dispatch was not confirmed'
+        return self.pedals.finish(intent, self._pedal_context(), error=error, command_id=command_id)
 
     def _check_recording(self):
         if self.task_capture is not None:
@@ -894,6 +922,7 @@ class TeleopCore:
         self._flush_latency()
         self._poll_recording()
         if key:
+            self.pedals.invalidate(ended=key in ('H', 'X'))
             self._event('key', key=key, lifecycle=self.session.lifecycle.state if self.session else None)
         try:
             self._tick(key, started)
@@ -933,8 +962,8 @@ class TeleopCore:
                 action = 'shutdown'
         if self._hold:
             self._hold = False
-            if engaged:
-                action = 'disengage'  # A new zero never moves an engaged arm.
+            if engaged and action not in ('disable', 'shutdown'):
+                action = 'disengage'  # A new zero never overrides H/X or a session stop.
                 notice = 'Leader zero set. Holding: engage (T) to follow from it.'
         capture_hold = False
         if self.recording_fault and action not in ('disable', 'shutdown'):
@@ -1105,6 +1134,8 @@ class TeleopCore:
     def land(self):
         """Before the session closes (closing the receiver cuts torque): lower an enabled arm to the reference
         (the lifecycle's shutdown, as X does), then disable it. True while there is an arm to lower."""
+        self._pedal_closing = True
+        self.pedals.invalidate(ended=True)
         if self.session is None:
             return False
         if not self.fault and self.session.lifecycle.state in ('HOLD', 'ENGAGING', 'TELEOP'):
@@ -1226,6 +1257,8 @@ class TeleopCore:
                                 'holding': self.session.blocked if self.session else None},
                   'task': self.task_capture.snapshot() if getattr(self, 'task_capture', None) is not None else None,
                   'scheduling': self.scheduling, 'cycle_ms': None, 'joints': []}
+        self._pedal_task = result['task']
+        result['pedals'] = self.pedals.view(self._pedal_context(), self.clock())
         if self.profile.get('trial'):
             trial = self.profile['trial']
             result['message'] = (f"TRIAL: {trial['motor']} only, {trial['max_velocity']:g} rad/s, "
@@ -1324,7 +1357,8 @@ def run_loop(commands, views, core, *, silence_s=None):
         tuning = view.get('manual_tuning_ack') or {}
         # Compare immutable revision values, not a reference to a mutable payload.
         return (tuple(view.get(k) for k in ('phase', 'state', 'fault', 'recording_fault', 'message', 'receiver', 'input_error'))
-                + (tuning.get('session_id'), tuning.get('revision'), view.get('manual_tuning_pending')))
+                + (tuning.get('session_id'), tuning.get('revision'), view.get('manual_tuning_pending'))
+                + tuple((view.get('pedals') or {}).get('actions', {}).get(p, {}).get('revision') for p in 'abc'))
 
     def publish(guide=True):
         nonlocal cached_view, published_status
@@ -1362,6 +1396,7 @@ def run_loop(commands, views, core, *, silence_s=None):
     thread.start()
     closing = False  # Asked to stop, or Helm went away: lowering the arm before the receiver closes.
     tuning_request = None
+    pedal_request = None  # At most one edge per control cycle; never queue rapid presses.
     listening = True
     try:
         publish(False)
@@ -1377,6 +1412,7 @@ def run_loop(commands, views, core, *, silence_s=None):
         while True:
             started = clock()
             view_changed = False
+            safety_key = False
             while listening:
                 try:
                     if not commands.poll():
@@ -1392,6 +1428,12 @@ def run_loop(commands, views, core, *, silence_s=None):
                 if message[0] == 'beat':
                     continue  # Helm is still there.
                 if message[0] == 'stop':
+                    # Closing must never turn an already received immediate H
+                    # into a return motion. Discard enabling keys, retain H.
+                    keys[:] = ['H'] if 'H' in keys else []
+                    if pedal_request is not None:
+                        reply(pedal_request[0], 'Session stopping; pedal cancelled')
+                        pedal_request = None
                     # Closing the receiver cuts torque: an enabled arm is lowered first (H still disables at once).
                     if not closing:
                         if not core.land():
@@ -1399,7 +1441,30 @@ def run_loop(commands, views, core, *, silence_s=None):
                         closing = True
                     continue
                 if message[0] == 'key':
-                    keys.append(message[1])
+                    key = message[1]
+                    if key in ('H', 'X'):
+                        # Immediate controls invalidate older queued enables/resumes.
+                        keys[:] = ['H' if key == 'H' or 'H' in keys else 'X']
+                        safety_key = True
+                        if pedal_request is not None:
+                            reply(pedal_request[0], 'H/X superseded the pedal edge')
+                            pedal_request = None
+                    elif not safety_key and not closing:
+                        keys.append(key)
+                elif message[0] == 'pedal':
+                    view_changed = True
+                    _, request, payload = message
+                    if (pedal_request is not None and isinstance(payload, dict)
+                            and payload.get('pedal') in ('b', 'c')
+                            and isinstance(pedal_request[1], dict) and pedal_request[1].get('pedal') == 'a'):
+                        # Never put a pause/return behind an undispatched record edge.
+                        # The record edge is rejected, not deferred until after motion.
+                        reply(pedal_request[0], 'Motion pedal superseded the recording edge')
+                        pedal_request = None
+                    if closing or safety_key or keys or pedal_request is not None:
+                        reply(request, 'Control transition already pending; pedal was not queued')
+                    else:
+                        pedal_request = (request, payload)
                 elif message[0] == 'task':
                     view_changed = True
                     _, request, action = message
@@ -1427,7 +1492,29 @@ def run_loop(commands, views, core, *, silence_s=None):
                     except Exception as exc:
                         reply(request, str(exc) or type(exc).__name__)
             key = keys.pop(0) if keys else None
+            pedal_intent = None
+            pedal_command = None
+            if pedal_request is not None:
+                try:
+                    if key is not None:
+                        raise ValueError('Keyboard action superseded the pedal edge')
+                    pedal_intent = core.prepare_pedal(pedal_request[1])
+                    action = pedal_intent['action']
+                    if pedal_intent['pedal'] == 'a':
+                        pedal_command = core.task_action(action)['id']
+                    else:
+                        key = {'idle': 'I', 'enable': 'E', 'engage': 'T', 'pause': 'T',
+                               'resume': 'T', 'shutdown': 'X'}[action]
+                except Exception as exc:
+                    if pedal_intent is not None:
+                        core.finish_pedal(pedal_intent, error=str(exc))
+                    reply(pedal_request[0], str(exc))
+                    pedal_request = pedal_intent = None
             core.tick(key, started)
+            if pedal_request is not None:
+                result = core.finish_pedal(pedal_intent, command_id=pedal_command)
+                reply(pedal_request[0], result.get('error'), result)
+                pedal_request = None
             if tuning_request is not None and core._tuning_result is not None:
                 error, result = core._tuning_result
                 reply(tuning_request, error, result)
@@ -1732,6 +1819,11 @@ class TeleopSession:
         if self._view.get('fault') and key != 'H':
             raise ValueError('Teleop faulted: stop the session and start it again')
         self._send(('key', key))
+
+    def pedal(self, payload):
+        if self._view.get('phase') != 'running':
+            raise ValueError('Start a teleop session first')
+        return self._request('pedal', payload)
 
     def _request(self, kind, *arguments, timeout=5.):
         request = next(self._ids)

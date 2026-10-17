@@ -175,6 +175,9 @@ def test_status_view_does_not_rebuild_routes_pose_rows_or_quantiles():
     core.collision_mode='disabled'; core.input_error=None; core.late_targets=0; core.scheduling={}
     core._manual_state={'session_id':'one','revision':3,'joints':[]}
     core._tuning_pending={}; core._tuning_confirm=None
+    from robot_platform.helm.pedals import Pedals
+    core.pedals=Pedals(); core._powered=False; core._pedal_closing=False
+    core._pedal_task=None; core.clock=lambda:1.
     result=core.status_view()
     assert result['state']=='TELEOP' and result['position_only'] is True
     assert result['joints']==[] and result['cycle_ms'] is None

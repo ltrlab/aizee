@@ -122,7 +122,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             raise ValueError('Expected a JSON object')
         if simulation_only:
             allowed = {
-                '/api/helm/teleop/start', '/api/helm/teleop/stop', '/api/helm/teleop/key',
+                '/api/helm/teleop/start', '/api/helm/teleop/stop', '/api/helm/teleop/key', '/api/helm/teleop/pedal',
                 '/api/helm/teleop/route', '/api/helm/teleop/zero', '/api/helm/teleop/target',
                 '/api/helm/teleop/receiver', '/api/helm/settings/apply', '/api/helm/settings/reset',
                 '/api/helm/leaders/connect', '/api/helm/leaders/disconnect', '/api/helm/leaders/range',
@@ -407,6 +407,14 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         teleop.key(payload['key'])
         return state_response()
 
+    async def teleop_pedal(request):
+        payload = await body(request)
+        need_teleop()
+        if payload.get('pedal') == 'a' and getattr(cameras, 'write_fault', None):
+            raise ValueError(cameras.write_fault)
+        await off_loop(lambda: teleop.pedal(payload))
+        return state_response()
+
     async def teleop_route(request):
         payload = await body(request)
         need_teleop()
@@ -672,6 +680,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     app.router.add_post('/api/helm/teleop/start', teleop_start)
     app.router.add_post('/api/helm/teleop/stop', teleop_stop)
     app.router.add_post('/api/helm/teleop/key', teleop_key)
+    app.router.add_post('/api/helm/teleop/pedal', teleop_pedal)
     app.router.add_post('/api/helm/teleop/route', teleop_route)
     app.router.add_post('/api/helm/teleop/tuning/{action}', teleop_manual_tuning)
     app.router.add_get('/api/helm/settings', settings_get)

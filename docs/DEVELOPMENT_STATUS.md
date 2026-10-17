@@ -4,7 +4,9 @@ Updated 2026-10-16; final acceptance and activation occurred on 2026-10-17 UTC.
 The current milestone remains a 14-axis Minerva cube pickup, handoff and bucket
 placement. **Recording source `4c5237074b506d6c1abc4a8157b129b14cae5971` is
 verified and deployed; physical task collection is not yet qualified.** Pedal
-A/B/C controls are requested next and are not part of this verified release.
+A/B/C controls and the touch-state border are implemented in the feature branch,
+under final acceptance, and are not yet part of this deployed release. See the
+[pedal workflow and validation](development/HELM_PEDALS.md).
 
 Jetson `current` is `20261017T014715Z-4c52370`. Minerva terminal runs
 `%LOCALAPPDATA%/Minerva/helm-recording-4c5237074b`, with the previous installation
@@ -53,7 +55,7 @@ visible and the hanging pose is clear, but a full sweep would hit the table.
 **Do not run that sweep in the present setup.** No new motion is authorized by
 this documentation or by the isolated recording proof.
 
-The next work is the requested pedal A/B/C feature, followed by its own checks;
+The next delivery is the pedal A/B/C feature after its full acceptance checks;
 it must not be represented as already deployed or qualified. Physical collection
 still requires an attended, clear workspace and resolution of the start-pose
 warning within the existing operating contract. Neither this stopped scan nor

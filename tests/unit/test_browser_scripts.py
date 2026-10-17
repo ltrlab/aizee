@@ -56,3 +56,11 @@ def test_live_camera_packets_bound_headers_pixels_and_freshness_metadata():
     result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_live_camera_packets.mjs')],
                             capture_output=True, timeout=60)
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-1200:]
+
+
+def test_pedal_offers_and_stopped_input_test_keep_motion_and_freshness_guards():
+    node = shutil.which('node')
+    assert node, 'Node.js is required to check the pedal input boundary'
+    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_pedals.mjs')],
+                            capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]

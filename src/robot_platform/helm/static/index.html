@@ -118,6 +118,24 @@
         </div>
       </section>
       <section id="panel-teleop" class="panel" aria-label="Teleoperation" hidden>
+        <section class="pedal-console" aria-label="Pedals and reported session state">
+          <div id="pedal-phase" class="phase-bar" role="status" aria-live="polite">
+            <div class="phase-title"><div class="phase-readout"><strong id="pedal-phase-label">Waiting for state</strong><span id="pedal-recording">Not recording</span></div><button id="teleop-session" class="primary">Start session</button></div>
+            <ol class="phase-stages" aria-label="Lifecycle stages">
+              <li data-phase-stage="off">Off</li><li data-phase-stage="idle">Idle</li><li data-phase-stage="hold">Hold</li>
+              <li data-phase-stage="align">Align</li><li data-phase-stage="teleop">Teleop</li><li data-phase-stage="shutdown">Return</li>
+            </ol>
+            <p id="pedal-phase-detail">Touch Start session first.</p>
+          </div>
+          <div class="pedal-actions" role="group" aria-label="Pedal next actions">
+            <button type="button" data-pedal="a" disabled><kbd>A</kbd><span>Record</span><small></small></button>
+            <button type="button" data-pedal="b" disabled><kbd>B</kbd><span>Pause / resume</span><small></small></button>
+            <button type="button" data-pedal="c" disabled><kbd>C</kbd><span>Next stage</span><small></small></button>
+          </div>
+          <div class="pedal-test-row"><button type="button" id="pedal-test" aria-pressed="false" hidden>Test pedals</button><p id="pedal-test-status" role="status" hidden></p></div>
+          <p class="pedal-help">Software pedals · Pause holds position; motors stay enabled. H disables; X shuts down.</p>
+          <p id="pedal-warning" class="warn" hidden></p>
+        </section>
         <div class="panel-head">
           <div class="eyebrow warn" id="t-eyebrow">TELEOP · VIRTUAL RECEIVER · NO MOTORS MOVE</div>
           <h1>Drive the arms with the leaders</h1>
@@ -187,7 +205,6 @@
         </div>
         <div class="save-bar">
           <p id="teleop-status" role="status"></p>
-          <button id="teleop-session" class="primary">Start session</button>
         </div>
       </section>
       <section id="panel-tune" class="panel" aria-label="Servo sweep" hidden>
