@@ -1,4 +1,4 @@
-// Camera I/O is explicit and bounded; never runs in the motion/control loop.
+// Camera settings I/O is explicit; live video uses camera_live.js independently.
 const $ = id => document.getElementById(id);
 const ROLES = {left_wrist:'Left wrist',right_wrist:'Right wrist',head:'Head'};
 const CONTROLS = {auto_exposure:'Exposure mode',exposure_time_absolute:'Exposure · 100 µs units',
@@ -17,20 +17,21 @@ export class CameraSettings {
   }
   updateContext(state) {
     this.context=state;
+    this.simulation=state.mode==='simulation';
+    $('camera-refresh').disabled=this.pending||this.simulation;
     this.active=['starting','running'].includes(state.teleop?.phase) || !!state.task?.recording;
     for(const card of this.cards.values()) for(const input of card.querySelectorAll('[data-camera-edit]'))
-      input.disabled=this.active||this.pending||this.canApply===false||input.dataset.unavailable==='true';
+      input.disabled=this.simulation||this.active||this.pending||this.canApply===false||input.dataset.unavailable==='true';
   }
   status(message,bad=false) {
     $('camera-status').textContent=message;$('camera-status').classList.toggle('bad',bad);
   }
   async refresh() {
-    if(this.pending) return;
+    if(this.pending||this.simulation) return;
     this.pending=true;$('camera-refresh').disabled=true;this.status('Reading camera settings…');
     try {
       const result=await this.request('/api/helm/cameras',undefined,20000);
-      this.render(result);this.status(result.reason || 'Settings read from the cameras. Views below are snapshots; refresh after adjusting.');
-      for(const role of Object.keys(ROLES))await this.preview(role);
+      this.render(result);this.status(result.reason || 'Settings read from the cameras. Live preview updates independently.');
     }catch(error){this.status(error.message,true);}
     finally{this.pending=false;$('camera-refresh').disabled=false;this.updateContext(this.context||{});}
   }
@@ -40,8 +41,6 @@ export class CameraSettings {
     for(const [role,title] of Object.entries(ROLES)) {
       const state=result.cameras?.[role]||{};
       const card=element('section',undefined,'camera-card');card.append(element('h3',title));
-      const img=element('img');img.alt=`${title} camera snapshot`;img.hidden=true;card.append(img);
-      card.append(element('p','No snapshot loaded.','camera-preview-status muted'));
       card.append(element('p',state.error||state.reason||(state.available?'Camera controls available.':'Camera controls unavailable.'),'camera-control-status muted'));
       for(const [name,label] of Object.entries(CONTROLS)) {
         const control=state.controls?.[name];if(!control)continue;
@@ -71,7 +70,7 @@ export class CameraSettings {
     }
   }
   async apply(role,name,value) {
-    if(this.pending||this.active) return;
+    if(this.pending||this.active||this.simulation) return;
     this.pending=true;this.updateContext(this.context||{});this.status(`Applying ${CONTROLS[name].toLowerCase()} to ${ROLES[role].toLowerCase()}…`);
     let error;
     try {await this.request(`/api/helm/cameras/${role}`,{name,value},20000);}
@@ -79,17 +78,6 @@ export class CameraSettings {
     finally{this.pending=false;}
     await this.refresh();
     if(error)this.status(`Camera did not confirm the change: ${error.message}`,true);
-    else this.status('Camera confirmed the setting. Check the refreshed view before recording.');
-  }
-  async preview(role) {
-    const card=this.cards.get(role);if(!card)return;
-    const image=card.querySelector('img'),note=card.querySelector('.camera-preview-status');
-    try {
-      const response=await fetch(`/api/helm/cameras/${role}/frame`,{cache:'no-store',signal:AbortSignal.timeout(15000)});
-      if(!response.ok)throw new Error(`View unavailable (HTTP ${response.status})`);
-      const url=URL.createObjectURL(await response.blob());
-      image.onload=()=>URL.revokeObjectURL(url);image.onerror=()=>URL.revokeObjectURL(url);
-      image.src=url;image.hidden=false;note.textContent=`Snapshot received ${new Date().toLocaleTimeString()}`;
-    }catch(error){image.hidden=true;note.textContent=error.message;}
+    else this.status('Camera confirmed the setting. Check the live preview before recording.');
   }
 }

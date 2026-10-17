@@ -1,4 +1,5 @@
 import {SettingsPanel} from './settings.js';
+import {LiveCameraView} from './camera_live.js';
 
 // Helm operator page. Reads /api/helm/state; every action needs the session token.
 const $ = id => document.getElementById(id);
@@ -270,7 +271,7 @@ function render(state) {
   renderGlobalControls(state);
   renderMode(state);
   renderTask(state);
-  renderTaskViewer(state);
+  updateCameraView();
   publishTelemetry(state);
 }
 
@@ -294,15 +295,15 @@ function taskOwnsViewer(state) {
     && ['starting', 'running'].includes(state.teleop?.phase);
 }
 
-function renderTaskViewer(state) {
-  const paused = taskOwnsViewer(state);
+function renderTaskViewer(state, cameras = false) {
+  const taskWindow = taskOwnsViewer(state), paused = taskWindow || cameras;
   if (paused !== modelViewerPaused) {
     // Unload the duplicate WebGL document; hiding it leaves its animation loop running.
     $('model-view').src = paused ? 'about:blank' : modelViewerSource;
     modelViewerPaused = paused;
   }
   $('model-view').hidden = paused;
-  $('task-window-note').hidden = !paused;
+  $('task-window-note').hidden = !taskWindow;
   $('model-heading').textContent = paused ? 'LIVE TELEMETRY' : 'MODEL & TELEMETRY';
 }
 
@@ -1491,8 +1492,15 @@ function showTab(name) {
   for (const panel of ['check', 'limits', 'leaders', 'teleop', 'tune', 'settings']) $(`panel-${panel}`).hidden = name !== panel;
   if(name==='settings' && typeof settingsPanel !== 'undefined') settingsPanel.refresh();
   try { localStorage.setItem('helm-tab', name); } catch { /* storage unavailable */ }
+  updateCameraView();
 }
-const settingsPanel = new SettingsPanel({request,navigate:showTab,onDisplay:publishTelemetry});
+const cameraView = new LiveCameraView({onView: showing => renderTaskViewer(last, showing)});
+function updateCameraView() {
+  const tab = document.body.dataset.tab;
+  const scope = tab === 'teleop' ? 'teleop' : tab === 'settings' && !$('settings-cameras').hidden ? 'settings-cameras' : '';
+  cameraView.updateContext(last, scope);
+}
+const settingsPanel = new SettingsPanel({request,navigate:showTab,onDisplay:publishTelemetry,onCameraView:updateCameraView});
 $('open-motor-settings').onclick=()=>{showTab('settings');settingsPanel.show('motors');};
 $('open-display').onclick=()=>{showTab('settings');settingsPanel.show('display');};
 function publishTelemetry() {

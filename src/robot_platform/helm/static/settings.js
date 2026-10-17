@@ -23,8 +23,8 @@ export function validDisplay(value) {
 }
 
 export class SettingsPanel {
-  constructor({request,navigate,onDisplay}) {
-    Object.assign(this,{request,navigate,onDisplay});
+  constructor({request,navigate,onDisplay,onCameraView}) {
+    Object.assign(this,{request,navigate,onDisplay,onCameraView});
     this.state=null; this.draft=new Map(); this.inputs=new Map(); this.category='motors';
     this.pending=false; this.conflict=false; this.serial=0; this.search=''; this.lastFetch=0;
     this.display=clone(DEFAULT_DISPLAY); this.robot=null; this.context=null;
@@ -134,7 +134,6 @@ export class SettingsPanel {
   show(category='motors') {
     this.category=category;this.search='';$('settings-search').value='';this.changedShown=null;this.filter();
     $('settings-content').scrollTop=0;
-    if(category==='cameras') this.cameras.refresh();
     if (!this.state) this.refresh();
   }
   buildFields() {
@@ -199,6 +198,7 @@ export class SettingsPanel {
       ? 'Nothing differs from the profile: every session setting is at its profile value.'
       : 'No settings match. Try a motor name, “speed”, or “timeout”.';
     $('settings-footer').hidden=!this.search&&['motors','display','grippers','cameras'].includes(this.category);
+    this.onCameraView?.();
   }
   feedback(message,bad=false) {const node=$('settings-status');node.textContent=message;node.classList.toggle('bad',bad);}
   actions() {
