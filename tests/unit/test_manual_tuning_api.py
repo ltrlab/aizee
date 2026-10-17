@@ -202,11 +202,13 @@ def test_pending_apply_waits_for_ack_and_http_remains_responsive_to_h_and_x(setu
                 snapshot = await (await client.get('/api/helm/state')).json()
                 assert snapshot['teleop']['tuning']['can_apply'] is False
                 assert snapshot['teleop']['tuning']['rows'][0]['kp'] == before['joints'][0]['kp']
-                for key in ('H', 'X'):
+                # Separate physical presses: a same-cycle H supersedes X.
+                # Each endpoint must still dispatch while the tuning ACK waits.
+                for count, key in enumerate(('H', 'X'), 1):
                     response = await asyncio.wait_for(client.post('/api/helm/teleop/key',
                         json={'key': key}, headers=TOKEN), timeout=1.)
                     assert response.status == 200
-                await wait_until(lambda: core.keys == ['H', 'X'])
+                    await wait_until(lambda: core.keys == ['H', 'X'][:count])
                 assert not apply_task.done()  # Keys arrived while the ACK was still withheld.
                 refused = await client.post(ENDPOINT+'apply', json=candidate, headers=TOKEN)
                 assert refused.status == 422 and len(core.requests) == 1
@@ -422,7 +424,36 @@ def test_capture_failure_blocks_tuning_while_h_and_x_remain_available(setup,monk
         before=setup.teleop.manual.bundle()
         with pytest.raises(ValueError,match='Recording failed'):
             setup.teleop.manual_tuning('apply',payload(setup.teleop,kp=20.))
-        for key in ('H','X'):setup.teleop.key(key)
-        await wait_until(lambda:core.keys==['H','X'])
+        # Confirm each separately; an H in the same drained burst wins over X.
+        for count,key in enumerate(('H','X'),1):
+            setup.teleop.key(key)
+            await wait_until(lambda:core.keys==['H','X'][:count])
         assert setup.teleop.manual.bundle()==before and not core.requests
     asyncio.run(run())
+
+
+@pytest.mark.parametrize('keys', [('H', 'X', 'E'), ('X', 'H', 'E')])
+def test_same_burst_disable_supersedes_return_and_enable_while_tuning_waits(keys):
+    from collections import deque
+    from robot_platform.helm.teleop import run_loop
+
+    core = AcknowledgingCore({'manual_tuning': {'session_id': 'burst', 'revision': 0, 'joints': []}})
+    core.queue_tuning(dict(core.ack))  # Keep its acknowledgement withheld throughout.
+    messages = deque(('key', key) for key in keys)
+
+    class Commands:
+        def poll(self):
+            if not messages and core.keys:
+                messages.append(('stop',))
+            return bool(messages)
+
+        def recv(self):
+            return messages.popleft()
+
+        def close(self):
+            pass
+
+    run_loop(Commands(), SimpleNamespace(send=lambda message: None, close=lambda: None), core, silence_s=.1)
+    assert core.keys == ['H']
+    assert core.pending is not None and not core.release.is_set()
+    assert core.closed
