@@ -1,6 +1,7 @@
 # Feature task: the cube handoff in simulation, on the measured bench
 
 - **Branch and worktree:** `claude/sim-demonstrator` in `C:\Users\ltr\Workspace\aizee-sim-task`. It is stacked on `claude/sim-gripper-drive` (the driven grippers), which is stacked on `claude/sim-workcell` (the workcell); merging it brings in all three.
+  - `claude/sim-finger-collision` (2026-10-17), in the same worktree, is stacked on `claude/sim-demonstrator`; merging it brings in all four. With it, the fingers' paddles collide with the cube, one arm passing into the other fails a trial, and the demonstrator takes the cube with the right's J5 a quarter turn. The user reported the cube passing through a finger and the grippers' fingers crossing at the handoff in the videos, and asked for the paddle-only shape and the quarter-turn take.
 - **Base commit:** `7100c3f1f88cb577e8dff1334b8da1031e41477f` (`codex/integration-20261016`: the format-8 training bridge and the merged evaluation harness). The integration branch has since moved to `c5d3f86`, which changes only the guarded lifecycle and its tests. This branch merges onto it without conflicts (`git merge-tree`).
 - **Owner:** Claude (session of 2026-10-16/17), at the user's request: "Begin working on all the sim work you can till its time to prove it out."
 - **Problem / saved reproducer.** The task scene could not show the task on the real bench, for three reasons:
@@ -11,7 +12,8 @@
 - **Owned files:**
   - `simulation/workcell.py`
   - `config/devices/simulation/minerva-production-01-workcell.json`
-  - the workcell, driven-gripper and appearance parts of `simulation/task_scene.py`
+  - the workcell, driven-gripper, appearance and finger-collision parts of `simulation/task_scene.py`, its penetration audit and per-step bookkeeping
+  - `FORBIDDEN_EVENTS` in `evaluation/trials.py`
   - `evaluation/demonstrator.py`, `evaluation/generate.py`
   - the workcell, coupling, usable-range, lead, recorder and disturbance parts of `evaluation/runner.py` and `evaluation/plants.py`, and the `run`/`generate` options in `evaluation/__main__.py`
   - `GraspIK.frame/solve_pose` in `evaluation/reach.py`
@@ -20,15 +22,20 @@
 - **Shared interfaces held fixed.** The receiver, lifecycle, approach and collision contract (only `approach.end_margin` is read), the episode writer and format 8, and the policy interface (`policy(observation) -> (H, 14)`).
   - **Additive changes:** `MinervaTaskScene(workcell=, grippers=)`, `RunConfig(workcell, grippers, latency_s, actuator_spread, appearance, disturbance_seed)`, `TrialContext.workcell`, `TrialContext.lead`, `run_trial(recorder=)`, `open_simulation(workcell=)`, `helm --sim-workcell`, `run --camera-size/--visual-mode`.
   - **Behaviour change:** the harness clips commands into the receiver's usable range instead of the full range.
+  - **Behaviour change (finger collision):** a trial with `forbidden_robot_robot_penetration` scores `forbidden_penetration`. The frozen fixture replay now ends there, since its handoff passes the arms through each other.
 - **Dependencies / integration order.** Merge `claude/sim-demonstrator`; nothing else depends on it. Notes for the training side (Gemini), which reads format-8 episodes:
   - The generated episodes carry `policy` authority on every row. `python/training/minerva_dataset.py` trains on human and correction rows by default, so it rejects them ("No valid training frames found"); allowing `policy` explicitly loads one episode as 658 samples. See [SIM_GENERATION.md](SIM_GENERATION.md).
   - `python/training/build_lang_cache.py` globs only `episode_*.hdf5` and misses format-8 `task_episode_*.hdf5`.
+  - The 120 generated episodes predate the finger collision and the quarter-turn take: in their handoffs the grippers' inner fingers cross behind the cube (6.5 mm deep with the paddles colliding). They should be regenerated before training on them.
   - A checkpoint's `ready_pose`, where `MinervaCheckpointPolicy` starts, is the mean of the training episodes' start poses. The 120 generated episodes start on two wrist-roll branches a turn apart (left J5 at -3.14 rad in 85, +3.14 in 35). Their mean, -1.31 rad, is a pose none of them had, and a trial staged there starts with the left gripper's pads 6.9 mm in the table. Human demonstrations from one hanging pose may not show this; a mode or medoid of the starts would be safe either way.
 - **Required behavior:**
   - With the default synthetic workcell, the scene compiles to the same geometry as before (all 103 geoms compared array by array).
   - A driven gripper stops on the cube with torque kp x shortfall, clipped to `max_effort`, and pads within 0.5 mm.
   - The demonstrator succeeds at the nominal cube start, with no clipped commands.
-  - Every planned move clears the table and bucket by more than 1 mm, and no arm joint trails its command by more than the lead following allows it.
+  - Every planned move clears the table, the bucket and the other arm by more than 1 mm, and no arm joint trails its command by more than the lead following allows it.
+  - Each finger's paddle collides as convex 5 mm slices of its CAD surface, at most 1.8 mm outside it; its rack and pinion mount does not collide.
+  - One arm more than 2 mm into the other makes a trial ineligible, as the robot in the table or bucket does.
+  - The per-step speed-ups change no result: the nominal trial gives the same events, and the same qpos, qvel and surface velocities at every driven step.
   - A generated episode is published only for a success.
   - Disturbances are recorded per trial and undone after it.
 - **Acceptance command.** `python scripts/dev.py check`, with zero skips. It adds `test_workcell`, `test_task_scene_grippers`, `test_driven_grippers`, `test_demonstrator` (unit and contract), `test_eval_plants`, `test_generate`, `test_scene_appearance` and `test_eval_disturbances`. Gate report: see "Results".
@@ -52,7 +59,7 @@
     - the cube's mass (weigh one) and its friction on the pads.
   - **Cameras.** Head D435 extrinsics and intrinsics, and the wrist camera mounts, are not calibrated. The sim's views are guesses (the head view is turned to match the real images' orientation). Generation varies them by +/-1 cm and up to 2 degrees.
   - **Gripper force.** Squeeze is kp x shortfall / 9.2 mm/rad (about 310 N combined at kp 2 and 1.4 rad), not measured. A squeeze on a kitchen scale would calibrate it. The drive's inertia and friction are nominal.
-  - **Sim scope.** The arms stay kinematic: no robot/table push-back and no gripper-to-gripper contact. At the handoff the two grippers' pads come within a few millimetres. Live `helm --sim` still uses kinematic grippers.
+  - **Sim scope.** The arms stay kinematic: no robot/table push-back and no gripper-to-gripper contact. The scene audits one arm passing into the other instead, and at the handoff the grippers clear each other by about 5 mm. Live `helm --sim` still uses kinematic grippers.
   - **Profiles.** The task runs on the direct, collision-disabled profile. The guarded two-arm bound keeps the hands about 30 cm apart, which a handoff cannot meet. The user's instruction was to fix the guarded profile or run without it.
   - **Dataset decision.** Whether scripted simulation episodes may train a policy is the user's (dataset contract). Today's loader excludes them unless training allows the `policy` authority explicitly.
   - **Action rate (for the training side).** Real task capture requests 20 Hz but achieves about 14-15 Hz: [HELM_TASK_WORKFLOW.md](HELM_TASK_WORKFLOW.md), and the recording proof stored 144 frames in 10.1 s. Generated episodes record at 15 Hz.

@@ -38,7 +38,7 @@ The `armplant` clock is stepped: runs are deterministic and faster than real tim
 3. **Place the cube** at the trial's grid pose, 2 mm above the table as the scene's own start. If the cube would sit inside the robot at that start pose, the trial is an `invalid_start` and is not counted. This happens when a policy starts with an open gripper near a grid pose.
 4. **Run** the policy in closed loop. Commands outside the receiver's joint limits are clipped, as the leader mapping clips its targets, and counted per trial. The trial stops at the scene's first terminal verdict (success, dropped cube, forbidden penetration, or the cube settled in the bucket out of sequence) or at the timeout. A receiver fault, policy exception, malformed chunk or MuJoCo numerical quarantine aborts that trial. The plant is rebuilt and the run goes on.
 
-Outcomes are read from the scene's events (`pickup`, `handoff`, `bucket_settled`, `dropped_outside_bucket`, `forbidden_robot_environment_penetration`), never re-derived; `trials.jsonl` keeps those events verbatim.
+Outcomes are read from the scene's events (`pickup`, `handoff`, `bucket_settled`, `dropped_outside_bucket`, `forbidden_robot_environment_penetration`, `forbidden_robot_robot_penetration`), never re-derived; `trials.jsonl` keeps those events verbatim.
 
 ## Cameras
 
@@ -68,7 +68,7 @@ The area is kinematically reachable. An IK sweep over the table (`evaluation.rea
 |---|---|---|
 | `success` | Pickup, handoff and bucket placement all reached, in order; eligible | yes |
 | `dropped_cube` | The cube returned to the table or floor after pickup | yes |
-| `forbidden_penetration` | The robot went into the table or bucket by more than 2 mm. The trial is ineligible (`eligible: false`), and this outranks every other outcome, including a success it revokes | yes |
+| `forbidden_penetration` | The robot went into the table or bucket, or one arm into the other, by more than 2 mm. The trial is ineligible (`eligible: false`), and this outranks every other outcome, including a success it revokes | yes |
 | `incomplete_sequence` | The cube settled in the bucket without the stages before it | yes |
 | `timeout` | No terminal event before the timeout | yes |
 | `source_gap_or_abort` | The run stopped: receiver fault, lifecycle left TELEOP, command source gap, policy error or bad chunk, numerical quarantine; on the robot, an operator stop | yes |

@@ -55,6 +55,7 @@ Today's training loader (`python/training/minerva_dataset.py`) trains on human a
 - **A batch of 120, generated at `355b785`.** Cube yaw drawn from +/-45 degrees, varied look, 4 workers of 30 over a 6x5 grid with full jitter. 120 episodes from 121 attempts in 2.5 h, 5.3 GB.
   - The one other attempt was refused before it moved: no plan cleared the table and bucket for a cube turned 40 degrees at the region's near edge.
   - The episodes start on two wrist-roll branches a turn apart, left J5 at -3.14 rad (85) or +3.14 rad (35): the same pose, recorded as different joint angles.
+  - They predate the finger collision and the quarter-turn take ([SIM_DEMONSTRATOR.md](SIM_DEMONSTRATOR.md)): the cube touched each finger only at its 30 mm tip box, and at the handoff the grippers' inner fingers cross behind the cube. Regenerate before training on them.
 
 ## Many at once
 

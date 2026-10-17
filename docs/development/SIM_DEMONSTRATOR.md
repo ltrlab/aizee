@@ -35,8 +35,9 @@ Every pose below came out of a reach or clearance check, not a guess. The script
 | Pre-grasp, grasp | 6 cm behind and 2 cm above the cube, then on it | along the normal of a pair of the cube's side faces (the pair facing nearest forward, else the other), 20 degrees down; where that is out of reach, turned up to 20 degrees or tilted 10-15 degrees | narrow |
 | Close, lift | cube + 8 cm | level | narrow |
 | Climb, only where the move to the handoff would not clear | lift + 10 cm | level | narrow |
-| Handoff | both on the cube at (0, -0.30), 12 cm above the table | left forward-right, right forward-left, jaws on perpendicular faces | wide |
-| Right closes, left opens and backs off | | | |
+| Handoff | the left holds the cube out at the right's turned grip point, 8.5 mm from (0, -0.30) 12 cm above the table | left forward-right, jaws closing level | wide |
+| Right turns where it waits, 6 cm back along its fingers | | right forward-left, J5 a quarter turn: jaws closing vertically | |
+| Right comes in and closes; left opens, backs 8 cm straight out, level, then returns to its start | | | |
 | Right lifts | handoff + 10 cm | forward-left, 10 degrees up | narrow (rolls here) |
 | Over the bucket | its centre, 12 cm above the rim, approached from 12 cm in front | forward, 20 degrees up | narrow |
 | Right opens | the cube drops | | |
@@ -44,7 +45,11 @@ Every pose below came out of a reach or clearance check, not a guess. The script
 **How it moves**
 - **Straight-line moves.** Each move takes the pads in a straight line while the gripper turns evenly, solved every 1 cm from the last solution. Where an arm cannot follow the line, the move falls back to joint interpolation in 0.02 rad steps. The roll to the handoff and the right's lift do this.
 - **Wrist-roll branches.** The start pose is tried on each wrist-roll branch (the same pose a turn apart). Of the plans whose every move clears, the one with the fewest fallbacks, then the shortest, is kept.
-- **Clearance.** A plan is used only if every move keeps the robot more than 1 mm from the table and the bucket (0.3 s to check). The move to the handoff interpolates the left's joints while it rolls over, and from some grasps of a turned cube that swing took the pads up to 14 mm into the table. Where it would, the left first climbs 10 cm straight up.
+- **Clearance.** A plan is used only if every move keeps the robot more than 1 mm from the table, the bucket and the other arm, with each gripper posed where it stops on the cube (0.4 s to check). The move to the handoff interpolates the left's joints while it rolls over, and from some grasps of a turned cube that swing took the pads up to 14 mm into the table. Where it would, the left first climbs 10 cm straight up.
+- **Handoff.** Level jaws on perpendicular faces crossed the two grippers' inner fingers behind the cube's corner, 6.5 mm deep once the fingers' paddles collided. In teleop the handoff turns one wrist's J5 a quarter turn, and the plan does the same: the right's jaws close on the cube's top and bottom. The grippers then clear each other by 5 mm holding the cube, and by 25 mm as the right comes in.
+  - J5's axis sits off the fingers' centre, so the turn moves the grip point about 9 mm: one way 6.5 mm down, the other 6.2 mm up. The plan turns the way that leaves the grip point higher (6.5 mm lower, the move to the handoff cleared the table by 0.7 mm), and the left brings the cube there.
+  - The right turns where it waits. Turning on the way there, its joint path went 7 mm into the bucket.
+  - After letting go, the left backs straight out, level, then returns to its start. Rising as it backed out, its fingertips went 3.7 mm into the right's upper jaw; left where it backed out to, it was 2.3 mm into the right's way as the right lifted the cube.
 - **Grasps.** The jaws open to the cube plus 2 cm each side and close 1 rad past touching, so the drive squeezes with kp x 1 rad.
 - **Gripper steps.** A gripper step ends once that gripper's reading has moved less than 0.01 rad over 0.2 s (stalled on the cube, or open), after at least 0.3 s and at most 3 s. A fixed 0.6 s wait let the left open before the right had both jaws on the cube, because the right needs about 1 s to close from open at the receiver's gripper gains. The two grippers then overlapped for 40 ms, short of the 50 ms the scene requires of a handoff, so 4 of 10 trials ended out of sequence. The settle test reads position: the speed reading carries the drives' noise.
 - **Holds.** Holds correct toward the pose (at most 0.03 rad) until the arm settles within 0.004 rad or 1.5 s pass.
@@ -84,5 +89,5 @@ Through the receiver with driven grippers on the measured bench:
 
 - The bench's positions are still placeholders: the table's position, the bucket's position and height, and the cube region (SIM_WORKCELL.md). A measured layout needs its own reach and clearance check (`tests/unit/test_demonstrator.py` runs one).
 - The demonstrator reads the cube's start pose, which a learned policy must not see. It starts from a fixed pose above the table, not from the hanging arms, and the harness stages it there.
-- The plan's tightest point is the left pads passing 2.4 mm over the table at the grasp. Tracking error that dips more than 2 mm into the table makes the trial ineligible.
-- The arms remain kinematic. The scene does not model gripper-to-gripper contact, and at the handoff the two grippers' pads come within a few millimetres of each other.
+- The nominal plan's tightest point is the left's fingers backing out 2.5 mm from the right's after letting go; the next is the move to the handoff, 4.6 mm over the table. At the grasp the left's fingers pass 9.4 mm over the table (2.4 mm with the old pad boxes, whose corners reached lower than the finger's rounded tip). Tracking error that brings the robot more than 2 mm into the table, the bucket or the other arm makes the trial ineligible.
+- The arms remain kinematic, so the grippers cannot push each other. The scene audits one arm passing into the other instead.
