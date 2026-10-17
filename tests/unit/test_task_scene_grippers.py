@@ -43,6 +43,18 @@ def hold(scene, pose, commands, seconds):
     return state
 
 
+def test_the_cube_contact_forces_read_by_array_are_mujocos(scene):
+    # Contact tracking reads the cube's contact forces by array (_normal_forces): bit for bit mj_contactForce's normal
+    # force, for every contact of a gripper squeezing the cube on the table.
+    hold(scene, START, {'left_gripper': command(1.), 'right_gripper': command(START[RIGHT])}, 1.)
+    rows = np.arange(scene.data.ncon)
+    expected, force = [], np.zeros(6)
+    for i in rows:
+        scene.mj.mj_contactForce(scene.model, scene.data, int(i), force)
+        expected.append(force[0])
+    assert len(rows) > 20 and scene._normal_forces(scene.data.contact, rows).tolist() == expected
+
+
 def test_a_closing_gripper_stops_on_the_cube_and_squeezes_with_its_drive_torque(scene):
     assert scene.driven and scene.capabilities['gripper_drives']['left_gripper']['max_effort'] == 14.
     assert scene.model.neq == 4 and scene.model.nu == 2  # Two transmissions and two mimic jaws; no attachment.

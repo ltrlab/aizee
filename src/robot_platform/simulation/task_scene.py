@@ -413,23 +413,31 @@ class MinervaTaskScene:
 
         self._geom_names = [mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, g) for g in range(self.model.ngeom)]
         # The penetration audit checks every collision geom against the table and bucket, and one arm's against
-        # the other's. Its bounds cull body against body first (_overlapping): rows in body order, where each body's
-        # rows start, and each row's body.
+        # the other's. Its bounds cull body against body first (_overlapping): the collision bodies, each row's body,
+        # and each body's bounds in its own frame, holding every corner of its geoms' bounds.
         bodies = self.model.geom_bodyid[self._collision_ids]
         arms = [self._arm(mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, int(b))) for b in bodies]
         self._arm_rows = {side: np.array([r for r, arm in enumerate(arms) if arm == side], dtype=int)
                           for side in ("left", "right")}
-        self._body_order = np.argsort(bodies, kind="stable")
-        first = np.r_[True, np.diff(bodies[self._body_order]) != 0]
-        self._body_starts = np.flatnonzero(first)
-        self._row_body = np.empty(len(bodies), dtype=int)
-        self._row_body[self._body_order] = np.cumsum(first) - 1
+        self._bodies, self._row_body = np.unique(bodies, return_inverse=True)
         self._arm_bodies = {side: np.unique(self._row_body[rows]) for side, rows in self._arm_rows.items()}
+        corners = np.array([(x, y, z) for x in (-1., 1.) for y in (-1., 1.) for z in (-1., 1.)])
+        low, high = np.full((len(self._bodies), 3), np.inf), np.full((len(self._bodies), 3), -np.inf)
+        frame = np.empty(9)
+        for row, gid in enumerate(self._collision_ids):
+            local, body = self.model.geom_aabb[gid], self._row_body[row]
+            mujoco.mju_quat2Mat(frame, self.model.geom_quat[gid])
+            points = self.model.geom_pos[gid] + (local[:3] + corners * local[3:]) @ frame.reshape(3, 3).T
+            low[body], high[body] = np.minimum(low[body], points.min(axis=0)), np.maximum(high[body], points.max(axis=0))
+        self._body_bounds = (low + high) / 2, (high - low) / 2
         self._jaw_ids = {self._id("body", n): (side, jaw) for side, ns in JAW_BODIES.items()
                          for jaw, n in enumerate(ns)}
-        # Contact tracking, every physics step: each jaw's geoms, and the surfaces the cube can come to rest on.
-        self._geom_jaws = {g: self._jaw_ids[int(b)] for g, b in enumerate(self.model.geom_bodyid)
-                           if int(b) in self._jaw_ids}
+        # Contact tracking, every physics step: each geom's jaw (an index into _jaws, or -1), and the surfaces the
+        # cube can come to rest on.
+        self._jaws = sorted(self._jaw_ids.values())
+        self._pyramidal = self.model.opt.cone == mujoco.mjtCone.mjCONE_PYRAMIDAL
+        self._geom_jaw = np.array([self._jaws.index(self._jaw_ids[int(b)]) if int(b) in self._jaw_ids else -1
+                                   for b in self.model.geom_bodyid], dtype=int)
         self._table_geoms = {g for g, n in enumerate(self._geom_names)
                              if n in ("task/floor", "task/table") or (n or "").startswith("task/table/")}
         self._bucket_bottom = self._id("geom", "task/bucket/bottom")
@@ -696,23 +704,35 @@ class MinervaTaskScene:
         self.model.geom_surfacevel[self._collision_ids, :3] = np.einsum("nji,nj->ni", rotation, linear)
         self.model.geom_surfacevel[self._collision_ids, 3:] = np.einsum("nji,nj->ni", rotation, angular)
 
+    def _normal_forces(self, contact, rows):
+        """mj_contactForce's normal force for these contacts, by array. A pyramidal cone's is the sum of its edges'
+        forces, added in the order mju_decodePyramid adds them; an elliptic cone's, or a frictionless contact's, is
+        its first constraint row's. An inactive contact's is 0."""
+        address, dim = contact.efc_address[rows], contact.dim[rows]
+        edges = np.where(dim > 1, 2 * (dim - 1), 1) if self._pyramidal else np.ones_like(dim)
+        force, efc, active = np.zeros(len(rows)), self.data.efc_force, address >= 0
+        for count in np.unique(edges[active]):
+            take = active & (edges == count)
+            rows_of, total = efc[address[take, None] + np.arange(count)], np.zeros(int(take.sum()))
+            for k in range(count):
+                total += rows_of[:, k]
+            force[take] = total
+        return force
+
     def _track_contacts(self):
-        jaws = {"left": set(), "right": set()}
-        touched = set()
-        force = np.zeros(6)
-        # The cube's contacts, picked out by array: a loop over every contact (the jaws' pieces on the cube make
-        # dozens) cost more than the physics step.
+        # The cube's contacts that bear force, by array: a loop over them (the jaws' pieces on the cube make dozens)
+        # cost more than the physics step.
         contact = self.data.contact
         first, second = contact.geom1, contact.geom2
-        for i in np.flatnonzero((first == self.cube_geom) | (second == self.cube_geom)):
-            self.mj.mj_contactForce(self.model, self.data, int(i), force)
-            if force[0] <= .001:
-                continue
-            other = int(second[i] if first[i] == self.cube_geom else first[i])
-            touched.add(other)
-            jaw = self._geom_jaws.get(other)
-            if jaw:
-                jaws[jaw[0]].add(jaw[1])
+        rows = np.flatnonzero((first == self.cube_geom) | (second == self.cube_geom))
+        rows = rows[self._normal_forces(contact, rows) > .001]
+        others = np.where(first[rows] == self.cube_geom, second[rows], first[rows])
+        jaws = {"left": set(), "right": set()}
+        for code in np.unique(self._geom_jaw[others]):
+            if code >= 0:
+                side, jaw = self._jaws[code]
+                jaws[side].add(jaw)
+        touched = set(others.tolist())
         self._contacts = {side: sorted(value) for side, value in jaws.items()}
         self._contact_names = sorted({self._geom_names[g] for g in touched})
         xyz = self.data.xpos[self.cube_id]
@@ -758,34 +778,44 @@ class MinervaTaskScene:
 
         Bounds cull body against body first. A body's bounds hold all of its geoms', so a pair of geoms within
         `margin` always has its bodies' bounds within it too: the pairs are the same as geom against geom alone."""
-        ids, environment = self._collision_ids, self._environment_ids
-        centers, halves = _world_aabbs(self.model, self.data, ids)
+        ids, environment, body = self._collision_ids, self._environment_ids, self._row_body
+        # Each body's world bounds: its own frame's bounds turned by its pose, with room for rounding.
+        rotation = self.data.xmat[self._bodies].reshape(-1, 3, 3)
+        center, half = self._body_bounds
+        center = self.data.xpos[self._bodies] + np.einsum("nij,nj->ni", rotation, center)
+        half = np.einsum("nij,nj->ni", np.abs(rotation), half) + 1e-9
+        low, high = center - half, center + half
         fixed, fixed_halves = _world_aabbs(self.model, self.data, environment)
-        order, starts, body = self._body_order, self._body_starts, self._row_body
-        low = np.minimum.reduceat((centers - halves)[order], starts) - 1e-9  # Rounding allowance.
-        high = np.maximum.reduceat((centers + halves)[order], starts) + 1e-9
         near = np.all((low[:, None] <= (fixed + fixed_halves)[None] + margin) &
                       ((fixed - fixed_halves)[None] <= high[:, None] + margin), axis=2).any(axis=1)
         rows = np.flatnonzero(near[body] if moved is None else near[body] & moved)
-        overlap = np.all(np.abs(centers[rows][:, None]-fixed[None, :]) <=
-                         halves[rows][:, None]+fixed_halves[None, :]+margin, axis=2)
-        pairs = [(int(ids[rows[r]]), int(environment[e]), "forbidden_robot_environment_penetration")
-                 for r, e in np.argwhere(overlap)]
         # One arm into the other: the arms are posed, so MuJoCo makes no contact between them either.
         left, right = self._arm_bodies["left"], self._arm_bodies["right"]
         near = np.all((low[left][:, None] <= high[right][None] + margin) &
                       (low[right][None] <= high[left][:, None] + margin), axis=2)
-        hit = np.zeros(len(starts), dtype=bool)
+        hit = np.zeros(len(self._bodies), dtype=bool)
         hit[left[near.any(axis=1)]] = True
         hit[right[near.any(axis=0)]] = True
         left, right = self._arm_rows["left"], self._arm_rows["right"]
         left, right = left[hit[body[left]]], right[hit[body[right]]]
-        overlap = np.all(np.abs(centers[left][:, None]-centers[right][None, :]) <=
-                         halves[left][:, None]+halves[right][None, :]+margin, axis=2)
-        if moved is not None:
-            overlap &= moved[left][:, None] | moved[right][None, :]
-        pairs += [(int(ids[left[i]]), int(ids[right[j]]), "forbidden_robot_robot_penetration")
-                  for i, j in np.argwhere(overlap)]
+        # Geom bounds only for the geoms of bodies that came near something.
+        pairs = []
+        if not len(rows) and not len(left):
+            return pairs
+        centers, halves = _world_aabbs(self.model, self.data, ids[np.concatenate((rows, left, right))])
+        a, b = len(rows), len(rows) + len(left)
+        if a:
+            overlap = np.all(np.abs(centers[:a, None]-fixed[None, :]) <=
+                             halves[:a, None]+fixed_halves[None, :]+margin, axis=2)
+            pairs += [(int(ids[rows[r]]), int(environment[e]), "forbidden_robot_environment_penetration")
+                      for r, e in np.argwhere(overlap)]
+        if len(left):
+            overlap = np.all(np.abs(centers[a:b, None]-centers[None, b:]) <=
+                             halves[a:b, None]+halves[None, b:]+margin, axis=2)
+            if moved is not None:
+                overlap &= moved[left][:, None] | moved[right][None, :]
+            pairs += [(int(ids[left[i]]), int(ids[right[j]]), "forbidden_robot_robot_penetration")
+                      for i, j in np.argwhere(overlap)]
         return pairs
 
     def _audit_penetration(self):
