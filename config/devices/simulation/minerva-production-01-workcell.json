@@ -35,6 +35,23 @@
       "fovy": {"value": 75.0, "source": "placeholder: the synthetic field of view; the D435 intrinsics are not read"}
     }
   },
+  "fiducials": {
+    "table_frame": "Tag centres are in the table frame, metres: origin at the table top's near-left outer corner (outer edge of the trim), seen from behind the robot facing the table; x right along the near edge, y away from the robot. Every label lies flat, text end toward the robot, edges square to the table, so each marker frame is parallel to the table frame. With the table square to the robot, table (x, y) is base (c - x, -d - y), where (c, -d) is that corner from table.center and table.size",
+    "family": {"value": "DICT_4X4_50", "source": "claude/table-fiducial-labels, scripts/fiducials/make_tag_labels.py: the ArUco labels printed for this table, 2026-10-17"},
+    "square": {"value": 0.04318, "source": "placeholder: the generator's black square, 6 cells of 85 dots at 300 dpi; printed, scale not yet measured"},
+    "label_size": {"value": [0.05893, 0.07171], "source": "placeholder: the generator's 696 x 847 dot label at 300 dpi (across, along the tape); printed, scale not yet measured. The tape's unprinted white margins (about 1.5 mm at the sides and 2.5-3 mm at the ends, so the cut label is about 62 x 77 mm with the tag centre about 45 mm from its text end and 32 mm from its far end) are not drawn"},
+    "tag_offset": {"value": 0.00639, "source": "placeholder: the generator puts the tag centre 75.5 dots (6.39 mm) from the label's centre toward its far end; printed, scale not yet measured"},
+    "tags": {
+      "0": {"center": {"value": [0.100, 0.100], "source": "placeholder: the layout given to the user 2026-10-17, near-left corner; not measured"}},
+      "1": {"center": {"value": [1.424, 0.100], "source": "placeholder: the layout given to the user 2026-10-17, near-right corner; not measured"}},
+      "2": {"center": {"value": [1.143, 0.662], "source": "placeholder: the layout given to the user 2026-10-17, far edge, inward of the far-right corner so the head camera can see it; not measured"}},
+      "3": {"center": {"value": [0.381, 0.662], "source": "placeholder: the layout given to the user 2026-10-17, far edge, inward of the far-left corner so the head camera can see it; not measured"}},
+      "4": {"center": {"value": [0.762, 0.662], "source": "placeholder: the layout given to the user 2026-10-17, far edge, middle; not measured"}},
+      "5": {"center": {"value": [0.762, 0.100], "source": "placeholder: the layout given to the user 2026-10-17, near edge, middle; not measured"}},
+      "6": {"bucket_corner": "near_left", "in_front": {"value": 0.042, "source": "placeholder: the layout given to the user 2026-10-17: the label's far end 1 cm in front of the bucket's near outer face and the tag centre about 32 mm from that end, centred across on the near-left outer corner; follows the bucket's placeholder pose; not measured"}},
+      "7": {"bucket_corner": "near_right", "in_front": {"value": 0.042, "source": "placeholder: the layout given to the user 2026-10-17: the label's far end 1 cm in front of the bucket's near outer face and the tag centre about 32 mm from that end, centred across on the near-right outer corner; follows the bucket's placeholder pose; not measured"}}
+    }
+  },
   "appearance": {
     "table": "black",
     "trim": "silver",

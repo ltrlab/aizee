@@ -1,11 +1,13 @@
 """The task scene's workcell: measured values carry their sources, and the scene judges the bucket it was given."""
 import json
+import math
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 from robot_platform.evaluation.grid import GridSpec, cube_poses
+from robot_platform.simulation.fiducials import CODES, cells
 from robot_platform.simulation.task_scene import CUBE_START, TABLE_TOP, MinervaTaskScene
 from robot_platform.simulation.workcell import SYNTHETIC, Workcell, load_workcell, resolve, validate, workcell_path
 
@@ -115,3 +117,88 @@ def test_a_rectangular_yawed_bucket_holds_the_cube_dropped_into_its_long_end(yaw
     # The same distance across the short side is outside the 0.152 m box.
     inside, touched, state = _bucket_drop(workcell, (.10, 0.))
     assert not inside and not touched and not state['bucket_settled']
+
+
+# OpenCV's DICT_4X4_50 bytes for IDs 0-7 (cv2.aruco dictionary bytesList[id][0][:2], the unrotated marker): their
+# bits, most significant first, are the code's cells row by row from its top, 1 white. An independent copy of what
+# fiducials.CODES must say; scripts/sim/check_fiducial_codes.py checks the table against OpenCV itself.
+OPENCV_DICT_4X4_50 = {0: (181, 50), 1: (15, 154), 2: (51, 45), 3: (153, 70), 4: (84, 158), 5: (121, 205),
+                      6: (158, 46), 7: (196, 242)}
+# The layout given to the user on 2026-10-17: tag centres in the table frame, mm.
+LAYOUT = {0: (100, 100), 5: (762, 100), 1: (1424, 100), 3: (381, 662), 4: (762, 662), 2: (1143, 662)}
+
+
+def _opencv_cells(tag_id):
+    bits = ''.join(f'{byte:08b}' for byte in OPENCV_DICT_4X4_50[tag_id])
+    return [[0] * 6] + [[0, *(int(b) for b in bits[4 * r:4 * r + 4]), 0] for r in range(4)] + [[0] * 6]
+
+
+def _table_corner(workcell):
+    """(c, d): the table top's near-left outer corner is base (c, -d)."""
+    return (workcell.table_center[0] + workcell.table_size[0] / 2,
+            -(workcell.table_center[1] + workcell.table_size[1] / 2))
+
+
+def test_the_fiducial_codes_are_opencvs():
+    assert sorted(CODES['DICT_4X4_50']) == sorted(OPENCV_DICT_4X4_50)
+    for tag_id in OPENCV_DICT_4X4_50:
+        assert cells('DICT_4X4_50', tag_id) == _opencv_cells(tag_id)
+
+
+def test_the_tags_sit_where_the_table_frame_puts_them():
+    workcell = load_workcell(MEASURED)
+    c, d = _table_corner(workcell)
+    assert (c, d) == pytest.approx((.762, .080))  # The placeholder table: centred, near edge 8 cm out.
+    tags = {tag[0]: tag for tag in workcell.fiducials['tags']}
+    assert sorted(tags) == list(range(8)) and workcell.fiducials['family'] == 'DICT_4X4_50'
+    for tag_id, (x, y) in LAYOUT.items():
+        assert tags[tag_id][1:3] == pytest.approx((c - x / 1000, -d - y / 1000), abs=1e-12)
+    # 6 and 7 sit 42 mm in front of the bucket's near outer face (the label's far end 1 cm from it, the tag centre
+    # 32 mm from that end), centred across on its near-left and near-right outer corners: (932, 122) and
+    # (1092, 122) mm in the table frame with the placeholder bucket.
+    near = workcell.bucket_center[1] + workcell.bucket_inner[1] / 2 + workcell.bucket_wall
+    for tag_id, side, table_x in ((6, 1, 932.), (7, -1, 1092.)):
+        _, x, y, _ = tags[tag_id]
+        assert x == pytest.approx(workcell.bucket_center[0] + side * (workcell.bucket_inner[0] / 2 + workcell.bucket_wall))
+        assert y == pytest.approx(near + .042)
+        assert ((c - x) * 1000, (-d - y) * 1000) == pytest.approx((table_x, 121.5))
+    # Every marker frame is the table frame turned onto the base: x along the near edge, y away from the robot.
+    assert all(tag[3] == math.pi for tag in tags.values())
+    # The printed sizes and every position are placeholders until measured; the printed family is not.
+    placeholders = set(workcell.placeholders())
+    assert {'fiducials.square', 'fiducials.label_size', 'fiducials.tag_offset'} <= placeholders
+    assert {f'fiducials.tags.{i}.center' for i in LAYOUT} | {'fiducials.tags.6.in_front', 'fiducials.tags.7.in_front'} \
+        <= placeholders
+    assert 'fiducials.family' not in placeholders and workcell.sources['fiducials.family']
+    assert SYNTHETIC.fiducials == {}
+
+
+def test_the_bucket_tags_follow_the_bucket(tmp_path):
+    before = {tag[0]: tag for tag in load_workcell(MEASURED).fiducials['tags']}
+    document = json.loads(MEASURED.read_text(encoding='utf-8'))
+    document['bucket']['center']['value'] = [-.20, -.45]
+    tags = {tag[0]: tag for tag in load_workcell(_write(document, tmp_path)).fiducials['tags']}
+    for tag_id in (6, 7):
+        assert np.subtract(tags[tag_id][1:3], before[tag_id][1:3]) == pytest.approx((.05, -.05))
+    assert all(tags[tag_id] == before[tag_id] for tag_id in LAYOUT)
+
+
+def _write(document, directory):
+    path = Path(directory) / 'workcell.json'
+    path.write_text(json.dumps(document), encoding='utf-8')
+    return path
+
+
+@pytest.mark.parametrize('change, refusal', [
+    (lambda f: f['tags']['0']['center'].update(value=[.02, .10]), 'off the table'),
+    (lambda f: f['tags'].update({'8': f['tags']['0']}), 'distinct'),
+    (lambda f: f['family'].update(value='DICT_6X6_50'), 'no codes'),
+    (lambda f: f['tags']['1'].update(bucket_corner='near_left'), 'either'),
+    (lambda f: f['square'].update(value=.05), 'white margin'),
+    (lambda f: f['tags']['2']['center'].pop('source'), 'named source'),
+])
+def test_a_tag_the_scene_cannot_draw_is_refused(tmp_path, change, refusal):
+    document = json.loads(MEASURED.read_text(encoding='utf-8'))
+    change(document['fiducials'])
+    with pytest.raises(ValueError, match=refusal):
+        load_workcell(_write(document, tmp_path))
