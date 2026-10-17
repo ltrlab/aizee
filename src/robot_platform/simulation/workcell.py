@@ -30,7 +30,7 @@ KIND = 'sim_workcell'
 PLACEHOLDER = 'placeholder'
 COLORS = {'floor': (.17, .21, .24, 1.), 'table': (.46, .34, .23, 1.), 'trim': (.72, .73, .75, 1.),
           'leg': (.3, .3, .32, 1.), 'bucket_bottom': (.10, .35, .64, 1.), 'bucket_wall': (.12, .42, .74, 1.),
-          'cube': (.95, .30, .06, 1.)}
+          'cube': (.95, .30, .06, 1.), 'fiducial_label': (.90, .90, .88, 1.), 'fiducial_print': (.05, .05, .05, 1.)}
 # A bucket-relative tag's corner of the bucket: signs along the bucket's own x (+: the robot's left) and y
 # (+: toward the robot) axes.
 BUCKET_CORNERS = {'near_left': (1, 1), 'near_right': (-1, 1)}

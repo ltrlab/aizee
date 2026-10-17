@@ -19,6 +19,7 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 
+from .fiducials import cell_center, grid, white_runs
 from .minerva_sim import ModelPose, SCENE
 from .workcell import LEG_HALF, SYNTHETIC, bucket_frame, resolve as resolve_workcell
 
@@ -52,6 +53,10 @@ GRIP_SOLREF, GRIP_SOLIMP = (2 * PHYSICS_DT, 1.), (.99, .999, .001)
 FINGER_SLICE, FINGER_NECK = .005, .8  # m, share
 _FINGER_PIECES = {}  # _finger_pieces by posed finger surface.
 DRIVE_FIELDS = ("inertia", "friction", "viscous", "max_effort")
+# A fiducial tag is drawn as flat boxes stacked this far apart on the table top: its white label, the black square on
+# that and the code's white cells on top, so the renderer draws each over the one below. A drawing order, not the
+# paper's thickness, which is not modelled.
+FIDUCIAL_LAYER = .0001  # m
 
 
 def _world_aabbs(model, data, ids):
@@ -130,6 +135,33 @@ def _environment(world, workcell, grip_contact=False):
                   solref=_numbers(GRIP_SOLREF) if grip_contact else ".004 1",
                   solimp=_numbers(GRIP_SOLIMP) if grip_contact else ".95 .99 .001")
     return environment
+
+
+def _fiducials(world, workcell):
+    """The workcell's fiducial tags, visual only: no contacts, no mass, and not among the audited environment. Each tag
+    is a body in its marker frame (simulation.fiducials) on the table top, holding its white label, the black square
+    and the code's white cells, one box per run of white cells along a row. The scene adds them after every other
+    body, so every other body and geom keeps its index."""
+    f = workcell.fiducials
+    if not f:
+        return
+    family, square = f["family"], f["square"]
+    size = square / grid(family)
+    paper, ink = workcell.color("fiducial_label"), workcell.color("fiducial_print")
+    for tag_id, x, y, yaw in f["tags"]:
+        body = ET.SubElement(world, "body", name=f"task/fiducial/{tag_id}", pos=_numbers((x, y, workcell.table_top)),
+                             quat=_numbers(_yaw_quat(yaw)))
+
+        def flat(name, center, half, layer, rgba):
+            ET.SubElement(body, "geom", name=f"task/fiducial/{tag_id}/{name}", type="box",
+                          pos=_numbers((*center, (layer - .5) * FIDUCIAL_LAYER)),
+                          size=_numbers((*half, FIDUCIAL_LAYER / 2)), rgba=_numbers(rgba), contype="0",
+                          conaffinity="0", mass="0")
+        flat("label", (0., -f["tag_offset"]), (f["label"][0] / 2, f["label"][1] / 2), 1, paper)
+        flat("square", (0., 0.), (square / 2, square / 2), 2, ink)
+        for row, first, last in white_runs(family, tag_id):
+            (x0, y0), (x1, _) = cell_center(family, square, row, first), cell_center(family, square, row, last)
+            flat(f"cells/{row}/{first}", ((x0 + x1) / 2, y0), ((last - first + 1) * size / 2, size / 2), 3, paper)
 
 
 def _drive_body(wrist, side, drive):
@@ -335,6 +367,7 @@ def _scene_xml(source, fk_model, fk_data, visual_mode="cad", workcell=SYNTHETIC,
                           solimp=_numbers(TRANSMISSION_SOLIMP))
             ET.SubElement(actuator, "motor", name=f"task/{side}_gripper/drive", joint=f"task/{side}_gripper/drive",
                           ctrllimited="true", ctrlrange=_numbers((-drive["max_effort"], drive["max_effort"])))
+    _fiducials(world, workcell)
     # Hidden CAD meshes still allocate/upload GPU assets in MuJoCo. Remove them
     # from the explicit proxy model; the full CAD mode retains every visual.
     used_meshes = {g.get("mesh") for g in world.iter("geom") if g.get("mesh")}
@@ -496,6 +529,8 @@ class MinervaTaskScene:
                             "Real contact properties are unmeasured",
                             "Kinematic robot/environment penetration, or one arm's into the other's, invalidates episode "
                             "eligibility"]
+                           + (["Fiducial tags are drawn as their codes on plain white labels, without the labels' "
+                               "text and scale; they are visual only"] if workcell.fiducials else [])
                            + ([f"Workcell {workcell.name}: not yet measured: {', '.join(placeholders)}"]
                               if placeholders else []),
         }

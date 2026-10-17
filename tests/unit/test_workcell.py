@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from robot_platform.evaluation.grid import GridSpec, cube_poses
-from robot_platform.simulation.fiducials import CODES, cells
+from robot_platform.simulation.fiducials import CODES, cells, corners, grid
 from robot_platform.simulation.task_scene import CUBE_START, TABLE_TOP, MinervaTaskScene
 from robot_platform.simulation.workcell import SYNTHETIC, Workcell, load_workcell, resolve, validate, workcell_path
 
@@ -126,6 +126,7 @@ OPENCV_DICT_4X4_50 = {0: (181, 50), 1: (15, 154), 2: (51, 45), 3: (153, 70), 4: 
                       6: (158, 46), 7: (196, 242)}
 # The layout given to the user on 2026-10-17: tag centres in the table frame, mm.
 LAYOUT = {0: (100, 100), 5: (762, 100), 1: (1424, 100), 3: (381, 662), 4: (762, 662), 2: (1143, 662)}
+HALF_TURN = np.diag([-1., -1., 1.])  # A marker frame on the base: x along the table's x, y away from the robot.
 
 
 def _opencv_cells(tag_id):
@@ -181,6 +182,79 @@ def test_the_bucket_tags_follow_the_bucket(tmp_path):
     for tag_id in (6, 7):
         assert np.subtract(tags[tag_id][1:3], before[tag_id][1:3]) == pytest.approx((.05, -.05))
     assert all(tags[tag_id] == before[tag_id] for tag_id in LAYOUT)
+
+
+def test_the_scene_draws_each_tag_flat_on_the_table_with_its_code():
+    workcell = load_workcell(MEASURED)
+    scene = MinervaTaskScene(fixture_map(), NAMES, width=64, height=48, workcell=workcell)
+    try:
+        m, d, f = scene.model, scene.data, workcell.fiducials
+        # MuJoCo keeps colours as float32.
+        paper, ink = (tuple(np.float32(workcell.color(key))) for key in ('fiducial_label', 'fiducial_print'))
+        n = grid(f['family'])
+        size = f['square'] / n
+        assert any('Fiducial tags' in item for item in scene.capabilities['limitations'])
+        for tag in f['tags']:
+            tag_id, x, y, yaw = tag
+            body = scene._id('body', f'task/fiducial/{tag_id}')
+            # Flat on the table top, its marker x along the table's x (base -x) and y away from the robot (base -y).
+            assert d.xpos[body] == pytest.approx((x, y, workcell.table_top), abs=1e-12)
+            assert d.xmat[body].reshape(3, 3) == pytest.approx(HALF_TURN, abs=1e-12)
+            geoms = [g for g in range(m.ngeom) if m.geom_bodyid[g] == body]
+            # Visual only: no contacts, no mass, drawn in both visual modes, outside the penetration audit.
+            assert m.body_mass[body] == 0 and not m.geom_contype[geoms].any() and not m.geom_conaffinity[geoms].any()
+            assert not m.geom_group[geoms].any() and not set(geoms) & set(scene._environment_ids.tolist()) and \
+                not set(geoms) & set(scene._collision_ids.tolist())
+            assert {tuple(m.geom_rgba[g]) for g in geoms} == {paper, ink}
+
+            def white(u, v):
+                """Whether the top geom at marker-frame point (u, v) is white."""
+                over = [g for g in geoms if abs(u - m.geom_pos[g][0]) < m.geom_size[g][0] and
+                        abs(v - m.geom_pos[g][1]) < m.geom_size[g][1]]
+                top = max(over, key=lambda g: m.geom_pos[g][2] + m.geom_size[g][2])
+                return tuple(m.geom_rgba[top]) == paper
+            code = _opencv_cells(tag_id)
+            for row in range(n):
+                for column in range(n):
+                    assert white((column - (n - 1) / 2) * size, ((n - 1) / 2 - row) * size) == bool(code[row][column])
+            # The black square's corners are where fiducials.corners puts them, inside a one-cell white margin.
+            for corner in corners(f['square'], x, y, workcell.table_top, yaw):
+                u, v, _ = HALF_TURN.T @ np.subtract(corner, (x, y, workcell.table_top))
+                assert not white(u * .99, v * .99) and white(u + np.sign(u) * size * .99, v + np.sign(v) * size * .99)
+    finally:
+        scene.close()
+
+
+def test_the_tags_are_visual_only_and_change_no_physics():
+    workcell = load_workcell(MEASURED)
+    bare = Workcell.from_description(dict(workcell.describe(), fiducials={}))
+    scenes = [MinervaTaskScene(fixture_map(), NAMES, width=64, height=48, workcell=w) for w in (workcell, bare)]
+    try:
+        tagged, plain = scenes
+        nbody, ngeom = plain.model.nbody, plain.model.ngeom
+        assert tagged.model.nbody == nbody + 8 and tagged.model.ncam == plain.model.ncam
+        # The tags come after every other body and geom, which keep their indices and values.
+        for key in ('geom_type', 'geom_bodyid', 'geom_pos', 'geom_quat', 'geom_size', 'geom_contype', 'geom_conaffinity',
+                    'geom_friction', 'geom_solref', 'geom_solimp', 'geom_margin', 'geom_rgba'):
+            assert np.array_equal(getattr(tagged.model, key)[:ngeom], getattr(plain.model, key)), key
+        for key in ('body_pos', 'body_quat', 'body_mass', 'body_inertia', 'body_parentid', 'body_mocapid'):
+            assert np.array_equal(getattr(tagged.model, key)[:nbody], getattr(plain.model, key)), key
+        assert tagged.model.stat.meaninertia == plain.model.stat.meaninertia
+        assert tagged.capabilities['contact_geometry_sha256'] == plain.capabilities['contact_geometry_sha256']
+        # A cube dropped onto tag 6 lands on the table exactly as it does with no tag there.
+        _, x, y, _ = next(tag for tag in workcell.fiducials['tags'] if tag[0] == 6)
+        for scene in scenes:
+            scene._q = np.zeros(14)
+            scene.reset()
+            scene.data.qpos[scene.cube_qadr:scene.cube_qadr + 3] = [x, y, workcell.table_top + .05]
+            scene.mj.mj_forward(scene.model, scene.data)
+            for _ in range(8):
+                state = scene.update(np.zeros(14), .05)
+            assert state['cube_contacts'] == ['task/table'] and not state['forbidden_contacts']
+        assert np.array_equal(tagged.data.qpos, plain.data.qpos) and np.array_equal(tagged.data.qvel, plain.data.qvel)
+    finally:
+        for scene in scenes:
+            scene.close()
 
 
 def _write(document, directory):
