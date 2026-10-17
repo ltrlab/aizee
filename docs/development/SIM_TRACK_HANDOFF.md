@@ -42,7 +42,7 @@
   - **Turned cubes.** Planning only, yaws -40 to +40 degrees over the region (180 cells): 149 planned and cleared by the first pair of faces alone. With the second pair, the climb before the handoff roll and the clearance check, all 180 do. Through the receiver (eb67150), a 4x4 grid plus the nominal start with yaw drawn from +/-45 degrees: 17/17, Wilson 95% 0.82-1.00, median 40.6 s.
   - **Reproduce the grid:** `.venv-dev/Scripts/python.exe -m robot_platform.evaluation run --policy handoff_demonstrator --plant armplant --grippers driven --workcell config/devices/simulation/minerva-production-01-workcell.json --timeout 70`.
   - **One generated episode, before the settle test:** 659 frames over 43.9 s, 49.5 MB. The gripper reading stalls at 2.05 rad on the 38.1 mm cube. `tests/contract/test_generate.py` covers the generator on the final code.
-  - **Gate.** Not yet run on this branch.
+  - **Gate.** `python scripts/dev.py check --offline` passed on `d1148d1` (2026-10-17): 1138 Python tests, zero skips or xfails, and 132 Rust tests, rustc 1.98.1, with the source identical before and after. Report: `build/dev-check/20261017T075230Z-bf544004/report.json` in this worktree.
   - **Evidence.** Kept outside the repository, under this session's scratchpad (`eval-demo*`, `gen-test`, the reach maps).
 - **Remaining uncertainty / physical inputs needed:**
   - **Workcell placeholders.** Measure, then re-run the reach map and `tests/unit/test_demonstrator.py`:
