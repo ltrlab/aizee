@@ -1,6 +1,7 @@
 """Owned scene subprocess and scene-specific adapter over the shared capture mailbox."""
 from __future__ import annotations
 from pathlib import Path
+import os
 import sys
 import threading
 from robot_platform.data.capture_process import ProcessCapture, _read, _write
@@ -103,7 +104,12 @@ def _worker():
             view.abort(f"parent connection ended: {exc}")
     finally:
         if view is not None:
-            view.close()
+            try:
+                view.close()
+            except TimeoutError:
+                # Parent EOF can leave no external owner. Avoid interpreter
+                # finalization against a hung native writer; partial unconfirmed.
+                os._exit(2)
             stopped.set()
             if publisher is not None:
                 publisher.join(timeout=1)

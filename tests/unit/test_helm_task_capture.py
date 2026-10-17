@@ -240,6 +240,8 @@ class Writer:
         self.active, self.complete = False, True
     def abort(self, reason):
         self.active, self.error = False, reason
+    def wait_closed(self, *, timeout):
+        assert not self.active and timeout >= 0
 
 
 @pytest.fixture

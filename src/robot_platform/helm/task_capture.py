@@ -442,14 +442,25 @@ class LiveTaskCapture:
         if require_commands and not sample.get('command_valid'):
             raise ValueError('Receiver has no active emitted command authority')
 
-    def close(self):
+    def close(self, *, timeout=5.):
         # A requested stop_record is the sole successful completion path. Closing
         # the owning session must win an in-progress finish before its rename.
+        deadline = time.monotonic()+timeout
         with self._lock:
             unfinished = self._writer is not None or not self._commands.empty()
         if unfinished:
             self.abort('Capture session ended before explicit recording completion')
         self._stop.set()
-        self._thread.join(timeout=5.)
+        self._thread.join(timeout=max(0., deadline-time.monotonic()))
         if self._thread.is_alive():
-            raise RuntimeError('Task capture worker did not close; episode completion is unconfirmed')
+            raise TimeoutError('Task capture worker did not close; partial episode integrity is unconfirmed')
+        # The camera thread may have ended on error while its daemon writer is
+        # still closing HDF5. Keep the reference and spend only the remaining
+        # teardown budget; this path runs in the capture child, never a tick.
+        with self._lock:
+            writer = self._writer
+        if writer is not None:
+            writer.wait_closed(timeout=max(0., deadline-time.monotonic()))
+            with self._lock:
+                self._state['recording'] = writer.status()
+                self._writer = None

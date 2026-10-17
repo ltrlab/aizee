@@ -5,6 +5,7 @@ sockets, JPEG decoding and HDF5 stay in the child. No motor sockets are opened.
 """
 from __future__ import annotations
 import math
+import os
 from pathlib import Path
 import sys
 import threading
@@ -185,7 +186,13 @@ def _worker(*, factory=None, input_stream=None, output_stream=None):
     finally:
         if view is not None:
             # close cancels in-flight finish through the writer publication fence.
-            view.close()
+            try:
+                view.close()
+            except TimeoutError:
+                # A hung native HDF5 writer cannot safely run during interpreter
+                # finalization. EOF may mean no parent remains to kill us. Exit
+                # uncleanly/nonzero; the partial is explicitly unconfirmed.
+                os._exit(2)
             stopped.set()
             if publisher is not None:
                 publisher.join(timeout=1)

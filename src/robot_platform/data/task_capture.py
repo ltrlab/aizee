@@ -209,14 +209,30 @@ class TaskEpisodeWriter:
         with self._lock:
             if self._complete:
                 return
-            self._abort = str(reason)
-            self._error = self._abort
+            self._abort = self._abort or str(reason)
+            self._error = self._error or self._abort
             self._closed = True
         try:
             self._queue.put_nowait(None)
         except queue.Full:
             pass
         # The owner can signal failure without waiting for disk or compression.
+
+    def wait_closed(self, *, timeout):
+        """Owner teardown only: wait for HDF5 close/error annotation, never publish.
+
+        abort() deliberately does not wait. A failed/closed status means admission
+        stopped, not that the writer thread has finished unwinding native HDF5.
+        The owning capture process must call this before exiting its interpreter.
+        On timeout its partial file remains unconfirmed; it must not exit normally.
+        """
+        if not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout < 0:
+            raise ValueError("writer close timeout must be finite and nonnegative")
+        if not self._closed:
+            raise RuntimeError("abort or finish the episode before waiting for writer close")
+        self._thread.join(timeout=timeout)
+        if self._thread.is_alive():
+            raise TimeoutError("HDF5 writer shutdown timed out; partial episode integrity is unconfirmed")
 
     def _run(self):
         try:

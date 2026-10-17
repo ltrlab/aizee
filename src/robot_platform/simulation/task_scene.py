@@ -687,12 +687,21 @@ class _ThreadTaskSceneView:
             writer.abort(reason)
             self._publish(recording=writer.status())
 
-    def close(self):
+    def close(self, *, timeout=5.):
+        deadline = time.monotonic()+timeout
         self.abort("scene or session closed before explicit stop_record")
         self._stop.set()
-        self._thread.join(timeout=10)
+        self._thread.join(timeout=max(0., deadline-time.monotonic()))
         if self._thread.is_alive():
             self._publish(error="task scene shutdown still draining; partial episode is not published")
+            raise TimeoutError("Task scene worker did not close; partial episode integrity is unconfirmed")
+        # Error paths retain self._writer even when the scene-local variable was
+        # cleared. Admission closed is not proof that HDF5 has finished closing.
+        writer = self._writer
+        if writer is not None:
+            writer.wait_closed(timeout=max(0., deadline-time.monotonic()))
+            self._publish(recording=writer.status())
+            self._writer = None
 
 
 # A subprocess isolates CAD rendering and Python physics/audit work from the control GIL.

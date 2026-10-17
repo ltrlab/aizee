@@ -252,6 +252,100 @@ def test_real_live_process_starts_without_fabricated_camera_readiness_and_exits_
         child.close()
 
 
+@pytest.mark.parametrize('ending', ['abort', 'close', 'eof', 'stalled_eof'])
+@pytest.mark.parametrize('owner', ['live', 'scene'])
+def test_worker_exit_waits_for_real_hdf5_abort_cleanup(tmp_path, ending, owner):
+    """An actual interpreter owns HDF5; only the camera boundary is injected.
+
+    Holding HDF5 close makes the former daemon-writer exit race deterministic.
+    No camera, receiver, USB or CAN connection is opened by this fixture.
+    """
+    import h5py
+    script = tmp_path/'abort_worker.py'
+    script.write_text('''
+from io import BytesIO
+from pathlib import Path
+from types import SimpleNamespace
+import queue, sys, threading, time
+import h5py, numpy as np
+from robot_platform.data.capture_process import _write
+from robot_platform.data.task_capture import TaskEpisodeWriter
+from robot_platform.helm.task_capture import LiveTaskCapture
+from robot_platform.helm.task_capture_process import _worker
+root, ending, owner = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+if owner == 'scene':
+    from robot_platform.simulation import task_scene, task_scene_process
+    owner_class = task_scene._ThreadTaskSceneView
+else:
+    owner_class = LiveTaskCapture
+real_file = h5py.File
+class SlowClose:
+    def __init__(self, file): self.file = file
+    def __enter__(self): return self.file
+    def __exit__(self, *args):
+        (root/'closing').write_text('HDF5 close entered')
+        time.sleep(60 if ending == 'stalled_eof' else .4)
+        self.file.__exit__(*args)
+        (root/'closed').write_text('HDF5 close returned')
+def gated_file(path, mode='r', **kwargs):
+    file = real_file(path, mode, **kwargs)
+    return SlowClose(file) if mode == 'x' else file
+h5py.File = gated_file
+def factory(**kwargs):
+    view = owner_class.__new__(owner_class)
+    view._lock, view._stop = threading.Lock(), threading.Event()
+    view._abort_reason, view._commands = None, queue.Queue()
+    view._state = dict(available=True, capture_ready=False, failed=False, error=None,
+                      recording={'active':True}, capabilities={}, task={}, last_command=None)
+    names = [f'{side}_arm_j{k}' for side in ('left','right') for k in range(1,7)] + ['left_gripper','right_gripper']
+    writer = view._writer = TaskEpisodeWriter(root, names, {'data_source':'real','camera_roles':['right_wrist','head']})
+    images = {name:np.zeros((6,8,3),np.uint8) for name in ('right_wrist','head')}
+    for stamp in (10.,10.05):
+        writer.append(q=[0.]*14,qcmd=[.1]*14,source_time=stamp,scene_time=None,images=images,
+                      camera_times={name:stamp for name in images},task_state={},authority='human')
+    deadline = time.monotonic()+3
+    while writer.status()['frames'] < 2:
+        if time.monotonic()>deadline: raise RuntimeError('fixture writer did not start')
+        time.sleep(.005)
+    view._thread = threading.Thread(target=view._stop.wait, daemon=True)
+    view._thread.start()
+    view.snapshot = lambda: dict(view._state, recording=writer.status())
+    if ending == 'stalled_eof':
+        # Exercise the same bounded owner timeout without spending five seconds.
+        close = view.close
+        view.close = lambda: close(timeout=.15)
+    return view
+source = BytesIO()
+_write(source, {'config':{}})
+if ending == 'abort': _write(source, {'abort':'deliberate interrupted capture'})
+elif ending == 'close': _write(source, {'close':True})
+source.seek(0)
+if owner == 'scene':
+    task_scene._ThreadTaskSceneView = factory
+    sys.stdin, sys.stdout = SimpleNamespace(buffer=source), SimpleNamespace(buffer=BytesIO(), flush=lambda:None)
+    task_scene_process._worker()
+else:
+    _worker(factory=factory, input_stream=source, output_stream=BytesIO())
+''')
+    child = subprocess.run([sys.executable, str(script), str(tmp_path), ending, owner],
+                           capture_output=True, text=True, timeout=10)
+    if ending == 'stalled_eof':
+        assert child.returncode == 2, child.stderr  # Unclean timeout, never normal success.
+        assert not (tmp_path/'closed').exists()
+        assert all(path.name.endswith('.partial.hdf5') for path in tmp_path.glob('task_episode_*.hdf5'))
+        return  # A forcibly terminated partial explicitly has no readability guarantee.
+    assert child.returncode == 0, child.stderr
+    assert (tmp_path/'closed').exists(), 'worker exited before HDF5 close returned'
+    files = list(tmp_path.glob('task_episode_*.hdf5'))
+    assert len(files) == 1 and files[0].name.endswith('.partial.hdf5')
+    with h5py.File(files[0], 'r') as file:
+        assert not file.attrs['complete']
+        assert len(file['observations/qpos']) == 2
+        reason = file.attrs['error'].lower()
+        assert ('deliberate interrupted capture' if ending == 'abort' else
+                'before explicit' if ending == 'close' else 'parent connection ended') in reason
+
+
 def test_submit_health_and_bounded_commands_never_wait_for_blocked_pipe(process_worker, monkeypatch):
     child = process_worker()
     wait_for(lambda: child.health()['available'])

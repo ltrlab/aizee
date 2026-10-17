@@ -83,6 +83,37 @@ def test_abort_is_nonblocking_and_never_publishes(tmp_path):
         assert not f.attrs["complete"]
 
 
+def test_abort_returns_before_disk_cleanup_but_owner_wait_is_bounded(tmp_path, monkeypatch):
+    entered, release, aborted = threading.Event(), threading.Event(), threading.Event()
+    original = TaskEpisodeWriter._run
+    def blocked(self):
+        entered.set()
+        assert release.wait(3), 'fixture writer was not released'
+        original(self)
+    monkeypatch.setattr(TaskEpisodeWriter, '_run', blocked)
+    writer = TaskEpisodeWriter(tmp_path, NAMES, metadata())
+    assert entered.wait(1)
+    def abort():
+        writer.abort('original camera failure')
+        aborted.set()
+    caller = threading.Thread(target=abort)
+    caller.start()
+    try:
+        assert aborted.wait(.2), 'abort waited for the blocked writer'
+        with pytest.raises(TimeoutError, match='integrity is unconfirmed'):
+            writer.wait_closed(timeout=.01)
+        writer.abort('later generic session closure')
+        assert writer.status()['error'] == 'original camera failure'
+    finally:
+        release.set()
+        caller.join(1)
+        writer.wait_closed(timeout=2)
+    assert not writer.path.exists() and not writer._thread.is_alive()
+    with h5py.File(writer.partial_path, 'r') as file:
+        assert not file.attrs['complete']
+        assert 'original camera failure' in file.attrs['error']
+
+
 def test_queue_overflow_never_drops_silently(tmp_path, monkeypatch):
     started, release = threading.Event(), threading.Event()
     original = TaskEpisodeWriter._run
