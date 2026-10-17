@@ -474,23 +474,12 @@ class HandoffDemonstrator:
         """(closest distance in m along `path` from the robot to the table or bucket, or from one arm to the other;
         the two geoms), at each point, with the grippers where they stop on the cube. Pairs whose bounds are farther
         apart than REACH are left out (they clear by more)."""
-        from robot_platform.simulation.task_scene import _world_aabbs
         scene, mj = self._scene, self._scene.mj
-        robot, environment = np.array(scene._collision_ids), np.array(scene._environment_ids)
-        left, right = scene._arm_rows['left'], scene._arm_rows['right']
         worst = (1., None, None)
         for q in path:
             scene._pose(self._stopped(q))
             mj.mj_kinematics(scene.model, scene.data)
-            centres, halves = _world_aabbs(scene.model, scene.data, robot)
-            fixed, fixed_halves = _world_aabbs(scene.model, scene.data, environment)
-            near = np.all(np.abs(centres[:, None] - fixed[None]) <= halves[:, None] + fixed_halves[None] + REACH,
-                          axis=2)
-            pairs = [(robot[i], environment[j]) for i, j in np.argwhere(near)]
-            near = np.all(np.abs(centres[left][:, None] - centres[right][None]) <=
-                          halves[left][:, None] + halves[right][None] + REACH, axis=2)
-            pairs += [(robot[left[i]], robot[right[j]]) for i, j in np.argwhere(near)]
-            for a, b in pairs:
+            for a, b, _ in scene._overlapping(REACH):
                 d = mj.mj_geomDistance(scene.model, scene.data, a, b, REACH, None)
                 if d < worst[0]:
                     worst = (d, a, b)

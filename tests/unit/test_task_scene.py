@@ -274,6 +274,38 @@ def test_aabb_broadphase_never_culls_actual_penetration_at_fixture_poses(scene):
     assert found>0
 
 
+def test_body_bounds_cull_no_pair_the_geom_bounds_keep(scene):
+    # The audit and the demonstrator's clearance cull body against body first. At the fixture's poses (its handoff
+    # passes the arms through each other) and one in the table, they keep exactly the pairs that geom bounds alone
+    # keep: at the audit's margin and the demonstrator's, with every geom moved or every other one.
+    from robot_platform.simulation.task_scene import _world_aabbs
+    ids, environment = scene._collision_ids, scene._environment_ids
+    left, right = scene._arm_rows["left"], scene._arm_rows["right"]
+    poses = [np.array(point["q"]) for point in FIXTURE["waypoints"]]
+    invalid = poses[0].copy(); invalid[1] -= .12; poses.append(invalid)
+    found = {"forbidden_robot_environment_penetration": 0, "forbidden_robot_robot_penetration": 0}
+    for q in poses:
+        scene._pose(q); mujoco.mj_forward(scene.model, scene.data)
+        centers, halves = _world_aabbs(scene.model, scene.data, ids)
+        env_centers, env_halves = _world_aabbs(scene.model, scene.data, environment)
+        for margin in (1e-12, .05):
+            for moved in (None, np.arange(len(ids)) % 2 == 0):
+                every = np.ones(len(ids), dtype=bool) if moved is None else moved
+                overlap = np.all(np.abs(centers[:, None]-env_centers[None]) <= halves[:, None]+env_halves[None]+margin,
+                                 axis=2) & every[:, None]
+                expected = [(ids[r], environment[e], "forbidden_robot_environment_penetration")
+                            for r, e in np.argwhere(overlap)]
+                overlap = np.all(np.abs(centers[left][:, None]-centers[right][None]) <=
+                                 halves[left][:, None]+halves[right][None]+margin, axis=2)
+                overlap &= every[left][:, None] | every[right][None]
+                expected += [(ids[left[i]], ids[right[j]], "forbidden_robot_robot_penetration")
+                             for i, j in np.argwhere(overlap)]
+                assert scene._overlapping(margin, moved) == expected
+                for *_, kind in expected:
+                    found[kind] += 1
+    assert all(found.values())
+
+
 def test_renderer_deadline_is_independent_of_status_heartbeat():
     import queue,time
     from robot_platform.simulation.task_render_process import SceneRenderer
