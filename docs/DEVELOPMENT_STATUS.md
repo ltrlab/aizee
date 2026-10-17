@@ -7,14 +7,23 @@ and JPEG streams verified on 2026-10-16. Earlier recordings retain their two-vie
 contract. The D435 head is on a static neck;
 its mounting transform has not been calibrated.
 
-Helm camera-console candidate adds Settings → Cameras with verified wrist
-exposure/gain controls and explicit snapshots, plus a persistent touch toggle.
-`--no-live` opens the console without starting the stopped motor reader. Camera
-changes are rejected during teleop/capture; uncertain writes block a new session
-until camera-service recovery and Helm restart. Head exposure is unsupported by
-the current service. Configurable 180-degree head RGB/depth rotation preserves
-sensor-frame depth projection and recording provenance. These UI/camera changes
-do not qualify physical motion. See `development/HEAD_CAMERA_ORIENTATION.md`.
+Helm camera console from `7fe997f` is deployed on the terminal as
+`helm-live-7fe997fb76`, with the previous release preserved. Settings → Cameras
+and Teleop show live left-wrist, right-wrist and head views, with pause, focus and
+Camera/Model controls. `--no-live` leaves the stopped motor reader disconnected;
+teleop and tuning remained stopped throughout validation. Camera settings retain
+verified wrist exposure/gain controls, explicit snapshots and the touch toggle.
+Changes are rejected during teleop/capture; uncertain writes require camera-service
+recovery and Helm restart. Head exposure remains unsupported. Configurable head
+RGB/depth rotation preserves sensor-frame depth projection and provenance.
+
+Camera validation passed 91 focused tests, 10 offline browser checks and actual
+three-feed terminal/browser checks. The full offline gate separately passed 132
+Rust and 987 Python tests, with the five previously observed recording-test
+failures and no skips; it is **not a passing full gate**. These camera checks do
+not qualify motion or capture under hardware control load. See
+[the live-camera record](development/HELM_LIVE_CAMERAS.md) and
+[head orientation](development/HEAD_CAMERA_ORIENTATION.md).
 
 ## Accepted source and delivery
 
