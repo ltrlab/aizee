@@ -1,8 +1,9 @@
 """Split Minerva's Jetson CPUs between the arms' control and the cameras (see control.scheduling).
 
 On the Jetson, once, from the active release:
-    cd ~/minerva/current/src && sudo python3 -m robot_platform.ops.cpu_partition install
-`remove` undoes it; `status` (no sudo) reports what is in place.
+    cd ~/minerva/current/src && sudo python3 -B -m robot_platform.ops.cpu_partition install
+`remove` undoes it; `status` (no sudo) reports what is in place. -B: a root run must not leave root-owned
+bytecode in the release, which the deploy, running as the robot's user, could then not prune.
 
 The camera services shared all six cores with the teleop loop and its receiver, and their load stretched the
 loop's cycles until a command expired (2026-10-17). Holding both arms enabled with the camera threads on CPUs 0-3
@@ -185,6 +186,10 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.action != 'status' and getattr(os, 'geteuid', lambda: -1)() != 0:
         print('install and remove change systemd units: run them with sudo.', file=sys.stderr)
+        return 2
+    if args.action != 'status' and not sys.flags.dont_write_bytecode:
+        print('Run as sudo python3 -B -m robot_platform.ops.cpu_partition, so no root-owned bytecode is left '
+              'in the release.', file=sys.stderr)
         return 2
     try:
         report = {'install': install, 'remove': remove, 'status': status}[args.action]()

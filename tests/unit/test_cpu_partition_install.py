@@ -1,6 +1,7 @@
 """ops.cpu_partition on a host directory: the cameras are confined and checked before the partition file the
 loop reads appears, and the file goes first when the split is removed."""
 import os
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -119,6 +120,10 @@ def test_only_root_changes_the_units(monkeypatch, capsys):
     monkeypatch.setattr(os, 'geteuid', lambda: 1000, raising=False)
     assert installer.main(['install']) == 2 and installer.main(['remove']) == 2
     assert 'run them with sudo' in capsys.readouterr().err
+    # As root, only without bytecode: root-owned caches in the release would block pruning it.
+    monkeypatch.setattr(os, 'geteuid', lambda: 0, raising=False)
+    monkeypatch.setattr(sys, 'flags', SimpleNamespace(dont_write_bytecode=False))
+    assert installer.main(['install']) == 2 and 'python3 -B' in capsys.readouterr().err
 
 
 def test_cpu_lists_read_as_the_kernel_writes_them():
