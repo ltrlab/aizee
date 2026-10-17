@@ -24,14 +24,21 @@ from robot_platform.simulation.task_scene import CAMERAS
 LANGUAGE = 'Pick up the cube, pass it to the other gripper, then drop it into the bucket'
 
 
-class EpisodeRecorder:
-    """Records one trial at `hz` (scene time) into `directory`; publishes it only if the trial succeeded."""
+APPEARANCE = {'light': .3, 'color': .1, 'camera_shift': .01, 'camera_turn_deg': 2.}
 
-    def __init__(self, directory, *, hz=15., camera_roles=CAMERAS, metadata=None):
+
+class EpisodeRecorder:
+    """Records one trial at `hz` (scene time) into `directory`; publishes it only if the trial succeeded.
+
+    `appearance` (MinervaTaskScene.randomize_appearance's bounds) varies each episode's lights, colours and camera
+    places, from a generator seeded by `seed` and the trial; None keeps the scene's own look."""
+
+    def __init__(self, directory, *, hz=15., camera_roles=CAMERAS, metadata=None, appearance=None, seed=0):
         if not 0 < hz <= 50:
             raise ValueError('record rate must be in (0, 50] Hz')
         self.directory, self.hz, self.camera_roles = Path(directory), float(hz), tuple(camera_roles)
         self.metadata = dict(metadata or {})
+        self.appearance, self.seed, self.scene = appearance, int(seed), None
         self.writer = None
         self.next_at = 0.
         self.frames = 0
@@ -39,7 +46,15 @@ class EpisodeRecorder:
 
     def start(self, scene, plant, context, policy):
         from robot_platform.data.task_capture import TaskEpisodeWriter
+        self.scene = scene
+        looks = None
+        if self.appearance is not None:
+            cube = context.cube_start
+            rng = np.random.default_rng([self.seed, int(context.index), int(round(cube['x'] * 1e6) % 2**31),
+                                         int(round(cube['y'] * 1e6) % 2**31)])
+            looks = scene.randomize_appearance(rng, **self.appearance)
         metadata = dict(self.metadata, data_source='simulation', evidence='synthetic', run_id=scene.run_id,
+                        appearance=looks,
                         collection_mode='scripted_demonstrator', language_instruction=LANGUAGE,
                         scene=scene.capabilities, plant=plant.describe(),
                         demonstrator=getattr(policy, 'describe', lambda: {})(),
@@ -72,6 +87,9 @@ class EpisodeRecorder:
         `last_path`, with the frame count as `last_frames`."""
         writer, self.writer = self.writer, None
         self.last_path, self.last_frames = None, self.frames
+        if self.scene is not None:
+            self.scene.restore_appearance()
+            self.scene = None
         if writer is None:
             return None
         if record.get('outcome') == 'success' and record.get('eligible') and self.frames >= 2:
@@ -93,7 +111,7 @@ def _plain(value):
     raise TypeError(f'not JSON: {type(value).__name__}')
 
 
-def generate(policy, config, out, *, episodes, stack=None, hz=15., progress=None):
+def generate(policy, config, out, *, episodes, stack=None, hz=15., appearance=APPEARANCE, progress=None):
     """Run trials over `config.grid`'s cube poses (cycling with fresh seeds) until `episodes` succeed or every pose
     of `max(2 * episodes, 10)` attempts has been tried. Writes the episodes and manifest.jsonl under `out`."""
     from dataclasses import replace
@@ -103,8 +121,9 @@ def generate(policy, config, out, *, episodes, stack=None, hz=15., progress=None
     out.mkdir(parents=True, exist_ok=True)
     progress = progress or (lambda line: None)
     runner = TrialRunner(config, stack=stack, directory=out / 'receiver', progress=progress)
-    recorder = EpisodeRecorder(out / 'episodes', hz=hz, metadata={'generator': {
-        'git': git_identity(), 'run_config': config.describe(), 'record_hz': hz}})
+    recorder = EpisodeRecorder(out / 'episodes', hz=hz, appearance=appearance, seed=config.grid.seed,
+                               metadata={'generator': {'git': git_identity(), 'run_config': config.describe(),
+                                                       'record_hz': hz, 'appearance_bounds': appearance}})
     made, attempts, seed = [], 0, config.grid.seed
     manifest = (out / 'manifest.jsonl').open('a', encoding='utf-8')
     try:

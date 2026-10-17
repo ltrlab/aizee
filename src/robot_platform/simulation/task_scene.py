@@ -702,6 +702,58 @@ class MinervaTaskScene:
             images[name] = self._renderer.render().copy()
         return images, {name: float(data.time) for name in camera_roles}
 
+    def randomize_appearance(self, rng, *, light=.3, color=.1, camera_shift=.01, camera_turn_deg=2.):
+        """Vary what the cameras see, not the physics: the lights' strength (x U[1-light, 1+light]), the workcell's
+        and the cube's colours (each channel x U[1-color, 1+color]), and every camera's place (+/- camera_shift m per
+        axis) and aim (a turn of up to camera_turn_deg about a random axis). Each call starts from the scene's own
+        appearance. Returns what it chose, for the episode's metadata."""
+        mj, model = self.mj, self.model
+        if not hasattr(self, "_appearance"):
+            self._appearance = {"light_diffuse": model.light_diffuse.copy(), "light_ambient": model.light_ambient.copy(),
+                                "headlight": (np.array(model.vis.headlight.ambient), np.array(model.vis.headlight.diffuse)),
+                                "geom_rgba": model.geom_rgba.copy(), "cam_pos": model.cam_pos.copy(),
+                                "cam_quat": model.cam_quat.copy()}
+        self.restore_appearance()
+        original = self._appearance
+        scale = rng.uniform(1 - light, 1 + light)
+        model.light_diffuse[:] = np.clip(original["light_diffuse"] * scale, 0, 1)
+        model.light_ambient[:] = np.clip(original["light_ambient"] * scale, 0, 1)
+        model.vis.headlight.ambient[:] = np.clip(original["headlight"][0] * scale, 0, 1)
+        model.vis.headlight.diffuse[:] = np.clip(original["headlight"][1] * scale, 0, 1)
+        tinted = {}
+        for gid in [*self._environment_ids, self.cube_geom, self._id("geom", "task/floor")]:
+            factor = rng.uniform(1 - color, 1 + color, size=3)
+            model.geom_rgba[gid, :3] = np.clip(original["geom_rgba"][gid, :3] * factor, 0, 1)
+            tinted[mj.mj_id2name(model, mj.mjtObj.mjOBJ_GEOM, gid)] = factor.round(4).tolist()
+        cameras = {}
+        for cid in range(model.ncam):
+            shift = rng.uniform(-camera_shift, camera_shift, size=3)
+            axis = rng.normal(size=3)
+            axis /= np.linalg.norm(axis)
+            angle = math.radians(rng.uniform(0, camera_turn_deg))
+            turn = np.array([math.cos(angle / 2), *(math.sin(angle / 2) * axis)])
+            quat = np.empty(4)
+            mj.mju_mulQuat(quat, original["cam_quat"][cid], turn)
+            model.cam_pos[cid] = original["cam_pos"][cid] + shift
+            model.cam_quat[cid] = quat / np.linalg.norm(quat)
+            cameras[mj.mj_id2name(model, mj.mjtObj.mjOBJ_CAMERA, cid)] = {
+                "shift_m": shift.round(5).tolist(), "turn_deg": round(math.degrees(angle), 4),
+                "axis": axis.round(4).tolist()}
+        return {"light_scale": round(float(scale), 4), "color_factors": tinted, "cameras": cameras,
+                "bounds": {"light": light, "color": color, "camera_shift_m": camera_shift,
+                           "camera_turn_deg": camera_turn_deg}}
+
+    def restore_appearance(self):
+        """The scene's own lights, colours and camera places."""
+        original = getattr(self, "_appearance", None)
+        if original is None:
+            return
+        model = self.model
+        model.light_diffuse[:], model.light_ambient[:] = original["light_diffuse"], original["light_ambient"]
+        model.vis.headlight.ambient[:], model.vis.headlight.diffuse[:] = original["headlight"]
+        model.geom_rgba[:] = original["geom_rgba"]
+        model.cam_pos[:], model.cam_quat[:] = original["cam_pos"], original["cam_quat"]
+
     def close(self):
         if self._renderer is not None:
             self._renderer.close()

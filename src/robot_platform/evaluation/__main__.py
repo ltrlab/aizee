@@ -88,9 +88,11 @@ def generate(args):
                        camera_size=(width, height), visual_mode=args.visual_mode, workcell=args.workcell,
                        grippers='driven')
     out = Path(args.out) if args.out else ROOT / 'build/generated' / time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
+    appearance = None if args.same_look else {'light': args.light, 'color': args.color,
+                                                'camera_shift': args.camera_shift, 'camera_turn_deg': args.camera_turn}
     made, attempts = run_generation(load_policy(args.policy), config, out, episodes=args.episodes,
                                     stack=derive_stack(profile=args.profile, directions=args.directions), hz=args.hz,
-                                    progress=lambda line: print(line, flush=True))
+                                    appearance=appearance, progress=lambda line: print(line, flush=True))
     print(f'{len(made)} episodes from {attempts} attempts: {out / "episodes"} (manifest {out / "manifest.jsonl"})')
     return 0 if made else 1
 
@@ -181,6 +183,11 @@ def parser():
     n.add_argument('--visual-mode', choices=('cad', 'collision_proxy'), default='cad',
                    help='camera appearance (default cad: the full CAD visuals)')
     n.add_argument('--timeout', type=float, default=70., help='seconds per attempt (default 70)')
+    n.add_argument('--light', type=float, default=.3, help='light strength varies by up to this fraction (default .3)')
+    n.add_argument('--color', type=float, default=.1, help='workcell and cube colours vary by this fraction (default .1)')
+    n.add_argument('--camera-shift', type=float, default=.01, help='cameras move up to this far per axis, m (default .01)')
+    n.add_argument('--camera-turn', type=float, default=2., help='cameras turn up to this far, degrees (default 2)')
+    n.add_argument('--same-look', action='store_true', help="keep the scene's own lights, colours and camera places")
     n.add_argument('--profile', default='minerva-teleop-direct.json', help='collision-disabled teleop profile')
     n.add_argument('--directions', help="a Helm direction session's session.json (default: documented directions)")
     n.add_argument('--plant-seed', type=int, default=1, help='simulated feedback noise seed (default 1)')

@@ -24,6 +24,15 @@ Cube starts come from the evaluation grid over the workcell's cube region, but:
 
 So generated poses never repeat the evaluation grid at its default seed 0. Set `--grid`, `--jitter` and `--yaw` to spread them. When a seed's cells are used up, the next seed draws new jitter in the same cells.
 
+## Appearance
+
+Unless `--same-look` is given, each episode gets its own look from `MinervaTaskScene.randomize_appearance`, seeded by the grid seed, the trial and its cube start:
+- the lights' strength x U[1-light, 1+light];
+- the workcell's, floor's and cube's colours, each channel x U[1-color, 1+color];
+- each camera's place, +/- `--camera-shift` m per axis and a turn of up to `--camera-turn` degrees.
+
+The defaults are 0.3, 0.1, 1 cm and 2 degrees. The values chosen go into the episode's metadata as `appearance`. Only what the cameras see changes: geometry, friction, masses and contacts are untouched (`tests/unit/test_scene_appearance.py`). Camera poses are not calibrated, so spreading them keeps a policy from depending on one guessed view.
+
 ## What an episode says about itself
 
 `data_source` simulation, `evidence` synthetic, `authority` policy on every row, and `collection_mode` scripted_demonstrator. The metadata also includes:
