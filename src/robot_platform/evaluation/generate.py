@@ -86,7 +86,8 @@ class EpisodeRecorder:
         """The published episode's path for a successful, eligible trial; None (and no file) otherwise. Also kept as
         `last_path`, with the frame count as `last_frames`."""
         writer, self.writer = self.writer, None
-        self.last_path, self.last_frames = None, self.frames
+        # A trial whose policy failed before the recording started (its plan, say) recorded nothing.
+        self.last_path, self.last_frames = None, self.frames if writer is not None else 0
         if self.scene is not None:
             self.scene.restore_appearance()
             self.scene = None
