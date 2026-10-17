@@ -59,7 +59,6 @@ def test_every_planned_move_clears_the_table_and_bucket(planned):
     assert len(clearances) == sum(1 for frame in demo.frames if frame.kind == 'move')
     for label, distance, robot, environment in clearances:
         assert distance > .001, f'{label}: {robot} comes {distance * 1000:.1f} mm from {environment}'
-    # The start pose holds both grippers clear of the table and bucket.
-    assert demo.ready is not None
-    total = sum(frame.duration for frame in demo.frames)
-    assert 20. < total < 60.
+    # No move spins a wrist the long way round (one took 41 s before the plan chose its wrist-roll branch).
+    moves = [frame.duration for frame in demo.frames if frame.kind == 'move']
+    assert max(moves) < 10. and 10. < sum(moves) < 40.

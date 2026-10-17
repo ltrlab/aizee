@@ -70,7 +70,11 @@ SLOW = .15  # rad/s on approaches and lifts.
 SETTLE_TOLERANCE = .004  # rad: a pose is held once every joint of the moving arm is this close ...
 SETTLE_TIMEOUT = 1.5  # ... or after this long.
 CORRECTION_GAIN, CORRECTION_LIMIT = .1, .03  # Integral correction toward a held pose (fraction per cycle, rad).
-GRIP_WAIT = .6  # s for a gripper to close or open.
+# A gripper step ends once that gripper's reading has moved less than GRIP_STILL over the last GRIP_SETTLE (stalled
+# on the cube, or open), after at least GRIP_MIN and at most GRIP_WAIT. A fixed wait let the left open before the
+# right had both jaws on the cube: the right needs more than 0.6 s to close from open at the receiver's gripper
+# gains. Position, not the speed reading, which carries the drives' noise.
+GRIP_MIN, GRIP_SETTLE, GRIP_WAIT, GRIP_STILL = .3, .2, 3., .01  # s, s, s, rad
 
 
 def direction(azimuth, elevation):
@@ -351,8 +355,8 @@ class HandoffDemonstrator:
                                         fingers['left'])}, 'left retreats', slow=True))
         carry = direction(*CARRY_FINGER)
         # The right rolls over to the drop's housing side here, clear of the bucket, not on the way to it.
-        add(self._move(q, {'right': pose(handoff + [0., 0., CARRY_RISE], carry, DROP_HOUSING)}, 'right lifts',
-                       slow=True))
+        # In free space, at transit speed: this move includes the half-turn roll.
+        add(self._move(q, {'right': pose(handoff + [0., 0., CARRY_RISE], carry, DROP_HOUSING)}, 'right lifts'))
         drop = direction(*DROP_FINGER)
         above = [workcell.bucket_center[0] + DROP_OFFSET[0], workcell.bucket_center[1] + DROP_OFFSET[1],
                  top + workcell.bucket_height + DROP_CLEARANCE]
@@ -375,7 +379,7 @@ class HandoffDemonstrator:
             elif frame.kind == 'hold':
                 frame.duration = SETTLE_TIMEOUT
         self.frames = frames
-        self.current, self.started = 0, 0.
+        self.current, self.started, self.grip_trace = 0, 0., []
         self.log = []
 
     def start_pose(self, context):
@@ -409,13 +413,18 @@ class HandoffDemonstrator:
         frame = self.frames[self.current]
         elapsed = t - self.started
         done = elapsed >= frame.duration - 1e-9
+        if frame.kind == 'grip' and frame.arm is not None and not done:
+            self.grip_trace.append((t, float(q[self.names.index(f'{frame.arm}_gripper')])))
+            recent = [value for at, value in self.grip_trace if at >= t - GRIP_SETTLE - 1e-9]
+            done = (elapsed >= GRIP_MIN and self.grip_trace[0][0] <= t - GRIP_SETTLE + 1e-9
+                    and max(recent) - min(recent) < GRIP_STILL)
         if frame.kind == 'hold' and not done:
             joints = self.arms[frame.arm]
             done = float(np.abs(frame.target[joints] - q[joints]).max()) < SETTLE_TOLERANCE
         if done and self.current < len(self.frames) - 1:
             self.log.append((frame.label, round(t, 3)))
             self.current += 1
-            self.started = t
+            self.started, self.grip_trace = t, []
             frame, elapsed = self.frames[self.current], 0.
         if frame.kind == 'move':
             s = min(1., elapsed / frame.duration)

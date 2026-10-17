@@ -44,8 +44,9 @@ Every pose below came out of a reach or clearance check, not a guess. The script
 - **Straight-line moves.** Each move takes the pads in a straight line while the gripper turns evenly, solved every 1 cm from the last solution. Where an arm cannot follow the line, the move falls back to joint interpolation in 0.02 rad steps. The roll to the handoff and the right's lift do this.
 - **Wrist-roll branches.** The start pose is tried on each wrist-roll branch (the same pose a turn apart), and the plan with the fewest fallbacks, then the shortest, is kept.
 - **Grasps.** The jaws open to the cube plus 2 cm each side and close 1 rad past touching, so the drive squeezes with kp x 1 rad.
+- **Gripper steps.** A gripper step ends once that gripper's reading has moved less than 0.01 rad over 0.2 s (stalled on the cube, or open), after at least 0.3 s and at most 3 s. A fixed 0.6 s wait let the left open before the right had both jaws on the cube, because the right needs about 1 s to close from open at the receiver's gripper gains. The two grippers then overlapped for 40 ms, short of the 50 ms the scene requires of a handoff, so 4 of 10 trials ended out of sequence. The settle test reads position: the speed reading carries the drives' noise.
 - **Holds.** Holds correct toward the pose (at most 0.03 rad) until the arm settles within 0.004 rad or 1.5 s pass.
-- **Speed.** Moves run at up to 0.5 rad/s per joint in transit and 0.15 rad/s on approaches and lifts.
+- **Speed.** Moves run at up to 0.5 rad/s per joint in transit and 0.15 rad/s on approaches and lifts. The right's lift at the handoff, which includes its half-turn roll, runs at transit speed in free space.
 
 ## Where the cube can be
 
@@ -60,10 +61,12 @@ The workcell's cube region is now x 0.02-0.26 m, y -0.32 to -0.50 m, inside that
 
 Through the receiver with driven grippers on the measured bench:
 
-- **Nominal cube start (0.15, -0.35):** success. Pickup at 5.6 s, handoff at 15.9 s, bucket settled at 44.0 s, with no clipped commands. `tests/contract/test_demonstrator.py` runs this trial.
+- **Nominal cube start (0.15, -0.35):** success. Pickup at 6.0 s, handoff at 16.7 s, bucket settled at 32.5 s, with no clipped commands. `tests/contract/test_demonstrator.py` runs this trial.
 - **Default 3x3 grid, first placeholder region:** 5/10 succeeded (Wilson 95% 0.24-0.76).
   - Every trial that planned succeeded.
   - The other five could not plan their pick, at the region's far edge (y -0.41 to -0.42) and near edge (y -0.28), at x 0.08-0.22.
+- **Default 3x3 grid, reachable region, with the alternative grasp orientations:** 6/10. The other 4 ended out of sequence: the cube reached the bucket but the scene saw no handoff (see "Gripper steps").
+- **The same grid with the gripper settle test:** 10/10 succeeded (Wilson 95% 0.72-1.00), median time to complete 46.1 s (p90 46.8 s). With the right's lift at transit speed, also 10/10, median 32.0 s (p90 32.7 s).
 
 ## Limits
 
