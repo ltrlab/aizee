@@ -20,9 +20,10 @@
 - **Shared interfaces held fixed.** The receiver, lifecycle, approach and collision contract (only `approach.end_margin` is read), the episode writer and format 8, and the policy interface (`policy(observation) -> (H, 14)`).
   - **Additive changes:** `MinervaTaskScene(workcell=, grippers=)`, `RunConfig(workcell, grippers, latency_s, actuator_spread, appearance, disturbance_seed)`, `TrialContext.workcell`, `TrialContext.lead`, `run_trial(recorder=)`, `open_simulation(workcell=)`, `helm --sim-workcell`, `run --camera-size/--visual-mode`.
   - **Behaviour change:** the harness clips commands into the receiver's usable range instead of the full range.
-- **Dependencies / integration order.** Merge `claude/sim-demonstrator`; nothing else depends on it. Two notes for the training side (Gemini), which reads format-8 episodes:
+- **Dependencies / integration order.** Merge `claude/sim-demonstrator`; nothing else depends on it. Notes for the training side (Gemini), which reads format-8 episodes:
   - The generated episodes carry `policy` authority on every row. `python/training/minerva_dataset.py` trains on human and correction rows by default, so it rejects them ("No valid training frames found"); allowing `policy` explicitly loads one episode as 658 samples. See [SIM_GENERATION.md](SIM_GENERATION.md).
   - `python/training/build_lang_cache.py` globs only `episode_*.hdf5` and misses format-8 `task_episode_*.hdf5`.
+  - A checkpoint's `ready_pose`, where `MinervaCheckpointPolicy` starts, is the mean of the training episodes' start poses. The 120 generated episodes start on two wrist-roll branches a turn apart (left J5 at -3.14 rad in 85, +3.14 in 35). Their mean, -1.31 rad, is a pose none of them had, and a trial staged there starts with the left gripper's pads 6.9 mm in the table. Human demonstrations from one hanging pose may not show this; a mode or medoid of the starts would be safe either way.
 - **Required behavior:**
   - With the default synthetic workcell, the scene compiles to the same geometry as before (all 103 geoms compared array by array).
   - A driven gripper stops on the cube with torque kp x shortfall, clipped to `max_effort`, and pads within 0.5 mm.
