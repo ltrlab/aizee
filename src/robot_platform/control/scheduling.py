@@ -7,18 +7,78 @@ The loop, its receiver process and the leader link server opt out explicitly,
 and a process applying the hints to itself also asks for 1 ms timer resolution.
 Nothing here needs elevation; a failed hint leaves the operating-system default
 in place.
+
+On Minerva's Jetson the camera services shared all six cores with the loop and
+its receiver, and their load stretched the loop's cycles until a command
+expired (2026-10-17). A host with a CPU partition installed (PARTITION, written
+by ops.cpu_partition with the camera services' CPUAffinity) keeps every thread
+of a control process on the partition's control CPUs, and prefer_background
+moves camera-side work, such as live task capture, onto the others. Without the
+file nothing moves: control CPUs only help where the cameras keep off them.
 """
+import json
 import os
+from pathlib import Path
 import sys
 
 HIGH_PRIORITY_CLASS = 0x80
 PROCESS_SET_INFORMATION = 0x0200
 PROCESS_POWER_THROTTLING = 4  # PROCESS_INFORMATION_CLASS.ProcessPowerThrottling
 THROTTLE_EXECUTION_SPEED, THROTTLE_IGNORE_TIMER_RESOLUTION = 0x1, 0x4
+PARTITION = '/etc/minerva/cpu-partition.json'
+PROC = Path('/proc')
+
+
+def cpu_partition(path=None):
+    """The host's installed CPU split as (control, background) sets, or None where there is none."""
+    path = Path(path or PARTITION)
+    try:
+        split = json.loads(path.read_text(encoding='utf-8'))
+    except FileNotFoundError:
+        return None
+    control, background = (split.get(key) if isinstance(split, dict) else None for key in ('control', 'background'))
+    if not all(isinstance(cpus, list) and cpus and all(type(cpu) is int and cpu >= 0 for cpu in cpus)
+               for cpus in (control, background)) or set(control) & set(background):
+        raise ValueError(f'{path}: control and background must be disjoint, non-empty lists of CPU numbers')
+    return frozenset(control), frozenset(background)
+
+
+def pin_threads(cpus, pid=None):
+    """Move every thread of process `pid` (default: this one) onto `cpus`; False if the system refused.
+
+    Threads started later inherit their creator's CPUs, and so do child processes such as a receiver."""
+    tasks = PROC / str(pid or os.getpid()) / 'task'
+    for _ in range(5):  # A thread started during a pass by one not yet moved is caught by the next.
+        moved = False
+        try:
+            threads = [int(task.name) for task in tasks.iterdir()]
+        except FileNotFoundError:
+            return False
+        for thread in threads:
+            try:
+                if os.sched_getaffinity(thread) != cpus:
+                    os.sched_setaffinity(thread, cpus)
+                    moved = True
+            except ProcessLookupError:
+                continue  # That thread has ended.
+            except OSError:
+                return False
+        if not moved:
+            return True
+    return False
+
+
+def prefer_background(pid=None):
+    """Keep work that must not delay a control loop (camera decoding, episode writing) off its CPUs."""
+    partition = cpu_partition() if sys.platform.startswith('linux') else None
+    return ['background_cpus'] if partition and pin_threads(partition[1], pid) else []
 
 
 def prefer_responsive(pid=None):
     """Apply the hints to process `pid` (default: this one); return those that took."""
+    if sys.platform.startswith('linux'):
+        partition = cpu_partition()
+        return ['control_cpus'] if partition and pin_threads(partition[0], pid) else []
     if sys.platform != 'win32':
         return []
     import ctypes

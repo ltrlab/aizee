@@ -348,8 +348,10 @@ def test_web_endpoints_drive_teleop_and_take_the_motors_from_the_reader(tmp_path
         session.close()
 
 
-def test_scheduling_hints_apply_to_another_process():
+def test_scheduling_hints_apply_to_another_process(tmp_path, monkeypatch):
     import ctypes
+    from robot_platform.control import scheduling
+    monkeypatch.setattr(scheduling, 'PARTITION', str(tmp_path / 'none.json'))  # Linux: no CPU split here.
     child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
     try:
         applied = prefer_responsive(child.pid)
@@ -377,13 +379,19 @@ def test_scheduling_hints_applied_to_itself_use_the_platform_contract():
     result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, timeout=60,
                             env={**os.environ, 'PYTHONPATH': str(Path(__file__).resolve().parents[2] / 'src')})
     assert result.returncode == 0, result.stderr
-    expected = ['no_power_throttling', 'high_priority', 'timer_1ms'] if sys.platform == 'win32' else []
+    from robot_platform.control.scheduling import cpu_partition
+    expected = (['no_power_throttling', 'high_priority', 'timer_1ms'] if sys.platform == 'win32'
+                else ['control_cpus'] if sys.platform.startswith('linux') and cpu_partition() else [])
     assert [hint for hint in result.stdout.strip().split(',') if hint] == expected, result.stderr
 
 
-def test_scheduling_hints_are_a_no_op_elsewhere(monkeypatch):
-    monkeypatch.setattr(sys, 'platform', 'linux')
-    assert prefer_responsive() == []
+def test_scheduling_hints_are_a_no_op_elsewhere(tmp_path, monkeypatch):
+    """Elsewhere: Linux without a CPU partition installed (tests/unit/test_cpu_partition.py), or another OS."""
+    from robot_platform.control import scheduling
+    monkeypatch.setattr(scheduling, 'PARTITION', str(tmp_path / 'none.json'))
+    for platform in ('linux', 'darwin'):
+        monkeypatch.setattr(sys, 'platform', platform)
+        assert prefer_responsive() == [] and scheduling.prefer_background() == []
 
 
 def test_a_silent_helm_ends_the_loop_after_lowering_the_arm():

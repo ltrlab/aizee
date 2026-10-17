@@ -204,5 +204,11 @@ def _worker(*, factory=None, input_stream=None, output_stream=None):
                 pass
 
 
-if __name__ == '__main__':
+def main():
+    from robot_platform.control.scheduling import prefer_background
+    prefer_background()  # Started by the robot's loop, this process would otherwise share its control CPUs.
     _worker()
+
+
+if __name__ == '__main__':
+    main()

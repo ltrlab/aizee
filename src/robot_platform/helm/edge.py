@@ -152,8 +152,8 @@ def prepare(start, root=ROOT, *, leaders=True):
     return bundle, link
 
 
-def serve(start, commands, views, *, root=ROOT, core_factory=None):
-    """One session after its start frame; returns when the loop ends."""
+def serve(start, commands, views, *, root=ROOT, core_factory=None, scheduling=None):
+    """One session after its start frame; returns when the loop ends. `scheduling`: the hints main applied."""
     from .teleop import TeleopCore, run_loop
     tune = (start.get('bundle') or {}).get('kind') == 'tune'
     # A Helm that beats says how long a silence ends the session; an older one never beats.
@@ -168,7 +168,10 @@ def serve(start, commands, views, *, root=ROOT, core_factory=None):
     if tune:
         from .tune import TuneCore, run_tune_loop
         views.send(['link', 0])  # No leaders: the sweep plans its own motion.
-        run_tune_loop(commands, views, (core_factory or TuneCore)(bundle), silence_s=silence)
+        core = (core_factory or TuneCore)(bundle)
+        if scheduling is not None:
+            core.scheduling['loop'] = scheduling
+        run_tune_loop(commands, views, core, silence_s=silence)
         return 0
     views.send(['link', link.address[1]])
 
@@ -177,12 +180,18 @@ def serve(start, commands, views, *, root=ROOT, core_factory=None):
         return link
 
     core = (core_factory or TeleopCore)(bundle, open_leaders=open_leaders)
+    if scheduling is not None:
+        core.scheduling['loop'] = scheduling
     run_loop(commands, views, core, silence_s=silence)
     return 0
 
 
 def main():
     import signal
+    from robot_platform.control.scheduling import prefer_responsive
+    # First, before the session starts its threads: they, the receiver and any other child inherit the host's
+    # control CPUs (control.scheduling). Live task capture moves itself back off them.
+    scheduling = prefer_responsive()
     # A dropped channel must still let the loop close the receiver cleanly.
     signal.signal(signal.SIGHUP, signal.SIG_IGN)
     stdin, stdout = sys.stdin.buffer, sys.stdout.buffer
@@ -193,7 +202,7 @@ def main():
         return 1
     commands = Inbox()
     threading.Thread(target=lambda: commands.end(pump(stdin, commands)), daemon=True, name='edge-commands').start()
-    return serve(start, commands, Outbox(stdout))
+    return serve(start, commands, Outbox(stdout), scheduling=scheduling)
 
 
 # -- PC side ---------------------------------------------------------------------------
