@@ -83,6 +83,35 @@ def connect(profile_path=DEFAULT_PROFILE, *, address=TETHER, timeout=8.):
     return client
 
 
+
+def open_command(client, command, *, timeout=3.):
+    """Bound exec-request acknowledgment as well as channel-open/I/O timeouts.
+
+    Paramiko's Channel._wait_for_event does not use its socket timeout. Closing
+    this dedicated client interrupts a stalled acknowledgment before it returns
+    a channel. Only camera helpers use this wrapper; control transports are unchanged.
+    """
+    expired = threading.Event()
+    def expire():
+        expired.set()
+        client.close()
+    watchdog = threading.Timer(timeout, expire)
+    watchdog.daemon = True
+    watchdog.start()
+    try:
+        result = client.exec_command(command, timeout=timeout)
+    except BaseException as exc:
+        if expired.is_set():
+            raise TimeoutError('SSH command startup timed out') from exc
+        raise
+    finally:
+        watchdog.cancel()
+        watchdog.join()
+    if expired.is_set():
+        raise TimeoutError('SSH command startup timed out')
+    return result
+
+
 def run(client, command, *, timeout=60., stdin=None):
     """(exit status, stdout, stderr) of one remote command."""
     channel_in, out, err = client.exec_command(command, timeout=timeout)
