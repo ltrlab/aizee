@@ -40,6 +40,10 @@ The `armplant` clock is stepped: runs are deterministic and faster than real tim
 
 Outcomes are read from the scene's events (`pickup`, `handoff`, `bucket_settled`, `dropped_outside_bucket`, `forbidden_robot_environment_penetration`), never re-derived; `trials.jsonl` keeps those events verbatim.
 
+## Cameras
+
+A policy with `camera_roles` gets them rendered into its observation at `--camera-size` (default 160x120) in `--visual-mode` (default `collision_proxy`). Generated episodes record 320x240 CAD views ([SIM_GENERATION.md](SIM_GENERATION.md)), so evaluate a checkpoint trained on them with `--camera-size 320x240 --visual-mode cad`.
+
 ## Disturbances
 
 A policy that passes in a sim exactly like its training data can still fail on the robot. Three disturbances, each drawn per trial from `--disturbance-seed` and the trial's index, test how much margin it has:

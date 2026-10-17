@@ -63,8 +63,10 @@ def run(args):
     from .plants import derive_stack
     from .runner import RunConfig, evaluate
     policy = load_policy(args.policy)
+    width, height = parse_counts(args.camera_size)
     config = RunConfig(plant=args.plant, timeout_s=args.timeout, grid=_grid(args),
                        trials=None if args.trials is None else tuple(int(i) for i in args.trials.split(',')),
+                       camera_size=(width, height), visual_mode=args.visual_mode,
                        plant_seed=args.plant_seed, scene_pose=args.scene_pose, workcell=args.workcell,
                        grippers=args.grippers, latency_s=args.latency, actuator_spread=args.actuator_spread,
                        appearance=APPEARANCE if args.vary_look else None, disturbance_seed=args.disturbance_seed)
@@ -179,6 +181,10 @@ def parser():
     r.add_argument('--grippers', choices=('kinematic', 'driven'), default='kinematic',
                    help='kinematic: posed like the arms (default); driven: the grippers move under their drives in '
                         'the scene and stall on the cube, and the receiver reads that back (armplant only)')
+    r.add_argument('--camera-size', default='160x120',
+                   help="the policy's rendered camera size WxH (default 160x120; generated episodes record 320x240)")
+    r.add_argument('--visual-mode', choices=('cad', 'collision_proxy'), default='collision_proxy',
+                   help="what the policy's cameras see (default collision_proxy; generated episodes record cad)")
     _grid_arguments(r)
     r.set_defaults(handler=run)
     n = sub.add_parser('generate', help='record synthetic demonstrations: the episodes a demonstrator completes')
