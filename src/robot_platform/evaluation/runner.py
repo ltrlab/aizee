@@ -43,6 +43,7 @@ from .grid import GridSpec, cube_poses
 from .plants import PlantFault, derive_stack, open_plant
 
 MAX_SCENE_STEP_S = .1  # MinervaTaskScene.update's largest dt.
+GRIPPERS = ('kinematic', 'driven')
 
 
 @dataclass
@@ -57,13 +58,22 @@ class RunConfig:
     camera_size: tuple = (160, 120)
     visual_mode: str = 'collision_proxy'
     workcell: object = None  # simulation.workcell: None or 'synthetic', a Workcell, or a workcell file's path.
+    # 'kinematic': the grippers are posed like the arms. 'driven': the armplant's grippers move in the scene under
+    # their drives, stall on the cube, and the receiver reads that back (MinervaTaskScene.step_driven).
+    grippers: str = 'kinematic'
+
+    def __post_init__(self):
+        if self.grippers not in GRIPPERS:
+            raise ValueError(f'grippers is one of {GRIPPERS}')
+        if self.grippers == 'driven' and self.plant != 'armplant':
+            raise ValueError('driven grippers need the armplant plant: the ideal plant sends no drive commands')
 
     def describe(self):
         return {'plant': self.plant, 'timeout_s': self.timeout_s, 'staging_timeout_s': self.staging_timeout_s,
                 'grid': self.grid.describe(), 'trials': None if self.trials is None else list(self.trials),
                 'plant_seed': self.plant_seed, 'scene_pose': self.scene_pose,
                 'camera_size': list(self.camera_size), 'visual_mode': self.visual_mode,
-                'workcell': resolve_workcell(self.workcell).name}
+                'workcell': resolve_workcell(self.workcell).name, 'grippers': self.grippers}
 
 
 @dataclass
@@ -158,9 +168,10 @@ class TrialRunner:
     def _open_scene(self):
         if self.scene is None:
             width, height = self.config.camera_size
+            drives = self._open_plant().gripper_drives() if self.config.grippers == 'driven' else None
             self.scene = MinervaTaskScene(self.stack['derived']['joint_map'], self.stack['names'], width=width,
                                           height=height, visual_mode=self.config.visual_mode,
-                                          workcell=self.config.workcell)
+                                          workcell=self.config.workcell, grippers=drives)
         return self.scene
 
     def close(self):
@@ -235,6 +246,10 @@ class TrialRunner:
             problem = self._place_cube(pose)
             if problem:
                 return self._excluded(record, problem, staged)
+            if scene.driven:
+                # The reset placed the scene's gripper drives where the plant's grippers are; from here on the
+                # scene moves them, tick by tick, inside plant.step.
+                plant.couple(scene)
             action_dt = float(getattr(policy, 'action_dt', None) or plant.period_s)
             execute = getattr(policy, 'execute_steps', None)
             roles = tuple(getattr(policy, 'camera_roles', None) or ())
@@ -258,7 +273,9 @@ class TrialRunner:
                 clipped += int(np.any(bounded != command))
                 q, dt = plant.step(bounded)
                 tracking = np.maximum(tracking, np.abs(q - bounded))
-                if dt > 0:
+                if getattr(plant, 'coupled', False):
+                    state = scene.snapshot()  # The plant's ticks already stepped the scene.
+                elif dt > 0:
                     state = self._advance_scene(q, dt)
                 t = float(scene.data.time)
                 if state and (state['forbidden_contacts'] or state['dropped'] or state['bucket_settled']):
@@ -274,6 +291,9 @@ class TrialRunner:
         except RuntimeError as exc:
             # MuJoCo numerical warning: the scene quarantines the episode.
             aborted = f'scene: {exc}'
+        finally:
+            if self.plant is not None and getattr(self.plant, 'coupled', False):
+                self.plant.decouple()
         # Events belong to this trial only once its reset happened.
         state = scene.snapshot() if ready else {'events': [], 'scene_time': 0., 'run_id': None}
         stages, outcome, eligible, detail = trial_records.outcome_from_events(state['events'], timed_out=timed_out,

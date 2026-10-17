@@ -36,6 +36,17 @@ BUCKET_HALF = SYNTHETIC.bucket_inner[0] / 2
 BUCKET_HEIGHT = SYNTHETIC.bucket_height
 PHYSICS_DT = .0005
 MAX_SOURCE_GAP_S = .25
+# Driven grippers: the rotor's inertia rides on the drive hinge as armature. The rotor and jaw bodies need some mass
+# to move at all; these are deliberately tiny next to the reflected rotor inertia (0.002 kg m2 at the motor is about
+# 24 kg at a jaw through 9.2 mm/rad). The gear train is held as stiff as the physics step resolves.
+DRIVE_BODY_MASS, DRIVE_BODY_INERTIA = 1e-3, 1e-8
+JAW_BODY_MASS, JAW_BODY_INERTIA = 1e-3, 1e-8
+# MuJoCo's soft constraints are acceleration-level: with a light jaw, a default-impedance coupling stretches
+# millimetres under a few newtons. Near-unit impedance holds the gear train, and a 1 ms contact time constant keeps
+# the pads within a fraction of a millimetre of the cube at hundreds of newtons. Numerical choices, not measurements.
+TRANSMISSION_SOLREF, TRANSMISSION_SOLIMP = (2 * PHYSICS_DT, 1.), (.9999, .9999, .001)
+GRIP_SOLREF, GRIP_SOLIMP = (2 * PHYSICS_DT, 1.), (.99, .999, .001)
+DRIVE_FIELDS = ("inertia", "friction", "viscous", "max_effort")
 
 
 def _world_aabbs(model, data, ids):
@@ -55,8 +66,9 @@ def _yaw_quat(yaw):
     return (math.cos(yaw / 2), 0., 0., math.sin(yaw / 2))
 
 
-def _environment(world, workcell):
-    """The workcell's floor, table (with its trim and legs), open bucket and free cube. Returns the static geoms."""
+def _environment(world, workcell, grip_contact=False):
+    """The workcell's floor, table (with its trim and legs), open bucket and free cube. Returns the static geoms.
+    `grip_contact` gives the cube the driven grippers' stiff contact (GRIP_SOLREF, GRIP_SOLIMP)."""
     w = workcell
     floor = ET.SubElement(world, "geom", name="task/floor", type="plane", size="2 2 .05",
                           rgba=_numbers(w.color("floor")), contype="1", conaffinity="3")
@@ -109,16 +121,32 @@ def _environment(world, workcell):
     ET.SubElement(cube, "freejoint", name="task/cube/free")
     ET.SubElement(cube, "geom", name="task/cube/geom", type="box", size=_numbers([w.cube_half]*3),
                   mass=str(w.cube_mass), rgba=_numbers(w.color("cube")), contype="1", conaffinity="3",
-                  friction=_numbers(w.cube_friction), condim="4", solref=".004 1", solimp=".95 .99 .001")
+                  friction=_numbers(w.cube_friction), condim="4",
+                  solref=_numbers(GRIP_SOLREF) if grip_contact else ".004 1",
+                  solimp=_numbers(GRIP_SOLIMP) if grip_contact else ".95 .99 .001")
     return environment
 
 
-def _scene_xml(source, fk_model, fk_data, visual_mode="cad", workcell=SYNTHETIC):
+def _drive_body(wrist, side, drive):
+    """A gripper's motor as a hinge on its wrist: the rotor's inertia as armature, its friction and damping."""
+    body = ET.SubElement(wrist, "body", name=f"task/{side}_gripper/drive")
+    # The rotor's inertia rides on the joint (armature); the body only needs a nonzero mass to move.
+    ET.SubElement(body, "inertial", pos="0 0 0", mass=str(DRIVE_BODY_MASS), diaginertia=_numbers([DRIVE_BODY_INERTIA]*3))
+    ET.SubElement(body, "joint", name=f"task/{side}_gripper/drive", type="hinge", axis="0 0 1",
+                  armature=str(drive["inertia"]), frictionloss=str(drive["friction"]),
+                  damping=str(drive["viscous"]))
+
+
+def _scene_xml(source, fk_model, fk_data, visual_mode="cad", workcell=SYNTHETIC, drives=None):
     """Flatten CAD bodies into mocap bodies, preserving local visual/collision geometry.
 
     The source's placeholder inertias and joints are deliberately not copied. All
     CAD collision geoms collide with the cube. Robot/environment penetration is
     measured separately because two kinematic bodies cannot react to each other.
+
+    With `drives` ({side: inertia, friction, viscous, max_effort, scale, offset, mimic}), each gripper's two jaws
+    instead slide on their wrist, coupled to a motor hinge by the gripper's transmission, so contact pushes back
+    on the motor. The arms stay kinematic.
     """
     import mujoco
     mujoco.mj_kinematics(fk_model, fk_data)
@@ -139,14 +167,38 @@ def _scene_xml(source, fk_model, fk_data, visual_mode="cad", workcell=SYNTHETIC)
     root.append(copy.deepcopy(original.find("asset")))
     world = ET.SubElement(root, "worldbody")
     ET.SubElement(world, "light", pos="0 -1 2.5", dir="0 .3 -1", directional="true")
-    environment = _environment(world, workcell)
+    environment = _environment(world, workcell, grip_contact=drives is not None)
     bodies, collision_names = [], []
+    flats = {}
+    jaw_side = {jaw: side for side, pair in JAW_BODIES.items() for jaw in pair}
     for body in original.find("worldbody").iter("body"):
         name = body.get("name")
         if not body.findall("geom"):
             continue
-        flat = ET.SubElement(world, "body", name=name, mocap="true")
-        bodies.append(name)
+        if drives is not None and name in jaw_side:
+            # A driven jaw keeps its CAD placement on the wrist and its slide joint; it is not a mocap body.
+            side = jaw_side[name]
+            bid = mujoco.mj_name2id(fk_model, mujoco.mjtObj.mjOBJ_BODY, name)
+            parent = mujoco.mj_id2name(fk_model, mujoco.mjtObj.mjOBJ_BODY, int(fk_model.body_parentid[bid]))
+            if parent != WRISTS[side] or parent not in flats:
+                raise ValueError(f"driven jaw {name} must hang directly from the {side} wrist, not {parent}")
+            flat = ET.SubElement(flats[parent], "body", name=name, pos=_numbers(fk_model.body_pos[bid]),
+                                 quat=_numbers(fk_model.body_quat[bid]))
+            joints = body.findall("joint")
+            if len(joints) != 1 or joints[0].get("type") != "slide":
+                raise ValueError(f"driven jaw {name} needs exactly one slide joint")
+            slide = ET.SubElement(flat, "joint", name=joints[0].get("name"), type="slide",
+                                  axis=joints[0].get("axis", "0 0 1"), limited="true",
+                                  range=_numbers(fk_model.jnt_range[mujoco.mj_name2id(
+                                      fk_model, mujoco.mjtObj.mjOBJ_JOINT, joints[0].get("name"))]))
+            if joints[0].get("pos"):
+                slide.set("pos", joints[0].get("pos"))
+            ET.SubElement(flat, "inertial", pos="0 0 0", mass=str(JAW_BODY_MASS),
+                          diaginertia=_numbers([JAW_BODY_INERTIA]*3))
+        else:
+            flat = ET.SubElement(world, "body", name=name, mocap="true")
+            bodies.append(name)
+        flats[name] = flat
         for geom in body.findall("geom"):
             item = copy.deepcopy(geom)
             collides = "/collision/" in item.get("name", "")
@@ -181,6 +233,9 @@ def _scene_xml(source, fk_model, fk_data, visual_mode="cad", workcell=SYNTHETIC)
                 item.set("friction", "1 .005 .0001")
                 item.set("condim", "4")
                 item.set("solref", ".004 1")
+                if drives is not None and item.get("name", "").endswith("/terminal_pad"):
+                    item.set("solref", _numbers(GRIP_SOLREF))
+                    item.set("solimp", _numbers(GRIP_SOLIMP))
             flat.append(item)
         for side, wrist in WRISTS.items():
             if name == wrist:
@@ -191,6 +246,21 @@ def _scene_xml(source, fk_model, fk_data, visual_mode="cad", workcell=SYNTHETIC)
     head = workcell.head_camera
     ET.SubElement(world, "camera", name="head", pos=_numbers(head["pos"]), xyaxes=_numbers(head["xyaxes"]),
                   fovy=str(head["fovy"]))
+    if drives is not None:
+        equality = ET.SubElement(root, "equality")
+        actuator = ET.SubElement(root, "actuator")
+        for side, drive in drives.items():
+            _drive_body(flats[WRISTS[side]], side, drive)
+            first, second = (f"{side}_gripper_finger_a_slide", f"{side}_gripper_finger_b_slide")
+            # The transmission (jaw a = offset + scale * motor) and the mimic jaw (b = a0 + a1 * a), held stiff.
+            ET.SubElement(equality, "joint", name=f"task/{side}_gripper/transmission", joint1=first,
+                          joint2=f"task/{side}_gripper/drive", polycoef=_numbers((drive["offset"], drive["scale"], 0, 0, 0)),
+                          solref=_numbers(TRANSMISSION_SOLREF), solimp=_numbers(TRANSMISSION_SOLIMP))
+            ET.SubElement(equality, "joint", name=f"task/{side}_gripper/mimic", joint1=second, joint2=first,
+                          polycoef=_numbers((*drive["mimic"], 0, 0, 0)), solref=_numbers(TRANSMISSION_SOLREF),
+                          solimp=_numbers(TRANSMISSION_SOLIMP))
+            ET.SubElement(actuator, "motor", name=f"task/{side}_gripper/drive", joint=f"task/{side}_gripper/drive",
+                          ctrllimited="true", ctrlrange=_numbers((-drive["max_effort"], drive["max_effort"])))
     # Hidden CAD meshes still allocate/upload GPU assets in MuJoCo. Remove them
     # from the explicit proxy model; the full CAD mode retains every visual.
     used_meshes = {g.get("mesh") for g in world.iter("geom") if g.get("mesh")}
@@ -205,7 +275,10 @@ class MinervaTaskScene:
     """Single-thread-owned MuJoCo scene. q uses receiver motor coordinates/names."""
 
     def __init__(self, joint_map, names, *, scene=SCENE, seed=1, width=320, height=240, visual_mode="collision_proxy",
-                 workcell=None):
+                 workcell=None, grippers=None):
+        """`grippers` ({left_gripper: {inertia, friction, viscous, max_effort, source}, right_gripper: ...}) makes
+        the grippers driven: their jaws move under the drive's MIT law (step_driven) and stall on what they hold.
+        Without it every robot body, the jaws included, is posed kinematically (update)."""
         import mujoco
         if tuple(int(x) for x in mujoco.__version__.split(".")[:2]) < (3, 15):
             raise RuntimeError("Minerva task contacts require MuJoCo >=3.15 with native geom_surfacevel support")
@@ -224,10 +297,22 @@ class MinervaTaskScene:
         self.fk_model = mujoco.MjModel.from_xml_path(str(scene))
         self.fk_data = mujoco.MjData(self.fk_model)
         self.pose = ModelPose(self.fk_model, joint_map, self.names)
+        self.driven = grippers is not None
+        drives = self._drive_parameters(joint_map, grippers) if self.driven else None
         xml, bodies, collision_names, environment = _scene_xml(scene, self.fk_model, self.fk_data, visual_mode,
-                                                               self.workcell)
+                                                               self.workcell, drives)
         self.model = mujoco.MjModel.from_xml_string(xml)
         self.data = mujoco.MjData(self.model)
+        self._drives = {}
+        for side, drive in (drives or {}).items():
+            hinge = self._id("joint", f"task/{side}_gripper/drive")
+            slides = [self._id("joint", f"{side}_gripper_finger_{jaw}_slide") for jaw in "ab"]
+            self._drives[side] = dict(drive, index=self.names.index(drive["motor"]),
+                                      qpos=int(self.model.jnt_qposadr[hinge]), dof=int(self.model.jnt_dofadr[hinge]),
+                                      slides=[(int(self.model.jnt_qposadr[j]), int(self.model.jnt_dofadr[j]))
+                                              for j in slides],
+                                      actuator=self._id("actuator", f"task/{side}_gripper/drive"),
+                                      wrist=self._id("body", WRISTS[side]), torque=0.)
         self.model.flg_surfacevel = True
         self.model.vis.quality.offsamples = 0
         self._body_pairs = [(self._id("body", n, self.fk_model),
@@ -256,19 +341,29 @@ class MinervaTaskScene:
                              self.model.geom_rbound[None, self._environment_ids])
         self._jaw_ids = {self._id("body", n): (side, jaw) for side, ns in JAW_BODIES.items()
                          for jaw, n in enumerate(ns)}
+        # Driven jaws move on their own slides: their surface velocity carries only their wrist's motion.
+        self._jaw_rows = {side: [row for row, gid in enumerate(self._collision_ids)
+                                 if self._jaw_ids.get(int(self.model.geom_bodyid[gid]), ("",))[0] == side]
+                          for side in self._drives}
         self._renderer = None
         self._q = None
         self.seed = int(seed)
         workcell = self.workcell
         placeholders = workcell.placeholders()
+        gripper_drives = {drive["motor"]: {key: drive[key] for key in (*DRIVE_FIELDS, "scale", "offset", "source")}
+                          for drive in self._drives.values()}
         self.capabilities = {
             "schema": 1, "data_source": "simulation", "evidence": "synthetic",
             "joint_names": list(self.names), "motor_to_model_joint_map": copy.deepcopy(joint_map),
-            "robot_motion": "ArmPlant motor response; FK-posed MuJoCo mocap bodies",
+            "robot_motion": ("ArmPlant motor response; FK-posed MuJoCo mocap arms; grippers driven in MuJoCo by the "
+                             "drive's MIT law through their transmission" if self.driven else
+                             "ArmPlant motor response; FK-posed MuJoCo mocap bodies"),
             "object_physics": "MuJoCo free cube with robot, table and bucket contacts",
             "finger_collision": "straight terminal 30mm pad boxes fitted to CAD vertex bounds; concave finger stems omitted",
             "other_robot_collision": "source CAD convex meshes",
-            "attachment_assistance": False, "coupled_robot_dynamics": False,
+            "attachment_assistance": False,
+            "coupled_robot_dynamics": "grippers only: contact pushes back on the gripper drives" if self.driven else False,
+            "gripper_drives": gripper_drives or None,
             "robot_self_collision": False, "robot_environment_response": False,
             "robot_environment_penetration_audit": True,
             "collision_geometries": collision_names,
@@ -291,7 +386,10 @@ class MinervaTaskScene:
             "visual_mode": visual_mode,
             "visual_geometry": "source collision meshes" if visual_mode == "collision_proxy" else "full CAD visuals",
             "render_shadows": False, "render_reflections": False, "offscreen_msaa": 0,
-            "limitations": ["Robot motion ignores contact reaction and motor force limits at the fingers",
+            "limitations": (["Arm motion ignores contact reaction; the grippers feel it through their drives, whose "
+                             "inertia and friction are nominal and whose torque limit is the receiver's max_effort"]
+                            if self.driven else
+                            ["Robot motion ignores contact reaction and motor force limits at the fingers"]) + [
                             "Finger stems are omitted from contact; terminal pads use CAD-bounds boxes; other meshes are convex",
                             "Real contact properties are unmeasured",
                             "Kinematic robot/environment penetration invalidates episode eligibility"]
@@ -306,10 +404,51 @@ class MinervaTaskScene:
             raise ValueError(f"scene lacks {kind} {name}")
         return value
 
+    def _drive_parameters(self, joint_map, grippers):
+        """{side: drive values} for driven grippers: the receiver's drive values and the model's transmission."""
+        mj, drives = self.mj, {}
+        for side in ("left", "right"):
+            motor, first, second = f"{side}_gripper", f"{side}_gripper_finger_a_slide", f"{side}_gripper_finger_b_slide"
+            spec = (grippers or {}).get(motor)
+            if motor not in self.names or not isinstance(spec, dict):
+                raise ValueError(f"driven grippers need {motor} among the joints and its drive values")
+            row = joint_map.get(first)
+            if not row or row.get("actuator") != motor:
+                raise ValueError(f"the joint map does not drive {first} from {motor}")
+            mimic = [(float(self.fk_model.eq_data[e][0]), float(self.fk_model.eq_data[e][1]))
+                     for e in range(self.fk_model.neq) if self.fk_model.eq_type[e] == mj.mjtEq.mjEQ_JOINT
+                     and mj.mj_id2name(self.fk_model, mj.mjtObj.mjOBJ_JOINT, self.fk_model.eq_obj1id[e]) == second
+                     and mj.mj_id2name(self.fk_model, mj.mjtObj.mjOBJ_JOINT, self.fk_model.eq_obj2id[e]) == first]
+            if len(mimic) != 1:
+                raise ValueError(f"the model needs one mimic equality from {first} to {second}")
+            values = {key: float(spec[key]) for key in DRIVE_FIELDS}
+            if not all(math.isfinite(v) for v in values.values()) or values["inertia"] <= 0 or \
+                    values["friction"] < 0 or values["viscous"] < 0 or values["max_effort"] <= 0:
+                raise ValueError(f"{motor} drive values must be finite, with positive inertia and torque limit")
+            drives[side] = dict(values, motor=motor, scale=float(row["scale"]), offset=float(row["offset"]),
+                                mimic=mimic[0], source=str(spec.get("source", "")))
+        return drives
+
     def _pose(self, q):
         self.pose.apply(self.fk_data, q)
         self.data.mocap_pos[self._mocap_ids] = self.fk_data.xpos[self._fk_ids]
         self.data.mocap_quat[self._mocap_ids] = self.fk_data.xquat[self._fk_ids]
+
+    def _place_drives(self, q):
+        """Set each driven gripper to its motor coordinate in `q` at rest, its jaws where the transmission puts them."""
+        for drive in self._drives.values():
+            motor = float(q[drive["index"]])
+            first = drive["offset"] + drive["scale"] * motor
+            self.data.qpos[drive["qpos"]] = motor
+            self.data.qvel[drive["dof"]] = 0.
+            for (address, dof), value in zip(drive["slides"], (first, drive["mimic"][0] + drive["mimic"][1] * first)):
+                self.data.qpos[address], self.data.qvel[dof] = value, 0.
+            self.data.ctrl[drive["actuator"]] = drive["torque"] = 0.
+
+    def gripper_state(self):
+        """{motor: (q, v, torque)} of each driven gripper: its motor coordinate, speed and last drive torque."""
+        return {drive["motor"]: (float(self.data.qpos[drive["qpos"]]), float(self.data.qvel[drive["dof"]]),
+                                 float(drive["torque"])) for drive in self._drives.values()}
 
     def reset(self, seed=None):
         if seed is not None:
@@ -331,7 +470,9 @@ class MinervaTaskScene:
         self._audited_poses = None
         self._contacts = {"left": [], "right": []}
         self._contact_names = []
-        self._pose(self._q if self._q is not None else np.zeros(len(self.names)))
+        q = self._q if self._q is not None else np.zeros(len(self.names))
+        self._pose(q)
+        self._place_drives(q)
         self.mj.mj_forward(self.model, self.data)
         self._emit("reset")
         return self.snapshot()
@@ -350,24 +491,18 @@ class MinervaTaskScene:
             raise ValueError("scene dt must be an integer number of physics steps")
         if self._q is None:
             self._pose(q)
+            self._place_drives(q)
             self.mj.mj_kinematics(self.model, self.data)
         start = self._q if self._q is not None else q
         warning = int(self.data.warning.number.sum())
         for step in range(count):
-            previous_pos = self.data.geom_xpos[self._collision_ids].copy()
-            previous_rot = self.data.geom_xmat[self._collision_ids].reshape(-1, 3, 3).copy()
-            self._pose(start + (q-start) * ((step+1)/count))
+            previous = self._geom_poses()
+            here = start + (q-start) * ((step+1)/count)
+            self._pose(here)
+            # Posed, not driven: a driven gripper's jaws are placed at their motor coordinate too.
+            self._place_drives(here)
             self.mj.mj_kinematics(self.model, self.data)
-            rotation = self.data.geom_xmat[self._collision_ids].reshape(-1, 3, 3)
-            linear = (self.data.geom_xpos[self._collision_ids] - previous_pos) / PHYSICS_DT
-            delta = rotation @ previous_rot.transpose(0, 2, 1)
-            angular = np.stack((delta[:, 2, 1]-delta[:, 1, 2], delta[:, 0, 2]-delta[:, 2, 0],
-                                delta[:, 1, 0]-delta[:, 0, 1]), axis=1) / (2*PHYSICS_DT)
-            # Mocap bodies have no generalized velocity. The native surface velocity
-            # contributes moving-boundary friction without attaching the cube or
-            # inventing a robot mass. Normal contact still comes from penetration.
-            self.model.geom_surfacevel[self._collision_ids, :3] = np.einsum("nji,nj->ni", rotation, linear)
-            self.model.geom_surfacevel[self._collision_ids, 3:] = np.einsum("nji,nj->ni", rotation, angular)
+            self._surface_velocity(*previous)
             self.mj.mj_step(self.model, self.data)
             if step == 0 or np.any(q != start):
                 self._audit_penetration()
@@ -378,6 +513,78 @@ class MinervaTaskScene:
             raise RuntimeError("MuJoCo numerical warning; episode must be quarantined")
         self._audit_penetration()
         return self.snapshot()
+
+    def step_driven(self, start, end, commands, dt):
+        """Advance `dt` with the arms posed from `start` to `end` (receiver motor coordinates) and each driven
+        gripper under its drive's MIT law: kp (position - q) + kd (velocity - v) + effort, clipped to the drive's
+        torque limit, from `commands` ({motor: the receiver's command dict, or None while the drive is limp}).
+        Returns gripper_state(): where the drives actually are, stalled on whatever the jaws hold."""
+        if not self.driven:
+            raise RuntimeError("step_driven needs driven grippers (MinervaTaskScene(grippers=...))")
+        start, end = np.asarray(start, dtype=float), np.asarray(end, dtype=float)
+        if start.shape != (len(self.names),) or end.shape != start.shape or not np.all(np.isfinite(start)) or \
+                not np.all(np.isfinite(end)):
+            raise ValueError("start and end must hold one finite motor coordinate per named joint")
+        count = round(dt / PHYSICS_DT) if math.isfinite(dt) else 0
+        if count < 1 or abs(count*PHYSICS_DT - dt) > 1e-8 or dt > .1:
+            raise ValueError("a driven step is a whole number of physics steps, at most 0.1 s")
+        warning = int(self.data.warning.number.sum())
+        for step in range(count):
+            previous = self._geom_poses()
+            wrists = {side: (self.data.xpos[d["wrist"]].copy(), self.data.xmat[d["wrist"]].reshape(3, 3).copy())
+                      for side, d in self._drives.items()}
+            self._pose(start + (end-start) * ((step+1)/count))
+            self.mj.mj_kinematics(self.model, self.data)
+            self._surface_velocity(*previous, wrists=wrists)
+            for drive in self._drives.values():
+                command = commands.get(drive["motor"])
+                torque = 0.
+                if command is not None:
+                    q, v = self.data.qpos[drive["qpos"]], self.data.qvel[drive["dof"]]
+                    torque = (command["kp"] * (command["position"] - q) + command["kd"] * (command["velocity"] - v)
+                              + command["effort"])
+                    torque = min(drive["max_effort"], max(-drive["max_effort"], torque))
+                self.data.ctrl[drive["actuator"]] = drive["torque"] = torque
+            self.mj.mj_step(self.model, self.data)
+            self._audit_penetration()
+            self._track_contacts()
+        state = self.gripper_state()
+        self._q = end.copy()
+        for drive in self._drives.values():
+            self._q[drive["index"]] = state[drive["motor"]][0]
+        self.mj.mj_forward(self.model, self.data)
+        if not np.all(np.isfinite(self.data.qpos)) or int(self.data.warning.number.sum()) > warning:
+            raise RuntimeError("MuJoCo numerical warning; episode must be quarantined")
+        self._audit_penetration()
+        return state
+
+    def _geom_poses(self):
+        return (self.data.geom_xpos[self._collision_ids].copy(),
+                self.data.geom_xmat[self._collision_ids].reshape(-1, 3, 3).copy())
+
+    def _surface_velocity(self, previous_pos, previous_rot, wrists=None):
+        """Set each robot collision geom's surface velocity from its pose change over the coming physics step.
+
+        Mocap bodies have no generalized velocity. The native surface velocity contributes moving-boundary friction
+        without attaching the cube or inventing a robot mass; normal contact still comes from penetration. A driven
+        jaw already moves on its slide, so `wrists` ({side: (position, rotation) before}) gives it only its wrist's
+        motion."""
+        rotation = self.data.geom_xmat[self._collision_ids].reshape(-1, 3, 3)
+        linear = (self.data.geom_xpos[self._collision_ids] - previous_pos) / PHYSICS_DT
+        delta = rotation @ previous_rot.transpose(0, 2, 1)
+        angular = np.stack((delta[:, 2, 1]-delta[:, 1, 2], delta[:, 0, 2]-delta[:, 2, 0],
+                            delta[:, 1, 0]-delta[:, 0, 1]), axis=1) / (2*PHYSICS_DT)
+        for side, (position, frame) in (wrists or {}).items():
+            body = self._drives[side]["wrist"]
+            now = self.data.xpos[body]
+            turn = self.data.xmat[body].reshape(3, 3) @ frame.T
+            spin = np.array((turn[2, 1]-turn[1, 2], turn[0, 2]-turn[2, 0], turn[1, 0]-turn[0, 1])) / (2*PHYSICS_DT)
+            rows = self._jaw_rows[side]
+            linear[rows] = (now - position) / PHYSICS_DT + np.cross(spin, self.data.geom_xpos[
+                [self._collision_ids[r] for r in rows]] - now)
+            angular[rows] = spin
+        self.model.geom_surfacevel[self._collision_ids, :3] = np.einsum("nji,nj->ni", rotation, linear)
+        self.model.geom_surfacevel[self._collision_ids, 3:] = np.einsum("nji,nj->ni", rotation, angular)
 
     def _track_contacts(self):
         jaws = {"left": set(), "right": set()}
@@ -470,7 +677,9 @@ class MinervaTaskScene:
                 "bucket_settled": self.bucket_settled, "success": self.success, "dropped": self.dropped,
                 "training_eligible": not bool(self._invalid_contacts),
                 "sim2real_validated": False,
-                "forbidden_contacts": list(self._invalid_contacts.values()), "events": copy.deepcopy(self.events)}
+                "forbidden_contacts": list(self._invalid_contacts.values()), "events": copy.deepcopy(self.events),
+                **({"grippers": {motor: dict(zip(("q", "v", "torque"), values))
+                                 for motor, values in self.gripper_state().items()}} if self.driven else {})}
 
     @property
     def visual_groups(self):

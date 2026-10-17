@@ -64,7 +64,8 @@ def run(args):
     policy = load_policy(args.policy)
     config = RunConfig(plant=args.plant, timeout_s=args.timeout, grid=_grid(args),
                        trials=None if args.trials is None else tuple(int(i) for i in args.trials.split(',')),
-                       plant_seed=args.plant_seed, scene_pose=args.scene_pose, workcell=args.workcell)
+                       plant_seed=args.plant_seed, scene_pose=args.scene_pose, workcell=args.workcell,
+                       grippers=args.grippers)
     stack = derive_stack(profile=args.profile, directions=args.directions)
     out = Path(args.out) if args.out else ROOT / 'build/eval' / (
         f"{getattr(policy, 'name', 'policy')}-{args.plant}-" + time.strftime('%Y%m%dT%H%M%SZ', time.gmtime()))
@@ -145,6 +146,9 @@ def parser():
     r.add_argument('--plant-seed', type=int, default=1, help='simulated feedback noise seed (default 1)')
     r.add_argument('--scene-pose', choices=('plant', 'measured'), default='plant',
                    help='what moves the object scene: the simulated joints (default) or receiver feedback')
+    r.add_argument('--grippers', choices=('kinematic', 'driven'), default='kinematic',
+                   help='kinematic: posed like the arms (default); driven: the grippers move under their drives in '
+                        'the scene and stall on the cube, and the receiver reads that back (armplant only)')
     _grid_arguments(r)
     r.set_defaults(handler=run)
     m = sub.add_parser('report', help='report trials from a .jsonl or hand-logged .csv file')
