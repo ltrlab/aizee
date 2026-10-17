@@ -53,6 +53,7 @@ CORE = [
     'tests/unit/test_demonstrator.py', 'tests/contract/test_demonstrator.py',
     'tests/contract/test_generate.py',
     'tests/unit/test_scene_appearance.py',
+    'tests/contract/test_eval_disturbances.py',
     'tests/unit/test_capture_process.py', 'tests/contract/test_task_receiver_capture.py',
     'tests/unit/test_eval_stats.py', 'tests/unit/test_eval_report.py', 'tests/unit/test_eval_plants.py',
     'tests/contract/test_eval_reference_policies.py',

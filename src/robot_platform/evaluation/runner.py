@@ -61,19 +61,30 @@ class RunConfig:
     # 'kinematic': the grippers are posed like the arms. 'driven': the armplant's grippers move in the scene under
     # their drives, stall on the cube, and the receiver reads that back (MinervaTaskScene.step_driven).
     grippers: str = 'kinematic'
+    # Disturbances, each drawn per trial from disturbance_seed and the trial's index:
+    latency_s: float = 0.  # A chunk takes effect this long after its observation; one inference at a time.
+    actuator_spread: float = 0.  # Each armplant joint's inertia, friction and damping x U[1-s, 1+s], unknown to the receiver.
+    appearance: dict | None = None  # MinervaTaskScene.randomize_appearance bounds: lights, colours, camera places.
+    disturbance_seed: int = 0
 
     def __post_init__(self):
         if self.grippers not in GRIPPERS:
             raise ValueError(f'grippers is one of {GRIPPERS}')
         if self.grippers == 'driven' and self.plant != 'armplant':
             raise ValueError('driven grippers need the armplant plant: the ideal plant sends no drive commands')
+        if not (math.isfinite(self.latency_s) and 0 <= self.latency_s <= 1):
+            raise ValueError('latency_s is in [0, 1] s')
+        if not 0 <= self.actuator_spread < 1 or (self.actuator_spread and self.plant != 'armplant'):
+            raise ValueError('actuator_spread is in [0, 1) and needs the armplant plant')
 
     def describe(self):
         return {'plant': self.plant, 'timeout_s': self.timeout_s, 'staging_timeout_s': self.staging_timeout_s,
                 'grid': self.grid.describe(), 'trials': None if self.trials is None else list(self.trials),
                 'plant_seed': self.plant_seed, 'scene_pose': self.scene_pose,
                 'camera_size': list(self.camera_size), 'visual_mode': self.visual_mode,
-                'workcell': resolve_workcell(self.workcell).name, 'grippers': self.grippers}
+                'workcell': resolve_workcell(self.workcell).name, 'grippers': self.grippers,
+                'latency_s': self.latency_s, 'actuator_spread': self.actuator_spread,
+                'appearance': self.appearance, 'disturbance_seed': self.disturbance_seed}
 
 
 @dataclass
@@ -232,6 +243,8 @@ class TrialRunner:
         clipped = calls = 0
         tracking = np.zeros(len(plant.names))
         started = time.perf_counter()
+        rng = np.random.default_rng([config.disturbance_seed, index])
+        record['disturbances'] = {'latency_s': config.latency_s, 'actuator_factors': self._vary_actuators(plant, rng)}
         try:
             try:
                 if hasattr(policy, 'reset'):
@@ -253,6 +266,8 @@ class TrialRunner:
                 pass
             scene.reset(seed=config.grid.seed * 1000 + index)
             ready = True
+            if config.appearance:
+                record['disturbances']['appearance'] = scene.randomize_appearance(rng, **config.appearance)
             problem = self._place_cube(pose)
             if problem:
                 return self._excluded(record, problem, staged)
@@ -266,21 +281,26 @@ class TrialRunner:
             execute = getattr(policy, 'execute_steps', None)
             roles = tuple(getattr(policy, 'camera_roles', None) or ())
             chunk, chunk_t, horizon = None, 0., 0
+            pending = None  # One inference in flight: (chunk, observed at, takes effect at).
+            held = np.asarray(plant.observation()['qcmd'], dtype=float)  # Until the first chunk takes effect.
             t = 0.
             while True:
-                if chunk is None or t - chunk_t >= horizon * action_dt - 1e-9:
+                if pending is None and (chunk is None or t - chunk_t >= horizon * action_dt - 1e-9):
                     observation = dict(plant.observation(), t=t, joint_names=plant.names)
                     if roles:
                         observation['images'] = scene.render(roles)[0]
                     try:
-                        chunk = _chunk(policy(observation), len(plant.names))
+                        pending = (_chunk(policy(observation), len(plant.names)), t, t + config.latency_s)
                     except Exception as exc:
                         aborted = f'policy error: {type(exc).__name__}: {exc}'
                         break
                     calls += 1
-                    chunk_t = t
+                if pending is not None and t >= pending[2] - 1e-9:
+                    # Rows are meant for times after the observation: those already past are skipped.
+                    chunk, chunk_t, _ = pending
+                    pending = None
                     horizon = min(len(chunk), int(execute)) if execute else len(chunk)
-                command = _command(chunk, t - chunk_t, action_dt)
+                command = held.copy() if chunk is None else _command(chunk, t - chunk_t, action_dt)
                 bounded = plant.clip(command)
                 clipped += int(np.any(bounded != command))
                 q, dt = plant.step(bounded)
@@ -308,6 +328,9 @@ class TrialRunner:
         finally:
             if self.plant is not None and getattr(self.plant, 'coupled', False):
                 self.plant.decouple()
+            if self.plant is not None:
+                self._restore_actuators(self.plant)
+            scene.restore_appearance()
         # Events belong to this trial only once its reset happened.
         state = scene.snapshot() if ready else {'events': [], 'scene_time': 0., 'run_id': None}
         stages, outcome, eligible, detail = trial_records.outcome_from_events(state['events'], timed_out=timed_out,
@@ -322,6 +345,31 @@ class TrialRunner:
                                                           'max_abs_error_rad': float(np.max(np.abs(staged['error'])))},
                       wall_s=time.perf_counter() - started)
         return record
+
+    def _vary_actuators(self, plant, rng):
+        """Scale each armplant joint's inertia, friction (and stiction) and damping by its own U[1-s, 1+s]; the
+        receiver keeps the values it was derived with. {joint: [inertia, friction, damping factors]}, or None."""
+        spread = self.config.actuator_spread
+        if not spread:
+            return None
+        specs = plant.plant.specs
+        if not hasattr(plant, '_nominal_specs'):
+            plant._nominal_specs = [dict(spec) for spec in specs]
+        factors = {}
+        for spec, nominal in zip(specs, plant._nominal_specs):
+            f = rng.uniform(1 - spread, 1 + spread, size=3)
+            spec['inertia'] = nominal['inertia'] * f[0]
+            spec['friction'] = nominal['friction'] * f[1]
+            spec['static'] = nominal.get('static', nominal['friction']) * f[1]
+            spec['viscous'] = nominal.get('viscous', 0.) * f[2]
+            factors[spec['name']] = f.round(4).tolist()
+        return factors
+
+    @staticmethod
+    def _restore_actuators(plant):
+        for spec, nominal in zip(getattr(getattr(plant, 'plant', None), 'specs', ()), getattr(plant, '_nominal_specs', ())):
+            spec.clear()
+            spec.update(nominal)
 
     def _excluded(self, record, detail, staged):
         record.update(outcome='invalid_start', eligible=True, stages=dict.fromkeys(trial_records.STAGES),

@@ -40,6 +40,16 @@ The `armplant` clock is stepped: runs are deterministic and faster than real tim
 
 Outcomes are read from the scene's events (`pickup`, `handoff`, `bucket_settled`, `dropped_outside_bucket`, `forbidden_robot_environment_penetration`), never re-derived; `trials.jsonl` keeps those events verbatim.
 
+## Disturbances
+
+A policy that passes in a sim exactly like its training data can still fail on the robot. Three disturbances, each drawn per trial from `--disturbance-seed` and the trial's index, test how much margin it has:
+
+- **`--latency S`**: a chunk takes effect S seconds after the observation it answers, with one inference in flight at a time. Rows for times already past are skipped, and the previous chunk runs on (holding its last row) until the next one arrives. Before the first chunk arrives, the receiver holds its current command. Through the receiver at 0.2 s, the command does not move before 0.2 s. Without latency it ramps within 20 ms.
+- **`--actuator-spread s`**: each armplant joint's inertia, friction (with stiction) and damping take their own factor from U[1-s, 1+s]. The receiver keeps the values it was derived with, as on a robot that differs from its model. Driven grippers keep their scene drives. The sim2real fits pin some joints only loosely, for example left J2's inertia 0.15-0.5 kg m2, so a spread of about 0.3-0.5 covers them.
+- **`--vary-look`**: varies each trial's lights (x U[0.7, 1.3]), the workcell's and cube's colours (each channel x U[0.9, 1.1]) and every camera's place (+/-1 cm per axis, up to 2 degrees of turn). The camera poses are not calibrated, so this tests a policy against that uncertainty. Physics is untouched.
+
+Each trial record keeps the values it drew under `disturbances`. The plant and the scene return to their own values after every trial.
+
 ## Cube start grid
 
 Trial 0 is the scene's own cube start (`CUBE_START`, x 0.18 m, y −0.34 m). Then come the cells of an NX×NY grid (default 3×3) over x 0.10–0.26 m and y −0.42 to −0.26 m, in row-major order. Each cell's pose is its centre plus a seeded offset of at most `--jitter` (default 0.5) of half a cell, and the centre cell is centred on `CUBE_START`. The same seed always gives the same poses. Yaw is 0 by default: the faces stay axis-aligned.

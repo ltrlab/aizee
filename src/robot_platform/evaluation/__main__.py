@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 import time
 
+from .generate import APPEARANCE
 from .grid import GridSpec, cube_poses, parse_counts
 from . import stats
 
@@ -65,7 +66,8 @@ def run(args):
     config = RunConfig(plant=args.plant, timeout_s=args.timeout, grid=_grid(args),
                        trials=None if args.trials is None else tuple(int(i) for i in args.trials.split(',')),
                        plant_seed=args.plant_seed, scene_pose=args.scene_pose, workcell=args.workcell,
-                       grippers=args.grippers)
+                       grippers=args.grippers, latency_s=args.latency, actuator_spread=args.actuator_spread,
+                       appearance=APPEARANCE if args.vary_look else None, disturbance_seed=args.disturbance_seed)
     stack = derive_stack(profile=args.profile, directions=args.directions)
     out = Path(args.out) if args.out else ROOT / 'build/eval' / (
         f"{getattr(policy, 'name', 'policy')}-{args.plant}-" + time.strftime('%Y%m%dT%H%M%SZ', time.gmtime()))
@@ -169,6 +171,11 @@ def parser():
     r.add_argument('--plant-seed', type=int, default=1, help='simulated feedback noise seed (default 1)')
     r.add_argument('--scene-pose', choices=('plant', 'measured'), default='plant',
                    help='what moves the object scene: the simulated joints (default) or receiver feedback')
+    r.add_argument('--latency', type=float, default=0., help='seconds before a chunk takes effect (default 0)')
+    r.add_argument('--actuator-spread', type=float, default=0.,
+                   help="each joint's inertia, friction and damping x U[1-s, 1+s] per trial, unknown to the receiver")
+    r.add_argument('--vary-look', action='store_true', help="vary each trial's lights, colours and camera places")
+    r.add_argument('--disturbance-seed', type=int, default=0, help='seed for the per-trial disturbances (default 0)')
     r.add_argument('--grippers', choices=('kinematic', 'driven'), default='kinematic',
                    help='kinematic: posed like the arms (default); driven: the grippers move under their drives in '
                         'the scene and stall on the cube, and the receiver reads that back (armplant only)')
