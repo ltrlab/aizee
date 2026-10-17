@@ -39,6 +39,10 @@ CART_STEP, TURN_STEP, JOINT_STEP = .01, .05, .02  # m and rad between path point
 # lift.
 PICK_FINGER = (270., -20.)
 LIFT_FINGER = (270., 0.)
+# Where the default pick is out of reach, the grasp may turn up to 20 degrees off straight ahead (the jaws then close
+# across the cube's faces at that angle and square it up) and tilt only 10 degrees down (the housing still clears).
+PICK_OPTIONS = ((0., -20.), (0., -10.), (-10., -20.), (10., -20.), (-20., -15.), (20., -15.), (-10., -10.),
+                (10., -10.))
 APPROACH = .06  # Pre-grasp stand-off behind the cube along the fingers ...
 APPROACH_RISE = .02  # ... and above it.
 # The left first comes over the pre-grasp, fingers 10 degrees down (the steeper tilt only reaches near the table),
@@ -312,14 +316,25 @@ class HandoffDemonstrator:
             q[grip[side]] = value
             frames.append(Segment('grip', q.copy(), arm=arm, label=label, duration=GRIP_WAIT))
 
-        pick = direction(PICK_FINGER[0] + yaw, PICK_FINGER[1])
-        lift = direction(LIFT_FINGER[0] + yaw, LIFT_FINGER[1])
-        pregrasp = cube - APPROACH * pick + [0., 0., APPROACH_RISE]
-        above_cube = direction(ABOVE_FINGER[0] + yaw, ABOVE_FINGER[1])
-        add(self._move(q, {'left': pose(pregrasp + [0., 0., ABOVE_PREGRASP], above_cube, 'narrow')},
-                       'left above the cube'))
-        add(self._move(q, {'left': pose(pregrasp, pick, 'narrow')}, 'left pre-grasp', slow=True))
-        add(self._move(q, {'left': pose(cube, pick, 'narrow')}, 'left grasp', slow=True))
+        for turn, tilt in PICK_OPTIONS:
+            azimuth = PICK_FINGER[0] + yaw + turn
+            pick, above_cube = direction(azimuth, tilt), direction(azimuth, ABOVE_FINGER[1])
+            pregrasp = cube - APPROACH * pick + [0., 0., APPROACH_RISE]
+            try:
+                approach = [self._move(q, {'left': pose(pregrasp + [0., 0., ABOVE_PREGRASP], above_cube, 'narrow')},
+                                       'left above the cube')]
+                approach.append(self._move(approach[-1].target, {'left': pose(pregrasp, pick, 'narrow')},
+                                           'left pre-grasp', slow=True))
+                approach.append(self._move(approach[-1].target, {'left': pose(cube, pick, 'narrow')}, 'left grasp',
+                                           slow=True))
+                break
+            except PlanningError:
+                continue
+        else:
+            raise PlanningError(f'no pick reaches the cube at {np.round(cube, 3).tolist()}')
+        for segment in approach:
+            add(segment)
+        lift = direction(azimuth - PICK_FINGER[0] + LIFT_FINGER[0], LIFT_FINGER[1])
         hold('left', 'left on the cube')
         set_gripper('left', closed['left'], 'left closes', 'left')
         add(self._move(q, {'left': pose(cube + [0., 0., LIFT], lift, 'narrow')}, 'left lifts', slow=True))

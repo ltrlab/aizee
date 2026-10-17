@@ -26,7 +26,7 @@
     "mass": {"value": 0.035, "source": "placeholder (estimate): a 1.5 in wood cube at 0.4-0.75 g/cm3 weighs 22-41 g; not weighed"},
     "friction": {"value": [1.0, 0.005, 0.0001], "source": "placeholder: the synthetic scene's value; wood on the finger pads is not measured, and MuJoCo takes the larger of the pad's and the cube's friction"},
     "start": {"value": [0.15, -0.35, 0.0], "source": "placeholder: left of centre, as in the head camera image; not measured"},
-    "region": {"value": [0.05, 0.25, -0.45, -0.25], "source": "placeholder: left of centre, where the left gripper reached probe points with a 65-80 degree tilted grasp in the kinematic model; the real cube positions are not taped yet"}
+    "region": {"value": [0.02, 0.26, -0.50, -0.32], "source": "placeholder: inside the area where the handoff demonstrator plans the whole task clear of the table and bucket on this placeholder layout (4 cm map, 2026-10-17); the real cube positions are not taped yet"}
   },
   "cameras": {
     "head": {

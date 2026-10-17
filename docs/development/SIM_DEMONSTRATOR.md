@@ -32,7 +32,7 @@ Every pose below came out of a reach or clearance check, not a guess. The script
 |---|---|---|---|
 | Start | left (0.15, -0.30), right (-0.10, -0.20), 12 cm above the table | left forward, right forward-left | left narrow, right wide |
 | Above the cube | 6 cm over the pre-grasp | forward, 10 degrees down | narrow |
-| Pre-grasp, grasp | 6 cm behind and 2 cm above the cube, then on it | forward, 20 degrees down | narrow |
+| Pre-grasp, grasp | 6 cm behind and 2 cm above the cube, then on it | forward, 20 degrees down; where that is out of reach, turned up to 20 degrees or tilted 10-15 degrees | narrow |
 | Close, lift | cube + 8 cm | level | narrow |
 | Handoff | both on the cube at (0, -0.30), 12 cm above the table | left forward-right, right forward-left, jaws on perpendicular faces | wide |
 | Right closes, left opens and backs off | | | |
@@ -47,15 +47,23 @@ Every pose below came out of a reach or clearance check, not a guess. The script
 - **Holds.** Holds correct toward the pose (at most 0.03 rad) until the arm settles within 0.004 rad or 1.5 s pass.
 - **Speed.** Moves run at up to 0.5 rad/s per joint in transit and 0.15 rad/s on approaches and lifts.
 
+## Where the cube can be
+
+`scripts/sim/demonstrator_reach_map.py` plans the task for every cube position on a grid and checks each move's clearance. On the placeholder layout, at a 4 cm step:
+- The whole task plans and clears by more than 1 mm for x 0-0.28 m at every y from -0.32 to -0.52 m.
+- It also plans in the front-right patch near the table's edge: x from 0.12-0.20 m at y -0.28 to -0.20 m.
+- Only the front-left corner nearest the robot's centre is out of reach.
+
+The workcell's cube region is now x 0.02-0.26 m, y -0.32 to -0.50 m, inside that area. Re-run the map after measuring the bench.
+
 ## Results
 
 Through the receiver with driven grippers on the measured bench:
 
 - **Nominal cube start (0.15, -0.35):** success. Pickup at 5.6 s, handoff at 15.9 s, bucket settled at 44.0 s, with no clipped commands. `tests/contract/test_demonstrator.py` runs this trial.
-- **Default 3x3 grid over the placeholder cube region:** 5/10 succeeded (Wilson 95% 0.24-0.76).
+- **Default 3x3 grid, first placeholder region:** 5/10 succeeded (Wilson 95% 0.24-0.76).
   - Every trial that planned succeeded.
   - The other five could not plan their pick, at the region's far edge (y -0.41 to -0.42) and near edge (y -0.28), at x 0.08-0.22.
-  - The region is a placeholder that is larger than this grasp reaches. Picking a reachable region is the next step.
 
 ## Limits
 
