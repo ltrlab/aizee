@@ -32,6 +32,21 @@
   <p id="banner" role="status" hidden></p>
   <main>
     <section class="view" aria-label="Live robot model">
+      <div id="preview-view-choice" class="preview-view-choice" role="group" aria-label="Preview source" hidden>
+        <button type="button" data-preview-view="cameras" aria-pressed="true">Cameras</button>
+        <button type="button" data-preview-view="model" aria-pressed="false">Model</button>
+        <button id="camera-pause" type="button">Pause preview</button>
+        <button id="camera-retry" type="button" hidden>Retry preview</button>
+      </div>
+      <section id="camera-live-view" class="camera-live-view" aria-label="Live physical cameras" hidden>
+        <div class="camera-live-heading"><span class="eyebrow">PHYSICAL CAMERAS</span><p id="camera-stream-status" role="status">Disconnected</p></div>
+        <div class="camera-focus">
+          <img id="camera-focus-image" alt="Selected physical camera" hidden>
+          <p id="camera-focus-placeholder">Waiting for frame</p>
+          <div class="camera-focus-caption"><b id="camera-focus-title">Right wrist</b><span id="camera-focus-status">Disconnected</span></div>
+        </div>
+        <div id="camera-thumbnails" class="camera-thumbnails" role="group" aria-label="Choose camera"></div>
+      </section>
       <div class="model-toolbar"><div><span id="model-heading" class="eyebrow">MODEL &amp; TELEMETRY</span><span id="model-source" class="muted">Waiting for feedback</span></div><button id="open-display">Display options</button></div>
       <iframe id="model-view" src="viewer?embed=1" title="Live robot model"></iframe>
       <div id="task-window-note" class="task-window-note" role="status" hidden>
@@ -285,7 +300,8 @@
           <section id="settings-cameras" class="settings-group" hidden>
             <h2>Cameras</h2>
             <p class="muted">Check the table and grippers before recording. Exposure changes apply immediately to the camera while the session is stopped. Values last until the camera service restarts.</p>
-            <button id="camera-refresh">Refresh settings &amp; views</button>
+            <p id="camera-live-note" class="muted">Live physical cameras appear in the camera pane. Preview freshness is separate from recording readiness.</p>
+            <button id="camera-refresh">Read camera settings</button>
             <p id="camera-status" role="status" aria-live="polite" class="muted"></p>
             <div id="camera-cards"></div>
           </section>
