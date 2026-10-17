@@ -12,7 +12,7 @@ Helm camera console from `7fe997f` is deployed on the terminal as
 and Teleop show live left-wrist, right-wrist and head views, with pause, focus and
 Camera/Model controls. `--no-live` leaves the stopped motor reader disconnected;
 teleop and tuning remained stopped throughout validation. Camera settings retain
-verified wrist exposure/gain controls, explicit snapshots and the touch toggle.
+verified wrist exposure/gain controls, explicit settings reads and the touch toggle.
 Changes are rejected during teleop/capture; uncertain writes require camera-service
 recovery and Helm restart. Head exposure remains unsupported. Configurable head
 RGB/depth rotation preserves sensor-frame depth projection and provenance.

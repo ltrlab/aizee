@@ -29,7 +29,7 @@ from motor control; this separation is not a hardware timing qualification.
   delivery, decode bounds, stale clearing, reconnect limits, visibility cleanup,
   draft retention and absence of mutation requests.
 - **Actual terminal, 30 seconds:** left wrist 8.80 frames/s, right wrist 8.17,
-  head 7.503; maximum conservative displayed age below 0.559 s. All 61 HTTP state
+  head 7.503; maximum conservative received-frame age below 0.559 s. All 61 HTTP state
   polls completed without error; their recorded zero latency reflects timer
   resolution and is not a precise latency measurement. No camera helper remained
   after closing the smoke-test subscription.
