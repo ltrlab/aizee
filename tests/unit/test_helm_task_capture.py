@@ -2,6 +2,7 @@
 from copy import deepcopy
 from io import BytesIO
 import json
+import threading
 import time
 
 import numpy as np
@@ -253,7 +254,7 @@ def socket_capture(tmp_path, request):
     publishers, cfg = {}, config()
     options = getattr(request, 'param', CAMERAS)
     roles = tuple(options.get('roles', CAMERAS) if isinstance(options, dict) else options)
-    if isinstance(options, dict):
+    if isinstance(options, dict) and 'recording_image_size' in options:
         cfg['recording_image_size'] = options['recording_image_size']
     cfg['camera_roles'] = list(roles)
     cfg['cameras'] = {name: cfg['cameras'][name] for name in roles}
@@ -269,7 +270,8 @@ def socket_capture(tmp_path, request):
         writers.append(writer)
         return writer
     capture = LiveTaskCapture(tmp_path, NAMES, cfg, clock=lambda: clock[0],
-                              wall_clock=lambda: clock[0]+990., writer_factory=factory)
+                              wall_clock=lambda: clock[0]+990., writer_factory=factory,
+                              context_factory=options.get('context') if isinstance(options, dict) else None)
     def pump(predicate, *, missing=(), receiver=True, timeout=4.):
         deadline = time.monotonic()+timeout
         while time.monotonic() < deadline:
@@ -319,6 +321,46 @@ def test_socket_worker_aborts_stalled_receiver_without_completed_episode(socket_
     pump(lambda: capture.snapshot()['failed'], receiver=False)
     assert writers[0].error and not writers[0].complete
     assert not capture.snapshot()['available']
+
+
+class GatedTeardown:
+    """The capture worker's ZMQ context; term() waits for release, holding the worker inside its teardown."""
+    made = []
+
+    def __init__(self):
+        self.context, self.ending, self.release = zmq.Context(), threading.Event(), threading.Event()
+        GatedTeardown.made.append(self)
+
+    def socket(self, kind):
+        return self.context.socket(kind)
+
+    def term(self):
+        self.ending.set()
+        self.release.wait(5)
+        self.context.term()
+
+
+@pytest.mark.parametrize('socket_capture', [{'context': GatedTeardown}], indirect=True)
+@pytest.mark.parametrize('end', ['stalled receiver', 'abort'])
+def test_a_failed_capture_never_reads_as_available_or_ready(socket_capture, end):
+    """The worker reports its failure before its teardown (writer, sockets, context) ends. Read in between, the
+    capture must already be neither available nor ready, as ProcessCapture.health reports a failed child."""
+    capture, writers, pump = socket_capture
+    pump(lambda: capture.snapshot()['capture_ready'])
+    gate = GatedTeardown.made[-1]
+    try:
+        capture.command('start_record')
+        pump(lambda: writers and len(writers[0].frames) >= 1)
+        if end == 'abort':
+            capture.abort('Receiver no longer has active emitted command authority')
+            pump(gate.ending.is_set)
+        else:
+            pump(gate.ending.is_set, receiver=False)
+        for state in (capture.snapshot(), capture.health()):
+            assert state['failed'] and not state['available'] and not state['capture_ready'], state
+        assert writers[0].error and not writers[0].complete
+    finally:
+        gate.release.set()
 
 
 def test_close_during_recording_aborts_instead_of_publishing(socket_capture):
