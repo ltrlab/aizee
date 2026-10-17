@@ -21,7 +21,8 @@ export function presentation(state, fresh = true) {
   const [tone,label,detail,stage] = states[t.state] || ['off','Waiting for state','No lifecycle state reported.',''];
   return {tone,label,detail,stage};
 }
-export function recordingLabel(task = {}) {
+export function recordingLabel(task) {
+  task = task || {};  // Helm reports task: null until a recording task is set up.
   const r=task.recording || {}, cmd=task.last_command || {};
   if (r.error || task.error || ['failed','aborted'].includes(r.state)) return 'Recording incomplete';
   if (cmd.state === 'pending') {

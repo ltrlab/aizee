@@ -19,6 +19,10 @@ assert.match(recordingLabel({recording:{active:true},last_command:{state:'pendin
 assert.equal(recordingLabel({recording:{state:'complete',complete:false}}),'Not recording');
 assert.equal(recordingLabel({recording:{complete:true}}),'Complete · saved');
 assert.equal(recordingLabel({recording:{complete:true,error:'disk'}}),'Recording incomplete');
+// Helm reports task: null until a recording task is set up. The label threw on it, which stopped every render and
+// the session button's handler before its request (2026-10-17): Start session did nothing.
+assert.equal(recordingLabel(null),'Not recording');
+assert.equal(recordingLabel(undefined),'Not recording');
 let time=1000,ctx={tab:'teleop',hidden:false,confirming:false},requests=[],errors=[];
 const controls=new PedalControls({now:()=>time,context:()=>ctx,onError:e=>errors.push(e),onState:s=>controls.update(s),
   request:(url,payload)=>new Promise((resolve,reject)=>requests.push({url,payload,resolve,reject}))});
