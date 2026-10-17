@@ -37,7 +37,10 @@ def test_scene_has_one_free_object_and_truthful_contact_manifest(scene):
     assert not scene.capabilities["attachment_assistance"]
     assert not scene.capabilities["coupled_robot_dynamics"]
     assert "terminal" in scene.capabilities["finger_collision"]
-    assert len([n for n in scene.capabilities["collision_geometries"] if n.endswith("terminal_pad")]) == 4
+    # Each finger collides as convex pieces of its CAD surface; its terminal pad box only marks the grasp frame.
+    collision = scene.capabilities["collision_geometries"]
+    assert len({n.split("/finger/")[0] for n in collision if "/finger/" in n}) == 4
+    assert not [n for n in collision if n.endswith("terminal_pad")]
     assert scene.model.ncam == 3
     before = state["run_id"]
     for _ in range(10): state = scene.update(np.zeros(14), .05)

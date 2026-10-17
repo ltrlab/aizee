@@ -46,6 +46,10 @@ JAW_BODY_MASS, JAW_BODY_INERTIA = 1e-3, 1e-8
 # the pads within a fraction of a millimetre of the cube at hundreds of newtons. Numerical choices, not measurements.
 TRANSMISSION_SOLREF, TRANSMISSION_SOLIMP = (2 * PHYSICS_DT, 1.), (.9999, .9999, .001)
 GRIP_SOLREF, GRIP_SOLIMP = (2 * PHYSICS_DT, 1.), (.99, .999, .001)
+# A finger's paddle collides as convex pieces of its CAD surface, FINGER_SLICE slabs along it. The paddle ends where
+# the finger's cross-section narrows below FINGER_NECK of its widest: above it, its rack and pinion mount sits inside
+# the gripper.
+FINGER_SLICE, FINGER_NECK = .005, .8  # m, share
 DRIVE_FIELDS = ("inertia", "friction", "viscous", "max_effort")
 
 
@@ -137,6 +141,50 @@ def _drive_body(wrist, side, drive):
                   damping=str(drive["viscous"]))
 
 
+def _surface_points(vertices, faces, z0, z1):
+    """A mesh's surface points in the slab z0..z1: its vertices inside, and its edges' crossings of the slab's planes
+    (a long straight face has no vertices inside a slab)."""
+    edges = np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
+    a, b = vertices[edges[:, 0]], vertices[edges[:, 1]]
+    points = [vertices[(vertices[:, 2] >= z0) & (vertices[:, 2] <= z1)]]
+    for plane in (z0, z1):
+        crossing = (a[:, 2] - plane) * (b[:, 2] - plane) < 0
+        share = (plane - a[crossing, 2]) / (b[crossing, 2] - a[crossing, 2])
+        points.append(a[crossing] + share[:, None] * (b[crossing] - a[crossing]))
+    return np.unique(np.round(np.concatenate(points), 7), axis=0)
+
+
+def _paddle_top(vertices, faces):
+    """Where a finger's paddle ends: going up from its tip in 1 mm slabs (the finger points down in the model's
+    default pose), the first whose cross-section is narrower than FINGER_NECK of the widest below it. The paddle
+    widens all the way up (12 to 54 mm); the rack and pinion mount above it is a 22-30 mm neck."""
+    bottom, top = vertices[:, 2].min(), vertices[:, 2].max()
+    widest, z = 0., bottom
+    while z < top - .001:
+        points = _surface_points(vertices, faces, z, z + .001)
+        if len(points):
+            width = (points[:, :2].max(axis=0) - points[:, :2].min(axis=0)).max()
+            if width < FINGER_NECK * widest:
+                return z
+            widest = max(widest, width)
+        z += .001
+    return top
+
+
+def _finger_pieces(vertices, faces):
+    """A finger's paddle as convex pieces: its surface points slab by slab from the tip (FINGER_SLICE). Each piece's
+    convex hull follows the paddle's taper and chamfers, where axis-aligned boxes over the same slabs stuck out up to
+    15 mm."""
+    bottom, end = vertices[:, 2].min(), _paddle_top(vertices, faces)
+    pieces, z = [], bottom
+    while z < end - 1e-9:
+        points = _surface_points(vertices, faces, z, min(z + FINGER_SLICE, end))
+        if len(points) >= 4 and np.all(points.max(axis=0) - points.min(axis=0) > 1e-4):
+            pieces.append(points)
+        z = min(z + FINGER_SLICE, end)
+    return pieces
+
+
 def _scene_xml(source, fk_model, fk_data, visual_mode="cad", workcell=SYNTHETIC, drives=None):
     """Flatten CAD bodies into mocap bodies, preserving local visual/collision geometry.
 
@@ -165,10 +213,11 @@ def _scene_xml(source, fk_model, fk_data, visual_mode="cad", workcell=SYNTHETIC,
     ET.SubElement(visual, "global", offwidth="1280", offheight="960", azimuth="90", elevation="-20")
     ET.SubElement(root, "statistic", center="0 -.15 .65", extent="1.3")
     root.append(copy.deepcopy(original.find("asset")))
+    asset = root.find("asset")
     world = ET.SubElement(root, "worldbody")
     ET.SubElement(world, "light", pos="0 -1 2.5", dir="0 .3 -1", directional="true")
     environment = _environment(world, workcell, grip_contact=drives is not None)
-    bodies, collision_names = [], []
+    bodies, collision_names, pieces = [], [], None
     flats = {}
     jaw_side = {jaw: side for side, pair in JAW_BODIES.items() for jaw in pair}
     for body in original.find("worldbody").iter("body"):
@@ -208,8 +257,10 @@ def _scene_xml(source, fk_model, fk_data, visual_mode="cad", workcell=SYNTHETIC,
             item.set("conaffinity", "1" if collides else "0")
             if collides and name in {n for pair in JAW_BODIES.values() for n in pair} and \
                     Path(item.get("mesh", "")).name.startswith(("part_40", "part_41")):
-                # A convex hull of the concave one-piece finger fills the open jaw.
-                # Fit only the straight terminal 30 mm pad from the actual CAD vertices.
+                # A convex hull of the concave one-piece finger fills the open jaw. The finger's paddle collides as
+                # convex pieces of its CAD surface instead (_finger_pieces), so the cube cannot pass through it, nor
+                # one gripper's fingers through the other's. The straight terminal 30 mm keeps a box (terminal_pad)
+                # that only marks the grasp frame (evaluation.reach) and collides with nothing.
                 gid = mujoco.mj_name2id(fk_model, mujoco.mjtObj.mjOBJ_GEOM, item.get("name"))
                 bid = int(fk_model.geom_bodyid[gid])
                 mid = int(fk_model.geom_dataid[gid])
@@ -222,21 +273,34 @@ def _scene_xml(source, fk_model, fk_data, visual_mode="cad", workcell=SYNTHETIC,
                 center = rotation.T @ ((lo+hi)/2 - fk_data.xpos[bid])
                 quat = np.empty(4)
                 mujoco.mju_mat2Quat(quat, rotation.T.reshape(9))
-                item.attrib.pop("mesh")
-                item.set("name", item.get("name") + "/terminal_pad")
-                item.set("type", "box")
-                item.set("pos", _numbers(center))
-                item.set("quat", _numbers(quat))
-                item.set("size", _numbers((hi-lo)/2))
-            if collides:
-                collision_names.append(item.get("name"))
-                item.set("friction", "1 .005 .0001")
-                item.set("condim", "4")
-                item.set("solref", ".004 1")
-                if drives is not None and item.get("name", "").endswith("/terminal_pad"):
-                    item.set("solref", _numbers(GRIP_SOLREF))
-                    item.set("solimp", _numbers(GRIP_SOLIMP))
-            flat.append(item)
+                faces = fk_model.mesh_face[int(fk_model.mesh_faceadr[mid]):
+                                           int(fk_model.mesh_faceadr[mid]) + int(fk_model.mesh_facenum[mid])]
+                pieces = []
+                for k, points in enumerate(_finger_pieces(vertices, faces)):
+                    piece_name = f"{item.get('name')}/finger/{k}"
+                    # Body-frame vertices with no faces: MuJoCo makes the piece their convex hull.
+                    ET.SubElement(asset, "mesh", name=piece_name,
+                                  vertex=_numbers(((points - fk_data.xpos[bid]) @ rotation).ravel()))
+                    piece = copy.deepcopy(item)
+                    for key in ("pos", "quat"):
+                        piece.attrib.pop(key, None)
+                    piece.set("name", piece_name)
+                    piece.set("mesh", piece_name)
+                    pieces.append(piece)
+                ET.SubElement(flat, "geom", name=item.get("name") + "/terminal_pad", type="box", pos=_numbers(center),
+                              quat=_numbers(quat), size=_numbers((hi-lo)/2), contype="0", conaffinity="0",
+                              group="5", rgba="0 0 0 0")
+            for element in pieces if pieces is not None else [item]:
+                if collides:
+                    collision_names.append(element.get("name"))
+                    element.set("friction", "1 .005 .0001")
+                    element.set("condim", "4")
+                    element.set("solref", ".004 1")
+                    if drives is not None and "/finger/" in element.get("name", ""):
+                        element.set("solref", _numbers(GRIP_SOLREF))
+                        element.set("solimp", _numbers(GRIP_SOLIMP))
+                flat.append(element)
+            pieces = None
         for side, wrist in WRISTS.items():
             if name == wrist:
                 # The wrist camera's local optical direction follows the tool.
@@ -359,7 +423,8 @@ class MinervaTaskScene:
                              "drive's MIT law through their transmission" if self.driven else
                              "ArmPlant motor response; FK-posed MuJoCo mocap bodies"),
             "object_physics": "MuJoCo free cube with robot, table and bucket contacts",
-            "finger_collision": "straight terminal 30mm pad boxes fitted to CAD vertex bounds; concave finger stems omitted",
+            "finger_collision": "convex pieces of each finger paddle's CAD surface in 5 mm slices (its rack and pinion "
+                                "mount, inside the gripper, omitted); a terminal 30 mm pad box marks the grasp frame only",
             "other_robot_collision": "source CAD convex meshes",
             "attachment_assistance": False,
             "coupled_robot_dynamics": "grippers only: contact pushes back on the gripper drives" if self.driven else False,
@@ -390,7 +455,7 @@ class MinervaTaskScene:
                              "inertia and friction are nominal and whose torque limit is the receiver's max_effort"]
                             if self.driven else
                             ["Robot motion ignores contact reaction and motor force limits at the fingers"]) + [
-                            "Finger stems are omitted from contact; terminal pads use CAD-bounds boxes; other meshes are convex",
+                            "Fingers collide by their paddles, as convex 5 mm slices of the CAD surface; other meshes are convex",
                             "Real contact properties are unmeasured",
                             "Kinematic robot/environment penetration invalidates episode eligibility"]
                            + ([f"Workcell {workcell.name}: not yet measured: {', '.join(placeholders)}"]

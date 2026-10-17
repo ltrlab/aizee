@@ -59,7 +59,7 @@ def test_a_closing_gripper_stops_on_the_cube_and_squeezes_with_its_drive_torque(
         contact = scene.data.contact[i]
         if scene.cube_geom in (contact.geom1, contact.geom2):
             other = contact.geom2 if contact.geom1 == scene.cube_geom else contact.geom1
-            if scene.mj.mj_id2name(scene.model, scene.mj.mjtObj.mjOBJ_GEOM, other).endswith('terminal_pad'):
+            if '/finger/' in scene.mj.mj_id2name(scene.model, scene.mj.mjtObj.mjOBJ_GEOM, other):
                 scene.mj.mj_contactForce(scene.model, scene.data, i, force)
                 squeeze.append((force[0], -contact.dist))
     # The drive torque through the transmission is the jaws' force together (the mimic jaw moves with the first, so
