@@ -87,6 +87,7 @@ class TrialContext:
     home: np.ndarray
     period_s: float
     plant: str
+    workcell: object = None  # The scene's Workcell (simulation.workcell): the table, bucket and cube it judges.
 
 
 class _PolicyError(Exception):
@@ -214,7 +215,8 @@ class TrialRunner:
         plant, scene = self._open_plant(), self._open_scene()
         context = TrialContext(index=index, cube_start=dict(pose), joint_names=tuple(plant.names),
                                joint_map=plant.joint_map, lower=plant.lower.copy(), upper=plant.upper.copy(),
-                               home=plant.home.copy(), period_s=plant.period_s, plant=config.plant)
+                               home=plant.home.copy(), period_s=plant.period_s, plant=config.plant,
+                               workcell=scene.workcell)
         record = {'schema': trial_records.SCHEMA, 'trial': index, 'source': 'simulation', 'policy': name,
                   'cube_start': {k: pose[k] for k in ('x', 'y', 'yaw', 'cell')}, 'seed': config.grid.seed}
         aborted = timed_out = False

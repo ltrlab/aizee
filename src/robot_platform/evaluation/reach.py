@@ -83,3 +83,49 @@ class GraspIK:
         position, axis = float(np.linalg.norm(residual[:3])), float(np.abs(residual[3:]).max())
         return {'ok': position < POSITION_TOLERANCE_M and axis < AXIS_TOLERANCE, 'q': q,
                 'position_error_m': position, 'axis_error': axis}
+
+    def frame(self, side, q):
+        """(pad midpoint, finger direction, closing axis) of a gripper at joint positions `q`: the fingers point from
+        the wrist toward the fingertips; the jaws close along the closing axis (either sign)."""
+        middle, rotation = self._frame(side, q)
+        return middle, -rotation[:, 2], rotation[:, 0]
+
+    def _pose_residual(self, side, q, position, finger, closing, signed=False):
+        middle, pointing, jaws = self.frame(side, q)
+        parts = [middle - position, pointing - finger]
+        if closing is not None:
+            # Signed: the jaw axis itself, which also fixes which side of the fingers the wrist housing is on.
+            # Otherwise either sign: the jaws close along `closing` when they have no component across it.
+            parts.append(jaws - closing if signed else [jaws @ np.cross(finger, closing)])
+        return np.concatenate(parts)
+
+    def solve_pose(self, side, position, finger, closing=None, *, seed, iterations=200, signed=False):
+        """{'ok', 'q', 'position_error_m', 'axis_error'}: the gripper's pad midpoint at `position`, its fingers along
+        the unit vector `finger` and, when given, its jaws closing along `closing` (perpendicular to `finger`; with
+        `signed`, that exact direction rather than either). Only `side`'s arm moves, within the receiver's limits;
+        `seed` fixes where it starts and every other joint."""
+        position, finger = np.asarray(position, dtype=float), np.asarray(finger, dtype=float)
+        finger = finger / np.linalg.norm(finger)
+        if closing is not None:
+            closing = np.asarray(closing, dtype=float)
+            closing = closing - (closing @ finger) * finger
+            closing = closing / np.linalg.norm(closing)
+        q = np.array(seed, dtype=float)
+        joints = self.arm(side)
+        residual = self._pose_residual(side, q, position, finger, closing, signed)
+        weights = np.diag([1., 1., 1.] + [.1] * (len(residual) - 3))
+        for _ in range(iterations):
+            if np.linalg.norm(residual[:3]) < POSITION_TOLERANCE_M and np.abs(residual[3:]).max() < AXIS_TOLERANCE:
+                break
+            jacobian = np.zeros((len(residual), 6))
+            for column, joint in enumerate(joints):
+                moved = q.copy()
+                moved[joint] += 1e-5
+                jacobian[:, column] = (self._pose_residual(side, moved, position, finger, closing, signed)
+                                       - residual) / 1e-5
+            step = np.linalg.solve(jacobian.T @ weights @ jacobian + 1e-2 * np.eye(6), -jacobian.T @ weights @ residual)
+            q[joints] = np.clip(q[joints] + np.clip(step, -.2, .2), self.lower[joints], self.upper[joints])
+            residual = self._pose_residual(side, q, position, finger, closing, signed)
+        position_error, axis_error = float(np.linalg.norm(residual[:3])), float(np.abs(residual[3:]).max())
+        return {'ok': position_error < POSITION_TOLERANCE_M and axis_error < AXIS_TOLERANCE, 'q': q,
+                'position_error_m': position_error, 'axis_error': axis_error}

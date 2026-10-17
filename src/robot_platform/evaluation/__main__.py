@@ -135,7 +135,8 @@ def parser():
                                 description='Closed-loop Minerva task evaluation (simulation and hand-logged robot trials)')
     sub = p.add_subparsers(dest='command', required=True)
     r = sub.add_parser('run', help='run a policy against the simulated task scene')
-    r.add_argument('--policy', required=True, help="fixture_replay, hold_still, penetrating, or 'module:factory'")
+    r.add_argument('--policy', required=True,
+                   help="fixture_replay, hold_still, penetrating, handoff_demonstrator, 'checkpoint:<path>' or 'module:factory'")
     r.add_argument('--plant', choices=('armplant', 'ideal'), default='armplant',
                    help='armplant: the helm --sim receiver and simulated joints (default); ideal: exact tracking')
     r.add_argument('--timeout', type=float, default=30., help='seconds per trial (default 30)')
