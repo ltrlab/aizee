@@ -149,7 +149,7 @@ class GuardedLifecycleSession:
         if sample["reply"] != offered or sample["status"] != offered["status"]:
             raise ValueError("Feedback must be from the same receiver offer")
         held = offered["status"]["joints"]  # The stop's hold: the receiver re-arms there.
-        envelope = self.compiler.compile(offered, sample["feedback"], held, started_at=offer_started)
+        envelope = self.compiler.compile(offered, sample["feedback"], held, started_at=self.clock(), hold=True)
         status = self.controller.arm(collision=envelope)
         rows = self._rows(offered, sample["feedback"], offer_started)
         self.lifecycle.recover(rows, [joint["position"] for joint in status["joints"]], now=self.clock())
@@ -198,11 +198,18 @@ class GuardedLifecycleSession:
             if not self.owned:
                 raise ValueError("Idle must acquire robot ownership before applying commands")
             envelope = None
-            following = target  # The leader target this cycle's command follows; None once it holds instead.
+            holding = (operation == "move" and bool(self.lifecycle._before)
+                       and self.lifecycle._before[0] is not None
+                       and tuple(proposal["positions"]) == tuple(self.lifecycle._before[0])
+                       and all(v == 0. for v in proposal.get("reference_velocities") or ()))
+            # The leader target this cycle's command follows; None once it holds or moves on its own.
+            following = (target if operation == "move" and self.lifecycle.state in ("ENGAGING", "TELEOP")
+                         and not holding else None)
             if operation in ("enable", "move"):
                 try:
-                    envelope = self.compiler.compile(offered, feedback,
-                        None if operation == "enable" else proposal["joints"], started_at=offer_started)
+                    envelope = self.compiler.compile(
+                        offered, feedback, None if operation == "enable" else proposal["joints"],
+                        started_at=self.clock(), **({"hold": True} if holding else {}))
                     self.blocked = None
                 except CollisionBlocked as exc:
                     if operation != "move":
@@ -212,59 +219,68 @@ class GuardedLifecycleSession:
                     self.blocked = str(exc)
                     record.update(blocked=self.blocked, blocked_collision=deepcopy(exc.verdict),
                                   blocked_proposal=deepcopy(proposal))
-                    # The hold first, so a blocked cycle has a certified command to send: each try is a whole
-                    # computation, and when a slower try left no time for the hold nothing was sent, the receiver's
-                    # verdict lapsed and it stopped the arms (real time, 2026-10-10). A hold is one box query.
-                    # Then, with time left and the leader target fresh (a slower move still follows it), a slower
-                    # step toward it instead, the slowest first: at speed a box reaches a stop (right J1 brakes at
-                    # 4 rad/s2), and only a slower move left a hold near the other arm.
                     last, held = exc, None
-                    expires = (min(row["sampled_at"] for row in target) + self.lifecycle.target_max_age_s
-                               if target and self.lifecycle.state in ("ENGAGING", "TELEOP") else math.inf)
+                    if not holding:
+                        # The hold first, so a blocked cycle has a certified command to send: each try is a whole
+                        # computation, and when a slower try left no time for the hold nothing was sent, the receiver's
+                        # verdict lapsed and it stopped the arms (real time, 2026-10-10). A hold is one box query.
+                        # Then, with time left and the leader target fresh (a slower move still follows it), a slower
+                        # step toward it instead, the slowest first: at speed a box reaches a stop (right J1 brakes at
+                        # 4 rad/s2), and only a slower move left a hold near the other arm.
+                        expires = (min(row["sampled_at"] for row in target) + self.lifecycle.target_max_age_s
+                                   if target and self.lifecycle.state in ("ENGAGING", "TELEOP") else math.inf)
 
-                    def time_left():
-                        return self.cycle_budget_s - DISPATCH_S - (self.clock() - started)
-                    try:
-                        hold = self.lifecycle.reduce(0.)
-                    except ValueError:
-                        raise exc from None
-                    # The receiver's verdict in force outlasting the next cycle's dispatch (two cycle budgets
-                    # away at most), the hold can wait: this cycle's time goes to a slower step, which near the
-                    # other arm needs the approach-margin queries too, and after a hold had none left (2026-10-10).
-                    status = offered["status"]
-                    verdict_s = ((status.get("collision_expires_at_ms") or 0) - status["now_ms"]) / 1000
-                    if verdict_s > 2 * self.cycle_budget_s:
-                        record["hold_deferred"] = verdict_s
-                    elif time_left() >= QUERY_S:
+                        def time_left():
+                            return self.cycle_budget_s - DISPATCH_S - (self.clock() - started)
                         try:
-                            held = self._try(offered, feedback, hold["joints"], time_left(), hold=True)
-                            held_verdict = self.compiler.last_verdict
-                        except CollisionBlocked as again:
-                            last = again
-                            record.setdefault("reduced_blocked", []).append(
-                                (0., again.verdict.get("reason"), again.verdict.get("clearance_lower_bound_m")))
-                    else:
-                        record["out_of_time"] = 0.
-                    for fraction in sorted(f for f in REDUCED_STEPS if f > 0):
-                        within = min(time_left(), expires - DISPATCH_S - self.clock()) - QUERY_S
-                        if within < QUERY_S:
-                            record.setdefault("out_of_time", fraction)
-                            break
-                        proposal = self.lifecycle.reduce(fraction)
-                        try:
-                            envelope = self._try(offered, feedback, proposal["joints"], within)
-                            record.update(reduced=fraction, proposal=deepcopy(proposal))
-                            break
-                        except CollisionBlocked as again:
-                            last = again
-                            record.setdefault("reduced_blocked", []).append(
-                                (fraction, again.verdict.get("reason"), again.verdict.get("clearance_lower_bound_m")))
-                    if envelope is None:
-                        proposal = self.lifecycle.reduce(0.)  # Back to the hold.
-                        record["proposal"] = deepcopy(proposal)
-                        if held is not None:
-                            envelope, self.compiler.last_verdict = held, held_verdict
-                            record["reduced"] = 0.
+                            hold = self.lifecycle.reduce(0.)
+                        except ValueError:
+                            raise exc from None
+                        # The receiver's verdict in force outlasting the next cycle's dispatch (two cycle budgets
+                        # away at most), the hold can wait: this cycle's time goes to a slower step, which near the
+                        # other arm needs the approach-margin queries too, and after a hold had none left (2026-10-10).
+                        status = offered["status"]
+                        verdict_s = ((status.get("collision_expires_at_ms") or 0) - status["now_ms"]) / 1000
+                        if verdict_s > 2 * self.cycle_budget_s:
+                            record["hold_deferred"] = verdict_s
+                        elif time_left() >= QUERY_S:
+                            try:
+                                held = self._try(offered, feedback, hold["joints"], time_left(), hold=True)
+                                held_verdict = self.compiler.last_verdict
+                            except CollisionBlocked as again:
+                                last = again
+                                record.setdefault("reduced_blocked", []).append(
+                                    (0., again.verdict.get("reason"), again.verdict.get("clearance_lower_bound_m")))
+                        else:
+                            record["out_of_time"] = 0.
+                        for fraction in sorted(f for f in REDUCED_STEPS if f > 0):
+                            within = min(time_left(), expires - DISPATCH_S - self.clock()) - QUERY_S
+                            if within < QUERY_S:
+                                record.setdefault("out_of_time", fraction)
+                                break
+                            proposal = self.lifecycle.reduce(fraction)
+                            try:
+                                envelope = self._try(offered, feedback, proposal["joints"], within)
+                                record.update(reduced=fraction, proposal=deepcopy(proposal))
+                                break
+                            except CollisionBlocked as again:
+                                last = again
+                                record.setdefault("reduced_blocked", []).append(
+                                    (fraction, again.verdict.get("reason"), again.verdict.get("clearance_lower_bound_m")))
+                        if envelope is None and held is None and record.get("hold_deferred") and time_left() >= QUERY_S:
+                            try:
+                                held = self._try(offered, feedback, hold["joints"], time_left(), hold=True)
+                                held_verdict = self.compiler.last_verdict
+                            except CollisionBlocked as again:
+                                last = again
+                                record.setdefault("reduced_blocked", []).append(
+                                    (0., again.verdict.get("reason"), again.verdict.get("clearance_lower_bound_m")))
+                        if envelope is None:
+                            proposal = self.lifecycle.reduce(0.)  # Back to the hold.
+                            record["proposal"] = deepcopy(proposal)
+                            if held is not None:
+                                envelope, self.compiler.last_verdict = held, held_verdict
+                                record["reduced"] = 0.
                     if envelope is None or record.get("reduced") == 0.:
                         following = None
                     if envelope is None:
