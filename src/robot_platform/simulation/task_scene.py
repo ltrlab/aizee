@@ -50,6 +50,7 @@ GRIP_SOLREF, GRIP_SOLIMP = (2 * PHYSICS_DT, 1.), (.99, .999, .001)
 # the finger's cross-section narrows below FINGER_NECK of its widest: above it, its rack and pinion mount sits inside
 # the gripper.
 FINGER_SLICE, FINGER_NECK = .005, .8  # m, share
+_FINGER_PIECES = {}  # _finger_pieces by posed finger surface.
 DRIVE_FIELDS = ("inertia", "friction", "viscous", "max_effort")
 
 
@@ -141,11 +142,16 @@ def _drive_body(wrist, side, drive):
                   damping=str(drive["viscous"]))
 
 
-def _surface_points(vertices, faces, z0, z1):
+def _edges(vertices, faces):
+    """Each face edge's two end points."""
+    edges = np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
+    return vertices[edges[:, 0]], vertices[edges[:, 1]]
+
+
+def _surface_points(vertices, edges, z0, z1):
     """A mesh's surface points in the slab z0..z1: its vertices inside, and its edges' crossings of the slab's planes
     (a long straight face has no vertices inside a slab)."""
-    edges = np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
-    a, b = vertices[edges[:, 0]], vertices[edges[:, 1]]
+    a, b = edges
     points = [vertices[(vertices[:, 2] >= z0) & (vertices[:, 2] <= z1)]]
     for plane in (z0, z1):
         crossing = (a[:, 2] - plane) * (b[:, 2] - plane) < 0
@@ -154,14 +160,14 @@ def _surface_points(vertices, faces, z0, z1):
     return np.unique(np.round(np.concatenate(points), 7), axis=0)
 
 
-def _paddle_top(vertices, faces):
+def _paddle_top(vertices, edges):
     """Where a finger's paddle ends: going up from its tip in 1 mm slabs (the finger points down in the model's
     default pose), the first whose cross-section is narrower than FINGER_NECK of the widest below it. The paddle
     widens all the way up (12 to 54 mm); the rack and pinion mount above it is a 22-30 mm neck."""
     bottom, top = vertices[:, 2].min(), vertices[:, 2].max()
     widest, z = 0., bottom
     while z < top - .001:
-        points = _surface_points(vertices, faces, z, z + .001)
+        points = _surface_points(vertices, edges, z, z + .001)
         if len(points):
             width = (points[:, :2].max(axis=0) - points[:, :2].min(axis=0)).max()
             if width < FINGER_NECK * widest:
@@ -174,15 +180,19 @@ def _paddle_top(vertices, faces):
 def _finger_pieces(vertices, faces):
     """A finger's paddle as convex pieces: its surface points slab by slab from the tip (FINGER_SLICE). Each piece's
     convex hull follows the paddle's taper and chamfers, where axis-aligned boxes over the same slabs stuck out up to
-    15 mm."""
-    bottom, end = vertices[:, 2].min(), _paddle_top(vertices, faces)
-    pieces, z = [], bottom
-    while z < end - 1e-9:
-        points = _surface_points(vertices, faces, z, min(z + FINGER_SLICE, end))
-        if len(points) >= 4 and np.all(points.max(axis=0) - points.min(axis=0) > 1e-4):
-            pieces.append(points)
-        z = min(z + FINGER_SLICE, end)
-    return pieces
+    15 mm. Built once per posed finger surface in a process (a trial's scene and its planner's share them)."""
+    key = hashlib.sha256(vertices.tobytes() + faces.tobytes()).digest()
+    if key not in _FINGER_PIECES:
+        edges = _edges(vertices, faces)
+        bottom, end = vertices[:, 2].min(), _paddle_top(vertices, edges)
+        pieces, z = [], bottom
+        while z < end - 1e-9:
+            points = _surface_points(vertices, edges, z, min(z + FINGER_SLICE, end))
+            if len(points) >= 4 and np.all(points.max(axis=0) - points.min(axis=0) > 1e-4):
+                pieces.append(points)
+            z = min(z + FINGER_SLICE, end)
+        _FINGER_PIECES[key] = tuple(pieces)
+    return _FINGER_PIECES[key]
 
 
 def _scene_xml(source, fk_model, fk_data, visual_mode="cad", workcell=SYNTHETIC, drives=None):
