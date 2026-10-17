@@ -60,12 +60,17 @@ def test_real_contact_pickup_handoff_and_bucket_outcome(scene):
         for k in range(point["steps"]):
             state = scene.update(q+(target-q)*(k+1)/point["steps"], FIXTURE["step_s"])
         q = target
+    # Contact still finds every stage of the replay ...
+    kinds = [e["kind"] for e in state["events"]]
     assert state["first_gripper"] == "left" and state["handoff"]
-    assert state["bucket_settled"] and state["success"] and not state["dropped"]
-    assert state["training_eligible"] and not state["forbidden_contacts"]
-    assert not state["sim2real_validated"]
-    assert [e["kind"] for e in state["events"]] == ["reset", "pickup", "handoff", "bucket_settled"]
+    assert state["bucket_settled"] and not state["dropped"]
+    assert [k for k in kinds if not k.startswith("forbidden")] == ["reset", "pickup", "handoff", "bucket_settled"]
     assert "task/bucket/bottom" in state["cube_contacts"]
+    assert not state["sim2real_validated"]
+    # ... but the fixture predates the arm-to-arm audit, and its handoff passes the two arms through each other
+    # (wrists, forearms and fingers, from 2.9 s): the scene revokes its success and its eligibility.
+    assert not state["success"] and not state["training_eligible"] and state["forbidden_contacts"]
+    assert {k for k in kinds if k.startswith("forbidden")} == {"forbidden_robot_robot_penetration"}
 
 
 def test_bucket_contact_alone_does_not_count_as_handoff_success(scene):

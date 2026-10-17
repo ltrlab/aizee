@@ -403,8 +403,8 @@ class MinervaTaskScene:
 
         self._audit_radii = (self.model.geom_rbound[self._collision_ids, None] +
                              self.model.geom_rbound[None, self._environment_ids])
-        # Which arm each collision geom is on (its body's joints or an ancestor's say), for keeping one arm's geoms
-        # clear of the other's.
+        # The penetration audit checks every collision geom against the table and bucket, and one arm's against
+        # the other's.
         arms = [self._arm(mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, int(self.model.geom_bodyid[g])))
                 for g in self._collision_ids]
         self._arm_rows = {side: np.array([r for r, arm in enumerate(arms) if arm == side], dtype=int)
@@ -436,7 +436,7 @@ class MinervaTaskScene:
             "coupled_robot_dynamics": "grippers only: contact pushes back on the gripper drives" if self.driven else False,
             "gripper_drives": gripper_drives or None,
             "robot_self_collision": False, "robot_environment_response": False,
-            "robot_environment_penetration_audit": True,
+            "robot_environment_penetration_audit": True, "robot_robot_penetration_audit": True,
             "collision_geometries": collision_names,
             "contact_geometry_sha256": contact_hash.hexdigest(),
             "mesh_vertices": int(self.model.nmeshvert), "mesh_faces": int(self.model.nmeshface),
@@ -463,7 +463,8 @@ class MinervaTaskScene:
                             ["Robot motion ignores contact reaction and motor force limits at the fingers"]) + [
                             "Fingers collide by their paddles, as convex 5 mm slices of the CAD surface; other meshes are convex",
                             "Real contact properties are unmeasured",
-                            "Kinematic robot/environment penetration invalidates episode eligibility"]
+                            "Kinematic robot/environment penetration, or one arm's into the other's, invalidates episode "
+                            "eligibility"]
                            + ([f"Workcell {workcell.name}: not yet measured: {', '.join(placeholders)}"]
                               if placeholders else []),
         }
@@ -738,18 +739,26 @@ class MinervaTaskScene:
                                 self.data.geom_xmat[self._collision_ids]), axis=1)
         changed = np.ones(len(poses), dtype=bool) if self._audited_poses is None else np.any(poses != self._audited_poses, axis=1)
         self._audited_poses = poses.copy()
-        candidates = np.argwhere(overlap & changed[:, None])
-        for r, e in candidates:
-            robot, env = self._collision_ids[r], self._environment_ids[e]
-            key = (robot, env)
+        pairs = [(self._collision_ids[r], self._environment_ids[e], "forbidden_robot_environment_penetration")
+                 for r, e in np.argwhere(overlap & changed[:, None])]
+        # One arm into the other: the arms are posed, so MuJoCo makes no contact between them either.
+        left, right = self._arm_rows["left"], self._arm_rows["right"]
+        if len(left) and len(right):
+            overlap = np.all(np.abs(centers[left][:, None]-centers[right][None, :]) <=
+                             halves[left][:, None]+halves[right][None, :]+1e-12, axis=2)
+            moved = changed[left][:, None] | changed[right][None, :]
+            pairs += [(self._collision_ids[left[i]], self._collision_ids[right[j]], "forbidden_robot_robot_penetration")
+                      for i, j in np.argwhere(overlap & moved)]
+        for robot, other, kind in pairs:
+            key = (robot, other)
             if key in self._invalid_contacts:
                 continue
-            distance = self.mj.mj_geomDistance(self.model, self.data, robot, env, .002, None)
+            distance = self.mj.mj_geomDistance(self.model, self.data, robot, other, .002, None)
             if distance < -.002:
                 names = [self.mj.mj_id2name(self.model, self.mj.mjtObj.mjOBJ_GEOM, i) for i in key]
                 self._invalid_contacts[key] = names
                 self.success = False
-                self._emit("forbidden_robot_environment_penetration", geoms=names, depth_m=-distance)
+                self._emit(kind, geoms=names, depth_m=-distance)
 
     def snapshot(self):
         return {"run_id": self.run_id, "scene_time": float(self.data.time), "seed": self.seed,
