@@ -67,3 +67,19 @@ Toolchain and ARM64 build evidence are in `build/offline-gate-prerequisites/`.
 This validates read-only camera viewing. Physical motion, robot control-loop
 latency with preview/capture active, and task-data qualification remain outside
 this evidence.
+
+## Recording-readiness resolution, 2026-10-17 UTC
+
+The failed full gate above is preserved as historical evidence for `7fe997f`.
+Subsequent recording-test corrections, bounded writer teardown and measured image
+preprocessing changes produced clean source
+`4c5237074b506d6c1abc4a8157b129b14cae5971`: **1049 Python / 132 Rust tests passed**,
+zero skips/xfails. That source was activated on Jetson and the terminal with
+prior releases preserved; final Helm state was stopped/disconnected.
+
+An isolated proof passed 144 completed frames over 10.097 s and 6 deliberately
+aborted readable frames using actual cameras with stationary virtual 14-axis
+state. It is explicitly qualification-only and not training eligible. See
+[the recording handoff](HELM_RECORDING_READINESS.md) for identities, proof,
+activation and the unresolved start-pose/table-clearance limits. The requested
+pedal A/B/C feature is upcoming and outside this accepted release.

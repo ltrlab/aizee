@@ -92,9 +92,10 @@ existing physical stop accessible. This addition records data; it does not chang
 motion gains, watchdogs or collision enforcement, and does not qualify a
 collision-disabled profile for overlapping bimanual motion.
 
-The initial profile explicitly requires right_wrist and head, per the operator choice.
-Both arms and both grippers still participate. A later three-camera profile may add
-left_wrist; the file records its exact camera roster and never fills an omitted role:
+The current profile requires **left_wrist, right_wrist and head**, with both arms
+and both grippers (14 axes). All three views must be fresh before recording.
+Older two-view episodes retain their original camera roster; missing views are
+never filled with placeholders:
 
 | Capture role | Publisher identity | Jetson loopback endpoint | Physical identity |
 | --- | --- | --- | --- |
@@ -102,19 +103,24 @@ left_wrist; the file records its exact camera roster and never fills an omitted 
 | right_wrist | `right_wrist` | `tcp://127.0.0.1:5565` | USB `32e4:9230` |
 | head | `scene_cam` | `tcp://127.0.0.1:5564` | Intel RealSense D435, static neck mount; extrinsics unknown |
 
-The wrist configurations request JPEG 640 × 480 at 30 Hz. Service status alone
-does not prove image availability. On the read-only device check of 2026-10-16,
-the initial check found no cameras. After the operator connected the right wrist
-camera and static-neck Intel RealSense D435, the subsequent check verified fresh
-640 × 480 right_wrist and scene_cam RGB streams (and D435 depth at its publisher).
-The left wrist camera was still absent. This capture boundary stores RGB; it does
-not silently add a depth modality. The D435 mount is recorded as static neck and
-its extrinsic calibration remains unknown: no camera-to-robot transform is invented.
-These are dated observations, not permanent device state. The GUI counts actual
-fresh streams once the bimanual session starts: 2/2 for the initial profile. A future
-three-camera profile will require the left wrist too.
+After the operator connected the left wrist on 2026-10-16, all three identities
+and fresh 640 x 480 JPEG streams were verified. Check the current **3/3 cameras
+fresh** indication each session; service status and earlier checks do not establish
+current availability. Capture stores RGB only, even though the D435 publisher
+also supplies depth. The head is mounted on the static neck; its extrinsics and
+the stored images' intrinsics remain unavailable in capture metadata.
 
-1. Connect/verify both configured cameras and their existing publishers. Confirm that
+The profile sets `recording_image_size: [320, 240]`. It downsamples each selected
+640 x 480 RGB triplet with `Image.reduce(2)`; live previews retain the original
+640 x 480 stream. This spatial reduction loses detail. Gzip storage preserves the
+resulting pixels exactly. Per-camera `image_transform` records
+`operation: integer_reduce`, `algorithm: Pillow.Image.reduce`, `factor: [2, 2]`,
+Pillow version, source/stored shapes, RGB order and `stored_image_intrinsics: null`.
+Integer-reduction rounding can differ from BOX. Other supported downsample ratios
+use explicitly recorded BOX; upsampling and aspect-ratio changes are rejected.
+Omitting the size or setting it to null preserves source resolution.
+
+1. Connect/verify all three configured cameras and their existing publishers. Confirm that
    each publisher's read-complete timestamp uses the same Jetson Unix clock; the
    supplied loopback profile is invalid for a relay from another host clock.
 2. Start the existing bimanual session. The task panel reports each camera as
@@ -127,7 +133,7 @@ three-camera profile will require the left wrist too.
 4. Perform the attended task and finish the episode explicitly as in simulation.
    Inspect the final path and completed frame count. Evaluate task success by
    operator review; the physical collector does not infer object contact/success.
-5. Confirm file readability, all 14 named axes, both configured RGB streams, timestamps,
+5. Confirm file readability, all 14 named axes, all three RGB streams, timestamps,
    action validity and provenance before promoting the episode into a dataset.
 
 The profile's current capture admission bounds are 20 Hz requested recording,
@@ -135,10 +141,24 @@ receiver age ≤ 30 ms, camera age ≤ 200 ms and inter-camera publisher timesta
 The receiver age is limited by the existing receiver feedback timeout. Camera
 bounds are explicit capture configuration, not measured synchronization guarantees.
 The current publisher timestamps are host read-complete times, not known sensor
-exposure times; this limitation is preserved in metadata. Frames are selected at/before a conservative receiver cutoff and only new publisher-stamped camera
-frames are recorded. Actual achieved rate and recorded timing must be checked;
-recording does not silently relax these bounds. Publisher frame counters can reset,
-so capture preserves the raw counter and adds its own monotonic receive identity.
+exposure times; this limitation is preserved in metadata. Frames are selected
+at/before a conservative receiver cutoff, and every camera must supply a new
+publisher-stamped acquisition. The head was observed at approximately 15 Hz;
+20 Hz is a requested ceiling, not a guaranteed achieved rate. Check recorded rate
+and timing. Publisher frame counters can reset, so capture preserves the raw
+counter and adds its own monotonic receive identity.
+
+After image preprocessing, a fresh monotonic clock checks the same original paired
+q/qcmd sample against 30 ms and the same selected camera acquisitions against
+200 ms. `capture_admission_at` records that check time separately from acquisition
+stamps. Processing that exhausts either age budget aborts capture; it does not
+replace the paired sample or restamp an image to gain time.
+
+The passed Jetson recording qualification used actual three-camera streams with
+a stationary native virtual receiver. Its files are labeled `qualification_mixed`
+and excluded from training. This verifies the tested recording/abort path, not
+real-leader motion, a physical demonstration, grasp/handoff safety or sim-to-real
+transfer. The intended hardware session still needs its own qualification.
 
 Receiver status exposes elapsed whole milliseconds while recorder rows retain
 fractional milliseconds. Capture admits a row only below the next millisecond
@@ -162,8 +182,13 @@ receiver's enabled Holding/Executing authority also aborts the active episode;
 stopped observations cannot become emitted-command training rows. Stop recording
 and wait for completion before disabling or ending the session. Parent loss or
 session closure cancels pending publication, including a finish waiting on disk.
-Each process keeps a bounded `capture-worker-*.stderr.log` under its episode
-directory for startup/native diagnostics.
+Abort signals are nonblocking. During teardown, the capture owner uses one
+bounded 5-second budget to stop its worker and wait for HDF5 to close, outside the
+control callback. Normal abort closes an incomplete file with its error reason.
+If teardown times out, the child exits with failure and the partial file's
+integrity remains unconfirmed; it is never published as complete. Each process
+keeps a bounded `capture-worker-*.stderr.log` under its episode directory for
+startup/native diagnostics.
 
 A recording or diagnostics failure latches **RECORDING FAILED** for that session,
 requests episode abort, and stops following the leaders. An enabled, healthy
