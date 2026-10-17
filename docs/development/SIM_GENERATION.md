@@ -56,6 +56,7 @@ Today's training loader (`python/training/minerva_dataset.py`) trains on human a
   - The one other attempt was refused before it moved: no plan cleared the table and bucket for a cube turned 40 degrees at the region's near edge.
   - The episodes start on two wrist-roll branches a turn apart, left J5 at -3.14 rad (85) or +3.14 rad (35): the same pose, recorded as different joint angles.
   - They predate the finger collision and the quarter-turn take ([SIM_DEMONSTRATOR.md](SIM_DEMONSTRATOR.md)): the cube touched each finger only at its 30 mm tip box, and at the handoff the grippers' inner fingers cross behind the cube. Regenerate before training on them.
+- **A batch of 120, regenerated at `e8aa16c`** with the fingers' paddles colliding, the arm-against-arm audit and the quarter-turn take, from the same seeds and worker settings as the batch above: 120 episodes from 121 attempts in 3.0 h, 6.0 GB. The far corner that refused before `e8aa16c` now plans (one arm at a time). The one refusal was a cube turned 40 degrees at the region's near-left edge (x 0.046, y -0.323), as in the first batch.
 
 ## Many at once
 
