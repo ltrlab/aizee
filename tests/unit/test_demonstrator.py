@@ -1,4 +1,5 @@
 """The scripted handoff demonstration plans reachable moves that clear the table and the bucket. No receiver."""
+import math
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -86,3 +87,20 @@ def test_a_move_waits_for_an_arm_that_falls_behind(planned):
         q = demo({'t': t, 'q': q})[0]
     assert demo.current == 1 and t - 5. <= first.duration + .02
     demo._timeline(demo.frames)
+
+
+@pytest.mark.parametrize('x, y, yaw', [(.26, -.50, -40.), (.02, -.50, 40.)])
+def test_a_turned_cube_is_picked_by_a_pair_of_faces_the_left_reaches_and_every_move_clears(planned, x, y, yaw):
+    # Before the second pair of faces and the climb to the handoff, the first could not be planned to clear (the
+    # pads swung 14 mm into the table on the way to the handoff) and the second could not be picked at all.
+    demo, context, _ = planned
+    try:
+        demo.reset(SimpleNamespace(**{**vars(context), 'cube_start': {'x': x, 'y': y, 'yaw': math.radians(yaw)}}))
+        assert min(distance for _, distance, _, _ in demo.plan_clearance()) > .001
+        frames = {frame.label: frame for frame in demo.frames}
+        _, finger, _ = demo._ik.frame('left', frames['left on the cube'].target)
+        # The fingers point along one of the cube's face normals, turned at most 20 degrees off it.
+        azimuth = math.degrees(math.atan2(finger[1], finger[0]))
+        assert abs((azimuth - 270. - yaw + 45.) % 90. - 45.) <= 20.5
+    finally:
+        demo.reset(context)

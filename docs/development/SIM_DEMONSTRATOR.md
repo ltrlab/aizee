@@ -32,8 +32,9 @@ Every pose below came out of a reach or clearance check, not a guess. The script
 |---|---|---|---|
 | Start | left (0.15, -0.30), right (-0.10, -0.20), 12 cm above the table | left forward, right forward-left | left narrow, right wide |
 | Above the cube | 6 cm over the pre-grasp | forward, 10 degrees down | narrow |
-| Pre-grasp, grasp | 6 cm behind and 2 cm above the cube, then on it | forward, 20 degrees down; where that is out of reach, turned up to 20 degrees or tilted 10-15 degrees | narrow |
+| Pre-grasp, grasp | 6 cm behind and 2 cm above the cube, then on it | along the normal of a pair of the cube's side faces (the pair facing nearest forward, else the other), 20 degrees down; where that is out of reach, turned up to 20 degrees or tilted 10-15 degrees | narrow |
 | Close, lift | cube + 8 cm | level | narrow |
+| Climb, only where the move to the handoff would not clear | lift + 10 cm | level | narrow |
 | Handoff | both on the cube at (0, -0.30), 12 cm above the table | left forward-right, right forward-left, jaws on perpendicular faces | wide |
 | Right closes, left opens and backs off | | | |
 | Right lifts | handoff + 10 cm | forward-left, 10 degrees up | narrow (rolls here) |
@@ -42,7 +43,8 @@ Every pose below came out of a reach or clearance check, not a guess. The script
 
 **How it moves**
 - **Straight-line moves.** Each move takes the pads in a straight line while the gripper turns evenly, solved every 1 cm from the last solution. Where an arm cannot follow the line, the move falls back to joint interpolation in 0.02 rad steps. The roll to the handoff and the right's lift do this.
-- **Wrist-roll branches.** The start pose is tried on each wrist-roll branch (the same pose a turn apart), and the plan with the fewest fallbacks, then the shortest, is kept.
+- **Wrist-roll branches.** The start pose is tried on each wrist-roll branch (the same pose a turn apart). Of the plans whose every move clears, the one with the fewest fallbacks, then the shortest, is kept.
+- **Clearance.** A plan is used only if every move keeps the robot more than 1 mm from the table and the bucket (0.3 s to check). The move to the handoff interpolates the left's joints while it rolls over, and from some grasps of a turned cube that swing took the pads up to 14 mm into the table. Where it would, the left first climbs 10 cm straight up.
 - **Grasps.** The jaws open to the cube plus 2 cm each side and close 1 rad past touching, so the drive squeezes with kp x 1 rad.
 - **Gripper steps.** A gripper step ends once that gripper's reading has moved less than 0.01 rad over 0.2 s (stalled on the cube, or open), after at least 0.3 s and at most 3 s. A fixed 0.6 s wait let the left open before the right had both jaws on the cube, because the right needs about 1 s to close from open at the receiver's gripper gains. The two grippers then overlapped for 40 ms, short of the 50 ms the scene requires of a handoff, so 4 of 10 trials ended out of sequence. The settle test reads position: the speed reading carries the drives' noise.
 - **Holds.** Holds correct toward the pose (at most 0.03 rad) until the arm settles within 0.004 rad or 1.5 s pass.
@@ -59,6 +61,10 @@ Every pose below came out of a reach or clearance check, not a guess. The script
 - It also plans in the front-right patch near the table's edge: x from 0.12-0.20 m at y -0.28 to -0.20 m.
 - Only the front-left corner nearest the robot's centre is out of reach.
 
+**Turned cubes.** A cube looks the same every quarter turn, so the left can take it by either pair of side faces. Planning only, over the cube region at a 6 cm step and yaws from -40 to +40 degrees in 10 degree steps (180 cells; `demonstrator_reach_map.py --x 0.02 0.26 --y -0.50 -0.32 --step 0.06 --yaws -40 -30 -20 -10 0 10 20 30 40`):
+- By the pair of faces nearest forward alone, 149 cells planned and cleared, 20 could not be picked (yaws +10 to +40 at small x), and 11 planned too close. Eight of those went into the table on the way to the handoff, up to 14 mm.
+- With the second pair of faces, the climb and the clearance check, all 180 plan and clear.
+
 The workcell's cube region is now x 0.02-0.26 m, y -0.32 to -0.50 m, inside that area. Re-run the map after measuring the bench.
 
 ## Results
@@ -72,6 +78,7 @@ Through the receiver with driven grippers on the measured bench:
 - **Default 3x3 grid, reachable region, with the alternative grasp orientations:** 6/10. The other 4 ended out of sequence: the cube reached the bucket but the scene saw no handoff (see "Gripper steps").
 - **The same grid with the gripper settle test:** 10/10 succeeded (Wilson 95% 0.72-1.00), median time to complete 46.1 s (p90 46.8 s). With the right's lift at transit speed, also 10/10, median 32.0 s (p90 32.7 s).
 - **The same grid with paced moves:** 10/10 succeeded (Wilson 95% 0.72-1.00), median time to complete 40.8 s (p90 41.8 s). No arm joint trailed its command by more than 0.89 of its lead. Unpaced, five did somewhere on the grid, right J1 by 0.52 rad (21 times its lead).
+- **Turned cubes, yaw drawn from +/-45 degrees, 4x4 grid plus the nominal start:** 17/17 succeeded (Wilson 95% 0.82-1.00), median time to complete 40.6 s (p90 43.5 s). The yaws ran from -44.8 to +44.7 degrees, and no joint trailed by more than 0.88 of its lead. `run ... --grid 4x4 --yaw 0.785398`.
 
 ## Limits
 

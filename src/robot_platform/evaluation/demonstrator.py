@@ -51,6 +51,12 @@ ABOVE_PREGRASP, ABOVE_FINGER = .06, (270., -10.)
 LIFT = .08
 HANDOFF = (0., -.30, .12)  # Cube centre at the handoff: x, y on the table, z above its top.
 HANDOFF_FINGERS = {'left': (225., 0.), 'right': (315., 0.)}
+# The left rolls its wrist housing over on its way to the handoff, and the arm cannot keep the pads on a straight line
+# while it does: the move interpolates the joints, which can swing the pads down into the table (14 mm, picking a cube
+# turned 40 degrees at the far edge of its region). Where that move would not clear, the left first rises HANDOFF_CLIMB
+# straight up and rolls over from there.
+HANDOFF_CLIMB = .10
+CLEARANCE = .001  # m: a plan is used only if every move keeps the robot this far from the table and the bucket.
 RETREAT = .08  # The left backs off along its fingers after letting go ...
 RETREAT_RISE = .04  # ... and rises.
 # The right lifts the cube 10 cm at the handoff, turning toward the bucket, before carrying it over: lower, its
@@ -96,6 +102,14 @@ def level_closing(finger, housing='narrow'):
     housing='wide', its wide (63 mm) side."""
     closing = np.cross(finger, [0., 0., 1.])
     return closing / np.linalg.norm(closing) * (1. if housing == 'narrow' else -1.)
+
+
+def faces(yaw):
+    """A cube turned `yaw` degrees offers the jaws two pairs of side faces a quarter turn apart: their yaws, the pair
+    facing nearest straight ahead first. By that pair alone, a cube turned 40 degrees could not be picked at 10 of
+    20 places in its region."""
+    first = (yaw + 45.) % 90. - 45.
+    return first, first - 90. if first > 0 else first + 90.
 
 
 def _frame(closing, finger):
@@ -274,8 +288,8 @@ class HandoffDemonstrator:
             q = self._solve(side, [x, y, top + READY_HEIGHT], finger, level_closing(finger, READY_HOUSING[side]), q,
                             f'ready {side}')
         # The same start pose a turn apart on a wrist roll is a different branch for every move after it: plan
-        # from each and keep the plan whose moves all follow straight lines, then the shortest.
-        best = None
+        # from each and, of the plans that clear, keep the one with the most straight-line moves, then the shortest.
+        candidates = []
         for ready in self._branches(q):
             try:
                 frames = self._plan(ready, cube, yaw, top, workcell, grip, opened, closed)
@@ -283,13 +297,17 @@ class HandoffDemonstrator:
                 continue
             fallbacks = sum(1 for frame in frames if frame.kind == 'move' and not frame.cartesian)
             self._timeline(frames)
-            score = (fallbacks, sum(frame.duration for frame in frames))
-            if best is None or score < best[0]:
-                best = (score, ready, frames)
-        if best is None:
+            candidates.append(((fallbacks, sum(frame.duration for frame in frames)), ready, frames))
+        if not candidates:
             raise PlanningError(f'no plan reaches the cube at {np.round(cube, 3).tolist()}')
-        self.ready = best[1]
-        self._timeline(best[2])
+        # The best-scored plan whose every move clears the table and the bucket.
+        for _, ready, frames in sorted(candidates, key=lambda candidate: candidate[0]):
+            self._timeline(frames)
+            if min(distance for _, distance, _, _ in self.plan_clearance()) > CLEARANCE:
+                break
+        else:
+            raise PlanningError(f'no plan clears the table and bucket for the cube at {np.round(cube, 3).tolist()}')
+        self.ready = ready
         self.bias = np.zeros(len(names))
         return None
 
@@ -330,8 +348,8 @@ class HandoffDemonstrator:
             q[grip[side]] = value
             frames.append(Segment('grip', q.copy(), arm=arm, label=label, duration=GRIP_WAIT))
 
-        for turn, tilt in PICK_OPTIONS:
-            azimuth = PICK_FINGER[0] + yaw + turn
+        for turn, tilt in [(face + turn, tilt) for face in faces(yaw) for turn, tilt in PICK_OPTIONS]:
+            azimuth = PICK_FINGER[0] + turn
             pick, above_cube = direction(azimuth, tilt), direction(azimuth, ABOVE_FINGER[1])
             pregrasp = cube - APPROACH * pick + [0., 0., APPROACH_RISE]
             try:
@@ -354,8 +372,13 @@ class HandoffDemonstrator:
         add(self._move(q, {'left': pose(cube + [0., 0., LIFT], lift, 'narrow')}, 'left lifts', slow=True))
         handoff = np.array([HANDOFF[0], HANDOFF[1], top + HANDOFF[2]])
         fingers = {side: direction(*HANDOFF_FINGERS[side]) for side in ('left', 'right')}
-        add(self._move(q, {'left': pose(handoff, fingers['left']),
-                           'right': pose(handoff - APPROACH * fingers['right'], fingers['right'])}, 'to the handoff'))
+        meet = {'left': pose(handoff, fingers['left']),
+                'right': pose(handoff - APPROACH * fingers['right'], fingers['right'])}
+        move = self._move(q, meet, 'to the handoff')
+        if self._clearance(move.path)[0] <= CLEARANCE:
+            add(self._move(q, {'left': pose(cube + [0., 0., LIFT + HANDOFF_CLIMB], lift, 'narrow')}, 'left climbs'))
+            move = self._move(q, meet, 'to the handoff')
+        add(move)
         hold('left', 'left holds the cube out')
         add(self._move(q, {'right': pose(handoff, fingers['right'])}, 'right takes', slow=True))
         hold('right', 'right on the cube')
@@ -396,25 +419,30 @@ class HandoffDemonstrator:
     def start_pose(self, context):
         return self.ready
 
+    def _clearance(self, path):
+        """(closest robot/table-or-bucket distance in m along `path`, robot geom, environment geom), at each point."""
+        scene, mj = self._scene, self._scene.mj
+        worst = (1., None, None)
+        for q in path:
+            scene._pose(q)
+            mj.mj_kinematics(scene.model, scene.data)
+            for robot in scene._collision_ids:
+                for environment in scene._environment_ids:
+                    d = mj.mj_geomDistance(scene.model, scene.data, robot, environment, .05, None)
+                    if d < worst[0]:
+                        worst = (d, robot, environment)
+        return worst
+
     def plan_clearance(self):
         """[(label, closest robot/table-or-bucket distance in m along the move, robot geom, environment geom)] for
         every move of the current plan, at each path point."""
-        scene, mj = self._scene, self._scene.mj
+        mj = self._scene.mj
+        name = lambda g: None if g is None else mj.mj_id2name(self._scene.model, mj.mjtObj.mjOBJ_GEOM, g)
         result = []
         for frame in self.frames:
-            if frame.kind != 'move':
-                continue
-            worst = (1., None, None)
-            for q in frame.path:
-                scene._pose(q)
-                mj.mj_kinematics(scene.model, scene.data)
-                for robot in scene._collision_ids:
-                    for environment in scene._environment_ids:
-                        d = mj.mj_geomDistance(scene.model, scene.data, robot, environment, .05, None)
-                        if d < worst[0]:
-                            worst = (d, robot, environment)
-            name = lambda g: None if g is None else mj.mj_id2name(scene.model, mj.mjtObj.mjOBJ_GEOM, g)
-            result.append((frame.label, worst[0], name(worst[1]), name(worst[2])))
+            if frame.kind == 'move':
+                distance, robot, environment = self._clearance(frame.path)
+                result.append((frame.label, distance, name(robot), name(environment)))
         return result
 
     # -- execution -----------------------------------------------------------
