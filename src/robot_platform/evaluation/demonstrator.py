@@ -315,13 +315,14 @@ class HandoffDemonstrator:
             candidates.append(((fallbacks, sum(frame.duration for frame in frames)), ready, frames))
         if not candidates:
             raise PlanningError(f'no plan reaches the cube at {np.round(cube, 3).tolist()}')
-        # The best-scored plan whose every move clears the table and the bucket.
+        # The best-scored plan whose every move clears the table, the bucket and the other arm.
         for _, ready, frames in sorted(candidates, key=lambda candidate: candidate[0]):
             self._timeline(frames)
             if min(distance for _, distance, _, _ in self.plan_clearance()) > CLEARANCE:
                 break
         else:
-            raise PlanningError(f'no plan clears the table and bucket for the cube at {np.round(cube, 3).tolist()}')
+            raise PlanningError(f'no plan clears the table, the bucket and the other arm for the cube at '
+                                f'{np.round(cube, 3).tolist()}')
         self.ready = ready
         self.bias = np.zeros(len(names))
         return None
@@ -409,6 +410,11 @@ class HandoffDemonstrator:
         if self._clearance(move.path)[0] <= CLEARANCE:
             add(self._move(q, {'left': pose(cube + [0., 0., LIFT + HANDOFF_CLIMB], lift, 'narrow')}, 'left climbs'))
             move = self._move(q, meet, 'to the handoff')
+        if self._clearance(move.path)[0] <= CLEARANCE:
+            # Moving together, one arm sweeps through the other (from the far corner, the left's wrist through the
+            # right's fingertips): the left brings the cube to the handoff first, then the right comes to wait.
+            add(self._move(q, {'left': meet['left']}, 'left to the handoff'))
+            move = self._move(q, {'right': meet['right']}, 'right to the handoff')
         add(move)
         hold('left', 'left holds the cube out')
         # The right turns its jaws vertical where it waits, clear of the cube, then comes in along its fingers. The

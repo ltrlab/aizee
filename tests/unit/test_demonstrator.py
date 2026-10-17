@@ -90,6 +90,19 @@ def test_a_move_waits_for_an_arm_that_falls_behind(planned):
     demo._timeline(demo.frames)
 
 
+def test_from_the_far_corner_the_arms_go_to_the_handoff_one_at_a_time(planned):
+    # From here, moving together, the left's wrist swept 4.9 mm through the right's fingertips on the way to the
+    # handoff, so no plan cleared: the left brings the cube to the handoff first, and the right comes after.
+    demo, context, _ = planned
+    try:
+        demo.reset(SimpleNamespace(**{**vars(context), 'cube_start': {'x': .043, 'y': -.497, 'yaw': math.radians(16.5)}}))
+        labels = [frame.label for frame in demo.frames]
+        assert labels.index('left to the handoff') < labels.index('right to the handoff') < labels.index('right turns')
+        assert min(distance for _, distance, _, _ in demo.plan_clearance()) > .001
+    finally:
+        demo.reset(context)
+
+
 @pytest.mark.parametrize('x, y, yaw', [(.26, -.50, -40.), (.02, -.50, 40.)])
 def test_a_turned_cube_is_picked_by_a_pair_of_faces_the_left_reaches_and_every_move_clears(planned, x, y, yaw):
     # Before the second pair of faces and the climb to the handoff, the first could not be planned to clear (the
