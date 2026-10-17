@@ -56,9 +56,16 @@ HANDOFF_FINGERS = {'left': (225., 0.), 'right': (315., 0.)}
 # turned 40 degrees at the far edge of its region). Where that move would not clear, the left first rises HANDOFF_CLIMB
 # straight up and rolls over from there.
 HANDOFF_CLIMB = .10
-CLEARANCE = .001  # m: a plan is used only if every move keeps the robot this far from the table and the bucket.
-RETREAT = .08  # The left backs off along its fingers after letting go ...
-RETREAT_RISE = .04  # ... and rises.
+# The right takes the cube with its jaws closing vertically: its J5 a quarter turn (TAKE_ROLL) from the level take.
+# Level jaws on perpendicular faces cross the two grippers' inner fingers behind the cube's corner (6.5 mm with the
+# fingers' paddles as collision); turned, the grippers clear each other by 5 mm holding the cube and by 25 mm as the
+# right comes in. J5's axis sits off the fingers' centre, so the cube meets the turned pads about 9 mm from HANDOFF.
+TAKE_ROLL = math.pi / 2
+CLEARANCE = .001  # m: a plan is used only if every move keeps the robot this far from the table, the bucket and itself.
+REACH = .05  # m: pairs whose bounds are farther apart than this are left out of the clearance check.
+# The left backs off along its fingers after letting go, level (rising, its fingertips met the right's upper jaw),
+# then returns to where it started, out of the right's way as it lifts the cube.
+RETREAT = .08
 # The right lifts the cube 10 cm at the handoff, turning toward the bucket, before carrying it over: lower, its
 # wrist housing sweeps the bucket's wall.
 CARRY_RISE, CARRY_FINGER = .10, (290., 10.)
@@ -235,15 +242,22 @@ class HandoffDemonstrator:
         return (slide - row['offset']) / row['scale']
 
     def _move(self, q, poses, label, *, slow=False):
-        """A move of one or both arms to their gripper poses ({side: (position, finger, closing)})."""
+        """A move of one or both arms to their gripper poses ({side: (position, finger, closing)}), or to that arm's
+        joints in a full joint vector."""
         paths, cartesian = {}, True
-        for side, (position, finger, closing) in poses.items():
-            path = self._straight(side, q, position, finger, closing)
+        for side, target in poses.items():
+            path = None
+            if isinstance(target, np.ndarray):
+                end = q.copy()
+                end[self.arms[side]] = target[self.arms[side]]
+            else:
+                path = self._straight(side, q, *target)
+                if path is None:
+                    # The arm cannot follow the line: solve the end pose afresh.
+                    end = self._solve(side, *target, q, label)
             if path is None:
-                # The arm cannot follow the line: solve the end pose afresh and interpolate the joints, in steps
-                # small enough that the clearance check sees the whole sweep.
+                # Interpolate the joints, in steps small enough that the clearance check sees the whole sweep.
                 cartesian = False
-                end = self._solve(side, position, finger, closing, q, label)
                 steps = max(1, math.ceil(float(np.abs(end - q).max()) / JOINT_STEP))
                 path = [q + (end - q) * k / steps for k in range(steps + 1)]
             paths[side] = path
@@ -276,6 +290,7 @@ class HandoffDemonstrator:
         touching = {side: self._gripper(context, side, edge) for side in grip}
         # Past touching, away from open: the jaws stop on the cube and the drive squeezes with kp * SQUEEZE_RAD.
         closed = {side: touching[side] + math.copysign(SQUEEZE_RAD, touching[side] - opened[side]) for side in grip}
+        self._stops = [(grip[side], touching[side], opened[side]) for side in grip]
         yaw = math.degrees(context.cube_start.get('yaw', 0.))
         cube = np.array([context.cube_start['x'], context.cube_start['y'], top + workcell.cube_half])
 
@@ -372,6 +387,22 @@ class HandoffDemonstrator:
         add(self._move(q, {'left': pose(cube + [0., 0., LIFT], lift, 'narrow')}, 'left lifts', slow=True))
         handoff = np.array([HANDOFF[0], HANDOFF[1], top + HANDOFF[2]])
         fingers = {side: direction(*HANDOFF_FINGERS[side]) for side in ('left', 'right')}
+        # The right's level take at HANDOFF, then its J5 a quarter turn, the way its range allows that leaves the
+        # grip point higher (J5's offset moves it 6 mm up one way and down the other); the cube meets the turned pads.
+        level = self._solve('right', handoff, fingers['right'], level_closing(fingers['right'], 'wide'), q,
+                            'right level take')
+        j5 = self.names.index('right_arm_j5')
+        turns = []
+        for roll in (TAKE_ROLL, -TAKE_ROLL):
+            if self._ik.lower[j5] <= level[j5] + roll <= self._ik.upper[j5]:
+                turned = level.copy()
+                turned[j5] += roll
+                turns.append((self._ik.frame('right', turned)[0][2], roll, turned))
+        if not turns:
+            raise PlanningError('the right wrist cannot turn a quarter turn to take the cube')
+        _, roll, turned = max(turns, key=lambda turn: turn[0])
+        planned = handoff
+        handoff, take_finger, take_closing = self._ik.frame('right', turned)
         meet = {'left': pose(handoff, fingers['left']),
                 'right': pose(handoff - APPROACH * fingers['right'], fingers['right'])}
         move = self._move(q, meet, 'to the handoff')
@@ -380,16 +411,27 @@ class HandoffDemonstrator:
             move = self._move(q, meet, 'to the handoff')
         add(move)
         hold('left', 'left holds the cube out')
-        add(self._move(q, {'right': pose(handoff, fingers['right'])}, 'right takes', slow=True))
+        # The right turns its jaws vertical where it waits, clear of the cube, then comes in along its fingers. The
+        # turn starts from where it is (a joint path from its start to the turned pose went 7 mm into the bucket).
+        waiting = q.copy()
+        if not self._ik.lower[j5] <= waiting[j5] + roll <= self._ik.upper[j5]:
+            raise PlanningError('the right wrist cannot turn a quarter turn where it waits')
+        waiting[j5] += roll
+        waiting = self._solve('right', handoff - APPROACH * take_finger, take_finger, take_closing, waiting,
+                              'right turns')
+        add(self._move(q, {'right': waiting}, 'right turns'))
+        add(self._move(q, {'right': (handoff, take_finger, take_closing)}, 'right takes', slow=True))
         hold('right', 'right on the cube')
         set_gripper('right', closed['right'], 'right closes', 'right')
         set_gripper('left', opened['left'], 'left lets go', 'left')
-        add(self._move(q, {'left': pose(handoff - RETREAT * fingers['left'] + [0., 0., RETREAT_RISE],
-                                        fingers['left'])}, 'left retreats', slow=True))
+        add(self._move(q, {'left': pose(handoff - RETREAT * fingers['left'], fingers['left'])}, 'left retreats',
+                       slow=True))
+        add(self._move(q, {'left': start}, 'left clears'))
         carry = direction(*CARRY_FINGER)
         # The right rolls over to the drop's housing side here, clear of the bucket, not on the way to it.
         # In free space, at transit speed: this move includes the half-turn roll.
-        add(self._move(q, {'right': pose(handoff + [0., 0., CARRY_RISE], carry, DROP_HOUSING)}, 'right lifts'))
+        # To the planned lift point: above the turned grip point, the carry's orientation is out of the right's reach.
+        add(self._move(q, {'right': pose(planned + [0., 0., CARRY_RISE], carry, DROP_HOUSING)}, 'right lifts'))
         drop = direction(*DROP_FINGER)
         above = [workcell.bucket_center[0] + DROP_OFFSET[0], workcell.bucket_center[1] + DROP_OFFSET[1],
                  top + workcell.bucket_height + DROP_CLEARANCE]
@@ -419,23 +461,44 @@ class HandoffDemonstrator:
     def start_pose(self, context):
         return self.ready
 
+    def _stopped(self, q):
+        """`q` with each gripper that is commanded past the cube posed where its jaws stop on it."""
+        stopped = q
+        for index, touching, opened in self._stops:
+            if (q[index] - touching) * (touching - opened) > 0:
+                stopped = stopped.copy() if stopped is q else stopped
+                stopped[index] = touching
+        return stopped
+
     def _clearance(self, path):
-        """(closest robot/table-or-bucket distance in m along `path`, robot geom, environment geom), at each point."""
+        """(closest distance in m along `path` from the robot to the table or bucket, or from one arm to the other;
+        the two geoms), at each point, with the grippers where they stop on the cube. Pairs whose bounds are farther
+        apart than REACH are left out (they clear by more)."""
+        from robot_platform.simulation.task_scene import _world_aabbs
         scene, mj = self._scene, self._scene.mj
+        robot, environment = np.array(scene._collision_ids), np.array(scene._environment_ids)
+        left, right = scene._arm_rows['left'], scene._arm_rows['right']
         worst = (1., None, None)
         for q in path:
-            scene._pose(q)
+            scene._pose(self._stopped(q))
             mj.mj_kinematics(scene.model, scene.data)
-            for robot in scene._collision_ids:
-                for environment in scene._environment_ids:
-                    d = mj.mj_geomDistance(scene.model, scene.data, robot, environment, .05, None)
-                    if d < worst[0]:
-                        worst = (d, robot, environment)
+            centres, halves = _world_aabbs(scene.model, scene.data, robot)
+            fixed, fixed_halves = _world_aabbs(scene.model, scene.data, environment)
+            near = np.all(np.abs(centres[:, None] - fixed[None]) <= halves[:, None] + fixed_halves[None] + REACH,
+                          axis=2)
+            pairs = [(robot[i], environment[j]) for i, j in np.argwhere(near)]
+            near = np.all(np.abs(centres[left][:, None] - centres[right][None]) <=
+                          halves[left][:, None] + halves[right][None] + REACH, axis=2)
+            pairs += [(robot[left[i]], robot[right[j]]) for i, j in np.argwhere(near)]
+            for a, b in pairs:
+                d = mj.mj_geomDistance(scene.model, scene.data, a, b, REACH, None)
+                if d < worst[0]:
+                    worst = (d, a, b)
         return worst
 
     def plan_clearance(self):
-        """[(label, closest robot/table-or-bucket distance in m along the move, robot geom, environment geom)] for
-        every move of the current plan, at each path point."""
+        """[(label, closest distance in m along the move from the robot to the table or bucket or from one arm to
+        the other, the two geoms)] for every move of the current plan, at each path point."""
         mj = self._scene.mj
         name = lambda g: None if g is None else mj.mj_id2name(self._scene.model, mj.mjtObj.mjOBJ_GEOM, g)
         result = []

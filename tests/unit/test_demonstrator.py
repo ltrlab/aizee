@@ -42,9 +42,10 @@ def test_the_plan_grasps_the_cube_meets_at_the_handoff_and_drops_over_the_bucket
     left, left_finger, left_closing = ik.frame('left', frames['left holds the cube out'].target)
     right, right_finger, right_closing = ik.frame('right', frames['right on the cube'].target)
     handoff = np.array([HANDOFF[0], HANDOFF[1], workcell.table_top + HANDOFF[2]])
-    # Both pads meet on the cube at the handoff, closing on perpendicular faces.
-    assert np.linalg.norm(left - handoff) < 1e-3 and np.linalg.norm(right - handoff) < 1e-3
-    assert abs(left_closing @ right_closing) < .05
+    # Both pads meet on the cube near the handoff point. The left's jaws close level and the right's vertically (its J5
+    # a quarter turn from the level take): level jaws on perpendicular faces crossed their fingers behind the cube.
+    assert np.linalg.norm(left - right) < 1e-3 and np.linalg.norm(left - handoff) < .012
+    assert abs(left_closing[2]) < .05 and abs(right_closing[2]) > .99 and abs(left_closing @ right_closing) < .05
     drop, _, drop_closing = ik.frame('right', frames['right holds over the bucket'].target)
     (bx, by), (ix, iy) = workcell.bucket_center, workcell.bucket_inner
     assert abs(drop[0] - bx) < ix / 2 and abs(drop[1] - by) < iy / 2
@@ -55,12 +56,12 @@ def test_the_plan_grasps_the_cube_meets_at_the_handoff_and_drops_over_the_bucket
             assert np.all(point >= context.lower - 1e-9) and np.all(point <= context.upper + 1e-9), frame.label
 
 
-def test_every_planned_move_clears_the_table_and_bucket(planned):
+def test_every_planned_move_clears_the_table_the_bucket_and_the_other_arm(planned):
     demo, _, _ = planned
     clearances = demo.plan_clearance()
     assert len(clearances) == sum(1 for frame in demo.frames if frame.kind == 'move')
-    for label, distance, robot, environment in clearances:
-        assert distance > .001, f'{label}: {robot} comes {distance * 1000:.1f} mm from {environment}'
+    for label, distance, robot, other in clearances:
+        assert distance > .001, f'{label}: {robot} comes {distance * 1000:.1f} mm from {other}'
     # No move spins a wrist the long way round (one took 41 s before the plan chose its wrist-roll branch).
     moves = [frame.duration for frame in demo.frames if frame.kind == 'move']
     assert max(moves) < 10. and 10. < sum(moves) < 40.

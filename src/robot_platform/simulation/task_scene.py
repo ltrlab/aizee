@@ -403,6 +403,12 @@ class MinervaTaskScene:
 
         self._audit_radii = (self.model.geom_rbound[self._collision_ids, None] +
                              self.model.geom_rbound[None, self._environment_ids])
+        # Which arm each collision geom is on (its body's joints or an ancestor's say), for keeping one arm's geoms
+        # clear of the other's.
+        arms = [self._arm(mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, int(self.model.geom_bodyid[g])))
+                for g in self._collision_ids]
+        self._arm_rows = {side: np.array([r for r, arm in enumerate(arms) if arm == side], dtype=int)
+                          for side in ("left", "right")}
         self._jaw_ids = {self._id("body", n): (side, jaw) for side, ns in JAW_BODIES.items()
                          for jaw, n in enumerate(ns)}
         # Driven jaws move on their own slides: their surface velocity carries only their wrist's motion.
@@ -468,6 +474,18 @@ class MinervaTaskScene:
         if value < 0:
             raise ValueError(f"scene lacks {kind} {name}")
         return value
+
+    def _arm(self, body):
+        """'left' or 'right' for a body on that arm of the robot model (its own or an ancestor's joint says so)."""
+        m = self.fk_model
+        bid = self.mj.mj_name2id(m, self.mj.mjtObj.mjOBJ_BODY, body or "")
+        while bid > 0:
+            for j in range(int(m.body_jntadr[bid]), int(m.body_jntadr[bid]) + int(m.body_jntnum[bid])):
+                name = self.mj.mj_id2name(m, self.mj.mjtObj.mjOBJ_JOINT, j) or ""
+                if name.startswith(("left_", "right_")):
+                    return name.split("_", 1)[0]
+            bid = int(m.body_parentid[bid])
+        return None
 
     def _drive_parameters(self, joint_map, grippers):
         """{side: drive values} for driven grippers: the receiver's drive values and the model's transmission."""
