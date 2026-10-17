@@ -1,0 +1,334 @@
+"""Persistent live video contracts using local sockets/child processes only."""
+import asyncio
+import io
+import json
+import math
+from pathlib import Path
+import struct
+import subprocess
+import sys
+import threading
+import time
+from types import SimpleNamespace
+
+import msgpack
+import pytest
+import zmq
+from PIL import Image
+
+from robot_platform.helm.camera_video import CameraVideo, PacketDecoder, browser_packet
+from robot_platform.helm.camera_video_worker import camera_packet, write_packet, MAX_HEADER, MAX_JPEG, ROLES
+from robot_platform.helm.cli import SimulationLink
+from robot_platform.helm.server import create_app
+from robot_platform.helm.session import HelmSession
+
+ROOT = Path(__file__).resolve().parents[2]
+buffer = io.BytesIO()
+Image.new('RGB', (32, 24), 'green').save(buffer, format='JPEG')
+JPEG = buffer.getvalue()
+
+
+def header(**kwargs):
+    return dict({'kind':'frame','role':'head','heartbeat':1,'source_age_s':.03,'source_timestamp':1000.}, **kwargs)
+
+
+def packet(value, jpeg=JPEG):
+    output = io.BytesIO()
+    write_packet(output, value, jpeg)
+    return output.getvalue()
+
+
+def test_fragmented_packet_passthrough_and_bounded_header():
+    encoded = packet(header())
+    decoder, result = PacketDecoder(), []
+    for index in range(0, len(encoded), 17):
+        result.extend(decoder.feed(encoded[index:index+17]))
+    assert result == [(header(), JPEG)] and not decoder.buffer
+    with pytest.raises(ValueError, match='bound'):
+        decoder.feed(struct.pack('!II', MAX_HEADER+1, 0))
+    with pytest.raises(ValueError, match='bound'):
+        PacketDecoder().feed(struct.pack('!II', 10, MAX_JPEG+1))
+    binary = browser_packet({'role':'head','sequence':3,'age_s':.1}, JPEG)
+    count = struct.unpack('!I', binary[:4])[0]
+    assert json.loads(binary[4:4+count])['sequence'] == 3 and binary[4+count:] == JPEG
+
+
+@pytest.mark.parametrize('identity,stamp,error', [('wrong', 1000., 'identity'), ('scene_cam', 998., 'stale'),
+    ('scene_cam', float('nan'), 'missing'), ('scene_cam', 1001., 'future')])
+def test_remote_validation_rejects_identity_and_stale_source(identity, stamp, error):
+    raw = {'camera_id':identity,'timestamp':stamp,'color':{'format':'jpeg'},'parts':['color']}
+    with pytest.raises(ValueError, match=error):
+        camera_packet([msgpack.packb(raw), JPEG], 'scene_cam', 1000.)
+
+
+def test_latest_cache_is_bounded_and_ssh_backlog_does_not_renew_age(tmp_path):
+    clock = SimpleNamespace(now=10.)
+    video = CameraVideo(tmp_path/'profile', address=lambda:'fixture', clock=lambda:clock.now)
+    video._heartbeats.append((1, 9.9))
+    for index in range(300):
+        role = list(ROLES)[index % 3]
+        video._accept(header(role=role,source_timestamp=1000.+index), JPEG)
+    status, frames = video.snapshot()
+    assert len(video._frames) == len(frames) == 3 and all(row['fresh'] for row in status['cameras'].values())
+    assert all(row['sequence'] == 100 for row in status['cameras'].values())
+    clock.now = 11.1
+    # A delayed burst still references its old heartbeat, never the arrival clock.
+    for _ in range(20):
+        video._accept(header(), JPEG)
+    status, frames = video.snapshot()
+    assert not frames and not any(row['fresh'] for row in status['cameras'].values())
+    video._heartbeats.append((2,11.1))
+    video._accept(header(heartbeat=2),JPEG)
+    assert video.snapshot()[1]['head'][0]['sequence'] == 101
+    clock.now = 12.2
+    assert video.snapshot()[1] == {}
+
+
+def test_unknown_echo_nonfinite_age_or_invalid_role_are_rejected(tmp_path):
+    video = CameraVideo(tmp_path/'profile', address=lambda:'fixture', clock=lambda:10.)
+    video._heartbeats.append((1,9.9))
+    for data in (header(heartbeat=2), header(source_age_s=float('nan')), header(role='unknown')):
+        with pytest.raises(ValueError):
+            video._accept(data,JPEG)
+    assert not video.snapshot()[1]
+
+
+class Channel:
+    def __init__(self):
+        self.buffer, self.lock = bytearray(), threading.Lock()
+        self.closed = False
+    def recv_ready(self):
+        with self.lock: return bool(self.buffer)
+    def recv_stderr_ready(self): return False
+    def recv(self, size):
+        with self.lock:
+            data = bytes(self.buffer[:size]); del self.buffer[:size]
+            return data
+    def exit_status_ready(self): return self.closed
+    def settimeout(self,value): pass
+    def close(self): self.closed = True
+    def send_heartbeat(self, line):
+        if self.closed: raise OSError('closed')
+        token = json.loads(line)['heartbeat']
+        with self.lock:
+            self.buffer.extend(packet({'kind':'status','heartbeat':token,'errors':{}}, b''))
+            self.buffer.extend(packet(header(heartbeat=token)))
+
+
+class Client:
+    def __init__(self): self.channel = Channel(); self.closed = False
+    def exec_command(self, command, timeout):
+        assert command.startswith('python3 -u -c ') and 'set_ctrl' not in command
+        return SimpleNamespace(write=self.channel.send_heartbeat,flush=lambda:None), SimpleNamespace(channel=self.channel), None
+    def close(self): self.closed = True; self.channel.close()
+
+
+def until(predicate, timeout=3.):
+    deadline = time.monotonic()+timeout
+    while time.monotonic()<deadline:
+        if predicate(): return
+        time.sleep(.01)
+    assert predicate(), 'condition did not become true'
+
+
+def test_shared_subscriber_idle_shutdown_and_reconnect(tmp_path):
+    clients = []
+    def connect(*args,**kwargs):
+        client=Client(); clients.append(client); return client
+    video=CameraVideo(tmp_path/'profile',address=lambda:'fixture',open_ssh=connect)
+    first, second=video.subscribe(),video.subscribe()
+    try:
+        until(lambda: bool(video.snapshot()[1]))
+        assert len(clients)==1
+        previous=video.snapshot()[0]['cameras']['head']['sequence']
+        clients[0].channel.close()
+        until(lambda:len(clients)>=2 and video.snapshot()[0]['cameras']['head']['sequence']>previous)
+        video.unsubscribe(first)
+        assert not clients[-1].closed
+        video.unsubscribe(second)
+        assert clients[-1].closed and video._thread is None and not video.snapshot()[1]
+        third=video.subscribe()
+        until(lambda:len(clients)==3 and bool(video.snapshot()[1]))
+        video.unsubscribe(third)
+    finally: video.close()
+    assert all(c.closed for c in clients)
+    with pytest.raises(RuntimeError,match='closed'): video.subscribe()
+
+
+@pytest.mark.parametrize('end', ['eof','heartbeat'])
+def test_actual_subscriber_exits_during_blocked_output_on_parent_loss(end):
+    context=zmq.Context(); publisher=context.socket(zmq.PUB)
+    port=publisher.bind_to_random_port('tcp://127.0.0.1')
+    # Do not read stdout. Large frames fill its pipe; watchdog must still execute.
+    code='from robot_platform.helm.camera_video_worker import run; run('+repr({'head':(port,'scene_cam')})+',heartbeat_timeout=.5)'
+    process=subprocess.Popen([sys.executable,'-u','-c',code],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    stop=threading.Event()
+    def heartbeat():
+        while not stop.wait(.05):
+            try: process.stdin.write(b'{"heartbeat":1}\n'); process.stdin.flush()
+            except OSError: return
+    thread=threading.Thread(target=heartbeat); thread.start()
+    try:
+        payload=b'\xff\xd8'+b'x'*(512*1024)+b'\xff\xd9'
+        deadline=time.monotonic()+.8
+        while time.monotonic()<deadline:
+            raw={'camera_id':'scene_cam','timestamp':time.time(),'color':{'format':'jpeg'},'parts':['color']}
+            publisher.send_multipart([msgpack.packb(raw),payload]); time.sleep(.02)
+        stop.set(); thread.join(1)
+        if end=='eof': process.stdin.close()
+        assert process.wait(timeout=2)==0
+    finally:
+        stop.set(); thread.join(1)
+        if process.poll() is None: process.kill(); process.wait()
+        for handle in (process.stdin,process.stdout,process.stderr):
+            if handle and not handle.closed: handle.close()
+        publisher.close(0); context.term()
+
+
+def test_actual_local_pub_relay_delivers_passthrough_frames_at_bounded_rate():
+    context=zmq.Context(); publisher=context.socket(zmq.PUB)
+    port=publisher.bind_to_random_port('tcp://127.0.0.1')
+    code='from robot_platform.helm.camera_video_worker import run; run('+repr({'head':(port,'scene_cam')})+')'
+    process=subprocess.Popen([sys.executable,'-u','-c',code],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    stop=threading.Event(); received=[]
+    def read():
+        decoder=PacketDecoder()
+        while True:
+            chunk=process.stdout.read1(65536)
+            if not chunk: return
+            for data,jpeg in decoder.feed(chunk):
+                if jpeg: received.append((time.monotonic(),data,jpeg))
+    reader=threading.Thread(target=read); reader.start()
+    try:
+        start=time.monotonic(); next_heartbeat=start
+        while time.monotonic()-start<1.6:
+            now=time.monotonic()
+            if now>=next_heartbeat:
+                process.stdin.write(b'{"heartbeat":3}\n'); process.stdin.flush(); next_heartbeat=now+.1
+            raw={'camera_id':'scene_cam','timestamp':time.time(),'color':{'format':'jpeg'},'parts':['color']}
+            publisher.send_multipart([msgpack.packb(raw),JPEG]); time.sleep(.015)
+        assert 6<=len(received)<=17
+        assert all(item[2]==JPEG and item[1]['heartbeat']==3 for item in received)
+        assert all(b[0]-a[0]>.07 for a,b in zip(received,received[1:]))
+    finally:
+        process.stdin.close(); process.wait(timeout=2); reader.join(1)
+        process.stdout.close(); process.stderr.close(); publisher.close(0); context.term()
+
+
+@pytest.fixture
+def helm(tmp_path):
+    session=HelmSession(ROOT/'config/devices/minerva-joint-calibration.json',runs=tmp_path/'runs',
+        limits=tmp_path/'limits',seed=ROOT/'docs/devices/MINERVA_ARM_DIRECTIONS_20260924.json')
+    yield session
+    session.close()
+
+
+class VideoFixture:
+    def __init__(self): self.viewers=set(); self.closed=False
+    def subscribe(self):
+        token=object(); self.viewers.add(token); return token
+    def unsubscribe(self,token): self.viewers.discard(token)
+    def close(self): self.closed=True; self.viewers.clear()
+    def snapshot(self):
+        return ({'type':'status','cameras':{'head':{'fresh':True,'age_s':.02,'sequence':1,'error':None}},
+                 'target_fps':10,'stale_after_s':1.},
+                {'head':({'role':'head','sequence':1,'age_s':.02,'source_timestamp':time.time()},JPEG)})
+
+
+def test_websocket_auth_origin_echo_and_shutdown(helm):
+    from aiohttp.test_utils import TestClient,TestServer
+    from aiohttp import WSServerHandshakeError,WSMsgType
+    video=VideoFixture()
+    async def run():
+        app=create_app(helm,SimulationLink(),camera_video=video,token='secret')
+        async with TestClient(TestServer(app)) as client:
+            for path,headers in [('/api/helm/cameras/live',{}),('/api/helm/cameras/live?token=secret',{'Origin':'https://elsewhere'})]:
+                with pytest.raises(WSServerHandshakeError) as error: await client.ws_connect(path,headers=headers)
+                assert error.value.status==403
+            ws=await client.ws_connect('/api/helm/cameras/live?token=secret')
+            message=await ws.receive(timeout=1)
+            assert message.type==WSMsgType.TEXT and message.json()['viewer_heartbeat'] is None
+            await ws.send_json({'type':'heartbeat','sequence':7})
+            while True:
+                message=await ws.receive(timeout=1)
+                if message.type==WSMsgType.BINARY: break
+            count=struct.unpack('!I',message.data[:4])[0]
+            assert json.loads(message.data[4:4+count])['viewer_heartbeat']==7
+            assert message.data[4+count:]==JPEG
+            assert (await client.get('/api/helm/state')).status==200
+            await ws.close()
+            for _ in range(100):
+                if not video.viewers: break
+                await asyncio.sleep(.01)
+            assert not video.viewers
+    asyncio.run(run())
+    assert video.closed
+
+
+def test_simulation_cannot_subscribe(helm):
+    from aiohttp.test_utils import TestClient,TestServer
+    from aiohttp import WSServerHandshakeError
+    video=VideoFixture()
+    async def run():
+        async with TestClient(TestServer(create_app(helm,SimulationLink(),camera_video=video,simulation_only=True,token='secret'))) as client:
+            with pytest.raises(WSServerHandshakeError) as error:
+                await client.ws_connect('/api/helm/cameras/live?token=secret')
+            assert error.value.status==422 and not video.viewers
+    asyncio.run(run())
+
+
+def test_slow_websocket_has_bounded_send_and_does_not_block_state(helm,monkeypatch):
+    from aiohttp import web
+    from aiohttp.test_utils import TestClient,TestServer
+    original=web.WebSocketResponse
+    blocked=asyncio.Event()
+    class SlowSocket(original):
+        async def send_bytes(self,*a,**kw):
+            blocked.set()
+            await asyncio.sleep(5)
+    monkeypatch.setattr(web,'WebSocketResponse',SlowSocket)
+    video=VideoFixture()
+    async def run():
+        async with TestClient(TestServer(create_app(helm,SimulationLink(),camera_video=video,token='secret'))) as client:
+            ws=await client.ws_connect('/api/helm/cameras/live?token=secret')
+            await ws.send_json({'type':'heartbeat','sequence':1})
+            await asyncio.wait_for(blocked.wait(),1)
+            response=await asyncio.wait_for(client.get('/api/helm/state'),.25)
+            assert response.status==200
+            # Slow consumer is disconnected instead of building an application queue.
+            deadline=asyncio.get_running_loop().time()+2
+            while not ws.closed and asyncio.get_running_loop().time()<deadline:
+                await ws.receive(timeout=2)
+            assert ws.closed
+    asyncio.run(run())
+    assert not video.viewers
+
+
+def test_stalled_video_shutdown_cannot_delay_guarded_motor_stop(helm, monkeypatch):
+    from aiohttp import web
+    from aiohttp.test_utils import TestClient, TestServer
+    original=web.WebSocketResponse
+    release=asyncio.Event()
+    stop_called=threading.Event()
+    class StalledClose(original):
+        async def close(self,*a,**kw):
+            await release.wait()
+            return await super().close(*a,**kw)
+    monkeypatch.setattr(web,'WebSocketResponse',StalledClose)
+    teleop=SimpleNamespace(active=False, snapshot=lambda:{},guide=lambda:None,stop=stop_called.set)
+    async def run():
+        app=create_app(helm,SimulationLink(),teleop=teleop,camera_video=VideoFixture(),token='secret')
+        async with TestClient(TestServer(app)) as client:
+            ws=await client.ws_connect('/api/helm/cameras/live?token=secret')
+            await ws.receive(timeout=1)
+            shutdown=asyncio.create_task(app.shutdown())
+            try:
+                for _ in range(25):
+                    if stop_called.is_set(): break
+                    await asyncio.sleep(.01)
+                assert stop_called.is_set(), 'Camera close delayed the guarded motor stop'
+            finally:
+                release.set()
+                await asyncio.wait_for(shutdown,2)
+                await ws.close()
+    asyncio.run(run())

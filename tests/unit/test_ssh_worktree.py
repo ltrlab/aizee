@@ -91,3 +91,17 @@ def test_stalled_sftp_subsystem_negotiation_is_interrupted_by_identity_watchdog(
     with pytest.raises(TimeoutError, match='identity verification timed out'):
         ssh.connect(tmp_path/'profile', timeout=.03)
     assert closed.is_set() and time.monotonic() - before < .5
+
+
+def test_camera_exec_startup_ack_is_bounded(monkeypatch):
+    import threading
+    from robot_platform.ops.ssh import open_command
+    closed=threading.Event()
+    class Client:
+        def exec_command(self,*a,**k):
+            assert closed.wait(1), 'exec acknowledgment watchdog did not run'
+            raise OSError('transport closed before exec acknowledgment')
+        def close(self): closed.set()
+    with pytest.raises(TimeoutError,match='command startup timed out'):
+        open_command(Client(),'python3 -',timeout=.03)
+    assert closed.is_set()

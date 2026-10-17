@@ -63,7 +63,7 @@ def task_visual_label(capabilities):
     return 'Camera appearance is not reported yet.'
 
 def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None, live=False,
-               gripper_zero=None, simulation_only=False, cameras=None):
+               gripper_zero=None, simulation_only=False, cameras=None, camera_video=None):
     """`live`: keep the stopped reader running whenever Minerva is online and nothing else holds the motors
     (helm.live_view); sessions then take the motors from it instead of asking for Disconnect first."""
     from aiohttp import web
@@ -72,6 +72,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     from .telemetry import select_telemetry
     token = token or secrets.token_urlsafe(24)
     camera_change = asyncio.Lock()
+    video_sockets = set()
     if simulation_only and live:
         raise ValueError('Simulation-only Helm cannot start the physical live reader')
     if simulation_only:
@@ -221,6 +222,99 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         jpeg = await off_loop(lambda: cameras.frame(request.match_info['role']))
         return web.Response(body=jpeg, content_type='image/jpeg', headers={'Cache-Control': 'no-store'})
 
+
+    async def camera_live(request):
+        if simulation_only:
+            raise ValueError('Simulation mode cannot access physical cameras')
+        if camera_video is None:
+            raise ValueError('Live camera video is not configured')
+        # WebSocket handshakes are GET: the ordinary POST origin guard does not apply.
+        if request.headers.get('Origin') not in (None, f'{request.scheme}://{request.host}'):
+            raise web.HTTPForbidden(text='Cross-origin camera stream rejected')
+        if not secrets.compare_digest(request.query.get('token', ''), token):
+            raise web.HTTPForbidden(text='Missing or invalid Helm session token')
+        from .camera_video import browser_packet
+        ws = web.WebSocketResponse(heartbeat=5., max_msg_size=4096, compress=False)
+        await ws.prepare(request)
+        video_sockets.add(ws)
+        acquiring = asyncio.create_task(off_loop(camera_video.subscribe))
+        try:
+            viewer = await asyncio.shield(acquiring)
+        except asyncio.CancelledError:
+            viewer = await acquiring
+            await off_loop(lambda: camera_video.unsubscribe(viewer))
+            video_sockets.discard(ws)
+            raise
+        viewer_heartbeat = {'sequence':None, 'at':asyncio.get_running_loop().time()}
+
+        async def close_video(code=1000, message=b''):
+            try:
+                await asyncio.wait_for(ws.close(code=code, message=message), 1.)
+            except asyncio.TimeoutError:
+                if request.transport is not None:
+                    request.transport.close()
+
+        async def publish():
+            sent, status_at = {}, 0.
+            try:
+                while not ws.closed:
+                    status, frames = camera_video.snapshot()
+                    now = asyncio.get_running_loop().time()
+                    if now-viewer_heartbeat['at'] > 3.:
+                        await close_video(code=1008, message=b'Viewer heartbeat expired')
+                        return
+                    status['viewer_heartbeat'] = viewer_heartbeat['sequence']
+                    if now-status_at >= .25:
+                        await asyncio.wait_for(ws.send_json(status), .5)
+                        status_at = now
+                    for role, (header, jpeg) in frames.items():
+                        if viewer_heartbeat['sequence'] is None:
+                            continue
+                        if header['sequence'] == sent.get(role):
+                            continue
+                        # Recheck per role after any previous blocked socket send.
+                        _current_status, current_frames = camera_video.snapshot()
+                        current = current_frames.get(role)
+                        if current is None:
+                            continue
+                        header, jpeg = current
+                        header = dict(header, viewer_heartbeat=viewer_heartbeat['sequence'])
+                        await asyncio.wait_for(ws.send_bytes(browser_packet(header, jpeg)), .5)
+                        sent[role] = header['sequence']
+                    await asyncio.sleep(.1)
+            except (ConnectionError, RuntimeError, asyncio.TimeoutError):
+                await close_video()
+        publisher = asyncio.create_task(publish())
+        try:
+            async for message in ws:
+                if message.type == web.WSMsgType.TEXT:
+                    try:
+                        value = message.json()
+                        sequence = value.get('sequence')
+                        if set(value) != {'type', 'sequence'} or value['type'] != 'heartbeat' or type(sequence) is not int or not 0 <= sequence <= 2**53-1:
+                            raise ValueError('Invalid viewer heartbeat')
+                        if viewer_heartbeat['sequence'] is not None and sequence <= viewer_heartbeat['sequence']:
+                            raise ValueError('Viewer heartbeat did not advance')
+                        viewer_heartbeat.update(sequence=sequence, at=asyncio.get_running_loop().time())
+                    except (ValueError, TypeError, AttributeError):
+                        await close_video(code=1008, message=b'Invalid read-only viewer heartbeat')
+                elif message.type == web.WSMsgType.BINARY:
+                    await close_video(code=1008, message=b'Camera stream is read-only')
+        finally:
+            async def release_viewer():
+                publisher.cancel()
+                await asyncio.gather(publisher, return_exceptions=True)
+                video_sockets.discard(ws)
+                await off_loop(lambda: camera_video.unsubscribe(viewer))
+            # aiohttp can cancel a disconnected request during its first cleanup
+            # await. The subscriber release must still finish in that case.
+            releasing = asyncio.create_task(release_viewer())
+            try:
+                await asyncio.shield(releasing)
+            except asyncio.CancelledError:
+                await releasing
+                raise
+        return ws
 
     def not_checking():
         if grippers is not None and grippers.running:
@@ -545,6 +639,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             live_view.start()
 
     async def shutdown(_app):
+        # Preserve guarded motor shutdown priority; preview clients never delay it.
         live_view.close()
         if tune is not None:
             await off_loop(tune.stop)
@@ -554,9 +649,15 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             await off_loop(leaders.disconnect)
         if not simulation_only:
             await off_loop(link.disconnect)
+        await asyncio.gather(*(asyncio.wait_for(
+            ws.close(code=1001, message=b'Helm shutting down'), 1.)
+            for ws in list(video_sockets)), return_exceptions=True)
+        if camera_video is not None:
+            await off_loop(camera_video.close)
 
     app.on_startup.append(startup)
     app.on_shutdown.append(shutdown)
+    app.router.add_get('/api/helm/cameras/live', camera_live)
     app.router.add_get('/api/helm/cameras', camera_get)
     app.router.add_post('/api/helm/cameras/{role}', camera_set)
     app.router.add_get('/api/helm/cameras/{role}/frame', camera_frame)

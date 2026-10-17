@@ -78,12 +78,14 @@ def main(argv=None):
             if not args.sim:
                 from .tune import TuneSession
                 tune = TuneSession(session, args.teleop, target=args.loop)
-        check = cameras = None
+        check = cameras = camera_video = None
         if not args.sim:
             from robot_platform.ops.check import DEFAULT_TELEOP
             from .check import CheckWorkspace
+            from .camera_video import CameraVideo
             from .cameras import CameraSettings
             cameras = CameraSettings(session.profile_path, address=lambda: session.address)
+            camera_video = CameraVideo(session.profile_path, address=lambda: session.address)
             check = CheckWorkspace(profile=session.profile_path, teleop=args.teleop or DEFAULT_TELEOP,
                                    runs=args.runs, limits=session.limits_path, address=lambda: session.address)
         if tune is not None:
@@ -91,7 +93,7 @@ def main(argv=None):
             tune.on_finished = lambda mode, arm, results, fault: (
                 check.record_live(arm, results, fault=fault) if mode == 'verify' else None)
         app = create_app(session, link, teleop=teleop, leaders=leaders, check=check, tune=tune,
-                         live=not (args.sim or args.no_live), simulation_only=args.sim, cameras=cameras)
+                         live=not (args.sim or args.no_live), simulation_only=args.sim, cameras=cameras, camera_video=camera_video)
         if session.stale_lock_pid:
             print(f'Took over a calibration lock left by exited process {session.stale_lock_pid}.', flush=True)
         mode = ('SIMULATION ONLY; no physical robot connection' if args.sim else

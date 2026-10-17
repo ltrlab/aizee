@@ -266,7 +266,7 @@ class CameraSettings:
         self.write_fault = None
 
     def _call(self, request):
-        from robot_platform.ops.ssh import connect
+        from robot_platform.ops.ssh import connect, open_command
         if not self._lock.acquire(blocking=False):
             raise ValueError('Another camera request is running; wait for it to finish')
         client = channel = None
@@ -276,7 +276,7 @@ class CameraSettings:
                 raise ValueError(self.write_fault)
             client = (self.open_ssh or connect)(self.profile, address=self.address(), timeout=3.)
             script = Path(__file__).read_text(encoding='utf-8') + '\nremote_main(' + repr(request) + ')\n'
-            stdin, out, err = client.exec_command('python3 -', timeout=3.)
+            stdin, out, err = open_command(client, 'python3 -', timeout=3.)
             channel = out.channel
             channel.settimeout(3.)
             # A failed send/EOF can still leave a complete script at the peer.
