@@ -52,6 +52,19 @@ Today's training loader (`python/training/minerva_dataset.py`) trains on human a
   - While a gripper holds the cube, its reading stops at the cube's width: 2.05 rad for the 38.1 mm cube, against 4.24 rad open.
   - The jaw contacts pass from the left gripper to the right at the handoff.
 - **Wall time.** About 100 s per attempt on the development laptop, mostly the stepped receiver and the CAD renders.
+- **A batch of 120, generated at `355b785`.** Cube yaw drawn from +/-45 degrees, varied look, 4 workers of 30 over a 6x5 grid with full jitter. 120 episodes from 121 attempts in 2.5 h, 5.3 GB.
+  - The one other attempt was refused before it moved: no plan cleared the table and bucket for a cube turned 40 degrees at the region's near edge.
+  - The episodes start on two wrist-roll branches a turn apart, left J5 at -3.14 rad (85) or +3.14 rad (35): the same pose, recorded as different joint angles.
+
+## Many at once
+
+`scripts/sim/generate_parallel.py` runs several generate workers, each with its own receiver, scene, grid seeds (SEED + 100 k) and plant seed, then hard-links their episodes into one folder with one manifest:
+
+```powershell
+.venv-dev/Scripts/python.exe scripts/sim/generate_parallel.py --out build/generated/batch --episodes 120 --workers 4 -- --grid 6x5 --jitter 1 --yaw 0.785398
+```
+
+Cube poses go row by row through the grid, so give each worker whole passes (episodes per worker = grid cells); a partial pass leaves out the last rows. On the 16 GB development laptop, four workers used most of the memory, and a training run beside them ran it out.
 
 ## Limits
 
