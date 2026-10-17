@@ -20,11 +20,21 @@ def _grid_arguments(parser, default='3x3'):
     parser.add_argument('--jitter', type=float, default=.5, help='offset within a cell, fraction of half a cell')
     parser.add_argument('--yaw', type=float, default=0., help='cube yaw drawn from [-yaw, yaw] rad (default 0)')
     parser.add_argument('--no-nominal', action='store_true', help="leave out trial 0 at the scene's own cube start")
+    parser.add_argument('--workcell', help="a workcell file (simulation.workcell), or 'synthetic' (default): the "
+                                           "table, bucket and cube, and the grid's cube region")
+
+
+def _workcell(args):
+    from robot_platform.simulation.workcell import resolve
+    return resolve(getattr(args, 'workcell', None))
 
 
 def _grid(args):
     nx, ny = parse_counts(args.grid)
-    return GridSpec(nx=nx, ny=ny, seed=args.seed, jitter=args.jitter, yaw=args.yaw, nominal=not args.no_nominal)
+    options = dict(nx=nx, ny=ny, seed=args.seed, jitter=args.jitter, yaw=args.yaw, nominal=not args.no_nominal)
+    if getattr(args, 'workcell', None) in (None, 'synthetic'):
+        return GridSpec(**options)
+    return GridSpec.for_workcell(_workcell(args), **options)
 
 
 def _fraction(text):
@@ -54,7 +64,7 @@ def run(args):
     policy = load_policy(args.policy)
     config = RunConfig(plant=args.plant, timeout_s=args.timeout, grid=_grid(args),
                        trials=None if args.trials is None else tuple(int(i) for i in args.trials.split(',')),
-                       plant_seed=args.plant_seed, scene_pose=args.scene_pose)
+                       plant_seed=args.plant_seed, scene_pose=args.scene_pose, workcell=args.workcell)
     stack = derive_stack(profile=args.profile, directions=args.directions)
     out = Path(args.out) if args.out else ROOT / 'build/eval' / (
         f"{getattr(policy, 'name', 'policy')}-{args.plant}-" + time.strftime('%Y%m%dT%H%M%SZ', time.gmtime()))

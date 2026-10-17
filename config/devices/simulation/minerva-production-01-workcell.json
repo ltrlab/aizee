@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "kind": "sim_workcell",
+  "asset_id": "minerva-production-01",
+  "name": "minerva-production-01 bench, 2026-10-16",
+  "frame": "Minerva model base frame (urdf/minerva), metres: x toward the robot's left, y backward (the robot faces -y), z up",
+  "use": "Simulation only (helm --sim, the evaluation harness). Robot releases leave config/devices/simulation/ out.",
+  "table": {
+    "size": {"value": [1.524, 0.762], "source": "user 2026-10-16: the workcell is about 5 ft by 2.5 ft"},
+    "top_z": {"value": 0.512, "source": "user 2026-10-16: the table sits about 6 in below the hanging arms' J3; the model's J3 anchor is at z 0.664 m when hanging"},
+    "center": {"value": [0.0, -0.461], "source": "placeholder: centred on the robot, near edge 8 cm in front of the hanging arms; not measured"},
+    "thickness": {"value": 0.03, "source": "placeholder: a typical desk top; not measured"},
+    "floor_z": {"value": -0.238, "source": "placeholder: a 0.75 m desk height below the table top; not measured"},
+    "trim_width": {"value": 0.02, "source": "placeholder: user 2026-10-16 says the black table has silver trim; its width is not measured"}
+  },
+  "bucket": {
+    "inner_size": {"value": [0.152, 0.305], "source": "user 2026-10-16: the bucket is a cardboard box about 6 in by 12 in (taken as the inside)"},
+    "yaw_deg": {"value": 0.0, "source": "placeholder: the head camera shows the 12 in side pointing away from the robot; not measured"},
+    "center": {"value": [-0.25, -0.40], "source": "placeholder: right of centre beyond the cubes, as in the head camera image; not measured"},
+    "height": {"value": 0.15, "source": "placeholder: not measured"},
+    "wall": {"value": 0.004, "source": "placeholder: corrugated cardboard; not measured"},
+    "bottom": {"value": 0.004, "source": "placeholder: corrugated cardboard; not measured"}
+  },
+  "cube": {
+    "edge": {"value": 0.0381, "source": "user 2026-10-16: wooden cubes about 1.5 in on a side"},
+    "mass": {"value": 0.035, "source": "placeholder (estimate): a 1.5 in wood cube at 0.4-0.75 g/cm3 weighs 22-41 g; not weighed"},
+    "friction": {"value": [1.0, 0.005, 0.0001], "source": "placeholder: the synthetic scene's value; wood on the finger pads is not measured, and MuJoCo takes the larger of the pad's and the cube's friction"},
+    "start": {"value": [0.15, -0.35, 0.0], "source": "placeholder: left of centre, as in the head camera image; not measured"},
+    "region": {"value": [0.05, 0.25, -0.45, -0.25], "source": "placeholder: left of centre, where the left gripper reached probe points with a 65-80 degree tilted grasp in the kinematic model; the real cube positions are not taped yet"}
+  },
+  "cameras": {
+    "head": {
+      "pos": {"value": [0.0, -0.18, 1.10], "source": "placeholder: the synthetic head position; the D435 extrinsics are not calibrated"},
+      "xyaxes": {"value": [-1.0, 0.0, 0.0, 0.0, -0.975, 0.222], "source": "placeholder: the synthetic view turned 180 degrees so the far side of the table is at the top, as the real head images show it; not calibrated"},
+      "fovy": {"value": 75.0, "source": "placeholder: the synthetic field of view; the D435 intrinsics are not read"}
+    }
+  },
+  "appearance": {
+    "table": "black",
+    "trim": "silver",
+    "bucket_wall": "cardboard",
+    "bucket_bottom": "cardboard_inside",
+    "cube": "wood"
+  }
+}

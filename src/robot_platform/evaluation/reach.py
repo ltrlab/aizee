@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from robot_platform.simulation.task_scene import CUBE_HALF, JAW_BODIES, TABLE_TOP
+from robot_platform.simulation.task_scene import JAW_BODIES
 
 POSITION_TOLERANCE_M = 5e-4
 AXIS_TOLERANCE = 1e-2  # Sine of the remaining axis misalignment, about 0.6 degrees.
@@ -65,7 +65,8 @@ class GraspIK:
         resting at (x, y). `seed`: a full joint vector to start from (it also fixes the other joints)."""
         q = np.array(seed, dtype=float)
         joints = self.arm(side)
-        target = np.array([x, y, TABLE_TOP + CUBE_HALF])
+        workcell = self.scene.workcell
+        target = np.array([x, y, workcell.table_top + workcell.cube_half])
         weights = np.diag([1., 1., 1., .1, .1, .1])
         residual = self._residual(side, q, target, yaw)
         for _ in range(iterations):

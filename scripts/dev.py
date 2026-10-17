@@ -48,7 +48,7 @@ CORE = [
     'tests/unit/test_openrb_leader_setup.py', 'tests/unit/test_gripper_zero.py',
     'tests/unit/test_velocity_feedforward.py', 'tests/unit/test_browser_scripts.py',
     'tests/unit/test_helm_task_workflow.py', 'tests/unit/test_helm_task_capture.py',
-    'tests/unit/test_task_capture.py', 'tests/unit/test_task_scene.py',
+    'tests/unit/test_task_capture.py', 'tests/unit/test_task_scene.py', 'tests/unit/test_workcell.py',
     'tests/unit/test_capture_process.py', 'tests/contract/test_task_receiver_capture.py',
     'tests/unit/test_eval_stats.py', 'tests/unit/test_eval_report.py',
     'tests/contract/test_eval_reference_policies.py',

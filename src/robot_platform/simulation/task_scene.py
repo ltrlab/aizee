@@ -20,17 +20,20 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 from .minerva_sim import ModelPose, SCENE
+from .workcell import LEG_HALF, SYNTHETIC, bucket_frame, resolve as resolve_workcell
 
 CAMERAS = ("left_wrist", "right_wrist", "head")
 JAW_BODIES = {"right": ("carriage_lwl7b", "carriage_lwl7b_2"),
               "left": ("carriage_lwl7b_3", "carriage_lwl7b_4")}
 WRISTS = {"right": "1_1_02_eb571_960_stp", "left": "1_1_02_eb571_960_stp_2"}
-TABLE_TOP = .28
-CUBE_HALF = .018
-CUBE_START = (.18, -.34, TABLE_TOP + CUBE_HALF + .002)
-BUCKET_CENTER = (-.20, -.40)
-BUCKET_HALF = .085
-BUCKET_HEIGHT = .08
+# The synthetic layout's values, which the frozen fixture and older callers use. A scene's own layout
+# is its `workcell` (simulation.workcell).
+TABLE_TOP = SYNTHETIC.table_top
+CUBE_HALF = SYNTHETIC.cube_half
+CUBE_START = (SYNTHETIC.cube_start[0], SYNTHETIC.cube_start[1], TABLE_TOP + CUBE_HALF + .002)
+BUCKET_CENTER = SYNTHETIC.bucket_center
+BUCKET_HALF = SYNTHETIC.bucket_inner[0] / 2
+BUCKET_HEIGHT = SYNTHETIC.bucket_height
 PHYSICS_DT = .0005
 MAX_SOURCE_GAP_S = .25
 
@@ -48,7 +51,69 @@ def _numbers(values):
     return " ".join(str(float(v)) for v in values)
 
 
-def _scene_xml(source, fk_model, fk_data, visual_mode="cad"):
+def _yaw_quat(yaw):
+    return (math.cos(yaw / 2), 0., 0., math.sin(yaw / 2))
+
+
+def _environment(world, workcell):
+    """The workcell's floor, table (with its trim and legs), open bucket and free cube. Returns the static geoms."""
+    w = workcell
+    floor = ET.SubElement(world, "geom", name="task/floor", type="plane", size="2 2 .05",
+                          rgba=_numbers(w.color("floor")), contype="1", conaffinity="3")
+    if w.floor_z:
+        floor.set("pos", _numbers((0, 0, w.floor_z)))
+    environment = []
+
+    def box(name, pos, size, rgba, yaw=0.):
+        environment.append(name)
+        geom = ET.SubElement(world, "geom", name=name, type="box", pos=_numbers(pos), size=_numbers(size),
+                             rgba=_numbers(rgba), contype="1", conaffinity="3", friction="1 .005 .0001")
+        if yaw:
+            geom.set("quat", _numbers(_yaw_quat(yaw)))
+
+    top, (cx, cy), (sx, sy), thick = w.table_top, w.table_center, w.table_size, w.table_thickness
+    inner = (sx/2 - w.trim_width, sy/2 - w.trim_width)
+    box("task/table", (cx, cy, top - thick/2), (inner[0], inner[1], thick/2), w.color("table"))
+    if w.trim_width:
+        # A border strip flush with the top: the x-side strips run the full depth, the y-side strips between them.
+        for axis in (0, 1):
+            for sign in (-1, 1):
+                pos = [cx, cy, top - thick/2]
+                pos[axis] += sign * (inner[axis] + w.trim_width/2)
+                size = [w.trim_width/2, sy/2, thick/2] if axis == 0 else [inner[0], w.trim_width/2, thick/2]
+                box(f"task/table/trim/{axis}/{sign}", pos, size, w.color("trim"))
+    under = top - thick
+    for x, y in w.table_legs:
+        box(f"task/leg/{x}/{y}", (x, y, (w.floor_z + under)/2), (LEG_HALF, LEG_HALF, (under - w.floor_z)/2),
+            w.color("leg"))
+    (bx, by), yaw = w.bucket_center, w.bucket_yaw
+    c, s = math.cos(yaw), math.sin(yaw)
+    half = (w.bucket_inner[0]/2, w.bucket_inner[1]/2)
+
+    def at(dx, dy, z):
+        return (bx + c*dx - s*dy, by + s*dx + c*dy, z)
+    box("task/bucket/bottom", at(0., 0., top + w.bucket_bottom/2), (half[0], half[1], w.bucket_bottom/2),
+        w.color("bucket_bottom"), yaw)
+    for axis in (0, 1):
+        for sign in (-1, 1):
+            offset = [0., 0.]
+            offset[axis] = sign * (half[axis] + w.bucket_wall/2)
+            size = [half[0] + w.bucket_wall, half[1] + w.bucket_wall, w.bucket_height/2]
+            size[axis] = w.bucket_wall/2
+            box(f"task/bucket/wall/{axis}/{sign}", at(*offset, top + w.bucket_height/2), size,
+                w.color("bucket_wall"), yaw)
+    start = (w.cube_start[0], w.cube_start[1], top + w.cube_half + .002)
+    cube = ET.SubElement(world, "body", name="task/cube", pos=_numbers(start))
+    if w.cube_start[2]:
+        cube.set("quat", _numbers(_yaw_quat(w.cube_start[2])))
+    ET.SubElement(cube, "freejoint", name="task/cube/free")
+    ET.SubElement(cube, "geom", name="task/cube/geom", type="box", size=_numbers([w.cube_half]*3),
+                  mass=str(w.cube_mass), rgba=_numbers(w.color("cube")), contype="1", conaffinity="3",
+                  friction=_numbers(w.cube_friction), condim="4", solref=".004 1", solimp=".95 .99 .001")
+    return environment
+
+
+def _scene_xml(source, fk_model, fk_data, visual_mode="cad", workcell=SYNTHETIC):
     """Flatten CAD bodies into mocap bodies, preserving local visual/collision geometry.
 
     The source's placeholder inertias and joints are deliberately not copied. All
@@ -74,31 +139,7 @@ def _scene_xml(source, fk_model, fk_data, visual_mode="cad"):
     root.append(copy.deepcopy(original.find("asset")))
     world = ET.SubElement(root, "worldbody")
     ET.SubElement(world, "light", pos="0 -1 2.5", dir="0 .3 -1", directional="true")
-    ET.SubElement(world, "geom", name="task/floor", type="plane", size="2 2 .05", rgba=".17 .21 .24 1",
-                  contype="1", conaffinity="3")
-    environment = []
-    def box(name, pos, size, rgba):
-        environment.append(name)
-        ET.SubElement(world, "geom", name=name, type="box", pos=_numbers(pos), size=_numbers(size),
-                      rgba=rgba, contype="1", conaffinity="3", friction="1 .005 .0001")
-    box("task/table", (0, -.38, TABLE_TOP - .025), (.48, .26, .025), ".46 .34 .23 1")
-    for x in (-.42, .42):
-        for y in (-.60, -.16):
-            box(f"task/leg/{x}/{y}", (x, y, (TABLE_TOP-.05)/2), (.022, .022, (TABLE_TOP-.05)/2), ".3 .3 .32 1")
-    bx, by = BUCKET_CENTER
-    box("task/bucket/bottom", (bx, by, TABLE_TOP+.007), (BUCKET_HALF, BUCKET_HALF, .007), ".10 .35 .64 1")
-    for axis in (0, 1):
-        for sign in (-1, 1):
-            pos = [bx, by, TABLE_TOP + BUCKET_HEIGHT/2]
-            pos[axis] += sign * (BUCKET_HALF + .006)
-            size = [BUCKET_HALF + .012, BUCKET_HALF + .012, BUCKET_HEIGHT/2]
-            size[axis] = .006
-            box(f"task/bucket/wall/{axis}/{sign}", pos, size, ".12 .42 .74 1")
-    cube = ET.SubElement(world, "body", name="task/cube", pos=_numbers(CUBE_START))
-    ET.SubElement(cube, "freejoint", name="task/cube/free")
-    ET.SubElement(cube, "geom", name="task/cube/geom", type="box", size=_numbers([CUBE_HALF]*3),
-                  mass=".035", rgba=".95 .30 .06 1", contype="1", conaffinity="3",
-                  friction="1 .005 .0001", condim="4", solref=".004 1", solimp=".95 .99 .001")
+    environment = _environment(world, workcell)
     bodies, collision_names = [], []
     for body in original.find("worldbody").iter("body"):
         name = body.get("name")
@@ -146,9 +187,10 @@ def _scene_xml(source, fk_model, fk_data, visual_mode="cad"):
                 # The wrist camera's local optical direction follows the tool.
                 ET.SubElement(flat, "camera", name=f"{side}_wrist", pos="0 .035 .035",
                               xyaxes="1 0 0 0 .606 .795", fovy="85")
-    # Head overview is fixed to the unactuated torso, aimed at the workspace.
-    ET.SubElement(world, "camera", name="head", pos="0 -.18 1.10",
-                  xyaxes="1 0 0 0 .975 -.222", fovy="75")
+    # Head overview is fixed to the unactuated torso, aimed at the workspace; the workcell places it.
+    head = workcell.head_camera
+    ET.SubElement(world, "camera", name="head", pos=_numbers(head["pos"]), xyaxes=_numbers(head["xyaxes"]),
+                  fovy=str(head["fovy"]))
     # Hidden CAD meshes still allocate/upload GPU assets in MuJoCo. Remove them
     # from the explicit proxy model; the full CAD mode retains every visual.
     used_meshes = {g.get("mesh") for g in world.iter("geom") if g.get("mesh")}
@@ -162,7 +204,8 @@ def _scene_xml(source, fk_model, fk_data, visual_mode="cad"):
 class MinervaTaskScene:
     """Single-thread-owned MuJoCo scene. q uses receiver motor coordinates/names."""
 
-    def __init__(self, joint_map, names, *, scene=SCENE, seed=1, width=320, height=240, visual_mode="collision_proxy"):
+    def __init__(self, joint_map, names, *, scene=SCENE, seed=1, width=320, height=240, visual_mode="collision_proxy",
+                 workcell=None):
         import mujoco
         if tuple(int(x) for x in mujoco.__version__.split(".")[:2]) < (3, 15):
             raise RuntimeError("Minerva task contacts require MuJoCo >=3.15 with native geom_surfacevel support")
@@ -170,6 +213,7 @@ class MinervaTaskScene:
             raise ValueError("visual_mode must be collision_proxy or cad")
         self.source = Path(scene).resolve()
         self.visual_mode = visual_mode
+        self.workcell = resolve_workcell(workcell)
         self.mj = mujoco
         self.names = tuple(names)
         if len(set(self.names)) != len(self.names) or not self.names:
@@ -180,7 +224,8 @@ class MinervaTaskScene:
         self.fk_model = mujoco.MjModel.from_xml_path(str(scene))
         self.fk_data = mujoco.MjData(self.fk_model)
         self.pose = ModelPose(self.fk_model, joint_map, self.names)
-        xml, bodies, collision_names, environment = _scene_xml(scene, self.fk_model, self.fk_data, visual_mode)
+        xml, bodies, collision_names, environment = _scene_xml(scene, self.fk_model, self.fk_data, visual_mode,
+                                                               self.workcell)
         self.model = mujoco.MjModel.from_xml_string(xml)
         self.data = mujoco.MjData(self.model)
         self.model.flg_surfacevel = True
@@ -214,6 +259,8 @@ class MinervaTaskScene:
         self._renderer = None
         self._q = None
         self.seed = int(seed)
+        workcell = self.workcell
+        placeholders = workcell.placeholders()
         self.capabilities = {
             "schema": 1, "data_source": "simulation", "evidence": "synthetic",
             "joint_names": list(self.names), "motor_to_model_joint_map": copy.deepcopy(joint_map),
@@ -231,9 +278,14 @@ class MinervaTaskScene:
             "scene_sha256": hashlib.sha256(xml.encode()).hexdigest(),
             "physics_timestep_s": PHYSICS_DT, "mujoco_version": mujoco.__version__,
             "moving_contact_velocity": "native MuJoCo geom_surfacevel from finite-difference FK poses",
-            "task_parameters": {"cube_edge_m": CUBE_HALF*2, "cube_mass_kg": .035,
-                                "friction": [1., .005, .0001], "table_top_m": TABLE_TOP,
-                                "cube_start_m": CUBE_START, "bucket_center_m": BUCKET_CENTER},
+            "task_parameters": {"cube_edge_m": workcell.cube_edge, "cube_mass_kg": workcell.cube_mass,
+                                "friction": list(workcell.cube_friction), "table_top_m": workcell.table_top,
+                                "cube_start_m": [workcell.cube_start[0], workcell.cube_start[1],
+                                                 workcell.table_top + workcell.cube_half + .002],
+                                "bucket_center_m": list(workcell.bucket_center),
+                                "bucket_inner_m": list(workcell.bucket_inner),
+                                "bucket_height_m": workcell.bucket_height},
+            "workcell": workcell.describe(), "workcell_placeholders": placeholders,
             "contact_parameters_measured": False, "sim2real_validated": False,
             "cameras": list(CAMERAS), "camera_calibration": "synthetic task viewpoints",
             "visual_mode": visual_mode,
@@ -242,7 +294,9 @@ class MinervaTaskScene:
             "limitations": ["Robot motion ignores contact reaction and motor force limits at the fingers",
                             "Finger stems are omitted from contact; terminal pads use CAD-bounds boxes; other meshes are convex",
                             "Real contact properties are unmeasured",
-                            "Kinematic robot/environment penetration invalidates episode eligibility"],
+                            "Kinematic robot/environment penetration invalidates episode eligibility"]
+                           + ([f"Workcell {workcell.name}: not yet measured: {', '.join(placeholders)}"]
+                              if placeholders else []),
         }
         self.reset()
 
@@ -344,7 +398,8 @@ class MinervaTaskScene:
         self._contacts = {side: sorted(value) for side, value in jaws.items()}
         self._contact_names = sorted(set(touched))
         xyz = self.data.xpos[self.cube_id]
-        raised = xyz[2] > TABLE_TOP + CUBE_HALF + .025
+        w = self.workcell
+        raised = xyz[2] > w.table_top + w.cube_half + .025
         grasped = set()
         for side, value in jaws.items():
             self._grasp_time[side] = self._grasp_time[side] + PHYSICS_DT if len(value) == 2 and raised else 0.
@@ -360,15 +415,17 @@ class MinervaTaskScene:
             if receiver in grasped and not jaws[self.first_gripper]:
                 self.handoff = True
                 self._emit("handoff", giver=self.first_gripper, receiver=receiver)
-        returned_to_surface = self.first_gripper and ("task/table" in touched or "task/floor" in touched)
+        returned_to_surface = self.first_gripper and any(
+            name == "task/floor" or name == "task/table" or name.startswith("task/table/") for name in touched)
         self._drop_time = self._drop_time + PHYSICS_DT if returned_to_surface else 0.
         if self._drop_time >= .03 and not self.dropped:
             self.dropped = True
             self._overlap = False
             self._emit("dropped_outside_bucket")
-        inside = (abs(xyz[0]-BUCKET_CENTER[0]) < BUCKET_HALF-CUBE_HALF and
-                  abs(xyz[1]-BUCKET_CENTER[1]) < BUCKET_HALF-CUBE_HALF and
-                  TABLE_TOP < xyz[2] < TABLE_TOP + .014 + CUBE_HALF + .008)
+        along_x, along_y = bucket_frame(w, xyz[0], xyz[1])
+        inside = (abs(along_x) < w.bucket_inner[0]/2 - w.cube_half and
+                  abs(along_y) < w.bucket_inner[1]/2 - w.cube_half and
+                  w.table_top < xyz[2] < w.table_top + w.bucket_bottom + w.cube_half + .008)
         settled = (inside and "task/bucket/bottom" in touched and not any(jaws.values()) and
                    np.linalg.norm(self.data.qvel[:3]) < .04)
         self._bucket_time = self._bucket_time + PHYSICS_DT if settled else 0.
@@ -472,7 +529,7 @@ class _ThreadTaskSceneView:
 
     def __init__(self, scene, joint_map, names, *, directory, metadata=None, seed=1,
                  viewer=True, rate_hz=30., record_hz=20., width=320, height=240,
-                 camera_roles=("right_wrist", "head"), visual_mode="collision_proxy"):
+                 camera_roles=("right_wrist", "head"), visual_mode="collision_proxy", workcell=None):
         if rate_hz <= 0 or record_hz <= 0 or record_hz > rate_hz:
             raise ValueError("rates must satisfy 0 < record_hz <= rate_hz")
         if isinstance(camera_roles, str) or not camera_roles or len(set(camera_roles)) != len(camera_roles) or \
@@ -480,7 +537,8 @@ class _ThreadTaskSceneView:
             raise ValueError("capture camera roles must be a distinct supported nonempty subset")
         self.camera_roles = tuple(camera_roles)
         self._args = (joint_map, tuple(names))
-        self._kwargs = dict(scene=scene, seed=seed, width=width, height=height, visual_mode=visual_mode)
+        self._kwargs = dict(scene=scene, seed=seed, width=width, height=height, visual_mode=visual_mode,
+                            workcell=workcell)
         self.directory = Path(directory)
         self.metadata = copy.deepcopy(metadata or {})
         self.metadata["camera_roles"] = list(self.camera_roles)

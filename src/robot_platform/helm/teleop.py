@@ -349,7 +349,8 @@ class TeleopCore:
                                    clock=self.clock, viewer=self.simulation.get('viewer', True),
                                    seed=self.simulation.get('seed', 1), actuators=self.simulation.get('actuators'),
                                    task_scene=self.simulation.get('task_scene', False),
-                                   visual_mode=self.simulation.get('visual_mode', 'collision_proxy'))
+                                   visual_mode=self.simulation.get('visual_mode', 'collision_proxy'),
+                                   workcell=self.simulation.get('workcell'))
         self.scheduling['receiver'] = prefer_responsive(receiver.harness.process.pid)
         return receiver
 

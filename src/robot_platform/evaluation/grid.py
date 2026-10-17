@@ -5,7 +5,8 @@ grasp orientation (fingers down, jaws along a cube face), within the receiver's 
 without robot/table/bucket penetration: an IK sweep over the table (evaluation.reach) found it,
 and tests/contract/test_eval_reference_policies.py re-checks every default pose. Its centre cell
 is the scene's own cube start (task_scene.CUBE_START). These are synthetic task settings, not a
-measured real workcell; on the robot, place the cube at the same table coordinates.
+measured real workcell; on the robot, place the cube at the same table coordinates. A measured
+workcell (simulation.workcell) brings its own cube region and start: `GridSpec.for_workcell`.
 
 Each cell's pose is its centre plus a seeded offset of at most `jitter` of half a cell, so a seed
 fixes the poses exactly and a different seed samples the same cells differently.
@@ -33,18 +34,28 @@ class GridSpec:
     yaw: float = 0.  # Cube yaw drawn uniformly from [-yaw, yaw] (rad); 0 keeps the faces axis-aligned.
     seed: int = 0
     nominal: bool = True  # Trial 0 at the scene's own cube start, unjittered.
+    start: tuple | None = None  # That start's (x, y); None: the synthetic scene's CUBE_START.
+
+    @classmethod
+    def for_workcell(cls, workcell, **options):
+        """The grid over a workcell's cube region, its trial 0 at the workcell's cube start."""
+        (x, y) = workcell.cube_region
+        return cls(x=tuple(x), y=tuple(y), start=tuple(workcell.cube_start[:2]), **options)
 
     def __post_init__(self):
         if (len(self.x) != 2 or len(self.y) != 2 or not self.x[0] < self.x[1] or not self.y[0] < self.y[1]
                 or not all(math.isfinite(v) for v in (*self.x, *self.y))):
             raise ValueError('grid x and y are increasing (low, high) table coordinates')
+        if self.start is not None and (len(self.start) != 2 or not all(math.isfinite(v) for v in self.start)):
+            raise ValueError('grid start is a finite (x, y)')
         if type(self.nx) is not int or type(self.ny) is not int or self.nx < 1 or self.ny < 1:
             raise ValueError('grid counts must be positive integers')
         if not 0 <= self.jitter <= 1 or not 0 <= self.yaw <= math.pi / 4 or type(self.seed) is not int:
             raise ValueError('jitter is in [0, 1], yaw in [0, pi/4] and seed an integer')
 
     def describe(self):
-        return dict(asdict(self), x=list(self.x), y=list(self.y))
+        return dict(asdict(self), x=list(self.x), y=list(self.y),
+                    start=None if self.start is None else list(self.start))
 
 
 def cube_poses(spec=GridSpec()):
@@ -52,7 +63,8 @@ def cube_poses(spec=GridSpec()):
     rng = np.random.default_rng(spec.seed)
     poses = []
     if spec.nominal:
-        poses.append({'cell': 'nominal', 'x': float(CUBE_START[0]), 'y': float(CUBE_START[1]), 'yaw': 0.})
+        x, y = CUBE_START[:2] if spec.start is None else spec.start
+        poses.append({'cell': 'nominal', 'x': float(x), 'y': float(y), 'yaw': 0.})
     width, depth = (spec.x[1] - spec.x[0]) / spec.nx, (spec.y[1] - spec.y[0]) / spec.ny
     for j in range(spec.ny):
         for i in range(spec.nx):

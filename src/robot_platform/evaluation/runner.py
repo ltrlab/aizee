@@ -35,7 +35,8 @@ import time
 
 import numpy as np
 
-from robot_platform.simulation.task_scene import CUBE_HALF, MAX_SOURCE_GAP_S, PHYSICS_DT, TABLE_TOP, MinervaTaskScene
+from robot_platform.simulation.task_scene import MAX_SOURCE_GAP_S, PHYSICS_DT, MinervaTaskScene
+from robot_platform.simulation.workcell import resolve as resolve_workcell
 
 from . import report as reports, trials as trial_records
 from .grid import GridSpec, cube_poses
@@ -55,12 +56,14 @@ class RunConfig:
     scene_pose: str = 'plant'
     camera_size: tuple = (160, 120)
     visual_mode: str = 'collision_proxy'
+    workcell: object = None  # simulation.workcell: None or 'synthetic', a Workcell, or a workcell file's path.
 
     def describe(self):
         return {'plant': self.plant, 'timeout_s': self.timeout_s, 'staging_timeout_s': self.staging_timeout_s,
                 'grid': self.grid.describe(), 'trials': None if self.trials is None else list(self.trials),
                 'plant_seed': self.plant_seed, 'scene_pose': self.scene_pose,
-                'camera_size': list(self.camera_size), 'visual_mode': self.visual_mode}
+                'camera_size': list(self.camera_size), 'visual_mode': self.visual_mode,
+                'workcell': resolve_workcell(self.workcell).name}
 
 
 @dataclass
@@ -156,7 +159,8 @@ class TrialRunner:
         if self.scene is None:
             width, height = self.config.camera_size
             self.scene = MinervaTaskScene(self.stack['derived']['joint_map'], self.stack['names'], width=width,
-                                          height=height, visual_mode=self.config.visual_mode)
+                                          height=height, visual_mode=self.config.visual_mode,
+                                          workcell=self.config.workcell)
         return self.scene
 
     def close(self):
@@ -181,7 +185,8 @@ class TrialRunner:
         """Put the cube at the trial's start, 2 mm above the table as the scene's own start; None, or why not."""
         scene, mj = self.scene, self.scene.mj
         address = scene.cube_qadr
-        scene.data.qpos[address:address + 3] = (pose['x'], pose['y'], TABLE_TOP + CUBE_HALF + .002)
+        workcell = scene.workcell
+        scene.data.qpos[address:address + 3] = (pose['x'], pose['y'], workcell.table_top + workcell.cube_half + .002)
         scene.data.qpos[address + 3:address + 7] = _quat_yaw(pose['yaw'])
         scene.data.qvel[:] = 0.
         mj.mj_forward(scene.model, scene.data)
@@ -317,8 +322,8 @@ class TrialRunner:
                                    policy=getattr(policy, 'describe', lambda: {})(),
                                    scene={key: capabilities[key] for key in
                                           ('scene_sha256', 'contact_geometry_sha256', 'mujoco_version',
-                                           'visual_mode', 'task_parameters', 'contact_parameters_measured',
-                                           'limitations')})}
+                                           'visual_mode', 'task_parameters', 'workcell', 'workcell_placeholders',
+                                           'contact_parameters_measured', 'limitations')})}
 
 
 def evaluate(policy, config=None, out=None, *, stack=None, progress=None):
