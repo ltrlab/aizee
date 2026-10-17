@@ -10,17 +10,16 @@ QL-800 label printer, 300 dpi.
 ## Printer and media (2026-10-17)
 
 - **Printer.** The QL-800 is on this laptop's USB (VID 04F9, PID 209B, serial
-  000C1Z611662, port USB001). Windows bound it only to its in-box USB Printing
-  Support driver and a "Generic printer device" placeholder (prnms013.inf). No
-  Brother driver is in the driver store and there is no print queue, so
-  **nothing has been printed yet**. Installing Brother's QL-800 printer driver
-  creates the queue; that is the user's call. Raw USB printing (Zadig/WinUSB,
-  brother_ql) was not used, since it replaces or bypasses the Windows driver.
-- **Media.** Without the driver nothing reports which DK roll is loaded. Read
-  the part number on the roll. The default design is for 62 mm tape (DK-22205
-  or DK-22251 continuous, 696 printable dots across); it also fits the 62 x
-  100 mm die-cut DK-11202. A 29 mm variant (DK-22210, or DK-11201 29 x 90 mm,
-  306 dots) is for the wrist cameras only.
+  000C1Z611662, port USB001). The user installed Brother's printer driver
+  1.10.1.0 (bsq16av.inf) on 2026-10-17, which made the "Brother QL-800" queue
+  on USB001. Raw USB printing (Zadig/WinUSB, brother_ql) is not used.
+- **Media.** The driver offers every QL roll and cannot report which one is
+  loaded. Its default page, 29 x 90 mm die-cut in landscape, is a fixed
+  default, not a reading of the roll. Read the part number on the roll. The
+  default design is for 62 mm tape (DK-22205 or DK-22251 continuous, 696
+  printable dots across); it also fits the 62 x 100 mm die-cut DK-11202. A
+  29 mm variant (DK-22210, or DK-11201 29 x 90 mm, 306 dots) is for the wrist
+  cameras only.
 
 ## Family and size
 
@@ -181,23 +180,30 @@ The generator needs OpenCV 4.7 or newer, which the hash-locked dev venv does
 not include; the Windows Python 3.12 install on this laptop
 (`%LOCALAPPDATA%\Programs\Python\Python312\python.exe`) has it.
 
-1. Install the Brother QL-800 printer driver and check the roll's part number.
-2. From a PowerShell prompt in this worktree, list what the driver offers:
-   `.\scripts\fiducials\print_label.ps1 -DryRun -Image build\fiducials\62-DICT_4X4_50-c85\id00.png`.
-   Expect a 300 dpi resolution and the roll's paper size.
-3. Print the test label (ID 0) and measure it (step 1 above):
-   `.\scripts\fiducials\print_label.ps1 -Image build\fiducials\62-DICT_4X4_50-c85\id00.png`.
-   For a die-cut roll add `-PageLengthMm 100` (DK-11202).
+1. Read the roll's part number. `-Media` takes `62` for DK-22205 or DK-22251
+   (62 mm continuous) and `62x100` for DK-11202 (62 x 100 mm die-cut).
+2. From a PowerShell prompt in this worktree, check what the driver will use:
+   `.\scripts\fiducials\print_label.ps1 -Media 62 -DryRun -Image build\fiducials\62-DICT_4X4_50-c85\id00.png`.
+   For `-Media 62` it reports media code 259, a 62 x 78.7 mm portrait page at
+   300x300 dpi, printable 58.93 mm (696 dots) across.
+3. Print the test label (ID 0) and measure it (step 1 of "What to measure"):
+   `.\scripts\fiducials\print_label.ps1 -Media 62 -Image build\fiducials\62-DICT_4X4_50-c85\id00.png`.
 4. If it measures right, print the rest:
-   `.\scripts\fiducials\print_label.ps1 -Image (Get-ChildItem build\fiducials\62-DICT_4X4_50-c85\id0[1-7].png).FullName`.
+   `.\scripts\fiducials\print_label.ps1 -Media 62 -Image (Get-ChildItem build\fiducials\62-DICT_4X4_50-c85\id0[1-7].png).FullName`.
 
-The helper draws each image at its pixel size over 300 dpi with
-nearest-neighbour sampling, centred on a page the width of the tape, with no
-fit-to-page. `-PdfFile out.pdf` sends the same page through Microsoft Print to
-PDF instead; there the test label came out unresampled at 58.93 x 71.71 mm,
-its exact 300 dpi size. As a fallback, each page of `labels.pdf` is one label
-at its exact size (58.93 x 71.71 mm, lossless 1-bit images); print it at
-"Actual size" (100%), never "Fit".
+The helper selects the driver's own paper for the roll, because the QL-800
+driver ignores a custom page size and falls back to 29 x 90 mm landscape. It
+draws each image at its pixel size over 300 dpi with nearest-neighbour
+sampling, centred in the printable area in portrait, with no fit-to-page. It
+reads back the driver's print ticket and prints nothing unless the resolution
+is a multiple of 300 dpi and the image fits the printable area. A job for the
+wrong roll makes the printer stop with an error rather than print.
+
+`-PdfFile out.pdf` sends the same drawing through Microsoft Print to PDF
+instead. There the test label came out unresampled at 58.93 x 71.71 mm, its
+exact 300 dpi size. As a fallback, each page of `labels.pdf` is one label at
+its exact size (58.93 x 71.71 mm, lossless 1-bit images). Print it at "Actual
+size" (100%), never "Fit", with the driver's paper set to the roll.
 
 ## Handoff
 
@@ -209,7 +215,7 @@ at its exact size (58.93 x 71.71 mm, lossless 1-bit images); print it at
   changes; nothing imports these scripts.
 - **Acceptance:** `python scripts/fiducials/make_tag_labels.py` exits 0 after
   checking all eight labels; then a printed test label measures 43.18 mm.
-- **Remaining uncertainty:** no label is printed yet, so the Brother driver's
-  handling of the custom page (size, centring, 300 dpi) is untested; the
-  loaded roll is unknown; the head camera's intrinsics and its view of each
-  tag are unchecked; positions await measurement.
+- **Remaining uncertainty:** no label is printed yet, because the loaded roll
+  is unknown. The driver's page for each roll is checked by dry run only, so
+  the printed scale still needs a ruler. The head camera's intrinsics and its
+  view of each tag are unchecked, and the positions await measurement.
