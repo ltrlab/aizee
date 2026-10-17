@@ -36,6 +36,15 @@ RESULTS_EVERY_S = 1.
 SLOW_CYCLE_S = .04
 
 
+def tune_profile(teleop):
+    """The profile servo sweeps, Minerva Check's live sweep and Return to reference run on. They need the receiver's
+    collision checks, so with a direct (collision-disabled) teleop profile they run on the guarded one Minerva Check
+    defaults to. Helm on the direct tuning profile refused them all (2026-10-17)."""
+    from robot_platform.ops.check import DEFAULT_TELEOP
+    teleop = Path(teleop)
+    return DEFAULT_TELEOP if load_profile(teleop)['receiver'].get('collision_mode') == 'disabled' else teleop
+
+
 class TuneCore:
     """The sweep's loop body. Openers are injectable for tests."""
 

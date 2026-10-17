@@ -76,8 +76,8 @@ def main(argv=None):
                                    target='pc' if args.sim else args.loop, simulation=simulation,
                                    capture_profile=args.capture_profile)
             if not args.sim:
-                from .tune import TuneSession
-                tune = TuneSession(session, args.teleop, target=args.loop)
+                from .tune import TuneSession, tune_profile
+                tune = TuneSession(session, tune_profile(args.teleop), target=args.loop)
         check = cameras = camera_video = None
         if not args.sim:
             from robot_platform.ops.check import DEFAULT_TELEOP

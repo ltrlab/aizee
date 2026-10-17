@@ -156,6 +156,49 @@ def test_an_arm_returns_from_where_it_rests_to_its_reference_one_joint_at_a_time
     core.close()
 
 
+def test_helm_on_the_direct_profile_returns_an_arm_on_the_guarded_one(tmp_path):
+    # Helm on the direct tuning profile (collision checks disabled) refused every Return to reference (2026-10-17):
+    # the right gripper rested 0.13 rad open, so no live session could start. Return now runs on the guarded
+    # profile, with the receiver's collision checks: the gripper closes to its reference and the arm disables.
+    from robot_platform.helm.tune import tune_profile
+    from robot_platform.ops.check import DEFAULT_TELEOP
+    assert tune_profile(DEVICES / 'minerva-teleop-direct-tuning.json') == DEFAULT_TELEOP
+    assert tune_profile(DEVICES / 'minerva-teleop.json') == DEVICES / 'minerva-teleop.json'
+    helm = HelmSession(DEVICES / 'minerva-joint-calibration.json', runs=tmp_path / 'runs',
+                       limits=DEVICES / 'minerva-production-01-joint-limits.json', seed=SEED)
+    try:
+        session = TuneSession(helm, tune_profile(DEVICES / 'minerva-teleop-direct-tuning.json'))
+        assert session.profile['receiver']['collision_mode'] != 'disabled'
+        clock = Clock()
+        pose = {m['name']: 0. for m in helm.reference['motors'] if m['name'].startswith('right_')}
+        pose.update(right_gripper=.13)
+        session.receiver, session.joints, session.mode = {'mode': 'live', 'arm': 'right'}, None, 'return'
+        session._start_pose = pose
+        receivers = []
+
+        def open_receiver(config, device, reference):
+            receivers.append(Receiver(config, reference, clock, start=pose))
+            return receivers[-1]
+        core = TuneCore(session._bundle(), open_receiver=open_receiver, clock=clock,
+                        evidence_root=tmp_path / 'evidence')
+        core.build()
+        for _ in range(20000):
+            core.tick(None, clock())
+            clock.now += core.period_s
+            assert core.fault is None, core.fault
+            if core.stage == 'finished':
+                break
+        assert core.message == 'Returned: the arm is at its reference and disabled.', core.message
+        receiver = receivers[0]
+        gripper = next(s for s, j in zip(receiver.last['feedback'], receiver.config['joints'])
+                       if j['name'] == 'right_gripper')
+        assert abs(gripper['position']) < .02
+        assert receiver.last['status']['state'] == 'disarmed' and not receiver.last['hardware_enabled']
+        core.close()
+    finally:
+        helm.close()
+
+
 def test_closing_a_sweep_lowers_the_arm_before_the_receiver_closes(setup):
     # Closing the receiver cuts torque: a session stopped with a joint out lowers it to the reference first.
     helm, session, tmp_path = setup
