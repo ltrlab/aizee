@@ -76,7 +76,7 @@ The workcell's cube region is now x 0.02-0.26 m, y -0.32 to -0.50 m, inside that
 
 Through the receiver with driven grippers on the measured bench:
 
-- **Nominal cube start (0.15, -0.35):** success. Pickup at 6.3 s, handoff at 19.5 s, bucket settled at 39.4 s, with no clipped commands. `tests/contract/test_demonstrator.py` runs this trial.
+- **Nominal cube start (0.15, -0.35):** success. Pickup at 6.3 s, handoff at 23.7 s, bucket settled at 49.2 s, with no clipped commands. Before the quarter-turn take the handoff came at 19.5 s and the bucket at 39.4 s. `tests/contract/test_demonstrator.py` runs this trial.
 - **Default 3x3 grid, first placeholder region:** 5/10 succeeded (Wilson 95% 0.24-0.76).
   - Every trial that planned succeeded.
   - The other five could not plan their pick, at the region's far edge (y -0.41 to -0.42) and near edge (y -0.28), at x 0.08-0.22.
@@ -84,6 +84,7 @@ Through the receiver with driven grippers on the measured bench:
 - **The same grid with the gripper settle test:** 10/10 succeeded (Wilson 95% 0.72-1.00), median time to complete 46.1 s (p90 46.8 s). With the right's lift at transit speed, also 10/10, median 32.0 s (p90 32.7 s).
 - **The same grid with paced moves:** 10/10 succeeded (Wilson 95% 0.72-1.00), median time to complete 40.8 s (p90 41.8 s). No arm joint trailed its command by more than 0.89 of its lead. Unpaced, five did somewhere on the grid, right J1 by 0.52 rad (21 times its lead).
 - **Turned cubes, yaw drawn from +/-45 degrees, 4x4 grid plus the nominal start:** 17/17 succeeded (Wilson 95% 0.82-1.00), median time to complete 40.6 s (p90 43.5 s). The yaws ran from -44.8 to +44.7 degrees, and no joint trailed by more than 0.88 of its lead. `run ... --grid 4x4 --yaw 0.785398`.
+- **With the fingers' paddles colliding, the arm-against-arm audit and the quarter-turn take** (`claude/sim-finger-collision`, 2026-10-17): the default grid 10/10 (Wilson 95% 0.72-1.00), median time to complete 48.3 s (p90 49.4 s); the turned cubes 17/17 (Wilson 95% 0.82-1.00), median 49.0 s (p90 51.2 s), yaws -44.8 to +44.7 degrees. No commands were clipped, and no arm joint trailed its command by more than 0.89 of its lead. The right's turn and the left's return to its start add about 8 s.
 
 ## Limits
 
