@@ -260,7 +260,7 @@ class MinervaPolicy(nn.Module):
         future_images: Optional[Dict[str, torch.Tensor]] = None,
     ) -> Dict[str, torch.Tensor]:
         language = self._ensure_language(language, state)
-        memory, kpm, per_cam = self._build_memory(images, language, apply_dropout=True)
+        memory, kpm, per_cam = self._build_memory(images, language, apply_dropout=self.training)
         cond = self._cond(state, language)
 
         flow_loss = self.flow_head.flow_loss(actions, cond, memory, kpm)
@@ -298,6 +298,8 @@ class MinervaPolicy(nn.Module):
         language: Optional[torch.Tensor] = None,
         *,
         num_steps: Optional[int] = None,
+        prefix_actions: Optional[torch.Tensor] = None,
+        generator: Optional[torch.Generator] = None,
     ) -> torch.Tensor:
         """Return a normalized action chunk [B, K, num_joints]. No dropout, no JEPA."""
         language = self._ensure_language(language, state)
@@ -306,6 +308,8 @@ class MinervaPolicy(nn.Module):
         return self.flow_head.sample(
             cond, memory, num_steps=num_steps or self.flow_steps,
             memory_key_padding_mask=kpm,
+            prefix_actions=prefix_actions,
+            generator=generator,
         )
 
     # ------------------------------------------------------------------

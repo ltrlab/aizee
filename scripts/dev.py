@@ -50,6 +50,8 @@ CORE = [
     'tests/unit/test_helm_task_workflow.py', 'tests/unit/test_helm_task_capture.py',
     'tests/unit/test_task_capture.py', 'tests/unit/test_task_scene.py',
     'tests/unit/test_capture_process.py', 'tests/contract/test_task_receiver_capture.py',
+    'tests/unit/test_eval_stats.py', 'tests/unit/test_eval_report.py',
+    'tests/contract/test_eval_reference_policies.py',
     'tests/unit/test_ci_windows_gl.py', 'tests/unit/test_dev_gate.py',
     'tests/unit/test_platform_packaging.py',
 ]

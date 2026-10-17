@@ -138,11 +138,16 @@ class MinervaEpisodeDataset(Dataset):
         dataset_stats: Optional[Dict] = None,
         conditioner: Optional[TextConditioner] = None,
         paraphrases: Optional[ParaphraseTable] = None,
+        allowed_authorities: Tuple[str, ...] = ("human", "correction"),
+        include_fixture: bool = False,
+        correction_weight: float = 1.0,
     ):
         if state_mode not in STATE_MODES:
             raise ValueError(f"state_mode must be in {STATE_MODES}")
         if action_mode not in ACTION_MODES:
             raise ValueError(f"action_mode must be in {ACTION_MODES}")
+        if correction_weight <= 0 or not np.isfinite(correction_weight):
+            raise ValueError("correction_weight must be positive and finite")
         self.chunk_size = chunk_size
         self.state_mode = state_mode
         self.action_mode = action_mode
@@ -151,42 +156,153 @@ class MinervaEpisodeDataset(Dataset):
         self._k = _state_mode_k(state_mode)
         self.conditioner = conditioner
         self.paraphrases = paraphrases or ParaphraseTable()
+        auth_set = set(allowed_authorities)
+        if include_fixture:
+            auth_set.add("scripted_fixture")
+        self.allowed_authorities = tuple(sorted(auth_set))
+        self.correction_weight = float(correction_weight)
 
-        self._paths = list(episode_paths)
+        self._paths = [Path(p) for p in episode_paths]
         if not self._paths:
             raise FileNotFoundError("no Minerva episode files provided")
 
         with h5py.File(self._paths[0], "r") as f:
             self.num_joints = int(f["observations/qpos"].shape[1])
+            raw_joints = f.attrs.get("minerva_joints", "")
+            if isinstance(raw_joints, bytes):
+                raw_joints = raw_joints.decode("utf-8")
+            parsed_joints = tuple(j.strip() for j in str(raw_joints).split(",") if j.strip())
+            self.joint_names: Tuple[str, ...] = (
+                parsed_joints if len(parsed_joints) == self.num_joints
+                else tuple(f"joint_{i}" for i in range(self.num_joints))
+            )
             self._cameras = [c for c in CAMERAS if f"observations/images/{c}" in f]
-        if not self._cameras:
-            raise ValueError(f"{self._paths[0].name}: no known camera streams found")
+            if not self._cameras:
+                raise ValueError(f"{self._paths[0].name}: no known camera streams found")
+            self.image_shapes: Dict[str, Tuple[int, int, int]] = {
+                c: tuple(int(d) for d in f[f"observations/images/{c}"].shape[1:])
+                for c in self._cameras
+            }
         self.state_dim = self.num_joints * self._k
         self.action_dim = self.num_joints
 
-        # Flat (episode, timestep) index + lengths + task strings.
+        # Flat (episode, timestep) index + contiguous segment bounds + task strings.
         self._lengths: List[int] = []
         self._index: List[Tuple[int, int]] = []
+        self._seg_ends: List[int] = []
+        self._authorities: List[str] = []
+        self._ep_valid_masks: List[np.ndarray] = []
         self._task_strings: List[str] = []
         self._segments: List[list] = []
+
         for ei, p in enumerate(self._paths):
             with h5py.File(p, "r") as f:
-                T = f["observations/qpos"].shape[0]
+                if "complete" in f.attrs and not bool(f.attrs["complete"]):
+                    raise ValueError(f"{p.name}: incomplete episode cannot be used for training")
+                qpos_ds = f["observations/qpos"]
+                T, J = int(qpos_ds.shape[0]), int(qpos_ds.shape[1])
+                if J != self.num_joints:
+                    raise ValueError(
+                        f"{p.name}: num_joints={J} does not match dataset num_joints={self.num_joints}"
+                    )
+                ep_joints_raw = f.attrs.get("minerva_joints", "")
+                if isinstance(ep_joints_raw, bytes):
+                    ep_joints_raw = ep_joints_raw.decode("utf-8")
+                ep_joints = tuple(j.strip() for j in str(ep_joints_raw).split(",") if j.strip())
+                if ep_joints and self.joint_names and ep_joints != self.joint_names:
+                    raise ValueError(
+                        f"{p.name}: joint order {ep_joints} does not match {self.joint_names}"
+                    )
+                for c in self._cameras:
+                    if f"observations/images/{c}" not in f:
+                        raise ValueError(f"{p.name}: missing required camera stream {c!r}")
+                    c_shape = tuple(int(d) for d in f[f"observations/images/{c}"].shape[1:])
+                    if c_shape != self.image_shapes[c]:
+                        raise ValueError(
+                            f"{p.name}: camera {c!r} shape {c_shape} != {self.image_shapes[c]}"
+                        )
+
                 lang = f.attrs.get("language_instruction", f.attrs.get("task_tag", ""))
+                if isinstance(lang, bytes):
+                    lang = lang.decode("utf-8")
                 seg_raw = f.attrs.get("segments")
                 self._task_strings.append(str(lang))
                 self._segments.append(parse_segments(seg_raw))
-            self._lengths.append(T)
-            for t in range(T):
-                self._index.append((ei, t))
+                self._lengths.append(T)
 
+                if "action_valid" in f:
+                    act_valid = np.asarray(f["action_valid"][:], dtype=bool)
+                elif f.attrs.get("requires_action_valid_mask", False):
+                    raise ValueError(f"{p.name}: requires_action_valid_mask is set but action_valid is missing")
+                else:
+                    act_valid = np.ones(T, dtype=bool)
+
+                if "authority" in f:
+                    raw_auth = f["authority"][:]
+                    auth_list = [
+                        a.decode("utf-8") if isinstance(a, bytes) else str(a)
+                        for a in raw_auth
+                    ]
+                else:
+                    auth_list = ["human"] * T
+
+                if self.state_mode == "qpos_qcmd_tq":
+                    if "observations/torques" not in f:
+                        raise ValueError(f"{p.name}: state_mode='qpos_qcmd_tq' requires observations/torques")
+                    tq_arr = f["observations/torques"][:]
+                    tq_valid = (
+                        np.asarray(f["observations/torque_valid"][:], dtype=bool)
+                        if "observations/torque_valid" in f
+                        else np.isfinite(tq_arr)
+                    )
+                else:
+                    tq_valid = None
+
+            valid_mask = np.zeros(T, dtype=bool)
+            for t in range(T):
+                if not act_valid[t] or auth_list[t] not in auth_set:
+                    continue
+                if tq_valid is not None and not np.all(tq_valid[t]):
+                    raise ValueError(
+                        f"{p.name}: frame {t} has invalid/NaN torques under state_mode='qpos_qcmd_tq'"
+                    )
+                valid_mask[t] = True
+            self._ep_valid_masks.append(valid_mask)
+
+            for t in range(T):
+                if not valid_mask[t]:
+                    continue
+                label_t = self._label_at(ei, t)
+                auth_t = auth_list[t]
+                seg_end = t + 1
+                while (seg_end < T and valid_mask[seg_end]
+                       and auth_list[seg_end] == auth_t
+                       and self._label_at(ei, seg_end) == label_t):
+                    seg_end += 1
+                self._index.append((ei, t))
+                self._seg_ends.append(seg_end)
+                self._authorities.append(auth_t)
+
+        if not self._index:
+            raise ValueError(
+                f"No valid training frames found across {len(self._paths)} episodes "
+                f"for allowed_authorities={self.allowed_authorities}"
+            )
+
+        self.sample_weights = np.array(
+            [self.correction_weight if a == "correction" else 1.0 for a in self._authorities],
+            dtype=np.float64,
+        )
         self.dataset_stats = dataset_stats or self._compute_stats()
 
     # -- stats -------------------------------------------------------------
     def _compute_stats(self) -> Dict:
         J = self.num_joints
         qpos_all, qcmd_all, tq_all, act_all, rel_all, starts = [], [], [], [], [], []
-        for p in self._paths:
+        for ei, p in enumerate(self._paths):
+            valid_mask = self._ep_valid_masks[ei]
+            if not np.any(valid_mask):
+                continue
             with h5py.File(p, "r") as f:
                 qpos = f["observations/qpos"][:]
                 actions = f["actions"][:]
@@ -194,15 +310,33 @@ class MinervaEpisodeDataset(Dataset):
                 # which would pull mean->0 and inflate std on a mixed dataset.
                 qcmd = f["observations/qcmd"][:] if "observations/qcmd" in f else None
                 tq = f["observations/torques"][:] if "observations/torques" in f else None
-            qpos_all.append(qpos); act_all.append(actions); starts.append(qpos[0])
+                tq_val = (
+                    np.asarray(f["observations/torque_valid"][:], dtype=bool)
+                    if "observations/torque_valid" in f
+                    else (np.isfinite(tq) if tq is not None else None)
+                )
+            first_valid = int(np.flatnonzero(valid_mask)[0])
+            qpos_all.append(qpos[valid_mask])
+            act_all.append(actions[valid_mask])
+            starts.append(qpos[first_valid])
             if qcmd is not None:
-                qcmd_all.append(qcmd)
-            if tq is not None:
-                tq_all.append(tq)
-            T = qpos.shape[0]
-            h = min(self.chunk_size, T)
-            for t in range(T):
-                rel_all.append(actions[t:min(t + h, T)] - qpos[t:t + 1])
+                qcmd_all.append(qcmd[valid_mask])
+            if tq is not None and tq_val is not None:
+                finite_rows = valid_mask & np.all(tq_val & np.isfinite(tq), axis=1)
+                if np.any(finite_rows):
+                    tq_all.append(tq[finite_rows])
+
+        # Compute relative action stats over the exact bounded segments indexed for training.
+        by_ep: Dict[int, List[Tuple[int, int]]] = {}
+        for (ei, t), seg_end in zip(self._index, self._seg_ends):
+            by_ep.setdefault(ei, []).append((t, seg_end))
+        for ei, spans in by_ep.items():
+            with h5py.File(self._paths[ei], "r") as f:
+                qpos = f["observations/qpos"][:]
+                actions = f["actions"][:]
+            for t, seg_end in spans:
+                t_end = min(t + self.chunk_size, seg_end)
+                rel_all.append(actions[t:t_end] - qpos[t:t + 1])
 
         def mean_std(xs, floor=1e-6):
             if not xs:                       # channel absent everywhere -> identity norm
@@ -281,16 +415,21 @@ class MinervaEpisodeDataset(Dataset):
 
     def __getitem__(self, idx: int):
         ei, t = self._index[idx]
+        seg_end = self._seg_ends[idx]
         T = self._lengths[ei]
-        t_end = min(t + self.chunk_size, T)
-        t_fut = min(t + self.future_offset, T - 1) if self.future_offset > 0 else None
+        t_end = min(t + self.chunk_size, seg_end)
+        # Future JEPA observation stays strictly inside the same valid authority/task segment.
+        t_fut = min(t + self.future_offset, min(seg_end, T - 1)) if self.future_offset > 0 else None
         rng = random.Random((ei * 1_000_003 + t) ^ torch.randint(0, 2**31 - 1, (1,)).item())
 
         with h5py.File(self._paths[ei], "r") as f:
             qpos = f["observations/qpos"][t].astype(np.float32)
             qcmd = (f["observations/qcmd"][t] if "observations/qcmd" in f else qpos).astype(np.float32)
-            tq = (f["observations/torques"][t] if "observations/torques" in f
-                  else np.zeros_like(qpos)).astype(np.float32)
+            if self.state_mode == "qpos_qcmd_tq":
+                tq = (f["observations/torques"][t] if "observations/torques" in f
+                      else np.zeros_like(qpos)).astype(np.float32)
+            else:
+                tq = None
             chunk = f["actions"][t:t_end].astype(np.float32)
             cur = {c: self._read(f, c, t) for c in self._cameras}
             fut = {c: self._read(f, c, t_fut) for c in self._cameras} if t_fut is not None else None
@@ -322,7 +461,7 @@ class MinervaEpisodeDataset(Dataset):
                 cn = self._aug_pair([cur[c]], rng)[0] if self.augment else imagenet_normalize(cur[c])
                 images[c] = torch.from_numpy(cn)
 
-        # Action chunk (pad tail, percentile-normalize)
+        # Action chunk (pad tail at segment boundary, percentile-normalize)
         if chunk.shape[0] < self.chunk_size:
             chunk = np.concatenate(
                 [chunk, np.tile(chunk[-1:], (self.chunk_size - chunk.shape[0], 1))], axis=0)
@@ -364,11 +503,43 @@ def collate_minerva(batch):
     return out, torch.stack(action_list)
 
 
-def split_episodes(data_dir: str, val_fraction: float, seed: int = 0):
-    paths = sorted(Path(data_dir).glob("episode_*.hdf5"))
-    if not paths:
-        raise FileNotFoundError(f"no episode_*.hdf5 in {data_dir}")
-    if val_fraction <= 0:
+def discover_minerva_episodes(data_dir: str | Path, *, include_ineligible: bool = False) -> List[Path]:
+    """Discover completed `task_episode_*.hdf5` files, or legacy `episode_*.hdf5` files."""
+    root = Path(data_dir)
+    task_paths = sorted(
+        p for p in root.glob("task_episode_*.hdf5")
+        if not p.name.endswith(".partial.hdf5")
+    )
+    if task_paths:
+        eligible_paths = []
+        for p in task_paths:
+            with h5py.File(p, "r") as f:
+                if "complete" in f.attrs and not bool(f.attrs["complete"]):
+                    continue
+                if not include_ineligible and "capture_eligible" in f.attrs and not bool(f.attrs["capture_eligible"]):
+                    continue
+                eligible_paths.append(p)
+        if not eligible_paths:
+            raise FileNotFoundError(
+                f"found {len(task_paths)} task_episode_*.hdf5 in {data_dir}, "
+                f"but none are complete and eligible (pass include_ineligible=True for fixtures)"
+            )
+        return eligible_paths
+    legacy_paths = sorted(root.glob("episode_*.hdf5"))
+    if not legacy_paths:
+        raise FileNotFoundError(f"no task_episode_*.hdf5 or episode_*.hdf5 in {data_dir}")
+    return legacy_paths
+
+
+def split_episodes(
+    data_dir: str,
+    val_fraction: float,
+    seed: int = 0,
+    *,
+    include_ineligible: bool = False,
+):
+    paths = discover_minerva_episodes(data_dir, include_ineligible=include_ineligible)
+    if val_fraction <= 0 or len(paths) < 2:
         return paths, []
     rng = random.Random(seed)
     shuf = paths[:]; rng.shuffle(shuf)
@@ -377,7 +548,7 @@ def split_episodes(data_dir: str, val_fraction: float, seed: int = 0):
 
 
 __all__ = [
-    "MinervaEpisodeDataset", "collate_minerva", "split_episodes",
+    "MinervaEpisodeDataset", "collate_minerva", "discover_minerva_episodes", "split_episodes",
     "normalize_actions", "denormalize_actions", "imagenet_normalize",
     "pct_normalize", "pct_denormalize", "STATE_MODES", "ACTION_MODES", "CAMERAS",
 ]
