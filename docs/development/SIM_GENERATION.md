@@ -44,6 +44,8 @@ The defaults are 0.3, 0.1, 1 cm and 2 degrees. The values chosen go into the epi
 
 The writer leaves `training_promoted` and `sim2real_validated` false. The writer's `capture_eligible` only says that capture's own checks passed. Whether scripted simulation episodes may train a policy is the dataset contract's decision, not the generator's.
 
+Today's training loader (`python/training/minerva_dataset.py`) trains on human and correction rows by default. It finds the episodes, then rejects them: "No valid training frames found". Allowing the policy authority explicitly (`allowed_authorities=('policy',)`) loads the nominal episode as 658 samples, with all three cameras and 14 joints. `train_minerva.py` has no option for that, so using them stays an explicit decision.
+
 ## Measured
 
 - **One episode, nominal cube start.** 659 frames over 43.9 s, 49.5 MB with three 320x240 CAD views (gzip).

@@ -1,0 +1,60 @@
+# Feature task: the cube handoff in simulation, on the measured bench
+
+- **Branch and worktree:** `claude/sim-demonstrator` in `C:\Users\ltr\Workspace\aizee-sim-task`. It is stacked on `claude/sim-gripper-drive` (the driven grippers), which is stacked on `claude/sim-workcell` (the workcell); merging it brings in all three.
+- **Base commit:** `7100c3f1f88cb577e8dff1334b8da1031e41477f` (`codex/integration-20261016`: the format-8 training bridge and the merged evaluation harness). The integration branch has since moved to `c5d3f86`, which changes only the guarded lifecycle and its tests. This branch merges onto it without conflicts (`git merge-tree`).
+- **Owner:** Claude (session of 2026-10-16/17), at the user's request: "Begin working on all the sim work you can till its time to prove it out."
+- **Problem / saved reproducer.** The task scene could not show the task on the real bench, for three reasons:
+  - its layout was synthetic (a 0.28 m table chosen for top-grasp reach);
+  - its grippers ignored the cube (squeeze came from penetration, and the reading showed "fully closed" while holding);
+  - no policy in the harness could complete the task. The frozen fixture never reaches pickup through the calibrated plant: `python -m robot_platform.evaluation run --policy fixture_replay --plant armplant` ([MINERVA_EVAL.md](MINERVA_EVAL.md)).
+- **Hypothesis.** With the user's measurements, grippers that stall on the cube under their drive, and a closed-loop demonstrator planned for the reachable poses, the whole task completes through the actual receiver. Its episodes can then seed sim + real co-training.
+- **Owned files:**
+  - `simulation/workcell.py`
+  - `config/devices/simulation/minerva-production-01-workcell.json`
+  - the workcell, driven-gripper and appearance parts of `simulation/task_scene.py`
+  - `evaluation/demonstrator.py`, `evaluation/generate.py`
+  - the workcell, coupling, usable-range, lead, recorder and disturbance parts of `evaluation/runner.py` and `evaluation/plants.py`, and the `run`/`generate` options in `evaluation/__main__.py`
+  - `GraspIK.frame/solve_pose` in `evaluation/reach.py`
+  - `scripts/sim/*`
+  - the tests and `docs/development/SIM_*.md` listed below.
+- **Shared interfaces held fixed.** The receiver, lifecycle, approach and collision contract (only `approach.end_margin` is read), the episode writer and format 8, and the policy interface (`policy(observation) -> (H, 14)`).
+  - **Additive changes:** `MinervaTaskScene(workcell=, grippers=)`, `RunConfig(workcell, grippers, latency_s, actuator_spread, appearance, disturbance_seed)`, `TrialContext.workcell`, `TrialContext.lead`, `run_trial(recorder=)`, `open_simulation(workcell=)`, `helm --sim-workcell`, `run --camera-size/--visual-mode`.
+  - **Behaviour change:** the harness clips commands into the receiver's usable range instead of the full range.
+- **Dependencies / integration order.** Merge `claude/sim-demonstrator`; nothing else depends on it. Two notes for the training side (Gemini), which reads format-8 episodes:
+  - The generated episodes carry `policy` authority on every row. `python/training/minerva_dataset.py` trains on human and correction rows by default, so it rejects them ("No valid training frames found"); allowing `policy` explicitly loads one episode as 658 samples. See [SIM_GENERATION.md](SIM_GENERATION.md).
+  - `python/training/build_lang_cache.py` globs only `episode_*.hdf5` and misses format-8 `task_episode_*.hdf5`.
+- **Required behavior:**
+  - With the default synthetic workcell, the scene compiles to the same geometry as before (all 103 geoms compared array by array).
+  - A driven gripper stops on the cube with torque kp x shortfall, clipped to `max_effort`, and pads within 0.5 mm.
+  - The demonstrator succeeds at the nominal cube start, with no clipped commands.
+  - Every planned move clears the table and bucket by more than 1 mm, and no arm joint trails its command by more than the lead following allows it.
+  - A generated episode is published only for a success.
+  - Disturbances are recorded per trial and undone after it.
+- **Acceptance command.** `python scripts/dev.py check`, with zero skips. It adds `test_workcell`, `test_task_scene_grippers`, `test_driven_grippers`, `test_demonstrator` (unit and contract), `test_eval_plants`, `test_generate`, `test_scene_appearance` and `test_eval_disturbances`. Gate report: see "Results".
+- **Source/model identity and seed.** MuJoCo 3.15.0 and the scene hashes in each report's provenance. Grid seed 0 for evaluation; seed 1000 and up for generation, never the nominal start. Demonstrator sampling seed 0.
+- **Results / evidence:**
+  - **Cube region.** `scripts/sim/demonstrator_reach_map.py` (4 cm step) finds where the whole task plans with every move clearing by more than 1 mm: x 0-0.28 m at every y from -0.32 to -0.52 m, plus a front-right patch near the table's edge. The workcell's cube region is x 0.02-0.26 m by y -0.32 to -0.50 m.
+  - **Default grid: the nominal start plus 9 cells, grid seed 0,** through the receiver with driven grippers:
+    - first placeholder region, before the alternative grasp orientations: 5/10. All 5 failures were planning failures at the region's edges;
+    - reachable region with the grasp orientations: 6/10. The other 4 never registered a handoff: the two grippers held the cube together for 40 ms, and the scene requires 50 ms;
+    - with the gripper settle test (8a35b50): 10/10, Wilson 95% 0.72-1.00, median time to complete 32.0 s. Run on 89aa824, whose code 8a35b50 keeps (the amend changed only the message and brief);
+    - with paced moves (4e357e9): 10/10, median 40.8 s. Unpaced, five arm joints trailed their commands by more than the lead following allows them, right J1 by 0.52 rad; paced, none did (at most 0.89 of its lead).
+  - **Turned cubes.** Planning only, yaws -40 to +40 degrees over the region (180 cells): 149 planned and cleared by the first pair of faces alone. With the second pair, the climb before the handoff roll and the clearance check, all 180 do. Through the receiver (eb67150), a 4x4 grid plus the nominal start with yaw drawn from +/-45 degrees: 17/17, Wilson 95% 0.82-1.00, median 40.6 s.
+  - **Reproduce the grid:** `.venv-dev/Scripts/python.exe -m robot_platform.evaluation run --policy handoff_demonstrator --plant armplant --grippers driven --workcell config/devices/simulation/minerva-production-01-workcell.json --timeout 70`.
+  - **One generated episode, before the settle test:** 659 frames over 43.9 s, 49.5 MB. The gripper reading stalls at 2.05 rad on the 38.1 mm cube. `tests/contract/test_generate.py` covers the generator on the final code.
+  - **Gate.** Not yet run on this branch.
+  - **Evidence.** Kept outside the repository, under this session's scratchpad (`eval-demo*`, `gen-test`, the reach maps).
+- **Remaining uncertainty / physical inputs needed:**
+  - **Workcell placeholders.** Measure, then re-run the reach map and `tests/unit/test_demonstrator.py`:
+    - the table's position (its near-edge distance from the hanging arms, and whether the robot is centred);
+    - the box's height, position, orientation and wall thickness;
+    - the cube's mass (weigh one) and its friction on the pads.
+  - **Cameras.** Head D435 extrinsics and intrinsics, and the wrist camera mounts, are not calibrated. The sim's views are guesses (the head view is turned to match the real images' orientation). Generation varies them by +/-1 cm and up to 2 degrees.
+  - **Gripper force.** Squeeze is kp x shortfall / 9.2 mm/rad (about 310 N combined at kp 2 and 1.4 rad), not measured. A squeeze on a kitchen scale would calibrate it. The drive's inertia and friction are nominal.
+  - **Sim scope.** The arms stay kinematic: no robot/table push-back and no gripper-to-gripper contact. At the handoff the two grippers' pads come within a few millimetres. Live `helm --sim` still uses kinematic grippers.
+  - **Profiles.** The task runs on the direct, collision-disabled profile. The guarded two-arm bound keeps the hands about 30 cm apart, which a handoff cannot meet. The user's instruction was to fix the guarded profile or run without it.
+  - **Dataset decision.** Whether scripted simulation episodes may train a policy is the user's (dataset contract). Today's loader excludes them unless training allows the `policy` authority explicitly.
+  - **Action rate (for the training side).** Real task capture requests 20 Hz but achieves about 14-15 Hz: [HELM_TASK_WORKFLOW.md](HELM_TASK_WORKFLOW.md), and the recording proof stored 144 frames in 10.1 s. Generated episodes record at 15 Hz.
+    - The training dataset steps frame by frame without resampling, and checkpoints do not record a rate.
+    - The evaluation harness's checkpoint policy and the robot's inference node (`config/minerva.yaml`, `rate_hz` 20) both execute one predicted step per 50 ms.
+    - So a policy trained on these frames would move about 1.3-1.4 times faster than its demonstrations. This comes from reading the code; no trained run has shown it.
