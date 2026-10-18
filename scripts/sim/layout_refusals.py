@@ -2,11 +2,13 @@
 
     python scripts/sim/layout_refusals.py map OUT.jsonl [--draws 240] [--workers 6] [--seed 5000]
     python scripts/sim/layout_refusals.py report OUT.jsonl
+    python scripts/sim/layout_refusals.py view OUT.jsonl
 
 `map` draws layouts from the production workcell and randomization files the way `generate --randomize` does (draw k
 from seed [S, k]) and puts each through the head-camera check and the demonstrator's planning, without a trial: one
 JSON line per draw with its values, verdict and reason. `report` counts the verdicts and what the refused plans met,
-and gives the acceptance by quartile of each drawn value.
+and gives the acceptance by quartile of each drawn value. `view` says how much of the bucket and the block the head
+camera sees, for the workcell file's own layout and every accepted draw.
 
 An attempt keeps its first accepted draw, so a generated set's layouts are the drawn layouts weighted by their chance of
 acceptance: a quartile accepted at half the overall rate is half as dense in the episodes as in the draws.
@@ -14,6 +16,7 @@ acceptance: a quartile accepted at half the overall rate is half as dense in the
 import argparse
 import collections
 from concurrent.futures import ProcessPoolExecutor
+from itertools import product
 import json
 import math
 from pathlib import Path
@@ -196,6 +199,52 @@ def report(path):
     print('\ndrops planned:', dict(drops.most_common()))
 
 
+def view(path, width=320, height=240):
+    """What the head camera sees of the bucket and the block at width x height, with the arms hanging: the share of
+    the bucket walls' box corners in its image, whether the opening's centre (the middle of the walls' tops) is, and
+    whether the block is. The scene is built and its points projected through workcell.head_pinhole, not rendered."""
+    import mujoco
+    from robot_platform.evaluation.plants import derive_stack
+    from robot_platform.simulation.layouts import LayoutSampler
+    from robot_platform.simulation.task_scene import MinervaTaskScene
+    from robot_platform.simulation.workcell import head_pinhole, load_workcell
+    stack = derive_stack()
+    sampler = LayoutSampler(WORKCELL, RANDOMIZATION)
+
+    def seen(workcell):
+        scene = MinervaTaskScene(stack['derived']['joint_map'], stack['names'], workcell=workcell)
+        model, data = scene.model, scene.data
+        mujoco.mj_forward(model, data)
+        corners, tops = [], []
+        for geom in range(model.ngeom):
+            if (mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, geom) or '').startswith('task/bucket/wall'):
+                centre, turn, size = data.geom_xpos[geom], data.geom_xmat[geom].reshape(3, 3), model.geom_size[geom]
+                corners += [centre + turn @ (np.array(signs) * size[:3]) for signs in product((-1, 1), repeat=3)]
+                tops.append(centre + turn @ np.array([0., 0., size[2]]))
+        block = data.geom_xpos[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, 'task/cube/geom')]
+        camera = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_CAMERA, 'head')
+        origin, axes = data.cam_xpos[camera], data.cam_xmat[camera].reshape(3, 3)
+        fx, fy, cx, cy = head_pinhole(workcell.head_camera, width, height)
+        inside = []
+        for point in [*corners, np.mean(tops, axis=0), block]:
+            x, y, z = axes.T @ (point - origin)  # MuJoCo cameras look along their -z, y up
+            inside.append(bool(z < 0 and -.5 <= cx + fx * x / -z <= width - .5 and
+                               -.5 <= cy - fy * y / -z <= height - .5))
+        return sum(inside[:-2]) / len(corners), inside[-2], inside[-1]
+
+    own = seen(load_workcell(WORKCELL))
+    print(f'the workcell file: bucket corners in view {own[0]:.0%}, its opening {own[1]}, the block {own[2]}')
+    rows = [json.loads(line) for line in open(path, encoding='utf-8') if line.strip()]
+    results = [seen(sampler.draw(np.random.default_rng(r['seed']), seed=r['seed']).workcell)
+               for r in rows if r['verdict'] == 'planned']
+    shares = np.array([share for share, _, _ in results])
+    n = len(results)
+    print(f'{n} accepted draws at {width} x {height}: the whole bucket in view {np.mean(shares == 1):.0%}, at least '
+          f'half its corners {np.mean(shares >= .5):.0%}, none {np.mean(shares == 0):.0%} '
+          f'(median {np.median(shares):.0%}); its opening {sum(r[1] for r in results)} of {n}; '
+          f'the block {sum(r[2] for r in results)} of {n}')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     commands = parser.add_subparsers(dest='command', required=True)
@@ -204,13 +253,15 @@ def main():
     mapping.add_argument('--draws', type=int, default=240)
     mapping.add_argument('--workers', type=int, default=6)
     mapping.add_argument('--seed', type=int, default=5000)
-    reporting = commands.add_parser('report')
-    reporting.add_argument('out')
+    for name in ('report', 'view'):
+        commands.add_parser(name).add_argument('out')
     args = parser.parse_args()
     if args.command == 'map':
         run_map(args)
-    else:
+    elif args.command == 'report':
         report(args.out)
+    else:
+        view(args.out)
 
 
 if __name__ == '__main__':
