@@ -101,20 +101,23 @@ def _environment(world, workcell, grip_contact=False):
             geom.set("quat", _numbers(_yaw_quat(yaw)))
 
     top, (cx, cy), (sx, sy), thick = w.table_top, w.table_center, w.table_size, w.table_thickness
+    turn = w.table_yaw  # The table, its trim and its legs turn about the table's centre (legs placed already).
+    tc, ts = math.cos(turn), math.sin(turn)
     inner = (sx/2 - w.trim_width, sy/2 - w.trim_width)
-    box("task/table", (cx, cy, top - thick/2), (inner[0], inner[1], thick/2), w.color("table"))
+    box("task/table", (cx, cy, top - thick/2), (inner[0], inner[1], thick/2), w.color("table"), turn)
     if w.trim_width:
         # A border strip flush with the top: the x-side strips run the full depth, the y-side strips between them.
         for axis in (0, 1):
             for sign in (-1, 1):
-                pos = [cx, cy, top - thick/2]
-                pos[axis] += sign * (inner[axis] + w.trim_width/2)
+                offset = [0., 0.]
+                offset[axis] = sign * (inner[axis] + w.trim_width/2)
+                pos = (cx + tc*offset[0] - ts*offset[1], cy + ts*offset[0] + tc*offset[1], top - thick/2)
                 size = [w.trim_width/2, sy/2, thick/2] if axis == 0 else [inner[0], w.trim_width/2, thick/2]
-                box(f"task/table/trim/{axis}/{sign}", pos, size, w.color("trim"))
+                box(f"task/table/trim/{axis}/{sign}", pos, size, w.color("trim"), turn)
     under = top - thick
     for x, y in w.table_legs:
         box(f"task/leg/{x}/{y}", (x, y, (w.floor_z + under)/2), (LEG_HALF, LEG_HALF, (under - w.floor_z)/2),
-            w.color("leg"))
+            w.color("leg"), turn)
     (bx, by), yaw = w.bucket_center, w.bucket_yaw
     c, s = math.cos(yaw), math.sin(yaw)
     half = (w.bucket_inner[0]/2, w.bucket_inner[1]/2)

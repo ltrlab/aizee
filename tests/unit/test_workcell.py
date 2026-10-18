@@ -9,8 +9,8 @@ import pytest
 from robot_platform.evaluation.grid import GridSpec, cube_poses
 from robot_platform.simulation.fiducials import CODES, cells, corners, grid, marker_axes
 from robot_platform.simulation.task_scene import CUBE_START, TABLE_TOP, MinervaTaskScene
-from robot_platform.simulation.workcell import (SYNTHETIC, Workcell, bucket_frame, load_workcell, resolve, validate,
-                                               workcell_path)
+from robot_platform.simulation.workcell import (SYNTHETIC, Workcell, bucket_frame, load_workcell, on_table, resolve,
+                                               table_frame, validate, workcell_path)
 
 ROOT = Path(__file__).resolve().parents[2]
 MEASURED = ROOT / 'config/devices/simulation/minerva-production-01-workcell.json'
@@ -369,6 +369,66 @@ def _write(document, directory):
     path = Path(directory) / 'workcell.json'
     path.write_text(json.dumps(document), encoding='utf-8')
     return path
+
+
+def test_a_turned_table_turns_its_top_trim_legs_and_frame(tmp_path):
+    """A workcell may turn its table about its centre (table.yaw_deg; a drawn layout's table offset does). The top,
+    the trim and the legs turn with it, the tags placed in the table frame turn with them, and without the entry
+    (or with 0) the table is square to the robot, as before."""
+    document = json.loads(MEASURED.read_text(encoding='utf-8'))
+    square = load_workcell(MEASURED)
+    document['table']['yaw_deg'] = {'value': 0., 'source': 'test'}
+    assert load_workcell(_write(document, tmp_path)).table_legs == square.table_legs
+    document['table']['yaw_deg'] = {'value': 3., 'source': 'test'}
+    document['fiducials']['tags']['0'] = {'center': {'value': [.30, .10], 'source': 'test'}}  # In the table frame.
+    turned = load_workcell(_write(document, tmp_path))
+    angle = math.radians(3.)
+    assert turned.table_yaw == pytest.approx(angle) and turned.table_center == square.table_center
+    c, s = math.cos(angle), math.sin(angle)
+    (cx, cy) = square.table_center
+    for before, after in zip(square.table_legs, turned.table_legs):
+        dx, dy = before[0] - cx, before[1] - cy
+        assert after == pytest.approx((cx + c * dx - s * dy, cy + s * dx + c * dy), abs=1e-12)
+    # The table frame's origin is the turned top's near-left outer corner; a tag 30 cm along its near edge and
+    # 10 cm in lies there, turned with it.
+    corner = (cx + c * square.table_size[0] / 2 - s * square.table_size[1] / 2,
+              cy + s * square.table_size[0] / 2 + c * square.table_size[1] / 2)
+    tag = next(t for t in turned.fiducials['tags'] if t[0] == 0)
+    expected = (corner[0] - c * .30 + s * .10, corner[1] - s * .30 - c * .10)
+    assert tag[1:3] == pytest.approx(expected, abs=1e-12) and tag[4] == pytest.approx(math.pi + angle)
+    assert on_table(turned, *tag[1:3]) and table_frame(turned, *tag[1:3]) == pytest.approx(
+        (square.table_size[0] / 2 - .30, square.table_size[1] / 2 - .10), abs=1e-12)
+    scenes = [MinervaTaskScene(fixture_map(), NAMES, width=64, height=48, workcell=w) for w in (square, turned)]
+    try:
+        flat, scene = scenes
+        m, d = scene.model, scene.data
+        names = [n for n in scene._geom_names if n and (n == 'task/table' or n.startswith('task/table/trim/'))]
+        assert len(names) == 5
+        for name in names:
+            g, h = scene._id('geom', name), flat._id('geom', name)
+            # Each piece sits where the square table's piece sits, turned about the table's centre.
+            dx, dy = flat.data.geom_xpos[h][0] - cx, flat.data.geom_xpos[h][1] - cy
+            assert d.geom_xpos[g] == pytest.approx((cx + c * dx - s * dy, cy + s * dx + c * dy,
+                                                    flat.data.geom_xpos[h][2]), abs=1e-9)
+            assert d.geom_xmat[g].reshape(3, 3) == pytest.approx(
+                np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]]) @ flat.data.geom_xmat[h].reshape(3, 3), abs=1e-9)
+            assert np.array_equal(m.geom_size[g], flat.model.geom_size[h])
+        # The cube still rests on the turned table.
+        scene._q = np.zeros(14)
+        scene.reset()
+        for _ in range(6):
+            state = scene.update(np.zeros(14), .05)
+        assert state['cube_position'][2] == pytest.approx(turned.table_top + turned.cube_half, abs=2e-4)
+        assert state['cube_contacts'] == ['task/table'] and not state['forbidden_contacts']
+    finally:
+        for scene in scenes:
+            scene.close()
+    # A tag off the turned top is refused: the rectangle stays square to the robot, and its near-right tag (1) lies on
+    # the square table but off one turned 30 degrees.
+    document = json.loads(MEASURED.read_text(encoding='utf-8'))
+    document['table']['yaw_deg'] = {'value': 30., 'source': 'test'}
+    with pytest.raises(ValueError, match='fiducial 1 reaches off the table'):
+        load_workcell(_write(document, tmp_path))
 
 
 @pytest.mark.parametrize('change, refusal', [

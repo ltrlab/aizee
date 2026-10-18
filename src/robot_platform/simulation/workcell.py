@@ -76,6 +76,8 @@ class Workcell:
     # rectangle, {} or the measured rectangle some tags are given in: its size, its origin in the base frame and its
     # turn from square to the robot.
     fiducials: dict = field(default_factory=dict)
+    # The table's turn about its centre from square to the robot (radians); its legs are already placed with it.
+    table_yaw: float = 0.
 
     @property
     def cube_half(self):
@@ -142,7 +144,8 @@ SYNTHETIC = Workcell(
 def validate(workcell):
     """Refuse a workcell the scene cannot build or judge."""
     w = workcell
-    numbers = [w.table_top, w.table_thickness, w.floor_z, w.trim_width, w.bucket_yaw, w.bucket_height, w.bucket_wall,
+    numbers = [w.table_top, w.table_thickness, w.table_yaw, w.floor_z, w.trim_width, w.bucket_yaw, w.bucket_height,
+               w.bucket_wall,
                w.bucket_bottom, w.cube_edge, w.cube_mass, *w.table_center, *w.table_size, *w.bucket_center,
                *w.bucket_inner, *w.cube_friction, *w.cube_start, *(v for span in w.cube_region for v in span),
                *(v for leg in w.table_legs for v in leg), *w.head_camera['pos'], *w.head_camera['xyaxes'],
@@ -197,15 +200,13 @@ def _validate_fiducials(w):
     if f['square'] <= 0 or f['label'][0] < f['square'] + 2 * cell or \
             f['label'][1] / 2 < abs(f['tag_offset']) + f['square'] / 2 + cell:
         raise ValueError(f'workcell {w.name}: a fiducial label must hold its black square and a one-cell white margin')
-    (cx, cy), (sx, sy) = w.table_center, w.table_size
     for tag in tags:
         centre, (across, along), (x_axis, y_axis, _) = w.fiducial_label(tag)
         # The label's corners, each half its size along its own axes from its centre.
         points = [[p + u * a + v * b for p, a, b in zip(centre, x_axis, y_axis)]
                   for u in (-across, across) for v in (-along, along)]
         if tag[5] == 0:
-            if abs(tag[3] - w.table_top) > 1e-9 or any(abs(x - cx) > sx / 2 + 1e-9 or abs(y - cy) > sy / 2 + 1e-9
-                                                        for x, y, _ in points):
+            if abs(tag[3] - w.table_top) > 1e-9 or not all(on_table(w, x, y) for x, y, _ in points):
                 raise ValueError(f'workcell {w.name}: fiducial {tag[0]} reaches off the table top')
             continue
         # An upright tag sits on a face of the bucket's front or back wall, facing out of it, within the wall.
@@ -221,6 +222,19 @@ def _validate_fiducials(w):
                 any(abs(x) > half_x + (w.bucket_wall if outer else 0.) + 1e-9 or
                     not w.table_top - 1e-9 <= z <= w.table_top + w.bucket_height + 1e-9 for x, _, z in wall_points):
             raise ValueError(f'workcell {w.name}: fiducial {tag[0]} is not wholly on a face of the bucket wall')
+
+
+def table_frame(workcell, x, y):
+    """(along x, along y) of a world (x, y) in the table's own axes, from its centre."""
+    dx, dy = x - workcell.table_center[0], y - workcell.table_center[1]
+    c, s = math.cos(workcell.table_yaw), math.sin(workcell.table_yaw)
+    return c * dx + s * dy, -s * dx + c * dy
+
+
+def on_table(workcell, x, y, margin=0.):
+    """Whether a world (x, y) lies on the table top, at least `margin` in from its outer edge."""
+    u, v = table_frame(workcell, x, y)
+    return abs(u) <= workcell.table_size[0] / 2 - margin + 1e-9 and abs(v) <= workcell.table_size[1] / 2 - margin + 1e-9
 
 
 def workcell_path(servo_path, asset_id):
@@ -262,13 +276,16 @@ def _word(group, key, sources, choices):
     return entry['value']
 
 
-def _frames(group, sources, table_center, table_size):
+def _frames(group, sources, table_center, table_size, table_yaw=0.):
     """The frames on the table top that tags and the head camera may be given in, as (x, y, yaw) of each origin and x
     axis in the base frame (z up, the origin on the table top): the table frame, and the measured rectangle when the
     fiducials have one (`fiducials.rectangle`). The rectangle's place relative to the robot is one entry,
     `robot_offsets` (c, d): its origin is base (c, -d), its x axis along base -x turned by `yaw_deg`. Returns the
     frames and the rectangle's description ({} without one)."""
-    frames = {'table': (table_center[0] + table_size[0] / 2, table_center[1] + table_size[1] / 2, math.pi)}
+    c, s = math.cos(table_yaw), math.sin(table_yaw)
+    corner = (table_size[0] / 2, table_size[1] / 2)
+    frames = {'table': (table_center[0] + c * corner[0] - s * corner[1], table_center[1] + s * corner[0] + c * corner[1],
+                        math.pi + table_yaw)}
     if not isinstance(group, dict) or 'rectangle' not in group:
         return frames, {}
     r = group['rectangle']
@@ -359,9 +376,13 @@ def _head_camera(head, sources, top, frames):
 def load_workcell(path):
     """A Workcell from a workcell file (schema 1)."""
     path = Path(path)
-    document = json.loads(path.read_text(encoding='utf-8'))
+    return from_document(json.loads(path.read_text(encoding='utf-8')), name=path.stem, origin=path)
+
+
+def from_document(document, *, name='workcell', origin='the workcell document'):
+    """A Workcell from a workcell file's contents (schema 1); `name` when the document names none."""
     if not isinstance(document, dict) or document.get('schema') != 1 or document.get('kind') != KIND:
-        raise ValueError(f'{path} is not a workcell file (schema 1, kind {KIND})')
+        raise ValueError(f'{origin} is not a workcell file (schema 1, kind {KIND})')
     sources = {}
     table, bucket, cube = document['table'], document['bucket'], document['cube']
     top = _value(table, 'table.top_z', sources)
@@ -370,10 +391,14 @@ def load_workcell(path):
     thickness = _value(table, 'table.thickness', sources)
     floor = _value(table, 'table.floor_z', sources)
     trim = _value(table, 'table.trim_width', sources)
+    # Optional: the table's turn about its centre from square to the robot.
+    table_yaw = math.radians(_value(table, 'table.yaw_deg', sources)) if 'yaw_deg' in table else 0.
+    c, s = math.cos(table_yaw), math.sin(table_yaw)
     inset = LEG_INSET
-    legs = tuple((center[0] + sx * (size[0] / 2 - inset[0]), center[1] + sy * (size[1] / 2 - inset[1]))
-                 for sx in (-1, 1) for sy in (-1, 1))
-    frames, rectangle = _frames(document.get('fiducials'), sources, center, size)
+    legs = tuple((center[0] + c * lx - s * ly, center[1] + s * lx + c * ly)
+                 for lx, ly in ((sx * (size[0] / 2 - inset[0]), sy * (size[1] / 2 - inset[1]))
+                                for sx in (-1, 1) for sy in (-1, 1)))
+    frames, rectangle = _frames(document.get('fiducials'), sources, center, size, table_yaw)
     camera = _head_camera(document['cameras']['head'], sources, top, frames)
     region = _value(cube, 'cube.region', sources, length=4)
     appearance = document.get('appearance', {})
@@ -395,8 +420,9 @@ def load_workcell(path):
                height=_value(bucket, 'bucket.height', sources), wall=_value(bucket, 'bucket.wall', sources),
                bottom=_value(bucket, 'bucket.bottom', sources))
     workcell = Workcell(
-        name=str(document.get('name') or path.stem), asset_id=document.get('asset_id'),
+        name=str(document.get('name') or name), asset_id=document.get('asset_id'),
         table_top=top, table_center=center, table_size=size, table_thickness=thickness, table_legs=legs,
+        table_yaw=table_yaw,
         floor_z=floor, trim_width=trim,
         bucket_center=box['center'], bucket_yaw=box['yaw'], bucket_inner=box['inner'], bucket_height=box['height'],
         bucket_wall=box['wall'], bucket_bottom=box['bottom'],
