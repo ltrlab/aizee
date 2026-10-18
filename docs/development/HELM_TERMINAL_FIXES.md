@@ -22,3 +22,5 @@
 ## Deployment state
 
 The terminal runs these three files as a hot patch in `helm-recording-1580f1e81f`, with the originals in `%LOCALAPPDATA%\Minerva\patches\` (`20261017-pedals-null-task-b9d9a5b`, `20261017-helm-fixes-8ed14b5`). Its package also had a corrupt `urdf/minerva/onshape-to-robot/meshes/carriage_lwl7b__9.stl` (sha256 `94ea8cb2...`, against its own release manifest's `a5e54d97...`): Helm refused to start ("Limit review mesh revision mismatch; rerun the sweep") until it was replaced from `helm-recording-c5d3f8695f` (`patches\20261017-mesh-carriage_lwl7b__9`). A package built from a merge of this branch replaces all of it.
+
+**Replaced on 2026-10-18 at about 00:05Z:** the terminal now runs `helm-recording-ce086c58a5`, built from `claude/jetson-core-split` (`ce086c5`), which carries these fixes. The Jetson runs the same commit. See [JETSON_CPU_SPLIT.md](JETSON_CPU_SPLIT.md).

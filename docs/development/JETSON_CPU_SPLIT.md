@@ -78,11 +78,23 @@ Stop any Helm session first; the cameras restart.
 
 ## Acceptance
 
-- **Gate:** `python scripts/dev.py check --offline`, zero skips or xfails (results below).
+- **Gate:** `python scripts/dev.py check --offline`, zero skips or xfails (see Results and deployment).
 - **On the robot, after install:**
   - `status` shows each camera's threads on `[0, 1, 2, 3]` and the partition in place.
   - A Start, Idle, Enable hold (no Engage) reports `scheduling.loop == ["control_cpus"]`, with every thread of the loop's process and of the receiver on `[4, 5]`.
   - Loop timing matches the partitioned hold above: no missed cycles and the slowest under 10 ms.
+
+## Results and deployment
+
+- **Gate:** passed on `ce086c5` with 1138 Python tests, no skips, and all 132 Rust tests; the source was identical before and after the run. Report: `build/dev-check/20261017T224217Z-b009724d/report.json` in this worktree.
+  - The run included the gate's short MuJoCo-rendering tests, on the GPU, while a training run held it.
+- **Deployed 2026-10-18 at about 00:05Z,** with the user's approval:
+  - The Jetson's `current` is `20261017T224256Z-ce086c5`. It was staged, verified and smoke-tested, then switched with both CAN links down and no receiver running. The previous release, `20261017T151236Z-1580f1e`, is kept.
+  - The Minerva terminal runs `helm-recording-ce086c58a5`, built from the same commit. It replaces the hot patches and the restored mesh described in [HELM_TERMINAL_FIXES.md](HELM_TERMINAL_FIXES.md). The previous folder and launchers are kept in `helm-recording-activation-20261018T000513Z`.
+  - The packaging and activation commands are in this worktree's `build/terminal-deploy-20261017/`. They are Codex's process, with this worktree as the source.
+- **Not yet done:**
+  - the user's one-time `install`; until then the robot behaves exactly as before;
+  - the acceptance hold on the robot.
 
 ## Remaining uncertainty
 
