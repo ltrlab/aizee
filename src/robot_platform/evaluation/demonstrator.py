@@ -78,10 +78,26 @@ DROP_OFFSET = (0., 0.)
 DROP_LEAD = .12
 DROP_HOUSING = 'narrow'  # Its wide side would hang into the bucket's walls.
 # The ways the right may bring the cube over the bucket and let it go, tried in order until a plan clears: the
-# fingers' direction at the drop, the lead (x, y) from which the pads come to the drop point at its height, and the
-# pads' height above the rim when they open. The first is the drop above.
-DROPS = ({'name': 'from the front', 'finger': DROP_FINGER, 'lead': (0., DROP_LEAD), 'clearance': DROP_CLEARANCE},)
+# fingers' direction at the drop (azimuth, elevation), the lead (x, y, z) from which the pads come in a straight line
+# to the drop point, and the pads' height above the rim when they open, over the bucket's centre. The first is the
+# drop above, which the measured box's placeholder layout was planned with.
+# A drawn bucket can be taller, nearer or farther (generate --randomize). Planning-only maps over bucket sizes, heights,
+# yaws and places on the interim layout (2026-10-18) found the first drop out of reach in three ways, which the others
+# answer: a tall bucket near the robot puts the lead point too high and close (lower and closer in), a bucket far out
+# puts the drop point beyond the fingers' reach pointing up (level, or tipped down), and from the front the wrist
+# grazes a tall bucket's near wall (straight down from above).
+DROPS = ({'name': 'from the front', 'finger': DROP_FINGER, 'lead': (0., DROP_LEAD, 0.), 'clearance': DROP_CLEARANCE},
+         {'name': 'lower, from closer in front', 'finger': DROP_FINGER, 'lead': (0., .06, 0.), 'clearance': .08},
+         {'name': 'fingers level, from the front', 'finger': (270., 0.), 'lead': (0., .10, 0.), 'clearance': .09},
+         {'name': 'fingers tipped down, from the front', 'finger': (270., -30.), 'lead': (0., .08, 0.),
+          'clearance': .09},
+         {'name': 'from straight above', 'finger': DROP_FINGER, 'lead': (0., 0., .10), 'clearance': .08},
+         {'name': 'fingers steeply down, from straight above', 'finger': (270., -60.), 'lead': (0., 0., .08),
+          'clearance': .08})
 OPEN_MARGIN = .02  # Jaw clearance each side of the cube when open.
+# A block's face pair is taken only if the jaws open at least this far past it each side (they open to OPEN_MARGIN,
+# or as wide as the gripper's range allows).
+MIN_OPEN_MARGIN = .005
 SQUEEZE_RAD = 1.  # Command this far past touching the cube.
 SPEED = .5  # rad/s, the fastest arm joint in transit.
 SLOW = .15  # rad/s on approaches and lifts.
@@ -497,7 +513,7 @@ class HandoffDemonstrator:
         finger = direction(*drop['finger'])
         above = [workcell.bucket_center[0] + DROP_OFFSET[0], workcell.bucket_center[1] + DROP_OFFSET[1],
                  top + workcell.bucket_height + drop['clearance']]
-        add(self._move(q, {'right': pose(np.asarray(above) + [*drop['lead'], 0.], finger, DROP_HOUSING)},
+        add(self._move(q, {'right': pose(np.asarray(above) + list(drop['lead']), finger, DROP_HOUSING)},
                        'right carries'))
         add(self._move(q, {'right': pose(above, finger, DROP_HOUSING)}, 'right over the bucket', slow=True))
         frames.append(Segment('hold', q.copy(), arm='right', label='right holds over the bucket'))
