@@ -21,7 +21,7 @@ import numpy as np
 
 from .fiducials import cell_center, grid, white_runs
 from .minerva_sim import ModelPose, SCENE
-from .workcell import LEG_HALF, SYNTHETIC, bucket_frame, resolve as resolve_workcell
+from .workcell import APPEARANCE, LEG_HALF, SYNTHETIC, bucket_frame, resolve as resolve_workcell
 
 CAMERAS = ("left_wrist", "right_wrist", "head")
 JAW_BODIES = {"right": ("carriage_lwl7b", "carriage_lwl7b_2"),
@@ -57,6 +57,13 @@ DRIVE_FIELDS = ("inertia", "friction", "viscous", "max_effort")
 # that and the code's white cells on top, so the renderer draws each over the one below. A drawing order, not the
 # paper's thickness, which is not modelled.
 FIDUCIAL_LAYER = .0001  # m
+# The real Minerva is black all over (the user, 2026-10-18: "make sure the entire body is black similar to the real
+# robot"). Every robot geom, its CAD visuals and its collision proxies alike, is drawn in the workcell's named black,
+# matte: a material without specular highlight or reflection. The source model's colours are not used.
+ROBOT_RGBA = APPEARANCE["black"]
+ROBOT_MATERIAL = "task/robot/matte_black"
+ROBOT_FINISH = {"rgba": list(ROBOT_RGBA), "specular": 0., "shininess": 0., "reflectance": 0.,
+                "source": "user 2026-10-18: the real robot is black; matte, its exact finish not measured"}
 
 
 def _world_aabbs(model, data, ids):
@@ -259,6 +266,9 @@ def _scene_xml(source, fk_model, fk_data, visual_mode="cad", workcell=SYNTHETIC,
     ET.SubElement(root, "statistic", center="0 -.15 .65", extent="1.3")
     root.append(copy.deepcopy(original.find("asset")))
     asset = root.find("asset")
+    finish = ROBOT_FINISH
+    ET.SubElement(asset, "material", name=ROBOT_MATERIAL, rgba=_numbers(ROBOT_RGBA), specular=str(finish["specular"]),
+                  shininess=str(finish["shininess"]), reflectance=str(finish["reflectance"]))
     world = ET.SubElement(root, "worldbody")
     ET.SubElement(world, "light", pos="0 -1 2.5", dir="0 .3 -1", directional="true")
     environment = _environment(world, workcell, grip_contact=drives is not None)
@@ -336,6 +346,9 @@ def _scene_xml(source, fk_model, fk_data, visual_mode="cad", workcell=SYNTHETIC,
                               quat=_numbers(quat), size=_numbers((hi-lo)/2), contype="0", conaffinity="0",
                               group="5", rgba="0 0 0 0")
             for element in pieces if pieces is not None else [item]:
+                # Black and matte, as the real robot (ROBOT_FINISH). Colour only: no contact or mass changes.
+                element.set("rgba", _numbers(ROBOT_RGBA))
+                element.set("material", ROBOT_MATERIAL)
                 if collides:
                     collision_names.append(element.get("name"))
                     element.set("friction", "1 .005 .0001")
@@ -533,6 +546,7 @@ class MinervaTaskScene:
             "cameras": list(CAMERAS), "camera_calibration": "synthetic task viewpoints",
             "visual_mode": visual_mode,
             "visual_geometry": "source collision meshes" if visual_mode == "collision_proxy" else "full CAD visuals",
+            "robot_finish": dict(ROBOT_FINISH, note="every robot geom; appearance variation leaves the robot alone"),
             "render_shadows": False, "render_reflections": False, "offscreen_msaa": 0,
             "limitations": (["Arm motion ignores contact reaction; the grippers feel it through their drives, whose "
                              "inertia and friction are nominal and whose torque limit is the receiver's max_effort"]
