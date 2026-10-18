@@ -23,6 +23,11 @@ Whether the arms can do the task in a drawn layout is the planner's question, no
 the demonstrator and draws again when it finds no plan (evaluation.generate). So is what the head camera must show: a
 file may ask that every accepted layout's head image hold the bucket's whole opening (`head_view.bucket_opening`:
 `image` [width, height] and `margin_px`), which the generator checks on each draw before planning it.
+
+A file may also vary the scene's look per layout (`look`: the robot's grey, factors on the room backdrop's and the floor's
+colours, each channel on its own, and the lights' colour temperature; simulation.room). They are drawn after
+everything else, so a seed draws the same table, bucket, block and camera with or without them, and the drawn layout's
+workcell carries them to its scene.
 """
 from __future__ import annotations
 
@@ -47,6 +52,8 @@ RANGES = (('cube', 'length'), ('cube', 'width'), ('cube', 'height'), ('cube', 'y
 # Each region is {"value": [x low, x high, y low, y high], "source": "..."} or {"polygon": [[x, y], ...], "source": ...}.
 REGIONS = (('cube', 'region'), ('bucket', 'region'))
 NUMBERS = (('bucket', 'cube_clearance'), ('draws', 'position_draws'), ('draws', 'plan_draws'))
+# The scene's look, when the file varies it: each a range, the tones drawn per channel (workcell.LOOK_KEYS).
+LOOK_RANGES = (('look', 'robot_grey'), ('look', 'room_tone'), ('look', 'floor_tone'), ('look', 'light_kelvin'))
 
 
 @dataclass(frozen=True)
@@ -64,13 +71,15 @@ class Randomization:
     path: str | None = None
     # What the head image must hold of the bucket ({'image': (width, height), 'margin_px': m}), or None for nothing.
     bucket_view: dict | None = None
+    # Whether the file varies the scene's look (LOOK_RANGES in `ranges`).
+    look: bool = False
 
     def describe(self):
         return {'name': self.name, 'asset_id': self.asset_id, 'path': self.path, 'sha256': self.sha256,
                 'ranges': {key: list(value) for key, value in self.ranges.items()},
                 'regions': {key: [list(point) for point in value] for key, value in self.regions.items()},
                 'cube_clearance_m': self.cube_clearance, 'position_draws': self.position_draws,
-                'plan_draws': self.plan_draws,
+                'plan_draws': self.plan_draws, 'look': self.look,
                 'bucket_view': None if self.bucket_view is None else
                 {'image': list(self.bucket_view['image']), 'margin_px': self.bucket_view['margin_px']},
                 'sources': dict(self.sources)}
@@ -166,6 +175,21 @@ def load_randomization(path):
     if numbers['bucket.cube_clearance'] < 0 or numbers['draws.position_draws'] < 1 or numbers['draws.plan_draws'] < 1 \
             or numbers['draws.position_draws'] % 1 or numbers['draws.plan_draws'] % 1:
         raise ValueError('randomization: the clearance is not negative and the draw caps are whole and positive')
+    look = 'look' in document
+    if look:
+        for group, key in LOOK_RANGES:
+            entry = _entry(document, group, key)
+            try:
+                low, high = _numbers(entry.get('range'), 2)
+            except ValueError as exc:
+                raise ValueError(f'randomization {group}.{key}.range: {exc}') from None
+            if low > high:
+                raise ValueError(f'randomization {group}.{key}.range: low above high')
+            ranges[f'{group}.{key}'], sources[f'{group}.{key}'] = (low, high), entry['source']
+        if not (0 < ranges['look.robot_grey'][0] and ranges['look.robot_grey'][1] < 1 and
+                all(0 < ranges[f'look.{key}'][0] and ranges[f'look.{key}'][1] <= 2 for key in ('room_tone', 'floor_tone'))
+                and 1500 <= ranges['look.light_kelvin'][0] and ranges['look.light_kelvin'][1] <= 12000):
+            raise ValueError('randomization look: robot_grey in (0, 1), the tones in (0, 2], light_kelvin in [1500, 12000]')
     bucket_view = None
     if (document.get('head_view') or {}).get('bucket_opening') is not None:
         entry = _entry(document, 'head_view', 'bucket_opening')
@@ -183,7 +207,7 @@ def load_randomization(path):
                          position_draws=int(numbers['draws.position_draws']),
                          plan_draws=int(numbers['draws.plan_draws']), sources=sources,
                          sha256=hashlib.sha256(text.encode('utf-8')).hexdigest(), path=str(path.resolve()),
-                         bucket_view=bucket_view)
+                         bucket_view=bucket_view, look=look)
 
 
 @dataclass(frozen=True)
@@ -339,6 +363,15 @@ class LayoutSampler:
                        'source': f"{tag}: the calibrated pose ({head['pos']['source']}) shifted by the drawn offset"}
         head['xyaxes'] = {'value': [*frame[:, 0].tolist(), *frame[:, 1].tolist()],
                           'source': f"{tag}: the calibrated axes ({head['xyaxes']['source']}) turned by the drawn angles"}
+        look = None
+        if r.look:
+            # The scene's look, last, so that the rest of the draw does not depend on whether the file varies it.
+            look = {'robot_grey': self._uniform(rng, 'look.robot_grey'),
+                    'room_tone': [self._uniform(rng, 'look.room_tone') for _ in range(3)],
+                    'floor_tone': [self._uniform(rng, 'look.floor_tone') for _ in range(3)],
+                    'light_kelvin': self._uniform(rng, 'look.light_kelvin')}
+            for key, value in look.items():
+                put('look', key, value, 'drawn, the scene look (simulation.room)')
         workcell = from_document(document, origin=f'layout draw {seed}')
         values = {
             'seed': seed, 'randomization': {'name': r.name, 'path': r.path, 'sha256': r.sha256},
@@ -354,5 +387,7 @@ class LayoutSampler:
                                                                   'z': camera_turn[2]},
                             'given_in': head.get('frame', 'base'), 'pos_m': list(workcell.head_camera['pos']),
                             'xyaxes': list(workcell.head_camera['xyaxes'])}}
+        if look is not None:
+            values['look'] = look
         return Layout(workcell=workcell, cube_start={'x': start[0], 'y': start[1], 'yaw': cube_yaw + turn},
                       values=values)

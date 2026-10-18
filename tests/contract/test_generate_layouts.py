@@ -77,7 +77,9 @@ def test_a_refused_draw_is_drawn_again_and_the_episode_records_its_layout(tmp_pa
         metadata = json.loads(episode.attrs['metadata_json'])
     drawn = metadata['layout']
     assert drawn['seed'] == [11, 1, 2] and len(drawn['rejected_draws']) == 2
-    assert set(drawn) >= {'cube', 'bucket', 'table_offset', 'head_camera', 'randomization'}
+    assert set(drawn) >= {'cube', 'bucket', 'table_offset', 'head_camera', 'randomization', 'look'}
+    # The drawn look (the robot's grey, the room's and the floor's tones, the lights' warmth) is the scene's.
+    assert metadata['scene']['look'] == drawn['look'] == layout.values['look']
     assert drawn['cube']['size_m'] == list(layout.workcell.block) and drawn['bucket']['height_m'] == \
         layout.workcell.bucket_height
     assert metadata['scene']['workcell'] == layout.workcell.describe()

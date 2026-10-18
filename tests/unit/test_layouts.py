@@ -82,6 +82,10 @@ def test_every_range_names_its_source_as_a_training_design_choice():
     (lambda d: d['head_view']['bucket_opening'].update(margin_px=120), 'margin inside'),
     (lambda d: d['head_view']['bucket_opening'].update(image=[320.5, 240]), 'whole image'),
     (lambda d: d['head_view']['bucket_opening'].update(image=[320]), 'head_view.bucket_opening'),
+    (lambda d: d['look']['robot_grey'].update(range=[0., .3]), 'robot_grey in'),
+    (lambda d: d['look']['light_kelvin'].update(range=[1000., 2000.]), 'light_kelvin in'),
+    (lambda d: d['look']['room_tone'].update(range=[1.1, 1.]), 'low above high'),
+    (lambda d: d['look'].pop('floor_tone'), 'named source'),
 ])
 def test_a_randomization_file_that_cannot_be_drawn_from_is_refused(tmp_path, change, refusal):
     document = json.loads(RANDOMIZATION.read_text(encoding='utf-8'))
@@ -114,6 +118,48 @@ def test_a_file_without_a_head_view_asks_for_nothing(tmp_path):
     path.write_text(json.dumps(document), encoding='utf-8')
     randomization = load_randomization(path)
     assert randomization.bucket_view is None and randomization.describe()['bucket_view'] is None
+
+
+def test_the_file_varies_the_scene_look_and_a_seed_draws_the_same_layout_besides(tmp_path, sampler):
+    """The coordinator for the user's v3.1 (2026-10-18): the room look varied per layout (the robot's grey, the room's
+    and the floor's tones, the lights' warmth), narrow and centred on the user's look, drawn last, carried by the drawn
+    workcell to its scene and recorded with the layout. Without it, the same seeds draw the same layouts."""
+    from robot_platform.simulation import room
+    r = sampler.randomization
+    assert r.look and r.describe()['look']
+    for key in ('robot_grey', 'light_kelvin'):
+        low, high = r.ranges[f'look.{key}']
+        assert (low + high) / 2 == pytest.approx(room.LOOK[key]) and (high - low) / (low + high) < .15
+    for key in ('room_tone', 'floor_tone'):
+        low, high = r.ranges[f'look.{key}']
+        assert (low + high) / 2 == pytest.approx(1.) and high - low <= .2 + 1e-9
+    document = json.loads(RANDOMIZATION.read_text(encoding='utf-8'))
+    document.pop('look')
+    path = tmp_path / 'randomization.json'
+    path.write_text(json.dumps(document), encoding='utf-8')
+    plain_sampler = LayoutSampler(WORKCELL, path)
+    assert not plain_sampler.randomization.look
+    compared = 0
+    for k in range(12):
+        try:
+            looked = sampler.draw(np.random.default_rng([5, k]), seed=[5, k])
+        except ValueError:
+            continue
+        plain = plain_sampler.draw(np.random.default_rng([5, k]), seed=[5, k])
+        look = looked.values['look']
+        assert r.ranges['look.robot_grey'][0] <= look['robot_grey'] <= r.ranges['look.robot_grey'][1]
+        assert r.ranges['look.light_kelvin'][0] <= look['light_kelvin'] <= r.ranges['look.light_kelvin'][1]
+        for key in ('room_tone', 'floor_tone'):
+            assert len(look[key]) == 3 and all(r.ranges[f'look.{key}'][0] <= v <= r.ranges[f'look.{key}'][1]
+                                               for v in look[key])
+        assert looked.workcell.look == {key: tuple(value) if isinstance(value, list) else value
+                                        for key, value in look.items()}
+        assert looked.workcell.sources['look.robot_grey'].startswith(RANDOMIZED)
+        assert 'look' not in plain.values and plain.workcell.look == {}
+        assert {key: value for key, value in looked.values.items() if key not in ('look', 'randomization')} ==             {key: value for key, value in plain.values.items() if key != 'randomization'}
+        assert looked.cube_start == plain.cube_start
+        compared += 1
+    assert compared >= 10
 
 
 def test_a_seed_draws_the_same_layout_and_another_seed_another(sampler):
