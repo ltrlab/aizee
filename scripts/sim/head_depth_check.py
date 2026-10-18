@@ -3,7 +3,7 @@
 
     python scripts/sim/head_depth_check.py <depth dir> [--workcell FILE] [--calibration FILE]
 
-<depth dir> holds a head grab as `build/fiducials-check/jetson-scripts/grab_depth.py` takes it: depth_median.npy (the
+<depth dir> holds a head grab as grab_head_depth.py takes it and unpack_head_depth.py unpacks it: depth_median.npy (the
 per-pixel median of up to 20 frames, mm, as the head node publishes it: turned half a turn), depth_count.npy (frames
 with a valid value), depth_mad.npy, head.jpg and header.json (the node's header, with the depth intrinsics it
 publishes: negative focal lengths and a mirrored principal point, which turn a published pixel back into the depth
@@ -12,14 +12,16 @@ sensor's own optical frame).
 Each depth pixel goes into the depth sensor's frame, then into the colour sensor's by the "Depth" to "Color"
 extrinsics in the calibration (rs-enumerate-devices -c), then into the published colour camera's frame (turned half a
 turn about its optical axis): the frame the scene's head camera models. The tag rectangle's pose in that frame comes
-from the colour image's tags (fiducial_camera_check, the workcell's intrinsics and tag places), so every measurement is
-also given in the rectangle frame.
+from the colour image's tags (fiducial_camera_check, the workcell's intrinsics and tag places).
 
 It fits the table plane (RANSAC, then least squares on its inliers) and compares it with the tags' plane: the camera's
-height above each and the angle between them. It finds what stands on the table near the rectangle by height above
-the depth plane, and fits the box (the largest object: outer footprint, yaw, rim height, its front and back faces) and
-each block (edge, centre, yaw, height). Writes depth_check.json, the registered depth (registered_depth.npy, metres,
-on the colour pixel grid) and depth_check.png, and prints a summary. Needs numpy and OpenCV.
+height above each and the angle between them. Then it seats the rectangle frame on the depth's plane: the depth gives
+the camera's height above the table and its tilt, the tags only where the camera stands over the plane and which way
+it faces (the depth-anchored pose, whose camera it proposes for the workcell). In that frame it finds what stands on
+the table near the rectangle by height above the depth plane, and fits the box (the largest object: outer footprint,
+yaw, rim height, its front and back faces) and each block (edge, centre, yaw, height). Writes depth_check.json, the
+registered depth (registered_depth.npy, metres, on the colour pixel grid) and depth_check.png, and prints a summary.
+Needs numpy and OpenCV.
 """
 from __future__ import annotations
 
@@ -75,6 +77,39 @@ def plane_fit(points, rng, iterations=400, tolerance=PLANE_TOLERANCE_M):
     centre = points[inliers].mean(axis=0)
     normal = np.linalg.svd(points[inliers] - centre, full_matrices=False)[2][2]
     return normal, float(normal @ centre), inliers
+
+
+def anchored_pose(normal, offset, objects, pixels, K, R, t, iterations=30):
+    """The rectangle frame's pose in the camera (x = R q + t) with its plane on the depth-fitted table plane
+    (normal . x = offset, the normal up): the depth sets the camera's height and tilt, and the tags' corners (objects,
+    in the rectangle frame, flat on it; pixels) only the three unknowns left, where the camera stands over the plane
+    and its turn about the normal. Gauss-Newton from the tags' own pose (R, t). Returns (R, t) and each corner's
+    error in pixels."""
+    a = R[:, 0] - (R[:, 0] @ normal) * normal
+    a /= np.linalg.norm(a)
+    b = np.cross(normal, a)
+    start = t - (normal @ t - offset) * normal  # The tags' origin, dropped onto the depth plane.
+
+    def pose(params):
+        x, y, turn = params
+        e1 = math.cos(turn) * a + math.sin(turn) * b
+        return np.column_stack([e1, np.cross(normal, e1), normal]), start + x * a + y * b
+
+    def residual(params):
+        rotation, translation = pose(params)
+        projected = (objects @ rotation.T + translation) @ K.T
+        return (projected[:, :2] / projected[:, 2:] - pixels).ravel()
+
+    params = np.zeros(3)
+    for _ in range(iterations):
+        r = residual(params)
+        jacobian = np.column_stack([(residual(params + step) - r) / 1e-7 for step in np.eye(3) * 1e-7])
+        delta = np.linalg.lstsq(jacobian, -r, rcond=None)[0]
+        params = params + delta
+        if np.abs(delta).max() < 1e-10:
+            break
+    rotation, translation = pose(params)
+    return rotation, translation, np.linalg.norm(residual(params).reshape(-1, 2), axis=1)
 
 
 def footprint(xy):
@@ -265,7 +300,7 @@ def main() -> int:
     _, rvec, tvec = check.solve(objects, pixels, K, np.zeros(5))
     R, t = cv2.Rodrigues(rvec)[0], tvec.ravel()  # Rectangle frame into the camera frame.
     errors = np.linalg.norm(cv2.projectPoints(objects, rvec, tvec, K, np.zeros(5))[0].reshape(-1, 2) - pixels, axis=1)
-    local = (points - t) @ R  # Every depth point in the rectangle frame.
+    local = (points - t) @ R  # Every depth point in the rectangle frame, as the tags place it.
 
     # The table plane: points near the tags' plane around the rectangle, then RANSAC.
     near = (np.abs(local[:, 2]) < .03) & (local[:, 0] > -.10) & (local[:, 0] < .75) & (local[:, 1] > -.10) & \
@@ -303,6 +338,33 @@ def main() -> int:
         p0 = R @ np.array([x, y, 0.]) + t
         corner_heights[str(i)] = round(float((offset - normal @ p0) / (normal @ R[:, 2])) * 1000, 2)
     report['table']['depth_plane_above_tag_plane_mm'] = corner_heights
+
+    # The rectangle frame seated on the depth plane; from here on, every measurement is in it.
+    R_a, t_a, anchored_errors = anchored_pose(normal, offset, objects, pixels, K, R, t)
+    _, R_sim, _ = check.scene_camera(workcell.head_camera, width, height)
+    tag_camera, anchored_camera = -R.T @ t, -R_a.T @ t_a
+    anchored = check.camera_report(anchored_camera, R_a, plane, workcell, R_sim,
+                                   math.degrees(2 * math.atan(height / 2 / K[1, 1])))
+    report['anchored'] = {
+        'what': 'the rectangle frame on the depth-fitted table plane: the depth sets the camera height and tilt, the '
+                f'tags {flat} its place over the plane and its turn',
+        'rotation': R_a.round(6).tolist(), 'translation_m': t_a.round(5).tolist(),
+        'tags_rms_px': round(float(np.sqrt((anchored_errors ** 2).mean())), 3),
+        'tags_max_px': round(float(anchored_errors.max()), 3),
+        'camera': anchored,
+        'versus_tag_pose': {
+            'camera_mm': np.round((anchored_camera - tag_camera) * 1000, 1).tolist(),
+            'rotation_deg': round(math.degrees(math.acos(max(-1., min(1., (np.trace(R_a @ R.T) - 1) / 2)))), 3)}}
+    source = (f'estimated from RealSense depth plus tags: head frame {args.grab.name}, the table plane fitted to its '
+              f'depth ({report["table"]["fit_rms_mm"]} mm RMS) sets the camera height and tilt, the flat tags {flat} at '
+              f'their places in the rectangle its place over the plane and its turn '
+              f'({report["anchored"]["tags_rms_px"]} px RMS); with the D435 colour intrinsics')
+    report['proposed_workcell_head_camera'] = {
+        'frame': plane.name,
+        'pos': {'value': anchored[plane.name]['position_m'], 'source': source},
+        'xyaxes': {'value': anchored[plane.name]['mujoco_xyaxes'], 'source': source}}
+    local = (points - t_a) @ R_a
+
     # How far the table top runs, as the depth sees it: the plane's inliers in the rectangle frame, and its far edge
     # (where the inliers end, per 50 mm of x) as a line.
     table = local[near][inliers]
@@ -326,9 +388,10 @@ def main() -> int:
 
     # What stands on the table inside its visible extent near the rectangle: height above the depth plane.
     heights = points @ normal - offset
-    # Inside the tag rectangle: a shelf behind the table overhangs its far part, about 150 mm up.
+    # Inside the tag rectangle, short of its far side: a shelf behind the table overhangs it from about 30 mm in, about
+    # 150 mm up.
     size = workcell.fiducials['rectangle']['size']
-    region = (local[:, 0] > -.02) & (local[:, 0] < size[0] + .02) & (local[:, 1] > -.02) & (local[:, 1] < size[1] - .025)
+    region = (local[:, 0] > -.02) & (local[:, 0] < size[0] + .02) & (local[:, 1] > -.02) & (local[:, 1] < size[1] - .035)
     # Objects are connected on the table's own grid (5 mm cells of x, y in the rectangle frame), not in the image,
     # where a box's rim can touch what lies far behind it.
     keep = np.flatnonzero(region & (heights > OBJECT_HEIGHT_M) & (heights < .30))
