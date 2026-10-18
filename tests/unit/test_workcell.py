@@ -174,12 +174,12 @@ def test_the_tags_sit_where_the_rectangle_and_the_bucket_put_them():
         assert np.array(marker_axes(*tags[tag_id][4:])).T == pytest.approx(HALF_TURN, abs=1e-12)
     # The head camera is given in the rectangle too, so it moves with the tags.
     head = workcell.head_camera
-    assert head['pos'] == pytest.approx((ox - .2752, oy + .2694, workcell.table_top + .5443), abs=1e-12)
+    assert head['pos'] == pytest.approx((ox - .2752, oy + .2767, workcell.table_top + .5549), abs=1e-12)
     # 6 is upright on the front wall's outer face and 7 on the back wall's inner face (as the head camera decodes
     # them), both facing the robot along the box's axis, their centres 42 mm below the rim in the middle of their walls.
     # The box itself is placed in the rectangle, as the head camera's depth measured it.
-    assert workcell.bucket_inner == pytest.approx((.155, .242)) and math.degrees(workcell.bucket_yaw) == pytest.approx(-19.2)
-    assert bucket_frame(workcell, ox - .4779, oy - .2337) == pytest.approx((0., 0.), abs=1e-12)
+    assert workcell.bucket_inner == pytest.approx((.155, .242)) and math.degrees(workcell.bucket_yaw) == pytest.approx(-19.4)
+    assert bucket_frame(workcell, ox - .4798, oy - .2272) == pytest.approx((0., 0.), abs=1e-12)
     toward_robot = (-math.sin(workcell.bucket_yaw), math.cos(workcell.bucket_yaw), 0.)
     half = (workcell.bucket_inner[0] / 2, workcell.bucket_inner[1] / 2)
     for tag_id, wall_y in ((6, half[1] + workcell.bucket_wall), (7, -half[1])):
