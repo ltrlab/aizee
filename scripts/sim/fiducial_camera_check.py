@@ -28,7 +28,8 @@ The result is only as good as the tags' places, the printed square size and the 
 file, until they are measured. A focal length fitted here is an estimate from the tags, not a calibration. Writes
 detections.json and head_pose.json into the frames dir.
 
---intrinsics is JSON: {"head": {"width", "height", "fx", "fy", "cx", "cy", "dist": [k1, k2, p1, p2, k3], "source"}}
+--intrinsics is JSON: {"head": {"width", "height", "fx", "fy", "cx", "cy", "dist": [k1, k2, p1, p2, k3], "label",
+"source"}}, where label names the calibration for the proposal's source,
 for the frame as published (the head camera node turns its image half a turn before publishing). Needs OpenCV 4.7 or
 newer and numpy, which the development environment does not include.
 """
@@ -511,20 +512,19 @@ def main() -> int:
                     views[str(i)] = {'view': coverage(tag_pixels, in_front, width, height), 'found': i in found}
                 pose['tags_by_this_pose'] = views
             head['nominal_places_pnp'] = pose
+            camera = given.get('label', 'given intrinsics') if given else None
             if pose['fits']:
-                source, proposal, proposal_fovy = 'estimated from table tags at nominal positions', pose, fovy
-                if estimated:
-                    source += '; focal length fitted to the tags, not the D435 calibration'
+                source, proposal, proposal_fovy = 'pose from table tags at their nominal positions', pose, fovy
             elif chosen:
-                source = (f"estimated from table tags; tag {chosen['reference']} taken at its nominal place, the "
+                source = (f"pose from table tags, tag {chosen['reference']} taken at its nominal place and the "
                           'others where they lie')
-                if chosen['focal_fitted']:
-                    source += '; focal length fitted to the tags, not the D435 calibration'
                 proposal, proposal_fovy = chosen['anchored'], chosen['fovy_deg']
             else:
                 proposal = None
             if proposal:
-                source += '; table placement c, d not measured'
+                source = (f'{camera}; {source}' if camera else
+                          f'{source}; focal length fitted to the tags, not the camera calibration')
+                source += '; tag positions/table placement not measured'
                 head['proposed_workcell_head_camera'] = {
                     'pos': {'value': np.round(proposal['base']['position_m'], 3).tolist(), 'source': source},
                     'xyaxes': {'value': np.round(proposal['base']['mujoco_xyaxes'], 4).tolist(), 'source': source},
