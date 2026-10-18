@@ -146,6 +146,14 @@ def faces(yaw):
     return first, first - 90. if first > 0 else first + 90.
 
 
+def across(size, yaw, face):
+    """Which of a block's side face pairs the jaws close on, and its width, when the fingers point along the face
+    normal at `face` (one of faces(yaw)): ('x', size x) with the fingers along the block's y axis, ('y', size y)
+    along its x axis. A cube's are the same."""
+    turns = round((yaw - face) / 90.)
+    return ('x', size[0]) if turns % 2 == 0 else ('y', size[1])
+
+
 def _frame(closing, finger):
     """The rotation whose columns are the jaw axis, the third axis and the finger direction."""
     return np.column_stack([closing, np.cross(finger, closing), finger])
@@ -177,7 +185,7 @@ class HandoffDemonstrator:
         self.seed, self.restarts = seed, restarts
         self._scene = self._ik = None
         self._key = self._samples_key = self._planned = None
-        self.drop, self.notes = None, []
+        self.drop, self.grasp, self.notes = None, None, []
 
     # -- tools -----------------------------------------------------------------
 
@@ -270,6 +278,23 @@ class HandoffDemonstrator:
 
     # -- planning --------------------------------------------------------------
 
+    def _takeable(self, size, yaw):
+        """The face offsets of faces(yaw), in its order, whose pair the left's jaws open across by MIN_OPEN_MARGIN each
+        side; a pair wider than that is passed over."""
+        gap = self._gripper_gap('left', self._open['left'][0])
+        return [face for face in faces(yaw) if gap >= across(size, yaw, face)[1] + 2 * MIN_OPEN_MARGIN]
+
+    def _widest(self, context, side):
+        """How far apart `side`'s jaws open at the end of its range (the receiver's limits)."""
+        row = context.joint_map[f'{side}_gripper_finger_a_slide']
+        i = list(context.joint_names).index(f'{side}_gripper')
+        return max(2 * abs(row['offset'] + row['scale'] * value) for value in (context.lower[i], context.upper[i]))
+
+    def _gripper_gap(self, side, motor):
+        """How far apart `side`'s jaws are at motor coordinate `motor`."""
+        row = self._joint_map[f'{side}_gripper_finger_a_slide']
+        return 2 * abs(row['offset'] + row['scale'] * motor)
+
     def _gripper(self, context, side, gap):
         """The motor coordinate that opens `side`'s jaws `gap` apart (each jaw slides gap / 2), from the joint map."""
         row = context.joint_map[f'{side}_gripper_finger_a_slide']
@@ -315,17 +340,29 @@ class HandoffDemonstrator:
         workcell = context.workcell or scene.workcell
         names = list(context.joint_names)
         self.names, self.period = names, context.period_s
+        self._joint_map = context.joint_map
         lead = getattr(context, 'lead', None)
         self.lead = np.full(len(names), PACE_LEAD) if lead is None else np.asarray(lead, dtype=float)
         index = {name: i for i, name in enumerate(names)}
         self.arms = {side: [index[f'{side}_arm_j{k}'] for k in range(1, 7)] for side in ('left', 'right')}
         grip = {side: index[f'{side}_gripper'] for side in ('left', 'right')}
-        edge, top = workcell.cube_edge, workcell.table_top
-        opened = {side: self._gripper(context, side, edge + 2 * OPEN_MARGIN) for side in grip}
-        touching = {side: self._gripper(context, side, edge) for side in grip}
+        size, top = workcell.block, workcell.table_top
+        # The left takes the block across a pair of its side faces (x or y, whichever its pick allows); the right takes
+        # it across its top and bottom (its J5 a quarter turn). Each opens past the widest it may close on by
+        # OPEN_MARGIN each side, as far as its range allows; a cube's are all its edge.
+        widest = {side: self._widest(context, side) for side in grip}
+        spans = {'left': max(size[0], size[1]), 'right': size[2]}
+        opened = {side: self._gripper(context, side, min(spans[side] + 2 * OPEN_MARGIN, widest[side])) for side in grip}
         # Past touching, away from open: the jaws stop on the cube and the drive squeezes with kp * SQUEEZE_RAD.
-        closed = {side: touching[side] + math.copysign(SQUEEZE_RAD, touching[side] - opened[side]) for side in grip}
+        def jaws(side, width):
+            touching = self._gripper(context, side, width)
+            return touching, touching + math.copysign(SQUEEZE_RAD, touching - opened[side])
+        self._jaws = jaws
+        touching, closed = {}, {}
+        for side, width in (('left', size[0]), ('right', size[2])):
+            touching[side], closed[side] = jaws(side, width)
         self._stops = [(grip[side], touching[side], opened[side]) for side in grip]
+        self._open = {side: (opened[side], widest[side]) for side in grip}
         yaw = math.degrees(context.cube_start.get('yaw', 0.))
         cube = np.array([context.cube_start['x'], context.cube_start['y'], top + workcell.cube_half])
 
@@ -355,13 +392,13 @@ class HandoffDemonstrator:
         heads = []
         for ready in self._branches(q):
             try:
-                heads.append((ready, *self._to_handoff(ready, cube, yaw, top, grip, opened, closed)))
+                heads.append((ready, *self._to_handoff(ready, cube, yaw, top, grip, opened, closed, size)))
             except PlanningError as exc:
                 notes.append(f'pick and handoff: {exc}')
         planned = False
         for drop in DROPS:
             candidates = []
-            for ready, head, after, point in heads:
+            for ready, head, after, point, grasp in heads:
                 try:
                     frames = head + self._drop(after, point, top, workcell, grip, opened, drop)
                 except PlanningError as exc:
@@ -370,13 +407,15 @@ class HandoffDemonstrator:
                 planned = True
                 fallbacks = sum(1 for frame in frames if frame.kind == 'move' and not frame.cartesian)
                 self._timeline(frames)
-                candidates.append(((fallbacks, sum(frame.duration for frame in frames)), ready, frames))
+                candidates.append(((fallbacks, sum(frame.duration for frame in frames)), ready, frames, grasp))
             # The best-scored plan whose every move clears the table, the bucket and the other arm.
-            for _, ready, frames in sorted(candidates, key=lambda candidate: candidate[0]):
+            for _, ready, frames, grasp in sorted(candidates, key=lambda candidate: candidate[0]):
                 self._timeline(frames)
+                self._stops = grasp['stops']
                 label, distance, robot, other = min(self.plan_clearance(), key=lambda move: move[1])
                 if distance > CLEARANCE:
                     self.ready, self.drop = ready, drop
+                    self.grasp = {key: value for key, value in grasp.items() if key != 'stops'}
                     self.bias = np.zeros(len(names))
                     self._planned = key
                     return None
@@ -404,9 +443,10 @@ class HandoffDemonstrator:
             variants += more
         return variants
 
-    def _to_handoff(self, start, cube, yaw, top, grip, opened, closed):
+    def _to_handoff(self, start, cube, yaw, top, grip, opened, closed, size=None):
         """The demonstration's segments from the start pose `start` until the left has let go of the cube at the
-        handoff and returned to its start; with the joints there and the handoff's planned point."""
+        handoff and returned to its start; with the joints there, the handoff's planned point and the grasp: which of
+        the block's face pairs the left took and how wide it is (and where each gripper stops on the block)."""
         q = start.copy()
         pose = _pose
         frames = []
@@ -423,7 +463,10 @@ class HandoffDemonstrator:
             q[grip[side]] = value
             frames.append(Segment('grip', q.copy(), arm=arm, label=label, duration=GRIP_WAIT))
 
-        for turn, tilt in [(face + turn, tilt) for face in faces(yaw) for turn, tilt in PICK_OPTIONS]:
+        size = size or (self._ik.scene.workcell.cube_edge,) * 3
+        closed = dict(closed)
+        options = [(face, face + turn, tilt) for face in self._takeable(size, yaw) for turn, tilt in PICK_OPTIONS]
+        for face, turn, tilt in options:
             azimuth = PICK_FINGER[0] + turn
             pick, above_cube = direction(azimuth, tilt), direction(azimuth, ABOVE_FINGER[1])
             pregrasp = cube - APPROACH * pick + [0., 0., APPROACH_RISE]
@@ -439,6 +482,12 @@ class HandoffDemonstrator:
                 continue
         else:
             raise PlanningError(f'no pick reaches the cube at {np.round(cube, 3).tolist()}')
+        pair, width = across(size, yaw, face)
+        touching = {side: stop for side, (index, stop, _) in zip(('left', 'right'), self._stops)}
+        touching['left'], closed['left'] = self._jaws('left', width)
+        self._stops = [(grip[side], touching[side], opened[side]) for side in ('left', 'right')]
+        grasp = {'faces': pair, 'width_m': float(width), 'height_m': float(size[2]),
+                 'finger_azimuth_deg': float(azimuth), 'finger_tilt_deg': float(tilt), 'stops': list(self._stops)}
         for segment in approach:
             add(segment)
         lift = direction(azimuth - PICK_FINGER[0] + LIFT_FINGER[0], LIFT_FINGER[1])
@@ -492,7 +541,7 @@ class HandoffDemonstrator:
         add(self._move(q, {'left': pose(handoff - RETREAT * fingers['left'], fingers['left'])}, 'left retreats',
                        slow=True))
         add(self._move(q, {'left': start}, 'left clears'))
-        return frames, q, planned
+        return frames, q, planned, grasp
 
     def _drop(self, q, planned, top, workcell, grip, opened, drop):
         """The segments that carry the cube from the handoff over the bucket and let it go, one of DROPS's ways."""
@@ -630,7 +679,8 @@ class HandoffDemonstrator:
                 'drop_finger_deg': list(DROP_FINGER), 'speed_rad_s': SPEED, 'approach_rad_s': SLOW,
                 'squeeze_rad': SQUEEZE_RAD, 'cartesian_step_m': CART_STEP,
                 'drops': [drop['name'] for drop in DROPS],
-                'planned_drop': None if self.drop is None else json.loads(json.dumps(self.drop))}
+                'planned_drop': None if self.drop is None else json.loads(json.dumps(self.drop)),
+                'planned_grasp': None if self.grasp is None else json.loads(json.dumps(self.grasp))}
 
     def close(self):
         if self._scene is not None:

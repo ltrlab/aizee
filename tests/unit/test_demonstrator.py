@@ -1,4 +1,8 @@
-"""The scripted handoff demonstration plans reachable moves that clear the table and the bucket. No receiver."""
+"""The scripted handoff demonstration plans reachable moves that clear the table and the bucket. No receiver.
+
+The first tests plan the measured workcell's own layout and nominal start. The far-corner and turned-cube tests were
+planned on the placeholder layout of 2026-10-17 and keep it (tests/fixtures/minerva_workcell_placeholder_20261017.json):
+the measured box and the robot's interim place moved the cube region since."""
 import math
 from pathlib import Path
 from types import SimpleNamespace
@@ -6,11 +10,13 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from robot_platform.evaluation.demonstrator import HANDOFF, PACE_STOP, HandoffDemonstrator
+from robot_platform.evaluation.demonstrator import DROPS, HANDOFF, PACE_STOP, HandoffDemonstrator, across
 from robot_platform.evaluation.plants import _Stack, derive_stack
-from robot_platform.simulation.workcell import load_workcell
+from robot_platform.simulation.workcell import Workcell, load_workcell
 
-MEASURED = Path(__file__).resolve().parents[2] / 'config/devices/simulation/minerva-production-01-workcell.json'
+ROOT = Path(__file__).resolve().parents[2]
+MEASURED = ROOT / 'config/devices/simulation/minerva-production-01-workcell.json'
+PLACEHOLDER_LAYOUT = ROOT / 'tests/fixtures/minerva_workcell_placeholder_20261017.json'
 
 
 @pytest.fixture(scope='module')
@@ -21,7 +27,8 @@ def planned():
     context = SimpleNamespace(joint_names=stack['names'], joint_map=stack['derived']['joint_map'], lower=limits.lower,
                               upper=limits.upper, home=limits.home, workcell=workcell, period_s=limits.period_s,
                               lead=limits.lead,
-                              cube_start={'x': workcell.cube_start[0], 'y': workcell.cube_start[1], 'yaw': 0.})
+                              cube_start={'x': workcell.cube_start[0], 'y': workcell.cube_start[1],
+                                          'yaw': workcell.cube_start[2]})
     demo = HandoffDemonstrator()
     demo.reset(context)
     yield demo, context, workcell
@@ -95,7 +102,8 @@ def test_from_the_far_corner_the_arms_go_to_the_handoff_one_at_a_time(planned):
     # handoff, so no plan cleared: the left brings the cube to the handoff first, and the right comes after.
     demo, context, _ = planned
     try:
-        demo.reset(SimpleNamespace(**{**vars(context), 'cube_start': {'x': .043, 'y': -.497, 'yaw': math.radians(16.5)}}))
+        demo.reset(SimpleNamespace(**{**vars(context), 'workcell': load_workcell(PLACEHOLDER_LAYOUT),
+                                      'cube_start': {'x': .043, 'y': -.497, 'yaw': math.radians(16.5)}}))
         labels = [frame.label for frame in demo.frames]
         assert labels.index('left to the handoff') < labels.index('right to the handoff') < labels.index('right turns')
         assert min(distance for _, distance, _, _ in demo.plan_clearance()) > .001
@@ -109,7 +117,8 @@ def test_a_turned_cube_is_picked_by_a_pair_of_faces_the_left_reaches_and_every_m
     # pads swung 14 mm into the table on the way to the handoff) and the second could not be picked at all.
     demo, context, _ = planned
     try:
-        demo.reset(SimpleNamespace(**{**vars(context), 'cube_start': {'x': x, 'y': y, 'yaw': math.radians(yaw)}}))
+        demo.reset(SimpleNamespace(**{**vars(context), 'workcell': load_workcell(PLACEHOLDER_LAYOUT),
+                                      'cube_start': {'x': x, 'y': y, 'yaw': math.radians(yaw)}}))
         assert min(distance for _, distance, _, _ in demo.plan_clearance()) > .001
         frames = {frame.label: frame for frame in demo.frames}
         _, finger, _ = demo._ik.frame('left', frames['left on the cube'].target)
@@ -118,3 +127,50 @@ def test_a_turned_cube_is_picked_by_a_pair_of_faces_the_left_reaches_and_every_m
         assert abs((azimuth - 270. - yaw + 45.) % 90. - 45.) <= 20.5
     finally:
         demo.reset(context)
+
+
+def test_a_cuboid_is_taken_across_a_face_pair_the_jaws_open_across_and_the_choice_recorded(planned):
+    """A block of the size the head camera fitted to the near real block (52 x 37 mm, 39 mm tall), at its place and
+    turn: the left takes it across a pair of its side faces and the plan says which pair and how wide; the left's jaws
+    stop at that width and the right's at the block's height."""
+    demo, context, workcell = planned
+    block = Workcell.from_description(dict(workcell.describe(), cube_size=[.052, .037, .039]))
+    try:
+        demo.reset(SimpleNamespace(**{**vars(context), 'workcell': block}))
+        assert min(distance for _, distance, _, _ in demo.plan_clearance()) > .001
+        assert demo.grasp['faces'] in ('x', 'y') and demo.grasp['width_m'] == {'x': .052, 'y': .037}[demo.grasp['faces']]
+        assert demo.grasp['height_m'] == .039
+        # Each gripper is posed where its jaws stop on the block: the left at the pair's width, the right at the height.
+        stops = dict(zip(('left', 'right'), demo._stops))
+        for side, span in (('left', demo.grasp['width_m']), ('right', .039)):
+            assert demo._gripper_gap(side, stops[side][1]) == pytest.approx(span, abs=1e-9)
+        frames = {frame.label: frame for frame in demo.frames}
+        index = list(context.joint_names).index('left_gripper')
+        closes = frames['left closes'].target[index]
+        assert (closes - stops['left'][1]) * (stops['left'][1] - stops['left'][2]) > 0  # Commanded past touching.
+        assert demo.describe()['planned_grasp']['width_m'] == demo.grasp['width_m']
+    finally:
+        demo.reset(context)
+
+
+def test_a_face_pair_too_wide_to_open_across_is_passed_over(planned):
+    """A 95 x 60 mm block: the jaws open at most about 97 mm, so they cannot take it across its 95 mm faces with 5 mm
+    to spare each side; the left only tries its 60 mm faces."""
+    demo, context, workcell = planned
+    block = Workcell.from_description(dict(workcell.describe(), cube_size=[.095, .060, .040]))
+    try:
+        try:
+            demo.reset(SimpleNamespace(**{**vars(context), 'workcell': block,
+                                          'cube_start': {'x': context.cube_start['x'], 'y': context.cube_start['y'],
+                                                         'yaw': 0.}}))
+        except ValueError:
+            pass  # Whether the whole task plans with so long a block is not the question here.
+        assert demo._open['left'][1] < .095 + 2 * .005
+        assert [across(block.block, 0., face) for face in demo._takeable(block.block, 0.)] == [('y', .060)]
+    finally:
+        demo.reset(context)
+
+
+def test_the_drops_start_with_the_one_the_layout_was_planned_with():
+    assert DROPS[0]['name'] == 'from the front' and DROPS[0]['clearance'] == .12 and DROPS[0]['lead'] == (0., .12, 0.)
+    assert len({drop['name'] for drop in DROPS}) == len(DROPS)

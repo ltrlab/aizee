@@ -1,0 +1,306 @@
+{
+  "schema": 1,
+  "kind": "sim_workcell",
+  "asset_id": "minerva-production-01",
+  "name": "minerva-production-01 placeholder layout of 2026-10-17 (frozen for the demonstrator regression tests)",
+  "frame": "Minerva model base frame (urdf/minerva), metres: x toward the robot's left, y backward (the robot faces -y), z up",
+  "use": "Test fixture only. The workcell file as it stood at 01e2198 (2026-10-17/18): the box at its placeholder pose, the tag rectangle at its first placeholder offset. tests/unit/test_demonstrator.py checks the demonstrator's far-corner and turned-cube plans on it, which were planned on this layout; the measured workcell file has moved on. The head camera is the tags-alone fit of 03:25Z, its principal point given in MuJoCo's convention (7dadef0) so that it renders where the D435 does.",
+  "table": {
+    "size": {
+      "value": [
+        1.524,
+        0.762
+      ],
+      "source": "user 2026-10-16: the workcell is about 5 ft by 2.5 ft"
+    },
+    "top_z": {
+      "value": 0.512,
+      "source": "user 2026-10-16: the table sits about 6 in below the hanging arms' J3; the model's J3 anchor is at z 0.664 m when hanging"
+    },
+    "center": {
+      "value": [
+        0.0,
+        -0.461
+      ],
+      "source": "placeholder: centred on the robot, near edge 8 cm in front of the hanging arms; not measured"
+    },
+    "thickness": {
+      "value": 0.03,
+      "source": "placeholder: a typical desk top; not measured"
+    },
+    "floor_z": {
+      "value": -0.238,
+      "source": "placeholder: a 0.75 m desk height below the table top; not measured"
+    },
+    "trim_width": {
+      "value": 0.02,
+      "source": "placeholder: user 2026-10-16 says the black table has silver trim; its width is not measured"
+    }
+  },
+  "bucket": {
+    "inner_size": {
+      "value": [
+        0.152,
+        0.305
+      ],
+      "source": "user 2026-10-16: the bucket is a cardboard box about 6 in by 12 in (taken as the inside). The head camera (2026-10-18, tags 6/7, frame 20261018T034533Z) puts the front wall's outer face 255.5 mm from the back wall's inner face along the box's axis: about 251 mm inside front to back if the wall is 4 mm, against 305 mm here. The user's tape numbers will replace both"
+    },
+    "yaw_deg": {
+      "value": 0.0,
+      "source": "placeholder: the 12 in side pointing away from the robot, as the first head camera images showed it; not measured. the head camera (tags 6/7, D435 intrinsics, frame 20261018T034533Z) has the box turned -18.6 degrees from square to the rectangle, its middle at (0.4718, 0.2269) m in the rectangle frame, the front wall's outer face 235.8 mm and the back wall's inner face 491.3 mm from the rectangle's origin along the box's axis. Not applied: with the box there the handoff demonstrator finds no plan for the cube at its placeholder start (tests/unit/test_demonstrator.py), so the box keeps this placeholder until its pose and the task layout are measured together"
+    },
+    "center": {
+      "value": [
+        -0.25,
+        -0.4
+      ],
+      "source": "placeholder: right of centre beyond the cubes, as in the first head camera image; not measured. the head camera (tags 6/7, D435 intrinsics, frame 20261018T034533Z) has the box turned -18.6 degrees from square to the rectangle, its middle at (0.4718, 0.2269) m in the rectangle frame, the front wall's outer face 235.8 mm and the back wall's inner face 491.3 mm from the rectangle's origin along the box's axis. Not applied: with the box there the handoff demonstrator finds no plan for the cube at its placeholder start (tests/unit/test_demonstrator.py), so the box keeps this placeholder until its pose and the task layout are measured together"
+    },
+    "height": {
+      "value": 0.15,
+      "source": "placeholder: not measured. The head camera (2026-10-18, frame 20261018T034533Z) puts tags 6 and 7's centres 147-148 mm above the table: with each label's far end at the rim the rim is about 180 mm up. The user's tape number will replace it"
+    },
+    "wall": {
+      "value": 0.004,
+      "source": "placeholder: corrugated cardboard; not measured"
+    },
+    "bottom": {
+      "value": 0.004,
+      "source": "placeholder: corrugated cardboard; not measured"
+    }
+  },
+  "cube": {
+    "edge": {
+      "value": 0.0381,
+      "source": "user 2026-10-16: wooden cubes about 1.5 in on a side"
+    },
+    "mass": {
+      "value": 0.035,
+      "source": "placeholder (estimate): a 1.5 in wood cube at 0.4-0.75 g/cm3 weighs 22-41 g; not weighed"
+    },
+    "friction": {
+      "value": [
+        1.0,
+        0.005,
+        0.0001
+      ],
+      "source": "placeholder: the synthetic scene's value; wood on the finger pads is not measured, and MuJoCo takes the larger of the pad's and the cube's friction"
+    },
+    "start": {
+      "value": [
+        0.15,
+        -0.35,
+        0.0
+      ],
+      "source": "placeholder: left of centre, as in the head camera image; not measured"
+    },
+    "region": {
+      "value": [
+        0.02,
+        0.26,
+        -0.5,
+        -0.32
+      ],
+      "source": "placeholder: inside the area where the handoff demonstrator plans the whole task clear of the table and bucket on this placeholder layout (4 cm map, 2026-10-17); the real cube positions are not taped yet"
+    }
+  },
+  "cameras": {
+    "head": {
+      "frame": "rectangle",
+      "pos": {
+        "value": [
+          0.2752,
+          -0.2694,
+          0.5443
+        ],
+        "source": "head camera frame 2026-10-18 03:25Z fitted to tags 0, 2, 3, 4 and 5 at their places in the rectangle, with the D435 colour intrinsics held fixed: 0.72 px RMS, at most 1.13 px. In the rectangle frame, so it moves with the tags when rectangle.robot_offsets is measured; the image axes are those of the published, half-turned image"
+      },
+      "xyaxes": {
+        "value": [
+          0.99961,
+          -0.00299,
+          -0.02776,
+          0.02148,
+          0.71734,
+          0.69639
+        ],
+        "source": "head camera frame 2026-10-18 03:25Z fitted to tags 0, 2, 3, 4 and 5 at their places in the rectangle, with the D435 colour intrinsics held fixed: 0.72 px RMS, at most 1.13 px. In the rectangle frame, so it moves with the tags when rectangle.robot_offsets is measured; the image axes are those of the published, half-turned image"
+      },
+      "fovy": {
+        "value": 42.6526,
+        "source": "from the D435 colour intrinsics: 2 atan(240 / fy) with fy 614.734069824219"
+      },
+      "intrinsics": {
+        "resolution": {
+          "value": [
+            640,
+            480
+          ],
+          "source": "D435 serial 919122072056 colour intrinsics 640x480 from rs-enumerate-devices -c 2026-10-18 (fx 614.336486816406, fy 614.734069824219, PPX 313.262512207031, PPY 236.9853515625, Inverse Brown Conrady with all coefficients 0), for the image as the head node publishes it, turned half a turn: the principal point is (639 - PPX, 479 - PPY), given as its offset from the image centre"
+        },
+        "focalpixel": {
+          "value": [
+            614.336486816406,
+            614.734069824219
+          ],
+          "source": "D435 serial 919122072056 colour intrinsics 640x480 from rs-enumerate-devices -c 2026-10-18 (fx 614.336486816406, fy 614.734069824219, PPX 313.262512207031, PPY 236.9853515625, Inverse Brown Conrady with all coefficients 0), for the image as the head node publishes it, turned half a turn: the principal point is (639 - PPX, 479 - PPY), given as its offset from the image centre"
+        },
+        "principalpixel": {
+          "value": [
+            -6.237487792969,
+            -2.5146484375
+          ],
+          "source": "D435 serial 919122072056 colour intrinsics 640x480 (rs-enumerate-devices -c 2026-10-18), for the image as the head node publishes it, turned half a turn: the principal point (639 - PPX, 479 - PPY) = (325.737, 242.015), given as MuJoCo takes it, the image centre's offset from the principal point (workcell.head_pinhole)"
+        }
+      }
+    }
+  },
+  "fiducials": {
+    "table_frame": "Tags 0-5 and the head camera are given in the measured rectangle (rectangle.description), which rectangle.robot_offsets and rectangle.yaw_deg place relative to the robot: measuring those moves the tags and the camera together. Every label there lies flat, text end toward the robot, edges square to the rectangle. Tags 6 and 7 are on the bucket's walls and follow the bucket. A tag may also be given in the table frame (origin at the table top's near-left outer corner, x right along the near edge, y away from the robot; table (x, y) is base (c - x, -d - y), (c, -d) that corner from table.center and table.size)",
+    "family": {
+      "value": "DICT_4X4_50",
+      "source": "claude/table-fiducial-labels, scripts/fiducials/make_tag_labels.py: the ArUco labels printed for this table, 2026-10-17"
+    },
+    "square": {
+      "value": 0.04318,
+      "source": "user 2026-10-18: the black square measures 43.18 mm by calipers and the 10 mm scale arms exactly 10 mm, so the print is at scale (the generator's 6 cells of 85 dots at 300 dpi). The head camera's fit to the taped rectangle suggested 42.2-42.4 mm; the user puts that 2% down to hand placement and the tape, acceptable for first tests"
+    },
+    "label_size": {
+      "value": [
+        0.05893,
+        0.07171
+      ],
+      "source": "the generator's 696 x 847 dot label at 300 dpi (across, along the tape), printed at scale (user 2026-10-18, calipers on the square). The tape's unprinted white margins (about 1.5 mm at the sides and 2.5-3 mm at the ends, so the cut label is about 62 x 77 mm with the tag centre about 45 mm from its text end and 32 mm from its far end) are not drawn"
+    },
+    "tag_offset": {
+      "value": 0.00639,
+      "source": "the generator puts the tag centre 75.5 dots (6.39 mm) from the label's centre toward its far end, printed at scale (user 2026-10-18, calipers on the square)"
+    },
+    "rectangle": {
+      "description": "Tags 0-3 mark the corners of a rectangle the user taped on 2026-10-18, measured over the outer corners of their black squares. Its frame: origin at the outer near-left corner of tag 0's square, x along the near side toward tag 1, y toward tag 3 (away from the robot), z up",
+      "size": {
+        "value": [
+          0.65,
+          0.441
+        ],
+        "source": "user 2026-10-18: \"ID 0 bottom left corner is 650mm to the bottom right corner of ID 1, the bottom right corner of ID 1 to top right corner of ID 2 is 441mm. same measurements for ID 2 top right to ID 3 top left is 650, and ID 3 top left to bottom left ID 0 is 441mm\" (bottom is the near side). The corners are the black squares': the head camera (2026-10-18 03:25Z, D435 colour intrinsics) fits them at 0.75 px RMS against 3.59 px for the labels' corners"
+      },
+      "robot_offsets": {
+        "value": [
+          0.325,
+          0.1584
+        ],
+        "source": "placeholder: (c, d), the rectangle's origin at base (c, -d): centred on the robot, its near tags' centres 18 cm in front of the hanging arms, as the first layout's placeholder table had them. The user is measuring the grippers against the near side and tag 0's corner; once measured, the head camera's mount relative to the robot follows"
+      },
+      "yaw_deg": {
+        "value": 0.0,
+        "source": "placeholder: its near side square to the robot; not measured"
+      }
+    },
+    "tags": {
+      "0": {
+        "frame": "rectangle",
+        "center": {
+          "value": [
+            0.02159,
+            0.02159
+          ],
+          "source": "user 2026-10-18: ID 0's black square has its outer corner at the rectangle's near-left corner, so its centre is half a square in from each side"
+        }
+      },
+      "1": {
+        "frame": "rectangle",
+        "center": {
+          "value": [
+            0.62841,
+            0.02159
+          ],
+          "source": "user 2026-10-18: ID 1's black square has its outer corner at the rectangle's near-right corner, so its centre is half a square in from each side"
+        }
+      },
+      "2": {
+        "frame": "rectangle",
+        "center": {
+          "value": [
+            0.62841,
+            0.41941
+          ],
+          "source": "user 2026-10-18: ID 2's black square has its outer corner at the rectangle's far-right corner, so its centre is half a square in from each side"
+        }
+      },
+      "3": {
+        "frame": "rectangle",
+        "center": {
+          "value": [
+            0.02159,
+            0.41941
+          ],
+          "source": "user 2026-10-18: ID 3's black square has its outer corner at the rectangle's far-left corner, so its centre is half a square in from each side"
+        }
+      },
+      "4": {
+        "frame": "rectangle",
+        "center": {
+          "value": [
+            0.3237,
+            0.0224
+          ],
+          "source": "head camera 2026-10-18 03:25Z, its rays through tag 4's corners onto the table plane, the camera fitted to tags 0, 2 and 3 at the taped corners with the D435 colour intrinsics (within about 2 mm of those taped corners): the middle of the near side, not taped. The user confirmed this is ID 4 and took this layout as the calibration reference (2026-10-18: \"now use that as the calibration reference for the real2sim\")"
+        }
+      },
+      "5": {
+        "frame": "rectangle",
+        "center": {
+          "value": [
+            0.3236,
+            0.4168
+          ],
+          "source": "head camera 2026-10-18 03:25Z, its rays through tag 5's corners onto the table plane, the camera fitted to tags 0, 2 and 3 at the taped corners with the D435 colour intrinsics: the middle of the far side, where the user put it (\"ID 5 is the top middle between ID 2 and 3\"), not taped; the user took this layout as the calibration reference"
+        }
+      },
+      "6": {
+        "wall": {
+          "value": "front",
+          "source": "head camera 2026-10-18, frame 20261018T034533Z: ID 6 decodes cleanly (0 cells wrong, about 6.9 px per cell) on the front wall's outer face, facing the robot. The user's description had 6 and 7 the other way round (\"ID 6 aruco is on the middle top back edge of the box/bucket target, and the ID 7 is on the outer top front edge of the box\")"
+        },
+        "face": {
+          "value": "outer",
+          "source": "head camera 2026-10-18, frame 20261018T034533Z: on the front wall's outside, facing the robot"
+        },
+        "along": {
+          "value": 0.0,
+          "source": "head camera 2026-10-18, frame 20261018T034533Z: 6 and 7 lie on one line along the box's axis, 1.2 mm apart across it, which places the box's middle there"
+        },
+        "below_rim": {
+          "value": 0.032,
+          "source": "placeholder: the label's far end at the rim, the tag centre about 32 mm below it; not measured. The camera has this tag's centre 146.7 mm above the table"
+        }
+      },
+      "7": {
+        "wall": {
+          "value": "back",
+          "source": "head camera 2026-10-18, frame 20261018T034533Z: ID 7 decodes cleanly (0 cells wrong, about 6.0 px per cell) on the back wall's inner face, at the top, facing the robot. The user's description had 6 and 7 the other way round"
+        },
+        "face": {
+          "value": "inner",
+          "source": "head camera 2026-10-18, frame 20261018T034533Z: on the back wall's inside, facing the robot"
+        },
+        "along": {
+          "value": 0.0,
+          "source": "head camera 2026-10-18, frame 20261018T034533Z: 6 and 7 lie on one line along the box's axis, 1.2 mm apart across it, which places the box's middle there"
+        },
+        "below_rim": {
+          "value": 0.032,
+          "source": "placeholder: the label's far end at the rim, the tag centre about 32 mm below it; not measured. The camera has this tag's centre 148.2 mm above the table"
+        }
+      }
+    }
+  },
+  "appearance": {
+    "table": "black",
+    "trim": "silver",
+    "bucket_wall": "cardboard",
+    "bucket_bottom": "cardboard_inside",
+    "cube": "wood"
+  }
+}
