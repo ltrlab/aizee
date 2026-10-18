@@ -23,7 +23,7 @@
     "bottom": {"value": 0.004, "source": "placeholder: corrugated cardboard; not measured"}
   },
   "cube": {
-    "edge": {"value": 0.0381, "source": "user 2026-10-16: wooden cubes about 1.5 in on a side. RealSense depth 2026-10-18 (depth-20261018T044530Z): the two blocks' tops stand 39.0 and 37.0 mm above the table, their top faces 36.9 and 39.5 mm across where the depth is sharp"},
+    "edge": {"value": 0.0381, "source": "user 2026-10-16: wooden cubes about 1.5 in on a side. RealSense depth 2026-10-18 (depth-20261018T044530Z): the two blocks' tops stand 39.0 and 37.0 mm above the table, their top faces 36.9 and 39.5 mm across where the depth is sharp. Head camera colour 2026-10-18 (same frame): at the depth-fitted places the blocks look wider than a 38.1 mm cube; cuboids fitted to their colour outlines are about 37 x 52 mm and 47 x 48 mm across (outline IoU 0.92-0.93, against 0.70-0.78 for a 38.1 mm cube), so they may not be 1.5 in cubes. Kept at the user's 1.5 in until measured"},
     "mass": {"value": 0.035, "source": "placeholder (estimate): a 1.5 in wood cube at 0.4-0.75 g/cm3 weighs 22-41 g; not weighed"},
     "friction": {"value": [1.0, 0.005, 0.0001], "source": "placeholder: the synthetic scene's value; wood on the finger pads is not measured, and MuJoCo takes the larger of the pad's and the cube's friction"},
     "start": {"value": [0.15, -0.35, 0.0], "source": "placeholder: left of centre, as in the head camera image; not measured"},
