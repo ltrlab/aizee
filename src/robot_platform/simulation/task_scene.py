@@ -19,6 +19,7 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 
+from . import room
 from .fiducials import cell_center, grid, white_runs
 from .minerva_sim import ModelPose, SCENE
 from .workcell import APPEARANCE, LEG_HALF, SYNTHETIC, bucket_frame, resolve as resolve_workcell
@@ -57,13 +58,32 @@ DRIVE_FIELDS = ("inertia", "friction", "viscous", "max_effort")
 # that and the code's white cells on top, so the renderer draws each over the one below. A drawing order, not the
 # paper's thickness, which is not modelled.
 FIDUCIAL_LAYER = .0001  # m
-# The real Minerva is black all over (the user, 2026-10-18: "make sure the entire body is black similar to the real
-# robot"). Every robot geom, its CAD visuals and its collision proxies alike, is drawn in the workcell's named black,
-# matte: a material without specular highlight or reflection. The source model's colours are not used.
-ROBOT_RGBA = APPEARANCE["black"]
-ROBOT_MATERIAL = "task/robot/matte_black"
-ROBOT_FINISH = {"rgba": list(ROBOT_RGBA), "specular": 0., "shininess": 0., "reflectance": 0.,
-                "source": "user 2026-10-18: the real robot is black; matte, its exact finish not measured"}
+# The real Minerva is black all over, but drawn pitch black its grippers vanished against the black table (the user,
+# 2026-10-18: "The whole robot shouldn't be pitch black, make it a rather dark gray"). Every robot geom, its CAD visuals
+# and its collision proxies alike, is drawn in the look's dark grey (room.LOOK['robot_grey'], or the workcell's own look)
+# with a little specular, so that its edges read, and no reflection. The source model's colours are not used.
+ROBOT_MATERIAL = "task/robot/dark_grey"
+ROBOT_RGBA = (room.LOOK["robot_grey"],) * 3 + (1.,)
+ROBOT_FINISH = {"rgba": list(ROBOT_RGBA), "specular": room.ROBOT_SPECULAR, "shininess": room.ROBOT_SHININESS,
+                "reflectance": 0., "source": room.LOOK_SOURCE}
+# How the scene renders: no shadows or reflections (each camera's image costs one pass), no fog; the room backdrop
+# (skybox) and its horizon haze, which fades the floor plane's far edge into the backdrop.
+RENDER_FLAGS = {"mjRND_SHADOW": False, "mjRND_REFLECTION": False, "mjRND_FOG": False, "mjRND_SKYBOX": True,
+                "mjRND_HAZE": True}
+ROOM_BACKDROP = "task/room/backdrop"
+ROOM_FLOOR = "task/room/floor"
+
+
+def scene_look(workcell):
+    """The scene's look: room.LOOK with the workcell's own values over it."""
+    return dict(room.LOOK, **workcell.look)
+
+
+def robot_finish(workcell):
+    """The robot's finish in `workcell`'s look (ROBOT_FINISH with its grey)."""
+    grey = scene_look(workcell)["robot_grey"]
+    return dict(ROBOT_FINISH, rgba=[grey, grey, grey, 1.], source=room.LOOK_SOURCE if "robot_grey" not in workcell.look
+                else workcell.sources.get("look.robot_grey", "the workcell's look"))
 
 
 def _world_aabbs(model, data, ids):
@@ -87,8 +107,11 @@ def _environment(world, workcell, grip_contact=False):
     """The workcell's floor, table (with its trim and legs), open bucket and free cube. Returns the static geoms.
     `grip_contact` gives the cube the driven grippers' stiff contact (GRIP_SOLREF, GRIP_SOLIMP)."""
     w = workcell
+    # The floor is the room's wood (room.floor_texture), its colour the look's floor tone: the workcell's floor colour
+    # is not used.
     floor = ET.SubElement(world, "geom", name="task/floor", type="plane", size="2 2 .05",
-                          rgba=_numbers(w.color("floor")), contype="1", conaffinity="3")
+                          rgba=_numbers((*scene_look(w)["floor_tone"], 1.)), material=ROOM_FLOOR, contype="1",
+                          conaffinity="3")
     if w.floor_z:
         floor.set("pos", _numbers((0, 0, w.floor_z)))
     environment = []
@@ -263,17 +286,32 @@ def _scene_xml(source, fk_model, fk_data, visual_mode="cad", workcell=SYNTHETIC,
     ET.SubElement(root, "compiler", angle="radian", meshdir=str((source.parent / "..").resolve()))
     ET.SubElement(root, "option", timestep=str(PHYSICS_DT), gravity="0 0 -9.81", integrator="implicitfast")
     ET.SubElement(root, "size", njmax="4000", nconmax="1000")
+    look = scene_look(workcell)
+    warm = room.kelvin_rgb(look["light_kelvin"])  # The lights' colour, as bright as white light.
     visual = ET.SubElement(root, "visual")
-    ET.SubElement(visual, "headlight", ambient=".35 .35 .35", diffuse=".7 .7 .7")
+    ET.SubElement(visual, "headlight", ambient=_numbers(.35 * warm), diffuse=_numbers(.7 * warm))
     ET.SubElement(visual, "global", offwidth="1280", offheight="960", azimuth="90", elevation="-20")
+    # The floor plane's far edge fades into the backdrop's colour at the floor's horizon (room.HAZE).
+    ET.SubElement(visual, "map", haze=str(room.HAZE_SPAN))
+    ET.SubElement(visual, "rgba", haze=_numbers((*(np.asarray(room.HAZE) * look["room_tone"]), 1.)))
+    # The look in the XML, so that the scene's hash tells looks apart: the backdrop's tone is applied after compiling.
+    root.append(ET.Comment(" look " + json.dumps({k: v if isinstance(v, float) else list(v) for k, v in look.items()},
+                                                 sort_keys=True) + " "))
     ET.SubElement(root, "statistic", center="0 -.15 .65", extent="1.3")
     root.append(copy.deepcopy(original.find("asset")))
     asset = root.find("asset")
-    finish = ROBOT_FINISH
-    ET.SubElement(asset, "material", name=ROBOT_MATERIAL, rgba=_numbers(ROBOT_RGBA), specular=str(finish["specular"]),
-                  shininess=str(finish["shininess"]), reflectance=str(finish["reflectance"]))
+    finish = robot_finish(workcell)
+    ET.SubElement(asset, "material", name=ROBOT_MATERIAL, rgba=_numbers(finish["rgba"]),
+                  specular=str(finish["specular"]), shininess=str(finish["shininess"]),
+                  reflectance=str(finish["reflectance"]))
+    # The room: its backdrop as the skybox (room.backdrop, painted and blurred), and its wood on the floor plane.
+    ET.SubElement(asset, "texture", name=ROOM_BACKDROP, type="skybox",
+                  **{f"file{face}": (room.ASSETS / f"{face}.png").as_posix() for face in room.FACES})
+    ET.SubElement(asset, "texture", name=ROOM_FLOOR, type="2d", file=(room.ASSETS / "floor.png").as_posix())
+    ET.SubElement(asset, "material", name=ROOM_FLOOR, texture=ROOM_FLOOR, texrepeat="1 1", texuniform="false",
+                  specular=".15", shininess=".2", reflectance="0")
     world = ET.SubElement(root, "worldbody")
-    ET.SubElement(world, "light", pos="0 -1 2.5", dir="0 .3 -1", directional="true")
+    ET.SubElement(world, "light", pos="0 -1 2.5", dir="0 .3 -1", directional="true", diffuse=_numbers(.7 * warm))
     environment = _environment(world, workcell, grip_contact=drives is not None)
     bodies, collision_names, pieces = [], [], None
     flats = {}
@@ -349,8 +387,8 @@ def _scene_xml(source, fk_model, fk_data, visual_mode="cad", workcell=SYNTHETIC,
                               quat=_numbers(quat), size=_numbers((hi-lo)/2), contype="0", conaffinity="0",
                               group="5", rgba="0 0 0 0")
             for element in pieces if pieces is not None else [item]:
-                # Black and matte, as the real robot (ROBOT_FINISH). Colour only: no contact or mass changes.
-                element.set("rgba", _numbers(ROBOT_RGBA))
+                # Dark grey (robot_finish). Colour only: no contact or mass changes.
+                element.set("rgba", _numbers(finish["rgba"]))
                 element.set("material", ROBOT_MATERIAL)
                 if collides:
                     collision_names.append(element.get("name"))
@@ -438,6 +476,15 @@ class MinervaTaskScene:
         xml, bodies, collision_names, environment = _scene_xml(scene, self.fk_model, self.fk_data, visual_mode,
                                                                self.workcell, drives)
         self.model = mujoco.MjModel.from_xml_string(xml)
+        tone = np.asarray(scene_look(self.workcell)["room_tone"], dtype=float)
+        if np.any(tone != 1.):
+            # The backdrop's tone (the look's room_tone) on its pixels; a renderer uploads textures when it opens.
+            texture = self._id("texture", ROOM_BACKDROP)
+            channels = int(self.model.tex_nchannel[texture])
+            start = int(self.model.tex_adr[texture])
+            count = int(self.model.tex_width[texture]) * int(self.model.tex_height[texture]) * channels
+            pixels = self.model.tex_data[start:start + count].reshape(-1, channels)
+            pixels[:, :3] = np.clip(np.round(pixels[:, :3] * tone), 0, 255)
         self.data = mujoco.MjData(self.model)
         self._drives = {}
         for side, drive in (drives or {}).items():
@@ -550,7 +597,11 @@ class MinervaTaskScene:
             "cameras": list(CAMERAS), "camera_calibration": "synthetic task viewpoints",
             "visual_mode": visual_mode,
             "visual_geometry": "source collision meshes" if visual_mode == "collision_proxy" else "full CAD visuals",
-            "robot_finish": dict(ROBOT_FINISH, note="every robot geom; appearance variation leaves the robot alone"),
+            "robot_finish": dict(robot_finish(workcell),
+                                 note="every robot geom; appearance variation leaves the robot alone"),
+            "look": {key: value if isinstance(value, float) else list(value)
+                     for key, value in scene_look(workcell).items()},
+            "room_backdrop": room.provenance(),
             "render_shadows": False, "render_reflections": False, "offscreen_msaa": 0,
             "limitations": (["Arm motion ignores contact reaction; the grippers feel it through their drives, whose "
                              "inertia and friction are nominal and whose torque limit is the receiver's max_effort"]
@@ -937,8 +988,8 @@ class MinervaTaskScene:
         options.geomgroup[:] = self.visual_groups
         for name in camera_roles:
             self._renderer.update_scene(data, camera=name, scene_option=options)
-            for flag in (self.mj.mjtRndFlag.mjRND_SHADOW, self.mj.mjtRndFlag.mjRND_REFLECTION, self.mj.mjtRndFlag.mjRND_FOG):
-                self._renderer.scene.flags[flag] = False
+            for flag, value in RENDER_FLAGS.items():
+                self._renderer.scene.flags[getattr(self.mj.mjtRndFlag, flag)] = value
             images[name] = self._renderer.render().copy()
         return images, {name: float(data.time) for name in camera_roles}
 

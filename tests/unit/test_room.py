@@ -1,9 +1,27 @@
 """The room around the task scene: the committed backdrop and floor are what the seeded painting makes, MuJoCo shows each
-backdrop face where the painting meant it, and the lights are warm without being brighter."""
+backdrop face where the painting meant it, the lights are warm without being brighter, and a look changes what the
+cameras see and nothing the physics uses."""
+import json
+from pathlib import Path
+
 import numpy as np
 import pytest
 
 from robot_platform.simulation import room
+from robot_platform.simulation.task_scene import ROOM_BACKDROP, MinervaTaskScene
+from robot_platform.simulation.workcell import Workcell, load_workcell
+
+ROOT = Path(__file__).resolve().parents[2]
+MEASURED = ROOT / 'config/devices/simulation/minerva-production-01-workcell.json'
+FIXTURE = json.loads((Path(__file__).parents[1] / 'fixtures/minerva_task_contact_path.json').read_text())
+NAMES = FIXTURE['joint_names']
+
+
+def fixture_map():
+    mapping = {n: dict(actuator=n, scale=1., offset=0.) for n in NAMES if 'arm' in n}
+    for side in ('left', 'right'):
+        mapping[f'{side}_gripper_finger_a_slide'] = dict(actuator=f'{side}_gripper', scale=.01, offset=0.)
+    return mapping
 
 
 def test_the_committed_backdrop_and_floor_are_what_the_room_paints():
@@ -72,3 +90,38 @@ def test_warm_lights_are_as_bright_as_white():
         assert float(rgb @ (.2126, .7152, .0722)) == pytest.approx(1.)
         assert rgb[0] > rgb[1] > rgb[2]  # Warm: more red than blue.
     assert np.allclose(room.kelvin_rgb(6600.), 1., atol=.03)
+
+
+def test_a_look_changes_what_the_cameras_see_and_nothing_the_physics_uses():
+    """A workcell's own look (as a drawn layout gives one): the robot's grey and the floor's tone on their colours, the
+    lights' warmth on their colour, the room's tone on the backdrop's pixels; every physics array as without it."""
+    base = load_workcell(MEASURED)
+    look = {'robot_grey': .19, 'room_tone': (1.06, .97, .93), 'floor_tone': (.92, 1.04, 1.08), 'light_kelvin': 5000.}
+    plain = MinervaTaskScene(fixture_map(), NAMES, width=64, height=48, visual_mode='cad', workcell=base)
+    looked = MinervaTaskScene(fixture_map(), NAMES, width=64, height=48, visual_mode='cad',
+                              workcell=Workcell.from_description(dict(base.describe(), look=look)))
+    try:
+        for key in ('geom_size', 'geom_pos', 'geom_quat', 'geom_friction', 'geom_solref', 'geom_solimp', 'geom_contype',
+                    'geom_conaffinity', 'body_mass', 'body_inertia', 'opt.timestep'):
+            first, second = (getattr(scene.model.opt, key[4:]) if key.startswith('opt.') else
+                             getattr(scene.model, key) for scene in (plain, looked))
+            assert np.array_equal(first, second), key
+        assert plain.capabilities['contact_geometry_sha256'] == looked.capabilities['contact_geometry_sha256']
+        assert plain.capabilities['scene_sha256'] != looked.capabilities['scene_sha256']
+        assert looked.capabilities['look'] == {key: list(value) if isinstance(value, tuple) else value
+                                               for key, value in look.items()}
+        material = looked._id('material', 'task/robot/dark_grey')
+        assert np.allclose(looked.model.mat_rgba[material], (.19, .19, .19, 1.))
+        floor = looked._id('geom', 'task/floor')
+        assert np.allclose(looked.model.geom_rgba[floor], (.92, 1.04, 1.08, 1.))
+        assert np.allclose(looked.model.light_diffuse[0], .7 * room.kelvin_rgb(5000.), atol=1e-6)
+        assert np.allclose(looked.model.vis.headlight.ambient, .35 * room.kelvin_rgb(5000.), atol=1e-6)
+        texture = plain._id('texture', ROOM_BACKDROP)
+        start, count = int(plain.model.tex_adr[texture]), int(plain.model.tex_width[texture] *
+                                                               plain.model.tex_height[texture] * 3)
+        before = plain.model.tex_data[start:start + count].reshape(-1, 3).astype(float)
+        after = looked.model.tex_data[start:start + count].reshape(-1, 3).astype(float)
+        assert np.allclose(after, np.clip(np.round(before * (1.06, .97, .93)), 0, 255))
+    finally:
+        plain.close()
+        looked.close()

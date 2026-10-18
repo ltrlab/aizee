@@ -33,6 +33,9 @@ PLACEHOLDER = 'placeholder'
 COLORS = {'floor': (.17, .21, .24, 1.), 'table': (.46, .34, .23, 1.), 'trim': (.72, .73, .75, 1.),
           'leg': (.3, .3, .32, 1.), 'bucket_bottom': (.10, .35, .64, 1.), 'bucket_wall': (.12, .42, .74, 1.),
           'cube': (.95, .30, .06, 1.), 'fiducial_label': (.90, .90, .88, 1.), 'fiducial_print': (.05, .05, .05, 1.)}
+# The scene's look a workcell may give (simulation.room.LOOK has the user's): the robot's grey, factors on the room
+# backdrop's and the floor's colours, and the lights' colour temperature. Each key and its length.
+LOOK_KEYS = {'robot_grey': 1, 'room_tone': 3, 'floor_tone': 3, 'light_kelvin': 1}
 # A wall tag's wall of the bucket, as its side along the bucket's own y axis (+: toward the robot), and the wall faces.
 BUCKET_WALLS = {'front': 1, 'back': -1}
 WALL_FACES = ('inner', 'outer')
@@ -81,6 +84,9 @@ class Workcell:
     table_yaw: float = 0.
     # A block that is not a cube: its (x, y, z) edges, z up, x along its yaw (cube.size); () for a cube of cube_edge.
     cube_size: tuple = ()
+    # The scene's look where the file gives it (LOOK_KEYS: robot_grey, room_tone, floor_tone, light_kelvin); the scene
+    # takes the rest from simulation.room.LOOK.
+    look: dict = field(default_factory=dict)
 
     @property
     def block(self):
@@ -121,6 +127,8 @@ class Workcell:
         values['table_legs'] = tuple(tuple(float(v) for v in leg) for leg in values['table_legs'])
         values['cube_region'] = tuple(tuple(float(v) for v in span) for span in values['cube_region'])
         values['colors'] = {key: tuple(float(v) for v in rgba) for key, rgba in values.get('colors', {}).items()}
+        values['look'] = {key: tuple(float(v) for v in value) if isinstance(value, (list, tuple)) else float(value)
+                          for key, value in values.get('look', {}).items()}
         head = values['head_camera']
         values['head_camera'] = {'pos': tuple(float(v) for v in head['pos']),
                                  'xyaxes': tuple(float(v) for v in head['xyaxes']), 'fovy': float(head['fovy'])}
@@ -189,6 +197,13 @@ def validate(workcell):
                              'length, and fovy must be the one its vertical focal length gives')
     if not 0 < w.cube_friction[0]:
         raise ValueError(f'workcell {w.name}: the cube needs sliding friction')
+    look = w.look
+    unknown = set(look) - set(LOOK_KEYS)
+    tones = [v for key in ('room_tone', 'floor_tone') if key in look for v in look[key]]
+    if unknown or any(len(look[key]) != 3 for key in ('room_tone', 'floor_tone') if key in look) or             not all(isinstance(v, float) and math.isfinite(v) for v in [*tones, *(look[key] for key in
+                                                                         ('robot_grey', 'light_kelvin') if key in look)])             or not 0 < look.get('robot_grey', .5) < 1 or not all(0 < v <= 2 for v in tones) or             not 1500 <= look.get('light_kelvin', 4000.) <= 12000:
+        raise ValueError(f'workcell {w.name}: the look takes robot_grey in (0, 1), room_tone and floor_tone as three '
+                         'factors in (0, 2] and light_kelvin in [1500, 12000]')
     if w.fiducials:
         _validate_fiducials(w)
     return workcell
@@ -463,6 +478,12 @@ def from_document(document, *, name='workcell', origin='the workcell document'):
     region = _value(cube, 'cube.region', sources, length=4)
     # A block that is not a cube gives its three edges (x, y along its yaw, z up) instead of one.
     block = _value(cube, 'cube.size', sources, length=3) if 'size' in cube else ()
+    look = {}
+    for key, value in (document.get('look') or {}).items():
+        if key not in LOOK_KEYS:
+            raise ValueError(f'workcell look: unknown {key!r}; known: {sorted(LOOK_KEYS)}')
+        length = LOOK_KEYS[key]
+        look[key] = _value(document['look'], f'look.{key}', sources, length=None if length == 1 else length)
     appearance = document.get('appearance', {})
     colors = {key: _rgba(value, f'appearance.{key}') for key, value in appearance.items()}
     unknown = set(colors) - set(COLORS)
@@ -493,7 +514,7 @@ def from_document(document, *, name='workcell', origin='the workcell document'):
         cube_friction=_value(cube, 'cube.friction', sources, length=3),
         cube_start=_value(cube, 'cube.start', sources, length=3),
         cube_region=(region[0:2], region[2:4]),
-        head_camera=camera, colors=colors, sources=sources,
+        head_camera=camera, colors=colors, sources=sources, look=look,
         fiducials=_fiducials(document.get('fiducials'), sources, top, frames, rectangle, box))
     return validate(workcell)
 

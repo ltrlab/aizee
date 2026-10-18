@@ -212,8 +212,9 @@ def _worker():
             from mujoco import viewer
             window = viewer.launch_passive(scene.model, scene.data, show_left_ui=False, show_right_ui=False)
             window.opt.geomgroup[:] = scene.visual_groups
-            for flag in (scene.mj.mjtRndFlag.mjRND_SHADOW, scene.mj.mjtRndFlag.mjRND_REFLECTION, scene.mj.mjtRndFlag.mjRND_FOG):
-                window.user_scn.flags[flag] = False
+            from .task_scene import RENDER_FLAGS
+            for flag, value in RENDER_FLAGS.items():
+                window.user_scn.flags[getattr(scene.mj.mjtRndFlag, flag)] = value
             window.sync()
         _write(sys.stdout.buffer, {'ready': True})
         while True:

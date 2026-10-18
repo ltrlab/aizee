@@ -557,3 +557,25 @@ def test_the_bucket_opening_projects_where_the_scene_camera_sees_its_inside_rim(
         finally:
             scene.close()
         assert np.array(bucket_opening_pixels(workcell, 320, 240)) == pytest.approx(np.array(seen), abs=1e-6)
+
+
+def test_a_workcell_may_give_the_scene_look(tmp_path):
+    """The scene's look (simulation.room.LOOK) where a file gives its own, each value with its source, as a drawn
+    training layout does; the scene takes the rest from the user's look."""
+    document = json.loads(MEASURED.read_text(encoding='utf-8'))
+    assert load_workcell(MEASURED).look == {}
+    document['look'] = {'robot_grey': {'value': .2, 'source': 'test'}, 'light_kelvin': {'value': 4000, 'source': 'test'},
+                        'room_tone': {'value': [1.02, 1., .98], 'source': 'test'}}
+    workcell = load_workcell(_write(document, tmp_path))
+    assert workcell.look == {'robot_grey': .2, 'light_kelvin': 4000., 'room_tone': (1.02, 1., .98)}
+    assert workcell.sources['look.robot_grey'] == 'test'
+    assert Workcell.from_description(workcell.describe()) == workcell
+    for look, refusal in (({'paint': {'value': 1, 'source': 'test'}}, 'unknown'),
+                          ({'robot_grey': {'value': 1.2, 'source': 'test'}}, 'robot_grey in'),
+                          ({'room_tone': {'value': [1, 1], 'source': 'test'}}, 'expected 3'),
+                          ({'floor_tone': {'value': [1, 0, 1], 'source': 'test'}}, 'robot_grey in'),
+                          ({'light_kelvin': {'value': 900, 'source': 'test'}}, 'light_kelvin in'),
+                          ({'floor_tone': {'value': [1, 1, 1]}}, 'named source')):
+        document['look'] = look
+        with pytest.raises(ValueError, match=refusal):
+            load_workcell(_write(document, tmp_path))
