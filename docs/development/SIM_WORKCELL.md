@@ -24,10 +24,9 @@ Not measured yet. These are placeholders and should be measured:
 - **Table details.** Thickness, the floor height and the trim width.
 - **Cube.** Mass (weigh one) and friction against the finger pads.
 - **Cube positions.** The region trials place the cube in.
-- **Head camera.** Pose and field of view.
-- **Fiducial tags.** Each tag's place and a printed label's scale (see "Fiducial tags").
+- **Tag rectangle.** Where it is relative to the robot (see "Fiducial tags and the head camera"); the head camera follows it.
 
-A real head frame (the recording proof of 2026-10-17, `build/recording-readiness-20261016/`) shows two wood cubes on the robot's left and the box on its right, with the box's long side pointing away from the robot. The placeholders follow that arrangement, and the head camera's synthetic view is turned 180 degrees so the far side of the table is at the top, as in the real images. The sim's head camera still looks almost straight down from in front of the robot, while the real one looks forward and sees no robot parts. The wrist cameras also differ from the real views. Camera calibration is still needed.
+A real head frame (the recording proof of 2026-10-17, `build/recording-readiness-20261016/`) shows two wood cubes on the robot's left and the box on its right, with the box's long side pointing away from the robot. The placeholders follow that arrangement. The head camera is now calibrated against the fiducial tags (below); the wrist cameras are not, and still differ from the real views.
 
 ## Use
 
@@ -37,28 +36,46 @@ A real head frame (the recording proof of 2026-10-17, `build/recording-readiness
 
 The bucket may be rectangular and rotated. The scene's in-bucket check uses the bucket's own axes. A cube that touches the table's trim counts as a table contact.
 
-## Fiducial tags
+## Fiducial tags and the head camera
 
-The printed ArUco labels on the table (`claude/table-fiducial-labels`, TABLE_FIDUCIALS.md there) are in the workcell file's `fiducials` section, and the scene draws them on its table.
+The printed ArUco labels (`claude/table-fiducial-labels`, TABLE_FIDUCIALS.md there) are the real-to-sim calibration reference (the user, 2026-10-18: "now use that as the calibration reference for the real2sim"). They are in the workcell file's `fiducials` section, the scene draws them, and the scene's head camera is calibrated against them.
 
-- **Frames.** The file gives tag centres in the table frame: origin at the near-left outer corner of the top (outer edge of the trim), seen from behind the robot facing the table; x right along the near edge, y away from the robot. With the table square to the robot, table (x, y) is base (c - x, -d - y) on the top, where (c, -d) is that corner, from `table.center` and `table.size` (c = 0.762 m, d = 0.080 m with today's placeholders). Every label lies flat with its text end toward the robot, so each tag's marker frame (OpenCV's: x right, y toward the top of the code, z out of the label) is the table frame: the base frame turned half a turn about z.
-- **Values, all placeholders.** The family is what was printed, DICT_4X4_50. The black square (43.18 mm), the label (58.93 x 71.71 mm, the printed area) and the tag's place on it (centre 6.39 mm from the label's centre toward its far end) are the generator's design until a printed label is measured. The tape's unprinted white margins (a cut label is about 62 x 77 mm) are not drawn. Tags 0-5 sit at the layout given to the user on 2026-10-17. Tags 6 and 7 follow the bucket: centred across on its near-left and near-right outer corners, their centres 42 mm in front of its near outer face (the label's far end 1 cm from the face, the tag centre about 32 mm from that end).
+- **The tag rectangle.** The user taped tags 0-3 as a 650 x 441 mm rectangle over the outer corners of their black squares (0 near-left, 1 near-right, 2 far-right, 3 far-left). The head camera settles that the corners are the squares', not the labels': with the D435's intrinsics the squares' corners fit at 0.75 px RMS, the labels' at 3.59 px. Tags 4 and 5 lie at the middles of the near and far sides, where the head camera puts them (rays through their corners onto the table plane). The user confirmed the near-middle tag is ID 4.
+- **Frames.** Tags 0-5 and the head camera are given in the rectangle's frame: origin at the outer corner of tag 0's square, x along the near side toward tag 1, y away from the robot, z up from the table top. One entry places the rectangle relative to the robot: `fiducials.rectangle.robot_offsets` (c, d) puts its origin at base (c, -d), with `yaw_deg` its turn from square. Both are placeholders (centred on the robot, the near tags 18 cm in front of the hanging arms). Measuring them moves the tags and the camera together; the head camera's mount relative to the robot then follows, and that becomes the lasting calibration. A tag may also be given in the table frame (origin at the table top's near-left outer corner; table (x, y) is base (c - x, -d - y)).
+- **Labels.** Family DICT_4X4_50, black square 43.18 mm (the user's calipers, 2026-10-18; the 10 mm scale arms measure 10 mm). The label drawn is the printed area, 58.93 x 71.71 mm, the tag centre 6.39 mm from its centre toward its far end. The tape's unprinted white margins are not drawn. Every flat label lies with its text end toward the robot, so its marker frame (OpenCV's: x right, y toward the top of the code, z out of the label) is the rectangle's.
+- **Tags on the box.** Tag 6 is upright on the front wall's outer face and tag 7 on the back wall's inner face, near the rim, both facing the robot. That is how the head camera decodes them (0 cells wrong); the user's description had them the other way round. They follow the box's pose (`wall`, `face`, `along`, `below_rim`); their height below the rim is a placeholder.
 
-| ID | Table frame (mm) | Base frame (m) |
-|---|---|---|
-| 0 | 100, 100 | 0.662, -0.180 |
-| 1 | 1424, 100 | -0.662, -0.180 |
-| 2 | 1143, 662 | -0.381, -0.742 |
-| 3 | 381, 662 | 0.381, -0.742 |
-| 4 | 762, 662 | 0.000, -0.742 |
-| 5 | 762, 100 | 0.000, -0.180 |
-| 6 | 932, 121.5 (from the bucket) | -0.170, -0.2015 |
-| 7 | 1092, 121.5 (from the bucket) | -0.330, -0.2015 |
+| ID | Rectangle frame (mm) | Base frame with the placeholder offsets (m) | From |
+|---|---|---|---|
+| 0 | 21.6, 21.6 | 0.303, -0.180 | tape |
+| 1 | 628.4, 21.6 | -0.303, -0.180 | tape |
+| 2 | 628.4, 419.4 | -0.303, -0.578 | tape |
+| 3 | 21.6, 419.4 | 0.303, -0.578 | tape |
+| 4 | 323.7, 22.4 | 0.001, -0.181 | head camera |
+| 5 | 323.6, 416.8 | 0.001, -0.575 | head camera |
+| 6 | front wall, outer face, middle | on the box placeholder | head camera decode |
+| 7 | back wall, inner face, middle | on the box placeholder | head camera decode |
 
-- **Drawing.** `simulation/fiducials.py` holds each ID's cells, copied from OpenCV 4.13. `scripts/sim/check_fiducial_codes.py` checks them against OpenCV, which the development environment does not include. Each tag is a body, `task/fiducial/<id>`, in its marker frame on the table top. It holds a white label box, the black square on it, and one box per run of white cells along a row, stacked 0.1 mm apart so the renderer draws each over the one below; that is a drawing order, not the paper's thickness. The label's text and scale are not drawn.
-- **Visual only.** The tags have no contacts and no mass, and stay out of the penetration audit and the appearance variation. They are added after every other body, so no other body or geom changes its index.
-- **Physics unchanged.** The nominal trial (handoff demonstrator through the receiver, driven grippers, this workcell, trial 0) is bit for bit the same with the tags as on `0a4d8ef` without them: the same qpos, qvel, time and surface velocities of all 187 other geoms after each of its 19,688 scene steps, and the same events (pickup 6.278 s, handoff 23.6625 s, bucket 49.216 s). Interleaved timing on the fixture path gave 975 us per physics step with the tags and 961 us without, within this laptop's load noise.
-- **Real cameras.** `scripts/sim/fiducial_camera_check.py <frames dir>` finds the tags in frames as the cameras publish them and reads each code back. For the head frame it compares them with the scene's head camera and solves the real camera's pose from the tags; see its docstring. It needs OpenCV, which the development environment does not include.
+- **Drawing.** `simulation/fiducials.py` holds each ID's cells, copied from OpenCV 4.13; `scripts/sim/check_fiducial_codes.py` checks them against OpenCV, which the development environment does not include. Each tag is a body, `task/fiducial/<id>`, in its marker frame: flat on the table, or tipped upright onto its wall. It holds a white label box, the black square on it, and one box per run of white cells along a row, stacked 0.1 mm apart so the renderer draws each over the one below (a drawing order, not the paper's thickness). The label's text and scale are not drawn.
+- **Visual only.** The tags have no contacts and no mass, and stay out of the penetration audit and the appearance variation. They are added after every other body, so no other body or geom changes its index. The nominal trial (handoff demonstrator through the receiver, driven grippers, this workcell, trial 0) is bit for bit the same as on `0a4d8ef` without the tags: the same qpos, qvel, time and surface velocities of all 187 other geoms after each of its 19,688 scene steps, and the same events (pickup 6.278 s, handoff 23.6625 s, bucket 49.216 s). Interleaved timing on the fixture path gave 975 us per physics step with the tags and 961 us without, within this laptop's load noise.
+
+### The head camera
+
+- **Intrinsics.** The D435 (serial 919122072056) colour stream at 640 x 480, read with `rs-enumerate-devices -c` on 2026-10-18: fx 614.336, fy 614.734, PPX 313.263, PPY 236.985, no distortion (Inverse Brown-Conrady, all coefficients 0). The head node publishes the image turned half a turn, so for the published image the principal point is (639 - PPX, 479 - PPY) = (325.737, 242.015), as the node's own published depth intrinsics are. The workcell keeps `resolution`, `focalpixel` and `principalpixel` (the offset from the image centre, 6.237, 2.515 px) and the fovy they give, 42.65 degrees.
+- **The 180-degree turn.** The pose is solved on the published image, so the scene's camera is the sensor turned half a turn about its optical axis and renders the published orientation directly; nothing is rotated after rendering.
+- **Pose.** Fitted to tags 0, 2, 3, 4 and 5 at their places in the rectangle on the head frame of 2026-10-18 03:25Z, with the intrinsics held fixed: 0.72 px RMS, at most 1.13 px. The camera sits at (275.2, -269.4, 544.3) mm in the rectangle frame: 27 cm in front of the near side, 54 cm above the table, looking 45.8 degrees down, turned 1.5 degrees to the robot's left, rolled -1.6 degrees.
+- **In the scene.** The scene gives MuJoCo the camera's `resolution`, `focalpixel` and `principalpixel` with a 1 um sensor pixel (only the ratio to the focal length matters). MuJoCo's principal point offset runs x right and y down from the image centre. Through the frustum `mjv_updateScene` gives the renderer (no GL needed), every tag corner lands within 2e-5 px of the D435's pinhole model; `tests/unit/test_workcell.py` holds it within 1e-3 px (MuJoCo keeps the sensor and focal lengths as float32).
+- **Proof on the real frames.** `scripts/sim/fiducial_camera_check.py` projects the workcell's tags through the scene's head camera onto a head frame and draws them over the tags found (`head.sim-vs-real.png`). Per tag, RMS over its corners:
+  - 03:25Z, the frame the camera was fitted on: tags 0, 2, 3, 4, 5 at 0.77, 0.75, 0.73, 0.57, 0.79 px.
+  - 03:45Z, with the box placed: tags 0, 3, 4, 5 at 3.6, 3.8, 1.4, 3.3 px. Refitted on that frame the camera differs from the workcell's by 2 mm and 0.48 degrees (0.81 px RMS on tags 0, 3, 4, 5): the table, or the robot, probably turned about half a degree when the box went down. Tags 6 and 7 miss by 168 and 39 px, because the box keeps its placeholder pose (below).
+
+### Follow-up task: the real box and the robot-to-rectangle placement
+
+Not done on this branch. Once the user's robot-to-rectangle numbers arrive (each gripper to the near side, the left gripper's sideways offset from tag 0's corner, and the fingertip-to-table height), a separate task should:
+- set `fiducials.rectangle.robot_offsets` and `yaw_deg` from them, which moves the tags and the head camera onto the robot;
+- apply the box where tags 6 and 7 put it (head camera, D435 intrinsics, frame 20261018T034533Z): turned -18.6 degrees from square to the rectangle, its front toward the robot's left; its middle at (471.8, 226.9) mm in the rectangle frame; along its axis the front wall's outer face 235.8 mm and the back wall's inner face 491.3 mm from the rectangle's origin, so about 251 mm inside front to back with a 4 mm wall, against the placeholder 305 mm; tag centres 147-148 mm up, so a rim near 180 mm (placeholder 150 mm). The user's tape numbers for the box replace these;
+- re-plan the demonstrator's reach map, cube region and nominal cube start for that layout. With the box at the camera's pose (and the placeholder offsets) the demonstrator finds no plan for the cube at today's placeholder start, so this branch keeps the box's placeholder pose;
+- refit the head camera on a fresh frame if the table stays where the box put it (the 0.48-degree shift above).
 
 ## Reach on the real table
 
@@ -88,7 +105,9 @@ These are kinematic checks within the receiver's joint limits. They do not check
 - a cube dropped into the far end of the 6 x 12 in box (unrotated and turned 30 degrees) settles in it;
 - the same drop across the short side lands outside;
 - the fiducial codes are OpenCV's (its DICT_4X4_50 bytes for IDs 0-7);
-- each tag sits at its table-frame place mapped onto the base, and tags 6 and 7 follow the bucket;
-- the compiled scene has every tag flat on the table in the table frame's orientation, with its code cell by cell and a white margin round the black square;
-- the tags change no other body or geom, and a cube dropped onto tag 6 lands on the table exactly as without the tags;
-- a tag off the table, with an unknown code or ID, or without a source is refused.
+- tags 0-3 sit half a square in from the taped rectangle's corners, 4 and 5 at its sides' middles, all in the rectangle's orientation, and the head camera moves with the rectangle;
+- tags 6 and 7 stand upright on the box's front-outer and back-inner faces facing the robot, and follow the box when it moves or turns;
+- the compiled scene has every tag where its pose puts it, with its code cell by cell and a white margin round the black square;
+- the scene's head camera, as MuJoCo renders it, projects every tag corner within 1e-3 px of the D435's pinhole model;
+- the tags change no other body or geom, and a cube dropped onto tag 4 lands on the table exactly as without the tags;
+- a tag off the table or off its wall, in an unknown frame or face, with an unknown code or ID, or without a source is refused.
