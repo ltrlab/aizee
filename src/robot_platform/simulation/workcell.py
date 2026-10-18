@@ -405,6 +405,34 @@ def head_pinhole(camera, width=None, height=None):
     return f, f, (width - 1) / 2, (height - 1) / 2
 
 
+def bucket_opening_pixels(workcell, width, height):
+    """Where the head camera sees the bucket's opening at width x height: the four corners of its inside rim, at the
+    walls' top, as (u, v) pixels (x right, y down, centres on integers), or None for a corner behind the camera. The
+    camera is MuJoCo's from the workcell's pos and xyaxes (y made square to x, looking along -z), its pinhole
+    head_pinhole's."""
+    head = workcell.head_camera
+
+    def unit(vector):
+        length = math.sqrt(sum(v * v for v in vector))
+        return tuple(v / length for v in vector)
+    x_axis = unit(head['xyaxes'][:3])
+    along = sum(a * b for a, b in zip(head['xyaxes'][3:], x_axis))
+    y_axis = unit([b - along * a for a, b in zip(x_axis, head['xyaxes'][3:])])
+    z_axis = (x_axis[1] * y_axis[2] - x_axis[2] * y_axis[1], x_axis[2] * y_axis[0] - x_axis[0] * y_axis[2],
+              x_axis[0] * y_axis[1] - x_axis[1] * y_axis[0])
+    fx, fy, cx, cy = head_pinhole(head, width, height)
+    (bx, by), yaw = workcell.bucket_center, workcell.bucket_yaw
+    c, s = math.cos(yaw), math.sin(yaw)
+    half_x, half_y = workcell.bucket_inner[0] / 2, workcell.bucket_inner[1] / 2
+    rim = workcell.table_top + workcell.bucket_height
+    corners = []
+    for dx, dy in ((-half_x, -half_y), (half_x, -half_y), (half_x, half_y), (-half_x, half_y)):
+        offset = (bx + c * dx - s * dy - head['pos'][0], by + s * dx + c * dy - head['pos'][1], rim - head['pos'][2])
+        x, y, z = (sum(a * b for a, b in zip(axis, offset)) for axis in (x_axis, y_axis, z_axis))
+        corners.append((cx + fx * x / -z, cy - fy * y / -z) if z < 0 else None)
+    return corners
+
+
 def load_workcell(path):
     """A Workcell from a workcell file (schema 1)."""
     path = Path(path)

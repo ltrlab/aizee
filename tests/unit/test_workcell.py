@@ -529,3 +529,31 @@ def test_a_tag_the_scene_cannot_draw_is_refused(tmp_path, change, refusal):
     change(document['fiducials'])
     with pytest.raises(ValueError, match=refusal):
         load_workcell(_write(document, tmp_path))
+
+
+def test_the_bucket_opening_projects_where_the_scene_camera_sees_its_inside_rim():
+    """bucket_opening_pixels works from the workcell alone. Against the scene: the bucket floor's corners (the inside
+    of the walls) raised to the walls' top and projected through MuJoCo's own head camera frame (cam_xpos, cam_xmat)
+    and head_pinhole, for the workcell's own box and for a drawn layout's (moved, turned, its camera jittered)."""
+    from robot_platform.simulation.layouts import LayoutSampler
+    from robot_platform.simulation.workcell import bucket_opening_pixels
+    sampler = LayoutSampler(MEASURED, ROOT / 'config/devices/simulation/minerva-production-01-randomization.json')
+    drawn = sampler.draw(np.random.default_rng([1, 2]), seed=[1, 2]).workcell
+    for workcell in (load_workcell(MEASURED), drawn):
+        fx, fy, cx, cy = head_pinhole(workcell.head_camera, 320, 240)
+        scene = MinervaTaskScene(fixture_map(), NAMES, width=320, height=240, workcell=workcell)
+        try:
+            mj, model, data = scene.mj, scene.model, scene.data
+            mj.mj_kinematics(model, data)
+            camera, floor = scene._id('camera', 'head'), scene._id('geom', 'task/bucket/bottom')
+            frame = data.cam_xmat[camera].reshape(3, 3)  # Columns: MuJoCo's camera x (right), y (up), z (backward).
+            turn, half = data.geom_xmat[floor].reshape(3, 3), model.geom_size[floor]
+            seen = []
+            for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+                corner = data.geom_xpos[floor] + turn @ np.array([sx * half[0], sy * half[1], 0.])
+                corner[2] = workcell.table_top + workcell.bucket_height
+                x, y, z = (corner - data.cam_xpos[camera]) @ frame
+                seen.append((cx + fx * x / -z, cy - fy * y / -z))
+        finally:
+            scene.close()
+        assert np.array(bucket_opening_pixels(workcell, 320, 240)) == pytest.approx(np.array(seen), abs=1e-6)
