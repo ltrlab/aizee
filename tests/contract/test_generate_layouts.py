@@ -101,3 +101,22 @@ def test_generate_draws_a_layout_for_every_attempt_and_lists_them(tmp_path):
     assert all(e['outcome'] == 'timeout' and e['episode'] is None for e in entries)
     assert entries[0]['layout']['seed'] == [21, 1, 1] and entries[1]['layout']['seed'] == [21, 2, 0]
     assert entries[0]['cube_start'] != entries[1]['cube_start']
+
+
+def test_a_head_camera_against_the_robot_is_refused():
+    """A draw moves the head camera with the table group and about its calibrated pose; near the robot that can put it
+    against or inside the torso, which the real camera cannot be. The workcell's own camera stands clear; moved 6 cm
+    toward the robot it is refused."""
+    from robot_platform.evaluation.generate import HeadCameraClearance
+    from robot_platform.simulation.workcell import Workcell, load_workcell
+    workcell = load_workcell(WORKCELL)
+    check = HeadCameraClearance(derive_stack())
+    try:
+        assert check(workcell) is None
+        description = workcell.describe()
+        x, y, z = description['head_camera']['pos']
+        description['head_camera']['pos'] = [x, y + .06, z]  # Base +y: toward the robot.
+        reason = check(Workcell.from_description(description))
+        assert reason is not None and reason.startswith('head camera')
+    finally:
+        check.close()

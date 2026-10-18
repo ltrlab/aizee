@@ -26,7 +26,7 @@ RANDOMIZATION = ROOT / 'config/devices/simulation/minerva-production-01-randomiz
 
 def _worker(job):
     from robot_platform.evaluation.demonstrator import HandoffDemonstrator
-    from robot_platform.evaluation.generate import draw_layout
+    from robot_platform.evaluation.generate import HeadCameraClearance, draw_layout
     from robot_platform.evaluation.plants import derive_stack
     from robot_platform.evaluation.runner import RunConfig, TrialRunner
     from robot_platform.simulation.layouts import LayoutSampler
@@ -36,11 +36,12 @@ def _worker(job):
     runner = TrialRunner(RunConfig(grippers='driven', timeout_s=args['timeout'], workcell=args['workcell'],
                                    plant_seed=worker + 1), stack=derive_stack(), directory=out / f'receiver-w{worker}')
     demo = HandoffDemonstrator()
+    camera = HeadCameraClearance(runner.stack)
     lines = []
     try:
         for attempt in attempts:
             started = time.perf_counter()
-            layout, rejections = draw_layout(runner, demo, sampler, [args['seed'], attempt])
+            layout, rejections = draw_layout(runner, demo, sampler, [args['seed'], attempt], camera=camera)
             entry = {'attempt': attempt, 'worker': worker, 'layout_seed': [args['seed'], attempt],
                      'rejected_draws': len(rejections), 'rejections': rejections}
             if layout is None:
@@ -54,13 +55,14 @@ def _worker(job):
                              stages=record['stages'], duration_s=record['duration_s'],
                              clipped=record['commands_clipped_cycles'], planning_s=planned - started,
                              wall_s=time.perf_counter() - planned,
-                             max_tracking_rad=max(record['max_abs_pose_minus_command_rad'].values()))
+                             max_abs_pose_minus_command_rad=record['max_abs_pose_minus_command_rad'])
             lines.append(json.dumps(entry))
             with (out / f'attempts-w{worker}.jsonl').open('a', encoding='utf-8') as handle:
                 handle.write(lines[-1] + '\n')
     finally:
         runner.close()
         demo.close()
+        camera.close()
     return lines
 
 
@@ -82,6 +84,7 @@ def summarize(entries):
         for rejection in entry['rejections']:
             reason = rejection['reason']
             kind = ('layout: no bucket place' if reason.startswith('layout:') else
+                    'head camera against the robot' if reason.startswith('head camera') else
                     'no plan reaches the cube' if 'no plan reaches' in reason else
                     'no plan clears' if 'no plan clears' in reason else reason[:60])
             reasons[kind] = reasons.get(kind, 0) + 1

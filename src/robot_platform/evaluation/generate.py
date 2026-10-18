@@ -123,9 +123,66 @@ def _plain(value):
     raise TypeError(f'not JSON: {type(value).__name__}')
 
 
-def draw_layout(runner, policy, sampler, seed):
+class HeadCameraClearance:
+    """Whether a drawn layout's head camera stands clear of the robot, as the real one does: with the arms hanging, no
+    ray through its image meets the robot, and its optical centre is at least `margin` from the robot's surface (a
+    D435 is 25 mm deep). A layout moves the camera with the table group and about its calibrated pose, so near the
+    robot a draw can put it against or inside the torso. Rays only, against the robot's collision proxies posed at
+    `home`; built once, then a few thousand rays a draw."""
+
+    def __init__(self, stack, *, margin=.02, grid=(48, 36), directions=1000, seed=0):
+        from robot_platform.simulation.task_scene import MinervaTaskScene
+        self.scene = MinervaTaskScene(stack['derived']['joint_map'], stack['names'], width=64, height=48)
+        mj = self.scene.mj
+        self.scene._pose(np.asarray(stack['derived']['initial'], dtype=float))
+        mj.mj_kinematics(self.scene.model, self.scene.data)
+        self.margin, self.grid = float(margin), tuple(grid)
+        self.groups = np.array([0, 0, 0, 1, 0, 0], dtype=np.uint8)  # The robot's collision proxies only.
+        directions = np.random.default_rng(seed).normal(size=(directions, 3))
+        self.directions = directions / np.linalg.norm(directions, axis=1, keepdims=True)
+
+    def _nearest(self, start, rays):
+        mj, scene, nearest = self.scene.mj, self.scene, np.inf
+        geom = np.array([-1], dtype=np.int32)
+        for ray in rays:
+            distance = mj.mj_ray(scene.model, scene.data, start, ray, self.groups, 1, -1, geom)
+            if geom[0] >= 0:
+                nearest = min(nearest, distance)
+        return nearest
+
+    def __call__(self, workcell):
+        """None if the camera is clear, else why not."""
+        from robot_platform.simulation.workcell import head_pinhole
+        head = workcell.head_camera
+        start = np.asarray(head['pos'], dtype=float)
+        x_axis = np.asarray(head['xyaxes'][:3], dtype=float)
+        x_axis /= np.linalg.norm(x_axis)
+        y_axis = np.asarray(head['xyaxes'][3:], dtype=float)
+        y_axis -= (y_axis @ x_axis) * x_axis
+        y_axis /= np.linalg.norm(y_axis)
+        z_axis = np.cross(x_axis, y_axis)  # MuJoCo's camera looks along -z.
+        width, height = head['intrinsics']['resolution'] if head.get('intrinsics') else (640, 480)
+        fx, fy, cx, cy = head_pinhole(head, width, height)
+        us, vs = np.meshgrid(np.linspace(0, width - 1, self.grid[0]), np.linspace(0, height - 1, self.grid[1]))
+        rays = (-z_axis[None] + x_axis[None] * ((us.ravel() - cx) / fx)[:, None]
+                - y_axis[None] * ((vs.ravel() - cy) / fy)[:, None])
+        rays /= np.linalg.norm(rays, axis=1, keepdims=True)
+        seen = self._nearest(start, rays)
+        if np.isfinite(seen):
+            return f'head camera: the robot fills part of its view, {seen * 1000:.0f} mm away (arms hanging)'
+        around = self._nearest(start, self.directions)
+        if around < self.margin:
+            return f'head camera: {around * 1000:.0f} mm from the robot, under {self.margin * 1000:.0f} mm'
+        return None
+
+    def close(self):
+        self.scene.close()
+
+
+def draw_layout(runner, policy, sampler, seed, camera=None):
     """A layout `policy` can plan (simulation.layouts.LayoutSampler, drawn from seed + [draw]), and every draw rejected
-    on the way: [{'draw', 'reason', 'layout'}]. (None, rejections) when none of the file's `plan_draws` plans."""
+    on the way: [{'draw', 'reason', 'layout'}]. (None, rejections) when none of the file's `plan_draws` plans. With
+    `camera` (HeadCameraClearance), a draw whose head camera does not stand clear of the robot is rejected too."""
     rejections = []
     for draw in range(sampler.randomization.plan_draws):
         key = [*seed, draw]
@@ -133,6 +190,10 @@ def draw_layout(runner, policy, sampler, seed):
             layout = sampler.draw(np.random.default_rng(key), seed=key)
         except ValueError as exc:
             rejections.append({'draw': draw, 'reason': f'layout: {exc}', 'layout': None})
+            continue
+        problem = camera(layout.workcell) if camera is not None else None
+        if problem is not None:
+            rejections.append({'draw': draw, 'reason': problem, 'layout': layout.describe()})
             continue
         problem = runner.plan(policy, dict(layout.cube_start, cell='layout', index=0), layout.workcell)
         if problem is None:
@@ -149,7 +210,8 @@ def generate(policy, config, out, *, episodes, stack=None, hz=15., appearance=AP
     Without `layouts`, the trials cycle over `config.grid`'s cube poses (with fresh seeds once a grid is used up) on
     the configured workcell. With `layouts` (a simulation.layouts.LayoutSampler), attempt k draws its layout from
     [config.grid.seed, k] (draw_layout): the cube's start is the layout's, and the head camera's pose is the layout's
-    too, so the appearance variation moves only the wrist cameras."""
+    too, so the appearance variation moves only the wrist cameras. A draw whose head camera does not stand clear of
+    the robot (HeadCameraClearance) is drawn again, as one the demonstrator cannot plan."""
     from dataclasses import replace
     from .grid import cube_poses
     from .runner import TrialRunner, git_identity
@@ -167,6 +229,7 @@ def generate(policy, config, out, *, episodes, stack=None, hz=15., appearance=AP
     cap = max(2 * episodes, 10) if attempts is None else int(attempts)
     made, attempts, seed = [], 0, config.grid.seed
     manifest = (out / 'manifest.jsonl').open('a', encoding='utf-8')
+    camera = HeadCameraClearance(runner.stack) if layouts is not None else None
 
     def note(entry, record, path):
         entry.update(outcome=record['outcome'], detail=record.get('detail'), episode=str(path) if path else None,
@@ -179,7 +242,7 @@ def generate(policy, config, out, *, episodes, stack=None, hz=15., appearance=AP
     try:
         while layouts is not None and len(made) < episodes and attempts < cap:
             attempts += 1
-            layout, rejections = draw_layout(runner, policy, layouts, [seed, attempts])
+            layout, rejections = draw_layout(runner, policy, layouts, [seed, attempts], camera=camera)
             entry = {'attempt': attempts, 'layout_seed': [seed, attempts], 'rejected_draws': len(rejections),
                      'rejections': [{'draw': r['draw'], 'reason': r['reason']} for r in rejections]}
             if layout is None:
@@ -206,4 +269,6 @@ def generate(policy, config, out, *, episodes, stack=None, hz=15., appearance=AP
     finally:
         manifest.close()
         runner.close()
+        if camera is not None:
+            camera.close()
     return made, attempts
