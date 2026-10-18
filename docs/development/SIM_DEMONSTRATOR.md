@@ -72,13 +72,51 @@ Every pose below came out of a reach or clearance check, not a guess. The script
 - By the pair of faces nearest forward alone, 149 cells planned and cleared, 20 could not be picked (yaws +10 to +40 at small x), and 11 planned too close. Eight of those went into the table on the way to the handoff, up to 14 mm.
 - With the second pair of faces, the climb and the clearance check, all 180 plan and clear.
 
-The workcell's cube region is now x 0.02-0.26 m, y -0.32 to -0.50 m, inside that area. Re-run the map after measuring the bench.
+The workcell's cube region was x 0.02-0.26 m, y -0.32 to -0.50 m, inside that area, until the box moved to where the head camera's depth puts it (below).
+
+**On the interim layout (2026-10-18).** The box now stands where the head camera's depth puts it, the tag rectangle 36 cm in front of the hanging arms, and the table with it (SIM_WORKCELL.md, "The robot's interim place"). Over the rectangle at 5 cm cells, the whole task, the release into the box included, plans and clears over its left half (u 25-275 mm, v 25-375 mm: base x 0.05-0.30 m, y -0.385 to -0.735 m); nearer the box most plans come within 1 mm of it, and at the far right the left cannot pick. The workcell's cube region is now x 0.10-0.30 m, y -0.385 to -0.735 m, and its nominal start the near real block's depth-fitted place and turn, (0.1722, -0.4843) m at -37 degrees.
+
+With the bucket moved out of the way, the left picks a 38.1 mm cube and hands it over with every move clear (6 cm map) from x -0.12 to 0.42 m at y -0.36 to -0.66 m, and at its edges down to -0.78 m; yaw 45 degrees reaches a little more than yaw 0. Out there it fails three ways: beyond y -0.80 m it cannot pick; reaching to the right of x -0.18 m, or to the far edge, the left's forearm comes within 1 mm of the table on its way to the handoff or over the cube, or its links of the right's jaws; and near the handoff point (x -0.18 to -0.06 m, y -0.36 to -0.42 m) the handoff does not plan.
+
+## Drops
+
+The right brings the cube over the bucket and lets it go one of the ways `DROPS` lists, tried in order for each wrist-roll branch until a plan clears. The first is the drop above (fingers 20 degrees up, 12 cm over the rim, from 12 cm in front), so every layout it planned keeps its plan:
+
+| Drop | Fingers | Lead to the drop point | Pads over the rim |
+|---|---|---|---|
+| from the front | forward, 20 degrees up | 12 cm in front | 12 cm |
+| lower, from closer in front | forward, 20 degrees up | 6 cm in front | 8 cm |
+| fingers level, from the front | forward, level | 10 cm in front | 9 cm |
+| fingers tipped down, from the front | forward, 30 degrees down | 8 cm in front | 9 cm |
+| from straight above | forward, 20 degrees up | 10 cm above | 8 cm |
+| fingers steeply down, from straight above | forward, 60 degrees down | 8 cm above | 8 cm |
+
+Planning-only maps over buckets of the training ranges' corners (130 x 200 x 150 mm to 200 x 300 x 220 mm inside, turned -49.4, -19.4 and 10.6 degrees) at 7.5 cm steps over the table's right half, the block at the nominal start, on the interim layout:
+- The release plans and clears for bucket centres x -0.45 to 0.075 m, y -0.47 (-0.55 for the 300 mm long buckets, whose near wall would leave the table) to -0.85 m, except as below. Of the 181 that planned, 129 used the first drop, 29 the level fingers, 16 the lower drop and 7 the drop from above.
+- **Not covered: far out.** No drop reaches a centre at y -0.925 m, nor the far corners at y -0.78 to -0.85 m (x -0.45 or 0.075, and x -0.375 for the smallest bucket): beyond the right's reach with any of these fingers.
+- **Not covered: tall buckets near the robot.** For walls of 220 mm, no drop reaches centres at y -0.55 m with x -0.30 to -0.075 m, nor (the 200 mm wide bucket) at y -0.625 m with x -0.15 to -0.075 m. The drop points are 8-18 cm over a 732 mm rim, out of the right's reach close in, and the lower drops bring its wrist or forearm 2-7 mm into the bucket's near wall. Buckets of 150-185 mm plan there.
+- **Not covered: on the handoff.** A bucket centred within about 10 cm of the handoff point (x about 0, y -0.47 to -0.55 m) is in the way of the handoff.
+
+The training layouts' bucket region stays where the release was mapped; a draw in one of these gaps is refused by the planner and drawn again (SIM_GENERATION.md).
+
+## Blocks that are not cubes
+
+A block may be a cuboid (SIM_WORKCELL.md, `cube.size`). The left takes it across a pair of its side faces, the pair facing nearest straight ahead first as for a cube, but passes over a pair its jaws cannot open across with 5 mm to spare each side (they open to about 97 mm, so every block of the training ranges fits either way). Its jaws stop at that pair's width and the right's at the block's height, and each opens 2 cm past the widest it may close on. The plan records the pair, its width and the block's height (`grasp`, and `planned_grasp` in `describe()`), and the episodes' metadata carries it.
+
+**Short blocks are refused.** The right closes on the block's top and bottom, so a short block brings its jaws close to the left's fingers, and the left backing out of the handoff passes them more closely. At the nominal start (planning only, the block 38.1 mm across): 55 mm tall, the left's retreat clears the right's fingers by 10.9 mm; 48 mm, 7.6 mm; 42 mm, 4.7 mm; 38.1 mm, 2.8 mm; 36 mm, 1.7 mm; 33 mm, 0.3 mm (refused); 30 mm, 1.2 mm into them (refused). Opening the left as wide as it goes before backing out made it worse (0.7 and 2.2 mm into the right's fingers further along), and was not kept. So blocks under about 35 mm tall are refused and drawn again: in the layout trials (SIM_GENERATION.md) every draw refused at the left's retreat had a block 31-36 mm tall, and every block that ran was at least 37 mm tall. The real blocks' tops are 37-39 mm up.
+
+## Why a plan fails
+
+A `PlanningError` lists, per wrist-roll branch and drop, why it failed: a move out of reach (`left lifts: the left gripper cannot reach [...]`) or a move that came within 1 mm (`drop from the front: right carries: <robot geom> comes 0.4 mm from <geom>`). The demonstrator keeps them as `notes`. A generator counts a refused draw with this reason.
+
+Planning the same trial again (the same workcell, start and limits) reuses the plan: a generator plans a drawn layout before it runs it, and the trial's own reset then costs nothing.
 
 ## Results
 
 Through the receiver with driven grippers on the measured bench:
 
-- **Nominal cube start (0.15, -0.35):** success. Pickup at 6.3 s, handoff at 23.7 s, bucket settled at 49.2 s, with no clipped commands. Before the quarter-turn take the handoff came at 19.5 s and the bucket at 39.4 s. `tests/contract/test_demonstrator.py` runs this trial.
+- **Nominal cube start (0.15, -0.35):** success. Pickup at 6.3 s, handoff at 23.7 s, bucket settled at 49.2 s, with no clipped commands. Before the quarter-turn take the handoff came at 19.5 s and the bucket at 39.4 s. Until 2026-10-18 `tests/contract/test_demonstrator.py` ran this trial.
+- **On the interim layout (2026-10-18), the nominal start at the near real block, turned -37 degrees:** success through the receiver with driven grippers (`tests/contract/test_demonstrator.py`), dropping "lower, from closer in front" into the depth-measured box. The far-corner and turned-cube tests keep the 2026-10-17 placeholder layout they were planned on (`tests/fixtures/minerva_workcell_placeholder_20261017.json`).
 - **Default 3x3 grid, first placeholder region:** 5/10 succeeded (Wilson 95% 0.24-0.76).
   - Every trial that planned succeeded.
   - The other five could not plan their pick, at the region's far edge (y -0.41 to -0.42) and near edge (y -0.28), at x 0.08-0.22.
@@ -90,7 +128,8 @@ Through the receiver with driven grippers on the measured bench:
 
 ## Limits
 
-- The bench's positions are still placeholders: the table's position, the bucket's position and height, and the cube region (SIM_WORKCELL.md). A measured layout needs its own reach and clearance check (`tests/unit/test_demonstrator.py` runs one).
+- The robot's place relative to the tags is an interim placeholder, and the table follows it (SIM_WORKCELL.md). A measured place needs its own reach and clearance check (`tests/unit/test_demonstrator.py` runs one), and the cube region and nominal start may move with it.
+- Tall buckets near the robot, buckets beyond y -0.85 m and buckets on the handoff point are not released into ("Drops"), and blocks under about 35 mm tall are refused at the left's retreat ("Blocks that are not cubes").
 - The demonstrator reads the cube's start pose, which a learned policy must not see. It starts from a fixed pose above the table, not from the hanging arms, and the harness stages it there.
 - The nominal plan's tightest point is the left's fingers backing out 2.5 mm from the right's after letting go; the next is the move to the handoff, 4.6 mm over the table. At the grasp the left's fingers pass 9.4 mm over the table (2.4 mm with the old pad boxes, whose corners reached lower than the finger's rounded tip). Tracking error that brings the robot more than 2 mm into the table, the bucket or the other arm makes the trial ineligible.
 - The arms remain kinematic, so the grippers cannot push each other. The scene audits one arm passing into the other instead.

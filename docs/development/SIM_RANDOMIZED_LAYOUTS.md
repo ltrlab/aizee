@@ -1,0 +1,42 @@
+# Feature task: a black robot and randomized training layouts
+
+- **Branch and worktree:** `claude/sim-randomized-layouts` in `C:\Users\ltr\Workspace\aizee-sim-random`. It is stacked on `claude/sim-table-fiducials` and merges it in at `61e996c` (the depth-measured box and head camera); merging this branch brings in that one.
+- **Base commit:** `01e2198124211c789d1f3f8d12cda57894e10838` (`claude/sim-table-fiducials`), with `61e996cda7bb3c4bdbb1ce16d98f9ce72bc1bb79` merged at `8b050bc`.
+- **Owner:** Claude (a subagent of the 2026-10-18 session), at the user's request: "change the color of the robot make sure the entire body is black similar to the real robot. also the sim episodes we train on should vary the size and location of both the bucket and the blocks." The coordinator added the interim robot placement, the depth-centred ranges and cuboid blocks.
+- **Problem / saved reproducer.**
+  - The sim robot was drawn in the CAD's greys and whites; the real one is black.
+  - Generated episodes all shared one table, box and block: `generate` only moved the cube over a grid.
+  - With the placeholder `robot_offsets`, the calibrated head camera sat inside the robot's torso: 155 of 169 rays through its image met the torso (`git show 01e2198`, any head render; SIM_WORKCELL.md, "The robot's interim place").
+  - On the merged workcell (the box where the depth puts it) the demonstrator found no plan: "no plan reaches the cube at [0.15, -0.35, 0.531]" (`tests/unit/test_demonstrator.py` at `8b050bc`).
+- **Hypothesis.** A matte black material on every robot geom changes only what the cameras see. Layouts drawn per episode from one sourced randomization file, each planned by the demonstrator and drawn again when it cannot be, give episodes whose block, bucket, table placement and head camera vary over the announced ranges, at a rejection rate that is the cost and not hidden. A rectangle offset that clears the torso with margin, and drops that reach taller and farther buckets, make the measured box plannable.
+- **Owned files:**
+  - `simulation/layouts.py` (new), `config/devices/simulation/minerva-production-01-randomization.json` (new)
+  - in `simulation/task_scene.py`: the robot finish (`ROBOT_*`), the table's yaw, the cuboid block, `randomize_appearance(cameras=)`
+  - in `simulation/workcell.py`: `table_yaw`, `on_table`/`table_frame`, `from_document`, `cube_size`/`block`
+  - in `evaluation/demonstrator.py`: the planning scene's cache key, `DROPS`, the split at the handoff (`_to_handoff`, `_drop`), `notes`, the plan memo, the cuboid grasp (`across`, `_takeable`, `grasp`)
+  - in `evaluation/generate.py`: `draw_layout`, `HeadCameraClearance`, the layout loop, `EpisodeRecorder.annotate`, `generate(attempts=)`; `TrialRunner.plan/use_workcell` in `runner.py`; `generate --randomize` in `__main__.py`
+  - the workcell file's `robot_offsets`, `table.center`, `cube.start`, `cube.region`
+  - `scripts/sim/trial_trace.py`, `scripts/sim/layout_trials.py` (new)
+  - tests: `test_robot_finish.py`, `test_layouts.py`, `test_generate_layouts.py` (new); additions to `test_workcell.py`, `test_demonstrator.py`; `tests/fixtures/minerva_workcell_placeholder_20261017.json` (new)
+  - docs: this file, and sections of SIM_WORKCELL.md, SIM_DEMONSTRATOR.md, SIM_GENERATION.md, MINERVA_TASK_SCENE.md.
+- **Shared interfaces held fixed.** The receiver, lifecycle, approach and collision contract; the episode writer and format 8; the policy interface. Additive only: `Workcell.table_yaw/cube_size/block`, `workcell.from_document/on_table/table_frame`, `MinervaTaskScene.randomize_appearance(cameras=)`, `TrialRunner.plan/use_workcell`, `generate(layouts=, attempts=)`, `generate --randomize`, the capabilities' `robot_finish` and `task_parameters.cube_size_m`, the episode metadata's `layout` and the demonstrator description's `drops`, `planned_drop`, `planned_grasp`.
+  - **Behaviour change:** the default workcell's robot offset, table, nominal start and cube region (the interim layout). `helm --sim`, the evaluation harness and generation without `--randomize` all use it.
+  - **Behaviour change:** when the first drop does not plan or clear, the demonstrator now tries five more; before, the layout was refused.
+- **Dependencies / integration order.** After `claude/sim-table-fiducials` (merged in). Nothing depends on this branch. The coolserver generation pipeline (`~/aizee-sim/bin/gen_parallel.py`, `launch_gen.sh`) runs it unchanged, passing `--randomize config/devices/simulation/minerva-production-01-randomization.json` after `--`; its Linux `control_harness` and `librobot_collision.so` (built from `01e2198`) match this branch's `rust/` tree and `Cargo.lock`.
+- **Required behavior and bounds:**
+  - Every robot geom, both visual modes, is near-black: each RGB channel at most 0.06, its material's too, with no specular, shininess or reflection; rendered at the appearance variation's brightest look, no robot pixel is brighter than 32/255. The workcell, block and tags keep their colours.
+  - The nominal trial is bit for bit the same: on `01e2198`'s workcell, every scene step's time, qpos, qvel and surface-velocity digest, and the events, match `01e2198` through every commit up to the cuboid and drop changes (19,687 steps; pickup 6.2780 s, handoff 23.6625 s, bucket 49.2160 s).
+  - Layouts are reproducible from their seed, stay inside their ranges and regions, keep the bucket on the table and 3 cm clear of the block, and move the table group rigidly; an episode records its layout.
+  - A drawn layout runs only if the demonstrator plans it and its head camera stands clear of the robot.
+- **Acceptance command and expected result.** `python scripts/dev.py check --offline`, zero skips; it adds `test_robot_finish`, `test_layouts` and `test_generate_layouts`. Not run here yet: the laptop runs one gate at a time, and the coordinator sequences them. Focused runs on the laptop (2026-10-18): `test_workcell`, `test_demonstrator`, `test_robot_finish`, `test_layouts` 54 passed; `tests/contract/test_demonstrator.py`, `test_generate.py`, `test_generate_layouts.py` passed through the receiver.
+- **Source/model identity and seed.** MuJoCo 3.15.0; coolserver runs used trees `tree-d8240dd` and `tree-0789f74` (this branch's files), the Linux binaries of `~/aizee-sim/bin/BUILD_INFO.json`. Layout seeds: generate's `--seed` and the attempt, [seed, attempt, draw]; layout trials seed 2000; smoke runs seed 3000.
+- **Results / evidence:**
+  - **Black robot:** SIM_WORKCELL.md and MINERVA_TASK_SCENE.md; renders in `build/sim-random/` (this worktree).
+  - **Interim placement:** SIM_WORKCELL.md, "The robot's interim place"; `build/sim-random/head-interim-0.36.png` (sim head view beside the real frame).
+  - **Drops and blocks:** SIM_DEMONSTRATOR.md, "Drops", "Blocks that are not cubes".
+  - **Layouts:** SIM_GENERATION.md, "Randomized layouts"; layout trials in `build/sim-random/trials-*/`; smoke episodes' contact sheets in `build/sim-random/smoke-random-*/` (episodes on coolserver, `~/aizee-sim/gen/smoke-random-0789f74/`).
+- **Remaining uncertainty / physical inputs needed:**
+  - **The robot's place.** `robot_offsets` is an interim placeholder (0.325, 0.36); tape numbers or the depth registration (SIM_WORKCELL.md) replace it, and then the cube region, nominal start and both randomization regions need re-planning.
+  - **The blocks and the box.** Size, mass and friction; the ranges re-centre on them when taped and weighed.
+  - **Coverage gaps (refused, drawn again):** blocks under about 35 mm tall; tall buckets near the robot; buckets beyond y -0.85 m or on the handoff point; head cameras within 2 cm of the robot (29% of draws). See SIM_DEMONSTRATOR.md and SIM_GENERATION.md.
+  - **The head view.** The robot's arms are seen from a camera whose place on the robot is a guess; the wrist cameras are still uncalibrated.

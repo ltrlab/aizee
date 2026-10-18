@@ -19,12 +19,12 @@ Measured by the user on 2026-10-16:
 | Appearance | black table with silver trim, cardboard box, wood cubes |
 
 Not measured yet. These are placeholders and should be measured:
-- **Table position.** Where its near edge is relative to the hanging arms, and whether the robot is centred on the long side.
+- **Table position.** Where it is relative to the robot, and whether the robot is centred on the long side. Its near edge relative to the tags comes from the head camera ("The robot's interim place"), so the table follows the rectangle's interim offset.
 - **Bucket.** Wall and bottom thickness. Its size, place, turn and rim height are estimated from the head camera's depth and the tags ("The head camera's depth"), not taped.
 - **Table details.** Thickness, the floor height and the trim width.
-- **Cube.** Mass (weigh one), friction against the finger pads, and its size: the head camera suggests the two blocks are not 38.1 mm cubes ("The head camera's depth").
+- **Cube.** Mass (weigh one), friction against the finger pads, and its size: the head camera suggests the two blocks are not 38.1 mm cubes ("The head camera's depth"). A workcell may give a block's three edges (`cube.size`: x and y along its yaw, z up) instead of one `cube.edge`; the scene rests it at half its height, and the bucket counts it in by its shortest half edge across and its longest up.
 - **Cube positions.** The region trials place the cube in.
-- **Tag rectangle.** Where it is relative to the robot (see "Fiducial tags and the head camera"); the head camera follows it.
+- **Tag rectangle.** Where it is relative to the robot (see "Fiducial tags and the head camera"); the head camera follows it. Its offset is an interim placeholder chosen so the head camera clears the robot's torso ("The robot's interim place").
 
 A real head frame (the recording proof of 2026-10-17, `build/recording-readiness-20261016/`) shows two wood cubes on the robot's left and the box on its right, with the box's long side pointing away from the robot. The placeholders follow that arrangement. The head camera is now placed from its own depth and the fiducial tags (below); the wrist cameras are not, and still differ from the real views.
 
@@ -41,7 +41,7 @@ The bucket may be rectangular and rotated. The scene's in-bucket check uses the 
 The printed ArUco labels (`claude/table-fiducial-labels`, TABLE_FIDUCIALS.md there) are the real-to-sim calibration reference (the user, 2026-10-18: "now use that as the calibration reference for the real2sim"). They are in the workcell file's `fiducials` section, the scene draws them, and the scene's head camera is calibrated against them.
 
 - **The tag rectangle.** The user taped tags 0-3 as a 650 x 441 mm rectangle over the outer corners of their black squares (0 near-left, 1 near-right, 2 far-right, 3 far-left). The head camera settles that the corners are the squares', not the labels': with the D435's intrinsics the squares' corners fit at 0.75 px RMS, the labels' at 3.59 px. Tags 4 and 5 lie at the middles of the near and far sides, where the head camera puts them (rays through their corners onto the table plane). The user confirmed the near-middle tag is ID 4.
-- **Frames.** Tags 0-5 and the head camera are given in the rectangle's frame: origin at the outer corner of tag 0's square, x along the near side toward tag 1, y away from the robot, z up from the table top. One entry places the rectangle relative to the robot: `fiducials.rectangle.robot_offsets` (c, d) puts its origin at base (c, -d), with `yaw_deg` its turn from square. Both are placeholders (centred on the robot, the near tags 18 cm in front of the hanging arms). Measuring them moves the tags and the camera together; the head camera's mount relative to the robot then follows, and that becomes the lasting calibration. A tag may also be given in the table frame (origin at the table top's near-left outer corner; table (x, y) is base (c - x, -d - y)).
+- **Frames.** Tags 0-5 and the head camera are given in the rectangle's frame: origin at the outer corner of tag 0's square, x along the near side toward tag 1, y away from the robot, z up from the table top. One entry places the rectangle relative to the robot: `fiducials.rectangle.robot_offsets` (c, d) puts its origin at base (c, -d), with `yaw_deg` its turn from square. Both are placeholders: since 2026-10-18 an interim (c, d) = (0.325, 0.36) m, centred on the robot with the near side 36 cm in front of the hanging arms, square ("The robot's interim place"); before that the near tags were 18 cm out, which put the head camera inside the robot's torso. Measuring them moves the tags and the camera together; the head camera's mount relative to the robot then follows, and that becomes the lasting calibration. A tag may also be given in the table frame (origin at the table top's near-left outer corner; table (x, y) is base (c - x, -d - y)).
 - **Labels.** Family DICT_4X4_50, black square 43.18 mm (the user's calipers, 2026-10-18; the 10 mm scale arms measure 10 mm). The label drawn is the printed area, 58.93 x 71.71 mm, the tag centre 6.39 mm from its centre toward its far end. The tape's unprinted white margins are not drawn. Every flat label lies with its text end toward the robot, so its marker frame (OpenCV's: x right, y toward the top of the code, z out of the label) is the rectangle's.
 - **Tags on the box.** Tag 6 is upright on the front wall's outer face and tag 7 on the back wall's inner face, near the rim, both facing the robot. That is how the head camera decodes them (0 cells wrong); the user's description had them the other way round. They follow the box's pose (`wall`, `face`, `along`, `below_rim`); their centres are 42 mm below the rim (the head camera's depth and the tags' own squares).
 
@@ -70,7 +70,27 @@ The printed ArUco labels (`claude/table-fiducial-labels`, TABLE_FIDUCIALS.md the
   - 03:25Z, the frame it was fitted on: tags 0, 2, 3, 4, 5 at 0.77, 0.75, 0.73, 0.57, 0.79 px.
   - 03:45Z, with the box placed: tags 0, 3, 4, 5 at 3.6, 3.8, 1.4, 3.3 px. Refitted on that frame the camera differs by 2 mm and 0.48 degrees (0.81 px RMS on tags 0, 3, 4, 5): the table, or the robot, probably turned about half a degree when the box went down.
 - **Proof in the render.** The scene rendered through its head camera (MuJoCo 3.15, EGL, robot hidden; `scripts/sim/render_head_depth.py`), OpenCV finds tags 0, 3, 4, 5, 6 and 7 in the render within 0.55 px RMS of where `head_pinhole` projects them, so the render is the pinhole model. Against the real frame of 04:45Z, the rendered flat tags miss by 3.5 px RMS (the tape's 1.9%), tag 6 by 3.8 px and tag 7 by 7.9 px.
-- **The robot in the view.** With the placeholder `robot_offsets`, the camera sits at base (0.050, 0.118, 1.067) m, and the robot model's own links fill most of its view (`render_fiducial_views.py`'s head.png). The real camera sees no part of the robot. Until the robot is registered to the camera (below), render the head view with the robot hidden, as `render_head_depth.py` does.
+- **The robot in the view.** With the first placeholder `robot_offsets`, the camera sat at base (0.050, 0.118, 1.067) m, inside the robot model's torso, whose links filled most of its view (`render_fiducial_views.py`'s head.png). The real camera sees no part of the robot. At the interim offset (below) it sits at base (0.050, -0.083, 1.067) m, 3.5 cm in front of the torso, and with the arms hanging no ray through its image meets the robot. `render_head_depth.py` still hides the robot, which the depth comparison needs.
+
+### The robot's interim place
+
+The rectangle's place on the robot is not measured, and the head camera is given in the rectangle frame. With the first placeholder (the near side 15.8 cm in front of the hanging arms) the camera sat inside the torso, so every generated head frame showed the inside of the robot. Until the user's tape numbers, or a registration of the robot to the head camera (below), place it, the workcell holds an interim offset chosen from the camera and the reach (2026-10-18, on the depth-anchored camera):
+
+- **Torso clearance.** Rays through the camera's whole image (96 x 72 of them, the arms hanging, CAD visuals) meet the torso until the near side is 0.318 m in front of the hanging arms (centred, square). The camera sits within 3 cm of the torso's nearest surface until 0.355 m (rays in 4000 directions).
+- **Reach.** For a cube at each 5 cm cell of the rectangle (117 cells, 31 of them on or against the box where the depth puts it), the handoff demonstrator planned the whole task, the release into that box included (`scripts/sim` reach probes, run on coolserver):
+
+  | Near side | Camera to torso | Cube picked (of 86) | Whole task plans and clears (of 86) |
+  |---|---|---|---|
+  | 0.33 m | 1.2 cm | 81 | 50 |
+  | 0.36 m | 3.5 cm | 79 | 50 |
+  | 0.40 m | 7.1 cm | 70 | 49 |
+  | 0.45 m | 11.8 cm | 61 | 45 |
+
+  The release into the real box works at every offset (with the drop "lower, from closer in front": 8 cm over the 189 mm rim). The whole task clears over the rectangle's left half (u 25-275 mm, v 25-375 mm); nearer the box most plans come within 1 mm of it, and at the far right the left cannot pick.
+- **Chosen: 0.36 m.** The smallest of these that keeps 3 cm of margin from the torso, with nearly all of the reach of 0.33 m. `fiducials.rectangle.robot_offsets` is (0.325, 0.36), its source marking it interim and a placeholder.
+- **The table** follows the rectangle: its black top ends 29.5 mm in front of the near side, where the silver trim's inner edge is in the head camera's colour frame (rows 465-474 of depth-20261018T044530Z, back-projected through the depth-anchored camera onto the table plane; it runs within 0.3 degrees of the near side), then the 20 mm placeholder trim. Its centre is (0, -0.6915) m.
+- **The nominal block start** is the near real block's depth-fitted place and turn, (152.8, 124.3) mm in the rectangle frame turned -37 degrees: base (0.1722, -0.4843) m. The cube region is x 0.10-0.30 m, y -0.735 to -0.385 m, where the whole task cleared.
+- **Against the real frame.** The scene's head camera at the interim offset, beside the real frame of 04:45Z with the workcell's tags projected on both (`build/sim-random/head-interim-0.36.png` in the `claude/sim-randomized-layouts` worktree): the tags, the box and the near block land where the real ones are, and no part of the robot is in view, as in the real frame.
 
 ## The head camera's depth
 
@@ -130,8 +150,8 @@ The camera's mount is temporary, so the alignment is one frame's. After the came
 
 Not done on this branch:
 - **The robot's place.** Set `fiducials.rectangle.robot_offsets` and `yaw_deg` (still placeholders), which moves the tags, the box and the head camera onto the robot. Either from the user's tape numbers (each gripper to the near side, the left gripper's sideways offset from tag 0's corner, the fingertip-to-table height) or by registering the robot to the head camera (below).
-- **The demonstrator.** The box is now where the depth puts it, and the handoff demonstrator finds no plan for the cube at the placeholder start ("no plan reaches the cube at [0.15, -0.35, 0.531]"). `tests/unit/test_demonstrator.py` and `tests/contract/test_demonstrator.py` fail until its reach map, cube region and nominal start are re-planned for this layout, best after the robot's place is measured. Generation (`scripts/sim/generate_parallel.py`), the evaluation harness and `helm --sim` default to this workcell file too.
-- **The blocks.** Measure them (above). The scene has one cube size.
+- **The demonstrator.** Done on `claude/sim-randomized-layouts` for the interim place ("The robot's interim place"): the nominal start, the cube region and the drops were re-planned with the box where the depth puts it, and the regression tests pass. Re-plan them again once the robot's place is measured.
+- **The blocks.** Measure them (above). The scene takes a cuboid (`cube.size`); the workcell keeps the user's 38.1 mm cube until the blocks are measured, and the training layouts draw cuboids (SIM_GENERATION.md).
 - **The box's lean.** The scene's walls are upright; the real front wall leans out 6.8 degrees.
 
 ### Plan: registering the robot to the head camera from depth
@@ -182,4 +202,8 @@ These are kinematic checks within the receiver's joint limits. They do not check
 - the compiled scene has every tag where its pose puts it, with its code cell by cell and a white margin round the black square;
 - the scene's head camera, as MuJoCo renders it (OpenGL's projection of `mjv_updateScene`'s frustum), projects every tag corner within 1e-3 px of the D435's pinhole model, its principal point at the D435's (639 - PPX, 479 - PPY);
 - the tags change no other body or geom, and a cube dropped onto tag 4 lands on the table exactly as without the tags;
-- a tag off the table or off its wall, in an unknown frame or face, with an unknown code or ID, or without a source is refused.
+- a tag off the table or off its wall, in an unknown frame or face, with an unknown code or ID, or without a source is refused;
+- the robot is matte black in both visual modes, the workcell keeps its colours, and the appearance variation leaves the robot black (`tests/unit/test_robot_finish.py`);
+- a turned table turns its top, trim, legs and table frame, and a tag off the turned top is refused;
+- a block may be a cuboid (`cube.size`): the scene builds it so and rests it at half its height;
+- the scene's head camera renders every visible tag within 0.5 px of the D435's pinhole (a segmentation render), and MuJoCo renders the optical axis at minus `principalpixel` from the image centre.
