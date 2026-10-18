@@ -481,8 +481,36 @@ def test_a_turned_table_turns_its_top_trim_legs_and_frame(tmp_path):
         load_workcell(_write(document, tmp_path))
 
 
+def test_a_block_may_be_a_cuboid(tmp_path):
+    """A workcell's block may give its three edges (cube.size: x and y along its yaw, z up) instead of one. The scene
+    builds it so, it rests at half its height, and the bucket counts it in by its shortest half edge across and its
+    longest up (it may land on any face). Without the entry the block is the cube of cube.edge, as before."""
+    measured = load_workcell(MEASURED)
+    assert measured.cube_size == () and measured.block == (measured.cube_edge,) * 3
+    assert measured.cube_half == measured.cube_edge / 2
+    document = json.loads(MEASURED.read_text(encoding='utf-8'))
+    document['cube']['size'] = {'value': [.052, .037, .039], 'source': 'test: the near block as the colour outline fits it'}
+    block = load_workcell(_write(document, tmp_path))
+    assert block.block == (.052, .037, .039) and block.cube_half == .0195 and block.cube_edge == .052
+    scene = MinervaTaskScene(fixture_map(), NAMES, width=64, height=48, workcell=block)
+    try:
+        assert scene.model.geom_size[scene.cube_geom] == pytest.approx((.026, .0185, .0195))
+        assert scene.capabilities['task_parameters']['cube_size_m'] == [.052, .037, .039]
+        scene._q = np.zeros(14)
+        state = scene.reset()
+        for _ in range(6):
+            state = scene.update(np.zeros(14), .05)
+        assert state['cube_position'][2] == pytest.approx(block.table_top + .0195, abs=2e-4)
+        assert state['cube_contacts'] == ['task/table'] and not state['forbidden_contacts']
+    finally:
+        scene.close()
+    document['cube']['size'] = {'value': [.20, .04, .04], 'source': 'test: longer than the box is wide'}
+    with pytest.raises(ValueError, match='fit inside'):
+        load_workcell(_write(document, tmp_path))
+
+
 @pytest.mark.parametrize('change, refusal', [
-    (lambda f: f['rectangle']['robot_offsets'].update(value=[.325, .50]), 'off the table'),
+    (lambda f: f['rectangle']['robot_offsets'].update(value=[.325, .75]), 'off the table'),
     (lambda f: f['tags']['0']['center'].update(value=[.02, .10]) or f['tags']['0'].pop('frame'), 'off the table'),
     (lambda f: f['tags']['7']['along'].update(value=.06), 'not wholly on a face'),
     (lambda f: f['tags']['6']['below_rim'].update(value=.17), 'not wholly on a face'),

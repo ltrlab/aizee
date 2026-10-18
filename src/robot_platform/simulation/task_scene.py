@@ -139,7 +139,7 @@ def _environment(world, workcell, grip_contact=False):
     if w.cube_start[2]:
         cube.set("quat", _numbers(_yaw_quat(w.cube_start[2])))
     ET.SubElement(cube, "freejoint", name="task/cube/free")
-    ET.SubElement(cube, "geom", name="task/cube/geom", type="box", size=_numbers([w.cube_half]*3),
+    ET.SubElement(cube, "geom", name="task/cube/geom", type="box", size=_numbers([edge/2 for edge in w.block]),
                   mass=str(w.cube_mass), rgba=_numbers(w.color("cube")), contype="1", conaffinity="3",
                   friction=_numbers(w.cube_friction), condim="4",
                   solref=_numbers(GRIP_SOLREF) if grip_contact else ".004 1",
@@ -537,7 +537,8 @@ class MinervaTaskScene:
             "scene_sha256": hashlib.sha256(xml.encode()).hexdigest(),
             "physics_timestep_s": PHYSICS_DT, "mujoco_version": mujoco.__version__,
             "moving_contact_velocity": "native MuJoCo geom_surfacevel from finite-difference FK poses",
-            "task_parameters": {"cube_edge_m": workcell.cube_edge, "cube_mass_kg": workcell.cube_mass,
+            "task_parameters": {"cube_edge_m": workcell.cube_edge, "cube_size_m": list(workcell.block),
+                                "cube_mass_kg": workcell.cube_mass,
                                 "friction": list(workcell.cube_friction), "table_top_m": workcell.table_top,
                                 "cube_start_m": [workcell.cube_start[0], workcell.cube_start[1],
                                                  workcell.table_top + workcell.cube_half + .002],
@@ -825,9 +826,11 @@ class MinervaTaskScene:
             self._overlap = False
             self._emit("dropped_outside_bucket")
         along_x, along_y = bucket_frame(w, xyz[0], xyz[1])
-        inside = (abs(along_x) < w.bucket_inner[0]/2 - w.cube_half and
-                  abs(along_y) < w.bucket_inner[1]/2 - w.cube_half and
-                  w.table_top < xyz[2] < w.table_top + w.bucket_bottom + w.cube_half + .008)
+        # A block may come to rest on any face: its centre within the inside by its shortest half edge, and no
+        # higher than its longest half edge above the bottom (a cube: its half edge either way).
+        inside = (abs(along_x) < w.bucket_inner[0]/2 - min(w.block)/2 and
+                  abs(along_y) < w.bucket_inner[1]/2 - min(w.block)/2 and
+                  w.table_top < xyz[2] < w.table_top + w.bucket_bottom + max(w.block)/2 + .008)
         settled = (inside and self._bucket_bottom in touched and not any(jaws.values()) and
                    np.linalg.norm(self.data.qvel[:3]) < .04)
         self._bucket_time = self._bucket_time + PHYSICS_DT if settled else 0.

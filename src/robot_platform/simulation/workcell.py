@@ -79,10 +79,18 @@ class Workcell:
     fiducials: dict = field(default_factory=dict)
     # The table's turn about its centre from square to the robot (radians); its legs are already placed with it.
     table_yaw: float = 0.
+    # A block that is not a cube: its (x, y, z) edges, z up, x along its yaw (cube.size); () for a cube of cube_edge.
+    cube_size: tuple = ()
+
+    @property
+    def block(self):
+        """The block's (x, y, z) edges: cube_size, or a cube of cube_edge."""
+        return tuple(self.cube_size) if self.cube_size else (self.cube_edge,) * 3
 
     @property
     def cube_half(self):
-        return self.cube_edge / 2
+        """Half the block's height: its centre's height above what it stands on."""
+        return self.block[2] / 2
 
     def fiducial_label(self, tag):
         """A tag's label: its centre (x, y, z), its half size (across, along) and its marker axes; `tag` is one of
@@ -109,6 +117,7 @@ class Workcell:
         values = dict(values)
         for key in ('table_center', 'table_size', 'bucket_center', 'bucket_inner', 'cube_friction', 'cube_start'):
             values[key] = tuple(float(v) for v in values[key])
+        values['cube_size'] = tuple(float(v) for v in values.get('cube_size', ()))
         values['table_legs'] = tuple(tuple(float(v) for v in leg) for leg in values['table_legs'])
         values['cube_region'] = tuple(tuple(float(v) for v in span) for span in values['cube_region'])
         values['colors'] = {key: tuple(float(v) for v in rgba) for key, rgba in values.get('colors', {}).items()}
@@ -147,20 +156,22 @@ def validate(workcell):
     w = workcell
     numbers = [w.table_top, w.table_thickness, w.table_yaw, w.floor_z, w.trim_width, w.bucket_yaw, w.bucket_height,
                w.bucket_wall,
-               w.bucket_bottom, w.cube_edge, w.cube_mass, *w.table_center, *w.table_size, *w.bucket_center,
+               w.bucket_bottom, w.cube_edge, *w.block, w.cube_mass, *w.table_center, *w.table_size,
+               *w.bucket_center,
                *w.bucket_inner, *w.cube_friction, *w.cube_start, *(v for span in w.cube_region for v in span),
                *(v for leg in w.table_legs for v in leg), *w.head_camera['pos'], *w.head_camera['xyaxes'],
                w.head_camera['fovy']]
     if not all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in numbers):
         raise ValueError(f'workcell {w.name}: every value must be a finite number')
-    if min(*w.table_size, w.table_thickness, *w.bucket_inner, w.bucket_height, w.bucket_wall, w.bucket_bottom,
-           w.cube_edge, w.cube_mass) <= 0:
-        raise ValueError(f'workcell {w.name}: sizes, thicknesses and the cube mass must be positive')
+    if len(w.block) != 3 or min(*w.table_size, w.table_thickness, *w.bucket_inner, w.bucket_height, w.bucket_wall,
+                                w.bucket_bottom, w.cube_edge, *w.block, w.cube_mass) <= 0:
+        raise ValueError(f'workcell {w.name}: sizes, thicknesses and the cube mass must be positive (a block has '
+                         'three edges)')
     if w.floor_z >= w.table_top - w.table_thickness:
         raise ValueError(f'workcell {w.name}: the floor must lie below the table')
     if w.trim_width < 0 or 2 * w.trim_width >= min(w.table_size):
         raise ValueError(f'workcell {w.name}: the trim must be a narrow border')
-    if min(w.bucket_inner) <= w.cube_edge:
+    if min(w.bucket_inner) <= max(w.block):
         raise ValueError(f'workcell {w.name}: the cube must fit inside the bucket')
     if w.bucket_bottom >= w.bucket_height:
         raise ValueError(f'workcell {w.name}: the bucket bottom must be thinner than its walls are tall')
@@ -422,6 +433,8 @@ def from_document(document, *, name='workcell', origin='the workcell document'):
     frames, rectangle = _frames(document.get('fiducials'), sources, center, size, table_yaw)
     camera = _head_camera(document['cameras']['head'], sources, top, frames)
     region = _value(cube, 'cube.region', sources, length=4)
+    # A block that is not a cube gives its three edges (x, y along its yaw, z up) instead of one.
+    block = _value(cube, 'cube.size', sources, length=3) if 'size' in cube else ()
     appearance = document.get('appearance', {})
     colors = {key: _rgba(value, f'appearance.{key}') for key, value in appearance.items()}
     unknown = set(colors) - set(COLORS)
@@ -447,7 +460,8 @@ def from_document(document, *, name='workcell', origin='the workcell document'):
         floor_z=floor, trim_width=trim,
         bucket_center=box['center'], bucket_yaw=box['yaw'], bucket_inner=box['inner'], bucket_height=box['height'],
         bucket_wall=box['wall'], bucket_bottom=box['bottom'],
-        cube_edge=_value(cube, 'cube.edge', sources), cube_mass=_value(cube, 'cube.mass', sources),
+        cube_edge=max(block) if block else _value(cube, 'cube.edge', sources), cube_size=block,
+        cube_mass=_value(cube, 'cube.mass', sources),
         cube_friction=_value(cube, 'cube.friction', sources, length=3),
         cube_start=_value(cube, 'cube.start', sources, length=3),
         cube_region=(region[0:2], region[2:4]),
