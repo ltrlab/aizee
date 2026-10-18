@@ -5,10 +5,11 @@ happens: how many draws the planner rejected and why, and how many planned layou
         [--workcell <file>] [--randomize <file>] [--timeout 90]
 
 Attempt k draws its layout as `generate --randomize` does (evaluation.generate.draw_layout, seed [SEED, k]): a layout
-the demonstrator cannot plan is drawn again, up to the file's plan_draws. Each planned layout then runs as an
-evaluation trial (the native receiver, the armplant joints, driven grippers, the contact scene) with nothing
-rendered. Worker w takes attempts w, w + W, ...; each has its own receiver. Writes attempts.jsonl (one line per
-attempt: its layout, its rejected draws with their reasons, the trial's outcome and events) and summary.json.
+the generator's checks refuse (generate.layout_checks) or the demonstrator cannot plan is drawn again, up to the file's
+plan_draws. Each planned layout then runs as an evaluation trial (the native receiver, the armplant joints, driven
+grippers, the contact scene) with nothing rendered. Worker w takes attempts w, w + W, ...; each has its own receiver.
+Writes attempts.jsonl (one line per attempt: its layout, its rejected draws with their reasons, the trial's outcome
+and events) and summary.json.
 """
 from __future__ import annotations
 
@@ -26,7 +27,7 @@ RANDOMIZATION = ROOT / 'config/devices/simulation/minerva-production-01-randomiz
 
 def _worker(job):
     from robot_platform.evaluation.demonstrator import HandoffDemonstrator
-    from robot_platform.evaluation.generate import HeadCameraClearance, draw_layout
+    from robot_platform.evaluation.generate import draw_layout, layout_checks
     from robot_platform.evaluation.plants import derive_stack
     from robot_platform.evaluation.runner import RunConfig, TrialRunner
     from robot_platform.simulation.layouts import LayoutSampler
@@ -36,7 +37,7 @@ def _worker(job):
     runner = TrialRunner(RunConfig(grippers='driven', timeout_s=args['timeout'], workcell=args['workcell'],
                                    plant_seed=worker + 1), stack=derive_stack(), directory=out / f'receiver-w{worker}')
     demo = HandoffDemonstrator()
-    camera = HeadCameraClearance(runner.stack)
+    camera = layout_checks(runner.stack, sampler.randomization)
     lines = []
     try:
         for attempt in attempts:

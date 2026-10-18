@@ -20,7 +20,9 @@ drawn (x, y) in the base frame: the robot-to-table placement, which nobody has m
 by its own shift (per axis of the frame it is given in) and turns about its own axes, about its calibrated pose.
 
 Whether the arms can do the task in a drawn layout is the planner's question, not this module's: the generator asks
-the demonstrator and draws again when it finds no plan (evaluation.generate).
+the demonstrator and draws again when it finds no plan (evaluation.generate). So is what the head camera must show: a
+file may ask that every accepted layout's head image hold the bucket's whole opening (`head_view.bucket_opening`:
+`image` [width, height] and `margin_px`), which the generator checks on each draw before planning it.
 """
 from __future__ import annotations
 
@@ -60,13 +62,18 @@ class Randomization:
     asset_id: str | None = None
     sha256: str | None = None
     path: str | None = None
+    # What the head image must hold of the bucket ({'image': (width, height), 'margin_px': m}), or None for nothing.
+    bucket_view: dict | None = None
 
     def describe(self):
         return {'name': self.name, 'asset_id': self.asset_id, 'path': self.path, 'sha256': self.sha256,
                 'ranges': {key: list(value) for key, value in self.ranges.items()},
                 'regions': {key: [list(point) for point in value] for key, value in self.regions.items()},
                 'cube_clearance_m': self.cube_clearance, 'position_draws': self.position_draws,
-                'plan_draws': self.plan_draws, 'sources': dict(self.sources)}
+                'plan_draws': self.plan_draws,
+                'bucket_view': None if self.bucket_view is None else
+                {'image': list(self.bucket_view['image']), 'margin_px': self.bucket_view['margin_px']},
+                'sources': dict(self.sources)}
 
 
 def _entry(document, group, key):
@@ -159,11 +166,24 @@ def load_randomization(path):
     if numbers['bucket.cube_clearance'] < 0 or numbers['draws.position_draws'] < 1 or numbers['draws.plan_draws'] < 1 \
             or numbers['draws.position_draws'] % 1 or numbers['draws.plan_draws'] % 1:
         raise ValueError('randomization: the clearance is not negative and the draw caps are whole and positive')
+    bucket_view = None
+    if (document.get('head_view') or {}).get('bucket_opening') is not None:
+        entry = _entry(document, 'head_view', 'bucket_opening')
+        try:
+            width, height = _numbers(entry.get('image'), 2)
+            (margin,) = _numbers([entry.get('margin_px')], 1)
+        except ValueError as exc:
+            raise ValueError(f'randomization head_view.bucket_opening: {exc}') from None
+        if min(width, height) < 1 or width % 1 or height % 1 or margin < 0 or 2 * margin >= min(width, height):
+            raise ValueError('randomization head_view.bucket_opening: a whole image size and a margin inside it')
+        bucket_view = {'image': (int(width), int(height)), 'margin_px': margin}
+        sources['head_view.bucket_opening'] = entry['source']
     return Randomization(name=str(document.get('name') or path.stem), asset_id=document.get('asset_id'),
                          ranges=ranges, regions=regions, cube_clearance=numbers['bucket.cube_clearance'],
                          position_draws=int(numbers['draws.position_draws']),
                          plan_draws=int(numbers['draws.plan_draws']), sources=sources,
-                         sha256=hashlib.sha256(text.encode('utf-8')).hexdigest(), path=str(path.resolve()))
+                         sha256=hashlib.sha256(text.encode('utf-8')).hexdigest(), path=str(path.resolve()),
+                         bucket_view=bucket_view)
 
 
 @dataclass(frozen=True)

@@ -1,14 +1,17 @@
 """Where drawn training layouts are refused, and what that does to a generated set.
 
-    python scripts/sim/layout_refusals.py map OUT.jsonl [--draws 240] [--workers 6] [--seed 5000]
+    python scripts/sim/layout_refusals.py map OUT.jsonl [--draws 240] [--workers 6] [--seed 5000] [--randomize FILE]
+        [--plan-all]
     python scripts/sim/layout_refusals.py report OUT.jsonl
     python scripts/sim/layout_refusals.py view OUT.jsonl
 
 `map` draws layouts from the production workcell and randomization files the way `generate --randomize` does (draw k
-from seed [S, k]) and puts each through the head-camera check and the demonstrator's planning, without a trial: one
-JSON line per draw with its values, verdict and reason. `report` counts the verdicts and what the refused plans met,
-and gives the acceptance by quartile of each drawn value. `view` says how much of the bucket and the block the head
-camera sees, for the workcell file's own layout and every accepted draw.
+from seed [S, k]) and puts each through the generator's checks (the head camera clear of the robot, and the bucket's
+opening in its image when the file asks for it) and the demonstrator's planning, without a trial: one JSON line per
+draw with its values, verdict, reason and the opening's slack in pixels. With --plan-all every draw is planned, so
+other checks and regions can be tried on the map afterwards. `report` counts the verdicts and what the refused plans
+met, and gives the acceptance by quartile of each drawn value. `view` says how much of the bucket and the block the
+head camera sees, for the workcell file's own layout and every accepted draw.
 
 An attempt keeps its first accepted draw, so a generated set's layouts are the drawn layouts weighted by their chance of
 acceptance: a quartile accepted at half the overall rate is half as dense in the episodes as in the draws.
@@ -29,29 +32,26 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKCELL = ROOT / 'config/devices/simulation/minerva-production-01-workcell.json'
 RANDOMIZATION = ROOT / 'config/devices/simulation/minerva-production-01-randomization.json'
 PLANNING = ('no plan clears', 'no plan reaches')
+CHECKS = ('head camera', 'bucket out of view')  # The generator's checks before planning (generate.layout_checks).
 _state = {}
 
 
-def _init():
+def _init(randomization):
     from robot_platform.evaluation.demonstrator import HandoffDemonstrator
-    from robot_platform.evaluation.generate import HeadCameraClearance
+    from robot_platform.evaluation.generate import BucketInView, HeadCameraClearance
     from robot_platform.evaluation.plants import _Stack, derive_stack
     from robot_platform.simulation.layouts import LayoutSampler
     stack = derive_stack()
-    _state.update(stack=stack, limits=_Stack(stack), demo=HandoffDemonstrator(), camera=HeadCameraClearance(stack),
-                  sampler=LayoutSampler(WORKCELL, RANDOMIZATION))
+    sampler = LayoutSampler(WORKCELL, randomization)
+    view = sampler.randomization.bucket_view
+    _state.update(stack=stack, limits=_Stack(stack), demo=HandoffDemonstrator(), clearance=HeadCameraClearance(stack),
+                  view=BucketInView(**view) if view else None,
+                  slack=BucketInView(view['image'] if view else (320, 240), 0).slack, sampler=sampler)
 
 
-def _one(key):
+def _plan(layout):
+    """The demonstrator's verdict on a layout: (verdict, reason, drop, grasp)."""
     from robot_platform.evaluation.demonstrator import PlanningError
-    try:
-        layout = _state['sampler'].draw(np.random.default_rng(key), seed=key)
-    except ValueError as exc:
-        return {'seed': key, 'verdict': 'no bucket place', 'reason': str(exc)}
-    entry = {'seed': key, 'values': layout.describe()}
-    problem = _state['camera'](layout.workcell)
-    if problem:
-        return dict(entry, verdict='head camera', reason=problem)
     stack, limits = _state['stack'], _state['limits']
     # The context TrialRunner.plan gives the demonstrator, without opening a plant.
     context = SimpleNamespace(joint_names=stack['names'], joint_map=stack['derived']['joint_map'], lower=limits.lower,
@@ -61,15 +61,39 @@ def _one(key):
         _state['demo'].reset(context)
     except PlanningError as exc:
         text = str(exc)
-        return dict(entry, verdict=PLANNING[0] if PLANNING[0] in text else PLANNING[1], reason=text)
-    return dict(entry, verdict='planned', drop=_state['demo'].drop['name'], grasp=_state['demo'].grasp)
+        return PLANNING[0] if PLANNING[0] in text else PLANNING[1], text, None, None
+    return 'planned', None, _state['demo'].drop['name'], _state['demo'].grasp
+
+
+def _one(task):
+    """One draw's verdict as the generator reaches it (the head camera's clearance, then the bucket's opening in its
+    image when the file asks for it, then planning), with the opening's slack in pixels; with `plan_all`, the
+    demonstrator's verdict on every draw too (`plan`), refused or not."""
+    key, plan_all = task
+    try:
+        layout = _state['sampler'].draw(np.random.default_rng(key), seed=key)
+    except ValueError as exc:
+        return {'seed': key, 'verdict': 'no bucket place', 'reason': str(exc)}
+    slack = _state['slack'](layout.workcell)
+    clearance = _state['clearance'](layout.workcell)
+    view = _state['view'](layout.workcell) if _state['view'] else None
+    entry = {'seed': key, 'values': layout.describe(), 'camera': clearance,
+             'opening_slack_px': None if slack == -math.inf else slack}
+    refused = ('head camera', clearance) if clearance else ('bucket out of view', view) if view else None
+    if refused and not plan_all:
+        return dict(entry, verdict=refused[0], reason=refused[1])
+    verdict, reason, drop, grasp = _plan(layout)
+    entry.update(plan=verdict, drop=drop, grasp=grasp)
+    if refused:
+        return dict(entry, verdict=refused[0], reason=refused[1], plan_reason=reason)
+    return dict(entry, verdict=verdict, reason=reason)
 
 
 def run_map(args):
-    keys = [[args.seed, k] for k in range(args.draws)]
-    with ProcessPoolExecutor(max_workers=args.workers, initializer=_init) as pool, \
+    tasks = [([args.seed, k], args.plan_all) for k in range(args.draws)]
+    with ProcessPoolExecutor(max_workers=args.workers, initializer=_init, initargs=(args.randomize,)) as pool, \
             open(args.out, 'w', encoding='utf-8') as out:
-        for result in pool.map(_one, keys, chunksize=1):
+        for result in pool.map(_one, tasks, chunksize=1):
             out.write(json.dumps(result) + '\n')
             out.flush()
 
@@ -131,9 +155,9 @@ def report(path):
     planned = verdicts['planned']
     low, high = wilson(planned, n_all)
     print(f'accepted {planned}/{n_all} = {planned / n_all:.0%} (Wilson 95% {low:.2f}-{high:.2f})')
-    tried = [r for r in rows if r.get('values') and r['verdict'] != 'head camera']
+    tried = [r for r in rows if r.get('values') and r['verdict'] not in CHECKS]
     low, high = wilson(planned, len(tried))
-    print(f'planned of those past the head-camera check: {planned}/{len(tried)} = {planned / len(tried):.0%} '
+    print(f'planned of those past the head-camera checks: {planned}/{len(tried)} = {planned / len(tried):.0%} '
           f'(Wilson 95% {low:.2f}-{high:.2f})')
 
     per_refusal, moves = collections.Counter(), collections.Counter()
@@ -158,8 +182,8 @@ def report(path):
 
     valued = [r for r in rows if r.get('values')]
     overall = planned / n_all
-    print('\nby quartile: accepted (density in the episodes against the draws), head-camera refusals of all, '
-          'planning refusals of those planned')
+    print('\nby quartile: accepted (density in the episodes against the draws); head-camera and bucket-view refusals '
+          'of all; planning refusals of those planned')
     for name, value in VALUES.items():
         values = sorted(value(r['values']) for r in valued)
         edges = [values[int(len(values) * q / 4)] for q in range(4)] + [values[-1] + 1e-9]
@@ -167,18 +191,18 @@ def report(path):
         for low, high in zip(edges, edges[1:]):
             group = [r for r in valued if low <= value(r['values']) < high]
             counts = collections.Counter(r['verdict'] for r in group)
-            n, past = len(group), len(group) - counts['head camera']
+            n, past = len(group), len(group) - sum(counts[k] for k in CHECKS)
             refused = sum(counts[k] for k in PLANNING)
             cells.append(f"{low:6.2f}..{high:6.2f}: {counts['planned'] / n:4.0%} "
                          f"({counts['planned'] / n / overall:3.1f}x) cam {counts['head camera'] / n:3.0%} "
-                         f"plan {refused / past if past else 0:3.0%}")
+                         f"view {counts['bucket out of view'] / n:3.0%} plan {refused / past if past else 0:3.0%}")
         print(f'{name:22s} | ' + ' | '.join(cells))
 
     xs = sorted(VALUES['bucket x m'](r['values']) for r in tried)
     ys = sorted(VALUES['bucket y m'](r['values']) for r in tried)
     xe = [xs[int(len(xs) * q / 3)] for q in range(3)] + [xs[-1] + 1e-9]
     ye = [ys[int(len(ys) * q / 3)] for q in range(3)] + [ys[-1] + 1e-9]
-    print('\nbucket centre as drawn (base frame, before the table offset): planned / past the head-camera check')
+    print('\nbucket centre as drawn (base frame, before the table offset): planned / past the head-camera checks')
     print(' ' * 17 + ''.join(f'x {xe[i]:+.2f}..{xe[i + 1]:+.2f}  ' for i in range(3)))
     for j in reversed(range(3)):
         line = f'y {ye[j]:+.2f}..{ye[j + 1]:+.2f}  '
@@ -188,7 +212,7 @@ def report(path):
             ok = sum(r['verdict'] == 'planned' for r in cell)
             line += f'  {ok:2d}/{len(cell):2d} ({ok / len(cell) if cell else 0:4.0%})  '
         print(line)
-    print('\nblock height (1 mm bins, past the head-camera check): planned / tried')
+    print('\nblock height (1 mm bins, past the head-camera checks): planned / tried')
     heights = collections.defaultdict(lambda: [0, 0])
     for r in tried:
         cell = heights[int(VALUES['block height mm'](r['values']))]
@@ -253,6 +277,9 @@ def main():
     mapping.add_argument('--draws', type=int, default=240)
     mapping.add_argument('--workers', type=int, default=6)
     mapping.add_argument('--seed', type=int, default=5000)
+    mapping.add_argument('--randomize', default=str(RANDOMIZATION), help='the randomization file to draw from')
+    mapping.add_argument('--plan-all', action='store_true',
+                         help='plan every draw, the refused ones too, so that other checks can be tried on the map')
     for name in ('report', 'view'):
         commands.add_parser(name).add_argument('out')
     args = parser.parse_args()

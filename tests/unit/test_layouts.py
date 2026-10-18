@@ -77,6 +77,11 @@ def test_every_range_names_its_source_as_a_training_design_choice():
     (lambda d: d['cube'].update(region={'polygon': [[0, -.4], [.1, -.4], [.2, -.4]], 'source': 'test'}), 'no area'),
     (lambda d: d['cube']['mass'].update(rule='fixed'), 'rule'),
     (lambda d: d['head_camera']['shift'].update(range=[.01, .02]), 'calibrated pose'),
+    (lambda d: d['head_view']['bucket_opening'].pop('source'), 'named source'),
+    (lambda d: d['head_view']['bucket_opening'].update(margin_px=-1), 'margin inside'),
+    (lambda d: d['head_view']['bucket_opening'].update(margin_px=120), 'margin inside'),
+    (lambda d: d['head_view']['bucket_opening'].update(image=[320.5, 240]), 'whole image'),
+    (lambda d: d['head_view']['bucket_opening'].update(image=[320]), 'head_view.bucket_opening'),
 ])
 def test_a_randomization_file_that_cannot_be_drawn_from_is_refused(tmp_path, change, refusal):
     document = json.loads(RANDOMIZATION.read_text(encoding='utf-8'))
@@ -85,6 +90,30 @@ def test_a_randomization_file_that_cannot_be_drawn_from_is_refused(tmp_path, cha
     path.write_text(json.dumps(document), encoding='utf-8')
     with pytest.raises(ValueError, match=refusal):
         load_randomization(path)
+
+
+def test_every_layout_must_show_the_bucket_opening_and_the_real_box_does():
+    """The file asks that every accepted layout's head image hold the bucket's whole opening (the coordinator,
+    accepted by the user, 2026-10-18), with a margin the depth-measured box itself passes, about 9 px from the image's
+    right edge at 320 x 240: the real layout stays in the training set. A file without it asks for nothing."""
+    from robot_platform.evaluation.generate import BucketInView
+    randomization = load_randomization(RANDOMIZATION)
+    assert randomization.bucket_view == {'image': (320, 240), 'margin_px': 5.}
+    assert randomization.describe()['bucket_view'] == {'image': [320, 240], 'margin_px': 5.}
+    source = randomization.sources['head_view.bucket_opening']
+    assert 'design choice' in source and '2026-10-18' in source
+    check = BucketInView(**randomization.bucket_view)
+    assert check(load_workcell(WORKCELL)) is None
+    assert check.slack(load_workcell(WORKCELL)) >= randomization.bucket_view['margin_px']
+
+
+def test_a_file_without_a_head_view_asks_for_nothing(tmp_path):
+    document = json.loads(RANDOMIZATION.read_text(encoding='utf-8'))
+    document.pop('head_view')
+    path = tmp_path / 'randomization.json'
+    path.write_text(json.dumps(document), encoding='utf-8')
+    randomization = load_randomization(path)
+    assert randomization.bucket_view is None and randomization.describe()['bucket_view'] is None
 
 
 def test_a_seed_draws_the_same_layout_and_another_seed_another(sampler):

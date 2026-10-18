@@ -179,10 +179,70 @@ class HeadCameraClearance:
         self.scene.close()
 
 
+class BucketInView:
+    """Whether a drawn layout's head camera shows the bucket's whole opening: the four corners of its inside rim, at
+    the walls' top, each at least `margin_px` inside a width x height image (workcell.bucket_opening_pixels), with the
+    layout's own head camera pose, its drawn jitter included. A randomization file asks for it
+    (`head_view.bucket_opening`)."""
+
+    def __init__(self, image, margin_px):
+        self.width, self.height = (int(v) for v in image)
+        self.margin = float(margin_px)
+
+    def slack(self, workcell):
+        """How far inside the image the opening's nearest corner to an edge is, in pixels (negative: outside; -inf: a
+        corner behind the camera)."""
+        from robot_platform.simulation.workcell import bucket_opening_pixels
+        corners = bucket_opening_pixels(workcell, self.width, self.height)
+        if any(corner is None for corner in corners):
+            return -math.inf
+        return min(min(u, self.width - 1 - u, v, self.height - 1 - v) for u, v in corners)
+
+    def __call__(self, workcell):
+        """None if the opening is in view, else why not."""
+        slack = self.slack(workcell)
+        if slack >= self.margin:
+            return None
+        where = 'behind the camera' if slack == -math.inf else f'{-slack:.1f} px outside' if slack < 0 else \
+            f'only {slack:.1f} px inside'
+        return (f"head camera: the bucket's opening is not whole in its {self.width} x {self.height} image with "
+                f"{self.margin:g} px to spare (a corner {where})")
+
+    def close(self):
+        pass
+
+
+class LayoutChecks:
+    """A drawn layout's checks before the demonstrator plans it, in order: the first problem refuses the draw."""
+
+    def __init__(self, checks):
+        self.checks = list(checks)
+
+    def __call__(self, workcell):
+        for check in self.checks:
+            problem = check(workcell)
+            if problem is not None:
+                return problem
+        return None
+
+    def close(self):
+        for check in self.checks:
+            check.close()
+
+
+def layout_checks(stack, randomization):
+    """The checks a drawn layout passes before planning: its head camera clear of the robot (HeadCameraClearance) and,
+    when the randomization file asks for it, the bucket's whole opening in the head image (BucketInView)."""
+    checks = [HeadCameraClearance(stack)]
+    if randomization.bucket_view is not None:
+        checks.append(BucketInView(**randomization.bucket_view))
+    return LayoutChecks(checks)
+
+
 def draw_layout(runner, policy, sampler, seed, camera=None):
     """A layout `policy` can plan (simulation.layouts.LayoutSampler, drawn from seed + [draw]), and every draw rejected
     on the way: [{'draw', 'reason', 'layout'}]. (None, rejections) when none of the file's `plan_draws` plans. With
-    `camera` (HeadCameraClearance), a draw whose head camera does not stand clear of the robot is rejected too."""
+    `camera` (a check such as layout_checks gives: None, or why not), a draw it refuses is rejected too."""
     rejections = []
     for draw in range(sampler.randomization.plan_draws):
         key = [*seed, draw]
@@ -211,7 +271,8 @@ def generate(policy, config, out, *, episodes, stack=None, hz=15., appearance=AP
     the configured workcell. With `layouts` (a simulation.layouts.LayoutSampler), attempt k draws its layout from
     [config.grid.seed, k] (draw_layout): the cube's start is the layout's, and the head camera's pose is the layout's
     too, so the appearance variation moves only the wrist cameras. A draw whose head camera does not stand clear of
-    the robot (HeadCameraClearance) is drawn again, as one the demonstrator cannot plan."""
+    the robot, or (when the randomization file asks for it) does not show the bucket's whole opening, is drawn again
+    (layout_checks), as one the demonstrator cannot plan."""
     from dataclasses import replace
     from .grid import cube_poses
     from .runner import TrialRunner, git_identity
@@ -229,7 +290,7 @@ def generate(policy, config, out, *, episodes, stack=None, hz=15., appearance=AP
     cap = max(2 * episodes, 10) if attempts is None else int(attempts)
     made, attempts, seed = [], 0, config.grid.seed
     manifest = (out / 'manifest.jsonl').open('a', encoding='utf-8')
-    camera = HeadCameraClearance(runner.stack) if layouts is not None else None
+    camera = layout_checks(runner.stack, layouts.randomization) if layouts is not None else None
 
     def note(entry, record, path):
         entry.update(outcome=record['outcome'], detail=record.get('detail'), episode=str(path) if path else None,
