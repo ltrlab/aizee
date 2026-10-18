@@ -43,8 +43,10 @@ def test_measured_file_names_a_source_for_every_value_and_lists_what_is_unmeasur
     assert workcell.cube_edge == pytest.approx(.0381) and workcell.bucket_inner == pytest.approx((.152, .305))
     measured = {'table.size', 'table.top_z', 'bucket.inner_size', 'cube.edge'}
     assert measured.isdisjoint(workcell.placeholders())
-    assert {'table.center', 'bucket.center', 'bucket.height', 'cube.mass', 'cameras.head.pos',
-            'fiducials.rectangle.robot_offsets'} <= set(workcell.placeholders())
+    # The head camera is measured against the tags; where the tags are relative to the robot is not yet.
+    assert {'table.center', 'bucket.center', 'bucket.height', 'cube.mass', 'fiducials.rectangle.robot_offsets'} <= \
+        set(workcell.placeholders())
+    assert {'cameras.head.pos', 'cameras.head.xyaxes', 'cameras.head.fovy'}.isdisjoint(workcell.placeholders())
     assert all(workcell.sources[key] for key in workcell.sources)
     # The description crosses process boundaries unchanged.
     assert Workcell.from_description(json.loads(json.dumps(workcell.describe()))) == workcell
@@ -170,6 +172,9 @@ def test_the_tags_sit_where_the_rectangle_and_the_bucket_put_them():
     # On the table every marker frame is the rectangle's, turned onto the base: x along its near side, y away.
     for tag_id in range(6):
         assert np.array(marker_axes(*tags[tag_id][4:])).T == pytest.approx(HALF_TURN, abs=1e-12)
+    # The head camera is given in the rectangle too, so it moves with the tags.
+    head = workcell.head_camera
+    assert head['pos'] == pytest.approx((ox - .2752, oy + .2694, workcell.table_top + .5443), abs=1e-12)
     # 6 is upright on the front wall's outer face and 7 on the back wall's inner face (as the head camera decodes
     # them), both facing the robot along the box's axis, their centres 32 mm below the rim in the middle of their walls.
     toward_robot = (-math.sin(workcell.bucket_yaw), math.cos(workcell.bucket_yaw), 0.)
@@ -246,6 +251,48 @@ def test_the_scene_draws_each_tag_with_its_code():
                 u, v, w = axes @ np.subtract(corner, (x, y, z))
                 assert w == pytest.approx(0., abs=1e-12)
                 assert not white(u * .99, v * .99) and white(u + np.sign(u) * size * .99, v + np.sign(v) * size * .99)
+    finally:
+        scene.close()
+
+
+def test_the_scene_head_camera_projects_as_the_real_one():
+    """The scene's head camera, as MuJoCo renders it (its frustum from mjv_updateScene, no GL needed), puts every tag
+    corner where the D435's pinhole model does for the published image: the workcell's intrinsics and pose. Its
+    principal point is an offset from the image centre, x right and y down."""
+    workcell = load_workcell(MEASURED)
+    head = workcell.head_camera
+    (width, height), (fx, fy), (px, py) = (head['intrinsics'][key] for key in
+                                           ('resolution', 'focalpixel', 'principalpixel'))
+    scene = MinervaTaskScene(fixture_map(), NAMES, width=64, height=48, workcell=workcell)
+    try:
+        mj, model = scene.mj, scene.model
+        data = mj.MjData(model)
+        mj.mj_forward(model, data)
+        camera_id = scene._id('camera', 'head')
+        assert model.cam_fovy[camera_id] == pytest.approx(head['fovy'], abs=1e-3)
+        view = mj.MjvCamera()
+        view.type, view.fixedcamid = mj.mjtCamera.mjCAMERA_FIXED, camera_id
+        abstract = mj.MjvScene(model, maxgeom=10000)
+        mj.mjv_updateScene(model, data, mj.MjvOption(), None, view, mj.mjtCatBit.mjCAT_ALL, abstract)
+        eye = abstract.camera[0]
+        left, right = eye.frustum_center - eye.frustum_width, eye.frustum_center + eye.frustum_width
+        bottom, top, near = eye.frustum_bottom, eye.frustum_top, eye.frustum_near
+        frame = data.cam_xmat[camera_id].reshape(3, 3)  # Columns: MuJoCo's camera x (right), y (up), z (backward).
+        # The camera is where the workcell puts it, its axes the published image's.
+        assert data.cam_xpos[camera_id] == pytest.approx(head['pos'], abs=1e-12)
+        assert frame[:, 0] == pytest.approx(np.array(head['xyaxes'][:3]) / np.linalg.norm(head['xyaxes'][:3]), abs=1e-5)
+        K = np.array([[fx, 0, (width - 1) / 2 + px], [0, fy, (height - 1) / 2 + py], [0, 0, 1]])
+        worst = 0.
+        for tag in workcell.fiducials['tags']:
+            for corner in corners(workcell.fiducials['square'], *tag[1:]):
+                x, y, z = (np.asarray(corner) - data.cam_xpos[camera_id]) @ frame
+                ndc = ((2 * near / (right - left)) * x / -z + (right + left) / (right - left),
+                       (2 * near / (top - bottom)) * y / -z + (top + bottom) / (top - bottom))
+                rendered = ((ndc[0] + 1) / 2 * width - .5, (1 - ndc[1]) / 2 * height - .5)  # Pixel centres on integers.
+                pinhole = K @ np.array([x, -y, -z])
+                worst = max(worst, float(np.abs(np.subtract(rendered, pinhole[:2] / pinhole[2])).max()))
+        # MuJoCo keeps the camera's sensor size and focal length as float32: a few ten-thousandths of a pixel.
+        assert worst < 1e-3, worst
     finally:
         scene.close()
 

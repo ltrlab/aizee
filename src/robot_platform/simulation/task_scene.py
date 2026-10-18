@@ -353,8 +353,18 @@ def _scene_xml(source, fk_model, fk_data, visual_mode="cad", workcell=SYNTHETIC,
                               xyaxes="1 0 0 0 .606 .795", fovy="85")
     # Head overview is fixed to the unactuated torso, aimed at the workspace; the workcell places it.
     head = workcell.head_camera
-    ET.SubElement(world, "camera", name="head", pos=_numbers(head["pos"]), xyaxes=_numbers(head["xyaxes"]),
-                  fovy=str(head["fovy"]))
+    camera = ET.SubElement(world, "camera", name="head", pos=_numbers(head["pos"]), xyaxes=_numbers(head["xyaxes"]))
+    if head.get("intrinsics"):
+        # The real camera's pixel intrinsics, for the image as published; its fovy follows from them. MuJoCo takes
+        # pixel intrinsics only with a sensor size, of which only the ratio to the focal length matters: 1 um pixels.
+        # The principal point is an offset from the image centre, x right and y down (as OpenCV's).
+        intrinsics = head["intrinsics"]
+        camera.set("resolution", " ".join(str(round(v)) for v in intrinsics["resolution"]))
+        camera.set("sensorsize", _numbers(np.multiply(intrinsics["resolution"], 1e-6)))
+        camera.set("focalpixel", _numbers(intrinsics["focalpixel"]))
+        camera.set("principalpixel", _numbers(intrinsics["principalpixel"]))
+    else:
+        camera.set("fovy", str(head["fovy"]))
     if drives is not None:
         equality = ET.SubElement(root, "equality")
         actuator = ET.SubElement(root, "actuator")

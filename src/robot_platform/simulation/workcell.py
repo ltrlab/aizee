@@ -65,7 +65,7 @@ class Workcell:
     cube_friction: tuple
     cube_start: tuple  # (x, y, yaw)
     cube_region: tuple  # ((x low, x high), (y low, y high)) where trials place the cube.
-    head_camera: dict  # pos, xyaxes, fovy
+    head_camera: dict  # pos, xyaxes, fovy; and intrinsics (resolution, focalpixel, principalpixel) when known
     colors: dict = field(default_factory=dict)
     sources: dict = field(default_factory=dict)
     asset_id: str | None = None
@@ -109,9 +109,12 @@ class Workcell:
         values['table_legs'] = tuple(tuple(float(v) for v in leg) for leg in values['table_legs'])
         values['cube_region'] = tuple(tuple(float(v) for v in span) for span in values['cube_region'])
         values['colors'] = {key: tuple(float(v) for v in rgba) for key, rgba in values.get('colors', {}).items()}
-        values['head_camera'] = {'pos': tuple(float(v) for v in values['head_camera']['pos']),
-                                 'xyaxes': tuple(float(v) for v in values['head_camera']['xyaxes']),
-                                 'fovy': float(values['head_camera']['fovy'])}
+        head = values['head_camera']
+        values['head_camera'] = {'pos': tuple(float(v) for v in head['pos']),
+                                 'xyaxes': tuple(float(v) for v in head['xyaxes']), 'fovy': float(head['fovy'])}
+        if head.get('intrinsics'):
+            values['head_camera']['intrinsics'] = {key: tuple(float(v) for v in value)
+                                                   for key, value in head['intrinsics'].items()}
         fiducials = values.get('fiducials') or {}
         rectangle = fiducials.get('rectangle') or {}
         values['fiducials'] = {
@@ -162,6 +165,13 @@ def validate(workcell):
         raise ValueError(f'workcell {w.name}: the cube region is (x low, x high), (y low, y high)')
     if not 0 < w.head_camera['fovy'] < 180 or len(w.head_camera['pos']) != 3 or len(w.head_camera['xyaxes']) != 6:
         raise ValueError(f'workcell {w.name}: the head camera needs pos (3), xyaxes (6) and fovy in (0, 180)')
+    intrinsics = w.head_camera.get('intrinsics')
+    if intrinsics:
+        (width, height), (fx, fy) = intrinsics['resolution'], intrinsics['focalpixel']
+        if min(width, height, fx, fy) <= 0 or len(intrinsics['principalpixel']) != 2 or \
+                abs(math.degrees(2 * math.atan(height / 2 / fy)) - w.head_camera['fovy']) > .01:
+            raise ValueError(f'workcell {w.name}: the head camera intrinsics need a positive resolution and focal '
+                             'length, and fovy must be the one its vertical focal length gives')
     if not 0 < w.cube_friction[0]:
         raise ValueError(f'workcell {w.name}: the cube needs sliding friction')
     if w.fiducials:
@@ -253,7 +263,7 @@ def _word(group, key, sources, choices):
 
 
 def _frames(group, sources, table_center, table_size):
-    """The frames on the table top that tags may be given in, as (x, y, yaw) of each origin and x
+    """The frames on the table top that tags and the head camera may be given in, as (x, y, yaw) of each origin and x
     axis in the base frame (z up, the origin on the table top): the table frame, and the measured rectangle when the
     fiducials have one (`fiducials.rectangle`). The rectangle's place relative to the robot is one entry,
     `robot_offsets` (c, d): its origin is base (c, -d), its x axis along base -x turned by `yaw_deg`. Returns the
@@ -323,6 +333,29 @@ def _fiducials(group, sources, top, frames, rectangle, bucket):
             'rectangle': rectangle}
 
 
+def _head_camera(head, sources, top, frames):
+    """The head camera: pos, xyaxes and fovy, given in the base frame or (`"frame": "rectangle"`) in a frame on the
+    table, z above the table top; and, when the file has them, the camera's pixel intrinsics (`intrinsics`:
+    resolution, focalpixel, principalpixel, as MuJoCo's camera takes them, for the image as published)."""
+    pos = _value(head, 'cameras.head.pos', sources, length=3)
+    xyaxes = _value(head, 'cameras.head.xyaxes', sources, length=6)
+    frame = head.get('frame', 'base')
+    if frame != 'base':
+        if frame not in frames:
+            raise ValueError(f"workcell cameras.head.frame: base or one of {sorted(frames)}")
+        turn = frames[frame][2]
+        c, s = math.cos(turn), math.sin(turn)
+        pos = (*_in_base(frames[frame], pos), top + pos[2])
+        xyaxes = tuple(v for axis in (xyaxes[:3], xyaxes[3:])
+                       for v in (c * axis[0] - s * axis[1], s * axis[0] + c * axis[1], axis[2]))
+    camera = {'pos': pos, 'xyaxes': xyaxes, 'fovy': _value(head, 'cameras.head.fovy', sources)}
+    if 'intrinsics' in head:
+        group = head['intrinsics']
+        camera['intrinsics'] = {key: _value(group, f'cameras.head.intrinsics.{key}', sources, length=2)
+                                for key in ('resolution', 'focalpixel', 'principalpixel')}
+    return camera
+
+
 def load_workcell(path):
     """A Workcell from a workcell file (schema 1)."""
     path = Path(path)
@@ -340,11 +373,8 @@ def load_workcell(path):
     inset = LEG_INSET
     legs = tuple((center[0] + sx * (size[0] / 2 - inset[0]), center[1] + sy * (size[1] / 2 - inset[1]))
                  for sx in (-1, 1) for sy in (-1, 1))
-    head = document['cameras']['head']
-    camera = {'pos': _value(head, 'cameras.head.pos', sources, length=3),
-              'xyaxes': _value(head, 'cameras.head.xyaxes', sources, length=6),
-              'fovy': _value(head, 'cameras.head.fovy', sources)}
     frames, rectangle = _frames(document.get('fiducials'), sources, center, size)
+    camera = _head_camera(document['cameras']['head'], sources, top, frames)
     region = _value(cube, 'cube.region', sources, length=4)
     appearance = document.get('appearance', {})
     colors = {key: _rgba(value, f'appearance.{key}') for key, value in appearance.items()}
