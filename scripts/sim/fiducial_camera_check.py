@@ -45,7 +45,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'src'))
 from robot_platform.simulation.fiducials import CODES, cells, corners, grid, marker_axes  # noqa: E402
-from robot_platform.simulation.workcell import load_workcell  # noqa: E402
+from robot_platform.simulation.workcell import head_pinhole, load_workcell  # noqa: E402
 
 ROLES = ('head', 'left_wrist', 'right_wrist')
 WORKCELL = ROOT / 'config/devices/simulation/minerva-production-01-workcell.json'
@@ -116,21 +116,14 @@ def side_px(quad):
 
 def scene_camera(camera, width, height):
     """(K, R, t) of the workcell's head camera as the scene renders it at width x height: OpenCV's x = R @ base + t,
-    pixel centres on integers. With pixel intrinsics, scaled to that size (MuJoCo keeps them as a sensor and focal
-    length, and its principal point offset is x right, y down from the image centre); otherwise from fovy."""
+    pixel centres on integers. With pixel intrinsics, scaled to that size; otherwise from fovy (head_pinhole)."""
     x, y = np.array(camera['xyaxes'][:3], float), np.array(camera['xyaxes'][3:], float)
     x /= np.linalg.norm(x)
     y -= x * (x @ y)
     y /= np.linalg.norm(y)
     rotation = np.stack([x, -y, -np.cross(x, y)])
-    intrinsics = camera.get('intrinsics')
-    if intrinsics:
-        (rw, rh), (fx, fy), (px, py) = (intrinsics[k] for k in ('resolution', 'focalpixel', 'principalpixel'))
-        sx, sy = width / rw, height / rh
-        K = np.array([[fx * sx, 0, (width - 1) / 2 + px * sx], [0, fy * sy, (height - 1) / 2 + py * sy], [0, 0, 1]])
-    else:
-        f = height / 2 / math.tan(math.radians(camera['fovy']) / 2)
-        K = np.array([[f, 0, (width - 1) / 2], [0, f, (height - 1) / 2], [0, 0, 1]])
+    fx, fy, cx, cy = head_pinhole(camera, width, height)
+    K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
     return K, rotation, -rotation @ np.array(camera['pos'], float)
 
 
@@ -556,7 +549,7 @@ def main() -> int:
                 if not estimated:
                     camera['intrinsics'] = {
                         'resolution': [width, height], 'focalpixel': [K[0, 0], K[1, 1]],
-                        'principalpixel': [K[0, 2] - (width - 1) / 2, K[1, 2] - (height - 1) / 2], 'source': label}
+                        'principalpixel': [(width - 1) / 2 - K[0, 2], (height - 1) / 2 - K[1, 2]], 'source': label}
                 head['proposed_workcell_head_camera'] = camera
 
     # Annotated copies: what was found; and for the head, the scene's camera over it.

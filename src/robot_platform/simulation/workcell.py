@@ -66,6 +66,7 @@ class Workcell:
     cube_start: tuple  # (x, y, yaw)
     cube_region: tuple  # ((x low, x high), (y low, y high)) where trials place the cube.
     head_camera: dict  # pos, xyaxes, fovy; and intrinsics (resolution, focalpixel, principalpixel) when known
+    # (head_pinhole turns them into the pinhole the scene renders)
     colors: dict = field(default_factory=dict)
     sources: dict = field(default_factory=dict)
     asset_id: str | None = None
@@ -353,7 +354,8 @@ def _fiducials(group, sources, top, frames, rectangle, bucket):
 def _head_camera(head, sources, top, frames):
     """The head camera: pos, xyaxes and fovy, given in the base frame or (`"frame": "rectangle"`) in a frame on the
     table, z above the table top; and, when the file has them, the camera's pixel intrinsics (`intrinsics`:
-    resolution, focalpixel, principalpixel, as MuJoCo's camera takes them, for the image as published)."""
+    resolution, focalpixel, principalpixel, as MuJoCo's camera takes them, for the image as published; see
+    head_pinhole for what principalpixel means)."""
     pos = _value(head, 'cameras.head.pos', sources, length=3)
     xyaxes = _value(head, 'cameras.head.xyaxes', sources, length=6)
     frame = head.get('frame', 'base')
@@ -371,6 +373,25 @@ def _head_camera(head, sources, top, frames):
         camera['intrinsics'] = {key: _value(group, f'cameras.head.intrinsics.{key}', sources, length=2)
                                 for key in ('resolution', 'focalpixel', 'principalpixel')}
     return camera
+
+
+def head_pinhole(camera, width=None, height=None):
+    """The head camera's pinhole (fx, fy, cx, cy) as the scene renders it at width x height: pixels x right and y
+    down, centres on integers. With pixel intrinsics, scaled to that size (their resolution by default). MuJoCo puts
+    the principal point at ((W - 1) / 2 - px, (H - 1) / 2 - py) for principalpixel (px, py): principalpixel is the
+    image centre's offset from the principal point, not the principal point's from the centre. Rendering points at
+    known places showed it (MuJoCo 3.15, 2026-10-18): the projection OpenGL builds from mjv_updateScene's frustum
+    puts the optical axis there. Without intrinsics, from fovy, the principal point at the centre."""
+    intrinsics = camera.get('intrinsics')
+    if intrinsics:
+        (rw, rh), (fx, fy), (px, py) = (intrinsics[k] for k in ('resolution', 'focalpixel', 'principalpixel'))
+        width, height = width or rw, height or rh
+        sx, sy = width / rw, height / rh
+        return fx * sx, fy * sy, (width - 1) / 2 - px * sx, (height - 1) / 2 - py * sy
+    if not (width and height):
+        raise ValueError('a head camera given by fovy alone needs the image size')
+    f = height / 2 / math.tan(math.radians(camera['fovy']) / 2)
+    return f, f, (width - 1) / 2, (height - 1) / 2
 
 
 def load_workcell(path):

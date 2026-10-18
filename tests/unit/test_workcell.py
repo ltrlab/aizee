@@ -9,8 +9,8 @@ import pytest
 from robot_platform.evaluation.grid import GridSpec, cube_poses
 from robot_platform.simulation.fiducials import CODES, cells, corners, grid, marker_axes
 from robot_platform.simulation.task_scene import CUBE_START, TABLE_TOP, MinervaTaskScene
-from robot_platform.simulation.workcell import (SYNTHETIC, Workcell, bucket_frame, load_workcell, on_table, resolve,
-                                               table_frame, validate, workcell_path)
+from robot_platform.simulation.workcell import (SYNTHETIC, Workcell, bucket_frame, head_pinhole, load_workcell, on_table,
+                                               resolve, table_frame, validate, workcell_path)
 
 ROOT = Path(__file__).resolve().parents[2]
 MEASURED = ROOT / 'config/devices/simulation/minerva-production-01-workcell.json'
@@ -40,12 +40,12 @@ def test_measured_file_names_a_source_for_every_value_and_lists_what_is_unmeasur
     assert workcell_path(ROOT / 'config/devices/minerva-joint-calibration.json', workcell.asset_id) == MEASURED
     # The user's measurements are values, not placeholders.
     assert workcell.table_top == pytest.approx(.664 - .152, abs=1e-3)
-    assert workcell.cube_edge == pytest.approx(.0381) and workcell.bucket_inner == pytest.approx((.152, .305))
+    # The box as the head camera's depth measured it (the user's 2026-10-16 "about 6 by 12 in" before that).
+    assert workcell.cube_edge == pytest.approx(.0381) and workcell.bucket_inner == pytest.approx((.155, .242))
     measured = {'table.size', 'table.top_z', 'bucket.inner_size', 'cube.edge'}
     assert measured.isdisjoint(workcell.placeholders())
     # The head camera is measured against the tags; where the tags are relative to the robot is not yet.
-    assert {'table.center', 'bucket.center', 'bucket.height', 'cube.mass', 'fiducials.rectangle.robot_offsets'} <= \
-        set(workcell.placeholders())
+    assert {'table.center', 'bucket.wall', 'cube.mass', 'fiducials.rectangle.robot_offsets'} <= set(workcell.placeholders())
     assert {'cameras.head.pos', 'cameras.head.xyaxes', 'cameras.head.fovy'}.isdisjoint(workcell.placeholders())
     assert all(workcell.sources[key] for key in workcell.sources)
     # The description crosses process boundaries unchanged.
@@ -174,31 +174,34 @@ def test_the_tags_sit_where_the_rectangle_and_the_bucket_put_them():
         assert np.array(marker_axes(*tags[tag_id][4:])).T == pytest.approx(HALF_TURN, abs=1e-12)
     # The head camera is given in the rectangle too, so it moves with the tags.
     head = workcell.head_camera
-    assert head['pos'] == pytest.approx((ox - .2752, oy + .2694, workcell.table_top + .5443), abs=1e-12)
+    assert head['pos'] == pytest.approx((ox - .2752, oy + .2767, workcell.table_top + .5549), abs=1e-12)
     # 6 is upright on the front wall's outer face and 7 on the back wall's inner face (as the head camera decodes
-    # them), both facing the robot along the box's axis, their centres 32 mm below the rim in the middle of their walls.
+    # them), both facing the robot along the box's axis, their centres 42 mm below the rim in the middle of their walls.
+    # The box itself is placed in the rectangle, as the head camera's depth measured it.
+    assert workcell.bucket_inner == pytest.approx((.155, .242)) and math.degrees(workcell.bucket_yaw) == pytest.approx(-19.4)
+    assert bucket_frame(workcell, ox - .4798, oy - .2272) == pytest.approx((0., 0.), abs=1e-12)
     toward_robot = (-math.sin(workcell.bucket_yaw), math.cos(workcell.bucket_yaw), 0.)
     half = (workcell.bucket_inner[0] / 2, workcell.bucket_inner[1] / 2)
     for tag_id, wall_y in ((6, half[1] + workcell.bucket_wall), (7, -half[1])):
         _, x, y, z, yaw, tilt = tags[tag_id]
         assert bucket_frame(workcell, x, y) == pytest.approx((0., wall_y), abs=1e-12)
-        assert z == pytest.approx(workcell.table_top + workcell.bucket_height - .032)
+        assert z == pytest.approx(workcell.table_top + workcell.bucket_height - .042)
         x_axis, y_axis, z_axis = marker_axes(yaw, tilt)
         assert z_axis == pytest.approx(toward_robot, abs=1e-12) and y_axis == pytest.approx((0., 0., 1.), abs=1e-12)
     # Placeholders until measured: the rectangle's place relative to the robot and the wall tags' unknowns.
     placeholders = set(workcell.placeholders())
-    assert {'fiducials.rectangle.robot_offsets', 'fiducials.rectangle.yaw_deg', 'fiducials.tags.6.below_rim',
-            'fiducials.tags.7.below_rim', 'bucket.height', 'bucket.center', 'bucket.yaw_deg'} <= placeholders
+    assert {'fiducials.rectangle.robot_offsets', 'fiducials.rectangle.yaw_deg', 'bucket.wall', 'bucket.bottom'} <= \
+        placeholders
     assert {'fiducials.family', 'fiducials.square', 'fiducials.rectangle.size', 'fiducials.tags.6.wall',
-            'fiducials.tags.7.face'} | {f'fiducials.tags.{i}.center' for i in range(6)} \
-        <= set(workcell.sources) - placeholders
+            'fiducials.tags.7.face', 'fiducials.tags.6.below_rim', 'bucket.center', 'bucket.yaw_deg', 'bucket.height',
+            'bucket.inner_size'} | {f'fiducials.tags.{i}.center' for i in range(6)} <= set(workcell.sources) - placeholders
     assert SYNTHETIC.fiducials == {}
 
 
 def test_the_wall_tags_follow_the_bucket(tmp_path):
     before = {tag[0]: tag for tag in load_workcell(MEASURED).fiducials['tags']}
     document = json.loads(MEASURED.read_text(encoding='utf-8'))
-    document['bucket']['center']['value'] = [-.20, -.45]
+    document['bucket']['center']['value'] = [.40, .25]  # In the rectangle frame.
     document['bucket']['yaw_deg']['value'] = 10.
     moved = load_workcell(_write(document, tmp_path))
     assert math.degrees(moved.bucket_yaw) == pytest.approx(10.)
@@ -255,10 +258,62 @@ def test_the_scene_draws_each_tag_with_its_code():
         scene.close()
 
 
-def test_mujoco_renders_the_optical_axis_at_minus_its_principal_offset():
-    """MuJoCo 3.15's `principalpixel`, against the pinhole convention the workcell uses (an offset from the image
-    centre, x right and y down): a point on the optical axis renders at minus the given offset. The scene negates the
-    workcell's offset for it; if MuJoCo's convention changes, this fails first."""
+# The head D435's colour intrinsics at 640 x 480 (serial 919122072056, rs-enumerate-devices -c, 2026-10-18), for its
+# own unrotated image; the head node publishes the image turned half a turn.
+D435_COLOUR = {'fx': 614.336486816406, 'fy': 614.734069824219, 'ppx': 313.262512207031, 'ppy': 236.9853515625}
+
+
+def test_the_scene_head_camera_projects_as_the_real_one():
+    """The scene's head camera, as MuJoCo renders it (the projection OpenGL builds from mjv_updateScene's frustum, no
+    GL needed), puts every tag corner where the D435's pinhole model does for the published image: its focal lengths,
+    the principal point turned half a turn to (639 - PPX, 479 - PPY), and the workcell's pose."""
+    workcell = load_workcell(MEASURED)
+    head = workcell.head_camera
+    width, height = head['intrinsics']['resolution']
+    fx, fy, cx, cy = head_pinhole(head)
+    assert (fx, fy) == (D435_COLOUR['fx'], D435_COLOUR['fy'])
+    assert (cx, cy) == pytest.approx((width - 1 - D435_COLOUR['ppx'], height - 1 - D435_COLOUR['ppy']), abs=1e-9)
+    assert head_pinhole(head, width // 2, height // 2) == pytest.approx((fx / 2, fy / 2, (cx - .5) / 2, (cy - .5) / 2))
+    scene = MinervaTaskScene(fixture_map(), NAMES, width=64, height=48, workcell=workcell)
+    try:
+        mj, model = scene.mj, scene.model
+        data = mj.MjData(model)
+        mj.mj_forward(model, data)
+        camera_id = scene._id('camera', 'head')
+        assert model.cam_fovy[camera_id] == pytest.approx(head['fovy'], abs=1e-3)
+        view = mj.MjvCamera()
+        view.type, view.fixedcamid = mj.mjtCamera.mjCAMERA_FIXED, camera_id
+        abstract = mj.MjvScene(model, maxgeom=10000)
+        mj.mjv_updateScene(model, data, mj.MjvOption(), None, view, mj.mjtCatBit.mjCAT_ALL, abstract)
+        eye = abstract.camera[0]
+        left, right = eye.frustum_center - eye.frustum_width, eye.frustum_center + eye.frustum_width
+        bottom, top, near = eye.frustum_bottom, eye.frustum_top, eye.frustum_near
+        frame = data.cam_xmat[camera_id].reshape(3, 3)  # Columns: MuJoCo's camera x (right), y (up), z (backward).
+        # The camera is where the workcell puts it, its axes the published image's.
+        assert data.cam_xpos[camera_id] == pytest.approx(head['pos'], abs=1e-12)
+        assert frame[:, 0] == pytest.approx(np.array(head['xyaxes'][:3]) / np.linalg.norm(head['xyaxes'][:3]), abs=1e-5)
+        K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
+        worst = 0.
+        for tag in workcell.fiducials['tags']:
+            for corner in corners(workcell.fiducials['square'], *tag[1:]):
+                x, y, z = (np.asarray(corner) - data.cam_xpos[camera_id]) @ frame
+                # glFrustum(left, right, bottom, top, near, far): the frustum's left edge at -1, its right at +1.
+                ndc = ((2 * near * x / -z - (right + left)) / (right - left),
+                       (2 * near * y / -z - (top + bottom)) / (top - bottom))
+                # Pixel centres on integers, rows down (the renderer turns OpenGL's bottom-up rows over).
+                rendered = ((ndc[0] + 1) / 2 * width - .5, (1 - ndc[1]) / 2 * height - .5)
+                pinhole = K @ np.array([x, -y, -z])
+                worst = max(worst, float(np.abs(np.subtract(rendered, pinhole[:2] / pinhole[2])).max()))
+        # MuJoCo keeps the camera's sensor size and focal length as float32: a few ten-thousandths of a pixel.
+        assert worst < 1e-3, worst
+    finally:
+        scene.close()
+
+
+def test_mujoco_renders_the_optical_axis_at_minus_its_principalpixel():
+    """MuJoCo 3.15's `principalpixel` is the image centre's offset from the principal point (workcell.head_pinhole): a
+    point on the optical axis renders at minus it from the image centre, x right and y down. If MuJoCo's convention
+    changes, this fails first."""
     import mujoco
     for offset in ((20., 0.), (0., 20.)):
         xml = f'''<mujoco><visual><global offwidth="640" offheight="480"/></visual><worldbody>
@@ -277,26 +332,21 @@ def test_mujoco_renders_the_optical_axis_at_minus_its_principal_offset():
         assert (cols.mean() - 319.5, rows.mean() - 239.5) == pytest.approx((-offset[0], -offset[1]), abs=.05)
 
 
-def test_the_scene_head_camera_renders_as_the_real_one():
-    """The scene's head camera, as MuJoCo renders it, puts every tag where the D435's pinhole model does for the
-    published image: the workcell's intrinsics and pose. Each tag's rendered black square (with its white cells), seen
-    in a segmentation render at the camera's 640 x 480, has its pixel centroid within 0.5 px of the projected square's
-    centroid. (Given the workcell's principal offset unnegated, MuJoCo put every tag 12.5 px left and 5.0 px up.)
-    The robot is left out of the render: with the placeholder rectangle offsets the camera sits inside its torso."""
+def test_the_scene_head_camera_renders_the_tags_where_the_pinhole_puts_them():
+    """Rendered, not only through the frustum: each tag's black square (with its white cells) in a segmentation render
+    at the camera's 640 x 480 has its pixel centroid within 0.5 px of the square's centroid projected through the
+    workcell's pinhole (head_pinhole). The robot is left out of the render: with the placeholder rectangle offsets the
+    camera sits inside its torso."""
     workcell = load_workcell(MEASURED)
     head = workcell.head_camera
-    (width, height), (fx, fy), (px, py) = (head['intrinsics'][key] for key in
-                                           ('resolution', 'focalpixel', 'principalpixel'))
-    scene = MinervaTaskScene(fixture_map(), NAMES, width=int(width), height=int(height), workcell=workcell)
+    width, height = (int(v) for v in head['intrinsics']['resolution'])
+    fx, fy, cx, cy = head_pinhole(head)
+    scene = MinervaTaskScene(fixture_map(), NAMES, width=width, height=height, workcell=workcell)
     try:
         mj, model, data = scene.mj, scene.model, scene.data
         camera_id = scene._id('camera', 'head')
-        assert model.cam_fovy[camera_id] == pytest.approx(head['fovy'], abs=1e-3)
         frame = data.cam_xmat[camera_id].reshape(3, 3)  # Columns: MuJoCo's camera x (right), y (up), z (backward).
-        # The camera is where the workcell puts it, its axes the published image's.
-        assert data.cam_xpos[camera_id] == pytest.approx(head['pos'], abs=1e-12)
-        assert frame[:, 0] == pytest.approx(np.array(head['xyaxes'][:3]) / np.linalg.norm(head['xyaxes'][:3]), abs=1e-5)
-        renderer = mj.Renderer(model, int(height), int(width))
+        renderer = mj.Renderer(model, height, width)
         try:
             options = mj.MjvOption()
             options.geomgroup[:] = [1, 0, 0, 0, 0, 0]  # The workcell, the cube and the tags; not the robot.
@@ -305,7 +355,7 @@ def test_the_scene_head_camera_renders_as_the_real_one():
             segments = renderer.render().copy()
         finally:
             renderer.close()
-        K = np.array([[fx, 0, (width - 1) / 2 + px], [0, fy, (height - 1) / 2 + py], [0, 0, 1]])
+        K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
         checked = 0
         for tag in workcell.fiducials['tags']:
             points = []
@@ -435,7 +485,7 @@ def test_a_turned_table_turns_its_top_trim_legs_and_frame(tmp_path):
     (lambda f: f['rectangle']['robot_offsets'].update(value=[.325, .50]), 'off the table'),
     (lambda f: f['tags']['0']['center'].update(value=[.02, .10]) or f['tags']['0'].pop('frame'), 'off the table'),
     (lambda f: f['tags']['7']['along'].update(value=.06), 'not wholly on a face'),
-    (lambda f: f['tags']['6']['below_rim'].update(value=.13), 'not wholly on a face'),
+    (lambda f: f['tags']['6']['below_rim'].update(value=.17), 'not wholly on a face'),
     (lambda f: f['tags'].update({'8': f['tags']['0']}), 'distinct'),
     (lambda f: f['family'].update(value='DICT_6X6_50'), 'no codes'),
     (lambda f: f['tags']['1'].update(wall={'value': 'front', 'source': 'test'}), 'either'),
