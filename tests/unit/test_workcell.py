@@ -162,7 +162,9 @@ def test_the_tags_sit_where_the_rectangle_and_the_bucket_put_them():
     # base (c, -d), its near side along base -x and its depth along base -y.
     assert f['rectangle']['size'] == RECTANGLE and f['rectangle']['yaw'] == 0.
     (ox, oy) = f['rectangle']['origin']
-    assert (ox, -oy) == pytest.approx((.325, .1584))  # The placeholder: centred on the robot, 16 cm out.
+    # The interim placement (2026-10-18): centred on the robot, the near side 36 cm out, where the head camera clears
+    # the robot's torso (SIM_WORKCELL.md).
+    assert (ox, -oy) == pytest.approx((.325, .36))
     for tag_id, (x, y) in CORNERS.items():
         assert tags[tag_id][1:4] == pytest.approx((ox - x, oy - y, workcell.table_top), abs=1e-12)
     # 4 and 5 sit at the middles of the near and far sides, where the head camera found them.

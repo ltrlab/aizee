@@ -8,7 +8,7 @@
   "table": {
     "size": {"value": [1.524, 0.762], "source": "user 2026-10-16: the workcell is about 5 ft by 2.5 ft"},
     "top_z": {"value": 0.512, "source": "user 2026-10-16: the table sits about 6 in below the hanging arms' J3; the model's J3 anchor is at z 0.664 m when hanging"},
-    "center": {"value": [0.0, -0.461], "source": "placeholder: centred on the robot, near edge 8 cm in front of the hanging arms; not measured"},
+    "center": {"value": [0.0, -0.6915], "source": "placeholder (interim): centred on the robot; its near edge 49.5 mm in front of the tag rectangle's near side, placed with the interim fiducials.rectangle.robot_offsets: the black top ends 29.5 mm in front of that side (the silver trim's inner edge, rows 465-474 of the head camera's colour frame depth-20261018T044530Z, through its depth-anchored pose onto the table plane), then the 20 mm placeholder trim. Move it with robot_offsets"},
     "thickness": {"value": 0.03, "source": "placeholder: a typical desk top; not measured"},
     "floor_z": {"value": -0.238, "source": "placeholder: a 0.75 m desk height below the table top; not measured"},
     "trim_width": {"value": 0.02, "source": "placeholder: user 2026-10-16 says the black table has silver trim; its width is not measured"}
@@ -26,8 +26,8 @@
     "edge": {"value": 0.0381, "source": "user 2026-10-16: wooden cubes about 1.5 in on a side. RealSense depth 2026-10-18 (depth-20261018T044530Z): the two blocks' tops stand 39.0 and 37.0 mm above the table, their top faces 36.9 and 39.5 mm across where the depth is sharp. Head camera colour 2026-10-18 (same frame): at the depth-fitted places the blocks look wider than a 38.1 mm cube; cuboids fitted to their colour outlines are about 37 x 52 mm and 47 x 48 mm across (outline IoU 0.92-0.93, against 0.70-0.78 for a 38.1 mm cube), so they may not be 1.5 in cubes. Kept at the user's 1.5 in until measured"},
     "mass": {"value": 0.035, "source": "placeholder (estimate): a 1.5 in wood cube at 0.4-0.75 g/cm3 weighs 22-41 g; not weighed"},
     "friction": {"value": [1.0, 0.005, 0.0001], "source": "placeholder: the synthetic scene's value; wood on the finger pads is not measured, and MuJoCo takes the larger of the pad's and the cube's friction"},
-    "start": {"value": [0.15, -0.35, 0.0], "source": "placeholder: left of centre, as in the head camera image; not measured"},
-    "region": {"value": [0.02, 0.26, -0.50, -0.32], "source": "placeholder: inside the area where the handoff demonstrator plans the whole task clear of the table and bucket on this placeholder layout (4 cm map, 2026-10-17); the real cube positions are not taped yet"}
+    "start": {"value": [0.1722, -0.4843, -0.645772], "source": "the near real block's place and turn as the head camera's depth fitted it (frame depth-20261018T044530Z: centre (152.8, 124.3) mm in the rectangle frame, turned -37.0 degrees; docs/development/SIM_WORKCELL.md), in the base frame with the interim robot_offsets"},
+    "region": {"value": [0.1, 0.3, -0.735, -0.385], "source": "placeholder: inside the area where the handoff demonstrator plans the whole task clear of the table and the box on the interim layout (5 cm map over the rectangle, 2026-10-18: the cells u 25-225 mm, v 25-375 mm of the rectangle at d = 0.36); where the real blocks are put is not taped"}
   },
   "cameras": {
     "head": {
@@ -51,7 +51,7 @@
     "rectangle": {
       "description": "Tags 0-3 mark the corners of a rectangle the user taped on 2026-10-18, measured over the outer corners of their black squares. Its frame: origin at the outer near-left corner of tag 0's square, x along the near side toward tag 1, y toward tag 3 (away from the robot), z up",
       "size": {"value": [0.650, 0.441], "source": "user 2026-10-18: \"ID 0 bottom left corner is 650mm to the bottom right corner of ID 1, the bottom right corner of ID 1 to top right corner of ID 2 is 441mm. same measurements for ID 2 top right to ID 3 top left is 650, and ID 3 top left to bottom left ID 0 is 441mm\" (bottom is the near side). The corners are the black squares': the head camera (2026-10-18 03:25Z, D435 colour intrinsics) fits them at 0.75 px RMS against 3.59 px for the labels' corners"},
-      "robot_offsets": {"value": [0.325, 0.1584], "source": "placeholder: (c, d), the rectangle's origin at base (c, -d): centred on the robot, its near tags' centres 18 cm in front of the hanging arms, as the first layout's placeholder table had them. The user is measuring the grippers against the near side and tag 0's corner; once measured, the head camera's mount relative to the robot follows"},
+      "robot_offsets": {"value": [0.325, 0.36], "source": "placeholder (interim, from head-camera torso clearance and reach (2026-10-18); not measured): (c, d), the rectangle's origin at base (c, -d), centred on the robot. The head camera is given in the rectangle frame, so d places it on the robot: rays through its whole image (the arms hanging) show the robot's torso until d = 0.318 m, and at the first placeholder (0.1584) the camera sat inside it. d = 0.36 keeps 4.2 cm of that margin and the camera 3.5 cm from the torso's nearest surface (3 cm asked). Planning the whole task for a cube at each 5 cm cell of the rectangle, with the box where the depth puts it: at d 0.33, 0.36, 0.40 and 0.45 the cube is picked in 81, 79, 70 and 61 of the 86 cells off the box, and the whole task, the release into the box included, plans and clears in 50, 50, 49 and 45. The user's tape numbers, or registering the robot to the head camera (docs/development/SIM_WORKCELL.md), replace it"},
       "yaw_deg": {"value": 0.0, "source": "placeholder: its near side square to the robot; not measured"}
     },
     "tags": {
