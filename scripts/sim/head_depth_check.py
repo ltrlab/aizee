@@ -38,7 +38,7 @@ sys.path.insert(0, str(ROOT / 'src'))
 sys.path.insert(0, str(ROOT / 'scripts/sim'))
 import fiducial_camera_check as check  # noqa: E402
 from robot_platform.simulation.fiducials import corners  # noqa: E402
-from robot_platform.simulation.workcell import load_workcell  # noqa: E402
+from robot_platform.simulation.workcell import head_pinhole, load_workcell  # noqa: E402
 
 WORKCELL = ROOT / 'config/devices/simulation/minerva-production-01-workcell.json'
 CALIBRATION = ROOT / 'build/fiducials-check/intrinsics/d435-calibration-copy.txt'  # rs-enumerate-devices -c
@@ -241,8 +241,8 @@ def main() -> int:
     R_dc, t_dc = extrinsics(args.calibration.read_text(encoding='utf-8'), 'Depth', 'Color')
     points = (sensor @ R_dc.T + t_dc) * (-1., -1., 1.)
     camera = workcell.head_camera
-    (rw, rh), (fx, fy), (px, py) = (camera['intrinsics'][k] for k in ('resolution', 'focalpixel', 'principalpixel'))
-    K = np.array([[fx, 0, (rw - 1) / 2 + px], [0, fy, (rh - 1) / 2 + py], [0, 0, 1]])
+    fx, fy, cx, cy = head_pinhole(camera)
+    K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
     # The depth registered onto the colour image's pixels (nearest point wins).
     pixel = (points @ K.T)
     cu, cv_ = np.round(pixel[:, 0] / pixel[:, 2]).astype(int), np.round(pixel[:, 1] / pixel[:, 2]).astype(int)

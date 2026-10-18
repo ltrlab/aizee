@@ -9,8 +9,8 @@ import pytest
 from robot_platform.evaluation.grid import GridSpec, cube_poses
 from robot_platform.simulation.fiducials import CODES, cells, corners, grid, marker_axes
 from robot_platform.simulation.task_scene import CUBE_START, TABLE_TOP, MinervaTaskScene
-from robot_platform.simulation.workcell import (SYNTHETIC, Workcell, bucket_frame, load_workcell, resolve, validate,
-                                               workcell_path)
+from robot_platform.simulation.workcell import (SYNTHETIC, Workcell, bucket_frame, head_pinhole, load_workcell, resolve,
+                                               validate, workcell_path)
 
 ROOT = Path(__file__).resolve().parents[2]
 MEASURED = ROOT / 'config/devices/simulation/minerva-production-01-workcell.json'
@@ -258,14 +258,22 @@ def test_the_scene_draws_each_tag_with_its_code():
         scene.close()
 
 
+# The head D435's colour intrinsics at 640 x 480 (serial 919122072056, rs-enumerate-devices -c, 2026-10-18), for its
+# own unrotated image; the head node publishes the image turned half a turn.
+D435_COLOUR = {'fx': 614.336486816406, 'fy': 614.734069824219, 'ppx': 313.262512207031, 'ppy': 236.9853515625}
+
+
 def test_the_scene_head_camera_projects_as_the_real_one():
-    """The scene's head camera, as MuJoCo renders it (its frustum from mjv_updateScene, no GL needed), puts every tag
-    corner where the D435's pinhole model does for the published image: the workcell's intrinsics and pose. Its
-    principal point is an offset from the image centre, x right and y down."""
+    """The scene's head camera, as MuJoCo renders it (the projection OpenGL builds from mjv_updateScene's frustum, no
+    GL needed), puts every tag corner where the D435's pinhole model does for the published image: its focal lengths,
+    the principal point turned half a turn to (639 - PPX, 479 - PPY), and the workcell's pose."""
     workcell = load_workcell(MEASURED)
     head = workcell.head_camera
-    (width, height), (fx, fy), (px, py) = (head['intrinsics'][key] for key in
-                                           ('resolution', 'focalpixel', 'principalpixel'))
+    width, height = head['intrinsics']['resolution']
+    fx, fy, cx, cy = head_pinhole(head)
+    assert (fx, fy) == (D435_COLOUR['fx'], D435_COLOUR['fy'])
+    assert (cx, cy) == pytest.approx((width - 1 - D435_COLOUR['ppx'], height - 1 - D435_COLOUR['ppy']), abs=1e-9)
+    assert head_pinhole(head, width // 2, height // 2) == pytest.approx((fx / 2, fy / 2, (cx - .5) / 2, (cy - .5) / 2))
     scene = MinervaTaskScene(fixture_map(), NAMES, width=64, height=48, workcell=workcell)
     try:
         mj, model = scene.mj, scene.model
@@ -284,14 +292,16 @@ def test_the_scene_head_camera_projects_as_the_real_one():
         # The camera is where the workcell puts it, its axes the published image's.
         assert data.cam_xpos[camera_id] == pytest.approx(head['pos'], abs=1e-12)
         assert frame[:, 0] == pytest.approx(np.array(head['xyaxes'][:3]) / np.linalg.norm(head['xyaxes'][:3]), abs=1e-5)
-        K = np.array([[fx, 0, (width - 1) / 2 + px], [0, fy, (height - 1) / 2 + py], [0, 0, 1]])
+        K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
         worst = 0.
         for tag in workcell.fiducials['tags']:
             for corner in corners(workcell.fiducials['square'], *tag[1:]):
                 x, y, z = (np.asarray(corner) - data.cam_xpos[camera_id]) @ frame
-                ndc = ((2 * near / (right - left)) * x / -z + (right + left) / (right - left),
-                       (2 * near / (top - bottom)) * y / -z + (top + bottom) / (top - bottom))
-                rendered = ((ndc[0] + 1) / 2 * width - .5, (1 - ndc[1]) / 2 * height - .5)  # Pixel centres on integers.
+                # glFrustum(left, right, bottom, top, near, far): the frustum's left edge at -1, its right at +1.
+                ndc = ((2 * near * x / -z - (right + left)) / (right - left),
+                       (2 * near * y / -z - (top + bottom)) / (top - bottom))
+                # Pixel centres on integers, rows down (the renderer turns OpenGL's bottom-up rows over).
+                rendered = ((ndc[0] + 1) / 2 * width - .5, (1 - ndc[1]) / 2 * height - .5)
                 pinhole = K @ np.array([x, -y, -z])
                 worst = max(worst, float(np.abs(np.subtract(rendered, pinhole[:2] / pinhole[2])).max()))
         # MuJoCo keeps the camera's sensor size and focal length as float32: a few ten-thousandths of a pixel.

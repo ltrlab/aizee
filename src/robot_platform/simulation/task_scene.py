@@ -357,7 +357,7 @@ def _scene_xml(source, fk_model, fk_data, visual_mode="cad", workcell=SYNTHETIC,
     if head.get("intrinsics"):
         # The real camera's pixel intrinsics, for the image as published; its fovy follows from them. MuJoCo takes
         # pixel intrinsics only with a sensor size, of which only the ratio to the focal length matters: 1 um pixels.
-        # The principal point is an offset from the image centre, x right and y down (as OpenCV's).
+        # MuJoCo's principalpixel is the image centre's offset from the principal point (workcell.head_pinhole).
         intrinsics = head["intrinsics"]
         camera.set("resolution", " ".join(str(round(v)) for v in intrinsics["resolution"]))
         camera.set("sensorsize", _numbers(np.multiply(intrinsics["resolution"], 1e-6)))
