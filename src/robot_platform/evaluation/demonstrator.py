@@ -16,6 +16,7 @@ solution), so the paths are predictable near the table and the bucket; `plan_cle
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 import math
 import zlib
 
@@ -76,6 +77,10 @@ DROP_OFFSET = (0., 0.)
 # its height, then slides straight forward over the near wall, rather than crossing a side wall.
 DROP_LEAD = .12
 DROP_HOUSING = 'narrow'  # Its wide side would hang into the bucket's walls.
+# The ways the right may bring the cube over the bucket and let it go, tried in order until a plan clears: the
+# fingers' direction at the drop, the lead (x, y) from which the pads come to the drop point at its height, and the
+# pads' height above the rim when they open. The first is the drop above.
+DROPS = ({'name': 'from the front', 'finger': DROP_FINGER, 'lead': (0., DROP_LEAD), 'clearance': DROP_CLEARANCE},)
 OPEN_MARGIN = .02  # Jaw clearance each side of the cube when open.
 SQUEEZE_RAD = 1.  # Command this far past touching the cube.
 SPEED = .5  # rad/s, the fastest arm joint in transit.
@@ -109,6 +114,12 @@ def level_closing(finger, housing='narrow'):
     housing='wide', its wide (63 mm) side."""
     closing = np.cross(finger, [0., 0., 1.])
     return closing / np.linalg.norm(closing) * (1. if housing == 'narrow' else -1.)
+
+
+def _pose(position, finger, housing='wide'):
+    """A gripper pose for _move: pads at `position`, fingers along `finger`, jaws closing level with the wrist
+    housing's `housing` side down (level_closing)."""
+    return np.asarray(position, dtype=float), finger, level_closing(finger, housing)
 
 
 def faces(yaw):
@@ -149,24 +160,32 @@ class HandoffDemonstrator:
     def __init__(self, *, seed=0, restarts=8):
         self.seed, self.restarts = seed, restarts
         self._scene = self._ik = None
-        self._key = None
+        self._key = self._samples_key = self._planned = None
+        self.drop, self.notes = None, []
 
     # -- tools -----------------------------------------------------------------
 
     def _tools(self, context):
-        """An IK model of the same robot and workcell as the trial, and each arm's sampled poses (built once per
-        joint map and workcell)."""
+        """An IK model of the same robot and workcell as the trial (rebuilt whenever the workcell differs in any
+        value, so each sampled layout plans against its own table, bucket and cube), and each arm's sampled poses
+        (kept while the robot, its limits and the table's height stay the same)."""
         from scipy.spatial import cKDTree
         from robot_platform.simulation.task_scene import MinervaTaskScene
+        from robot_platform.simulation.workcell import resolve
         from .reach import GraspIK
-        key = (tuple(context.joint_names), context.workcell.name if context.workcell else None)
+        workcell = resolve(context.workcell)
+        key = (tuple(context.joint_names), json.dumps(workcell.describe(), sort_keys=True))
         if self._key != key:
             if self._scene is not None:
                 self._scene.close()
             self._scene = MinervaTaskScene(context.joint_map, context.joint_names, width=64, height=48,
-                                           workcell=context.workcell)
+                                           workcell=workcell)
             self._ik = GraspIK(self._scene, context.lower, context.upper)
-            top = self._scene.workcell.table_top
+            self._key = key
+        top = self._scene.workcell.table_top
+        samples_key = (tuple(context.joint_names), top, self.seed, self._ik.lower.tobytes(), self._ik.upper.tobytes(),
+                       np.asarray(context.home, dtype=float).tobytes())
+        if self._samples_key != samples_key:
             rng = np.random.default_rng(self.seed)
             self._samples = {}
             for side in ('left', 'right'):
@@ -176,7 +195,7 @@ class HandoffDemonstrator:
                 frames = np.array([np.concatenate(self._ik.frame(side, q)) for q in poses])
                 keep = (frames[:, 2] > top - .05) & (frames[:, 2] < top + .45) & (frames[:, 1] < .1)
                 self._samples[side] = (poses[keep], frames[keep], cKDTree(frames[keep, :3]))
-            self._key = key
+            self._samples_key = samples_key
         return self._scene, self._ik
 
     def _solve(self, side, position, finger, closing, near, label):
@@ -294,6 +313,15 @@ class HandoffDemonstrator:
         yaw = math.degrees(context.cube_start.get('yaw', 0.))
         cube = np.array([context.cube_start['x'], context.cube_start['y'], top + workcell.cube_half])
 
+        # The same trial planned again (the generator plans a drawn layout before it runs it): the same plan.
+        key = (self._key, float(context.cube_start['x']), float(context.cube_start['y']),
+               float(context.cube_start.get('yaw', 0.)), np.asarray(context.home, dtype=float).tobytes(),
+               self.lead.tobytes(), ik.lower.tobytes(), ik.upper.tobytes(), float(context.period_s))
+        if key == self._planned:
+            self._timeline(self.frames)
+            self.bias = np.zeros(len(names))
+            return None
+        self._planned = None
         q = np.array(context.home, dtype=float)
         for side in grip:
             q[grip[side]] = opened[side]
@@ -304,28 +332,44 @@ class HandoffDemonstrator:
                             f'ready {side}')
         # The same start pose a turn apart on a wrist roll is a different branch for every move after it: plan
         # from each and, of the plans that clear, keep the one with the most straight-line moves, then the shortest.
-        candidates = []
+        # Each branch plans the pick and the handoff once, then the drop each way DROPS lists, in order, until a
+        # plan clears.
+        # Why each branch and drop failed, for the PlanningError (a generator counts and records its rejections).
+        self.notes = notes = []
+        heads = []
         for ready in self._branches(q):
             try:
-                frames = self._plan(ready, cube, yaw, top, workcell, grip, opened, closed)
-            except PlanningError:
-                continue
-            fallbacks = sum(1 for frame in frames if frame.kind == 'move' and not frame.cartesian)
-            self._timeline(frames)
-            candidates.append(((fallbacks, sum(frame.duration for frame in frames)), ready, frames))
-        if not candidates:
-            raise PlanningError(f'no plan reaches the cube at {np.round(cube, 3).tolist()}')
-        # The best-scored plan whose every move clears the table, the bucket and the other arm.
-        for _, ready, frames in sorted(candidates, key=lambda candidate: candidate[0]):
-            self._timeline(frames)
-            if min(distance for _, distance, _, _ in self.plan_clearance()) > CLEARANCE:
-                break
-        else:
-            raise PlanningError(f'no plan clears the table, the bucket and the other arm for the cube at '
-                                f'{np.round(cube, 3).tolist()}')
-        self.ready = ready
-        self.bias = np.zeros(len(names))
-        return None
+                heads.append((ready, *self._to_handoff(ready, cube, yaw, top, grip, opened, closed)))
+            except PlanningError as exc:
+                notes.append(f'pick and handoff: {exc}')
+        planned = False
+        for drop in DROPS:
+            candidates = []
+            for ready, head, after, point in heads:
+                try:
+                    frames = head + self._drop(after, point, top, workcell, grip, opened, drop)
+                except PlanningError as exc:
+                    notes.append(f"drop {drop['name']}: {exc}")
+                    continue
+                planned = True
+                fallbacks = sum(1 for frame in frames if frame.kind == 'move' and not frame.cartesian)
+                self._timeline(frames)
+                candidates.append(((fallbacks, sum(frame.duration for frame in frames)), ready, frames))
+            # The best-scored plan whose every move clears the table, the bucket and the other arm.
+            for _, ready, frames in sorted(candidates, key=lambda candidate: candidate[0]):
+                self._timeline(frames)
+                label, distance, robot, other = min(self.plan_clearance(), key=lambda move: move[1])
+                if distance > CLEARANCE:
+                    self.ready, self.drop = ready, drop
+                    self.bias = np.zeros(len(names))
+                    self._planned = key
+                    return None
+                notes.append(f"drop {drop['name']}: {label}: {robot} comes {distance * 1000:.1f} mm from {other}")
+        reasons = '; '.join(dict.fromkeys(notes))
+        if not planned:
+            raise PlanningError(f'no plan reaches the cube at {np.round(cube, 3).tolist()} ({reasons})')
+        raise PlanningError(f'no plan clears the table, the bucket and the other arm for the cube at '
+                            f'{np.round(cube, 3).tolist()} ({reasons})')
 
     def _branches(self, q):
         """`q` and its equals a turn apart on each joint whose range spans more than a turn, within the range."""
@@ -344,12 +388,11 @@ class HandoffDemonstrator:
             variants += more
         return variants
 
-    def _plan(self, start, cube, yaw, top, workcell, grip, opened, closed):
-        """The demonstration's segments from the start pose `start`."""
+    def _to_handoff(self, start, cube, yaw, top, grip, opened, closed):
+        """The demonstration's segments from the start pose `start` until the left has let go of the cube at the
+        handoff and returned to its start; with the joints there and the handoff's planned point."""
         q = start.copy()
-
-        def pose(position, finger, housing='wide'):
-            return np.asarray(position, dtype=float), finger, level_closing(finger, housing)
+        pose = _pose
         frames = []
 
         def add(segment):
@@ -433,19 +476,33 @@ class HandoffDemonstrator:
         add(self._move(q, {'left': pose(handoff - RETREAT * fingers['left'], fingers['left'])}, 'left retreats',
                        slow=True))
         add(self._move(q, {'left': start}, 'left clears'))
+        return frames, q, planned
+
+    def _drop(self, q, planned, top, workcell, grip, opened, drop):
+        """The segments that carry the cube from the handoff over the bucket and let it go, one of DROPS's ways."""
+        q = q.copy()
+        pose = _pose
+        frames = []
+
+        def add(segment):
+            nonlocal q
+            frames.append(segment)
+            q = segment.target.copy()
+
         carry = direction(*CARRY_FINGER)
         # The right rolls over to the drop's housing side here, clear of the bucket, not on the way to it.
         # In free space, at transit speed: this move includes the half-turn roll.
         # To the planned lift point: above the turned grip point, the carry's orientation is out of the right's reach.
         add(self._move(q, {'right': pose(planned + [0., 0., CARRY_RISE], carry, DROP_HOUSING)}, 'right lifts'))
-        drop = direction(*DROP_FINGER)
+        finger = direction(*drop['finger'])
         above = [workcell.bucket_center[0] + DROP_OFFSET[0], workcell.bucket_center[1] + DROP_OFFSET[1],
-                 top + workcell.bucket_height + DROP_CLEARANCE]
-        add(self._move(q, {'right': pose(np.asarray(above) + [0., DROP_LEAD, 0.], drop, DROP_HOUSING)},
+                 top + workcell.bucket_height + drop['clearance']]
+        add(self._move(q, {'right': pose(np.asarray(above) + [*drop['lead'], 0.], finger, DROP_HOUSING)},
                        'right carries'))
-        add(self._move(q, {'right': pose(above, drop, DROP_HOUSING)}, 'right over the bucket', slow=True))
-        hold('right', 'right holds over the bucket')
-        set_gripper('right', opened['right'], 'right lets go', 'right')
+        add(self._move(q, {'right': pose(above, finger, DROP_HOUSING)}, 'right over the bucket', slow=True))
+        frames.append(Segment('hold', q.copy(), arm='right', label='right holds over the bucket'))
+        q[grip['right']] = opened['right']
+        frames.append(Segment('grip', q.copy(), arm='right', label='right lets go', duration=GRIP_WAIT))
         frames.append(Segment('grip', q.copy(), label='done', duration=5.))
         return frames
 
@@ -555,7 +612,9 @@ class HandoffDemonstrator:
                 'handoff_m': list(HANDOFF), 'pick_finger_deg': list(PICK_FINGER),
                 'handoff_fingers_deg': {k: list(v) for k, v in HANDOFF_FINGERS.items()},
                 'drop_finger_deg': list(DROP_FINGER), 'speed_rad_s': SPEED, 'approach_rad_s': SLOW,
-                'squeeze_rad': SQUEEZE_RAD, 'cartesian_step_m': CART_STEP}
+                'squeeze_rad': SQUEEZE_RAD, 'cartesian_step_m': CART_STEP,
+                'drops': [drop['name'] for drop in DROPS],
+                'planned_drop': None if self.drop is None else json.loads(json.dumps(self.drop))}
 
     def close(self):
         if self._scene is not None:
