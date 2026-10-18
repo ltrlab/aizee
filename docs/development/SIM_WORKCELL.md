@@ -28,6 +28,8 @@ Not measured yet. These are placeholders and should be measured:
 
 A real head frame (the recording proof of 2026-10-17, `build/recording-readiness-20261016/`) shows two wood cubes on the robot's left and the box on its right, with the box's long side pointing away from the robot. The placeholders follow that arrangement. The head camera is now placed from its own depth and the fiducial tags (below); the wrist cameras are not, and still differ from the real views.
 
+**The scene's look (optional).** A file may give `look`: `robot_grey` (the robot's colour, each channel, in (0, 1)), `room_tone` and `floor_tone` (three factors in (0, 2] on the room backdrop's and the floor plane's colours) and `light_kelvin` (the lights' colour temperature, 1500-12000 K), each with its source. What it leaves out the scene takes from the user's look (`simulation/room.py`, `LOOK`; MINERVA_TASK_SCENE.md, "Room and look"). The production workcell gives none; a drawn training layout gives all four (SIM_GENERATION.md). The workcell's `floor` colour is no longer drawn: the floor plane is the room's wood.
+
 ## Use
 
 - `helm --sim` takes `--sim-workcell <file|synthetic>`. Without it, Helm uses the asset's workcell file when one exists, else the synthetic layout.
@@ -203,7 +205,7 @@ These are kinematic checks within the receiver's joint limits. They do not check
 - the scene's head camera, as MuJoCo renders it (OpenGL's projection of `mjv_updateScene`'s frustum), projects every tag corner within 1e-3 px of the D435's pinhole model, its principal point at the D435's (639 - PPX, 479 - PPY);
 - the tags change no other body or geom, and a cube dropped onto tag 4 lands on the table exactly as without the tags;
 - a tag off the table or off its wall, in an unknown frame or face, with an unknown code or ID, or without a source is refused;
-- the robot is matte black in both visual modes, the workcell keeps its colours, and the appearance variation leaves the robot black (`tests/unit/test_robot_finish.py`);
+- the robot is dark grey in both visual modes, its grippers stand out against the black table in the head and wrist views, the workcell keeps its colours (the floor is the room's wood), and the appearance variation leaves the robot grey (`tests/unit/test_robot_finish.py`); a file's look is read with its sources and refused out of range, and changes no physics (`test_workcell.py`, `test_room.py`);
 - a turned table turns its top, trim, legs and table frame, and a tag off the turned top is refused;
 - a block may be a cuboid (`cube.size`): the scene builds it so and rests it at half its height;
 - the scene's head camera renders every visible tag within 0.5 px of the D435's pinhole (a segmentation render), and MuJoCo renders the optical axis at minus `principalpixel` from the image centre.
