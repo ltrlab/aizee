@@ -55,7 +55,7 @@
 
     Both are listed in `build/sim-look/traces/`.
 - **Acceptance command and expected result.**
-  - `python scripts/dev.py check --offline`, zero skips. It adds `test_room`. I did not run it; ask the coordinator to sequence it.
+  - `python scripts/dev.py check --offline`, zero skips. It adds `test_room`. **The full gate passed at `376eb02`** on 2026-10-18, run by the coordinator on the laptop: 1209 passed, none failed or skipped (the ARM64 release test included), and the 132 Rust tests, with the source unchanged; 18 min 50 s (`build/dev-check/20261018T191038Z-32c53d9b/report.json`). The commit after it changes only this doc.
   - Focused tests on the laptop: see Results.
 - **Source/model identity and seed.**
   - MuJoCo 3.15.0.
