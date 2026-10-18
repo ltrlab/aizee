@@ -1,0 +1,377 @@
+{
+ "description": "The layout of layout trial attempt 23 (seed [2000, 23, 3]) at 0789f74, drawn from that commit's minerva-production-01 workcell and randomization files on coolserver (2026-10-18). The handoff demonstrator's trial on it aborted: about 0.64 s into 'right turns' a right finger met the held 50 x 47 x 48 mm block, the block forced the right's open jaws past their range and the receiver stopped on the right gripper's position_above_upper (5.2823 rad against 5.2791). A planner follow-up (docs/development/SIM_DEMONSTRATOR.md, \"Follow-ups\"); scripts/sim/repro_take_abort.py runs it.",
+ "seed": [
+  2000,
+  23,
+  3
+ ],
+ "expected": {
+  "outcome": "source_gap_or_abort",
+  "trip": {
+   "reason": "limit_violation",
+   "joint": "right_gripper",
+   "check": "position_above_upper"
+  },
+  "last_move": "right turns"
+ },
+ "workcell": {
+  "name": "minerva-production-01 bench, 2026-10-16 | minerva-production-01 training layouts, 2026-10-18 draw [2000, 23, 3]",
+  "table_top": 0.512,
+  "table_center": [
+   -0.013123505282822006,
+   -0.7248976294143981
+  ],
+  "table_size": [
+   1.524,
+   0.762
+  ],
+  "table_thickness": 0.03,
+  "table_legs": [
+   [
+    -0.6998748055915055,
+    -1.0956504466988153
+   ],
+   [
+    -0.7290839404609714,
+    -0.4142762276090573
+   ],
+   [
+    0.7028369298953273,
+    -1.0355190312197389
+   ],
+   [
+    0.6736277950258615,
+    -0.3541448121299809
+   ]
+  ],
+  "floor_z": -0.238,
+  "trim_width": 0.02,
+  "bucket_center": [
+   0.05198811163249527,
+   -0.5646741036576048
+  ],
+  "bucket_yaw": -0.4434210285093227,
+  "bucket_inner": [
+   0.17804987892274335,
+   0.27152096584707996
+  ],
+  "bucket_height": 0.1975737731878397,
+  "bucket_wall": 0.004,
+  "bucket_bottom": 0.004,
+  "cube_edge": 0.050243415431810684,
+  "cube_mass": 0.07252807883841265,
+  "cube_friction": [
+   1.0,
+   0.005,
+   0.0001
+  ],
+  "cube_start": [
+   0.3308210016780652,
+   -0.4808797256396944,
+   0.07967496625630444
+  ],
+  "cube_region": [
+   [
+    -0.1472110925262221,
+    0.4051420141736444
+   ],
+   [
+    -0.8133164247068374,
+    -0.3757137727084885
+   ]
+  ],
+  "head_camera": {
+   "pos": [
+    -0.0038149211102163454,
+    -0.1044218756779286,
+    1.0817066723595339
+   ],
+   "xyaxes": [
+    -0.9987389703323128,
+    -0.020991233862039795,
+    -0.0456052326000067,
+    -0.01710195412870029,
+    -0.7118127766066652,
+    0.7021610173062085
+   ],
+   "fovy": 42.6526,
+   "intrinsics": {
+    "resolution": [
+     640.0,
+     480.0
+    ],
+    "focalpixel": [
+     614.336486816406,
+     614.734069824219
+    ],
+    "principalpixel": [
+     -6.237487792969,
+     -2.5146484375
+    ]
+   }
+  },
+  "colors": {
+   "table": [
+    0.035,
+    0.035,
+    0.04,
+    1.0
+   ],
+   "trim": [
+    0.72,
+    0.73,
+    0.75,
+    1.0
+   ],
+   "bucket_wall": [
+    0.62,
+    0.47,
+    0.31,
+    1.0
+   ],
+   "bucket_bottom": [
+    0.55,
+    0.41,
+    0.27,
+    1.0
+   ],
+   "cube": [
+    0.8,
+    0.64,
+    0.43,
+    1.0
+   ]
+  },
+  "sources": {
+   "table.top_z": "user 2026-10-16: the table sits about 6 in below the hanging arms' J3; the model's J3 anchor is at z 0.664 m when hanging",
+   "table.center": "randomized (training layout, minerva-production-01 training layouts, 2026-10-18): the table group moved by the drawn table offset",
+   "table.size": "user 2026-10-16: the workcell is about 5 ft by 2.5 ft",
+   "table.thickness": "placeholder: a typical desk top; not measured",
+   "table.floor_z": "placeholder: a 0.75 m desk height below the table top; not measured",
+   "table.trim_width": "placeholder: user 2026-10-16 says the black table has silver trim; its width is not measured",
+   "table.yaw_deg": "randomized (training layout, minerva-production-01 training layouts, 2026-10-18): the drawn table offset's yaw",
+   "fiducials.rectangle.robot_offsets": "randomized (training layout, minerva-production-01 training layouts, 2026-10-18): the tag rectangle moved with the table group (the file's [0.325, 0.36]: placeholder (interim, from head-camera torso clearance and reach (2026-10-18); not measured): (c, d), the rectangle's origin at base (c, -d), centred on the robot. The head camera is given in the rectangle frame, so d places it on the robot: rays through its whole image (the arms hanging) show the robot's torso until d = 0.318 m, and at the first placeholder (0.1584) the camera sat inside it. d = 0.36 keeps 4.2 cm of that margin and the camera 3.5 cm from the torso's nearest surface (3 cm asked). Planning the whole task for a cube at each 5 cm cell of the rectangle, with the box where the depth puts it: at d 0.33, 0.36, 0.40 and 0.45 the cube is picked in 81, 79, 70 and 61 of the 86 cells off the box, and the whole task, the release into the box included, plans and clears in 50, 50, 49 and 45. The user's tape numbers, or registering the robot to the head camera (docs/development/SIM_WORKCELL.md), replace it)",
+   "fiducials.rectangle.size": "user 2026-10-18: \"ID 0 bottom left corner is 650mm to the bottom right corner of ID 1, the bottom right corner of ID 1 to top right corner of ID 2 is 441mm. same measurements for ID 2 top right to ID 3 top left is 650, and ID 3 top left to bottom left ID 0 is 441mm\" (bottom is the near side). The corners are the black squares': the head camera (2026-10-18 03:25Z, D435 colour intrinsics) fits them at 0.75 px RMS against 3.59 px for the labels' corners",
+   "fiducials.rectangle.yaw_deg": "randomized (training layout, minerva-production-01 training layouts, 2026-10-18): the file's 0.0 degrees turned with the table group",
+   "cameras.head.pos": "randomized (training layout, minerva-production-01 training layouts, 2026-10-18): the calibrated pose (estimated from RealSense depth plus tags, for the head camera's temporary mount (user 2026-10-18: not calibrated there): head frame depth-20261018T044530Z (2026-10-18 04:45Z, the median of 20 depth frames). The table plane fitted to its depth (1.63 mm RMS) sets the camera's height, 554.9 mm, and its tilt, 45.59 degrees down; the flat tags 0, 3, 4 and 5 at their places in the rectangle set where it stands over the plane and its turn (3.4 px RMS, at most 4.2 px: the taped rectangle reads about 1.9% short of the depth, whose scale the tags' calipered squares confirm to 0.9%). With the D435 colour intrinsics. The tags alone put it 10.2 mm lower (544.7 mm up). In the rectangle frame, so it moves with the tags when rectangle.robot_offsets is measured; the image axes are those of the published, half-turned image) shifted by the drawn offset",
+   "cameras.head.xyaxes": "randomized (training layout, minerva-production-01 training layouts, 2026-10-18): the calibrated axes (estimated from RealSense depth plus tags, for the head camera's temporary mount (user 2026-10-18: not calibrated there): head frame depth-20261018T044530Z (2026-10-18 04:45Z, the median of 20 depth frames). The table plane fitted to its depth (1.63 mm RMS) sets the camera's height, 554.9 mm, and its tilt, 45.59 degrees down; the flat tags 0, 3, 4 and 5 at their places in the rectangle set where it stands over the plane and its turn (3.4 px RMS, at most 4.2 px: the taped rectangle reads about 1.9% short of the depth, whose scale the tags' calipered squares confirm to 0.9%). With the D435 colour intrinsics. The tags alone put it 10.2 mm lower (544.7 mm up). In the rectangle frame, so it moves with the tags when rectangle.robot_offsets is measured; the image axes are those of the published, half-turned image) turned by the drawn angles",
+   "cameras.head.fovy": "from the D435 colour intrinsics: 2 atan(240 / fy) with fy 614.734069824219",
+   "cameras.head.intrinsics.resolution": "D435 serial 919122072056 colour intrinsics 640x480 from rs-enumerate-devices -c 2026-10-18 (fx 614.336486816406, fy 614.734069824219, PPX 313.262512207031, PPY 236.9853515625, Inverse Brown Conrady with all coefficients 0), for the image as the head node publishes it, turned half a turn: the principal point is (639 - PPX, 479 - PPY) = (325.737, 242.015). MuJoCo takes principalpixel as the image centre's offset from the principal point, (319.5 - cx, 239.5 - cy), here (PPX - 319.5, PPY - 239.5), as rendering points at known places showed (2026-10-18)",
+   "cameras.head.intrinsics.focalpixel": "D435 serial 919122072056 colour intrinsics 640x480 from rs-enumerate-devices -c 2026-10-18 (fx 614.336486816406, fy 614.734069824219, PPX 313.262512207031, PPY 236.9853515625, Inverse Brown Conrady with all coefficients 0), for the image as the head node publishes it, turned half a turn: the principal point is (639 - PPX, 479 - PPY) = (325.737, 242.015). MuJoCo takes principalpixel as the image centre's offset from the principal point, (319.5 - cx, 239.5 - cy), here (PPX - 319.5, PPY - 239.5), as rendering points at known places showed (2026-10-18)",
+   "cameras.head.intrinsics.principalpixel": "D435 serial 919122072056 colour intrinsics 640x480 from rs-enumerate-devices -c 2026-10-18 (fx 614.336486816406, fy 614.734069824219, PPX 313.262512207031, PPY 236.9853515625, Inverse Brown Conrady with all coefficients 0), for the image as the head node publishes it, turned half a turn: the principal point is (639 - PPX, 479 - PPY) = (325.737, 242.015). MuJoCo takes principalpixel as the image centre's offset from the principal point, (319.5 - cx, 239.5 - cy), here (PPX - 319.5, PPY - 239.5), as rendering points at known places showed (2026-10-18)",
+   "cube.region": "randomized (training layout, minerva-production-01 training layouts, 2026-10-18): the cube region moved with the table group (its bounds)",
+   "cube.size": "randomized (training layout, minerva-production-01 training layouts, 2026-10-18): drawn edges: length along its yaw, width across, height up",
+   "bucket.center": "randomized (training layout, minerva-production-01 training layouts, 2026-10-18): drawn in the bucket region, moved with the table group",
+   "bucket.yaw_deg": "randomized (training layout, minerva-production-01 training layouts, 2026-10-18): drawn, turned with the table group",
+   "bucket.inner_size": "randomized (training layout, minerva-production-01 training layouts, 2026-10-18): drawn inside width (across) and length (front to back)",
+   "bucket.height": "randomized (training layout, minerva-production-01 training layouts, 2026-10-18): drawn wall height above the table",
+   "bucket.wall": "placeholder: corrugated cardboard; not measured",
+   "bucket.bottom": "placeholder: corrugated cardboard; not measured",
+   "cube.mass": "placeholder (randomized (training layout, minerva-production-01 training layouts, 2026-10-18)): the workcell's cube mass per volume (35.0 g for 38.1 x 38.1 x 38.1 mm, itself placeholder (estimate): a 1.5 in wood cube at 0.4-0.75 g/cm3 weighs 22-41 g; not weighed) times the drawn volume; not weighed",
+   "cube.friction": "placeholder: the synthetic scene's value; wood on the finger pads is not measured, and MuJoCo takes the larger of the pad's and the cube's friction",
+   "cube.start": "randomized (training layout, minerva-production-01 training layouts, 2026-10-18): drawn in the cube region, moved with the table group",
+   "fiducials.family": "claude/table-fiducial-labels, scripts/fiducials/make_tag_labels.py: the ArUco labels printed for this table, 2026-10-17",
+   "fiducials.square": "user 2026-10-18: the black square measures 43.18 mm by calipers and the 10 mm scale arms exactly 10 mm, so the print is at scale (the generator's 6 cells of 85 dots at 300 dpi). The head camera's fit to the taped rectangle suggested 42.2-42.4 mm; the user puts that 2% down to hand placement and the tape, acceptable for first tests",
+   "fiducials.label_size": "the generator's 696 x 847 dot label at 300 dpi (across, along the tape), printed at scale (user 2026-10-18, calipers on the square). The tape's unprinted white margins (about 1.5 mm at the sides and 2.5-3 mm at the ends, so the cut label is about 62 x 77 mm with the tag centre about 45 mm from its text end and 32 mm from its far end) are not drawn",
+   "fiducials.tag_offset": "the generator puts the tag centre 75.5 dots (6.39 mm) from the label's centre toward its far end, printed at scale (user 2026-10-18, calipers on the square)",
+   "fiducials.tags.0.center": "user 2026-10-18: ID 0's black square has its outer corner at the rectangle's near-left corner, so its centre is half a square in from each side",
+   "fiducials.tags.1.center": "user 2026-10-18: ID 1's black square has its outer corner at the rectangle's near-right corner, so its centre is half a square in from each side",
+   "fiducials.tags.2.center": "user 2026-10-18: ID 2's black square has its outer corner at the rectangle's far-right corner, so its centre is half a square in from each side",
+   "fiducials.tags.3.center": "user 2026-10-18: ID 3's black square has its outer corner at the rectangle's far-left corner, so its centre is half a square in from each side",
+   "fiducials.tags.4.center": "head camera 2026-10-18 03:25Z, its rays through tag 4's corners onto the table plane, the camera fitted to tags 0, 2 and 3 at the taped corners with the D435 colour intrinsics (within about 2 mm of those taped corners): the middle of the near side, not taped. The user confirmed this is ID 4 and took this layout as the calibration reference (2026-10-18: \"now use that as the calibration reference for the real2sim\")",
+   "fiducials.tags.5.center": "head camera 2026-10-18 03:25Z, its rays through tag 5's corners onto the table plane, the camera fitted to tags 0, 2 and 3 at the taped corners with the D435 colour intrinsics: the middle of the far side, where the user put it (\"ID 5 is the top middle between ID 2 and 3\"), not taped; the user took this layout as the calibration reference",
+   "fiducials.tags.6.wall": "head camera 2026-10-18, frame 20261018T034533Z: ID 6 decodes cleanly (0 cells wrong, about 6.9 px per cell) on the front wall's outer face, facing the robot. The user's description had 6 and 7 the other way round (\"ID 6 aruco is on the middle top back edge of the box/bucket target, and the ID 7 is on the outer top front edge of the box\")",
+   "fiducials.tags.6.face": "head camera 2026-10-18, frame 20261018T034533Z: on the front wall's outside, facing the robot",
+   "fiducials.tags.6.along": "head camera 2026-10-18, frame 20261018T034533Z: 6 and 7 lie on one line along the box's axis, 1.2 mm apart across it, which places the box's middle there",
+   "fiducials.tags.6.below_rim": "estimated from RealSense depth (median of 20 head frames, 2026-10-18 04:45Z, depth-20261018T044530Z) plus the tags: the rim at 189 mm and the tag's centre about 146.7 mm above the table (head camera, frames 20261018T034533Z and depth-20261018T044530Z); not taped",
+   "fiducials.tags.7.wall": "head camera 2026-10-18, frame 20261018T034533Z: ID 7 decodes cleanly (0 cells wrong, about 6.0 px per cell) on the back wall's inner face, at the top, facing the robot. The user's description had 6 and 7 the other way round",
+   "fiducials.tags.7.face": "head camera 2026-10-18, frame 20261018T034533Z: on the back wall's inside, facing the robot",
+   "fiducials.tags.7.along": "head camera 2026-10-18, frame 20261018T034533Z: 6 and 7 lie on one line along the box's axis, 1.2 mm apart across it, which places the box's middle there",
+   "fiducials.tags.7.below_rim": "estimated from RealSense depth (median of 20 head frames, 2026-10-18 04:45Z, depth-20261018T044530Z) plus the tags: the rim at 189 mm and the tag's centre about 147.0 mm above the table (head camera, frames 20261018T034533Z and depth-20261018T044530Z); not taped"
+  },
+  "asset_id": "minerva-production-01",
+  "fiducials": {
+   "family": "DICT_4X4_50",
+   "square": 0.04318,
+   "label": [
+    0.05893,
+    0.07171
+   ],
+   "tag_offset": 0.00639,
+   "tags": [
+    [
+     0,
+     0.27673507070930015,
+     -0.4022773539761994,
+     0.512,
+     3.184434401290966,
+     0.0
+    ],
+    [
+     1,
+     -0.3295281310913551,
+     -0.4282666314270635,
+     0.512,
+     3.184434401290966,
+     0.0
+    ],
+    [
+     2,
+     -0.31249004013274667,
+     -0.8257216047969864,
+     0.512,
+     3.184434401290966,
+     0.0
+    ],
+    [
+     3,
+     0.29377316166790857,
+     -0.7997323273461223,
+     0.512,
+     3.184434401290966,
+     0.0
+    ],
+    [
+     4,
+     -0.025063031827301706,
+     -0.4160255722355499,
+     0.512,
+     3.184434401290966,
+     0.0
+    ],
+    [
+     5,
+     -0.008071506586207394,
+     -0.8100594008213469,
+     0.512,
+     3.184434401290966,
+     0.0
+    ],
+    [
+     6,
+     0.11194985179694994,
+     -0.43842996595817924,
+     0.6675737731878397,
+     2.6981716250804704,
+     1.5707963267948966
+    ],
+    [
+     7,
+     -0.006257499940810832,
+     -0.6873050844743802,
+     0.6675737731878397,
+     2.6981716250804704,
+     1.5707963267948966
+    ]
+   ],
+   "rectangle": {
+    "size": [
+     0.65,
+     0.441
+    ],
+    "origin": [
+     0.2973805900176815,
+     -0.3797824938413319
+    ],
+    "yaw": 0.042841747701172925
+   }
+  },
+  "table_yaw": 0.042841747701172925,
+  "cube_size": [
+   0.050243415431810684,
+   0.04718791367656221,
+   0.04833960820786619
+  ]
+ },
+ "cube_start": {
+  "x": 0.3308210016780652,
+  "y": -0.4808797256396944,
+  "yaw": 0.07967496625630444
+ },
+ "values": {
+  "seed": [
+   2000,
+   23,
+   3
+  ],
+  "randomization": {
+   "name": "minerva-production-01 training layouts, 2026-10-18",
+   "path": "/home/ltr/aizee-sim/tree-0789f74/config/devices/simulation/minerva-production-01-randomization.json",
+   "sha256": "3204601219da79b5539d047ccb8b3012f9e79a00fad06e0e2593165edbd1fb81"
+  },
+  "bucket_position_draws": 1,
+  "cube": {
+   "size_m": [
+    0.050243415431810684,
+    0.04718791367656221,
+    0.04833960820786619
+   ],
+   "mass_kg": 0.07252807883841265,
+   "yaw_deg": 4.565039299333493,
+   "start_m": [
+    0.3308210016780652,
+    -0.4808797256396944
+   ],
+   "drawn_in_group_frame_m": [
+    0.35407987053168033,
+    -0.4624366757522347
+   ]
+  },
+  "bucket": {
+   "inner_length_m": 0.27152096584707996,
+   "inner_width_m": 0.17804987892274335,
+   "height_m": 0.1975737731878397,
+   "yaw_deg": -25.406153480934343,
+   "center_m": [
+    0.05198811163249527,
+    -0.5646741036576048
+   ],
+   "drawn_in_group_frame": {
+    "center_m": [
+     0.07191402888920423,
+     -0.5342121323426772
+    ],
+    "yaw_deg": -27.86080481117585
+   }
+  },
+  "table_offset": {
+   "x_m": -0.017877484711723346,
+   "y_m": -0.033499479386592944,
+   "yaw_deg": 2.4546513302415054,
+   "pivot_m": [
+    -2.7003461921199137e-17,
+    -0.5804999999999999
+   ],
+   "table_center_m": [
+    -0.013123505282822006,
+    -0.7248976294143981
+   ]
+  },
+  "head_camera": {
+   "shift_m": [
+    0.013925822220582928,
+    -0.011307751430754234,
+    0.014806672359534038
+   ],
+   "turn_deg": {
+    "x": 0.30315951900243343,
+    "y": 0.26376827225184485,
+    "z": -1.1950038502787663
+   },
+   "given_in": "rectangle",
+   "pos_m": [
+    -0.0038149211102163454,
+    -0.1044218756779286,
+    1.0817066723595339
+   ],
+   "xyaxes": [
+    -0.9987389703323128,
+    -0.020991233862039795,
+    -0.0456052326000067,
+    -0.01710195412870029,
+    -0.7118127766066652,
+    0.7021610173062085
+   ]
+  }
+ }
+}
