@@ -8,8 +8,8 @@ Builds the scene from the workcell (its head camera with the D435's pixel intrin
 only geom group 0: the floor, the table, the box, the tags and the cube, not the robot (whose placement relative to the
 tags is still a placeholder, and which would stand in the view). Each --block puts the scene's cube at (X, Y) metres
 in the workcell's tag rectangle frame, turned YAW degrees, resting on the table; --blocks-from takes every block a
-head_depth_check.py report found (its top face's centre and turn). The renders are merged, the nearest surface
-winning, so several blocks show at once. Writes sim_depth.npy (metres along the optical axis, 0 where
+head_depth_check.py report found (the cube fitted to its depth: centre and turn). The renders are merged, the nearest
+surface winning, so several blocks show at once. Writes sim_depth.npy (metres along the optical axis, 0 where
 nothing is), sim_rgb.png and sim_render.json. Renders with MuJoCo: use a GPU's EGL (MUJOCO_GL=egl and
 MUJOCO_EGL_DEVICE_ID), or a desktop GL context.
 """
@@ -43,7 +43,7 @@ def main() -> int:
     args.out.mkdir(parents=True, exist_ok=True)
     if args.blocks_from:
         report = json.loads(args.blocks_from.read_text(encoding='utf-8'))
-        args.block += [[*(v / 1000 for v in o['top_face_centre_rectangle_mm']), o['yaw_deg']]
+        args.block += [[*(v / 1000 for v in o['centre_rectangle_mm']), o['yaw_deg']]
                        for o in report['objects'] if o['kind'] == 'block']
     workcell = load_workcell(args.workcell)
     width, height = (int(v) for v in workcell.head_camera['intrinsics']['resolution'])

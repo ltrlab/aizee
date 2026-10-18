@@ -19,9 +19,10 @@ height above each and the angle between them. Then it seats the rectangle frame 
 the camera's height above the table and its tilt, the tags only where the camera stands over the plane and which way
 it faces (the depth-anchored pose, whose camera it proposes for the workcell). In that frame it finds what stands on
 the table near the rectangle by height above the depth plane, and fits the box (the largest object: outer footprint,
-yaw, rim height, its front and back faces) and each block (edge, centre, yaw, height). Writes depth_check.json, the
-registered depth (registered_depth.npy, metres, on the colour pixel grid) and depth_check.png, and prints a summary.
-Needs numpy and OpenCV.
+yaw, rim height, its front and back faces) and each block (its top's height and extent, and the workcell's cube
+fitted to its depth: centre and yaw). Writes depth_check.json, the registered depth
+(registered_depth.npy, metres, on the colour pixel grid) and depth_check.png, and prints a summary. Needs numpy and
+OpenCV.
 """
 from __future__ import annotations
 
@@ -47,6 +48,7 @@ CALIBRATION = ROOT / 'build/fiducials-check/intrinsics/d435-calibration-copy.txt
 MIN_FRAMES = 10  # A depth pixel counts with at least this many valid frames of the median.
 PLANE_TOLERANCE_M = .004
 OBJECT_HEIGHT_M = .012
+CUBE_CAP_M = .015  # A point's depth error counts at most this much in a block's fit.
 
 
 def extrinsics(text, source, target):
@@ -110,6 +112,54 @@ def anchored_pose(normal, offset, objects, pixels, K, R, t, iterations=30):
             break
     rotation, translation = pose(params)
     return rotation, translation, np.linalg.norm(residual(params).reshape(-1, 2), axis=1)
+
+
+def cube_depths(origin, directions, centres, turn, edge):
+    """For rays origin + s d (the frame's, d with camera z 1, n x 3), the s (camera z) where each first meets a cube of
+    `edge` resting on the frame's z = 0 at each of `centres` (m x 2), turned `turn` about z, else the table: m x n."""
+    c, s = math.cos(turn), math.sin(turn)
+    into = np.array([[c, s, 0.], [-s, c, 0.], [0., 0., 1.]])  # The frame into the cube's axes.
+    d = directions @ into.T
+    o = (origin - np.column_stack([centres, np.full(len(centres), edge / 2)])) @ into.T
+    with np.errstate(divide='ignore', invalid='ignore'):
+        t1 = (-edge / 2 - o[:, None, :]) / d[None, :, :]
+        t2 = (edge / 2 - o[:, None, :]) / d[None, :, :]
+    near = np.nanmax(np.minimum(t1, t2), axis=2)
+    far = np.nanmin(np.maximum(t1, t2), axis=2)
+    table = -origin[2] / directions[:, 2]
+    return np.where((far >= near) & (near > 0), near, table[None, :])
+
+
+def fit_cube(points, R, t, start, edge):
+    """A cube of `edge` resting on the table (z = 0 of the frame x = R q + t) fitted to depth points (camera frame)
+    around it: its centre (x, y in the frame) and turn (degrees, within +-45). Each point's depth is compared with where
+    its own ray meets the cube or the table behind it, the error capped at CUBE_CAP_M so the outline's mixed pixels do
+    not pull; a coarse-to-fine grid from `start`. Returns the fit, its RMS over the points within the cap and their
+    share. The size is not fitted: from one view a block's far side is hidden, and a free size drifts into it."""
+    origin, directions, z = -R.T @ t, (points / points[:, 2:]) @ R, points[:, 2]
+
+    def scores(centres, turn, size):
+        model = cube_depths(origin, directions, centres, turn, size)
+        return np.minimum((model - z) ** 2, CUBE_CAP_M ** 2).sum(axis=1)
+
+    def search(centre, turns, reach, step):
+        offsets = np.arange(-reach, reach + step / 2, step)
+        grid = centre + np.array([(a, b) for a in offsets for b in offsets])
+        best = None
+        for turn in turns:
+            values = scores(grid, turn, edge)
+            k = int(np.argmin(values))
+            if best is None or values[k] < best[0]:
+                best = (float(values[k]), grid[k], turn)
+        return best[1:]
+
+    centre, turn = search(np.asarray(start, float), np.radians(np.arange(0., 90., 2.)), .012, .002)
+    centre, turn = search(centre, turn + np.radians(np.arange(-2., 2.01, .25)), .002, .00025)
+    error = cube_depths(origin, directions, centre[None, :], turn, edge)[0] - z
+    within = np.abs(error) < CUBE_CAP_M
+    return {'centre_m': centre, 'turn_deg': (math.degrees(turn) + 45) % 90 - 45,
+            'rms_mm': round(float(np.sqrt(np.mean(error[within] ** 2)) * 1000), 2),
+            'within_cap': round(float(within.mean()), 3), 'points': int(len(z))}
 
 
 def footprint(xy):
@@ -454,10 +504,18 @@ def main() -> int:
         axes = np.linalg.svd(face - middle, full_matrices=False)[2]
         extent = [float(np.percentile((face - middle) @ a, 98) - np.percentile((face - middle) @ a, 2)) for a in axes]
         turn = math.degrees(math.atan2(axes[0][1], axes[0][0]))
-        turn = (turn + 45) % 90 - 45  # A square's yaw, within +-45 degrees.
+        turn = (turn + 45) % 90 - 45  # A square's yaw, within +-45 degrees: loose, a square's points barely set it.
+        # Its place and turn: the workcell's cube fitted to the steady depth within 60 mm of the top face's middle
+        # (the block's sides and the table round it).
+        around = (np.linalg.norm(local[:, :2] - middle, axis=1) < .06) & (heights > -.015) & (heights < .06) & \
+            (mad[v, u] < .003)
+        fit = fit_cube(points[around], R_a, t_a, middle, 2 * workcell.cube_half)
         entry.update(kind='block', top_mm=round(top * 1000, 1), top_face_points=int(len(face)),
                      top_face_centre_rectangle_mm=np.round(middle * 1000, 1).tolist(),
-                     top_face_extent_mm=[round(e * 1000, 1) for e in extent], yaw_deg=round(turn, 1))
+                     top_face_extent_mm=[round(e * 1000, 1) for e in extent], top_face_yaw_deg=round(turn, 1),
+                     centre_rectangle_mm=np.round(fit['centre_m'] * 1000, 1).tolist(), yaw_deg=round(fit['turn_deg'], 1),
+                     cube_fit={'edge_mm': round(2000 * workcell.cube_half, 1),
+                               **{k: fit[k] for k in ('rms_mm', 'within_cap', 'points')}})
         report['objects'].append(entry)
     (args.grab / 'depth_check.json').write_text(json.dumps(report, indent=1), encoding='utf-8')
 
