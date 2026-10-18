@@ -139,18 +139,21 @@ def _environment(world, workcell, grip_contact=False):
 
 def _fiducials(world, workcell):
     """The workcell's fiducial tags, visual only: no contacts, no mass, and not among the audited environment. Each tag
-    is a body in its marker frame (simulation.fiducials) on the table top, holding its white label, the black square
-    and the code's white cells, one box per run of white cells along a row. The scene adds them after every other
-    body, so every other body and geom keeps its index."""
+    is a body in its marker frame (simulation.fiducials), flat on the table top or upright on a bucket wall, holding
+    its white label, the black square and the code's white cells, one box per run of white cells along a row. The
+    scene adds them after every other body, so every other body and geom keeps its index."""
     f = workcell.fiducials
     if not f:
         return
     family, square = f["family"], f["square"]
     size = square / grid(family)
     paper, ink = workcell.color("fiducial_label"), workcell.color("fiducial_print")
-    for tag_id, x, y, yaw in f["tags"]:
-        body = ET.SubElement(world, "body", name=f"task/fiducial/{tag_id}", pos=_numbers((x, y, workcell.table_top)),
-                             quat=_numbers(_yaw_quat(yaw)))
+    for tag_id, x, y, z, yaw, tilt in f["tags"]:
+        # Turned `yaw` about z, then tipped `tilt` about the marker's own x axis (fiducials.marker_axes).
+        quat = (math.cos(yaw / 2) * math.cos(tilt / 2), math.cos(yaw / 2) * math.sin(tilt / 2),
+                math.sin(yaw / 2) * math.sin(tilt / 2), math.sin(yaw / 2) * math.cos(tilt / 2))
+        body = ET.SubElement(world, "body", name=f"task/fiducial/{tag_id}", pos=_numbers((x, y, z)),
+                             quat=_numbers(quat))
 
         def flat(name, center, half, layer, rgba):
             ET.SubElement(body, "geom", name=f"task/fiducial/{tag_id}/{name}", type="box",

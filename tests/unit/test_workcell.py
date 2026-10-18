@@ -7,9 +7,10 @@ import numpy as np
 import pytest
 
 from robot_platform.evaluation.grid import GridSpec, cube_poses
-from robot_platform.simulation.fiducials import CODES, cells, corners, grid
+from robot_platform.simulation.fiducials import CODES, cells, corners, grid, marker_axes
 from robot_platform.simulation.task_scene import CUBE_START, TABLE_TOP, MinervaTaskScene
-from robot_platform.simulation.workcell import SYNTHETIC, Workcell, load_workcell, resolve, validate, workcell_path
+from robot_platform.simulation.workcell import (SYNTHETIC, Workcell, bucket_frame, load_workcell, resolve, validate,
+                                               workcell_path)
 
 ROOT = Path(__file__).resolve().parents[2]
 MEASURED = ROOT / 'config/devices/simulation/minerva-production-01-workcell.json'
@@ -42,8 +43,8 @@ def test_measured_file_names_a_source_for_every_value_and_lists_what_is_unmeasur
     assert workcell.cube_edge == pytest.approx(.0381) and workcell.bucket_inner == pytest.approx((.152, .305))
     measured = {'table.size', 'table.top_z', 'bucket.inner_size', 'cube.edge'}
     assert measured.isdisjoint(workcell.placeholders())
-    assert {'table.center', 'bucket.center', 'bucket.height', 'cube.mass', 'cameras.head.pos'} <= \
-        set(workcell.placeholders())
+    assert {'table.center', 'bucket.center', 'bucket.height', 'cube.mass', 'cameras.head.pos',
+            'fiducials.rectangle.robot_offsets'} <= set(workcell.placeholders())
     assert all(workcell.sources[key] for key in workcell.sources)
     # The description crosses process boundaries unchanged.
     assert Workcell.from_description(json.loads(json.dumps(workcell.describe()))) == workcell
@@ -108,7 +109,8 @@ def _bucket_drop(workcell, offset):
 @pytest.mark.parametrize('yaw_deg', [0., 30.])
 def test_a_rectangular_yawed_bucket_holds_the_cube_dropped_into_its_long_end(yaw_deg):
     measured = load_workcell(MEASURED)
-    workcell = Workcell.from_description(dict(measured.describe(), bucket_yaw=np.radians(yaw_deg)))
+    # Without the fiducial tags: the file placed its wall tags on the unturned bucket.
+    workcell = Workcell.from_description(dict(measured.describe(), bucket_yaw=np.radians(yaw_deg), fiducials={}))
     # Near the far end of the long side: inside a 0.305 m box, outside a square one of the short side.
     inside, touched, state = _bucket_drop(workcell, (0., .10))
     assert inside and touched
@@ -124,8 +126,11 @@ def test_a_rectangular_yawed_bucket_holds_the_cube_dropped_into_its_long_end(yaw
 # fiducials.CODES must say; scripts/sim/check_fiducial_codes.py checks the table against OpenCV itself.
 OPENCV_DICT_4X4_50 = {0: (181, 50), 1: (15, 154), 2: (51, 45), 3: (153, 70), 4: (84, 158), 5: (121, 205),
                       6: (158, 46), 7: (196, 242)}
-# The layout given to the user on 2026-10-17: tag centres in the table frame, mm.
-LAYOUT = {0: (100, 100), 5: (762, 100), 1: (1424, 100), 3: (381, 662), 4: (762, 662), 2: (1143, 662)}
+# The user's taped rectangle (2026-10-18): 650 x 441 mm over the outer corners of tags 0-3's black squares.
+RECTANGLE = (.650, .441)
+SQUARE = .04318
+CORNERS = {0: (SQUARE / 2, SQUARE / 2), 1: (RECTANGLE[0] - SQUARE / 2, SQUARE / 2),
+           2: (RECTANGLE[0] - SQUARE / 2, RECTANGLE[1] - SQUARE / 2), 3: (SQUARE / 2, RECTANGLE[1] - SQUARE / 2)}
 HALF_TURN = np.diag([-1., -1., 1.])  # A marker frame on the base: x along the table's x, y away from the robot.
 
 
@@ -146,45 +151,63 @@ def test_the_fiducial_codes_are_opencvs():
         assert cells('DICT_4X4_50', tag_id) == _opencv_cells(tag_id)
 
 
-def test_the_tags_sit_where_the_table_frame_puts_them():
+def test_the_tags_sit_where_the_rectangle_and_the_bucket_put_them():
     workcell = load_workcell(MEASURED)
-    c, d = _table_corner(workcell)
-    assert (c, d) == pytest.approx((.762, .080))  # The placeholder table: centred, near edge 8 cm out.
-    tags = {tag[0]: tag for tag in workcell.fiducials['tags']}
-    assert sorted(tags) == list(range(8)) and workcell.fiducials['family'] == 'DICT_4X4_50'
-    for tag_id, (x, y) in LAYOUT.items():
-        assert tags[tag_id][1:3] == pytest.approx((c - x / 1000, -d - y / 1000), abs=1e-12)
-    # 6 and 7 sit 42 mm in front of the bucket's near outer face (the label's far end 1 cm from it, the tag centre
-    # 32 mm from that end), centred across on its near-left and near-right outer corners: (932, 122) and
-    # (1092, 122) mm in the table frame with the placeholder bucket.
-    near = workcell.bucket_center[1] + workcell.bucket_inner[1] / 2 + workcell.bucket_wall
-    for tag_id, side, table_x in ((6, 1, 932.), (7, -1, 1092.)):
-        _, x, y, _ = tags[tag_id]
-        assert x == pytest.approx(workcell.bucket_center[0] + side * (workcell.bucket_inner[0] / 2 + workcell.bucket_wall))
-        assert y == pytest.approx(near + .042)
-        assert ((c - x) * 1000, (-d - y) * 1000) == pytest.approx((table_x, 121.5))
-    # Every marker frame is the table frame turned onto the base: x along the near edge, y away from the robot.
-    assert all(tag[3] == math.pi for tag in tags.values())
-    # The printed sizes and every position are placeholders until measured; the printed family is not.
+    f = workcell.fiducials
+    tags = {tag[0]: tag for tag in f['tags']}
+    assert sorted(tags) == list(range(8)) and f['family'] == 'DICT_4X4_50' and f['square'] == SQUARE
+    # Tags 0-3 sit half a square in from the taped rectangle's corners. Its robot offsets (c, d) put its origin at
+    # base (c, -d), its near side along base -x and its depth along base -y.
+    assert f['rectangle']['size'] == RECTANGLE and f['rectangle']['yaw'] == 0.
+    (ox, oy) = f['rectangle']['origin']
+    assert (ox, -oy) == pytest.approx((.325, .1584))  # The placeholder: centred on the robot, 16 cm out.
+    for tag_id, (x, y) in CORNERS.items():
+        assert tags[tag_id][1:4] == pytest.approx((ox - x, oy - y, workcell.table_top), abs=1e-12)
+    # 4 and 5 sit at the middles of the near and far sides, where the head camera found them.
+    for tag_id, side in ((4, CORNERS[0][1]), (5, CORNERS[3][1])):
+        x, y = ox - tags[tag_id][1], oy - tags[tag_id][2]
+        assert x == pytest.approx(RECTANGLE[0] / 2, abs=.003) and y == pytest.approx(side, abs=.003)
+    # On the table every marker frame is the rectangle's, turned onto the base: x along its near side, y away.
+    for tag_id in range(6):
+        assert np.array(marker_axes(*tags[tag_id][4:])).T == pytest.approx(HALF_TURN, abs=1e-12)
+    # 6 is upright on the front wall's outer face and 7 on the back wall's inner face (as the head camera decodes
+    # them), both facing the robot along the box's axis, their centres 32 mm below the rim in the middle of their walls.
+    toward_robot = (-math.sin(workcell.bucket_yaw), math.cos(workcell.bucket_yaw), 0.)
+    half = (workcell.bucket_inner[0] / 2, workcell.bucket_inner[1] / 2)
+    for tag_id, wall_y in ((6, half[1] + workcell.bucket_wall), (7, -half[1])):
+        _, x, y, z, yaw, tilt = tags[tag_id]
+        assert bucket_frame(workcell, x, y) == pytest.approx((0., wall_y), abs=1e-12)
+        assert z == pytest.approx(workcell.table_top + workcell.bucket_height - .032)
+        x_axis, y_axis, z_axis = marker_axes(yaw, tilt)
+        assert z_axis == pytest.approx(toward_robot, abs=1e-12) and y_axis == pytest.approx((0., 0., 1.), abs=1e-12)
+    # Placeholders until measured: the rectangle's place relative to the robot and the wall tags' unknowns.
     placeholders = set(workcell.placeholders())
-    assert {'fiducials.square', 'fiducials.label_size', 'fiducials.tag_offset'} <= placeholders
-    assert {f'fiducials.tags.{i}.center' for i in LAYOUT} | {'fiducials.tags.6.in_front', 'fiducials.tags.7.in_front'} \
-        <= placeholders
-    assert 'fiducials.family' not in placeholders and workcell.sources['fiducials.family']
+    assert {'fiducials.rectangle.robot_offsets', 'fiducials.rectangle.yaw_deg', 'fiducials.tags.6.below_rim',
+            'fiducials.tags.7.below_rim', 'bucket.height', 'bucket.center', 'bucket.yaw_deg'} <= placeholders
+    assert {'fiducials.family', 'fiducials.square', 'fiducials.rectangle.size', 'fiducials.tags.6.wall',
+            'fiducials.tags.7.face'} | {f'fiducials.tags.{i}.center' for i in range(6)} \
+        <= set(workcell.sources) - placeholders
     assert SYNTHETIC.fiducials == {}
 
 
-def test_the_bucket_tags_follow_the_bucket(tmp_path):
+def test_the_wall_tags_follow_the_bucket(tmp_path):
     before = {tag[0]: tag for tag in load_workcell(MEASURED).fiducials['tags']}
     document = json.loads(MEASURED.read_text(encoding='utf-8'))
     document['bucket']['center']['value'] = [-.20, -.45]
-    tags = {tag[0]: tag for tag in load_workcell(_write(document, tmp_path)).fiducials['tags']}
-    for tag_id in (6, 7):
-        assert np.subtract(tags[tag_id][1:3], before[tag_id][1:3]) == pytest.approx((.05, -.05))
-    assert all(tags[tag_id] == before[tag_id] for tag_id in LAYOUT)
+    document['bucket']['yaw_deg']['value'] = 10.
+    moved = load_workcell(_write(document, tmp_path))
+    assert math.degrees(moved.bucket_yaw) == pytest.approx(10.)
+    tags = {tag[0]: tag for tag in moved.fiducials['tags']}
+    assert all(tags[tag_id] == before[tag_id] for tag_id in range(6))
+    for tag_id, wall_y in ((6, moved.bucket_inner[1] / 2 + moved.bucket_wall), (7, -moved.bucket_inner[1] / 2)):
+        _, x, y, z, yaw, tilt = tags[tag_id]
+        assert bucket_frame(moved, x, y) == pytest.approx((0., wall_y), abs=1e-12)
+        # Still facing the robot's way out of its face, turned with the bucket.
+        normal = marker_axes(yaw, tilt)[2]
+        assert normal == pytest.approx((-math.sin(math.radians(10.)), math.cos(math.radians(10.)), 0.), abs=1e-12)
 
 
-def test_the_scene_draws_each_tag_flat_on_the_table_with_its_code():
+def test_the_scene_draws_each_tag_with_its_code():
     workcell = load_workcell(MEASURED)
     scene = MinervaTaskScene(fixture_map(), NAMES, width=64, height=48, workcell=workcell)
     try:
@@ -195,11 +218,11 @@ def test_the_scene_draws_each_tag_flat_on_the_table_with_its_code():
         size = f['square'] / n
         assert any('Fiducial tags' in item for item in scene.capabilities['limitations'])
         for tag in f['tags']:
-            tag_id, x, y, yaw = tag
+            tag_id, x, y, z, yaw, tilt = tag
             body = scene._id('body', f'task/fiducial/{tag_id}')
-            # Flat on the table top, its marker x along the table's x (base -x) and y away from the robot (base -y).
-            assert d.xpos[body] == pytest.approx((x, y, workcell.table_top), abs=1e-12)
-            assert d.xmat[body].reshape(3, 3) == pytest.approx(HALF_TURN, abs=1e-12)
+            # On the table or on its wall, its marker axes where marker_axes puts them.
+            assert d.xpos[body] == pytest.approx((x, y, z), abs=1e-12)
+            assert d.xmat[body].reshape(3, 3) == pytest.approx(np.array(marker_axes(yaw, tilt)).T, abs=1e-12)
             geoms = [g for g in range(m.ngeom) if m.geom_bodyid[g] == body]
             # Visual only: no contacts, no mass, drawn in both visual modes, outside the penetration audit.
             assert m.body_mass[body] == 0 and not m.geom_contype[geoms].any() and not m.geom_conaffinity[geoms].any()
@@ -218,8 +241,10 @@ def test_the_scene_draws_each_tag_flat_on_the_table_with_its_code():
                 for column in range(n):
                     assert white((column - (n - 1) / 2) * size, ((n - 1) / 2 - row) * size) == bool(code[row][column])
             # The black square's corners are where fiducials.corners puts them, inside a one-cell white margin.
-            for corner in corners(f['square'], x, y, workcell.table_top, yaw):
-                u, v, _ = HALF_TURN.T @ np.subtract(corner, (x, y, workcell.table_top))
+            axes = np.array(marker_axes(yaw, tilt))
+            for corner in corners(f['square'], x, y, z, yaw, tilt):
+                u, v, w = axes @ np.subtract(corner, (x, y, z))
+                assert w == pytest.approx(0., abs=1e-12)
                 assert not white(u * .99, v * .99) and white(u + np.sign(u) * size * .99, v + np.sign(v) * size * .99)
     finally:
         scene.close()
@@ -241,8 +266,8 @@ def test_the_tags_are_visual_only_and_change_no_physics():
             assert np.array_equal(getattr(tagged.model, key)[:nbody], getattr(plain.model, key)), key
         assert tagged.model.stat.meaninertia == plain.model.stat.meaninertia
         assert tagged.capabilities['contact_geometry_sha256'] == plain.capabilities['contact_geometry_sha256']
-        # A cube dropped onto tag 6 lands on the table exactly as it does with no tag there.
-        _, x, y, _ = next(tag for tag in workcell.fiducials['tags'] if tag[0] == 6)
+        # A cube dropped onto tag 4 lands on the table exactly as it does with no tag there.
+        _, x, y, _, _, _ = next(tag for tag in workcell.fiducials['tags'] if tag[0] == 4)
         for scene in scenes:
             scene._q = np.zeros(14)
             scene.reset()
@@ -264,10 +289,15 @@ def _write(document, directory):
 
 
 @pytest.mark.parametrize('change, refusal', [
-    (lambda f: f['tags']['0']['center'].update(value=[.02, .10]), 'off the table'),
+    (lambda f: f['rectangle']['robot_offsets'].update(value=[.325, .50]), 'off the table'),
+    (lambda f: f['tags']['0']['center'].update(value=[.02, .10]) or f['tags']['0'].pop('frame'), 'off the table'),
+    (lambda f: f['tags']['7']['along'].update(value=.06), 'not wholly on a face'),
+    (lambda f: f['tags']['6']['below_rim'].update(value=.13), 'not wholly on a face'),
     (lambda f: f['tags'].update({'8': f['tags']['0']}), 'distinct'),
     (lambda f: f['family'].update(value='DICT_6X6_50'), 'no codes'),
-    (lambda f: f['tags']['1'].update(bucket_corner='near_left'), 'either'),
+    (lambda f: f['tags']['1'].update(wall={'value': 'front', 'source': 'test'}), 'either'),
+    (lambda f: f['tags']['1'].update(frame='bucket'), 'frame'),
+    (lambda f: f['tags']['6']['face'].update(value='top'), 'face'),
     (lambda f: f['square'].update(value=.05), 'white margin'),
     (lambda f: f['tags']['2']['center'].pop('source'), 'named source'),
 ])

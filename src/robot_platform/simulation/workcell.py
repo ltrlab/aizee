@@ -12,10 +12,12 @@ measures it.
 Coordinates are the Minerva model's base frame (urdf/minerva, metres): x toward the robot's left, y
 backward (the robot faces -y), z up.
 
-The file gives the fiducial tags on the table in the table's own frame (`fiducials.table_frame`): origin at the table
-top's near-left outer corner, seen from behind the robot facing the table, x to the right along the near edge, y away
-from the robot. With the table square to the robot, table (x, y) is base (c - x, -d - y) on the top, where (c, -d) is
-that corner, from the table's centre and size.
+The file places the fiducial tags in the table's own frame (`fiducials.table_frame`): origin at the table top's
+near-left outer corner, seen from behind the robot facing the table, x to the right along the near edge, y away from
+the robot. With the table square to the robot, table (x, y) is base (c - x, -d - y) on the top, where (c, -d) is that
+corner, from the table's centre and size. A tag may instead be given in a measured rectangle on the table top
+(`fiducials.rectangle`, itself placed in the table frame), or on one of the bucket's front and back walls, where it
+follows the bucket.
 """
 from __future__ import annotations
 
@@ -24,16 +26,16 @@ import json
 import math
 from pathlib import Path
 
-from .fiducials import CODES, grid
+from .fiducials import CODES, grid, marker_axes
 
 KIND = 'sim_workcell'
 PLACEHOLDER = 'placeholder'
 COLORS = {'floor': (.17, .21, .24, 1.), 'table': (.46, .34, .23, 1.), 'trim': (.72, .73, .75, 1.),
           'leg': (.3, .3, .32, 1.), 'bucket_bottom': (.10, .35, .64, 1.), 'bucket_wall': (.12, .42, .74, 1.),
           'cube': (.95, .30, .06, 1.), 'fiducial_label': (.90, .90, .88, 1.), 'fiducial_print': (.05, .05, .05, 1.)}
-# A bucket-relative tag's corner of the bucket: signs along the bucket's own x (+: the robot's left) and y
-# (+: toward the robot) axes.
-BUCKET_CORNERS = {'near_left': (1, 1), 'near_right': (-1, 1)}
+# A wall tag's wall of the bucket, as its side along the bucket's own y axis (+: toward the robot), and the wall faces.
+BUCKET_WALLS = {'front': 1, 'back': -1}
+WALL_FACES = ('inner', 'outer')
 # Named appearances a workcell file may give instead of RGBA values.
 APPEARANCE = {'black': (.035, .035, .04, 1.), 'silver': (.72, .73, .75, 1.), 'wood': (.80, .64, .43, 1.),
               'cardboard': (.62, .47, .31, 1.), 'cardboard_inside': (.55, .41, .27, 1.)}
@@ -67,10 +69,12 @@ class Workcell:
     colors: dict = field(default_factory=dict)
     sources: dict = field(default_factory=dict)
     asset_id: str | None = None
-    # The fiducial tags on the table, or {} for none: family; square, the black square's edge; label, the label's
-    # size (across, along the tape); tag_offset, the tag centre's distance from the label centre toward the label's
-    # far end; tags, ((id, x, y, yaw), ...): each tag's centre on the table top and its marker x axis's yaw from the
-    # base x axis.
+    # The fiducial tags, or {} for none: family; square, the black square's edge; label, the label's size (across,
+    # along the tape); tag_offset, the tag centre's distance from the label centre toward the label's far end (the top
+    # of the code); tags, ((id, x, y, z, yaw, tilt), ...): each tag's centre and its marker axes
+    # (fiducials.marker_axes(yaw, tilt)) in the base frame, flat on the table with tilt 0 or upright on a bucket wall;
+    # rectangle, {} or the measured rectangle some tags are given in: its size, its origin in the base frame and its
+    # turn from square to the robot.
     fiducials: dict = field(default_factory=dict)
 
     @property
@@ -78,10 +82,12 @@ class Workcell:
         return self.cube_edge / 2
 
     def fiducial_label(self, tag):
-        """A tag's label as (centre (x, y), half size (across, along)); `tag` is one of fiducials['tags']."""
-        f, (_, x, y, yaw) = self.fiducials, tag
-        return ((x + math.sin(yaw) * f['tag_offset'], y - math.cos(yaw) * f['tag_offset']),
-                (f['label'][0] / 2, f['label'][1] / 2))
+        """A tag's label: its centre (x, y, z), its half size (across, along) and its marker axes; `tag` is one of
+        fiducials['tags']."""
+        f, (_, x, y, z, yaw, tilt) = self.fiducials, tag
+        axes = marker_axes(yaw, tilt)
+        centre = tuple(p - f['tag_offset'] * a for p, a in zip((x, y, z), axes[1]))
+        return centre, (f['label'][0] / 2, f['label'][1] / 2), axes
 
     def placeholders(self):
         """The values nobody has measured yet, by name."""
@@ -107,10 +113,14 @@ class Workcell:
                                  'xyaxes': tuple(float(v) for v in values['head_camera']['xyaxes']),
                                  'fovy': float(values['head_camera']['fovy'])}
         fiducials = values.get('fiducials') or {}
+        rectangle = fiducials.get('rectangle') or {}
         values['fiducials'] = {
             'family': str(fiducials['family']), 'square': float(fiducials['square']),
             'label': tuple(float(v) for v in fiducials['label']), 'tag_offset': float(fiducials['tag_offset']),
-            'tags': tuple((int(tag[0]), *(float(v) for v in tag[1:])) for tag in fiducials['tags'])} if fiducials else {}
+            'tags': tuple((int(tag[0]), *(float(v) for v in tag[1:])) for tag in fiducials['tags']),
+            'rectangle': {'size': tuple(float(v) for v in rectangle['size']),
+                          'origin': tuple(float(v) for v in rectangle['origin']), 'yaw': float(rectangle['yaw'])}
+            if rectangle else {}} if fiducials else {}
         workcell = cls(**values)
         validate(workcell)
         return workcell
@@ -164,8 +174,8 @@ def _validate_fiducials(w):
     if f.get('family') not in CODES:
         raise ValueError(f"workcell {w.name}: no codes for fiducial family {f.get('family')!r}; known: {sorted(CODES)}")
     tags = f['tags']
-    if not tags or any(len(tag) != 4 for tag in tags):
-        raise ValueError(f'workcell {w.name}: each fiducial tag is (id, x, y, yaw)')
+    if not tags or any(len(tag) != 6 for tag in tags):
+        raise ValueError(f'workcell {w.name}: each fiducial tag is (id, x, y, z, yaw, tilt)')
     numbers = [f['square'], *f['label'], f['tag_offset'], *(v for tag in tags for v in tag[1:])]
     if len(f['label']) != 2 or not all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
                                        for v in numbers):
@@ -179,10 +189,28 @@ def _validate_fiducials(w):
         raise ValueError(f'workcell {w.name}: a fiducial label must hold its black square and a one-cell white margin')
     (cx, cy), (sx, sy) = w.table_center, w.table_size
     for tag in tags:
-        (x, y), (across, along) = w.fiducial_label(tag)
-        c, s = abs(math.cos(tag[3])), abs(math.sin(tag[3]))
-        if abs(x - cx) + c * across + s * along > sx / 2 + 1e-9 or abs(y - cy) + s * across + c * along > sy / 2 + 1e-9:
-            raise ValueError(f'workcell {w.name}: fiducial {tag[0]} reaches off the table top')
+        centre, (across, along), (x_axis, y_axis, _) = w.fiducial_label(tag)
+        # The label's corners, each half its size along its own axes from its centre.
+        points = [[p + u * a + v * b for p, a, b in zip(centre, x_axis, y_axis)]
+                  for u in (-across, across) for v in (-along, along)]
+        if tag[5] == 0:
+            if abs(tag[3] - w.table_top) > 1e-9 or any(abs(x - cx) > sx / 2 + 1e-9 or abs(y - cy) > sy / 2 + 1e-9
+                                                        for x, y, _ in points):
+                raise ValueError(f'workcell {w.name}: fiducial {tag[0]} reaches off the table top')
+            continue
+        # An upright tag sits on a face of the bucket's front or back wall, facing out of it, within the wall.
+        along_x, along_y = bucket_frame(w, tag[1], tag[2])
+        half_x, half_y = w.bucket_inner[0] / 2, w.bucket_inner[1] / 2
+        outer = abs(abs(along_y) - (half_y + w.bucket_wall)) < 1e-9
+        normal = bucket_frame(w, w.bucket_center[0] + marker_axes(tag[4], tag[5])[2][0],
+                              w.bucket_center[1] + marker_axes(tag[4], tag[5])[2][1])
+        facing = (1 if outer else -1) * math.copysign(1, along_y)  # Out of the face, along the bucket's y.
+        wall_points = [bucket_frame(w, x, y) + (z,) for x, y, z in points]
+        if not (outer or abs(abs(along_y) - half_y) < 1e-9) or abs(normal[0]) > 1e-9 or \
+                abs(normal[1] - facing) > 1e-9 or abs(marker_axes(tag[4], tag[5])[2][2]) > 1e-9 or \
+                any(abs(x) > half_x + (w.bucket_wall if outer else 0.) + 1e-9 or
+                    not w.table_top - 1e-9 <= z <= w.table_top + w.bucket_height + 1e-9 for x, _, z in wall_points):
+            raise ValueError(f'workcell {w.name}: fiducial {tag[0]} is not wholly on a face of the bucket wall')
 
 
 def workcell_path(servo_path, asset_id):
@@ -214,13 +242,48 @@ def _rgba(name, key):
     return rgba
 
 
-def _fiducials(group, sources, table_center, table_size, bucket):
+def _word(group, key, sources, choices):
+    """A named choice at `key` (dotted, as _value), {"value": "<one of choices>", "source": "..."}."""
+    entry = group.get(key.rsplit('.', 1)[-1]) if isinstance(group, dict) else None
+    if not isinstance(entry, dict) or entry.get('value') not in choices or not isinstance(entry.get('source'), str) or \
+            not entry['source'].strip():
+        raise ValueError(f'workcell {key}: {{"value": one of {sorted(choices)}, "source": "..."}}')
+    sources[key] = entry['source']
+    return entry['value']
+
+
+def _frames(group, sources, table_center, table_size):
+    """The frames on the table top that tags may be given in, as (x, y, yaw) of each origin and x
+    axis in the base frame (z up, the origin on the table top): the table frame, and the measured rectangle when the
+    fiducials have one (`fiducials.rectangle`). The rectangle's place relative to the robot is one entry,
+    `robot_offsets` (c, d): its origin is base (c, -d), its x axis along base -x turned by `yaw_deg`. Returns the
+    frames and the rectangle's description ({} without one)."""
+    frames = {'table': (table_center[0] + table_size[0] / 2, table_center[1] + table_size[1] / 2, math.pi)}
+    if not isinstance(group, dict) or 'rectangle' not in group:
+        return frames, {}
+    r = group['rectangle']
+    c, d = _value(r, 'fiducials.rectangle.robot_offsets', sources, length=2)
+    rectangle = {'size': _value(r, 'fiducials.rectangle.size', sources, length=2), 'origin': (c, -d),
+                 'yaw': math.radians(_value(r, 'fiducials.rectangle.yaw_deg', sources))}
+    frames['rectangle'] = (c, -d, math.pi + rectangle['yaw'])
+    return frames, rectangle
+
+
+def _in_base(frame, point):
+    """The base-frame (x, y) of a point (x, y, ...) in a frame on the table."""
+    ox, oy, turn = frame
+    c, s = math.cos(turn), math.sin(turn)
+    return ox + c * point[0] - s * point[1], oy + s * point[0] + c * point[1]
+
+
+def _fiducials(group, sources, top, frames, rectangle, bucket):
     """The file's fiducial tags, resolved into the base frame (Workcell.fiducials), or {} for none.
 
-    A tag is either at a table-frame centre (`center`), or by one of the bucket's near outer corners (`bucket_corner`):
-    centred across on the corner, its centre `in_front` toward the robot from the bucket's near outer face, so it
-    follows the bucket's pose. Every label lies flat with its text end toward the robot and its edges square to the
-    table, so each marker frame is the table frame's orientation: the base frame turned half a turn about z."""
+    A tag on the table top has a `center` in the table frame, or in another frame of _frames (`"frame": "rectangle"`).
+    Its label lies flat with its text end toward the robot and its edges square to its frame, so its marker frame is
+    that frame's orientation. A tag on the bucket gives its `wall` (front, toward the robot, or back), the wall's `face`
+    (inner or outer), its centre `along` the wall from the wall's middle toward the robot's left, and `below_rim`: the
+    code upright, its top toward the rim, facing out of that face. It follows the bucket's pose."""
     if group is None:
         return {}
     family = group.get('family')
@@ -231,27 +294,33 @@ def _fiducials(group, sources, table_center, table_size, bucket):
     square = _value(group, 'fiducials.square', sources)
     label = _value(group, 'fiducials.label_size', sources, length=2)
     offset = _value(group, 'fiducials.tag_offset', sources)
-    # The table frame's origin, the top's near-left outer corner, in the base frame.
-    origin = (table_center[0] + table_size[0] / 2, table_center[1] + table_size[1] / 2)
     tags = []
     for key, entry in sorted(group.get('tags', {}).items(), key=lambda item: int(item[0])):
         prefix = f'fiducials.tags.{key}'
-        if not isinstance(entry, dict) or ('center' in entry) == ('bucket_corner' in entry):
-            raise ValueError(f'workcell {prefix}: give either a table-frame center or a bucket_corner and in_front')
+        if not isinstance(entry, dict) or ('center' in entry) == ('wall' in entry):
+            raise ValueError(f'workcell {prefix}: give either a center on the table or a bucket wall')
         if 'center' in entry:
-            x, y = _value(entry, f'{prefix}.center', sources, length=2)
-            tags.append((int(key), origin[0] - x, origin[1] - y, math.pi))
+            if entry.get('frame', 'table') not in frames:
+                raise ValueError(f"workcell {prefix}.frame: one of {sorted(frames)}")
+            frame = frames[entry.get('frame', 'table')]
+            x, y = _in_base(frame, _value(entry, f'{prefix}.center', sources, length=2))
+            tags.append((int(key), x, y, top, frame[2], 0.))
             continue
-        if entry['bucket_corner'] not in BUCKET_CORNERS:
-            raise ValueError(f'workcell {prefix}.bucket_corner: one of {sorted(BUCKET_CORNERS)}')
-        along_x, along_y = BUCKET_CORNERS[entry['bucket_corner']]
-        in_front = _value(entry, f'{prefix}.in_front', sources)
+        side = BUCKET_WALLS[_word(entry, f'{prefix}.wall', sources, BUCKET_WALLS)]
+        outer = _word(entry, f'{prefix}.face', sources, WALL_FACES) == 'outer'
+        along = _value(entry, f'{prefix}.along', sources)
+        below = _value(entry, f'{prefix}.below_rim', sources)
+        # In the bucket's own axes: the face's y, and the way out of it.
+        face_y = side * (bucket['inner'][1] / 2 + (bucket['wall'] if outer else 0.))
+        out = side if outer else -side
         (bx, by), yaw = bucket['center'], bucket['yaw']
-        hx, hy = bucket['inner'][0] / 2 + bucket['wall'], bucket['inner'][1] / 2 + bucket['wall']
         c, s = math.cos(yaw), math.sin(yaw)
-        x, y = bx + c * along_x * hx - s * along_y * hy, by + s * along_x * hx + c * along_y * hy
-        tags.append((int(key), x, y + in_front, math.pi))  # Toward the robot is +y.
-    return {'family': family['value'], 'square': square, 'label': label, 'tag_offset': offset, 'tags': tuple(tags)}
+        normal = (-s * out, c * out)
+        # Upright, the top of the code up: marker z is the face's normal (fiducials.marker_axes with a quarter tilt).
+        tags.append((int(key), bx + c * along - s * face_y, by + s * along + c * face_y,
+                     top + bucket['height'] - below, math.atan2(normal[0], -normal[1]), math.pi / 2))
+    return {'family': family['value'], 'square': square, 'label': label, 'tag_offset': offset, 'tags': tuple(tags),
+            'rectangle': rectangle}
 
 
 def load_workcell(path):
@@ -275,14 +344,23 @@ def load_workcell(path):
     camera = {'pos': _value(head, 'cameras.head.pos', sources, length=3),
               'xyaxes': _value(head, 'cameras.head.xyaxes', sources, length=6),
               'fovy': _value(head, 'cameras.head.fovy', sources)}
+    frames, rectangle = _frames(document.get('fiducials'), sources, center, size)
     region = _value(cube, 'cube.region', sources, length=4)
     appearance = document.get('appearance', {})
     colors = {key: _rgba(value, f'appearance.{key}') for key, value in appearance.items()}
     unknown = set(colors) - set(COLORS)
     if unknown:
         raise ValueError(f'workcell appearance: unknown surfaces {sorted(unknown)}')
-    box = dict(center=_value(bucket, 'bucket.center', sources, length=2),
-               yaw=math.radians(_value(bucket, 'bucket.yaw_deg', sources)),
+    # The bucket's centre is in the base frame, or (`"frame": "rectangle"`) in a frame on the table with its yaw from
+    # that frame's square, so that it moves with that frame.
+    frame = bucket.get('frame', 'base')
+    if frame != 'base' and frame not in frames:
+        raise ValueError(f"workcell bucket.frame: base or one of {sorted(frames)}")
+    middle = _value(bucket, 'bucket.center', sources, length=2)
+    turn = math.radians(_value(bucket, 'bucket.yaw_deg', sources))
+    if frame != 'base':
+        middle, turn = _in_base(frames[frame], middle), turn + frames[frame][2] - math.pi
+    box = dict(center=middle, yaw=turn,
                inner=_value(bucket, 'bucket.inner_size', sources, length=2),
                height=_value(bucket, 'bucket.height', sources), wall=_value(bucket, 'bucket.wall', sources),
                bottom=_value(bucket, 'bucket.bottom', sources))
@@ -297,7 +375,7 @@ def load_workcell(path):
         cube_start=_value(cube, 'cube.start', sources, length=3),
         cube_region=(region[0:2], region[2:4]),
         head_camera=camera, colors=colors, sources=sources,
-        fiducials=_fiducials(document.get('fiducials'), sources, center, size, box))
+        fiducials=_fiducials(document.get('fiducials'), sources, top, frames, rectangle, box))
     return validate(workcell)
 
 
