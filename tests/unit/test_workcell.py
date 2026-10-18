@@ -255,44 +255,80 @@ def test_the_scene_draws_each_tag_with_its_code():
         scene.close()
 
 
-def test_the_scene_head_camera_projects_as_the_real_one():
-    """The scene's head camera, as MuJoCo renders it (its frustum from mjv_updateScene, no GL needed), puts every tag
-    corner where the D435's pinhole model does for the published image: the workcell's intrinsics and pose. Its
-    principal point is an offset from the image centre, x right and y down."""
+def test_mujoco_renders_the_optical_axis_at_minus_its_principal_offset():
+    """MuJoCo 3.15's `principalpixel`, against the pinhole convention the workcell uses (an offset from the image
+    centre, x right and y down): a point on the optical axis renders at minus the given offset. The scene negates the
+    workcell's offset for it; if MuJoCo's convention changes, this fails first."""
+    import mujoco
+    for offset in ((20., 0.), (0., 20.)):
+        xml = f'''<mujoco><visual><global offwidth="640" offheight="480"/></visual><worldbody>
+            <light pos="0 0 3" dir="0 0 -1"/><geom type="sphere" size=".01" rgba="1 0 0 1"/>
+            <camera name="c" pos="0 0 1" xyaxes="1 0 0 0 1 0" resolution="640 480" sensorsize=".00064 .00048"
+             focalpixel="600 600" principalpixel="{offset[0]} {offset[1]}"/></worldbody></mujoco>'''
+        model = mujoco.MjModel.from_xml_string(xml)
+        data = mujoco.MjData(model)
+        mujoco.mj_forward(model, data)
+        renderer = mujoco.Renderer(model, 480, 640)
+        try:
+            renderer.update_scene(data, camera='c')
+            rows, cols = np.nonzero(renderer.render()[..., 0] > 128)
+        finally:
+            renderer.close()
+        assert (cols.mean() - 319.5, rows.mean() - 239.5) == pytest.approx((-offset[0], -offset[1]), abs=.05)
+
+
+def test_the_scene_head_camera_renders_as_the_real_one():
+    """The scene's head camera, as MuJoCo renders it, puts every tag where the D435's pinhole model does for the
+    published image: the workcell's intrinsics and pose. Each tag's rendered black square (with its white cells), seen
+    in a segmentation render at the camera's 640 x 480, has its pixel centroid within 0.5 px of the projected square's
+    centroid. (Given the workcell's principal offset unnegated, MuJoCo put every tag 12.5 px left and 5.0 px up.)
+    The robot is left out of the render: with the placeholder rectangle offsets the camera sits inside its torso."""
     workcell = load_workcell(MEASURED)
     head = workcell.head_camera
     (width, height), (fx, fy), (px, py) = (head['intrinsics'][key] for key in
                                            ('resolution', 'focalpixel', 'principalpixel'))
-    scene = MinervaTaskScene(fixture_map(), NAMES, width=64, height=48, workcell=workcell)
+    scene = MinervaTaskScene(fixture_map(), NAMES, width=int(width), height=int(height), workcell=workcell)
     try:
-        mj, model = scene.mj, scene.model
-        data = mj.MjData(model)
-        mj.mj_forward(model, data)
+        mj, model, data = scene.mj, scene.model, scene.data
         camera_id = scene._id('camera', 'head')
         assert model.cam_fovy[camera_id] == pytest.approx(head['fovy'], abs=1e-3)
-        view = mj.MjvCamera()
-        view.type, view.fixedcamid = mj.mjtCamera.mjCAMERA_FIXED, camera_id
-        abstract = mj.MjvScene(model, maxgeom=10000)
-        mj.mjv_updateScene(model, data, mj.MjvOption(), None, view, mj.mjtCatBit.mjCAT_ALL, abstract)
-        eye = abstract.camera[0]
-        left, right = eye.frustum_center - eye.frustum_width, eye.frustum_center + eye.frustum_width
-        bottom, top, near = eye.frustum_bottom, eye.frustum_top, eye.frustum_near
         frame = data.cam_xmat[camera_id].reshape(3, 3)  # Columns: MuJoCo's camera x (right), y (up), z (backward).
         # The camera is where the workcell puts it, its axes the published image's.
         assert data.cam_xpos[camera_id] == pytest.approx(head['pos'], abs=1e-12)
         assert frame[:, 0] == pytest.approx(np.array(head['xyaxes'][:3]) / np.linalg.norm(head['xyaxes'][:3]), abs=1e-5)
+        renderer = mj.Renderer(model, int(height), int(width))
+        try:
+            options = mj.MjvOption()
+            options.geomgroup[:] = [1, 0, 0, 0, 0, 0]  # The workcell, the cube and the tags; not the robot.
+            renderer.enable_segmentation_rendering()
+            renderer.update_scene(data, camera='head', scene_option=options)
+            segments = renderer.render().copy()
+        finally:
+            renderer.close()
         K = np.array([[fx, 0, (width - 1) / 2 + px], [0, fy, (height - 1) / 2 + py], [0, 0, 1]])
-        worst = 0.
+        checked = 0
         for tag in workcell.fiducials['tags']:
+            points = []
             for corner in corners(workcell.fiducials['square'], *tag[1:]):
                 x, y, z = (np.asarray(corner) - data.cam_xpos[camera_id]) @ frame
-                ndc = ((2 * near / (right - left)) * x / -z + (right + left) / (right - left),
-                       (2 * near / (top - bottom)) * y / -z + (top + bottom) / (top - bottom))
-                rendered = ((ndc[0] + 1) / 2 * width - .5, (1 - ndc[1]) / 2 * height - .5)  # Pixel centres on integers.
                 pinhole = K @ np.array([x, -y, -z])
-                worst = max(worst, float(np.abs(np.subtract(rendered, pinhole[:2] / pinhole[2])).max()))
-        # MuJoCo keeps the camera's sensor size and focal length as float32: a few ten-thousandths of a pixel.
-        assert worst < 1e-3, worst
+                points.append(pinhole[:2] / pinhole[2])
+            u, v = np.array(points).T
+            if u.min() < 0 or v.min() < 0 or u.max() > width - 1 or v.max() > height - 1:
+                continue
+            cross = u * np.roll(v, -1) - np.roll(u, -1) * v
+            area = abs(cross.sum()) / 2
+            centre = np.array([((u + np.roll(u, -1)) * cross).sum(), ((v + np.roll(v, -1)) * cross).sum()]) / (
+                3 * cross.sum())
+            ids = [g for g in range(model.ngeom) if scene._geom_names[g].startswith(f'task/fiducial/{tag[0]}/')
+                   and not scene._geom_names[g].endswith('/label')]
+            mask = (segments[..., 1] == int(mj.mjtObj.mjOBJ_GEOM)) & np.isin(segments[..., 0], ids)
+            if mask.sum() < .9 * area:  # Partly hidden (behind a bucket wall): its centroid moves.
+                continue
+            rows, cols = np.nonzero(mask)
+            assert np.abs([cols.mean() - centre[0], rows.mean() - centre[1]]).max() < .5, tag[0]
+            checked += 1
+        assert checked >= 4
     finally:
         scene.close()
 
