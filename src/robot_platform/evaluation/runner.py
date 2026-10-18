@@ -27,7 +27,7 @@ mapping clips its targets.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import math
 from pathlib import Path
 import subprocess
@@ -194,6 +194,29 @@ class TrialRunner:
             if self.scene is not None:
                 self.scene.close()
                 self.scene = None
+
+    def use_workcell(self, workcell):
+        """Run the next trials on `workcell` (a drawn layout's, say): the scene is rebuilt for it, the plant kept."""
+        if self.scene is not None:
+            self.scene.close()
+            self.scene = None
+        self.config = replace(self.config, workcell=workcell)
+
+    def plan(self, policy, pose, workcell):
+        """None if `policy` plans a trial from `pose` on `workcell` (its reset, with the context run_trial gives it),
+        else why not. Nothing moves and no scene is built."""
+        plant = self._open_plant()
+        context = TrialContext(index=int(pose.get('index', 0)), cube_start=dict(pose), joint_names=tuple(plant.names),
+                               joint_map=plant.joint_map, lower=plant.lower.copy(), upper=plant.upper.copy(),
+                               home=plant.home.copy(), period_s=plant.period_s, plant=self.config.plant,
+                               workcell=resolve_workcell(workcell), lead=plant.lead.copy())
+        if not hasattr(policy, 'reset'):
+            return None
+        try:
+            policy.reset(context)
+        except Exception as exc:
+            return f'{type(exc).__name__}: {exc}'
+        return None
 
     # -- one trial ---------------------------------------------------------
 

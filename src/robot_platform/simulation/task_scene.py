@@ -942,11 +942,12 @@ class MinervaTaskScene:
             images[name] = self._renderer.render().copy()
         return images, {name: float(data.time) for name in camera_roles}
 
-    def randomize_appearance(self, rng, *, light=.3, color=.1, camera_shift=.01, camera_turn_deg=2.):
+    def randomize_appearance(self, rng, *, light=.3, color=.1, camera_shift=.01, camera_turn_deg=2., cameras=None):
         """Vary what the cameras see, not the physics: the lights' strength (x U[1-light, 1+light]), the workcell's
-        and the cube's colours (each channel x U[1-color, 1+color]), and every camera's place (+/- camera_shift m per
-        axis) and aim (a turn of up to camera_turn_deg about a random axis). Each call starts from the scene's own
-        appearance. Returns what it chose, for the episode's metadata."""
+        and the cube's colours (each channel x U[1-color, 1+color]), and each camera's place (+/- camera_shift m per
+        axis) and aim (a turn of up to camera_turn_deg about a random axis): every camera, or those named in
+        `cameras` (a drawn layout places the head camera itself). The robot keeps its black (ROBOT_FINISH). Each call
+        starts from the scene's own appearance. Returns what it chose, for the episode's metadata."""
         mj, model = self.mj, self.model
         if not hasattr(self, "_appearance"):
             self._appearance = {"light_diffuse": model.light_diffuse.copy(), "light_ambient": model.light_ambient.copy(),
@@ -965,8 +966,12 @@ class MinervaTaskScene:
             factor = rng.uniform(1 - color, 1 + color, size=3)
             model.geom_rgba[gid, :3] = np.clip(original["geom_rgba"][gid, :3] * factor, 0, 1)
             tinted[mj.mj_id2name(model, mj.mjtObj.mjOBJ_GEOM, gid)] = factor.round(4).tolist()
-        cameras = {}
+        moved, cameras = cameras, {}
+        if moved is not None and not set(moved) <= set(CAMERAS):
+            raise ValueError(f"cameras are some of {CAMERAS}")
         for cid in range(model.ncam):
+            if moved is not None and mj.mj_id2name(model, mj.mjtObj.mjOBJ_CAMERA, cid) not in moved:
+                continue
             shift = rng.uniform(-camera_shift, camera_shift, size=3)
             axis = rng.normal(size=3)
             axis /= np.linalg.norm(axis)
@@ -981,7 +986,7 @@ class MinervaTaskScene:
                 "axis": axis.round(4).tolist()}
         return {"light_scale": round(float(scale), 4), "color_factors": tinted, "cameras": cameras,
                 "bounds": {"light": light, "color": color, "camera_shift_m": camera_shift,
-                           "camera_turn_deg": camera_turn_deg}}
+                           "camera_turn_deg": camera_turn_deg, "cameras": None if moved is None else list(moved)}}
 
     def restore_appearance(self):
         """The scene's own lights, colours and camera places."""

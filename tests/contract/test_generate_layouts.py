@@ -1,0 +1,103 @@
+"""Generating on drawn training layouts through the actual receiver: a draw the planner refuses is drawn again and
+counted, each attempt runs on its own layout, and a recorded episode carries the layout it was drawn with."""
+import json
+from pathlib import Path
+
+import h5py
+import numpy as np
+
+from robot_platform.evaluation.generate import APPEARANCE, EpisodeRecorder, draw_layout, generate
+from robot_platform.evaluation.grid import GridSpec
+from robot_platform.evaluation.plants import derive_stack
+from robot_platform.evaluation.policies import HoldStillPolicy
+from robot_platform.evaluation.runner import RunConfig, TrialContext, TrialRunner
+from robot_platform.simulation.control_harness import default_binary
+from robot_platform.simulation.layouts import LayoutSampler
+
+ROOT = Path(__file__).resolve().parents[2]
+WORKCELL = ROOT / 'config/devices/simulation/minerva-production-01-workcell.json'
+RANDOMIZATION = ROOT / 'config/devices/simulation/minerva-production-01-randomization.json'
+
+
+class _Refuses(HoldStillPolicy):
+    """Holds still; its planner refuses the first `refusals` layouts it is asked to plan."""
+
+    def __init__(self, refusals):
+        super().__init__()
+        self.refusals, self.planned = refusals, []
+
+    def reset(self, context):
+        self.planned.append(context.workcell)
+        if len(self.planned) <= self.refusals:
+            raise ValueError('no plan clears the table, the bucket and the other arm (test)')
+        super().reset(context)
+
+
+def test_a_refused_draw_is_drawn_again_and_the_episode_records_its_layout(tmp_path):
+    assert default_binary().is_file(), 'Required contract: build the actual native control_harness first'
+    sampler = LayoutSampler(WORKCELL, RANDOMIZATION)
+    runner = TrialRunner(RunConfig(grippers='driven', timeout_s=1., camera_size=(64, 48), workcell=str(WORKCELL)),
+                         stack=derive_stack(), directory=tmp_path / 'receiver')
+    policy = _Refuses(2)
+    looks = dict(APPEARANCE, cameras=('left_wrist', 'right_wrist'))
+    recorder = EpisodeRecorder(tmp_path / 'episodes', hz=15., appearance=looks, seed=11)
+    try:
+        layout, rejections = draw_layout(runner, policy, sampler, [11, 1])
+        # Two draws refused, with their reasons and layouts; the third planned. Each draw is its own layout.
+        assert [r['draw'] for r in rejections] == [0, 1] and layout.values['seed'] == [11, 1, 2]
+        assert all('(test)' in r['reason'] and r['layout']['seed'] == [11, 1, r['draw']] for r in rejections)
+        assert len({json.dumps(w.describe(), sort_keys=True) for w in policy.planned}) == 3
+        assert policy.planned[-1] == layout.workcell
+        # The trial runs on the layout's own scene: its table, bucket, cube and head camera.
+        runner.use_workcell(layout.workcell)
+        record = runner.run_trial(policy, dict(layout.cube_start, cell='layout', index=1), 1)
+        assert record['outcome'] == 'timeout'
+        scene, plant = runner.scene, runner.plant
+        assert scene.workcell == layout.workcell
+        head = scene._id('camera', 'head')
+        assert np.allclose(scene.model.cam_pos[head], layout.workcell.head_camera['pos'], atol=1e-12)
+        cube = scene.workcell.cube_start
+        assert (cube[0], cube[1]) == (layout.cube_start['x'], layout.cube_start['y'])
+        # A recording on it carries the drawn layout, and the look's variation leaves the head camera where the
+        # layout put it.
+        context = TrialContext(index=1, cube_start=dict(layout.cube_start), joint_names=tuple(plant.names),
+                               joint_map=plant.joint_map, lower=plant.lower, upper=plant.upper, home=plant.home,
+                               period_s=plant.period_s, plant='armplant', workcell=scene.workcell)
+        recorder.annotate(layout=dict(layout.describe(), rejected_draws=rejections))
+        recorder.start(scene, plant, context, policy)
+        assert np.array_equal(scene.model.cam_pos[head], scene._appearance['cam_pos'][head])
+        for _ in range(20):
+            plant.cycle()
+            scene.update(plant.scene_pose(), plant.period_s)
+            recorder.sample(scene, plant)
+        path = recorder.finish({'outcome': 'success', 'eligible': True})
+    finally:
+        runner.close()
+    with h5py.File(path, 'r') as episode:
+        metadata = json.loads(episode.attrs['metadata_json'])
+    drawn = metadata['layout']
+    assert drawn['seed'] == [11, 1, 2] and len(drawn['rejected_draws']) == 2
+    assert set(drawn) >= {'cube', 'bucket', 'table_offset', 'head_camera', 'randomization'}
+    assert drawn['cube']['size_m'] == list(layout.workcell.block) and drawn['bucket']['height_m'] == \
+        layout.workcell.bucket_height
+    assert metadata['scene']['workcell'] == layout.workcell.describe()
+    assert set(metadata['appearance']['cameras']) == {'left_wrist', 'right_wrist'}
+    # The next trial's metadata does not inherit this layout.
+    assert recorder.trial_metadata == {}
+
+
+def test_generate_draws_a_layout_for_every_attempt_and_lists_them(tmp_path):
+    assert default_binary().is_file(), 'Required contract: build the actual native control_harness first'
+    sampler = LayoutSampler(WORKCELL, RANDOMIZATION)
+    config = RunConfig(plant='armplant', timeout_s=.5, grid=GridSpec(seed=21, nominal=False), camera_size=(64, 48),
+                       workcell=str(WORKCELL), grippers='driven')
+    made, attempts = generate(_Refuses(1), config, tmp_path, episodes=1, stack=derive_stack(), layouts=sampler,
+                              attempts=2)
+    assert made == [] and attempts == 2
+    entries = [json.loads(line) for line in (tmp_path / 'manifest.jsonl').read_text(encoding='utf-8').splitlines()]
+    assert [e['attempt'] for e in entries] == [1, 2] and [e['layout_seed'] for e in entries] == [[21, 1], [21, 2]]
+    # The first attempt's first draw was refused; every attempt then ran its own layout, which held still.
+    assert [e['rejected_draws'] for e in entries] == [1, 0] and entries[0]['rejections'][0]['draw'] == 0
+    assert all(e['outcome'] == 'timeout' and e['episode'] is None for e in entries)
+    assert entries[0]['layout']['seed'] == [21, 1, 1] and entries[1]['layout']['seed'] == [21, 2, 0]
+    assert entries[0]['cube_start'] != entries[1]['cube_start']

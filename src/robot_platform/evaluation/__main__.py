@@ -94,9 +94,16 @@ def generate(args):
     out = Path(args.out) if args.out else ROOT / 'build/generated' / time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
     appearance = None if args.same_look else {'light': args.light, 'color': args.color,
                                                 'camera_shift': args.camera_shift, 'camera_turn_deg': args.camera_turn}
+    layouts = None
+    if args.randomize:
+        from robot_platform.simulation.layouts import LayoutSampler
+        if args.workcell in (None, 'synthetic'):
+            raise SystemExit('--randomize draws layouts around a workcell file: give --workcell <file>')
+        layouts = LayoutSampler(args.workcell, args.randomize)
     made, attempts = run_generation(load_policy(args.policy), config, out, episodes=args.episodes,
                                     stack=derive_stack(profile=args.profile, directions=args.directions), hz=args.hz,
-                                    appearance=appearance, progress=lambda line: print(line, flush=True))
+                                    appearance=appearance, progress=lambda line: print(line, flush=True),
+                                    layouts=layouts)
     print(f'{len(made)} episodes from {attempts} attempts: {out / "episodes"} (manifest {out / "manifest.jsonl"})')
     return 0 if made else 1
 
@@ -201,6 +208,10 @@ def parser():
     n.add_argument('--camera-shift', type=float, default=.01, help='cameras move up to this far per axis, m (default .01)')
     n.add_argument('--camera-turn', type=float, default=2., help='cameras turn up to this far, degrees (default 2)')
     n.add_argument('--same-look', action='store_true', help="keep the scene's own lights, colours and camera places")
+    n.add_argument('--randomize', metavar='FILE',
+                   help='a layout randomization file (config/devices/simulation/<asset>-randomization.json): each '
+                        "attempt draws its own cube, bucket, table placement and head camera pose around --workcell's, "
+                        "redrawing a layout the demonstrator cannot plan; without it, the workcell's fixed layout")
     n.add_argument('--profile', default='minerva-teleop-direct.json', help='collision-disabled teleop profile')
     n.add_argument('--directions', help="a Helm direction session's session.json (default: documented directions)")
     n.add_argument('--plant-seed', type=int, default=1, help='simulated feedback noise seed (default 1)')

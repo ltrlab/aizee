@@ -10,6 +10,11 @@ Generated episodes say what they are: data_source 'simulation', authority 'polic
 'scripted_demonstrator', the demonstrator's description, the scene's capabilities (workcell, gripper drives) and the
 plant's provenance. Whether they may train a policy is the dataset contract's decision; the writer leaves
 training_promoted false.
+
+With a layout sampler (simulation.layouts, `generate --randomize <file>`), each attempt draws its own layout: the
+cube's size, pose and mass, the bucket's size and pose, the table group's placement relative to the robot and the head
+camera's pose. A layout the demonstrator cannot plan is drawn again, up to the file's cap, and every rejected draw is
+counted in the manifest and the episode's metadata (`layout`).
 """
 from __future__ import annotations
 
@@ -39,10 +44,15 @@ class EpisodeRecorder:
         self.directory, self.hz, self.camera_roles = Path(directory), float(hz), tuple(camera_roles)
         self.metadata = dict(metadata or {})
         self.appearance, self.seed, self.scene = appearance, int(seed), None
+        self.trial_metadata = {}  # annotate(): this trial's own metadata (its drawn layout), cleared by finish().
         self.writer = None
         self.next_at = 0.
         self.frames = 0
         self.last_path, self.last_frames = None, 0
+
+    def annotate(self, **values):
+        """Add `values` to the next recorded trial's metadata only (a drawn layout, say)."""
+        self.trial_metadata.update(values)
 
     def start(self, scene, plant, context, policy):
         from robot_platform.data.task_capture import TaskEpisodeWriter
@@ -53,8 +63,8 @@ class EpisodeRecorder:
             rng = np.random.default_rng([self.seed, int(context.index), int(round(cube['x'] * 1e6) % 2**31),
                                          int(round(cube['y'] * 1e6) % 2**31)])
             looks = scene.randomize_appearance(rng, **self.appearance)
-        metadata = dict(self.metadata, data_source='simulation', evidence='synthetic', run_id=scene.run_id,
-                        appearance=looks,
+        metadata = dict(self.metadata, **self.trial_metadata, data_source='simulation', evidence='synthetic',
+                        run_id=scene.run_id, appearance=looks,
                         collection_mode='scripted_demonstrator', language_instruction=LANGUAGE,
                         scene=scene.capabilities, plant=plant.describe(),
                         demonstrator=getattr(policy, 'describe', lambda: {})(),
@@ -86,6 +96,7 @@ class EpisodeRecorder:
         """The published episode's path for a successful, eligible trial; None (and no file) otherwise. Also kept as
         `last_path`, with the frame count as `last_frames`."""
         writer, self.writer = self.writer, None
+        self.trial_metadata = {}
         # A trial whose policy failed before the recording started (its plan, say) recorded nothing.
         self.last_path, self.last_frames = None, self.frames if writer is not None else 0
         if self.scene is not None:
@@ -112,39 +123,85 @@ def _plain(value):
     raise TypeError(f'not JSON: {type(value).__name__}')
 
 
-def generate(policy, config, out, *, episodes, stack=None, hz=15., appearance=APPEARANCE, progress=None):
-    """Run trials over `config.grid`'s cube poses (cycling with fresh seeds) until `episodes` succeed or every pose
-    of `max(2 * episodes, 10)` attempts has been tried. Writes the episodes and manifest.jsonl under `out`."""
+def draw_layout(runner, policy, sampler, seed):
+    """A layout `policy` can plan (simulation.layouts.LayoutSampler, drawn from seed + [draw]), and every draw rejected
+    on the way: [{'draw', 'reason', 'layout'}]. (None, rejections) when none of the file's `plan_draws` plans."""
+    rejections = []
+    for draw in range(sampler.randomization.plan_draws):
+        key = [*seed, draw]
+        try:
+            layout = sampler.draw(np.random.default_rng(key), seed=key)
+        except ValueError as exc:
+            rejections.append({'draw': draw, 'reason': f'layout: {exc}', 'layout': None})
+            continue
+        problem = runner.plan(policy, dict(layout.cube_start, cell='layout', index=0), layout.workcell)
+        if problem is None:
+            return layout, rejections
+        rejections.append({'draw': draw, 'reason': problem, 'layout': layout.describe()})
+    return None, rejections
+
+
+def generate(policy, config, out, *, episodes, stack=None, hz=15., appearance=APPEARANCE, progress=None,
+             layouts=None, attempts=None):
+    """Run trials until `episodes` succeed or `attempts` (default `max(2 * episodes, 10)`) have been made. Writes the
+    episodes and manifest.jsonl under `out`.
+
+    Without `layouts`, the trials cycle over `config.grid`'s cube poses (with fresh seeds once a grid is used up) on
+    the configured workcell. With `layouts` (a simulation.layouts.LayoutSampler), attempt k draws its layout from
+    [config.grid.seed, k] (draw_layout): the cube's start is the layout's, and the head camera's pose is the layout's
+    too, so the appearance variation moves only the wrist cameras."""
     from dataclasses import replace
     from .grid import cube_poses
     from .runner import TrialRunner, git_identity
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     progress = progress or (lambda line: None)
+    if layouts is not None and appearance is not None:
+        appearance = dict(appearance, cameras=tuple(role for role in CAMERAS if role != 'head'))
     runner = TrialRunner(config, stack=stack, directory=out / 'receiver', progress=progress)
     recorder = EpisodeRecorder(out / 'episodes', hz=hz, appearance=appearance, seed=config.grid.seed,
                                metadata={'generator': {'git': git_identity(), 'run_config': config.describe(),
-                                                       'record_hz': hz, 'appearance_bounds': appearance}})
+                                                       'record_hz': hz, 'appearance_bounds': appearance,
+                                                       'layouts': None if layouts is None else
+                                                       layouts.randomization.describe()}})
+    cap = max(2 * episodes, 10) if attempts is None else int(attempts)
     made, attempts, seed = [], 0, config.grid.seed
     manifest = (out / 'manifest.jsonl').open('a', encoding='utf-8')
+
+    def note(entry, record, path):
+        entry.update(outcome=record['outcome'], detail=record.get('detail'), episode=str(path) if path else None,
+                     duration_s=record.get('duration_s'), frames=recorder.last_frames)
+        manifest.write(json.dumps(entry, default=_plain) + '\n')
+        manifest.flush()
+        if path:
+            made.append(path)
+        progress(f"attempt {entry['attempt']}: {record['outcome']}" + (f' -> {Path(path).name}' if path else ''))
     try:
-        while len(made) < episodes and attempts < max(2 * episodes, 10):
+        while layouts is not None and len(made) < episodes and attempts < cap:
+            attempts += 1
+            layout, rejections = draw_layout(runner, policy, layouts, [seed, attempts])
+            entry = {'attempt': attempts, 'layout_seed': [seed, attempts], 'rejected_draws': len(rejections),
+                     'rejections': [{'draw': r['draw'], 'reason': r['reason']} for r in rejections]}
+            if layout is None:
+                note(entry, {'outcome': 'layout_rejected', 'detail': f'no layout planned in '
+                             f'{layouts.randomization.plan_draws} draws'}, None)
+                continue
+            entry.update(cube_start=layout.cube_start, layout=layout.describe())
+            runner.use_workcell(layout.workcell)
+            recorder.annotate(layout=dict(layout.describe(), rejected_draws=rejections))
+            pose = dict(layout.cube_start, cell='layout', index=attempts)
+            record = runner.run_trial(policy, pose, attempts, recorder=recorder)
+            note(entry, record, recorder.last_path)
+        while layouts is None and len(made) < episodes and attempts < cap:
             grid = replace(config.grid, seed=seed)
             for pose in cube_poses(grid):
-                if len(made) >= episodes or attempts >= max(2 * episodes, 10):
+                if len(made) >= episodes or attempts >= cap:
                     break
                 attempts += 1
                 runner.config = replace(config, grid=grid)
                 record = runner.run_trial(policy, pose, pose['index'], recorder=recorder)
-                path = recorder.last_path
-                entry = {'attempt': attempts, 'grid_seed': seed, 'cube_start': {k: pose[k] for k in ('x', 'y', 'yaw')},
-                         'outcome': record['outcome'], 'detail': record.get('detail'), 'episode': str(path) if path else None,
-                         'duration_s': record.get('duration_s'), 'frames': recorder.last_frames}
-                manifest.write(json.dumps(entry) + '\n')
-                manifest.flush()
-                if path:
-                    made.append(path)
-                progress(f"attempt {attempts}: {record['outcome']}" + (f' -> {Path(path).name}' if path else ''))
+                note({'attempt': attempts, 'grid_seed': seed, 'cube_start': {k: pose[k] for k in ('x', 'y', 'yaw')}},
+                     record, recorder.last_path)
             seed += 1
     finally:
         manifest.close()
