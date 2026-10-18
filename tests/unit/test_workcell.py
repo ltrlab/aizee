@@ -40,12 +40,12 @@ def test_measured_file_names_a_source_for_every_value_and_lists_what_is_unmeasur
     assert workcell_path(ROOT / 'config/devices/minerva-joint-calibration.json', workcell.asset_id) == MEASURED
     # The user's measurements are values, not placeholders.
     assert workcell.table_top == pytest.approx(.664 - .152, abs=1e-3)
-    assert workcell.cube_edge == pytest.approx(.0381) and workcell.bucket_inner == pytest.approx((.152, .305))
+    # The box as the head camera's depth measured it (the user's 2026-10-16 "about 6 by 12 in" before that).
+    assert workcell.cube_edge == pytest.approx(.0381) and workcell.bucket_inner == pytest.approx((.155, .242))
     measured = {'table.size', 'table.top_z', 'bucket.inner_size', 'cube.edge'}
     assert measured.isdisjoint(workcell.placeholders())
     # The head camera is measured against the tags; where the tags are relative to the robot is not yet.
-    assert {'table.center', 'bucket.center', 'bucket.height', 'cube.mass', 'fiducials.rectangle.robot_offsets'} <= \
-        set(workcell.placeholders())
+    assert {'table.center', 'bucket.wall', 'cube.mass', 'fiducials.rectangle.robot_offsets'} <= set(workcell.placeholders())
     assert {'cameras.head.pos', 'cameras.head.xyaxes', 'cameras.head.fovy'}.isdisjoint(workcell.placeholders())
     assert all(workcell.sources[key] for key in workcell.sources)
     # The description crosses process boundaries unchanged.
@@ -176,29 +176,32 @@ def test_the_tags_sit_where_the_rectangle_and_the_bucket_put_them():
     head = workcell.head_camera
     assert head['pos'] == pytest.approx((ox - .2752, oy + .2694, workcell.table_top + .5443), abs=1e-12)
     # 6 is upright on the front wall's outer face and 7 on the back wall's inner face (as the head camera decodes
-    # them), both facing the robot along the box's axis, their centres 32 mm below the rim in the middle of their walls.
+    # them), both facing the robot along the box's axis, their centres 42 mm below the rim in the middle of their walls.
+    # The box itself is placed in the rectangle, as the head camera's depth measured it.
+    assert workcell.bucket_inner == pytest.approx((.155, .242)) and math.degrees(workcell.bucket_yaw) == pytest.approx(-19.2)
+    assert bucket_frame(workcell, ox - .4779, oy - .2337) == pytest.approx((0., 0.), abs=1e-12)
     toward_robot = (-math.sin(workcell.bucket_yaw), math.cos(workcell.bucket_yaw), 0.)
     half = (workcell.bucket_inner[0] / 2, workcell.bucket_inner[1] / 2)
     for tag_id, wall_y in ((6, half[1] + workcell.bucket_wall), (7, -half[1])):
         _, x, y, z, yaw, tilt = tags[tag_id]
         assert bucket_frame(workcell, x, y) == pytest.approx((0., wall_y), abs=1e-12)
-        assert z == pytest.approx(workcell.table_top + workcell.bucket_height - .032)
+        assert z == pytest.approx(workcell.table_top + workcell.bucket_height - .042)
         x_axis, y_axis, z_axis = marker_axes(yaw, tilt)
         assert z_axis == pytest.approx(toward_robot, abs=1e-12) and y_axis == pytest.approx((0., 0., 1.), abs=1e-12)
     # Placeholders until measured: the rectangle's place relative to the robot and the wall tags' unknowns.
     placeholders = set(workcell.placeholders())
-    assert {'fiducials.rectangle.robot_offsets', 'fiducials.rectangle.yaw_deg', 'fiducials.tags.6.below_rim',
-            'fiducials.tags.7.below_rim', 'bucket.height', 'bucket.center', 'bucket.yaw_deg'} <= placeholders
+    assert {'fiducials.rectangle.robot_offsets', 'fiducials.rectangle.yaw_deg', 'bucket.wall', 'bucket.bottom'} <= \
+        placeholders
     assert {'fiducials.family', 'fiducials.square', 'fiducials.rectangle.size', 'fiducials.tags.6.wall',
-            'fiducials.tags.7.face'} | {f'fiducials.tags.{i}.center' for i in range(6)} \
-        <= set(workcell.sources) - placeholders
+            'fiducials.tags.7.face', 'fiducials.tags.6.below_rim', 'bucket.center', 'bucket.yaw_deg', 'bucket.height',
+            'bucket.inner_size'} | {f'fiducials.tags.{i}.center' for i in range(6)} <= set(workcell.sources) - placeholders
     assert SYNTHETIC.fiducials == {}
 
 
 def test_the_wall_tags_follow_the_bucket(tmp_path):
     before = {tag[0]: tag for tag in load_workcell(MEASURED).fiducials['tags']}
     document = json.loads(MEASURED.read_text(encoding='utf-8'))
-    document['bucket']['center']['value'] = [-.20, -.45]
+    document['bucket']['center']['value'] = [.40, .25]  # In the rectangle frame.
     document['bucket']['yaw_deg']['value'] = 10.
     moved = load_workcell(_write(document, tmp_path))
     assert math.degrees(moved.bucket_yaw) == pytest.approx(10.)
@@ -339,7 +342,7 @@ def _write(document, directory):
     (lambda f: f['rectangle']['robot_offsets'].update(value=[.325, .50]), 'off the table'),
     (lambda f: f['tags']['0']['center'].update(value=[.02, .10]) or f['tags']['0'].pop('frame'), 'off the table'),
     (lambda f: f['tags']['7']['along'].update(value=.06), 'not wholly on a face'),
-    (lambda f: f['tags']['6']['below_rim'].update(value=.13), 'not wholly on a face'),
+    (lambda f: f['tags']['6']['below_rim'].update(value=.17), 'not wholly on a face'),
     (lambda f: f['tags'].update({'8': f['tags']['0']}), 'distinct'),
     (lambda f: f['family'].update(value='DICT_6X6_50'), 'no codes'),
     (lambda f: f['tags']['1'].update(wall={'value': 'front', 'source': 'test'}), 'either'),
