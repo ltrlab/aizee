@@ -92,9 +92,21 @@ Stop any Helm session first; the cameras restart.
   - The Jetson's `current` is `20261017T224256Z-ce086c5`. It was staged, verified and smoke-tested, then switched with both CAN links down and no receiver running. The previous release, `20261017T151236Z-1580f1e`, is kept.
   - The Minerva terminal runs `helm-recording-ce086c58a5`, built from the same commit. It replaces the hot patches and the restored mesh described in [HELM_TERMINAL_FIXES.md](HELM_TERMINAL_FIXES.md). The previous folder and launchers are kept in `helm-recording-activation-20261018T000513Z`.
   - The packaging and activation commands are in this worktree's `build/terminal-deploy-20261017/`. They are Codex's process, with this worktree as the source.
-- **Not yet done:**
-  - the user's one-time `install`; until then the robot behaves exactly as before;
-  - the acceptance hold on the robot.
+- **Installed 2026-10-18 at about 03:19Z** by the user, with `sudo python3 -B -m robot_platform.ops.cpu_partition install`, run from the laptop through the terminal.
+  - `status`, run independently: the partition file is in place, and each camera unit has its drop-in. systemd reports `CPUAffinity=0-3`.
+  - Every camera thread is allowed on CPUs 0-3 only: 25 head threads and 9 per wrist. No unit has restarted since.
+- **Acceptance hold:** `live-20261018T032718Z`, with the user's approval: Start, Idle, Enable, 146 s in Hold, Shutdown, Stop; no Engage, no fault.
+  - During the session, all 6 threads of the loop process and all 3 of its `guarded_controller` were on CPUs 4-5. The session view reported `scheduling.loop == ["control_cpus"]`.
+  - Loop timing in Hold, with the earlier holds for comparison:
+
+| Hold | Duration | Missed cycles | Cycles over 10 ms | Cycle p50 / p99 / max | Smallest expiry margin | Receiver misses / max lateness |
+|---|---|---|---|---|---|---|
+| Cameras sharing all cores (`live-20261017T211457Z`) | 77 s | 60 | 24 | 5.6 / 9.2 / 14.0 ms | 2 ms | 18 / 6.5 ms |
+| Split by hand (`live-20261017T213826Z`) | 104 s | 0 | 0 | 5.1 / 6.5 / 8.1 ms | 7 ms | 7 / 3.5 ms |
+| **Split installed** (`live-20261018T032718Z`) | 146 s | 1 | 0 | 5.7 / 7.2 / 9.9 ms | 5 ms | 7 / 3.5 ms |
+
+  - **Leader samples:** p99 age 16.2 ms, against 13.8 ms in the hand-split hold. The leaders are read on the terminal, so the Jetson's CPU split doesn't reach them.
+  - **Helm's own counters:** they include the session start and the Idle and Enable transitions, so they reached a 13.1 ms maximum with 15 overruns, all before Hold.
 
 ## Remaining uncertainty
 
