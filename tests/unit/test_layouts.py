@@ -54,7 +54,10 @@ def test_every_range_names_its_source_as_a_training_design_choice():
     assert randomization.sources['cube.mass'].startswith('placeholder')
     # The ranges re-centred on the depth check (the coordinator, 2026-10-18), the table offset widened to 4 cm around
     # the interim placement.
-    assert randomization.ranges['cube.length'] == randomization.ranges['cube.width'] ==         randomization.ranges['cube.height'] == (.030, .055)
+    assert randomization.ranges['cube.length'] == randomization.ranges['cube.width'] == (.030, .055)
+    # Blocks under 35 mm tall are left out (the coordinator, accepted by the user, 2026-10-18): below about 35 mm the
+    # left's retreat from the handoff passes within 1 mm of the right's fingers, a planner follow-up.
+    assert randomization.ranges['cube.height'] == (.035, .055)
     assert randomization.ranges['bucket.inner_length'] == (.200, .300)
     assert randomization.ranges['bucket.inner_width'] == (.130, .200)
     assert randomization.ranges['bucket.height'] == (.150, .220)
