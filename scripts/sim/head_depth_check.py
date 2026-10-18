@@ -311,6 +311,7 @@ def main() -> int:
     tag_normal = R[:, 2]
     report = {'grab': args.grab.name, 'frames': int(np.median(count[valid])), 'valid_share': round(float(valid.mean()), 3),
               'depth_mad_median_mm': round(float(np.median(mad[valid]) * 1000), 2),
+              'registered_K': K.tolist(),  # The colour camera registered_depth.npy is on.
               'tags': {'used': flat, 'rms_px': round(float(np.sqrt((errors ** 2).mean())), 3),
                        'camera_height_m': round(float(-(tag_normal @ t)), 4)}}
     camera_height_depth = -offset  # Signed height of the camera (origin) above the plane, the normal pointing up.
