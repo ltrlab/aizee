@@ -36,6 +36,11 @@
   - **The full gate passed at `90b65a7`** on 2026-10-18 on the laptop: 1139 passed, none failed or skipped (the ARM64 release test included), and the 132 Rust tests, with the source unchanged (`build/dev-check/20261019T014213Z-af22bb37/report.json` in `aizee-helm-pedals`). The commit after it changes only this doc.
   - The two reproducers fail on the base, and pass five runs of five with the fix.
   - Focused suites with the fix: `test_teleop_ui_budget`, `test_helm_pedals` (unit and contract), `test_helm_teleop`, `test_helm_edge`, `test_browser_scripts`, `test_direct_teleop` (unit) and `test_manual_tuning_api` passed. The contract `test_direct_teleop` needs the native harness, which this worktree had not built; it is left to the gate.
+  - **Deployed 2026-10-19 at about 02:13Z** with the user's approval ("go ahead and deploy it"), by the process in `build/terminal-deploy-20261017/`:
+    - The Jetson's `current` is `20261019T015445Z-3d5343b`, built from `3d5343b` (this doc's commit before this line). It was staged, verified and smoke-tested, then activated with both CAN links down and no receiver running. `20261017T224256Z-ce086c5` is kept.
+    - The terminal runs `helm-recording-3d5343b04e`; `helm-recording-ce086c58a5` is kept, with the launchers in `helm-recording-activation-20261019T021314Z`. Helm reports `status_age_ms`, and serves the new `helm/pedals.js`.
+    - The terminal's Edge tab was hard-refreshed. The restart reset the receiver choice to virtual; it was set back to live on both arms.
+    - The live check (Idle shows Idle, and C goes on to Hold) is the user's next session.
 - **Remaining uncertainty:**
   - Idle's three exchanges, about 9 ms, still leave no time for joint observations, so the joint display in Idle is stale. `helm.js` says so.
   - Fewer Idle exchanges would be a lifecycle and receiver change, which belongs to the motion-contract owner.
