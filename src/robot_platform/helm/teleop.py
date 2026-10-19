@@ -150,6 +150,10 @@ CYCLE_BUDGET_S = .035  # A cycle not dispatched this long after it started fault
 # minutes; its events go on being logged.
 RECORDING_BYTES = 512 * 1024 * 1024
 RECORDING_FLUSH_S = 1.
+# A status-only view at least this often, even when nothing changed and no cycle has time for a full view: Idle's
+# three receiver exchanges leave none, and Helm must still tell a quiet loop from a lost one (the pedals lock at
+# 750 ms). Status is computed every cycle anyway; sending it costs no control time.
+STATUS_HEARTBEAT_S = .25
 
 
 def routes_path(runs, asset_id):
@@ -1330,6 +1334,7 @@ def run_loop(commands, views, core, *, silence_s=None):
     published_status = None
     view_cost_s = .003
     next_view_at = None
+    sent_at = None  # When the last view of either kind was queued.
 
     def sender():
         while True:
@@ -1361,18 +1366,18 @@ def run_loop(commands, views, core, *, silence_s=None):
                 + tuple((view.get('pedals') or {}).get('actions', {}).get(p, {}).get('revision') for p in 'abc'))
 
     def publish(guide=True):
-        nonlocal cached_view, published_status
+        nonlocal cached_view, published_status, sent_at
         cached_view = core.view()
-        cached_view['observed_at'] = clock()
+        cached_view['observed_at'] = sent_at = clock()
         published_status = status_key(cached_view)
         queue_view(cached_view, core.guide() if guide else None)
 
     def publish_status(status):
-        nonlocal published_status
+        nonlocal published_status, sent_at
         # Keep the last observed joint rows and timestamp; status and tuning ACKs
         # are current even when there is no time to rebuild observations.
         view = dict(cached_view or {}, **{k: v for k, v in status.items() if k not in ('joints', 'cycle_ms')})
-        view['status_at'] = clock()
+        view['status_at'] = sent_at = clock()
         published_status = status_key(status)
         queue_view(view, None)
 
@@ -1521,7 +1526,8 @@ def run_loop(commands, views, core, *, silence_s=None):
                 tuning_request = None
             if budget_views:
                 status = core.status_view()
-                if key is not None or view_changed or status_key(status) != published_status:
+                if (key is not None or view_changed or status_key(status) != published_status
+                        or sent_at is None or clock() - sent_at >= STATUS_HEARTBEAT_S):
                     publish_status(status)
                 publish_in_budget(scheduled + core.period_s, view_changed)
             else:
@@ -1884,6 +1890,10 @@ class TeleopSession:
             observed = self._view.get('observed_at')
             age = (max(observed, self._view.get('status_at', observed)) - observed
                    + time.perf_counter() - self._view_received_at) * 1000 if observed is not None else None
+            # How old the loop's latest word is, status or observation: it sends status at least every
+            # STATUS_HEARTBEAT_S, so this stays small while the loop runs even when no cycle has time to observe.
+            heard = observed is not None or self._view.get('status_at') is not None
+            status_age = (time.perf_counter() - self._view_received_at) * 1000 if heard else None
             view = deepcopy(self._view)
             if view.get('telemetry') is not None:
                 # Aged since it was observed; a cached packet never looks fresher than its source.
@@ -1894,7 +1904,8 @@ class TeleopSession:
                         live_available=self.simulation is None and 'live' in self.profile,
                         receiver_choices=choices if self.simulation is None else ['virtual'],
                         simulation=self.simulation is not None, task_configured=self.task_configured,
-                        observation_age_ms=age, control_law=law, control_law_next=upcoming,
+                        observation_age_ms=age, status_age_ms=status_age, control_law=law,
+                        control_law_next=upcoming,
                         tuning=self.manual.snapshot(can_apply=allowed, reason=reason) if self.manual else
                         {'enabled': False})
 

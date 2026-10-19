@@ -15,6 +15,12 @@ const ended=clone(base);ended.teleop.state='DISABLED';ended.teleop.pedals.ended=
 ended.teleop.pedals.actions.c={enabled:false,reason:'Stop this session and start a new session.'};
 assert.match(presentation(ended).detail,/Stop this session/);
 assert.equal(presentation({...base,teleop:{...base.teleop,observation_age_ms:750}}).tone,'fault');
+// Idle's three receiver exchanges leave no cycle time to observe, so joint observations go stale while the loop's
+// status keeps arriving (2026-10-18: the C pedal locked in Idle). Pedals go by the status's age when Helm reports it.
+const idleQuiet={...base,teleop:{...base.teleop,state:'IDLE',observation_age_ms:35000,status_age_ms:120}};
+assert.equal(presentation(idleQuiet).label,'Idle');
+assert.equal(presentation({...idleQuiet,teleop:{...idleQuiet.teleop,status_age_ms:750}}).label,'State unavailable');
+assert.equal(presentation({...base,teleop:{...base.teleop,status_age_ms:10,observation_age_ms:20}}).tone,'teleop');
 assert.match(recordingLabel({recording:{active:true},last_command:{state:'pending',action:'stop_record'}}),/Finishing/);
 assert.equal(recordingLabel({recording:{state:'complete',complete:false}}),'Not recording');
 assert.equal(recordingLabel({recording:{complete:true}}),'Complete · saved');
@@ -73,6 +79,12 @@ controls.setTest(false);assert.deepEqual(controls.testCounts,{a:0,b:0,c:0});
 controls.setTest(true);controls.update({...stopped,teleop:{...stopped.teleop,phase:'starting'}});
 assert.equal(controls.testMode,false);assert.deepEqual(controls.testCounts,{a:0,b:0,c:0});
 controls.update({...stopped,teleop:{...stopped.teleop,fault:'reset'}});controls.setTest(true);assert.equal(controls.testMode,false);
+// In Idle the pedal offers stay usable while status arrives, however old the joint observations are.
+const idle=clone(base);idle.teleop.state='IDLE';idle.teleop.observation_age_ms=35000;idle.teleop.status_age_ms=120;
+idle.teleop.pedals.session_id='idle';idle.teleop.pedals.actions.c=action('enable',4);
+controls.update(idle);assert.equal(controls.fresh(),true);assert.equal(controls.offer('c').enabled,true);
+time+=640;assert.equal(controls.offer('c').enabled,false); // The status's age still counts, plus the time since.
+controls.update({...idle,teleop:{...idle.teleop,status_age_ms:760}});assert.equal(controls.offer('c').enabled,false);
 const order=new StateOrder();assert.equal(order.accept(base,1),true);
 const fault=clone(base);fault.teleop.state='FAULT';fault.teleop.status_at=21;assert.equal(order.accept(fault,3),true);
 assert.equal(order.accept(base,2),false); // Old response arrives after new poll.

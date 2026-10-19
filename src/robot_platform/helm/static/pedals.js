@@ -1,9 +1,13 @@
 // Pedals are guarded backend offers, never a browser-side motion sequence.
 export const STATE_MAX_AGE_MS = 750;
 const running = t => ['running', 'starting'].includes(t?.phase);
+// How old the loop's latest word is. Pedals act on its lifecycle state and offers, which its status carries at least
+// every 250 ms; joint observations can lag (Idle has no time to rebuild them) without making those stale. An older
+// Helm reports only the observation age.
+export const stateAge = t => Number.isFinite(t?.status_age_ms) ? t.status_age_ms : t?.observation_age_ms;
 export function presentation(state, fresh = true) {
   const t = state?.teleop || {}, fault = t.fault || t.recording_fault || (t.phase === 'fault' ? t.message || 'Session fault' : '');
-  const stale = !fresh || (running(t) && Number.isFinite(t.observation_age_ms) && t.observation_age_ms >= STATE_MAX_AGE_MS);
+  const stale = !fresh || (running(t) && Number.isFinite(stateAge(t)) && stateAge(t) >= STATE_MAX_AGE_MS);
   if (stale) return {tone:'fault', label:'State unavailable', detail:'Connection lost or stale. Pedals locked; H / X remain available.', stage:''};
   if (fault) return {tone:'fault', label:'Fault · reset required', detail:String(fault), stage:''};
   if (!running(t)) return {tone:'off', label:'Session stopped', detail:'Touch Start session first. Pedals cannot start a session.', stage:'off'};
@@ -65,7 +69,7 @@ export class PedalControls {
   }
   disconnect() { this.connected=false;this.setTest(false);this.onChange?.(); }
   fresh() {
-    const t=this.state?.teleop, age=running(t) && Number.isFinite(t?.observation_age_ms) ? Math.max(0,t.observation_age_ms) : 0;
+    const t=this.state?.teleop, age=running(t) && Number.isFinite(stateAge(t)) ? Math.max(0,stateAge(t)) : 0;
     return this.connected && age+this.now()-this.receivedAt < STATE_MAX_AGE_MS;
   }
   offer(pedal) {

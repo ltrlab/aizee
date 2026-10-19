@@ -166,6 +166,33 @@ def test_observed_cost_spike_remains_counted_then_prevents_repeated_ui_overruns(
     assert core.stopped and core.fault=='example receiver fault'
 
 
+class SenderPacedCore(Core):
+    def tick(self,key,started):
+        super().tick(key,started)
+        # Synthetic cycles take microseconds of real time, so the real sender thread would rarely run between two
+        # queued views and the latest-only mailbox would drop most of them; on the robot a cycle lasts 10 ms.
+        real_time.sleep(.001)
+
+
+def test_a_loop_with_no_time_to_observe_still_sends_status_at_the_heartbeat(monkeypatch):
+    # Idle's three receiver exchanges leave no cycle time for a full view, and while nothing changed no status went
+    # either: Helm's state aged until the pedals locked (2026-10-18). Status goes at least every STATUS_HEARTBEAT_S;
+    # it costs the loop no slot.
+    clock=Clock()
+    core=SenderPacedCore(clock,slow=True)
+    commands,views=Commands(core),Views()
+    core.views=views
+    monkeypatch.setattr(teleop,'time',SimpleNamespace(sleep=clock.sleep))
+    teleop.run_loop(commands,views,core)
+    assert len(core.records)==120 and all(r['skipped']==0 for r in core.records)
+    assert not [n for n,_ in core.full_views if 0<n<120]  # Still no time to observe.
+    first,last=core.records[0]['started'],core.records[-1]['completed']
+    sent=sorted(max(v.get('observed_at') or 0.,v.get('status_at') or 0.) for kind,v,*_ in views.messages if kind=='view')
+    # From the loop's first cycle to its last, including any silence before it ends.
+    marks=[first,*(t for t in sent if first<t<last),last]
+    assert max(b-a for a,b in zip(marks,marks[1:]))<=teleop.STATUS_HEARTBEAT_S+core.period_s
+
+
 def test_status_view_does_not_rebuild_routes_pose_rows_or_quantiles():
     # Exercise the real split with only status data; heavy fields are absent.
     core=object.__new__(teleop.TeleopCore)
