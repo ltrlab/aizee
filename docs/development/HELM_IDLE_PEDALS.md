@@ -33,6 +33,7 @@
   - Live: in Idle the pedal bar shows Idle, and C goes on to Hold.
 - **Source/model identity and seed:** base `1178729`. Physical inputs: none.
 - **Results / evidence:**
+  - **The full gate passed at `90b65a7`** on 2026-10-18 on the laptop: 1139 passed, none failed or skipped (the ARM64 release test included), and the 132 Rust tests, with the source unchanged (`build/dev-check/20261019T014213Z-af22bb37/report.json` in `aizee-helm-pedals`). The commit after it changes only this doc.
   - The two reproducers fail on the base, and pass five runs of five with the fix.
   - Focused suites with the fix: `test_teleop_ui_budget`, `test_helm_pedals` (unit and contract), `test_helm_teleop`, `test_helm_edge`, `test_browser_scripts`, `test_direct_teleop` (unit) and `test_manual_tuning_api` passed. The contract `test_direct_teleop` needs the native harness, which this worktree had not built; it is left to the gate.
 - **Remaining uncertainty:**
