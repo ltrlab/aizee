@@ -15,3 +15,9 @@
 - **Acceptance:**
   - `python scripts/dev.py check --offline`, zero skips.
   - Live: A records frames, and A again completes the episode.
+- **Evidence:**
+  - **The full gate passed at `1931dc1`** on 2026-10-19 on the laptop: 1141 passed, none failed or skipped (`build/dev-check/20261020T005335Z-3d63ae6c/report.json` in `aizee-helm-pedals`).
+  - **Deployed 2026-10-20 at about 01:09Z** with the user's approval ("go ahead disable, close session and deploy"), by the process in `build/terminal-deploy-20261017/`:
+    - The Jetson's `current` is `20261020T010644Z-1931dc1`.
+    - The terminal runs `helm-recording-1931dc1f98`.
+  - **Live, `live-20261020T010927Z`: the first frame now records.** The episode accepted 10 frames, then failed with the same `Receiver sample expired before capture` at a later frame's admission. The cause and fix are `docs/development/CAPTURE_DECODE_SIZE.md`.
