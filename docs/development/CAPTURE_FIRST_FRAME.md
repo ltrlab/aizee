@@ -1,0 +1,17 @@
+# Feature task: the first recorded frame
+
+- **Branch and worktree:** `claude/capture-first-frame` in `C:\Users\ltr\Workspace\aizee-helm-pedals`, on `claude/helm-idle-views` (`d4aee8e`, the deployed release `3d5343b` plus its record).
+- **Owner:** Claude (the 2026-10-19 session), during the user's first live recording ("Let's try teleop again ... so we can start collecting demos").
+- **Problem / saved reproducer.**
+  - Live, `live-20261020T004826Z`: the first A press opened `task_episode_ef03a0810dde4cffaa03b120c7b27bde.partial.hdf5`. The recording then failed with `Receiver sample expired before capture` and 0 frames.
+  - The capture worker read `now, sample` at the top of its loop pass, opened the episode, and appended the first frame with that same sample.
+  - Opening the episode (an HDF5 file on the Jetson's SD card) outlasted the 30 ms receiver age bound, so the first append failed.
+  - Helm then disabled the session, as designed for a capture failure.
+  - Reproducer: `tests/unit/test_helm_task_capture.py::test_a_slow_episode_open_records_from_a_sample_taken_after_it`, with a 50 ms open. It fails on the base with the live error and 0 frames.
+- **Fix:**
+  - After opening, the first frame waits for a receiver sample taken after the open, for at most `max_receiver_age_s` after it.
+  - None arriving fails as a stalled receiver, exactly as before (`test_a_receiver_stalled_after_a_slow_open_still_fails_the_episode`).
+- **Shared interfaces held fixed:** the 30 ms receiver age bound and its cap, the camera age and skew bounds, the rule that a paired sample is never replaced during resizing, and the stalled-receiver abort.
+- **Acceptance:**
+  - `python scripts/dev.py check --offline`, zero skips.
+  - Live: A records frames, and A again completes the episode.

@@ -342,6 +342,7 @@ class LiveTaskCapture:
         sockets, writer = {}, None
         last_sources = None
         next_frame = 0.
+        opened_at = None  # When the episode now recording finished opening, until its first frame.
         try:
             factory = self.writer_factory
             if factory is None:
@@ -400,6 +401,10 @@ class LiveTaskCapture:
                                 writer.abort(cancelled)
                                 raise RuntimeError(cancelled)
                             next_frame, last_sources = 0., None
+                            # Opening the episode (an HDF5 file on the Jetson's SD card) can outlast the receiver
+                            # sample read before it: the first frame then failed as expired, and so did every
+                            # first recording (2026-10-19). The first frame waits for a sample from after the open.
+                            opened_at = self.clock()
                         else:
                             if writer is None:
                                 raise ValueError('No episode is recording')
@@ -419,7 +424,13 @@ class LiveTaskCapture:
                     with self._lock:
                         self._state.update(error=error, last_command=dict(id=request, action=action,
                                            state='failed' if error else 'complete', error=error))
-                if writer is not None and now >= next_frame:
+                if writer is not None and now >= next_frame and not (
+                        opened_at is not None and sample is not None and not sample.get('error')
+                        and sample['source_time'] < opened_at
+                        and now - opened_at <= self.config['max_receiver_age_s']):
+                    # Waiting for that sample never extends a sample's freshness: none arriving within the
+                    # receiver age bound of the open fails here like any stalled receiver.
+                    opened_at = None
                     self._ready(sample, now, require_commands=True)
                     frames = cache.select(sample['source_time'])
                     sources = (sample['source_time'], *(frames[n]['publisher_time'] for n in self.camera_roles))

@@ -253,8 +253,9 @@ def socket_capture(tmp_path, request):
     publishers, cfg = {}, config()
     options = getattr(request, 'param', CAMERAS)
     roles = tuple(options.get('roles', CAMERAS) if isinstance(options, dict) else options)
-    if isinstance(options, dict):
+    if isinstance(options, dict) and 'recording_image_size' in options:
         cfg['recording_image_size'] = options['recording_image_size']
+    open_s = options.get('open_s', 0.) if isinstance(options, dict) else 0.
     cfg['camera_roles'] = list(roles)
     cfg['cameras'] = {name: cfg['cameras'][name] for name in roles}
     for name in roles:
@@ -265,6 +266,7 @@ def socket_capture(tmp_path, request):
         publishers[name] = pub
     writers = []
     def factory(*a, **k):
+        clock[0] += open_s  # Opening the episode file takes this long.
         writer = Writer(*a, **k)
         writers.append(writer)
         return writer
@@ -309,6 +311,33 @@ def test_socket_worker_requires_all_cameras_and_explicit_finish(socket_capture):
     assert frame['task_state']['cameras']['head']['image_rotation_deg'] == 180
     assert frame['task_state']['cameras']['right_wrist']['image_rotation_deg'] is None
     assert not capture.snapshot()['failed']
+
+
+@pytest.mark.parametrize('socket_capture', [{'open_s': .05}], indirect=True)
+def test_a_slow_episode_open_records_from_a_sample_taken_after_it(socket_capture):
+    # Opening the episode file on the Jetson's SD card outlasted the receiver sample read before it, and the first
+    # frame failed as expired with nothing written (live-20261020T004826Z, 2026-10-19). The first frame now pairs a
+    # sample taken after the open; every frame still meets the receiver age bound.
+    capture, writers, pump = socket_capture
+    pump(lambda: capture.snapshot()['capture_ready'])
+    capture.command('start_record')
+    pump(lambda: writers and len(writers[0].frames) >= 3)
+    assert not capture.snapshot()['failed'] and writers[0].error is None
+    capture.command('stop_record')
+    pump(lambda: capture.snapshot()['recording'].get('complete'))
+    for frame in writers[0].frames:
+        admitted = frame['task_state']['capture_admission_at']
+        assert 0 <= admitted - frame['source_time'] <= capture.config['max_receiver_age_s']
+
+
+@pytest.mark.parametrize('socket_capture', [{'open_s': .05}], indirect=True)
+def test_a_receiver_stalled_after_a_slow_open_still_fails_the_episode(socket_capture):
+    capture, writers, pump = socket_capture
+    pump(lambda: capture.snapshot()['capture_ready'])
+    capture.command('start_record')
+    pump(lambda: capture.snapshot()['failed'], receiver=False)
+    assert writers and not writers[0].frames and not writers[0].complete
+    assert 'expired' in (writers[0].error or '')
 
 
 def test_socket_worker_aborts_stalled_receiver_without_completed_episode(socket_capture):
