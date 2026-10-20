@@ -34,7 +34,7 @@
     "These are capture admission limits, not physical motion qualification. All three declared camera roles are required; no placeholder image is written.",
     "The head D435 is mounted on the static neck. Physical camera extrinsics are not calibrated; no camera-to-robot transform is supplied.",
     "The operator connected the left wrist on 2026-10-16. All three identities and live JPEG streams were verified on the Jetson; this three-view roster is a different dataset contract from earlier two-view recordings.",
-    "Recording downsamples each selected RGB triplet to 320x240 using Pillow Image.reduce(2) for exact 2x reduction (BOX for other supported ratios); live previews and publisher resolution stay unchanged. Source/stored shapes and the transform are recorded; stored-image intrinsics remain unavailable."
+    "Recording stores 320x240 RGB. The capture worker decodes each 640x480 JPEG straight to 320x240 with the JPEG decoder's 2x DCT scaling (Pillow Image.draft), so no resize runs inside the receiver bound; a JPEG of any other size decodes in full and the recorded triplet is reduced (Pillow Image.reduce(2) for exact 2x, BOX for other supported ratios). Live previews and publisher resolution stay unchanged. Source/stored shapes and the transform are recorded; stored-image intrinsics remain unavailable."
   ],
   "camera_roles": [
     "left_wrist",

@@ -1,0 +1,48 @@
+# Feature task: decoding camera frames at the recording size
+
+- **Branch and worktree:** `claude/capture-decode-size` in `C:\Users\ltr\Workspace\aizee-helm-pedals`, on `claude/capture-first-frame` (`aab7846`, the deployed release `1931dc1` plus its record).
+- **Owner:** Claude (the 2026-10-19 session). The user asked for recording to work, and approved Claude running Enable, Engage and Record live with the leader arms held still ("work through these issues till we are ready to record").
+- **Problem / saved reproducer.**
+  - Live, `live-20261020T010927Z`, with the first-frame fix: the episode accepted 10 frames, then failed with `Receiver sample expired before capture`.
+    - The sample ages at admission climbed to 28.8 ms against the 30 ms bound.
+    - No USB or CAN kernel event occurred during the session.
+  - **Offline rehearsal on the Jetson.** It ran the deployed capture worker with the live cameras and a synthetic 100 Hz receiver feed, with no motor or receiver socket.
+    - 3 of 3 recordings failed within 1.3–3.7 s, every time at the admission check (31.8–34.8 ms).
+    - The samples left the loop 6 ms old and reached the worker in about 1 ms.
+    - Waiting for the worker's next pass took a median of 4 ms, at most 17 ms.
+    - Reducing the recorded 640×480 triplet took a median of 5.4 ms, at most 15.7 ms.
+    - The worker's CPUs (0–3) are shared with the three camera publishers. It decoded every full frame, about 90 a second.
+  - Moving the HDF5 compression out from under the interpreter lock did not help (3 of 3 failed), so the cause is CPU time on those cores, not that lock.
+  - **Reproducer:** `tests/unit/test_helm_task_capture.py::test_recorded_frames_leave_no_image_work_between_pairing_and_admission`.
+    - It reduces as slowly as the reduce ran live.
+    - It fails on the base with the live error.
+- **Fix:**
+  - A JPEG exactly twice the recording size is decoded straight to it, using the decoder's 2× DCT scaling (Pillow `Image.draft`).
+  - The recorded frame then needs no resize, so nothing runs between pairing the receiver sample and admitting the frame. The worker also decodes a quarter of the pixels.
+  - Provenance records `jpeg_dct_scale`, the JPEG's own shape and the factor `[2, 2]`.
+  - A JPEG of any other size decodes in full and is reduced when recorded, as before.
+- **Change to the recorded data:**
+  - The stored 320×240 pixels now come from the decoder's DCT scaling, instead of Pillow `reduce(2)` of a full decode.
+  - On a test gradient, the two differ by under 2 levels on average.
+  - Size, storage (gzip-1, one chunk per frame) and the HDF5 layout are unchanged.
+- **Shared interfaces held fixed:**
+  - the 30 ms receiver bound and its cap;
+  - the camera age and skew bounds;
+  - the recorded image size;
+  - the rule that a paired sample is never replaced;
+  - the stalled-receiver abort;
+  - the episode layout.
+- **Acceptance:**
+  - `python scripts/dev.py check --offline`, zero skips.
+  - The Jetson rehearsal of the built release: three 30 s recordings complete.
+  - Live: Enable, then Engage with the leaders still. A records for at least 30 s, and A again completes the episode, twice in a row.
+- **Evidence so far:**
+  - The rehearsal with this decode, applied to the deployed worker, used the same cameras:
+    - 3 of 3 recordings of 30 s completed, with 447–451 frames each and none expired.
+    - Sample age at admission: median 11.9 ms, p99 16.8 ms, max 21.4 ms.
+    - Camera age at admission: median 55 ms, max 98 ms (it was 72 ms and 135 ms).
+  - The unit tests in `test_helm_task_capture.py` pass: 78 tests, three of them new.
+- **Remaining uncertainty:**
+  - **Frame rate.** Recording runs at about 15 Hz, not 20. A frame waits for a new acquisition from every camera; the median gap is 56 ms and the p90 is 108 ms.
+  - **Worker stall.** The worker stalled once for 38 ms during the rehearsal without failing a frame.
+  - **Disk.** A frame takes about 0.57 MB. The Jetson's 20 GB free holds about 40 minutes of recording at 15 Hz.

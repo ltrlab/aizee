@@ -74,6 +74,17 @@ def recording_images(frames, size):
         source = frame['image']
         height, width = source.shape[:2]
         target = tuple(size) if size is not None else (width, height)
+        if frame.get('decoded_from') is not None:
+            # CameraCache decoded this JPEG at the recording size, so there is nothing left to transform.
+            if target != (width, height):
+                raise ValueError(f'{name}: frame was decoded for a different recording size')
+            images[name] = source
+            provenance[name] = {k: v for k, v in frame.items() if k not in ('image', 'decoded_from')}
+            provenance[name]['image_transform'] = dict(
+                operation='jpeg_dct_scale', source_shape=list(frame['decoded_from']), stored_shape=list(source.shape),
+                algorithm='Pillow.Image.draft', pillow_version=PIL.__version__, color_order='RGB',
+                stored_image_intrinsics=None, factor=[frame['decoded_from'][1]//width, frame['decoded_from'][0]//height])
+            continue
         if target[0] > width or target[1] > height or target[0]*height != target[1]*width:
             raise ValueError(f'{name}: recording_image_size must downsample without changing aspect ratio')
         changed = target != (width, height)
@@ -133,11 +144,19 @@ class CameraCache:
             raw = color.get('data_bytes')
             if color.get('format') != 'jpeg' or not isinstance(raw, bytes) or not 0 < len(raw) <= 16 * 1024 * 1024:
                 raise ValueError('camera needs a bounded JPEG payload')
+            size = self.config['recording_image_size']
             with Image.open(BytesIO(raw)) as image:
                 if image.size != (color.get('width'), color.get('height')):
                     raise ValueError('JPEG dimensions disagree with the camera header')
                 if image.width * image.height > 4096 * 4096:
                     raise ValueError('camera image exceeds the capture size bound')
+                source_shape = [image.height, image.width, 3]
+                # Recording keeps only the configured size, so a JPEG of exactly twice that size is decoded straight
+                # to it (the decoder's DCT scaling): a quarter of the decoding, and no resize left between pairing a
+                # receiver sample and admitting the frame. Decoding full frames and reducing the recorded triplet
+                # inside the 30 ms receiver bound failed every live recording within seconds (2026-10-19).
+                if size is not None and image.size == (2*size[0], 2*size[1]):
+                    image.draft('RGB', tuple(size))
                 rgb = np.asarray(image.convert('RGB')).copy()
             rgb.setflags(write=False)
             self.sequence += 1
@@ -146,6 +165,8 @@ class CameraCache:
                          receive_id=self.sequence, publisher_frame_number=msg.get('frame_number'),
                          image_rotation_deg=rotation,
                          timestamp_semantics=expected['timestamp_semantics'], exposure_time_known=False)
+            if list(rgb.shape) != source_shape:
+                frame['decoded_from'] = source_shape  # The JPEG's own shape, before the decoder scaled it.
             self.frames[name].append(frame)
             self.errors.pop(name, None)
             return True

@@ -549,6 +549,77 @@ def test_resize_time_cannot_renew_original_sample_or_camera_freshness(monkeypatc
     assert sample['source_time'] == 10. and sample['qcmd'] == [.1]*14
 
 
+def test_recorded_frames_leave_no_image_work_between_pairing_and_admission(monkeypatch):
+    # Live 2026-10-19, every recording failed within seconds: 'Receiver sample expired before capture'. Reducing
+    # the recorded 640x480 triplet ran between pairing the receiver sample and admitting the frame, and on the
+    # Jetson's shared camera CPUs it took up to 16 ms of the 30 ms bound.
+    capture = LiveTaskCapture.__new__(LiveTaskCapture)
+    capture.config = validate_config(dict(config(), recording_image_size=[4, 3]))
+    now = [10.008]
+    capture.clock, capture._abort_reason = lambda: now[0], None
+    cache = CameraCache(capture.config)
+    fill(cache, stamp=1000., received=9.995)
+    frames = cache.select(10.)
+    sample = dict(q=[0.]*14, qcmd=[.1]*14, source_time=10., error=None, command_valid=True)
+    writer = Writer(None, NAMES, dict(data_source='real', camera_roles=CAMERAS), hz=20.)
+    def contended(original):
+        def slow(self, *args, **kwargs):
+            now[0] += .024
+            return original(self, *args, **kwargs)
+        return slow
+    monkeypatch.setattr(Image.Image, 'reduce', contended(Image.Image.reduce))
+    monkeypatch.setattr(Image.Image, 'resize', contended(Image.Image.resize))
+    capture._append_frame(writer, sample, frames)
+    state = writer.frames[0]['task_state']
+    assert state['capture_admission_at'] == 10.008
+    assert all(image.shape == (3, 4, 3) for image in writer.frames[0]['images'].values())
+    assert {c['image_transform']['operation'] for c in state['cameras'].values()} == {'jpeg_dct_scale'}
+
+
+def jpeg_camera(name, image, *, stamp=1000.):
+    payload = BytesIO()
+    Image.fromarray(image).save(payload, format='JPEG', quality=95)
+    header = dict(camera_id=name, timestamp=stamp, frame_number=99,
+                  color=dict(format='jpeg', width=image.shape[1], height=image.shape[0]))
+    return pack_camera(header, payload.getvalue())
+
+
+def test_jpeg_twice_the_recording_size_decodes_straight_to_it():
+    import PIL
+    y, x = np.mgrid[0:48, 0:64]
+    source = np.stack([x*4, y*5, (x+y)*2], axis=-1).astype(np.uint8)
+    cache = CameraCache(dict(config(), recording_image_size=[32, 24]))
+    for name in CAMERAS:
+        assert cache.ingest(name, jpeg_camera(name, source), received_at=10.01, wall_time=1000.01)
+    frames = cache.select(10.02)
+    images, provenance = recording_images(frames, [32, 24])
+    # The decoder's 2x scaling stays a faithful 2x reduction of the same JPEG decoded in full.
+    with Image.open(BytesIO(unpack_camera(jpeg_camera('head', source))['color']['data_bytes'])) as image:
+        reference = np.asarray(image.convert('RGB').reduce(2)).astype(int)
+    for role in CAMERAS:
+        assert images[role] is frames[role]['image'] and images[role].shape == (24, 32, 3)
+        assert np.abs(images[role].astype(int)-reference).mean() < 2
+        assert 'decoded_from' not in provenance[role]
+        assert provenance[role]['image_transform'] == dict(operation='jpeg_dct_scale', source_shape=[48, 64, 3],
+            stored_shape=[24, 32, 3], algorithm='Pillow.Image.draft', pillow_version=PIL.__version__,
+            color_order='RGB', stored_image_intrinsics=None, factor=[2, 2])
+    with pytest.raises(ValueError, match='decoded for a different recording size'):
+        recording_images(frames, [16, 12])
+
+
+def test_jpeg_of_another_size_decodes_in_full_and_is_reduced_when_recorded():
+    source = np.arange(9*12*3, dtype=np.uint8).reshape(9, 12, 3)
+    cache = CameraCache(dict(config(), recording_image_size=[4, 3]))
+    for name in CAMERAS:
+        assert cache.ingest(name, jpeg_camera(name, source), received_at=10.01, wall_time=1000.01)
+    frames = cache.select(10.02)
+    assert all(frame['image'].shape == (9, 12, 3) and 'decoded_from' not in frame for frame in frames.values())
+    images, provenance = recording_images(frames, [4, 3])
+    assert all(image.shape == (3, 4, 3) for image in images.values())
+    assert provenance['head']['image_transform']['operation'] == 'resize'
+    assert provenance['head']['image_transform']['source_shape'] == [9, 12, 3]
+
+
 @pytest.mark.parametrize('socket_capture', [{'recording_image_size': [4, 3]}], indirect=True)
 def test_socket_worker_resizes_only_selected_recorded_triplets(socket_capture, monkeypatch):
     from robot_platform.helm import task_capture
