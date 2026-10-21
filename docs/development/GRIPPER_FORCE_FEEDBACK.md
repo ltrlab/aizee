@@ -102,6 +102,9 @@
       - A test resolves every `minerva-teleop*.json`'s `leader_profile` and requires both triggers. A contract test checks
         the real loop's `grip_triggers` after building with the shipped files.
       - The loop now reports feedback unavailable without triggers.
+    - **Fix deployed 2026-10-21 at about 11:47Z** at the user's request ("stop the session and deploy it"). The gate
+      passed on `3e7f18b` with 1221 tests and none skipped. The Jetson runs `20261021T035909Z-3e7f18b` and the terminal
+      `helm-recording-3e7f18b365`. Both sides' `gello-dual-viewer.json` now name both triggers.
     - The firmware needed nothing: firmware 3 (both boards since 2026-10-18) has `FF_CURRENT` (added 2026-06, reworked
       2026-10-11; version 3 since 2026-10-14).
 - **Remaining uncertainty:**

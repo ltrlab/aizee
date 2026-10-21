@@ -118,6 +118,15 @@
       per source and a charge-based shutdown waits `settle_s`, 10 s.
     - The once-a-second /proc scan cost 1.7 % of a core; it now runs only near a shutdown.
     - Needs a Jetson release and the user's install again; Helm is unchanged.
+    - Deployed with the force-feedback fix (`3e7f18b`, Jetson `20261021T035909Z-3e7f18b`, terminal `helm-recording-3e7f18b365`).
+      The installed service keeps root's older copy until the user runs the install again.
+    - **Terminal bit flips:** the first console stage of `3e7f18b` stopped on "Copied model differs".
+      - Two files in the running release `helm-recording-2e303c6be5` had changed since their staging check that morning:
+        `RB03_BODY.gltf` (one bit, `j` to `k` at byte 3,920,891) and `rb03_output__3.stl`. Size and timestamp were
+        unchanged, the SSD reports healthy, and there were no disk events.
+      - Both were restored from the verified `helm-recording-0f96a6131d` copies; all 602 model files then matched.
+      - The partial stage was renamed `helm-recording-3e7f18b365-failed-stage-20261021T114442Z`.
+      - Suspect the terminal's RAM: run Windows Memory Diagnostic.
 - **Remaining uncertainty:**
   - The pack's capacity (28 Wh assumed, 3 × 18650) and resistance (0.2 Ω assumed). The time left is shown as "about"
     until a logged discharge measures them.
