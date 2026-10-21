@@ -289,10 +289,8 @@ class FakeCore:
         pass
 
     def set_grip_feedback(self, payload):
-        if set(payload) - {'enabled', 'strength'}:
-            raise ValueError('Force feedback takes enabled and/or strength')
-        self.feedback.set(enabled=payload.get('enabled'), strength=payload.get('strength'))
-        return self.feedback.snapshot()
+        from robot_platform.helm.teleop import TeleopCore
+        return TeleopCore.set_grip_feedback(SimpleNamespace(grip_feedback=self.feedback), payload)  # The real rules.
 
     def view(self):
         return {'phase': self.phase, 'fault': self.fault, 'grip_feedback': self.feedback.snapshot()}
@@ -328,10 +326,22 @@ def test_helm_switches_feedback_live_in_the_running_loop(tmp_path):
             time.sleep(.01)
         assert session.grip_feedback({'enabled': True, 'strength': .6}) == dict(fake.feedback.snapshot())
         assert fake.feedback.enabled and fake.feedback.strength == .6
-        with pytest.raises(ValueError, match='enabled and/or strength'):
+        with pytest.raises(ValueError, match='enabled, strength and cap_ma'):
             session.grip_feedback({'gain': 3})
+        session.grip_feedback({'cap_ma': 120})
+        assert fake.feedback.config['cap_ma'] == 120.  # Live in the running loop.
     finally:
         session.stop()
+    # Saved for every later session; the switch itself is not.
+    assert session.grip_settings == {'strength': .6, 'cap_ma': 120.}
+    again = TeleopSession(helm, ROOT / 'config/devices/minerva-teleop.json', runs=tmp_path, leaders=leaders,
+                          core_factory=lambda bundle: fake)
+    assert again.grip_settings == {'strength': .6, 'cap_ma': 120.}
+    assert again.grip_feedback({'cap_ma': 90, 'strength': 1}) == {'strength': 1., 'cap_ma': 90.}  # No session.
+    with pytest.raises(ValueError, match='0-200 mA'):
+        again.grip_feedback({'cap_ma': 250})
+    with pytest.raises(ValueError, match='Start a teleop session'):
+        again.grip_feedback({'enabled': True})
 
 
 def test_the_loop_reads_gripper_effort_from_the_receiver_feedback_and_only_feeds_back_in_teleop():
@@ -383,3 +393,37 @@ def test_strengths_cross_the_signed_link_and_reach_the_board_polls():
         server.close()
         robot.close()
         sampler.close()
+
+
+def test_the_force_bars_follow_the_squeeze_against_the_maximum_even_with_feedback_off():
+    feedback = GripFeedback({'smoothing': 1.})
+    assert feedback.update(rows(right=(-1.5, 0.)), engaged=True) is None  # Off: no strengths sent...
+    snap = feedback.snapshot()
+    assert snap['levels']['right'] == pytest.approx(100 / 150, abs=1e-3)  # ...but the bar shows (1.5 - 0.5) x 100 of 150 mA.
+    assert snap['squeeze_nm']['right'] == 1.5 and snap['currents_ma'] == {'left': 0., 'right': 0.}
+    feedback.set(strength=.25)
+    feedback.update(rows(right=(-1.5, 0.)), engaged=False)
+    assert feedback.snapshot()['levels']['right'] == pytest.approx(100 / 150, abs=1e-3)  # Strength scales the push, not the bar.
+    feedback.set(enabled=True, cap_ma=50)
+    out = feedback.update(rows(right=(-1.5, 0.)), engaged=True)
+    assert out['right'] == 25. and feedback.snapshot()['levels']['right'] == 1.  # Capped at 50: 100 x .25 = 25 mA.
+    feedback.set(cap_ma=0)
+    assert feedback.update(rows(right=(-1.5, 0.)), engaged=True)['right'] == 0.
+    assert feedback.snapshot()['levels']['right'] == 1.  # Squeezing past a zero maximum: the bar is full.
+    assert feedback.snapshot()['cap_ma'] == 0.
+
+
+def test_saved_settings_stay_within_bounds():
+    from robot_platform.teleop.grip_feedback import validate_settings
+    assert validate_settings({'strength': 1, 'cap_ma': 200}) == {'strength': 1., 'cap_ma': 200.}
+    assert validate_settings({}) == {}
+    for bad in ({'cap_ma': 201}, {'cap_ma': -1}, {'strength': 2}, {'strength': math.nan}, {'gain': 1}, [1]):
+        with pytest.raises(ValueError):
+            validate_settings(bad)
+
+
+def test_a_core_built_without_leaders_or_feedback_skips_force_feedback():
+    from robot_platform.helm import teleop
+    core = object.__new__(teleop.TeleopCore)
+    core._send_grip_feedback('TELEOP')  # Nothing to send and nothing to fail.
+    assert core._grip_status() is None

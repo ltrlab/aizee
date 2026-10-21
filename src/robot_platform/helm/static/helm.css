@@ -344,8 +344,18 @@ body[data-teleop-state=STALE] #t-state{color:var(--bad)}
 .grip-feedback{margin:8px 20px 2px;padding:8px 11px;border:1px solid var(--line);border-radius:8px;background:var(--raised)}
 .grip-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .grip-switch{display:flex;align-items:center;gap:6px;font-size:12.5px}
-.grip-strength{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:var(--muted)}
-.grip-strength input{flex:1;accent-color:var(--accent)}
-.grip-strength output{min-width:36px;text-align:right;font-variant-numeric:tabular-nums}
+.force-bars{display:grid;gap:6px;margin-top:8px}
+.force-bar{display:grid;grid-template-columns:40px minmax(0,1fr) 40px;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.force-bar b{text-align:right;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+.force-track{position:relative;height:16px;border-radius:8px;background:#0b0c0e;border:1px solid var(--line);overflow:hidden}
+/* Quarter marks, like a swing meter's scale. */
+.force-track::after{content:'';position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(90deg,transparent 0 calc(25% - 1px),rgba(255,255,255,.14) calc(25% - 1px) 25%)}
+.force-fill{height:100%;width:0;border-radius:8px;background-color:hsl(120 85% 46%);
+  box-shadow:0 0 10px rgba(255,255,255,.15) inset;transition:width .2s ease-out,background-color .2s linear}
+.grip-feedback[data-active=false] .force-fill{opacity:.5}
+.grip-setting{display:grid;grid-template-columns:minmax(0,1fr) minmax(120px,190px) 62px;align-items:center;gap:10px;margin:8px 0;font-size:12.5px}
+.grip-setting input{accent-color:var(--accent)}
+.grip-setting output{text-align:right;font-variant-numeric:tabular-nums}
 #grip-readout{margin:6px 0 0;line-height:1.45}
 body[data-touch=on] .grip-switch input{width:24px;height:24px}

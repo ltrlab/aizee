@@ -94,8 +94,24 @@ def trigger_currents(strength_ma, trigger):
     return currents
 
 
+def validate_settings(payload):
+    """The operator's saved settings: {strength 0-1, cap_ma 0-200}, either or both."""
+    if not isinstance(payload, dict) or set(payload) - {'strength', 'cap_ma'}:
+        raise ValueError('Force feedback settings are strength and cap_ma')
+    result = {}
+    for key, high, label in (('strength', 1., 'Force feedback strength is between 0 and 1'),
+                             ('cap_ma', float(FF_HW_CAP_MA), f'The maximum trigger force is 0-{FF_HW_CAP_MA} mA')):
+        if key in payload:
+            value = payload[key]
+            if type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= high:
+                raise ValueError(label)
+            result[key] = float(value)
+    return result
+
+
 class GripFeedback:
-    """Per-gripper resist strengths from the receiver's latest feedback rows, smoothed cycle to cycle."""
+    """Per-gripper resist strengths from the receiver's latest feedback rows, smoothed cycle to cycle, and each
+    gripper's squeeze as a fraction of the maximum force (Helm's force bars), kept even while feedback is off."""
 
     GRIPPERS = {'left_gripper': 'left', 'right_gripper': 'right'}
 
@@ -104,16 +120,18 @@ class GripFeedback:
         self.enabled = self.config['enabled']
         self.strength = 1.  # The operator's scale on the gain, 0-1, set live from Helm.
         self.output = {leader: 0. for leader in self.GRIPPERS.values()}
+        self.levels = {leader: 0. for leader in self.GRIPPERS.values()}
+        self.squeezes = {leader: 0. for leader in self.GRIPPERS.values()}
 
-    def set(self, *, enabled=None, strength=None):
+    def set(self, *, enabled=None, strength=None, cap_ma=None):
         if enabled is not None:
             if type(enabled) is not bool:
                 raise ValueError('Force feedback is switched on or off')
             self.enabled = enabled
-        if strength is not None:
-            if type(strength) not in (int, float) or not math.isfinite(strength) or not 0 <= strength <= 1:
-                raise ValueError('Force feedback strength is between 0 and 1')
-            self.strength = float(strength)
+        settings = validate_settings({key: value for key, value in (('strength', strength), ('cap_ma', cap_ma))
+                                      if value is not None})
+        self.strength = settings.get('strength', self.strength)
+        self.config['cap_ma'] = settings.get('cap_ma', self.config['cap_ma'])
 
     def squeeze(self, row):
         """The effort a gripper squeezes with while (nearly) stopped, in Nm; 0 while it moves or pushes open."""
@@ -125,24 +143,32 @@ class GripFeedback:
         return max(0., c['closing_effort_sign'] * effort)
 
     def update(self, rows, *, engaged):
-        """{leader: mA} for this cycle, or None when feedback is off (the PC then turns the trigger servos off)."""
-        if not self.enabled:
-            self.output = {leader: 0. for leader in self.output}
-            return None
+        """{leader: mA} for this cycle, or None when feedback is off (the PC then turns the trigger servos off).
+        The force bars' levels follow the squeeze either way: a picture of the grip even with the triggers free."""
         c = self.config
         by_name = {row.get('name'): row for row in rows or [] if isinstance(row, dict)}
         for name, leader in self.GRIPPERS.items():
-            target = 0.
             row = by_name.get(name)
-            if engaged and row is not None:
-                excess = self.squeeze(row) - c['deadband_nm']
-                target = min(c['cap_ma'], max(0., excess) * c['gain_ma_per_nm'] * self.strength)
+            squeeze = self.squeeze(row) if row is not None else 0.
+            felt = min(c['cap_ma'], max(0., squeeze - c['deadband_nm']) * c['gain_ma_per_nm'] * self.strength)
+            target = felt if self.enabled and engaged else 0.
             # Smooth both ways: no step when contact starts, no buzz from a noisy reading.
             self.output[leader] += c['smoothing'] * (target - self.output[leader])
             if self.output[leader] < .5:
                 self.output[leader] = 0.
+            # The bar: the robot's squeeze against the force that reaches the maximum at full strength (the
+            # strength scales only what the trigger pushes).
+            excess = max(0., squeeze - c['deadband_nm']) * c['gain_ma_per_nm']
+            level = min(1., excess / c['cap_ma']) if c['cap_ma'] > 0 else (1. if excess > 0 else 0.)
+            self.levels[leader] += c['smoothing'] * (level - self.levels[leader])
+            self.squeezes[leader] = squeeze
+        if not self.enabled:
+            return None
         return {leader: round(value, 1) for leader, value in self.output.items()}
 
     def snapshot(self):
-        return dict(enabled=self.enabled, strength=self.strength, currents_ma=dict(self.output),
-                    config={k: self.config[k] for k in ('deadband_nm', 'gain_ma_per_nm', 'cap_ma', 'still_rad_s')})
+        return dict(enabled=self.enabled, strength=self.strength, cap_ma=self.config['cap_ma'],
+                    currents_ma={leader: round(value, 1) for leader, value in self.output.items()},
+                    levels={leader: round(value, 3) for leader, value in self.levels.items()},
+                    squeeze_nm={leader: round(value, 3) for leader, value in self.squeezes.items()},
+                    config={k: self.config[k] for k in ('deadband_nm', 'gain_ma_per_nm', 'still_rad_s')})

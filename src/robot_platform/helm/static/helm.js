@@ -2,6 +2,7 @@ import {SettingsPanel} from './settings.js';
 import {LiveCameraView} from './camera_live.js';
 import {PedalControls, presentation, recordingLabel, StateOrder} from './pedals.js';
 import {ReplayView} from './replay.js';
+import {gripView} from './grip.js';
 
 // Helm operator page. Reads /api/helm/state; every action needs the session token.
 const $ = id => document.getElementById(id);
@@ -289,36 +290,51 @@ function render(state) {
 }
 
 // Gripper force feedback: the leader trigger pushes open while the robot's gripper squeezes, only while following.
+// Teleop shows the switch and a force bar per gripper; Settings → Grippers holds the saved maximum and strength.
 let gripPending = false;
 function renderGripFeedback(teleop) {
-  const grip = teleop?.grip_feedback;
-  const usable = teleop?.phase === 'running' && grip?.available === true;
-  const on = $('grip-on'), strength = $('grip-strength');
-  on.disabled = strength.disabled = !usable || gripPending;
-  if (grip && document.activeElement !== on) on.checked = grip.enabled === true;
-  if (grip && document.activeElement !== strength) strength.value = String(Math.round(grip.strength * 100));
+  const view = gripView(teleop);
+  const on = $('grip-on');
+  on.disabled = !view.usable || gripPending;
+  if (document.activeElement !== on) on.checked = view.enabled;
+  document.querySelector('.grip-feedback').dataset.active = String(view.active);
+  for (const bar of document.querySelectorAll('.force-bar')) {
+    const side = view.sides[bar.dataset.side];
+    const fill = bar.querySelector('.force-fill');
+    fill.style.width = `${side.percent}%`;
+    fill.style.backgroundColor = side.color;
+    bar.querySelector('b').textContent = `${side.percent}%`;
+  }
+  $('grip-readout').textContent = view.text;
+  const cap = $('grip-cap'), strength = $('grip-strength');
+  cap.disabled = strength.disabled = !teleop || gripPending;
+  if (document.activeElement !== cap && Number.isFinite(view.settings.cap_ma)) cap.value = String(Math.round(view.settings.cap_ma));
+  if (document.activeElement !== strength && Number.isFinite(view.settings.strength))
+    strength.value = String(Math.round(view.settings.strength * 100));
+  $('grip-cap-value').textContent = `${cap.value} mA`;
   $('grip-strength-value').textContent = `${strength.value}%`;
-  const ma = grip?.currents_ma || {};
-  $('grip-readout').textContent = !usable
-    ? (teleop?.phase === 'running' ? 'These leaders have no triggers configured for force feedback.' : 'Start a session to switch it on.')
-    : !grip.enabled ? 'Off: the triggers stay free.'
-    : `On · left ${Math.round(ma.left || 0)} mA · right ${Math.round(ma.right || 0)} mA. The trigger pushes open while the robot's gripper squeezes, only in Teleop; it never pulls closed.`;
 }
-async function setGripFeedback(payload) {
+async function setGripFeedback(payload, done) {
   gripPending = true;
   renderGripFeedback(last?.teleop);
   try {
     render(await request('/api/helm/teleop/grip_feedback', payload));
+    if (done) $('grip-settings-status').textContent = done;
   } catch (error) {
-    say(error.message, 'bad');
+    if (done) $('grip-settings-status').textContent = error.message;
+    else say(error.message, 'bad');
   } finally {
     gripPending = false;
     renderGripFeedback(last?.teleop);
   }
 }
 $('grip-on').onchange = () => setGripFeedback({enabled: $('grip-on').checked});
+$('grip-cap').oninput = () => { $('grip-cap-value').textContent = `${$('grip-cap').value} mA`; };
+$('grip-cap').onchange = () => setGripFeedback({cap_ma: Number($('grip-cap').value)},
+  `Saved: the trigger pushes with at most ${$('grip-cap').value} mA.`);
 $('grip-strength').oninput = () => { $('grip-strength-value').textContent = `${$('grip-strength').value}%`; };
-$('grip-strength').onchange = () => setGripFeedback({strength: Number($('grip-strength').value) / 100});
+$('grip-strength').onchange = () => setGripFeedback({strength: Number($('grip-strength').value) / 100},
+  `Saved: strength ${$('grip-strength').value}%.`);
 
 // Mode is fixed at launch. The server enforces the same separation for every action.
 function renderMode(state) {

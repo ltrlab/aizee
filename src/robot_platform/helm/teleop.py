@@ -258,6 +258,8 @@ class TeleopCore:
         # Gripper force feedback (teleop.grip_feedback): off until the operator switches it on in Helm.
         from robot_platform.teleop.grip_feedback import GripFeedback
         self.grip_feedback = GripFeedback(self.profile.get('grip_feedback'))
+        saved = bundle.get('grip_feedback') or {}  # Helm's saved maximum force and strength.
+        self.grip_feedback.set(strength=saved.get('strength'), cap_ma=saved.get('cap_ma'))
         self.period_s = loop_period_s(self.profile)
         self.collision_mode = self.profile['receiver'].get('collision_mode', 'enforced')
         receiver = bundle.get('receiver') or {'mode': 'virtual'}
@@ -669,16 +671,18 @@ class TeleopCore:
     def _send_grip_feedback(self, state):
         """This cycle's trigger resist strengths ride the next leader request: only while following (TELEOP), from
         the receiver's latest gripper feedback; None while switched off, which turns the PC's triggers off."""
-        if not hasattr(self.leaders, 'grip'):
+        leaders, feedback = getattr(self, 'leaders', None), getattr(self, 'grip_feedback', None)
+        if feedback is None or not hasattr(leaders, 'grip'):
             return  # A scripted or synthetic leader source has no triggers.
         # The receiver's own feedback, which carries each drive's effort (the lifecycle's rows keep only position
         # and velocity), paired with its joint names as the telemetry pairs them.
-        last = (self.harness.last or {}) if self.harness is not None else {}
+        harness, derived = getattr(self, 'harness', None), getattr(self, 'derived', None)
+        last = (harness.last or {}) if harness is not None else {}
         names = ((last.get('status') or {}).get('joint_names')
-                 or [joint['name'] for joint in ((self.derived or {}).get('config') or {}).get('joints', [])])
+                 or [joint['name'] for joint in ((derived or {}).get('config') or {}).get('joints', [])])
         rows = [dict(item, name=name) for name, item in zip(names, last.get('feedback') or [])
                 if isinstance(item, dict) and item.get('fault') is not True]
-        self.leaders.grip = self.grip_feedback.update(rows, engaged=state == 'TELEOP' and not self.fault)
+        leaders.grip = feedback.update(rows, engaged=state == 'TELEOP' and not getattr(self, 'fault', None))
 
     def _grip_status(self):
         feedback = getattr(self, 'grip_feedback', None)
@@ -687,10 +691,11 @@ class TeleopCore:
         return dict(feedback.snapshot(), available=hasattr(getattr(self, 'leaders', None), 'grip'))
 
     def set_grip_feedback(self, payload):
-        """Switch force feedback on or off and set its strength (0-1), live."""
-        if not isinstance(payload, dict) or not payload or set(payload) - {'enabled', 'strength'}:
-            raise ValueError('Force feedback takes enabled and/or strength')
-        self.grip_feedback.set(enabled=payload.get('enabled'), strength=payload.get('strength'))
+        """Switch force feedback on or off, and set its strength (0-1) and maximum force (mA), live."""
+        if not isinstance(payload, dict) or not payload or set(payload) - {'enabled', 'strength', 'cap_ma'}:
+            raise ValueError('Force feedback takes enabled, strength and cap_ma')
+        self.grip_feedback.set(enabled=payload.get('enabled'), strength=payload.get('strength'),
+                               cap_ma=payload.get('cap_ma'))
         return self.grip_feedback.snapshot()
 
     def _leader_target(self, engaged):
@@ -1395,7 +1400,9 @@ def run_loop(commands, views, core, *, silence_s=None):
         # Compare immutable revision values, not a reference to a mutable payload.
         return (tuple(view.get(k) for k in ('phase', 'state', 'fault', 'recording_fault', 'message', 'receiver', 'input_error'))
                 + (tuning.get('session_id'), tuning.get('revision'), view.get('manual_tuning_pending'))
-                + tuple((view.get('pedals') or {}).get('actions', {}).get(p, {}).get('revision') for p in 'abc'))
+                + tuple((view.get('pedals') or {}).get('actions', {}).get(p, {}).get('revision') for p in 'abc')
+                # The force bars move in tenths, so a squeeze reaches the page without waiting for a heartbeat.
+                + tuple(round(10 * level) for level in (((view.get('grip_feedback') or {}).get('levels')) or {}).values()))
 
     def publish(guide=True):
         nonlocal cached_view, published_status, sent_at
@@ -1617,6 +1624,10 @@ class TeleopSession:
         self.routes_path = routes_path(runs, helm.asset_id)
         # The PC end of each Jetson session's leader link reports its request timing here (helm.edge).
         self.link_evidence = Path(runs) / (helm.asset_id + '-teleop') / 'leader-link'
+        # Gripper force feedback's maximum force and strength, saved here and given to every session; the
+        # switch itself is off at each session start.
+        self.grip_settings_path = Path(runs) / (helm.asset_id + '-teleop') / 'grip-feedback.json'
+        self.grip_settings = self._load_grip_settings()
         self.core_factory = core_factory  # Tests: run a core in a thread instead of a process.
         self.leader_factory = leader_factory  # Previews/tests: 'module:function' instead of USB leaders.
         if target not in self.TARGETS:
@@ -1676,7 +1687,37 @@ class TeleopSession:
                 **({'simulation': dict(self.simulation, directory=str(self.sim_directory))}
                    if self.simulation is not None and self.receiver['mode'] == 'virtual' else {}),
                 **({'manual_tuning': self.manual.bundle()} if self.manual else {}),
-                **({'operator_settings': self.settings.bundle()} if self.settings and self.settings.enabled else {})}
+                **({'operator_settings': self.settings.bundle()} if self.settings and self.settings.enabled else {}),
+                'grip_feedback': dict(self.grip_settings)}
+
+    def _load_grip_settings(self):
+        from robot_platform.teleop.grip_feedback import validate_config, validate_settings
+        defaults = validate_config(self.profile.get('grip_feedback'))
+        settings = {'strength': 1., 'cap_ma': defaults['cap_ma']}
+        try:
+            settings.update(validate_settings(json.loads(self.grip_settings_path.read_text(encoding='utf-8'))))
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError, TypeError):
+            pass  # An unreadable file keeps the defaults; the next change rewrites it.
+        return settings
+
+    def grip_feedback(self, payload):
+        """Gripper force feedback: switch it on or off in the running session, and set its maximum force (mA) and
+        strength (0-1), which apply live and are saved for every later session."""
+        from robot_platform.teleop.grip_feedback import validate_settings
+        if not isinstance(payload, dict) or not payload or set(payload) - {'enabled', 'strength', 'cap_ma'}:
+            raise ValueError('Force feedback takes enabled, strength and cap_ma')
+        settings = validate_settings({key: value for key, value in payload.items() if key != 'enabled'})
+        running = self._view.get('phase') == 'running'
+        if 'enabled' in payload and not running:
+            raise ValueError('Start a teleop session first')
+        result = self._request('grip_feedback', payload) if running else None
+        if settings:
+            self.grip_settings.update(settings)
+            self.grip_settings_path.parent.mkdir(parents=True, exist_ok=True)
+            self.grip_settings_path.write_text(json.dumps(self.grip_settings, indent=1) + '\n', encoding='utf-8')
+        return result if result is not None else dict(self.grip_settings)
 
     def _servo(self):
         """The saved servo calibration (Helm's Tune tab), if any: the receiver takes its settings from it."""
@@ -1870,11 +1911,6 @@ class TeleopSession:
             raise ValueError('Start a teleop session first')
         return self._request('pedal', payload)
 
-    def grip_feedback(self, payload):
-        """Switch gripper force feedback on or off, or set its strength, in the running session's loop."""
-        if self._view.get('phase') != 'running':
-            raise ValueError('Start a teleop session first')
-        return self._request('grip_feedback', payload)
 
     def _request(self, kind, *arguments, timeout=5.):
         request = next(self._ids)
@@ -1950,7 +1986,7 @@ class TeleopSession:
                         receiver_choices=choices if self.simulation is None else ['virtual'],
                         simulation=self.simulation is not None, task_configured=self.task_configured,
                         observation_age_ms=age, status_age_ms=status_age, control_law=law,
-                        control_law_next=upcoming,
+                        control_law_next=upcoming, grip_settings=dict(self.grip_settings),
                         tuning=self.manual.snapshot(can_apply=allowed, reason=reason) if self.manual else
                         {'enabled': False})
 

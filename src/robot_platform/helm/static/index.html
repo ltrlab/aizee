@@ -156,7 +156,10 @@
             <span id="grip-title" class="eyebrow">GRIPPER FORCE FEEDBACK</span>
             <label class="grip-switch"><input id="grip-on" type="checkbox" disabled> On</label>
           </div>
-          <label class="grip-strength">Strength <input id="grip-strength" type="range" min="0" max="100" step="5" value="100" disabled><output id="grip-strength-value">100%</output></label>
+          <div class="force-bars" role="group" aria-label="How hard each robot gripper squeezes, against the maximum force">
+            <div class="force-bar" data-side="left"><span>Left</span><div class="force-track"><div class="force-fill"></div></div><b>0%</b></div>
+            <div class="force-bar" data-side="right"><span>Right</span><div class="force-track"><div class="force-fill"></div></div><b>0%</b></div>
+          </div>
           <p id="grip-readout" class="muted">Start a session to switch it on.</p>
         </section>
         <div class="panel-head">
@@ -346,6 +349,13 @@
               </div>
             </div>
             <p id="gripper-zero-feedback" class="muted" role="status" aria-live="polite"></p>
+            <h2>Gripper force feedback</h2>
+            <p class="muted">While the robot's gripper squeezes, the leader trigger pushes open with at most this force;
+              it never pulls closed. Switch it on in Teleop. Saved for every session and applied at once to a running
+              one. 200 mA is the leader boards' limit.</p>
+            <label class="grip-setting">Maximum trigger force <input id="grip-cap" type="range" min="0" max="200" step="10" value="150"><output id="grip-cap-value">150 mA</output></label>
+            <label class="grip-setting">Strength <input id="grip-strength" type="range" min="0" max="100" step="5" value="100"><output id="grip-strength-value">100%</output></label>
+            <p id="grip-settings-status" class="muted" role="status" aria-live="polite"></p>
           </section>
           <section id="settings-cameras" class="settings-group" hidden>
             <h2>Cameras</h2>

@@ -118,7 +118,7 @@ export class SettingsPanel {
   renderNavigation() {
     const host=$('settings-nav');host.replaceChildren();
     const sections=this.state?.sections||[],session=sections.filter(section=>section.fields?.some(field=>field.editable));
-    const groups=[['Session',[{id:'changed',label:'Changed from profile'},{id:'motors',label:'Motor tuning'},{id:'grippers',label:'Gripper zero'},...session]],
+    const groups=[['Session',[{id:'changed',label:'Changed from profile'},{id:'motors',label:'Motor tuning'},{id:'grippers',label:'Grippers'},...session]],
       ['Read-only',sections.filter(section=>!session.includes(section))],['View',[{id:'cameras',label:'Cameras'},{id:'display',label:'Display & touch'}]]];
     for (const [title,items] of groups) {
       if (!items.length) continue;
