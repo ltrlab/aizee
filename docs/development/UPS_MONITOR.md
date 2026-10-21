@@ -27,11 +27,15 @@
       chip's configuration.
     - **Charge estimate:** the pack's resting voltage is the measured voltage minus current × pack resistance
       (0.2 Ω), per cell, read through a lithium-ion open-circuit table. It is averaged over 20 s and shown as "about".
+      The window holds only the current source's readings and restarts when the power source switches. With a wrong
+      resistance, the estimate errs low while charging and high on battery, so a window spanning an unplug could call
+      a healthy pack critical.
     - **On battery** means the pack discharging by at least 0.1 A for 3 s. Power counts as back after 5 s of charging
       or idle current.
     - **Low:** 25 % or less, on battery. The warning starts here.
     - **Critical:** 10 % or less, or a loaded cell voltage at or under 3.35 V averaged over 5 s, on battery. A
-      shutdown starts here.
+      shutdown starts here. The charge estimate needs 10 s of on-battery readings first (`settle_s`), and the cell
+      floor needs its full 5 s window of them.
     - **Shutdown, in order:**
       1. It announces the shutdown in the state file. Helm stops any recording, then ends the session, lowering the arms first.
       2. It waits at least 30 s, and until no Helm session's loop (`robot_platform.helm.edge`) runs on the robot.
@@ -45,6 +49,8 @@
       energy used on battery, level changes, the shutdown steps, sensor errors, and a sample a minute on battery.
       That gives a record of what happened, and data to measure the pack's real capacity later.
     - **Scheduling:** CPUs 0–3 at nice 10, clear of the control CPUs 4–5 (`jetson-cpu-split`).
+    - **Session scan:** it looks for Helm session loops in /proc only when a shutdown is near or under way. One scan of
+      about 300 processes costs ~14 ms of CPU; every second, that was 80 % of the service's 1.7 % of a core.
     - **Install** (the user runs it with sudo, once, from the active release, like `ops.cpu_partition`):
       - It copies the module and `config/devices/minerva-ups.json` to `/usr/local/lib/minerva-ups/` as root-owned files,
         because a root service must not run files the robot's user can change.
@@ -102,6 +108,16 @@
     - Jetson release `20261021T032340Z-2e303c6` (previous `20261021T023352Z-0f96a61`).
     - Terminal console `helm-recording-2e303c6be5` (previous `helm-recording-0f96a6131d`); receiver and task restored.
     - Helm read the robot over SSH and reported `missing` (no service yet) until the user's install.
+  - **Installed by the user** (03:28Z, through the terminal hop):
+    - `minerva-ups` became active and enabled, and `aizee-ups-monitor` was stopped and disabled. Its port 5562 is closed.
+    - The service runs as root at nice 10 on CPUs 0–3, with root-owned files; its first reading was 11.104 V, +1.386 A.
+    - Helm on the terminal showed a green battery with a charging bolt at "5%", and the tooltip gave the reading.
+  - **Found before the unplug test, fixed on this branch:**
+    - The 20 s charge window spanned the switch to battery. Unplugging at "5%" (the charging estimate) would very likely
+      have started a shutdown at once, even with the pack above the shutdown level on battery. The window now restarts
+      per source and a charge-based shutdown waits `settle_s`, 10 s.
+    - The once-a-second /proc scan cost 1.7 % of a core; it now runs only near a shutdown.
+    - Needs a Jetson release and the user's install again; Helm is unchanged.
 - **Remaining uncertainty:**
   - The pack's capacity (28 Wh assumed, 3 × 18650) and resistance (0.2 Ω assumed). The time left is shown as "about"
     until a logged discharge measures them.

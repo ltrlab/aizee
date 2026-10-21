@@ -58,13 +58,13 @@ DEFAULTS = dict(i2c_bus=7, i2c_address=0x41, shunt_ohm=.01, charging_sign=1, cel
                 capacity_wh=28., period_s=1., samples=5, on_battery_a=.1, on_battery_s=3., power_back_s=5.,
                 charging_a=.05, average_s=20., floor_average_s=5., low_percent=25., low_clear_percent=28.,
                 shutdown_percent=10., floor_cell_v=3.35, notice_s=30., grace_s=60., terminate_s=30.,
-                sensor_error_s=10., battery_sample_s=60.)
+                sensor_error_s=10., battery_sample_s=60., settle_s=10.)
 BOUNDS = dict(i2c_bus=(0, 31), i2c_address=(0x03, 0x77), shunt_ohm=(.001, 1.), cells=(1, 8), pack_ohm=(0., 2.),
               capacity_wh=(1., 1000.), period_s=(.2, 10.), samples=(1, 32), on_battery_a=(.01, 5.),
               on_battery_s=(0., 60.), power_back_s=(0., 120.), charging_a=(.01, 5.), average_s=(1., 300.),
               floor_average_s=(1., 60.), low_percent=(0., 100.), low_clear_percent=(0., 100.),
               shutdown_percent=(0., 100.), floor_cell_v=(2.5, 4.), notice_s=(0., 600.), grace_s=(0., 900.),
-              terminate_s=(0., 600.), sensor_error_s=(1., 600.), battery_sample_s=(5., 3600.))
+              terminate_s=(0., 600.), sensor_error_s=(1., 600.), battery_sample_s=(5., 3600.), settle_s=(0., 120.))
 INTEGERS = {'i2c_bus', 'i2c_address', 'cells', 'samples', 'charging_sign'}
 
 
@@ -177,6 +177,7 @@ class Monitor:
     def __init__(self, config):
         self.c = config
         self.source = None          # 'external' or 'battery', once known.
+        self.source_since = None    # Monotonic: when it switched.
         self._pending = None        # (source, since): a change waiting out its debounce.
         self.battery_since = None   # Wall clock.
         self.level, self.reason = 'ok', None
@@ -206,9 +207,6 @@ class Monitor:
             self.error = self.error_since = None
         volts, amps = reading
         previous, self.reading = self.reading, reading
-        cells = c['cells']
-        self._rest.append((t, (volts - amps * c['pack_ohm']) / cells))
-        self._loaded.append((t, volts / cells))
         if self.stint is not None and amps < 0:
             dt = min(t - self.stint['t'], 5 * c['period_s'])
             self.stint['ah'] += -amps * dt / 3600
@@ -228,12 +226,18 @@ class Monitor:
             wait = c['on_battery_s'] if seen == 'battery' else c['power_back_s']
             if t - self._pending[1] >= wait:
                 self._switch(seen, t, wall, events, volts, amps)
+        # Each source's own readings only: the resting-voltage estimate errs one way while charging and the other
+        # on battery (the assumed pack resistance), so a window spanning a switch would mislead the shutdown.
+        self._rest.append((t, (volts - amps * c['pack_ohm']) / c['cells']))
+        self._loaded.append((t, volts / c['cells']))
         self._grade(t, wall, events)
         return self.state(wall, t), events
 
     def _switch(self, source, t, wall, events, volts, amps):
         before = self._pending[2] if self._pending else None
-        previous, self.source, self._pending = self.source, source, None
+        previous, self.source, self._pending, self.source_since = self.source, source, None, t
+        self._rest.clear()
+        self._loaded.clear()
         fields = {'voltage_v': round(volts, 3), 'current_a': round(amps, 3)}
         if before is not None:  # The step across the switch measures the pack's resistance: dV / dI.
             fields.update(before_v=round(before[0], 3), before_a=round(before[1], 3))
@@ -258,9 +262,10 @@ class Monitor:
         if self.source != 'battery':
             return
         level, reason = self.level, self.reason
-        if self.percent <= c['shutdown_percent']:
+        on_battery_s = t - self.source_since
+        if self.percent <= c['shutdown_percent'] and on_battery_s >= c['settle_s']:
             level, reason = 'critical', f"about {self.percent:.0f}% charge, at or under {c['shutdown_percent']:g}%"
-        elif loaded <= c['floor_cell_v']:
+        elif loaded <= c['floor_cell_v'] and on_battery_s >= c['floor_average_s']:
             level, reason = 'critical', f"{loaded:.2f} V a cell under load, at or under {c['floor_cell_v']:g} V"
         elif self.level == 'critical':
             pass  # Critical holds until the power comes back: the shutdown is under way.
@@ -479,10 +484,12 @@ def run(config, *, sensor, host, state_path, events_path, dry_run=False, duratio
             state, events = monitor.observe(t, now, reading=sensor.read())
         except OSError as exc:
             state, events = monitor.observe(t, now, error=str(exc) or type(exc).__name__)
-        sessions = host.sessions()
+        # A /proc scan costs ~14 ms of CPU on the Jetson: only when a shutdown is near or under way.
+        near = shutdown.since is not None or (state.get('source') == 'battery' and state.get('level') == 'critical')
+        sessions = host.sessions() if near else []
         actions, steps = shutdown.step(t, now, state, sessions)
         state['shutdown'] = shutdown.snapshot()
-        state['sessions'] = len(sessions)
+        state['sessions'] = len(sessions) if near else None
         state['dry_run'] = dry_run
         try:
             write_state(state_path, state)

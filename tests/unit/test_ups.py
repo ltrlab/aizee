@@ -140,6 +140,57 @@ def test_the_cell_floor_starts_a_shutdown_whatever_the_charge_estimate_says():
     assert feed.names().count('shutdown_pending') == 1
 
 
+def test_charging_readings_never_count_toward_the_battery_decision():
+    # The robot on 2026-10-21: charging at 11.104 V, +1.386 A reads about 5 % through the assumed 0.2-ohm pack. If the
+    # real resistance is 0.1 ohm, unplugging gives 10.825 V at -1.4 A: about 13 % on battery, above the shutdown level.
+    feed = Feed()
+    feed.run(30, 11.104, 1.386)
+    assert feed.state['percent'] == 5
+    feed.run(40, 10.825, -1.4)
+    assert feed.state['source'] == 'battery' and feed.state['percent'] == 13
+    assert 'shutdown_pending' not in feed.names() and feed.state['level'] == 'low'
+
+
+def test_a_charge_estimate_needs_settled_battery_readings_before_a_shutdown():
+    feed = Feed()
+    feed.run(10, 11.0, 1.2)
+    feed.run(4, 3 * 3.6 - 1.4 * .2, -1.4)  # On battery from the 4th reading, at about 3 %.
+    switched = next(t for t, name, _ in feed.events if name == 'on_battery')
+    feed.run(20, 3 * 3.6 - 1.4 * .2, -1.4)
+    pending = next(t for t, name, _ in feed.events if name == 'shutdown_pending')
+    assert pending - switched == pytest.approx(10.)  # settle_s of battery readings first.
+    floor = Feed(shutdown_percent=0., pack_ohm=1.)
+    floor.run(10, 11.0, 1.2)
+    floor.run(20, 3 * 3.3, -1.4)
+    switched = next(t for t, name, _ in floor.events if name == 'on_battery')
+    pending = next(t for t, name, _ in floor.events if name == 'shutdown_pending')
+    assert pending - switched == pytest.approx(5.)  # The floor's own 5 s window, of battery readings only.
+
+
+def test_the_service_looks_for_sessions_only_when_a_shutdown_is_near(tmp_path):
+    readings = iter([(11.0, 1.2)] * 20 + [(11.4, -1.4)] * 20 + [(3 * 3.6 - .28, -1.4)] * 40)
+
+    class Sensor:
+        def read(self):
+            return next(readings)
+
+    class Counting(Host):
+        scans = 0
+
+        def sessions(self):
+            Counting.scans += 1
+            return []
+    host, clock = Counting(tmp_path), {'t': 0.}
+    ups.run(config(), sensor=Sensor(), host=host, state_path=tmp_path / 's.json', events_path=tmp_path / 'e.jsonl',
+            duration_s=40, clock=lambda: clock['t'], wall=lambda: 1.8e9 + clock['t'],
+            sleep=lambda s: clock.__setitem__('t', clock['t'] + s))
+    assert Counting.scans == 0 and json.loads((tmp_path / 's.json').read_text())['sessions'] is None
+    ups.run(config(), sensor=Sensor(), host=host, state_path=tmp_path / 's.json', events_path=tmp_path / 'e.jsonl',
+            duration_s=40, clock=lambda: clock['t'], wall=lambda: 1.8e9 + clock['t'],
+            sleep=lambda s: clock.__setitem__('t', clock['t'] + s))
+    assert 0 < Counting.scans < 40  # From the shutdown level on.
+
+
 def critical(feed, sessions=()):
     feed.sessions = list(sessions)
     feed.run(5, 11.4, -1.4)
@@ -228,7 +279,7 @@ class Host(ups.Host):
 
 
 def test_the_service_writes_its_state_logs_transitions_and_acts(tmp_path):
-    readings = iter([(10.49, 1.38)] * 3 + [(11.4, -1.4)] * 10 + [(3 * 3.6 - .28, -1.4)] * 60)
+    readings = iter([(10.49, 1.38)] * 3 + [(11.4, -1.4)] * 10 + [(3 * 3.6 - .28, -1.4)] * 100)
 
     class Sensor:
         def read(self):
@@ -243,7 +294,7 @@ def test_the_service_writes_its_state_logs_transitions_and_acts(tmp_path):
         clock['t'] += seconds
     state_path, events_path = tmp_path / 'run' / 'state.json', tmp_path / 'log' / 'events.jsonl'
     ups.run(config(), sensor=Sensor(), host=host, state_path=state_path, events_path=events_path,
-            duration_s=72, clock=lambda: clock['t'], wall=lambda: 1.8e9 + clock['t'], sleep=sleep)
+            duration_s=95, clock=lambda: clock['t'], wall=lambda: 1.8e9 + clock['t'], sleep=sleep)
     state = json.loads(state_path.read_text())
     assert state['source'] == 'battery' and state['shutdown']['stage'] == 'terminating' and state['sessions'] == 1
     assert host.signals == [(42, ups.signal.SIGTERM)] and host.powered == 0
