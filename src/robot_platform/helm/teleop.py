@@ -521,6 +521,9 @@ class TeleopCore:
         if self.references is None:
             raise ValueError('Set the leader zero in the Leaders tab first')
         self.leader_profile = leader_profile
+        # The leaders whose profile names a trigger servo: the only ones the PC drives (teleop.grip_feedback).
+        from robot_platform.teleop.grip_feedback import trigger_config
+        self.grip_triggers = trigger_config(leader_profile)
         self.centers = {leader: [None if row is None else row[0] for row in rows]
                         for leader, rows in self.ranges.items()}
         # The receiver: the native harness (virtual) or the live service; both keep `.last`.
@@ -682,13 +685,19 @@ class TeleopCore:
                  or [joint['name'] for joint in ((derived or {}).get('config') or {}).get('joints', [])])
         rows = [dict(item, name=name) for name, item in zip(names, last.get('feedback') or [])
                 if isinstance(item, dict) and item.get('fault') is not True]
-        leaders.grip = feedback.update(rows, engaged=state == 'TELEOP' and not getattr(self, 'fault', None))
+        strengths = feedback.update(rows, engaged=state == 'TELEOP' and not getattr(self, 'fault', None))
+        triggers = getattr(self, 'grip_triggers', None) or {}
+        # Only the leaders with a trigger: the PC drops any other strength, and Helm must not show one as sent.
+        leaders.grip = (None if strengths is None or not triggers
+                        else {name: value for name, value in strengths.items() if name in triggers})
 
     def _grip_status(self):
         feedback = getattr(self, 'grip_feedback', None)
         if feedback is None:
             return None
-        return dict(feedback.snapshot(), available=hasattr(getattr(self, 'leaders', None), 'grip'))
+        # Usable only with a leader source that carries strengths and a leader profile that names the triggers.
+        return dict(feedback.snapshot(), available=hasattr(getattr(self, 'leaders', None), 'grip')
+                    and bool(getattr(self, 'grip_triggers', None)))
 
     def set_grip_feedback(self, payload):
         """Switch force feedback on or off, and set its strength (0-1) and maximum force (mA), live."""

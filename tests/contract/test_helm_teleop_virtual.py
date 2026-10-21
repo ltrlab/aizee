@@ -325,3 +325,9 @@ def test_setting_the_zero_while_engaged_holds_then_follows_from_the_new_zero(rig
     ramp(core, clock, leaders, 'left', 1, HANG)
     core.set_zero()
     run(core, clock, 'H')
+
+
+def test_the_loop_takes_its_triggers_from_the_leader_profile_it_runs_with(rig):
+    core, _clock, _leaders = rig
+    # gello-dual-viewer.json, as every teleop profile names it: only these leaders' triggers are ever driven.
+    assert core.grip_triggers == {'left': (7, 1), 'right': (7, 1)}

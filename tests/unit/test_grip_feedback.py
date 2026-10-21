@@ -56,9 +56,17 @@ def test_triggers_come_only_from_the_leader_profile():
                     {'channel': 7}, {'channel': 7.0, 'open_sign': 1}, 'seven'):
         with pytest.raises(ValueError, match='trigger'):
             trigger_config({'leaders': {'left': {'usb_serial': 'L', 'trigger': trigger}}})
+    # The file teleop reads: every teleop profile's leader_profile. On 2026-10-21 the triggers sat in
+    # minerva-leaders-01.json, which teleop never reads; the PC dropped every strength while Helm showed feedback on.
     import json
-    shipped = json.loads((ROOT / 'config/devices/minerva-leaders-01.json').read_text(encoding='utf-8'))
-    assert trigger_config(shipped) == {'left': (7, 1), 'right': (7, 1)}
+    profiles = sorted((ROOT / 'config/devices').glob('minerva-teleop*.json'))
+    assert profiles
+    for path in profiles:
+        teleop = json.loads(path.read_text(encoding='utf-8'))
+        leaders = json.loads((path.parent / teleop['leader_profile']).read_text(encoding='utf-8'))
+        assert trigger_config(leaders) == {'left': (7, 1), 'right': (7, 1)}, path.name
+    bench = json.loads((ROOT / 'config/devices/minerva-leaders-01.json').read_text(encoding='utf-8'))
+    assert trigger_config(bench) == {}  # One place only: the bench scripts' identity file names no triggers.
 
 
 # -- the squeeze law on the robot ------------------------------------------------------------------------------
@@ -350,6 +358,7 @@ def test_the_loop_reads_gripper_effort_from_the_receiver_feedback_and_only_feeds
     core.grip_feedback = GripFeedback({'enabled': True, 'smoothing': 1.})
     core.leaders = SimpleNamespace(grip='unset')
     core.fault, core.derived = None, None
+    core.grip_triggers = {'left': (7, 1), 'right': (7, 1)}
     names = ['left_arm_j1', 'left_gripper', 'right_gripper']
     feedback = [dict(position=0., velocity=0., effort=-5.), dict(position=1.4, velocity=0., effort=-1.), 
                 dict(position=1.3, velocity=.01, effort=-2.)]
@@ -364,8 +373,18 @@ def test_the_loop_reads_gripper_effort_from_the_receiver_feedback_and_only_feeds
     core.grip_feedback.set(enabled=False)
     core._send_grip_feedback('TELEOP')
     assert core.leaders.grip is None  # Off: the PC turns the triggers off.
+    assert core._grip_status()['available'] is True
+    core.grip_feedback.set(enabled=True)
+    core.grip_triggers = {'right': (7, 1)}
+    core._send_grip_feedback('TELEOP')
+    assert core.leaders.grip == {'right': 0.}  # Only a leader with a trigger is sent a strength.
+    core.grip_triggers = {}
+    core._send_grip_feedback('TELEOP')
+    assert core.leaders.grip is None and core._grip_status()['available'] is False  # No triggers: Helm says so.
+    assert core.grip_feedback.snapshot()['levels']['right'] == 0.  # The bars still show the squeeze.
     core.leaders = SimpleNamespace()  # Scripted leaders: nothing to send, nothing to fail.
     core._send_grip_feedback('TELEOP')
+    assert core._grip_status()['available'] is False
 
 
 def test_strengths_cross_the_signed_link_and_reach_the_board_polls():

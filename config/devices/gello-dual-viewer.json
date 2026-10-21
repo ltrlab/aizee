@@ -7,6 +7,7 @@
   "leaders": {
     "left": {
       "usb_serial": "86AE0E865157375037202020FF110E12",
+      "trigger": {"channel": 7, "open_sign": 1},
       "title": "Left GELLO",
       "color": "#52d7c5",
       "base_xyz": [
@@ -174,6 +175,7 @@
     },
     "right": {
       "usb_serial": "D5C58E435157375037202020FF0F2A0C",
+      "trigger": {"channel": 7, "open_sign": 1},
       "title": "Right GELLO",
       "color": "#f4ad66",
       "base_xyz": [
@@ -341,6 +343,7 @@
     }
   },
   "notes": [
+    "trigger (2026-10-21): the gripper trigger's servo channel and the goal-current sign that opens it, for gripper force feedback only (teleop.grip_feedback); no other servo is ever energised. Here because every teleop profile names this file as its leader_profile (moved from minerva-leaders-01.json, which teleop never reads). open_sign +1 is a candidate: the gripper routes say the leader angle increasing opens the gripper, and a positive Dynamixel current turns toward increasing position. Confirm on the bench that the trigger pushes open, not closed.",
     "USB side assignment is unchanged: operator-left stays left in the front view, with the same pinned serials.",
     "Hanging mounting, long upper/forearm links and mirrored inward-elbow/outward-wrist offsets follow the operator photo confirmed 2026-09-26 UTC.",
     "Lengths and bracket offsets are schematic proportions, not measurements of GELLO hardware.",

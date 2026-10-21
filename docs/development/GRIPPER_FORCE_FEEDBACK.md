@@ -40,7 +40,12 @@
     - Both are saved in `<runs>/<asset>-teleop/grip-feedback.json`, start every later session and apply at once to a running one.
     - The commands are `POST /api/helm/teleop/grip_feedback` (`enabled`, `strength`, `cap_ma`) and the loop command `grip_feedback`.
     - The nav item formerly called "Gripper zero" is now "Grippers"; it holds both.
-  - **Leader profile** (`config/devices/minerva-leaders-01.json`): `trigger: {channel: 7, open_sign: 1}` on both leaders. The sign is a candidate: the gripper routes say the leader angle increasing opens the gripper, and a positive Dynamixel current turns toward increasing position. A leader without `trigger` gets no feedback.
+  - **Leader profile** (`config/devices/gello-dual-viewer.json`, the `leader_profile` of every teleop profile):
+    `trigger: {channel: 7, open_sign: 1}` on both leaders.
+    - The sign is a candidate: the gripper routes say the leader angle increasing opens the gripper, and a positive
+      Dynamixel current turns toward increasing position.
+    - A leader without `trigger` gets no feedback. The loop reads the triggers from the leader profile it runs with:
+      it sends strengths only for those leaders, and Helm shows feedback as available only when there are some.
 - **Safety:**
   - Feedback can only push a trigger open, and only one servo per board is energised.
   - The current is capped at the operator's maximum (default 150 mA) by the loop, and at 200 mA by the settings check, the PC and the firmware.
@@ -83,6 +88,22 @@
       both CAN links down, no receiver running and the disarmed smoke test passing.
     - Terminal console `helm-recording-0f96a6131d` (previous `helm-recording-12e98a307d`), then Helm refreshed.
     - Receiver restored to Live · both and the task set up again. The saved settings read strength 1.0 and 150 mA.
+  - **First bench try, 2026-10-21 (session `live-20261021T033534Z`): the user felt nothing.**
+    - The signal was there: in about 157 s of TELEOP the right gripper squeezed up to 4.3 Nm (p99 3.4 Nm). Replaying
+      the law on the 100 Hz recorder gives the full 150 mA on the right trigger for about 62 s in all; the left reached
+      96 mA briefly.
+    - Cause: the `trigger` entries were in `minerva-leaders-01.json`, the bench scripts' identity file, which teleop
+      never reads. On the terminal, the leader process had no triggers and dropped every strength; nothing was written
+      to the boards.
+    - Meanwhile the loop on the Jetson computed the strengths, and Helm showed the switch as usable.
+    - The tests pinned the file that was edited, not the file teleop loads.
+    - **Fix:**
+      - The triggers moved to `gello-dual-viewer.json`, and `minerva-leaders-01.json` is back as it was.
+      - A test resolves every `minerva-teleop*.json`'s `leader_profile` and requires both triggers. A contract test checks
+        the real loop's `grip_triggers` after building with the shipped files.
+      - The loop now reports feedback unavailable without triggers.
+    - The firmware needed nothing: firmware 3 (both boards since 2026-10-18) has `FF_CURRENT` (added 2026-06, reworked
+      2026-10-11; version 3 since 2026-10-14).
 - **Remaining uncertainty:**
   - Not yet felt on hardware: the bench check above.
   - The left gripper's squeeze level, and whether the defaults feel right, are to be tuned on the bench.
