@@ -1400,9 +1400,7 @@ def run_loop(commands, views, core, *, silence_s=None):
         # Compare immutable revision values, not a reference to a mutable payload.
         return (tuple(view.get(k) for k in ('phase', 'state', 'fault', 'recording_fault', 'message', 'receiver', 'input_error'))
                 + (tuning.get('session_id'), tuning.get('revision'), view.get('manual_tuning_pending'))
-                + tuple((view.get('pedals') or {}).get('actions', {}).get(p, {}).get('revision') for p in 'abc')
-                # The force bars move in tenths, so a squeeze reaches the page without waiting for a heartbeat.
-                + tuple(round(10 * level) for level in (((view.get('grip_feedback') or {}).get('levels')) or {}).values()))
+                + tuple((view.get('pedals') or {}).get('actions', {}).get(p, {}).get('revision') for p in 'abc'))
 
     def publish(guide=True):
         nonlocal cached_view, published_status, sent_at

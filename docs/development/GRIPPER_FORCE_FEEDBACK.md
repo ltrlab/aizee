@@ -32,6 +32,8 @@
     - Each bar shows the gripper's squeeze against the maximum force at full strength: (squeeze − deadband) × gain ÷ maximum.
     - Its colour runs from green through yellow to red at the maximum (`static/grip.js`, hue 120 → 0).
     - The bars move even with feedback off, so the operator can watch the grip before switching it on.
+    - They arrive with the loop's regular view (about 10 Hz, at worst the 0.25 s status heartbeat). They are not part of
+      the status key, so a squeeze never makes the loop publish extra views.
     - A readout gives each trigger's current while it pushes.
   - **Helm, Settings → Grippers:** the maximum trigger force (0–200 mA, steps of 10) and the strength (0–100 %).
     - Strength scales only what the trigger pushes, not the bar.
