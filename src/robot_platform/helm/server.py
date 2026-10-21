@@ -131,7 +131,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
                 '/api/helm/leaders/connect', '/api/helm/leaders/disconnect', '/api/helm/leaders/range',
                 '/api/helm/leaders/reference', '/api/helm/leaders/save',
                 '/api/helm/teleop/tuning/apply', '/api/helm/teleop/tuning/save',
-                '/api/helm/teleop/tuning/restore', '/api/helm/task',
+                '/api/helm/teleop/tuning/restore', '/api/helm/task', '/api/helm/teleop/grip_feedback',
             }
             if request.path not in allowed:
                 raise ValueError('Simulation mode cannot operate or calibrate the physical robot')
@@ -473,6 +473,12 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         await off_loop(lambda: teleop.pedal(payload))
         return state_response()
 
+    async def teleop_grip_feedback(request):
+        payload = await body(request)
+        need_teleop()
+        await off_loop(lambda: teleop.grip_feedback(payload))
+        return state_response()
+
     async def teleop_route(request):
         payload = await body(request)
         need_teleop()
@@ -741,6 +747,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     app.router.add_post('/api/helm/teleop/stop', teleop_stop)
     app.router.add_post('/api/helm/teleop/key', teleop_key)
     app.router.add_post('/api/helm/teleop/pedal', teleop_pedal)
+    app.router.add_post('/api/helm/teleop/grip_feedback', teleop_grip_feedback)
     app.router.add_post('/api/helm/teleop/route', teleop_route)
     app.router.add_post('/api/helm/teleop/tuning/{action}', teleop_manual_tuning)
     app.router.add_get('/api/helm/settings', settings_get)

@@ -339,3 +339,13 @@ body[data-touch=on]:is([data-touch-phase=engaging],[data-touch-phase=shutdown]):
 .phase-readout span{text-align:left}body[data-touch=on] #teleop-session{font-size:13px;padding:7px 10px;flex-shrink:0}
 
 body[data-teleop-state=STALE] #t-state{color:var(--bad)}
+
+/* Gripper force feedback, under the pedals. */
+.grip-feedback{margin:8px 20px 2px;padding:8px 11px;border:1px solid var(--line);border-radius:8px;background:var(--raised)}
+.grip-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.grip-switch{display:flex;align-items:center;gap:6px;font-size:12.5px}
+.grip-strength{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:var(--muted)}
+.grip-strength input{flex:1;accent-color:var(--accent)}
+.grip-strength output{min-width:36px;text-align:right;font-variant-numeric:tabular-nums}
+#grip-readout{margin:6px 0 0;line-height:1.45}
+body[data-touch=on] .grip-switch input{width:24px;height:24px}

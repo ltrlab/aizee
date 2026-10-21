@@ -255,6 +255,9 @@ class TeleopCore:
             from .settings import resolve_profile
             self.profile = resolve_profile(self.base_profile, bundle['operator_settings'])
         self.profile = switched_profile(self.profile, bundle.get('manual_tuning'))
+        # Gripper force feedback (teleop.grip_feedback): off until the operator switches it on in Helm.
+        from robot_platform.teleop.grip_feedback import GripFeedback
+        self.grip_feedback = GripFeedback(self.profile.get('grip_feedback'))
         self.period_s = loop_period_s(self.profile)
         self.collision_mode = self.profile['receiver'].get('collision_mode', 'enforced')
         receiver = bundle.get('receiver') or {'mode': 'virtual'}
@@ -663,6 +666,33 @@ class TeleopCore:
                            if c.get('completed_at') is not None)
         return durations[int(.9 * (len(durations) - 1))] if durations else 0.
 
+    def _send_grip_feedback(self, state):
+        """This cycle's trigger resist strengths ride the next leader request: only while following (TELEOP), from
+        the receiver's latest gripper feedback; None while switched off, which turns the PC's triggers off."""
+        if not hasattr(self.leaders, 'grip'):
+            return  # A scripted or synthetic leader source has no triggers.
+        # The receiver's own feedback, which carries each drive's effort (the lifecycle's rows keep only position
+        # and velocity), paired with its joint names as the telemetry pairs them.
+        last = (self.harness.last or {}) if self.harness is not None else {}
+        names = ((last.get('status') or {}).get('joint_names')
+                 or [joint['name'] for joint in ((self.derived or {}).get('config') or {}).get('joints', [])])
+        rows = [dict(item, name=name) for name, item in zip(names, last.get('feedback') or [])
+                if isinstance(item, dict) and item.get('fault') is not True]
+        self.leaders.grip = self.grip_feedback.update(rows, engaged=state == 'TELEOP' and not self.fault)
+
+    def _grip_status(self):
+        feedback = getattr(self, 'grip_feedback', None)
+        if feedback is None:
+            return None
+        return dict(feedback.snapshot(), available=hasattr(getattr(self, 'leaders', None), 'grip'))
+
+    def set_grip_feedback(self, payload):
+        """Switch force feedback on or off and set its strength (0-1), live."""
+        if not isinstance(payload, dict) or not payload or set(payload) - {'enabled', 'strength'}:
+            raise ValueError('Force feedback takes enabled and/or strength')
+        self.grip_feedback.set(enabled=payload.get('enabled'), strength=payload.get('strength'))
+        return self.grip_feedback.snapshot()
+
     def _leader_target(self, engaged):
         from robot_platform.teleop.leader_routes import unwrap_samples
         if self.mapper.fault and not engaged:
@@ -979,6 +1009,7 @@ class TeleopCore:
             notice = self._recording_notice()
         target = None
         if key != 'H' and not self.recording_fault:
+            self._send_grip_feedback(previous)
             target, self.input_error = self._leader_target(engaged)
         allowed = {'enable': ('IDLE',), 'engage': ('IDLE', 'HOLD'), 'disengage': ENGAGED,
                    'shutdown': ('IDLE', 'HOLD', 'ENGAGING', 'TELEOP')}
@@ -1260,6 +1291,7 @@ class TeleopCore:
                                 'blocked': getattr(self.compiler, 'blocked', 0),
                                 'holding': self.session.blocked if self.session else None},
                   'task': self.task_capture.snapshot() if getattr(self, 'task_capture', None) is not None else None,
+                  'grip_feedback': self._grip_status(),
                   'scheduling': self.scheduling, 'cycle_ms': None, 'joints': []}
         self._pedal_task = result['task']
         result['pedals'] = self.pedals.view(self._pedal_context(), self.clock())
@@ -1477,6 +1509,13 @@ def run_loop(commands, views, core, *, silence_s=None):
                         if closing:
                             raise ValueError('The session is shutting down')
                         reply(request, None, core.task_action(action))
+                    except Exception as exc:
+                        reply(request, str(exc) or type(exc).__name__)
+                elif message[0] == 'grip_feedback':
+                    view_changed = True
+                    _, request, payload = message
+                    try:
+                        reply(request, None, core.set_grip_feedback(payload))
                     except Exception as exc:
                         reply(request, str(exc) or type(exc).__name__)
                 elif message[0] in ('route', 'zero'):
@@ -1830,6 +1869,12 @@ class TeleopSession:
         if self._view.get('phase') != 'running':
             raise ValueError('Start a teleop session first')
         return self._request('pedal', payload)
+
+    def grip_feedback(self, payload):
+        """Switch gripper force feedback on or off, or set its strength, in the running session's loop."""
+        if self._view.get('phase') != 'running':
+            raise ValueError('Start a teleop session first')
+        return self._request('grip_feedback', payload)
 
     def _request(self, kind, *arguments, timeout=5.):
         request = next(self._ids)

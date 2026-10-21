@@ -151,6 +151,14 @@
           <p class="pedal-help">Software pedals · Pause holds position; motors stay enabled. H disables; X shuts down.</p>
           <p id="pedal-warning" class="warn" hidden></p>
         </section>
+        <section class="grip-feedback" aria-labelledby="grip-title">
+          <div class="grip-head">
+            <span id="grip-title" class="eyebrow">GRIPPER FORCE FEEDBACK</span>
+            <label class="grip-switch"><input id="grip-on" type="checkbox" disabled> On</label>
+          </div>
+          <label class="grip-strength">Strength <input id="grip-strength" type="range" min="0" max="100" step="5" value="100" disabled><output id="grip-strength-value">100%</output></label>
+          <p id="grip-readout" class="muted">Start a session to switch it on.</p>
+        </section>
         <div class="panel-head">
           <div class="eyebrow warn" id="t-eyebrow">TELEOP · VIRTUAL RECEIVER · NO MOTORS MOVE</div>
           <h1>Drive the arms with the leaders</h1>

@@ -276,6 +276,7 @@ function render(state) {
   for (const row of limits.rows) update(cards.get(row.name), row, live);
   renderLeaders(state.leaders);
   renderTeleop(state.teleop);
+  renderGripFeedback(state.teleop);
   renderTune(state.tune, state);
   renderCheck(state.check);
   settingsPanel.updateContext(state);
@@ -286,6 +287,38 @@ function render(state) {
   publishTelemetry(state);
   renderPedals();
 }
+
+// Gripper force feedback: the leader trigger pushes open while the robot's gripper squeezes, only while following.
+let gripPending = false;
+function renderGripFeedback(teleop) {
+  const grip = teleop?.grip_feedback;
+  const usable = teleop?.phase === 'running' && grip?.available === true;
+  const on = $('grip-on'), strength = $('grip-strength');
+  on.disabled = strength.disabled = !usable || gripPending;
+  if (grip && document.activeElement !== on) on.checked = grip.enabled === true;
+  if (grip && document.activeElement !== strength) strength.value = String(Math.round(grip.strength * 100));
+  $('grip-strength-value').textContent = `${strength.value}%`;
+  const ma = grip?.currents_ma || {};
+  $('grip-readout').textContent = !usable
+    ? (teleop?.phase === 'running' ? 'These leaders have no triggers configured for force feedback.' : 'Start a session to switch it on.')
+    : !grip.enabled ? 'Off: the triggers stay free.'
+    : `On · left ${Math.round(ma.left || 0)} mA · right ${Math.round(ma.right || 0)} mA. The trigger pushes open while the robot's gripper squeezes, only in Teleop; it never pulls closed.`;
+}
+async function setGripFeedback(payload) {
+  gripPending = true;
+  renderGripFeedback(last?.teleop);
+  try {
+    render(await request('/api/helm/teleop/grip_feedback', payload));
+  } catch (error) {
+    say(error.message, 'bad');
+  } finally {
+    gripPending = false;
+    renderGripFeedback(last?.teleop);
+  }
+}
+$('grip-on').onchange = () => setGripFeedback({enabled: $('grip-on').checked});
+$('grip-strength').oninput = () => { $('grip-strength-value').textContent = `${$('grip-strength').value}%`; };
+$('grip-strength').onchange = () => setGripFeedback({strength: Number($('grip-strength').value) / 100});
 
 // Mode is fixed at launch. The server enforces the same separation for every action.
 function renderMode(state) {
