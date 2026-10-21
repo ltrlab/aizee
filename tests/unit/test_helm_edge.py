@@ -344,3 +344,37 @@ def test_a_silent_helm_stops_a_sweep_after_lowering_the_arm():
     run_tune_loop(commands, SimpleNamespace(send=sent.append, close=lambda: None), core, silence_s=.2)
     assert .2 <= time.monotonic() - started < 2.
     assert core.stage == 'disabled' and core.closed and core.fault is None
+
+
+def test_sigterm_ends_the_session_like_a_closed_channel():
+    import signal
+    previous = signal.getsignal(signal.SIGTERM)
+    inbox = Inbox()
+    try:
+        handler = edge.end_on_sigterm(inbox)
+        assert signal.getsignal(signal.SIGTERM) is handler
+        handler(signal.SIGTERM, None)  # What the signal runs: one byte down a pipe, no lock taken.
+        with pytest.raises(EOFError, match='SIGTERM'):
+            inbox.recv()
+        with pytest.raises(EOFError, match='SIGTERM'):
+            inbox.recv()  # Every later read ends too, as for a closed channel: the loop lowers the arm and closes.
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+
+def test_no_session_starts_while_the_ups_announces_a_shutdown(tmp_path):
+    state = tmp_path / 'ups.json'
+    state.write_text(json.dumps({'updated_at': time.time(), 'shutdown': {'reason': 'about 9% charge'}}))
+    sent = []
+
+    class Views:
+        def send(self, message):
+            sent.append(message)
+
+        def close(self):
+            sent.append('closed')
+    assert serve({'bundle': {}}, Inbox(), Views(), ups_state=state) == 1
+    assert sent[0][0] == 'error' and 'about 9% charge' in sent[0][1] and sent[1] == 'closed'
+    from robot_platform.ops.ups import shutdown_announced
+    state.write_text(json.dumps({'updated_at': time.time() - 60, 'shutdown': {'reason': 'old'}}))
+    assert shutdown_announced(state) is None  # A stopped service's last word blocks nothing.

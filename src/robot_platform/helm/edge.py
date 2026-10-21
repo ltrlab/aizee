@@ -15,6 +15,7 @@ responsive process (LeaderLinkProcess) and relays frames. A servo sweep
 """
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import queue
 import secrets
@@ -100,6 +101,31 @@ class ArrivalInbox(Inbox):
         super().put(message)
 
 
+def end_on_sigterm(inbox):
+    """SIGTERM ends the session like a closed channel: an enabled arm is lowered before the receiver closes. The
+    UPS service sends it to a loop still running when the battery is about to run out (robot_platform.ops.ups).
+    The handler only writes a byte to a pipe, so no lock is ever taken in signal context; a thread ends the inbox."""
+    import signal
+    read_end, write_end = os.pipe()
+
+    def handler(_signum, _frame):
+        try:
+            os.write(write_end, b'T')
+        except OSError:
+            pass
+
+    def wait():
+        try:
+            os.read(read_end, 1)
+        except OSError:
+            return
+        inbox.end('SIGTERM: the robot computer asked the session to end')
+
+    threading.Thread(target=wait, daemon=True, name='edge-sigterm').start()
+    signal.signal(signal.SIGTERM, handler)
+    return handler
+
+
 def pump(stream, inbox):
     """Queue frames from `stream` until it ends (EOF, a closed channel or a corrupt frame); returns why."""
     try:
@@ -152,9 +178,16 @@ def prepare(start, root=ROOT, *, leaders=True):
     return bundle, link
 
 
-def serve(start, commands, views, *, root=ROOT, core_factory=None, scheduling=None):
-    """One session after its start frame; returns when the loop ends. `scheduling`: the hints main applied."""
+def serve(start, commands, views, *, root=ROOT, core_factory=None, scheduling=None, ups_state=None):
+    """One session after its start frame; returns when the loop ends. `scheduling`: the hints main applied.
+    `ups_state`: the UPS service's state file; no session starts while it announces a low-battery shutdown."""
+    from robot_platform.ops.ups import STATE, shutdown_announced
     from .teleop import TeleopCore, run_loop
+    refusal = shutdown_announced(STATE if ups_state is None else ups_state)
+    if refusal:
+        views.send(['error', refusal])
+        views.close()
+        return 1
     tune = (start.get('bundle') or {}).get('kind') == 'tune'
     # A Helm that beats says how long a silence ends the session; an older one never beats.
     silence = start.get('silence_s')
@@ -201,6 +234,7 @@ def main():
     except Exception:
         return 1
     commands = Inbox()
+    end_on_sigterm(commands)
     threading.Thread(target=lambda: commands.end(pump(stdin, commands)), daemon=True, name='edge-commands').start()
     return serve(start, commands, Outbox(stdout), scheduling=scheduling)
 
