@@ -26,12 +26,14 @@
         <button data-connection="tether">Tether</button>
         <button data-connection="wifi">Wi-Fi</button>
       </div>
+      <span id="ups-pill" class="pill" role="status" data-tone="muted" title="Reading Minerva's UPS"><span class="battery" aria-hidden="true"><span class="battery-fill"></span></span><svg class="bolt" viewBox="0 0 8 12" aria-hidden="true"><path d="M5 0 0 7h3l-1 5 6-8H4z"/></svg><span id="ups-text">…</span></span>
       <span id="mode-pill" class="pill" role="status">Robot mode</span>
       <span id="feed-pill" class="pill" role="status"><span class="dot"></span><span id="feed-text">Not connected</span></span>
       <button id="connect" class="primary">Connect</button>
     </div>
   </header>
   <p id="banner" role="status" hidden></p>
+  <p id="ups-banner" role="alert" hidden></p>
   <main>
     <section class="view" aria-label="Live robot model">
       <div id="preview-view-choice" class="preview-view-choice" role="group" aria-label="Preview source" hidden>

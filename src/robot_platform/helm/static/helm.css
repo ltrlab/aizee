@@ -359,3 +359,19 @@ body[data-teleop-state=STALE] #t-state{color:var(--bad)}
 .grip-setting output{text-align:right;font-variant-numeric:tabular-nums}
 #grip-readout{margin:6px 0 0;line-height:1.45}
 body[data-touch=on] .grip-switch input{width:24px;height:24px}
+/* Minerva's UPS (helm.ups): the header's battery pill and its banner. ID selectors: the feed state recolours every .pill. */
+#ups-pill{gap:6px;padding:6px 10px;font-variant-numeric:tabular-nums}
+#ups-pill .bolt{display:none;width:7px;height:11px;margin-left:-2px;fill:currentColor}
+#ups-pill[data-charging=true] .bolt{display:block}
+#ups-pill .battery{position:relative;flex:none;width:20px;height:10px;border:1.5px solid currentColor;border-radius:3px;box-sizing:border-box}
+#ups-pill .battery::after{content:'';position:absolute;right:-4px;top:2px;width:2px;height:3px;border-radius:0 1px 1px 0;background:currentColor}
+#ups-pill .battery-fill{position:absolute;left:1px;top:1px;bottom:1px;max-width:calc(100% - 2px);border-radius:1px;background:currentColor;transition:width .4s}
+#ups-pill[data-tone=good]{color:var(--good);border-color:#3c6e55}
+#ups-pill[data-tone=warn]{color:var(--warn);border-color:#6d5a37}
+#ups-pill[data-tone=bad]{color:var(--bad);border-color:#7c3a45;background:#2a1519}
+#ups-pill[data-tone=muted]{color:var(--muted);border-color:#3a3f46}
+#ups-banner{margin:0;padding:10px 22px;font-size:14px;font-weight:600;line-height:1.4;border-bottom:1px solid}
+#ups-banner[data-tone=warn]{background:#3a2a1c;color:#ffe2b8;border-color:#6d5a37}
+#ups-banner[data-tone=bad]{background:#4b2530;color:#ffe8eb;border-color:#7c3a45;animation:ups-alert 1.6s ease-in-out infinite}
+@keyframes ups-alert{50%{background:#61293a}}
+@media (prefers-reduced-motion:reduce){#ups-banner[data-tone=bad]{animation:none}}

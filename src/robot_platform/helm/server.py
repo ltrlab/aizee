@@ -64,11 +64,12 @@ def task_visual_label(capabilities):
     return 'Camera appearance is not reported yet.'
 
 def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None, live=False,
-               gripper_zero=None, simulation_only=False, cameras=None, camera_video=None, episodes=None):
+               gripper_zero=None, simulation_only=False, cameras=None, camera_video=None, episodes=None, ups=None):
     """`live`: keep the stopped reader running whenever Minerva is online and nothing else holds the motors
     (helm.live_view); sessions then take the motors from it instead of asking for Disconnect first.
     `episodes`: the recorded-episode library behind Replay (helm.episodes), told to read nothing while a
-    recording runs."""
+    recording runs. `ups`: the robot's UPS state (helm.ups.UpsWatch); while it announces a low-battery shutdown,
+    nothing that moves the arms starts, and a running session and sweep are stopped (the arms lowered first)."""
     from aiohttp import web
     from robot_platform.viewer.server import create_app as viewer_app
     from .live_view import LiveView
@@ -150,6 +151,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         state['check'] = check.snapshot() if check is not None else None
         state['tune'] = tune.snapshot() if tune is not None else None
         state['gripper_zero'] = grippers.snapshot() if grippers is not None else None
+        state['ups'] = ups.snapshot() if ups is not None else None
         state['mode'] = 'simulation' if simulation_only else 'robot'
         task = (state['teleop'] or {}).get('task')
         if simulation_only and task is not None:
@@ -374,6 +376,29 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
                 raise
         return ws
 
+    def power_ok():
+        """Nothing that moves the arms starts while Minerva's UPS is shutting the Jetson down."""
+        reason = ups.refusal() if ups is not None else None
+        if reason:
+            raise ValueError(reason)
+
+    def ups_shutdown(_record):
+        """Minerva's UPS is about to power the Jetson off: end what holds the arms through their own stop paths
+        (the loop lowers an enabled arm before the receiver closes); a recording first, so its episode is kept."""
+        if teleop is not None and teleop.active:
+            recording = (teleop.snapshot().get('task') or {}).get('recording') or {}
+            if recording.get('active') or recording.get('state') in ('starting', 'recording'):
+                try:
+                    teleop.task_action('stop_record')
+                except Exception:
+                    pass  # Stopping the session still ends the recording.
+            teleop.stop()
+        if tune is not None and tune.active:
+            tune.stop()
+
+    if ups is not None and ups.on_shutdown is None:
+        ups.on_shutdown = ups_shutdown
+
     def not_checking():
         if grippers is not None and grippers.running:
             raise ValueError('A gripper zero is running; wait for it to finish')
@@ -426,6 +451,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     async def teleop_start(request):
         payload = await body(request)
         need_teleop()
+        power_ok()
         if leaders is not None and leaders.running:
             raise ValueError('Disconnect the leaders in the Leaders tab before starting teleop')
         not_checking()
@@ -446,8 +472,10 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         need_teleop()
         if set(payload) != {'action'} or payload['action'] not in ('setup', 'reset', 'start_record', 'stop_record'):
             raise ValueError('Expected task action: setup, reset, start_record or stop_record')
-        if payload['action'] == 'start_record' and getattr(cameras, 'write_fault', None):
-            raise ValueError(cameras.write_fault)
+        if payload['action'] == 'start_record':
+            power_ok()
+            if getattr(cameras, 'write_fault', None):
+                raise ValueError(cameras.write_fault)
         await off_loop(lambda: teleop.task_action(payload['action']))
         return state_response()
 
@@ -599,6 +627,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         motor, confirm = payload.get('motor'), payload.get('confirm') is True
         if not confirm:
             raise ValueError('Close the gripper fully by hand, then confirm the zero')
+        power_ok()
         await take_motors()  # The live reader steps aside; the zero takes the motors.
         await off_loop(lambda: grippers.zero(motor, confirm=confirm))
         return state_response()
@@ -613,6 +642,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             raise ValueError('Stop the teleop session before running Minerva Check')
         if tune is not None and tune.active:
             raise ValueError('Stop the servo sweep before running Minerva Check')
+        power_ok()
         await take_motors()  # Minerva Check reads the motors itself.
         check.start()
         return state_response()
@@ -639,6 +669,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             raise ValueError('Stop the teleop session before the servo sweep')
         if check is not None and check.running:
             raise ValueError('Minerva Check is running; wait for it to finish')
+        power_ok()
         await take_motors()
         tune.start(confirm=payload.get('confirm') is True)
         return state_response()
@@ -665,6 +696,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
                 or any(abs(a['position'] - b['position']) > RETURN_MOVED_RAD
                        for a, b in zip(shown['joints'], offer['joints']))):
             raise ValueError('The arm moved since its pose was shown: look at it again, then confirm')
+        power_ok()
         await take_motors()  # The live receiver needs the CAN links; the reader must be down.
         tune.start_return(offer['arm'], {row['motor']: row['position'] for row in offer['joints']})
         return state_response()
@@ -701,6 +733,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         if teleop is not None and teleop.active:
             raise ValueError('Stop the teleop session before the live joint sweep')
         check.live_ready(payload['arm'])
+        power_ok()
         await take_motors()
         tune.configure(arm=payload['arm'], mode='live', verify=True)
         tune.start(confirm=payload.get('confirm') is True)
@@ -709,10 +742,14 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     async def startup(_app):
         if live:
             live_view.start()
+        if ups is not None:
+            ups.start()
 
     async def shutdown(_app):
         # Preserve guarded motor shutdown priority; preview clients never delay it.
         live_view.close()
+        if ups is not None:
+            await off_loop(ups.close)
         if tune is not None:
             await off_loop(tune.stop)
         if teleop is not None:

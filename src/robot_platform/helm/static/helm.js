@@ -3,6 +3,7 @@ import {LiveCameraView} from './camera_live.js';
 import {PedalControls, presentation, recordingLabel, StateOrder} from './pedals.js';
 import {ReplayView} from './replay.js';
 import {gripView} from './grip.js';
+import {upsView} from './ups.js';
 
 // Helm operator page. Reads /api/helm/state; every action needs the session token.
 const $ = id => document.getElementById(id);
@@ -278,6 +279,7 @@ function render(state) {
   renderLeaders(state.leaders);
   renderTeleop(state.teleop);
   renderGripFeedback(state.teleop);
+  renderUps(state.ups);
   renderTune(state.tune, state);
   renderCheck(state.check);
   settingsPanel.updateContext(state);
@@ -287,6 +289,22 @@ function render(state) {
   updateCameraView();
   publishTelemetry(state);
   renderPedals();
+}
+
+// Minerva's UPS (helm.ups): a battery pill in the header on every tab, and a banner on battery or shutting down.
+function renderUps(ups) {
+  const view = upsView(ups);
+  const pill = $('ups-pill');
+  pill.hidden = view.hidden;
+  pill.dataset.tone = view.tone;
+  pill.dataset.charging = String(view.charging);
+  pill.title = view.title;
+  pill.querySelector('.battery-fill').style.width = `${view.level ?? 0}%`;
+  $('ups-text').textContent = view.text;
+  const banner = $('ups-banner');
+  banner.hidden = !view.banner;
+  banner.textContent = view.banner?.text || '';
+  banner.dataset.tone = view.banner?.tone || '';
 }
 
 // Gripper force feedback: the leader trigger pushes open while the robot's gripper squeezes, only while following.

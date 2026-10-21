@@ -98,9 +98,12 @@ def main(argv=None):
         from .episodes import EpisodeLibrary, local_transport, robot_transport
         episodes = (EpisodeLibrary(local_transport(args.episodes)) if args.episodes else None if args.sim else
                     EpisodeLibrary(robot_transport(session.profile_path, lambda: session.address)))
+        # Minerva's UPS: the battery pill and banner, and Helm's part in a low-battery shutdown (helm.ups).
+        from .ups import UpsWatch, robot_ups
+        ups = None if args.sim else UpsWatch(robot_ups(session.profile_path), lambda: session.address)
         app = create_app(session, link, teleop=teleop, leaders=leaders, check=check, tune=tune,
                          live=not (args.sim or args.no_live), simulation_only=args.sim, cameras=cameras,
-                         camera_video=camera_video, episodes=episodes)
+                         camera_video=camera_video, episodes=episodes, ups=ups)
         if session.stale_lock_pid:
             print(f'Took over a calibration lock left by exited process {session.stale_lock_pid}.', flush=True)
         mode = ('SIMULATION ONLY; no physical robot connection' if args.sim else
