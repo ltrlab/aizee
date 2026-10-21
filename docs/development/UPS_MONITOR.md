@@ -74,7 +74,34 @@
     3. A dry-run with a raised threshold walks the whole shutdown without powering off.
     4. After the user's sudo install, the service runs and `aizee-ups-monitor` is off.
     5. Optional, with the user's say-so: a real low-battery shutdown on a raised threshold.
-- **Results:** (to fill)
+- **Results:**
+  - **Tests:**
+    - `tests/unit/test_ups.py` (19): register decoding against the live reading, the charging sign, the lithium-ion curve,
+      profile bounds, the 3 s and 5 s debounce, low hysteresis, the cell floor, every shutdown path, sensor errors, the
+      service writing and logging, dry runs, the start refusal, install, remove, and the installed copy running alone.
+    - `tests/unit/test_helm_ups.py` (6): the robot-side watch script, the watcher's states and reconnects, refusals, one
+      action per announced shutdown, and the server refusing starts and stopping a recording, the session and a sweep.
+    - `tests/unit/test_helm_edge.py` (+2): SIGTERM ends the session like a closed channel; no start during a shutdown.
+    - `tests/ui/test_helm_ups.mjs`: the pill and banner wording for every state.
+  - **Gate:** `scripts/dev.py check --offline` passed on `2e303c6`: 1218 tests, none skipped
+    (`build/dev-check/20261021T031123Z-c7067092/report.json`).
+  - **Rehearsed on the Jetson** before any release, from `/dev/shm`, exactly as installed (`python3 -I -B`):
+    - `read` gave 10.832 V, +1.386 A (charging), 3.611 V a cell, about 4 %. The pack had charged for about 40 minutes
+      after running flat.
+    - A 20 s dry run on CPUs 0–3 at nice 10 used 0.44 s of CPU, start-up included. It wrote the state file and logged
+      `started` and `on_power`.
+    - The Jetson's own rails read VDD_IN 6.26 W at 5 V. With the carrier, cameras, CAN adapters and NVMe, the UPS
+      should see roughly 11–16 W, about 1.0–1.5 A, on battery. That is the check on the 0.01 Ω shunt.
+  - **Local Helm** (`--no-live`, 1280 × 720 like the terminal):
+    - The first pill, "UPS offline" at 110 px, left the header no room, and longer wording clipped the Connect button.
+    - The pill is now a battery glyph with a few characters, 60–77 px, and the header no longer overflows.
+    - Injected states rendered charging (green, with a bolt), on battery (amber, with the banner) and shutting down (red,
+      with a countdown and banner).
+  - **Deployed 2026-10-21 at about 03:25Z** with the user's approval ("yes, deploy it once the gate passes"), by the process
+    in `build/terminal-deploy-20261017/`:
+    - Jetson release `20261021T032340Z-2e303c6` (previous `20261021T023352Z-0f96a61`).
+    - Terminal console `helm-recording-2e303c6be5` (previous `helm-recording-0f96a6131d`); receiver and task restored.
+    - Helm read the robot over SSH and reported `missing` (no service yet) until the user's install.
 - **Remaining uncertainty:**
   - The pack's capacity (28 Wh assumed, 3 × 18650) and resistance (0.2 Ω assumed). The time left is shown as "about"
     until a logged discharge measures them.
