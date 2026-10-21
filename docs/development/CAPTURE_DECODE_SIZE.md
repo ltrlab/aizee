@@ -42,7 +42,25 @@
     - Sample age at admission: median 11.9 ms, p99 16.8 ms, max 21.4 ms.
     - Camera age at admission: median 55 ms, max 98 ms (it was 72 ms and 135 ms).
   - The unit tests in `test_helm_task_capture.py` pass: 78 tests, three of them new.
+  - **The full gate passed at `b503ee7`** on 2026-10-20 on the laptop: 1144 passed, none failed or skipped (`build/dev-check/20261020T013057Z-c355898e/report.json` in `aizee-helm-pedals`).
+  - **The rehearsal of the built release, staged and not yet active,** completed 3 of 3 recordings of 30 s: 450 frames each, none expired, sample age at admission at most 22.5 ms.
+  - **Deployed 2026-10-20 at about 01:48Z,** under the user's request to work through the recording issues, by the process in `build/terminal-deploy-20261017/`:
+    - The Jetson's `current` is `20261020T014400Z-b503ee7`.
+    - The terminal runs `helm-recording-b503ee75dd`.
+  - **The first live recording, `live-20261020T015012Z`, exposed the storage limit.**
+    - Frames were admitted for 33 s with sample ages of 4.5–7 ms: 492 written.
+    - The episode then failed with `capture queue overflow`, because the HDF5 writer outran the Jetson's microSD.
+    - Measured, the card sustains 11.9 MB/s, and single writes stall for 1.5–4.9 s under recording load. Recording at 15 Hz writes about 8.5 MB/s.
+    - A 128-frame writer queue still overflowed 2 of 3 rehearsals of 60 s, so no queue size fixes it.
+  - **Storage.** On 2026-10-20 the user installed an NVMe drive, an Intel 660p 1 TB, mounted at `/mnt/minerva-data`. `~/minerva/evidence` is now a symlink to `/mnt/minerva-data/evidence`.
+    - Raw write speed is at least 131 MB/s, and no write took over 7 ms.
+    - SMART: no warnings, 2% of rated life used, no media errors.
+  - **The rehearsal on the NVMe** completed 3 of 3 recordings of 90 s: 1347–1350 frames, sample age at admission at most 18.5 ms. The writer queue never held 4 frames.
+  - **Live acceptance, `live-20261020T235949Z`:** Claude ran Enable, then Engage with the leader arms held still.
+    - Two recordings ran back to back and both completed: 60.6 s with 908 frames, and 91.4 s with 1371 frames. Each ran at 15.0 Hz with 320×240 `jpeg_dct_scale` images from all three cameras.
+    - Sample age at admission: p99 about 17 ms, at most 21.6 and 27.0 ms.
+    - The kernel logged no USB or CAN event.
 - **Remaining uncertainty:**
-  - **Frame rate.** Recording runs at about 15 Hz, not 20. A frame waits for a new acquisition from every camera; the median gap is 56 ms and the p90 is 108 ms.
-  - **Worker stall.** The worker stalled once for 38 ms during the rehearsal without failing a frame.
-  - **Disk.** A frame takes about 0.57 MB. The Jetson's 20 GB free holds about 40 minutes of recording at 15 Hz.
+  - **Frame rate.** Recording runs at about 15 Hz, not 20. A frame waits for a new acquisition from every camera, so the gaps are uneven: median 57 ms, p90 108 ms.
+  - **Margin.** Of 2279 live frames, one reached 27.0 ms of the 30 ms receiver bound. A rarer, longer stall would still fail an episode.
+  - **Disk.** A frame takes about 0.44 MB, so the NVMe's 948 GB holds about 40 hours of recording. The microSD stays unsuitable for recording.
