@@ -14,6 +14,7 @@ Teleop, the servo sweep and Minerva Check exclude each other.
 import asyncio
 from pathlib import Path
 import secrets
+import time
 
 STATIC = Path(__file__).parent / 'static'
 RETURN_MOVED_RAD = .02  # A confirmed return starts only if no joint moved more than this since it was shown.
@@ -63,9 +64,11 @@ def task_visual_label(capabilities):
     return 'Camera appearance is not reported yet.'
 
 def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None, live=False,
-               gripper_zero=None, simulation_only=False, cameras=None, camera_video=None):
+               gripper_zero=None, simulation_only=False, cameras=None, camera_video=None, episodes=None):
     """`live`: keep the stopped reader running whenever Minerva is online and nothing else holds the motors
-    (helm.live_view); sessions then take the motors from it instead of asking for Disconnect first."""
+    (helm.live_view); sessions then take the motors from it instead of asking for Disconnect first.
+    `episodes`: the recorded-episode library behind Replay (helm.episodes), told to read nothing while a
+    recording runs."""
     from aiohttp import web
     from robot_platform.viewer.server import create_app as viewer_app
     from .live_view import LiveView
@@ -187,6 +190,61 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             raise ValueError('Simulation mode cannot access physical cameras')
         if cameras is None:
             raise ValueError('Camera settings are not configured')
+
+    replay_busy_at = [-1., None]
+
+    def replay_busy():
+        """Why Replay may not read now: a recording runs on the same robot CPUs and disk. Cached briefly, since
+        every uncached frame asks."""
+        now = time.monotonic()
+        if now - replay_busy_at[0] > .25:
+            reason = None
+            if teleop is not None:
+                recording = (teleop.snapshot().get('task') or {}).get('recording') or {}
+                if recording.get('active') or recording.get('state') in ('starting', 'recording', 'stopping', 'finishing'):
+                    reason = 'Replay waits while a recording is running'
+            replay_busy_at[:] = [now, reason]
+        return replay_busy_at[1]
+
+    if episodes is not None:
+        episodes.busy = replay_busy
+
+    def need_episodes():
+        if episodes is None:
+            raise ValueError('Replay is not configured in this Helm')
+
+    def episode_name(request):
+        return f"{request.match_info['session']}/{request.match_info['episode']}"
+
+    async def episodes_list(_request):
+        need_episodes()
+        return web.json_response(await off_loop(episodes.listing), headers={'Cache-Control': 'no-store'})
+
+    async def episode_get(request):
+        from .episodes import EpisodeBusy
+        need_episodes()
+        name = episode_name(request)
+        try:
+            data = await off_loop(lambda: episodes.episode(name))
+        except EpisodeBusy as exc:
+            return web.json_response({'error': str(exc), 'busy': True}, status=409)
+        return web.json_response(data, headers={'Cache-Control': 'no-store'})
+
+    async def episode_frame(request):
+        from .episodes import EpisodeBusy
+        need_episodes()
+        name, role = episode_name(request), request.match_info['role']
+        try:
+            index = int(request.match_info['index'])
+        except ValueError:
+            raise ValueError('A frame index is a whole number') from None
+        try:
+            jpeg = await off_loop(lambda: episodes.frame(name, index, role))
+        except EpisodeBusy as exc:
+            return web.json_response({'error': str(exc), 'busy': True}, status=409)
+        # A complete episode never changes: the browser may keep its frames; a partial one might still grow.
+        cache = 'private, max-age=86400, immutable' if episodes.complete(name) else 'no-store'
+        return web.Response(body=jpeg, content_type='image/jpeg', headers={'Cache-Control': cache})
 
     async def camera_get(_request):
         need_cameras()
@@ -662,6 +720,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             for ws in list(video_sockets)), return_exceptions=True)
         if camera_video is not None:
             await off_loop(camera_video.close)
+        if episodes is not None:
+            await off_loop(episodes.close)
 
     app.on_startup.append(startup)
     app.on_shutdown.append(shutdown)
@@ -702,5 +762,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     app.router.add_post('/api/helm/tune/key', tune_key)
     app.router.add_post('/api/helm/tune/stop', tune_stop)
     app.router.add_post('/api/helm/tune/save', tune_save)
+    app.router.add_get('/api/helm/episodes', episodes_list)
+    app.router.add_get('/api/helm/episodes/{session}/{episode}', episode_get)
+    app.router.add_get('/api/helm/episodes/{session}/{episode}/frame/{index}/{role}', episode_frame)
     app.router.add_static('/helm', STATIC, show_index=False)
     return app

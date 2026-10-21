@@ -1,0 +1,37 @@
+# Feature task: episode replay in Helm
+
+- **Branch and worktree:** `claude/helm-replay` in `C:\Users\ltr\Workspace\aizee-helm-pedals`.
+- **Base commit:** `bb41f7d98e3a13f26875123530226471e5a16dbf` (`claude/capture-decode-size`, the deployed release `b503ee7` plus its record).
+- **Owner:** Claude (the 2026-10-20 session), at the user's request: "let's build a viewer in helm, let's start with a simple replay and scrub that we will polish, and we will build upon that. make sure the foundation for this viewer works for building upon it."
+- **Problem:**
+  - The recorded task episodes (HDF5 on the Jetson's NVMe, `~/minerva/evidence/live-*/episodes/`) have no viewer.
+  - `python/scripts/view_episode.py` reads only the older one-camera, 7-joint format.
+  - Reviewing the first demo (2026-10-20) needed a hand-built contact sheet. It found a one-armed demo and a nearly black right wrist camera, which a viewer should make obvious at a glance.
+- **Design (the foundation):**
+  - **Robot-side reader:** `helm/episode_worker.py`, self-contained (h5py, numpy, Pillow, msgpack only). Helm sends its source over the pinned SSH connection, as it does the camera relay, so viewer changes need no Jetson release.
+    - It pins itself to the background CPUs and lowers its priority.
+    - It reads only below its root, never writes, and serves framed requests: `list`, `summary`, `series` and `frame`.
+    - It runs locally too: tests, and later episodes copied to a PC.
+  - **Helm side:** `helm/episodes.py`, `EpisodeLibrary`.
+    - It owns one worker connection (remote over SSH, or a local subprocess), with request timeouts and reconnection.
+    - It caches summaries, series and frames; one request fetches every camera of a frame.
+    - It refuses reads while a recording is running, so replay cannot cost a recording frames.
+  - **API:** read-only GETs.
+    - `/api/helm/episodes` lists the episodes.
+    - `/api/helm/episodes/{session}/{episode}` returns the summary and series.
+    - `/api/helm/episodes/{session}/{episode}/frame/{index}/{role}` returns one JPEG.
+  - **UI:** a Replay tab, `static/replay.js`.
+    - `ReplayModel` is the playhead and clock, pure and tested under Node. It plays by the recorded timestamps, so uneven frame gaps replay in real time.
+    - `ReplayView` holds the episode list, three camera panels, a scrubber, play, pause, step and speed controls, and a joint timeline that seeks on click.
+    - Later work builds on the model's playhead (3D pose, overlays, annotations), the worker's request set and the timeline's lanes.
+- **Shared interfaces held fixed:** the episode file format and writer, the capture and recording paths, the teleop and motion contract, and the Jetson release. The worker runs from Helm's own copy.
+- **Required behavior:**
+  - Replay never writes an episode.
+  - It reads nothing while a recording is active.
+  - It runs on the Jetson's background CPUs.
+  - Playback follows the recorded timestamps at the chosen speed.
+- **Acceptance:**
+  - `python scripts/dev.py check --offline`, zero skips.
+  - On the terminal: Replay lists the recorded sessions and plays the first demo with all three cameras, the scrubber, step and speed.
+- **Results:** pending.
+- **Remaining uncertainty:** pending.

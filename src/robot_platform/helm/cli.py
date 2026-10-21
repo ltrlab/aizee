@@ -33,6 +33,8 @@ def main(argv=None):
                         help='Task camera appearance: collision_proxy (default) or full CAD; contact physics is unchanged')
     parser.add_argument('--capture-profile', type=Path,
                         help='JSON camera identity/clock configuration for bimanual live task recording')
+    parser.add_argument('--episodes', type=Path,
+                        help="Replay episodes from this local directory (live-*/episodes/*.hdf5) instead of Minerva's Jetson")
     parser.add_argument('--port', type=int, default=8760)
     args = parser.parse_args(argv)
     if not 1 <= args.port <= 65535:
@@ -92,8 +94,13 @@ def main(argv=None):
             # Minerva Check's live joint sweep runs through the Tune loop; its outcome goes into the report.
             tune.on_finished = lambda mode, arm, results, fault: (
                 check.record_live(arm, results, fault=fault) if mode == 'verify' else None)
+        # Replay reads the episodes where they were recorded: on Minerva's Jetson, or a local copy given here.
+        from .episodes import EpisodeLibrary, local_transport, robot_transport
+        episodes = (EpisodeLibrary(local_transport(args.episodes)) if args.episodes else None if args.sim else
+                    EpisodeLibrary(robot_transport(session.profile_path, lambda: session.address)))
         app = create_app(session, link, teleop=teleop, leaders=leaders, check=check, tune=tune,
-                         live=not (args.sim or args.no_live), simulation_only=args.sim, cameras=cameras, camera_video=camera_video)
+                         live=not (args.sim or args.no_live), simulation_only=args.sim, cameras=cameras,
+                         camera_video=camera_video, episodes=episodes)
         if session.stale_lock_pid:
             print(f'Took over a calibration lock left by exited process {session.stale_lock_pid}.', flush=True)
         mode = ('SIMULATION ONLY; no physical robot connection' if args.sim else
