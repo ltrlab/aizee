@@ -1,12 +1,14 @@
 import {SettingsPanel} from './settings.js';
 import {LiveCameraView} from './camera_live.js';
 import {PedalControls, presentation, recordingLabel, StateOrder} from './pedals.js';
+import {ReplayView} from './replay.js';
 
 // Helm operator page. Reads /api/helm/state; every action needs the session token.
 const $ = id => document.getElementById(id);
 const DEG = 180 / Math.PI;
 const cards = new Map();
 let token = null, last = null, busy = false, lockNoticeShown = false;
+let replayView = null;  // Built once the page's other panels are; showTab may run before.
 const responseMeta=new WeakMap(), stateOrder=new StateOrder();
 let requestId=0;
 let pendingConfirm = null;  // An open live confirmation: {kind: 'start' | 'stop', arm}
@@ -29,7 +31,7 @@ async function request(path, payload, timeoutMs = payload === undefined ? 3000 :
 }
 
 const STATUS = {check: 'check-status', limits: 'action-status', leaders: 'leaders-status', teleop: 'teleop-status',
-  tune: 'tune-status', settings:'settings-status'};
+  tune: 'tune-status', settings:'settings-status', replay: 'replay-status'};
 
 function say(text, kind = '') {
   const status = $(STATUS[document.body.dataset.tab] || 'action-status');
@@ -211,7 +213,7 @@ function render(state) {
   renderGripperZero(state);
   token = state.action_token;
   const {feed, limits, robot, session} = state;
-  $('robot-name').textContent = `${robot.model} · ${robot.asset_id} · ${robot.address}`;
+  $('robot-name').textContent = $('robot-name').title = `${robot.model} · ${robot.asset_id} · ${robot.address}`;
   // The connection is fixed while a teleop session, a sweep or a check uses it (the reader steps aside).
   const owner = state.live_view?.owner;
   const inUse = !!owner || ['running', 'starting'].includes(state.teleop?.phase) || !!state.check?.running;
@@ -292,7 +294,7 @@ function renderMode(state) {
   $('mode-pill').textContent = simulation ? 'Simulation only' : 'Robot mode';
   if (simulation) {
     $('feed-text').textContent = 'Physical robot disconnected';
-    $('robot-name').textContent = `${state.robot.model} · simulation on this PC`;
+    $('robot-name').textContent = $('robot-name').title = `${state.robot.model} · simulation on this PC`;
     if (['check', 'limits', 'tune'].includes(document.body.dataset.tab)) showTab('teleop');
   }
 }
@@ -1506,7 +1508,9 @@ function showTab(name) {
   for (const tab of document.querySelectorAll('.tab[data-tab]')) {
     if (tab.dataset.tab === name) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current');
   }
-  for (const panel of ['check', 'limits', 'leaders', 'teleop', 'tune', 'settings']) $(`panel-${panel}`).hidden = name !== panel;
+  for (const panel of ['check', 'limits', 'leaders', 'teleop', 'replay', 'tune', 'settings']) $(`panel-${panel}`).hidden = name !== panel;
+  $('replay-stage').hidden = name !== 'replay';
+  replayView?.setActive(name === 'replay');
   if(name==='settings' && typeof settingsPanel !== 'undefined') settingsPanel.refresh();
   try { localStorage.setItem('helm-tab', name); } catch { /* storage unavailable */ }
   updateCameraView();
@@ -1604,6 +1608,12 @@ $('global-hold').onclick=()=>sendKey('T');
 $('global-disable').onclick=()=>['running','starting'].includes(last?.tune?.phase)?tuneKey('H'):sendKey('H');
 $('global-shutdown').onclick=()=>['running','starting'].includes(last?.tune?.phase)?tuneKey('X'):sendKey('X');
 document.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key===','){event.preventDefault();showTab('settings');}});
+replayView = new ReplayView({request, elements: {
+  list: $('replay-list'), listStatus: $('replay-list-status'), refresh: $('replay-refresh'), details: $('replay-details'),
+  title: $('replay-title'), status: $('replay-status'), cameras: $('replay-cameras'), play: $('replay-play'),
+  back: $('replay-back'), forward: $('replay-forward'), scrub: $('replay-scrub'), time: $('replay-time'),
+  speed: $('replay-speed'), timeline: $('replay-timeline'),
+}});
 for (const tab of document.querySelectorAll('.tab[data-tab]')) tab.onclick = () => showTab(tab.dataset.tab);
 try { showTab(localStorage.getItem('helm-tab') || 'check'); } catch { showTab('check'); }
 

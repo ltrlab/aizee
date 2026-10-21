@@ -1,0 +1,42 @@
+/* Replay: the stage takes the 3D view's place while the Replay tab is open. */
+.replay-stage{position:absolute;inset:0;display:flex;flex-direction:column;gap:10px;padding:14px 16px;overflow:hidden}
+.replay-stage[hidden]{display:none}
+body[data-tab=replay] .view>:not(#replay-stage){display:none!important}
+.replay-head{display:flex;align-items:baseline;gap:12px;min-width:0}
+.replay-head b{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#replay-status{margin-left:auto;font-size:12px;color:var(--muted)}
+#replay-status[data-tone=bad],#replay-list-status[data-tone=bad]{color:var(--bad)}
+#replay-list-status[data-tone=warn]{color:var(--warn)}
+.replay-cameras{flex:1;min-height:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:stretch}
+.replay-empty{grid-column:1/-1;align-self:center;text-align:center;color:var(--muted)}
+.replay-camera{position:relative;margin:0;min-height:0;display:flex;flex-direction:column;background:#000;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.replay-camera img{flex:1;min-height:0;width:100%;object-fit:contain;background:#000}
+.replay-camera figcaption{padding:5px 9px;font-size:11px;letter-spacing:.06em;color:var(--muted);border-top:1px solid var(--line);background:#101113}
+.replay-camera-note{position:absolute;inset:0 0 26px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;pointer-events:none}
+.replay-camera[data-state=missing] img{visibility:hidden}
+.replay-controls{display:flex;align-items:center;gap:8px}
+.replay-controls input[type=range]{flex:1;min-width:120px;accent-color:var(--accent)}
+.replay-controls button{min-width:42px}
+#replay-play{min-width:78px}
+.replay-time{font-variant-numeric:tabular-nums;font-size:12px;color:var(--muted);white-space:nowrap}
+.replay-controls select{font:inherit;color:var(--text);background:#1f2226;border:1px solid #3a3f46;border-radius:6px;padding:5px 6px}
+.replay-timeline{display:block;width:100%;height:150px;flex:none;border:1px solid var(--line);border-radius:8px;background:#0e1013;cursor:pointer;touch-action:none}
+
+/* The episode list in the side panel. */
+.replay-list-head{display:flex;align-items:center;gap:10px;margin-top:8px}
+#replay-list-status{font-size:12px;color:var(--muted)}
+.replay-session{margin:14px 0 4px;font-size:11px;letter-spacing:.12em;color:var(--muted);font-weight:650;text-transform:uppercase}
+.replay-episode{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 10px;width:100%;text-align:left;margin:5px 0;padding:9px 11px;background:var(--raised);border:1px solid var(--line);border-radius:8px}
+.replay-episode[aria-current=true]{border-color:var(--accent);background:var(--accent-soft)}
+.replay-meta{grid-column:1/-1;color:var(--muted);font-size:11.5px}
+.replay-badge{align-self:center;font-size:10px;border-radius:10px;padding:1px 8px;border:1px solid #3c6e55;color:var(--good)}
+.replay-badge[data-tone=warn]{border-color:#6d5a37;color:var(--warn)}
+.replay-badge[data-tone=bad]{border-color:#7c3a45;color:var(--bad)}
+.replay-details{border-top:1px solid var(--line);padding:8px 20px 12px}
+.replay-details:empty{display:none}
+.replay-details dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;margin:4px 0;font-size:12px}
+.replay-details dt{color:var(--muted)}
+.replay-details dd{margin:0;overflow-wrap:anywhere}
+
+body[data-touch=on] .replay-timeline{height:170px}
+body[data-touch=on] .replay-controls select{min-height:48px;font-size:16px}

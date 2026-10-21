@@ -6,8 +6,8 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 button.primary{background:#17385a;border-color:#4a9ee0;color:#eef7ff}button.primary:hover:not(:disabled){background:#1f4a75}
 button.danger{background:#4b2530;border-color:#9a4b58}
 header{height:64px;display:flex;align-items:center;gap:28px;padding:0 22px;border-bottom:1px solid var(--line);background:#101113}
-.brand{display:flex;align-items:center;gap:11px}.mark{font-size:30px;color:var(--accent);line-height:1}
-.name{font-size:20px;font-weight:650;letter-spacing:.02em}.brand small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
+.brand{display:flex;align-items:center;gap:11px;min-width:0}.brand>div{min-width:0}.mark{font-size:30px;color:var(--accent);line-height:1}
+.name{font-size:20px;font-weight:650;letter-spacing:.02em}.brand small{display:block;color:var(--muted);font-size:11px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 nav{display:flex;gap:4px}.tab{border-color:transparent;background:none;color:var(--muted)}.tab:disabled{opacity:.4}.tab[aria-current=page]{color:var(--text);border-color:var(--line);background:var(--raised)}
 .link{margin-left:auto;display:flex;align-items:center;gap:10px}
 .pill{display:inline-flex;align-items:center;gap:8px;font-size:12px;padding:6px 12px;border-radius:20px;border:1px solid #3a3f46;color:var(--muted);white-space:nowrap}

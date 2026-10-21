@@ -5,6 +5,7 @@
   <title>Helm</title>
   <link rel="stylesheet" href="helm/helm.css">
   <link rel="stylesheet" href="helm/cameras.css">
+  <link rel="stylesheet" href="helm/replay.css">
 </head>
 <body data-feed="disconnected" data-tab="check">
   <header>
@@ -15,6 +16,7 @@
       <button class="tab" data-tab="limits">Limits</button>
       <button class="tab" data-tab="leaders">Leaders</button>
       <button class="tab" data-tab="teleop">Teleop</button>
+      <button class="tab" data-tab="replay">Replay</button>
       <button class="tab" data-tab="tune">Tune</button>
       <button class="tab settings-tab" data-tab="settings">Settings</button>
     </nav>
@@ -54,6 +56,19 @@
         <p>Use that window to watch the cube, grippers and bucket.</p>
         <p>Live joint telemetry and session controls remain available in Teleop.</p>
       </div>
+      <section id="replay-stage" class="replay-stage" aria-label="Episode replay" hidden>
+        <div class="replay-head"><span class="eyebrow">REPLAY</span><b id="replay-title">No episode selected</b><span id="replay-status" role="status"></span></div>
+        <div id="replay-cameras" class="replay-cameras"><p class="replay-empty">Choose an episode on the right to play it back.</p></div>
+        <div class="replay-controls" role="group" aria-label="Playback">
+          <button id="replay-back" type="button" title="Previous frame (←; Shift+← one second)" aria-label="Previous frame">‹</button>
+          <button id="replay-play" type="button" class="primary" aria-pressed="false" title="Play or pause (Space)">Play</button>
+          <button id="replay-forward" type="button" title="Next frame (→; Shift+→ one second)" aria-label="Next frame">›</button>
+          <input id="replay-scrub" type="range" min="0" max="0" value="0" step="1" aria-label="Frame">
+          <span id="replay-time" class="replay-time">—</span>
+          <select id="replay-speed" aria-label="Playback speed" title="Playback speed"></select>
+        </div>
+        <canvas id="replay-timeline" class="replay-timeline" aria-label="Joint positions over the episode: click or drag to move the playhead"></canvas>
+      </section>
     </section>
     <aside>
       <section id="panel-check" class="panel" aria-label="Minerva Check">
@@ -246,6 +261,16 @@
           <button id="u-return" title="Bring the chosen arm from where it rests back to its reference, slowly, then disable it. Connect first: the 3D view shows the arm as its drives read it.">Return to reference</button>
           <button id="u-session" class="danger">Start sweep</button>
         </div>
+      </section>
+      <section id="panel-replay" class="panel" aria-label="Replay" hidden>
+        <div class="panel-head">
+          <span class="eyebrow">REPLAY</span>
+          <h1>Recorded episodes</h1>
+          <p class="lead">Episodes recorded on Minerva, newest first. Choose one to play it back. Replay only reads, and waits while a recording is running.</p>
+          <div class="replay-list-head"><button id="replay-refresh" type="button">Refresh</button><span id="replay-list-status" role="status"></span></div>
+        </div>
+        <div id="replay-list" class="scroll replay-list"></div>
+        <div id="replay-details" class="replay-details"></div>
       </section>
       <section id="panel-settings" class="panel settings-panel" aria-label="Settings" hidden>
         <div class="settings-rail">

@@ -64,3 +64,11 @@ def test_pedal_offers_and_stopped_input_test_keep_motion_and_freshness_guards():
     result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_pedals.mjs')],
                             capture_output=True, timeout=60)
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
+
+
+def test_replay_plays_by_recorded_time_and_scrubs_within_the_episode():
+    node = shutil.which('node')
+    assert node, 'Node.js is required to check the replay clock'
+    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_replay.mjs')],
+                            capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
