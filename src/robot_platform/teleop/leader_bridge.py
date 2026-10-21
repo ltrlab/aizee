@@ -1,9 +1,13 @@
-"""Read-only leader bridge for a local/SSH-forwarded loopback connection.
+"""Leader bridge for a local/SSH-forwarded loopback connection.
 
 The edge requests a fresh sample with a random challenge. Source age plus the
 entire round trip conservatively bounds age without comparing PC and Jetson
 clocks. This is freshness, not authentication; use a pinned SSH tunnel between
-machines. No arm, motion, torque, centering or automatic reconnect messages exist.
+machines. No arm, motion, centering or automatic reconnect messages exist. The one
+command a request may carry is gripper force feedback (teleop.grip_feedback): a
+bounded resist strength per leader, which the sampler sends to that leader's trigger
+servo only, in the direction the leader profile says opens it, and turns off when
+requests stop carrying it or stop arriving.
 """
 import math
 import re
@@ -19,6 +23,10 @@ from robot_platform.transport.wire import pack_msg, unpack_msg
 # A control loop's sampler polls the leaders as fast as they answer (both boards in parallel take about 6 ms), so
 # a 50 Hz loop reads a sample at most one poll old, not up to 10 ms as at 100 Hz.
 SAMPLER_HZ = 200.
+# Force feedback: a strength older than GRIP_STALE_S (the loop stopped asking) turns the trigger off; an active
+# trigger is refreshed at least every GRIP_REFRESH_S, well inside the firmware's 200 ms zeroing watchdog.
+GRIP_STALE_S = .1
+GRIP_REFRESH_S = .02
 
 
 class CachedLeaderSampleStale(LeaderSampleSkipped):
@@ -47,6 +55,51 @@ class LatestLeaderInputs:
         self._lock, self._done = threading.Lock(), threading.Event()
         self._samples, self._failure, self._thread = None, None, None
         self.skipped, self.last_skip = 0, None
+        # Force feedback: the leaders whose trigger the profile names, the loop's latest strengths, and what each
+        # trigger was last sent (None: off). Only the sampler thread writes to the boards.
+        self.triggers = dict(getattr(inputs, 'triggers', None) or {})
+        self._grip = self._grip_at = None
+        self._sent = {name: None for name in self.triggers}
+        self._sent_at = {name: -math.inf for name in self.triggers}
+
+    @property
+    def grip(self):
+        with self._lock:
+            return None if self._grip is None else dict(self._grip)
+
+    @grip.setter
+    def grip(self, value):
+        self.set_grip(value)
+
+    def set_grip(self, grip):
+        """The loop's resist strengths {leader: mA}, or None for no force feedback. A leader without a trigger in
+        the profile is ignored; a strength over the firmware cap is capped when sent."""
+        if grip is not None:
+            if not isinstance(grip, dict) or any(
+                    type(value) not in (int, float) or not math.isfinite(value) or value < 0 for value in grip.values()):
+                raise ValueError("Force feedback strengths are finite mA per leader, not negative")
+            grip = {name: float(value) for name, value in grip.items() if name in self.triggers}
+        with self._lock:
+            self._grip, self._grip_at = grip, self.clock()
+
+    def _feedback_frames(self, now):
+        """The FF_CURRENT frames due now: an active trigger refreshed or changed, a stopped one turned off once."""
+        from .grip_feedback import FF_DISABLE, SERVOS, ff_frame, trigger_currents
+        with self._lock:
+            grip, at = self._grip, self._grip_at
+        fresh = grip is not None and at is not None and now - at <= GRIP_STALE_S
+        frames = {}
+        for name, trigger in self.triggers.items():
+            wanted = int(round(grip.get(name, 0.))) if fresh else None
+            sent = self._sent[name]
+            if wanted is None:
+                if sent is not None:
+                    frames[name] = ff_frame([FF_DISABLE] * SERVOS)
+                    self._sent[name] = None
+            elif sent is None or abs(wanted - sent) >= 2 or now - self._sent_at[name] >= GRIP_REFRESH_S:
+                frames[name] = ff_frame(trigger_currents(wanted, trigger))
+                self._sent[name], self._sent_at[name] = wanted, now
+        return frames
 
     def connect(self):
         self.inputs.connect()
@@ -63,7 +116,8 @@ class LatestLeaderInputs:
         try:
             while not self._done.wait(max(0., due - self.clock())):
                 try:
-                    samples = self.inputs.poll()
+                    frames = self._feedback_frames(self.clock()) if self.triggers else None
+                    samples = self.inputs.poll(frames) if frames else self.inputs.poll()
                 except LeaderSampleSkipped as exc:
                     # Publish nothing; the previous pair ages out for consumers.
                     with self._lock:
@@ -100,10 +154,24 @@ class LatestLeaderInputs:
         self.inputs.close()
 
 
+def grip_request(value):
+    """A request's force-feedback strengths, or None (none asked for, or malformed: feedback off, never a fault)."""
+    if not isinstance(value, dict) or not value or len(value) > 8:
+        return None
+    if any(not isinstance(name, str) or type(ma) not in (int, float) or not math.isfinite(ma) or not 0 <= ma <= 1000
+           for name, ma in value.items()):
+        return None
+    return {name: float(ma) for name, ma in value.items()}
+
+
 def sample_reply(request, inputs, epoch, *, clock=time.perf_counter):
-    if (set(request) != {"type", "nonce"} or request["type"] != "sample"
+    if (not {"type", "nonce"} <= set(request) <= {"type", "nonce", "grip"} or request["type"] != "sample"
             or not isinstance(request["nonce"], str) or not re.fullmatch(r"[0-9a-f]{32}", request["nonce"])):
         raise ValueError("Only a fresh input sample request is supported")
+    set_grip = getattr(inputs, "set_grip", None)
+    if set_grip is not None:
+        # Every request says whether force feedback is wanted; one without it turns the triggers off.
+        set_grip(grip_request(request.get("grip")))
     samples = inputs.poll()
     now = clock()
     return dict(protocol_version=1, epoch=epoch, nonce=request["nonce"], leaders={
@@ -122,6 +190,7 @@ class LeaderSnapshotClient:
         self.exchange, self.clock = exchange, clock
         self.epoch, self.previous, self.fault = None, {}, None
         self.allow_repeated = allow_repeated
+        self.grip = None  # The loop's force-feedback strengths {leader: mA}, sent with each request; None: off.
 
     def poll(self):
         if self.fault:
@@ -129,7 +198,10 @@ class LeaderSnapshotClient:
         try:
             nonce = secrets.token_hex(16)
             started = self.clock()
-            reply = self.exchange(dict(type="sample", nonce=nonce))
+            request = dict(type="sample", nonce=nonce)
+            if self.grip is not None:
+                request["grip"] = dict(self.grip)
+            reply = self.exchange(request)
             received = self.clock()
             elapsed = received - started
             if (reply.get("protocol_version") != 1 or reply.get("nonce") != nonce

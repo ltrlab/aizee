@@ -1,8 +1,10 @@
-"""Read-only OpenRB input with explicit source freshness; no robot joint mapping.
+"""OpenRB input with explicit source freshness; no robot joint mapping.
 
-Uses IDENT and FRESH_POLL only. Legacy polls have no source validity and are not
-accepted for guarded teleoperation. Setup, centering and force feedback remain
-separate tools. A failed read raises; callers must latch a stop, not reuse data.
+Uses IDENT and FRESH_POLL, and FF_CURRENT only for gripper force feedback: a poll may carry one board's prepared
+trigger frame (teleop.grip_feedback), written just before that board's read so it never interleaves with one.
+Every other servo stays torque-off. Legacy polls have no source validity and are not accepted for guarded
+teleoperation. Setup and centering remain separate tools. A failed read raises; callers must latch a stop, not
+reuse data.
 A skipped sample was complete and CRC-checked, so the USB stream stays in step;
 the input owner may keep sampling, but control consumers still get no data.
 """
@@ -79,6 +81,7 @@ class OpenRBInput:
         self.port, self.usb_serial, self.max_age_s, self.clock = port, usb_serial, max_age_s, clock
         self.serial = None
         self.previous = None
+        self.feedback_sent = False  # Force feedback reached this board: turn it off before closing.
 
     def connect(self):
         import serial
@@ -110,11 +113,15 @@ class OpenRBInput:
             self.close()
             raise
 
-    def poll(self):
+    def poll(self, feedback=None):
+        """One fresh sample; `feedback`, a prepared FF_CURRENT frame, goes out first (it has no reply)."""
         if self.serial is None:
             raise RuntimeError("OpenRB input is not connected")
         try:
             self.serial.reset_input_buffer()
+            if feedback is not None:
+                self.serial.write(feedback)
+                self.feedback_sent = True
             started = self.clock()
             self.serial.write(b"\xa6")
             raw = bytearray()
@@ -132,6 +139,14 @@ class OpenRBInput:
 
     def close(self):
         if self.serial is not None:
+            if self.feedback_sent:
+                # Leave no trigger energised; the firmware's watchdog would also, a second later.
+                from .grip_feedback import FF_DISABLE, SERVOS, ff_frame
+                try:
+                    self.serial.write(ff_frame([FF_DISABLE] * SERVOS))
+                    self.serial.flush()
+                except Exception:  # noqa: BLE001 - closing must finish; the watchdog covers a lost write.
+                    pass
             self.serial.close()
             self.serial = None
 
@@ -148,6 +163,8 @@ class OpenRBInputs:
                 or not math.isfinite(self.max_age_s) or not 0 < self.max_age_s <= .1
                 or not math.isfinite(self.max_skew_s) or not 0 < self.max_skew_s <= self.max_age_s):
             raise ValueError("Unique pinned leader identities and bounded freshness/skew required")
+        from .grip_feedback import trigger_config
+        self.triggers = trigger_config(profile)  # {leader: (channel, open sign)}: who may get force feedback.
         self.readers = {}
         self._pool = None
 
@@ -173,11 +190,16 @@ class OpenRBInputs:
             self.close()
             raise
 
-    def poll(self):
+    def poll(self, feedback=None):
+        """The fresh pair; `feedback` maps a leader to the FF_CURRENT frame its board gets before this read."""
         if set(self.readers) != set(self.pins) or self._pool is None:
             raise RuntimeError("All leader inputs must be explicitly connected")
+        feedback = feedback or {}
+        if set(feedback) - set(self.triggers):
+            raise ValueError("Force feedback only reaches a leader whose trigger the profile names")
         try:
-            pending = {name: self._pool.submit(reader.poll) for name, reader in self.readers.items()}
+            pending = {name: (self._pool.submit(reader.poll, feedback[name]) if name in feedback
+                              else self._pool.submit(reader.poll)) for name, reader in self.readers.items()}
             # Drain every bounded read before closing either device after a
             # failure. No partial pair can escape as a successful sample.
             wait(pending.values())
