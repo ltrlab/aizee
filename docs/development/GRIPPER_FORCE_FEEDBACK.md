@@ -75,6 +75,14 @@
   - **Local Helm check** (`--no-live`, port 8792):
     - The panel renders the bars from an injected TELEOP state: 20 % green, 55 % yellow, 93 % and 100 % red.
     - The Settings slider saved 120 mA to the file, and a page reload showed 120 mA.
+  - **Gate:** `scripts/dev.py check --offline` passed on `0f96a61`: 1189 tests, none skipped
+    (`build/dev-check/20261021T022040Z-baeca8f5/report.json`).
+  - **Deployed 2026-10-21 at about 02:44Z** with the user's approval ("yes, deploy it once the gate passes"), by the
+    process in `build/terminal-deploy-20261017/`. The first attempt at 02:35Z found the Jetson offline: its UPS had run flat.
+    - Jetson release `20261021T023352Z-0f96a61` (previous `20261020T014400Z-b503ee7`): staged, verified and activated, with
+      both CAN links down, no receiver running and the disarmed smoke test passing.
+    - Terminal console `helm-recording-0f96a6131d` (previous `helm-recording-12e98a307d`), then Helm refreshed.
+    - Receiver restored to Live · both and the task set up again. The saved settings read strength 1.0 and 150 mA.
 - **Remaining uncertainty:**
   - Not yet felt on hardware: the bench check above.
   - The left gripper's squeeze level, and whether the defaults feel right, are to be tuned on the bench.
