@@ -147,6 +147,39 @@ export function shownBy(filter, episode) {
   return !filter || filter === 'all' || (verdictOf(episode) ?? 'unreviewed') === filter;
 }
 
+// What a live replay would drive: the receiver Teleop has selected, and where its loop runs.
+export function receiverLabel(teleop, mode) {
+  if (!teleop) return 'No teleop profile';
+  const choice = teleop.receiver_choice || {mode: 'virtual'};
+  if (choice.mode === 'live') return `LIVE · ${choice.arm === 'both' ? 'both arms' : `${choice.arm} arm`} · motors move`;
+  const where = teleop.target === 'pc' ? 'loop on this PC' : "loop on Minerva's Jetson";
+  return `${mode === 'simulation' ? 'Simulated Minerva' : 'Virtual receiver'} · ${where} · no motors move`;
+}
+
+// A live replay's playback position (the loop's view of it): {fraction, text}.
+export function replayProgress(replay) {
+  if (!replay) return {fraction: 0, text: ''};
+  const {time_s: t, duration_s: duration, frame, frames, speed, finished} = replay;
+  if (!Number.isFinite(duration) || !Number.isFinite(t)) return {fraction: 0, text: `${speed}× · reading the episode…`};
+  const fraction = duration > 0 ? Math.min(1, Math.max(0, t / duration)) : 1;
+  return {fraction, text: `${formatSeconds(t)} / ${formatSeconds(duration)} · frame ${frame + 1} of ${frames} · `
+    + `${speed}×${finished ? ' · finished' : ''}`};
+}
+
+// What the operator does next in a live replay, by the lifecycle state.
+export function replayNote(state, replay) {
+  if (!replay) return '';
+  if (replay.finished) return 'Finished: the arms hold its last pose. Engage (T) replays it from the start; '
+    + 'Shutdown (X) lowers the arms.';
+  if (state === 'TELEOP') return 'Replaying: the arms follow the recorded commands. Hold (T) pauses.';
+  if (state === 'ENGAGING') return "Aligning: the arms move to the episode's pose at the alignment speed first.";
+  const started = Number.isFinite(replay.time_s) && replay.time_s > 0;
+  if (state === 'HOLD') return started ? 'Paused. Engage (T) aligns back to where it stopped and continues.'
+    : "Engage (T) moves the arms to the episode's first frame at the alignment speed, then replays it.";
+  if (state === 'IDLE') return 'Enable (E) holds the arms, then Engage (T) starts the replay.';
+  return 'Idle (I), then Enable (E) and Engage (T): the arms align to the first frame, then replay the episode.';
+}
+
 // The next animation frame, or a timer when the browser is not drawing the page (covered or minimized windows send
 // no animation frames): playback keeps time either way, since the model plays by the wall clock.
 export function nextFrame(callback, {raf = globalThis.requestAnimationFrame, timer = globalThis.setTimeout} = {}) {
@@ -160,7 +193,7 @@ export function nextFrame(callback, {raf = globalThis.requestAnimationFrame, tim
   timer(run, 40);
 }
 
-function frameUrl(episodeId, index, role) {
+export function frameUrl(episodeId, index, role) {
   const [session, name] = episodeId.split('/');
   return `/api/helm/episodes/${encodeURIComponent(session)}/${encodeURIComponent(name)}/frame/${index}/${encodeURIComponent(role)}`;
 }
@@ -197,6 +230,40 @@ class CameraPanel {
     this.loading = true;
     this.current = url;
     this.img.src = url;
+  }
+}
+
+// The Teleop panel's card while an episode drives the arms: its playback position, and its recorded camera frames
+// there, to set beside the live cameras. Each camera loads only its latest wanted frame.
+export class LiveReplayCard {
+  constructor({elements, doc = document}) {
+    this.e = elements;
+    this.doc = doc;
+    this.episode = null;
+    this.panels = new Map();
+  }
+
+  render(replay, {state = null, label = null} = {}) {
+    const {e} = this;
+    e.card.hidden = !replay;
+    if (!replay) {
+      this.episode = null;
+      return;
+    }
+    if (replay.episode !== this.episode) {
+      this.episode = replay.episode;
+      this.panels = new Map(ROLE_ORDER.map(role => [role, new CameraPanel(role, this.doc)]));
+      e.frames.replaceChildren(...[...this.panels.values()].map(panel => panel.figure));
+    }
+    const {fraction, text} = replayProgress(replay);
+    e.title.textContent = label || replay.episode;
+    e.time.textContent = text;
+    e.fill.style.width = `${(fraction * 100).toFixed(1)}%`;
+    e.track?.setAttribute('aria-valuenow', String(Math.round(fraction * 100)));
+    if (Number.isInteger(replay.frame)) {
+      for (const panel of this.panels.values()) panel.show(frameUrl(replay.episode, replay.frame, panel.role));
+    }
+    e.note.textContent = replayNote(state, replay);
   }
 }
 
@@ -326,9 +393,12 @@ class JointTimeline {
 
 export class ReplayView {
   // `elements` holds the page's nodes by role; `request(path)` fetches JSON or throws with the server's message.
-  constructor({elements, request, now = () => performance.now(), frame = nextFrame, doc = document}) {
+  // `onLive(episode, speed, label)`: Replay on Minerva, the selected episode driving the arms (helm.js starts it).
+  constructor({elements, request, now = () => performance.now(), frame = nextFrame, doc = document, onLive = null}) {
     this.e = elements;
     this.request = request;
+    this.onLive = onLive;
+    this.teleop = this.mode = null;
     this.now = now;
     this.frame = frame;
     this.doc = doc;
@@ -373,8 +443,43 @@ export class ReplayView {
       elements.discard.onclick = () => this.review('discard');
       elements.clear.onclick = () => this.review(null);
     }
+    if (elements.liveStart) elements.liveStart.onclick = () => {
+      if (this.episode && this.liveReason() === '')
+        this.onLive?.(this.episode.id, Number(elements.liveSpeed.value), this.labelFor(this.episode.id));
+    };
     doc.addEventListener('keydown', event => this.onKey(event));
     globalThis.addEventListener?.('resize', () => this.render());
+  }
+
+  // Helm's teleop state, for Replay on Minerva: what it would drive, and whether it can start now.
+  setTeleop(teleop, mode) {
+    this.teleop = teleop;
+    this.mode = mode;
+    this.renderLive();
+  }
+
+  // Why the selected episode cannot be replayed on the arms now ('' when it can).
+  liveReason() {
+    const t = this.teleop;
+    const entry = this.listing.episodes.find(item => item.id === this.episode?.id);
+    if (!t) return 'Replaying on the arms needs Helm started with a teleop profile.';
+    if (!this.episode?.summary?.complete || entry?.partial) return 'Only a complete episode can be replayed on the arms.';
+    if (['running', 'starting'].includes(t.phase)) return t.replay?.episode === this.episode.id
+      ? 'Replaying this episode now: see Teleop.' : 'Stop the teleop session in Teleop first.';
+    return '';
+  }
+
+  renderLive() {
+    const {e} = this;
+    if (!e.live) return;
+    e.live.hidden = !this.episode;
+    if (!this.episode) return;
+    const reason = this.liveReason(), live = this.teleop?.receiver_choice?.mode === 'live';
+    e.liveReceiver.textContent = receiverLabel(this.teleop, this.mode);
+    e.liveReceiver.dataset.live = String(live);
+    e.liveStart.disabled = !!reason;
+    e.liveStart.textContent = live ? 'Replay LIVE on Minerva' : 'Replay on Minerva';
+    e.liveStatus.textContent = reason;
   }
 
   // Called with {episode, summary, series, index, time} for every frame shown.
@@ -460,6 +565,7 @@ export class ReplayView {
       }
     }
     this.renderReview();
+    this.renderLive();
   }
 
   // The selected episode's training review: its verdict and note, and the Keep, Discard and Clear buttons.
@@ -658,5 +764,15 @@ export class ReplayView {
       if (match) return `Episode ${match.number}`;
     }
     return 'Episode';
+  }
+
+  // 'Episode 3 · <its session's date>' for a listed episode; its id when the list does not have it.
+  labelFor(id) {
+    for (const group of groupEpisodes(this.listing.episodes)) {
+      const match = group.episodes.find(episode => episode.id === id);
+      if (match) return `Episode ${match.number}${group.date
+        ? ` · ${group.date.toLocaleString([], {dateStyle: 'medium', timeStyle: 'short'})}` : ''}`;
+    }
+    return id;
   }
 }

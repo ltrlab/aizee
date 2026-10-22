@@ -1,7 +1,7 @@
 import {SettingsPanel} from './settings.js';
 import {LiveCameraView} from './camera_live.js';
 import {PedalControls, presentation, recordingLabel, StateOrder} from './pedals.js';
-import {ReplayView} from './replay.js';
+import {LiveReplayCard, ReplayView} from './replay.js';
 import {gripView} from './grip.js';
 import {upsView} from './ups.js';
 
@@ -11,6 +11,7 @@ const DEG = 180 / Math.PI;
 const cards = new Map();
 let token = null, last = null, busy = false, lockNoticeShown = false;
 let replayView = null;  // Built once the page's other panels are; showTab may run before.
+let replayCard = null;  // Teleop's live replay card, built with replayView.
 const responseMeta=new WeakMap(), stateOrder=new StateOrder();
 let requestId=0;
 let pendingConfirm = null;  // An open live confirmation: {kind: 'start' | 'stop', arm}
@@ -278,6 +279,7 @@ function render(state) {
   for (const row of limits.rows) update(cards.get(row.name), row, live);
   renderLeaders(state.leaders);
   renderTeleop(state.teleop);
+  replayView?.setTeleop(state.teleop, state.mode);
   renderGripFeedback(state.teleop);
   renderUps(state.ups);
   renderTune(state.tune, state);
@@ -1087,11 +1089,23 @@ function renderTeleop(t) {
       + 'feed-forward setting. ' : '') + lawTitle
     + (t.control_law_next && t.tuning?.enabled ? ' Switch it in Motor tuning, between sessions.' : '');
   $('t-message').textContent = t.message || '';
+  // Live replay: a recorded episode drives the arms in place of the leaders; nothing is recorded.
+  const replaying = !!t.replay && (running || starting);
+  $('t-title').textContent = replaying ? 'Replay an episode on the arms' : 'Drive the arms with the leaders';
+  $('t-lead').textContent = replaying
+    ? "Idle (I), then Enable (E) to hold, then Engage (T): the arms align to the episode's frame at the alignment "
+      + 'speed, then follow its recorded commands. T again pauses; Shutdown (X) returns slowly to the reference; '
+      + 'Disable (H) removes torque.'
+    : 'Idle (I), then Enable (E) to hold, then Engage (T) to align with the leaders and follow them. T again holds; '
+      + 'Shutdown (X) returns slowly to the reference; Disable (H) removes torque.';
+  document.querySelector('.task-workflow').hidden = replaying;
+  replayCard?.render(replaying ? t.replay : null, {state: t.state, label: replaying ? replayView?.labelFor(t.replay.episode) : null});
   const where = t.target === 'jetson' ? "ON MINERVA'S JETSON" : 'ON THIS PC';
   const eyebrow = $('t-eyebrow');
+  const kind = replaying ? 'REPLAY' : 'TELEOP';
   eyebrow.textContent = live
-    ? `TELEOP · LIVE ${choice.arm === 'both' ? 'BOTH ARMS' : choice.arm.toUpperCase() + ' ARM'} ${where} · MOTORS MOVE · FOOT SWITCH IN REACH`
-    : `TELEOP · ${last?.mode === 'simulation' ? 'SIMULATED MINERVA' : 'VIRTUAL RECEIVER'}${choice.collision === 'motion' ? ' · TWO-ARM BOUND' : ''} ${where} · NO MOTORS MOVE`;
+    ? `${kind} · LIVE ${choice.arm === 'both' ? 'BOTH ARMS' : choice.arm.toUpperCase() + ' ARM'} ${where} · MOTORS MOVE · FOOT SWITCH IN REACH`
+    : `${kind} · ${last?.mode === 'simulation' ? 'SIMULATED MINERVA' : 'VIRTUAL RECEIVER'}${choice.collision === 'motion' ? ' · TWO-ARM BOUND' : ''} ${where} · NO MOTORS MOVE`;
   eyebrow.className = `eyebrow ${live ? 'live' : 'warn'}`;
   for (const button of document.querySelectorAll('#t-target button')) {
     button.setAttribute('aria-pressed', String(button.dataset.target === t.target));
@@ -1129,6 +1143,7 @@ function renderTeleop(t) {
   for (const button of document.querySelectorAll('.lifecycle button'))
     button.disabled = !running || (!!t.fault && button.dataset.key !== 'H')
       || (!!t.recording_fault && !['H', 'X'].includes(button.dataset.key));
+  if (replaying) $('t-zero').disabled = true;  // No leaders to zero.
   $('t-engage').innerHTML = ENGAGED.includes(t.state) ? 'Hold <kbd>T</kbd>' : 'Engage <kbd>T</kbd>';
   renderManual(t);
   $('t-tuning-summary').textContent=t.tuning?.enabled
@@ -1299,6 +1314,34 @@ $('teleop-session').onclick = () => {
   ], `Start LIVE on the ${arm} arm`, () => act('/api/helm/teleop/start', {confirm: true},
     `Starting LIVE on the ${arm} arm: checking that it is still and in its reference pose, then the receiver.`));
 };
+
+// Replay on Minerva (the Replay tab): the episode drives the arms in a teleop session, started as Start session
+// starts one, with the live confirmation. Teleop then shows the live cameras beside the replay's recorded frames.
+function startReplay(episode, speed, label) {
+  const t = last?.teleop;
+  if (!t || ['running', 'starting'].includes(t.phase)) return;
+  pedalControls.setTest(false);
+  showTab('teleop');
+  const replay = {episode, speed};
+  const choice = t.receiver_choice || {mode: 'virtual'};
+  if (choice.mode !== 'live') {
+    act('/api/helm/teleop/start', {replay}, `Starting the replay of ${label} at ${speed}×: no motors move.`);
+    return;
+  }
+  const arm = choice.arm, arms = arm === 'both' ? 'both arms' : `the ${arm} arm`;
+  const direct = t.collision?.mode === 'disabled';
+  askConfirm('start', arm, `Replay ${label} LIVE on ${arms} at ${speed}×?`, [
+    `${arm === 'both' ? "Both arms'" : `The ${arm} arm's`} motors are powered when you press Idle (I).`,
+    'The foot switch (e-stop) is in reach.',
+    `${arm === 'both' ? 'Both arms hang' : `The ${arm} arm hangs`} straight down in the reference pose, untouched until Idle.`,
+    "Engage (T) first moves the arms to the episode's first frame at the alignment speed; then they repeat the "
+      + "demonstration's motion, grippers included. Set the workspace up as it was recorded and stand clear.",
+    direct ? 'Collision detection is disabled. Nothing checks the arms against each other or the body.'
+      : arm === 'both' ? 'The two-arm collision bound is enforced as in teleop. Nothing checks the arms against the body.'
+      : 'Collision checks are advisory: nothing stops the arm from reaching the body or the other arm.',
+  ], `Replay LIVE on ${arms}`, () => act('/api/helm/teleop/start', {confirm: true, replay},
+    `Starting the replay LIVE on ${arms}: checking that ${arm === 'both' ? 'they are' : 'it is'} still and in the reference pose, then the receiver.`));
+}
 
 // -- Tune: the servo sweep ------------------------------------------------------------------
 
@@ -1664,7 +1707,7 @@ function renderGlobalControls(state) {
   const running=['running','starting'].includes(state.teleop?.phase);
   const visible=sweeping||running;
   $('global-controls').hidden=!visible;document.body.classList.toggle('has-controls',visible);
-  $('global-session-state').textContent=sweeping?`Servo task · ${state.tune.phase}`:`Teleop · ${state.teleop?.state||state.teleop?.phase||'stopped'}`;
+  $('global-session-state').textContent=sweeping?`Servo task · ${state.tune.phase}`:`${state.teleop?.replay?'Replay':'Teleop'} · ${state.teleop?.state||state.teleop?.phase||'stopped'}`;
   $('global-hold').hidden=sweeping;
   $('global-hold').disabled=!running||!!state.teleop?.fault||!!state.teleop?.recording_fault||!['HOLD','ENGAGING','TELEOP'].includes(state.teleop?.state);
   $('global-hold').innerHTML=ENGAGED.includes(state.teleop?.state)?'Hold <kbd>T</kbd>':'Engage <kbd>T</kbd>';
@@ -1682,6 +1725,12 @@ replayView = new ReplayView({request, elements: {
   speed: $('replay-speed'), timeline: $('replay-timeline'),
   filter: $('replay-filter'), review: $('replay-review'), verdict: $('replay-verdict'), note: $('replay-note'),
   keep: $('replay-keep'), discard: $('replay-discard'), clear: $('replay-clear'), reviewStatus: $('replay-review-status'),
+  live: $('replay-live'), liveReceiver: $('replay-live-receiver'), liveSpeed: $('replay-live-speed'),
+  liveStart: $('replay-live-start'), liveStatus: $('replay-live-status'),
+}, onLive: startReplay});
+replayCard = new LiveReplayCard({elements: {
+  card: $('t-replay'), title: $('t-replay-title'), time: $('t-replay-time'), track: document.querySelector('.live-replay-track'),
+  fill: $('t-replay-fill'), frames: $('t-replay-frames'), note: $('t-replay-note'),
 }});
 for (const tab of document.querySelectorAll('.tab[data-tab]')) tab.onclick = () => showTab(tab.dataset.tab);
 try { showTab(localStorage.getItem('helm-tab') || 'check'); } catch { showTab('check'); }

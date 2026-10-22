@@ -97,3 +97,55 @@ assert.deepEqual(ids('discard'), ['b']);
 assert.deepEqual(ids('unreviewed'), ['c', 'd', 'e']);
 console.log('replay review checks passed');
 
+
+// Replay on Minerva: what it would drive, its playback position and the next step, and Teleop's card.
+const live = await import('../../src/robot_platform/helm/static/replay.js');
+assert.equal(live.receiverLabel(null), 'No teleop profile');
+assert.equal(live.receiverLabel({receiver_choice: {mode: 'live', arm: 'both'}, target: 'jetson'}), 'LIVE · both arms · motors move');
+assert.equal(live.receiverLabel({receiver_choice: {mode: 'live', arm: 'left'}}), 'LIVE · left arm · motors move');
+assert.equal(live.receiverLabel({receiver_choice: {mode: 'virtual'}, target: 'jetson'}, 'robot'),
+  "Virtual receiver · loop on Minerva's Jetson · no motors move");
+assert.equal(live.receiverLabel({target: 'pc'}, 'simulation'), 'Simulated Minerva · loop on this PC · no motors move');
+
+const playing = {episode: 's/e', time_s: 1.5, duration_s: 6, frame: 22, frames: 91, speed: .5, finished: false};
+assert.deepEqual(live.replayProgress(playing), {fraction: .25, text: '1.5 s / 6.0 s · frame 23 of 91 · 0.5×'});
+assert.equal(live.replayProgress({...playing, time_s: 6, frame: 90, finished: true}).text, '6.0 s / 6.0 s · frame 91 of 91 · 0.5× · finished');
+assert.deepEqual(live.replayProgress({episode: 's/e', speed: 1, time_s: null, duration_s: null}),
+  {fraction: 0, text: '1× · reading the episode…'});  // Starting: the loop has not read it yet.
+assert.deepEqual(live.replayProgress(null), {fraction: 0, text: ''});
+
+assert.match(live.replayNote('DISABLED', {...playing, time_s: 0}), /^Idle \(I\)/);
+assert.match(live.replayNote('IDLE', playing), /^Enable \(E\)/);
+assert.match(live.replayNote('HOLD', {...playing, time_s: 0}), /first frame at the alignment speed/);
+assert.match(live.replayNote('HOLD', playing), /^Paused/);
+assert.match(live.replayNote('ENGAGING', playing), /^Aligning/);
+assert.match(live.replayNote('TELEOP', playing), /^Replaying/);
+assert.match(live.replayNote('HOLD', {...playing, finished: true}), /^Finished: .*from the start/);
+assert.equal(live.replayNote('TELEOP', null), '');
+
+// Teleop's card: one recorded frame per camera at the playback frame, each camera loading only its latest.
+const node = tag => ({tag, children: [], dataset: {}, style: {}, attributes: {}, hidden: false, textContent: '',
+  append(...children) { this.children.push(...children); },
+  replaceChildren(...children) { this.children = children; },
+  setAttribute(name, value) { this.attributes[name] = value; }});
+const doc = {createElement: node};
+const elements = Object.fromEntries(['card', 'title', 'time', 'track', 'fill', 'frames', 'note'].map(key => [key, node('div')]));
+const card = new live.LiveReplayCard({elements, doc});
+card.render(null);
+assert.equal(elements.card.hidden, true);
+card.render(playing, {state: 'TELEOP', label: 'Episode 3 · Oct 21'});
+assert.equal(elements.card.hidden, false);
+assert.equal(elements.title.textContent, 'Episode 3 · Oct 21');
+assert.equal(elements.fill.style.width, '25.0%');
+assert.equal(elements.track.attributes['aria-valuenow'], '25');
+assert.match(elements.note.textContent, /^Replaying/);
+const images = () => elements.frames.children.map(figure => figure.children[0]);
+assert.deepEqual(images().map(img => img.src), ['left_wrist', 'head', 'right_wrist'].map(role => live.frameUrl('s/e', 22, role)));
+card.render({...playing, frame: 23, time_s: 1.55}, {state: 'TELEOP'});
+assert.equal(images()[0].src, live.frameUrl('s/e', 22, 'left_wrist'));  // Still loading frame 22: 23 waits.
+images()[0].onload();
+assert.equal(images()[0].src, live.frameUrl('s/e', 23, 'left_wrist'));
+assert.equal(elements.title.textContent, 's/e');  // No label: the episode's id.
+card.render({...playing, episode: 's/other', frame: 0});
+assert.equal(images()[0].src, live.frameUrl('s/other', 0, 'left_wrist'));  // Another episode: fresh cameras.
+console.log('live replay checks passed');

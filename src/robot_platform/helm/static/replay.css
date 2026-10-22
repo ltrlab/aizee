@@ -58,3 +58,20 @@ body[data-touch=on] .replay-controls select{min-height:48px;font-size:16px}
 .replay-review-status[data-tone=bad]{color:var(--bad)}
 body[data-touch=on] .replay-review-actions button{min-height:48px;font-size:16px}
 body[data-touch=on] .replay-list-head select{min-height:44px;font-size:15px}
+
+/* Replay on Minerva: the Replay tab's box for the selected episode, and Teleop's card while it drives the arms. */
+.replay-live-note{margin:0;font-size:12px;color:var(--muted)}
+#replay-live-receiver{font-size:12.5px}
+#replay-live-receiver[data-live=true]{color:var(--bad)}
+.replay-live select{font:inherit;font-size:12.5px;color:var(--text);background:#1f2226;border:1px solid #3a3f46;border-radius:6px;padding:5px 6px;flex:none}
+.live-replay{margin:0 0 14px;padding:10px 12px 12px;border:1px solid var(--accent);border-radius:8px;background:var(--accent-soft);display:grid;gap:8px}
+.live-replay[hidden]{display:none}
+.live-replay-head{display:flex;align-items:baseline;gap:10px;min-width:0}
+.live-replay-head b{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.live-replay-head .replay-time{margin-left:auto}
+.live-replay-track{height:6px;border-radius:3px;background:#2a2e34;overflow:hidden}
+#t-replay-fill{height:100%;width:0;background:var(--accent);transition:width .2s linear}
+.live-replay-frames{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.live-replay-frames .replay-camera img{aspect-ratio:4/3;flex:none}
+.live-replay p{margin:0;font-size:12px}
+body[data-touch=on] .replay-live select{min-height:48px;font-size:16px}

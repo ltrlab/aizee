@@ -166,8 +166,8 @@
         </section>
         <div class="panel-head">
           <div class="eyebrow warn" id="t-eyebrow">TELEOP · VIRTUAL RECEIVER · NO MOTORS MOVE</div>
-          <h1>Drive the arms with the leaders</h1>
-          <p class="lead">Idle (I), then Enable (E) to hold, then Engage (T) to align with the leaders and follow them.
+          <h1 id="t-title">Drive the arms with the leaders</h1>
+          <p class="lead" id="t-lead">Idle (I), then Enable (E) to hold, then Engage (T) to align with the leaders and follow them.
             T again holds; Shutdown (X) returns slowly to the reference; Disable (H) removes torque.</p>
           <div class="target" id="t-target" role="group" aria-label="Where the loop runs">
             <span>Loop runs on</span>
@@ -199,6 +199,12 @@
           <p id="t-message" class="muted" role="status"></p>
         </div>
         <div id="teleop-content" class="scroll">
+          <section id="t-replay" class="live-replay" aria-labelledby="t-replay-title" hidden>
+            <div class="live-replay-head"><span class="eyebrow">REPLAY</span><b id="t-replay-title">—</b><span id="t-replay-time" class="replay-time"></span></div>
+            <div class="live-replay-track" role="progressbar" aria-label="Playback position" aria-valuemin="0" aria-valuemax="100"><div id="t-replay-fill"></div></div>
+            <div id="t-replay-frames" class="live-replay-frames" role="group" aria-label="Recorded camera frames at the playback position"></div>
+            <p id="t-replay-note" class="muted"></p>
+          </section>
           <section class="task-workflow" aria-labelledby="task-title">
             <div class="eyebrow" id="task-mode">BIMANUAL DATA COLLECTION</div>
             <h2 id="task-title">Cube → handoff → bucket</h2>
@@ -295,6 +301,15 @@
             <button id="replay-clear" type="button">Clear</button>
           </div>
           <p id="replay-review-status" class="replay-review-status" role="status"></p>
+        </div>
+        <div id="replay-live" class="replay-review replay-live" role="group" aria-label="Replay on Minerva" hidden>
+          <div class="replay-review-head"><span class="eyebrow">ON THE ARMS</span><b id="replay-live-receiver">—</b></div>
+          <p class="replay-live-note">The arms follow this episode's recorded commands in a teleop session: Engage (T) first moves them to its first frame at the alignment speed, Hold (T) pauses, Shutdown (X) lowers them. Nothing is recorded.</p>
+          <div class="replay-review-actions">
+            <select id="replay-live-speed" aria-label="Replay speed on the arms" title="Replay speed on the arms"><option value="0.25">0.25×</option><option value="0.5" selected>0.5×</option><option value="1">1×</option></select>
+            <button id="replay-live-start" type="button" class="primary">Replay on Minerva</button>
+          </div>
+          <p id="replay-live-status" class="replay-review-status" role="status"></p>
         </div>
       </section>
       <section id="panel-settings" class="panel settings-panel" aria-label="Settings" hidden>
