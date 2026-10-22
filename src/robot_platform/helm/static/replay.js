@@ -773,6 +773,8 @@ export class ReplayView {
       if (match) return `Episode ${match.number}${group.date
         ? ` · ${group.date.toLocaleString([], {dateStyle: 'medium', timeStyle: 'short'})}` : ''}`;
     }
-    return id;
+    const [session, name = ''] = String(id).split('/');
+    const date = sessionDate(session);
+    return date ? `${date.toLocaleString([], {dateStyle: 'medium', timeStyle: 'short'})} · ${name.slice(-8)}` : id;
   }
 }

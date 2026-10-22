@@ -622,7 +622,8 @@ class TeleopCore:
             self._closers.append(self.leaders.close)
             self.mapper = self._mapper()
         else:
-            self.source, self.route_leaders = self._open_source(names), set()
+            # In the lifecycle's order, which it checks every target against (`names` is a set with Motor tuning).
+            self.source, self.route_leaders = self._open_source(lifecycle.names), set()
         # Full garbage-collector passes over the CAD/collision object graphs took
         # 30+ ms, longer than a cycle's budget. Freeze everything long-lived so
         # later passes only walk new objects; reference counting still frees.
@@ -635,6 +636,11 @@ class TeleopCore:
             # active; restore cyclic collection only after its resources close.
             self._gc_enabled_before_direct = gc.isenabled()
             gc.disable()
+        if self.simulation and hasattr(self.harness, 'advance'):
+            # The simulated arms tick in real time from when their receiver opened, one plant step and harness
+            # call per 2.5 ms tick. Catch them up now: building took longer than a cycle's budget, and the first
+            # cycle's exchange would otherwise simulate all of it (a 108 ms first cycle faulted a replay).
+            self.harness.advance()
         self.phase = 'running'
         self.message = (f'{self._receiver_name} · motors are enabled from Idle (I). Keep the foot '
                         'switch in reach; then Enable (E) and Engage (T).' if self.live_arm else
@@ -1068,6 +1074,7 @@ class TeleopCore:
             if action == 'engage' and source.finished:
                 source.rewind()  # Engage after the end replays from the start, aligning back to it first.
             target, self.input_error = source.target(previous, self.clock()), None
+            self.last_target = target  # The joint rows show the episode's target where a leader's would be.
             if (previous == 'TELEOP' and action is None and source.finished
                     and self.clock() - source.finished_at >= REPLAY_SETTLE_S):
                 action = 'disengage'

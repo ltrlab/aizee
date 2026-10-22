@@ -47,14 +47,22 @@ def write_episode(root, names, home, *, seconds=1.5, hz=15.):
     return f'{SESSION}/{path.name[:-len(".hdf5")]}'
 
 
-@pytest.fixture(scope='module')
-def replay(tmp_path_factory):
+# The guarded profile, and the direct profile with Motor tuning that Minerva's terminal runs (its lifecycle takes
+# targets in its own joint order: a replay built with the tuning block's set of names faulted, 2026-10-22).
+PROFILES = ('minerva-teleop.json', 'minerva-teleop-direct-tuning.json')
+
+
+@pytest.fixture(scope='module', params=PROFILES)
+def replay(request, tmp_path_factory):
     tmp_path = tmp_path_factory.mktemp('replay')
     helm = HelmSession(DEVICES / 'minerva-joint-calibration.json', runs=tmp_path / 'runs',
                        limits=DEVICES / 'minerva-production-01-joint-limits.json', seed=SEED)
     assert helm.saved_limits is not None, helm.saved_limits_error
-    session = TeleopSession(helm, DEVICES / 'minerva-teleop.json', runs=tmp_path / 'runs',
+    session = TeleopSession(helm, DEVICES / request.param, runs=tmp_path / 'runs',
                             leaders=SimpleNamespace(saved=None, missing=lambda routes: []))
+    if session.manual is not None:  # As the operator's preset for teleop: every joint follows, at its full speed.
+        session.manual.accept([dict(row, follow=True, travel_rad=None, speed=template['bounds']['speed'][1])
+                               for row, template in zip(session.manual.active, session.manual.rows)])
     bundle = session._bundle()
     # The probe: any complete episode with the joints, to build the receiver and learn its reference pose.
     probe = write_episode(tmp_path, NAMES, {name: 0. for name in NAMES})

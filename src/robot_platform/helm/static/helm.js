@@ -1099,6 +1099,7 @@ function renderTeleop(t) {
     : 'Idle (I), then Enable (E) to hold, then Engage (T) to align with the leaders and follow them. T again holds; '
       + 'Shutdown (X) returns slowly to the reference; Disable (H) removes torque.';
   document.querySelector('.task-workflow').hidden = replaying;
+  document.querySelector('.grip-feedback').hidden = replaying;  // No leaders: no triggers to push.
   replayCard?.render(replaying ? t.replay : null, {state: t.state, label: replaying ? replayView?.labelFor(t.replay.episode) : null});
   const where = t.target === 'jetson' ? "ON MINERVA'S JETSON" : 'ON THIS PC';
   const eyebrow = $('t-eyebrow');
@@ -1640,7 +1641,7 @@ function renderPedals() {
     $('t-state').textContent=(pedalControls.state?.teleop?.state || 'Fault')+' · fault';
   }
   if(['starting','running'].includes(pedalControls.state?.teleop?.phase) && !['starting','running'].includes(pedalControls.state?.tune?.phase))
-    $('global-session-state').textContent='Teleop · '+view.label;
+    $('global-session-state').textContent=(pedalControls.state?.teleop?.replay?'Replay · ':'Teleop · ')+view.label;
   $('pedal-phase-label').textContent=view.label;
   $('pedal-phase-detail').textContent=view.detail;
   for(const node of document.querySelectorAll('[data-phase-stage]')) {

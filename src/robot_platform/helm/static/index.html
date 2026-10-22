@@ -153,6 +153,12 @@
           <p class="pedal-help">Software pedals · Pause holds position; motors stay enabled. H disables; X shuts down.</p>
           <p id="pedal-warning" class="warn" hidden></p>
         </section>
+        <section id="t-replay" class="live-replay" aria-labelledby="t-replay-title" hidden>
+          <div class="live-replay-head"><span class="eyebrow">REPLAY</span><b id="t-replay-title">—</b><span id="t-replay-time" class="replay-time"></span></div>
+          <div class="live-replay-track" role="progressbar" aria-label="Playback position" aria-valuemin="0" aria-valuemax="100"><div id="t-replay-fill"></div></div>
+          <div id="t-replay-frames" class="live-replay-frames" role="group" aria-label="Recorded camera frames at the playback position"></div>
+          <p id="t-replay-note" class="muted"></p>
+        </section>
         <section class="grip-feedback" aria-labelledby="grip-title">
           <div class="grip-head">
             <span id="grip-title" class="eyebrow">GRIPPER FORCE FEEDBACK</span>
@@ -199,12 +205,6 @@
           <p id="t-message" class="muted" role="status"></p>
         </div>
         <div id="teleop-content" class="scroll">
-          <section id="t-replay" class="live-replay" aria-labelledby="t-replay-title" hidden>
-            <div class="live-replay-head"><span class="eyebrow">REPLAY</span><b id="t-replay-title">—</b><span id="t-replay-time" class="replay-time"></span></div>
-            <div class="live-replay-track" role="progressbar" aria-label="Playback position" aria-valuemin="0" aria-valuemax="100"><div id="t-replay-fill"></div></div>
-            <div id="t-replay-frames" class="live-replay-frames" role="group" aria-label="Recorded camera frames at the playback position"></div>
-            <p id="t-replay-note" class="muted"></p>
-          </section>
           <section class="task-workflow" aria-labelledby="task-title">
             <div class="eyebrow" id="task-mode">BIMANUAL DATA COLLECTION</div>
             <h2 id="task-title">Cube → handoff → bucket</h2>

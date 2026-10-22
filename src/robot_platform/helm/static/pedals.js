@@ -12,13 +12,16 @@ export function presentation(state, fresh = true) {
   if (fault) return {tone:'fault', label:'Fault · reset required', detail:String(fault), stage:''};
   if (!running(t)) return {tone:'off', label:'Session stopped', detail:'Touch Start session first. Pedals cannot start a session.', stage:'off'};
   if (t.phase === 'starting') return {tone:'off', label:'Starting session', detail:'Waiting for the control worker. No pedal action yet.', stage:'off'};
+  // A live replay follows a recorded episode in place of the leaders.
+  const followed = t.replay ? "the episode's pose" : 'the leaders';
   const states = {
     DISABLED: ['off', 'Disabled', t.pedals?.actions?.c?.enabled === false && t.pedals.actions.c.reason
       ? t.pedals.actions.c.reason : 'C: Idle powers the motors with zero torque.', 'off'],
     IDLE: ['off', 'Idle', 'Motors on, zero torque. C: Enable holding.', 'idle'],
     HOLD: ['hold', t.pedals?.paused ? 'Hold · paused' : 'Hold · enabled', 'Holding position; motors stay enabled.', 'hold'],
-    ENGAGING: ['engaging', 'Engaging · aligning', 'Aligning to the leaders. Waiting for reported Teleop.', 'align'],
-    TELEOP: ['teleop', 'Teleop · following', 'Following both leaders. B pauses in Hold.', 'teleop'],
+    ENGAGING: ['engaging', 'Engaging · aligning', `Aligning to ${followed}. Waiting for reported Teleop.`, 'align'],
+    TELEOP: t.replay ? ['teleop', 'Replay · following', 'Following the recorded episode. B pauses in Hold.', 'teleop']
+      : ['teleop', 'Teleop · following', 'Following both leaders. B pauses in Hold.', 'teleop'],
     SHUTDOWN: ['shutdown', 'Shutdown · returning', 'Returning to the reference, then disabling. Keep the path clear.', 'shutdown'],
     FAULT: ['fault', 'Fault · reset required', t.message || 'Stop the session and inspect the fault.', ''],
   };
