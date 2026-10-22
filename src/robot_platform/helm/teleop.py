@@ -40,6 +40,7 @@ CYCLE_HISTORY = 100
 
 KEYS = frozenset('IETHX')
 ENGAGED = ('ENGAGING', 'TELEOP')
+REPLAY_SETTLE_S = .5  # After a replay's last frame, the arms follow it this long before the loop holds.
 HELD = ('stopping', 'stopped')  # Receiver states in which it brakes or holds the arm itself.
 LOWERING_ATTEMPTS = 3  # Re-arms after the receiver stops the arm, before it is left held where it stopped.
 # A re-arm the receiver refuses for these waits (it holds the arm meanwhile): a drive not answering, a joint over
@@ -292,6 +293,16 @@ class TeleopCore:
             module, _, function = bundle['leader_factory'].partition(':')
             open_leaders = getattr(importlib.import_module(module), function)
         self.open_leaders = open_leaders or self._open_leaders
+        # Live replay (teleop.episode_source): a recorded episode drives the arms in place of the leaders. Every
+        # target still goes through the lifecycle (alignment, speed limits) and the receiver's own limits.
+        self.source_spec, self.source = bundle.get('source'), None
+        if self.source_spec is not None:
+            from robot_platform.teleop.episode_source import validate_request
+            spec = self.source_spec
+            if not isinstance(spec, dict) or spec.get('kind') != 'episode' or set(spec) - {'kind', 'episode', 'speed', 'root'}:
+                raise ValueError('The loop follows the leaders, or replays an episode')
+            self.source_spec = dict(validate_request({key: spec[key] for key in ('episode', 'speed') if key in spec}),
+                                    root=spec.get('root'))
         self.open_backend = open_backend or self._open_backend
         self.open_harness = open_harness or self._open_harness
         self.phase = 'starting'
@@ -401,6 +412,8 @@ class TeleopCore:
         return merge_routes(self.profile['routes'], self.route_edits)
 
     def route(self, action, motor):
+        if getattr(self, 'source_spec', None) is not None:
+            raise ValueError('A replay follows its episode: it has no leader routes')
         if self.recording_fault:
             raise ValueError('Recording failed; restart the session before changing routes')
         if self.session is not None and self.session.lifecycle.state in ENGAGED:
@@ -424,6 +437,8 @@ class TeleopCore:
         jumping to the new mapping; Engage (T) aligns to it slowly. Returns the
         zero as {leader: {channel name: reading_rad}} for saving.
         """
+        if getattr(self, 'source_spec', None) is not None:
+            raise ValueError('A replay follows its episode: it has no leaders to zero')
         if self.derived is None or self.phase != 'running' or self.fault or self.recording_fault:
             raise ValueError('Set the zero in a running session')
         samples = self.leaders.poll()
@@ -511,21 +526,25 @@ class TeleopCore:
             install_initial(derived, rows)
             self._manual_state = selected
         fit_motor_ranges(derived['config']['joints'], (self.bundle.get('receiver') or {}).get('motor_models') or {})
-        base = Path(self.bundle['teleop_profile']).resolve().parent
-        leader_profile = json.loads((base / self.profile['leader_profile']).read_text(encoding='utf-8'))
-        if self.bundle.get('leader_ranges') is None:
-            raise ValueError('Sweep and save the leader ranges in the Leaders tab first')
-        document = validate_ranges(self.bundle['leader_ranges'], leader_profile)
-        self.ranges = range_table(document, leader_profile)
-        self.references = reference_table(document, leader_profile)
-        if self.references is None:
-            raise ValueError('Set the leader zero in the Leaders tab first')
-        self.leader_profile = leader_profile
-        # The leaders whose profile names a trigger servo: the only ones the PC drives (teleop.grip_feedback).
-        from robot_platform.teleop.grip_feedback import trigger_config
-        self.grip_triggers = trigger_config(leader_profile)
-        self.centers = {leader: [None if row is None else row[0] for row in rows]
-                        for leader, rows in self.ranges.items()}
+        if self.source_spec is None:
+            base = Path(self.bundle['teleop_profile']).resolve().parent
+            leader_profile = json.loads((base / self.profile['leader_profile']).read_text(encoding='utf-8'))
+            if self.bundle.get('leader_ranges') is None:
+                raise ValueError('Sweep and save the leader ranges in the Leaders tab first')
+            document = validate_ranges(self.bundle['leader_ranges'], leader_profile)
+            self.ranges = range_table(document, leader_profile)
+            self.references = reference_table(document, leader_profile)
+            if self.references is None:
+                raise ValueError('Set the leader zero in the Leaders tab first')
+            self.leader_profile = leader_profile
+            # The leaders whose profile names a trigger servo: the only ones the PC drives (teleop.grip_feedback).
+            from robot_platform.teleop.grip_feedback import trigger_config
+            self.grip_triggers = trigger_config(leader_profile)
+            self.centers = {leader: [None if row is None else row[0] for row in rows]
+                            for leader, rows in self.ranges.items()}
+        else:  # A replay takes no leaders.
+            self.leader_profile = self.ranges = self.references = None
+            self.grip_triggers, self.centers = {}, {}
         # The receiver: the native harness (virtual) or the live service; both keep `.last`.
         if self.live_arm:
             harness = self.open_receiver(derived['config'], device, reference)
@@ -595,11 +614,14 @@ class TeleopCore:
             session = GuardedLifecycleSession(controller, compiler, lifecycle, lambda: harness.last,
                                               period_s=self.period_s, cycle_budget_s=CYCLE_BUDGET_S, clock=self.clock)
         self.derived, self.harness, self.session, self.compiler = derived, harness, session, compiler
-        self.leaders = self.open_leaders(leader_profile)
-        if self.collision_mode == 'disabled' and hasattr(self.leaders, 'allow_repeated'):
-            self.leaders.allow_repeated = True
-        self._closers.append(self.leaders.close)
-        self.mapper = self._mapper()
+        if self.source_spec is None:
+            self.leaders = self.open_leaders(leader_profile)
+            if self.collision_mode == 'disabled' and hasattr(self.leaders, 'allow_repeated'):
+                self.leaders.allow_repeated = True
+            self._closers.append(self.leaders.close)
+            self.mapper = self._mapper()
+        else:
+            self.source, self.route_leaders = self._open_source(names), set()
         # Full garbage-collector passes over the CAD/collision object graphs took
         # 30+ ms, longer than a cycle's budget. Freeze everything long-lived so
         # later passes only walk new objects; reference counting still frees.
@@ -616,6 +638,22 @@ class TeleopCore:
         self.message = (f'{self._receiver_name} · motors are enabled from Idle (I). Keep the foot '
                         'switch in reach; then Enable (E) and Engage (T).' if self.live_arm else
                         'VIRTUAL RECEIVER · no motors move. Idle (I) first, then Enable (E) and Engage (T).')
+        if self.source is not None:
+            self.message += (f' REPLAY at {self.source.speed:g}×: Engage (T) first aligns the arms to the episode\'s '
+                             'first frame, then replays it; Hold pauses it.')
+
+    def _open_source(self, names):
+        """The episode to replay, for this receiver's joints: on the robot from ~/minerva/evidence, on this PC from
+        Helm's --episodes directory (the bundle's root). Replay's own name check finds the file."""
+        from robot_platform.helm.episode_worker import resolve_episode
+        from robot_platform.teleop.episode_source import EpisodeSource
+        spec = self.source_spec
+        root = Path(spec.get('root') or Path.home() / 'minerva' / 'evidence').expanduser().resolve()
+        path = resolve_episode(root, spec['episode'])
+        source = EpisodeSource.load(path, names, speed=spec['speed'], episode=spec['episode'])
+        self._event('replay', episode=spec['episode'], speed=spec['speed'], duration_s=source.duration,
+                    frames=len(source.times))
+        return source
 
     def close(self):
         failures = []
@@ -861,6 +899,8 @@ class TeleopCore:
             raise ValueError('Recording failed; stop this session before starting another episode')
         if self.task_capture is None:
             raise ValueError('Set up the task before starting this session')
+        if action == 'start_record' and getattr(self, 'source', None) is not None:
+            raise ValueError('A replay is not recorded: a replayed episode is not a human demonstration')
         state = self.session.lifecycle.state if self.session else None
         if action == 'reset' and (self.live_arm or state not in ('DISABLED', 'IDLE')):
             raise ValueError('Reset is only available with the simulated receiver disabled or idle')
@@ -1022,7 +1062,17 @@ class TeleopCore:
             capture_hold = previous in ('HOLD', *ENGAGED)
             notice = self._recording_notice()
         target = None
-        if key != 'H' and not self.recording_fault:
+        source = getattr(self, 'source', None)
+        if key != 'H' and not self.recording_fault and source is not None:
+            if action == 'engage' and source.finished:
+                source.rewind()  # Engage after the end replays from the start, aligning back to it first.
+            target, self.input_error = source.target(previous, self.clock()), None
+            if (previous == 'TELEOP' and action is None and source.finished
+                    and self.clock() - source.finished_at >= REPLAY_SETTLE_S):
+                action = 'disengage'
+                notice = ('Replay finished: holding its last pose. Engage (T) replays it again from the start; '
+                          'Return (X) lowers the arms.')
+        elif key != 'H' and not self.recording_fault:
             self._send_grip_feedback(previous)
             target, self.input_error = self._leader_target(engaged)
         allowed = {'enable': ('IDLE',), 'engage': ('IDLE', 'HOLD'), 'disengage': ENGAGED,
@@ -1306,6 +1356,7 @@ class TeleopCore:
                                 'holding': self.session.blocked if self.session else None},
                   'task': self.task_capture.snapshot() if getattr(self, 'task_capture', None) is not None else None,
                   'grip_feedback': self._grip_status(),
+                  'replay': self.source.snapshot() if getattr(self, 'source', None) is not None else None,
                   'scheduling': self.scheduling, 'cycle_ms': None, 'joints': []}
         self._pedal_task = result['task']
         result['pedals'] = self.pedals.view(self._pedal_context(), self.clock())
