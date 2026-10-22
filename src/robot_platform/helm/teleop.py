@@ -23,6 +23,7 @@ import multiprocessing
 from pathlib import Path
 import threading
 import time
+from types import SimpleNamespace
 
 from robot_platform.control.guarded_config import CONTROL_LAW, arm_subset, derive_receiver, fit_motor_ranges, to_cad
 from robot_platform.control.joint_calibration import save_json
@@ -247,7 +248,7 @@ class TeleopCore:
     """The loop body, built from plain data. Openers are injectable for tests."""
 
     def __init__(self, bundle, *, open_leaders=None, open_backend=None, open_harness=None, open_receiver=None,
-                 open_simulation=None, clock=time.perf_counter):
+                 open_simulation=None, open_policy=None, clock=time.perf_counter):
         self.bundle, self.clock = deepcopy(bundle), clock
         self.base_profile = self.profile = load_profile(bundle['teleop_profile'])
         if bundle.get('operator_settings') is not None:
@@ -293,20 +294,30 @@ class TeleopCore:
             module, _, function = bundle['leader_factory'].partition(':')
             open_leaders = getattr(importlib.import_module(module), function)
         self.open_leaders = open_leaders or self._open_leaders
-        # Live replay (teleop.episode_source): a recorded episode drives the arms in place of the leaders. Every
-        # target still goes through the lifecycle (alignment, speed limits) and the receiver's own limits.
-        self.source_spec, self.source = bundle.get('source'), None
+        # Live replay (teleop.episode_source) or policy mode (teleop.policy_source): a recorded episode or a policy
+        # drives the arms in place of the leaders. Every target still goes through the lifecycle (alignment, speed
+        # limits) and the receiver's own limits.
+        self.source_spec, self.source, self.policy_worker = bundle.get('source'), None, None
+        self.open_policy = open_policy or self._open_policy
+        self._policy_requests = 0
         if self.source_spec is not None:
-            from robot_platform.teleop.episode_source import validate_request
             spec = self.source_spec
-            if not isinstance(spec, dict) or spec.get('kind') != 'episode' or set(spec) - {'kind', 'episode', 'speed', 'root'}:
-                raise ValueError('The loop follows the leaders, or replays an episode')
-            self.source_spec = dict(validate_request({key: spec[key] for key in ('episode', 'speed') if key in spec}),
-                                    root=spec.get('root'))
+            if not isinstance(spec, dict) or spec.get('kind') not in ('episode', 'policy'):
+                raise ValueError('The loop follows the leaders, replays an episode or runs a policy')
+            if spec['kind'] == 'episode':
+                from robot_platform.teleop.episode_source import validate_request
+                if set(spec) - {'kind', 'episode', 'speed', 'root'}:
+                    raise ValueError('The loop follows the leaders, replays an episode or runs a policy')
+                self.source_spec = dict(validate_request({key: spec[key] for key in ('episode', 'speed') if key in spec}),
+                                        root=spec.get('root'))
+            else:
+                from robot_platform.teleop.policy_source import validate_request
+                self.source_spec = validate_request(spec, live=bool(self.live_arm))
         self.open_backend = open_backend or self._open_backend
         self.open_harness = open_harness or self._open_harness
         self.phase = 'starting'
-        opening = 'reading the episode' if self.source_spec is not None else 'opening the leaders'
+        opening = {'episode': 'reading the episode', 'policy': 'loading the policy'}.get(
+            (self.source_spec or {}).get('kind'), 'opening the leaders')
         self.message = (f'Checking {self._the_arm}, then starting the live receiver…' if self.live_arm
                         else f'Loading the simulated Minerva and its window; {opening}…' if self.simulation
                         else f'Loading the collision model and virtual receiver; {opening}…')
@@ -527,6 +538,12 @@ class TeleopCore:
             install_initial(derived, rows)
             self._manual_state = selected
         fit_motor_ranges(derived['config']['joints'], (self.bundle.get('receiver') or {}).get('motor_models') or {})
+        if self._source_kind == 'policy':
+            # Loading a checkpoint onto the GPU takes seconds: it loads while the receiver opens.
+            self.policy_worker = self.open_policy(self.source_spec['policy'],
+                                                  [joint['name'] for joint in derived['config']['joints']],
+                                                  policy_context(derived, self.period_s))
+            self._closers.append(self.policy_worker.close)
         if self.source_spec is None:
             base = Path(self.bundle['teleop_profile']).resolve().parent
             leader_profile = json.loads((base / self.profile['leader_profile']).read_text(encoding='utf-8'))
@@ -645,13 +662,32 @@ class TeleopCore:
         self.message = (f'{self._receiver_name} · motors are enabled from Idle (I). Keep the foot '
                         'switch in reach; then Enable (E) and Engage (T).' if self.live_arm else
                         'VIRTUAL RECEIVER · no motors move. Idle (I) first, then Enable (E) and Engage (T).')
-        if self.source is not None:
+        if self._source_kind == 'policy':
+            self.message += (f' POLICY {self.source.policy.name}: Enable (E) shows its first action, Engage (T) aligns '
+                             'the arms to it at the alignment speed, then the policy drives them; Hold (T) pauses.')
+        elif self.source is not None:
             self.message += (f' REPLAY at {self.source.speed:g}×: Engage (T) first aligns the arms to the episode\'s '
                              'first frame, then replays it; Hold pauses it.')
 
+    @property
+    def _source_kind(self):
+        spec = getattr(self, 'source_spec', None)
+        return spec['kind'] if spec is not None else None
+
+    def _open_policy(self, policy, names, context):
+        from robot_platform.teleop.policy_worker import PolicyWorker
+        return PolicyWorker(policy, names, context=context)
+
     def _open_source(self, names):
         """The episode to replay, for this receiver's joints: on the robot from ~/minerva/evidence, on this PC from
-        Helm's --episodes directory (the bundle's root). Replay's own name check finds the file."""
+        Helm's --episodes directory (the bundle's root). Replay's own name check finds the file. Or the policy,
+        once its worker has loaded it."""
+        if self._source_kind == 'policy':
+            from robot_platform.teleop.policy_source import PolicySource
+            info = self.policy_worker.ready()
+            self._event('policy', policy=self.source_spec['policy'], name=info['name'], action_dt=info['action_dt'],
+                        cameras=info['camera_roles'], describe=info.get('describe'))
+            return PolicySource(names, action_dt=info['action_dt'], policy=SimpleNamespace(name=info['name']))
         from robot_platform.helm.episode_worker import resolve_episode
         from robot_platform.teleop.episode_source import EpisodeSource
         spec = self.source_spec
@@ -902,8 +938,10 @@ class TeleopCore:
             self._flushed = clock
 
     def task_action(self, action):
-        if action == 'start_record' and getattr(self, 'source_spec', None) is not None:
+        if action == 'start_record' and self._source_kind == 'episode':
             raise ValueError('A replay is not recorded: a replayed episode is not a human demonstration')
+        if action == 'start_record' and self._source_kind == 'policy':
+            raise ValueError('A policy rollout is not recorded yet: its frames would be labelled human')
         if self.recording_fault:
             raise ValueError('Recording failed; stop this session before starting another episode')
         if self.task_capture is None:
@@ -1070,7 +1108,14 @@ class TeleopCore:
             notice = self._recording_notice()
         target = None
         source = getattr(self, 'source', None)
-        if key != 'H' and not self.recording_fault and source is not None:
+        if key != 'H' and not self.recording_fault and source is not None and self._source_kind == 'policy':
+            now = self.clock()
+            self._policy_exchange(previous, now)
+            target = source.target(previous, now)
+            self.input_error = (None if target is not None or previous not in ENGAGED
+                                else source.last_error or 'The policy has no fresh chunk: holding')
+            self.last_target = target  # The joint rows show the policy's target where a leader's would be.
+        elif key != 'H' and not self.recording_fault and source is not None:
             if action == 'engage' and source.finished:
                 source.rewind()  # Engage after the end replays from the start, aligning back to it first.
             target, self.input_error = source.target(previous, self.clock()), None
@@ -1093,7 +1138,11 @@ class TeleopCore:
             # new session, which checks the reference pose and the watchdogs again.
             notice = f'[{key}] The arm was disabled. Stop the session and start a new one to enable it again.'
             action = None
-        if action == 'engage' and target is None:
+        if action == 'engage' and target is None and self._source_kind == 'policy':
+            notice = (f"[{key}] Engage waits for the policy's first action"
+                      f"{': ' + source.last_error if source.last_error else ' (computing it)'}; press T again.")
+            action = None
+        elif action == 'engage' and target is None:
             notice = f'[{key}] Engage needs live leaders: {self.input_error or "sample arrived late; press T again"}'
             action = None
         if self._last_start is not None:
@@ -1365,6 +1414,7 @@ class TeleopCore:
                   'task': self.task_capture.snapshot() if getattr(self, 'task_capture', None) is not None else None,
                   'grip_feedback': self._grip_status(),
                   'replay': self._replay_view(),
+                  'policy': self._policy_view(),
                   'scheduling': self.scheduling, 'cycle_ms': None, 'joints': []}
         self._pedal_task = result['task']
         result['pedals'] = self.pedals.view(self._pedal_context(), self.clock())
@@ -1378,11 +1428,47 @@ class TeleopCore:
 
     def _replay_view(self):
         """A replay session's episode and playback position; before its episode is read, just which one."""
+        if self._source_kind != 'episode':
+            return None
         if getattr(self, 'source', None) is not None:
             return self.source.snapshot()
-        spec = getattr(self, 'source_spec', None)
-        return None if spec is None else dict(episode=spec['episode'], speed=spec['speed'], time_s=None,
-                                              duration_s=None, frame=None, frames=None, finished=False)
+        spec = self.source_spec
+        return dict(episode=spec['episode'], speed=spec['speed'], time_s=None, duration_s=None, frame=None,
+                    frames=None, finished=False)
+
+    def _policy_view(self):
+        """A policy session's policy and chunks; before it has loaded, just which one."""
+        if self._source_kind != 'policy':
+            return None
+        if getattr(self, 'source', None) is not None:
+            return dict(self.source.snapshot(self.clock()), spec=self.source_spec['policy'])
+        return dict(spec=self.source_spec['policy'], policy=None, loading=True)
+
+    def _policy_exchange(self, state, now):
+        """Collect the worker's answers, then hand it this cycle's observation if the source wants a chunk."""
+        source = self.source
+        for reply in self.policy_worker.poll():
+            if 'error' in reply:
+                source.failed(reply['request'], reply['error'])
+            else:
+                source.receive(reply['request'], reply['chunk'], now, inference_ms=reply.get('inference_ms'))
+        purpose = source.wants(state)
+        if purpose is None:
+            return
+        last = self.harness.last or {}
+        status = last.get('status') or {}
+        names = status.get('joint_names') or [joint['name'] for joint in self.derived['config']['joints']]
+        feedback = dict(zip(names, last.get('feedback') or []))
+        commands = dict(zip(names, status.get('joints') or []))
+        if any(name not in feedback or name not in commands for name in source.names):
+            return  # No complete reading yet: ask next cycle.
+        observation = {'q': [feedback[n]['position'] for n in source.names],
+                       'dq': [feedback[n].get('velocity') for n in source.names],
+                       'effort': [feedback[n].get('effort') for n in source.names],
+                       'qcmd': [commands[n]['position'] for n in source.names]}
+        self._policy_requests += 1
+        self.policy_worker.ask(self._policy_requests, now, observation)
+        source.asked(self._policy_requests, now, purpose)
 
     def view(self):
         result = self.status_view()
@@ -1679,6 +1765,16 @@ def _process_main(commands, views, bundle):
     core = TeleopCore(bundle)
     core.scheduling['loop'] = prefer_responsive()
     run_loop(commands, views, core)
+
+
+def policy_context(derived, period_s):
+    """What a policy's reset(context) learns of the receiver (evaluation.runner's TrialContext, minus the scene):
+    its motor-to-model map, and each joint's usable range and reference pose, in its joint order."""
+    report = {row['motor']: row for row in derived['report']}
+    names = [joint['name'] for joint in derived['config']['joints']]
+    return {'joint_map': deepcopy(derived['joint_map']), 'period_s': period_s,
+            'lower': [report[n]['usable'][0] for n in names], 'upper': [report[n]['usable'][1] for n in names],
+            'home': [report[n]['home'] for n in names]}
 
 
 class TeleopSession:
