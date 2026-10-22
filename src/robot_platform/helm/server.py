@@ -232,6 +232,20 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             return web.json_response({'error': str(exc), 'busy': True}, status=409)
         return web.json_response(data, headers={'Cache-Control': 'no-store'})
 
+    async def episode_review(request):
+        """Keep or Discard an episode for training, with an optional note; refused while a recording runs."""
+        from .episodes import EpisodeBusy
+        payload = await body(request)
+        need_episodes()
+        if not set(payload) <= {'verdict', 'note'} or 'verdict' not in payload:
+            raise ValueError('Expected verdict (keep, discard or null) and optionally a note')
+        name = episode_name(request)
+        try:
+            record = await off_loop(lambda: episodes.review(name, payload['verdict'], payload.get('note', '')))
+        except EpisodeBusy as exc:
+            return web.json_response({'error': str(exc), 'busy': True}, status=409)
+        return web.json_response({'review': record}, headers={'Cache-Control': 'no-store'})
+
     async def episode_frame(request):
         from .episodes import EpisodeBusy
         need_episodes()
@@ -809,5 +823,6 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     app.router.add_get('/api/helm/episodes', episodes_list)
     app.router.add_get('/api/helm/episodes/{session}/{episode}', episode_get)
     app.router.add_get('/api/helm/episodes/{session}/{episode}/frame/{index}/{role}', episode_frame)
+    app.router.add_post('/api/helm/episodes/{session}/{episode}/review', episode_review)
     app.router.add_static('/helm', STATIC, show_index=False)
     return app

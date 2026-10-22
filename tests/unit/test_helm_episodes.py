@@ -124,6 +124,8 @@ class InProcess:
             return self.episodes.list()
         if op == 'frame':
             return self.episodes.frame(fields['episode'], fields['index'])
+        if op == 'review':
+            return self.episodes.review(fields['episode'], fields['verdict'], fields.get('note', ''))
         return getattr(self.episodes, op)(fields['episode'])
 
     def close(self):
@@ -288,3 +290,86 @@ def test_the_worker_source_needs_no_installed_package():
     """Helm sends the worker's source over SSH to a robot that may run another release: no package imports."""
     source = (ROOT / 'src/robot_platform/helm/episode_worker.py').read_text(encoding='utf-8')
     assert 'robot_platform' not in source.split('"""', 2)[2]
+
+
+@pytest.fixture
+def reviewed(tmp_path):
+    """Its own root: reviews are the one thing the reader writes."""
+    episodes = tmp_path / 'live-20261022T100000Z' / 'episodes'
+    complete = record(episodes, 4)
+    partial = record(episodes, 3, finish=False)
+    return tmp_path, [f'live-20261022T100000Z/{Path(path).name[:-len(".hdf5")]}' for path in (complete, partial)]
+
+
+def test_a_review_is_a_line_beside_the_episodes_and_the_latest_one_wins(reviewed):
+    import hashlib
+    import json
+    root, (complete, partial) = reviewed
+    episodes = Episodes(root)
+    path = resolve_episode(root.resolve(), complete)
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    first = episodes.review(complete, 'keep', '  clean handoff  ')
+    assert (first['verdict'], first['note'], first['by']) == ('keep', 'clean handoff', 'helm-replay')
+    listed = {entry['id']: entry for entry in episodes.list()}
+    assert listed[complete]['review']['verdict'] == 'keep' and listed[partial]['review'] is None
+    episodes.review(complete, 'discard', 'cube slipped')
+    assert {e['id']: e for e in episodes.list()}[complete]['review']['note'] == 'cube slipped'  # The latest wins.
+    episodes.review(complete, None)
+    assert {e['id']: e for e in episodes.list()}[complete]['review']['verdict'] is None  # Cleared.
+    log = root / 'live-20261022T100000Z' / 'reviews.jsonl'
+    lines = [json.loads(line) for line in log.read_text(encoding='utf-8').splitlines()]
+    assert [line['verdict'] for line in lines] == ['keep', 'discard', None]
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == digest  # The episode file is never touched.
+    with open(log, 'a', encoding='utf-8') as handle:
+        handle.write('{"episode": "cut short by a power lo')  # A torn last line: the earlier ones stand.
+    assert {e['id']: e for e in episodes.list()}[complete]['review']['verdict'] is None
+
+
+def test_only_a_complete_episode_can_be_kept_and_reviews_are_checked(reviewed):
+    root, (complete, partial) = reviewed
+    episodes = Episodes(root)
+    with pytest.raises(ValueError, match='Only a complete episode'):
+        episodes.review(partial, 'keep')
+    assert episodes.review(partial, 'discard', 'recording failed')['verdict'] == 'discard'
+    for verdict, note, message in (('maybe', '', 'keep, discard'), ('keep', 'x' * 301, 'at most 300'),
+                                   ('keep', 7, 'at most 300')):
+        with pytest.raises(ValueError, match=message):
+            episodes.review(complete, verdict, note)
+    with pytest.raises(ValueError, match='No such episode'):
+        episodes.review('live-20261022T100000Z/task_episode_' + 'f' * 32, 'keep')
+    for outside, message in (('live-20261022T100000Z/..', 'Not an episode name'),
+                             ('live-20261022T100000Z/../reviews', 'An episode is named')):
+        with pytest.raises(ValueError, match=message):
+            episodes.review(outside, 'keep')
+
+
+def test_the_api_reviews_an_episode_and_waits_while_a_recording_runs(reviewed, helm):
+    from aiohttp.test_utils import TestClient, TestServer
+    root, (complete, partial) = reviewed
+    teleop = Teleop()
+    library = EpisodeLibrary(lambda: InProcess(root, []))
+    session, name = complete.split('/')
+    path = f'/api/helm/episodes/{session}/{name}/review'
+
+    async def scenario():
+        async with TestClient(TestServer(create_app(helm, Link(), teleop=teleop, token='secret',
+                                                    episodes=library))) as client:
+            await client.get('/api/helm/episodes')
+            refused = await client.post(path, json={'verdict': 'keep'})
+            assert refused.status == 403  # An action: the session token is required.
+            headers = {'X-Helm-Token': 'secret'}
+            kept = await client.post(path, json={'verdict': 'keep', 'note': 'clean'}, headers=headers)
+            assert kept.status == 200 and (await kept.json())['review']['verdict'] == 'keep'
+            listed = {e['id']: e for e in (await (await client.get('/api/helm/episodes')).json())['episodes']}
+            assert listed[complete]['review']['note'] == 'clean'
+            bad = await client.post(path, json={'verdict': 'keep', 'rating': 5}, headers=headers)
+            assert bad.status == 422
+            teleop.recording = {'active': True, 'state': 'recording'}
+            await asyncio.sleep(.3)  # Past the busy check's cache.
+            waiting = await client.post(path, json={'verdict': 'discard'}, headers=headers)
+            assert waiting.status == 409 and (await waiting.json())['busy'] is True
+    try:
+        asyncio.run(scenario())
+    finally:
+        library.close()
+    assert Episodes(root).reviews(root / session)[name]['verdict'] == 'keep'  # The refused discard wrote nothing.

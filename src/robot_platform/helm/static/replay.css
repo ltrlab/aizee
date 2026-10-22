@@ -40,3 +40,21 @@ body[data-tab=replay] .view>:not(#replay-stage){display:none!important}
 
 body[data-touch=on] .replay-timeline{height:170px}
 body[data-touch=on] .replay-controls select{min-height:48px;font-size:16px}
+
+/* Training review: each episode's verdict in the list, and Keep / Discard / Clear for the selected one. */
+.replay-list-head select{font:inherit;font-size:12px;color:var(--text);background:#1f2226;border:1px solid #3a3f46;border-radius:6px;padding:4px 6px}
+.replay-verdict{grid-column:1/-1;justify-self:start;font-size:10.5px;font-weight:650;letter-spacing:.04em;border-radius:10px;padding:1px 8px}
+.replay-verdict[data-verdict=keep]{color:#0b0c0e;background:var(--good)}
+.replay-verdict[data-verdict=discard]{color:var(--muted);border:1px solid #4a4f56;text-decoration:line-through}
+.replay-review{border-top:1px solid var(--line);padding:10px 20px 14px;display:grid;gap:8px}
+.replay-review-head{display:flex;align-items:baseline;gap:10px}
+.replay-verdict-label{font-size:13px}
+.replay-verdict-label[data-verdict=keep]{color:var(--good)}
+.replay-verdict-label[data-verdict=discard]{color:var(--muted)}
+.replay-review input{font:inherit;font-size:12.5px;color:var(--text);background:#1f2226;border:1px solid #3a3f46;border-radius:6px;padding:7px 9px}
+.replay-review-actions{display:flex;gap:8px}
+.replay-review-actions button{flex:1}
+.replay-review-status{margin:0;min-height:16px;font-size:12px;color:var(--muted)}
+.replay-review-status[data-tone=bad]{color:var(--bad)}
+body[data-touch=on] .replay-review-actions button{min-height:48px;font-size:16px}
+body[data-touch=on] .replay-list-head select{min-height:44px;font-size:15px}

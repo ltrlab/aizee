@@ -1680,6 +1680,8 @@ replayView = new ReplayView({request, elements: {
   title: $('replay-title'), status: $('replay-status'), cameras: $('replay-cameras'), play: $('replay-play'),
   back: $('replay-back'), forward: $('replay-forward'), scrub: $('replay-scrub'), time: $('replay-time'),
   speed: $('replay-speed'), timeline: $('replay-timeline'),
+  filter: $('replay-filter'), review: $('replay-review'), verdict: $('replay-verdict'), note: $('replay-note'),
+  keep: $('replay-keep'), discard: $('replay-discard'), clear: $('replay-clear'), reviewStatus: $('replay-review-status'),
 }});
 for (const tab of document.querySelectorAll('.tab[data-tab]')) tab.onclick = () => showTab(tab.dataset.tab);
 try { showTab(localStorage.getItem('helm-tab') || 'check'); } catch { showTab('check'); }

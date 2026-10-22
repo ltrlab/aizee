@@ -1,12 +1,15 @@
-"""Read-only episode reader for Helm's Replay. Source is delivered over pinned SSH, not installed.
+"""Episode reader for Helm's Replay. Source is delivered over pinned SSH, not installed.
 
 Run as `python3 -u -c <this source> [--root DIR]` on the robot (Helm's EpisodeLibrary sends it, as it sends
 the camera relay), or locally with --root for episodes on this computer. Depends only on h5py, numpy, Pillow
-and msgpack. It never writes, never opens a file outside its root and serves framed requests on stdin:
+and msgpack. It never writes an episode file and never opens a file outside its root. Its one write is a review:
+a line appended to the session's reviews.jsonl (Keep or Discard for training; the latest line per episode wins).
+It serves framed requests on stdin:
 
     request  {'id': n, 'op': 'list'}
              {'id': n, 'op': 'summary' | 'series', 'episode': '<session>/<name>'}
              {'id': n, 'op': 'frame', 'episode': ..., 'index': i, 'quality': 85}
+             {'id': n, 'op': 'review', 'episode': ..., 'verdict': 'keep' | 'discard' | None, 'note': text}
     reply    {'id': n, 'ok': True, 'result': ...} or {'id': n, 'ok': False, 'error': text}
 
 Each frame on the wire is a 4-byte big-endian length and a msgpack body. The first reply is a hello
@@ -29,6 +32,9 @@ IDLE_EXIT_S = 600.
 OPEN_FILES = 2
 SESSION_RE = re.compile(r'^live-\d{8}T\d{6}Z$')
 NAME_RE = re.compile(r'^task_episode_[0-9a-f]{32}(\.partial)?$')
+REVIEWS = 'reviews.jsonl'
+VERDICTS = ('keep', 'discard')
+MAX_NOTE = 300
 PARTITION = '/etc/minerva/cpu-partition.json'
 
 
@@ -66,6 +72,52 @@ class Episodes:
         self.root = Path(root).expanduser().resolve()
         self._open = OrderedDict()
         self._facts = {}
+        self._reviews = {}  # A session's reviews by file size and mtime.
+
+    def reviews(self, session_dir):
+        """{episode name: its latest review} from the session's reviews.jsonl; a cleared verdict is None."""
+        path = Path(session_dir) / REVIEWS
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            return {}
+        key = (stat.st_size, stat.st_mtime_ns)
+        cached = self._reviews.get(path)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        latest = {}
+        for line in path.read_text(encoding='utf-8', errors='replace').splitlines():
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue  # A line cut short by a power loss: the earlier ones stand.
+            if isinstance(record, dict) and isinstance(record.get('episode'), str) and record.get('verdict') in (*VERDICTS, None):
+                latest[record['episode']] = record
+        self._reviews[path] = (key, latest)
+        return latest
+
+    def review(self, episode, verdict, note=''):
+        """Mark `episode` Keep or Discard for training (None clears it): one line appended to its session's
+        reviews.jsonl, flushed to disk. The episode file is never touched."""
+        from datetime import datetime, timezone
+        path = resolve_episode(self.root, episode)
+        if verdict not in (*VERDICTS, None):
+            raise ValueError('A review is keep, discard, or none to clear it')
+        if not isinstance(note, str) or len(note) > MAX_NOTE:
+            raise ValueError(f'A review note is text of at most {MAX_NOTE} characters')
+        name = path.name[:-len('.hdf5')]
+        if verdict == 'keep':
+            facts = self._quick_facts(path)
+            if name.endswith('.partial') or not facts['complete'] or facts['error']:
+                raise ValueError('Only a complete episode can be kept for training')
+        record = {'episode': name, 'verdict': verdict, 'note': note.strip(),
+                  'at': datetime.now(timezone.utc).isoformat(timespec='seconds'), 'by': 'helm-replay'}
+        target = path.parent.parent / REVIEWS
+        with open(target, 'a', encoding='utf-8') as handle:
+            handle.write(json.dumps(record, separators=(',', ':')) + '\n')
+            handle.flush()
+            os.fsync(handle.fileno())
+        return record
 
     def file(self, episode):
         import h5py
@@ -94,6 +146,7 @@ class Episodes:
         for session in self.root.iterdir():
             if not SESSION_RE.match(session.name) or not (session / 'episodes').is_dir():
                 continue
+            reviews = self.reviews(session)
             for path in (session / 'episodes').glob('task_episode_*.hdf5'):
                 name = path.name[:-len('.hdf5')]
                 if not NAME_RE.match(name):
@@ -103,7 +156,8 @@ class Episodes:
                 if key not in self._facts:
                     self._facts[key] = self._quick_facts(path)
                 episodes.append(dict(self._facts[key], id=f'{session.name}/{name}', session=session.name, name=name,
-                                     partial=name.endswith('.partial'), size=stat.st_size, modified=stat.st_mtime))
+                                     partial=name.endswith('.partial'), size=stat.st_size, modified=stat.st_mtime,
+                                     review=reviews.get(name)))
         episodes.sort(key=lambda entry: entry['modified'], reverse=True)
         return episodes
 
@@ -249,6 +303,8 @@ def serve(root, stdin, stdout, *, idle_exit_s=IDLE_EXIT_S):
                     result = getattr(episodes, op)(request['episode'])
                 elif op == 'frame':
                     result = episodes.frame(request['episode'], request['index'], request.get('quality', 85))
+                elif op == 'review':
+                    result = episodes.review(request['episode'], request.get('verdict'), request.get('note', ''))
                 else:
                     raise ValueError(f'Unknown request {op!r}')
                 send({'id': ident, 'ok': True, 'result': result})

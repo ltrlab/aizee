@@ -209,6 +209,16 @@ class EpisodeLibrary:
             raise KeyError(f'Episode {episode} has no {role} camera')
         return images[role]
 
+    def review(self, episode, verdict, note=''):
+        """Keep or Discard `episode` for training (None clears it); the robot appends it to the session's
+        reviews.jsonl. The listing already read shows it at once."""
+        with self._lock:
+            record = self._call('review', episode=episode, verdict=verdict, note=note)
+            for entry in self._listing:
+                if entry.get('id') == episode:
+                    entry['review'] = record
+            return record
+
     def complete(self, episode):
         """True once the episode's file is known to be complete: its frames will not change."""
         known = self._episodes.get(episode)

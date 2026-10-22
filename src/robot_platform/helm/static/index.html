@@ -279,11 +279,23 @@
         <div class="panel-head">
           <span class="eyebrow">REPLAY</span>
           <h1>Recorded episodes</h1>
-          <p class="lead">Episodes recorded on Minerva, newest first. Choose one to play it back. Replay only reads, and waits while a recording is running.</p>
-          <div class="replay-list-head"><button id="replay-refresh" type="button">Refresh</button><span id="replay-list-status" role="status"></span></div>
+          <p class="lead">Episodes recorded on Minerva, newest first. Choose one to play it back, then keep it for training or discard it. Replay waits while a recording is running.</p>
+          <div class="replay-list-head"><button id="replay-refresh" type="button">Refresh</button>
+            <select id="replay-filter" aria-label="Show episodes"><option value="all">All</option><option value="unreviewed">To review</option><option value="keep">Kept</option><option value="discard">Discarded</option></select>
+            <span id="replay-list-status" role="status"></span></div>
         </div>
         <div id="replay-list" class="scroll replay-list"></div>
         <div id="replay-details" class="replay-details"></div>
+        <div id="replay-review" class="replay-review" role="group" aria-label="Training review" hidden>
+          <div class="replay-review-head"><span class="eyebrow">TRAINING</span><b id="replay-verdict" class="replay-verdict-label">Not reviewed</b></div>
+          <input id="replay-note" type="text" maxlength="300" placeholder="Note (optional): why keep or discard" aria-label="Review note">
+          <div class="replay-review-actions">
+            <button id="replay-keep" type="button" class="primary">Keep</button>
+            <button id="replay-discard" type="button">Discard</button>
+            <button id="replay-clear" type="button">Clear</button>
+          </div>
+          <p id="replay-review-status" class="replay-review-status" role="status"></p>
+        </div>
       </section>
       <section id="panel-settings" class="panel settings-panel" aria-label="Settings" hidden>
         <div class="settings-rail">

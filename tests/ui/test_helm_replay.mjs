@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {ReplayModel, formatSeconds, groupEpisodes, sessionDate, SPEEDS} from '../../src/robot_platform/helm/static/replay.js';
+import {ReplayModel, formatSeconds, groupEpisodes, reviewCounts, sessionDate, shownBy, SPEEDS, verdictOf} from '../../src/robot_platform/helm/static/replay.js';
 
 // Uneven gaps, as recording waits for a new frame from every camera: playback must follow the recorded times.
 const times = [0, .05, .16, .2, .3];
@@ -77,3 +77,23 @@ assert.deepEqual(groups.map(group => group.session), ['live-20261021T004507Z', '
 assert.deepEqual(groups[0].episodes.map(episode => [episode.id.slice(-1), episode.number]), [['b', 3], ['d', 2], ['c', 1]]);
 assert.deepEqual(groupEpisodes(undefined), []);
 console.log('replay model checks passed');
+
+// Training review: each episode's verdict, the counts and the list filter.
+const reviewed = [
+  {id: 'a', review: {verdict: 'keep', note: 'clean'}},
+  {id: 'b', review: {verdict: 'discard'}},
+  {id: 'c', review: {verdict: null}},  // Cleared: back to review.
+  {id: 'd'},
+  {id: 'e', review: {verdict: 'maybe'}},  // Not a verdict this page knows: still to review.
+];
+assert.deepEqual(reviewed.map(verdictOf), ['keep', 'discard', null, null, null]);
+assert.deepEqual(reviewCounts(reviewed), {keep: 1, discard: 1, unreviewed: 3});
+assert.deepEqual(reviewCounts([]), {keep: 0, discard: 0, unreviewed: 0});
+const ids = filter => reviewed.filter(episode => shownBy(filter, episode)).map(episode => episode.id);
+assert.deepEqual(ids('all'), ['a', 'b', 'c', 'd', 'e']);
+assert.deepEqual(ids(undefined), ['a', 'b', 'c', 'd', 'e']);
+assert.deepEqual(ids('keep'), ['a']);
+assert.deepEqual(ids('discard'), ['b']);
+assert.deepEqual(ids('unreviewed'), ['c', 'd', 'e']);
+console.log('replay review checks passed');
+

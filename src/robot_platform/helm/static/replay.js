@@ -129,6 +129,24 @@ export function groupEpisodes(episodes) {
     });
 }
 
+// An episode's training verdict: 'keep', 'discard', or null (not reviewed, or cleared).
+export function verdictOf(episode) {
+  const verdict = episode?.review?.verdict;
+  return verdict === 'keep' || verdict === 'discard' ? verdict : null;
+}
+
+// How many episodes are kept, discarded and still to review.
+export function reviewCounts(episodes) {
+  const counts = {keep: 0, discard: 0, unreviewed: 0};
+  for (const episode of episodes || []) counts[verdictOf(episode) ?? 'unreviewed'] += 1;
+  return counts;
+}
+
+// Whether `episode` shows under the list filter 'all', 'unreviewed', 'keep' or 'discard'.
+export function shownBy(filter, episode) {
+  return !filter || filter === 'all' || (verdictOf(episode) ?? 'unreviewed') === filter;
+}
+
 // The next animation frame, or a timer when the browser is not drawing the page (covered or minimized windows send
 // no animation frames): playback keeps time either way, since the model plays by the wall clock.
 export function nextFrame(callback, {raf = globalThis.requestAnimationFrame, timer = globalThis.setTimeout} = {}) {
@@ -343,6 +361,18 @@ export class ReplayView {
       this.model.seek(Number(elements.scrub.value), this.now());
       this.render();
     };
+    // Training review: Keep or Discard each episode; the list shows and filters by it.
+    this.filter = 'all';
+    this.reviewing = false;
+    if (elements.filter) elements.filter.onchange = () => {
+      this.filter = elements.filter.value;
+      this.renderList();
+    };
+    if (elements.keep) {
+      elements.keep.onclick = () => this.review('keep');
+      elements.discard.onclick = () => this.review('discard');
+      elements.clear.onclick = () => this.review(null);
+    }
     doc.addEventListener('keydown', event => this.onKey(event));
     globalThis.addEventListener?.('resize', () => this.render());
   }
@@ -378,15 +408,21 @@ export class ReplayView {
 
   renderList() {
     const {episodes, busy, error} = this.listing;
-    this.e.listStatus.textContent = busy || error || (episodes.length ? `${episodes.length} episodes` : 'No recorded episodes yet.');
+    const counts = reviewCounts(episodes);
+    this.e.listStatus.textContent = busy || error || (episodes.length
+      ? `${episodes.length} episodes · ${counts.keep} kept · ${counts.discard} discarded · ${counts.unreviewed} to review`
+      : 'No recorded episodes yet.');
     this.e.listStatus.dataset.tone = error ? 'bad' : busy ? 'warn' : '';
     this.e.list.replaceChildren();
+    // Numbered within the whole session first, so an episode keeps its number under any filter.
     for (const group of groupEpisodes(episodes)) {
+      const shown = group.episodes.filter(episode => shownBy(this.filter, episode));
+      if (!shown.length) continue;
       const heading = this.doc.createElement('div');
       heading.className = 'replay-session';
       heading.textContent = group.date ? group.date.toLocaleString([], {dateStyle: 'medium', timeStyle: 'short'}) : group.session;
       this.e.list.append(heading);
-      for (const episode of group.episodes) {
+      for (const episode of shown) {
         const button = this.doc.createElement('button');
         button.type = 'button';
         button.className = 'replay-episode';
@@ -410,9 +446,60 @@ export class ReplayView {
         meta.textContent = [formatSeconds(episode.duration ?? NaN), `${episode.frames} frames`,
           `${(episode.size / 1e6).toFixed(0)} MB`].join(' · ');
         button.append(title, badge, meta);
+        const verdict = verdictOf(episode);
+        if (verdict) {
+          const mark = this.doc.createElement('span');
+          mark.className = 'replay-verdict';
+          mark.dataset.verdict = verdict;
+          mark.textContent = verdict === 'keep' ? 'kept' : 'discarded';
+          if (episode.review?.note) mark.title = episode.review.note;
+          button.append(mark);
+        }
         button.onclick = () => this.load(episode.id);
         this.e.list.append(button);
       }
+    }
+    this.renderReview();
+  }
+
+  // The selected episode's training review: its verdict and note, and the Keep, Discard and Clear buttons.
+  renderReview() {
+    const {e} = this;
+    if (!e.review) return;
+    e.review.hidden = !this.episode;
+    if (!this.episode) return;
+    const entry = this.listing.episodes.find(item => item.id === this.episode.id);
+    const verdict = verdictOf(entry);
+    const complete = !!this.episode.summary?.complete && !entry?.partial;
+    e.verdict.textContent = verdict === 'keep' ? 'Kept for training' : verdict === 'discard' ? 'Discarded' : 'Not reviewed';
+    e.verdict.dataset.verdict = verdict || '';
+    if (this.doc.activeElement !== e.note && !this.reviewing) e.note.value = entry?.review?.note || '';
+    e.keep.disabled = this.reviewing || !complete;
+    e.keep.title = complete ? 'Use this episode for training' : 'Only a complete episode can be kept for training';
+    e.discard.disabled = this.reviewing;
+    e.clear.disabled = this.reviewing || !verdict;
+  }
+
+  async review(verdict) {
+    if (!this.episode || this.reviewing) return;
+    const id = this.episode.id;
+    this.reviewing = true;
+    this.renderReview();
+    this.e.reviewStatus.textContent = 'Saving the review…';
+    this.e.reviewStatus.dataset.tone = '';
+    try {
+      const path = `/api/helm/episodes/${id.split('/').map(encodeURIComponent).join('/')}/review`;
+      const {review} = await this.request(path, {verdict, note: this.e.note.value.trim()});
+      const entry = this.listing.episodes.find(item => item.id === id);
+      if (entry) entry.review = review;
+      this.e.reviewStatus.textContent = verdict === 'keep' ? 'Kept for training.'
+        : verdict === 'discard' ? 'Discarded: not used for training.' : 'Review cleared.';
+    } catch (error) {
+      this.e.reviewStatus.textContent = error.message;
+      this.e.reviewStatus.dataset.tone = 'bad';
+    } finally {
+      this.reviewing = false;
+      this.renderList();
     }
   }
 
@@ -429,6 +516,7 @@ export class ReplayView {
       return;
     }
     this.episode = {id, ...data};
+    if (this.e.reviewStatus) this.e.reviewStatus.textContent = '';
     this.model.load(data.series.t);
     this.prefetched.clear();
     const roles = ROLE_ORDER.filter(role => data.summary.roles.includes(role))
