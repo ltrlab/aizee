@@ -255,6 +255,8 @@ def socket_capture(tmp_path, request):
     roles = tuple(options.get('roles', CAMERAS) if isinstance(options, dict) else options)
     if isinstance(options, dict) and 'recording_image_size' in options:
         cfg['recording_image_size'] = options['recording_image_size']
+    if isinstance(options, dict) and 'hz' in options:
+        cfg['hz'] = options['hz']
     open_s = options.get('open_s', 0.) if isinstance(options, dict) else 0.
     cfg['camera_roles'] = list(roles)
     cfg['cameras'] = {name: cfg['cameras'][name] for name in roles}
@@ -272,11 +274,16 @@ def socket_capture(tmp_path, request):
         return writer
     capture = LiveTaskCapture(tmp_path, NAMES, cfg, clock=lambda: clock[0],
                               wall_clock=lambda: clock[0]+990., writer_factory=factory)
-    def pump(predicate, *, missing=(), receiver=True, timeout=4.):
+    due = {name: 0. for name in roles}  # Each camera's next publish, on the simulated clock.
+    def pump(predicate, *, missing=(), receiver=True, timeout=4., every=None):
+        """`every`: seconds between a camera's frames (default: one each 4 ms step)."""
         deadline = time.monotonic()+timeout
         while time.monotonic() < deadline:
             clock[0] += .004
             for name, pub in publishers.items():
+                if every is not None and clock[0] < due[name]:
+                    continue
+                due[name] = clock[0] + (every or {}).get(name, 0.)
                 if name not in missing:
                     pub.send_multipart(camera(name, clock[0]+990.-.01, frame=0,
                                               rotation=180 if name == 'head' else None))
@@ -311,6 +318,28 @@ def test_socket_worker_requires_all_cameras_and_explicit_finish(socket_capture):
     assert frame['task_state']['cameras']['head']['image_rotation_deg'] == 180
     assert frame['task_state']['cameras']['right_wrist']['image_rotation_deg'] is None
     assert not capture.snapshot()['failed']
+
+
+@pytest.mark.parametrize('socket_capture', [{'hz': 20.}, {'hz': 15.}], indirect=True)
+def test_frames_follow_the_slowest_camera_at_a_steady_rate(socket_capture):
+    # Demo 1 (live-20261021T004507Z): the head D435 publishes ~15 fps, the wrists ~50 fps, and every head frame was
+    # recorded once. But a tick that found no new head frame waited a whole period before looking again, so gaps
+    # clustered at ~50 and ~100-120 ms. A skipped tick now looks again on the loop's next poll.
+    capture, writers, pump = socket_capture
+    every = {'head': 1 / 15, 'left_wrist': .02, 'right_wrist': .02}
+    pump(lambda: capture.snapshot()['capture_ready'], every=every)
+    capture.command('start_record')
+    pump(lambda: writers and len(writers[0].frames) >= 30, every=every, timeout=20.)
+    capture.command('stop_record')
+    pump(lambda: capture.snapshot()['recording'].get('complete'), every=every)
+    frames = writers[0].frames
+    assert not capture.snapshot()['failed'] and writers[0].error is None
+    heads = [frame['camera_times']['head'] for frame in frames]
+    assert len(set(heads)) == len(heads)  # Never a repeated head frame relabelled as new.
+    gaps = np.diff([frame['task_state']['capture_admission_at'] for frame in frames])
+    head_gaps = np.diff(heads)
+    assert gaps.max() < head_gaps.max() + .025  # No period lost after a skipped tick: within a poll of the camera.
+    assert abs(gaps.mean() - head_gaps.mean()) < .005  # Locked to the head camera's own rate.
 
 
 @pytest.mark.parametrize('socket_capture', [{'open_s': .05}], indirect=True)
@@ -442,8 +471,9 @@ def test_default_capture_keeps_source_resolution_and_profile_keeps_timing_bounds
     assert validate_config(dict(config(), recording_image_size=None))['recording_image_size'] is None
     profile = validate_config(json.loads((Path(__file__).parents[2]/'config/devices/minerva-task-capture.json').read_text()))
     assert profile['recording_image_size'] == [320, 240]
+    # 15 Hz: the head camera's rate (2026-10-22); the admission bounds are unchanged.
     assert (profile['hz'], profile['max_receiver_age_s'], profile['max_camera_age_s'],
-            profile['max_camera_skew_s']) == (20., .03, .2, .02)
+            profile['max_camera_skew_s']) == (15., .03, .2, .02)
     cache = CameraCache(config())
     fill(cache)
     frames = cache.select(10.02)

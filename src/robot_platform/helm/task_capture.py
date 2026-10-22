@@ -455,11 +455,14 @@ class LiveTaskCapture:
                     self._ready(sample, now, require_commands=True)
                     frames = cache.select(sample['source_time'])
                     sources = (sample['source_time'], *(frames[n]['publisher_time'] for n in self.camera_roles))
-                    # Wait for a new acquisition from every camera; never relabel a repeated frame as new.
+                    # Wait for a new acquisition from every camera; never relabel a repeated frame as new. Until
+                    # one comes, look again on the next poll (10 ms at most, sooner when a camera publishes), not a
+                    # whole period later: the slowest camera (the head, ~15 fps) then paces a steady rate instead
+                    # of gaps of one and two periods (demo 1, 2026-10-21).
                     if last_sources is None or all(a > b for a, b in zip(sources, last_sources)):
                         self._append_frame(writer, sample, frames)
                         last_sources = sources
-                    next_frame = now+1/self.config['hz']
+                        next_frame = now+1/self.config['hz']
                 with self._lock:
                     self._last_progress = self.clock()
                     self._state['available'] = True

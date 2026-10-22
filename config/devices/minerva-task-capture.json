@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "hz": 20,
+  "hz": 15,
   "max_camera_age_s": 0.2,
   "max_receiver_age_s": 0.03,
   "max_camera_skew_s": 0.02,
@@ -28,6 +28,7 @@
     }
   },
   "notes": [
+    "hz 15 (2026-10-22): the head D435 publishes ~15 fps and every recorded frame needs a new acquisition from every camera, so 20 Hz recorded ~15 Hz in gaps of one and two 50 ms periods. 15 Hz with a skipped tick looking again on the next poll records at the head camera's steady rate. The age and skew bounds are unchanged. docs/development/DATASET_PIPELINE.md",
     "Capture runs on the Jetson beside the existing guarded receiver; these are Jetson loopback endpoints.",
     "Verify camera identity and same-host Unix timestamps before recording. A relay from another clock is not supported by this profile.",
     "Left wrist USB 05a3:9230, right wrist USB 32e4:9230; configured wrist JPEG resolution 640x480 at 30 Hz.",
