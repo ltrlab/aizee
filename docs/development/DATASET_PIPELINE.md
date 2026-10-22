@@ -61,7 +61,43 @@
   - Capture rehearsal on the Jetson (cameras only, no motion): recorded gaps cluster at ~67 ms with none over 90 ms.
   - Demo 1 exports to a LeRobot v2.1 dataset on coolserver that `LeRobotDataset` loads, and a short ACT training run starts on it.
   - The user records a first batch and marks it in Replay.
-- **Results:** (to fill)
+- **Results:**
+  - **Capture:**
+    - The reproducer (`test_frames_follow_the_slowest_camera_at_a_steady_rate`; head 15 fps, wrists 50 fps) failed at
+      20 Hz before the fix, with gaps of 52–60 and 104–112 ms, the same pattern as demo 1.
+    - After the fix it passes at 20 and 15 Hz, requiring every head frame to be recorded once.
+    - Ticks follow a grid from the first frame: scheduling each tick a period after the last admission first gave 14.1 Hz,
+      with the noticing delay adding up into skipped head frames.
+    - **Rehearsed on the Jetson** with the live cameras and no motors (capture rehearsal, staged release
+      `20261022T140850Z-0b0318a`, never activated): two 30 s recordings of 451 frames each, 15.0 Hz.
+      | | Before | After |
+      |---|---|---|
+      | Gap median | 55.6 ms | 67.0 ms |
+      | Gap p90 | 108 ms | 73.2 ms |
+      | Gap max | 124.9 ms | 77.4 ms |
+      | Camera age at admission, median | 55.7 ms | 39.5 ms |
+      - Receiver age stayed at most 17.1 ms against the 30 ms bound.
+  - **Review:** tests for the log (latest wins, a torn line, the episode file untouched), the checks (partials, notes,
+    names) and the API (token, the busy refusal).
+    - In a local Helm on demo 1's copy, Discard with a note wrote its line, and the list, badge and counts followed.
+  - **Export:**
+    - Six tests cover the span, resampling (demo 1's jitter, one dropped frame kept, a 267 ms gap refused), selection,
+      a mixed roster refused, frames and the sidecar, and a dry run without LeRobot.
+    - **Demo 1 on coolserver** (`~/aizee-sim`):
+      - It exported in 29 s to 8.4 MB, from a 435 MB episode: 966 frames at 15 fps, three AV1 videos.
+      - Its old 20 Hz capture repeats 90 rows on the grid; frames are up to 120 ms stale.
+      - LeRobot loads it (v2.1, 15 fps). On 42 sampled frames the timestamps sit on the grid and state and action equal
+        the source rows; decoded video is 32.6–35.0 dB PSNR from the stored images.
+      - **ACT:** 200 steps ran (52M parameters, 0.07 s a step at batch 8 on an RTX 3090), the loss fell from 21 to 3.0,
+        and a checkpoint was saved. One episode teaches nothing; the path works.
+    - **Training environment:** `~/aizee-sim/.venv-lerobot`, built by `~/aizee-sim/bin/setup_lerobot.sh`.
+      - Pins: lerobot `0cf8648…` (openpi's), torch 2.6.0+cu124, torchvision 0.21.0, torchcodec 0.2.1, av 14.2.0,
+        datasets 3.6.0, huggingface-hub 0.36.2, diffusers 0.35.2.
+      - The newest av (19), datasets (5) and huggingface-hub (1.x) break this LeRobot revision: av returns an
+        AVRational where it expects a fraction, and datasets a Column where it expects tensors.
+      - openpi itself locks av 17 but converts to image (not video) features.
+  - **Getting episodes off the robot:** the Jetson is not on Tailscale. Episodes reach a training machine through the
+    terminal hop, or directly once Tailscale is on the Jetson.
 - **Remaining uncertainty:**
   - The 2-DoF head will add two joints and move the head camera. Data from before and after it should not be mixed
     unless the head is held at the same pose.
