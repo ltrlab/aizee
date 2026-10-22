@@ -462,7 +462,11 @@ class LiveTaskCapture:
                     if last_sources is None or all(a > b for a, b in zip(sources, last_sources)):
                         self._append_frame(writer, sample, frames)
                         last_sources = sources
-                        next_frame = now+1/self.config['hz']
+                        # The next tick on a grid from the first frame, not a period after this admission: the few
+                        # milliseconds spent noticing each head frame never add up into a skipped one. A grid left
+                        # more than a period behind restarts from now.
+                        period = 1/self.config['hz']
+                        next_frame = next_frame+period if now-next_frame < period else now+period
                 with self._lock:
                     self._last_progress = self.clock()
                     self._state['available'] = True

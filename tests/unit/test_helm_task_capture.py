@@ -340,6 +340,9 @@ def test_frames_follow_the_slowest_camera_at_a_steady_rate(socket_capture):
     head_gaps = np.diff(heads)
     assert gaps.max() < head_gaps.max() + .025  # No period lost after a skipped tick: within a poll of the camera.
     assert abs(gaps.mean() - head_gaps.mean()) < .005  # Locked to the head camera's own rate.
+    # Every head frame recorded, none skipped: the head publishes every 68 ms on this 4 ms simulated clock, a little
+    # slower than 15 Hz, as the D435 runs a little under 15 fps.
+    assert np.allclose(head_gaps, head_gaps[0], atol=.005)
 
 
 @pytest.mark.parametrize('socket_capture', [{'open_s': .05}], indirect=True)
