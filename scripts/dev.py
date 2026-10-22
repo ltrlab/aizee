@@ -50,7 +50,7 @@ CORE = [
     'tests/unit/test_velocity_feedforward.py', 'tests/unit/test_browser_scripts.py',
     'tests/unit/test_helm_task_workflow.py', 'tests/unit/test_helm_task_capture.py',
     'tests/unit/test_helm_episodes.py', 'tests/unit/test_grip_feedback.py', 'tests/unit/test_ups.py',
-    'tests/unit/test_helm_ups.py',
+    'tests/unit/test_helm_ups.py', 'tests/unit/test_lerobot_export.py',
     'tests/unit/test_task_capture.py', 'tests/unit/test_task_scene.py',
     'tests/unit/test_capture_process.py', 'tests/contract/test_task_receiver_capture.py',
     'tests/unit/test_eval_stats.py', 'tests/unit/test_eval_report.py',
