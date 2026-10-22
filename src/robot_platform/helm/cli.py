@@ -34,7 +34,8 @@ def main(argv=None):
     parser.add_argument('--capture-profile', type=Path,
                         help='JSON camera identity/clock configuration for bimanual live task recording')
     parser.add_argument('--episodes', type=Path,
-                        help="Replay episodes from this local directory (live-*/episodes/*.hdf5) instead of Minerva's Jetson")
+                        help="Replay episodes from this local directory (live-*/episodes/*.hdf5) instead of Minerva's "
+                             'Jetson; a live replay with the loop on this PC reads them here too')
     parser.add_argument('--port', type=int, default=8760)
     args = parser.parse_args(argv)
     if not 1 <= args.port <= 65535:
@@ -76,7 +77,7 @@ def main(argv=None):
                               'visual_mode': args.sim_visual_mode or 'collision_proxy'}
             teleop = TeleopSession(session, args.teleop, runs=args.runs, leaders=leaders,
                                    target='pc' if args.sim else args.loop, simulation=simulation,
-                                   capture_profile=args.capture_profile)
+                                   capture_profile=args.capture_profile, episodes=args.episodes)
             if not args.sim:
                 from .tune import TuneSession, tune_profile
                 tune = TuneSession(session, tune_profile(args.teleop), target=args.loop)

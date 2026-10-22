@@ -463,8 +463,22 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             raise ValueError('Helm was started without a teleop profile')
 
     async def teleop_start(request):
+        """Start a teleop session; with `replay` ({episode, speed}), a recorded episode drives the arms in place of
+        the leaders (live replay). Replay's library must know the episode as complete."""
         payload = await body(request)
         need_teleop()
+        replay = payload.get('replay')
+        if replay is not None:
+            from robot_platform.teleop.episode_source import validate_request
+            from .episodes import EpisodeError
+            need_episodes()
+            name = validate_request(replay)['episode']
+            try:
+                summary = (await off_loop(lambda: episodes.episode(name)))['summary']
+            except EpisodeError as exc:  # The robot is unreachable, or (EpisodeBusy) a recording runs.
+                raise ValueError(f'The episode could not be read: {exc}') from None
+            if not summary.get('complete'):
+                raise ValueError('Only a complete episode can be replayed on the arms')
         power_ok()
         if leaders is not None and leaders.running:
             raise ValueError('Disconnect the leaders in the Leaders tab before starting teleop')
@@ -478,7 +492,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             raise ValueError('A camera change is running; wait for readback before starting teleop')
         async with camera_change:
             await take_motors()
-            teleop.start(confirm=payload.get('confirm') is True)
+            teleop.start(confirm=payload.get('confirm') is True, **({'replay': replay} if replay is not None else {}))
         return state_response()
 
     async def task_action(request):

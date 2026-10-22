@@ -306,9 +306,10 @@ class TeleopCore:
         self.open_backend = open_backend or self._open_backend
         self.open_harness = open_harness or self._open_harness
         self.phase = 'starting'
+        opening = 'reading the episode' if self.source_spec is not None else 'opening the leaders'
         self.message = (f'Checking {self._the_arm}, then starting the live receiver…' if self.live_arm
-                        else 'Loading the simulated Minerva and its window; opening the leaders…' if self.simulation
-                        else 'Loading the collision model and virtual receiver; opening the leaders…')
+                        else f'Loading the simulated Minerva and its window; {opening}…' if self.simulation
+                        else f'Loading the collision model and virtual receiver; {opening}…')
         self.derived = self.session = self.mapper = self.leaders = self.harness = self.compiler = None
         self.scales = {}
         self.fault = self.input_error = self.last_target = None
@@ -895,12 +896,12 @@ class TeleopCore:
             self._flushed = clock
 
     def task_action(self, action):
+        if action == 'start_record' and getattr(self, 'source_spec', None) is not None:
+            raise ValueError('A replay is not recorded: a replayed episode is not a human demonstration')
         if self.recording_fault:
             raise ValueError('Recording failed; stop this session before starting another episode')
         if self.task_capture is None:
             raise ValueError('Set up the task before starting this session')
-        if action == 'start_record' and getattr(self, 'source', None) is not None:
-            raise ValueError('A replay is not recorded: a replayed episode is not a human demonstration')
         state = self.session.lifecycle.state if self.session else None
         if action == 'reset' and (self.live_arm or state not in ('DISABLED', 'IDLE')):
             raise ValueError('Reset is only available with the simulated receiver disabled or idle')
@@ -1356,7 +1357,7 @@ class TeleopCore:
                                 'holding': self.session.blocked if self.session else None},
                   'task': self.task_capture.snapshot() if getattr(self, 'task_capture', None) is not None else None,
                   'grip_feedback': self._grip_status(),
-                  'replay': self.source.snapshot() if getattr(self, 'source', None) is not None else None,
+                  'replay': self._replay_view(),
                   'scheduling': self.scheduling, 'cycle_ms': None, 'joints': []}
         self._pedal_task = result['task']
         result['pedals'] = self.pedals.view(self._pedal_context(), self.clock())
@@ -1367,6 +1368,14 @@ class TeleopCore:
                                  + self.message)
         return result
 
+
+    def _replay_view(self):
+        """A replay session's episode and playback position; before its episode is read, just which one."""
+        if getattr(self, 'source', None) is not None:
+            return self.source.snapshot()
+        spec = getattr(self, 'source_spec', None)
+        return None if spec is None else dict(episode=spec['episode'], speed=spec['speed'], time_s=None,
+                                              duration_s=None, frame=None, frames=None, finished=False)
 
     def view(self):
         result = self.status_view()
@@ -1675,8 +1684,11 @@ class TeleopSession:
     TARGETS = ('jetson', 'pc')
 
     def __init__(self, helm, profile_path, *, runs, leaders=None, core_factory=None, leader_factory=None,
-                 target='pc', edge_factory=None, simulation=None, capture_profile=None):
+                 target='pc', edge_factory=None, simulation=None, capture_profile=None, episodes=None):
         self.helm, self.leaders = helm, leaders  # leaders: the Leaders workspace holding saved ranges.
+        # Helm's --episodes: a local copy of the recordings, where a replay on this PC reads its episode. A loop on
+        # the robot reads the robot's own.
+        self.episodes_root = Path(episodes).resolve() if episodes is not None else None
         self.profile_path = Path(profile_path).resolve()
         self.profile = load_profile(self.profile_path)
         self.routes_path = routes_path(runs, helm.asset_id)
@@ -1857,13 +1869,20 @@ class TeleopSession:
             bundle['receiver'] = dict(self.receiver, motor_models=motor_models(self.helm.device, ROOT))
         return bundle
 
-    def start(self, *, confirm=False):
+    def start(self, *, confirm=False, replay=None):
+        """Start a session. `replay` ({'episode': '<session>/<name>', 'speed': 0.25 | 0.5 | 1}): a recorded episode
+        drives the arms in place of the leaders (live replay, teleop.episode_source); it is never recorded."""
+        source = None
+        if replay is not None:
+            from robot_platform.teleop.episode_source import validate_request
+            source = validate_request(replay)
         with self._lock:
             if self.active:
                 raise ValueError('Teleop is already running')
             if self.simulation is not None and (self.target != 'pc' or self.receiver['mode'] != 'virtual'):
                 raise ValueError('Simulation mode needs the virtual receiver on this PC')
-            if self.task_capture_config is not None and self.receiver != {'mode': 'live', 'arm': 'both'}:
+            if (source is None and self.task_capture_config is not None
+                    and self.receiver != {'mode': 'live', 'arm': 'both'}):
                 raise ValueError('Configured task capture requires Live both arms')
             if self._tuning_lock.locked():
                 raise ValueError('Wait for the tuning operation before starting')
@@ -1875,17 +1894,24 @@ class TeleopSession:
                                  'reach and the arms hang in their reference pose')
             if self.helm.saved_limits is None:
                 raise ValueError('Save joint limits for every motor in the Limits workspace first')
-            if self.leaders is not None:
+            if self.leaders is not None and source is None:
                 missing = self.leaders.missing(self.profile['routes'])
                 if missing:
                     raise ValueError('Sweep and save the leader ranges in the Leaders tab first; missing: '
                                      + ', '.join(missing))
             local = self.target == 'pc' or self.core_factory is not None
+            if source is not None and self.target == 'pc' and self.episodes_root is None:
+                raise ValueError("A replay on this PC reads its episode from a local copy (start Helm with "
+                                 "--episodes); or run the loop on Minerva's Jetson")
             if self.manual:
                 self.manual.new_session()
             if self.settings:
                 self.settings.new_session()  # A draft made before Start cannot be applied to this session.
             bundle = self._bundle() if local else self._edge_bundle()
+            if source is not None:
+                # The episode on this PC from Helm's --episodes; on the robot from its own recordings.
+                bundle['source'] = dict(source, root=str(self.episodes_root) if local and self.episodes_root else None)
+                bundle.pop('task_capture', None)  # A replay is never recorded: no capture process.
             if local:
                 context = multiprocessing.get_context('spawn')
                 # One-way pipes: commands to the loop, state back from it.
@@ -1897,9 +1923,10 @@ class TeleopSession:
                 else:
                     worker = threading.Thread(target=run_loop, daemon=True, name='helm-teleop',
                                               args=(command_reader, view_writer, self.core_factory(bundle)))
-                message = ('Starting: loading the simulated Minerva and its window; opening the leaders…'
+                opening = 'reading the episode' if source is not None else 'opening the leaders'
+                message = (f'Starting: loading the simulated Minerva and its window; {opening}…'
                            if 'simulation' in bundle else
-                           'Starting: loading the collision model and virtual receiver; opening the leaders…')
+                           f'Starting: loading the collision model and virtual receiver; {opening}…')
             else:
                 from .edge import EdgeWorker
                 leader_profile = json.loads((self.profile_path.parent / self.profile['leader_profile'])
@@ -1907,15 +1934,20 @@ class TeleopSession:
                 worker = (self.edge_factory or EdgeWorker)(bundle, leader_profile, base_view=dict(self._view),
                                                            real_leaders=self.leader_factory is None,
                                                            address=getattr(self.helm, 'address', None),
-                                                           evidence=self.link_evidence)
+                                                           evidence=self.link_evidence,
+                                                           **({'name': 'The replay'} if source else {}))
                 command_writer, view_reader = worker.commands, worker.views
                 message = ("Starting on Minerva's Jetson: connecting, loading the collision model and virtual "
-                           'receiver, linking the leaders…') if self.receiver['mode'] == 'virtual' else (
+                           f"receiver, {'reading the episode' if source else 'linking the leaders'}…"
+                           ) if self.receiver['mode'] == 'virtual' else (
                     ('Starting LIVE on both arms: checking they are still and in their reference pose, then '
                      'starting the receiver (the motors stay disabled until Idle)…') if self.receiver['arm'] == 'both'
                     else f"Starting LIVE on the {self.receiver['arm']} arm: checking it is still and in its reference "
                     'pose, then starting the receiver (its motors stay disabled until Idle)…')
-            self._view = dict(self._view, phase='starting', fault=None, joints=[], message=message)
+            # A replay session says which episode from the start; the loop's views then carry its playback.
+            pending = None if source is None else dict(episode=source['episode'], speed=source['speed'], time_s=None,
+                                                       duration_s=None, frame=None, frames=None, finished=False)
+            self._view = dict(self._view, phase='starting', fault=None, joints=[], message=message, replay=pending)
             self._guide = None
             self._conn, self._views, self._worker = command_writer, view_reader, worker
             worker.start()

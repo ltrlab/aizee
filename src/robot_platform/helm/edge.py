@@ -11,7 +11,9 @@ and the zero arrive as frames on stdin; views and replies leave on stdout.
 On the PC, EdgeWorker stands in for the loop process in TeleopSession: it opens
 the pinned SSH session, serves the leaders over the link from their own
 responsive process (LeaderLinkProcess) and relays frames. A servo sweep
-(bundle kind 'tune', helm.tune) runs the same way with no leader link.
+(bundle kind 'tune', helm.tune) and a live replay (a bundle with a `source`:
+an episode recorded on the robot drives the arms) run the same way with no
+leader link.
 """
 from datetime import datetime, timezone
 import json
@@ -189,11 +191,13 @@ def serve(start, commands, views, *, root=ROOT, core_factory=None, scheduling=No
         views.close()
         return 1
     tune = (start.get('bundle') or {}).get('kind') == 'tune'
+    # Live replay: a recorded episode gives the loop its target in place of the leaders (teleop.episode_source).
+    replay = (start.get('bundle') or {}).get('source') is not None
     # A Helm that beats says how long a silence ends the session; an older one never beats.
     silence = start.get('silence_s')
     silence = silence if type(silence) in (int, float) and silence > 0 else None
     try:
-        bundle, link = prepare(start, root, leaders=False) if tune else prepare(start, root)
+        bundle, link = prepare(start, root, leaders=False) if tune or replay else prepare(start, root)
     except Exception as exc:
         views.send(['error', str(exc) or type(exc).__name__])
         views.close()
@@ -206,13 +210,20 @@ def serve(start, commands, views, *, root=ROOT, core_factory=None, scheduling=No
             core.scheduling['loop'] = scheduling
         run_tune_loop(commands, views, core, silence_s=silence)
         return 0
-    views.send(['link', link.address[1]])
+    if replay:
+        # An episode recorded on this computer (~/minerva/evidence), never a directory Helm names.
+        if isinstance(bundle['source'], dict):
+            bundle['source'] = dict(bundle['source'], root=None)
+        views.send(['link', 0])  # No leaders: the episode gives the target.
+        core = (core_factory or TeleopCore)(bundle)
+    else:
+        views.send(['link', link.address[1]])
 
-    def open_leaders(_profile):
-        link.wait_for_pc(10.)
-        return link
+        def open_leaders(_profile):
+            link.wait_for_pc(10.)
+            return link
 
-    core = (core_factory or TeleopCore)(bundle, open_leaders=open_leaders)
+        core = (core_factory or TeleopCore)(bundle, open_leaders=open_leaders)
     if scheduling is not None:
         core.scheduling['loop'] = scheduling
     run_loop(commands, views, core, silence_s=silence)
