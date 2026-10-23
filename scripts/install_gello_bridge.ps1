@@ -113,7 +113,8 @@ if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
 # Stopping the task ends its runner, not the bridge it started: end every bridge (and leader link) run from this
 # folder too, so only one ever holds the leader arms.
 $running = { @(Get-CimInstance Win32_Process | Where-Object {
-    $_.CommandLine -and $_.CommandLine.Contains($base) -and ($_.CommandLine -match 'gello_bridge|multiprocessing-fork|Run-GelloBridge') }) }
+    $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Contains($base) -and
+    ($_.CommandLine -match '-m robot_platform\.teleop\.gello_bridge|--multiprocessing-fork|Run-GelloBridge\.ps1') }) }
 foreach ($process in (& $running)) { Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue }
 foreach ($n in 1..50) { if (-not (& $running)) { break }; Start-Sleep -Milliseconds 200 }
 if (& $running) { throw 'An earlier bridge is still running; end it before installing' }
