@@ -110,6 +110,13 @@ if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
     Stop-ScheduledTask -TaskName $taskName
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
 }
+# Stopping the task ends its runner, not the bridge it started: end every bridge (and leader link) run from this
+# folder too, so only one ever holds the leader arms.
+$running = { @(Get-CimInstance Win32_Process | Where-Object {
+    $_.CommandLine -and $_.CommandLine.Contains($base) -and ($_.CommandLine -match 'gello_bridge|multiprocessing-fork|Run-GelloBridge') }) }
+foreach ($process in (& $running)) { Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue }
+foreach ($n in 1..50) { if (-not (& $running)) { break }; Start-Sleep -Milliseconds 200 }
+if (& $running) { throw 'An earlier bridge is still running; end it before installing' }
 # Each install starts a fresh log (the bridge writes UTF-8); the last one is kept beside it.
 if (Test-Path -LiteralPath $log) { Move-Item -LiteralPath $log -Destination "$log.$(Get-Date -Format yyyyMMddTHHmmss)" }
 $exe = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
