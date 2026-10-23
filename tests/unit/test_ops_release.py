@@ -75,7 +75,9 @@ def test_a_built_release_is_small_complete_and_verifiable(tmp_path):
             'config/devices/minerva-teleop.json', 'urdf/minerva/minerva.urdf',
             # Helm on Minerva: its page, the 3D viewer and its dependency lock; never the CAD meshes.
             'src/robot_platform/helm/static/index.html', 'src/robot_platform/helm/static/helm.js',
-            'src/robot_platform/viewer/static/vendor/three.module.js', 'requirements/helm-robot.lock'} <= keys
+            'src/robot_platform/viewer/static/vendor/three.module.js', 'requirements/helm-robot.lock',
+            # The buses' motor models, which Helm's direct tuning reads.
+            'config/hardware_minerva_left.yaml', 'config/hardware_minerva_right.yaml'} <= keys
     assert not any(key.endswith(('.stl', '.glb', '.gltf')) for key in keys)
     assert not any(key.endswith('.py') and '/static/' in key for key in keys)
     assert manifest['verified']['meshes'] > 0 and archive.stat().st_size < 10e6

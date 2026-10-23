@@ -66,6 +66,12 @@ def collect(root=ROOT):
     files[HELM_LOCK] = root / HELM_LOCK
     for path in sorted((root / 'config/devices').glob('*.json')):
         files[_key(path, root)] = path
+    # Each bus's hardware profile: Helm's direct tuning and settings read the motor models from them
+    # (control.commissioning.motor_models).
+    plan = json.loads((root / CALIBRATION).read_text(encoding='utf-8'))
+    device = json.loads(((root / CALIBRATION).parent / plan['device']).read_text(encoding='utf-8'))
+    for bus in device.get('buses', []):
+        files[_key(root / bus['hardware_profile'], root)] = root / bus['hardware_profile']
     profile = ModelProfile.load(root / MODEL)
     for path in (root / MODEL, profile.urdf, profile.collision_model, profile.limit_review):
         files[_key(path, root)] = Path(path)
