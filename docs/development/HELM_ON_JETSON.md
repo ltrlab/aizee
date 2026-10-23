@@ -150,6 +150,13 @@
       - the locks pinned to the development versions.
     - `tests/unit/test_ops_release.py`: a built release has the page, the viewer, the lock and the buses' hardware
       profiles, and no meshes.
+  - **Gate:** `scripts/dev.py check --offline` passed on `a354600`: 1295 tests, none skipped
+    (`build/dev-check/20261023T042859Z-e9f28e1e/report.json`). The first run, on `5a4a4a9`, failed one test:
+    Check's servo-path stub took two arguments, and Check now passes the operator folder too.
+  - **Bridge installer:** `scripts/install_gello_bridge.ps1` was run on this laptop in a sandbox folder, without
+    its task. It checked the package, built the hash-locked environment (pip check clean), made the key and
+    restricted it, and wrote the runner. `Set-Acl` had failed for an ordinary user, so the key now goes through
+    `icacls`.
   - **Rehearsed on the Jetson, 2026-10-23, nothing installed:**
     - **Setup:**
       - The release (`fe4ad93`), the wheels and the meshes went under `/tmp/helm-rehearsal`, with `HOME` pointed
