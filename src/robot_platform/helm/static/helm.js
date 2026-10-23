@@ -307,8 +307,7 @@ function renderAccess(state) {
   const replaced = (state.operator_files?.notices || []).filter(notice => notice.kind === 'replaced');
   $('robot-pill').textContent = replaced.length ? 'On Minerva · saved files replaced' : 'On Minerva';
   $('robot-pill').dataset.tone = replaced.length ? 'warn' : '';
-  $('robot-pill').title = replaced.length ? replaced.map(notice => notice.message).join('
-')
+  $('robot-pill').title = replaced.length ? replaced.map(notice => notice.message).join('\n')
     : "Helm runs on Minerva's Jetson";
   $('via').hidden = onRobot;
   const bridge = state.bridge, bridgePill = $('bridge-pill');
