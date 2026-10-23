@@ -250,6 +250,7 @@ function render(state) {
   if (['fault', 'connecting', 'reconnecting', 'waiting'].includes(feed.state)) [banner, bad] = [feed.message, feed.state === 'fault'];
   else if (limits.saved_error) [banner, bad] = [`Saved limits were not loaded: ${limits.saved_error}`, true];
   else if (session.stale_lock_pid && !lockNoticeShown) banner = `Took over a calibration lock left by exited process ${session.stale_lock_pid}.`;
+  else if (replacedFiles(state)) banner = replacedFiles(state);
   $('banner').hidden = !banner;
   $('banner').textContent = banner || '';
   $('banner').className = bad ? 'bad' : '';
@@ -297,37 +298,41 @@ function render(state) {
   renderPedals();
 }
 
-// Helm on Minerva (helm --on-robot): where it runs, the GELLO bridge from the operator PC, and which device is in
-// control. Only the device in control changes anything; any logged-in device can still Disable or Shut down.
+// Helm on Minerva (helm --on-robot): the GELLO bridge from the operator PC, and which device is in control. Only the
+// device in control changes anything; any logged-in device can still Disable or Shut down. They take the place of the
+// Via choice and the mode pill (on Minerva, Helm reaches the robot one way and always in robot mode), so the header
+// still fits 1280 px; the details are in their tooltips.
 let claimArmed = 0;
 function renderAccess(state) {
   const onRobot = state.robot?.connection === 'robot';
-  $('robot-pill').hidden = !onRobot;
-  // A release that replaced a file the operator had saved on Minerva (helm.operator_files): the old copy is kept.
-  const replaced = (state.operator_files?.notices || []).filter(notice => notice.kind === 'replaced');
-  $('robot-pill').textContent = replaced.length ? 'On Minerva · saved files replaced' : 'On Minerva';
-  $('robot-pill').dataset.tone = replaced.length ? 'warn' : '';
-  $('robot-pill').title = replaced.length ? replaced.map(notice => notice.message).join('\n')
-    : "Helm runs on Minerva's Jetson";
-  $('via').hidden = onRobot;
+  $('via').hidden = $('mode-pill').hidden = onRobot;
   const bridge = state.bridge, bridgePill = $('bridge-pill');
   bridgePill.hidden = !bridge;
   if (bridge) {
-    bridgePill.textContent = bridge.connected ? `GELLO · ${bridge.host || 'bridge'}` : 'GELLO · not connected';
+    bridgePill.textContent = bridge.connected ? 'GELLO' : 'No GELLO';
     bridgePill.dataset.tone = bridge.connected ? 'good' : 'warn';
     bridgePill.title = bridge.connected
       ? `The GELLO bridge on ${bridge.host}${bridge.peer ? ` (${bridge.peer})` : ''} serves the leader arms over the tether`
-      : 'Start the GELLO bridge on the PC the leader arms are plugged into; replay, policies and Check work without it';
+      : 'The GELLO bridge is not connected: start it on the PC the leader arms are plugged into. Replay, policies '
+        + 'and Check work without it.';
   }
   const access = state.access || {}, pill = $('access-pill'), claim = $('access-claim');
-  pill.hidden = claim.hidden = !access.enabled;
+  pill.hidden = !access.enabled || !access.in_control;
+  claim.hidden = !access.enabled || access.in_control;
   if (!access.enabled) return;
-  pill.textContent = access.in_control ? `In control · ${access.device}`
-    : `View only · ${access.holder ? `${access.holder.device} has control` : 'no device has control'}`;
-  pill.dataset.tone = access.in_control ? 'good' : 'warn';
-  claim.hidden = access.in_control;
-  if (performance.now() > claimArmed) claim.textContent = 'Take control';
+  pill.textContent = 'In control';
+  pill.dataset.tone = 'good';
+  pill.title = `This device (${access.device}) is in control of Helm`;
+  claim.title = `View only: ${access.holder ? `${access.holder.device} has control` : 'no device has control'}. `
+    + 'Any device can still Disable or Shut down.';
+  if (performance.now() > claimArmed) claim.textContent = 'View only · Take control';
   document.body.dataset.viewOnly = String(!access.in_control);
+}
+// A release that replaced files the operator had saved on Minerva (helm.operator_files): the banner says where the
+// saved copies are kept.
+function replacedFiles(state) {
+  return (state.operator_files?.notices || []).filter(notice => notice.kind === 'replaced')
+    .map(notice => notice.message).join(' ');
 }
 $('access-claim').onclick = () => {
   const holder = last?.access?.holder;

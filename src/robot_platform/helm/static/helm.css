@@ -377,8 +377,7 @@ body[data-touch=on] .grip-switch input{width:24px;height:24px}
 @media (prefers-reduced-motion:reduce){#ups-banner[data-tone=bad]{animation:none}}
 /* Helm on Minerva: where it runs, the GELLO bridge, and which device is in control (their own tones, not the feed's). */
 .pill[hidden],#via[hidden],#access-claim[hidden]{display:none}
-#robot-pill{color:var(--accent)!important;border-color:#2f4f6b!important}
-#robot-pill[data-tone=warn]{color:var(--warn)!important;border-color:#6d5a37!important}
+#access-claim{font-size:12px;padding:6px 12px;border-radius:20px;color:var(--warn);border-color:#6d5a37;white-space:nowrap}
 #bridge-pill,#access-pill{color:var(--muted)!important;border-color:#3a3f46!important}
 #bridge-pill[data-tone=good],#access-pill[data-tone=good]{color:var(--good)!important;border-color:#3c6e55!important}
 #bridge-pill[data-tone=warn],#access-pill[data-tone=warn]{color:var(--warn)!important;border-color:#6d5a37!important}
