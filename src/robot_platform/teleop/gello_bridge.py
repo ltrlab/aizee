@@ -28,7 +28,7 @@ import traceback
 from robot_platform.helm.bridge import BEAT_S, RELAY_COMMAND, SILENCE_S, VERSION
 
 RECONNECT_S = (1., 2., 5., 10.)
-# main's --log: the logon task's log file. Windows PowerShell turns each redirected stderr line into an error record,
+# main's --log: the bridge task's log file. Windows PowerShell turns each redirected stderr line into an error record,
 # so the task writes its own file instead.
 LOG_FILE = None
 
@@ -266,7 +266,7 @@ def main(argv=None):
     parser.add_argument('--robot', default=TETHER, help=f"The Jetson's tether address (default {TETHER})")
     parser.add_argument('--profile', default=str(DEFAULT_PROFILE), help='The calibration profile (robot identity)')
     parser.add_argument('--synthetic', action='store_true', help='Serve synthetic leaders instead of the USB arms')
-    parser.add_argument('--log', help='Also append the log, and library warnings, to this file (the logon task does)')
+    parser.add_argument('--log', help='Also append the log, and library warnings, to this file (the bridge task does)')
     args = parser.parse_args(argv)
     global LOG_FILE
     LOG_FILE = args.log

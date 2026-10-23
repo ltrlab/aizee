@@ -9,8 +9,8 @@ Run as the operator, not as administrator, on the PC the GELLO leader arms and t
 
 It checks every file of the package against its manifest, unpacks it into %LOCALAPPDATA%\Minerva, installs the
 hash-locked dependencies (requirements\gello-bridge.lock) into a per-lock environment, makes the bridge's SSH key once,
-and registers the logon task Minerva-GELLO-Bridge, which keeps the bridge running and restarts it if it stops. Running
-it again with a newer package moves the bridge to it.
+and registers the task Minerva-GELLO-Bridge: the bridge without a window from startup, started again within a
+minute if it ever stops. Running it again with a newer package moves the bridge to it.
 
 The bridge's key does nothing until the Jetson authorizes it, for Helm's relay only and over the tether only:
     cd ~/minerva/current && PYTHONPATH=src python3 -m robot_platform.ops.helm_service authorize-bridge --name <pc> --key "<the public key it prints>"
@@ -105,7 +105,9 @@ while (`$true) {
 }
 "@ | Set-Content -LiteralPath $runner -Encoding UTF8
 
-# The logon task: started now and at each logon, restarted when it stops.
+# The task, outside the desktop session: as this user without a window (S4U), from startup, and started again within a
+# minute whenever it is not running (a watchdog trigger). In the desktop session the bridge died with the window
+# Windows 11 showed for it or a console event (0xC000013A), which Task Scheduler's restart does not count as a failure.
 if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
     Stop-ScheduledTask -TaskName $taskName
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
@@ -122,10 +124,12 @@ if (& $running) { throw 'An earlier bridge is still running; end it before insta
 if (Test-Path -LiteralPath $log) { Move-Item -LiteralPath $log -Destination "$log.$(Get-Date -Format yyyyMMddTHHmmss)" }
 $exe = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $action = New-ScheduledTaskAction -Execute $exe -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$runner`"" -WorkingDirectory $base
-$trigger = New-ScheduledTaskTrigger -AtLogOn -User $identity
-$principal = New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited
-$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description 'The GELLO bridge for Helm on Minerva: the leader arms and their link over the tether' | Out-Null
+$watchdog = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1)
+$watchdog.Repetition.Duration = ''  # Repeat indefinitely.
+$triggers = @((New-ScheduledTaskTrigger -AtStartup), $watchdog)
+$principal = New-ScheduledTaskPrincipal -UserId $identity -LogonType S4U -RunLevel Limited
+$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $triggers -Principal $principal -Settings $settings -Description 'The GELLO bridge for Helm on Minerva: the leader arms and their link over the tether' | Out-Null
 Start-ScheduledTask -TaskName $taskName
 Start-Sleep -Seconds 5
 

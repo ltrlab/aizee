@@ -26,7 +26,7 @@
       - The robot connection is `robot`, and it counts as wired, like the tether (`helm.session.WIRED`).
     - **It activates the release it runs from**, like the loop it starts. The release's verified mesh digests and
       native paths let the model load without the CAD files.
-  - **The leader arms stay on the operator PC.** Its GELLO bridge (`teleop.gello_bridge`) runs as a logon task.
+  - **The leader arms stay on the operator PC.** Its GELLO bridge (`teleop.gello_bridge`) runs as a task without a window, from startup.
     - **The bridge connection:**
       - The bridge holds one pinned SSH session over the tether.
       - Its key may run only Helm's relay, as a forced command, and only from the tether network `10.42.0.0/24`.
