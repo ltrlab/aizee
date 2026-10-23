@@ -15,6 +15,9 @@ def deploy_main(argv=None):
     parser.add_argument('--address', default=TETHER, help=f'robot address (default: the tether, {TETHER})')
     parser.add_argument('--keep', type=int, default=3, help='releases to keep on the robot (default 3)')
     parser.add_argument('--build-only', type=Path, metavar='DIR', help='write the release archive to DIR and stop')
+    parser.add_argument('--no-helm', action='store_true',
+                        help="leave Helm on Minerva on the old release (default: when it is installed there, bring its "
+                             'dependencies and meshes and restart it, unless a session runs)')
     args = parser.parse_args(argv)
     from .release import build
     with tempfile.TemporaryDirectory() as scratch:
@@ -30,9 +33,18 @@ def deploy_main(argv=None):
         client = connect(address=args.address)
         try:
             release_id = deploy(client, manifest, archive, keep=args.keep)
+            print(f'Minerva now runs release {release_id}.', flush=True)
+            if not args.no_helm:
+                # Helm on Minerva runs the release it started from: restart it on this one (ops.helm_robot).
+                from .helm_robot import update
+                try:
+                    update(client)
+                except (RuntimeError, OSError) as exc:
+                    print(f'Helm on Minerva was not updated: {exc}\nWhen no session runs: '
+                          'python -m robot_platform.ops.helm_robot update', file=sys.stderr)
+                    return 1
         finally:
             client.close()
-    print(f'Minerva now runs release {release_id}.')
     return 0
 
 

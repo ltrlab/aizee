@@ -1,8 +1,9 @@
 """Robot releases: a small, verified, immutable bundle of what the robot runs.
 
-A release holds the Python platform (without web assets), the device profiles,
-the robot model's core files and the cross-built ARM64 binaries, plus a
-manifest with the sha256 of every file. CAD meshes stay on the build PC: the
+A release holds the Python platform with Helm's page (Helm on Minerva serves
+it, ops.helm_service) and that Helm's dependency lock, the device profiles, the
+robot model's core files and the cross-built ARM64 binaries, plus a manifest
+with the sha256 of every file. CAD meshes stay on the build PC: the
 build checks the collision proxies and the limit review against them and
 records their digests (assets.lock.json), so the robot loads kinematics and
 proxies without them. A release never changes after it is built.
@@ -24,6 +25,7 @@ TARGET = 'aarch64-unknown-linux-gnu'
 MODEL = 'urdf/minerva/model.json'
 CALIBRATION = 'config/devices/minerva-joint-calibration.json'
 MANIFEST, LOCK = 'release.json', 'assets.lock.json'
+HELM_LOCK = 'requirements/helm-robot.lock'  # Helm on Minerva's own dependencies (ops.helm_service).
 BINARIES = ('guarded_controller', 'control_harness', 'motor_watchdog_trial')
 LIBRARY = 'librobot_collision.so'
 # Each artifact is only as stale as its own crate: binaries come from control_core,
@@ -56,10 +58,12 @@ def collect(root=ROOT):
     from robot_platform.models import ModelProfile
     root = Path(root)
     files = {}
-    for path in sorted((root / 'src/robot_platform').rglob('*.py')):
+    for path in sorted((root / 'src/robot_platform').rglob('*')):
         parts = path.relative_to(root / 'src/robot_platform').parts
-        if '__pycache__' not in parts and 'static' not in parts:
+        # The page and the 3D viewer are Helm on Minerva's; meshes stay here (ops.helm_robot converts them).
+        if path.is_file() and '__pycache__' not in parts and (path.suffix == '.py') != ('static' in parts):
             files[_key(path, root)] = path
+    files[HELM_LOCK] = root / HELM_LOCK
     for path in sorted((root / 'config/devices').glob('*.json')):
         files[_key(path, root)] = path
     profile = ModelProfile.load(root / MODEL)

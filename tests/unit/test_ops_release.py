@@ -72,8 +72,12 @@ def test_a_built_release_is_small_complete_and_verifiable(tmp_path):
     assert 'mujoco' not in manifest['requires']['modules']  # Task simulation runs on the host.
     keys = set(manifest['files'])
     assert {'bin/guarded_controller', 'bin/control_harness', 'lib/librobot_collision.so', LOCK,
-            'config/devices/minerva-teleop.json', 'urdf/minerva/minerva.urdf'} <= keys
-    assert not any(key.endswith(('.stl', '.glb', '.gltf', '.js', '.css', '.html')) for key in keys)
+            'config/devices/minerva-teleop.json', 'urdf/minerva/minerva.urdf',
+            # Helm on Minerva: its page, the 3D viewer and its dependency lock; never the CAD meshes.
+            'src/robot_platform/helm/static/index.html', 'src/robot_platform/helm/static/helm.js',
+            'src/robot_platform/viewer/static/vendor/three.module.js', 'requirements/helm-robot.lock'} <= keys
+    assert not any(key.endswith(('.stl', '.glb', '.gltf')) for key in keys)
+    assert not any(key.endswith('.py') and '/static/' in key for key in keys)
     assert manifest['verified']['meshes'] > 0 and archive.stat().st_size < 10e6
     with tarfile.open(archive) as tar:
         tar.extractall(tmp_path / 'release', filter='data')

@@ -37,6 +37,9 @@ BEAT_S = 1.
 LINK_TIMEOUT_S = 20.  # Opening the leader USB and the link process takes a few seconds on Windows.
 LEADER_STALE_S = .5
 TOKEN_FILE = Path.home() / 'minerva' / 'run' / 'helm-bridge-token'
+# The bridge key's forced command in the Jetson's authorized_keys (ops.helm_service authorize-bridge); the bridge
+# asks for the same, so it also works where the key is not restricted (tests).
+RELAY_COMMAND = 'cd ~/minerva/current && PYTHONPATH=src exec python3 -u -m robot_platform.helm.bridge relay'
 
 
 class BridgeError(RuntimeError):

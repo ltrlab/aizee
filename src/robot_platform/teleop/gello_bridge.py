@@ -23,9 +23,8 @@ import sys
 import threading
 import time
 
-from robot_platform.helm.bridge import BEAT_S, SILENCE_S, VERSION
+from robot_platform.helm.bridge import BEAT_S, RELAY_COMMAND, SILENCE_S, VERSION
 
-RELAY = 'cd ~/minerva/current && PYTHONPATH=src exec python3 -u -m robot_platform.helm.bridge relay'
 RECONNECT_S = (1., 2., 5., 10.)
 
 
@@ -218,7 +217,7 @@ def ssh_relay(profile, robot, key):
     try:
         transport = client.get_transport()
         transport.set_keepalive(2)
-        stdin, stdout, _stderr = client.exec_command(RELAY)
+        stdin, stdout, _stderr = client.exec_command(RELAY_COMMAND)
         stdout.channel.settimeout(None)
     except BaseException:
         client.close()
