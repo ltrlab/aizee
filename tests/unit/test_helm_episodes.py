@@ -373,3 +373,33 @@ def test_the_api_reviews_an_episode_and_waits_while_a_recording_runs(reviewed, h
     finally:
         library.close()
     assert Episodes(root).reviews(root / session)[name]['verdict'] == 'keep'  # The refused discard wrote nothing.
+
+
+def test_the_worker_lists_the_exported_policies_beside_the_episodes(root, tmp_path, helm):
+    """Policy mode's choices: each directory of ~/minerva/policies with a minerva_policy.json, newest first."""
+    import json
+    import time
+    from aiohttp.test_utils import TestClient, TestServer
+    policies = root.parent / 'policies'
+    for name, meta in (('act-001', {'policy_type': 'act', 'fps': 15., 'camera_roles': ['head'], 'joints': ['a', 'b'],
+                                    'chunk_size': 100}), ('broken', None)):
+        (policies / name).mkdir(parents=True, exist_ok=True)
+        (policies / name / 'minerva_policy.json').write_text('{' if meta is None else json.dumps(meta), encoding='utf-8')
+        time.sleep(.02)
+    (policies / 'act-001' / 'policy.pt').write_bytes(b'0' * 2_000_000)
+    (policies / 'notes').mkdir(exist_ok=True)  # No description: not a policy.
+    library = EpisodeLibrary(local_transport(root))
+    try:
+        listed = library.policies()
+        assert listed['error'] is None and [row['name'] for row in listed['policies']] == ['broken', 'act-001']
+        broken, act = listed['policies']
+        assert broken['error'] and act['error'] is None
+        assert (act['policy_type'], act['fps'], act['camera_roles'], act['joints'], act['size_mb']) == ('act', 15., ['head'], 2, 2.)
+
+        async def scenario():
+            async with TestClient(TestServer(create_app(helm, Link(), token='secret', episodes=library))) as client:
+                response = await client.get('/api/helm/policies')
+                assert response.status == 200 and len((await response.json())['policies']) == 2
+        asyncio.run(scenario())
+    finally:
+        library.close()

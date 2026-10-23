@@ -539,10 +539,15 @@ class TeleopCore:
             self._manual_state = selected
         fit_motor_ranges(derived['config']['joints'], (self.bundle.get('receiver') or {}).get('motor_models') or {})
         if self._source_kind == 'policy':
-            # Loading a checkpoint onto the GPU takes seconds: it loads while the receiver opens.
+            # Loading a checkpoint onto the GPU takes seconds: it loads while the receiver opens. On the robot it
+            # reads the cameras as the task capture does (the capture profile Helm sends as policy_cameras).
+            cameras = None
+            if self.bundle.get('policy_cameras') is not None:
+                from robot_platform.teleop.policy_worker import CaptureCameras
+                cameras = CaptureCameras(self.bundle['policy_cameras'])
             self.policy_worker = self.open_policy(self.source_spec['policy'],
                                                   [joint['name'] for joint in derived['config']['joints']],
-                                                  policy_context(derived, self.period_s))
+                                                  policy_context(derived, self.period_s), cameras=cameras)
             self._closers.append(self.policy_worker.close)
         if self.source_spec is None:
             base = Path(self.bundle['teleop_profile']).resolve().parent
@@ -674,9 +679,9 @@ class TeleopCore:
         spec = getattr(self, 'source_spec', None)
         return spec['kind'] if spec is not None else None
 
-    def _open_policy(self, policy, names, context):
+    def _open_policy(self, policy, names, context, cameras=None):
         from robot_platform.teleop.policy_worker import PolicyWorker
-        return PolicyWorker(policy, names, context=context)
+        return PolicyWorker(policy, names, context=context, cameras=cameras)
 
     def _open_source(self, names):
         """The episode to replay, for this receiver's joints: on the robot from ~/minerva/evidence, on this PC from
@@ -1972,13 +1977,20 @@ class TeleopSession:
             bundle['receiver'] = dict(self.receiver, motor_models=motor_models(self.helm.device, ROOT))
         return bundle
 
-    def start(self, *, confirm=False, replay=None):
+    def start(self, *, confirm=False, replay=None, policy=None):
         """Start a session. `replay` ({'episode': '<session>/<name>', 'speed': 0.25 | 0.5 | 1}): a recorded episode
-        drives the arms in place of the leaders (live replay, teleop.episode_source); it is never recorded."""
+        drives the arms in place of the leaders (live replay, teleop.episode_source); it is never recorded.
+        `policy` ({'policy': spec}): a policy drives them (policy mode, teleop.policy_source); on the arms only a
+        trained checkpoint or hold_still."""
         source = None
+        if replay is not None and policy is not None:
+            raise ValueError('A session replays an episode or runs a policy, not both')
         if replay is not None:
             from robot_platform.teleop.episode_source import validate_request
             source = validate_request(replay)
+        if policy is not None:
+            from robot_platform.teleop.policy_source import validate_request
+            source = validate_request(policy, live=self.receiver['mode'] == 'live')
         with self._lock:
             if self.active:
                 raise ValueError('Teleop is already running')
@@ -2003,7 +2015,7 @@ class TeleopSession:
                     raise ValueError('Sweep and save the leader ranges in the Leaders tab first; missing: '
                                      + ', '.join(missing))
             local = self.target == 'pc' or self.core_factory is not None
-            if source is not None and self.target == 'pc' and self.episodes_root is None:
+            if source is not None and source['kind'] == 'episode' and self.target == 'pc' and self.episodes_root is None:
                 raise ValueError("A replay on this PC reads its episode from a local copy (start Helm with "
                                  "--episodes); or run the loop on Minerva's Jetson")
             if self.manual:
@@ -2011,10 +2023,17 @@ class TeleopSession:
             if self.settings:
                 self.settings.new_session()  # A draft made before Start cannot be applied to this session.
             bundle = self._bundle() if local else self._edge_bundle()
-            if source is not None:
+            if source is not None and source['kind'] == 'episode':
                 # The episode on this PC from Helm's --episodes; on the robot from its own recordings.
                 bundle['source'] = dict(source, root=str(self.episodes_root) if local and self.episodes_root else None)
                 bundle.pop('task_capture', None)  # A replay is never recorded: no capture process.
+            elif source is not None:
+                bundle['source'] = dict(source)
+                bundle.pop('task_capture', None)  # Not recorded yet; the cameras feed the policy instead.
+                if not local and self.capture_profile is not None:
+                    from .task_capture import validate_config
+                    bundle['policy_cameras'] = validate_config(
+                        json.loads(self.capture_profile.read_text(encoding='utf-8')))
             if local:
                 context = multiprocessing.get_context('spawn')
                 # One-way pipes: commands to the loop, state back from it.
@@ -2026,7 +2045,8 @@ class TeleopSession:
                 else:
                     worker = threading.Thread(target=run_loop, daemon=True, name='helm-teleop',
                                               args=(command_reader, view_writer, self.core_factory(bundle)))
-                opening = 'reading the episode' if source is not None else 'opening the leaders'
+                opening = ({'episode': 'reading the episode', 'policy': 'loading the policy'}[source['kind']]
+                           if source is not None else 'opening the leaders')
                 message = (f'Starting: loading the simulated Minerva and its window; {opening}…'
                            if 'simulation' in bundle else
                            f'Starting: loading the collision model and virtual receiver; {opening}…')
@@ -2038,19 +2058,25 @@ class TeleopSession:
                                                            real_leaders=self.leader_factory is None,
                                                            address=getattr(self.helm, 'address', None),
                                                            evidence=self.link_evidence,
-                                                           **({'name': 'The replay'} if source else {}))
+                                                           **({'name': {'episode': 'The replay', 'policy': 'The policy'}[
+                                                               source['kind']]} if source else {}))
                 command_writer, view_reader = worker.commands, worker.views
+                opening = ({'episode': 'reading the episode', 'policy': 'loading the policy'}[source['kind']]
+                           if source else 'linking the leaders')
                 message = ("Starting on Minerva's Jetson: connecting, loading the collision model and virtual "
-                           f"receiver, {'reading the episode' if source else 'linking the leaders'}…"
-                           ) if self.receiver['mode'] == 'virtual' else (
+                           f"receiver, {opening}…") if self.receiver['mode'] == 'virtual' else (
                     ('Starting LIVE on both arms: checking they are still and in their reference pose, then '
                      'starting the receiver (the motors stay disabled until Idle)…') if self.receiver['arm'] == 'both'
                     else f"Starting LIVE on the {self.receiver['arm']} arm: checking it is still and in its reference "
                     'pose, then starting the receiver (its motors stay disabled until Idle)…')
-            # A replay session says which episode from the start; the loop's views then carry its playback.
-            pending = None if source is None else dict(episode=source['episode'], speed=source['speed'], time_s=None,
-                                                       duration_s=None, frame=None, frames=None, finished=False)
-            self._view = dict(self._view, phase='starting', fault=None, joints=[], message=message, replay=pending)
+            # A replay or policy session says which from the start; the loop's views then carry its progress.
+            pending = None if source is None or source['kind'] != 'episode' else dict(
+                episode=source['episode'], speed=source['speed'], time_s=None, duration_s=None, frame=None,
+                frames=None, finished=False)
+            policy_view = (dict(spec=source['policy'], policy=None, loading=True)
+                           if source is not None and source['kind'] == 'policy' else None)
+            self._view = dict(self._view, phase='starting', fault=None, joints=[], message=message, replay=pending,
+                              policy=policy_view)
             self._guide = None
             self._conn, self._views, self._worker = command_writer, view_reader, worker
             worker.start()

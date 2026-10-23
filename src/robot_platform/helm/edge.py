@@ -191,7 +191,7 @@ def serve(start, commands, views, *, root=ROOT, core_factory=None, scheduling=No
         views.close()
         return 1
     tune = (start.get('bundle') or {}).get('kind') == 'tune'
-    # Live replay: a recorded episode gives the loop its target in place of the leaders (teleop.episode_source).
+    # Live replay or policy mode: an episode or a policy gives the loop its target in place of the leaders.
     replay = (start.get('bundle') or {}).get('source') is not None
     # A Helm that beats says how long a silence ends the session; an older one never beats.
     silence = start.get('silence_s')
@@ -211,8 +211,9 @@ def serve(start, commands, views, *, root=ROOT, core_factory=None, scheduling=No
         run_tune_loop(commands, views, core, silence_s=silence)
         return 0
     if replay:
-        # An episode recorded on this computer (~/minerva/evidence), never a directory Helm names.
-        if isinstance(bundle['source'], dict):
+        # An episode recorded on this computer (~/minerva/evidence), never a directory Helm names. A policy source
+        # (policy mode) names its policy; the cameras come with the bundle (policy_cameras).
+        if isinstance(bundle['source'], dict) and bundle['source'].get('kind') == 'episode':
             bundle['source'] = dict(bundle['source'], root=None)
         views.send(['link', 0])  # No leaders: the episode gives the target.
         core = (core_factory or TeleopCore)(bundle)

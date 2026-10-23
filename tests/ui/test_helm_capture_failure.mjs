@@ -12,7 +12,7 @@ const $ = id => {
 };
 const lifecycle = ['I', 'E', 'T', 'H', 'X', undefined].map(key => ({dataset: {key}, disabled: false}));
 const context = {$, ENGAGED: ['ENGAGING', 'TELEOP'], CONTROL_LAWS: {}, teleopPhase: 'running',
-  last: {mode: 'simulation'}, pendingConfirm: null, tcards: new Map(), renderManual() {}, replayCard: null, replayView: null,
+  last: {mode: 'simulation'}, pendingConfirm: null, tcards: new Map(), renderManual() {}, replayCard: null, replayView: null, renderPolicy() {},
   document: {body: {dataset: {}, classList: {toggle() {}}},
     querySelector: () => $('teleop-tab'), querySelectorAll: selector => selector === '.lifecycle button' ? lifecycle : []}};
 vm.createContext(context);

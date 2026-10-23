@@ -94,8 +94,8 @@ def policy(request, tmp_path_factory):
                                for row, template in zip(session.manual.active, session.manual.rows)])
     clock, workers, sway = Clock(), [], Sway()
 
-    def open_policy(spec, names, context):
-        assert spec == 'sway'
+    def open_policy(spec, names, context, cameras=None):
+        assert spec == 'sway' and cameras is None  # A loop on this PC: no robot cameras.
         workers.append(ScriptedWorker(sway, names, context))
         return workers[-1]
     core = TeleopCore(dict(session._bundle(), source={'kind': 'policy', 'policy': 'sway'}), clock=clock,

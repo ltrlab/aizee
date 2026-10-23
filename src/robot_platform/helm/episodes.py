@@ -219,6 +219,16 @@ class EpisodeLibrary:
                     entry['review'] = record
             return record
 
+    def policies(self):
+        """The exported policies on the robot (or beside a local --episodes copy): {'policies', 'busy', 'error'}."""
+        with self._lock:
+            try:
+                return {'policies': self._call('policies'), 'busy': None, 'error': None}
+            except EpisodeBusy as exc:
+                return {'policies': [], 'busy': str(exc), 'error': None}
+            except EpisodeError as exc:
+                return {'policies': [], 'busy': None, 'error': str(exc)}
+
     def complete(self, episode):
         """True once the episode's file is known to be complete: its frames will not change."""
         known = self._episodes.get(episode)

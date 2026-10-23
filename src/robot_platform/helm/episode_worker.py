@@ -4,12 +4,14 @@ Run as `python3 -u -c <this source> [--root DIR]` on the robot (Helm's EpisodeLi
 the camera relay), or locally with --root for episodes on this computer. Depends only on h5py, numpy, Pillow
 and msgpack. It never writes an episode file and never opens a file outside its root. Its one write is a review:
 a line appended to the session's reviews.jsonl (Keep or Discard for training; the latest line per episode wins).
-It serves framed requests on stdin:
+It also lists the exported policies in the `policies` directory beside its root (~/minerva/policies on the robot),
+reading only their minerva_policy.json. It serves framed requests on stdin:
 
     request  {'id': n, 'op': 'list'}
              {'id': n, 'op': 'summary' | 'series', 'episode': '<session>/<name>'}
              {'id': n, 'op': 'frame', 'episode': ..., 'index': i, 'quality': 85}
              {'id': n, 'op': 'review', 'episode': ..., 'verdict': 'keep' | 'discard' | None, 'note': text}
+             {'id': n, 'op': 'policies'}
     reply    {'id': n, 'ok': True, 'result': ...} or {'id': n, 'ok': False, 'error': text}
 
 Each frame on the wire is a 4-byte big-endian length and a msgpack body. The first reply is a hello
@@ -33,6 +35,8 @@ OPEN_FILES = 2
 SESSION_RE = re.compile(r'^live-\d{8}T\d{6}Z$')
 NAME_RE = re.compile(r'^task_episode_[0-9a-f]{32}(\.partial)?$')
 REVIEWS = 'reviews.jsonl'
+POLICY_META = 'minerva_policy.json'  # Beside an exported policy's policy.pt (data/lerobot_policy.py).
+MAX_POLICY_META = 64 * 1024
 VERDICTS = ('keep', 'discard')
 MAX_NOTE = 300
 PARTITION = '/etc/minerva/cpu-partition.json'
@@ -305,6 +309,8 @@ def serve(root, stdin, stdout, *, idle_exit_s=IDLE_EXIT_S):
                     result = episodes.frame(request['episode'], request['index'], request.get('quality', 85))
                 elif op == 'review':
                     result = episodes.review(request['episode'], request.get('verdict'), request.get('note', ''))
+                elif op == 'policies':
+                    result = list_policies(episodes.root.parent / 'policies')
                 else:
                     raise ValueError(f'Unknown request {op!r}')
                 send({'id': ident, 'ok': True, 'result': result})
@@ -313,6 +319,33 @@ def serve(root, stdin, stdout, *, idle_exit_s=IDLE_EXIT_S):
     finally:
         done.set()
         episodes.close()
+
+
+def list_policies(directory):
+    """The exported policies in `directory` (one per subdirectory with a minerva_policy.json), newest first: what
+    Helm offers for policy mode. A description that cannot be read is listed with its error."""
+    directory = Path(directory)
+    if not directory.is_dir():
+        return []
+    rows = []
+    for path in sorted(directory.iterdir()):
+        meta_path = path / POLICY_META
+        if not path.is_dir() or not meta_path.is_file():
+            continue
+        row = {'name': path.name, 'path': str(path), 'modified': meta_path.stat().st_mtime}
+        try:
+            if meta_path.stat().st_size > MAX_POLICY_META:
+                raise ValueError('its description is too large')
+            meta = json.loads(meta_path.read_text(encoding='utf-8'))
+            model = path / 'policy.pt'
+            row.update({key: meta.get(key) for key in ('policy_type', 'fps', 'camera_roles', 'chunk_size',
+                                                        'checkpoint_sha256')},
+                       joints=len(meta.get('joints') or []), size_mb=round(model.stat().st_size / 1e6, 1)
+                       if model.is_file() else None, error=None if model.is_file() else 'policy.pt is missing')
+        except (OSError, ValueError) as exc:
+            row['error'] = str(exc)[:200] or type(exc).__name__
+        rows.append(row)
+    return sorted(rows, key=lambda row: -row['modified'])
 
 
 def main(argv):

@@ -2,6 +2,7 @@ import {SettingsPanel} from './settings.js';
 import {LiveCameraView} from './camera_live.js';
 import {PedalControls, presentation, recordingLabel, StateOrder} from './pedals.js';
 import {LiveReplayCard, ReplayView} from './replay.js';
+import {HOLD_STILL, policyLabel, policyNote, policyOptions, policyStats} from './policy.js';
 import {gripView} from './grip.js';
 import {upsView} from './ups.js';
 
@@ -12,6 +13,7 @@ const cards = new Map();
 let token = null, last = null, busy = false, lockNoticeShown = false;
 let replayView = null;  // Built once the page's other panels are; showTab may run before.
 let replayCard = null;  // Teleop's live replay card, built with replayView.
+let policyListing = null, policyListedAt = -Infinity;  // Policy mode's choices, read from Minerva when Teleop opens.
 const responseMeta=new WeakMap(), stateOrder=new StateOrder();
 let requestId=0;
 let pendingConfirm = null;  // An open live confirmation: {kind: 'start' | 'stop', arm}
@@ -1089,21 +1091,28 @@ function renderTeleop(t) {
       + 'feed-forward setting. ' : '') + lawTitle
     + (t.control_law_next && t.tuning?.enabled ? ' Switch it in Motor tuning, between sessions.' : '');
   $('t-message').textContent = t.message || '';
-  // Live replay: a recorded episode drives the arms in place of the leaders; nothing is recorded.
+  // Live replay or policy mode: an episode or a policy drives the arms in place of the leaders; nothing is recorded.
   const replaying = !!t.replay && (running || starting);
-  $('t-title').textContent = replaying ? 'Replay an episode on the arms' : 'Drive the arms with the leaders';
+  const policyMode = !!t.policy && (running || starting);
+  $('t-title').textContent = replaying ? 'Replay an episode on the arms'
+    : policyMode ? 'Run a policy on the arms' : 'Drive the arms with the leaders';
   $('t-lead').textContent = replaying
     ? "Idle (I), then Enable (E) to hold, then Engage (T): the arms align to the episode's frame at the alignment "
       + 'speed, then follow its recorded commands. T again pauses; Shutdown (X) returns slowly to the reference; '
       + 'Disable (H) removes torque.'
+    : policyMode
+    ? "Idle (I), then Enable (E) to hold, then Engage (T): the arms align to the policy's first action at the "
+      + 'alignment speed, then the policy drives them. T again pauses; Shutdown (X) returns slowly to the reference; '
+      + 'Disable (H) removes torque.'
     : 'Idle (I), then Enable (E) to hold, then Engage (T) to align with the leaders and follow them. T again holds; '
       + 'Shutdown (X) returns slowly to the reference; Disable (H) removes torque.';
-  document.querySelector('.task-workflow').hidden = replaying;
-  document.querySelector('.grip-feedback').hidden = replaying;  // No leaders: no triggers to push.
+  document.querySelector('.task-workflow').hidden = replaying || policyMode;
+  document.querySelector('.grip-feedback').hidden = replaying || policyMode;  // No leaders: no triggers to push.
   replayCard?.render(replaying ? t.replay : null, {state: t.state, label: replaying ? replayView?.labelFor(t.replay.episode) : null});
+  renderPolicy(t, policyMode, running || starting, live);
   const where = t.target === 'jetson' ? "ON MINERVA'S JETSON" : 'ON THIS PC';
   const eyebrow = $('t-eyebrow');
-  const kind = replaying ? 'REPLAY' : 'TELEOP';
+  const kind = replaying ? 'REPLAY' : policyMode ? 'POLICY' : 'TELEOP';
   eyebrow.textContent = live
     ? `${kind} · LIVE ${choice.arm === 'both' ? 'BOTH ARMS' : choice.arm.toUpperCase() + ' ARM'} ${where} · MOTORS MOVE · FOOT SWITCH IN REACH`
     : `${kind} · ${last?.mode === 'simulation' ? 'SIMULATED MINERVA' : 'VIRTUAL RECEIVER'}${choice.collision === 'motion' ? ' · TWO-ARM BOUND' : ''} ${where} · NO MOTORS MOVE`;
@@ -1144,7 +1153,7 @@ function renderTeleop(t) {
   for (const button of document.querySelectorAll('.lifecycle button'))
     button.disabled = !running || (!!t.fault && button.dataset.key !== 'H')
       || (!!t.recording_fault && !['H', 'X'].includes(button.dataset.key));
-  if (replaying) $('t-zero').disabled = true;  // No leaders to zero.
+  if (replaying || policyMode) $('t-zero').disabled = true;  // No leaders to zero.
   $('t-engage').innerHTML = ENGAGED.includes(t.state) ? 'Hold <kbd>T</kbd>' : 'Engage <kbd>T</kbd>';
   renderManual(t);
   $('t-tuning-summary').textContent=t.tuning?.enabled
@@ -1343,6 +1352,72 @@ function startReplay(episode, speed, label) {
   ], `Replay LIVE on ${arms}`, () => act('/api/helm/teleop/start', {confirm: true, replay},
     `Starting the replay LIVE on ${arms}: checking that ${arm === 'both' ? 'they are' : 'it is'} still and in the reference pose, then the receiver.`));
 }
+
+// Policy mode (Teleop's box): a policy drives the arms in a teleop session, started as Start session starts one,
+// with the live confirmation; the choices are hold_still and the policies exported to Minerva (~/minerva/policies).
+async function refreshPolicies(explicit = false) {
+  policyListedAt = performance.now();
+  try {
+    policyListing = await request('/api/helm/policies');
+    $('t-policy-status').textContent = policyListing.error || policyListing.busy
+      || (explicit ? `${policyListing.policies.length} policies on Minerva.` : '');
+  } catch (error) {
+    policyListing = null;
+    $('t-policy-status').textContent = `hold_still only: ${error.message}`;
+  }
+  const select = $('t-policy-choice'), chosen = select.value;
+  select.replaceChildren(...policyOptions(policyListing).map(option => Object.assign(
+    document.createElement('option'), {value: option.value, textContent: option.label, disabled: option.disabled,
+      title: option.title || ''})));
+  if ([...select.options].some(option => option.value === chosen && !option.disabled)) select.value = chosen;
+}
+
+function renderPolicy(t, policyMode, active, live) {
+  $('t-policy-start').hidden = active;
+  $('t-policy-go').textContent = live ? 'Start LIVE policy session' : 'Start policy session';
+  $('t-policy-go').className = live ? 'danger' : 'primary';
+  $('t-policy-go').disabled = !$('t-policy-choice').value;
+  $('t-policy').hidden = !policyMode;
+  if (!policyMode) return;
+  const policy = t.policy;
+  $('t-policy-title').textContent = policy.policy || policyLabel(policy.spec);
+  $('t-policy-stats').textContent = policyStats(policy);
+  $('t-policy-note').textContent = policyNote(t.state, policy);
+  $('t-policy-error').hidden = !policy.error;
+  $('t-policy-error').textContent = policy.error || '';
+}
+
+function startPolicy(spec) {
+  const t = last?.teleop;
+  if (!t || !spec || ['running', 'starting'].includes(t.phase)) return;
+  pedalControls.setTest(false);
+  const label = policyLabel(spec), policy = {policy: spec};
+  const choice = t.receiver_choice || {mode: 'virtual'};
+  if (choice.mode !== 'live') {
+    act('/api/helm/teleop/start', {policy}, `Starting the policy ${label}: no motors move.`);
+    return;
+  }
+  const arm = choice.arm, arms = arm === 'both' ? 'both arms' : `the ${arm} arm`;
+  const direct = t.collision?.mode === 'disabled';
+  askConfirm('start', arm, `Run the policy ${label} LIVE on ${arms}?`, [
+    `${arm === 'both' ? "Both arms'" : `The ${arm} arm's`} motors are powered when you press Idle (I).`,
+    'The foot switch (e-stop) is in reach.',
+    `${arm === 'both' ? 'Both arms hang' : `The ${arm} arm hangs`} straight down in the reference pose, untouched until Idle.`,
+    spec === HOLD_STILL
+      ? 'hold_still plans the reference pose: Engage aligns the arms to it and they hold there.'
+      : "Enable (E) shows the policy's first action; Engage (T) moves the arms to it at the alignment speed, then the "
+        + 'policy drives the arms and grippers from the live cameras, anywhere its training went. Clear the workspace '
+        + 'but for the task objects and stand clear.',
+    'Hold (T) pauses; Shutdown (X) lowers the arms; Disable (H) removes torque at once. If the policy stops '
+      + 'answering, the arms hold.',
+    direct ? 'Collision detection is disabled. Nothing checks the arms against each other or the body.'
+      : arm === 'both' ? 'The two-arm collision bound is enforced as in teleop. Nothing checks the arms against the body.'
+      : 'Collision checks are advisory: nothing stops the arm from reaching the body or the other arm.',
+  ], `Run LIVE on ${arms}`, () => act('/api/helm/teleop/start', {confirm: true, policy},
+    `Starting the policy ${label} LIVE on ${arms}: checking that ${arm === 'both' ? 'they are' : 'it is'} still and in the reference pose, then the receiver.`));
+}
+$('t-policy-go').onclick = () => startPolicy($('t-policy-choice').value);
+$('t-policy-refresh').onclick = () => refreshPolicies(true);
 
 // -- Tune: the servo sweep ------------------------------------------------------------------
 
@@ -1622,6 +1697,7 @@ function showTab(name) {
   for (const panel of ['check', 'limits', 'leaders', 'teleop', 'replay', 'tune', 'settings']) $(`panel-${panel}`).hidden = name !== panel;
   $('replay-stage').hidden = name !== 'replay';
   replayView?.setActive(name === 'replay');
+  if (name === 'teleop' && performance.now() - policyListedAt > 30000) refreshPolicies();
   if(name==='settings' && typeof settingsPanel !== 'undefined') settingsPanel.refresh();
   try { localStorage.setItem('helm-tab', name); } catch { /* storage unavailable */ }
   updateCameraView();
@@ -1641,7 +1717,7 @@ function renderPedals() {
     $('t-state').textContent=(pedalControls.state?.teleop?.state || 'Fault')+' · fault';
   }
   if(['starting','running'].includes(pedalControls.state?.teleop?.phase) && !['starting','running'].includes(pedalControls.state?.tune?.phase))
-    $('global-session-state').textContent=(pedalControls.state?.teleop?.replay?'Replay · ':'Teleop · ')+view.label;
+    $('global-session-state').textContent=(pedalControls.state?.teleop?.replay?'Replay · ':pedalControls.state?.teleop?.policy?'Policy · ':'Teleop · ')+view.label;
   $('pedal-phase-label').textContent=view.label;
   $('pedal-phase-detail').textContent=view.detail;
   for(const node of document.querySelectorAll('[data-phase-stage]')) {
@@ -1708,7 +1784,7 @@ function renderGlobalControls(state) {
   const running=['running','starting'].includes(state.teleop?.phase);
   const visible=sweeping||running;
   $('global-controls').hidden=!visible;document.body.classList.toggle('has-controls',visible);
-  $('global-session-state').textContent=sweeping?`Servo task · ${state.tune.phase}`:`${state.teleop?.replay?'Replay':'Teleop'} · ${state.teleop?.state||state.teleop?.phase||'stopped'}`;
+  $('global-session-state').textContent=sweeping?`Servo task · ${state.tune.phase}`:`${state.teleop?.replay?'Replay':state.teleop?.policy?'Policy':'Teleop'} · ${state.teleop?.state||state.teleop?.phase||'stopped'}`;
   $('global-hold').hidden=sweeping;
   $('global-hold').disabled=!running||!!state.teleop?.fault||!!state.teleop?.recording_fault||!['HOLD','ENGAGING','TELEOP'].includes(state.teleop?.state);
   $('global-hold').innerHTML=ENGAGED.includes(state.teleop?.state)?'Hold <kbd>T</kbd>':'Engage <kbd>T</kbd>';

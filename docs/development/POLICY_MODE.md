@@ -69,12 +69,36 @@
     - refuses a receiver whose joints differ from the training joints;
     - takes the cameras in its own order at the recorded 240×320 size, and checks every answer;
     - `tests/unit/test_lerobot_policy.py` runs it with a stand-in for the TorchScript call.
+- **In Helm (2026-10-22):**
+  - **Cameras** (`CaptureCameras`): the worker subscribes to the capture profile's loopback endpoints and decodes
+    through the task capture's `CameraCache`, so it takes the newest coherent set within the recording's age and
+    skew bounds and stores the exact pixels the recorder would (`recording_images`). Helm sends the profile as
+    `policy_cameras` to a loop on the robot, and starts no capture process. Without a fresh set the observation
+    fails and the arms hold.
+  - **The worker is a subprocess** (`python -m robot_platform.teleop.policy_worker`) with length-prefixed pickles
+    on its stdin/stdout and its other output in a log file.
+    - The first `helm --sim` rehearsal found that Helm's PC loop runs in a daemonic process, which multiprocessing
+      forbids children.
+    - The log file also keeps the policy's printing out of an SSH stream nobody reads until the session ends.
+  - **Start:** teleop start takes `policy: {policy}`, not both a replay and a policy. On the robot the source travels
+    as Helm sent it; only an episode source gets the robot's own root.
+  - **Teleop's Policy box:**
+    - Choices: `hold_still`, and the policies exported to `~/minerva/policies`, listed by Replay's reader on the
+      robot (`policies` op, reading only each `minerva_policy.json`).
+    - Start goes through the live confirmation.
+    - While a policy drives, a card shows its chunks, chunk age, inference time, stale cycles and errors, with the
+      next step. The task workflow, force feedback and Set zero are hidden or off.
+- **Rehearsal (`helm --sim`, the terminal's profile):** `hold_still` loaded in its subprocess, the preview answered
+  in 0.07 ms and Hold aligned. The simulated receiver then expired a hold command on time-correct cycles: the same
+  laptop sim artifact as the replay rehearsals (`helm-sim-mode` notes), not policy load. The real-time test is on
+  the Jetson.
 - **Next:**
-  1. **Cameras for the worker on the robot:** the capture profile's endpoints, decoded to 320×240 exactly as the
-     recorder stores them.
-  2. **The policy runtime on the Jetson:** done; its system torch runs the exports from `~/minerva/policies`.
-  3. **Helm:** teleop start with `policy: {policy}`, a Policy box listing the robot's checkpoints with the live
-     confirmation, and a card with the chunk age and inference time.
+  1. **Deploy** (with the user's approval, between their sessions).
+  2. **`hold_still` on the Jetson's virtual receiver, then live** with the user present: Engage aligns to the
+     reference pose and holds.
+  3. **ACT trained on the new demonstrations:**
+     - export it on coolserver (`python -m robot_platform.data.lerobot_policy export ...`), copy it to
+       `~/minerva/policies/<name>`;
+     - run it on the virtual receiver on the Jetson with the live cameras, then live.
   4. **Recording rollouts** with `policy` authority, and Hold/Engage interventions as `correction`.
-  5. **Rehearsal** in `helm --sim` with a sim-trained checkpoint and the simulated cameras, then `hold_still` on the
-     arms, then the ACT checkpoint with the user present.
+  5. **Simulated cameras** for policy mode in `helm --sim`.

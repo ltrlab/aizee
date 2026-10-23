@@ -232,6 +232,11 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             return web.json_response({'error': str(exc), 'busy': True}, status=409)
         return web.json_response(data, headers={'Cache-Control': 'no-store'})
 
+    async def policies_list(_request):
+        """Policy mode's choices: the exported policies on the robot, read by Replay's worker."""
+        need_episodes()
+        return web.json_response(await off_loop(episodes.policies), headers={'Cache-Control': 'no-store'})
+
     async def episode_review(request):
         """Keep or Discard an episode for training, with an optional note; refused while a recording runs."""
         from .episodes import EpisodeBusy
@@ -464,10 +469,13 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
 
     async def teleop_start(request):
         """Start a teleop session; with `replay` ({episode, speed}), a recorded episode drives the arms in place of
-        the leaders (live replay). Replay's library must know the episode as complete."""
+        the leaders (live replay), and Replay's library must know it as complete; with `policy` ({policy}), a policy
+        does (policy mode)."""
         payload = await body(request)
         need_teleop()
-        replay = payload.get('replay')
+        replay, policy = payload.get('replay'), payload.get('policy')
+        if replay is not None and policy is not None:
+            raise ValueError('A session replays an episode or runs a policy, not both')
         if replay is not None:
             from robot_platform.teleop.episode_source import validate_request
             from .episodes import EpisodeError
@@ -492,7 +500,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             raise ValueError('A camera change is running; wait for readback before starting teleop')
         async with camera_change:
             await take_motors()
-            teleop.start(confirm=payload.get('confirm') is True, **({'replay': replay} if replay is not None else {}))
+            teleop.start(confirm=payload.get('confirm') is True, **({'replay': replay} if replay is not None else {}),
+                         **({'policy': policy} if policy is not None else {}))
         return state_response()
 
     async def task_action(request):
@@ -835,6 +844,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     app.router.add_post('/api/helm/tune/stop', tune_stop)
     app.router.add_post('/api/helm/tune/save', tune_save)
     app.router.add_get('/api/helm/episodes', episodes_list)
+    app.router.add_get('/api/helm/policies', policies_list)
     app.router.add_get('/api/helm/episodes/{session}/{episode}', episode_get)
     app.router.add_get('/api/helm/episodes/{session}/{episode}/frame/{index}/{role}', episode_frame)
     app.router.add_post('/api/helm/episodes/{session}/{episode}/review', episode_review)

@@ -159,6 +159,11 @@
           <div id="t-replay-frames" class="live-replay-frames" role="group" aria-label="Recorded camera frames at the playback position"></div>
           <p id="t-replay-note" class="muted"></p>
         </section>
+        <section id="t-policy" class="live-replay live-policy" aria-labelledby="t-policy-title" hidden>
+          <div class="live-replay-head"><span class="eyebrow">POLICY</span><b id="t-policy-title">—</b><span id="t-policy-stats" class="replay-time"></span></div>
+          <p id="t-policy-note" class="muted"></p>
+          <p id="t-policy-error" class="bad" role="alert" hidden></p>
+        </section>
         <section class="grip-feedback" aria-labelledby="grip-title">
           <div class="grip-head">
             <span id="grip-title" class="eyebrow">GRIPPER FORCE FEEDBACK</span>
@@ -205,6 +210,16 @@
           <p id="t-message" class="muted" role="status"></p>
         </div>
         <div id="teleop-content" class="scroll">
+          <section id="t-policy-start" class="policy-start" aria-labelledby="t-policy-start-title" hidden>
+            <div class="policy-start-head"><span class="eyebrow">POLICY MODE</span><b id="t-policy-start-title">Run a policy on the arms</b></div>
+            <p class="muted">A trained policy drives the arms in a teleop session: Enable shows its first action, Engage aligns to it at the alignment speed, then it drives; Hold pauses, Shutdown (X) lowers. Nothing is recorded.</p>
+            <div class="policy-start-actions">
+              <select id="t-policy-choice" aria-label="Policy"></select>
+              <button id="t-policy-refresh" type="button" title="Read the policies on Minerva again">Refresh</button>
+              <button id="t-policy-go" type="button" class="primary">Start policy session</button>
+            </div>
+            <p id="t-policy-status" class="muted" role="status"></p>
+          </section>
           <section class="task-workflow" aria-labelledby="task-title">
             <div class="eyebrow" id="task-mode">BIMANUAL DATA COLLECTION</div>
             <h2 id="task-title">Cube → handoff → bucket</h2>
