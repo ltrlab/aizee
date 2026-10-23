@@ -25,7 +25,12 @@ if ($AuthorizeKey -notmatch '^(ssh-ed25519|ecdsa-sha2-nistp256) [A-Za-z0-9+/=]+(
 
 # OpenSSH Server, started now and at boot.
 if ((Get-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0').State -ne 'Installed') {
-    Add-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0' | Out-Null
+    try {
+        Add-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0' | Out-Null
+    } catch {
+        throw "Windows could not add OpenSSH Server ($($_.Exception.Message)). If its component store is damaged, " +
+              'repair it (DISM /Online /Cleanup-Image /RestoreHealth, then sfc /scannow) and run this again.'
+    }
 }
 Set-Service sshd -StartupType Automatic
 Start-Service sshd
