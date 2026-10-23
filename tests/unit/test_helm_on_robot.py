@@ -289,3 +289,44 @@ def test_the_mesh_store_serves_converted_meshes_by_digest_and_revalidates(tmp_pa
         async with TestClient(TestServer(viewer_app([profile], mesh_store=store))) as client:
             await scenario(client)
     asyncio.run(run())
+
+
+def test_helm_serves_its_devices_and_this_computer_on_two_listeners_then_cleans_up():
+    import socket
+    import threading
+    import urllib.request
+    from aiohttp import web
+    from robot_platform.helm.cli import serve
+    app = web.Application()
+
+    async def page(_request):
+        return web.Response(text='helm')
+
+    async def cleanup(_app):
+        cleaned.append(True)
+    app.router.add_get('/', page)
+    cleaned, ports = [], []
+    app.on_cleanup.append(cleanup)
+    for _ in range(2):
+        with socket.socket() as probe:
+            probe.bind(('127.0.0.1', 0))
+            ports.append(probe.getsockname()[1])
+    stop = threading.Event()
+    thread = threading.Thread(target=serve, args=(app, [('127.0.0.1', port, None) for port in ports]),
+                              kwargs={'handle_signals': False, 'stop': stop})
+    thread.start()
+    try:
+        for port in ports:  # The devices' listener (HTTPS on Minerva) and this computer's plain one.
+            deadline = time.monotonic() + 10.
+            while True:
+                try:
+                    assert urllib.request.urlopen(f'http://127.0.0.1:{port}/', timeout=2.).read() == b'helm'
+                    break
+                except OSError:
+                    if time.monotonic() > deadline:
+                        raise
+                    time.sleep(.05)
+    finally:
+        stop.set()
+        thread.join(10.)
+    assert not thread.is_alive() and cleaned == [True]  # Helm's shutdown runs, as under run_app.

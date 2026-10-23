@@ -151,6 +151,7 @@ def test_run_starts_helm_with_minervas_options_or_says_what_is_missing(tmp_path,
     options = started[0]
     flags = dict(zip(options[1::2], options[2::2])) if options[0] == '--on-robot' else {}
     assert options[0] == '--on-robot' and flags['--host'] == '0.0.0.0' and flags['--port'] == '8760'
+    assert flags['--loopback-port'] == '8762'  # Plain HTTP for this computer's tools and SSH tunnels.
     assert Path(flags['--teleop']) == ROOT / 'config/devices/minerva-teleop.json'
     assert Path(flags['--operator-files']) == p.operator and Path(flags['--mesh-store']) == p.meshes
     assert Path(flags['--access']) == p.access and '--no-live' in options and '--tls-cert' in options

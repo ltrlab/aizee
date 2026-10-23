@@ -12,7 +12,8 @@ Run on the Jetson as the robot's user, from the active release:
     restart           restart it, only while no session or check runs on the robot (after a deploy)
     status            what is in place, as JSON
     remove            stop and remove the unit and the keys authorized here; the folders stay
-    run               what the unit runs: Helm with Minerva's options
+    run               what the unit runs: Helm with Minerva's options, HTTPS on port 8760 for the operator's devices
+                      and plain HTTP on 127.0.0.1:8762 for this computer's tools and SSH tunnels (both need the login)
 
 Once, by the user (root): the unit keeps running when nobody is logged in only with lingering,
     sudo loginctl enable-linger ltr
@@ -50,6 +51,7 @@ import time
 ROOT = Path(__file__).resolve().parents[3]  # The release (or checkout) this module runs from.
 UNIT = 'minerva-helm.service'
 PORT = 8760
+LOOPBACK_PORT = 8762  # Plain HTTP on this computer only: its own tools and SSH tunnels (the login still applies).
 PROFILE = 'config/devices/minerva-joint-calibration.json'
 TELEOP = 'minerva-teleop-direct-tuning.json'  # What the operator PC's Helm ran (config/devices).
 CAPTURE = 'minerva-task-capture.json'
@@ -434,7 +436,7 @@ def run(argv=None, host=None, *, release=ROOT, main=None):
     os.environ['AIZEE_SSH_KEY_FILE'] = str(p.local_key)  # Every robot path: pinned SSH to 127.0.0.1 (ops.ssh).
     devices = Path(release) / 'config/devices'
     options = ['--on-robot', '--profile', str(Path(release) / PROFILE), '--host', '0.0.0.0', '--port', str(PORT),
-               '--access', str(p.access), '--runs', str(p.runs), '--operator-files', str(p.operator),
+               '--loopback-port', str(LOOPBACK_PORT), '--access', str(p.access), '--runs', str(p.runs), '--operator-files', str(p.operator),
                '--mesh-store', str(p.meshes), '--teleop', str(devices / args.teleop),
                '--capture-profile', str(devices / args.capture_profile)]
     if not args.live:

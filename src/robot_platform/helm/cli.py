@@ -4,6 +4,28 @@ from pathlib import Path
 import sys
 
 
+def serve(app, listeners, *, handle_signals=True, stop=None):
+    """web.run_app for several listeners, each (host, port, TLS context or None): until SIGINT or SIGTERM (or `stop`,
+    a threading.Event), then Helm's shutdown and cleanup as run_app runs them."""
+    import asyncio
+    from aiohttp import web
+
+    async def main():
+        runner = web.AppRunner(app, handle_signals=handle_signals)
+        await runner.setup()
+        try:
+            for host, port, tls in listeners:
+                await web.TCPSite(runner, host, port, ssl_context=tls).start()
+            while not (stop is not None and stop.is_set()):
+                await asyncio.sleep(.2)
+        finally:
+            await runner.cleanup()
+    try:
+        asyncio.run(main())
+    except (web.GracefulExit, KeyboardInterrupt):
+        pass
+
+
 class SimulationLink:
     """No physical connection can be created by a simulation-only Helm process."""
     running = False
@@ -53,9 +75,14 @@ def main(argv=None):
     parser.add_argument('--tls-cert', type=Path, help='HTTPS certificate (PEM); with --tls-key')
     parser.add_argument('--tls-key', type=Path, help='HTTPS private key (PEM)')
     parser.add_argument('--port', type=int, default=8760)
+    parser.add_argument('--loopback-port', type=int,
+                        help='Also serve plain HTTP on 127.0.0.1 at this port, for tools on this computer and SSH '
+                             'tunnels (Helm on Minerva serves its devices over HTTPS); the login still applies')
     args = parser.parse_args(argv)
     if not 1 <= args.port <= 65535:
         parser.error('port must be in 1..65535')
+    if args.loopback_port is not None and (not 1 <= args.loopback_port <= 65535 or args.loopback_port == args.port):
+        parser.error('--loopback-port must be in 1..65535 and differ from --port')
     if args.host not in ('127.0.0.1', 'localhost', '::1') and args.access is None:
         parser.error('Serving beyond this computer needs --access: a login '
                      '(python -m robot_platform.helm.access set-password FILE)')
@@ -170,9 +197,12 @@ def main(argv=None):
             tls = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
             tls.load_cert_chain(str(args.tls_cert), str(args.tls_key))
         where = 'on Minerva' if args.on_robot else 'on this PC'
-        print(f"Helm {where}: {'https' if tls else 'http'}://{args.host}:{args.port}/  ({session.asset_id}; {mode})",
-              flush=True)
-        web.run_app(app, host=args.host, port=args.port, print=None, ssl_context=tls)
+        print(f"Helm {where}: {'https' if tls else 'http'}://{args.host}:{args.port}/  ({session.asset_id}; {mode})"
+              + (f'; http://127.0.0.1:{args.loopback_port}/ on this computer' if args.loopback_port else ''), flush=True)
+        if args.loopback_port is None:
+            web.run_app(app, host=args.host, port=args.port, print=None, ssl_context=tls)
+        else:
+            serve(app, [(args.host, args.port, tls), ('127.0.0.1', args.loopback_port, None)])
         return 0
     finally:
         session.close()
