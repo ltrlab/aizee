@@ -103,6 +103,12 @@
     - **Simulated first cycle:** the simulated arms tick in real time from when their receiver opens, so the first
       exchange simulated all of the build (108 ms) and faulted the 35 ms direct budget. The build now catches them up
       before the loop starts.
+  - **Gate and deployment (approved by the user 2026-10-22):**
+    - The gate on `f486fb3` passed: 1261 tests, zero skips, a clean tree before and after.
+    - **Jetson:** `20261022T235916Z-f486fb3` is active; the stage and post-activation smoke both passed.
+    - **Terminal:** `helm-recording-f486fb3f27` is active (previous `helm-recording-290ed96413`), restored to Live both
+      with the task set up, and its page refreshed.
+    - The user will record new, safer demonstrations to replay first; demo 1 is not to be replayed.
   - **Laptop timing:** two guarded-profile runs faulted on this laptop under load: stale feedback during a 47–52 ms
     loop stall, then `collision_expired` with the cycle p99 at 37 ms. In both the lifecycle braked, lowered and
     disabled as designed. On the terminal's direct profile the cycle p99 was 5.5 ms.

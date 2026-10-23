@@ -53,15 +53,28 @@
     - Hold, a new preview and resume;
     - a silent policy leaves the arms held, without a fault;
     - Return.
+- **The ACT adapter (2026-10-22, `data/lerobot_policy.py`, `lerobot:<dir>` in `evaluation.policies.load_policy`):**
+  - **Export** (coolserver, the pinned LeRobot): the network with LeRobot's normalization and unnormalization traced
+    into one TorchScript file, plus `minerva_policy.json` (joints, fps, cameras, image shape) and a sample.
+    - The traced chunk's first row equals `select_action`'s action, and the trace differs from LeRobot by 0.15 mrad
+      (bound 1 mrad).
+    - Why not LeRobot on the robot: importing ACT's config at this revision pulls in datasets, pandas, pyarrow and
+      av, which would upgrade the numpy (1.21.5) the robot's own code runs on.
+  - **On the Jetson** (system Python 3.10, torch 2.8.0, CUDA 12.6), `act-demo1-smoke` in `~/minerva/policies`:
+    - loads in 1.0 s and gives a (100, 14) chunk within 0.3 mrad of coolserver's;
+    - 37 ms a chunk at the median (40 ms p90) and 173 MB of GPU memory, run on the background CPUs at nice 10;
+    - the first two calls take 3.3 s and 2.8 s while TorchScript optimizes, so `ExportedPolicy` warms up three
+      calls before it reports ready.
+  - **Robot side** (`ExportedPolicy`, plain torch):
+    - refuses a receiver whose joints differ from the training joints;
+    - takes the cameras in its own order at the recorded 240×320 size, and checks every answer;
+    - `tests/unit/test_lerobot_policy.py` runs it with a stand-in for the TorchScript call.
 - **Next:**
-  1. **A LeRobot ACT adapter** (`lerobot:<pretrained_model dir>`). It feeds `observation.state` and the three
-     cameras as the export stores them, and returns the whole unnormalized chunk with `action_dt` = 1/15 s.
-  2. **Cameras for the worker on the robot:** the capture profile's endpoints, decoded to 320×240 exactly as the
+  1. **Cameras for the worker on the robot:** the capture profile's endpoints, decoded to 320×240 exactly as the
      recorder stores them.
-  3. **The policy runtime on the Jetson:** torch and the pinned LeRobot revision, checkpoints under
-     `~/minerva/policies`.
-  4. **Helm:** teleop start with `policy: {policy}`, a Policy box listing the robot's checkpoints with the live
+  2. **The policy runtime on the Jetson:** done; its system torch runs the exports from `~/minerva/policies`.
+  3. **Helm:** teleop start with `policy: {policy}`, a Policy box listing the robot's checkpoints with the live
      confirmation, and a card with the chunk age and inference time.
-  5. **Recording rollouts** with `policy` authority, and Hold/Engage interventions as `correction`.
-  6. **Rehearsal** in `helm --sim` with a sim-trained checkpoint and the simulated cameras, then `hold_still` on the
+  4. **Recording rollouts** with `policy` authority, and Hold/Engage interventions as `correction`.
+  5. **Rehearsal** in `helm --sim` with a sim-trained checkpoint and the simulated cameras, then `hold_still` on the
      arms, then the ACT checkpoint with the user present.

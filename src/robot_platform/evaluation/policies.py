@@ -349,12 +349,17 @@ REFERENCE = {'fixture_replay': FixtureReplayPolicy, 'hold_still': HoldStillPolic
 
 
 def load_policy(spec):
-    """A reference policy by name, 'checkpoint:<path>', or 'package.module:factory'."""
+    """A reference policy by name, 'checkpoint:<path>' (a MinervaPolicy .pt), 'lerobot:<dir>' (a LeRobot policy
+    exported by data.lerobot_policy: plain torch, no LeRobot), or 'package.module:factory'."""
     if spec in REFERENCE:
         return REFERENCE[spec]()
     if spec.startswith('checkpoint:'):
         return MinervaCheckpointPolicy(spec.partition(':')[2])
+    if spec.startswith('lerobot:'):
+        from robot_platform.data.lerobot_policy import ExportedPolicy
+        return ExportedPolicy(Path(spec.partition(':')[2]).expanduser())
     module, sep, attribute = spec.partition(':')
     if not sep:
-        raise ValueError(f"policy is one of {sorted(REFERENCE)}, 'checkpoint:<path>', or 'module:factory'")
+        raise ValueError(f"policy is one of {sorted(REFERENCE)}, 'checkpoint:<path>', 'lerobot:<dir>', "
+                         "or 'module:factory'")
     return getattr(importlib.import_module(module), attribute)()
