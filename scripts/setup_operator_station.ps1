@@ -71,7 +71,11 @@ $onTether = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue
 $tether = @(Get-NetAdapter -Physical | Where-Object {
     $onTether -contains $_.Name -or ($_.InterfaceDescription -match 'USB' -and $_.InterfaceDescription -notmatch 'Wi-?Fi|Wireless|802\.11|Bluetooth') })
 foreach ($adapter in $tether) {
-    Set-NetAdapterPowerManagement -Name $adapter.Name -AllowComputerToTurnOffDevice Disabled -ErrorAction SilentlyContinue
+    # Device Manager's "Allow the computer to turn off this device to save power" (read-only on the NetAdapter cmdlets).
+    Get-CimInstance -Namespace root/WMI -ClassName MSPower_DeviceEnable |
+        Where-Object { $_.InstanceName.StartsWith($adapter.PnPDeviceID, [StringComparison]::OrdinalIgnoreCase) } |
+        Set-CimInstance -Property @{Enable = $false}
+    Set-NetAdapterPowerManagement -Name $adapter.Name -SelectiveSuspend Disabled -NoRestart -ErrorAction SilentlyContinue
     foreach ($property in @(Get-NetAdapterAdvancedProperty -Name $adapter.Name -ErrorAction SilentlyContinue)) {
         if ($property.DisplayName -match 'Energy[- ]Efficient|Advanced EEE|Green Ethernet|Idle Power|Selective Suspend|Miscellaneous Transfer' -and $property.ValidDisplayValues -contains 'Disabled') {
             Set-NetAdapterAdvancedProperty -Name $adapter.Name -DisplayName $property.DisplayName -DisplayValue 'Disabled' -NoRestart
