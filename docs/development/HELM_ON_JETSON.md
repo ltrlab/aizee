@@ -226,6 +226,27 @@
       - Stopping the task left the bridge running.
       - The installer's first filter for old bridges matched the installer itself.
       - A reinstall over a running bridge now replaces it.
+- **Later on 2026-10-23,** after the user enabled lingering and set the password:
+  - **Helm up:** Helm started and answered from soliloquy (302 to the login).
+  - **Camera drops:**
+    - Cause: in the camera view over Minerva's 2.4 GHz Wi-Fi, cameras dropped every couple of seconds. The relay needs
+      1.47 MB/s; the Wi-Fi gave 0.8–1.2 MB/s, with pauses up to 359 ms.
+    - Fix, `f4a7a69`: a slow link now gets fewer frames, not a closed stream. The gate passed: 1296 tests,
+      `20261023T205643Z-c9c6f949`.
+  - **Teleop headroom** (measured on the Jetson):
+    - CPUs 4–5, the loop's, sat at 1–2 %; CPUs 0–3 at 28–35 % (cameras 107 % of a core in all, Helm about 6 %).
+    - The relay's SSH transport cost 3 % of a core per 1.5 MB/s, and sshd stays on CPUs 0–3.
+  - **Keys, with the user's OK:**
+    - The bridge key is authorized as `minerva-gello-bridge:soliloquy`.
+    - The terminal's key is removed; dated copies of `authorized_keys` are kept.
+  - **Tether:** plugged into soliloquy (Realtek USB GbE "Ethernet 2", 10.42.0.18). Windows' inbox driver has no EEE
+    or Green settings; only "allow the computer to turn off this device" remains, still on.
+  - **Bridge task:**
+    - It had died at 16:34 with 0xC000013A, in the desktop session, and Task Scheduler did not restart it.
+    - Since `ec3a5a0` it runs as S4U (session 0, no window) from startup, with a one-minute watchdog trigger.
+    - It connected over the tether ("connected to Helm on aizee-rover").
+  - **Deployed `ec3a5a0` over the tether** through soliloquy: `20261023T222131Z-ec3a5a0`. The smoke test passed (949
+    ms, 1.54 ms p50). Helm restarted, and the bridge reconnected within 1 s.
 - **Remaining uncertainty:**
   - A real leader link through the bridge: the rehearsal streamed synthetic leaders, but no session's link ran,
     because the laptop is not on the tether.
