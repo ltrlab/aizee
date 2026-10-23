@@ -313,7 +313,7 @@ def test_release_drift_lists_changed_new_and_removed_files():
 def test_the_servo_calibration_is_checked_against_the_motors_it_was_swept_with(runs, loopback, monkeypatch, tmp_path):
     from robot_platform.control import servo_calibration
     path = tmp_path / 'servo.json'
-    monkeypatch.setattr(servo_calibration, 'servo_path', lambda profile, asset: path)
+    monkeypatch.setattr(servo_calibration, 'servo_path', lambda profile, asset, directory=None: path)
     _report, checks, _ = run(runs, FakeRobot(), motors=False)
     assert checks['servo']['status'] == 'warn' and 'Tune tab' in checks['servo']['detail']
     # Grippers are not swept (they squeeze what they hold): the live joint sweep opens and closes them instead.
