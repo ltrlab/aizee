@@ -19,9 +19,10 @@ def utc_now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def servo_path(profile_path, asset_id):
-    """The servo calibration, next to the calibration profile and joint limits."""
-    return Path(profile_path).resolve().parent / f'{asset_id}-servo.json'
+def servo_path(profile_path, asset_id, directory=None):
+    """The servo calibration, next to the calibration profile and joint limits, or in `directory` (Helm on Minerva
+    keeps the operator's files out of the release: helm.operator_files)."""
+    return (Path(directory).resolve() if directory else Path(profile_path).resolve().parent) / f'{asset_id}-servo.json'
 
 
 def load_servo(path):

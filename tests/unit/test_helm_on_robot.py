@@ -188,3 +188,100 @@ def test_teleop_on_the_robot_needs_the_bridge_and_binds_its_link_on_the_tether(t
         assert made[-1]['serve_link'] is bridge.serve_link and made[-1]['link_bind'] == TETHER
     finally:
         session.stop()
+
+
+# -- the operator's files, kept out of the release ---------------------------------------------------------------
+
+def test_operator_files_start_from_the_release_and_a_release_change_wins_without_losing_a_save(tmp_path):
+    from robot_platform.helm.operator_files import operator_files, prepare
+    release, mine = tmp_path / 'release', tmp_path / 'operator'
+    release.mkdir()
+    files = {name: release / name for name in ('limits.json', 'servo.json', 'ranges.json')}
+    files['limits.json'].write_text('limits v1')
+    files['servo.json'].write_text('servo v1')
+    assert prepare(files, mine) == []  # Seeded: the release's copies; ranges.json is in neither.
+    assert (mine / 'limits.json').read_text() == 'limits v1' and not (mine / 'ranges.json').exists()
+    (mine / 'limits.json').write_text('limits saved on Minerva')  # The operator saves; the release is unchanged.
+    (mine / 'ranges.json').write_text('ranges swept on Minerva')
+    assert prepare(files, mine) == []
+    assert (mine / 'limits.json').read_text() == 'limits saved on Minerva'
+    assert (mine / 'ranges.json').read_text() == 'ranges swept on Minerva'
+    # A deploy brings committed copies: never saved over (servo) -> updated; saved over (limits) -> kept aside.
+    files['servo.json'].write_text('servo v2')
+    files['limits.json'].write_text('limits v2')
+    notices = {notice['file']: notice for notice in prepare(files, mine, clock=lambda: 0.)}
+    assert notices['servo.json']['kind'] == 'updated' and (mine / 'servo.json').read_text() == 'servo v2'
+    assert notices['limits.json']['kind'] == 'replaced' and (mine / 'limits.json').read_text() == 'limits v2'
+    kept = Path(notices['limits.json']['kept'])
+    assert kept.parent == mine / 'replaced' and kept.read_text() == 'limits saved on Minerva'
+    assert prepare(files, mine) == []  # Settled.
+    # The operator saved exactly what the next release brings: nothing to keep aside.
+    (mine / 'servo.json').write_text('servo v3')
+    files['servo.json'].write_text('servo v3')
+    assert prepare(files, mine) == [] and (mine / 'servo.json').read_text() == 'servo v3'
+    found = operator_files(PROFILE, 'minerva-production-01', TELEOP)
+    assert set(found) == {'minerva-production-01-joint-limits.json', 'minerva-production-01-servo.json',
+                          'gello-dual-leader-ranges.json'}
+    assert all(path.parent == PROFILE.parent.resolve() for path in found.values())
+
+
+def test_helm_reads_and_saves_the_operator_files_in_their_folder(tmp_path):
+    from robot_platform.control.servo_calibration import servo_path
+    from robot_platform.helm.leaders import LeaderWorkspace
+    from robot_platform.ops.check import Context
+    folder = tmp_path / 'operator'
+    session = HelmSession(PROFILE, runs=tmp_path / 'runs', on_robot=True, operator_files=folder)
+    try:
+        assert session.limits_path == folder.resolve() / 'minerva-production-01-joint-limits.json'
+    finally:
+        session.close()
+    assert servo_path(PROFILE, 'minerva-production-01', folder) == folder.resolve() / 'minerva-production-01-servo.json'
+    assert servo_path(PROFILE, 'minerva-production-01') == PROFILE.parent.resolve() / 'minerva-production-01-servo.json'
+    leaders = LeaderWorkspace(TELEOP, operator_files=folder)
+    assert leaders.path == folder.resolve() / 'gello-dual-leader-ranges.json'
+    context = Context(root=ROOT, profile=PROFILE, teleop=TELEOP, runs=tmp_path, limits=None, address=None, motors=False,
+                      open_ssh=None, operator_files=folder)
+    assert context.operator_files == folder
+
+
+# -- the 3D view's meshes, converted on the build PC ---------------------------------------------------------------
+
+def test_the_mesh_store_serves_converted_meshes_by_digest_and_revalidates(tmp_path):
+    import gzip
+    import hashlib
+    import json
+    import struct
+    trimesh = pytest.importorskip('trimesh')
+    from aiohttp.test_utils import TestClient, TestServer
+    from robot_platform.models import ModelProfile
+    from robot_platform.viewer.server import ModelStore, create_app as viewer_app, mesh_payload, stored_mesh_name
+    trimesh.creation.box().export(tmp_path / 'shape.stl')
+    (tmp_path / 'machine.urdf').write_text('<robot name="m"><link name="base"><visual><geometry>'
+                                           '<mesh filename="package://parts/shape.stl"/></geometry></visual></link></robot>')
+    (tmp_path / 'model.json').write_text(json.dumps({'schema_version': 1, 'id': 'fixture', 'title': 'Box',
+                                                     'urdf': 'machine.urdf', 'packages': {'parts': '.'}}))
+    profile = ModelProfile.load(tmp_path / 'model.json')
+    store = tmp_path / 'meshes'
+    store.mkdir()
+    payload = mesh_payload(tmp_path / 'shape.stl')
+    sha = hashlib.sha256((tmp_path / 'shape.stl').read_bytes()).hexdigest()
+    with pytest.raises(ValueError, match='not in the mesh store'):
+        ModelStore([profile], mesh_store=store).stored_mesh('fixture', 0)
+    (store / stored_mesh_name(sha)).write_bytes(gzip.compress(payload, mtime=0))
+    body, etag = ModelStore([profile], mesh_store=store).stored_mesh('fixture', 0)
+    assert gzip.decompress(body) == payload and sha in etag
+    assert struct.unpack('<II', payload[:8])[1] == 12  # A box: twelve triangles, all kept.
+
+    async def scenario(client):
+        first = await client.get('/api/models/fixture/meshes/0')
+        assert first.status == 200 and await first.read() == payload  # Sent gzip-encoded, decoded by the client.
+        assert first.headers['Content-Encoding'] == 'gzip' and first.headers['ETag'] == etag
+        again = await client.get('/api/models/fixture/meshes/0', headers={'If-None-Match': etag})
+        assert again.status == 304  # The browser keeps what it fetched.
+        plain = await client.get('/api/models/fixture/meshes/0', headers={'Accept-Encoding': 'identity'})
+        assert await plain.read() == payload and 'Content-Encoding' not in plain.headers
+
+    async def run():
+        async with TestClient(TestServer(viewer_app([profile], mesh_store=store))) as client:
+            await scenario(client)
+    asyncio.run(run())

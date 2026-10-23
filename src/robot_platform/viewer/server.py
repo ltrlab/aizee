@@ -2,6 +2,7 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
+import gzip
 import json
 from pathlib import Path
 import struct
@@ -11,6 +12,35 @@ import time
 from xml.etree.ElementTree import ParseError
 
 from robot_platform.models import UrdfModel
+from robot_platform.models.urdf import asset_digest
+
+MESH_FORMAT = "mesh1"  # mesh_payload's layout; a stored mesh's name carries it, so a new layout never reads an old file.
+
+
+def mesh_payload(path):
+    """A mesh as the viewer sends it: vertex and face counts (<II), float32 vertices, uint32 faces, little-endian."""
+    import numpy as np
+    import trimesh
+    from robot_platform.simulation.collision import _validate_gltf
+    path = Path(path)
+    if path.suffix.lower() in {".gltf", ".glb"}:
+        _validate_gltf(path, path.read_bytes())
+    mesh = trimesh.load_scene(path, process=False, skip_materials=True, allow_remote=False).to_geometry()
+    if not isinstance(mesh, trimesh.Trimesh) or not len(mesh.faces) or not np.isfinite(mesh.vertices).all():
+        raise ValueError(f"Mesh has no finite triangles: {path.name}")
+    # Preserve every source triangle. Automatic decimation can remove thin
+    # CAD features and turn planar housings into visibly distorted surfaces.
+    vertices = np.asarray(mesh.vertices, dtype="<f4")
+    faces = np.asarray(mesh.faces, dtype="<u4")
+    if not np.isfinite(vertices).all() or faces.max() >= len(vertices):
+        raise ValueError("Invalid converted mesh")
+    return struct.pack("<II", len(vertices), len(faces)) + vertices.tobytes() + faces.tobytes()
+
+
+def stored_mesh_name(sha256):
+    """A converted mesh's file in a mesh store (Helm on Minerva): its gzip-compressed payload, named by its source's
+    digest. ops.helm_robot converts and uploads them from the build PC, where the CAD meshes are."""
+    return f"{sha256}.{MESH_FORMAT}.gz"
 
 
 def read_guide(path):
@@ -28,7 +58,10 @@ def read_guide(path):
 
 
 class ModelStore:
-    def __init__(self, profiles):
+    """`mesh_store`: a directory of converted meshes (stored_mesh_name) to serve instead of converting the CAD."""
+
+    def __init__(self, profiles, mesh_store=None):
+        self.mesh_store = None if mesh_store is None else Path(mesh_store)
         self.profiles = {p.id: p for p in profiles}
         if len(self.profiles) != len(profiles) or not profiles:
             raise ValueError("Select at least one model, with distinct ids")
@@ -46,9 +79,6 @@ class ModelStore:
             return self.models[name]
 
     def mesh(self, name, index):
-        import numpy as np
-        import trimesh
-        from robot_platform.simulation.collision import _validate_gltf
         model = self.model(name)
         if not 0 <= index < len(model.assets):
             raise KeyError(index)
@@ -56,22 +86,24 @@ class ModelStore:
         with self.lock:
             if key in self.meshes:
                 return self.meshes[key]
-        path = model.assets[index]
-        if path.suffix.lower() in {".gltf", ".glb"}:
-            _validate_gltf(path, path.read_bytes())
-        mesh = trimesh.load_scene(path, process=False, skip_materials=True, allow_remote=False).to_geometry()
-        if not isinstance(mesh, trimesh.Trimesh) or not len(mesh.faces) or not np.isfinite(mesh.vertices).all():
-            raise ValueError(f"Mesh has no finite triangles: {path.name}")
-        # Preserve every source triangle. Automatic decimation can remove thin
-        # CAD features and turn planar housings into visibly distorted surfaces.
-        vertices = np.asarray(mesh.vertices, dtype="<f4")
-        faces = np.asarray(mesh.faces, dtype="<u4")
-        if not np.isfinite(vertices).all() or faces.max() >= len(vertices):
-            raise ValueError("Invalid converted mesh")
-        payload = struct.pack("<II", len(vertices), len(faces)) + vertices.tobytes() + faces.tobytes()
+        payload = mesh_payload(model.assets[index])
         with self.lock:
             self.meshes[key] = payload
         return payload
+
+    def stored_mesh(self, name, index):
+        """(gzip-compressed payload, ETag) of a mesh from the mesh store, by its verified digest: Helm on Minerva
+        serves the 3D view without the CAD files or trimesh, and a browser revalidates what it already holds."""
+        model = self.model(name)
+        if not 0 <= index < len(model.assets):
+            raise KeyError(index)
+        sha = asset_digest(model.assets[index])
+        try:
+            body = (self.mesh_store / stored_mesh_name(sha)).read_bytes()
+        except FileNotFoundError:
+            raise ValueError(f"{model.assets[index].name} is not in the mesh store yet: upload the meshes from the "
+                             "build PC (python -m robot_platform.ops.helm_robot meshes)") from None
+        return body, f'"{sha}-{MESH_FORMAT}"'
 
     def runtime_model(self, name):
         from robot_platform.simulation.runtime_model import RuntimeCollisionModel
@@ -141,13 +173,14 @@ class ModelStore:
                          "Provisional interfaces are labeled, not removed or approved.")}
 
 
-def create_app(profiles, selected=None, local_only=True, guide=None, index_html=None):
+def create_app(profiles, selected=None, local_only=True, guide=None, index_html=None, mesh_store=None):
     """`guide` is a pose-feed file or a callable returning the same dictionary.
 
-    `index_html` replaces the page at "/"; the viewer itself stays at "/viewer".
+    `index_html` replaces the page at "/"; the viewer itself stays at "/viewer". `mesh_store`: serve the meshes
+    converted on the build PC (ModelStore), as on Minerva.
     """
     from aiohttp import web
-    store = ModelStore(profiles)
+    store = ModelStore(profiles, mesh_store=mesh_store)
     selected = selected or profiles[0].id
     if selected not in store.profiles:
         raise ValueError(f"Unknown selected model: {selected}")
@@ -212,6 +245,15 @@ def create_app(profiles, selected=None, local_only=True, guide=None, index_html=
         model = await offline(store.model, request.match_info["model"])
         return web.json_response(model.metadata())
     async def mesh(request):
+        if store.mesh_store is not None:
+            body, etag = await offline(store.stored_mesh, request.match_info["model"], int(request.match_info["index"]))
+            headers = {"ETag": etag, "Cache-Control": "no-cache"}
+            if etag in request.headers.get("If-None-Match", ""):
+                return web.Response(status=304, headers=headers)
+            if "gzip" in request.headers.get("Accept-Encoding", ""):
+                return web.Response(body=body, content_type="application/octet-stream",
+                                    headers={**headers, "Content-Encoding": "gzip"})
+            return web.Response(body=gzip.decompress(body), content_type="application/octet-stream", headers=headers)
         payload = await offline(store.mesh, request.match_info["model"], int(request.match_info["index"]))
         response = web.Response(body=payload, content_type="application/octet-stream", zlib_executor_size=65536)
         response.enable_compression()

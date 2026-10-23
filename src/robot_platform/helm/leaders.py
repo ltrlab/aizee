@@ -21,12 +21,15 @@ from robot_platform.teleop.leader_ranges import (LeaderRangeRecorder, channels, 
 class LeaderWorkspace:
     poll_s = .02
 
-    def __init__(self, teleop_profile, *, labels=None, evidence=None, open_leaders=None, clock=time.perf_counter):
+    def __init__(self, teleop_profile, *, labels=None, evidence=None, open_leaders=None, clock=time.perf_counter,
+                 operator_files=None):
         path = Path(teleop_profile).resolve()
         teleop = json.loads(path.read_text(encoding='utf-8'))
         self.profile_path = (path.parent / teleop['leader_profile']).resolve()
         self.profile = json.loads(self.profile_path.read_text(encoding='utf-8'))
-        self.path = (path.parent / teleop['leader_ranges']).resolve()
+        # Saved beside the teleop profile, or in Helm on Minerva's operator folder (helm.operator_files).
+        self.path = (Path(operator_files).resolve() / Path(teleop['leader_ranges']).name if operator_files else
+                     (path.parent / teleop['leader_ranges']).resolve())
         self.drives = {(route['leader'], route['channel']): motor for motor, route in teleop['routes'].items()}
         self.labels = dict(labels or {})
         self.evidence = Path(evidence) if evidence else None

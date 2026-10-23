@@ -72,14 +72,16 @@ OPEN_POSTS = ('/api/helm/logout', '/api/helm/control/claim', '/api/helm/control/
 
 def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None, live=False,
                gripper_zero=None, simulation_only=False, cameras=None, camera_video=None, episodes=None, ups=None,
-               access=None, bridge=None):
+               access=None, bridge=None, mesh_store=None, operator_files=None):
     """`live`: keep the stopped reader running whenever Minerva is online and nothing else holds the motors
     (helm.live_view); sessions then take the motors from it instead of asking for Disconnect first.
     `episodes`: the recorded-episode library behind Replay (helm.episodes), told to read nothing while a
     recording runs. `ups`: the robot's UPS state (helm.ups.UpsWatch); while it announces a low-battery shutdown,
     nothing that moves the arms starts, and a running session and sweep are stopped (the arms lowered first).
     `access` (helm.access.Access): Helm serves other devices (on Minerva, beyond loopback): a login, one device in
-    control, stopping always allowed. `bridge` (helm.bridge.BridgeHub): the GELLO bridge's state for the page."""
+    control, stopping always allowed. `bridge` (helm.bridge.BridgeHub): the GELLO bridge's state for the page.
+    `mesh_store`: the 3D view's meshes, converted on the build PC (viewer.server.ModelStore). `operator_files`:
+    where Helm on Minerva saves the operator's files and what its start changed there (helm.operator_files)."""
     from aiohttp import web
     from robot_platform.viewer.server import create_app as viewer_app
     from .live_view import LiveView
@@ -123,7 +125,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         return session.guide()
 
     app = viewer_app([session.model.profile], session.model.profile.id,
-                     guide=guide, index_html=STATIC / 'index.html', local_only=access is None)
+                     guide=guide, index_html=STATIC / 'index.html', local_only=access is None, mesh_store=mesh_store)
     if access is not None:
         from .access import COOKIE, stop_request
 
@@ -203,6 +205,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         state['action_token'] = token
         state['access'] = access.view(CURRENT_SESSION.get()) if access is not None else {'enabled': False}
         state['bridge'] = bridge.snapshot() if bridge is not None else None
+        state['operator_files'] = operator_files
         return web.json_response(state, headers={'Cache-Control': 'no-store'})
 
     async def off_loop(function):

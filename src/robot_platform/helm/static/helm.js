@@ -303,6 +303,13 @@ let claimArmed = 0;
 function renderAccess(state) {
   const onRobot = state.robot?.connection === 'robot';
   $('robot-pill').hidden = !onRobot;
+  // A release that replaced a file the operator had saved on Minerva (helm.operator_files): the old copy is kept.
+  const replaced = (state.operator_files?.notices || []).filter(notice => notice.kind === 'replaced');
+  $('robot-pill').textContent = replaced.length ? 'On Minerva · saved files replaced' : 'On Minerva';
+  $('robot-pill').dataset.tone = replaced.length ? 'warn' : '';
+  $('robot-pill').title = replaced.length ? replaced.map(notice => notice.message).join('
+')
+    : "Helm runs on Minerva's Jetson";
   $('via').hidden = onRobot;
   const bridge = state.bridge, bridgePill = $('bridge-pill');
   bridgePill.hidden = !bridge;

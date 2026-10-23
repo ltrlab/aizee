@@ -44,6 +44,12 @@ def main(argv=None):
     parser.add_argument('--access', type=Path,
                         help='Access file (python -m robot_platform.helm.access set-password FILE): a login, and one '
                              'device in control')
+    parser.add_argument('--operator-files', type=Path,
+                        help='Read and save the joint limits, servo calibration and leader ranges here instead of '
+                             'beside the profiles (Helm on Minerva, whose release must not change: helm.operator_files)')
+    parser.add_argument('--mesh-store', type=Path,
+                        help="Serve the 3D view's meshes, converted on the build PC, from here instead of converting "
+                             'the CAD (Helm on Minerva: python -m robot_platform.ops.helm_robot meshes)')
     parser.add_argument('--tls-cert', type=Path, help='HTTPS certificate (PEM); with --tls-key')
     parser.add_argument('--tls-key', type=Path, help='HTTPS private key (PEM)')
     parser.add_argument('--port', type=int, default=8760)
@@ -64,8 +70,24 @@ def main(argv=None):
     from aiohttp import web
     from .server import create_app
     from .session import HelmSession
+    operator = None
     try:
-        session = HelmSession(args.profile, runs=args.runs, limits=args.limits, seed=args.seed, on_robot=args.on_robot)
+        if args.on_robot:
+            # Like the loop it starts: the release's verified mesh digests and native paths, so the model loads
+            # without the CAD files, which stay on the build PC. A source checkout has the CAD.
+            from robot_platform.ops.release import MANIFEST, ROOT, activate
+            if (ROOT / MANIFEST).is_file():
+                release = activate(ROOT)
+                print(f"Helm on Minerva: release {release['id']}", flush=True)
+        if args.operator_files is not None:
+            from robot_platform.ops.ssh import robot_identity
+            from .operator_files import operator_files, prepare
+            files = operator_files(args.profile, robot_identity(args.profile)[0]['asset_id'], args.teleop)
+            operator = {'directory': str(args.operator_files.resolve()), 'notices': prepare(files, args.operator_files)}
+            for notice in operator['notices']:
+                print(f"Operator files: {notice['message']}", flush=True)
+        session = HelmSession(args.profile, runs=args.runs, limits=args.limits, seed=args.seed, on_robot=args.on_robot,
+                              operator_files=args.operator_files)
     except (ValueError, RuntimeError, OSError) as exc:
         print(f'Helm could not start: {exc}', file=sys.stderr)
         return 1
@@ -89,7 +111,8 @@ def main(argv=None):
             from .leaders import LeaderWorkspace
             from .teleop import TeleopSession
             leaders = LeaderWorkspace(args.teleop, labels=session.labels, evidence=session.evidence,
-                                      open_leaders=bridge.open_leaders if bridge is not None else None)
+                                      open_leaders=bridge.open_leaders if bridge is not None else None,
+                                      operator_files=args.operator_files)
             simulation = None
             if args.sim:
                 # The simulator's actuator file, beside the servo calibration: the motors it matches take the values
@@ -113,7 +136,8 @@ def main(argv=None):
             cameras = CameraSettings(session.profile_path, address=lambda: session.address)
             camera_video = CameraVideo(session.profile_path, address=lambda: session.address)
             check = CheckWorkspace(profile=session.profile_path, teleop=args.teleop or DEFAULT_TELEOP,
-                                   runs=args.runs, limits=session.limits_path, address=lambda: session.address)
+                                   runs=args.runs, limits=session.limits_path, address=lambda: session.address,
+                                   operator_files=args.operator_files)
         if tune is not None:
             # Minerva Check's live joint sweep runs through the Tune loop; its outcome goes into the report.
             tune.on_finished = lambda mode, arm, results, fault: (
@@ -131,7 +155,8 @@ def main(argv=None):
             access = Access(args.access)
         app = create_app(session, link, teleop=teleop, leaders=leaders, check=check, tune=tune,
                          live=not (args.sim or args.no_live), simulation_only=args.sim, cameras=cameras,
-                         camera_video=camera_video, episodes=episodes, ups=ups, access=access, bridge=bridge)
+                         camera_video=camera_video, episodes=episodes, ups=ups, access=access, bridge=bridge,
+                         mesh_store=args.mesh_store, operator_files=operator)
         if session.stale_lock_pid:
             print(f'Took over a calibration lock left by exited process {session.stale_lock_pid}.', flush=True)
         mode = ('SIMULATION ONLY; no physical robot connection' if args.sim else

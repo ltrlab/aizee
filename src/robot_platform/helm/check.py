@@ -11,8 +11,9 @@ from robot_platform.ops.check import FAIL, latest_report, outdated, record_live,
 
 
 class CheckWorkspace:
-    def __init__(self, *, profile, teleop, runs, limits=None, runner=run_check, address=None):
-        self.options = dict(profile=profile, teleop=teleop, runs=runs, limits=limits)
+    def __init__(self, *, profile, teleop, runs, limits=None, runner=run_check, address=None, operator_files=None):
+        self.options = dict(profile=profile, teleop=teleop, runs=runs, limits=limits,
+                            **({'operator_files': operator_files} if operator_files else {}))
         self.runner = runner
         self.address = address  # () -> the robot address Helm is set to use; None: the runner's (the tether).
         self.lock = threading.Lock()

@@ -75,8 +75,11 @@ def acquire_lock(path, *, alive=process_alive):
 
 
 class HelmSession:
-    def __init__(self, profile, *, runs, limits=None, seed=None, clock=time.time, on_robot=False):
+    def __init__(self, profile, *, runs, limits=None, seed=None, clock=time.time, on_robot=False, operator_files=None):
         self.profile_path = Path(profile).resolve()
+        # Where the joint limits, servo calibration and leader ranges are saved instead of beside the profiles: Helm
+        # on Minerva runs from a release that must not change (helm.operator_files).
+        self.operator_files = Path(operator_files).resolve() if operator_files else None
         (self.plan, self.paths, self.device, self.reference, self.model,
          self.pose, self.bindings) = load_plan(self.profile_path)
         self.asset_id = self.device['asset_id']
@@ -121,7 +124,8 @@ class HelmSession:
             self._persist_state()
             self.evidence = runs / 'helm' / time.strftime('%Y%m%dT%H%M%S', time.gmtime())
             self.evidence.mkdir(parents=True, exist_ok=True)
-            self.limits_path = Path(limits).resolve() if limits else self.profile_path.parent / (self.asset_id + '-joint-limits.json')
+            self.limits_path = (Path(limits).resolve() if limits else
+                                (self.operator_files or self.profile_path.parent) / (self.asset_id + '-joint-limits.json'))
             self.binding = dict(asset_id=self.asset_id, reference=self.reference,
                                 reference_sha256=self.bindings['reference'])
             self.saved_limits, self.saved_limits_error = load_limits(self.limits_path, **self.binding)

@@ -1906,7 +1906,8 @@ class TeleopSession:
         from robot_platform.control.servo_calibration import load_servo, servo_path
         if not hasattr(self.helm, 'profile_path') or not hasattr(self.helm, 'asset_id'):
             return None
-        return load_servo(servo_path(self.helm.profile_path, self.helm.asset_id))
+        return load_servo(servo_path(self.helm.profile_path, self.helm.asset_id,
+                                     getattr(self.helm, 'operator_files', None)))
 
     def task_action(self, action):
         if action == 'setup':

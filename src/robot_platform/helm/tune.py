@@ -687,7 +687,7 @@ class TuneSession:
         self.joints = None
         self.absent = None  # Drives unplugged for a wiring check, which the next tuning sweep leaves out.
         self._swept_without = None  # Those the last sweep left out: its results are not saved.
-        self.path = servo_path(helm.profile_path, helm.asset_id)
+        self.path = servo_path(helm.profile_path, helm.asset_id, getattr(helm, 'operator_files', None))
         self._lock = threading.Lock()
         self._conn = self._views = self._worker = self._reader = None
         self._view = {'phase': 'stopped', 'stage': None, 'message': 'The servo sweep is not running.',

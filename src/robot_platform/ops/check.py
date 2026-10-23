@@ -80,9 +80,11 @@ def remote_release_root(value):
 class Context:
     """Options plus what earlier checks found (plan, limits, SSH client, probe results)."""
 
-    def __init__(self, *, root, profile, teleop, runs, limits, address, motors, open_ssh, remote_root=CURRENT):
+    def __init__(self, *, root, profile, teleop, runs, limits, address, motors, open_ssh, remote_root=CURRENT,
+                 operator_files=None):
         self.root, self.profile, self.teleop = Path(root), Path(profile).resolve(), Path(teleop).resolve()
         self.runs, self.limits_path = Path(runs).resolve(), limits
+        self.operator_files = operator_files  # Helm on Minerva's saved servo calibration (helm.operator_files).
         self.address, self.motors, self.open_ssh = address, motors, open_ssh
         self.remote_root = remote_release_root(remote_root)
         self.probe_command = f'cd {shlex.quote(self.remote_root)} && PYTHONPATH=src python3 -u -m robot_platform.ops.probe'
@@ -194,7 +196,7 @@ def _servo(ctx):
     swept (they squeeze what they hold); the live joint sweep opens and closes them instead."""
     from robot_platform.control.guarded_config import motion_settings
     from robot_platform.control.servo_calibration import coverage, load_servo, servo_path
-    path = servo_path(ctx.profile, ctx.facts['asset_id'])
+    path = servo_path(ctx.profile, ctx.facts['asset_id'], ctx.operator_files)
     document = load_servo(path)
     ctx.facts['servo'] = document
     motion = _teleop(ctx)['motion']
@@ -662,10 +664,11 @@ def verdict(report):
 
 
 def run_check(*, root=ROOT, profile=DEFAULT_PROFILE, teleop=DEFAULT_TELEOP, runs=DEFAULT_RUNS, limits=None,
-              address=TETHER, motors=True, publish=None, save=True, open_ssh=connect, remote_root=CURRENT):
+              address=TETHER, motors=True, publish=None, save=True, open_ssh=connect, remote_root=CURRENT,
+              operator_files=None):
     """Check the selected release without switching it; publish(report) after each change."""
     ctx = Context(root=root, profile=profile, teleop=teleop, runs=runs, limits=limits, address=address,
-                  motors=motors, open_ssh=open_ssh, remote_root=remote_root)
+                  motors=motors, open_ssh=open_ssh, remote_root=remote_root, operator_files=operator_files)
     publish = publish or (lambda report: None)
     report = {'schema': 1, 'kind': 'minerva_check', 'asset_id': None, 'address': address,
               'remote_root': ctx.remote_root,
