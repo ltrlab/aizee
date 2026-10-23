@@ -81,6 +81,16 @@
     `robot-platform deploy` installs the new release's dependencies and meshes, then restarts Helm on it. It does
     not restart Helm while a session or Check runs, so Helm and the loops it starts stay on one release.
   - **CPUs:** the service runs on CPUs 0–3 at nice 5, off the control CPUs 4–5 and below the cameras.
+  - **Loops stay out of Helm.** On the operator PC, the "This PC" choice ran a virtual teleop or sweep loop inside
+    Helm's process. On Minerva, teleop, Tune and the command line refuse it, and the page hides the choice. Every loop
+    runs in its own process on CPUs 4–5.
+  - **Listeners:**
+    - HTTPS on port 8760 for the operator's devices.
+    - Plain HTTP on `127.0.0.1:8762`, for the robot's own tools and SSH tunnels. A browser behind a tunnel cannot pass
+      the self-signed certificate.
+    - The login applies on both.
+  - **The header still fits 1280 px.** On Minerva the GELLO pill and View only · Take control (or In control) take
+    the place of the Via choice and the mode pill. A release that replaced saved files says so in the banner.
 - **Install** (each write to `authorized_keys` and each deploy with the user's approval):
   1. From the build PC:
      - `python -m robot_platform.ops.helm_robot --address <robot> deps`
@@ -107,8 +117,8 @@
   The release gains files; its format and checks do not change.
 - **Acceptance:**
   1. `python scripts/dev.py check --offline` passes with zero skips.
-  2. On the Jetson, without installing anything: Helm from `/dev/shm` on a spare port answers the login, the page,
-     the viewer and every mesh. Measure its CPU and memory.
+  2. On the Jetson, without installing anything: Helm from a temporary folder on a spare port answers the login,
+     the page, the viewer and every mesh. Measure its CPU and memory.
   3. With the user's approval: install the service and keys, then use Helm from the laptop and a phone or tablet.
      Check the live view, Check, cameras and Replay.
   4. With the 3080 set up and the user present:
@@ -138,9 +148,52 @@
       - dependencies installed once from uploaded wheels;
       - the bridge package;
       - the locks pinned to the development versions.
-    - `tests/unit/test_ops_release.py`: a built release has the page, the viewer and the lock, and no meshes.
+    - `tests/unit/test_ops_release.py`: a built release has the page, the viewer, the lock and the buses' hardware
+      profiles, and no meshes.
+  - **Rehearsed on the Jetson, 2026-10-23, nothing installed:**
+    - **Setup:**
+      - The release (`fe4ad93`), the wheels and the meshes went under `/tmp/helm-rehearsal`, with `HOME` pointed
+        there. `/dev/shm` does not work for this: logind removes a user's files there when their last session ends
+        (`RemoveIPC`).
+      - Without lingering, the same logout also stops the user's services, so the install needs
+        `enable-linger`.
+      - It all ran as the robot's user, and nothing in `~/minerva`, `authorized_keys` or systemd changed. Everything
+        was removed afterwards.
+    - **`prepare` on the robot:**
+      - It made the key, and a certificate with the right names: 10.42.0.1, 127.0.0.1 and 192.168.8.180, plus
+        `aizee-rover` and `aizee-rover.local`. The certificate is not a CA, is for serverAuth, and is valid 825 days.
+      - The 11 wheels installed with their hashes checked, and aiohttp 3.14.4 imports.
+      - `status` found all 158 meshes against the release's asset lock and listed nothing missing once a rehearsal
+        password was set.
+    - **Helm itself:**
+      - It activated the verified release and served over HTTPS and HTTP: the login, the page, and the 3D view with
+        the whole model from the mesh store.
+      - All 220 meshes (41.4 MB gzip) were served locally in 0.66 s, using 0.46 s of Helm's CPU, and every
+        revalidation was a 304.
+      - **CPU:** idle, 1.5 % of a core. With the page open and synthetic leaders streaming through the bridge at
+        50 Hz, 6.0 %; the relay used 0.3 %.
+      - **Memory:** 65–130 MB.
+    - **The bridge over real SSH** (laptop → relay → hub):
+      - It connected, and the machine id matched.
+      - The Leaders tab streamed the synthetic arms at "Live · 7 ms".
+      - When Helm restarted, the bridge reconnected about 4 s later by itself.
+    - **Release verification:** page files patched in place stopped Helm at start ("changed …"). That is the
+      protection the operator folder exists for.
+    - **Found by the rehearsal and fixed:**
+      - Releases lacked `config/hardware_minerva_{left,right}.yaml`, which the direct tuning reads, so Helm would not
+        start.
+      - A heredoc broke `helm.js` with a raw newline. `test_browser_scripts` catches it, but it had not been run
+        after that edit.
+      - Hidden pills showed as empty boxes.
+      - The header measured 1633 px at a width of 1280 px, pushing the UPS pill and Connect off-screen.
+      - The "This PC" loop placement on Minerva.
+      - No way in for a tunnel's browser, hence the loopback listener.
 - **Remaining uncertainty:**
+  - A real leader link through the bridge: the rehearsal streamed synthetic leaders, but no session's link ran,
+    because the laptop is not on the tether.
   - The Jetson's CPU with Helm, the cameras and a recording together. Measure it before a recorded session.
+  - Each device accepting the self-signed certificate once (Edge on the 3080, an iPad). Compare its SHA-256 with
+    `helm_service status`.
   - Camera relay bandwidth to Wi-Fi devices, and several viewers at once.
   - The 3080's tether adapter: its power saving must be off, as on the terminal (`tether-usb-adapter-latency`).
   - Windows firewall prompts for the bridge's Python on the 3080.
