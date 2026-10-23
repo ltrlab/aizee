@@ -201,6 +201,31 @@
       - The header measured 1633 px at a width of 1280 px, pushing the UPS pill and Connect off-screen.
       - The "This PC" loop placement on Minerva.
       - No way in for a tunnel's browser, hence the loopback listener.
+- **Deployed 2026-10-23 ~19:30Z,** with the user's approval ("let's deploy to Minerva from the 3080 machine"):
+  - **The route:** through the operator station (`soliloquy`, reached over Tailscale) and the LAN to the Jetson's
+    Wi-Fi, because the tether was not connected yet. The release was built on the laptop. The station only relays the
+    SSH connection, so no robot key is stored on it.
+  - **The release:** `20261023T192755Z-ec18fdd`, replacing `20261022T235916Z-f486fb3`. The smoke test passed:
+    collision model 972 ms, keep-out p50 1.55 ms, receiver harness disarmed. Nothing was pruned.
+  - **Helm:**
+    - Dependencies `78fd3dfc446b`, 158 meshes (35 MB), and Helm's key and certificate (SHA-256
+      `66:AF:47:0B:…:55:CB:00`).
+    - Helm's loopback-only line in `authorized_keys`, with a dated backup of the file kept.
+    - `minerva-helm` is enabled and stops at start (exit 78) until the operator sets the password; lingering is
+      still off.
+  - **The operator state salvaged from the terminal:** the directions, the Motor tuning preset and the routes went
+    into `~/minerva/helm/runs`, matching by hash. Loaded as Helm loads them, the right arm's J1, J3 and J4 are −1,
+    the verified mapping.
+  - **The station:**
+    - Python 3.12.10 per user, signature checked.
+    - The GELLO bridge (`87b3478`) as the logon task, its key made. It retries until the tether is up and its key is
+      authorized.
+    - **Installer fixes found on the station:**
+      - The redirected log came out as PowerShell error records in UTF-16. The bridge now writes its own UTF-8
+        `--log`.
+      - Stopping the task left the bridge running.
+      - The installer's first filter for old bridges matched the installer itself.
+      - A reinstall over a running bridge now replaces it.
 - **Remaining uncertainty:**
   - A real leader link through the bridge: the rehearsal streamed synthetic leaders, but no session's link ran,
     because the laptop is not on the tether.
