@@ -92,6 +92,12 @@
   - **The header still fits 1280 px.** On Minerva the GELLO pill and View only · Take control (or In control) take
     the place of the Via choice and the mode pill. A release that replaced saved files says so in the banner.
 - **Install** (each write to `authorized_keys` and each deploy with the user's approval):
+  0. The operator station (the RTX 3080 PC, `soliloquy`), once, by the user, as Administrator:
+     `scripts/setup_operator_station.ps1 -AuthorizeKey "<the build PC's public key>"`.
+     - It sets up OpenSSH Server, keys only, from the LAN, the tether and Tailscale only.
+     - It turns off sleep on mains power and USB selective suspend.
+     - It turns off the tether adapter's power saving.
+     - Deploys reach Minerva through the station, over the tether.
   1. From the build PC:
      - `python -m robot_platform.ops.helm_robot --address <robot> deps`
      - `python -m robot_platform.ops.helm_robot --address <robot> meshes`
