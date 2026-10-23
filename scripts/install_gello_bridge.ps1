@@ -90,8 +90,8 @@ $identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 & icacls.exe $key /inheritance:r /grant:r "${identity}:(F)" | Out-Null
 if ($LASTEXITCODE) { throw 'Restricting the bridge key failed' }
 
-# The runner the task starts: the bridge, its output appended to a log, started again if it ever exits (it
-# reconnects to Helm by itself; this covers a crash).
+# The runner the task starts: the bridge, writing its own log (Windows PowerShell would turn each redirected stderr
+# line into an error record), started again if it ever exits (it reconnects to Helm by itself; this covers a crash).
 $runner = Join-Path $base 'Run-GelloBridge.ps1'
 $log = Join-Path $base 'logs\gello-bridge.log'
 @"
@@ -99,7 +99,7 @@ $log = Join-Path $base 'logs\gello-bridge.log'
 `$env:PYTHONUNBUFFERED = '1'
 Set-Location -LiteralPath '$root'
 while (`$true) {
-    & '$venv\Scripts\python.exe' -m robot_platform.teleop.gello_bridge --key '$key' --robot '$Robot' *>> '$log'
+    & '$venv\Scripts\python.exe' -m robot_platform.teleop.gello_bridge --key '$key' --robot '$Robot' --log '$log'
     Add-Content -LiteralPath '$log' -Value "`$(Get-Date -Format s) the bridge exited (`$LASTEXITCODE); starting it again in 5 s"
     Start-Sleep -Seconds 5
 }

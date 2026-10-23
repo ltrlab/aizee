@@ -141,3 +141,20 @@ def test_a_silent_helm_ends_the_connection_and_stops_what_the_bridge_served(monk
     assert message == ['link_up', 7]
     thread.join(5.)  # Helm says nothing more: after 0.4 s the bridge ends the connection,
     assert not thread.is_alive() and closed.is_set()  # and the link it served stops with it.
+
+
+def test_the_logon_task_logs_to_its_own_file_and_a_crash_says_why(tmp_path, monkeypatch):
+    import logging
+    path = tmp_path / 'gello-bridge.log'
+    monkeypatch.setattr(gello_bridge, 'LOG_FILE', None)
+    monkeypatch.setattr(logging, 'basicConfig', lambda **options: None)  # Leave pytest's logging alone.
+    monkeypatch.setattr(gello_bridge, 'run', lambda **options: gello_bridge.log('cannot reach Helm on 10.42.0.1: timed out'))
+    assert gello_bridge.main(['--key', 'k', '--log', str(path)]) == 0
+    assert path.read_text(encoding='utf-8').endswith('cannot reach Helm on 10.42.0.1: timed out\n')
+
+    def broken(**options):
+        raise RuntimeError('no profile')
+    monkeypatch.setattr(gello_bridge, 'run', broken)
+    with pytest.raises(RuntimeError):
+        gello_bridge.main(['--key', 'k', '--log', str(path)])
+    assert 'stopped: Traceback' in path.read_text(encoding='utf-8') and 'no profile' in path.read_text(encoding='utf-8')

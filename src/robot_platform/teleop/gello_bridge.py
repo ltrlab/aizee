@@ -18,19 +18,29 @@ It answers Helm's beats and ends a connection that goes silent, stopping what it
 Nothing here commands the robot: the loop on the Jetson decides what every sample may do.
 """
 import argparse
+import logging
 import socket
 import sys
 import threading
 import time
+import traceback
 
 from robot_platform.helm.bridge import BEAT_S, RELAY_COMMAND, SILENCE_S, VERSION
 
 RECONNECT_S = (1., 2., 5., 10.)
+# main's --log: the logon task's log file. Windows PowerShell turns each redirected stderr line into an error record,
+# so the task writes its own file instead.
+LOG_FILE = None
 
 
 def log(message):
-    sys.stderr.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}\n")
-    sys.stderr.flush()
+    line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}\n"
+    if sys.stderr is not None:
+        sys.stderr.write(line)
+        sys.stderr.flush()
+    if LOG_FILE is not None:
+        with open(LOG_FILE, 'a', encoding='utf-8') as handle:
+            handle.write(line)
 
 
 def sample_row(sample, now):
@@ -256,11 +266,19 @@ def main(argv=None):
     parser.add_argument('--robot', default=TETHER, help=f"The Jetson's tether address (default {TETHER})")
     parser.add_argument('--profile', default=str(DEFAULT_PROFILE), help='The calibration profile (robot identity)')
     parser.add_argument('--synthetic', action='store_true', help='Serve synthetic leaders instead of the USB arms')
+    parser.add_argument('--log', help='Also append the log, and library warnings, to this file (the logon task does)')
     args = parser.parse_args(argv)
+    global LOG_FILE
+    LOG_FILE = args.log
+    if args.log:
+        logging.basicConfig(filename=args.log, level=logging.WARNING, format='%(asctime)s %(name)s: %(message)s')
     try:
         run(profile=args.profile, robot=args.robot, key=args.key, synthetic=args.synthetic)
     except KeyboardInterrupt:
         pass
+    except Exception:
+        log('stopped: ' + traceback.format_exc().rstrip())
+        raise
     return 0
 
 
