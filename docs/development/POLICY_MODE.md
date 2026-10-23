@@ -92,8 +92,19 @@
   in 0.07 ms and Hold aligned. The simulated receiver then expired a hold command on time-correct cycles: the same
   laptop sim artifact as the replay rehearsals (`helm-sim-mode` notes), not policy load. The real-time test is on
   the Jetson.
+- **Deploy attempt (2026-10-23 00:44Z, approved; not finished):**
+  - The gate on `ed51601` passed: 1273 tests, zero skips.
+  - **Jetson:** `20261023T004425Z-ed51601` is staged and smoke-tested, not active; `current` stays
+    `20261022T235916Z-f486fb3`.
+  - **Terminal:** the console stage failed twice, both on the terminal's hardware.
+    - First, a cached numpy wheel failed its hash.
+    - After a pip cache purge, the retry's PowerShell died with an access violation, Defender crashed, and the
+      terminal blue-screened (0xEF CRITICAL_PROCESS_DIED) and rebooted. There is an earlier dump from 2026-09-30.
+    - Both partial folders are set aside; the terminal still runs `helm-recording-f486fb3f27`.
+  - The Jetson closed the open (disabled) session on "Helm went silent for 5 s", as designed.
+  - Waiting on a memory test of the terminal before the deploy is retried.
 - **Next:**
-  1. **Deploy** (with the user's approval, between their sessions).
+  1. **Deploy** after the terminal's memory test.
   2. **`hold_still` on the Jetson's virtual receiver, then live** with the user present: Engage aligns to the
      reference pose and holds.
   3. **ACT trained on the new demonstrations:**
