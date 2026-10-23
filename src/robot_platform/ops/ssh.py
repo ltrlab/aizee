@@ -35,8 +35,10 @@ def robot_identity(profile_path=DEFAULT_PROFILE):
     return device, plan['connection'], profile_path.parent
 
 
-def connect(profile_path=DEFAULT_PROFILE, *, address=TETHER, timeout=8.):
-    """An SSH client to the robot computer, refusing any other host or machine."""
+def pinned(profile_path=DEFAULT_PROFILE, *, address=TETHER, timeout=8., key=None):
+    """An SSH client to the robot computer whose host key is the profile's (`key`: a private key file instead of the
+    profile's). connect() also checks the machine id; a key restricted to one command (the GELLO bridge's relay)
+    cannot, so its caller checks it another way (helm.bridge's welcome)."""
     import paramiko
     device, connection, directory = robot_identity(profile_path)
     expected = connection['host_key_sha256']
@@ -47,13 +49,19 @@ def connect(profile_path=DEFAULT_PROFILE, *, address=TETHER, timeout=8.):
             if actual != expected:
                 raise paramiko.SSHException('SSH host fingerprint mismatch')
             client.get_host_keys().add(hostname, key.get_name(), key)
-
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(PinnedHost())
     client.connect(address or device['address'], username=connection['username'],
-                   key_filename=str(key_file(connection, directory)),
+                   key_filename=str(Path(key).expanduser().resolve() if key else key_file(connection, directory)),
                    look_for_keys=False, allow_agent=False, timeout=timeout, auth_timeout=timeout,
                    banner_timeout=timeout)
+    return client
+
+
+def connect(profile_path=DEFAULT_PROFILE, *, address=TETHER, timeout=8.):
+    """An SSH client to the robot computer, refusing any other host or machine."""
+    device, _connection, _directory = robot_identity(profile_path)
+    client = pinned(profile_path, address=address, timeout=timeout)
     expired = threading.Event()
     def identity_expired():
         expired.set()

@@ -36,10 +36,27 @@ def main(argv=None):
     parser.add_argument('--episodes', type=Path,
                         help="Replay episodes from this local directory (live-*/episodes/*.hdf5) instead of Minerva's "
                              'Jetson; a live replay with the loop on this PC reads them here too')
+    parser.add_argument('--on-robot', action='store_true',
+                        help="Helm runs on Minerva's Jetson: it reaches the robot at its own loopback address, and the "
+                             'GELLO bridge on the operator PC serves the leader arms (helm.bridge)')
+    parser.add_argument('--host', default='127.0.0.1',
+                        help='Address to serve the page on (default: this computer only); beyond it needs --access')
+    parser.add_argument('--access', type=Path,
+                        help='Access file (python -m robot_platform.helm.access set-password FILE): a login, and one '
+                             'device in control')
+    parser.add_argument('--tls-cert', type=Path, help='HTTPS certificate (PEM); with --tls-key')
+    parser.add_argument('--tls-key', type=Path, help='HTTPS private key (PEM)')
     parser.add_argument('--port', type=int, default=8760)
     args = parser.parse_args(argv)
     if not 1 <= args.port <= 65535:
         parser.error('port must be in 1..65535')
+    if args.host not in ('127.0.0.1', 'localhost', '::1') and args.access is None:
+        parser.error('Serving beyond this computer needs --access: a login '
+                     '(python -m robot_platform.helm.access set-password FILE)')
+    if (args.tls_cert is None) != (args.tls_key is None):
+        parser.error('--tls-cert and --tls-key go together')
+    if args.on_robot and args.sim:
+        parser.error('--on-robot drives the robot it runs on; --sim is a simulation on a PC')
     if args.sim and not args.teleop:
         parser.error('--sim needs --teleop')
     if args.sim_visual_mode is not None and not args.sim:
@@ -48,7 +65,7 @@ def main(argv=None):
     from .server import create_app
     from .session import HelmSession
     try:
-        session = HelmSession(args.profile, runs=args.runs, limits=args.limits, seed=args.seed)
+        session = HelmSession(args.profile, runs=args.runs, limits=args.limits, seed=args.seed, on_robot=args.on_robot)
     except (ValueError, RuntimeError, OSError) as exc:
         print(f'Helm could not start: {exc}', file=sys.stderr)
         return 1
@@ -63,11 +80,16 @@ def main(argv=None):
             link = LiveLink(session, lambda: SshCapture(session.plan['connection'], dict(session.device,
                                                                                          address=session.address),
                                                         session.reference, session.profile_path.parent))
-        teleop = leaders = tune = None
+        teleop = leaders = tune = bridge = None
+        if args.on_robot:
+            # The leader arms stay on the operator PC: its GELLO bridge joins Helm here (helm.bridge).
+            from .bridge import BridgeHub
+            bridge = BridgeHub()
         if args.teleop:
             from .leaders import LeaderWorkspace
             from .teleop import TeleopSession
-            leaders = LeaderWorkspace(args.teleop, labels=session.labels, evidence=session.evidence)
+            leaders = LeaderWorkspace(args.teleop, labels=session.labels, evidence=session.evidence,
+                                      open_leaders=bridge.open_leaders if bridge is not None else None)
             simulation = None
             if args.sim:
                 # The simulator's actuator file, beside the servo calibration: the motors it matches take the values
@@ -76,8 +98,9 @@ def main(argv=None):
                 simulation = {'actuators': str(actuators_path(session.profile_path, session.asset_id)),
                               'visual_mode': args.sim_visual_mode or 'collision_proxy'}
             teleop = TeleopSession(session, args.teleop, runs=args.runs, leaders=leaders,
-                                   target='pc' if args.sim else args.loop, simulation=simulation,
-                                   capture_profile=args.capture_profile, episodes=args.episodes)
+                                   target='pc' if args.sim else 'jetson' if args.on_robot else args.loop,
+                                   simulation=simulation, capture_profile=args.capture_profile, episodes=args.episodes,
+                                   bridge=bridge)
             if not args.sim:
                 from .tune import TuneSession, tune_profile
                 tune = TuneSession(session, tune_profile(args.teleop), target=args.loop)
@@ -102,16 +125,27 @@ def main(argv=None):
         # Minerva's UPS: the battery pill and banner, and Helm's part in a low-battery shutdown (helm.ups).
         from .ups import UpsWatch, robot_ups
         ups = None if args.sim else UpsWatch(robot_ups(session.profile_path), lambda: session.address)
+        access = None
+        if args.access is not None:
+            from .access import Access
+            access = Access(args.access)
         app = create_app(session, link, teleop=teleop, leaders=leaders, check=check, tune=tune,
                          live=not (args.sim or args.no_live), simulation_only=args.sim, cameras=cameras,
-                         camera_video=camera_video, episodes=episodes, ups=ups)
+                         camera_video=camera_video, episodes=episodes, ups=ups, access=access, bridge=bridge)
         if session.stale_lock_pid:
             print(f'Took over a calibration lock left by exited process {session.stale_lock_pid}.', flush=True)
         mode = ('SIMULATION ONLY; no physical robot connection' if args.sim else
                 'robot mode; automatic stopped-motor reader off' if args.no_live else
                 'robot mode; reads the arms, motors disabled, whenever Minerva is online')
-        print(f'Helm: http://127.0.0.1:{args.port}/  ({session.asset_id}; {mode})', flush=True)
-        web.run_app(app, host='127.0.0.1', port=args.port, print=None)
+        tls = None
+        if args.tls_cert is not None:
+            import ssl
+            tls = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+            tls.load_cert_chain(str(args.tls_cert), str(args.tls_key))
+        where = 'on Minerva' if args.on_robot else 'on this PC'
+        print(f"Helm {where}: {'https' if tls else 'http'}://{args.host}:{args.port}/  ({session.asset_id}; {mode})",
+              flush=True)
+        web.run_app(app, host=args.host, port=args.port, print=None, ssl_context=tls)
         return 0
     finally:
         session.close()

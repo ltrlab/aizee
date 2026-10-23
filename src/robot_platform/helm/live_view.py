@@ -18,6 +18,8 @@ OFFLINE_RETRY_S = 10.
 HANDOFF_S = 5.
 
 
+from .session import WIRED
+
 class LiveView:
     """`owner()` names what holds the motors (or None). Call tick() to act now; start() polls it."""
 
@@ -55,7 +57,7 @@ class LiveView:
             now = self.clock()
             if not self.enabled or self.link.running or now < self._quiet_until:
                 return False
-            if getattr(self.session, 'connection', 'tether') != 'tether' or self.owner() is not None:
+            if getattr(self.session, 'connection', 'tether') not in WIRED or self.owner() is not None:
                 return False
             if self.session.feed.get('state') == 'fault' and not self._failed:
                 # Its last try failed (Minerva offline, or a fault it names): try again in a while.

@@ -288,13 +288,16 @@ class EdgeWorker:
     """
 
     def __init__(self, bundle, leader_profile, *, base_view, address=None, profile=None, open_ssh=None,
-                 serve_link=None, real_leaders=True, name='Teleop', evidence=None):
+                 serve_link=None, real_leaders=True, name='Teleop', evidence=None, link_bind=None):
         from robot_platform.ops.ssh import DEFAULT_PROFILE, TETHER
         self.bundle, self.leader_profile, self.base_view = bundle, leader_profile, base_view
         self.address, self.profile = address or TETHER, profile or DEFAULT_PROFILE
         self.open_ssh, self.serve_link, self.real_leaders = open_ssh, serve_link, real_leaders
         self.name = name
         self.evidence = evidence  # A directory for the PC end's leader-link report, written as each session ends.
+        # Where the robot's loop listens for the leader link: the address Helm reaches it at, or (Helm on the robot,
+        # reaching it at its loopback address) its tether address, where the operator PC's GELLO bridge is.
+        self.link_bind = link_bind
         self.views, self.commands = ArrivalInbox(), _Commands(self)
         self._lock = threading.Lock()
         self._writer = self._channel = None
@@ -328,8 +331,8 @@ class EdgeWorker:
                 f'cd {CURRENT} && PYTHONPATH=src exec python3 -u -m robot_platform.helm.edge')
             self._channel = stdout.channel
             key = secrets.token_bytes(32)
-            write_frame(stdin, {'bundle': self.bundle, 'key': key.hex(), 'bind': self.address,
-                                'silence_s': SILENCE_S})
+            bind = self.link_bind or self.address
+            write_frame(stdin, {'bundle': self.bundle, 'key': key.hex(), 'bind': bind, 'silence_s': SILENCE_S})
             try:
                 first = read_frame(stdout)
             except EOFError:
@@ -345,8 +348,8 @@ class EdgeWorker:
                 if self.serve_link is None:
                     from robot_platform.teleop.leader_link import serve_link
                     self.serve_link = serve_link
-                server = self.serve_link(self.leader_profile, key, (self.address, int(first[1])),
-                                         local=(route_source(self.address) or '0.0.0.0', 0), real=self.real_leaders)
+                server = self.serve_link(self.leader_profile, key, (bind, int(first[1])),
+                                         local=(route_source(bind) or '0.0.0.0', 0), real=self.real_leaders)
             with self._lock:
                 self._writer = stdin
             threading.Thread(target=self._beat, args=(stdin,), daemon=True, name='helm-edge-beat').start()

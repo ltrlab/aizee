@@ -255,6 +255,9 @@ def _builds(ctx):
 
 @check('pc', 'tether', 'Tether route')
 def _tether(ctx):
+    if ctx.address in ('127.0.0.1', 'localhost', '::1'):
+        return PASS, ('Helm runs on Minerva: the receiver is local; the GELLO bridge on the operator PC reaches it '
+                      'over the tether')
     if not ctx.address.startswith(TETHER_NETWORK):
         return FAIL, f'Control must use the USB Ethernet tether ({TETHER}), not {ctx.address}'
     local = route_source(ctx.address)

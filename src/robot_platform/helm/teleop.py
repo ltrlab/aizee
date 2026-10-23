@@ -33,6 +33,8 @@ from robot_platform.control.plain_data import plain_copy
 from .limits import utc_now
 from .recording import RecordingError, RecordingWriter
 from .pedals import Pedals
+from .session import WIRED
+from robot_platform.ops.ssh import TETHER
 
 # Recent cycle timings kept in memory: the most any reader uses (the view's last 100). The full trace goes to the
 # latency file. A bounded deque drops one small entry per cycle; trimming 100 full trace entries at once stalled
@@ -1792,8 +1794,10 @@ class TeleopSession:
     TARGETS = ('jetson', 'pc')
 
     def __init__(self, helm, profile_path, *, runs, leaders=None, core_factory=None, leader_factory=None,
-                 target='pc', edge_factory=None, simulation=None, capture_profile=None, episodes=None):
+                 target='pc', edge_factory=None, simulation=None, capture_profile=None, episodes=None, bridge=None):
         self.helm, self.leaders = helm, leaders  # leaders: the Leaders workspace holding saved ranges.
+        # Helm on Minerva (helm.bridge.BridgeHub): the operator PC's GELLO bridge serves each session's leader link.
+        self.bridge = bridge
         # Helm's --episodes: a local copy of the recordings, where a replay on this PC reads its episode. A loop on
         # the robot reads the robot's own.
         self.episodes_root = Path(episodes).resolve() if episodes is not None else None
@@ -1955,7 +1959,7 @@ class TeleopSession:
                 raise ValueError('This direct profile has collision detection disabled')
             if mode == 'live' and ('live' not in self.profile or self.target != 'jetson'):
                 raise ValueError("Live teleop needs the profile's live block and the loop on Minerva's Jetson")
-            if mode == 'live' and getattr(self.helm, 'connection', 'tether') != 'tether':
+            if mode == 'live' and getattr(self.helm, 'connection', 'tether') not in WIRED:
                 raise ValueError('Live teleop runs over the wired tether: choose Tether at the top first')
             self.receiver = ({'mode': 'live', 'arm': arm} if mode == 'live'
                              else dict({'mode': 'virtual'}, **({'collision': collision} if collision else {})))
@@ -2001,7 +2005,7 @@ class TeleopSession:
                 raise ValueError('Configured task capture requires Live both arms')
             if self._tuning_lock.locked():
                 raise ValueError('Wait for the tuning operation before starting')
-            if self.receiver['mode'] == 'live' and getattr(self.helm, 'connection', 'tether') != 'tether':
+            if self.receiver['mode'] == 'live' and getattr(self.helm, 'connection', 'tether') not in WIRED:
                 raise ValueError('Live teleop runs over the wired tether: choose Tether at the top first')
             if self.receiver['mode'] == 'live' and confirm is not True:
                 arms = 'both arms\'' if self.receiver['arm'] == 'both' else f"the {self.receiver['arm']} arm's"
@@ -2009,6 +2013,9 @@ class TeleopSession:
                                  'reach and the arms hang in their reference pose')
             if self.helm.saved_limits is None:
                 raise ValueError('Save joint limits for every motor in the Limits workspace first')
+            if self.bridge is not None and source is None and not self.bridge.connected:
+                raise ValueError('The GELLO bridge is not connected: Helm runs on Minerva, so start the bridge on the '
+                                 'PC the leader arms are plugged into')
             if self.leaders is not None and source is None:
                 missing = self.leaders.missing(self.profile['routes'])
                 if missing:
@@ -2059,7 +2066,9 @@ class TeleopSession:
                                                            address=getattr(self.helm, 'address', None),
                                                            evidence=self.link_evidence,
                                                            **({'name': {'episode': 'The replay', 'policy': 'The policy'}[
-                                                               source['kind']]} if source else {}))
+                                                               source['kind']]} if source else {}),
+                                                           **({'serve_link': self.bridge.serve_link,
+                                                               'link_bind': TETHER} if self.bridge is not None else {}))
                 command_writer, view_reader = worker.commands, worker.views
                 opening = ({'episode': 'reading the episode', 'policy': 'loading the policy'}[source['kind']]
                            if source else 'linking the leaders')

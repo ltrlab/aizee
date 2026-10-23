@@ -12,9 +12,11 @@ and a teleop session both need the leader USB ports, so they exclude each other.
 Teleop, the servo sweep and Minerva Check exclude each other.
 """
 import asyncio
+import contextvars
 from pathlib import Path
 import secrets
 import time
+from .session import WIRED
 
 STATIC = Path(__file__).parent / 'static'
 RETURN_MOVED_RAD = .02  # A confirmed return starts only if no joint moved more than this since it was shown.
@@ -63,13 +65,21 @@ def task_visual_label(capabilities):
         return 'Camera appearance: full CAD visuals.'
     return 'Camera appearance is not reported yet.'
 
+# The logged-in session of the request being handled (helm.access), for the state it answers with.
+CURRENT_SESSION = contextvars.ContextVar('helm_session', default=None)
+OPEN_POSTS = ('/api/helm/logout', '/api/helm/control/claim', '/api/helm/control/release')
+
+
 def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None, live=False,
-               gripper_zero=None, simulation_only=False, cameras=None, camera_video=None, episodes=None, ups=None):
+               gripper_zero=None, simulation_only=False, cameras=None, camera_video=None, episodes=None, ups=None,
+               access=None, bridge=None):
     """`live`: keep the stopped reader running whenever Minerva is online and nothing else holds the motors
     (helm.live_view); sessions then take the motors from it instead of asking for Disconnect first.
     `episodes`: the recorded-episode library behind Replay (helm.episodes), told to read nothing while a
     recording runs. `ups`: the robot's UPS state (helm.ups.UpsWatch); while it announces a low-battery shutdown,
-    nothing that moves the arms starts, and a running session and sweep are stopped (the arms lowered first)."""
+    nothing that moves the arms starts, and a running session and sweep are stopped (the arms lowered first).
+    `access` (helm.access.Access): Helm serves other devices (on Minerva, beyond loopback): a login, one device in
+    control, stopping always allowed. `bridge` (helm.bridge.BridgeHub): the GELLO bridge's state for the page."""
     from aiohttp import web
     from robot_platform.viewer.server import create_app as viewer_app
     from .live_view import LiveView
@@ -113,7 +123,35 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         return session.guide()
 
     app = viewer_app([session.model.profile], session.model.profile.id,
-                     guide=guide, index_html=STATIC / 'index.html')
+                     guide=guide, index_html=STATIC / 'index.html', local_only=access is None)
+    if access is not None:
+        from .access import COOKIE, stop_request
+
+        @web.middleware
+        async def gate(request, handler):
+            """Logged-in devices only; changes only from the device in control, except stopping."""
+            path = request.path
+            if path in ('/login', '/api/helm/login'):
+                return await handler(request)
+            session_token = request.cookies.get(COOKIE)
+            if access.session(session_token) is None:
+                if request.method == 'GET' and not path.startswith('/api/'):
+                    raise web.HTTPFound('/login')
+                return web.json_response({'error': 'Log in to Helm first', 'login': True}, status=401)
+            CURRENT_SESSION.set(session_token)
+            if request.method == 'POST' and path not in OPEN_POSTS and not access.in_control(session_token):
+                payload = None
+                try:
+                    payload = await request.json()
+                except Exception:  # noqa: BLE001 - not JSON: not a stop either
+                    pass
+                if not stop_request(path, payload):
+                    holder = access.view(session_token)['holder']
+                    who = f"{holder['device']} has control" if holder else 'No device has control'
+                    return web.json_response({'error': f'View only: {who}. Take control first.', 'view_only': True},
+                                             status=403)
+            return await handler(request)
+        app.middlewares.append(gate)
 
     def authorized(request):
         if not secrets.compare_digest(request.headers.get('X-Helm-Token', ''), token):
@@ -163,12 +201,56 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         # The model's joint telemetry from the one source the 3D view shows: a running session, else the reader.
         state['telemetry'] = select_telemetry(state)
         state['action_token'] = token
+        state['access'] = access.view(CURRENT_SESSION.get()) if access is not None else {'enabled': False}
+        state['bridge'] = bridge.snapshot() if bridge is not None else None
         return web.json_response(state, headers={'Cache-Control': 'no-store'})
 
     async def off_loop(function):
         return await asyncio.get_running_loop().run_in_executor(None, function)
 
     async def state(_request):
+        return state_response()
+
+    async def login_page(_request):
+        return web.FileResponse(STATIC / 'login.html', headers={'Cache-Control': 'no-store'})
+
+    async def login(request):
+        """A password and a device name for a session cookie (helm.access)."""
+        if access is None:
+            raise ValueError('This Helm needs no login')
+        payload = await request.json()
+        if not isinstance(payload, dict) or set(payload) - {'password', 'device'}:
+            raise ValueError('Expected password and device')
+        try:
+            session_token = await off_loop(lambda: access.login(payload.get('password', ''), device=payload.get('device'),
+                                                                address=request.remote))
+        except PermissionError as exc:
+            return web.json_response({'error': str(exc)}, status=429)
+        except ValueError as exc:
+            return web.json_response({'error': str(exc)}, status=401)
+        from .access import COOKIE, SESSION_S
+        response = web.json_response({'ok': True})
+        response.set_cookie(COOKIE, session_token, httponly=True, samesite='Strict', secure=request.secure,
+                            max_age=int(SESSION_S), path='/')
+        return response
+
+    async def logout(request):
+        await body(request)
+        from .access import COOKIE
+        access.logout(CURRENT_SESSION.get())
+        response = web.json_response({'ok': True})
+        response.del_cookie(COOKIE, path='/')
+        return response
+
+    async def control_claim(request):
+        """This device takes control of Helm (from whichever had it)."""
+        await body(request)
+        access.claim(CURRENT_SESSION.get())
+        return state_response()
+
+    async def control_release(request):
+        await body(request)
+        access.release(CURRENT_SESSION.get())
         return state_response()
 
     def camera_apply_reason():
@@ -639,7 +721,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         if teleop is not None:
             if teleop.active:
                 raise ValueError('Stop the teleop session before changing the connection')
-            if payload['connection'] != 'tether' and teleop.receiver['mode'] == 'live':
+            if payload['connection'] not in WIRED and teleop.receiver['mode'] == 'live':
                 raise ValueError('Live teleop runs over the wired tether; choose the virtual receiver first')
         await take_motors()  # The reader reconnects over the new connection (on its own over the tether).
         session.set_connection(payload['connection'])
@@ -659,7 +741,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         if teleop is not None and teleop.active:
             raise ValueError('Stop the teleop session before zeroing a gripper')
         not_checking()
-        if getattr(session, 'connection', 'tether') != 'tether':
+        if getattr(session, 'connection', 'tether') not in WIRED:
             raise ValueError('Gripper zero runs over the wired tether; choose Tether first')
         motor, confirm = payload.get('motor'), payload.get('confirm') is True
         if not confirm:
@@ -810,6 +892,12 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     app.router.add_post('/api/helm/cameras/{role}', camera_set)
     app.router.add_get('/api/helm/cameras/{role}/frame', camera_frame)
     app.router.add_get('/api/helm/state', state)
+    if access is not None:
+        app.router.add_get('/login', login_page)
+        app.router.add_post('/api/helm/login', login)
+        app.router.add_post('/api/helm/logout', logout)
+        app.router.add_post('/api/helm/control/claim', control_claim)
+        app.router.add_post('/api/helm/control/release', control_release)
     app.router.add_post('/api/helm/connect', connect)
     app.router.add_post('/api/helm/disconnect', disconnect)
     app.router.add_post('/api/helm/connection', connection)

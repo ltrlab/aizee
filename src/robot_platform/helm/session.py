@@ -15,6 +15,11 @@ import uuid
 from robot_platform.control.joint_calibration import (digest, edit_preview, live_positions, load_plan,
     preview_transmission_row, save_json, seed_results, validate_preview_transmissions)
 from robot_platform.ops.ssh import TETHER
+
+# Connections live operations may use: the USB Ethernet tether, or Helm running on Minerva itself (`helm
+# --on-robot`: the loop and receiver are local; the operator PC's GELLO bridge reaches it over the tether).
+WIRED = ('tether', 'robot')
+LOCAL = '127.0.0.1'
 from .limits import LimitRecorder, load_limits, utc_now
 from .telemetry import stopped_packet
 
@@ -70,7 +75,7 @@ def acquire_lock(path, *, alive=process_alive):
 
 
 class HelmSession:
-    def __init__(self, profile, *, runs, limits=None, seed=None, clock=time.time):
+    def __init__(self, profile, *, runs, limits=None, seed=None, clock=time.time, on_robot=False):
         self.profile_path = Path(profile).resolve()
         (self.plan, self.paths, self.device, self.reference, self.model,
          self.pose, self.bindings) = load_plan(self.profile_path)
@@ -79,6 +84,9 @@ class HelmSession:
         # address from the device profile. Minerva Check and live teleop need the tether.
         self.connections = {'tether': TETHER, 'wifi': self.device['address']}
         self.connection = 'tether'
+        if on_robot:  # Helm on Minerva's Jetson: it reaches the robot computer at its own loopback address.
+            self.connections, self.connection = {'robot': LOCAL}, 'robot'
+        self.on_robot = bool(on_robot)
         self.steps = self.plan['steps']
         self.transmissions = validate_preview_transmissions(
             self.plan.get('preview_transmissions', []), self.steps, self.reference, self.model)
@@ -271,6 +279,11 @@ class HelmSession:
     @property
     def address(self):
         return self.connections[self.connection]
+
+    @property
+    def wired(self):
+        """Live operations may run: over the tether, or with Helm on the robot."""
+        return self.connection in WIRED
 
     def set_connection(self, key):
         if key not in self.connections:

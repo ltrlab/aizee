@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Helm login</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0b0c0e;--panel:#141619;--raised:#1c1f23;--line:#2c3036;--muted:#9ba1a8;--text:#e9ebee;--accent:#7cc4ff;--bad:#ff8b98}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px}
+    form{width:min(380px,100%);background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px;display:grid;gap:12px}
+    h1{margin:0;font-size:20px;display:flex;align-items:center;gap:10px}
+    h1 span{color:var(--accent)}
+    p{margin:0;color:var(--muted);font-size:13px}
+    label{display:grid;gap:5px;font-size:13px;color:var(--muted)}
+    input{font:inherit;color:var(--text);background:var(--raised);border:1px solid #3a3f46;border-radius:8px;padding:10px 12px;min-height:44px}
+    button{font:inherit;font-weight:600;color:#0b0c0e;background:var(--accent);border:0;border-radius:8px;padding:11px;min-height:46px;cursor:pointer}
+    button:disabled{opacity:.6;cursor:default}
+    #error{color:var(--bad);min-height:18px}
+  </style>
+</head>
+<body>
+  <form id="login">
+    <h1><span aria-hidden="true">⎈</span> Helm</h1>
+    <p>Minerva's operator console. One device at a time is in control; any device can always Disable or Shut down.</p>
+    <label>This device<input id="device" autocomplete="off" maxlength="40" required></label>
+    <label>Password<input id="password" type="password" autocomplete="current-password" required autofocus></label>
+    <button id="go" type="submit">Log in</button>
+    <p id="error" role="alert"></p>
+  </form>
+  <script>
+    const device = document.getElementById('device');
+    try { device.value = localStorage.getItem('helm-device') || ''; } catch { /* storage unavailable */ }
+    if (!device.value) device.value = /iPad|iPhone/.test(navigator.userAgent) ? 'iPad' : /Android/.test(navigator.userAgent) ? 'Android tablet' : 'Operator PC';
+    document.getElementById('login').onsubmit = async event => {
+      event.preventDefault();
+      const go = document.getElementById('go'), error = document.getElementById('error');
+      go.disabled = true;
+      error.textContent = '';
+      try {
+        const response = await fetch('/api/helm/login', {method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({device: device.value.trim(), password: document.getElementById('password').value})});
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `Helm answered HTTP ${response.status}`);
+        try { localStorage.setItem('helm-device', device.value.trim()); } catch { /* storage unavailable */ }
+        location.href = '/';
+      } catch (failure) {
+        error.textContent = failure.message;
+        go.disabled = false;
+      }
+    };
+  </script>
+</body>
+</html>

@@ -30,6 +30,7 @@ async function request(path, payload, timeoutMs = payload === undefined ? 3000 :
   const response = await fetch(path, options);
   let data = null;
   try { data = await response.json(); } catch { data = null; }
+  if (response.status === 401 && data?.login) location.href = '/login';  // Helm on Minerva: the session ended.
   if (!response.ok) throw new Error(data?.error || `Helm returned HTTP ${response.status}`);
   if(data && typeof data==='object')responseMeta.set(data,meta);
   return data;
@@ -152,7 +153,7 @@ function gripperZeroBlocked(state) {
   if (['starting', 'running'].includes(state?.teleop?.phase)) return 'Stop the teleop session first.';
   if (['starting', 'running'].includes(state?.tune?.phase)) return 'Finish or stop the servo sweep first.';
   if (state?.check?.running) return 'Wait for Minerva Check to finish.';
-  if (state?.robot?.connection && state.robot.connection !== 'tether') return 'Choose Tether first.';
+  if (state?.robot?.connection && !['tether', 'robot'].includes(state.robot.connection)) return 'Choose Tether first.';
   return '';
 }
 function renderGripperZero(state) {
@@ -284,6 +285,7 @@ function render(state) {
   replayView?.setTeleop(state.teleop, state.mode);
   renderGripFeedback(state.teleop);
   renderUps(state.ups);
+  renderAccess(state);
   renderTune(state.tune, state);
   renderCheck(state.check);
   settingsPanel.updateContext(state);
@@ -294,6 +296,43 @@ function render(state) {
   publishTelemetry(state);
   renderPedals();
 }
+
+// Helm on Minerva (helm --on-robot): where it runs, the GELLO bridge from the operator PC, and which device is in
+// control. Only the device in control changes anything; any logged-in device can still Disable or Shut down.
+let claimArmed = 0;
+function renderAccess(state) {
+  const onRobot = state.robot?.connection === 'robot';
+  $('robot-pill').hidden = !onRobot;
+  $('via').hidden = onRobot;
+  const bridge = state.bridge, bridgePill = $('bridge-pill');
+  bridgePill.hidden = !bridge;
+  if (bridge) {
+    bridgePill.textContent = bridge.connected ? `GELLO · ${bridge.host || 'bridge'}` : 'GELLO · not connected';
+    bridgePill.dataset.tone = bridge.connected ? 'good' : 'warn';
+    bridgePill.title = bridge.connected
+      ? `The GELLO bridge on ${bridge.host}${bridge.peer ? ` (${bridge.peer})` : ''} serves the leader arms over the tether`
+      : 'Start the GELLO bridge on the PC the leader arms are plugged into; replay, policies and Check work without it';
+  }
+  const access = state.access || {}, pill = $('access-pill'), claim = $('access-claim');
+  pill.hidden = claim.hidden = !access.enabled;
+  if (!access.enabled) return;
+  pill.textContent = access.in_control ? `In control · ${access.device}`
+    : `View only · ${access.holder ? `${access.holder.device} has control` : 'no device has control'}`;
+  pill.dataset.tone = access.in_control ? 'good' : 'warn';
+  claim.hidden = access.in_control;
+  if (performance.now() > claimArmed) claim.textContent = 'Take control';
+  document.body.dataset.viewOnly = String(!access.in_control);
+}
+$('access-claim').onclick = () => {
+  const holder = last?.access?.holder;
+  if (holder && performance.now() > claimArmed) {  // Asked in the page: embedded browsers suppress confirm().
+    claimArmed = performance.now() + 4000;
+    $('access-claim').textContent = `Take control from ${holder.device}?`;
+    return;
+  }
+  claimArmed = 0;
+  act('/api/helm/control/claim', {}, 'This device is in control.');
+};
 
 // Minerva's UPS (helm.ups): a battery pill in the header on every tab, and a banner on battery or shutting down.
 function renderUps(ups) {
@@ -1056,7 +1095,7 @@ function renderTeleop(t) {
   $('t-state').textContent = running && t.state ? t.state : {starting: 'Starting…', stopped: 'Stopped', fault: 'Fault'}[t.phase] || t.phase;
   const choice = t.receiver_choice || {mode: 'virtual'};
   const live = choice.mode === 'live';
-  const tether = last?.robot?.connection === 'tether';
+  const tether = ['tether', 'robot'].includes(last?.robot?.connection);  // Wired: the tether, or Helm on Minerva.
   $('t-receiver').textContent = running && t.receiver
     ? t.receiver + (t.live ? (t.live.motors_enabled ? ' · motors on' : ' · motors off') : '') : '—';
   $('t-cycle').textContent = running && t.cycle_ms ? `${t.cycle_ms.p50.toFixed(1)} / ${t.cycle_ms.p99.toFixed(1)} ms` : '—';

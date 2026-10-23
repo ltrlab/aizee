@@ -28,6 +28,7 @@ from .limits import utc_now
 from robot_platform.control.guarded import GuardRejected
 from robot_platform.control.live_receiver import trip_text
 from .teleop import HELD, LOWERING_ATTEMPTS, WAIT_TO_REARM, AdvisoryCompiler, load_profile, loop_period_s
+from .session import WIRED
 
 PERIOD_S = .04
 RESULTS_EVERY_S = 1.
@@ -805,7 +806,7 @@ class TuneSession:
             if live and confirm is not True:
                 raise ValueError(f"Confirm the sweep: the {self.receiver['arm']} arm's motors move on their own, "
                                  'the foot switch is in reach and the arm hangs in its reference pose')
-            if live and getattr(self.helm, 'connection', 'tether') != 'tether':
+            if live and getattr(self.helm, 'connection', 'tether') not in WIRED:
                 raise ValueError('A live sweep runs over the wired tether: choose Tether at the top first')
             if self.helm.saved_limits is None:
                 raise ValueError('Save joint limits for every motor in the Limits workspace first')
