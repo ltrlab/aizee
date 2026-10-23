@@ -168,7 +168,8 @@ export class LiveCameraView {
     if (text.length > 65536) throw new Error('Oversized status');
     const state = JSON.parse(text);
     if (state.type !== 'status' || state.stale_after_s !== STALE_S || !state.cameras) throw new Error('Invalid status');
-    $('camera-stream-status').textContent = state.error || 'Physical preview · up to 10 fps per camera';
+    $('camera-stream-status').textContent = state.error || (state.link === 'slow'
+      ? 'Slow link · fewer frames per camera' : 'Physical preview · up to 10 fps per camera');
     const transit = this.transitBound(state.viewer_heartbeat);
     for (const [name, role] of this.roles) {
       const camera = state.cameras[name];

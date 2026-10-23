@@ -69,6 +69,18 @@ def task_visual_label(capabilities):
 CURRENT_SESSION = contextvars.ContextVar('helm_session', default=None)
 OPEN_POSTS = ('/api/helm/logout', '/api/helm/control/claim', '/api/helm/control/release')
 
+# A camera viewer on a slow link (a tablet on Minerva's Wi-Fi) gets fewer frames, not a closed stream. Frames wait in
+# the connection's send buffer up to VIDEO_BACKLOG and newer ones are skipped beyond it. The buffer's high-water mark
+# stays far above that, so asyncio never pauses the stream: Python 3.10's TLS layer resumes a paused one wrongly.
+VIDEO_BACKLOG = 256 * 1024
+VIDEO_HIGH_WATER = 4 * 1024 * 1024
+VIDEO_SLOW_S = 2.  # The stream reports a slow link for this long after it last skipped a frame.
+
+
+def video_backlog(transport):
+    """Bytes a camera viewer's connection has yet to send."""
+    return transport.get_write_buffer_size() if transport is not None and not transport.is_closing() else 0
+
 
 def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None, live=False,
                gripper_zero=None, simulation_only=False, cameras=None, camera_video=None, episodes=None, ups=None,
@@ -400,6 +412,9 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         from .camera_video import browser_packet
         ws = web.WebSocketResponse(heartbeat=5., max_msg_size=4096, compress=False)
         await ws.prepare(request)
+        transport = request.transport
+        if transport is not None:
+            transport.set_write_buffer_limits(high=VIDEO_HIGH_WATER)
         video_sockets.add(ws)
         acquiring = asyncio.create_task(off_loop(camera_video.subscribe))
         try:
@@ -419,7 +434,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
                     request.transport.close()
 
         async def publish():
-            sent, status_at = {}, 0.
+            sent, status_at, skipped_at = {}, 0., None
             try:
                 while not ws.closed:
                     status, frames = camera_video.snapshot()
@@ -428,6 +443,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
                         await close_video(code=1008, message=b'Viewer heartbeat expired')
                         return
                     status['viewer_heartbeat'] = viewer_heartbeat['sequence']
+                    status['link'] = 'slow' if skipped_at is not None and now-skipped_at < VIDEO_SLOW_S else 'ok'
                     if now-status_at >= .25:
                         await asyncio.wait_for(ws.send_json(status), .5)
                         status_at = now
@@ -436,6 +452,9 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
                             continue
                         if header['sequence'] == sent.get(role):
                             continue
+                        if video_backlog(transport) > VIDEO_BACKLOG:
+                            skipped_at = now  # The link is behind: newer frames go next tick, or later.
+                            break
                         # Recheck per role after any previous blocked socket send.
                         _current_status, current_frames = camera_video.snapshot()
                         current = current_frames.get(role)

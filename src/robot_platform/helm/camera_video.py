@@ -78,10 +78,12 @@ class CameraVideo:
             self._frames.clear()
             self._error = 'No camera viewers'
             client, channel, thread = self._client, self._channel, self._thread
-        if channel is not None:
-            channel.close()
-        if client is not None:
-            client.close()
+        for closing in (channel, client):
+            try:
+                if closing is not None:
+                    closing.close()
+            except Exception:  # noqa: BLE001 - the relay's transport already gone (paramiko raises EOFError)
+                pass
         if thread is not None:
             thread.join(5.)
 

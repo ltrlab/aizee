@@ -332,3 +332,75 @@ def test_stalled_video_shutdown_cannot_delay_guarded_motor_stop(helm, monkeypatc
                 await asyncio.wait_for(shutdown,2)
                 await ws.close()
     asyncio.run(run())
+
+
+class MovingVideo(VideoFixture):
+    """A camera whose frame is new at every look."""
+    def __init__(self):
+        super().__init__()
+        self.sequence = 0
+
+    def snapshot(self):
+        self.sequence += 1
+        status, _frames = super().snapshot()
+        return status, {'head': ({'role': 'head', 'sequence': self.sequence, 'age_s': .02,
+                                  'source_timestamp': time.time()}, JPEG)}
+
+
+def test_a_slow_link_gets_fewer_frames_and_keeps_its_stream(helm, monkeypatch):
+    from aiohttp import WSMsgType
+    from aiohttp.test_utils import TestClient, TestServer
+    from robot_platform.helm import server
+    backlog, seen = {'bytes': 0}, []
+
+    def fake_backlog(transport):
+        seen.append(transport)
+        return backlog['bytes']
+    monkeypatch.setattr(server, 'video_backlog', fake_backlog)
+
+    async def run():
+        loop = asyncio.get_running_loop()
+        async with TestClient(TestServer(create_app(helm, SimulationLink(), camera_video=MovingVideo(),
+                                                    token='secret'))) as client:
+            ws = await client.ws_connect('/api/helm/cameras/live?token=secret')
+            beats = iter(range(1, 10 ** 6))
+
+            async def collect(seconds):
+                frames, links, end = 0, [], loop.time() + seconds
+                while loop.time() < end:
+                    await ws.send_json({'type': 'heartbeat', 'sequence': next(beats)})  # The browser's heartbeats.
+                    try:
+                        message = await ws.receive(timeout=.3)
+                    except asyncio.TimeoutError:
+                        continue
+                    if message.type == WSMsgType.BINARY:
+                        frames += 1
+                    elif message.type == WSMsgType.TEXT:
+                        links.append(message.json().get('link'))
+                    else:
+                        break
+                return frames, links
+            fast, _ = await collect(1.)
+            backlog['bytes'] = server.VIDEO_BACKLOG + 1  # The link falls behind, as Minerva's Wi-Fi did.
+            slow, links = await collect(2.)
+            assert not ws.closed and slow <= 1 and links[-1] == 'slow'  # Fewer frames, the stream kept.
+            backlog['bytes'] = 0
+            resumed, links = await collect(server.VIDEO_SLOW_S + .8)  # It says slow for VIDEO_SLOW_S after a skip.
+            assert fast > 3 and resumed > 3 and links[-1] == 'ok'
+            transport = next(item for item in seen if item is not None)
+            assert transport.get_write_buffer_limits()[1] == server.VIDEO_HIGH_WATER  # Never paused under the backlog.
+            await ws.close()
+    asyncio.run(run())
+
+
+def test_closing_the_last_viewer_tolerates_a_relay_already_gone():
+    video = CameraVideo(ROOT / 'config/devices/minerva-joint-calibration.json', address=lambda: '127.0.0.1')
+
+    class Gone:
+        def close(self):
+            raise EOFError()  # As paramiko does when its transport has ended.
+    token = object()
+    video._viewers.add(token)
+    video._client, video._channel = Gone(), Gone()
+    video.unsubscribe(token)
+    assert not video._viewers and video._error == 'No camera viewers'
