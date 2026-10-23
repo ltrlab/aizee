@@ -76,7 +76,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $venv '.complete'))) {
     Set-Content -LiteralPath (Join-Path $venv '.complete') -Value $lockId
 }
 
-# The bridge's SSH key, once, readable by this user only.
+# The bridge's SSH key, once, inheriting no access from its folder.
 $key = Join-Path $base 'keys\gello_bridge_ed25519'
 if (-not (Test-Path -LiteralPath $key)) {
     $keygen = Join-Path $env:WINDIR 'System32\OpenSSH\ssh-keygen.exe'
@@ -86,11 +86,9 @@ if (-not (Test-Path -LiteralPath $key)) {
     if ($LASTEXITCODE) { throw 'Making the bridge key failed' }
 }
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-$acl = New-Object System.Security.AccessControl.FileSecurity
-$acl.SetOwner([Security.Principal.NTAccount]$identity)
-$acl.SetAccessRuleProtection($true, $false)
-$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($identity, 'FullControl', 'Allow')))
-Set-Acl -LiteralPath $key -AclObject $acl
+# icacls, not Set-Acl: a new ACL object makes Set-Acl write the audit list too, which an ordinary user may not.
+& icacls.exe $key /inheritance:r /grant:r "${identity}:(F)" | Out-Null
+if ($LASTEXITCODE) { throw 'Restricting the bridge key failed' }
 
 # The runner the task starts: the bridge, its output appended to a log, started again if it ever exits (it
 # reconnects to Helm by itself; this covers a crash).
