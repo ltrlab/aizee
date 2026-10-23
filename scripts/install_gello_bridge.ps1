@@ -100,7 +100,7 @@ $log = Join-Path $base 'logs\gello-bridge.log'
 Set-Location -LiteralPath '$root'
 while (`$true) {
     & '$venv\Scripts\python.exe' -m robot_platform.teleop.gello_bridge --key '$key' --robot '$Robot' --log '$log'
-    Add-Content -LiteralPath '$log' -Value "`$(Get-Date -Format s) the bridge exited (`$LASTEXITCODE); starting it again in 5 s"
+    Add-Content -LiteralPath '$log' -Encoding ascii -Value "`$(Get-Date -Format s) the bridge exited (`$LASTEXITCODE); starting it again in 5 s"
     Start-Sleep -Seconds 5
 }
 "@ | Set-Content -LiteralPath $runner -Encoding UTF8
@@ -110,6 +110,8 @@ if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
     Stop-ScheduledTask -TaskName $taskName
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
 }
+# Each install starts a fresh log (the bridge writes UTF-8); the last one is kept beside it.
+if (Test-Path -LiteralPath $log) { Move-Item -LiteralPath $log -Destination "$log.$(Get-Date -Format yyyyMMddTHHmmss)" }
 $exe = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $action = New-ScheduledTaskAction -Execute $exe -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$runner`"" -WorkingDirectory $base
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $identity
