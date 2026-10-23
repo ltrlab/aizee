@@ -1939,6 +1939,8 @@ class TeleopSession:
                 raise ValueError("The live receiver runs on Minerva's Jetson; choose the virtual receiver first")
             if target != 'pc' and self.simulation is not None:
                 raise ValueError('The simulated Minerva runs on this PC (Helm was started with --sim)')
+            if target == 'pc' and getattr(self.helm, 'on_robot', False):
+                raise ValueError("Helm runs on Minerva: the loop runs in its own process on the control CPUs, as on Minerva's Jetson, never inside Helm")
             self.target = target
 
     def set_receiver(self, mode, arm=None, collision=None):

@@ -178,6 +178,10 @@ def test_teleop_on_the_robot_needs_the_bridge_and_binds_its_link_on_the_tether(t
             pass
     session = TeleopSession(helm, TELEOP, runs=tmp_path, target='jetson', edge_factory=Robot, bridge=bridge,
                             leaders=SimpleNamespace(saved=None, missing=lambda routes: []))
+    helm.on_robot = True
+    session.set_receiver('virtual')
+    with pytest.raises(ValueError, match='never inside Helm'):
+        session.set_target('pc')  # On Minerva the loop keeps to its own process on the control CPUs.
     with pytest.raises(ValueError, match='GELLO bridge is not connected'):
         session.start()
     session.start(replay={'episode': 's/e'})  # A replay needs no leaders, so no bridge.

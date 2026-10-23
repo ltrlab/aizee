@@ -63,6 +63,8 @@ def main(argv=None):
         parser.error('--tls-cert and --tls-key go together')
     if args.on_robot and args.sim:
         parser.error('--on-robot drives the robot it runs on; --sim is a simulation on a PC')
+    if args.on_robot and args.loop != 'jetson':
+        parser.error("--on-robot runs each loop in its own process on Minerva's control CPUs (--loop jetson)")
     if args.sim and not args.teleop:
         parser.error('--sim needs --teleop')
     if args.sim_visual_mode is not None and not args.sim:

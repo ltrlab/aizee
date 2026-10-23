@@ -1171,7 +1171,8 @@ function renderTeleop(t) {
     button.setAttribute('aria-pressed', String(button.dataset.target === t.target));
     button.disabled = running || starting || (live && button.dataset.target !== 'jetson')
       || (last?.mode === 'simulation' && button.dataset.target !== 'pc');
-    button.hidden = last?.mode === 'simulation' && button.dataset.target !== 'pc';
+    button.hidden = (last?.mode === 'simulation' && button.dataset.target !== 'pc')
+      || (last?.robot?.connection === 'robot' && button.dataset.target === 'pc');  // Helm on Minerva: never in Helm.
   }
   for (const button of document.querySelectorAll('#t-receiver-choice button')) {
     const liveButton = button.dataset.receiver === 'live';

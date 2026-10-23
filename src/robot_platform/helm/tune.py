@@ -723,6 +723,8 @@ class TuneSession:
             if target is not None:
                 if target not in self.TARGETS:
                     raise ValueError('The loop runs on jetson or pc')
+                if target == 'pc' and getattr(self.helm, 'on_robot', False):
+                    raise ValueError("Helm runs on Minerva: the loop runs in its own process on the control CPUs, as on Minerva's Jetson, never inside Helm")
                 self.target = target
             if mode == 'live' and self.target != 'jetson':
                 raise ValueError("A live sweep runs its loop on Minerva's Jetson")
