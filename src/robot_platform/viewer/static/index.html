@@ -6,10 +6,11 @@
   <link rel="stylesheet" href="static/viewer.css">
   <script type="importmap">{"imports":{"three":"./static/vendor/three.module.js"}}</script>
   <script>if(new URLSearchParams(location.search).has('embed')){document.documentElement.classList.add('embed');
-    // Only Helm embeds the viewer, so its overlays take Helm's look and day / night theme (Helm's theme.js tells it of
-    // changes); a missing sheet elsewhere changes nothing.
-    let day=true;try{day=localStorage.getItem('helm-theme')!=='dark'}catch{/* Day theme. */}document.documentElement.dataset.theme=day?'light':'dark';
-    const theme=document.createElement('link');theme.rel='stylesheet';theme.href='/helm/viewer-theme.css';
+    // Only Helm embeds the viewer, so it takes Helm's look (RetroUI, or the original without Helm's sheet) and day /
+    // night theme; Helm's theme.js tells it of changes. A missing sheet elsewhere changes nothing.
+    let day=true,classic=false;try{day=localStorage.getItem('helm-theme')!=='dark';classic=localStorage.getItem('helm-look')==='classic'}catch{/* RetroUI by day. */}
+    document.documentElement.dataset.theme=day?'light':'dark';document.documentElement.dataset.look=classic?'classic':'retro';
+    const theme=document.createElement('link');theme.rel='stylesheet';theme.href='/helm/viewer-theme.css';theme.disabled=classic;
     theme.setAttribute('blocking','render');document.head.append(theme)}</script>
 </head>
 <body>

@@ -9,6 +9,15 @@ export const ROLE_LABEL = {left_wrist: 'Left wrist', head: 'Head', right_wrist: 
 export const SPEEDS = [0.25, 0.5, 1, 2, 4];
 const PREFETCH_S = 1.2;
 const JOINT_COLORS = ['#7cc4ff', '#7fdca4', '#f2c380', '#ff8b98', '#c39bff', '#7fe0dc'];
+// The timeline's chrome: the dark screen of Helm's RetroUI look (Minecraft is sharp at 16 px, fonts.css), or the
+// original look's (theme.js sets <html data-look>).
+const TIMELINE = {
+  retro: {background: '#12151a', lane: '#363d47', label: '#a9b2bd', font: 'Minecraft, system-ui, sans-serif', fontPx: 16,
+    playhead: '#f2f4f7', playheadPx: 2},
+  classic: {background: '#0e1013', lane: '#2c3036', label: '#9ba1a8', font: 'system-ui, sans-serif', fontPx: 11,
+    playhead: '#e9ebee', playheadPx: 1},
+};
+const timelineLook = canvas => TIMELINE[canvas.ownerDocument?.documentElement?.dataset?.look === 'classic' ? 'classic' : 'retro'];
 
 export class ReplayModel {
   constructor() {
@@ -275,6 +284,8 @@ class JointTimeline {
     this.series = null;
     this.background = null;
     this.dragging = false;
+    this.time = 0;
+    globalThis.addEventListener?.('helm-look', () => { this.background = null; this.draw(this.time); });
     canvas.addEventListener('pointerdown', event => {
       if (!this.series) return;
       this.dragging = true;
@@ -332,8 +343,8 @@ class JointTimeline {
     canvas.width = width;
     canvas.height = height;
     const g = canvas.getContext('2d');
-    const ratio = globalThis.devicePixelRatio || 1;
-    g.fillStyle = '#12151a';  // Helm's dark screen (helm.css --screen), in both themes.
+    const ratio = globalThis.devicePixelRatio || 1, look = timelineLook(this.canvas);
+    g.fillStyle = look.background;
     g.fillRect(0, 0, width, height);
     const t = this.series?.t || [];
     const qpos = this.series?.qpos || [];
@@ -350,7 +361,7 @@ class JointTimeline {
       const middle = (low + high) / 2;
       const span = Math.max(high - low, .1) * 1.15;  // A still joint draws flat, not magnified noise.
       const y = value => top + laneHeight * (.5 - (value - middle) / span);
-      g.strokeStyle = '#363d47';
+      g.strokeStyle = look.lane;
       g.lineWidth = 1;
       g.beginPath();
       g.moveTo(0, top + .5);
@@ -367,14 +378,15 @@ class JointTimeline {
         }
         g.stroke();
       });
-      g.fillStyle = '#a9b2bd';
-      g.font = `${16 * ratio}px Minecraft, system-ui, sans-serif`;  // Sharp at 16 px (fonts.css).
-      g.fillText(label, 6 * ratio, top + 16 * ratio);
+      g.fillStyle = look.label;
+      g.font = `${look.fontPx * ratio}px ${look.font}`;
+      g.fillText(label, 6 * ratio, top + (look.fontPx + 3) * ratio);
     });
     return canvas;
   }
 
   draw(time) {
+    this.time = time;
     this.resize();
     const g = this.canvas.getContext('2d');
     if (!this.background) this.background = this.paintBackground();
@@ -382,8 +394,9 @@ class JointTimeline {
     const duration = this.duration;
     if (!(duration > 0)) return;
     const x = Math.round(time / duration * this.canvas.width) + .5;
-    g.strokeStyle = '#f2f4f7';
-    g.lineWidth = 2 * Math.max(1, globalThis.devicePixelRatio || 1);
+    const look = timelineLook(this.canvas);
+    g.strokeStyle = look.playhead;
+    g.lineWidth = look.playheadPx * Math.max(1, globalThis.devicePixelRatio || 1);
     g.beginPath();
     g.moveTo(x, 0);
     g.lineTo(x, this.canvas.height);

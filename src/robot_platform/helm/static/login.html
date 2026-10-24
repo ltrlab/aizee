@@ -5,10 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Helm login</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-1 -1 15 15' shape-rendering='crispEdges'%3E%3Crect x='-1' y='-1' width='15' height='15' fill='%231f5fbf'/%3E%3Cpath fill='%23ffffff' d='M6 0h1v13H6zM0 6h13v1H0zM1 1h1v1H1zM11 1h1v1h-1zM2 2h1v1H2zM10 2h1v1h-1zM4 2h2v1H4zM7 2h2v1H7zM3 3h1v1H3zM9 3h1v1H9zM2 4h1v2H2zM10 4h1v2h-1zM4 4h1v1H4zM8 4h1v1H8zM5 5h1v1H5zM7 5h1v1H7zM2 7h1v2H2zM10 7h1v2h-1zM5 7h1v1H5zM7 7h1v1H7zM4 8h1v1H4zM8 8h1v1H8zM3 9h1v1H3zM9 9h1v1H9zM2 10h1v1H2zM10 10h1v1h-1zM4 10h2v1H4zM7 10h2v1H7zM1 11h1v1H1zM11 11h1v1h-1z'/%3E%3C/svg%3E">
-  <script>try{if(localStorage.getItem('helm-theme')==='dark')document.documentElement.dataset.theme='dark'}catch{/* Day theme. */}</script>
-  <style>
+  <style id="retro-look">
     /* Helm's RetroUI look (helm.css), self-contained: before a login only the two text fonts are served (helm.server).
-       The day / night choice is the one Helm saved in this browser. */
+       The look and the day / night choice are the ones Helm saved in this browser (the script below the styles). */
     @font-face{font-family:Minecraft;src:url(/helm/fonts/minecraft-regular.woff2) format("woff2");font-weight:300 500;font-display:swap}
     @font-face{font-family:Minecraft;src:url(/helm/fonts/minecraft-bold.woff2) format("woff2");font-weight:600 900;font-display:swap}
     :root{color-scheme:light;--ink:#15181d;--text:#15181d;--paper:#ffffff;--grid:#eef1f5;--card:#ffffff;--blue:#1f5fbf;--blue-hover:#184c99;--drop:#c8d2de;
@@ -35,6 +34,24 @@
     button:disabled{opacity:.6;cursor:default;box-shadow:none}
     #error{color:var(--bad);min-height:18px}
   </style>
+  <style id="classic-look">
+    /* Helm's original look (classic-helm.css). */
+    :root{color-scheme:dark;--bg:#0b0c0e;--panel:#141619;--raised:#1c1f23;--line:#2c3036;--muted:#9ba1a8;--text:#e9ebee;--accent:#7cc4ff;--bad:#ff8b98}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px}
+    form{width:min(380px,100%);background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px;display:grid;gap:12px}
+    h1{margin:0;font-size:20px;display:flex;align-items:center;gap:10px}
+    h1 span{color:var(--accent)}
+    p{margin:0;color:var(--muted);font-size:13px}
+    label{display:grid;gap:5px;font-size:13px;color:var(--muted)}
+    input{font:inherit;color:var(--text);background:var(--raised);border:1px solid #3a3f46;border-radius:8px;padding:10px 12px;min-height:44px}
+    button{font:inherit;font-weight:600;color:#0b0c0e;background:var(--accent);border:0;border-radius:8px;padding:11px;min-height:46px;cursor:pointer}
+    button:disabled{opacity:.6;cursor:default}
+    #error{color:var(--bad);min-height:18px}
+  </style>
+  <script>(()=>{let classic=false;try{classic=localStorage.getItem('helm-look')==='classic';
+    if(localStorage.getItem('helm-theme')==='dark')document.documentElement.dataset.theme='dark'}catch{/* RetroUI by day. */}
+    document.getElementById(classic?'retro-look':'classic-look').disabled=true})()</script>
 </head>
 <body>
   <form id="login">

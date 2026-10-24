@@ -1,0 +1,89 @@
+/* Replay: the stage takes the 3D view's place while the Replay tab is open. */
+.replay-stage{position:absolute;inset:0;display:flex;flex-direction:column;gap:10px;padding:14px 16px;overflow:hidden}
+.replay-stage[hidden]{display:none}
+body[data-tab=replay] .view>:not(#replay-stage){display:none!important}
+.replay-head{display:flex;align-items:baseline;gap:12px;min-width:0}
+.replay-head b{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#replay-status{margin-left:auto;font-size:12px;color:var(--muted)}
+#replay-status[data-tone=bad],#replay-list-status[data-tone=bad]{color:var(--bad)}
+#replay-list-status[data-tone=warn]{color:var(--warn)}
+.replay-cameras{flex:1;min-height:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:stretch}
+.replay-empty{grid-column:1/-1;align-self:center;text-align:center;color:var(--muted)}
+.replay-camera{position:relative;margin:0;min-height:0;display:flex;flex-direction:column;background:#000;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.replay-camera img{flex:1;min-height:0;width:100%;object-fit:contain;background:#000}
+.replay-camera figcaption{padding:5px 9px;font-size:11px;letter-spacing:.06em;color:var(--muted);border-top:1px solid var(--line);background:#101113}
+.replay-camera-note{position:absolute;inset:0 0 26px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;pointer-events:none}
+.replay-camera[data-state=missing] img{visibility:hidden}
+.replay-controls{display:flex;align-items:center;gap:8px}
+.replay-controls input[type=range]{flex:1;min-width:120px;accent-color:var(--accent)}
+.replay-controls button{min-width:42px}
+#replay-play{min-width:78px}
+.replay-time{font-variant-numeric:tabular-nums;font-size:12px;color:var(--muted);white-space:nowrap}
+.replay-controls select{font:inherit;color:var(--text);background:#1f2226;border:1px solid #3a3f46;border-radius:6px;padding:5px 6px}
+.replay-timeline{display:block;width:100%;height:150px;flex:none;border:1px solid var(--line);border-radius:8px;background:#0e1013;cursor:pointer;touch-action:none}
+
+/* The episode list in the side panel. */
+.replay-list-head{display:flex;align-items:center;gap:10px;margin-top:8px}
+#replay-list-status{font-size:12px;color:var(--muted)}
+.replay-session{margin:14px 0 4px;font-size:11px;letter-spacing:.12em;color:var(--muted);font-weight:650;text-transform:uppercase}
+.replay-episode{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 10px;width:100%;text-align:left;margin:5px 0;padding:9px 11px;background:var(--raised);border:1px solid var(--line);border-radius:8px}
+.replay-episode[aria-current=true]{border-color:var(--accent);background:var(--accent-soft)}
+.replay-meta{grid-column:1/-1;color:var(--muted);font-size:11.5px}
+.replay-badge{align-self:center;font-size:10px;border-radius:10px;padding:1px 8px;border:1px solid #3c6e55;color:var(--good)}
+.replay-badge[data-tone=warn]{border-color:#6d5a37;color:var(--warn)}
+.replay-badge[data-tone=bad]{border-color:#7c3a45;color:var(--bad)}
+.replay-details{border-top:1px solid var(--line);padding:8px 20px 12px}
+.replay-details:empty{display:none}
+.replay-details dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;margin:4px 0;font-size:12px}
+.replay-details dt{color:var(--muted)}
+.replay-details dd{margin:0;overflow-wrap:anywhere}
+
+body[data-touch=on] .replay-timeline{height:170px}
+body[data-touch=on] .replay-controls select{min-height:48px;font-size:16px}
+
+/* Training review: each episode's verdict in the list, and Keep / Discard / Clear for the selected one. */
+.replay-list-head select{font:inherit;font-size:12px;color:var(--text);background:#1f2226;border:1px solid #3a3f46;border-radius:6px;padding:4px 6px}
+.replay-verdict{grid-column:1/-1;justify-self:start;font-size:10.5px;font-weight:650;letter-spacing:.04em;border-radius:10px;padding:1px 8px}
+.replay-verdict[data-verdict=keep]{color:#0b0c0e;background:var(--good)}
+.replay-verdict[data-verdict=discard]{color:var(--muted);border:1px solid #4a4f56;text-decoration:line-through}
+.replay-review{border-top:1px solid var(--line);padding:10px 20px 14px;display:grid;gap:8px}
+.replay-review-head{display:flex;align-items:baseline;gap:10px}
+.replay-verdict-label{font-size:13px}
+.replay-verdict-label[data-verdict=keep]{color:var(--good)}
+.replay-verdict-label[data-verdict=discard]{color:var(--muted)}
+.replay-review input{font:inherit;font-size:12.5px;color:var(--text);background:#1f2226;border:1px solid #3a3f46;border-radius:6px;padding:7px 9px}
+.replay-review-actions{display:flex;gap:8px}
+.replay-review-actions button{flex:1}
+.replay-review-status{margin:0;min-height:16px;font-size:12px;color:var(--muted)}
+.replay-review-status[data-tone=bad]{color:var(--bad)}
+body[data-touch=on] .replay-review-actions button{min-height:48px;font-size:16px}
+body[data-touch=on] .replay-list-head select{min-height:44px;font-size:15px}
+
+/* Replay on Minerva: the Replay tab's box for the selected episode, and Teleop's card while it drives the arms. */
+.replay-live-note{margin:0;font-size:12px;color:var(--muted)}
+#replay-live-receiver{font-size:12.5px}
+#replay-live-receiver[data-live=true]{color:var(--bad)}
+.replay-live select{font:inherit;font-size:12.5px;color:var(--text);background:#1f2226;border:1px solid #3a3f46;border-radius:6px;padding:5px 6px;flex:none}
+.live-replay{margin:10px 20px 4px;padding:10px 12px 12px;border:1px solid var(--accent);border-radius:8px;background:var(--accent-soft);display:grid;gap:8px}
+.live-replay[hidden]{display:none}
+.live-replay-head{display:flex;align-items:baseline;gap:10px;min-width:0}
+.live-replay-head b{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.live-replay-head .replay-time{margin-left:auto}
+.live-replay-track{height:6px;border-radius:3px;background:#2a2e34;overflow:hidden}
+#t-replay-fill{height:100%;width:0;background:var(--accent);transition:width .2s linear}
+.live-replay-frames{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.live-replay-frames .replay-camera img{aspect-ratio:4/3;flex:none}
+.live-replay p{margin:0;font-size:12px}
+body[data-touch=on] .replay-live select{min-height:48px;font-size:16px}
+
+/* Policy mode: Teleop's box to start one, and its card while it drives the arms. */
+.policy-start{margin:0 0 14px;padding:10px 12px 12px;border:1px solid var(--line);border-radius:8px;background:var(--raised);display:grid;gap:8px}
+.policy-start[hidden]{display:none}
+.policy-start-head{display:flex;align-items:baseline;gap:10px}
+.policy-start-head b{font-size:13px}
+.policy-start p{margin:0;font-size:12px}
+.policy-start-actions{display:flex;gap:8px;min-width:0}
+.policy-start-actions select{flex:1;min-width:0;font:inherit;font-size:12.5px;color:var(--text);background:#1f2226;border:1px solid #3a3f46;border-radius:6px;padding:5px 6px}
+.live-policy{border-color:var(--warn);background:#2a2316}
+.live-policy p{margin:0;font-size:12px}
+body[data-touch=on] .policy-start-actions select,body[data-touch=on] .policy-start-actions button{min-height:48px;font-size:16px}
