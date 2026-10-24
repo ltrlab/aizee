@@ -33,7 +33,7 @@
       trigger open at once.
     - Each request carries `{'wall': reading (rad), 'k': mA per rad, 'cap': mA}` for a gripping leader, `0` for a
       free one, or nothing when feedback is off.
-      - `k` puts the maximum force at `wall_deg` past the wall (default 2°, about 3 Nm of squeeze).
+      - `k` puts the maximum force at `wall_deg` past the wall (default 0.8°, about 2 Nm of squeeze).
       - Both are × the operator's strength.
       - Only in TELEOP and only when switched on.
     - Until 2026-10-24 the loop decided the push itself:
@@ -62,8 +62,8 @@
     - A readout gives each trigger's push, as the loop estimates it (the PC's is a poll fresher).
   - **Helm, Settings → Grippers:** every setting of the feel, one slider each, applied at once to a running session:
     - the maximum trigger force (0–200 mA) and the strength (0–100 %), which scales the whole push but not the bar;
-    - "Full force at" (0.5–10° past the wall): fewer degrees make a harder wall. If the trigger buzzes at the wall,
-      add some.
+    - "Full force at" (0.2–5° past the wall, default 0.8°): fewer degrees make a harder wall. If the trigger buzzes
+      at the wall, add some.
     - the grip threshold (0.2–2 Nm) and the hold time (0–300 ms): lower or shorter finds contact sooner but can put
       a brief wall in a free close's stuck start.
     - A live line shows each gripper's squeeze, whether it counts as holding, and its push. **Defaults** clears the
@@ -208,14 +208,19 @@
     spring a poll from the trigger instead of a round trip away.
   - **Scale, from the saved leader ranges and grippers:**
     - The triggers sweep 0.88–0.94 rad, and the jaws 2.9–3.6 rad.
-    - One degree of trigger is about 0.06 rad of jaw: about 1.5 Nm of squeeze against an object at the grippers'
-      Kp of 25.
-    - A held cube (about 2 Nm) sits about 1.3° past the wall: about 98 mA at the default 2° for 150 mA.
+    - One degree of trigger is about 0.10 rad of jaw (5.2 rad of jaw travel over the trigger's sweep): about
+      2.5 Nm of squeeze against an object at the grippers' Kp of 25.
+    - A held cube (about 2 Nm) sits about 0.8° past the wall.
+    - The operator's holds in `live-20261024T155900Z` were light: 0.53–0.66 Nm p50, 0.2–0.3° past where the wall
+      would sit. At a 2° wall that is 15–23 mA, weaker than the law the operator called sensitive.
+    - So the default is stiff: the maximum at 0.8°. A light hold gets about 45 mA, 1 Nm about 75 mA, and a held cube
+      the full 150 mA.
+    - One encoder count (0.088°) is then about 16 mA. If the trigger buzzes at the wall, more degrees soften it.
   - **Tests:** the wall law, the loop's walls from the real route inverse (and none for a route and trigger that
     disagree), the PC's spring (onset, cap, both open signs, never a pull, unusable readings), walls across the signed
     link, request checks, and an earlier law's saved settings dropped.
 - **Remaining uncertainty:**
   - The wall is not yet felt on hardware.
-  - Whether 2° stays stable at the trigger (no buzz at the wall) is unknown: the PC's loop is a 200 Hz poll.
+  - Whether 0.8° stays stable at the trigger (no buzz at the wall) is unknown: the PC's loop is a 200 Hz poll.
   - The left gripper has never held anything in a recorded session, so its squeeze level is unmeasured.
   - Stick-slip on a slow close can still read as a short grip (about 1 a minute in the replays).

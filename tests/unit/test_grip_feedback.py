@@ -77,9 +77,10 @@ def rows(left=(0., 0.), right=(0., 0.)):
             dict(name='left_arm_j1', effort=-9., velocity=0.)]
 
 
-# A held cube: the trigger 1.3 degrees past the wall where the jaws stopped (reading direction +1 opens it).
+# A hold: the trigger 1.3 degrees past the wall where the jaws stopped (reading direction +1 opens it), against
+# walls of 2 degrees for the whole 150 mA. The default is stiffer (test_the_default_wall_suits_the_holds_measured).
 WALL = {'right': (3.0, 3.0 - math.radians(1.3), 1)}
-K = 150 / math.radians(2)  # The default wall: 150 mA at 2 degrees past it.
+K = 150 / math.radians(2)
 
 
 def settle(feedback, sample, *, engaged=True, cycles=60, walls=WALL):
@@ -89,7 +90,7 @@ def settle(feedback, sample, *, engaged=True, cycles=60, walls=WALL):
 
 
 def test_feedback_is_off_until_switched_on_and_needs_teleop():
-    feedback = GripFeedback(None)
+    feedback = GripFeedback({'wall_deg': 2.})
     assert feedback.update(rows(right=(-2., 0.)), engaged=True, walls=WALL) is None
     feedback.set(enabled=True)
     assert settle(feedback, rows(right=(-2., 0.)), engaged=False) == {'left': 0., 'right': 0.}
@@ -97,7 +98,7 @@ def test_feedback_is_off_until_switched_on_and_needs_teleop():
 
 
 def test_a_still_squeeze_grips_after_the_hold_time_and_puts_up_the_wall():
-    feedback = GripFeedback({'enabled': True})
+    feedback = GripFeedback({'enabled': True, 'wall_deg': 2.})
     # Measured on Minerva: a held cube squeezes about 2 Nm with the gripper still; closing effort is negative.
     out = [feedback.update(rows(right=(-2., 0.)), engaged=True, walls=WALL)['right'] for _ in range(12)]
     assert out[:9] == [0.] * 9  # 100 ms still first (10 ms cycles).
@@ -107,7 +108,7 @@ def test_a_still_squeeze_grips_after_the_hold_time_and_puts_up_the_wall():
 
 
 def test_the_start_of_a_free_close_and_the_rest_level_never_put_up_a_wall():
-    feedback = GripFeedback({'enabled': True})
+    feedback = GripFeedback({'enabled': True, 'wall_deg': 2.})
     # Measured: a free close starts with the gripper stuck for 30-100 ms, then it moves at 0.7-2 rad/s.
     for _ in range(9):
         assert feedback.update(rows(right=(-.8, 0.)), engaged=True, walls=WALL)['right'] == 0.
@@ -119,7 +120,7 @@ def test_the_start_of_a_free_close_and_the_rest_level_never_put_up_a_wall():
 
 
 def test_the_push_grows_with_the_trigger_past_the_wall_never_before_it():
-    feedback = GripFeedback({'enabled': True})
+    feedback = GripFeedback({'enabled': True, 'wall_deg': 2.})
     settle(feedback, rows(right=(-2., 0.)))
     for past_deg, push in ((0., 0.), (.5, 37.5), (2., 150.), (5., 150.), (-1., 0.)):
         feedback.update(rows(right=(-2., 0.)), engaged=True, walls={'right': (3.1, 3.1 - math.radians(past_deg), 1)})
@@ -134,7 +135,7 @@ def test_the_push_grows_with_the_trigger_past_the_wall_never_before_it():
 
 
 def test_dips_and_blips_inside_a_grip_keep_the_wall():
-    feedback = GripFeedback({'enabled': True})
+    feedback = GripFeedback({'enabled': True, 'wall_deg': 2.})
     settle(feedback, rows(right=(-2., 0.)))
     # A light hold lets the squeeze dip to nothing for 0.1 s; the jaws twitch, or race for 20 ms.
     samples = ([rows(right=(-2., .6))] * 2 + [rows(right=(-.05, .05))] * 10 + [rows(right=(-2., 1.5))] * 2
@@ -143,7 +144,7 @@ def test_dips_and_blips_inside_a_grip_keep_the_wall():
 
 
 def test_a_grip_ends_once_the_squeeze_stays_near_nothing_or_the_gripper_moves_fast():
-    feedback = GripFeedback({'enabled': True})
+    feedback = GripFeedback({'enabled': True, 'wall_deg': 2.})
     settle(feedback, rows(right=(-2., 0.)))
     let_go = [feedback.update(rows(right=(.2, -.2)), engaged=True, walls=WALL)['right'] for _ in range(40)]
     assert isinstance(let_go[20], dict) and let_go[-1] == 0.  # About a quarter second after the squeeze is gone.
@@ -155,7 +156,7 @@ def test_a_grip_ends_once_the_squeeze_stays_near_nothing_or_the_gripper_moves_fa
 
 
 def test_nothing_is_felt_without_a_reading_a_wall_or_teleop():
-    feedback = GripFeedback({'enabled': True})
+    feedback = GripFeedback({'enabled': True, 'wall_deg': 2.})
     assert settle(feedback, rows(right=(+2., 0.))) == {'left': 0., 'right': 0.}  # Pushed open: never a grip.
     settle(feedback, rows(right=(-2., 0.)))
     assert settle(feedback, [dict(name='right_gripper', effort=math.nan, velocity=0.)]) == {'left': 0., 'right': 0.}
@@ -170,7 +171,7 @@ def test_nothing_is_felt_without_a_reading_a_wall_or_teleop():
 
 
 def test_strength_and_every_setting_apply_live_within_bounds():
-    feedback = GripFeedback({'enabled': True})
+    feedback = GripFeedback({'enabled': True, 'wall_deg': 2.})
     feedback.set(strength=.5)
     assert settle(feedback, rows(right=(-2., 0.)))['right'] == pytest.approx({'wall': 3.0, 'k': .5 * K, 'cap': 75.})
     assert feedback.pushes['right'] == pytest.approx(.5 * 150 * 1.3 / 2)
@@ -185,6 +186,17 @@ def test_strength_and_every_setting_apply_live_within_bounds():
             feedback.set(**bad)
     with pytest.raises(ValueError):
         feedback.set(enabled='yes')
+
+
+def test_the_default_wall_suits_the_holds_measured():
+    # live-20261024T155900Z: light holds of 0.53-0.66 Nm sat 0.2-0.3 degrees past the wall (2.5 Nm a degree), and a
+    # held cube squeezes about 2 Nm (0.8 degrees). The default reaches the maximum there.
+    feedback = GripFeedback({'enabled': True})
+    assert feedback.config['wall_deg'] == .8
+    settle(feedback, rows(right=(-2., 0.)))
+    for past_deg, push in ((.25, 46.9), (.4, 75.), (.8, 150.)):
+        feedback.update(rows(right=(-2., 0.)), engaged=True, walls={'right': (3.0, 3.0 - math.radians(past_deg), 1)})
+        assert feedback.pushes['right'] == pytest.approx(push, abs=.1)
 
 
 @pytest.mark.parametrize('block', [{'gain': 1}, {'deadband_nm': .3}, {'contact_push': .4}, {'cap_ma': 250},
@@ -456,7 +468,7 @@ def wall_core(position=1.3, past_deg=1.3):
     from robot_platform.helm import teleop
     from robot_platform.teleop.absolute_mapping import reading_for
     core = object.__new__(teleop.TeleopCore)
-    core.grip_feedback = GripFeedback({'enabled': True, 'hold_ms': 0.})
+    core.grip_feedback = GripFeedback({'enabled': True, 'hold_ms': 0., 'wall_deg': 2.})
     core.leaders = SimpleNamespace(grip='unset')
     core.fault, core.derived = None, None
     core.grip_triggers = {'left': (7, 1), 'right': (7, 1)}
@@ -514,7 +526,7 @@ def test_a_route_and_trigger_that_disagree_on_opening_get_no_wall():
 
 def test_the_loop_runs_the_law_on_its_own_clock():
     core, _ = wall_core()
-    core.grip_feedback = GripFeedback({'enabled': True})  # The default 100 ms hold.
+    core.grip_feedback = GripFeedback({'enabled': True, 'wall_deg': 2.})  # The default 100 ms hold.
     clock = Clock()
     core.clock = clock
     core._send_grip_feedback('TELEOP')
@@ -617,7 +629,7 @@ def test_strengths_cross_the_signed_link_and_reach_the_board_polls():
 
 
 def test_the_force_bars_show_the_push_against_the_maximum_even_with_feedback_off():
-    feedback = GripFeedback(None)
+    feedback = GripFeedback({'wall_deg': 2.})
     assert settle(feedback, rows(right=(-2., 0.))) is None  # Off: no walls sent...
     snap = feedback.snapshot()
     assert snap['levels']['right'] == pytest.approx(.65, abs=1e-3)  # ...but the bar shows 1.3 degrees of 2.

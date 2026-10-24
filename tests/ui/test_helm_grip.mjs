@@ -38,7 +38,7 @@ assert.deepEqual(pushing.settings, {strength: 1, cap_ma: 150});
 // Settings -> Grippers: a slider per setting, read in its units, set without float noise.
 const setting = key => GRIP_SETTINGS.find(item => item.key === key);
 assert.deepEqual(GRIP_SETTINGS.map(item => item.key).sort(), ['cap_ma', 'grip_nm', 'hold_ms', 'strength', 'wall_deg']);
-assert.equal(gripSettingText(setting('wall_deg'), '2'), '2.0° past the wall');
+assert.equal(gripSettingText(setting('wall_deg'), '0.8'), '0.8° past the wall');
 assert.equal(gripSettingText(setting('grip_nm'), '0.5'), '0.50 Nm');
 assert.equal(gripSettingText(setting('hold_ms'), '100'), '100 ms');
 assert.equal(gripSettingText(setting('cap_ma'), '150'), '150 mA');
