@@ -90,7 +90,7 @@ def video_backlog(transport):
 
 def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None, live=False,
                gripper_zero=None, simulation_only=False, cameras=None, camera_video=None, episodes=None, ups=None,
-               access=None, bridge=None, mesh_store=None, operator_files=None):
+               access=None, bridge=None, mesh_store=None, operator_files=None, calibration=None):
     """`live`: keep the stopped reader running whenever Minerva is online and nothing else holds the motors
     (helm.live_view); sessions then take the motors from it instead of asking for Disconnect first.
     `episodes`: the recorded-episode library behind Replay (helm.episodes), told to read nothing while a
@@ -99,7 +99,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     `access` (helm.access.Access): Helm serves other devices (on Minerva, beyond loopback): a login, one device in
     control, stopping always allowed. `bridge` (helm.bridge.BridgeHub): the GELLO bridge's state for the page.
     `mesh_store`: the 3D view's meshes, converted on the build PC (viewer.server.ModelStore). `operator_files`:
-    where Helm on Minerva saves the operator's files and what its start changed there (helm.operator_files)."""
+    where Helm on Minerva saves the operator's files and what its start changed there (helm.operator_files).
+    `calibration` (helm.calibration.CameraCalibration): wrist camera stills during a live session, and their solve."""
     from aiohttp import web
     from robot_platform.viewer.server import create_app as viewer_app
     from .live_view import LiveView
@@ -210,6 +211,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         state['tune'] = tune.snapshot() if tune is not None else None
         state['gripper_zero'] = grippers.snapshot() if grippers is not None else None
         state['ups'] = ups.snapshot() if ups is not None else None
+        state['calibration'] = calibration.snapshot() if calibration is not None else None
         state['mode'] = 'simulation' if simulation_only else 'robot'
         task = (state['teleop'] or {}).get('task')
         if simulation_only and task is not None:
@@ -797,6 +799,36 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         check.start()
         return state_response()
 
+    def need_calibration():
+        if calibration is None:
+            raise ValueError('Camera calibration runs with Helm on Minerva and a teleop profile')
+
+    async def calibration_thumbnail(_request):
+        """The last still's small JPEG, its tags outlined; the page asks once per still."""
+        need_calibration()
+        jpeg = calibration.thumbnail()
+        if jpeg is None:
+            raise web.HTTPNotFound(text='No still yet')
+        return web.Response(body=jpeg, content_type='image/jpeg', headers={'Cache-Control': 'no-store'})
+
+    async def calibration_action(request):
+        """Capture a still, undo the last, start a new run, or solve (helm.calibration); none moves a motor."""
+        payload = await body(request)
+        need_calibration()
+        action = request.match_info['action']
+        if action in ('capture', 'undo'):
+            if set(payload) != {'role'}:
+                raise ValueError('Expected role')
+            role = payload['role']
+            await off_loop(lambda: calibration.capture(role) if action == 'capture' else calibration.undo(role))
+        elif action in ('new', 'solve'):
+            if payload:
+                raise ValueError('Expected no fields')
+            await off_loop(calibration.new_run if action == 'new' else calibration.solve)
+        else:
+            raise web.HTTPNotFound()
+        return state_response()
+
     def need_tune():
         if tune is None:
             raise ValueError('Helm was started without a teleop profile')
@@ -956,6 +988,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     app.router.add_post('/api/helm/check/run', check_run)
     app.router.add_post('/api/helm/check/live', check_live)
     app.router.add_post('/api/helm/grippers/zero', gripper_zero_run)
+    app.router.add_get('/api/helm/calibration/thumbnail', calibration_thumbnail)
+    app.router.add_post('/api/helm/calibration/{action}', calibration_action)
     app.router.add_post('/api/helm/tune/configure', tune_configure)
     app.router.add_post('/api/helm/tune/start', tune_start)
     app.router.add_post('/api/helm/tune/return', tune_return)

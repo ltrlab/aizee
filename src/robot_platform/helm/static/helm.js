@@ -5,6 +5,7 @@ import {LiveReplayCard, ReplayView} from './replay.js';
 import {HOLD_STILL, policyLabel, policyNote, policyOptions, policyStats} from './policy.js';
 import {GRIP_SETTINGS, gripLive, gripSettingText, gripSliderValue, gripView} from './grip.js';
 import {upsView} from './ups.js';
+import {captureBlock, countsText, lastText, resultLines} from './calibration.js';
 
 // Helm operator page. Reads /api/helm/state; every action needs the session token.
 const $ = id => document.getElementById(id);
@@ -285,6 +286,7 @@ function render(state) {
   renderTeleop(state.teleop);
   replayView?.setTeleop(state.teleop, state.mode);
   renderGripFeedback(state.teleop);
+  renderCalibration(state);
   renderUps(state.ups);
   renderAccess(state);
   renderTune(state.tune, state);
@@ -409,6 +411,72 @@ for (const setting of GRIP_SETTINGS) {
     `Saved: ${setting.label} ${gripSettingText(setting, input.value)}.`);
 }
 $('grip-defaults').onclick = () => setGripFeedback({reset: true}, 'Saved: the default settings.');
+
+// Wrist camera calibration: stills in a live session, then the solve (helm.calibration).
+let calibrationRole = 'left_wrist', calibrationPending = false;
+function renderCalibration(state) {
+  const calibration = state.calibration, section = $('calibration');
+  section.hidden = !calibration;
+  if (!calibration) return;
+  const blocked = captureBlock(calibration, state.teleop);
+  for (const button of document.querySelectorAll('#calibration-role button')) {
+    button.setAttribute('aria-pressed', String(button.dataset.role === calibrationRole));
+  }
+  $('calibration-capture').disabled = calibrationPending || Boolean(blocked);
+  $('calibration-capture').title = blocked || 'Average a stack of frames and find the tags; the arm must stay still (C)';
+  const stills = calibration.counts?.[calibrationRole]?.stills || 0;
+  $('calibration-undo').disabled = calibrationPending || calibration.busy || calibration.solving || !stills;
+  $('calibration-solve').disabled = calibrationPending || calibration.busy || calibration.solving
+    || !Object.values(calibration.counts || {}).some(count => count.tagged);
+  $('calibration-new').disabled = calibrationPending || calibration.busy || calibration.solving;
+  $('calibration-counts').textContent = countsText(calibration) + (blocked && !calibration.busy ? ` · ${blocked}` : '');
+  const last = calibration.last;
+  $('calibration-last').hidden = !last;
+  if (last) {
+    const thumb = $('calibration-thumb');
+    thumb.hidden = !last.thumbnail;
+    if (last.thumbnail && thumb.dataset.still !== last.name) {  // Fetched once per still, not with every state.
+      thumb.dataset.still = last.name;
+      thumb.src = `/api/helm/calibration/thumbnail?still=${encodeURIComponent(last.name)}`;
+    }
+    $('calibration-last-text').textContent = lastText(last);
+  }
+  const list = $('calibration-result');
+  list.replaceChildren(...resultLines(calibration.result).map(line => {
+    const item = document.createElement('li');
+    const title = document.createElement('b');
+    title.textContent = line.title;
+    item.append(title, document.createTextNode(` ${line.text}`));
+    if (line.bad) item.className = 'bad';
+    return item;
+  }));
+  $('calibration-error').hidden = !calibration.error;
+  $('calibration-error').textContent = calibration.error || '';
+}
+async function calibrationAction(action, payload = {}, timeoutMs = 15000) {
+  if (calibrationPending) return;
+  calibrationPending = true;
+  if (last) renderCalibration(last);
+  try {
+    render(await request(`/api/helm/calibration/${action}`, payload, timeoutMs));
+  } catch (error) {
+    $('calibration-error').hidden = false;
+    $('calibration-error').textContent = error.message;
+  } finally {
+    calibrationPending = false;
+    if (last) renderCalibration(last);
+  }
+}
+function captureStill() {
+  if (captureBlock(last?.calibration, last?.teleop) === null) calibrationAction('capture', {role: calibrationRole});
+}
+for (const button of document.querySelectorAll('#calibration-role button')) {
+  button.onclick = () => { calibrationRole = button.dataset.role; if (last) renderCalibration(last); };
+}
+$('calibration-capture').onclick = captureStill;
+$('calibration-undo').onclick = () => calibrationAction('undo', {role: calibrationRole});
+$('calibration-solve').onclick = () => calibrationAction('solve', {}, 600000);
+$('calibration-new').onclick = () => calibrationAction('new');
 
 // Mode is fixed at launch. The server enforces the same separation for every action.
 function renderMode(state) {
@@ -1271,6 +1339,9 @@ function onKey(event) {
   if ('IETHX'.includes(key) && key) {
     event.preventDefault();
     sendKey(key);
+  } else if (key === 'C' && last?.calibration) {
+    event.preventDefault();
+    captureStill();
   } else if (key === 'Z') {
     event.preventDefault();
     setZero();

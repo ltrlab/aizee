@@ -138,7 +138,7 @@ h1{font-size:18px;line-height:1.2;margin:6px 0 8px}.lead{font-size:16px;line-hei
 .scroll{flex:1;overflow-y:auto;padding:4px 20px 14px}
 .arm{margin:16px 0 4px;font-size:12px;letter-spacing:.12em;color:var(--muted);font-weight:700}
 /* Cards: pixel boxes with a soft shadow; their state recolours the frame. */
-.joint,.tjoint,.crow,.ucard,.verdict,.manual-row,.setting-field,.tuning-shortcut,.grip-feedback,.task-workflow,.display-options label,.gripper-zero{
+.joint,.tjoint,.crow,.ucard,.verdict,.manual-row,.setting-field,.tuning-shortcut,.grip-feedback,.task-workflow,.camera-calibration,.display-options label,.gripper-zero{
   --pix:var(--pix-ink);border:3px solid var(--ink);border-image:var(--pix) 1/3px/0 stretch;border-radius:0;background:var(--card);box-shadow:3px 3px 0 var(--drop)}
 .joint{padding:10px 12px;margin:10px 0}
 .joint[data-status=confirmed]{--pix:var(--pix-info)}.joint[data-status=saved]{--pix:var(--pix-good)}.joint[data-status=changed]{--pix:var(--pix-warn)}
@@ -356,6 +356,14 @@ body[data-teleop-state=FAULT] #t-state,#t-collision.bad,#t-control.bad{color:var
 .task-workflow{margin:12px 0 14px;padding:14px 16px}
 .task-workflow h2{margin:5px 0 10px;font-size:18px}
 .task-workflow ol{padding-left:22px;line-height:1.55;font-size:16px}
+.camera-calibration{margin:12px 0 14px;padding:14px 16px}
+.camera-calibration h2{margin:5px 0 10px;font-size:18px}
+.calibration-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}
+.calibration-last{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;margin:8px 0}
+.calibration-last img{width:320px;max-width:100%;height:auto;border:3px solid var(--line);image-rendering:auto}
+.calibration-last p{flex:1 1 200px;margin:0;overflow-wrap:anywhere}
+.calibration-result{list-style:none;padding:0;margin:8px 0;font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+.calibration-result b{margin-right:6px}
 .task-actions{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
 #task-recording{overflow-wrap:anywhere}
 body[data-mode="simulation"] #mode-pill{--pix:var(--pix-good);color:var(--good);background:var(--good-soft)}

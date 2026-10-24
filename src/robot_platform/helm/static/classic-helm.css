@@ -246,6 +246,14 @@ body[data-teleop-state=FAULT] #t-state,#t-collision.bad,#t-control.bad{color:var
 .task-workflow h2 { margin: 5px 0 10px; font-size: 1.12rem; }
 .task-workflow ol { padding-left: 22px; line-height: 1.55; }
 .task-actions { display: flex; flex-wrap: wrap; gap: 7px; margin: 12px 0; }
+.camera-calibration { margin: 12px 14px; padding: 16px; border: 1px solid var(--line, #d8dee6); border-radius: 10px; }
+.camera-calibration h2 { margin: 5px 0 10px; font-size: 1.12rem; }
+.calibration-actions { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin: 12px 0; }
+.calibration-last { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; margin: 8px 0; }
+.calibration-last img { width: 320px; max-width: 100%; height: auto; border: 1px solid var(--line, #d8dee6); border-radius: 6px; }
+.calibration-last p { flex: 1 1 200px; margin: 0; overflow-wrap: anywhere; }
+.calibration-result { list-style: none; padding: 0; margin: 8px 0; font-size: .86rem; line-height: 1.5; overflow-wrap: anywhere; }
+.calibration-result b { margin-right: 6px; }
 #task-recording { overflow-wrap: anywhere; }
 body[data-mode="simulation"] #mode-pill { color: #266344; background: #e6f5eb; }
 body[data-mode="simulation"] #via, body[data-mode="simulation"] #connect,

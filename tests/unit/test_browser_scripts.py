@@ -81,6 +81,13 @@ def test_force_bars_run_green_to_red_and_say_when_the_triggers_push():
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
 
 
+def test_the_calibration_card_says_what_blocks_a_still_and_what_the_solve_found():
+    node = shutil.which('node')
+    assert node, 'Node.js is required to check the calibration card'
+    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_calibration.mjs')], capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
+
+
 def test_the_ups_pill_and_banner_say_what_the_battery_is_doing():
     node = shutil.which('node')
     assert node, 'Node.js is required to check the UPS view'
