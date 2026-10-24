@@ -16,46 +16,63 @@
   - **Sign convention:** both grippers' effort tracks the controller's kp·err − kd·vel (correlation +0.5 to +0.75). Closing moves read negative and opening moves positive, and both rest at about 0 rad, which is closed. So squeeze torque is −effort on both. The left gripper's squeeze level was not observed: none of its sessions held an object.
   - **The old collectors' law does not fit:** a 0.02 Nm deadband and 400 mA/Nm would feed back free-air noise and saturate on every grasp.
 - **Design:**
-  - **Robot loop** (`teleop/grip_feedback.py`, `helm.teleop.TeleopCore._send_grip_feedback`): each cycle it reads the receiver's own feedback, which carries each drive's effort, from the previous exchange. It then works out a resist strength in mA, never negative (since 2026-10-24, see Results):
+  - **The wall** (since 2026-10-24, see Results): while a gripper holds something, its trigger meets a wall where
+    the object stopped the jaws. There is no push at the wall, and a push grows as the trigger is squeezed past it.
+    The robot decides when and where; the operator PC renders it as a spring from its own trigger readings.
+  - **Robot loop** (`teleop/grip_feedback.py`, `helm.teleop.TeleopCore._send_grip_feedback`): each cycle it reads the
+    receiver's own feedback, which carries each drive's effort and position, from the previous exchange.
     - The squeeze is max(0, −effort), low-passed over 30 ms.
     - **A grip** starts once the gripper has stayed still (|v| ≤ 0.3 rad/s) with the squeeze past the grip threshold
-      (0.5 Nm) for the hold time (100 ms). It lasts until the squeeze stays under 75 % of the threshold, or the
-      gripper moves faster than 1 rad/s (it opened, or the object slipped), for 30 ms. Speed blips and squeeze dips
-      inside a hold do not end it.
-    - **The push while gripping:** the contact push (40 % of the maximum) at the threshold, rising with the squeeze
-      to the maximum at the full-force squeeze (1.2 Nm). Under the threshold it fades out to nothing where the grip
-      ends.
-    - It is × the operator's strength (0–1), at most the operator's maximum force (default 150 mA, at most 200), and
-      smoothed: it rises with half the smoothing time (40 ms) and falls with all of it. The hold time and smoothing
-      run on the loop's own clock.
-    - It is sent only in TELEOP and only when switched on; otherwise the request carries no strengths.
-    - Until 2026-10-24 the law was a deadband and a gain, gated on speed: a 0.5 Nm deadband and 100 mA/Nm, then
-      briefly 0.3 Nm and 400 mA/Nm (`4a90810`) after the user asked for much more sensitive feedback.
-  - **Leader link** (`teleop/leader_bridge.py`): a sample request may carry `grip: {leader: mA}`.
+      (0.5 Nm) for the hold time (100 ms). It ends once the squeeze has stayed under 0.15 Nm for 250 ms (the operator
+      let go), or the gripper moves faster than 1 rad/s for 30 ms (it opened, or the object slipped). Squeeze dips
+      and speed blips inside a hold do not end it.
+    - **The wall** is the trigger reading the gripper's leader route maps to the gripper's measured position
+      (`teleop.absolute_mapping.reading_for`, the route's inverse, extended straight past its ends). It moves with
+      the jaws each cycle, so a soft object gives way.
+    - A leader whose route and trigger disagree on which way opens gets no wall: on the wrong side, it would push the
+      trigger open at once.
+    - Each request carries `{'wall': reading (rad), 'k': mA per rad, 'cap': mA}` for a gripping leader, `0` for a
+      free one, or nothing when feedback is off.
+      - `k` puts the maximum force at `wall_deg` past the wall (default 2°, about 3 Nm of squeeze).
+      - Both are × the operator's strength.
+      - Only in TELEOP and only when switched on.
+    - Until 2026-10-24 the loop decided the push itself:
+      - a deadband and a gain, gated on speed: 0.5 Nm and 100 mA/Nm, then briefly 0.3 Nm and 400 mA/Nm (`4a90810`);
+      - then the contact push of `06805b8`: 40 % at the threshold, the maximum at 1.2 Nm.
+      - Results explains why the wall replaced it.
+  - **Leader link** (`teleop/leader_bridge.py`): a sample request may carry `grip: {leader: wall or mA}`.
+    - A plain mA value is a steady push, kept for an older loop.
     - A malformed value turns feedback off and never faults teleop.
     - A request without the field turns feedback off.
   - **Operator PC** (`LatestLeaderInputs`, `teleop/openrb.py`): the sampler thread, the only writer to the boards, builds each board's `FF_CURRENT` frame and sends it just before that board's read.
+    - **The spring:** k × how far the trigger's latest reading (a poll old, at 200 Hz) is squeezed past the wall,
+      at most the cap, toward opening only. A new wall's push rises over 60 ms, so a trigger already squeezed past
+      it is not kicked. Readings a whole turn apart are the same angle.
+      - An unusable reading gives no push, never an exception: one would stop the sampler, and with it teleop.
     - **What it energises:** only the trigger servo the leader profile names, in its `open_sign` direction. The other six slots are always `INT16_MIN` (torque off).
     - **When it sends:** an active trigger is refreshed every 20 ms, or on a change of 2 mA or more.
-    - **When it turns off:** strengths older than 100 ms switch all slots off once. Closing a board that received feedback sends an all-off frame.
+    - **When it turns off:** feedback older than 100 ms switches all slots off once. Closing a board that received feedback sends an all-off frame.
   - **Helm, Teleop panel** (under the pedals): a live switch, off at every session start, and a force bar per gripper.
-    - Each bar shows the gripper's squeeze against the maximum force at full strength: (squeeze − deadband) × gain ÷ maximum.
+    - Each bar shows the push the loop estimates the trigger feels, against the maximum at full strength: how far its
+      latest trigger reading is past the wall, of `wall_deg`.
     - Its colour runs from green through yellow to red at the maximum (`static/grip.js`, hue 120 → 0).
     - The bars move even with feedback off, so the operator can watch the grip before switching it on.
     - They arrive with the loop's regular view (about 10 Hz, at worst the 0.25 s status heartbeat). They are not part of
       the status key, so a squeeze never makes the loop publish extra views.
-    - A readout gives each trigger's current while it pushes.
+    - A readout gives each trigger's push, as the loop estimates it (the PC's is a poll fresher).
   - **Helm, Settings → Grippers:** every setting of the feel, one slider each, applied at once to a running session:
     - the maximum trigger force (0–200 mA) and the strength (0–100 %), which scales the whole push but not the bar;
-    - the grip threshold (0.2–2 Nm) and the hold time (0–300 ms): lower or shorter feels contact sooner but pulses
-      on a free close's stuck start;
-    - the contact push (0–100 %), the full-force squeeze (0.5–4 Nm) and the smoothing (0–200 ms).
+    - "Full force at" (0.5–10° past the wall): fewer degrees make a harder wall. If the trigger buzzes at the wall,
+      add some.
+    - the grip threshold (0.2–2 Nm) and the hold time (0–300 ms): lower or shorter finds contact sooner but can put
+      a brief wall in a free close's stuck start.
     - A live line shows each gripper's squeeze, whether it counts as holding, and its push. **Defaults** clears the
       saved settings.
     - Only the settings the operator changed are saved, in `<runs>/<asset>-teleop/grip-feedback.json`, so a
       release's new defaults reach the rest. They start every later session.
     - The commands are `POST /api/helm/teleop/grip_feedback` (`enabled`, `reset`, and any of `strength`, `cap_ma`,
-      `grip_nm`, `full_nm`, `contact_push`, `hold_ms`, `smoothing_ms`) and the loop command `grip_feedback`.
+      `grip_nm`, `hold_ms`, `wall_deg`) and the loop command `grip_feedback`.
+    - An earlier law's saved settings (contact push, full force, smoothing) are dropped when loaded, not fatal.
     - The nav item formerly called "Gripper zero" is now "Grippers"; it holds both.
   - **Leader profile** (`config/devices/gello-dual-viewer.json`, the `leader_profile` of every teleop profile):
     `trigger: {channel: 7, open_sign: 1}` on both leaders.
@@ -81,7 +98,7 @@
     3. Releasing the object frees it again.
     4. Switching it off, holding (T) or ending the session frees the trigger.
     5. If the trigger pushes closed instead, `open_sign` flips for that leader.
-- **Results:** `tests/unit/test_grip_feedback.py` has 33 tests covering:
+- **Results:** `tests/unit/test_grip_feedback.py` has 40 tests covering:
   - the frame layout and CRC against the firmware;
   - the trigger-only, open-only currents;
   - the law: the hold time, a free close's stuck start and the rest level never pushing, the contact push and full
@@ -185,7 +202,20 @@
         sensitivity makes it worse.
     - The fault that ended the session was a right-wrist limit trip, unrelated to the triggers: the hand dragged on a
       surface with the wrist at its usable end.
+- **2026-10-24: the wall,** at the user's request ("yes build the wall, deploy when the gate passes").
+  - **Why:** the loop's push travelled the robot's round trip and moved the trigger that commands the gripper.
+    A wall pushes nothing where the object stopped the jaws, so it cannot open the grasp, and the PC renders its
+    spring a poll from the trigger instead of a round trip away.
+  - **Scale, from the saved leader ranges and grippers:**
+    - The triggers sweep 0.88–0.94 rad, and the jaws 2.9–3.6 rad.
+    - One degree of trigger is about 0.06 rad of jaw: about 1.5 Nm of squeeze against an object at the grippers'
+      Kp of 25.
+    - A held cube (about 2 Nm) sits about 1.3° past the wall: about 98 mA at the default 2° for 150 mA.
+  - **Tests:** the wall law, the loop's walls from the real route inverse (and none for a route and trigger that
+    disagree), the PC's spring (onset, cap, both open signs, never a pull, unusable readings), walls across the signed
+    link, request checks, and an earlier law's saved settings dropped.
 - **Remaining uncertainty:**
-  - The pulse in contact (above) needs a structural change. Settings cannot remove it.
+  - The wall is not yet felt on hardware.
+  - Whether 2° stays stable at the trigger (no buzz at the wall) is unknown: the PC's loop is a 200 Hz poll.
   - The left gripper has never held anything in a recorded session, so its squeeze level is unmeasured.
   - Stick-slip on a slow close can still read as a short grip (about 1 a minute in the replays).

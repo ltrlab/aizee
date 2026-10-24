@@ -11,11 +11,9 @@ export function forceColor(level) {
 export const GRIP_SETTINGS = [
   {key: 'cap_ma', id: 'grip-cap', label: 'maximum trigger force', scale: 1, unit: ' mA', digits: 0},
   {key: 'strength', id: 'grip-strength', label: 'strength', scale: 100, unit: '%', digits: 0},
+  {key: 'wall_deg', id: 'grip-wall', label: 'full force at', scale: 1, unit: '° past the wall', digits: 1},
   {key: 'grip_nm', id: 'grip-threshold', label: 'grip threshold', scale: 1, unit: ' Nm', digits: 2},
   {key: 'hold_ms', id: 'grip-hold', label: 'hold time', scale: 1, unit: ' ms', digits: 0},
-  {key: 'contact_push', id: 'grip-push', label: 'contact push', scale: 100, unit: '%', digits: 0},
-  {key: 'full_nm', id: 'grip-full', label: 'full force at', scale: 1, unit: ' Nm', digits: 1},
-  {key: 'smoothing_ms', id: 'grip-smoothing', label: 'smoothing', scale: 1, unit: ' ms', digits: 0},
 ];
 
 // A slider's value in its words, and a setting's value as its slider's.

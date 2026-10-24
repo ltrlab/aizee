@@ -19,6 +19,7 @@ import gc
 import hashlib
 import itertools
 import json
+import math
 import multiprocessing
 from pathlib import Path
 import threading
@@ -759,8 +760,9 @@ class TeleopCore:
         return durations[int(.9 * (len(durations) - 1))] if durations else 0.
 
     def _send_grip_feedback(self, state):
-        """This cycle's trigger resist strengths ride the next leader request: only while following (TELEOP), from
-        the receiver's latest gripper feedback; None while switched off, which turns the PC's triggers off."""
+        """This cycle's trigger walls ride the next leader request: only while following (TELEOP) and while a
+        gripper holds something, from the receiver's latest gripper feedback; None while switched off, which turns
+        the PC's triggers off."""
         leaders, feedback = getattr(self, 'leaders', None), getattr(self, 'grip_feedback', None)
         if feedback is None or not hasattr(leaders, 'grip'):
             return  # A scripted or synthetic leader source has no triggers.
@@ -777,11 +779,38 @@ class TeleopCore:
         now = clock() if clock is not None else None
         last, self._grip_at = getattr(self, '_grip_at', None), now
         dt = now - last if now is not None and last is not None else getattr(self, 'period_s', .01)
-        strengths = feedback.update(rows, engaged=state == 'TELEOP' and not getattr(self, 'fault', None), dt=dt)
+        strengths = feedback.update(rows, engaged=state == 'TELEOP' and not getattr(self, 'fault', None), dt=dt,
+                                    walls=self._grip_walls(rows))
         triggers = getattr(self, 'grip_triggers', None) or {}
         # Only the leaders with a trigger: the PC drops any other strength, and Helm must not show one as sent.
         leaders.grip = (None if strengths is None or not triggers
                         else {name: value for name, value in strengths.items() if name in triggers})
+
+    def _grip_walls(self, rows):
+        """Where each trigger meets the object now: {leader: (wall, reading, opens)}.
+        - The wall is the leader reading its route maps to the gripper's measured position (absolute_mapping).
+        - The reading is the trigger's in the last leader sample.
+        - opens is the reading direction that opens the trigger.
+        A leader is left out when its route, sample or gripper position is missing, or when its route and its
+        trigger disagree on which way opens: a wall on the wrong side would push the trigger open at once."""
+        from robot_platform.teleop.absolute_mapping import reading_for
+        triggers = getattr(self, 'grip_triggers', None) or {}
+        samples = getattr(self, '_grip_samples', None) or {}
+        routes = getattr(getattr(self, 'mapper', None), 'routes', None) or []
+        positions = {row.get('name'): row.get('position') for row in rows}
+        # The motor direction that opens a gripper: against the closing effort's sign.
+        opening = -self.grip_feedback.config['closing_effort_sign']
+        walls = {}
+        for leader, (channel, opens) in triggers.items():
+            route = next((r for r in routes if r.get('leader') == leader and r.get('channel') == channel - 1
+                          and r.get('actuator') in self.grip_feedback.GRIPPERS), None)
+            sample = samples.get(leader)
+            position = positions.get(route['actuator']) if route is not None else None
+            if (route is None or sample is None or type(position) not in (int, float) or not math.isfinite(position)
+                    or (1 if route['direction'] > 0 else -1) * opening != opens):
+                continue
+            walls[leader] = (reading_for(route, position), sample.positions_rad[channel - 1], opens)
+        return walls
 
     def _grip_status(self):
         feedback = getattr(self, 'grip_feedback', None)
@@ -806,6 +835,7 @@ class TeleopCore:
         try:
             polled = self.clock()
             samples = unwrap_samples(self.leaders.poll(), self.centers)
+            self._grip_samples = samples  # The next cycle's trigger readings for force feedback's walls.
             mapped = self.clock()
             samples = {name: sample for name, sample in samples.items() if name in self.route_leaders}
             repeated = False
@@ -1881,12 +1911,14 @@ class TeleopSession:
                 'grip_feedback': dict(self.grip_settings)}
 
     def _load_grip_settings(self):
-        from robot_platform.teleop.grip_feedback import validate_settings
+        from robot_platform.teleop.grip_feedback import SETTINGS, validate_settings
         try:
-            return validate_settings(json.loads(self.grip_settings_path.read_text(encoding='utf-8')))
+            saved = json.loads(self.grip_settings_path.read_text(encoding='utf-8'))
+            # An earlier law's settings (contact push, full force, smoothing) no longer apply: dropped, not fatal.
+            return validate_settings({key: value for key, value in saved.items() if key in SETTINGS})
         except FileNotFoundError:
             return {}
-        except (OSError, ValueError, TypeError):
+        except (OSError, ValueError, TypeError, AttributeError):
             return {}  # An unreadable file keeps the defaults; the next change rewrites it.
 
     def grip_feedback(self, payload):

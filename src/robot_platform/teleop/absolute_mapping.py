@@ -102,3 +102,15 @@ def follow(route, raw):
     if route["direction"] < 0:
         near, far = far, near
     return near + (x - low) / (high - low) * (far - near)
+
+
+def reading_for(route, position):
+    """The leader reading `follow` maps to the follower `position`, extended straight past the route's ends (no
+    clamp): where a gripper's trigger meets the object its jaws have stopped on (teleop.grip_feedback)."""
+    if "raw_zero" in route:
+        return route["raw_zero"] + (position - route["follower_zero"]) / (route["direction"] * route["gain"])
+    low, high = route["raw_min"], route["raw_max"]
+    near, far = route["follower_min"], route["follower_max"]
+    if route["direction"] < 0:
+        near, far = far, near
+    return low + (position - near) / (far - near) * (high - low)

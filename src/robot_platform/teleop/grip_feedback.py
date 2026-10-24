@@ -1,27 +1,33 @@
-"""Gripper force feedback: the follower gripper's grip, felt back in the leader's trigger.
+"""Gripper force feedback: the follower gripper's grip, felt in the leader's trigger as a wall.
 
-The robot loop turns each gripper's measured effort into a resist strength (mA, never negative), only while the arm
-follows the leaders (TELEOP). The squeeze is the effort in the gripper's closing direction. The trigger pushes only
-while the gripper holds something: the squeeze has stayed past a grip threshold, with the gripper still, for a hold
-time. It then pushes at once with a contact push, a share of the maximum force, and rises with the squeeze to the
-maximum at the full-force squeeze, smoothed. The grip lasts until the squeeze falls well under the threshold (the
-push fading out on the way) or the gripper moves fast again (it opened or the object slipped), so speed blips and
-dips inside a hold never pulse it.
-The operator tunes all of it live in Helm (Settings, Grippers).
+The robot loop decides when each gripper holds something, from its measured effort (the squeeze, in its closing
+direction), only while the arm follows the leaders (TELEOP):
+- A grip starts once the squeeze has stayed past a grip threshold, with the gripper still, for a hold time.
+- It ends once the squeeze has stayed near nothing for a while (the operator let go), or the gripper moves fast
+  (it opened, or the object slipped).
 
-The operator PC turns that strength into a goal current on the leader's trigger servo, in the direction the leader
-profile says opens it, and nothing else: the other servos stay torque-off, so feedback can only push the trigger
-open against a squeeze, never pull the operator's hand closed. The firmware caps the current and zeroes it at
-200 ms without a command, then disables it at 1 s (firmware/openrb_leader).
+While a gripper holds something, its trigger meets a wall: the trigger reading that maps to the gripper's measured
+position (teleop.absolute_mapping.reading_for), which is where the object stopped the jaws. The operator PC renders
+the wall as a spring from its own trigger readings, at its sample rate (teleop.leader_bridge):
+- There is no push at the wall, and the push grows as the trigger is squeezed past it, reaching the operator's
+  maximum at `wall_deg` degrees.
+- So the push grows with the squeeze the robot applies (both grow with the trigger past the wall), and it can
+  never push the trigger open past the object.
+- The robot only says where the wall is, and moves it as the jaws move.
+- Until 2026-10-24 the loop pushed directly: on a lightly held trigger, the push opened it and let the grasp go,
+  over and over (the pulses).
 
-Measured on Minerva (2026-10-20 to 10-24, docs/development/GRIPPER_FORCE_FEEDBACK.md), closing effort negative on
-both grippers (receiver joint space):
-- A held cube squeezes 1.8-2.0 Nm, a hard squeeze up to 3.7 Nm, with the gripper still (|v| p90 under 0.1 rad/s).
-- At rest the gripper's own friction leaves 0.30-0.35 Nm of squeeze, for seconds at a time.
-- A free close starts with the gripper stuck for 30-100 ms before it breaks free and moves at 0.7-2 rad/s.
-A plain deadband with a speed gate (until 2026-10-24) read each of those starts as a grip, and flickered on the rest
-level: the pulses the operator felt. The grip threshold sits above the rest level and the hold time outlasts most
-starts; the defaults follow from replaying the recorded sessions.
+The PC turns the push into a goal current on the trigger servo, in the direction the leader profile says opens it,
+and nothing else. The other servos stay torque-off, so feedback can only push the trigger open, never pull the
+operator's hand closed. The firmware caps the current, zeroes it at 200 ms without a command, then disables it at
+1 s (firmware/openrb_leader).
+
+Measured on Minerva (docs/development/GRIPPER_FORCE_FEEDBACK.md), closing effort negative on both grippers:
+- A held cube squeezes 1.8-2.0 Nm with the gripper still.
+- The gripper's own friction leaves 0.30-0.35 Nm at rest.
+- A free close starts stuck for 30-100 ms.
+- One degree of trigger moves the jaws about 0.06 rad, about 1.5 Nm of squeeze against an object, so a held cube
+  sits about 1.3 degrees past the wall.
 """
 import math
 import struct
@@ -31,16 +37,15 @@ FF_DISABLE = -32768  # INT16_MIN: that servo's torque off, freely backdrivable.
 FF_HW_CAP_MA = 200   # Firmware cap per servo; the leader rail needs its 5 V supply for more than one or two servos.
 SERVOS = 7
 
-DEFAULTS = dict(enabled=False, closing_effort_sign=-1, grip_nm=.5, full_nm=1.2, contact_push=.4, hold_ms=100.,
-                smoothing_ms=40., cap_ma=150., still_rad_s=.3, slip_rad_s=1.)
-BOUNDS = dict(grip_nm=(.1, 3.), full_nm=(.2, 5.), contact_push=(0., 1.), hold_ms=(0., 500.), smoothing_ms=(0., 300.),
-              cap_ma=(0., FF_HW_CAP_MA), still_rad_s=(0., 2.), slip_rad_s=(.1, 5.))
+DEFAULTS = dict(enabled=False, closing_effort_sign=-1, grip_nm=.5, hold_ms=100., wall_deg=2., cap_ma=150.,
+                still_rad_s=.3, slip_rad_s=1., release_nm=.15, release_ms=250.)
+BOUNDS = dict(grip_nm=(.1, 3.), hold_ms=(0., 500.), wall_deg=(.2, 20.), cap_ma=(0., FF_HW_CAP_MA),
+              still_rad_s=(0., 2.), slip_rad_s=(.1, 5.), release_nm=(0., 3.), release_ms=(0., 2000.))
 # What the operator sets live from Helm and Helm saves: the strength (0-1) and the feel.
-SETTINGS = ('strength', 'cap_ma', 'grip_nm', 'full_nm', 'contact_push', 'hold_ms', 'smoothing_ms')
-RELEASE_SHARE = .75  # A grip ends once the squeeze stays under this share of the threshold...
-RELEASE_S = .03      # ...or the gripper moves faster than slip_rad_s, for this long.
-SQUEEZE_S = .03      # The squeeze's low-pass time constant: drive noise, not the grip's own changes.
-MAX_STEP_S = .1      # A late cycle counts as at most this long.
+SETTINGS = ('strength', 'cap_ma', 'grip_nm', 'hold_ms', 'wall_deg')
+SLIP_S = .03       # Moving faster than slip_rad_s for this long ends a grip.
+SQUEEZE_S = .03    # The squeeze's low-pass time constant: drive noise, not the grip's own changes.
+MAX_STEP_S = .1    # A late cycle counts as at most this long.
 
 
 def crc8(data):
@@ -112,8 +117,8 @@ def trigger_currents(strength_ma, trigger):
 
 
 def validate_settings(payload):
-    """The operator's live settings, any of them: strength 0-1, cap_ma 0-200 mA, and the feel (grip_nm, full_nm,
-    contact_push, hold_ms, smoothing_ms) within the profile's bounds."""
+    """The operator's live settings, any of them: strength 0-1, cap_ma 0-200 mA, and the feel (grip_nm, hold_ms,
+    wall_deg) within the profile's bounds."""
     if not isinstance(payload, dict) or set(payload) - set(SETTINGS):
         raise ValueError('Force feedback settings are ' + ', '.join(SETTINGS))
     bounds = dict(BOUNDS, strength=(0., 1.))
@@ -128,9 +133,16 @@ def validate_settings(payload):
     return result
 
 
+def past_wall(wall, reading, opens):
+    """How far (rad) a trigger reading has been squeezed past its wall: toward closing, opposite `opens` (the
+    reading direction that opens it); never negative. Readings a whole turn apart are the same angle."""
+    return max(0., opens * math.remainder(wall - reading, 2 * math.pi))
+
+
 class GripFeedback:
-    """Per-gripper resist strengths from the receiver's latest feedback rows, and each gripper's grip as a share of
-    the maximum force (Helm's force bars), kept even while feedback is off."""
+    """Each gripper's grip from the receiver's latest feedback rows, and while it grips a wall for its trigger; the
+    push the trigger feels (as the loop estimates it) and its share of the maximum (Helm's force bars), kept even
+    while feedback is off."""
 
     GRIPPERS = {'left_gripper': 'left', 'right_gripper': 'right'}
 
@@ -139,12 +151,13 @@ class GripFeedback:
         self.enabled = self.config['enabled']
         self.strength = 1.  # The operator's scale on the push, 0-1, set live from Helm.
         sides = self.GRIPPERS.values()
-        self.output = dict.fromkeys(sides, 0.)
-        self.levels = dict.fromkeys(sides, 0.)
         self.squeezes = dict.fromkeys(sides, 0.)  # Low-passed, Nm.
         self.gripping = dict.fromkeys(sides, False)
+        self.pushes = dict.fromkeys(sides, 0.)    # mA, strength included.
+        self.levels = dict.fromkeys(sides, 0.)    # The push against the maximum, before the strength.
         self._held_s = dict.fromkeys(sides, 0.)     # Still and squeezing past the threshold, so far.
-        self._release_s = dict.fromkeys(sides, 0.)  # A grip looking released, so far.
+        self._release_s = dict.fromkeys(sides, 0.)  # A grip's squeeze near nothing, so far.
+        self._slip_s = dict.fromkeys(sides, 0.)     # A grip's gripper moving fast, so far.
 
     def set(self, *, enabled=None, **settings):
         """Switch feedback on or off, and set any of SETTINGS live."""
@@ -165,18 +178,28 @@ class GripFeedback:
             return None
         return max(0., self.config['closing_effort_sign'] * effort), abs(velocity)
 
-    def update(self, rows, *, engaged, dt=.01):
-        """{leader: mA} for this cycle, `dt` seconds after the last, or None when feedback is off (the PC then turns
-        the trigger servos off). The force bars' levels follow the grip either way: a picture of it with the
-        triggers free."""
+    def stiffness(self):
+        """The wall's spring at full strength, mA per radian of trigger past it: the maximum at wall_deg."""
+        return self.config['cap_ma'] / math.radians(self.config['wall_deg'])
+
+    def update(self, rows, *, engaged, dt=.01, walls=None):
+        """{leader: wall or 0.} for this cycle, `dt` seconds after the last, or None when feedback is off (the PC
+        then turns the trigger servos off). 0. leaves a trigger free.
+
+        A wall is {'wall': trigger reading (rad), 'k': mA per rad past it, 'cap': mA}, strength included.
+        `walls` is {leader: (wall, reading, opens)} from the loop's routes:
+        - the reading that maps to the gripper's measured position (where the object stopped the jaws);
+        - the trigger's latest reading;
+        - the reading direction that opens the trigger.
+        A gripping leader missing there gets no wall. The pushes and bars follow the grip either way."""
         c = self.config
         dt = min(max(float(dt), 0.), MAX_STEP_S) if math.isfinite(dt) else MAX_STEP_S
-        tau = c['smoothing_ms'] / 1000.
-        fall = dt / (tau + dt) if tau + dt > 0 else 1.
-        rise = dt / (tau / 2 + dt) if tau + dt > 0 else 1.  # Contact lands twice as fast as it lets go.
         follow = dt / (SQUEEZE_S + dt)
-        full = max(c['full_nm'], c['grip_nm'] + .05)
+        release = min(c['release_nm'], .75 * c['grip_nm'])
+        k = self.stiffness()
+        walls = walls or {}
         by_name = {row.get('name'): row for row in rows or [] if isinstance(row, dict)}
+        specs = {}
         for name, side in self.GRIPPERS.items():
             row = by_name.get(name)
             reading = self.reading(row) if row is not None else None
@@ -189,38 +212,30 @@ class GripFeedback:
                 still = held >= c['grip_nm'] and speed <= c['still_rad_s']
                 self._held_s[side] = self._held_s[side] + dt if still else 0.
                 if still and self._held_s[side] >= c['hold_ms'] / 1000. - 1e-9:
-                    self.gripping[side], self._release_s[side] = True, 0.
+                    self.gripping[side] = True
+                    self._release_s[side] = self._slip_s[side] = 0.
             else:
-                letting_go = held < RELEASE_SHARE * c['grip_nm'] or speed > c['slip_rad_s']
-                self._release_s[side] = self._release_s[side] + dt if letting_go else 0.
-                if self._release_s[side] >= RELEASE_S - 1e-9:
+                self._release_s[side] = self._release_s[side] + dt if held < release else 0.
+                self._slip_s[side] = self._slip_s[side] + dt if speed > c['slip_rad_s'] else 0.
+                if self._release_s[side] >= c['release_ms'] / 1000. - 1e-9 or self._slip_s[side] >= SLIP_S - 1e-9:
                     self.gripping[side], self._held_s[side] = False, 0.
-            # The push as a share of the maximum: the contact push at the threshold, the whole of it at full_nm,
-            # and under the threshold fading out to nothing where the grip ends (no push left stuck on).
-            release = RELEASE_SHARE * c['grip_nm']
-            level = (0. if not self.gripping[side]
-                     else c['contact_push'] * max(0., (held - release) / (c['grip_nm'] - release))
-                     if held < c['grip_nm']
-                     else c['contact_push'] + (1. - c['contact_push']) * min(1., (held - c['grip_nm']) / (full - c['grip_nm'])))
-            target = c['cap_ma'] * self.strength * level if self.enabled and engaged else 0.
-            self.output[side] += (rise if target > self.output[side] else fall) * (target - self.output[side])
-            if self.output[side] < 1.:  # The boards take whole mA.
-                self.output[side] = 0.
-            # The bar: the grip against the maximum force, before the strength (which scales only the push).
-            self.levels[side] += (rise if level > self.levels[side] else fall) * (level - self.levels[side])
-            if self.levels[side] < .002:
-                self.levels[side] = 0.
+            wall = walls.get(side) if self.gripping[side] else None
+            past = past_wall(*wall) if wall is not None else 0.
+            self.levels[side] = min(1., past / math.radians(c['wall_deg']))
+            self.pushes[side] = self.strength * min(c['cap_ma'], k * past)
+            specs[side] = ({'wall': float(wall[0]), 'k': k * self.strength, 'cap': c['cap_ma'] * self.strength}
+                           if wall is not None and engaged else 0.)
         if not self.enabled:
             return None
-        return {side: round(value, 1) for side, value in self.output.items()}
+        return specs
 
     def settings(self):
         return dict({key: self.config[key] for key in SETTINGS if key != 'strength'}, strength=self.strength)
 
     def snapshot(self):
         return dict(enabled=self.enabled, strength=self.strength, cap_ma=self.config['cap_ma'],
-                    currents_ma={side: round(value, 1) for side, value in self.output.items()},
+                    currents_ma={side: round(value, 1) for side, value in self.pushes.items()},
                     levels={side: round(value, 3) for side, value in self.levels.items()},
                     squeeze_nm={side: round(value, 3) for side, value in self.squeezes.items()},
                     gripping=dict(self.gripping), settings=self.settings(),
-                    config={key: self.config[key] for key in ('still_rad_s', 'slip_rad_s')})
+                    config={key: self.config[key] for key in ('still_rad_s', 'slip_rad_s', 'release_nm', 'release_ms')})
