@@ -9,8 +9,10 @@ a squeeze, never pull the operator's hand closed. The firmware caps the current 
 a command, then disables it at 1 s (firmware/openrb_leader).
 
 Measured on Minerva (2026-10-20, docs/development/GRIPPER_FORCE_FEEDBACK.md): a held cube squeezes at -1.1 to
--2.2 Nm; free air reads within about +-0.3 Nm, with brief fast-move spikes to 0.8 Nm; closing effort is negative
-on both grippers (receiver joint space). The defaults below follow from that.
+-2.2 Nm; free air reads within about +-0.3 Nm (p95 0.17-0.33), with brief fast-move spikes to 0.8 Nm; closing effort
+is negative on both grippers (receiver joint space). The defaults follow from that, made much more sensitive at the
+user's request (2026-10-24): the deadband sits just above the free-air noise and 400 mA/Nm feeds a light grip back
+(0.5 Nm: 80 mA) and reaches a 150 mA maximum by about 0.7 Nm. The operator's strength scales it; 25 % is the old feel.
 """
 import math
 import struct
@@ -20,9 +22,9 @@ FF_DISABLE = -32768  # INT16_MIN: that servo's torque off, freely backdrivable.
 FF_HW_CAP_MA = 200   # Firmware cap per servo; the leader rail needs its 5 V supply for more than one or two servos.
 SERVOS = 7
 
-DEFAULTS = dict(enabled=False, closing_effort_sign=-1, deadband_nm=.5, gain_ma_per_nm=100., cap_ma=150.,
+DEFAULTS = dict(enabled=False, closing_effort_sign=-1, deadband_nm=.3, gain_ma_per_nm=400., cap_ma=150.,
                 still_rad_s=.3, smoothing=.4)
-BOUNDS = dict(deadband_nm=(0., 3.), gain_ma_per_nm=(0., 400.), cap_ma=(0., FF_HW_CAP_MA), still_rad_s=(0., 2.),
+BOUNDS = dict(deadband_nm=(0., 3.), gain_ma_per_nm=(0., 1000.), cap_ma=(0., FF_HW_CAP_MA), still_rad_s=(0., 2.),
               smoothing=(.01, 1.))
 
 

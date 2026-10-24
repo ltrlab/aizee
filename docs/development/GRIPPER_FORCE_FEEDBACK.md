@@ -18,7 +18,11 @@
 - **Design:**
   - **Robot loop** (`teleop/grip_feedback.py`, `helm.teleop.TeleopCore._send_grip_feedback`): each cycle it reads the receiver's own feedback, which carries each drive's effort, from the previous exchange. It then works out a resist strength in mA, never negative:
     - squeeze torque = max(0, −effort) while |velocity| ≤ 0.3 rad/s;
-    - minus a 0.5 Nm deadband, × 100 mA/Nm × the operator's strength (0–1);
+    - minus a 0.3 Nm deadband, × 400 mA/Nm × the operator's strength (0–1);
+      - Until 2026-10-24 it was a 0.5 Nm deadband and 100 mA/Nm. The user then asked for much more sensitive feedback.
+      - A light 0.5 Nm grip now pushes back with 80 mA, where it got nothing before.
+      - The 150 mA maximum is reached by about 0.7 Nm instead of 2 Nm.
+      - The deadband still sits at the free-air p95, and strength 25 % is the old feel.
     - capped at the operator's maximum force (default 150 mA, at most 200), then smoothed (α 0.4).
     - It is sent only in TELEOP and only when switched on; otherwise the request carries no strengths.
   - **Leader link** (`teleop/leader_bridge.py`): a sample request may carry `grip: {leader: mA}`.

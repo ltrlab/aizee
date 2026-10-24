@@ -94,8 +94,9 @@ def test_feedback_is_off_until_switched_on_and_needs_teleop():
 def test_only_a_held_squeeze_above_the_deadband_pushes_back():
     feedback = GripFeedback({'enabled': True})
     # Measured on Minerva: a held cube near -2 Nm; free air within 0.3 Nm; closing effort is negative.
-    assert settle(feedback, rows(right=(-1.0, 0.)))['right'] == pytest.approx((1.0 - .5) * 100, abs=.5)
+    assert settle(feedback, rows(right=(-.5, 0.)))['right'] == pytest.approx((.5 - .3) * 400, abs=.5)  # A light grip.
     assert settle(feedback, rows(right=(-.3, 0.))) == {'left': 0., 'right': 0.}  # Free-air level.
+    assert settle(feedback, rows(right=(-1.1, 0.)))['right'] == 150.  # The lightest held cube measured: the maximum.
     assert settle(feedback, rows(right=(-2., 1.2))) == {'left': 0., 'right': 0.}  # Closing fast: not a hold.
     assert settle(feedback, rows(right=(+2., 0.))) == {'left': 0., 'right': 0.}  # Pushed open: never feedback.
     assert settle(feedback, rows(left=(-9., 0.)))['left'] == 150.  # Capped.
@@ -106,10 +107,10 @@ def test_only_a_held_squeeze_above_the_deadband_pushes_back():
 def test_strength_scales_and_smoothing_ramps_instead_of_stepping():
     feedback = GripFeedback({'enabled': True})
     feedback.set(strength=.5)
-    first = feedback.update(rows(right=(-1.5, 0.)), engaged=True)['right']
-    assert 0 < first < 50  # (1.5 - 0.5) Nm x 100 mA/Nm x 0.5 = 50 mA, approached smoothly.
-    assert settle(feedback, rows(right=(-1.5, 0.)))['right'] == pytest.approx(50., abs=.5)
-    assert 0 < feedback.update(rows(), engaged=True)['right'] < 50  # Released: it decays, also smoothly.
+    first = feedback.update(rows(right=(-.5, 0.)), engaged=True)['right']
+    assert 0 < first < 40  # (0.5 - 0.3) Nm x 400 mA/Nm x 0.5 = 40 mA, approached smoothly.
+    assert settle(feedback, rows(right=(-.5, 0.)))['right'] == pytest.approx(40., abs=.5)
+    assert 0 < feedback.update(rows(), engaged=True)['right'] < 40  # Released: it decays, also smoothly.
     for bad in (-.1, 1.1, math.nan, '1'):
         with pytest.raises(ValueError):
             feedback.set(strength=bad)
@@ -360,16 +361,16 @@ def test_the_loop_reads_gripper_effort_from_the_receiver_feedback_and_only_feeds
     core.fault, core.derived = None, None
     core.grip_triggers = {'left': (7, 1), 'right': (7, 1)}
     names = ['left_arm_j1', 'left_gripper', 'right_gripper']
-    feedback = [dict(position=0., velocity=0., effort=-5.), dict(position=1.4, velocity=0., effort=-1.), 
+    feedback = [dict(position=0., velocity=0., effort=-5.), dict(position=1.4, velocity=0., effort=-.4),
                 dict(position=1.3, velocity=.01, effort=-2.)]
     core.harness = SimpleNamespace(last={'status': {'joint_names': names}, 'feedback': feedback})
     core._send_grip_feedback('TELEOP')
-    assert core.leaders.grip == {'left': 50., 'right': 150.}  # (1.0 - 0.5) x 100; (2.0 - 0.5) x 100 = 150 cap.
+    assert core.leaders.grip == {'left': 40., 'right': 150.}  # (0.4 - 0.3) x 400; (2.0 - 0.3) x 400 over the 150 cap.
     core._send_grip_feedback('HOLD')
     assert core.leaders.grip == {'left': 0., 'right': 0.}
     feedback[2] = dict(feedback[2], fault=True)
     core._send_grip_feedback('TELEOP')
-    assert core.leaders.grip == {'left': 50., 'right': 0.}  # A faulted drive's reading is never felt.
+    assert core.leaders.grip == {'left': 40., 'right': 0.}  # A faulted drive's reading is never felt.
     core.grip_feedback.set(enabled=False)
     core._send_grip_feedback('TELEOP')
     assert core.leaders.grip is None  # Off: the PC turns the triggers off.
@@ -416,16 +417,16 @@ def test_strengths_cross_the_signed_link_and_reach_the_board_polls():
 
 def test_the_force_bars_follow_the_squeeze_against_the_maximum_even_with_feedback_off():
     feedback = GripFeedback({'smoothing': 1.})
-    assert feedback.update(rows(right=(-1.5, 0.)), engaged=True) is None  # Off: no strengths sent...
+    assert feedback.update(rows(right=(-.5, 0.)), engaged=True) is None  # Off: no strengths sent...
     snap = feedback.snapshot()
-    assert snap['levels']['right'] == pytest.approx(100 / 150, abs=1e-3)  # ...but the bar shows (1.5 - 0.5) x 100 of 150 mA.
-    assert snap['squeeze_nm']['right'] == 1.5 and snap['currents_ma'] == {'left': 0., 'right': 0.}
+    assert snap['levels']['right'] == pytest.approx(80 / 150, abs=1e-3)  # ...but the bar shows (0.5 - 0.3) x 400 of 150 mA.
+    assert snap['squeeze_nm']['right'] == .5 and snap['currents_ma'] == {'left': 0., 'right': 0.}
     feedback.set(strength=.25)
-    feedback.update(rows(right=(-1.5, 0.)), engaged=False)
-    assert feedback.snapshot()['levels']['right'] == pytest.approx(100 / 150, abs=1e-3)  # Strength scales the push, not the bar.
+    feedback.update(rows(right=(-.5, 0.)), engaged=False)
+    assert feedback.snapshot()['levels']['right'] == pytest.approx(80 / 150, abs=1e-3)  # Strength scales the push, not the bar.
     feedback.set(enabled=True, cap_ma=50)
-    out = feedback.update(rows(right=(-1.5, 0.)), engaged=True)
-    assert out['right'] == 25. and feedback.snapshot()['levels']['right'] == 1.  # Capped at 50: 100 x .25 = 25 mA.
+    out = feedback.update(rows(right=(-.5, 0.)), engaged=True)
+    assert out['right'] == 20. and feedback.snapshot()['levels']['right'] == 1.  # Capped at 50: 80 x .25 = 20 mA.
     feedback.set(cap_ma=0)
     assert feedback.update(rows(right=(-1.5, 0.)), engaged=True)['right'] == 0.
     assert feedback.snapshot()['levels']['right'] == 1.  # Squeezing past a zero maximum: the bar is full.
