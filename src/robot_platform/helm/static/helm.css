@@ -357,6 +357,8 @@ body[data-teleop-state=STALE] #t-state{color:var(--bad)}
 .grip-setting{display:grid;grid-template-columns:minmax(0,1fr) minmax(120px,190px) 62px;align-items:center;gap:10px;margin:8px 0;font-size:12.5px}
 .grip-setting input{accent-color:var(--accent)}
 .grip-setting output{text-align:right;font-variant-numeric:tabular-nums}
+.grip-live{margin:10px 0 6px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--raised);font-size:12.5px;font-variant-numeric:tabular-nums}
+.grip-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 #grip-readout{margin:6px 0 0;line-height:1.45}
 body[data-touch=on] .grip-switch input{width:24px;height:24px}
 /* Minerva's UPS (helm.ups): the header's battery pill and its banner. ID selectors: the feed state recolours every .pill. */

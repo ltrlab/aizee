@@ -397,12 +397,26 @@
             </div>
             <p id="gripper-zero-feedback" class="muted" role="status" aria-live="polite"></p>
             <h2>Gripper force feedback</h2>
-            <p class="muted">While the robot's gripper squeezes, the leader trigger pushes open with at most this force;
-              it never pulls closed. Switch it on in Teleop. Saved for every session and applied at once to a running
-              one. 200 mA is the leader boards' limit.</p>
+            <p class="muted">While the robot's gripper holds something, the leader trigger pushes open; it never pulls
+              closed. Switch it on in Teleop. Every setting is saved for every session and applies at once to a
+              running one.</p>
             <label class="grip-setting">Maximum trigger force <input id="grip-cap" type="range" min="0" max="200" step="10" value="150"><output id="grip-cap-value">150 mA</output></label>
             <label class="grip-setting">Strength <input id="grip-strength" type="range" min="0" max="100" step="5" value="100"><output id="grip-strength-value">100%</output></label>
-            <p id="grip-settings-status" class="muted" role="status" aria-live="polite"></p>
+            <p class="muted">200 mA is the leader boards' limit. Strength scales the whole push.</p>
+            <label class="grip-setting">Grip threshold <input id="grip-threshold" type="range" min="0.2" max="2" step="0.05" value="0.5"><output id="grip-threshold-value">0.50 Nm</output></label>
+            <label class="grip-setting">Hold time <input id="grip-hold" type="range" min="0" max="300" step="10" value="100"><output id="grip-hold-value">100 ms</output></label>
+            <p class="muted">A grip counts once the gripper has stayed still, squeezing past the threshold, for the hold
+              time. The gripper's own friction reads 0.30-0.35 Nm at rest, and a free close starts stuck for up to
+              about 100 ms: a lower threshold or a shorter hold feels contact sooner but pulses on those.</p>
+            <label class="grip-setting">Contact push <input id="grip-push" type="range" min="0" max="100" step="5" value="40"><output id="grip-push-value">40%</output></label>
+            <label class="grip-setting">Full force at <input id="grip-full" type="range" min="0.5" max="4" step="0.1" value="1.2"><output id="grip-full-value">1.2 Nm</output></label>
+            <label class="grip-setting">Smoothing <input id="grip-smoothing" type="range" min="0" max="200" step="10" value="40"><output id="grip-smoothing-value">40 ms</output></label>
+            <p class="muted">At a grip the trigger pushes at once with the contact push, a share of the maximum, and
+              rises with the squeeze to the maximum at the full-force squeeze; a held cube squeezes about 2 Nm.
+              Smoothing is how quickly the push follows (contact lands in half of it).</p>
+            <p class="grip-live" id="grip-live">Start a session to see each gripper's squeeze here.</p>
+            <div class="grip-actions"><button id="grip-defaults" type="button">Defaults</button>
+              <span id="grip-settings-status" class="muted" role="status" aria-live="polite"></span></div>
           </section>
           <section id="settings-cameras" class="settings-group" hidden>
             <h2>Cameras</h2>

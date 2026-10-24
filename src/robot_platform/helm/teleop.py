@@ -262,8 +262,7 @@ class TeleopCore:
         # Gripper force feedback (teleop.grip_feedback): off until the operator switches it on in Helm.
         from robot_platform.teleop.grip_feedback import GripFeedback
         self.grip_feedback = GripFeedback(self.profile.get('grip_feedback'))
-        saved = bundle.get('grip_feedback') or {}  # Helm's saved maximum force and strength.
-        self.grip_feedback.set(strength=saved.get('strength'), cap_ma=saved.get('cap_ma'))
+        self.grip_feedback.set(**(bundle.get('grip_feedback') or {}))  # Helm's saved strength and feel.
         self.period_s = loop_period_s(self.profile)
         self.collision_mode = self.profile['receiver'].get('collision_mode', 'enforced')
         receiver = bundle.get('receiver') or {'mode': 'virtual'}
@@ -773,7 +772,12 @@ class TeleopCore:
                  or [joint['name'] for joint in ((derived or {}).get('config') or {}).get('joints', [])])
         rows = [dict(item, name=name) for name, item in zip(names, last.get('feedback') or [])
                 if isinstance(item, dict) and item.get('fault') is not True]
-        strengths = feedback.update(rows, engaged=state == 'TELEOP' and not getattr(self, 'fault', None))
+        # The law's hold time and smoothing run on the time since its last cycle.
+        clock = getattr(self, 'clock', None)
+        now = clock() if clock is not None else None
+        last, self._grip_at = getattr(self, '_grip_at', None), now
+        dt = now - last if now is not None and last is not None else getattr(self, 'period_s', .01)
+        strengths = feedback.update(rows, engaged=state == 'TELEOP' and not getattr(self, 'fault', None), dt=dt)
         triggers = getattr(self, 'grip_triggers', None) or {}
         # Only the leaders with a trigger: the PC drops any other strength, and Helm must not show one as sent.
         leaders.grip = (None if strengths is None or not triggers
@@ -788,11 +792,11 @@ class TeleopCore:
                     and bool(getattr(self, 'grip_triggers', None)))
 
     def set_grip_feedback(self, payload):
-        """Switch force feedback on or off, and set its strength (0-1) and maximum force (mA), live."""
-        if not isinstance(payload, dict) or not payload or set(payload) - {'enabled', 'strength', 'cap_ma'}:
-            raise ValueError('Force feedback takes enabled, strength and cap_ma')
-        self.grip_feedback.set(enabled=payload.get('enabled'), strength=payload.get('strength'),
-                               cap_ma=payload.get('cap_ma'))
+        """Switch force feedback on or off, and set its strength and feel (teleop.grip_feedback.SETTINGS), live."""
+        from robot_platform.teleop.grip_feedback import SETTINGS
+        if not isinstance(payload, dict) or not payload or set(payload) - {'enabled', *SETTINGS}:
+            raise ValueError('Force feedback takes enabled and ' + ', '.join(SETTINGS))
+        self.grip_feedback.set(**payload)
         return self.grip_feedback.snapshot()
 
     def _leader_target(self, engaged):
@@ -1806,10 +1810,14 @@ class TeleopSession:
         self.routes_path = routes_path(runs, helm.asset_id)
         # The PC end of each Jetson session's leader link reports its request timing here (helm.edge).
         self.link_evidence = Path(runs) / (helm.asset_id + '-teleop') / 'leader-link'
-        # Gripper force feedback's maximum force and strength, saved here and given to every session; the
+        # Gripper force feedback's strength and feel: the profile's defaults, and the ones the operator changed,
+        # saved here (only those, so a release's new defaults reach the rest) and given to every session. The
         # switch itself is off at each session start.
         self.grip_settings_path = Path(runs) / (helm.asset_id + '-teleop') / 'grip-feedback.json'
-        self.grip_settings = self._load_grip_settings()
+        from robot_platform.teleop.grip_feedback import GripFeedback
+        self.grip_defaults = GripFeedback(self.profile.get('grip_feedback')).settings()
+        self.grip_saved = self._load_grip_settings()
+        self.grip_settings = dict(self.grip_defaults, **self.grip_saved)
         self.core_factory = core_factory  # Tests: run a core in a thread instead of a process.
         self.leader_factory = leader_factory  # Previews/tests: 'module:function' instead of USB leaders.
         if target not in self.TARGETS:
@@ -1873,32 +1881,36 @@ class TeleopSession:
                 'grip_feedback': dict(self.grip_settings)}
 
     def _load_grip_settings(self):
-        from robot_platform.teleop.grip_feedback import validate_config, validate_settings
-        defaults = validate_config(self.profile.get('grip_feedback'))
-        settings = {'strength': 1., 'cap_ma': defaults['cap_ma']}
+        from robot_platform.teleop.grip_feedback import validate_settings
         try:
-            settings.update(validate_settings(json.loads(self.grip_settings_path.read_text(encoding='utf-8'))))
+            return validate_settings(json.loads(self.grip_settings_path.read_text(encoding='utf-8')))
         except FileNotFoundError:
-            pass
+            return {}
         except (OSError, ValueError, TypeError):
-            pass  # An unreadable file keeps the defaults; the next change rewrites it.
-        return settings
+            return {}  # An unreadable file keeps the defaults; the next change rewrites it.
 
     def grip_feedback(self, payload):
-        """Gripper force feedback: switch it on or off in the running session, and set its maximum force (mA) and
-        strength (0-1), which apply live and are saved for every later session."""
-        from robot_platform.teleop.grip_feedback import validate_settings
-        if not isinstance(payload, dict) or not payload or set(payload) - {'enabled', 'strength', 'cap_ma'}:
-            raise ValueError('Force feedback takes enabled, strength and cap_ma')
-        settings = validate_settings({key: value for key, value in payload.items() if key != 'enabled'})
+        """Gripper force feedback: switch it on or off in the running session, and set its strength and feel
+        (teleop.grip_feedback.SETTINGS), which apply live and are saved for every later session. `reset` puts
+        the defaults back."""
+        from robot_platform.teleop.grip_feedback import SETTINGS, validate_settings
+        if not isinstance(payload, dict) or not payload or set(payload) - {'enabled', 'reset', *SETTINGS}:
+            raise ValueError('Force feedback takes enabled, reset and ' + ', '.join(SETTINGS))
+        if 'reset' in payload and payload['reset'] is not True:
+            raise ValueError('Force feedback reset is true')
+        settings = validate_settings({key: value for key, value in payload.items() if key in SETTINGS})
         running = self._view.get('phase') == 'running'
         if 'enabled' in payload and not running:
             raise ValueError('Start a teleop session first')
-        result = self._request('grip_feedback', payload) if running else None
-        if settings:
-            self.grip_settings.update(settings)
+        changed = bool(settings) or 'reset' in payload
+        saved = dict({} if 'reset' in payload else self.grip_saved, **settings)
+        effective = dict(self.grip_defaults, **saved)
+        live = dict({key: payload[key] for key in ('enabled',) if key in payload}, **(effective if changed else {}))
+        result = self._request('grip_feedback', live) if running else None
+        if changed:
+            self.grip_saved, self.grip_settings = saved, effective
             self.grip_settings_path.parent.mkdir(parents=True, exist_ok=True)
-            self.grip_settings_path.write_text(json.dumps(self.grip_settings, indent=1) + '\n', encoding='utf-8')
+            self.grip_settings_path.write_text(json.dumps(saved, indent=1) + '\n', encoding='utf-8')
         return result if result is not None else dict(self.grip_settings)
 
     def _servo(self):
