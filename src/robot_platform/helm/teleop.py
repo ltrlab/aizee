@@ -2105,7 +2105,11 @@ class TeleopSession:
                 message = conn.recv()
                 with self._lock:
                     if message[0] == 'view':
-                        self._view, self._guide = message[1], message[2]
+                        self._view = message[1]
+                        # A status-only view (the loop's publish_status) has no pose: the last one stands, ageing in
+                        # the 3D view, rather than the view falling back to another pose (the live view's) between.
+                        if message[2] is not None:
+                            self._guide = message[2]
                         self._view_received_at = time.perf_counter()
                     elif message[0] == 'reply':
                         self._replies[message[1]] = message[2:]

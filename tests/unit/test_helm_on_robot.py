@@ -330,3 +330,26 @@ def test_helm_serves_its_devices_and_this_computer_on_two_listeners_then_cleans_
         stop.set()
         thread.join(10.)
     assert not thread.is_alive() and cleaned == [True]  # Helm's shutdown runs, as under run_app.
+
+
+def test_a_status_only_view_keeps_the_last_pose_in_the_3d_view(tmp_path):
+    # The loop sends status-only views (no pose) between full ones; the 3D view showed the live view's resting pose
+    # in those gaps, flickering against the session's.
+    helm = SimpleNamespace(profile_path=PROFILE, bindings={}, mapping={}, saved_limits={'joints': {}},
+                           asset_id='minerva-production-01', connection='robot', address='127.0.0.1')
+    session = TeleopSession(helm, TELEOP, runs=tmp_path, target='jetson',
+                            leaders=SimpleNamespace(saved=None, missing=lambda routes: []))
+    pose = {'positions': {'right_arm_j1': .3}, 'sequence': 1}
+    messages = iter([['view', {'phase': 'running'}, pose], ['view', {'phase': 'running', 'status_at': 2.}, None]])
+    seen = []
+
+    class Channel:
+        def recv(self):
+            seen.append(session.guide())
+            try:
+                return next(messages)
+            except StopIteration:
+                raise EOFError from None
+    session._read(Channel())
+    assert seen == [None, pose, pose]  # Still the session's pose after the status-only view.
+    assert session.guide() is None  # The session's end clears it.
