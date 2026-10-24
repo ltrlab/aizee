@@ -219,6 +219,14 @@
   - **Tests:** the wall law, the loop's walls from the real route inverse (and none for a route and trigger that
     disagree), the PC's spring (onset, cap, both open signs, never a pull, unusable readings), walls across the signed
     link, request checks, and an earlier law's saved settings dropped.
+  - **Gate:** `scripts/dev.py check --offline` passed on `1514d68`: 1319 tests, none skipped
+    (`build/dev-check/20261024T163801Z-4ccfd4d6/report.json`). Before it, `dev.py quick` ran the 229 touched tests in 25 s.
+  - **Deployed 2026-10-24 at about 17:00Z** at the user's request ("no session running, deploy when it passes"):
+    - Jetson release `20261024T165916Z-1514d68` (previous `20261024T153657Z-30dffc4`), through soliloquy: staged,
+      verified, activated, disarmed smoke test passed, Helm restarted.
+    - Then the GELLO bridge on soliloquy, packaged from the same commit (`gello-bridge-1514d68767`, 173 files). Its
+      task is running and it reconnected to Helm.
+    - Minerva has no saved grip settings, so the defaults apply.
 - **Remaining uncertainty:**
   - The wall is not yet felt on hardware.
   - Whether 0.8° stays stable at the trigger (no buzz at the wall) is unknown: the PC's loop is a 200 Hz poll.
