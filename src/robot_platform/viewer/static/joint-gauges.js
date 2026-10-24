@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import {gaugeSpec, heatColor, rotaryBasis} from './joint-telemetry.js';
+import {gaugeSpec, heatColor, rotaryBasis, sceneTheme} from './joint-telemetry.js';
 
 // Readings drawn on the model, display only. Around each joint's axis a dial shows its range (grey track), its
-// reference (white tick), its travel from the reference (blue arc) and its position (white needle). A violet ring
-// beside the needle grows with torque as a share of the receiver's limit; the hub at the joint is tinted by
-// temperature as a share of its limit. One short label carries the position and the temperature, the latter in
-// the hub's colour. Dials need a verified direction mapping, as motion arrows do; stale readings turn grey. A dial
-// seen nearly edge-on hides; its hub and label stay.
-const COLOR = {track:0x6b737c, reference:0xe9ebee, value:0x7cc4ff, needle:0xf4f6f8, stale:0x8a8f96, torque:0xc9b6ff};
+// reference (tick), its travel from the reference (blue arc) and its position (needle); tick and needle are white on
+// a dark background and ink on a light one (the scene theme, joint-telemetry.js). A violet ring beside the needle
+// grows with torque as a share of the receiver's limit; the hub at the joint is tinted by temperature as a share of
+// its limit. One short label carries the position and the temperature, the latter in the hub's colour. Dials need a
+// verified direction mapping, as motion arrows do; stale readings turn grey. A dial seen nearly edge-on hides; its
+// hub and label stay.
 const LABEL_PX = 22;
 const EDGE_ON = .25;  // |axis · view| below this, a dial collapses to a line: hide it.
 
@@ -45,9 +45,9 @@ class Label {
     this.sprite.renderOrder = 12;
     this.drawn = null;
   }
-  // `parts`: [{text, color}], drawn in a row with a separator between them.
-  draw(parts, selected) {
-    const key = JSON.stringify([parts, selected]);
+  // `parts`: [{text, color}], drawn in a row with a separator between them, on the scene theme's chip.
+  draw(parts, selected, theme) {
+    const key = JSON.stringify([parts, selected, theme.name]);
     if (key === this.drawn) return;
     this.drawn = key;
     this.text = parts.map(part => part.text).join(' · ');
@@ -57,8 +57,8 @@ class Label {
     ctx.clearRect(0, 0, width, height);
     ctx.font = '600 26px system-ui, sans-serif';
     const textWidth = Math.min(width - 16, ctx.measureText(this.text).width);
-    ctx.fillStyle = 'rgba(16,17,19,.84)';
-    ctx.strokeStyle = selected ? '#7cc4ff' : 'rgba(255,255,255,.18)';
+    ctx.fillStyle = theme.label.fill;
+    ctx.strokeStyle = selected ? theme.label.selected : theme.label.edge;
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.roundRect?.(2, 4, textWidth + 14, height - 8, 8);
@@ -103,31 +103,31 @@ class Gauge {
   }
   // Rotary dial coordinates are joint angles: the dial's x axis is the basis u, and a joint angle q turns u
   // toward v about the joint axis, so a point at angle q moves with the child link.
-  update(row, {selected, fields}) {
+  update(row, {selected, fields, theme}) {
     const spec = gaugeSpec(row);
-    const signature = JSON.stringify([spec.verified, spec.stale, spec.track, spec.reference,
+    const signature = JSON.stringify([theme.name, spec.verified, spec.stale, spec.track, spec.reference,
       spec.value == null ? null : Math.round(spec.value / .002), spec.effort == null ? null : Math.round(spec.effort * 50),
       spec.heat == null ? null : Math.round(spec.heat * 100), selected, fields]);
     if (signature !== this.signature) {
       this.signature = signature;
       for (const child of [...this.parts.children]) dispose(child);
-      if (this.prismatic) this.linear(spec, fields, selected);
-      else this.rotary(spec, fields, selected);
+      if (this.prismatic) this.linear(spec, fields, selected, theme);
+      else this.rotary(spec, fields, selected, theme);
     }
-    const color = spec.stale ? '#a59b90' : spec.verified ? '#e9ebee' : '#c9cdd2';
+    const color = spec.stale ? theme.label.stale : spec.verified ? theme.label.text : theme.label.unverified;
     const parts = [];
     if (fields.position && spec.value != null) parts.push({text:spec.label, color});
     if (fields.temperature && spec.temperature != null) parts.push({text:spec.temperature, color:spec.stale || spec.heat == null
-      ? color : `#${heatColor(spec.heat).toString(16).padStart(6, '0')}`});
+      ? color : `#${heatColor(spec.heat, theme.heat).toString(16).padStart(6, '0')}`});
     this.label.sprite.visible = parts.length > 0;
-    this.label.draw(parts, selected);
+    this.label.draw(parts, selected, theme);
   }
-  rotary(spec, fields, selected) {
-    const R = this.R, w = R * .07, live = spec.verified && !spec.stale, angle = spec.value;
+  rotary(spec, fields, selected, theme) {
+    const R = this.R, w = R * .07, live = spec.verified && !spec.stale, angle = spec.value, COLOR = theme.gauge;
     if (fields.temperature && spec.heat != null) {
       // A sphere, so the temperature shows from any side.
       const hub = new THREE.Mesh(new THREE.SphereGeometry(R * .3, 16, 12),
-        material(spec.stale ? COLOR.stale : heatColor(spec.heat), .95));
+        material(spec.stale ? COLOR.stale : heatColor(spec.heat, theme.heat), .95));
       hub.userData.hub = true;
       hub.renderOrder = 10;
       this.parts.add(hub);
@@ -161,9 +161,9 @@ class Gauge {
       this.parts.add(arc(R + w * 1.8, R + w * 3.2, angle - span / 2, span, COLOR.torque, .85));
     }
   }
-  linear(spec, fields, selected) {
+  linear(spec, fields, selected, theme) {
     // A slide's gauge runs beside its axis: the track is its range, the needle its position along it.
-    const {u} = this.basis || {u:[0, 0, 1]};
+    const {u} = this.basis || {u:[0, 0, 1]}, COLOR = theme.gauge;
     const axis = new THREE.Vector3(...this.joint.axis).normalize(), side = new THREE.Vector3(...u).multiplyScalar(this.R);
     const at = value => side.clone().addScaledVector(axis, value);
     const live = spec.verified && !spec.stale, line = (a, b, color, opacity) => {
@@ -179,7 +179,7 @@ class Gauge {
       return object;
     };
     if (fields.temperature && spec.heat != null) this.parts.add(dot(spec.track?.[0] ?? 0, this.R * .18,
-      spec.stale ? COLOR.stale : heatColor(spec.heat)));
+      spec.stale ? COLOR.stale : heatColor(spec.heat, theme.heat)));
     this.label.sprite.position.copy(at(spec.value != null && spec.verified ? spec.value : 0)).addScaledVector(
       side.clone().normalize(), this.R * .4);
     if (!fields.position || !spec.verified) return;
@@ -208,7 +208,7 @@ export class JointGauges {
     this.gauges = new Map();
   }
   update(rows, {selected, fields, camera, viewportHeight}) {
-    const shown = new Set();
+    const shown = new Set(), theme = sceneTheme(this.doc);
     for (const row of rows) {
       const joint = this.joints.get(row.joint), frame = this.frames.get(row.joint);
       if (!joint || !frame || !['revolute', 'continuous', 'prismatic'].includes(joint.type)) continue;
@@ -219,7 +219,7 @@ export class JointGauges {
         this.gauges.set(row.motor, gauge);
       }
       gauge.root.visible = true;
-      gauge.update(row, {selected:row.motor === selected, fields});
+      gauge.update(row, {selected:row.motor === selected, fields, theme});
       if (camera) { gauge.label.size(camera, viewportHeight); gauge.face(camera); }
       shown.add(row.motor);
     }

@@ -8,7 +8,7 @@
   <script>if(new URLSearchParams(location.search).has('embed')){document.documentElement.classList.add('embed');
     // Only Helm embeds the viewer, so its overlays take Helm's look and day / night theme (Helm's theme.js tells it of
     // changes); a missing sheet elsewhere changes nothing.
-    try{if(localStorage.getItem('helm-theme')==='dark')document.documentElement.dataset.theme='dark'}catch{/* Day theme. */}
+    let day=true;try{day=localStorage.getItem('helm-theme')!=='dark'}catch{/* Day theme. */}document.documentElement.dataset.theme=day?'light':'dark';
     const theme=document.createElement('link');theme.rel='stylesheet';theme.href='/helm/viewer-theme.css';
     theme.setAttribute('blocking','render');document.head.append(theme)}</script>
 </head>

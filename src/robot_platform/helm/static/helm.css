@@ -1,9 +1,10 @@
 /* Helm's look follows RetroUI (github.com/Dksie09/RetroUI): pixel borders with notched corners, hard drop shadows and
    pixel type (fonts.css), in its white theme by day and its black theme by night (<html data-theme>, theme.js), with
    blue for navigation and actions and green for what is switched on. Status colours keep their meaning in both:
-   green good / following, amber caution / returning, red fault / stop, blue hold / running. The 3D view stays a dark
-   screen in both themes. A pixel box is a 3px border drawn by a 3x3 border image (--pix, one per colour and theme)
-   whose corner cells are empty. Every colour below is a token, defined once per theme. */
+   green good / following, amber caution / returning, red fault / stop, blue hold / running. The 3D view (the stage)
+   is light by day and dark at night; camera and replay video keep a dark screen in both. A pixel box is a 3px border
+   drawn by a 3x3 border image (--pix, one per colour and theme) whose corner cells are empty. Every colour below is a
+   token, defined once per theme. */
 :root{color-scheme:light;
   --font:"Pixelify Sans",system-ui,sans-serif;--mono:Monocraft,ui-monospace,monospace;
   --ink:#15181d;--page-text:#15181d;--page-muted:#566070;--page-line:#d5dbe3;--lead:#2f3640;--placeholder:#8c95a1;
@@ -16,6 +17,7 @@
   --info:#2b62b3;--info-soft:#e2ebff;
   --seen:#c9d8f0;--held:#9cb7e0;--zero:#8d96a3;--stage:#d3d9e1;--usable-line:#bcd0f0;--dot:#a3abb6;--meter:rgba(21,24,29,.28);
   --screen:#12151a;--screen-glow:#262c35;--screen-text:#eef1f4;--screen-muted:#a9b2bd;--screen-line:#363d47;--screen-shadow:#000;--screen-accent:#79b0ff;
+  --stage:#e2e7ed;--stage-glow:#ffffff;--stage-text:#15181d;--stage-muted:#566070;--stage-line:#c9d1da;
   --pix-ink:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3' shape-rendering='crispEdges'%3E%3Cpath fill='%2315181d' d='M1 0h1v1H1zM0 1h1v1H0zM2 1h1v1H2zM1 2h1v1H1z'/%3E%3C/svg%3E");
   --pix-line:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3' shape-rendering='crispEdges'%3E%3Cpath fill='%23b3bcc7' d='M1 0h1v1H1zM0 1h1v1H0zM2 1h1v1H2zM1 2h1v1H1z'/%3E%3C/svg%3E");
   --pix-blue:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3' shape-rendering='crispEdges'%3E%3Cpath fill='%231f5fbf' d='M1 0h1v1H1zM0 1h1v1H0zM2 1h1v1H2zM1 2h1v1H1z'/%3E%3C/svg%3E");
@@ -39,6 +41,7 @@
   --info:#6fb0ff;--info-soft:#12233b;
   --seen:#203450;--held:#2f5687;--zero:#6b7480;--stage:#2c323b;--usable-line:#24406a;--dot:#5c6570;--meter:rgba(197,204,213,.28);
   --screen:#0f1115;--screen-glow:#1f242c;
+  --stage:#0f1115;--stage-glow:#1f242c;--stage-text:#eef1f4;--stage-muted:#9aa4b0;--stage-line:#2c323b;
   --pix-ink:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3' shape-rendering='crispEdges'%3E%3Cpath fill='%23c5ccd5' d='M1 0h1v1H1zM0 1h1v1H0zM2 1h1v1H2zM1 2h1v1H1z'/%3E%3C/svg%3E");
   --pix-line:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3' shape-rendering='crispEdges'%3E%3Cpath fill='%233d4550' d='M1 0h1v1H1zM0 1h1v1H0zM2 1h1v1H2zM1 2h1v1H1z'/%3E%3C/svg%3E");
   --pix-blue:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3' shape-rendering='crispEdges'%3E%3Cpath fill='%235b9bf0' d='M1 0h1v1H1zM0 1h1v1H0zM2 1h1v1H2zM1 2h1v1H1z'/%3E%3C/svg%3E");
@@ -114,8 +117,11 @@ body[data-feed=fault] .pill{--pix:var(--pix-bad);color:var(--bad);background:var
 body{--aside:440px;--rail:186px}body[data-tab=settings]{--aside:626px}
 main{display:grid;grid-template-columns:minmax(0,1fr) var(--aside);height:calc(100% - 64px)}
 body.has-banner main{height:calc(100% - 64px - 38px)}
-/* The 3D view is the console's screen: dark in both themes, with its own light text. Cards on it switch back. */
-.view{position:relative;min-width:0;--text:var(--screen-text);--muted:var(--screen-muted);--line:var(--screen-line);color:var(--text);
+/* The 3D view is the console's stage: light by day, dark at night, with its own text colours (cards on it switch back
+   to the page's). Camera and replay video sit on a dark screen in both themes. */
+.view{position:relative;min-width:0;--text:var(--stage-text);--muted:var(--stage-muted);--line:var(--stage-line);color:var(--text);
+  background:radial-gradient(ellipse at 50% 40%,var(--stage-glow),var(--stage))}
+.camera-live-view,.replay-stage{--text:var(--screen-text);--muted:var(--screen-muted);--line:var(--screen-line);color:var(--text);
   background:radial-gradient(ellipse at 50% 40%,var(--screen-glow),var(--screen))}
 .view iframe{display:block;width:100%;height:100%;border:0}
 .view iframe[hidden],.task-window-note[hidden]{display:none}

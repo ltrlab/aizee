@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {DEFAULT_OVERLAY, JointTelemetry, calloutColumns, describeJoint, overlaySettings, rotationArc,
-  trustedOverlayMessage} from './joint-telemetry.js';
+  sceneTheme, trustedOverlayMessage} from './joint-telemetry.js';
 import {JointGauges} from './joint-gauges.js';
 
 // Display only. The parent Settings panel owns all persisted overlay preferences.
@@ -79,14 +79,15 @@ export class JointOverlay {
   }
   updateArrow(card,row,direction) {
     card.arrow.visible=direction !== 0;
-    if(card.direction === direction) return;
-    card.direction=direction;
+    const theme=sceneTheme();  // Rebuilt when Helm switches day / night, as when the direction changes.
+    if(card.direction === direction && card.arrowTheme === theme.name) return;
+    card.direction=direction; card.arrowTheme=theme.name;
     for(const child of [...card.arrow.children]) {
       child.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});card.arrow.remove(child);
     }
     if(!direction) return;
     const joint=this.model.joints.find(j=>j.name===row.joint), scale=this.radius*.065;
-    const color=direction>0 ? 0x7cc4ff : 0xf2c380;
+    const color=direction>0 ? theme.arrow.positive : theme.arrow.negative;
     if(joint.type === 'prismatic') {
       const axis=new THREE.Vector3(...joint.axis).normalize().multiplyScalar(direction);
       const arrow=new THREE.ArrowHelper(axis,new THREE.Vector3(),scale*2.8,color,scale*.45,scale*.22);

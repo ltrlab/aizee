@@ -1,10 +1,11 @@
 /* Helm's look for the embedded 3D view (viewer?embed=1, which only Helm embeds; the viewer links this sheet and takes
-   Helm's saved day / night theme). The viewport stays a dark screen in both themes; its status, tools and joint cards
-   become pixel cards like Helm's (helm.css): white with ink borders by day, black with light borders at night. */
+   Helm's saved day / night theme). By day the viewport is light, at night dark; the scene's grid, dials and arrows
+   follow (SCENE_THEMES in joint-telemetry.js). Status, tools and joint cards are pixel cards like Helm's (helm.css):
+   white with ink borders by day, black with light borders at night. */
 @import url(fonts.css);
 .embed{--ink:#15181d;--text:#15181d;--muted:#566070;--card:#ffffff;--btn-hover:#e8f1ff;--blue:#1f5fbf;--blue-soft:#e4eeff;--green:#1b7f45;
   --good:#1b7a43;--warn:#985a00;--warn-soft:#fff1c6;--warn-mark:#d48a00;--bad:#c0263a;--bad-soft:#ffe1e5;--danger:#c0263a;--info:#2b62b3;
-  --effort:#6b3aa0;--loading:#79b0ff;
+  --effort:#6b3aa0;--loading:#1f5fbf;--stage:#e2e7ed;--stage-glow:#ffffff;
   --pix-ink:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3' shape-rendering='crispEdges'%3E%3Cpath fill='%2315181d' d='M1 0h1v1H1zM0 1h1v1H0zM2 1h1v1H2zM1 2h1v1H1z'/%3E%3C/svg%3E");
   --pix-blue:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3' shape-rendering='crispEdges'%3E%3Cpath fill='%231f5fbf' d='M1 0h1v1H1zM0 1h1v1H0zM2 1h1v1H2zM1 2h1v1H1z'/%3E%3C/svg%3E");
   --pix-info:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3' shape-rendering='crispEdges'%3E%3Cpath fill='%232b62b3' d='M1 0h1v1H1zM0 1h1v1H0zM2 1h1v1H2zM1 2h1v1H1z'/%3E%3C/svg%3E");
@@ -14,7 +15,7 @@
   --tick:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 7 6' shape-rendering='crispEdges'%3E%3Cpath fill='%23ffffff' d='M0 2h1v2H0zM1 3h1v2H1zM2 4h1v2H2zM3 3h1v2H3zM4 2h1v2H4zM5 1h1v2H5zM6 0h1v2H6z'/%3E%3C/svg%3E")}
 .embed[data-theme=dark]{--ink:#c5ccd5;--text:#eef1f4;--muted:#9aa4b0;--card:#14171b;--btn-hover:#242b35;--blue:#2f6fd0;--blue-soft:#14243d;--green:#1f8a4c;
   --good:#4fd38a;--warn:#f2c14e;--warn-soft:#2d2410;--warn-mark:#f2c14e;--bad:#ff6b7d;--bad-soft:#341319;--danger:#d1293f;--info:#6fb0ff;
-  --effort:#c9a8ff;
+  --effort:#c9a8ff;--loading:#79b0ff;--stage:#0f1115;--stage-glow:#1f242c;
   --pix-ink:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3' shape-rendering='crispEdges'%3E%3Cpath fill='%23c5ccd5' d='M1 0h1v1H1zM0 1h1v1H0zM2 1h1v1H2zM1 2h1v1H1z'/%3E%3C/svg%3E");
   --pix-blue:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3' shape-rendering='crispEdges'%3E%3Cpath fill='%235b9bf0' d='M1 0h1v1H1zM0 1h1v1H0zM2 1h1v1H2zM1 2h1v1H1z'/%3E%3C/svg%3E");
   --pix-info:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3' shape-rendering='crispEdges'%3E%3Cpath fill='%236fb0ff' d='M1 0h1v1H1zM0 1h1v1H0zM2 1h1v1H2zM1 2h1v1H1z'/%3E%3C/svg%3E");
@@ -22,8 +23,9 @@
   --pix-warn:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3' shape-rendering='crispEdges'%3E%3Cpath fill='%23f2c14e' d='M1 0h1v1H1zM0 1h1v1H0zM2 1h1v1H2zM1 2h1v1H1z'/%3E%3C/svg%3E");
   --arrow:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 7 4' shape-rendering='crispEdges'%3E%3Cpath fill='%23c5ccd5' d='M0 0h7v1H0zM1 1h5v1H1zM2 2h3v1H2zM3 3h1v1H3z'/%3E%3C/svg%3E")}
 .embed body{font:15px/1.4 "Pixelify Sans",system-ui,sans-serif}
-.embed #viewport{background:radial-gradient(ellipse at 50% 40%,#262c35,#12151a)}
-.embed[data-theme=dark] #viewport{background:radial-gradient(ellipse at 50% 40%,#1f242c,#0f1115)}
+.embed body{background:var(--stage)}
+.embed #viewport{background:radial-gradient(ellipse at 50% 40%,var(--stage-glow),var(--stage))}
+.embed .joint-overlay-leaders line.stale{stroke:var(--warn-mark)}
 /* Pixel cards and buttons on the screen (two lists: an ID inside :is() would outweigh every state rule). */
 .embed :is(.view-tools button,.view-tools label,.joint-overlay-toolbar,.joint-overlay-card,.joint-overlay-toolbar select),
 .embed :is(#telemetry-status,#live-collision-status,#render-error){--pix:var(--pix-ink);color:var(--text);background:var(--card);

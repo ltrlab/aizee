@@ -161,9 +161,25 @@ export function gaugeSpec(row) {
     temperature:finite(row.temperature_c) ? `${row.temperature_c.toFixed(1)} °C` : null};
 }
 
-// Temperature as a share of its limit: pale slate up to half, amber by 80%, red at the limit.
-export function heatColor(share) {
-  const stops=[[0,0xb4c8dc],[.5,0xb4c8dc],[.8,0xf2c380],[1,0xff5a5a]];
+// Colours drawn into the 3D scene, for a dark background (the standalone viewer, and Helm at night) or a light one
+// (Helm by day). Helm sets the embedded viewer's <html data-theme>; callers read it each frame, so a switch shows at
+// once. Both keep the same meanings: grey range, reference tick, blue travel, needle, violet torque, heat ramp.
+const HEAT_STOPS=[[0,0xb4c8dc],[.5,0xb4c8dc],[.8,0xf2c380],[1,0xff5a5a]];
+export const SCENE_THEMES={
+  dark:{name:'dark',grid:[0x4a4f56,0x2a2d32],heat:HEAT_STOPS,arrow:{positive:0x7cc4ff,negative:0xf2c380},
+    gauge:{track:0x6b737c,reference:0xe9ebee,value:0x7cc4ff,needle:0xf4f6f8,stale:0x8a8f96,torque:0xc9b6ff},
+    label:{fill:'rgba(16,17,19,.84)',edge:'rgba(255,255,255,.18)',selected:'#7cc4ff',text:'#e9ebee',unverified:'#c9cdd2',stale:'#a59b90'}},
+  light:{name:'light',grid:[0x8f99a5,0xc9d1da],heat:[[0,0x6f8399],[.5,0x6f8399],[.8,0xd48a00],[1,0xd62f2f]],
+    arrow:{positive:0x1f5fbf,negative:0xb06a00},
+    gauge:{track:0x9aa4b0,reference:0x15181d,value:0x1f5fbf,needle:0x15181d,stale:0xa59b90,torque:0x7a4fd0},
+    label:{fill:'rgba(255,255,255,.94)',edge:'rgba(21,24,29,.4)',selected:'#1f5fbf',text:'#15181d',unverified:'#566070',stale:'#8a7a68'}}};
+export function sceneTheme(doc=globalThis.document) {
+  return SCENE_THEMES[doc?.documentElement?.dataset?.theme === 'light' ? 'light' : 'dark'];
+}
+
+// Temperature as a share of its limit: pale slate up to half, amber by 80%, red at the limit. `stops`: the scene
+// theme's ramp (the dark one by default).
+export function heatColor(share, stops=HEAT_STOPS) {
   const s=Math.max(0,Math.min(1,finite(share) ? share : 0));
   const mix=(a,b,t)=>[16,8,0].reduce((hex,shift)=>hex|Math.round(((a>>shift)&255)*(1-t)+((b>>shift)&255)*t)<<shift,0);
   for (let i=1;i<stops.length;i++) if (s <= stops[i][0]) {

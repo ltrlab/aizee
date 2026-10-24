@@ -36,18 +36,19 @@ try {
     frame:document.getElementById('model-view').contentDocument?.documentElement.dataset.theme||'light',
     pressed:[...document.querySelectorAll('[data-theme-toggle]')].map(button=>button.getAttribute('aria-pressed')),
     label:document.querySelector('[data-theme-toggle=label]').textContent,saved:localStorage.getItem('helm-theme'),
-    background:getComputedStyle(document.body).backgroundColor,
+    background:getComputedStyle(document.body).backgroundColor,stage:getComputedStyle(document.querySelector('.view')).backgroundImage,
     overflow:document.querySelector('header').scrollWidth-document.querySelector('header').clientWidth}));
   await page.goto(base);await page.waitForFunction(()=>document.querySelector('#model-view').contentDocument?.body?.textContent);
   let now=await look();
   assert.equal(now.theme,'light');assert.equal(now.background,'rgb(255, 255, 255)');assert.deepEqual(now.pressed,['false','false']);
-  assert.equal(now.saved,null);assert.equal(now.overflow,0);
-  report.checks.push('Day (white) by default with nothing saved; header fits 1280 px');
+  assert.equal(now.saved,null);assert.equal(now.overflow,0);assert.match(now.stage,/rgb\(255, 255, 255\)/);
+  report.checks.push('Day (white, light 3D stage) by default with nothing saved; header fits 1280 px');
   await page.locator('header [data-theme-toggle]').click();now=await look();
   assert.equal(now.theme,'dark');assert.equal(now.frame,'dark');assert.equal(now.saved,'dark');
-  assert.equal(now.background,'rgb(11, 12, 15)');assert.deepEqual(now.pressed,['true','true']);assert.equal(now.label,'Night mode: On');
+  assert.equal(now.background,'rgb(11, 12, 15)');assert.match(now.stage,/rgb\(31, 36, 44\)/);
+  assert.deepEqual(now.pressed,['true','true']);assert.equal(now.label,'Night mode: On');
   assert.equal(now.overflow,0);
-  report.checks.push('Header moon switches page and embedded 3D view to night (black), saved in this browser; header still fits');
+  report.checks.push('Header moon switches page, 3D stage and embedded 3D view to night (black), saved in this browser; header still fits');
   await page.reload();await page.waitForFunction(()=>document.querySelector('#model-view').contentDocument?.body?.textContent);now=await look();
   assert.equal(now.theme,'dark');assert.equal(now.frame,'dark');
   report.checks.push('Night survives a reload, page and 3D view');
