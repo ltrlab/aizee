@@ -242,6 +242,11 @@
     - The grip threshold stays 0.5 Nm, above the gripper's 0.30–0.35 Nm of rest friction.
   - **Cost:** one encoder count of trigger is about 35 mA (16 before), and long stuck starts of a free close can put
     up a brief wall. If the trigger buzzes at the wall, raise "Full force at".
+  - **Deployed 2026-10-24 at about 18:20Z** as release `20261024T182009Z-a94921a`.
+    - It carries the RetroUI restyle and its look switch (`e20e193`, merged as `cefa5e1`), and keeps the original
+      look's grip readouts on one line (`a94921a`).
+    - Gate: 1320 tests, none skipped (`build/dev-check/20261024T180714Z-c4c02149`).
+    - The soliloquy bridge was unchanged (`gello-bridge-1514d68767`).
 - **Remaining uncertainty:**
   - The wall is not yet felt with these defaults.
   - Whether 0.5° at 200 mA stays stable at the trigger (no buzz at the wall) is unknown: the PC's loop is a 200 Hz poll.
