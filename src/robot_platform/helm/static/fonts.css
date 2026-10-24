@@ -1,7 +1,10 @@
-/* Helm's pixel type, after RetroUI (github.com/Dksie09/RetroUI). RetroUI's own font copies Minecraft's, without a
-   clear licence, so Helm uses two SIL OFL 1.1 fonts instead (licences beside them in fonts/): Pixelify Sans for text,
-   and Monocraft, monospaced, for live numbers (Pixelify Sans has no tabular figures). Both are subset to Latin,
-   Greek, punctuation, arrows and maths symbols; anything else falls back to the system font. */
-@font-face{font-family:"Pixelify Sans";src:url(fonts/pixelify-sans.woff2) format("woff2");font-weight:400 700;font-display:swap}
+/* Helm's pixel type, after RetroUI (github.com/Dksie09/RetroUI). Text: "Minecraft", the files the operator chose
+   (2026-10-24): regular by Craftron Gaming, bold by Idrees Hassan (the one RetroUI ships). Neither file states a
+   licence. The regular is sharp at 16 px (its pixels are 1/8 em, offset half a pixel) and the bold at 18 px, so
+   helm.css sizes text at 16 / 12 px and headings at 18 px. Monocraft (SIL OFL 1.1, licence in fonts/) sets live
+   numbers, whose Minecraft digits differ in width, and fills the symbols Minecraft lacks (· ° − — … →); it is subset
+   to Latin, Greek, punctuation, arrows and maths symbols. */
+@font-face{font-family:Minecraft;src:url(fonts/minecraft-regular.woff2) format("woff2");font-weight:300 500;font-display:swap}
+@font-face{font-family:Minecraft;src:url(fonts/minecraft-bold.woff2) format("woff2");font-weight:600 900;font-display:swap}
 @font-face{font-family:Monocraft;src:url(fonts/monocraft-regular.woff2) format("woff2");font-weight:300 500;font-display:swap}
 @font-face{font-family:Monocraft;src:url(fonts/monocraft-bold.woff2) format("woff2");font-weight:600 900;font-display:swap}

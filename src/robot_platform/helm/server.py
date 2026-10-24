@@ -20,8 +20,8 @@ import time
 from .session import WIRED
 
 STATIC = Path(__file__).parent / 'static'
-# Served before a login, so the login page has Helm's type: this exact path, nothing else under /helm.
-LOGIN_FONT = '/helm/fonts/pixelify-sans.woff2'
+# Served before a login, so the login page has Helm's type: these exact paths, nothing else under /helm.
+LOGIN_FONTS = frozenset({'/helm/fonts/minecraft-regular.woff2', '/helm/fonts/minecraft-bold.woff2'})
 RETURN_MOVED_RAD = .02  # A confirmed return starts only if no joint moved more than this since it was shown.
 
 
@@ -151,7 +151,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         async def gate(request, handler):
             """Logged-in devices only; changes only from the device in control, except stopping."""
             path = request.path
-            if path in ('/login', '/api/helm/login') or (request.method == 'GET' and path == LOGIN_FONT):
+            if path in ('/login', '/api/helm/login') or (request.method == 'GET' and path in LOGIN_FONTS):
                 return await handler(request)
             session_token = request.cookies.get(COOKIE)
             if access.session(session_token) is None:

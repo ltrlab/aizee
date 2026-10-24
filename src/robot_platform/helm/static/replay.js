@@ -368,8 +368,8 @@ class JointTimeline {
         g.stroke();
       });
       g.fillStyle = '#a9b2bd';
-      g.font = `${12 * ratio}px "Pixelify Sans", system-ui, sans-serif`;
-      g.fillText(label, 6 * ratio, top + 14 * ratio);
+      g.font = `${16 * ratio}px Minecraft, system-ui, sans-serif`;  // Sharp at 16 px (fonts.css).
+      g.fillText(label, 6 * ratio, top + 16 * ratio);
     });
     return canvas;
   }
