@@ -247,6 +247,13 @@
     - It connected over the tether ("connected to Helm on aizee-rover").
   - **Deployed `ec3a5a0` over the tether** through soliloquy: `20261023T222131Z-ec3a5a0`. The smoke test passed (949
     ms, 1.54 ms p50). Helm restarted, and the bridge reconnected within 1 s.
+- **Deployed `863a47b`** (`20261024T013534Z-863a47b`, gate `20261024T012143Z-6726427e`, 1297 tests):
+  - **Model flicker:** in a virtual session the 3D model jumped between the session's pose and the resting arms'.
+    The loop's status-only views had cleared the session's pose; now they keep it.
+  - **Wi-Fi state:** the camera stream keeps about one frame queued (64 kB in Helm's buffer, a 32 kB kernel send
+    buffer), so on Wi-Fi the page's state no longer waits behind video and the pedals don't lock as stale.
+  - **The user's virtual sessions over the tether** (leader-link reports): 20 s and 256 s, 25,657 requests at
+    100 Hz with none skipped and one 20–50 ms gap. soliloquy answered within 0.4 ms.
 - **Remaining uncertainty:**
   - A real leader link through the bridge: the rehearsal streamed synthetic leaders, but no session's link ran,
     because the laptop is not on the tether.
