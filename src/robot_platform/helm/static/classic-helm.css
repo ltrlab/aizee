@@ -354,9 +354,9 @@ body[data-teleop-state=STALE] #t-state{color:var(--bad)}
 .force-fill{height:100%;width:0;border-radius:8px;background-color:hsl(120 85% 46%);
   box-shadow:0 0 10px rgba(255,255,255,.15) inset;transition:width .2s ease-out,background-color .2s linear}
 .grip-feedback[data-active=false] .force-fill{opacity:.5}
-.grip-setting{display:grid;grid-template-columns:minmax(0,1fr) minmax(120px,190px) 62px;align-items:center;gap:10px;margin:8px 0;font-size:12.5px}
+.grip-setting{display:grid;grid-template-columns:150px minmax(90px,1fr) max-content;align-items:center;gap:10px;margin:8px 0;font-size:12.5px}
 .grip-setting input{accent-color:var(--accent)}
-.grip-setting output{text-align:right;font-variant-numeric:tabular-nums}
+.grip-setting output{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .grip-live{margin:10px 0 6px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--raised);font-size:12.5px;font-variant-numeric:tabular-nums}
 .grip-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 #grip-readout{margin:6px 0 0;line-height:1.45}
