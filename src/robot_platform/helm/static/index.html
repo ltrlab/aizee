@@ -1,14 +1,15 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en" data-look="retro" data-theme="light">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Helm</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-1 -1 15 15' shape-rendering='crispEdges'%3E%3Crect x='-1' y='-1' width='15' height='15' fill='%231f5fbf'/%3E%3Cpath fill='%23ffffff' d='M6 0h1v13H6zM0 6h13v1H0zM1 1h1v1H1zM11 1h1v1h-1zM2 2h1v1H2zM10 2h1v1h-1zM4 2h2v1H4zM7 2h2v1H7zM3 3h1v1H3zM9 3h1v1H9zM2 4h1v2H2zM10 4h1v2h-1zM4 4h1v1H4zM8 4h1v1H8zM5 5h1v1H5zM7 5h1v1H7zM2 7h1v2H2zM10 7h1v2h-1zM5 7h1v1H5zM7 7h1v1H7zM4 8h1v1H4zM8 8h1v1H8zM3 9h1v1H3zM9 9h1v1H9zM2 10h1v1H2zM10 10h1v1h-1zM4 10h2v1H4zM7 10h2v1H7zM1 11h1v1H1zM11 11h1v1h-1z'/%3E%3C/svg%3E">
-  <script>try{if(localStorage.getItem('helm-theme')==='dark')document.documentElement.dataset.theme='dark'}catch{/* Day theme. */}</script>
   <link rel="stylesheet" href="helm/fonts.css">
-  <link rel="stylesheet" href="helm/helm.css">
-  <link rel="stylesheet" href="helm/cameras.css">
-  <link rel="stylesheet" href="helm/replay.css">
+  <!-- The look (RetroUI or Helm's original) and day / night, as saved in this browser (theme.js), before the first paint. -->
+  <script>(()=>{const root=document.documentElement;let look='retro';
+    try{look=localStorage.getItem('helm-look')==='classic'?'classic':'retro';if(localStorage.getItem('helm-theme')==='dark')root.dataset.theme='dark'}catch{/* RetroUI by day. */}
+    root.dataset.look=look;
+    for(const sheet of ['helm','cameras','replay'])document.write(`<link rel="stylesheet" data-look-sheet="${sheet}" href="helm/${look==='classic'?'classic-':''}${sheet}.css">`)})()</script>
 </head>
 <body data-feed="disconnected" data-tab="check">
   <header>
@@ -430,15 +431,24 @@
             <div id="camera-cards"></div>
           </section>
           <section id="settings-display" class="settings-group" hidden>
+            <div class="touch-preference" id="look-preference">
+              <h2>Look</h2>
+              <p class="muted" id="look-description">RetroUI's pixel look, white by day and black at night, or Helm's original dark look. Applies immediately and is saved in this browser; it does not change robot control.</p>
+              <div class="target" role="group" aria-label="Look" aria-describedby="look-description">
+                <button type="button" data-look-choice="retro" aria-pressed="true">RetroUI</button>
+                <button type="button" data-look-choice="classic" aria-pressed="false">Original</button>
+              </div>
+              <p id="look-status" class="muted" role="status" aria-live="polite"></p>
+            </div>
             <div class="touch-preference">
               <h2>Touchscreen layout</h2>
               <p class="muted" id="touch-description">Larger controls and scrollable panels for a small touch console. Applies immediately and is saved in this browser.</p>
               <button type="button" data-touch-toggle aria-pressed="false" aria-describedby="touch-description">Touch mode: Off</button>
               <p id="touch-status" class="muted" role="status" aria-live="polite"></p>
             </div>
-            <div class="touch-preference">
+            <div class="touch-preference" id="theme-preference">
               <h2>Day and night</h2>
-              <p class="muted" id="theme-description">White by day; black at night or in a dim room. Also the moon / sun button in the header. Applies immediately and is saved in this browser; the 3D view stays dark in both.</p>
+              <p class="muted" id="theme-description">White by day; black at night or in a dim room. Also the moon / sun button in the header. Applies immediately and is saved in this browser; the 3D view follows, and camera and replay video stay dark in both.</p>
               <button type="button" data-theme-toggle="label" aria-pressed="false" aria-describedby="theme-description">Night mode: Off</button>
               <p id="theme-status" class="muted" role="status" aria-live="polite"></p>
             </div>

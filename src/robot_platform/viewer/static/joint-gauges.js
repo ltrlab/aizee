@@ -8,11 +8,7 @@ import {gaugeSpec, heatColor, rotaryBasis, sceneTheme} from './joint-telemetry.j
 // its limit. One short label carries the position and the temperature, the latter in the hub's colour. Dials need a
 // verified direction mapping, as motion arrows do; stale readings turn grey. A dial seen nearly edge-on hides; its
 // hub and label stay.
-const LABEL_PX = 22;
-// Helm's UI font (helm/fonts.css, linked by its theme sheet; labels appear only when Helm embeds the viewer), with its
-// number font for the symbols Minecraft lacks (· ° −). Minecraft's pixels sit half a pixel off its 1/8 em grid, so it
-// is sharp only at 16 px per em (32 at 2×); at other sizes its 2 and 8, c and o run together.
-const LABEL_FAMILY = 'Minecraft, Monocraft, system-ui, sans-serif', LABEL_FONT_PX = 16;
+const LABEL_PX = 22;  // Label type comes with the scene theme (joint-telemetry.js): Helm's look sets it.
 const EDGE_ON = .25;  // |axis · view| below this, a dial collapses to a line: hide it.
 
 function material(color, opacity=1) {
@@ -40,13 +36,11 @@ class Label {
   constructor(doc) {
     // Drawn at the size it is shown, in device pixels (the renderer's ratio, at most 2), and sampled pixel for pixel:
     // pixel type scaled down blurs (5 reads as S). The chip's layout is in units of a 48 px tall label (k).
-    const ratio = Math.min(globalThis.devicePixelRatio || 1, 2);
-    this.k = LABEL_PX * ratio / 48;
+    this.ratio = Math.min(globalThis.devicePixelRatio || 1, 2);
+    this.k = LABEL_PX * this.ratio / 48;
     this.canvas = doc.createElement('canvas');
     this.canvas.width = Math.round(480 * this.k);  // Room for the widest reading; the rest stays transparent.
     this.canvas.height = Math.round(48 * this.k);
-    this.fontPx = Math.round(LABEL_FONT_PX * ratio);
-    this.font = `400 ${this.fontPx}px ${LABEL_FAMILY}`;
     this.texture = new THREE.CanvasTexture(this.canvas);
     this.texture.colorSpace = THREE.SRGBColorSpace;
     this.texture.generateMipmaps = false;
@@ -57,6 +51,7 @@ class Label {
     this.sprite.renderOrder = 12;
     this.drawn = null;
     this.fonts = doc.fonts;
+    this.awaiting = new Set();
   }
   // `parts`: [{text, color}], drawn in a row with a separator between them, on the scene theme's chip.
   draw(parts, selected, theme) {
@@ -66,14 +61,15 @@ class Label {
     this.text = parts.map(part => part.text).join(' · ');
     const ctx = this.canvas.getContext?.('2d');
     if (!ctx) return;  // No canvas (tests): the sprite stays blank.
-    if (this.fonts && !this.fonts.check(this.font) && !this.awaitingFont) {
+    const fontPx = Math.round(theme.type.px * this.ratio), font = `${theme.type.weight} ${fontPx}px ${theme.type.family}`;
+    if (this.fonts && !this.fonts.check(font) && !this.awaiting.has(font)) {
       // A canvas draws with what has loaded: ask for the font once, and draw this label again when it arrives.
-      this.awaitingFont = true;
-      this.fonts.load(this.font).then(() => { this.drawn = null; }, () => {});
+      this.awaiting.add(font);
+      this.fonts.load(font).then(() => { this.drawn = null; }, () => {});
     }
     const {width, height} = this.canvas, k = this.k;
     ctx.clearRect(0, 0, width, height);
-    ctx.font = this.font;
+    ctx.font = font;
     const textWidth = Math.min(width - 16 * k, ctx.measureText(this.text).width);
     ctx.fillStyle = theme.label.fill;
     ctx.strokeStyle = selected ? theme.label.selected : theme.label.edge;
@@ -82,13 +78,13 @@ class Label {
     ctx.roundRect?.(Math.round(2 * k), Math.round(4 * k), Math.round(textWidth + 14 * k), height - Math.round(8 * k), 8 * k);
     ctx.fill();
     ctx.stroke();
-    ctx.textBaseline = 'alphabetic';  // Digits stand ¾ em on a whole-pixel baseline, centred in the chip.
+    ctx.textBaseline = 'alphabetic';  // Digits on a whole-pixel baseline, centred in the chip.
     const scale = textWidth / Math.max(1, ctx.measureText(this.text).width);  // Squeezed to fit, as fillText would.
     let x = 9 * k;
     parts.forEach((part, i) => {
       const text = i ? ` · ${part.text}` : part.text, w = ctx.measureText(text).width * scale;
       ctx.fillStyle = part.color;
-      ctx.fillText(text, Math.round(x), Math.round(height / 2 + .375 * this.fontPx), w);
+      ctx.fillText(text, Math.round(x), Math.round(height / 2 + theme.type.baseline * fontPx), w);
       x += w;
     });
     this.texture.needsUpdate = true;

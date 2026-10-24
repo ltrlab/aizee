@@ -55,6 +55,27 @@ try {
   await page.evaluate(()=>document.querySelector('[data-theme-toggle=label]').click());now=await look();
   assert.equal(now.theme,'light');assert.equal(now.frame,'light');assert.equal(now.saved,'light');assert.equal(now.label,'Night mode: Off');
   report.checks.push('Settings switch returns to day');
+  const style=()=>page.evaluate(()=>({look:document.documentElement.dataset.look,saved:localStorage.getItem('helm-look'),
+    frame:document.getElementById('model-view').contentDocument?.documentElement.dataset.look,
+    sheets:[...document.querySelectorAll('link[data-look-sheet]')].map(link=>link.getAttribute('href')),
+    background:getComputedStyle(document.body).backgroundColor,
+    moon:getComputedStyle(document.querySelector('header [data-theme-toggle]')).display,
+    night:getComputedStyle(document.getElementById('theme-preference')).display,
+    pressed:[...document.querySelectorAll('[data-look-choice]')].map(button=>button.getAttribute('aria-pressed'))}));
+  let shown=await style();
+  assert.equal(shown.look,'retro');assert.deepEqual(shown.pressed,['true','false']);
+  await page.evaluate(()=>document.querySelector('[data-look-choice=classic]').click());
+  await page.waitForFunction(()=>getComputedStyle(document.body).backgroundColor==='rgb(11, 12, 14)');shown=await style();
+  assert.equal(shown.look,'classic');assert.equal(shown.frame,'classic');assert.equal(shown.saved,'classic');
+  assert.deepEqual(shown.sheets,['helm/classic-helm.css','helm/classic-cameras.css','helm/classic-replay.css']);
+  assert.equal(shown.moon,'none');assert.equal(shown.night,'none');assert.deepEqual(shown.pressed,['false','true']);
+  report.checks.push('Settings → Look switches live to the original look (its stylesheets, day / night hidden), saved in this browser');
+  await page.reload();await page.waitForFunction(()=>document.querySelector('#model-view').contentDocument?.body?.textContent);
+  shown=await style();assert.equal(shown.look,'classic');assert.equal(shown.background,'rgb(11, 12, 14)');assert.equal(shown.frame,'classic');
+  await page.evaluate(()=>document.querySelector('[data-look-choice=retro]').click());
+  await page.waitForFunction(()=>getComputedStyle(document.body).backgroundColor==='rgb(255, 255, 255)');shown=await style();
+  assert.equal(shown.look,'retro');assert.equal(shown.saved,'retro');assert.equal(shown.frame,'retro');
+  report.checks.push('The original look survives a reload; RetroUI comes back the same way');
   assert.deepEqual(writes,[]);assert.deepEqual(errors,[]);
   report.checks.push('A display preference never reaches the server; no browser errors');report.passed=true;
 } finally {await browser.close();await new Promise(resolve=>server.close(resolve));await fs.writeFile(path.join(evidence,'report.json'),JSON.stringify(report,null,2));}
