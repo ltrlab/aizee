@@ -466,8 +466,11 @@ body[data-teleop-state=STALE] #t-state{color:var(--bad)}
 .force-fill{height:100%;width:0;background-color:hsl(120 85% 46%);
   background-image:repeating-linear-gradient(90deg,transparent 0 6px,rgba(0,0,0,.12) 6px 8px);transition:width .2s steps(6),background-color .2s linear}
 .grip-feedback[data-active=false] .force-fill{opacity:.5}
-.grip-setting{display:grid;grid-template-columns:minmax(0,1fr) minmax(120px,190px) 62px;align-items:center;gap:10px;margin:10px 0;font-size:16px}
-.grip-setting output{text-align:right;font:12px var(--mono)}
+.grip-setting{display:grid;grid-template-columns:150px minmax(90px,1fr) max-content;align-items:center;gap:10px;margin:10px 0;font-size:16px}
+.grip-setting output{text-align:right;font:12px var(--mono);white-space:nowrap}
+.grip-live{margin:10px 0 6px;padding:7px 10px;font:12px/1.5 var(--mono);color:var(--text);background:var(--card);border:3px solid var(--line);
+  border-image:var(--pix-line) 1/3px/0 stretch}
+.grip-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 #grip-readout{margin:6px 0 0;line-height:1.45}
 body[data-touch=on] .grip-switch input{width:26px;height:26px}
 /* Minerva's UPS (helm.ups): the header's battery pill and its banner. ID selectors: the feed state recolours every .pill. */

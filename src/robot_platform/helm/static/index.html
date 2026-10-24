@@ -401,12 +401,25 @@
             </div>
             <p id="gripper-zero-feedback" class="muted" role="status" aria-live="polite"></p>
             <h2>Gripper force feedback</h2>
-            <p class="muted">While the robot's gripper squeezes, the leader trigger pushes open with at most this force;
-              it never pulls closed. Switch it on in Teleop. Saved for every session and applied at once to a running
-              one. 200 mA is the leader boards' limit.</p>
+            <p class="muted">While the robot's gripper holds something, the trigger meets a wall where the object stopped
+              the jaws: no push at the wall, and a push that grows as you squeeze past it. It never pulls closed.
+              Switch it on in Teleop. Every setting is saved for every session and applies at once to a running one.</p>
             <label class="grip-setting">Maximum trigger force <input id="grip-cap" type="range" min="0" max="200" step="10" value="150"><output id="grip-cap-value">150 mA</output></label>
             <label class="grip-setting">Strength <input id="grip-strength" type="range" min="0" max="100" step="5" value="100"><output id="grip-strength-value">100%</output></label>
-            <p id="grip-settings-status" class="muted" role="status" aria-live="polite"></p>
+            <label class="grip-setting">Full force at <input id="grip-wall" type="range" min="0.2" max="5" step="0.1" value="0.8"><output id="grip-wall-value">0.8° past the wall</output></label>
+            <p class="muted">200 mA is the leader boards' limit, and strength scales the whole push. The push reaches the
+              maximum this far past the wall: one degree of trigger squeezes the jaws about 2.5 Nm, so a held cube
+              sits about 0.8° past it and a light hold 0.2-0.3°. Fewer degrees make a harder wall; if the trigger
+              buzzes at the wall, add some.</p>
+            <label class="grip-setting">Grip threshold <input id="grip-threshold" type="range" min="0.2" max="2" step="0.05" value="0.5"><output id="grip-threshold-value">0.50 Nm</output></label>
+            <label class="grip-setting">Hold time <input id="grip-hold" type="range" min="0" max="300" step="10" value="100"><output id="grip-hold-value">100 ms</output></label>
+            <p class="muted">The wall appears once the gripper has stayed still, squeezing past the threshold, for the hold
+              time, and goes once you let go. The gripper's own friction reads 0.30-0.35 Nm at rest, and a free close
+              starts stuck for up to about 100 ms: a lower threshold or a shorter hold finds contact sooner but can
+              put a brief wall in a free close.</p>
+            <p class="grip-live" id="grip-live">Start a session to see each gripper's squeeze here.</p>
+            <div class="grip-actions"><button id="grip-defaults" type="button">Defaults</button>
+              <span id="grip-settings-status" class="muted" role="status" aria-live="polite"></span></div>
           </section>
           <section id="settings-cameras" class="settings-group" hidden>
             <h2>Cameras</h2>

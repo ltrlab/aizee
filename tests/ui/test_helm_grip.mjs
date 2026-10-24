@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import {forceColor, gripView} from '../../src/robot_platform/helm/static/grip.js';
+import {GRIP_SETTINGS, forceColor, gripLive, gripSettingText, gripSliderValue, gripView}
+  from '../../src/robot_platform/helm/static/grip.js';
 
 // Green at rest, yellow halfway, red at the maximum; out-of-range and missing levels clamp.
 assert.equal(forceColor(0), 'hsl(120 85% 46%)');
@@ -33,4 +34,20 @@ assert.equal(pushing.sides.left.percent, 100);
 assert.equal(pushing.sides.right.percent, 0);
 assert.match(pushing.text, /left 150 mA · right 0 mA, up to 150 mA/);
 assert.deepEqual(pushing.settings, {strength: 1, cap_ma: 150});
+
+// Settings -> Grippers: a slider per setting, read in its units, set without float noise.
+const setting = key => GRIP_SETTINGS.find(item => item.key === key);
+assert.deepEqual(GRIP_SETTINGS.map(item => item.key).sort(), ['cap_ma', 'grip_nm', 'hold_ms', 'strength', 'wall_deg']);
+assert.equal(gripSettingText(setting('wall_deg'), '0.8'), '0.8° past the wall');
+assert.equal(gripSettingText(setting('grip_nm'), '0.5'), '0.50 Nm');
+assert.equal(gripSettingText(setting('hold_ms'), '100'), '100 ms');
+assert.equal(gripSettingText(setting('cap_ma'), '150'), '150 mA');
+assert.equal(gripSettingText(setting('strength'), '60'), '60%');
+assert.equal(gripSliderValue(setting('wall_deg'), 2.5), '2.5');
+assert.equal(gripSliderValue(setting('strength'), .6), '60');
+assert.equal(gripSliderValue(setting('grip_nm'), .55), '0.55');
+assert.match(gripLive({phase: 'stopped'}), /Start a session/);
+assert.equal(gripLive(teleop({grip_feedback: grip({squeeze_nm: {left: .31, right: 1.92},
+  gripping: {left: false, right: true}, currents_ma: {left: 0, right: 149.6}})})),
+  'Left 0.31 Nm · free  |  Right 1.92 Nm · holding · 150 mA');
 console.log('grip view checks passed');

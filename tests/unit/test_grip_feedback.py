@@ -11,7 +11,7 @@ import pytest
 from robot_platform.teleop import leader_bridge
 from robot_platform.teleop.grip_feedback import (FF_DISABLE, GripFeedback, crc8, ff_frame, trigger_config,
                                                  trigger_currents, validate_config)
-from robot_platform.teleop.leader_bridge import (GRIP_REFRESH_S, GRIP_STALE_S, LatestLeaderInputs,
+from robot_platform.teleop.leader_bridge import (GRIP_REFRESH_S, GRIP_STALE_S, WALL_ONSET_S, LatestLeaderInputs,
                                                  LeaderSnapshotClient, grip_request, sample_reply)
 from robot_platform.teleop.openrb import OpenRBInput, crc8 as openrb_crc8
 
@@ -77,53 +77,151 @@ def rows(left=(0., 0.), right=(0., 0.)):
             dict(name='left_arm_j1', effort=-9., velocity=0.)]
 
 
-def settle(feedback, sample, *, engaged=True, cycles=60):
+# A hold: the trigger 1.3 degrees past the wall where the jaws stopped (reading direction +1 opens it), against
+# walls of 2 degrees for the whole 150 mA. The default is stiffer (test_the_default_wall_suits_the_holds_measured).
+WALL = {'right': (3.0, 3.0 - math.radians(1.3), 1)}
+K = 150 / math.radians(2)
+
+
+def settle(feedback, sample, *, engaged=True, cycles=60, walls=WALL):
     for _ in range(cycles):
-        out = feedback.update(sample, engaged=engaged)
+        out = feedback.update(sample, engaged=engaged, walls=walls)
     return out
 
 
 def test_feedback_is_off_until_switched_on_and_needs_teleop():
-    feedback = GripFeedback(None)
-    assert feedback.update(rows(right=(-2., 0.)), engaged=True) is None
+    feedback = GripFeedback({'wall_deg': 2.})
+    assert feedback.update(rows(right=(-2., 0.)), engaged=True, walls=WALL) is None
     feedback.set(enabled=True)
     assert settle(feedback, rows(right=(-2., 0.)), engaged=False) == {'left': 0., 'right': 0.}
-    assert settle(feedback, rows(right=(-2., 0.)))['right'] == pytest.approx(150., abs=.5)
+    assert settle(feedback, rows(right=(-2., 0.)))['right'] == pytest.approx({'wall': 3.0, 'k': K, 'cap': 150.})
 
 
-def test_only_a_held_squeeze_above_the_deadband_pushes_back():
-    feedback = GripFeedback({'enabled': True})
-    # Measured on Minerva: a held cube near -2 Nm; free air within 0.3 Nm; closing effort is negative.
-    assert settle(feedback, rows(right=(-.5, 0.)))['right'] == pytest.approx((.5 - .3) * 400, abs=.5)  # A light grip.
-    assert settle(feedback, rows(right=(-.3, 0.))) == {'left': 0., 'right': 0.}  # Free-air level.
-    assert settle(feedback, rows(right=(-1.1, 0.)))['right'] == 150.  # The lightest held cube measured: the maximum.
-    assert settle(feedback, rows(right=(-2., 1.2))) == {'left': 0., 'right': 0.}  # Closing fast: not a hold.
-    assert settle(feedback, rows(right=(+2., 0.))) == {'left': 0., 'right': 0.}  # Pushed open: never feedback.
-    assert settle(feedback, rows(left=(-9., 0.)))['left'] == 150.  # Capped.
+def test_a_still_squeeze_grips_after_the_hold_time_and_puts_up_the_wall():
+    feedback = GripFeedback({'enabled': True, 'wall_deg': 2.})
+    # Measured on Minerva: a held cube squeezes about 2 Nm with the gripper still; closing effort is negative.
+    out = [feedback.update(rows(right=(-2., 0.)), engaged=True, walls=WALL)['right'] for _ in range(12)]
+    assert out[:9] == [0.] * 9  # 100 ms still first (10 ms cycles).
+    assert out[9] == pytest.approx({'wall': 3.0, 'k': K, 'cap': 150.}) and feedback.gripping['right']
+    # What the loop estimates the trigger feels: 1.3 degrees past the wall, of 2 for the whole 150 mA.
+    assert feedback.pushes['right'] == pytest.approx(150 * 1.3 / 2) and feedback.levels['right'] == pytest.approx(.65)
+
+
+def test_the_start_of_a_free_close_and_the_rest_level_never_put_up_a_wall():
+    feedback = GripFeedback({'enabled': True, 'wall_deg': 2.})
+    # Measured: a free close starts with the gripper stuck for 30-100 ms, then it moves at 0.7-2 rad/s.
+    for _ in range(9):
+        assert feedback.update(rows(right=(-.8, 0.)), engaged=True, walls=WALL)['right'] == 0.
+    for _ in range(30):
+        assert feedback.update(rows(right=(-1., 1.5)), engaged=True, walls=WALL)['right'] == 0.
+    # The gripper's own friction at rest: 0.30-0.35 Nm for seconds at a time.
+    assert all(feedback.update(rows(right=(-.35, .05)), engaged=True, walls=WALL)['right'] == 0. for _ in range(300))
+    assert not feedback.gripping['right']
+
+
+def test_the_push_grows_with_the_trigger_past_the_wall_never_before_it():
+    feedback = GripFeedback({'enabled': True, 'wall_deg': 2.})
+    settle(feedback, rows(right=(-2., 0.)))
+    for past_deg, push in ((0., 0.), (.5, 37.5), (2., 150.), (5., 150.), (-1., 0.)):
+        feedback.update(rows(right=(-2., 0.)), engaged=True, walls={'right': (3.1, 3.1 - math.radians(past_deg), 1)})
+        assert feedback.pushes['right'] == pytest.approx(push)
+    # A trigger whose reading opens the other way is past its wall on the other side.
+    feedback.update(rows(right=(-2., 0.)), engaged=True, walls={'right': (3.1, 3.1 + math.radians(1.), -1)})
+    assert feedback.pushes['right'] == pytest.approx(75.)
+    # Readings a whole turn apart are the same angle.
+    feedback.update(rows(right=(-2., 0.)), engaged=True,
+                    walls={'right': (3.1 + 2 * math.pi, 3.1 - math.radians(1.), 1)})
+    assert feedback.pushes['right'] == pytest.approx(75.)
+
+
+def test_dips_and_blips_inside_a_grip_keep_the_wall():
+    feedback = GripFeedback({'enabled': True, 'wall_deg': 2.})
+    settle(feedback, rows(right=(-2., 0.)))
+    # A light hold lets the squeeze dip to nothing for 0.1 s; the jaws twitch, or race for 20 ms.
+    samples = ([rows(right=(-2., .6))] * 2 + [rows(right=(-.05, .05))] * 10 + [rows(right=(-2., 1.5))] * 2
+               + [rows(right=(-2., 0.))] * 10)
+    assert all(isinstance(feedback.update(sample, engaged=True, walls=WALL)['right'], dict) for sample in samples)
+
+
+def test_a_grip_ends_once_the_squeeze_stays_near_nothing_or_the_gripper_moves_fast():
+    feedback = GripFeedback({'enabled': True, 'wall_deg': 2.})
+    settle(feedback, rows(right=(-2., 0.)))
+    let_go = [feedback.update(rows(right=(.2, -.2)), engaged=True, walls=WALL)['right'] for _ in range(40)]
+    assert isinstance(let_go[20], dict) and let_go[-1] == 0.  # About a quarter second after the squeeze is gone.
+    assert not feedback.gripping['right'] and feedback.pushes['right'] == 0.
+    settle(feedback, rows(right=(-2., 0.)))
+    for _ in range(4):  # Moving fast for more than 30 ms: it opened, or the object slipped.
+        feedback.update(rows(right=(-1., 1.5)), engaged=True, walls=WALL)
+    assert not feedback.gripping['right']
+
+
+def test_nothing_is_felt_without_a_reading_a_wall_or_teleop():
+    feedback = GripFeedback({'enabled': True, 'wall_deg': 2.})
+    assert settle(feedback, rows(right=(+2., 0.))) == {'left': 0., 'right': 0.}  # Pushed open: never a grip.
+    settle(feedback, rows(right=(-2., 0.)))
     assert settle(feedback, [dict(name='right_gripper', effort=math.nan, velocity=0.)]) == {'left': 0., 'right': 0.}
-    assert settle(feedback, []) == {'left': 0., 'right': 0.}
+    assert not feedback.gripping['right']
+    settle(feedback, rows(right=(-2., 0.)))
+    assert feedback.update(rows(right=(-2., 0.)), engaged=True, walls={})['right'] == 0.  # No route: no wall.
+    assert feedback.gripping['right'] and feedback.pushes['right'] == 0.
+    assert feedback.update(rows(right=(-2., 0.)), engaged=False, walls=WALL)['right'] == 0.  # Outside TELEOP...
+    assert feedback.pushes['right'] > 0  # ...the bars still show it.
+    for step in (math.nan, math.inf, -1.):  # A bad cycle time counts as at most 100 ms, never backwards.
+        assert isinstance(feedback.update(rows(right=(-2., 0.)), engaged=True, walls=WALL, dt=step)['right'], dict)
 
 
-def test_strength_scales_and_smoothing_ramps_instead_of_stepping():
-    feedback = GripFeedback({'enabled': True})
+def test_strength_and_every_setting_apply_live_within_bounds():
+    feedback = GripFeedback({'enabled': True, 'wall_deg': 2.})
     feedback.set(strength=.5)
-    first = feedback.update(rows(right=(-.5, 0.)), engaged=True)['right']
-    assert 0 < first < 40  # (0.5 - 0.3) Nm x 400 mA/Nm x 0.5 = 40 mA, approached smoothly.
-    assert settle(feedback, rows(right=(-.5, 0.)))['right'] == pytest.approx(40., abs=.5)
-    assert 0 < feedback.update(rows(), engaged=True)['right'] < 40  # Released: it decays, also smoothly.
-    for bad in (-.1, 1.1, math.nan, '1'):
+    assert settle(feedback, rows(right=(-2., 0.)))['right'] == pytest.approx({'wall': 3.0, 'k': .5 * K, 'cap': 75.})
+    assert feedback.pushes['right'] == pytest.approx(.5 * 150 * 1.3 / 2)
+    feedback.set(cap_ma=100, wall_deg=4., grip_nm=1., hold_ms=0.)
+    feedback.update(rows(right=(-2., 0.)), engaged=True, walls=WALL)
+    assert feedback.pushes['right'] == pytest.approx(.5 * 100 * 1.3 / 4)
+    assert feedback.settings() == {'strength': .5, 'cap_ma': 100., 'grip_nm': 1., 'hold_ms': 0., 'wall_deg': 4.}
+    for bad in ({'strength': -.1}, {'strength': 1.1}, {'strength': math.nan}, {'strength': '1'}, {'grip_nm': .05},
+                {'hold_ms': 600}, {'wall_deg': .1}, {'wall_deg': 25}, {'cap_ma': 201}, {'contact_push': .4},
+                {'gain': 1}):
         with pytest.raises(ValueError):
-            feedback.set(strength=bad)
+            feedback.set(**bad)
     with pytest.raises(ValueError):
         feedback.set(enabled='yes')
 
 
-@pytest.mark.parametrize('block', [{'gain': 1}, {'cap_ma': 250}, {'deadband_nm': -1}, {'closing_effort_sign': 0},
-                                   {'enabled': 1}, {'smoothing': 0}, 'on'])
+def test_the_default_wall_suits_the_holds_measured():
+    # live-20261024T155900Z: light holds of 0.53-0.66 Nm sat 0.2-0.3 degrees past the wall (2.5 Nm a degree), and a
+    # held cube squeezes about 2 Nm (0.8 degrees). The default reaches the maximum there.
+    feedback = GripFeedback({'enabled': True})
+    assert feedback.config['wall_deg'] == .8
+    settle(feedback, rows(right=(-2., 0.)))
+    for past_deg, push in ((.25, 46.9), (.4, 75.), (.8, 150.)):
+        feedback.update(rows(right=(-2., 0.)), engaged=True, walls={'right': (3.0, 3.0 - math.radians(past_deg), 1)})
+        assert feedback.pushes['right'] == pytest.approx(push, abs=.1)
+
+
+@pytest.mark.parametrize('block', [{'gain': 1}, {'deadband_nm': .3}, {'contact_push': .4}, {'cap_ma': 250},
+                                   {'grip_nm': -1}, {'closing_effort_sign': 0}, {'enabled': 1}, {'hold_ms': 1000},
+                                   {'slip_rad_s': 0}, {'wall_deg': 0}, 'on'])
 def test_profile_settings_stay_inside_their_bounds(block):
     with pytest.raises(ValueError):
         validate_config(block)
-    assert validate_config({'cap_ma': 200, 'gain_ma_per_nm': 50})['gain_ma_per_nm'] == 50.
+    assert validate_config({'cap_ma': 200, 'grip_nm': .8, 'release_nm': .1})['grip_nm'] == .8
+
+
+GRIP_ROUTES = [dict(actuator='left_gripper', leader='left', channel=6, raw_min=4.13, raw_max=5.07,
+                    follower_min=0., follower_max=3.6, direction=1),
+               dict(actuator='right_gripper', leader='right', channel=6, raw_min=2.57, raw_max=3.45,
+                    follower_min=0., follower_max=2.9, direction=1)]
+
+
+def test_a_trigger_wall_is_the_reading_its_route_maps_to_the_gripper_position():
+    from robot_platform.teleop.absolute_mapping import follow, reading_for
+    route = GRIP_ROUTES[1]
+    for variant in (route, dict(route, direction=-1), dict(route, raw_zero=3.0, follower_zero=1., gain=3.3)):
+        for position in (0., .7, 2.9):
+            assert follow(variant, reading_for(variant, position)) == pytest.approx(position)
+    # Past the closed end, extended straight rather than clamped: where the jaws pressed past their swept end.
+    assert reading_for(route, -.29) == pytest.approx(2.57 - .088)
 
 
 # -- the request and the PC's sampler ----------------------------------------------------------------------------
@@ -142,7 +240,7 @@ class FakeInputs:
     def poll(self, feedback=None):
         self.calls.append(feedback)
         now = self.clock()
-        return {name: SimpleNamespace(sampled_at=now, raw_positions=(0,) * 7, sequence=len(self.calls),
+        return {name: SimpleNamespace(sampled_at=now, raw_positions=(0,) * 7, positions_rad=(0.,) * 7, sequence=len(self.calls),
                                       joystick=(0, 0, 0, 0), board_sample_ms=1, board_reply_ms=2)
                 for name in self.pins}
 
@@ -318,6 +416,7 @@ class FakeCore:
 
 
 def test_helm_switches_feedback_live_in_the_running_loop(tmp_path):
+    import json
     from robot_platform.helm.teleop import TeleopSession
     helm = SimpleNamespace(profile_path=ROOT / 'config/devices/minerva-joint-calibration.json', bindings={},
                            mapping={}, saved_limits={'joints': {}}, asset_id='minerva-production-01')
@@ -325,6 +424,8 @@ def test_helm_switches_feedback_live_in_the_running_loop(tmp_path):
     leaders = SimpleNamespace(saved=None, missing=lambda routes: [], store_reference=lambda zero: None)
     session = TeleopSession(helm, ROOT / 'config/devices/minerva-teleop.json', runs=tmp_path, leaders=leaders,
                             core_factory=lambda bundle: fake)
+    defaults = GripFeedback(None).settings()
+    assert session.grip_settings == defaults
     with pytest.raises(ValueError, match='Start a teleop session'):
         session.grip_feedback({'enabled': True})
     session.start()
@@ -335,57 +436,159 @@ def test_helm_switches_feedback_live_in_the_running_loop(tmp_path):
             time.sleep(.01)
         assert session.grip_feedback({'enabled': True, 'strength': .6}) == dict(fake.feedback.snapshot())
         assert fake.feedback.enabled and fake.feedback.strength == .6
-        with pytest.raises(ValueError, match='enabled, strength and cap_ma'):
+        with pytest.raises(ValueError, match='Force feedback takes enabled, reset and strength'):
             session.grip_feedback({'gain': 3})
         session.grip_feedback({'cap_ma': 120})
-        assert fake.feedback.config['cap_ma'] == 120.  # Live in the running loop.
+        session.grip_feedback({'hold_ms': 60, 'grip_nm': .7})
+        assert fake.feedback.config['cap_ma'] == 120. and fake.feedback.config['hold_ms'] == 60.  # Live.
+        assert fake.feedback.enabled  # A setting leaves the switch as it was.
     finally:
         session.stop()
-    # Saved for every later session; the switch itself is not.
-    assert session.grip_settings == {'strength': .6, 'cap_ma': 120.}
+    # Saved for every later session, only what the operator changed; the switch itself is not.
+    saved = {'strength': .6, 'cap_ma': 120., 'hold_ms': 60., 'grip_nm': .7}
+    assert session.grip_saved == saved and session.grip_settings == dict(defaults, **saved)
+    assert json.loads(session.grip_settings_path.read_text(encoding='utf-8')) == saved
     again = TeleopSession(helm, ROOT / 'config/devices/minerva-teleop.json', runs=tmp_path, leaders=leaders,
                           core_factory=lambda bundle: fake)
-    assert again.grip_settings == {'strength': .6, 'cap_ma': 120.}
-    assert again.grip_feedback({'cap_ma': 90, 'strength': 1}) == {'strength': 1., 'cap_ma': 90.}  # No session.
+    assert again.grip_settings == dict(defaults, **saved)
+    assert again._bundle()['grip_feedback'] == dict(defaults, **saved)  # What a session starts with.
+    assert again.grip_feedback({'cap_ma': 90, 'strength': 1})['cap_ma'] == 90.  # No session running.
+    assert again.grip_feedback({'reset': True}) == defaults  # Defaults: nothing saved.
+    assert json.loads(again.grip_settings_path.read_text(encoding='utf-8')) == {}
     with pytest.raises(ValueError, match='0-200 mA'):
         again.grip_feedback({'cap_ma': 250})
+    with pytest.raises(ValueError, match='reset is true'):
+        again.grip_feedback({'reset': False})
     with pytest.raises(ValueError, match='Start a teleop session'):
         again.grip_feedback({'enabled': True})
 
 
-def test_the_loop_reads_gripper_effort_from_the_receiver_feedback_and_only_feeds_back_in_teleop():
+def wall_core(position=1.3, past_deg=1.3):
+    """A loop holding a cube in the right gripper at `position`, the trigger `past_deg` past the wall."""
     from robot_platform.helm import teleop
+    from robot_platform.teleop.absolute_mapping import reading_for
     core = object.__new__(teleop.TeleopCore)
-    core.grip_feedback = GripFeedback({'enabled': True, 'smoothing': 1.})
+    core.grip_feedback = GripFeedback({'enabled': True, 'hold_ms': 0., 'wall_deg': 2.})
     core.leaders = SimpleNamespace(grip='unset')
     core.fault, core.derived = None, None
     core.grip_triggers = {'left': (7, 1), 'right': (7, 1)}
+    core.mapper = SimpleNamespace(routes=GRIP_ROUTES)
+    readings = {'left': reading_for(GRIP_ROUTES[0], .6) - math.radians(.5),
+                'right': reading_for(GRIP_ROUTES[1], position) - math.radians(past_deg)}
+    core._grip_samples = {name: SimpleNamespace(positions_rad=(0.,) * 6 + (value,)) for name, value in readings.items()}
     names = ['left_arm_j1', 'left_gripper', 'right_gripper']
-    feedback = [dict(position=0., velocity=0., effort=-5.), dict(position=1.4, velocity=0., effort=-.4),
-                dict(position=1.3, velocity=.01, effort=-2.)]
+    feedback = [dict(position=0., velocity=0., effort=-5.), dict(position=.6, velocity=0., effort=-.6),
+                dict(position=position, velocity=.01, effort=-2.)]
     core.harness = SimpleNamespace(last={'status': {'joint_names': names}, 'feedback': feedback})
-    core._send_grip_feedback('TELEOP')
-    assert core.leaders.grip == {'left': 40., 'right': 150.}  # (0.4 - 0.3) x 400; (2.0 - 0.3) x 400 over the 150 cap.
+    return core, feedback
+
+
+def test_the_loop_puts_each_wall_where_the_jaws_stopped_and_only_in_teleop():
+    from robot_platform.teleop.absolute_mapping import reading_for
+    core, feedback = wall_core()
+    for _ in range(40):
+        core._send_grip_feedback('TELEOP')
+    assert set(core.leaders.grip) == {'left', 'right'}
+    assert core.leaders.grip['left'] == pytest.approx({'wall': reading_for(GRIP_ROUTES[0], .6), 'k': K, 'cap': 150.})
+    assert core.leaders.grip['right'] == pytest.approx({'wall': reading_for(GRIP_ROUTES[1], 1.3), 'k': K, 'cap': 150.})
+    status = core._grip_status()
+    assert status['currents_ma'] == pytest.approx({'left': 37.5, 'right': 97.5}, abs=.1)  # The loop's estimate.
     core._send_grip_feedback('HOLD')
     assert core.leaders.grip == {'left': 0., 'right': 0.}
     feedback[2] = dict(feedback[2], fault=True)
     core._send_grip_feedback('TELEOP')
-    assert core.leaders.grip == {'left': 40., 'right': 0.}  # A faulted drive's reading is never felt.
+    assert core.leaders.grip['right'] == 0. and isinstance(core.leaders.grip['left'], dict)  # A faulted drive: none.
     core.grip_feedback.set(enabled=False)
     core._send_grip_feedback('TELEOP')
     assert core.leaders.grip is None  # Off: the PC turns the triggers off.
     assert core._grip_status()['available'] is True
     core.grip_feedback.set(enabled=True)
-    core.grip_triggers = {'right': (7, 1)}
+    core.grip_triggers = {'left': (7, 1)}
     core._send_grip_feedback('TELEOP')
-    assert core.leaders.grip == {'right': 0.}  # Only a leader with a trigger is sent a strength.
+    assert set(core.leaders.grip) == {'left'}  # Only a leader with a trigger is sent a wall.
     core.grip_triggers = {}
     core._send_grip_feedback('TELEOP')
     assert core.leaders.grip is None and core._grip_status()['available'] is False  # No triggers: Helm says so.
-    assert core.grip_feedback.snapshot()['levels']['right'] == 0.  # The bars still show the squeeze.
     core.leaders = SimpleNamespace()  # Scripted leaders: nothing to send, nothing to fail.
     core._send_grip_feedback('TELEOP')
     assert core._grip_status()['available'] is False
+
+
+def test_a_route_and_trigger_that_disagree_on_opening_get_no_wall():
+    core, _ = wall_core()
+    core.mapper = SimpleNamespace(routes=[GRIP_ROUTES[0], dict(GRIP_ROUTES[1], direction=-1)])
+    for _ in range(40):
+        core._send_grip_feedback('TELEOP')
+    # The right gripper grips, but its wall would sit on the wrong side and push the trigger open at once.
+    assert core.grip_feedback.gripping['right'] and core.leaders.grip['right'] == 0.
+    assert isinstance(core.leaders.grip['left'], dict)
+
+
+def test_the_loop_runs_the_law_on_its_own_clock():
+    core, _ = wall_core()
+    core.grip_feedback = GripFeedback({'enabled': True, 'wall_deg': 2.})  # The default 100 ms hold.
+    clock = Clock()
+    core.clock = clock
+    core._send_grip_feedback('TELEOP')
+    clock.now += .05
+    core._send_grip_feedback('TELEOP')
+    assert core.leaders.grip['right'] == 0.  # 50 ms held still: not yet a grip.
+    clock.now += .05
+    core._send_grip_feedback('TELEOP')
+    assert isinstance(core.leaders.grip['right'], dict)  # 100 ms: a grip, however few cycles it took.
+
+
+def test_the_sampler_renders_a_wall_from_its_own_trigger_readings():
+    clock = Clock()
+    sampler = LatestLeaderInputs(FakeInputs(clock), rate_hz=200, clock=clock)  # Triggers: left opens +1, right -1.
+
+    def trigger(reading):
+        return SimpleNamespace(positions_rad=(0.,) * 6 + (reading,))
+
+    def currents():
+        return {name: unpack(frame)[6] for name, frame in sampler._feedback_frames(clock()).items()}
+    sampler._samples = {'left': trigger(3.0 - math.radians(1.)), 'right': trigger(1.0 + math.radians(1.))}
+    walls = {'left': {'wall': 3.0, 'k': K, 'cap': 150.}, 'right': {'wall': 1.0, 'k': K, 'cap': 150.}}
+    sampler.set_grip(walls)
+    assert currents() == {'left': 0, 'right': 0}  # A new wall rises from nothing...
+    clock.now += WALL_ONSET_S / 2
+    assert currents() == {'left': 38, 'right': -38}
+    clock.now += WALL_ONSET_S
+    assert currents() == {'left': 75, 'right': -75}  # ...to 1 degree past it of 2 for the whole 150 mA, open-signed.
+    sampler._samples = {'left': trigger(3.0 - math.radians(5.)), 'right': trigger(1.0)}
+    sampler.set_grip(walls)
+    clock.now += GRIP_REFRESH_S + 1e-6  # Every trigger refreshed, changed or not.
+    assert currents() == {'left': 150, 'right': 0}  # Squeezed further: capped. Back at the wall: nothing.
+    sampler._samples = {'left': trigger(3.0 + math.radians(3.)), 'right': trigger(1.0 - math.radians(3.))}
+    sampler.set_grip(walls)
+    clock.now += GRIP_REFRESH_S + 1e-6
+    assert currents() == {'left': 0, 'right': 0}  # Opened past the wall: nothing, never a pull.
+    sampler.set_grip({'left': 0., 'right': 0.})  # The grip ended: free.
+    sampler._samples = {'left': trigger(3.0 - math.radians(1.)), 'right': trigger(1.0)}
+    clock.now += GRIP_REFRESH_S + 1e-6
+    assert currents() == {'left': 0, 'right': 0}
+    sampler._samples = {'left': SimpleNamespace(), 'right': trigger(math.nan)}  # Unusable readings: no push,
+    sampler.set_grip(walls)                                                     # never a stopped sampler.
+    clock.now += WALL_ONSET_S
+    assert currents() == {'left': 0, 'right': 0}
+    sampler.set_grip({'left': 0., 'right': 0.})
+    sampler._samples = {'left': trigger(3.0 - math.radians(1.)), 'right': trigger(1.0)}
+    clock.now += GRIP_REFRESH_S + 1e-6
+    currents()
+    sampler.set_grip(walls)  # A new grip: its wall rises from nothing again, from the sampler's next frame.
+    assert currents().get('left', 0) == 0
+    clock.now += WALL_ONSET_S / 2
+    assert currents()['left'] == 38
+
+
+def test_a_wall_request_is_checked_and_a_bad_one_turns_feedback_off():
+    wall = {'wall': 3.0, 'k': 4000., 'cap': 150.}
+    assert grip_request({'left': wall, 'right': 0}) == {'left': wall, 'right': 0.}
+    for bad in ({'wall': 3.0, 'k': 4000.}, dict(wall, extra=1), dict(wall, wall=math.nan), dict(wall, k=-1.),
+                dict(wall, cap=1001.), dict(wall, wall='3'), dict(wall, wall=2000.), dict(wall, k=True)):
+        assert grip_request({'left': bad}) is None
+    with pytest.raises(ValueError):
+        LatestLeaderInputs(FakeInputs(Clock()), rate_hz=200).set_grip({'left': {'wall': 3.0}})
 
 
 def test_strengths_cross_the_signed_link_and_reach_the_board_polls():
@@ -406,7 +609,17 @@ def test_strengths_cross_the_signed_link_and_reach_the_board_polls():
             time.sleep(.005)
         sent = next(call for call in inputs.calls if call and 'right' in call)
         assert unpack(sent['right'])[6] == -44  # The right trigger opens with negative current in PROFILE.
+        def next_sample():  # A request needs a newer sample than the last one it got.
+            seen = len(inputs.calls)
+            while len(inputs.calls) <= seen and time.monotonic() < deadline:
+                time.sleep(.002)
+        wall = {'wall': 3.0, 'k': 4000., 'cap': 150.}
+        robot.grip = {'left': 0., 'right': wall}
+        next_sample()
+        robot.poll()
+        assert sampler.grip == {'left': 0., 'right': wall}  # A wall crosses too.
         robot.grip = None
+        next_sample()
         robot.poll()
         assert sampler.grip is None
     finally:
@@ -415,31 +628,61 @@ def test_strengths_cross_the_signed_link_and_reach_the_board_polls():
         sampler.close()
 
 
-def test_the_force_bars_follow_the_squeeze_against_the_maximum_even_with_feedback_off():
-    feedback = GripFeedback({'smoothing': 1.})
-    assert feedback.update(rows(right=(-.5, 0.)), engaged=True) is None  # Off: no strengths sent...
+def test_the_force_bars_show_the_push_against_the_maximum_even_with_feedback_off():
+    feedback = GripFeedback({'wall_deg': 2.})
+    assert settle(feedback, rows(right=(-2., 0.))) is None  # Off: no walls sent...
     snap = feedback.snapshot()
-    assert snap['levels']['right'] == pytest.approx(80 / 150, abs=1e-3)  # ...but the bar shows (0.5 - 0.3) x 400 of 150 mA.
-    assert snap['squeeze_nm']['right'] == .5 and snap['currents_ma'] == {'left': 0., 'right': 0.}
+    assert snap['levels']['right'] == pytest.approx(.65, abs=1e-3)  # ...but the bar shows 1.3 degrees of 2.
+    assert snap['gripping'] == {'left': False, 'right': True} and snap['squeeze_nm']['right'] == pytest.approx(2.)
+    assert snap['currents_ma'] == pytest.approx({'left': 0., 'right': 97.5})
     feedback.set(strength=.25)
-    feedback.update(rows(right=(-.5, 0.)), engaged=False)
-    assert feedback.snapshot()['levels']['right'] == pytest.approx(80 / 150, abs=1e-3)  # Strength scales the push, not the bar.
-    feedback.set(enabled=True, cap_ma=50)
-    out = feedback.update(rows(right=(-.5, 0.)), engaged=True)
-    assert out['right'] == 20. and feedback.snapshot()['levels']['right'] == 1.  # Capped at 50: 80 x .25 = 20 mA.
+    feedback.update(rows(right=(-2., 0.)), engaged=False, walls=WALL)
+    assert feedback.snapshot()['levels']['right'] == pytest.approx(.65, abs=1e-3)  # Strength scales the push, not the bar.
+    assert feedback.snapshot()['currents_ma']['right'] == pytest.approx(97.5 / 4, abs=.1)
     feedback.set(cap_ma=0)
-    assert feedback.update(rows(right=(-1.5, 0.)), engaged=True)['right'] == 0.
-    assert feedback.snapshot()['levels']['right'] == 1.  # Squeezing past a zero maximum: the bar is full.
-    assert feedback.snapshot()['cap_ma'] == 0.
+    feedback.update(rows(right=(-2., 0.)), engaged=False, walls={'right': (3.0, 3.0 - math.radians(3.), 1)})
+    assert feedback.snapshot()['levels']['right'] == 1. and feedback.snapshot()['currents_ma']['right'] == 0.
 
 
 def test_saved_settings_stay_within_bounds():
     from robot_platform.teleop.grip_feedback import validate_settings
-    assert validate_settings({'strength': 1, 'cap_ma': 200}) == {'strength': 1., 'cap_ma': 200.}
+    assert validate_settings({'strength': 1, 'cap_ma': 200, 'hold_ms': 0, 'wall_deg': 2}) == {
+        'strength': 1., 'cap_ma': 200., 'hold_ms': 0., 'wall_deg': 2.}
     assert validate_settings({}) == {}
-    for bad in ({'cap_ma': 201}, {'cap_ma': -1}, {'strength': 2}, {'strength': math.nan}, {'gain': 1}, [1]):
+    for bad in ({'cap_ma': 201}, {'cap_ma': -1}, {'strength': 2}, {'strength': math.nan}, {'gain': 1},
+                {'grip_nm': True}, {'hold_ms': '80'}, {'contact_push': .4}, {'wall_deg': 30}, [1]):
         with pytest.raises(ValueError):
             validate_settings(bad)
+
+
+def test_an_earlier_laws_saved_settings_are_dropped_not_fatal(tmp_path):
+    import json
+    from robot_platform.helm.teleop import TeleopSession
+    helm = SimpleNamespace(profile_path=ROOT / 'config/devices/minerva-joint-calibration.json', bindings={},
+                           mapping={}, saved_limits={'joints': {}}, asset_id='minerva-production-01')
+    saved = tmp_path / 'minerva-production-01-teleop' / 'grip-feedback.json'
+    saved.parent.mkdir(parents=True)
+    saved.write_text(json.dumps({'contact_push': .4, 'smoothing_ms': 40, 'hold_ms': 70}), encoding='utf-8')
+    leaders = SimpleNamespace(saved=None, missing=lambda routes: [], store_reference=lambda zero: None)
+    session = TeleopSession(helm, ROOT / 'config/devices/minerva-teleop.json', runs=tmp_path, leaders=leaders,
+                            core_factory=lambda bundle: None)
+    assert session.grip_saved == {'hold_ms': 70.}
+
+
+def test_every_live_setting_has_a_slider_within_its_bounds():
+    import re
+    from robot_platform.teleop.grip_feedback import BOUNDS, SETTINGS
+    static = ROOT / 'src/robot_platform/helm/static'
+    table = re.findall(r"\{key: '(\w+)', id: '([\w-]+)', label: '[^']+', scale: (\d+)",
+                       (static / 'grip.js').read_text(encoding='utf-8'))
+    assert sorted(key for key, _, _ in table) == sorted(SETTINGS)
+    page = (static / 'index.html').read_text(encoding='utf-8')
+    bounds = dict(BOUNDS, strength=(0., 1.))
+    for key, element, scale in table:
+        slider = re.search(rf'<input id="{element}" type="range" min="([\d.]+)" max="([\d.]+)"', page)
+        assert slider, element
+        low, high = (float(value) / int(scale) for value in slider.groups())
+        assert bounds[key][0] <= low < high <= bounds[key][1], key
 
 
 def test_a_core_built_without_leaders_or_feedback_skips_force_feedback():

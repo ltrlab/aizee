@@ -4,10 +4,11 @@ The edge requests a fresh sample with a random challenge. Source age plus the
 entire round trip conservatively bounds age without comparing PC and Jetson
 clocks. This is freshness, not authentication; use a pinned SSH tunnel between
 machines. No arm, motion, centering or automatic reconnect messages exist. The one
-command a request may carry is gripper force feedback (teleop.grip_feedback): a
-bounded resist strength per leader, which the sampler sends to that leader's trigger
-servo only, in the direction the leader profile says opens it, and turns off when
-requests stop carrying it or stop arriving.
+command a request may carry is gripper force feedback (teleop.grip_feedback). Per leader it is
+a wall (where the trigger meets the object the robot's gripper holds), which the sampler
+renders as a spring from its own trigger readings, or a bounded steady push. The sampler
+sends it to that leader's trigger servo only, in the direction the leader profile says
+opens it, and turns it off when requests stop carrying it or stop arriving.
 """
 import math
 import re
@@ -27,6 +28,11 @@ SAMPLER_HZ = 200.
 # trigger is refreshed at least every GRIP_REFRESH_S, well inside the firmware's 200 ms zeroing watchdog.
 GRIP_STALE_S = .1
 GRIP_REFRESH_S = .02
+# A wall pushes nothing at its reading and k mA per radian squeezed past it, up to its cap, from the sampler's own
+# latest trigger reading (a poll old, not the robot loop's round trip). A new wall's push rises over WALL_ONSET_S,
+# so a trigger already squeezed past it is not kicked.
+WALL_KEYS = frozenset({'wall', 'k', 'cap'})
+WALL_ONSET_S = .06
 
 
 class CachedLeaderSampleStale(LeaderSampleSkipped):
@@ -61,6 +67,7 @@ class LatestLeaderInputs:
         self._grip = self._grip_at = None
         self._sent = {name: None for name in self.triggers}
         self._sent_at = {name: -math.inf for name in self.triggers}
+        self._wall_since = {name: None for name in self.triggers}  # When each trigger's current wall appeared.
 
     @property
     def grip(self):
@@ -72,25 +79,47 @@ class LatestLeaderInputs:
         self.set_grip(value)
 
     def set_grip(self, grip):
-        """The loop's resist strengths {leader: mA}, or None for no force feedback. A leader without a trigger in
-        the profile is ignored; a strength over the firmware cap is capped when sent."""
+        """The loop's force feedback {leader: wall or mA} (grip_value), or None for none. A leader without a trigger
+        in the profile is ignored; a push over the firmware cap is capped when sent."""
         if grip is not None:
-            if not isinstance(grip, dict) or any(
-                    type(value) not in (int, float) or not math.isfinite(value) or value < 0 for value in grip.values()):
-                raise ValueError("Force feedback strengths are finite mA per leader, not negative")
-            grip = {name: float(value) for name, value in grip.items() if name in self.triggers}
+            checked = {name: grip_value(value) for name, value in grip.items()} if isinstance(grip, dict) else None
+            if checked is None or any(value is None for value in checked.values()):
+                raise ValueError("Force feedback is a wall or finite mA per leader, not negative")
+            grip = {name: value for name, value in checked.items() if name in self.triggers}
         with self._lock:
             self._grip, self._grip_at = grip, self.clock()
+
+    def _wall_push(self, wall, sample, trigger, age):
+        """A wall's push now (mA): k per radian the trigger's latest reading is squeezed past it, capped, rising
+        over WALL_ONSET_S from when it appeared."""
+        from .grip_feedback import past_wall
+        channel, opens = trigger
+        # Never an exception here: it would stop the sampler, and with it teleop. No usable reading: no push.
+        positions = getattr(sample, 'positions_rad', None)
+        if not isinstance(positions, (tuple, list)) or not 0 < channel <= len(positions):
+            return 0
+        reading = positions[channel - 1]
+        if type(reading) not in (int, float) or not math.isfinite(reading):
+            return 0
+        push = min(wall['cap'], wall['k'] * past_wall(wall['wall'], reading, opens))
+        return int(round(push * min(1., max(0., age) / WALL_ONSET_S)))
 
     def _feedback_frames(self, now):
         """The FF_CURRENT frames due now: an active trigger refreshed or changed, a stopped one turned off once."""
         from .grip_feedback import FF_DISABLE, SERVOS, ff_frame, trigger_currents
         with self._lock:
-            grip, at = self._grip, self._grip_at
+            grip, at, samples = self._grip, self._grip_at, self._samples
         fresh = grip is not None and at is not None and now - at <= GRIP_STALE_S
         frames = {}
         for name, trigger in self.triggers.items():
-            wanted = int(round(grip.get(name, 0.))) if fresh else None
+            value = grip.get(name, 0.) if fresh else None
+            if isinstance(value, dict):
+                if self._wall_since[name] is None:
+                    self._wall_since[name] = now
+                wanted = self._wall_push(value, (samples or {}).get(name), trigger, now - self._wall_since[name])
+            else:
+                self._wall_since[name] = None
+                wanted = None if value is None else int(round(value))
             sent = self._sent[name]
             if wanted is None:
                 if sent is not None:
@@ -154,14 +183,29 @@ class LatestLeaderInputs:
         self.inputs.close()
 
 
+def grip_value(value):
+    """One leader's force feedback, or None when malformed. It is either:
+    - a steady push in mA, 0-1000; or
+    - a wall {'wall': trigger reading (rad), 'k': mA per rad squeezed past it, 0-1e6, 'cap': mA, 0-1000}."""
+    if type(value) in (int, float):
+        return float(value) if math.isfinite(value) and 0 <= value <= 1000 else None
+    if not isinstance(value, dict) or set(value) != WALL_KEYS or any(
+            type(value[key]) not in (int, float) or not math.isfinite(value[key]) for key in WALL_KEYS):
+        return None
+    if not abs(value['wall']) <= 1000 or not 0 <= value['k'] <= 1e6 or not 0 <= value['cap'] <= 1000:
+        return None
+    return {key: float(value[key]) for key in WALL_KEYS}
+
+
 def grip_request(value):
-    """A request's force-feedback strengths, or None (none asked for, or malformed: feedback off, never a fault)."""
+    """A request's force feedback {leader: wall or mA}, or None (none asked for, or malformed: feedback off, never
+    a fault)."""
     if not isinstance(value, dict) or not value or len(value) > 8:
         return None
-    if any(not isinstance(name, str) or type(ma) not in (int, float) or not math.isfinite(ma) or not 0 <= ma <= 1000
-           for name, ma in value.items()):
+    checked = {name: grip_value(item) for name, item in value.items()}
+    if any(not isinstance(name, str) or item is None for name, item in checked.items()):
         return None
-    return {name: float(ma) for name, ma in value.items()}
+    return checked
 
 
 def sample_reply(request, inputs, epoch, *, clock=time.perf_counter):

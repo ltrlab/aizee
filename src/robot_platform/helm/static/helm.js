@@ -3,7 +3,7 @@ import {LiveCameraView} from './camera_live.js';
 import {PedalControls, presentation, recordingLabel, StateOrder} from './pedals.js';
 import {LiveReplayCard, ReplayView} from './replay.js';
 import {HOLD_STILL, policyLabel, policyNote, policyOptions, policyStats} from './policy.js';
-import {gripView} from './grip.js';
+import {GRIP_SETTINGS, gripLive, gripSettingText, gripSliderValue, gripView} from './grip.js';
 import {upsView} from './ups.js';
 
 // Helm operator page. Reads /api/helm/state; every action needs the session token.
@@ -378,13 +378,14 @@ function renderGripFeedback(teleop) {
     bar.querySelector('b').textContent = `${side.percent}%`;
   }
   $('grip-readout').textContent = view.text;
-  const cap = $('grip-cap'), strength = $('grip-strength');
-  cap.disabled = strength.disabled = !teleop || gripPending;
-  if (document.activeElement !== cap && Number.isFinite(view.settings.cap_ma)) cap.value = String(Math.round(view.settings.cap_ma));
-  if (document.activeElement !== strength && Number.isFinite(view.settings.strength))
-    strength.value = String(Math.round(view.settings.strength * 100));
-  $('grip-cap-value').textContent = `${cap.value} mA`;
-  $('grip-strength-value').textContent = `${strength.value}%`;
+  for (const setting of GRIP_SETTINGS) {
+    const input = $(setting.id), value = Number(view.settings[setting.key]);
+    input.disabled = !teleop || gripPending;
+    if (document.activeElement !== input && Number.isFinite(value)) input.value = gripSliderValue(setting, value);
+    $(`${setting.id}-value`).textContent = gripSettingText(setting, input.value);
+  }
+  $('grip-defaults').disabled = !teleop || gripPending;
+  $('grip-live').textContent = gripLive(teleop);
 }
 async function setGripFeedback(payload, done) {
   gripPending = true;
@@ -401,12 +402,13 @@ async function setGripFeedback(payload, done) {
   }
 }
 $('grip-on').onchange = () => setGripFeedback({enabled: $('grip-on').checked});
-$('grip-cap').oninput = () => { $('grip-cap-value').textContent = `${$('grip-cap').value} mA`; };
-$('grip-cap').onchange = () => setGripFeedback({cap_ma: Number($('grip-cap').value)},
-  `Saved: the trigger pushes with at most ${$('grip-cap').value} mA.`);
-$('grip-strength').oninput = () => { $('grip-strength-value').textContent = `${$('grip-strength').value}%`; };
-$('grip-strength').onchange = () => setGripFeedback({strength: Number($('grip-strength').value) / 100},
-  `Saved: strength ${$('grip-strength').value}%.`);
+for (const setting of GRIP_SETTINGS) {
+  const input = $(setting.id);
+  input.oninput = () => { $(`${setting.id}-value`).textContent = gripSettingText(setting, input.value); };
+  input.onchange = () => setGripFeedback({[setting.key]: Number(input.value) / setting.scale},
+    `Saved: ${setting.label} ${gripSettingText(setting, input.value)}.`);
+}
+$('grip-defaults').onclick = () => setGripFeedback({reset: true}, 'Saved: the default settings.');
 
 // Mode is fixed at launch. The server enforces the same separation for every action.
 function renderMode(state) {
