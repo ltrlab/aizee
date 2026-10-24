@@ -160,6 +160,15 @@
       little more.
     - The remaining pulses are stick-slip on slow closes: the gripper sticks for 100–250 ms at 0.5–0.8 Nm, and the
       data cannot tell that apart from a light grasp.
+  - **Gate:** `scripts/dev.py check --offline` passed on `30dffc4`: 1311 tests, none skipped
+    (`build/dev-check/20261024T033943Z-e5a73a2f/report.json`). Before it, `dev.py quick` ran the touched tests in 13 s.
+  - **Deployed 2026-10-24 at about 15:38Z** at the user's request ("stop the session and deploy it"):
+    - The open session (`live-20261024T025757Z`, its arms disabled since 03:00:50Z) was stopped by
+      `systemctl --user stop minerva-helm`. That SIGTERM reaches Helm alone (the loop and receiver run in their own SSH
+      session), and Helm's shutdown runs the same `teleop.stop()` as its Stop button: 2.9 s, recording closed.
+    - Jetson release `20261024T153657Z-30dffc4` (previous `20261024T024559Z-4a90810`) went through soliloquy: staged,
+      verified, activated, disarmed smoke test passed, Helm restarted, the GELLO bridge reconnected.
+    - Minerva has no saved grip settings, so the new defaults apply.
   - **Not yet felt:** the new law needs the user's bench trial, then tuning in Settings if it is off.
 - **Remaining uncertainty:**
   - The grip law of 2026-10-24 is not yet felt on hardware: the bench check above, then the settings.
