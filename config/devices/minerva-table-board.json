@@ -1,0 +1,18 @@
+{
+  "kind": "minerva_table_board",
+  "frame": "The user's taped rectangle (2026-10-18): origin at the outer near-left corner of tag 0's black square, x along the near side toward tag 1, y away from the robot toward tag 3, z up out of the table. Near is the robot's side.",
+  "family": {"value": "DICT_4X4_50", "source": "claude/table-fiducial-labels, scripts/fiducials/make_tag_labels.py: the ArUco labels printed for this table, 2026-10-17"},
+  "square_m": {"value": 0.04318, "source": "user 2026-10-18: the black square measures 43.18 mm by calipers, and the 10 mm scale arms exactly 10 mm"},
+  "orientation": "Every label lies flat with its text end toward the robot and its edges square to the rectangle, so each code's top points away from the robot and a marker's axes are the board's (yaw 0). The head camera's fit of tags 0, 2-5 at 0.75 px RMS (2026-10-18) confirms this.",
+  "tags": {
+    "0": {"center_m": [0.02159, 0.02159], "source": "user 2026-10-18: outer corner at the rectangle's near-left corner"},
+    "1": {"center_m": [0.62841, 0.02159], "source": "user 2026-10-18: outer corner at the rectangle's near-right corner (650 mm from tag 0's)"},
+    "2": {"center_m": [0.62841, 0.41941], "source": "user 2026-10-18: outer corner at the rectangle's far-right corner (441 mm from tag 1's)"},
+    "3": {"center_m": [0.02159, 0.41941], "source": "user 2026-10-18: outer corner at the rectangle's far-left corner"},
+    "4": {"center_m": [0.3237, 0.0224], "source": "head camera 2026-10-18 03:25Z: the middle of the near side, not taped (claude/sim-table-fiducials workcell)"},
+    "5": {"center_m": [0.3236, 0.4168], "source": "head camera 2026-10-18 03:25Z: the middle of the far side, not taped (claude/sim-table-fiducials workcell)"}
+  },
+  "excluded": "Tags 6 and 7 are on the box's walls, which move with the box; they are not part of the board.",
+  "placement_sigma_m": {"value": 0.005, "source": "user 2026-10-24: the taped layout is rough, probably within +-5 mm"},
+  "yaw_sigma_deg": {"value": 2.0, "source": "assumed: labels squared to the tape by eye; not measured"}
+}

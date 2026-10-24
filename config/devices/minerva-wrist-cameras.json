@@ -1,0 +1,16 @@
+{
+  "kind": "minerva_wrist_cameras",
+  "urdf": "urdf/minerva/minerva.urdf",
+  "board": "config/devices/minerva-table-board.json",
+  "cameras": {
+    "left_wrist": {"arm": "left", "link": "1_1_02_eb571_960_stp_2", "size": [640, 480],
+                   "source": "simulation/task_scene.py WRISTS: the gripper body after J6, so the camera turns with J6. The solve also tries J6's parent link and reports which fits."},
+    "right_wrist": {"arm": "right", "link": "1_1_02_eb571_960_stp", "size": [640, 480],
+                    "source": "simulation/task_scene.py WRISTS: the gripper body after J6, so the camera turns with J6. The solve also tries J6's parent link and reports which fits."}
+  },
+  "still": {
+    "frames": {"value": 8, "source": "a stack of 8 cuts per-frame noise ~2.2 DN to ~0.8 (camera_noise_stack.py, 2026-10-24: white noise, sigma/sqrt(N) held to 120 frames)"},
+    "settle_s": {"value": 0.25, "source": "chosen: the joints are read twice this far apart before the frames, and once after"},
+    "still_rad": {"value": 0.0015, "source": "chosen: 1.5 mrad is about 0.6 mm at a 0.4 m reach, under a pixel at the board"}
+  }
+}
