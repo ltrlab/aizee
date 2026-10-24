@@ -169,9 +169,23 @@
     - Jetson release `20261024T153657Z-30dffc4` (previous `20261024T024559Z-4a90810`) went through soliloquy: staged,
       verified, activated, disarmed smoke test passed, Helm restarted, the GELLO bridge reconnected.
     - Minerva has no saved grip settings, so the new defaults apply.
-  - **Not yet felt:** the new law needs the user's bench trial, then tuning in Settings if it is off.
+  - **Felt 2026-10-24, session `live-20261024T155900Z`.**
+    - The trigger pushes open (`open_sign` +1 confirmed).
+    - The user: "the sensitivity is good but it still kinda pulses a little bit when in contact", and should be more
+      sensitive still.
+    - **The pulse is a loop through the operator's finger** (the deployed law replayed on the session's 100 Hz log):
+      - The trigger is both the force display and the gripper's position command. Two trains of short grips
+        (31–35 s, 270–277 s) repeat about every 0.45 s.
+      - At 270.7 s the grip starts at 1.0 Nm and the push reaches 119 mA in 60 ms. The trigger, held lightly, opens
+        0.17 rad (gripper units) within 80 ms. The gripper loosens, the squeeze falls to 0, and the grip ends. The
+        finger recloses and the squeeze builds again.
+      - Held firmly (26.7 s, 1.8 s) the push stayed a steady 93 mA.
+      - The loop's gain is about the push slope × the gripper's 25 Nm/rad ÷ the finger's stiffness (about 700 mA/rad
+        held lightly). Any push the operator can feel puts it above 1, so no setting removes the pulse. More
+        sensitivity makes it worse.
+    - The fault that ended the session was a right-wrist limit trip, unrelated to the triggers: the hand dragged on a
+      surface with the wrist at its usable end.
 - **Remaining uncertainty:**
-  - The grip law of 2026-10-24 is not yet felt on hardware: the bench check above, then the settings.
-  - The trigger's direction (`open_sign`) is still to be confirmed on the bench.
+  - The pulse in contact (above) needs a structural change. Settings cannot remove it.
   - The left gripper has never held anything in a recorded session, so its squeeze level is unmeasured.
   - Stick-slip on a slow close can still read as a short grip (about 1 a minute in the replays).
