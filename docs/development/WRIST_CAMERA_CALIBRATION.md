@@ -129,6 +129,17 @@ A board corner p is seen at `project(camera, X^-1 F(q)^-1 Y p)`, with F(q) the U
 degrees of the sim's guess (it is a guess); the placement within about 10 mm of the tape measure (the board is
 +-5 mm and the tape similar); the two arms agreeing within a few mm.
 
+## Deploy
+
+- **2026-10-24 ~23:12Z, with the user's OK ("go ahead and deploy"):** Minerva runs `20261024T231140Z-783e450`
+  (`claude/helm-on-jetson` fast-forwarded to this branch). Gate: 1322 tests passed, none skipped. Helm restarted and
+  listens; soliloquy's bridge is unchanged (no bridge code changed).
+- **Self-test on the robot after the deploy** (`calib_selftest_robot.py` in the session scratchpad; no session, nothing
+  moved): the release loads the rig and board; a capture without a session is refused; Helm's own pinned SSH to the
+  helper took 4-frame stills on both wrist cameras (saved, thumbnails 7 kB, no tags at the rest pose); nothing left
+  behind.
+- **Not yet done:** the live test above and the light-panel session.
+
 ## Uncertainty and next steps
 
 - The board is known to +-5 mm, so the placement is too (its mean); the cameras' relative geometry is not limited by it.
