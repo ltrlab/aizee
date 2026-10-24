@@ -59,7 +59,7 @@ CORE = [
     'tests/unit/test_capture_process.py', 'tests/contract/test_task_receiver_capture.py',
     'tests/unit/test_eval_stats.py', 'tests/unit/test_eval_report.py',
     'tests/contract/test_eval_reference_policies.py',
-    'tests/unit/test_ci_windows_gl.py', 'tests/unit/test_dev_gate.py',
+    'tests/unit/test_ci_windows_gl.py', 'tests/unit/test_dev_gate.py', 'tests/unit/test_gate_time_study.py',
     'tests/unit/test_platform_packaging.py',
 ]
 

@@ -37,6 +37,8 @@ pytest XML. The report contains source commit, dirty state, a source content has
 dependency-lock hash and binary hashes. It rejects source edits made during the
 run. Keep the entire run directory when reporting a failure; it is not a release
 qualification record or a substitute for the existing release manifest.
+`python scripts/gate_time_study.py [run...]` splits a run's time into its stages, test files and
+slowest tests, and compares runs. A run that spans the computer's sleep counts the sleep.
 
 ## Dependency updates
 
