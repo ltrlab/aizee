@@ -42,7 +42,7 @@ include = ["robot_platform*"]
 "robot_platform.robots" = ["definitions/*.json"]
 "robot_platform.settings" = ["defaults/*.json"]
 "robot_platform.viewer" = ["static/*.html", "static/*.css", "static/*.js", "static/vendor/*"]
-"robot_platform.helm" = ["static/*.html", "static/*.css", "static/*.js"]
+"robot_platform.helm" = ["static/*.html", "static/*.css", "static/*.js", "static/fonts/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit", "tests/contract"]

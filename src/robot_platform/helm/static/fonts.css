@@ -1,0 +1,7 @@
+/* Helm's pixel type, after RetroUI (github.com/Dksie09/RetroUI). RetroUI's own font copies Minecraft's, without a
+   clear licence, so Helm uses two SIL OFL 1.1 fonts instead (licences beside them in fonts/): Pixelify Sans for text,
+   and Monocraft, monospaced, for live numbers (Pixelify Sans has no tabular figures). Both are subset to Latin,
+   Greek, punctuation, arrows and maths symbols; anything else falls back to the system font. */
+@font-face{font-family:"Pixelify Sans";src:url(fonts/pixelify-sans.woff2) format("woff2");font-weight:400 700;font-display:swap}
+@font-face{font-family:Monocraft;src:url(fonts/monocraft-regular.woff2) format("woff2");font-weight:300 500;font-display:swap}
+@font-face{font-family:Monocraft;src:url(fonts/monocraft-bold.woff2) format("woff2");font-weight:600 900;font-display:swap}

@@ -109,6 +109,10 @@ def test_the_page_needs_a_login_and_changes_need_control_but_any_device_may_stop
     async def scenario(client):
         page = await client.get('/', allow_redirects=False)
         assert page.status == 302 and page.headers['Location'] == '/login'
+        font = await client.get('/helm/fonts/pixelify-sans.woff2')  # The login page's type, before a login.
+        assert font.status == 200 and (await font.read())[:4] == b'wOF2'
+        for other in ('/helm/helm.js', '/helm/fonts/monocraft-regular.woff2', '/helm/fonts/OFL-Monocraft.txt'):
+            assert (await client.get(other, allow_redirects=False)).status == 302
         state = await client.get('/api/helm/state')
         assert state.status == 401 and (await state.json())['login'] is True
         wrong = await client.post('/api/helm/login', json={'password': 'nope-nope', 'device': 'Tablet'})
