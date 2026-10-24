@@ -4,27 +4,33 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Helm login</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-1 -1 15 15' shape-rendering='crispEdges'%3E%3Crect x='-1' y='-1' width='15' height='15' fill='%239c5190'/%3E%3Cpath fill='%23fefcd0' d='M6 0h1v13H6zM0 6h13v1H0zM1 1h1v1H1zM11 1h1v1h-1zM2 2h1v1H2zM10 2h1v1h-1zM4 2h2v1H4zM7 2h2v1H7zM3 3h1v1H3zM9 3h1v1H9zM2 4h1v2H2zM10 4h1v2h-1zM4 4h1v1H4zM8 4h1v1H8zM5 5h1v1H5zM7 5h1v1H7zM2 7h1v2H2zM10 7h1v2h-1zM5 7h1v1H5zM7 7h1v1H7zM4 8h1v1H4zM8 8h1v1H8zM3 9h1v1H3zM9 9h1v1H9zM2 10h1v1H2zM10 10h1v1h-1zM4 10h2v1H4zM7 10h2v1H7zM1 11h1v1H1zM11 11h1v1h-1z'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-1 -1 15 15' shape-rendering='crispEdges'%3E%3Crect x='-1' y='-1' width='15' height='15' fill='%231f5fbf'/%3E%3Cpath fill='%23ffffff' d='M6 0h1v13H6zM0 6h13v1H0zM1 1h1v1H1zM11 1h1v1h-1zM2 2h1v1H2zM10 2h1v1h-1zM4 2h2v1H4zM7 2h2v1H7zM3 3h1v1H3zM9 3h1v1H9zM2 4h1v2H2zM10 4h1v2h-1zM4 4h1v1H4zM8 4h1v1H8zM5 5h1v1H5zM7 5h1v1H7zM2 7h1v2H2zM10 7h1v2h-1zM5 7h1v1H5zM7 7h1v1H7zM4 8h1v1H4zM8 8h1v1H8zM3 9h1v1H3zM9 9h1v1H9zM2 10h1v1H2zM10 10h1v1h-1zM4 10h2v1H4zM7 10h2v1H7zM1 11h1v1H1zM11 11h1v1h-1z'/%3E%3C/svg%3E">
+  <script>try{if(localStorage.getItem('helm-theme')==='dark')document.documentElement.dataset.theme='dark'}catch{/* Day theme. */}</script>
   <style>
-    /* Helm's RetroUI look (helm.css), self-contained: before a login only the fonts are served (helm.server). */
+    /* Helm's RetroUI look (helm.css), self-contained: before a login only the text font is served (helm.server). The
+       day / night choice is the one Helm saved in this browser. */
     @font-face{font-family:"Pixelify Sans";src:url(/helm/fonts/pixelify-sans.woff2) format("woff2");font-weight:400 700;font-display:swap}
-    :root{color-scheme:light;--ink:#1d1424;--paper:#ece5eb;--grid:#e0d6de;--cream:#fefcd0;--mauve-deep:#9c5190;--drop:#cbb3c6;--muted:#625566;--bad:#c0263a;
-      --pix:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3' shape-rendering='crispEdges'%3E%3Cpath fill='%231d1424' d='M1 0h1v1H1zM0 1h1v1H0zM2 1h1v1H2zM1 2h1v1H1z'/%3E%3C/svg%3E");
-      --wheel:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 13 13' shape-rendering='crispEdges'%3E%3Cpath fill='%23fefcd0' d='M6 0h1v13H6zM0 6h13v1H0zM1 1h1v1H1zM11 1h1v1h-1zM2 2h1v1H2zM10 2h1v1h-1zM4 2h2v1H4zM7 2h2v1H7zM3 3h1v1H3zM9 3h1v1H9zM2 4h1v2H2zM10 4h1v2h-1zM4 4h1v1H4zM8 4h1v1H8zM5 5h1v1H5zM7 5h1v1H7zM2 7h1v2H2zM10 7h1v2h-1zM5 7h1v1H5zM7 7h1v1H7zM4 8h1v1H4zM8 8h1v1H8zM3 9h1v1H3zM9 9h1v1H9zM2 10h1v1H2zM10 10h1v1h-1zM4 10h2v1H4zM7 10h2v1H7zM1 11h1v1H1zM11 11h1v1h-1z'/%3E%3C/svg%3E")}
+    :root{color-scheme:light;--ink:#15181d;--text:#15181d;--paper:#ffffff;--grid:#eef1f5;--card:#ffffff;--blue:#1f5fbf;--blue-hover:#184c99;--drop:#c8d2de;
+      --shadow:#15181d;--muted:#566070;--bad:#c0263a;
+      --pix:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3' shape-rendering='crispEdges'%3E%3Cpath fill='%2315181d' d='M1 0h1v1H1zM0 1h1v1H0zM2 1h1v1H2zM1 2h1v1H1z'/%3E%3C/svg%3E");
+      --wheel:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 13 13' shape-rendering='crispEdges'%3E%3Cpath fill='%23ffffff' d='M6 0h1v13H6zM0 6h13v1H0zM1 1h1v1H1zM11 1h1v1h-1zM2 2h1v1H2zM10 2h1v1h-1zM4 2h2v1H4zM7 2h2v1H7zM3 3h1v1H3zM9 3h1v1H9zM2 4h1v2H2zM10 4h1v2h-1zM4 4h1v1H4zM8 4h1v1H8zM5 5h1v1H5zM7 5h1v1H7zM2 7h1v2H2zM10 7h1v2h-1zM5 7h1v1H5zM7 7h1v1H7zM4 8h1v1H4zM8 8h1v1H8zM3 9h1v1H3zM9 9h1v1H9zM2 10h1v1H2zM10 10h1v1h-1zM4 10h2v1H4zM7 10h2v1H7zM1 11h1v1H1zM11 11h1v1h-1z'/%3E%3C/svg%3E")}
+    :root[data-theme=dark]{color-scheme:dark;--ink:#c5ccd5;--text:#eef1f4;--paper:#0b0c0f;--grid:#15181d;--card:#14171b;--blue:#2f6fd0;--blue-hover:#3d80e3;
+      --drop:#000;--shadow:#000;--muted:#9aa4b0;--bad:#ff6b7d;
+      --pix:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3' shape-rendering='crispEdges'%3E%3Cpath fill='%23c5ccd5' d='M1 0h1v1H1zM0 1h1v1H0zM2 1h1v1H2zM1 2h1v1H1z'/%3E%3C/svg%3E")}
     *{box-sizing:border-box}
-    body{margin:0;min-height:100vh;display:grid;place-items:center;color:var(--ink);font:16px/1.45 "Pixelify Sans",system-ui,sans-serif;padding:16px;background:var(--paper);
+    body{margin:0;min-height:100vh;display:grid;place-items:center;color:var(--text);font:16px/1.45 "Pixelify Sans",system-ui,sans-serif;padding:16px;background:var(--paper);
       background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:22px 22px}
     form,input,button,h1 span{border:3px solid var(--ink);border-image:var(--pix) 1/3px/0 stretch;border-radius:0}
-    form{width:min(380px,100%);background:#fff;padding:22px;display:grid;gap:14px;box-shadow:5px 5px 0 var(--drop)}
+    form{width:min(380px,100%);background:var(--card);padding:22px;display:grid;gap:14px;box-shadow:5px 5px 0 var(--drop)}
     h1{margin:0;font-size:26px;display:flex;align-items:center;gap:12px}
-    h1 span{width:40px;height:40px;font-size:0;background:var(--mauve-deep) var(--wheel) no-repeat center/26px;box-shadow:3px 3px 0 var(--ink)}
+    h1 span{width:40px;height:40px;font-size:0;background:var(--blue) var(--wheel) no-repeat center/26px;box-shadow:3px 3px 0 var(--shadow)}
     p{margin:0;color:var(--muted);font-size:14px}
     label{display:grid;gap:5px;font-size:14px;color:var(--muted)}
-    input{font:inherit;color:var(--ink);background:#fff;padding:8px 11px;min-height:46px}
+    input{font:inherit;color:var(--text);background:var(--card);padding:8px 11px;min-height:46px}
     input:focus-visible,button:focus-visible{outline:3px solid #2b62b3;outline-offset:3px}
-    button{font:inherit;font-weight:700;color:var(--cream);background:var(--mauve-deep);padding:9px;min-height:48px;cursor:pointer;box-shadow:3px 3px 0 var(--ink)}
-    button:hover:not(:disabled){background:#86437b}
-    button:active:not(:disabled){transform:translate(2px,2px);box-shadow:1px 1px 0 var(--ink)}
+    button{font:inherit;font-weight:700;color:#fff;background:var(--blue);padding:9px;min-height:48px;cursor:pointer;box-shadow:3px 3px 0 var(--shadow)}
+    button:hover:not(:disabled){background:var(--blue-hover)}
+    button:active:not(:disabled){transform:translate(2px,2px);box-shadow:1px 1px 0 var(--shadow)}
     button:disabled{opacity:.6;cursor:default;box-shadow:none}
     #error{color:var(--bad);min-height:18px}
   </style>

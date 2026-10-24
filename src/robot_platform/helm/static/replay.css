@@ -3,33 +3,33 @@
 .replay-stage[hidden]{display:none}
 body[data-tab=replay] .view>:not(#replay-stage){display:none!important}
 .replay-head{display:flex;align-items:baseline;gap:12px;min-width:0}
-.replay-head .eyebrow{color:var(--mauve)}
-.replay-head b{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--cream)}
+.replay-head .eyebrow{color:var(--screen-accent)}
+.replay-head b{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
 #replay-status{margin-left:auto;font-size:13px;color:var(--muted)}
 #replay-status[data-tone=bad]{color:#ff9aa8}#replay-list-status[data-tone=bad]{color:var(--bad)}
 #replay-list-status[data-tone=warn]{color:var(--warn)}
 .replay-cameras{flex:1;min-height:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:stretch}
 .replay-empty{grid-column:1/-1;align-self:center;text-align:center;color:var(--muted)}
-.replay-camera{position:relative;margin:0;min-height:0;display:flex;flex-direction:column;background:#000;border:3px solid var(--cream);border-image:var(--pix-cream) 1/3px/0 stretch;overflow:hidden}
+.replay-camera{position:relative;margin:0;min-height:0;display:flex;flex-direction:column;background:#000;border:3px solid var(--screen-text);border-image:var(--pix-frame) 1/3px/0 stretch;overflow:hidden}
 .replay-camera img{flex:1;min-height:0;width:100%;object-fit:contain;background:#000}
-.replay-camera figcaption{padding:4px 9px;font-size:12px;letter-spacing:.06em;color:var(--cream);background:var(--ink)}
+.replay-camera figcaption{padding:4px 9px;font-size:12px;letter-spacing:.06em;color:var(--text);background:rgba(10,12,15,.92)}
 .replay-camera-note{position:absolute;inset:0 0 26px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;pointer-events:none}
 .replay-camera[data-state=missing] img{visibility:hidden}
 .replay-controls{display:flex;align-items:center;gap:10px}
 .replay-controls input[type=range]{flex:1;min-width:120px}
-.replay-controls button{min-width:42px;box-shadow:3px 3px 0 #000}
+.replay-controls button{min-width:42px;box-shadow:3px 3px 0 var(--screen-shadow)}
 #replay-play{min-width:78px}
 .replay-time{font:12px var(--mono);color:var(--muted);white-space:nowrap}
 .replay-controls select{padding:4px 6px}
-.replay-timeline{display:block;width:100%;height:150px;flex:none;border:3px solid var(--cream);border-image:var(--pix-cream) 1/3px/0 stretch;background:#120d16;cursor:pointer;touch-action:none}
+.replay-timeline{display:block;width:100%;height:150px;flex:none;border:3px solid var(--screen-text);border-image:var(--pix-frame) 1/3px/0 stretch;background:var(--screen);cursor:pointer;touch-action:none}
 
 /* The episode list in the side panel. */
 .replay-list-head{display:flex;align-items:center;gap:10px;margin-top:8px}
 #replay-list-status{font-size:13px;color:var(--muted)}
 .replay-session{margin:16px 0 4px;font-size:12px;letter-spacing:.12em;color:var(--muted);font-weight:700;text-transform:uppercase}
 .replay-episode{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 10px;width:100%;text-align:left;margin:8px 0;padding:8px 11px;background:var(--card);box-shadow:3px 3px 0 var(--drop)}
-.replay-episode:hover:not(:disabled){background:var(--cream)}
-.replay-episode[aria-current=true]{--pix:var(--pix-mauve);background:var(--mauve-soft);box-shadow:3px 3px 0 var(--ink)}
+.replay-episode:hover:not(:disabled){background:var(--btn-hover)}
+.replay-episode[aria-current=true]{--pix:var(--pix-blue);background:var(--blue-soft);box-shadow:3px 3px 0 var(--shadow)}
 .replay-meta{grid-column:1/-1;color:var(--muted);font-size:12.5px}
 .replay-badge{align-self:center;font-size:11px;padding:0 7px;color:var(--good);background:var(--good-soft);border:2px solid var(--good);border-image:var(--pix-good) 1/2px/0 stretch}
 .replay-badge[data-tone=warn]{color:var(--warn);background:var(--warn-soft);border-image-source:var(--pix-warn)}
@@ -46,7 +46,7 @@ body[data-touch=on] .replay-controls select{min-height:48px;font-size:17px}
 /* Training review: each episode's verdict in the list, and Keep / Discard / Clear for the selected one. */
 .replay-list-head select{font-size:13px;padding:3px 6px}
 .replay-verdict{grid-column:1/-1;justify-self:start;font-size:11px;font-weight:700;letter-spacing:.04em;padding:0 7px;border:2px solid var(--line);border-image:var(--pix-line) 1/2px/0 stretch}
-.replay-verdict[data-verdict=keep]{color:#fff;background:var(--good);border-image-source:var(--pix-good)}
+.replay-verdict[data-verdict=keep]{color:#fff;background:var(--good-fill);border-image-source:var(--pix-good)}
 .replay-verdict[data-verdict=discard]{color:var(--muted);text-decoration:line-through}
 .replay-review{border-top:3px solid var(--ink);padding:10px 20px 14px;display:grid;gap:10px;background:var(--card)}
 .replay-review-head{display:flex;align-items:baseline;gap:10px}
@@ -66,13 +66,13 @@ body[data-touch=on] .replay-list-head select{min-height:44px;font-size:16px}
 #replay-live-receiver{font-size:13.5px}
 #replay-live-receiver[data-live=true]{color:var(--bad)}
 .replay-live select{font-size:13.5px;padding:3px 6px;flex:none}
-.live-replay{margin:12px 20px 4px;padding:10px 12px 12px;border:3px solid var(--mauve-deep);border-image:var(--pix-mauve) 1/3px/0 stretch;background:var(--mauve-soft);box-shadow:3px 3px 0 var(--ink);display:grid;gap:8px}
+.live-replay{margin:12px 20px 4px;padding:10px 12px 12px;border:3px solid var(--blue);border-image:var(--pix-blue) 1/3px/0 stretch;background:var(--blue-soft);box-shadow:3px 3px 0 var(--shadow);display:grid;gap:8px}
 .live-replay[hidden]{display:none}
 .live-replay-head{display:flex;align-items:baseline;gap:10px;min-width:0}
 .live-replay-head b{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .live-replay-head .replay-time{margin-left:auto}
 .live-replay-track{height:14px;border:2px solid var(--ink);border-image:var(--pix-ink) 1/2px/0 stretch;background:var(--card);overflow:hidden}
-#t-replay-fill{height:100%;width:0;background:var(--mauve-deep);transition:width .2s linear}
+#t-replay-fill{height:100%;width:0;background:var(--blue);transition:width .2s linear}
 .live-replay-frames{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .live-replay-frames .replay-camera{border-color:var(--ink);border-image-source:var(--pix-ink)}
 .live-replay-frames .replay-camera img{aspect-ratio:4/3;flex:none}
