@@ -1,4 +1,9 @@
-"""Reproducible, hardware-free development gate. Run from any directory."""
+"""Reproducible, hardware-free development gate. Run from any directory.
+
+`check` is the gate. `quick` is the prototype lane: only the gate's tests that touch what changed since this
+checkout's last passing check, in seconds rather than minutes. It refuses a motion-contract change, and it does not
+stand in for `check` before a branch is handed off.
+"""
 from __future__ import annotations
 
 import argparse
@@ -7,6 +12,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -62,6 +68,14 @@ CORE = [
     'tests/unit/test_ci_windows_gl.py', 'tests/unit/test_dev_gate.py', 'tests/unit/test_gate_time_study.py',
     'tests/unit/test_platform_packaging.py',
 ]
+# The motion contract (AGENTS.md: approach, collision envelope, guarded lifecycle and receiver checks, the receiver
+# and collision crates) and the locks: a change there runs the whole check, never the quick lane.
+MOTION_CONTRACT = ('rust/', 'requirements/', 'pyproject.toml', 'src/robot_platform/control/approach.py',
+                   'src/robot_platform/control/collision_envelope.py', 'src/robot_platform/control/collision_guard.py',
+                   'src/robot_platform/control/guarded', 'src/robot_platform/control/live_receiver.py',
+                   'src/robot_platform/control/freshness.py', 'src/robot_platform/teleop/guarded_lifecycle.py',
+                   'src/robot_platform/teleop/lifecycle.py', 'src/robot_platform/simulation/native_collision.py')
+PAGES = ('src/robot_platform/helm/static/', 'src/robot_platform/viewer/static/', 'tests/ui/')
 
 
 def sha(path):
@@ -145,11 +159,12 @@ def required_test_results(path, report=None):
     return results
 
 
-def check(offline=False):
-    run_dir = ROOT / 'build/dev-check' / (
+def new_run(folder, gate):
+    """A run's directory, its report and the command runner that logs into it."""
+    run_dir = ROOT / 'build' / folder / (
         datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ-') + uuid.uuid4().hex[:8])
     run_dir.mkdir(parents=True)
-    report = {'schema_version': 1, 'gate': 'offline-control', 'passed': False, 'commands': []}
+    report = {'schema_version': 1, 'gate': gate, 'passed': False, 'commands': []}
 
     def run(args, env):
         args = list(map(str, args))
@@ -162,18 +177,27 @@ def check(offline=False):
         report['commands'].append({'args': args, 'returncode': result.returncode})
         if result.returncode:
             raise RuntimeError(f'Command failed ({result.returncode}); see {run_dir / "output.log"}')
+    return run_dir, report, run
 
+
+def gate_environment(run_dir):
+    env = rust_environment()
+    temp = run_dir / 'temp'
+    temp.mkdir()
+    env.update(TEMP=str(temp), TMP=str(temp), TMPDIR=str(temp), PYTHONNOUSERSITE='1')
+    # Remove external Python path overrides; an editable install must belong here.
+    env.pop('PYTHONPATH', None)
+    return env
+
+
+def check(offline=False):
+    run_dir, report, run = new_run('dev-check', 'offline-control')
     try:
         report['source_before'] = source_identity()
         report['lock_sha256'] = sha(ROOT / 'requirements/dev.lock')
         if not PYTHON.is_file():
             raise RuntimeError('Run python scripts/dev.py setup first')
-        env = rust_environment()
-        temp = run_dir / 'temp'
-        temp.mkdir()
-        env.update(TEMP=str(temp), TMP=str(temp), TMPDIR=str(temp), PYTHONNOUSERSITE='1')
-        # Remove external Python path overrides; an editable install must belong here.
-        env.pop('PYTHONPATH', None)
+        env = gate_environment(run_dir)
         run([PYTHON, '-c', 'from pathlib import Path; import robot_platform; '
              'assert Path(robot_platform.__file__).resolve().parent == '
              'Path("src/robot_platform").resolve(), "Wrong editable install"'], env)
@@ -216,14 +240,106 @@ def check(offline=False):
     return 0 if report['passed'] else 1
 
 
+def last_passed_commit():
+    """The source commit of this checkout's latest passing check, or None."""
+    for path in sorted((ROOT / 'build/dev-check').glob('*/report.json'), reverse=True):
+        try:
+            report = json.loads(path.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            continue
+        if report.get('gate') == 'offline-control' and report.get('passed'):
+            return report['source_before']['commit']
+    return None
+
+
+def changed_files(base):
+    """Every path that differs from `base`: committed since, staged, unstaged and untracked."""
+    tracked = capture('git', 'diff', '--name-only', base).splitlines()
+    untracked = capture('git', 'ls-files', '--others', '--exclude-standard').splitlines()
+    return sorted(set(filter(None, tracked + untracked)))
+
+
+def module_name(path):
+    """src/robot_platform/a/b.py -> robot_platform.a.b; a package's __init__.py -> the package."""
+    parts = Path(path).with_suffix('').parts[1:]
+    return '.'.join(parts[:-1] if parts[-1] == '__init__' else parts)
+
+
+def select_tests(changed, named=()):
+    """What the quick lane runs: the named test files, or else the gate's tests that name a changed module (or a
+    changed config or script file); with either, every changed test and, for a changed page file, the page checks."""
+    selected = set(named) | {path for path in changed if path.startswith('tests/') and path.endswith('.py')
+                             and Path(path).name.startswith('test_') and (ROOT / path).is_file()}
+    if not named:
+        modules = {module_name(path) for path in changed
+                   if path.startswith('src/robot_platform/') and path.endswith('.py')}
+        patterns = [re.compile(r'\b' + re.escape(name) + r'\b') for name in modules]
+        patterns += [re.compile(r'from ' + re.escape(parent) + r' import [^\n]*\b' + re.escape(leaf) + r'\b')
+                     for parent, _, leaf in (name.rpartition('.') for name in modules)]
+        files = [Path(path).name for path in changed if path.startswith(('config/', 'scripts/'))]
+        for test in CORE:
+            text = (ROOT / test).read_text(encoding='utf-8')
+            if any(pattern.search(text) for pattern in patterns) or any(name in text for name in files):
+                selected.add(test)
+    if any(path.startswith(PAGES) for path in changed):
+        selected.add('tests/unit/test_browser_scripts.py')
+    return sorted(selected)
+
+
+def quick(base=None, named=()):
+    """The prototype lane: select_tests for what changed since `base` (default: the commit of this checkout's last
+    passing check), run with the gate's rules (zero skips, no source edits during the run)."""
+    run_dir, report, run = new_run('dev-quick', 'quick')
+    try:
+        report['source_before'] = source_identity()
+        if not PYTHON.is_file():
+            raise RuntimeError('Run python scripts/dev.py setup first')
+        base = base or last_passed_commit()
+        if base is None:
+            raise RuntimeError('No passing check in this checkout to compare with: pass --base <commit>')
+        if subprocess.run(['git', 'merge-base', '--is-ancestor', base, 'HEAD'], cwd=ROOT).returncode:
+            raise RuntimeError(f'{base} is not in this branch: pass --base <commit>')
+        changed = changed_files(base)
+        report.update(base=base, changed=changed)
+        contract = [path for path in changed if path.startswith(MOTION_CONTRACT)]
+        if contract:
+            raise RuntimeError('The motion contract or a lock changed; run python scripts/dev.py check:\n  '
+                               + '\n  '.join(contract))
+        tests = select_tests(changed, named)
+        report['selected'] = tests
+        print(f'{len(changed)} file(s) changed since {base[:10]}; {len(tests)} test file(s) touch them', flush=True)
+        if tests:
+            env = gate_environment(run_dir)
+            run([PYTHON, '-m', 'pytest', '-q', '--strict-markers', '-o', 'xfail_strict=true',
+                 '--basetemp', run_dir / 'pytest', '--junitxml', run_dir / 'tests.xml', *tests], env)
+            required_test_results(run_dir / 'tests.xml', report)
+        else:
+            print('No test of the gate touches this change.', flush=True)
+        report['source_after'] = source_identity()
+        if report['source_before'] != report['source_after']:
+            raise RuntimeError('Source changed during verification; rerun in an isolated worktree')
+        report['passed'] = True
+    except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
+        report['error'] = str(exc)
+        print(str(exc), file=sys.stderr)
+    finally:
+        (run_dir / 'report.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
+        print(f'Report: {run_dir / "report.json"}', flush=True)
+    return 0 if report['passed'] else 1
+
+
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['setup', 'check'])
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('command', choices=['setup', 'check', 'quick'])
     parser.add_argument('--offline', action='store_true', help='Use cached Cargo dependencies only')
+    parser.add_argument('--base', help='quick: compare with this commit instead of the last passing check')
+    parser.add_argument('tests', nargs='*', help='quick: run these test files instead of the ones it finds')
     args = parser.parse_args()
     if args.command == 'setup':
         setup()
         return 0
+    if args.command == 'quick':
+        return quick(args.base, args.tests)
     return check(args.offline)
 
 

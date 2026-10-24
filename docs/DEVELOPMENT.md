@@ -40,6 +40,19 @@ qualification record or a substitute for the existing release manifest.
 `python scripts/gate_time_study.py [run...]` splits a run's time into its stages, test files and
 slowest tests, and compares runs. A run that spans the computer's sleep counts the sleep.
 
+### Quick lane for prototypes
+
+`python scripts/dev.py quick tests/unit/test_x.py ...` runs only the named test files, plus every changed test and,
+for a changed page file, the page checks: seconds, for iterating on one feature. Without names it runs the gate's
+tests that name a changed module (or a changed config or script file), compared with this checkout's last passing
+check (`--base <commit>` picks another). A change to a module most tests import, such as `helm/teleop.py`, selects
+most of the gate that way, so name the tests for those. The lane keeps the gate's rules (no skips, no source edits
+during the run), writes `build/dev-quick/<run>/report.json`, and refuses any change to the motion contract
+(approach, collision envelope, guarded lifecycle, receiver checks, the Rust crates) or to the locks.
+
+A prototype that passes it may be deployed for a supervised trial, with the user's approval of that deploy. The full
+`check` still has to pass before the branch is handed off or merged, and before a change counts as done.
+
 ## Dependency updates
 
 The development lock is separate from optional training/operator dependencies.
