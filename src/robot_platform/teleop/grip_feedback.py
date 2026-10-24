@@ -28,8 +28,10 @@ Measured on Minerva (docs/development/GRIPPER_FORCE_FEEDBACK.md), closing effort
 - A free close starts stuck for 30-100 ms.
 - One degree of trigger moves the jaws about 0.10 rad (the jaws' 5.2 rad over the trigger's 0.88-0.94 rad sweep),
   about 2.5 Nm of squeeze against an object, so a held cube (about 2 Nm) sits about 0.8 degrees past the wall.
-- The operator's light holds (0.5-0.7 Nm) sit 0.2-0.3 degrees past it, so the default wall is stiff: the maximum
-  at 0.8 degrees. One encoder count of trigger (0.088 degrees) is then about 16 mA.
+- The operator holds close to the wall: in live-20261024T172641Z the median was 0.08-0.15 degrees past it
+  (0.40-0.47 Nm), only 16-28 mA at a 0.8-degree wall of 150 mA. Asked for more, the default is stiffer:
+  the boards' 200 mA at 0.5 degrees (about 1.3 Nm), found within 70 ms. One encoder count of trigger
+  (0.088 degrees) is then about 35 mA.
 """
 import math
 import struct
@@ -39,7 +41,7 @@ FF_DISABLE = -32768  # INT16_MIN: that servo's torque off, freely backdrivable.
 FF_HW_CAP_MA = 200   # Firmware cap per servo; the leader rail needs its 5 V supply for more than one or two servos.
 SERVOS = 7
 
-DEFAULTS = dict(enabled=False, closing_effort_sign=-1, grip_nm=.5, hold_ms=100., wall_deg=.8, cap_ma=150.,
+DEFAULTS = dict(enabled=False, closing_effort_sign=-1, grip_nm=.5, hold_ms=70., wall_deg=.5, cap_ma=200.,
                 still_rad_s=.3, slip_rad_s=1., release_nm=.15, release_ms=250.)
 BOUNDS = dict(grip_nm=(.1, 3.), hold_ms=(0., 500.), wall_deg=(.2, 20.), cap_ma=(0., FF_HW_CAP_MA),
               still_rad_s=(0., 2.), slip_rad_s=(.1, 5.), release_nm=(0., 3.), release_ms=(0., 2000.))

@@ -33,7 +33,7 @@
       trigger open at once.
     - Each request carries `{'wall': reading (rad), 'k': mA per rad, 'cap': mA}` for a gripping leader, `0` for a
       free one, or nothing when feedback is off.
-      - `k` puts the maximum force at `wall_deg` past the wall (default 0.8°, about 2 Nm of squeeze).
+      - `k` puts the maximum force at `wall_deg` past the wall (default 0.5°, about 1.3 Nm of squeeze).
       - Both are × the operator's strength.
       - Only in TELEOP and only when switched on.
     - Until 2026-10-24 the loop decided the push itself:
@@ -62,7 +62,7 @@
     - A readout gives each trigger's push, as the loop estimates it (the PC's is a poll fresher).
   - **Helm, Settings → Grippers:** every setting of the feel, one slider each, applied at once to a running session:
     - the maximum trigger force (0–200 mA) and the strength (0–100 %), which scales the whole push but not the bar;
-    - "Full force at" (0.2–5° past the wall, default 0.8°): fewer degrees make a harder wall. If the trigger buzzes
+    - "Full force at" (0.2–5° past the wall, default 0.5°): fewer degrees make a harder wall. If the trigger buzzes
       at the wall, add some.
     - the grip threshold (0.2–2 Nm) and the hold time (0–300 ms): lower or shorter finds contact sooner but can put
       a brief wall in a free close's stuck start.
@@ -82,7 +82,7 @@
       it sends strengths only for those leaders, and Helm shows feedback as available only when there are some.
 - **Safety:**
   - Feedback can only push a trigger open, and only one servo per board is energised.
-  - The current is capped at the operator's maximum (default 150 mA) by the loop, and at 200 mA by the settings check, the PC and the firmware.
+  - The current is capped at the operator's maximum (default 200 mA since 2026-10-24, 150 before) by the loop, and at 200 mA by the settings check, the PC and the firmware.
   - It is off by default, off outside TELEOP, and off when the session or link ends. The firmware watchdog backs that up.
   - The leader rail runs on its 5 V supply.
 - **Shared interfaces held fixed:**
@@ -227,8 +227,23 @@
     - Then the GELLO bridge on soliloquy, packaged from the same commit (`gello-bridge-1514d68767`, 173 files). Its
       task is running and it reconnected to Helm.
     - Minerva has no saved grip settings, so the defaults apply.
+- **2026-10-24: more sensitive defaults,** at the user's request. The user felt the wall ("that effect feels very
+  good. they just need to be even more sensitive"), then: "make those the defaults and deploy when the gate passes".
+  - **Evidence:** replaying the wall law on that session (`live-20261024T172641Z`, 259 s of TELEOP):
+    - 18 walls on the left and 15 on the right, at squeezes of 0.40 and 0.47 Nm (medians).
+    - The triggers sat only 0.08° and 0.15° past the wall (medians; 0.45° and 0.37° p90), so the push was 16 and
+      28 mA (84 and 69 mA p90).
+    - Each wall took the 100 ms hold to appear, and 10–14 contacts per gripper (past 0.5 Nm for 50–100 ms) never
+      got one.
+  - **New defaults:**
+    - The boards' 200 mA maximum, reached at 0.5° past the wall: the same holds give 59 mA right and 34 mA left
+      (medians), 148 and 179 mA p90.
+    - A 70 ms hold.
+    - The grip threshold stays 0.5 Nm, above the gripper's 0.30–0.35 Nm of rest friction.
+  - **Cost:** one encoder count of trigger is about 35 mA (16 before), and long stuck starts of a free close can put
+    up a brief wall. If the trigger buzzes at the wall, raise "Full force at".
 - **Remaining uncertainty:**
-  - The wall is not yet felt on hardware.
-  - Whether 0.8° stays stable at the trigger (no buzz at the wall) is unknown: the PC's loop is a 200 Hz poll.
+  - The wall is not yet felt with these defaults.
+  - Whether 0.5° at 200 mA stays stable at the trigger (no buzz at the wall) is unknown: the PC's loop is a 200 Hz poll.
   - The left gripper has never held anything in a recorded session, so its squeeze level is unmeasured.
   - Stick-slip on a slow close can still read as a short grip (about 1 a minute in the replays).
