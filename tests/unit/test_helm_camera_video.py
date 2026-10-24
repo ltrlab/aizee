@@ -389,6 +389,9 @@ def test_a_slow_link_gets_fewer_frames_and_keeps_its_stream(helm, monkeypatch):
             assert fast > 3 and resumed > 3 and links[-1] == 'ok'
             transport = next(item for item in seen if item is not None)
             assert transport.get_write_buffer_limits()[1] == server.VIDEO_HIGH_WATER  # Never paused under the backlog.
+            import socket
+            kernel = transport.get_extra_info('socket').getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF)
+            assert server.VIDEO_SOCKET_BUFFER <= kernel <= 2 * server.VIDEO_SOCKET_BUFFER  # No second of video queued.
             await ws.close()
     asyncio.run(run())
 

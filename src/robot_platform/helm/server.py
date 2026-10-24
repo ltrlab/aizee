@@ -15,6 +15,7 @@ import asyncio
 import contextvars
 from pathlib import Path
 import secrets
+import socket
 import time
 from .session import WIRED
 
@@ -69,10 +70,13 @@ def task_visual_label(capabilities):
 CURRENT_SESSION = contextvars.ContextVar('helm_session', default=None)
 OPEN_POSTS = ('/api/helm/logout', '/api/helm/control/claim', '/api/helm/control/release')
 
-# A camera viewer on a slow link (a tablet on Minerva's Wi-Fi) gets fewer frames, not a closed stream. Frames wait in
-# the connection's send buffer up to VIDEO_BACKLOG and newer ones are skipped beyond it. The buffer's high-water mark
-# stays far above that, so asyncio never pauses the stream: Python 3.10's TLS layer resumes a paused one wrongly.
-VIDEO_BACKLOG = 256 * 1024
+# A camera viewer on a slow link (a tablet on Minerva's Wi-Fi) gets fewer, fresh frames, not a closed stream or old
+# ones. About one frame waits in the connection's send buffer (VIDEO_BACKLOG) and newer ones are skipped beyond it;
+# the socket's own kernel buffer is capped (VIDEO_SOCKET_BUFFER; Linux doubles it), so no second of video queues on
+# the link ahead of the page's state requests. The buffer's high-water mark stays far above the backlog, so asyncio
+# never pauses the stream: Python 3.10's TLS layer resumes a paused one wrongly.
+VIDEO_BACKLOG = 64 * 1024
+VIDEO_SOCKET_BUFFER = 32 * 1024
 VIDEO_HIGH_WATER = 4 * 1024 * 1024
 VIDEO_SLOW_S = 2.  # The stream reports a slow link for this long after it last skipped a frame.
 
@@ -415,6 +419,9 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         transport = request.transport
         if transport is not None:
             transport.set_write_buffer_limits(high=VIDEO_HIGH_WATER)
+            raw = transport.get_extra_info('socket')
+            if raw is not None:
+                raw.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, VIDEO_SOCKET_BUFFER)
         video_sockets.add(ws)
         acquiring = asyncio.create_task(off_loop(camera_video.subscribe))
         try:
