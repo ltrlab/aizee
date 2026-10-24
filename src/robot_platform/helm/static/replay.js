@@ -333,7 +333,7 @@ class JointTimeline {
     canvas.height = height;
     const g = canvas.getContext('2d');
     const ratio = globalThis.devicePixelRatio || 1;
-    g.fillStyle = '#0e1013';
+    g.fillStyle = '#120d16';  // Helm's dark screen (helm.css --screen family).
     g.fillRect(0, 0, width, height);
     const t = this.series?.t || [];
     const qpos = this.series?.qpos || [];
@@ -350,7 +350,7 @@ class JointTimeline {
       const middle = (low + high) / 2;
       const span = Math.max(high - low, .1) * 1.15;  // A still joint draws flat, not magnified noise.
       const y = value => top + laneHeight * (.5 - (value - middle) / span);
-      g.strokeStyle = '#2c3036';
+      g.strokeStyle = '#3a2f40';
       g.lineWidth = 1;
       g.beginPath();
       g.moveTo(0, top + .5);
@@ -367,8 +367,8 @@ class JointTimeline {
         }
         g.stroke();
       });
-      g.fillStyle = '#9ba1a8';
-      g.font = `${11 * ratio}px system-ui, sans-serif`;
+      g.fillStyle = '#b6a8b7';
+      g.font = `${12 * ratio}px "Pixelify Sans", system-ui, sans-serif`;
       g.fillText(label, 6 * ratio, top + 14 * ratio);
     });
     return canvas;
@@ -382,8 +382,8 @@ class JointTimeline {
     const duration = this.duration;
     if (!(duration > 0)) return;
     const x = Math.round(time / duration * this.canvas.width) + .5;
-    g.strokeStyle = '#e9ebee';
-    g.lineWidth = Math.max(1, globalThis.devicePixelRatio || 1);
+    g.strokeStyle = '#fefcd0';
+    g.lineWidth = 2 * Math.max(1, globalThis.devicePixelRatio || 1);
     g.beginPath();
     g.moveTo(x, 0);
     g.lineTo(x, this.canvas.height);

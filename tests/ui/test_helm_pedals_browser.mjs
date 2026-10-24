@@ -183,7 +183,7 @@ try {
   assert.match(await page.locator('#pedal-phase-label').textContent(),/unavailable/);
   assert.match(await page.locator('#t-state').textContent(),/unavailable/);
   assert.equal(await page.locator('body').getAttribute('data-teleop-state'),'STALE');
-  assert.equal(await page.locator('#t-state').evaluate(el=>getComputedStyle(el).color),'rgb(255, 139, 152)');
+  assert.equal(await page.locator('#t-state').evaluate(el=>getComputedStyle(el).color),'rgb(192, 38, 58)');  // --bad
   report.checks.push('All requested border colors/stages, touch toggle, reduced motion, and stale-server red verified');
   assert.deepEqual(errors,[]);report.passed=true;
 } finally {await browser.close();await new Promise(resolve=>server.close(resolve));await fs.writeFile(path.join(evidence,'report.json'),JSON.stringify(report,null,2));}

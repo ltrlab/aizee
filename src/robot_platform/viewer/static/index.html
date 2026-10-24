@@ -5,7 +5,10 @@
   <title>Robot model viewer</title>
   <link rel="stylesheet" href="static/viewer.css">
   <script type="importmap">{"imports":{"three":"./static/vendor/three.module.js"}}</script>
-  <script>if(new URLSearchParams(location.search).has('embed'))document.documentElement.classList.add('embed');</script>
+  <script>if(new URLSearchParams(location.search).has('embed')){document.documentElement.classList.add('embed');
+    // Only Helm embeds the viewer, so its overlays take Helm's look (a missing sheet elsewhere changes nothing).
+    const theme=document.createElement('link');theme.rel='stylesheet';theme.href='/helm/viewer-theme.css';
+    theme.setAttribute('blocking','render');document.head.append(theme)}</script>
 </head>
 <body>
   <header><div class="brand"><span class="mark">◈</span><div>Robot model viewer<small>Inspect · articulate · compare</small></div></div>

@@ -1,0 +1,54 @@
+/* Helm's look for the embedded 3D view (viewer?embed=1, which only Helm embeds; the viewer links this sheet). The
+   viewport stays a dark screen; its status, tools and joint cards become cream pixel cards like Helm's (helm.css). */
+@import url(fonts.css);
+.embed{--ink:#1d1424;--cream:#fefcd0;--cream-hover:#fff6a8;--mauve:#c381b5;--mauve-deep:#9c5190;--mauve-soft:#f6e7f2;
+  --text:#f3ebf1;--muted:#b6a8b7;--accent:#e3b5d9;--warn:#ffcf6e;
+  --good-ink:#1b7a43;--warn-ink:#985a00;--bad-ink:#c0263a;--info-ink:#2b62b3;--card-muted:#625566;
+  --pix-ink:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3' shape-rendering='crispEdges'%3E%3Cpath fill='%231d1424' d='M1 0h1v1H1zM0 1h1v1H0zM2 1h1v1H2zM1 2h1v1H1z'/%3E%3C/svg%3E");
+  --pix-info:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3' shape-rendering='crispEdges'%3E%3Cpath fill='%232b62b3' d='M1 0h1v1H1zM0 1h1v1H0zM2 1h1v1H2zM1 2h1v1H1z'/%3E%3C/svg%3E");
+  --pix-bad:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3' shape-rendering='crispEdges'%3E%3Cpath fill='%23c0263a' d='M1 0h1v1H1zM0 1h1v1H0zM2 1h1v1H2zM1 2h1v1H1z'/%3E%3C/svg%3E");
+  --pix-warn:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3' shape-rendering='crispEdges'%3E%3Cpath fill='%23b06a00' d='M1 0h1v1H1zM0 1h1v1H0zM2 1h1v1H2zM1 2h1v1H1z'/%3E%3C/svg%3E");
+  --pix-mauve:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3' shape-rendering='crispEdges'%3E%3Cpath fill='%239c5190' d='M1 0h1v1H1zM0 1h1v1H0zM2 1h1v1H2zM1 2h1v1H1z'/%3E%3C/svg%3E");
+  --arrow:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 7 4' shape-rendering='crispEdges'%3E%3Cpath fill='%231d1424' d='M0 0h7v1H0zM1 1h5v1H1zM2 2h3v1H2zM3 3h1v1H3z'/%3E%3C/svg%3E");
+  --tick:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 7 6' shape-rendering='crispEdges'%3E%3Cpath fill='%23fefcd0' d='M0 2h1v2H0zM1 3h1v2H1zM2 4h1v2H2zM3 3h1v2H3zM4 2h1v2H4zM5 1h1v2H5zM6 0h1v2H6z'/%3E%3C/svg%3E")}
+.embed body{font:15px/1.4 "Pixelify Sans",system-ui,sans-serif}
+.embed #viewport{background:radial-gradient(ellipse at 50% 40%,#2d2333,#171119)}
+/* Cream pixel cards and buttons on the screen (two lists: an ID inside :is() would outweigh every state rule). */
+.embed :is(.view-tools button,.view-tools label,.joint-overlay-toolbar,.joint-overlay-card,.joint-overlay-toolbar select),
+.embed :is(#telemetry-status,#live-collision-status,#render-error){--pix:var(--pix-ink);color:var(--ink);background:var(--cream);
+  border:3px solid var(--ink);border-image:var(--pix) 1/3px/0 stretch;border-radius:0}
+.embed .view-tools{gap:10px}
+.embed .view-tools button,.embed .view-tools label{font-size:13px;padding:4px 9px;box-shadow:3px 3px 0 #000;cursor:pointer}
+.embed .view-tools button:hover,.embed .view-tools label:hover{background:var(--cream-hover)}
+.embed .view-tools button:active{transform:translate(2px,2px);box-shadow:1px 1px 0 #000}
+.embed .view-tools label{gap:6px}
+.embed input[type=checkbox]{appearance:none;flex:none;width:16px;height:16px;margin:0;background:#fff no-repeat center/9px 8px;border:3px solid var(--ink);border-image:var(--pix-ink) 1/3px/0 stretch;cursor:pointer}
+.embed input[type=checkbox]:checked{background-color:var(--mauve-deep);background-image:var(--tick)}
+.embed :is(button,select,input):focus-visible{outline:3px solid #7fb0ff;outline-offset:3px}
+.embed #loading{color:var(--accent)}
+.embed #telemetry-status{--pix:var(--pix-info);padding:7px 12px;color:var(--info-ink);font-size:14px;font-weight:700;box-shadow:3px 3px 0 #000}
+.embed #telemetry-status.stale{--pix:var(--pix-bad);color:var(--bad-ink);background:#ffe1e5}
+.embed #live-collision-status{padding:4px 9px;font-size:13px;color:var(--card-muted);box-shadow:3px 3px 0 #000}
+.embed #live-collision-status[data-state=collision]{--pix:var(--pix-ink);color:#fff;background:var(--bad-ink)}
+.embed #live-collision-status[data-state=clear]{color:var(--good-ink)}
+.embed #live-collision-status:is([data-state=interfaces],[data-state=unavailable]){--pix:var(--pix-warn);color:var(--warn-ink);background:#fff0c4}
+.embed #render-error{--pix:var(--pix-bad);color:#fff;background:var(--bad-ink)}
+/* Joint telemetry: the picker strip, and one card per joint. */
+.embed .joint-overlay-toolbar{padding:5px 9px;font-size:12px;box-shadow:3px 3px 0 #000}
+.embed .joint-overlay-toolbar select{appearance:none;font:inherit;font-size:12px;padding:3px 24px 3px 7px;background:#fff var(--arrow) no-repeat right 7px center/10px 6px}
+.embed .joint-overlay-status{color:var(--info-ink)}.embed .joint-overlay-status.stale{color:var(--warn-ink)}
+.embed .joint-overlay-legend{color:var(--card-muted);font-size:11px}
+.embed .joint-overlay-card{padding:8px 11px;font-size:12px;box-shadow:3px 3px 0 #000}
+.embed .joint-overlay-card::before{width:8px;height:8px;margin:-4px;border:2px solid var(--ink);border-radius:0;background:var(--mauve-deep)}
+.embed .joint-overlay-card strong{color:var(--ink);font-size:13px}
+.embed .joint-overlay-card small,.embed .joint-overlay-card dt{color:var(--card-muted)}
+.embed .joint-overlay-card :is(dd,.joint-overlay-values){font-family:Monocraft,ui-monospace,monospace;color:var(--ink)}
+.embed .joint-overlay-card dd.position,.embed .joint-overlay-card.compact .joint-overlay-values{color:var(--info-ink)}
+.embed .joint-overlay-card dd.effort{color:#6b3aa0}.embed .joint-overlay-card dd.temperature{color:var(--warn-ink)}
+.embed .joint-overlay-card dd.direction{color:var(--mauve-deep)}
+.embed .joint-overlay-card.stale{--pix:var(--pix-warn);background:#fff0c4}.embed .joint-overlay-card.stale :is(dd,.joint-overlay-values){color:#7a6a58}
+.embed .joint-overlay-card.stale::before{background:var(--warn)}
+.embed .joint-overlay-card.compact{padding:4px 8px;font-size:11px;box-shadow:2px 2px 0 #000}
+.embed .joint-overlay-card.compact.selected{--pix:var(--pix-mauve);background:var(--mauve-soft)}
+.embed .joint-overlay-close{width:20px;height:20px;border:0;border-radius:0;background:none;color:var(--card-muted);box-shadow:none}
+.embed .joint-overlay-close:hover{color:#fff;background:var(--ink);border:0}
