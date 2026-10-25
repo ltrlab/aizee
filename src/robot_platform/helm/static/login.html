@@ -65,7 +65,8 @@
   <script>
     const device = document.getElementById('device');
     try { device.value = localStorage.getItem('helm-device') || ''; } catch { /* storage unavailable */ }
-    if (!device.value) device.value = /iPad|iPhone/.test(navigator.userAgent) ? 'iPad' : /Android/.test(navigator.userAgent) ? 'Android tablet' : 'Operator PC';
+    if (!device.value) device.value = /OculusBrowser|Quest/.test(navigator.userAgent) ? 'Quest headset'
+      : /iPad|iPhone/.test(navigator.userAgent) ? 'iPad' : /Android/.test(navigator.userAgent) ? 'Android tablet' : 'Operator PC';
     document.getElementById('login').onsubmit = async event => {
       event.preventDefault();
       const go = document.getElementById('go'), error = document.getElementById('error');
@@ -77,7 +78,8 @@
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error || `Helm answered HTTP ${response.status}`);
         try { localStorage.setItem('helm-device', device.value.trim()); } catch { /* storage unavailable */ }
-        location.href = '/';
+        // Back where Helm sent the device from: only the headset page (no open redirect).
+        location.href = new URLSearchParams(location.search).get('next') === '/xr' ? '/xr' : '/';
       } catch (failure) {
         error.textContent = failure.message;
         go.disabled = false;

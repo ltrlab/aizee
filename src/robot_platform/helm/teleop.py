@@ -159,6 +159,7 @@ RECORDING_FLUSH_S = 1.
 # three receiver exchanges leave none, and Helm must still tell a quiet loop from a lost one (the pedals lock at
 # 750 ms). Status is computed every cycle anyway; sending it costs no control time.
 STATUS_HEARTBEAT_S = .25
+HEAD_POSE_ANSWER_S = .75  # Headset poses go to a loop that answered this recently, like the pedals.
 
 
 def routes_path(runs, asset_id):
@@ -2251,16 +2252,22 @@ class TeleopSession:
             raise ValueError(f'Teleop session is not reachable: {exc}') from exc
 
     def head_pose(self, yaw, pitch):
-        """The headset's latest yaw and pitch (helm.xr) to the running loop; nothing while no session runs."""
+        """The headset's latest yaw and pitch (helm.xr) to the running loop. Dropped (False) while no session runs,
+        while the loop has not answered within HEAD_POSE_ANSWER_S (a stalled loop's command pipe never fills with
+        poses, which would block Helm's sends, Disable's among them) or while another send is under way (the next
+        pose follows within 20 ms)."""
         with self._lock:
-            conn = self._conn
-        if conn is None or not self.active or self._view.get('phase') != 'running':
+            conn, quiet = self._conn, time.perf_counter() - self._view_received_at
+        if conn is None or not self.active or self._view.get('phase') != 'running' or quiet > HEAD_POSE_ANSWER_S:
+            return False
+        if not self._send_lock.acquire(blocking=False):
             return False
         try:
-            with self._send_lock:
-                conn.send(('head_pose', float(yaw), float(pitch)))
+            conn.send(('head_pose', float(yaw), float(pitch)))
         except (OSError, ValueError):
             return False
+        finally:
+            self._send_lock.release()
         return True
 
     def key(self, key):

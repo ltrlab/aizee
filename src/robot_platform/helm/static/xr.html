@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Head tracking · Helm</title>
+  <style>
+    :root { color-scheme: dark; --bg: #101318; --panel: #181c23; --text: #e9ecf1; --muted: #9aa3b2; --accent: #4f8cff;
+            --ok: #3fbf7f; --warn: #e0a83a; --bad: #e05a5a; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+           font: 18px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; display: grid; place-items: center; }
+    main { width: min(640px, 100% - 32px); background: var(--panel); border-radius: 14px; padding: 28px; }
+    h1 { margin: 0 0 6px; font-size: 26px; }
+    p { margin: 8px 0; }
+    .muted { color: var(--muted); }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; margin: 20px 0 8px; }
+    button { font: inherit; font-weight: 600; padding: 16px 22px; border-radius: 10px; border: 0; cursor: pointer;
+             background: var(--accent); color: #fff; min-height: 56px; }
+    button:disabled { opacity: .45; cursor: default; }
+    #status b { font-weight: 700; }
+    .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+    dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 16px 0 0; }
+    dt { color: var(--muted); } dd { margin: 0; font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Minerva head tracking</h1>
+    <p class="muted">The robot's head turns with this headset while a teleop session follows (Engage, T). Without it the
+      head holds still at its zero.</p>
+    <p id="status" role="status">Connecting to Helm…</p>
+    <div class="row">
+      <button id="start" disabled>Start head tracking</button>
+    </div>
+    <p class="muted">Look straight ahead and level when you start: that is the head's zero. To zero again, look where
+      the head should face straight ahead and pull either trigger (or pinch); recentering the headset (hold the Meta
+      button) zeroes at the new heading, level. Take the headset off or press the Meta button to stop: the head holds,
+      then returns to its zero.</p>
+    <dl>
+      <dt>Helm</dt><dd id="link">—</dd>
+      <dt>Tracking</dt><dd id="tracking">—</dd>
+      <dt>Yaw / pitch</dt><dd id="angles">—</dd>
+      <dt>Head</dt><dd id="head">—</dd>
+    </dl>
+  </main>
+  <script type="module" src="/helm/xr.js"></script>
+</body>
+</html>

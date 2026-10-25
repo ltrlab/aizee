@@ -108,6 +108,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     token = token or secrets.token_urlsafe(24)
     camera_change = asyncio.Lock()
     video_sockets = set()
+    from .xr import Headset
+    headset = Headset()  # The operator's headset steering the head (helm.xr).
     if simulation_only and live:
         raise ValueError('Simulation-only Helm cannot start the physical live reader')
     if simulation_only:
@@ -157,7 +159,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             session_token = request.cookies.get(COOKIE)
             if access.session(session_token) is None:
                 if request.method == 'GET' and not path.startswith('/api/'):
-                    raise web.HTTPFound('/login')
+                    raise web.HTTPFound('/login?next=/xr' if path == '/xr' else '/login')
                 return web.json_response({'error': 'Log in to Helm first', 'login': True}, status=401)
             CURRENT_SESSION.set(session_token)
             if request.method == 'POST' and path not in OPEN_POSTS and not access.in_control(session_token):
@@ -192,6 +194,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
                 '/api/helm/leaders/reference', '/api/helm/leaders/save',
                 '/api/helm/teleop/tuning/apply', '/api/helm/teleop/tuning/save',
                 '/api/helm/teleop/tuning/restore', '/api/helm/task', '/api/helm/teleop/grip_feedback',
+                '/api/helm/xr/zero',
             }
             if request.path not in allowed:
                 raise ValueError('Simulation mode cannot operate or calibrate the physical robot')
@@ -225,6 +228,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         state['action_token'] = token
         state['access'] = access.view(CURRENT_SESSION.get()) if access is not None else {'enabled': False}
         state['bridge'] = bridge.snapshot() if bridge is not None else None
+        state['xr'] = headset.status()
         state['operator_files'] = operator_files
         return web.json_response(state, headers={'Cache-Control': 'no-store'})
 
@@ -843,6 +847,62 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             raise web.HTTPNotFound()
         return state_response()
 
+    async def xr_page(_request):
+        return web.FileResponse(STATIC / 'xr.html', headers={'Cache-Control': 'no-store'})
+
+    async def xr_socket(request):
+        """The headset's poses (helm.xr): each, as yaw and pitch from the zero, to the running teleop session's head.
+        A logged-in device's page with Helm's action token, not control: the session the device in control engages
+        decides whether the head moves. One device's headset at a time (helm.xr.Headset)."""
+        import json as _json
+        if request.headers.get('Origin') not in (None, f'{request.scheme}://{request.host}'):
+            raise web.HTTPForbidden(text='Cross-origin headset stream rejected')
+        if not secrets.compare_digest(request.query.get('token', ''), token):
+            raise web.HTTPForbidden(text='Missing or invalid Helm session token')
+        owner = CURRENT_SESSION.get() if access is not None else None
+        device = (access.view(owner)['device'] if access is not None else None) or 'The headset'
+        ws = web.WebSocketResponse(heartbeat=5., max_msg_size=1024, compress=False)
+        await ws.prepare(request)
+        try:
+            connection = headset.connect(owner, device)
+        except ValueError as exc:
+            await ws.send_json({'type': 'error', 'error': str(exc), 'busy': True})
+            await ws.close()
+            return ws
+        steered = 0
+        try:
+            async for message in ws:
+                if message.type != web.WSMsgType.TEXT:
+                    continue
+                try:
+                    data = _json.loads(message.data)
+                    kind = data.get('type') if isinstance(data, dict) else None
+                    if kind in ('zero', 'start'):
+                        (headset.zero if kind == 'zero' else headset.start)(connection)
+                        await ws.send_json({'type': 'status', 'zeroed': kind == 'zero', 'restarted': kind == 'start',
+                                            **headset.status()})
+                        continue
+                    pose = headset.receive(connection, data)
+                except ValueError as exc:
+                    await ws.send_json({'type': 'error', 'error': str(exc)})
+                    continue
+                if pose is None:
+                    continue
+                running = teleop is not None and teleop.head_pose(*pose)
+                steered += 1
+                if steered % 15 == 1:  # Now and then: what the head does with it.
+                    head = (((teleop.snapshot() if teleop is not None else None) or {}).get('head') or {})
+                    await ws.send_json({'type': 'status', 'steering': bool(running), 'head': head.get('state'),
+                                        'source': head.get('source'), **headset.status()})
+        finally:
+            headset.disconnect(connection)
+        return ws
+
+    async def xr_zero(request):
+        await body(request)
+        headset.zero()
+        return state_response()
+
     def need_tune():
         if tune is None:
             raise ValueError('Helm was started without a teleop profile')
@@ -965,6 +1025,9 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     app.on_startup.append(startup)
     app.on_shutdown.append(shutdown)
     app.router.add_get('/api/helm/cameras/live', camera_live)
+    app.router.add_get('/xr', xr_page)
+    app.router.add_get('/api/helm/xr', xr_socket)
+    app.router.add_post('/api/helm/xr/zero', xr_zero)
     app.router.add_get('/api/helm/cameras', camera_get)
     app.router.add_post('/api/helm/cameras/{role}', camera_set)
     app.router.add_get('/api/helm/cameras/{role}/frame', camera_frame)
