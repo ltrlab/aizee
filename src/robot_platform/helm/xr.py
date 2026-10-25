@@ -114,6 +114,14 @@ class Headset:
     def fresh(self):
         return self.connection != 0 and self.at is not None and self.clock() - self.at <= FRESH_S
 
+    def angles(self):
+        """Where the headset looks, as the neck's CAD angles (yaw is neck_z's, pitch neck_y's, as the head follows
+        them: helm.head_teleop) while it tracks; None otherwise."""
+        if not self.fresh():
+            return None
+        yaw, pitch = self.relative()
+        return {'neck_z': yaw, 'neck_y': pitch}
+
     def status(self):
         fresh = self.fresh()
         yaw, pitch = self.relative() if self.raw is not None else (None, None)

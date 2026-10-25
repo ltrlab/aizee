@@ -148,6 +148,21 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
   - what the head does: its state, whether it follows the headset, holds or sits at its zero, or its fault;
   - whether a headset tracks: its name, rate, yaw and pitch;
   - without a headset, the address of the headset page.
+- **Inside the headset** (`static/xr_scene.js`, three.js, passthrough where the headset has it):
+  - the head camera's picture on a screen ahead, with a status line under it: the picture's rate and age, and what
+    the head does;
+  - a status panel to the lower left: Helm's link, tracking, yaw and pitch, the head, the camera, and the controls;
+  - the grip buttons grab either and move it; let go, it turns upright to face the viewer. The trigger still zeroes.
+  - The picture comes over Helm's camera socket asking for the head camera only (`?roles=head`), at Helm's camera
+    rate (10 fps). Only the newest frame is decoded, and it dims once a second old.
+- **Settings → Headset:**
+  - the headset's state and Zero headset, as on the Head card;
+  - **Preview in the 3D view:** while no session drives the head, the 3D view's head turns where the headset looks,
+    on every device's view, and its badge says so. No motors move. The switch is Helm's, kept in memory and off at
+    each start; it is a change, so it needs control. A session that drives the head shows its measured angles
+    instead.
+  - **What the headset shows:** the headset's screen, status line and status panel, drawn with the headset's own
+    canvases (`static/xr_panels.js`) from Helm's state. The head camera streams only while the section is on screen.
 
 **Using it.** The Quest joins Minerva's Wi-Fi.
 

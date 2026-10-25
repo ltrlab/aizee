@@ -315,7 +315,7 @@ async function followCalibration(){
       const identity=`${guide.stream_id||''}:${guide.sequence}`;
       if(!held&&!guide.stale&&(!guide.live||guide.age_seconds<=.75)&&identity!==last){
         applyPose(guide.positions,!!guide.live);
-        if(!started||!guide.live){if(guide.view==='top')$('top').click();else frame(front());}
+        if(!started||!guide.live&&guide.view!=='keep'){if(guide.view==='top')$('top').click();else frame(front());}
         started=true;last=identity;
         const body=$('calibration-values');body.replaceChildren();
         for(const row of guide.rows||[]){const tr=document.createElement('tr');const unit=row.cad_unit??'rad',cad=row.cad_value??row.cad_rad;const displayed=unit==='m'?`${(cad*1000).toFixed(2)} mm`:`${cad.toFixed(3)} rad`;for(const value of [row.joint,row.raw_rad.toFixed(3),displayed,`${row.sign>0?'+1':'−1'}${row.direction_verified?' ✓':' ?'}`]){const td=document.createElement('td');td.textContent=value;tr.append(td);}body.append(tr);}

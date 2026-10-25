@@ -59,6 +59,17 @@ class DisplayModel:
         return dict(pose, model=self.shown.profile.id, urdf_sha256=self.shown.sha256,
                     positions={**pose['positions'], **own})
 
+    def preview(self, pose, joints, sequence):
+        """`pose` drawn with its own joints where the headset looks (`joints`; None: at their defaults), a preview in
+        which no motors move. Each headset pose (`sequence`, its count) is a pose of its own to the view, which applies
+        a pose once per stream and sequence, and keeps its framing for it."""
+        drawn = self.guide(pose, joints)
+        if drawn is pose:
+            return pose
+        badge = drawn.get('badge') or ('LIVE · motors disabled' if drawn.get('live') else 'Target pose')
+        return dict(drawn, stream_id=f"{drawn.get('stream_id') or 'guide'}+headset{sequence}", view='keep',
+                    badge=f'{badge} · head: headset preview, no motors move')
+
     def telemetry(self, packet):
         """A joint telemetry packet (helm.telemetry) for the active model, stamped for the shown one."""
         return dict(packet, model=self.shown.profile.id, urdf_sha256=self.shown.sha256) if self._active(packet) \

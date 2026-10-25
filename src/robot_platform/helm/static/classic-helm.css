@@ -397,6 +397,15 @@ body[data-touch=on] .grip-switch input{width:24px;height:24px}
 #net-pill[data-tone=bad]{color:var(--bad)!important;border-color:#7a3b3b!important}
 /* Settings -> Network (network.js). */
 .network-mode{margin:10px 0 4px;font-size:15px;font-weight:600}
+.headset-state{margin:10px 0 4px;font-size:15px;font-weight:600}
+.headset-controls{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:8px 0}
+.headset-preview{display:flex;align-items:center;gap:6px}
+.settings-group h3{margin:14px 0 8px}
+.headset-mirror{display:flex;flex-direction:column;gap:10px;max-width:760px}
+.headset-screen{display:flex;flex-direction:column;gap:6px}
+.headset-mirror canvas{display:block;width:100%;height:auto;background:#0f1218;border-radius:4px}
+.headset-mirror #headset-panel{max-width:460px}
+.headset-mirror canvas.stale{filter:brightness(.35)}
 .network-lines{margin:0 0 12px;padding-left:18px;line-height:1.5;overflow-wrap:anywhere}
 #access-claim{font-size:12px;padding:5px 10px;white-space:nowrap}
 

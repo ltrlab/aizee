@@ -1,6 +1,6 @@
 """Helm's 3D view draws the head model (helm.display_model): Minerva with her neck, every guide for the active model
-drawn on it by joint name, the neck at the head's measured angles while a session drives it, else at its zero. The
-guard and the receivers keep the active model."""
+drawn on it by joint name, the neck at the head's measured angles while a session drives it, else at its zero, or
+where the headset looks with Settings → Headset's preview on. The guard and the receivers keep the active model."""
 import asyncio
 from copy import deepcopy
 import math
@@ -16,8 +16,10 @@ from robot_platform.helm.display_model import DisplayModel, _same
 from robot_platform.helm.server import create_app
 from robot_platform.helm.session import HelmSession
 from robot_platform.helm.teleop import TeleopSession
+from robot_platform.helm.xr import Headset
 from robot_platform.models import ModelProfile, UrdfModel
 from robot_platform.ops.release import HEAD_MODEL, MODEL
+from tests.unit.test_helm_xr import gaze
 
 ROOT = Path(__file__).resolve().parents[2]
 PROFILE = ROOT / 'config/devices/minerva-joint-calibration.json'
@@ -57,6 +59,36 @@ def test_the_head_model_is_the_active_one_plus_the_neck(models):
     stamped = display.telemetry(packet)
     assert (stamped['model'], stamped['urdf_sha256'], stamped['rows']) == (shown.profile.id, shown.sha256, packet['rows'])
     assert display.telemetry(other) is other and display.telemetry(None) is None
+
+
+def test_a_preview_pose_follows_the_headset_as_a_pose_of_its_own(models):
+    active, shown = models
+    display = DisplayModel(active, shown)
+    reference = dict(pose(active), live=False, badge='NOT CONNECTED · reference pose shown', stream_id='reference',
+                     sequence=0)
+    first = display.preview(reference, {'neck_z': .4, 'neck_y': -.1}, 7)
+    assert (first['positions']['neck_z'], first['positions']['neck_y']) == (.4, -.1)
+    assert first['badge'] == 'NOT CONNECTED · reference pose shown · head: headset preview, no motors move'
+    assert first['view'] == 'keep' and first['live'] is False  # The view keeps its framing; the arms stay as they were.
+    # The view applies a pose once per stream and sequence: each headset pose is one of its own.
+    assert display.preview(reference, {'neck_z': .5, 'neck_y': -.1}, 8)['stream_id'] != first['stream_id']
+    stopped = display.preview(reference, None, 9)['positions']  # Not tracking: the neck at its zero.
+    assert (stopped['neck_z'], stopped['neck_y']) == (0., 0.)
+    assert display.preview(None, {'neck_z': .4}, 1) is None
+    live = display.preview(dict(pose(active), badge=None), {'neck_z': .4}, 2)
+    assert live['badge'] == 'LIVE · motors disabled · head: headset preview, no motors move'
+
+
+def test_the_headset_gives_its_angles_only_while_it_tracks():
+    clock = SimpleNamespace(now=100.)
+    headset = Headset(clock=lambda: clock.now)
+    assert headset.angles() is None
+    connection = headset.connect('quest', 'Quest headset')
+    headset.start(connection)
+    headset.receive(connection, {'type': 'pose', 'seq': 1, 'q': gaze(.3, .2)})
+    assert headset.angles() == pytest.approx({'neck_z': .3, 'neck_y': .2})
+    clock.now += 1.  # Quiet: not tracking.
+    assert headset.angles() is None
 
 
 def test_a_model_that_moves_an_active_joint_is_not_drawn_in_its_place(models):
@@ -145,6 +177,47 @@ def test_the_3d_view_draws_the_head_moving_with_the_session(helm, models):
     asyncio.run(run())
 
 
+def test_the_preview_switch_turns_the_views_head_with_the_headset(helm, models):
+    from aiohttp.test_utils import TestClient, TestServer
+    _active, shown = models
+    teleop = Teleop(helm.model, None)  # No session drives the head.
+    teleop.head_pose = lambda yaw, pitch: False
+
+    async def run():
+        app = create_app(helm, SimulationLink(), teleop=teleop, token='secret', simulation_only=True,
+                         display=DisplayModel(helm.model, shown))
+        async with TestClient(TestServer(app)) as client:
+            switch = lambda on: client.post('/api/helm/xr/preview', json={'on': on}, headers={'X-Helm-Token': 'secret'})
+            state = await (await client.get('/api/helm/state')).json()
+            assert (state['xr']['preview'], state['xr']['preview_available']) == (False, True)
+            ws = await client.ws_connect('/api/helm/xr?token=secret')
+            await ws.send_json({'type': 'start'})
+            await ws.receive_json(timeout=2)
+            await ws.send_json({'type': 'pose', 'seq': 1, 'q': gaze(.35, -.15)})
+            drawn = await (await client.get('/api/calibration-guide')).json()
+            assert drawn['positions']['neck_z'] == 0.  # The preview is off: the head at its zero.
+            assert (await (await switch('yes')).json())['error'].startswith('Expected')
+            assert (await (await switch(True)).json())['xr']['preview'] is True
+            await ws.send_json({'type': 'pose', 'seq': 2, 'q': gaze(.35, -.15)})
+            for _ in range(100):
+                drawn = await (await client.get('/api/calibration-guide')).json()
+                if drawn['positions']['neck_z']:
+                    break
+                await asyncio.sleep(.01)
+            assert (drawn['positions']['neck_z'], drawn['positions']['neck_y']) == pytest.approx((.35, -.15))
+            assert 'headset preview' in drawn['badge'] and drawn['view'] == 'keep'
+            teleop.joints = {'neck_z': -.2, 'neck_y': .05}  # A session drives the head: its measured angles show.
+            drawn = await (await client.get('/api/calibration-guide')).json()
+            assert (drawn['positions']['neck_z'], drawn['positions']['neck_y']) == (-.2, .05)
+            assert 'headset preview' not in (drawn.get('badge') or '')
+            teleop.joints = None
+            assert (await (await switch(False)).json())['xr']['preview'] is False
+            drawn = await (await client.get('/api/calibration-guide')).json()
+            assert drawn['positions']['neck_z'] == 0.
+            await ws.close()
+    asyncio.run(run())
+
+
 def test_without_a_display_model_the_view_draws_the_active_one(helm):
     from aiohttp.test_utils import TestClient, TestServer
 
@@ -155,4 +228,8 @@ def test_without_a_display_model_the_view_draws_the_active_one(helm):
             assert (await (await client.get('/api/models')).json())['selected'] == helm.model.profile.id
             drawn = await (await client.get('/api/calibration-guide')).json()
             assert drawn['model'] == helm.model.profile.id and 'neck_z' not in drawn['positions']
+            state = await (await client.get('/api/helm/state')).json()
+            assert state['xr']['preview_available'] is False  # No head model: nothing to preview.
+            refused = await client.post('/api/helm/xr/preview', json={'on': True}, headers={'X-Helm-Token': 'secret'})
+            assert refused.status == 422 and 'no head model' in (await refused.json())['error']
     asyncio.run(run())

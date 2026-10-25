@@ -7,6 +7,7 @@ import {GRIP_SETTINGS, gripLive, gripSettingText, gripSliderValue, gripView} fro
 import {upsView} from './ups.js';
 import {bridgeView, networkView} from './network.js';
 import {headView} from './head.js';
+import {HeadsetMirror} from './headset_mirror.js';
 import {captureBlock, countsText, lastText, resultLines} from './calibration.js';
 
 // Helm operator page. Reads /api/helm/state; every action needs the session token.
@@ -290,6 +291,7 @@ function render(state) {
   replayView?.setTeleop(state.teleop, state.mode);
   renderGripFeedback(state.teleop);
   renderHead(state);
+  renderHeadset(state);
   renderCalibration(state);
   renderRecording(state);
   renderUps(state.ups);
@@ -407,6 +409,27 @@ function renderHead(state) {
   $('head-zero').disabled = !view.zero;
 }
 $('head-zero').onclick = () => act('/api/helm/xr/zero', {}, "Zeroed: where the headset looks is the head's straight ahead.");
+
+// Settings → Headset: the headset's state, Zero, the 3D view's preview and what the headset shows (headset_mirror.js).
+const headsetMirror = new HeadsetMirror({picture: $('headset-picture'), strip: $('headset-strip'),
+  panel: $('headset-panel')});
+function renderHeadset(state) {
+  const view = headView(state.teleop, state.xr, location.host), xr = state.xr || {};
+  $('headset-state').textContent = view.headset;
+  $('headset-zero').disabled = !view.zero;
+  const preview = $('headset-preview');
+  preview.disabled = !xr.preview_available;
+  preview.title = xr.preview_available ? '' : 'The 3D view has no head model to preview';
+  if (document.activeElement !== preview) preview.checked = !!xr.preview;
+  headsetMirror.update(state, document.body.dataset.tab === 'settings' && !$('settings-headset').hidden
+    && !document.hidden);
+}
+$('headset-zero').onclick = $('head-zero').onclick;
+$('headset-preview').onchange = () => {
+  const on = $('headset-preview').checked;
+  act('/api/helm/xr/preview', {on}, on ? 'Preview on: the 3D view\'s head follows the headset; no motors move.'
+    : 'Preview off.');
+};
 
 function renderGripFeedback(teleop) {
   const view = gripView(teleop);

@@ -114,6 +114,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     video_sockets = set()
     from .xr import Headset
     headset = Headset()  # The operator's headset steering the head (helm.xr).
+    # Settings → Headset's preview: the 3D view's head follows the headset while no session drives the head.
+    xr_preview = {'on': False}
     if simulation_only and live:
         raise ValueError('Simulation-only Helm cannot start the physical live reader')
     if simulation_only:
@@ -150,12 +152,16 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         return session.guide()
 
     def shown():
-        """What the 3D view draws: the guide, on the display model when Helm has one."""
+        """What the 3D view draws: the guide, on the display model when Helm has one: the neck at the head's
+        measured angles while a session drives it, else (with the headset preview on) where the headset looks."""
         pose = guide()
         if display is None:
             return pose
         head = getattr(teleop, 'head_joints', None)
-        return display.guide(pose, head() if head is not None else None)
+        joints = head() if head is not None else None
+        if joints is None and xr_preview['on']:
+            return display.preview(pose, headset.angles(), headset.poses)
+        return display.guide(pose, joints)
 
     drawn = display.profile if display is not None else session.model.profile
     app = viewer_app([drawn], drawn.id, guide=shown, index_html=STATIC / 'index.html', local_only=access is None,
@@ -207,7 +213,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
                 '/api/helm/leaders/reference', '/api/helm/leaders/save',
                 '/api/helm/teleop/tuning/apply', '/api/helm/teleop/tuning/save',
                 '/api/helm/teleop/tuning/restore', '/api/helm/task', '/api/helm/teleop/grip_feedback',
-                '/api/helm/xr/zero',
+                '/api/helm/xr/zero', '/api/helm/xr/preview',
             }
             if request.path not in allowed:
                 raise ValueError('Simulation mode cannot operate or calibrate the physical robot')
@@ -244,7 +250,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         state['access'] = access.view(CURRENT_SESSION.get()) if access is not None else {'enabled': False}
         state['bridge'] = bridge.snapshot() if bridge is not None else None
         state['network'] = network.snapshot() if network is not None else None
-        state['xr'] = headset.status()
+        state['xr'] = dict(headset.status(), preview=xr_preview['on'], preview_available=display is not None)
         state['operator_files'] = operator_files
         return web.json_response(state, headers={'Cache-Control': 'no-store'})
 
@@ -936,6 +942,16 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         headset.zero()
         return state_response()
 
+    async def xr_preview_switch(request):
+        """Settings → Headset: the 3D view's head follows the headset, or not. Display only."""
+        payload = await body(request)
+        if set(payload) != {'on'} or not isinstance(payload['on'], bool):
+            raise ValueError('Expected {"on": true} or {"on": false}')
+        if payload['on'] and display is None:
+            raise ValueError('The 3D view has no head model to preview')
+        xr_preview['on'] = payload['on']
+        return state_response()
+
     def need_tune():
         if tune is None:
             raise ValueError('Helm was started without a teleop profile')
@@ -1062,6 +1078,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     app.router.add_post('/api/helm/network/ap', network_ap)
     app.router.add_get('/api/helm/xr', xr_socket)
     app.router.add_post('/api/helm/xr/zero', xr_zero)
+    app.router.add_post('/api/helm/xr/preview', xr_preview_switch)
     app.router.add_get('/api/helm/cameras', camera_get)
     app.router.add_post('/api/helm/cameras/{role}', camera_set)
     app.router.add_get('/api/helm/cameras/{role}/frame', camera_frame)
