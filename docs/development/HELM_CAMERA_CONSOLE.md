@@ -25,6 +25,53 @@ outcome blocks new sessions and further writes, even after a settings refresh.
 Restart the affected camera service, verify its settings, then restart Helm to
 recover. This prevents a delayed legacy camera request from changing a recording.
 
+## Head camera USB 3 drops
+
+Investigated 2026-10-25. The head D435 (onboard hub port 4) loses its USB 3 link
+mid-stream, then re-attaches within 80 ms at USB 2 on that port's USB 2 side.
+That side, `1-2`, is the hub both CAN adapters share.
+
+- **Kernel signature:**
+  1. `usb 2-1.4: Disable of device-initiated U1 failed.`
+  2. The same for U2, 0.7 s later.
+  3. `USB disconnect`.
+  4. `usb 1-2.4: new high-speed USB device`.
+- **What it is not:** the camera stays powered. There was no over-current, no frame
+  stall before the idle drops, and no thermal problem.
+- **Drops on 10-24/25:**
+  - six in about 25 hours, four of them with no session running;
+  - one in the same second as a left wrist camera drop during teleop;
+  - one 4 s after the UPS switched back to wall power.
+- **Likely cause:** a marginal USB 3 path: the cable, how the USB-C plug seats in
+  the camera, or routing near motor leads.
+- **To try:** turning off USB 3 link power management on that port (U1/U2 are on).
+- **Before the fix:** the systemd unit was bound to the USB device. The drop stopped
+  it, `pipeline.stop()` hung in librealsense until the stop timeout killed it, and
+  the camera's USB 2 re-appearance came while it was still stopping. So it stayed
+  failed until a replug and a restart.
+
+`python/nodes/camera_node.py` (`Usb3Keeper`) now keeps the camera on USB 3:
+
+- It never streams at USB 2.
+- A camera found there is reset with librealsense's `hardware_reset()`. The camera
+  reboots and re-attaches, which retrains USB 3; a USB 2 port reset does not.
+  The process then exits for a fresh one.
+- **Backoff:** resets that do not hold wait 30 s, 120 s, then 600 s (state in
+  `/tmp/aizee-scene_cam-usb3.json`). No reset is sent while a live receiver
+  (`guarded_controller`, `head_controller`) runs, since the reset re-attaches the
+  camera on the CAN adapters' hub. During a live session the head camera stays
+  down until the session ends.
+- **Prompt exit:** `pipeline.stop()` gets 2 s, then the process leaves with
+  `os._exit`.
+- **The unit:** no longer bound to the device; `Restart=always`, no start limit,
+  `TimeoutStopSec=10`.
+- **Recovery time:** about 15 s from a drop to streaming at USB 3 again.
+- `camera.require_usb3: false` (or `--allow-usb2`) opts out.
+
+To install a staged update, run this on the Jetson:
+`sudo bash scripts/install_scene_cam.sh <staged directory>`. It keeps the replaced
+files in the staged directory's `before/`.
+
 ## Installed console
 
 The terminal runs packaged source `ad71afe7c6b2c1afa788e3e55a6ad25caa64a5df`
