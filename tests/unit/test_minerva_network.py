@@ -24,6 +24,7 @@ class Bench:
         self.connections = {WIFI: 'birdnest'}
         self.lease_set = set()
         self.calls = []
+        self.ap_refused = False
 
     def carrier(self):
         return self.cable is not None
@@ -37,6 +38,8 @@ class Bench:
 
     def up(self, connection, wait):
         self.calls.append(('up', connection))
+        if connection == AP and self.ap_refused:
+            return False
         if connection == LAN and self.cable != 'network':
             return False
         if connection in (LAN, TETHER) and self.cable is None:
@@ -66,15 +69,16 @@ class Bench:
 @pytest.fixture
 def bench(tmp_path):
     nm = Bench()
+    clock = SimpleNamespace(now=1000.)
     service = network.Network(nm, settings=tmp_path / 'settings.json', state=tmp_path / 'state.json',
-                              clock=lambda: 1000.)
+                              clock=lambda: clock.now)
 
     def state():
         return json.loads((tmp_path / 'state.json').read_text(encoding='utf-8'))
 
     def want_ap(on):
         (tmp_path / 'settings.json').write_text(json.dumps({'ap': on}), encoding='utf-8')
-    return SimpleNamespace(nm=nm, service=service, state=state, want_ap=want_ap)
+    return SimpleNamespace(nm=nm, service=service, state=state, want_ap=want_ap, clock=clock)
 
 
 def test_on_a_network_the_port_takes_its_address_and_the_wifi_steps_aside(bench):
@@ -145,7 +149,7 @@ def test_the_access_point_takes_the_radio_and_gives_it_back(bench):
     bench.service.step()
     state = bench.state()
     assert bench.nm.connections[WIFI] == AP and state['ap'] == {'wanted': True, 'on': True, 'ssid': 'minerva',
-                                                                 'address': '10.42.1.1'}
+                                                                 'address': '10.42.1.1', 'failed': False}
     assert state['wifi']['mode'] == 'ap'
     bench.nm.cable = 'network'  # On a network with the access point on: it keeps the radio.
     bench.service.step()
@@ -267,3 +271,25 @@ def test_switching_the_access_point_waits_for_the_service(tmp_path):
 def test_the_sudo_rule_allows_only_switching_the_access_point():
     rules = [line for line in network.SUDOERS_TEXT.splitlines() if line and not line.startswith('#')]
     assert rules == [f'ltr ALL=(root) NOPASSWD: {network.PROGRAM} ap on, {network.PROGRAM} ap off']
+
+
+def test_an_access_point_the_radio_refuses_is_retried_every_30_s_not_every_step(bench):
+    bench.nm.ap_refused = True
+    bench.want_ap(True)
+    bench.service.step()
+    for _ in range(5):
+        bench.clock.now += 1.
+        bench.service.step()
+    assert bench.nm.calls.count(('up', AP)) == 1 and bench.state()['ap']['failed'] is True
+    assert bench.nm.connections[WIFI] == 'birdnest'  # The client keeps the radio meanwhile.
+    bench.clock.now += network.RETRY_S
+    bench.nm.ap_refused = False
+    bench.service.step()
+    assert bench.nm.calls.count(('up', AP)) == 2 and bench.state()['ap'] == dict(
+        bench.state()['ap'], on=True, failed=False)
+    bench.want_ap(False)
+    bench.service.step()
+    bench.nm.ap_refused = True
+    bench.want_ap(True)  # Wanted again: tried at once, its old failure forgotten.
+    bench.service.step()
+    assert bench.nm.calls.count(('up', AP)) == 3

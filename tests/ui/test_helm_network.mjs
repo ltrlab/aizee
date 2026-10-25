@@ -41,6 +41,11 @@ const stuck = networkView({...base, mode: 'no_address', ethernet: {carrier: true
 assert.deepEqual([stuck.text, stuck.tone], ['No address', 'bad']);
 assert.match(stuck.lines[0], /Replug the cable/);
 
+// An access point wanted but refused by the radio: amber, and said.
+const refused = networkView({...base, mode: 'lan', ap: {...base.ap, wanted: true, on: false, failed: true}});
+assert.deepEqual([refused.text, refused.tone, refused.apLabel], ['Wired', 'warn', 'Turn the access point off']);
+assert.ok(refused.lines.some(line => /did not start: Minerva tries again every 30 s/.test(line)));
+
 // A service that stopped writing: red, said first, and no switch.
 const silent = networkView({...base, mode: 'lan', running: false, age_s: 42});
 assert.equal(silent.tone, 'bad');

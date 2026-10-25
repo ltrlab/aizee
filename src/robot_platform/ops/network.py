@@ -58,6 +58,7 @@ OLD_DHCP = PurePosixPath('/etc/dnsmasq.d/aizee-poe.conf')  # The fixed tether's 
 DHCP_TIMEOUT_S = 8
 TETHER_CLIENTS_MAX = 4
 LAN_ATTEMPTS = 3  # A port that stopped serving as a tether asks this many times, then waits for a replug.
+RETRY_S = 30.  # A connection that failed to come up (the access point, the 10.42.0.1 dummy) is tried again after this.
 LEASES = PurePosixPath(f'/var/lib/NetworkManager/dnsmasq-{ETHERNET}.leases')
 PERIOD_S = 1.
 
@@ -204,6 +205,19 @@ class Network:
         self.carrier = None
         self.served = set()  # The tether's leases when it started: clients before that are not counted.
         self.lan_attempts = 0
+        self.retry_at = {}  # A connection that failed to come up: not before this time again.
+
+    def bring_up(self, connection, wait):
+        """Activate `connection`, unless it failed less than RETRY_S ago: an access point the radio refuses must not
+        churn NetworkManager every step."""
+        if self.clock() < self.retry_at.get(connection, 0.):
+            return False
+        ok = self.nm.up(connection, wait)
+        if ok:
+            self.retry_at.pop(connection, None)
+        else:
+            self.retry_at[connection] = self.clock() + RETRY_S
+        return ok
 
     def ap_wanted(self):
         try:
@@ -233,7 +247,7 @@ class Network:
         ap = self.ap_wanted()
         active = self.nm.active()
         if active.get(LOCAL_DEVICE) != LOCAL:
-            self.nm.up(LOCAL, 10)
+            self.bring_up(LOCAL, 10)
         carrier = self.nm.carrier()
         if carrier and self.carrier is not True:
             log('plugged')
@@ -262,8 +276,11 @@ class Network:
         self.carrier = carrier
         active = self.nm.active()
         on_ap = active.get(WIFI) == AP
+        if not ap:
+            self.retry_at.pop(AP, None)  # Wanted again later, it is tried at once.
         if ap and not on_ap:
-            log('ap_on', ok=self.nm.up(AP, 30))
+            if self.clock() >= self.retry_at.get(AP, 0.):
+                log('ap_on', ok=self.bring_up(AP, 30))
         elif not ap and on_ap:
             self.nm.down(AP)
             log('ap_off')
@@ -280,7 +297,8 @@ class Network:
                              'addresses': self.nm.addresses(ETHERNET)},
                 'wifi': {'connection': wifi, 'mode': 'ap' if wifi == AP else ('client' if wifi else 'off'),
                          'addresses': self.nm.addresses(WIFI)},
-                'ap': {'wanted': ap, 'on': wifi == AP, 'ssid': AP_SSID, 'address': AP_NETWORK.split('/')[0]}}
+                'ap': {'wanted': ap, 'on': wifi == AP, 'ssid': AP_SSID, 'address': AP_NETWORK.split('/')[0],
+                       'failed': ap and wifi != AP and AP in self.retry_at}}
 
     def write(self, active, ap):
         _write_json(self.state, self.snapshot(active, ap))

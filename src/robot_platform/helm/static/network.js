@@ -39,6 +39,10 @@ export function networkView(network, {host = 'aizee-rover', busy = false} = {}) 
   if (ap.on) {
     text = network.mode === 'lan' ? 'Wired + AP' : network.mode === 'tether' ? 'Tether + AP' : 'AP';
     lines.push(`Access point "${ap.ssid}" is on: its devices reach Minerva at ${network.local}.`);
+  } else if (ap.wanted) {
+    tone = tone === 'bad' ? 'bad' : 'warn';
+    lines.push(ap.failed ? `The access point "${ap.ssid}" did not start: Minerva tries again every 30 s `
+      + '(journalctl -u minerva-net on the Jetson says why).' : `Switching the access point "${ap.ssid}" on…`);
   }
   if (!network.running) {
     tone = 'bad';
