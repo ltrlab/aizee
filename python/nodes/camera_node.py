@@ -11,9 +11,13 @@ Usage:
 
 import argparse
 import io
+import json
 import logging
+import os
 import signal
 import sys
+import tempfile
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -34,6 +38,16 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Keeping the camera on USB 3 (Usb3Keeper).
+RETRAIN_BACKOFF_S = (0., 30., 120., 600.)  # Before a reset, by how many resets in a row did not hold.
+RETRAIN_EXIT = 75  # EX_TEMPFAIL: the camera was reset and is re-attaching; systemd starts a fresh process.
+SETTLE_S = 10.  # A camera reset this recently may still be re-attaching: wait for it before resetting again.
+POLL_S = .5
+LIVE_POLL_S = 5.
+NO_CAMERA_WAIT_S = 60.  # With no camera at all, the process waits this long, then exits (systemd starts it again).
+LIVE_RECEIVERS = ('guarded_controller', 'head_controller')  # Minerva's live receivers: no reset while one runs.
+STOP_TIMEOUT_S = 2.  # pipeline.stop() hangs inside librealsense once the camera is gone; the exit does not wait.
 
 
 def _image_rotation(value: int) -> int:
@@ -67,6 +81,112 @@ def _rotate_depth_intrinsics(intrinsics: dict, rotation: int) -> dict:
     return result
 
 
+def _usb_major(usb) -> Optional[int]:
+    """The major USB version in a usb_type_descriptor ('3.2' -> 3, '2.1' -> 2), or None."""
+    try:
+        return int(str(usb).split('.')[0])
+    except (TypeError, ValueError):
+        return None
+
+
+def _live_receiver_running(proc: Path = Path('/proc')) -> bool:
+    """Whether one of Minerva's live receivers (LIVE_RECEIVERS) runs on this computer."""
+    try:
+        entries = list(proc.iterdir())
+    except OSError:
+        return False
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        try:
+            argv0 = (entry / 'cmdline').read_bytes().split(b'\0', 1)[0].decode(errors='replace')
+        except OSError:
+            continue
+        if Path(argv0).name in LIVE_RECEIVERS:
+            return True
+    return False
+
+
+def _info(device, key) -> Optional[str]:
+    """One of the camera's camera_info values, or None where the SDK cannot say."""
+    try:
+        return device.get_info(key)
+    except RuntimeError:
+        return None
+
+
+def _first_camera():
+    """The connected RealSense camera, or None."""
+    try:
+        devices = rs.context().query_devices()
+        return devices[0] if len(devices) else None
+    except RuntimeError as e:  # A camera mid re-attach can fail its enumeration.
+        logger.debug(f"RealSense enumeration failed: {e}")
+        return None
+
+
+class Usb3Keeper:
+    """Keeps the camera streaming over USB 3 only.
+
+    Its USB 3 link can drop mid-stream (Minerva's D435, 2026-10-24/25); the camera then re-attaches at USB 2 on the
+    same port's USB 2 side, which on Minerva is the hub both CAN adapters share, so it never streams there. A camera
+    found at USB 2 is reset: it reboots and re-attaches, which retrains USB 3 (a USB 2 port reset does not). Each
+    recovery is a fresh process, so how many resets in a row did not hold, and when the last was sent, live in a
+    small state file. The next reset waits RETRAIN_BACKOFF_S for that count, and none is sent while a live arm or
+    head receiver runs: the reset re-attaches the camera on the CAN adapters' hub.
+    """
+
+    def __init__(self, state_path, *, clock=time.time, sleep=time.sleep, live=_live_receiver_running):
+        self.state_path = Path(state_path)
+        self.clock, self.sleep, self.live = clock, sleep, live
+
+    def _load(self) -> dict:
+        try:
+            state = json.loads(self.state_path.read_text())
+            return {'failures': int(state['failures']), 'last_reset': float(state['last_reset'])}
+        except (OSError, ValueError, TypeError, KeyError):
+            return {'failures': 0, 'last_reset': 0.}
+
+    def _save(self, state: dict):
+        try:
+            self.state_path.write_text(json.dumps(state))
+        except OSError as e:
+            logger.warning(f"Could not record the camera's USB 3 recovery in {self.state_path}: {e}")
+
+    def held(self, usb):
+        """The camera is at USB 3: any reset before held."""
+        state = self._load()
+        if state['failures']:
+            logger.info(f"Camera back at USB {usb} after {state['failures']} reset(s)")
+            self._save({'failures': 0, 'last_reset': state['last_reset']})
+
+    def settling(self) -> float:
+        """Seconds the last reset may still need to re-attach the camera."""
+        return max(0., self._load()['last_reset'] + SETTLE_S - self.clock())
+
+    def reset(self, device, usb):
+        """The camera is at USB `usb` (2.x): wait out the backoff and any live receiver, then reset it."""
+        state = self._load()
+        wait = (state['last_reset'] + RETRAIN_BACKOFF_S[min(state['failures'], len(RETRAIN_BACKOFF_S) - 1)]
+                - self.clock())
+        if wait > 0:
+            logger.warning(f"Camera at USB {usb}: {state['failures']} reset(s) in a row did not hold it at USB 3; "
+                           f"the next in {wait:.0f} s")
+            self.sleep(wait)
+        if self.live():
+            logger.warning(f"Camera at USB {usb}: waiting for the live arm/head session to end before resetting it "
+                           "(the reset re-attaches it on the CAN adapters' hub)")
+            while self.live():
+                self.sleep(LIVE_POLL_S)
+        logger.warning(f"Camera at USB {usb} (its USB 3 link dropped): resetting it to re-attach at USB 3; it never "
+                       "streams over USB 2")
+        self._save({'failures': state['failures'] + 1, 'last_reset': self.clock()})
+        try:
+            device.hardware_reset()
+        except RuntimeError as e:
+            logger.error(f"Camera reset failed: {e}")
+
+
 class CameraNode:
     """Intel RealSense D455 camera node with ZeroMQ publishing"""
 
@@ -80,6 +200,8 @@ class CameraNode:
         jpeg_quality: int = 85,
         output_resolution: Optional[tuple] = None,
         image_rotation_deg: int = 0,
+        require_usb3: bool = True,
+        usb3_keeper: Optional[Usb3Keeper] = None,
     ):
         """Initialize camera node
 
@@ -93,6 +215,8 @@ class CameraNode:
             output_resolution: optional (width, height) to downscale color
                 to before JPEG encode.  None = publish at capture resolution.
             image_rotation_deg: 0 or 180, applied to color and native depth.
+            require_usb3: stream only over USB 3, resetting a camera found at USB 2 (Usb3Keeper).
+            usb3_keeper: its recovery state; by default a file in the temporary directory.
         """
         self.camera_id = camera_id
         self.zmq_endpoint = zmq_endpoint
@@ -102,6 +226,10 @@ class CameraNode:
         self.jpeg_quality = jpeg_quality
         self.output_resolution = output_resolution
         self.image_rotation_deg = _image_rotation(image_rotation_deg)
+        self.require_usb3 = require_usb3
+        self.usb3_keeper = usb3_keeper or Usb3Keeper(
+            Path(tempfile.gettempdir()) / f"aizee-{camera_id}-usb3.json")
+        self.device_serial: Optional[str] = None  # The camera ensure_usb3 found; the pipeline opens that one.
 
         self.pipeline: Optional[rs.pipeline] = None
         self.config: Optional[rs.config] = None
@@ -124,6 +252,27 @@ class CameraNode:
         self._stat_age_ms:    list = []
         self._rs_epoch_ms: Optional[float] = None
 
+    def ensure_usb3(self) -> bool:
+        """Find the camera and keep it on USB 3 (Usb3Keeper). True once it is at USB 3, to stream from; False after
+        resetting it from USB 2 (the process exits, and systemd starts a fresh one once it re-attaches)."""
+        keeper = self.usb3_keeper
+        deadline = keeper.clock() + NO_CAMERA_WAIT_S
+        while True:
+            device = _first_camera()
+            usb = _info(device, rs.camera_info.usb_type_descriptor) if device is not None else None
+            if device is not None and _usb_major(usb) != 2:  # Streams when the SDK cannot tell, too.
+                self.device_serial = _info(device, rs.camera_info.serial_number)
+                logger.info(f"Camera {self.device_serial} at USB {usb}")
+                keeper.held(usb)
+                return True
+            if device is not None and keeper.settling() <= 0:
+                keeper.reset(device, usb)
+                return False
+            if keeper.clock() >= deadline:
+                raise RuntimeError('No RealSense camera connected' if device is None
+                                   else f'The camera stayed at USB {usb} after its reset')
+            keeper.sleep(POLL_S)
+
     def initialize_camera(self):
         """Initialize RealSense pipeline and configure streams"""
         logger.info(f"Initializing RealSense camera: {self.camera_id}")
@@ -131,6 +280,8 @@ class CameraNode:
         # Create pipeline
         self.pipeline = rs.pipeline()
         self.config = rs.config()
+        if self.device_serial is not None:
+            self.config.enable_device(self.device_serial)
 
         # Configure streams
         self.config.enable_stream(
@@ -384,27 +535,46 @@ class CameraNode:
                 raise SystemExit(1)
 
     def cleanup(self):
-        """Clean up resources"""
+        """Clean up resources. pipeline.stop() hangs inside librealsense once the camera is gone (unplugged, or its
+        USB 3 link dropped), so it gets STOP_TIMEOUT_S; main then leaves with os._exit, which no SDK thread holds up."""
         logger.info("Cleaning up camera node...")
 
         if self.pipeline:
-            try:
-                self.pipeline.stop()
+            outcome = []
+
+            def stop():
+                try:
+                    self.pipeline.stop()
+                    outcome.append(None)
+                except Exception as e:
+                    outcome.append(e)
+
+            stopper = threading.Thread(target=stop, name='pipeline-stop', daemon=True)
+            stopper.start()
+            stopper.join(STOP_TIMEOUT_S)
+            if not outcome:
+                logger.warning(f"Camera pipeline did not stop within {STOP_TIMEOUT_S:.0f} s (the camera is gone?); "
+                               "exiting without it")
+            elif outcome[0] is None:
                 logger.info("Camera pipeline stopped")
-            except Exception as e:
-                logger.error(f"Error stopping pipeline: {e}")
+            else:
+                logger.error(f"Error stopping pipeline: {outcome[0]}")
 
         if self.zmq_socket:
-            self.zmq_socket.close()
+            self.zmq_socket.close(linger=0)
 
         if self.zmq_context:
             self.zmq_context.term()
 
         logger.info("Cleanup complete")
 
-    def run(self):
-        """Main run method - initialize and start processing"""
+    def run(self) -> int:
+        """Initialize and stream until stopped. Returns the process's exit code: 0 stopped, 1 failed, RETRAIN_EXIT
+        after resetting the camera from USB 2; systemd starts the node again after either of the last two."""
+        code = 0
         try:
+            if self.require_usb3 and not self.ensure_usb3():
+                return RETRAIN_EXIT
             self.initialize_camera()
             self.initialize_zmq()
 
@@ -416,10 +586,14 @@ class CameraNode:
 
         except KeyboardInterrupt:
             logger.info("Received interrupt signal")
+        except SystemExit as e:  # SIGTERM (0), or a capture error (1): process_frames never reinitializes in-process.
+            code = e.code if isinstance(e.code, int) else 1
         except Exception as e:
             logger.error(f"Fatal error: {e}", exc_info=True)
+            code = 1
         finally:
             self.cleanup()
+        return code
 
 
 def signal_handler(signum, frame):
@@ -452,6 +626,7 @@ def _kwargs_from_config(config: dict) -> dict:
         "fps":              int(color.get("fps", 30)),
         "jpeg_quality":     int(color.get("quality", 85)),
         "image_rotation_deg": cam_cfg.get("image_rotation_deg", 0),
+        "require_usb3":     cam_cfg.get("require_usb3", True) is not False,
     }
 
     out_w = color.get("output_width")
@@ -462,8 +637,8 @@ def _kwargs_from_config(config: dict) -> dict:
     return kwargs
 
 
-def main():
-    """Main entry point"""
+def main() -> int:
+    """Main entry point; returns the process's exit code (CameraNode.run)."""
     parser = argparse.ArgumentParser(description='AIZEE Camera Node')
     parser.add_argument(
         '--config',
@@ -502,6 +677,10 @@ def main():
         help='Rotate both RGB and native depth by 0 or 180 degrees'
     )
     parser.add_argument(
+        '--allow-usb2', action='store_true',
+        help='Stream over USB 2 too (by default a camera found at USB 2 is reset back to USB 3)'
+    )
+    parser.add_argument(
         '--output-size',
         type=str,
         default=None,
@@ -537,11 +716,15 @@ def main():
             "jpeg_quality": args.jpeg_quality,
             "output_resolution": output_resolution,
             "image_rotation_deg": args.image_rotation_deg,
+            "require_usb3": not args.allow_usb2,
         }
 
     node = CameraNode(**kwargs)
-    node.run()
+    return node.run()
 
 
 if __name__ == '__main__':
-    main()
+    exit_code = main()
+    logging.shutdown()
+    # Not sys.exit: interpreter shutdown can hang in librealsense's destructors once the camera is gone.
+    os._exit(exit_code if isinstance(exit_code, int) else 1)
