@@ -46,7 +46,12 @@ class SimulatedServo:
     def write(self, address, data):
         if address < 40 and self.get("Lock"):
             self.eeprom_writes_locked += 1
+        offset = self.get("Homing_Offset")
         self.memory[address:address + len(data)] = data
+        # Present_Position = actual - Homing_Offset (as Feetech servos report it), so a new offset shifts the reading.
+        shift = offset - self.get("Homing_Offset")
+        if shift:
+            self.set("Present_Position", (self.get("Present_Position") + shift) % 4096)
 
     def move_by_hand(self, position):
         """An outside hand turns the output; a servo holding torque does not give way."""
@@ -130,8 +135,9 @@ class SimulatedBus:
         elif code == READ and servo and len(params) == 2:
             self._reply(servo, servo.memory[params[0]:params[0] + params[1]])
         elif code == WRITE and len(params) >= 2:
-            for target in (self.servos.values() if servo_id == BROADCAST else [servo] if servo else []):
+            for target in list(self.servos.values()) if servo_id == BROADCAST else [servo] if servo else []:
                 target.write(params[0], params[1:])
+            self.servos = {s.servo_id: s for s in self.servos.values()}  # A written ID answers at once.
             if servo:
                 self._reply(servo)
         elif code == SYNC_READ and servo_id == BROADCAST and len(params) >= 3:

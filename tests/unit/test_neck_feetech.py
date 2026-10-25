@@ -138,3 +138,35 @@ def test_probe_and_watch_only_read():
     seen = watch(bus, [1, 2], hz=10, seconds=.35, emit=lambda line: None, clock=lambda: now[0], sleep=sleep)
     assert seen[1] == (1900, 2300) and seen[2] == (1024, 1024)
     assert set(sim.instructions()) <= {PING, READ, SYNC_READ}
+
+
+def test_setup_gives_the_only_servo_its_id_and_relocks():
+    from robot_platform.neck import setup
+    sim, bus = bus_with(SimulatedServo(1, position=1500))
+    assert setup.set_id(bus, 2, ids=range(0, 6)) == (1, 2)
+    assert not bus.ping(1) and bus.ping(2)
+    assert bus.read(2, "ID") == 2 and bus.read(2, "Lock") == 1
+    assert sim.servos[2].eeprom_writes_locked == 0  # Written unlocked, so it persists.
+    two_sim, two = bus_with(SimulatedServo(1), SimulatedServo(2))
+    with pytest.raises(setup.SetupError, match="exactly one servo"):
+        setup.set_id(two, 3, ids=range(0, 6))
+
+
+def test_setup_centres_the_reading_and_sets_limits_on_a_limp_servo():
+    from robot_platform.neck import setup
+    sim, bus = bus_with(SimulatedServo(1, position=1000))
+    offset = setup.centre(bus, 1)
+    assert offset == 1000 - 2048 and bus.read(1, "Present_Position") == 2048
+    assert bus.read(1, "Homing_Offset") == offset and bus.read(1, "Lock") == 1
+    sim.servos[1].move_by_hand(2100)  # Turning it now reads relative to the new centre.
+    assert bus.read(1, "Present_Position") == 2100
+    assert setup.set_limits(bus, 1, 1300, 2800) == (1300, 2800)
+    bus.write(1, "Torque_Enable", 1)
+    with pytest.raises(setup.SetupError, match="holds torque"):
+        setup.centre(bus, 1)
+
+
+def test_setup_commands_only_write_with_confirm(capsys):
+    from robot_platform.neck.cli import main
+    assert main(["set-id", "--port", "COM_UNUSED", "--to", "2"]) == 0
+    assert "Would give the only servo on the bus id 2" in capsys.readouterr().out
