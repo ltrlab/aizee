@@ -14,6 +14,9 @@
   - Replay: the dark background in light mode, "a preview of the model in the same way [...] The camera views should
     extend into the space the joint position timeline is, but the model view should sit above this joint timeline"
   - "that REC banner should be the same font as the theme"
+  - Then, a follow-up: "can you tweak both camera views so they are wider? they should be bigger", "remove the pause
+    preview button and make the images bigger with that space too" and "the order for the cameras in both teleop and
+    replay should be from top to bottom, head right left"
 - **Scope:** Helm's page only (static files), the episode endpoint's model mapping, and the 3D viewer's pose message.
   Nothing changes a receiver, lifecycle or motion rule.
 
@@ -49,6 +52,19 @@ first Hold and shuts down from a later Hold or Teleop, so one press would both c
   stopped reader's motor → joint mapping, and the viewer takes a pose from Helm by message, holding it over its polled
   guide until Helm releases it when you leave Replay).
 
+## Follow-up: bigger cameras, head first
+
+- **The stacked column is as wide as three 4:3 pictures filling its height** (at most 36 % of the width, so the model
+  keeps the rest), and each picture takes its whole tile with its caption over its bottom edge. At 1920x1080 a picture
+  is **436x327** (was about 321x241); at 1366x768, 298x223. Replay's tiles: 456x324.
+- **Stacked Teleop has no Pause preview button and no heading:** the cameras are part of the view, so there is nothing
+  to pause, and each caption says its own camera's state. Retry still appears over the column, top left, once the
+  automatic retries run out. Narrower than 1100 px, the Cameras / Model switch and Pause remain.
+- **The session-controls bar** starts right of the camera column (Teleop stacked and Replay) instead of covering its
+  bottom picture.
+- **Camera order, top to bottom: head, right wrist, left wrist**, everywhere in Teleop and Replay: the stacked column,
+  the narrow screen's thumbnails, Replay's pictures and its Cameras line, and Teleop's card while an episode replays.
+
 ## Verification
 
 - Page module tests (node): pedals (tester only on its page; recording modes), replay (pose packet), calibration card,
@@ -58,6 +74,8 @@ first Hold and shuts down from a later Hold or Teleop, so one press would both c
 - Screenshots of both looks, day and night, at 1920x1080 and 1366x768, from a local Helm with a stand-in session and a
   recorded episode (`calibration_card_preview.py` and the `*_shots.mjs` scripts in the session scratchpad).
 - Gate: 1322 tests passed, none skipped.
+- The follow-up: the same page and browser tests (the replay test now expects head first); screenshots of both looks
+  at both sizes with stand-in camera frames; Retry checked visible and on top over the stacked column.
 
 ## Deploy
 
