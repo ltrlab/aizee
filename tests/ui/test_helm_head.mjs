@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {headView, signedDegrees} from '../../src/robot_platform/helm/static/head.js';
-import {degrees, poseMessage} from '../../src/robot_platform/helm/static/xr.js';
+import {degrees, poseMessage} from '../../src/robot_platform/helm/static/xr_status.js';
 
 // No session and no headset: no card.
 assert.equal(headView(null, null, 'minerva:8760').shown, false);

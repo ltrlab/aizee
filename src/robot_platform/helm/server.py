@@ -911,7 +911,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
                 if steered % 15 == 1:  # Now and then: what the head does with it.
                     head = (((teleop.snapshot() if teleop is not None else None) or {}).get('head') or {})
                     await ws.send_json({'type': 'status', 'steering': bool(running), 'head': head.get('state'),
-                                        'source': head.get('source'), **headset.status()})
+                                        'source': head.get('source'), 'head_fault': head.get('fault'),
+                                        **headset.status()})
         finally:
             headset.disconnect(connection)
         return ws

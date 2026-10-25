@@ -109,6 +109,13 @@ def test_the_head_card_says_what_the_head_follows_and_where_the_headset_page_is(
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
 
 
+def test_the_headset_screens_say_what_the_head_does_and_its_camera_streams_the_newest_frame():
+    node = shutil.which('node')
+    assert node, 'Node.js is required to check the headset view'
+    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_xr_view.mjs')], capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
+
+
 def test_the_network_pill_and_settings_say_how_minerva_is_connected():
     node = shutil.which('node')
     assert node, 'Node.js is required to check the network view'

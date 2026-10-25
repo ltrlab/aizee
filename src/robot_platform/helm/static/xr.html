@@ -33,10 +33,11 @@
     <div class="row">
       <button id="start" disabled>Start head tracking</button>
     </div>
-    <p class="muted">Look straight ahead and level when you start: that is the head's zero. To zero again, look where
-      the head should face straight ahead and pull either trigger (or pinch); recentering the headset (hold the Meta
-      button) zeroes at the new heading, level. Take the headset off or press the Meta button to stop: the head holds,
-      then returns to its zero.</p>
+    <p class="muted">Look straight ahead and level when you start: that is the head's zero. Inside you see the head
+      camera's picture and a status panel: point a controller at either and squeeze its grip button to grab it and move
+      it. To zero again, look where the head should face straight ahead and pull either trigger (or pinch); recentering
+      the headset (hold the Meta button) zeroes at the new heading, level. Take the headset off or press the Meta button
+      to stop: the head holds, then returns to its zero.</p>
     <dl>
       <dt>Helm</dt><dd id="link">—</dd>
       <dt>Tracking</dt><dd id="tracking">—</dd>
@@ -44,6 +45,7 @@
       <dt>Head</dt><dd id="head">—</dd>
     </dl>
   </main>
+  <script type="importmap">{"imports": {"three": "/static/vendor/three.module.js"}}</script>
   <script type="module" src="/helm/xr.js"></script>
 </body>
 </html>

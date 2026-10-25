@@ -174,8 +174,13 @@ def test_the_socket_steers_the_head_and_zeroes_from_the_headset_or_the_teleop_ta
         async with TestClient(TestServer(create_app(helm, Link(), teleop=teleop, token='secret',
                                                     simulation_only=True))) as client:
             page = await client.get('/xr')
-            assert page.status == 200 and '/helm/xr.js' in await page.text()
-            assert (await client.get('/helm/xr.js')).status == 200
+            text = await page.text()
+            assert page.status == 200 and '/helm/xr.js' in text
+            # The headset's scene: three.js where the page's import map says, and the page's modules.
+            assert '{"imports": {"three": "/static/vendor/three.module.js"}}' in text
+            for path in ('/helm/xr.js', '/helm/xr_scene.js', '/helm/xr_camera.js', '/helm/xr_status.js',
+                         '/helm/camera_live.js', '/static/vendor/three.module.js'):
+                assert (await client.get(path)).status == 200, path
             for path, headers in (('/api/helm/xr', {}), ('/api/helm/xr?token=wrong', {}),
                                   ('/api/helm/xr?token=secret', {'Origin': 'https://elsewhere'})):
                 with pytest.raises(WSServerHandshakeError) as refused:
@@ -189,6 +194,7 @@ def test_the_socket_steers_the_head_and_zeroes_from_the_headset_or_the_teleop_ta
             await ws.send_json({'type': 'pose', 'seq': 1, 'q': gaze(.3, .2)})
             status = await ws.receive_json(timeout=2)  # The first pose, then every 15th: what the head does.
             assert status['steering'] is True and (status['head'], status['source']) == ('TELEOP', 'headset')
+            assert status['head_fault'] is None
             assert teleop.poses == [pytest.approx((.3, .2))]
             await ws.send_json({'type': 'pose', 'seq': 2, 'q': [0, 0, 0]})
             assert 'four numbers' in (await ws.receive_json(timeout=2))['error']
