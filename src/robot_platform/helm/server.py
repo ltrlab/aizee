@@ -456,6 +456,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             video_sockets.discard(ws)
             raise
         viewer_heartbeat = {'sequence':None, 'at':asyncio.get_running_loop().time()}
+        # A viewer may want some cameras only (?roles=head: the headset's screen), not every camera's frames.
+        wanted = {role for role in request.query.get('roles', '').split(',') if role}
 
         async def close_video(code=1000, message=b''):
             try:
@@ -479,7 +481,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
                         await asyncio.wait_for(ws.send_json(status), .5)
                         status_at = now
                     for role, (header, jpeg) in frames.items():
-                        if viewer_heartbeat['sequence'] is None:
+                        if viewer_heartbeat['sequence'] is None or (wanted and role not in wanted):
                             continue
                         if header['sequence'] == sent.get(role):
                             continue

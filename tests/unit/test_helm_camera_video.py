@@ -396,6 +396,47 @@ def test_a_slow_link_gets_fewer_frames_and_keeps_its_stream(helm, monkeypatch):
     asyncio.run(run())
 
 
+class TwoCameras(VideoFixture):
+    """The head and a wrist camera, each with a new frame at every look."""
+    def __init__(self):
+        super().__init__()
+        self.sequence = 0
+
+    def snapshot(self):
+        self.sequence += 1
+        status, _frames = super().snapshot()
+        return status, {role: ({'role': role, 'sequence': self.sequence, 'age_s': .02, 'source_timestamp': time.time()},
+                               JPEG) for role in ('head', 'left_wrist')}
+
+
+def test_a_viewer_can_ask_for_some_cameras_only(helm):
+    """The headset's screen asks for the head's frames (?roles=head): the wrists' never reach it."""
+    from aiohttp import WSMsgType
+    from aiohttp.test_utils import TestClient, TestServer
+
+    async def run():
+        async with TestClient(TestServer(create_app(helm, SimulationLink(), camera_video=TwoCameras(),
+                                                    token='secret'))) as client:
+            async def roles(path):
+                ws = await client.ws_connect(path)
+                seen, frames = set(), 0
+                for beat in range(1, 60):
+                    await ws.send_json({'type': 'heartbeat', 'sequence': beat})
+                    message = await ws.receive(timeout=1)
+                    if message.type == WSMsgType.BINARY:
+                        count = struct.unpack('!I', message.data[:4])[0]
+                        seen.add(json.loads(message.data[4:4 + count])['role'])
+                        frames += 1
+                        if frames >= 8:
+                            break
+                await ws.close()
+                assert frames >= 8
+                return seen
+            assert await roles('/api/helm/cameras/live?token=secret&roles=head') == {'head'}
+            assert await roles('/api/helm/cameras/live?token=secret') == {'head', 'left_wrist'}
+    asyncio.run(run())
+
+
 def test_closing_the_last_viewer_tolerates_a_relay_already_gone():
     video = CameraVideo(ROOT / 'config/devices/minerva-joint-calibration.json', address=lambda: '127.0.0.1')
 
