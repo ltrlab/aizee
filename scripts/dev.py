@@ -66,7 +66,7 @@ CORE = [
     'tests/unit/test_eval_stats.py', 'tests/unit/test_eval_report.py',
     'tests/contract/test_eval_reference_policies.py',
     'tests/unit/test_ci_windows_gl.py', 'tests/unit/test_dev_gate.py', 'tests/unit/test_gate_time_study.py',
-    'tests/unit/test_platform_packaging.py',
+    'tests/unit/test_platform_packaging.py', 'tests/unit/test_neck_feetech.py',
 ]
 # The motion contract (AGENTS.md: approach, collision envelope, guarded lifecycle and receiver checks, the receiver
 # and collision crates) and the locks: a change there runs the whole check, never the quick lane.
