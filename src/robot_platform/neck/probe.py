@@ -21,6 +21,14 @@ def list_ports():
              "manufacturer": p.manufacturer, "description": p.description} for p in ports.comports()]
 
 
+def usb_serial_of(device):
+    """The USB serial number of the adapter at `device` (following a /dev/serial/by-id link), or None."""
+    import os
+    from serial.tools import list_ports as ports
+    real = os.path.realpath(device)
+    return next((p.serial_number for p in ports.comports() if os.path.realpath(p.device) == real), None)
+
+
 def open_bus(port, baud=1_000_000, timeout_s=.02):
     """Open `port` and find out whether the adapter echoes requests (a ping to an unused id)."""
     import serial

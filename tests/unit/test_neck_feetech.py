@@ -170,3 +170,32 @@ def test_setup_commands_only_write_with_confirm(capsys):
     from robot_platform.neck.cli import main
     assert main(["set-id", "--port", "COM_UNUSED", "--to", "2"]) == 0
     assert "Would give the only servo on the bus id 2" in capsys.readouterr().out
+
+
+def test_the_head_reference_and_limits_files_feed_its_derivation():
+    from datetime import datetime, timezone
+    from pathlib import Path
+    from robot_platform.models import ModelProfile, UrdfModel
+    from robot_platform.neck import head, setup
+    root = Path(__file__).resolve().parents[2]
+    profile = head.load_profile(root / head.PROFILE)
+    now = datetime(2026, 10, 25, tzinfo=timezone.utc)
+    sim, bus = bus_with(SimulatedServo(1, position=2048), SimulatedServo(2, position=2050))
+    reference = setup.reference_document(bus, profile, asset_id='minerva-test', usb_serial='5A46083062',
+                                         device='/dev/serial/by-id/x', now=now)
+    pan, tilt = reference['motors']
+    assert (pan['uid'], pan['firmware'], pan['raw_reference_steps'], tilt['raw_reference_steps']) == (
+        '5A46083062/1', '3.10', 2048, 2050)
+    assert set(sim.instructions()) <= {PING, READ}  # Saving the reference only reads the servos.
+    limits = setup.limits_document({1: (1500, 2600), 2: (1800, 2300)}, profile, reference, now=now)
+    assert limits['joints']['head_pan']['min_rad'] == pytest.approx(1500 * head.RAD_PER_STEP)
+    model = UrdfModel(ModelProfile.load(root / profile['model_profile']))
+    joints = {j['name']: j for j in head.derive(profile, reference, limits, model)['config']['joints']}
+    assert joints['head_tilt']['upper'] == pytest.approx(2300 * head.RAD_PER_STEP + .02)
+    with pytest.raises(setup.SetupError, match='swept only'):
+        setup.limits_document({1: (2040, 2060), 2: (1800, 2300)}, profile, reference, now=now)
+    with pytest.raises(setup.SetupError, match='does not contain its reference'):
+        setup.limits_document({1: (2100, 2600), 2: (1800, 2300)}, profile, reference, now=now)
+    sim.servos[2].move_by_hand(1000)
+    with pytest.raises(setup.SetupError, match='centre it'):
+        setup.reference_document(bus, profile, asset_id='minerva-test', usb_serial='5A46083062', device='x', now=now)

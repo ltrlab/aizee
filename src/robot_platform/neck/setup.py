@@ -98,3 +98,53 @@ def set_limits(bus, servo_id, low, high):
     if read != (low, high):
         raise SetupError(f"Servo {servo_id} reads limits {read}, not {(low, high)}")
     return read
+
+
+def reference_document(bus, profile, *, asset_id, usb_serial, device, now):
+    """The head's reference, read with the head held at its reference pose (straight ahead, level) after centring:
+    per servo its identity (the adapter's USB serial and its id, so `uid`; model; firmware) and its raw reading.
+    Each servo must be limp, its EEPROM locked and its reading near mid-turn (it was centred there)."""
+    import math
+    if not usb_serial or not usb_serial.isalnum():
+        raise SetupError("The adapter's USB serial is needed (robot-platform neck ports shows it)")
+    motors = []
+    for servo in profile["motors"]:
+        values = bus.read_many(servo["id"], ["Firmware_Major_Version", "Firmware_Minor_Version", "Model_Number"])
+        if values["Model_Number"] != servo["model"]:
+            raise SetupError(f"{servo['name']}: id {servo['id']} is model {values['Model_Number']}, not {servo['model']}")
+        _torque_off(bus, servo["id"])
+        if bus.read(servo["id"], "Lock") != 1:
+            raise SetupError(f"{servo['name']}: its EEPROM is unlocked; lock it (centre does) before saving")
+        steps = bus.read(servo["id"], "Present_Position")
+        if abs(steps - CENTRE) > 100:
+            raise SetupError(f"{servo['name']} reads {steps}, not near {CENTRE}: centre it at the reference pose first")
+        motors.append({"name": servo["name"], "joint": servo["joint"], "id": servo["id"],
+                       "uid": f"{usb_serial}/{servo['id']}", "model": servo["model"],
+                       "firmware": f"{values['Firmware_Major_Version']}.{values['Firmware_Minor_Version']}",
+                       "raw_reference_steps": steps, "raw_reference_rad": steps * 2 * math.pi / RESOLUTION,
+                       "sign": 1, "direction_verified": False})
+    stamp = now.strftime("%Y%m%dT%H%M%SZ")
+    return {"schema": 1, "kind": "head_reference", "id": f"{asset_id}-head-{stamp}", "asset_id": asset_id,
+            "created_at": now.isoformat(), "bus": {"usb_serial": usb_serial, "device": device}, "motors": motors}
+
+
+def limits_document(seen, profile, reference, *, now, minimum_span_rad=.1):
+    """The head's joint limits from a hand sweep with the torque off ({id: (min steps, max steps)}), in the arms'
+    format: each joint's swept range must span at least `minimum_span_rad` and contain its reference reading."""
+    import math
+    by_name = {m["name"]: m for m in reference["motors"]}
+    joints = {}
+    for servo in profile["motors"]:
+        if servo["id"] not in seen:
+            raise SetupError(f"{servo['name']} was not read during the sweep")
+        low, high = (steps * 2 * math.pi / RESOLUTION for steps in seen[servo["id"]])
+        home = by_name[servo["name"]]["raw_reference_rad"]
+        if high - low < minimum_span_rad:
+            raise SetupError(f"{servo['name']} swept only {high - low:.3f} rad: turn it to both ends by hand")
+        if not low <= home <= high:
+            raise SetupError(f"{servo['name']}'s swept range does not contain its reference: sweep it again")
+        joints[servo["name"]] = {"id": servo["id"], "min_rad": low, "max_rad": high, "span_rad": high - low,
+                                 "min_steps": seen[servo["id"]][0], "max_steps": seen[servo["id"]][1]}
+    return {"schema": 1, "kind": "joint_limit_calibration", "units": "servo_rad_from_centred_zero",
+            "asset_id": reference["asset_id"], "reference_id": reference["id"], "runtime_approved": False,
+            "created_at": now.isoformat(), "joints": joints}
