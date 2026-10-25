@@ -66,16 +66,55 @@ Every servo ships as id 1, so the two must get distinct ids before they share th
 The code runs on the Jetson only after a deploy, which needs the user's OK. Before that it runs from a PC with the
 adapter plugged in.
 
+## Where the RobStride pipeline needs the neck
+
+A read-only map of the code (2026-10-25) found the following.
+
+- **The only hardware abstraction** is the Rust receiver's `Hardware` trait (`rust/control_core/src/hardware.rs`).
+  Its only implementations are `Loopback` and CAN.
+- **Everything around it assumes RobStride on CAN:** identity (uid and firmware), the stopped reader
+  (`control/joint_capture.py`), the mechanical zero, the power-on range, wire ranges, the watchdog, and the
+  rule that each arm is one bus.
+- **Tune's analysis assumes torque control** (`control/servo_analysis.py`): kp and kd in Nm/rad, effort in Nm.
+  An STS3250 is a position servo with internal P/D/I registers that reports load as a percentage. "Tuning
+  parameters extracted" therefore needs a position-servo version of the sweep. It would extract the P, D and I
+  registers, acceleration, maximum velocity, stopping, and the tracking error.
+- **The collision envelope requires one receiver to own every actuator in the model.** Joints outside it are
+  held at their reference pose.
+- **Names:** the robot definition (`robots/definitions/minerva.json`) has inactive `head_pan`/`head_tilt`, while
+  the URDF has `neck_z`/`neck_y`. The calibration plan's steps would map motors `head_pan`/`head_tilt` to the
+  CAD joints `neck_z`/`neck_y`.
+- **Hard-coded 14 motors and left/right arms:**
+  - task capture asserts exactly 14 axes;
+  - Tune, Check, the live receiver choices and Helm's pages loop over left and right only.
+
+  The Limits page already groups unknown motors as "OTHER".
+- **The LeRobot exporter is generic.** Policy vectors take whatever joints the receiver has, so adding the neck
+  to them must be a deliberate choice.
+
+**The decision this needs (the motion-contract owner and the user):** the neck joins the arms' receiver, or runs
+its own.
+
+- **Joining (recommended):** a Feetech `Hardware` implementation and a serial "bus" in the service
+  configuration. The neck then gets the same lifecycle, limits, freshness, telemetry and recording, and one
+  receiver owns every actuator, as the collision envelope requires.
+- **Separate:** a neck receiver is quicker to build, but the guard could not certify arm motion against a head
+  pose it does not control.
+
+Either way, the receiver part belongs to the motion contract.
+
 ## Plan
 
 1. **Ids and safe settings.** These are EEPROM writes and need the user's OK.
    - One servo at a time on the bus: pan gets id 1 and tilt id 2.
    - Write their position limits, torque limit and protection settings, recorded in a neck servo file.
-2. **Limits, as for the RobStrides.**
+2. **Identity, stopped reader and limits, as for the RobStrides.**
+   - Identity: an STS has no uid, so it is the servo id, model and firmware plus the adapter's pinned USB serial.
+   - A stopped Feetech reader, like `joint_capture.py`, feeds Limits, the live view and Check.
    - A torque-off hand sweep (`watch`) gives each neck joint's range.
    - Store it with the same margin rule as the arms' swept ranges.
    - Set the direction and zero against the CAD pose: head straight ahead and level.
-3. **Motion and tuning.**
+3. **Motion and tuning** (the receiver part with the motion-contract owner).
    - Position mode with speed and acceleration caps.
    - A Tune sweep for the neck: step responses over P, D and acceleration rungs, picking the stiffest rung that
      passes, written to the neck servo file.
