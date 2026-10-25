@@ -1,6 +1,6 @@
 // Read-only physical preview. This socket never starts a session or changes a camera.
 const $ = id => document.getElementById(id);
-const ROLES = {left_wrist:'Left wrist', right_wrist:'Right wrist', head:'Head'};
+const ROLES = {head:'Head', right_wrist:'Right wrist', left_wrist:'Left wrist'};  // Top to bottom when stacked.
 const STALE_S = 1, MAX_JPEG = 2 * 1024 * 1024, MAX_HEADER = 4096;
 const RETRY_MS = [1000, 2000, 4000];
 

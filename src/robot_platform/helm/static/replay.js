@@ -4,8 +4,11 @@
 // replay in real time at any speed. ReplayView renders it (episode list, cameras, scrubber, joint timeline) and
 // tells subscribers about every frame it shows, the hook for later layers (3D pose, overlays, annotations).
 
-export const ROLE_ORDER = ['left_wrist', 'head', 'right_wrist'];
-export const ROLE_LABEL = {left_wrist: 'Left wrist', head: 'Head', right_wrist: 'Right wrist'};
+export const ROLE_ORDER = ['head', 'right_wrist', 'left_wrist'];  // Top to bottom in the stacked column, as Teleop.
+export const ROLE_LABEL = {head: 'Head', right_wrist: 'Right wrist', left_wrist: 'Left wrist'};
+// An episode's cameras in that order, then any others as recorded.
+const orderRoles = roles => ROLE_ORDER.filter(role => roles.includes(role))
+  .concat(roles.filter(role => !ROLE_ORDER.includes(role)));
 export const SPEEDS = [0.25, 0.5, 1, 2, 4];
 const PREFETCH_S = 1.2;
 const JOINT_COLORS = ['#7cc4ff', '#7fdca4', '#f2c380', '#ff8b98', '#c39bff', '#7fe0dc'];
@@ -665,9 +668,7 @@ export class ReplayView {
     if (this.e.reviewStatus) this.e.reviewStatus.textContent = '';
     this.model.load(data.series.t);
     this.prefetched.clear();
-    const roles = ROLE_ORDER.filter(role => data.summary.roles.includes(role))
-      .concat(data.summary.roles.filter(role => !ROLE_ORDER.includes(role)));
-    this.panels = new Map(roles.map(role => [role, new CameraPanel(role, this.doc)]));
+    this.panels = new Map(orderRoles(data.summary.roles).map(role => [role, new CameraPanel(role, this.doc)]));
     this.e.cameras.replaceChildren(...[...this.panels.values()].map(panel => panel.figure));
     this.e.scrub.max = String(this.model.last);
     this.timeline.setSeries(data.series, data.summary.joints || []);
@@ -686,7 +687,7 @@ export class ReplayView {
     const rows = [
       ['Duration', formatSeconds(summary.duration)],
       ['Frames', `${summary.frames} at ${summary.rate_hz ? summary.rate_hz.toFixed(1) : '—'} Hz`],
-      ['Cameras', summary.roles.map(role => ROLE_LABEL[role] || role).join(', ')],
+      ['Cameras', orderRoles(summary.roles).map(role => ROLE_LABEL[role] || role).join(', ')],
       ['File', summary.complete ? 'complete' : 'partial: recording did not finish'],
       ['Recorded', summary.collected_at ? new Date(summary.collected_at).toLocaleString() : '—'],
       ['Task', summary.language_instruction || 'not described'],

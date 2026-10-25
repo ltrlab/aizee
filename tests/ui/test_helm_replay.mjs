@@ -140,14 +140,14 @@ assert.equal(elements.fill.style.width, '25.0%');
 assert.equal(elements.track.attributes['aria-valuenow'], '25');
 assert.match(elements.note.textContent, /^Replaying/);
 const images = () => elements.frames.children.map(figure => figure.children[0]);
-assert.deepEqual(images().map(img => img.src), ['left_wrist', 'head', 'right_wrist'].map(role => live.frameUrl('s/e', 22, role)));
+assert.deepEqual(images().map(img => img.src), ['head', 'right_wrist', 'left_wrist'].map(role => live.frameUrl('s/e', 22, role)));
 card.render({...playing, frame: 23, time_s: 1.55}, {state: 'TELEOP'});
-assert.equal(images()[0].src, live.frameUrl('s/e', 22, 'left_wrist'));  // Still loading frame 22: 23 waits.
+assert.equal(images()[0].src, live.frameUrl('s/e', 22, 'head'));  // Still loading frame 22: 23 waits.
 images()[0].onload();
-assert.equal(images()[0].src, live.frameUrl('s/e', 23, 'left_wrist'));
+assert.equal(images()[0].src, live.frameUrl('s/e', 23, 'head'));
 assert.equal(elements.title.textContent, 's/e');  // No label: the episode's id.
 card.render({...playing, episode: 's/other', frame: 0});
-assert.equal(images()[0].src, live.frameUrl('s/other', 0, 'left_wrist'));  // Another episode: fresh cameras.
+assert.equal(images()[0].src, live.frameUrl('s/other', 0, 'head'));  // Another episode: fresh cameras.
 // The model at a replayed frame: recorded positions through the stopped reader's mapping, as the viewer's telemetry.
 const mapping = {left_arm_j1: {joint: 'left_arm_j1', scale: 1, offset: 0, unit: 'rad'},
   right_arm_j1: {joint: 'right_arm_j1', scale: -1, offset: .1, unit: 'rad'},
