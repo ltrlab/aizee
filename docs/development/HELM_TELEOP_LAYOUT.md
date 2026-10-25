@@ -57,4 +57,11 @@ first Hold and shuts down from a later Hold or Teleop, so one press would both c
   theme and look: all passed.
 - Screenshots of both looks, day and night, at 1920x1080 and 1366x768, from a local Helm with a stand-in session and a
   recorded episode (`calibration_card_preview.py` and the `*_shots.mjs` scripts in the session scratchpad).
-- The gate before merging.
+- Gate: 1322 tests passed, none skipped.
+
+## Deploy
+
+- **2026-10-25 ~01:47Z, with the user's OK ("deploy when the gate passes"):** Minerva runs `20261025T014629Z-bfc2ae1`
+  (`claude/helm-on-jetson` fast-forwarded to this branch: `ee48eb9` the P key, `cd82dad` the screens, `bfc2ae1` this
+  record). Helm restarted and listens; no errors since its start; soliloquy's bridge is unchanged.
+- Not yet seen on the operator's screen, nor Replay with a real recorded episode.
