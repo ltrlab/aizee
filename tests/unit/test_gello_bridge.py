@@ -158,3 +158,55 @@ def test_the_logon_task_logs_to_its_own_file_and_a_crash_says_why(tmp_path, monk
     with pytest.raises(RuntimeError):
         gello_bridge.main(['--key', 'k', '--log', str(path)])
     assert 'stopped: Traceback' in path.read_text(encoding='utf-8') and 'no profile' in path.read_text(encoding='utf-8')
+
+
+def test_the_relay_says_where_the_bridge_reached_minerva_and_the_bridge_remembers_its_addresses(tmp_path,
+                                                                                                monkeypatch):
+    monkeypatch.setenv('SSH_CLIENT', '192.168.8.225 51234 22')
+    monkeypatch.setenv('SSH_CONNECTION', '192.168.8.225 51234 192.168.8.43 22')
+    hub = BridgeHub(port=0, token_file=tmp_path / 'run' / 'helm-bridge-token', machine_id=MACHINE,
+                    addresses=lambda: ['192.168.8.43', '10.42.0.1'],
+                    path_of=lambda peer: 'wired' if peer == '192.168.8.225' else None)
+    try:
+        session, _ = attach(hub, tmp_path)
+        wait_until(lambda: hub.connected)
+        snapshot = hub.snapshot()
+        assert (snapshot['peer'], snapshot['robot_address'], snapshot['path']) == ('192.168.8.225', '192.168.8.43',
+                                                                                   'wired')
+        assert hub.robot_address == '192.168.8.43'  # A session's leader link binds there (helm.teleop).
+        wait_until(lambda: session.addresses == ['192.168.8.43', '10.42.0.1'])
+    finally:
+        hub.close()
+
+
+def test_the_bridge_tries_minervas_addresses_in_order_and_remembers_where_it_was(monkeypatch):
+    from pathlib import Path
+    profile = str(Path(__file__).resolve().parents[2] / 'config/devices/minerva-joint-calibration.json')
+    assert gello_bridge.candidates(profile) == ['10.42.0.1', 'aizee-rover.local', '192.168.8.180']
+    assert gello_bridge.candidates(profile, remembered=['192.168.8.43', '10.42.0.1']) == [
+        '10.42.0.1', '192.168.8.43', 'aizee-rover.local', '192.168.8.180']
+    assert gello_bridge.candidates(profile, '10.0.0.5, 10.0.0.6') == ['10.0.0.5', '10.0.0.6']
+    monkeypatch.setattr(gello_bridge, 'RECONNECT_S', (0.,))
+    stop, attempts, sessions = threading.Event(), [], []
+
+    class Session:
+        def __init__(self, reader, writer, **options):
+            self.addresses = ['192.168.8.43', '10.42.0.1']  # As Helm's welcome reports them.
+
+        def run(self):
+            sessions.append(attempts[-1])
+            if len(sessions) == 2:
+                stop.set()
+    monkeypatch.setattr(gello_bridge, 'BridgeSession', Session)
+
+    def connect(address):
+        attempts.append(address)
+        if address == 'aizee-rover.local':
+            raise RuntimeError('SSH host fingerprint mismatch')  # Something answers there, but not Minerva.
+        return None, None, lambda: None
+    reachable = {'aizee-rover.local', '192.168.8.180', '192.168.8.43'}  # Not the tether: no adapter.
+    gello_bridge.run(profile=profile, key='k', connect=connect, stop=stop, probe=lambda address: address in reachable)
+    # The tether does not answer; the name answers but is not Minerva; the profile's address is. The next time,
+    # the wired address Helm reported comes before the name.
+    assert attempts == ['aizee-rover.local', '192.168.8.180', '192.168.8.43']
+    assert sessions == ['192.168.8.180', '192.168.8.43']

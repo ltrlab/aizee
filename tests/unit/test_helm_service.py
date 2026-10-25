@@ -89,10 +89,15 @@ def test_keys_are_authorized_narrowly_once_and_removed_cleanly(tmp_path):
                         + ' '.join(LOCAL_KEY.split()[:2]) + ' minerva-helm-local')
     assert report['authorized'] == {'local': True, 'bridges': []}
     assert list(p.authorized.parent.glob('authorized_keys.before-helm-*'))  # A copy of what was there.
+    # An earlier release's line for this bridge (the tether only) ...
+    narrower = helm_service.bridge_line(BRIDGE_KEY, 'operator-3080').replace(
+        'from="10.42.0.0/16,192.168.8.0/24"', 'from="10.42.0.0/24"')
+    p.authorized.write_text(p.authorized.read_text() + narrower + '\n')
     helm_service.authorize_bridge(BRIDGE_KEY, 'operator-3080', robot)
     bridge = p.authorized.read_text().splitlines()[2]
+    # ... becomes the tether, the access point and Minerva's network, in place.
     assert bridge.startswith('command="cd ~/minerva/current && PYTHONPATH=src exec python3 -u -m '
-                             'robot_platform.helm.bridge relay",from="10.42.0.0/24",')
+                             'robot_platform.helm.bridge relay",from="10.42.0.0/16,192.168.8.0/24",')
     assert bridge.endswith(' minerva-gello-bridge:operator-3080') and 'no-port-forwarding' in bridge
     helm_service.authorize_bridge(BRIDGE_KEY, 'operator-3080', robot)  # Again: no second line.
     assert len(p.authorized.read_text().splitlines()) == 3

@@ -3,21 +3,24 @@
 Install or update the GELLO bridge on the operator PC, for Helm on Minerva (docs/development/HELM_ON_JETSON.md).
 
 .DESCRIPTION
-Run as the operator, not as administrator, on the PC the GELLO leader arms and the tether are plugged into:
+Run as the operator, not as administrator, on the PC the GELLO leader arms are plugged into:
 
     powershell -ExecutionPolicy Bypass -File install_gello_bridge.ps1 -Package gello-bridge-<commit>.zip
 
 It checks every file of the package against its manifest, unpacks it into %LOCALAPPDATA%\Minerva, installs the
 hash-locked dependencies (requirements\gello-bridge.lock) into a per-lock environment, makes the bridge's SSH key once,
 and registers the task Minerva-GELLO-Bridge: the bridge without a window from startup, started again within a
-minute if it ever stops. Running it again with a newer package moves the bridge to it.
+minute if it ever stops. Running it again with a newer package moves the bridge to it. The bridge finds Minerva by
+itself (-Robot auto): on the tether or its access point at 10.42.0.1, else on the network (docs/development/
+MINERVA_NETWORK.md); -Robot takes a fixed address instead.
 
-The bridge's key does nothing until the Jetson authorizes it, for Helm's relay only and over the tether only:
+The bridge's key does nothing until the Jetson authorizes it, for Helm's relay only, and only from the tether, the
+access point or Minerva's network:
     cd ~/minerva/current && PYTHONPATH=src python3 -m robot_platform.ops.helm_service authorize-bridge --name <pc> --key "<the public key it prints>"
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Package,
-    [string]$Robot = '10.42.0.1',
+    [string]$Robot = 'auto',
     [string]$Python = ''
 )
 $ErrorActionPreference = 'Stop'

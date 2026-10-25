@@ -1,15 +1,16 @@
 """The GELLO bridge's Helm end, for Helm running on Minerva's Jetson (`helm --on-robot`).
 
-The leader arms stay on the operator PC. Its bridge (teleop.gello_bridge) keeps one pinned SSH session to the Jetson
-over the tether, whose key may run nothing but this module's relay (`python3 -m robot_platform.helm.bridge relay`, a
-forced command). The relay joins Helm's BridgeHub on a loopback port, proving itself with a token only this user can
-read, and passes frames both ways. So:
+The leader arms stay on the operator PC. Its bridge (teleop.gello_bridge) keeps one pinned SSH session to the Jetson,
+at whichever of its addresses it reached (the tether or access point's 10.42.0.1, or its address on a network: the
+relay reports which, and how this computer reaches the PC, wired or Wi-Fi), whose key may run nothing but this
+module's relay (`python3 -m robot_platform.helm.bridge relay`, a forced command). The relay joins Helm's BridgeHub on a
+loopback port, proving itself with a token only this user can read, and passes frames both ways. So:
 
 - a session's leader-link key reaches the PC encrypted (over SSH, as when Helm ran on the PC), and only the PC whose
   key is authorized can be the bridge;
 - the PC opens every connection: it accepts nothing inbound;
 - the leader link itself is unchanged. The bridge runs the PC end (teleop.leader_link.LeaderLinkProcess) toward the
-  robot's loop over the tether, in its own responsive process: the same code, process and path, so the same latency.
+  robot's loop at the address the bridge reached, in its own responsive process: the same code, process and path.
 
 `BridgeHub.serve_link` stands in for leader_link.serve_link in a robot-side session (helm.edge.EdgeWorker), and
 `BridgeHub.open_leaders` for the leaders the Leaders workspace reads (helm.leaders), as samples the bridge streams with
@@ -99,8 +100,15 @@ class BridgeLeaders:
 class BridgeHub:
     """Accepts the bridge's relay on a loopback port; one bridge at a time, the newest replacing the last."""
 
-    def __init__(self, *, port=PORT, token_file=TOKEN_FILE, machine_id=None, clock=time.monotonic):
+    def __init__(self, *, port=PORT, token_file=TOKEN_FILE, machine_id=None, clock=time.monotonic, addresses=None,
+                 path_of=None):
+        """`addresses`: Minerva's addresses for the bridge to try next time (helm.network); `path_of`: how this
+        computer reaches the bridge's address ('wired', 'wifi'; helm.network.path_of)."""
+        from . import network
         self.port, self.token_file, self.clock = port, Path(token_file), clock
+        self.addresses = addresses or network.NetworkView().addresses
+        self.path_of = path_of or network.path_of
+        self.robot_address = self.path = None  # The address the bridge reached Minerva at, and that path's kind.
         if machine_id is None:
             try:
                 machine_id = Path('/etc/machine-id').read_text().strip()
@@ -156,10 +164,12 @@ class BridgeHub:
             # The bridge pins this computer's host key; its key may only run the relay, so it checks the machine
             # id here instead of over SFTP (ops.ssh.pinned).
             _send(sock, self._send_lock, ['welcome', {'version': VERSION, 'machine_id': self.machine_id,
-                                                      'host': socket.gethostname()}])
+                                                      'host': socket.gethostname(), 'addresses': self.addresses()}])
+            path = self.path_of(first.get('peer'))
             with self._lock:
                 previous, self._sock = self._sock, sock
                 self.info, self.peer = dict(hello[1]), first.get('peer')
+                self.robot_address, self.path = first.get('server'), path
                 self._heard = self.clock()
                 self._replies.clear()
                 self._lock.notify_all()
@@ -236,8 +246,8 @@ class BridgeHub:
     # -- what Helm asks of it -----------------------------------------------------------
 
     def serve_link(self, profile, key, robot, *, local=None, real=True):
-        """The PC end of a session's leader link, served by the bridge toward `robot` (the loop's link address
-        on the tether). `local` is the bridge's own business."""
+        """The PC end of a session's leader link, served by the bridge toward `robot` (the loop's link address,
+        on the address the bridge reached Minerva at). `local` is the bridge's own business."""
         request = next(self._ids)
         self._call(['link', request, {'profile': profile, 'key': key.hex() if isinstance(key, bytes) else key,
                                       'robot': list(robot), 'real': bool(real)}], 'link_up', LINK_TIMEOUT_S)
@@ -255,7 +265,7 @@ class BridgeHub:
             heard = None if self._heard is None else round(self.clock() - self._heard, 2)
             return {'connected': self._sock is not None and heard is not None and heard <= SILENCE_S,
                     'host': (self.info or {}).get('host'), 'version': (self.info or {}).get('version'),
-                    'peer': self.peer, 'heard_s': heard}
+                    'peer': self.peer, 'heard_s': heard, 'robot_address': self.robot_address, 'path': self.path}
 
     def close(self):
         self._closed = True
@@ -281,8 +291,10 @@ def relay(stdin=None, stdout=None, *, port=PORT, token_file=TOKEN_FILE):
         return 1
     sock.settimeout(None)
     peer = (os.environ.get('SSH_CLIENT') or '').split(' ')[0] or None
+    connection = (os.environ.get('SSH_CONNECTION') or '').split()
+    server = connection[2] if len(connection) >= 4 else None  # The address the bridge reached this computer at.
     out = sock.makefile('wb')
-    write_frame(out, {'relay': VERSION, 'token': token, 'peer': peer})
+    write_frame(out, {'relay': VERSION, 'token': token, 'peer': peer, 'server': server})
 
     def upstream():
         try:

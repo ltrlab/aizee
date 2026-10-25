@@ -201,9 +201,16 @@ def prepare(host=None, *, profile=None):
 
 # -- authorized keys -------------------------------------------------------------------------------------------------
 
-def tether_network():
-    from .ssh import TETHER
-    return str(ipaddress.ip_network(f'{TETHER}/24', strict=False))
+def bridge_networks(profile=None):
+    """Where the GELLO bridge may connect from: the tether and the access point (10.42.0.0/16: their PCs get 10.42.0.x
+    and 10.42.1.x, ops.network) and the network of the device profile's address (the operator PC on the same
+    network as Minerva; the user allowed it, 2026-10-25)."""
+    from .ssh import TETHER, robot_identity
+    networks = [str(ipaddress.ip_network(f'{TETHER}/16', strict=False))]
+    address = robot_identity(profile or ROOT / PROFILE)[0].get('address')
+    if address:
+        networks.append(str(ipaddress.ip_network(f'{address}/24', strict=False)))
+    return ','.join(dict.fromkeys(networks))
 
 
 def local_line(public_key):
@@ -213,12 +220,13 @@ def local_line(public_key):
 
 
 def bridge_line(public_key, name):
-    """The GELLO bridge's key: Helm's relay only (a forced command), from the tether only."""
+    """The GELLO bridge's key: Helm's relay only (a forced command), from the tether, the access point or Minerva's
+    network only (bridge_networks)."""
     from robot_platform.helm.bridge import RELAY_COMMAND
     if not NAME.match(name or ''):
         raise ValueError('A bridge name is 1-40 letters, digits, dots, dashes or underscores')
     kind, blob = _parse(public_key)
-    return (f'command="{RELAY_COMMAND}",from="{tether_network()}",no-agent-forwarding,no-port-forwarding,'
+    return (f'command="{RELAY_COMMAND}",from="{bridge_networks()}",no-agent-forwarding,no-port-forwarding,'
             f'no-X11-forwarding,no-pty {kind} {blob} {BRIDGE_NAME}:{name}')
 
 
@@ -273,8 +281,19 @@ def authorize_local(host=None, *, clock=time.time):
 
 
 def authorize_bridge(public_key, name, host=None, *, clock=time.time):
+    """Let the GELLO bridge's key run the relay. A line of ours for the same key and name with other options (the
+    narrower networks or relay of an earlier release) is replaced, a dated copy kept; any other line with that key
+    is refused (authorize)."""
     host = host or Host()
-    authorize(host, bridge_line(public_key, name), clock=clock)
+    line = bridge_line(public_key, name)
+    path = host.paths.authorized
+    lines = path.read_text(encoding='utf-8').splitlines() if path.is_file() else []
+    blob, ours = line.split()[-2:]
+    replaced = [line if blob in current.split() and current.split()[-1] == ours else current for current in lines]
+    if replaced != lines:
+        _rewrite(path, replaced, clock)
+    else:
+        authorize(host, line, clock=clock)
     return status(host)
 
 

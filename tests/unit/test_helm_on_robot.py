@@ -358,3 +358,38 @@ def test_a_status_only_view_keeps_the_last_pose_in_the_3d_view(tmp_path):
     session._read(Channel())
     assert seen == [None, pose, pose]  # Still the session's pose after the status-only view.
     assert session.guide() is None  # The session's end clears it.
+
+
+def test_teleop_on_the_robot_binds_its_link_where_the_bridge_reached_minerva(tmp_path):
+    helm = SimpleNamespace(profile_path=PROFILE, bindings={}, mapping={}, saved_limits={'joints': {}},
+                           asset_id='minerva-production-01', connection='robot', address='127.0.0.1', on_robot=True)
+    # The bridge reached Minerva at its network address, over Wi-Fi (helm.bridge's relay and path).
+    bridge = SimpleNamespace(connected=True, serve_link=lambda *a, **k: None, robot_address='192.168.8.43',
+                             path='wifi')
+    made = []
+
+    class Robot:
+        def __init__(self, bundle, leader_profile, **options):
+            from robot_platform.helm.edge import Inbox
+            made.append(options)
+            self.views = Inbox()
+            self.commands = SimpleNamespace(send=lambda message: message[0] == 'stop' and self.views.end('stopped'),
+                                            close=lambda: None)
+
+        def start(self):
+            pass
+
+        def is_alive(self):
+            return False
+
+        def join(self, timeout=None):
+            pass
+    session = TeleopSession(helm, TELEOP, runs=tmp_path, target='jetson', edge_factory=Robot, bridge=bridge,
+                            leaders=SimpleNamespace(saved=None, missing=lambda routes: []))
+    session.set_receiver('virtual')
+    session.start()
+    try:
+        assert made[-1]['link_bind'] == '192.168.8.43'
+        assert 'leader link runs over Wi-Fi' in session.snapshot()['message']  # Allowed, and said.
+    finally:
+        session.stop()

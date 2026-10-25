@@ -2,10 +2,13 @@
 
 Run on the PC the leader arms are plugged into:
 
-    python -m robot_platform.teleop.gello_bridge --key <private key> [--robot 10.42.0.1]
+    python -m robot_platform.teleop.gello_bridge --key <private key> [--robot auto]
 
-It keeps one SSH session to the Jetson over the tether, pinned to the robot's host key, whose key may only run Helm's
-relay. It says hello, checks the robot's machine id in Helm's welcome, and then does what Helm asks:
+It keeps one SSH session to the Jetson, pinned to the robot's host key, whose key may only run Helm's relay. It finds
+Minerva wherever it is (candidates): the tether or access point's 10.42.0.1 first, then the addresses Helm reported
+last time (wired first), the robot's name on the network (aizee-rover.local), then the profile's address; the first
+that answers and proves to be Minerva wins. It says hello, checks the robot's machine id in Helm's welcome, and then
+does what Helm asks:
 
 - link: serve a teleop session's leader link toward the robot's loop. This is the PC end that ran beside Helm on the
   operator PC before (teleop.leader_link.serve_link): the 200 Hz USB sampler and the signed UDP answers, in their own
@@ -78,6 +81,7 @@ class BridgeSession:
         self._links, self._streams = {}, {}
         self._heard = clock()
         self._ended = threading.Event()
+        self.addresses = []  # Minerva's addresses as its welcome reported them, the best path first.
 
     def send(self, message):
         from robot_platform.helm.edge import write_frame
@@ -96,6 +100,7 @@ class BridgeSession:
                 raise RuntimeError(f"Helm speaks bridge version {welcome[1].get('version')}, this bridge {VERSION}")
             if welcome[1].get('machine_id') != self.machine_id:
                 raise RuntimeError('Wrong robot computer: its machine id differs from the device profile')
+            self.addresses = [a for a in welcome[1].get('addresses') or [] if isinstance(a, str)][:8]
             log(f"connected to Helm on {welcome[1].get('host')}")
             threading.Thread(target=self._beat, daemon=True, name='bridge-beat').start()
             while not self._ended.is_set():
@@ -235,35 +240,74 @@ def ssh_relay(profile, robot, key):
     return stdout, stdin, client.close
 
 
-def run(*, profile, robot, key, synthetic=False, connect=None, stop=None, session_options=None):
-    """Connect, serve, and connect again after a pause, until `stop` is set."""
+def candidates(profile, robot='auto', remembered=()):
+    """Minerva's addresses to try, in order. 'auto': the tether or access point's 10.42.0.1, the addresses Helm
+    reported last time (the wired first), the robot's name on the network (mDNS), then the profile's address.
+    Otherwise the addresses given, comma-separated."""
+    from robot_platform.ops.ssh import TETHER, robot_identity
+    if robot not in (None, '', 'auto'):
+        return [address.strip() for address in str(robot).split(',') if address.strip()]
+    device = robot_identity(profile)[0]
+    found = [TETHER, *remembered]
+    if device.get('hostname'):
+        found.append(f"{device['hostname']}.local")
+    if device.get('address'):
+        found.append(device['address'])
+    return list(dict.fromkeys(found))
+
+
+def reachable(address, port=22, timeout=1.5):
+    """Whether something answers at `address`: a quick look before the pinned SSH connection proves it is Minerva."""
+    try:
+        socket.create_connection((address, port), timeout=timeout).close()
+        return True
+    except OSError:  # Unreachable, refused, or a name that does not resolve.
+        return False
+
+
+def run(*, profile, robot='auto', key, synthetic=False, connect=None, stop=None, session_options=None,
+        probe=reachable):
+    """Connect to the first of Minerva's addresses (candidates) that answers and proves to be Minerva, serve, and
+    connect again after a pause, until `stop` is set."""
     from robot_platform.ops.ssh import robot_identity
     machine_id = robot_identity(profile)[0]['machine_id']
     stop = stop or threading.Event()
-    connect = connect or (lambda: ssh_relay(profile, robot, key))
-    attempt = 0
+    connect = connect or (lambda address: ssh_relay(profile, address, key))
+    remembered, attempt = [], 0
     while not stop.is_set():
         started = time.monotonic()
-        try:
-            reader, writer, close = connect()
-        except Exception as exc:  # noqa: BLE001 - the robot is off, Helm not running: try again later.
-            log(f'cannot reach Helm on {robot}: {exc or type(exc).__name__}')
-        else:
+        tried = candidates(profile, robot, remembered)
+        for address in tried:
+            if stop.is_set() or not probe(address):
+                continue
             try:
-                BridgeSession(reader, writer, machine_id=machine_id, synthetic=synthetic, hangup=close,
-                              **(session_options or {})).run()
+                reader, writer, close = connect(address)
+            except Exception as exc:  # noqa: BLE001 - not Minerva, or Helm not running there: the next one.
+                log(f'cannot reach Helm on {address}: {exc or type(exc).__name__}')
+                continue
+            log(f'reached Minerva at {address}')
+            session = BridgeSession(reader, writer, machine_id=machine_id, synthetic=synthetic, hangup=close,
+                                    **(session_options or {}))
+            try:
+                session.run()
             finally:
                 close()
+            remembered = session.addresses or remembered
+            break
+        else:
+            log(f"cannot reach Minerva at {', '.join(tried)}")
         attempt = 0 if time.monotonic() - started > 30. else attempt + 1
         stop.wait(RECONNECT_S[min(attempt, len(RECONNECT_S) - 1)])
 
 
 def main(argv=None):
-    from robot_platform.ops.ssh import DEFAULT_PROFILE, TETHER
+    from robot_platform.ops.ssh import DEFAULT_PROFILE
     parser = argparse.ArgumentParser(prog='python -m robot_platform.teleop.gello_bridge', description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--key', required=True, help="The bridge's private key, authorized on the Jetson for the relay")
-    parser.add_argument('--robot', default=TETHER, help=f"The Jetson's tether address (default {TETHER})")
+    parser.add_argument('--robot', default='auto',
+                        help="Minerva's address, or several comma-separated (default auto: the tether or access "
+                             'point, then its network addresses)')
     parser.add_argument('--profile', default=str(DEFAULT_PROFILE), help='The calibration profile (robot identity)')
     parser.add_argument('--synthetic', action='store_true', help='Serve synthetic leaders instead of the USB arms')
     parser.add_argument('--log', help='Also append the log, and library warnings, to this file (the bridge task does)')

@@ -2189,8 +2189,11 @@ class TeleopSession:
                                                            evidence=self.link_evidence,
                                                            **({'name': {'episode': 'The replay', 'policy': 'The policy'}[
                                                                source['kind']]} if source else {}),
+                                                           # The leader link where the bridge reached Minerva: the
+                                                           # tether or access point's 10.42.0.1, or a network address.
                                                            **({'serve_link': self.bridge.serve_link,
-                                                               'link_bind': TETHER} if self.bridge is not None else {}))
+                                                               'link_bind': getattr(self.bridge, 'robot_address', None)
+                                                               or TETHER} if self.bridge is not None else {}))
                 command_writer, view_reader = worker.commands, worker.views
                 opening = ({'episode': 'reading the episode', 'policy': 'loading the policy'}[source['kind']]
                            if source else 'linking the leaders')
@@ -2200,6 +2203,9 @@ class TeleopSession:
                      'starting the receiver (the motors stay disabled until Idle)…') if self.receiver['arm'] == 'both'
                     else f"Starting LIVE on the {self.receiver['arm']} arm: checking it is still and in its reference "
                     'pose, then starting the receiver (its motors stay disabled until Idle)…')
+                if source is None and self.bridge is not None and getattr(self.bridge, 'path', None) == 'wifi':
+                    # Allowed (the user's choice, 2026-10-25), and said: samples late over the air make the arms hold.
+                    message += ' The leader link runs over Wi-Fi: expect holds when samples arrive late.'
             # A replay or policy session says which from the start; the loop's views then carry its progress.
             pending = None if source is None or source['kind'] != 'episode' else dict(
                 episode=source['episode'], speed=source['speed'], time_s=None, duration_s=None, frame=None,
