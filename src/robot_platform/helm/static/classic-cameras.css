@@ -30,3 +30,19 @@ body[data-touch=on][data-camera-view=cameras][data-tab=settings]{--aside:min(48v
 @media(max-height:600px){.camera-live-view{grid-template-rows:auto minmax(0,1fr) 72px;gap:5px}.camera-live-heading .eyebrow{display:none}.camera-focus-caption{padding:4px;font-size:11px}}
 @media(max-height:540px){.camera-live-view{grid-template-rows:auto minmax(0,1fr) 52px}.camera-thumbnails img{display:none}.camera-thumbnails button{grid-template-rows:1fr 1fr}}
 @media(max-width:700px){body[data-touch=on][data-camera-view=cameras] main{grid-template-rows:minmax(180px,42%) minmax(0,1fr)}.camera-live-view{grid-template-rows:auto minmax(0,1fr) 52px}.camera-thumbnails img{display:none}}
+
+/* In Model view the Cameras/Model bar has its own strip: the 3D view starts below it instead of under it, and the bar
+   only takes clicks on its buttons. */
+.preview-view-choice{right:auto;pointer-events:none}.preview-view-choice>*{pointer-events:auto}
+body[data-camera-view=model] .preview-view-choice:not([hidden])~#model-view{height:calc(100% - 60px);margin-top:60px}
+
+/* Teleop on a wide screen: the three cameras stacked in a column on the left, the model beside them (between the
+   cameras and the controls). The column keeps clear of the session controls along the bottom. */
+body{--camera-column:clamp(220px,22vw,380px)}
+body[data-camera-view=stacked] .camera-live-view{right:auto;width:var(--camera-column);grid-template-rows:auto minmax(0,1fr);
+  padding:60px 10px 10px}
+body.has-controls[data-camera-view=stacked] .camera-live-view{padding-bottom:96px}
+body[data-camera-view=stacked] .camera-focus{display:none}
+body[data-camera-view=stacked] .camera-thumbnails{grid-template-columns:minmax(0,1fr);grid-template-rows:repeat(3,minmax(0,1fr))}
+body[data-camera-view=stacked] #model-view{width:calc(100% - var(--camera-column));margin-left:var(--camera-column)}
+body[data-camera-view=stacked] .camera-thumbnails button[aria-pressed=true]{border-color:#3a3f46;background:#1f2226}

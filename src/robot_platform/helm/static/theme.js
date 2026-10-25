@@ -17,6 +17,7 @@ function apply(night) {
   const theme = night ? 'dark' : 'light';
   root.dataset.theme = theme;
   frameRoot()?.setAttribute('data-theme', theme);
+  window.dispatchEvent(new CustomEvent('helm-theme', {detail: theme}));
   for (const button of toggles) {
     button.setAttribute('aria-pressed', String(night));
     if (button.dataset.themeToggle === 'label') button.textContent = `Night mode: ${night ? 'On' : 'Off'}`;

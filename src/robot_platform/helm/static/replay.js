@@ -9,6 +9,8 @@ export const ROLE_LABEL = {left_wrist: 'Left wrist', head: 'Head', right_wrist: 
 export const SPEEDS = [0.25, 0.5, 1, 2, 4];
 const PREFETCH_S = 1.2;
 const JOINT_COLORS = ['#7cc4ff', '#7fdca4', '#f2c380', '#ff8b98', '#c39bff', '#7fe0dc'];
+// The same hues, deep enough to read on RetroUI's white day screen.
+const JOINT_COLORS_DAY = ['#1f6fbf', '#1b8a4c', '#a86400', '#c2334a', '#7a4fd0', '#0f8a85'];
 // The timeline's chrome: the dark screen of Helm's RetroUI look (Minecraft is sharp at 16 px, fonts.css), or the
 // original look's (theme.js sets <html data-look>).
 const TIMELINE = {
@@ -16,8 +18,30 @@ const TIMELINE = {
     playhead: '#f2f4f7', playheadPx: 2},
   classic: {background: '#0e1013', lane: '#2c3036', label: '#9ba1a8', font: 'system-ui, sans-serif', fontPx: 11,
     playhead: '#e9ebee', playheadPx: 1},
+  // RetroUI by day: the white screen the rest of the page has (night keeps `retro`).
+  day: {background: '#ffffff', lane: '#d5dbe3', label: '#566070', font: 'Minecraft, system-ui, sans-serif', fontPx: 16,
+    playhead: '#15181d', playheadPx: 2, colors: JOINT_COLORS_DAY},
 };
-const timelineLook = canvas => TIMELINE[canvas.ownerDocument?.documentElement?.dataset?.look === 'classic' ? 'classic' : 'retro'];
+const timelineLook = canvas => {
+  const root = canvas.ownerDocument?.documentElement?.dataset || {};
+  return TIMELINE[root.look === 'classic' ? 'classic' : root.theme === 'dark' ? 'retro' : 'day'];
+};
+
+// The 3D model's pose at a replayed frame: the recorded positions mapped onto the URDF joints as the stopped reader
+// maps live ones, sent to the viewer as its own telemetry stream (a recording does not go stale).
+export function replayTelemetry(view, live, sequence) {
+  const names = view?.summary?.joints || [], q = view?.series?.qpos?.[view?.index], mapping = view?.mapping;
+  if (!live?.model || !live?.urdf_sha256 || !Array.isArray(q) || !mapping) return null;
+  const rows = [];
+  names.forEach((motor, column) => {
+    const entry = mapping[motor], value = q[column];
+    if (!entry || !Number.isFinite(value)) return;
+    rows.push({motor, joint: entry.joint, label: motor, position: entry.scale * value + entry.offset,
+      position_unit: entry.unit, source: 'replay', age_seconds: 0, stale: false, mapping_verified: true});
+  });
+  return {model: live.model, urdf_sha256: live.urdf_sha256, stream_id: `replay:${view.episode}`, sequence, rows,
+    age_seconds: 0, stale: false, stale_after_s: 86400};
+}
 
 export class ReplayModel {
   constructor() {
@@ -285,7 +309,9 @@ class JointTimeline {
     this.background = null;
     this.dragging = false;
     this.time = 0;
-    globalThis.addEventListener?.('helm-look', () => { this.background = null; this.draw(this.time); });
+    for (const event of ['helm-look', 'helm-theme']) {
+      globalThis.addEventListener?.(event, () => { this.background = null; this.draw(this.time); });
+    }
     canvas.addEventListener('pointerdown', event => {
       if (!this.series) return;
       this.dragging = true;
@@ -368,7 +394,8 @@ class JointTimeline {
       g.lineTo(width, top + .5);
       g.stroke();
       columns.forEach(({column}, i) => {
-        g.strokeStyle = JOINT_COLORS[i % JOINT_COLORS.length];
+        const colors = look.colors || JOINT_COLORS;
+        g.strokeStyle = colors[i % colors.length];
         g.lineWidth = 1.25 * ratio;
         g.beginPath();
         const step = Math.max(1, Math.floor(qpos.length / width));
@@ -733,7 +760,7 @@ export class ReplayView {
     if (this.active) this.timeline.draw(model.time);
     if (model.playing) this.prefetch();
     const view = {episode: this.episode.id, summary: this.episode.summary, series: this.episode.series,
-      index: model.index, time: model.time};
+      index: model.index, time: model.time, mapping: this.episode.model_mapping || null};
     for (const listener of this.listeners) listener(view);
     if (model.playing && !this.ticking) {
       this.ticking = true;

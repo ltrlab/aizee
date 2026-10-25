@@ -1,7 +1,7 @@
 /* Replay: the stage takes the 3D view's place while the Replay tab is open. */
 .replay-stage{position:absolute;inset:0;display:flex;flex-direction:column;gap:12px;padding:14px 16px;overflow:hidden}
 .replay-stage[hidden]{display:none}
-body[data-tab=replay] .view>:not(#replay-stage){display:none!important}
+body[data-tab=replay] .view>:not(#replay-stage):not(#model-view):not(#rec-badge){display:none!important}
 .replay-head{display:flex;align-items:baseline;gap:12px;min-width:0}
 .replay-head .eyebrow{color:var(--screen-accent)}
 .replay-head b{font-size:16px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
@@ -91,3 +91,31 @@ body[data-touch=on] .replay-live select{min-height:48px;font-size:18px}
 .live-policy{border-color:var(--warn);border-image-source:var(--pix-warn);background:var(--warn-soft)}
 .live-policy p{margin:0;font-size:12px}
 body[data-touch=on] .policy-start-actions select,body[data-touch=on] .policy-start-actions button{min-height:48px;font-size:18px}
+
+/* Replay: the episode's cameras stacked in a full-height column on the left; in the centre the 3D model at the
+   playhead, above the playback controls and the joint timeline. The model is Helm's one viewer (#model-view), laid
+   over the stage's empty model cell, so the sizes below are shared by both. */
+body{--replay-pad:14px;--replay-gap:12px;--replay-head:28px;--replay-controls:44px;--replay-timeline:150px}
+.replay-stage{display:grid;grid-template-columns:var(--camera-column) minmax(0,1fr);
+  grid-template-rows:var(--replay-head) minmax(0,1fr) var(--replay-controls) var(--replay-timeline);
+  grid-template-areas:"cameras head" "cameras model" "cameras controls" "cameras timeline";gap:var(--replay-gap);padding:var(--replay-pad)}
+.replay-head{grid-area:head;align-items:center}
+.replay-cameras{grid-area:cameras;grid-template-columns:minmax(0,1fr);grid-auto-rows:minmax(0,1fr)}
+.replay-model{grid-area:model;min-height:0}
+.replay-controls{grid-area:controls}
+.replay-timeline{grid-area:timeline;height:100%;min-height:0}
+/* An iframe does not stretch between its offsets (it is a replaced element): its size is given too. */
+body[data-tab=replay] #model-view{position:absolute;z-index:2;margin:0;
+  left:calc(var(--replay-pad) + var(--camera-column) + var(--replay-gap));
+  top:calc(var(--replay-pad) + var(--replay-head) + var(--replay-gap));
+  width:calc(100% - 2 * var(--replay-pad) - var(--camera-column) - var(--replay-gap));
+  height:calc(100% - 2 * var(--replay-pad) - var(--replay-head) - var(--replay-controls) - var(--replay-timeline) - 3 * var(--replay-gap))}
+
+/* By day Replay's screen is white like the page (the pixel frames in ink); by night it keeps the dark screen. */
+.replay-stage{--camera-letterbox:#000;--camera-caption:rgba(10,12,15,.92)}
+:root:not([data-theme=dark]) .replay-stage{--screen:#ffffff;--screen-glow:#ffffff;--screen-text:var(--page-text);
+  --screen-muted:var(--page-muted);--screen-line:var(--page-line);--screen-accent:var(--blue);--camera-letterbox:#e9edf2;
+  --camera-caption:rgba(255,255,255,.9)}
+:root:not([data-theme=dark]) :is(.replay-camera,.replay-timeline){border-color:var(--ink);border-image-source:var(--pix-ink)}
+.replay-camera,.replay-camera img{background:var(--camera-letterbox)}
+.replay-camera figcaption{background:var(--camera-caption)}

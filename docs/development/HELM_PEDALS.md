@@ -52,9 +52,9 @@ action. In touch mode, a border surrounds the whole interface:
 Text remains visible alongside color. Reduced-motion preferences suppress the
 flashing. Lost connection must not leave an apparently healthy green indication.
 
-With the session stopped, **Test pedals** provides a local input check. Press A,
-B and C and verify the indicated key. This mode sends no robot commands and ends
-when session startup begins. Pedal commands are scoped to Teleop and ignored
+In Settings → Pedals, with the session stopped, **Test pedals** provides a local
+input check. Press A, B and C and verify the counts. This mode sends no robot
+commands and ends when you leave that page or session startup begins. Pedal commands are scoped to Teleop and ignored
 while entering text; browser shortcuts, key repeat and held-key duplicates do
 not advance the sequence.
 

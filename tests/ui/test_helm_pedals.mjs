@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 const source=await fs.readFile(new URL('../../src/robot_platform/helm/static/pedals.js',import.meta.url),'utf8');
-const {PedalControls,presentation,recordingLabel,StateOrder}=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
+const {PedalControls,presentation,recordingLabel,recordingMode,StateOrder}=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
 const clone=x=>structuredClone(x),action=(name,revision=3)=>({action:name,label:name,enabled:true,reason:'',revision});
 const base={teleop:{phase:'running',state:'TELEOP',status_at:20,observation_age_ms:10,pedals:{session_id:'one',revision:3,actions:{
   a:action('stop_record',9),b:action('pause'),c:action('shutdown')}}},tune:{phase:'stopped'}};
@@ -71,10 +71,14 @@ controls.update(clone(base));assert.equal(controls.offer('a').enabled,true);
 requests=[];
 const old=controls.press('a');const newer=clone(base);newer.teleop.pedals.session_id='two';newer.teleop.state='HOLD';controls.update(newer);
 requests[0].resolve(base);await old;assert.equal(controls.state.teleop.pedals.session_id,'two');
-// The stopped tester consumes input without ever making a request; switching to start clears it.
+// The stopped tester (Settings -> Pedals) consumes input without ever making a request; switching to start clears it.
 requests=[];const stopped=clone(base);stopped.teleop.phase='stopped';controls.update(stopped);controls.setTest(true);
+ctx={...ctx,pedalTest:true};
 for(const pedal of ['a','b','c']){controls.keydown(key(pedal));controls.keydown(key(pedal));controls.keyup(key(pedal));}
 assert.deepEqual(controls.testCounts,{a:1,b:1,c:1});assert.equal(requests.length,0);assert.equal(controls.testLast,'c');
+// Off its page the tester counts nothing.
+ctx={...ctx,pedalTest:false};controls.keydown(key('a'));controls.keyup(key('a'));
+assert.deepEqual(controls.testCounts,{a:1,b:1,c:1});assert.equal(requests.length,0);ctx={...ctx,pedalTest:true};
 controls.setTest(false);assert.deepEqual(controls.testCounts,{a:0,b:0,c:0});
 controls.setTest(true);controls.update({...stopped,teleop:{...stopped.teleop,phase:'starting'}});
 assert.equal(controls.testMode,false);assert.deepEqual(controls.testCounts,{a:0,b:0,c:0});
@@ -94,4 +98,14 @@ assert.equal(order.accept(sameStamp,4),false); // Parent-side fault can retain t
 assert.equal(order.accept(fault,3),false); // Local re-render cannot refresh age.
 const restarted=clone(base);restarted.teleop.pedals.session_id='new';restarted.teleop.status_at=1;assert.equal(order.accept(restarted,5),true);
 assert.equal(order.accept(fault,4),false);
+// The recording indicator's mode follows the same facts as the label.
+assert.equal(recordingMode(null),'off');
+assert.equal(recordingMode({last_command:{state:'pending',action:'start_record'}}),'starting');
+assert.equal(recordingMode({recording:{state:'starting'}}),'starting');
+assert.equal(recordingMode({recording:{active:true,state:'recording'}}),'recording');
+assert.equal(recordingMode({recording:{active:true},last_command:{state:'pending',action:'stop_record'}}),'finishing');
+assert.equal(recordingMode({recording:{state:'finishing'}}),'finishing');
+assert.equal(recordingMode({recording:{complete:true,state:'idle'}}),'saved');
+assert.equal(recordingMode({recording:{state:'failed',error:'camera worker exited'}}),'failed');
+assert.equal(recordingMode({error:'task failed',recording:{active:true}}),'failed');
 console.log('Pedal offers, independent safety input, held/editable keys, stale/order guards, true state and stopped tester passed.');

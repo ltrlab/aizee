@@ -1,7 +1,7 @@
 /* Replay: the stage takes the 3D view's place while the Replay tab is open. */
 .replay-stage{position:absolute;inset:0;display:flex;flex-direction:column;gap:10px;padding:14px 16px;overflow:hidden}
 .replay-stage[hidden]{display:none}
-body[data-tab=replay] .view>:not(#replay-stage){display:none!important}
+body[data-tab=replay] .view>:not(#replay-stage):not(#model-view):not(#rec-badge){display:none!important}
 .replay-head{display:flex;align-items:baseline;gap:12px;min-width:0}
 .replay-head b{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #replay-status{margin-left:auto;font-size:12px;color:var(--muted)}
@@ -87,3 +87,22 @@ body[data-touch=on] .replay-live select{min-height:48px;font-size:16px}
 .live-policy{border-color:var(--warn);background:#2a2316}
 .live-policy p{margin:0;font-size:12px}
 body[data-touch=on] .policy-start-actions select,body[data-touch=on] .policy-start-actions button{min-height:48px;font-size:16px}
+
+/* Replay: the episode's cameras stacked in a full-height column on the left; in the centre the 3D model at the
+   playhead, above the playback controls and the joint timeline. The model is Helm's one viewer (#model-view), laid
+   over the stage's empty model cell, so the sizes below are shared by both. */
+body{--replay-pad:14px;--replay-gap:12px;--replay-head:28px;--replay-controls:44px;--replay-timeline:150px}
+.replay-stage{display:grid;grid-template-columns:var(--camera-column) minmax(0,1fr);
+  grid-template-rows:var(--replay-head) minmax(0,1fr) var(--replay-controls) var(--replay-timeline);
+  grid-template-areas:"cameras head" "cameras model" "cameras controls" "cameras timeline";gap:var(--replay-gap);padding:var(--replay-pad)}
+.replay-head{grid-area:head;align-items:center}
+.replay-cameras{grid-area:cameras;grid-template-columns:minmax(0,1fr);grid-auto-rows:minmax(0,1fr)}
+.replay-model{grid-area:model;min-height:0}
+.replay-controls{grid-area:controls}
+.replay-timeline{grid-area:timeline;height:100%;min-height:0}
+/* An iframe does not stretch between its offsets (it is a replaced element): its size is given too. */
+body[data-tab=replay] #model-view{position:absolute;z-index:2;margin:0;
+  left:calc(var(--replay-pad) + var(--camera-column) + var(--replay-gap));
+  top:calc(var(--replay-pad) + var(--replay-head) + var(--replay-gap));
+  width:calc(100% - 2 * var(--replay-pad) - var(--camera-column) - var(--replay-gap));
+  height:calc(100% - 2 * var(--replay-pad) - var(--replay-head) - var(--replay-controls) - var(--replay-timeline) - 3 * var(--replay-gap))}

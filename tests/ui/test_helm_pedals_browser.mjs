@@ -95,12 +95,17 @@ try {
   const page=await context.newPage();page.on('pageerror',e=>errors.push(String(e)));
 
   await page.goto('http://127.0.0.1:'+server.address().port+'/');
-  await page.waitForFunction(()=>document.getElementById('pedal-test').hidden===false);
+  // The pedal tester lives in Settings -> Pedals, and leaving that page ends the test.
+  await page.locator('.tab[data-tab=settings]').tap();
+  await page.locator('#settings-nav button',{hasText:'Pedals'}).tap();
+  await page.waitForFunction(()=>!document.getElementById('pedal-test').disabled);
   await page.locator('#pedal-test').tap();
   for(const key of ['a','b','c'])await page.keyboard.press(key);
   assert.equal(pedalRequests.length,0);
   assert.match(await page.locator('#pedal-test-status').textContent(),/Test only.*Last: C/);
-  for(const key of ['a','b','c'])assert.equal(await page.locator('[data-pedal='+key+'] small').textContent(),'1');
+  for(const key of ['a','b','c'])assert.equal(await page.locator('[data-test-pedal='+key+'] b').textContent(),'1');
+  await page.locator('.tab[data-tab=teleop]').tap();
+  await page.waitForFunction(()=>document.getElementById('pedal-test-counts').hidden);
   for(const [width,height] of [[800,480],[1024,600]]){
     await page.setViewportSize({width,height});
     const startBox=await page.locator('#teleop-session').boundingBox();
@@ -111,7 +116,7 @@ try {
   report.checks.push('Stopped tester counts all three pedals without any API mutation');
   state.teleop.pedals={session_id:'browser-fixture',revision:1,paused:false};
   await page.locator('#teleop-session').tap();assert(await page.locator('#pedal-test-status').isHidden());
-  await page.waitForFunction(()=>document.getElementById('pedal-test').hidden);
+  await page.waitForFunction(()=>document.getElementById('pedal-test').disabled);
   assert(await page.locator('#pedal-test-status').isHidden());
   await page.keyboard.press('c');assert.equal(pedalRequests.length,0);
   state.teleop.phase='running';setState('DISABLED');await page.waitForFunction(()=>!document.querySelector('[data-pedal=c]').disabled);
@@ -150,7 +155,13 @@ try {
   await page.keyboard.press('b');await page.waitForFunction(()=>document.body.dataset.touchPhase==='hold');
   assert.match(await page.locator('#pedal-phase-detail').textContent(),/motors stay enabled/);
   await page.keyboard.press('c');await page.waitForFunction(()=>document.body.dataset.touchPhase==='shutdown');
-  await page.keyboard.press('h');await page.keyboard.press('x');assert(writes.includes('H')&&writes.includes('X'));
+  // Disable asks first while the arms are under torque: H shows the question, a second H disables, X still shuts down.
+  await page.keyboard.press('h');await page.waitForFunction(()=>document.getElementById('disable-confirm').open);
+  assert(!writes.includes('H'));
+  await page.keyboard.press('h');await page.waitForFunction(()=>!document.getElementById('disable-confirm').open);
+  await page.keyboard.press('x');
+  for(let i=0;i<100&&!(writes.includes('H')&&writes.includes('X'));i++)await page.waitForTimeout(20);
+  assert(writes.includes('H')&&writes.includes('X'));
   setState('FAULT',{fault:'fixture fault'});
   await page.waitForFunction(()=>document.body.dataset.touchPhase==='fault');await page.waitForTimeout(1200);
   assert.equal(await page.locator('body').getAttribute('data-touch-phase'),'fault');
@@ -169,7 +180,7 @@ try {
   state.teleop.phase='stopped';state.teleop.receiver_choice={mode:'live',arm:'both'};setState('DISABLED');
   await page.waitForFunction(()=>document.getElementById('teleop-session').textContent==='Start LIVE session');
   const startPosts=writes.filter(x=>x==='/api/helm/teleop/start').length;
-  await page.locator('#pedal-test').tap();await page.locator('#teleop-session').tap();
+  await page.locator('#teleop-session').tap();
   assert(await page.locator('#t-confirm').isVisible());assert(await page.locator('#pedal-test-status').isHidden());
   assert.equal(writes.filter(x=>x==='/api/helm/teleop/start').length,startPosts);
   await page.locator('#t-confirm-cancel').tap();

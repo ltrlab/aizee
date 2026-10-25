@@ -50,6 +50,7 @@
         <button id="camera-pause" type="button">Pause preview</button>
         <button id="camera-retry" type="button" hidden>Retry preview</button>
       </div>
+      <div id="rec-badge" class="rec-badge" role="status" aria-live="polite" hidden><span class="rec-dot"></span><b id="rec-text">REC</b><span id="rec-time"></span></div>
       <section id="camera-live-view" class="camera-live-view" aria-label="Live physical cameras" hidden>
         <div class="camera-live-heading"><span class="eyebrow">PHYSICAL CAMERAS</span><p id="camera-stream-status" role="status">Disconnected</p></div>
         <div class="camera-focus">
@@ -69,6 +70,7 @@
       <section id="replay-stage" class="replay-stage" aria-label="Episode replay" hidden>
         <div class="replay-head"><span class="eyebrow">REPLAY</span><b id="replay-title">No episode selected</b><span id="replay-status" role="status"></span></div>
         <div id="replay-cameras" class="replay-cameras"><p class="replay-empty">Choose an episode on the right to play it back.</p></div>
+        <div class="replay-model" aria-hidden="true"></div>
         <div class="replay-controls" role="group" aria-label="Playback">
           <button id="replay-back" type="button" title="Previous frame (←; Shift+← one second)" aria-label="Previous frame">‹</button>
           <button id="replay-play" type="button" class="primary" aria-pressed="false" title="Play or pause (Space)">Play</button>
@@ -157,8 +159,6 @@
             <button type="button" data-pedal="b" disabled><kbd>B</kbd><span>Pause / resume</span><small></small></button>
             <button type="button" data-pedal="c" disabled><kbd>C</kbd><span>Next stage</span><small></small></button>
           </div>
-          <div class="pedal-test-row"><button type="button" id="pedal-test" aria-pressed="false" hidden>Test pedals</button><p id="pedal-test-status" role="status" hidden></p></div>
-          <p class="pedal-help">Software pedals · Pause holds position; motors stay enabled. H disables; X shuts down.</p>
           <p id="pedal-warning" class="warn" hidden></p>
         </section>
         <section id="t-replay" class="live-replay" aria-labelledby="t-replay-title" hidden>
@@ -193,13 +193,14 @@
             <button data-target="jetson" title="The control loop runs on Minerva's Jetson; leaders stream over the tether">Minerva's Jetson</button>
             <button data-target="pc" title="The control loop runs on this PC">This PC</button>
           </div>
-          <div class="target wrap" id="t-receiver-choice" role="group" aria-label="Receiver">
+          <div class="target" id="t-receiver-choice" role="group" aria-label="Receiver">
             <span>Receiver</span>
             <button data-receiver="virtual" title="The virtual receiver: no motors move">Virtual</button>
-            <button data-receiver="virtual" data-collision="motion" title="Virtual receiver with the two-arm collision bound enforced; no motors move">Virtual · enforced</button>
-            <button data-receiver="live" data-arm="left" title="The left arm's motors; the right arm stays disabled. Loop on Minerva's Jetson only.">Live · left</button>
-            <button data-receiver="live" data-arm="right" title="The right arm's motors; the left arm stays disabled. Loop on Minerva's Jetson only.">Live · right</button>
-            <button data-receiver="live" data-arm="both" title="Both arms' motors in one receiver. Loop on Minerva's Jetson only.">Live · both</button>
+            <button data-receiver="virtual" data-collision="motion" title="Virtual receiver with the two-arm collision bound enforced; no motors move">Enforced</button>
+            <span class="target-live">Live</span>
+            <button data-receiver="live" data-arm="left" title="The left arm's motors; the right arm stays disabled. Loop on Minerva's Jetson only.">Left</button>
+            <button data-receiver="live" data-arm="right" title="The right arm's motors; the left arm stays disabled. Loop on Minerva's Jetson only.">Right</button>
+            <button data-receiver="live" data-arm="both" title="Both arms' motors in one receiver. Loop on Minerva's Jetson only.">Both</button>
           </div>
           <p class="choice-note" id="t-choice-note" hidden></p>
           <div class="teleop-status" id="t-status">
@@ -444,6 +445,15 @@
             <div class="grip-actions"><button id="grip-defaults" type="button">Defaults</button>
               <span id="grip-settings-status" class="muted" role="status" aria-live="polite"></span></div>
           </section>
+          <section id="settings-pedals" class="settings-group" hidden>
+            <h2>Pedals</h2>
+            <p class="muted">The foot pedals, or the A, B and C keys: A records, B pauses or resumes, and C steps to the next stage. The Teleop tab shows what each will do now.</p>
+            <div class="pedal-test-row"><button type="button" id="pedal-test" aria-pressed="false">Test pedals</button><p id="pedal-test-status" role="status" hidden></p></div>
+            <div id="pedal-test-counts" class="pedal-test-counts" aria-label="Presses seen in the test" hidden>
+              <span data-test-pedal="a">A <b>0</b></span><span data-test-pedal="b">B <b>0</b></span><span data-test-pedal="c">C <b>0</b></span>
+            </div>
+            <p id="pedal-test-note" class="muted">The test sends nothing to Minerva. It works only while no session runs, and ends when you leave this page.</p>
+          </section>
           <section id="settings-cameras" class="settings-group" hidden>
             <h2>Cameras</h2>
             <p class="muted">Check the table and grippers before recording. Exposure changes apply immediately to the camera while the session is stopped. Values last until the camera service restarts.</p>
@@ -470,7 +480,7 @@
             </div>
             <div class="touch-preference" id="theme-preference">
               <h2>Day and night</h2>
-              <p class="muted" id="theme-description">White by day; black at night or in a dim room. Also the moon / sun button in the header. Applies immediately and is saved in this browser; the 3D view follows, and camera and replay video stay dark in both.</p>
+              <p class="muted" id="theme-description">White by day; black at night or in a dim room. Also the moon / sun button in the header. Applies immediately and is saved in this browser; the 3D view and the camera pane follow, and replay video stays dark in both.</p>
               <button type="button" data-theme-toggle="label" aria-pressed="false" aria-describedby="theme-description">Night mode: Off</button>
               <p id="theme-status" class="muted" role="status" aria-live="polite"></p>
             </div>
@@ -509,6 +519,15 @@
     <button id="global-shutdown">Return &amp; disable <kbd>X</kbd></button>
     <button id="global-disable" class="danger">Disable now <kbd>H</kbd></button>
   </div>
+  <div id="rec-frame" class="rec-frame" aria-hidden="true" hidden></div>
+  <dialog id="disable-confirm" class="disable-confirm" aria-labelledby="disable-title" aria-describedby="disable-text">
+    <h2 id="disable-title">Disable the arms now?</h2>
+    <p id="disable-text">Torque goes off at once and the arms drop where they are. To stop without dropping them: Hold (T) keeps them in place; Shutdown (X) lowers them first.</p>
+    <div class="disable-actions">
+      <button type="button" id="disable-cancel">Cancel <kbd>Esc</kbd></button>
+      <button type="button" id="disable-go" class="danger">Disable · arms drop <kbd>H</kbd></button>
+    </div>
+  </dialog>
   <script type="module" src="helm/touch.js"></script>
   <script type="module" src="helm/theme.js"></script>
   <script type="module" src="helm/helm.js"></script>

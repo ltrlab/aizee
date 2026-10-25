@@ -42,6 +42,19 @@ export function recordingLabel(task) {
   if (r.complete === true) return 'Complete · saved';
   return 'Not recording';
 }
+// The recording indicator's mode: off, starting, recording, finishing (saving), saved or failed.
+export function recordingMode(task) {
+  task = task || {};
+  const r=task.recording || {}, cmd=task.last_command || {};
+  if (r.error || task.error || ['failed','aborted'].includes(r.state)) return 'failed';
+  if (cmd.state === 'pending' && cmd.action === 'stop_record') return 'finishing';
+  if (cmd.state === 'pending' && cmd.action === 'start_record') return 'starting';
+  if (['finishing','stopping'].includes(r.state)) return 'finishing';
+  if (r.state === 'starting') return 'starting';
+  if (r.active || r.state === 'recording') return 'recording';
+  if (r.complete === true) return 'saved';
+  return 'off';
+}
 export function editableTarget(target) {
   return !!target?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]');
 }
@@ -118,7 +131,7 @@ export class PedalControls {
     if(already || event.repeat || event.isComposing || event.keyCode===229 || event.ctrlKey || event.metaKey ||
       event.altKey || event.shiftKey || editableTarget(event.target))return;
     const context=this.context();
-    if(this.testMode && this.canTest() && this.fresh() && context.tab==='teleop' && !context.hidden && !context.confirming) {
+    if(this.testMode && this.canTest() && this.fresh() && context.pedalTest && !context.hidden && !context.confirming) {
       event.preventDefault();this.testCounts[pedal]++;this.testLast=pedal;this.onChange?.();return;
     }
     if(!this.offer(pedal).enabled)return;

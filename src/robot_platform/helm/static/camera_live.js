@@ -42,6 +42,10 @@ export function parseCameraPacket(packet) {
   return {metadata, jpeg};
 }
 
+// Teleop on a wide screen shows the cameras and the model at once: the three cameras stacked in a column on the
+// left, the model beside them. Elsewhere, or narrower, the pane shows one or the other (Cameras / Model).
+const STACKED = '(min-width: 1100px)';
+
 export class LiveCameraView {
   constructor({onView = () => {}} = {}) {
     this.onView = onView; this.scope = ''; this.mode = 'cameras'; this.selected = 'right_wrist';
@@ -61,6 +65,8 @@ export class LiveCameraView {
     };
     $('camera-pause').onclick = () => {this.paused = !this.paused; this.attempt = 0; this.sync();};
     $('camera-retry').onclick = () => {this.attempt = 0; this.stop('Reconnecting'); this.sync();};
+    this.wide = window.matchMedia?.(STACKED);
+    this.wide?.addEventListener?.('change', () => this.sync());
     this.visibility = () => this.sync();
     this.pagehide = () => {this.suspended = true; this.wasWanted = false; this.stop('Disconnected');};
     this.pageshow = () => {this.suspended = false; this.sync();};
@@ -75,17 +81,22 @@ export class LiveCameraView {
     if (changed) this.stop('Disconnected');
     this.sync();
   }
+  stackedLayout() {
+    return this.scope === 'teleop' && this.robotMode === 'robot' && !!this.wide?.matches;
+  }
   wanted() {
-    return !!this.scope && this.mode === 'cameras' && this.robotMode === 'robot' && !!this.token
+    return !!this.scope && (this.mode === 'cameras' || this.stacked) && this.robotMode === 'robot' && !!this.token
       && !this.paused && !document.hidden && !this.suspended;
   }
   sync() {
     const physical = this.robotMode === 'robot';
-    this.showing = !!this.scope && physical && this.mode === 'cameras';
+    this.stacked = this.stackedLayout();
+    this.showing = !!this.scope && physical && (this.mode === 'cameras' || this.stacked);
     $('preview-view-choice').hidden = !this.scope;
     $('camera-live-view').hidden = !this.showing;
-    document.body.dataset.cameraView = this.showing ? 'cameras' : 'model';
+    document.body.dataset.cameraView = this.stacked ? 'stacked' : this.showing ? 'cameras' : 'model';
     for (const button of document.querySelectorAll('[data-preview-view]')) {
+      button.hidden = this.stacked;  // Both show at once.
       button.disabled = button.dataset.previewView === 'cameras' && !physical;
       button.setAttribute('aria-pressed', String(button.dataset.previewView === (this.showing ? 'cameras' : 'model')));
     }
@@ -94,7 +105,7 @@ export class LiveCameraView {
       : 'Live physical cameras appear in the camera pane. Preview freshness is separate from recording readiness.';
     $('camera-pause').textContent = this.paused ? 'Resume preview' : 'Pause preview';
     $('camera-pause').hidden = !this.showing;
-    this.onView(this.showing);
+    this.onView(this.showing && !this.stacked);  // Stacked, the model stays loaded beside the cameras.
     const wanted = this.wanted();
     if (wanted && !this.wasWanted) this.attempt = 0;
     this.wasWanted = wanted;

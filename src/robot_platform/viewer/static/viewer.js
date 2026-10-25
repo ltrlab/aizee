@@ -271,6 +271,7 @@ async function followCalibration(){
     $('telemetry-status').classList.toggle('stale',stale);
   }
   function freshness(){
+    if(held){status(held.badge,false);return;}
     if(!lastGuide)return;
     if(!lastGuide.live){status(lastGuide.badge||'Target pose · move by hand; capture in the terminal',false);return;}
     const state=lastGuide.feed_state||'reading';
@@ -282,6 +283,17 @@ async function followCalibration(){
     const recovered=lastGuide.reconnections?` · reconnects ${lastGuide.reconnections}`:'';
     status(`${lastGuide.badge||'LIVE · motors disabled'} · frame ${lastGuide.sequence} · age ${(age*1000).toFixed(0)} ms${recovered}`,false);
   }
+  // Helm's Replay poses the model itself (a recorded episode at its playhead): that pose holds, and the polled
+  // guide waits, until Helm releases it.
+  let held=null;
+  window.addEventListener('message',event=>{
+    if(event.source!==window.parent||event.origin!==location.origin||event.data?.type!=='helm-viewer-pose')return;
+    const positions=event.data.positions;
+    if(!positions||typeof positions!=='object'){held=null;last=null;return;}  // Released: the guide's pose returns.
+    held={badge:String(event.data.badge||'REPLAY')};
+    try{applyPose({...q,...positions},true);status(held.badge,false);}
+    catch(e){status('REPLAY POSE UNAVAILABLE — '+e.message,true);}
+  });
   status('CONNECTING — waiting for motor positions',true);
   setInterval(freshness,100);
   for(const name of ['reset','import','sweep-reference','check'])$(name).disabled=true;
@@ -301,7 +313,7 @@ async function followCalibration(){
       $('calibration-title').textContent=guide.live?'Live calibration preview':'Calibration target pose';
       $('calibration-message').textContent=guide.message;
       const identity=`${guide.stream_id||''}:${guide.sequence}`;
-      if(!guide.stale&&(!guide.live||guide.age_seconds<=.75)&&identity!==last){
+      if(!held&&!guide.stale&&(!guide.live||guide.age_seconds<=.75)&&identity!==last){
         applyPose(guide.positions,!!guide.live);
         if(!started||!guide.live){if(guide.view==='top')$('top').click();else frame(front());}
         started=true;last=identity;

@@ -406,7 +406,9 @@ The receiver's enable is single-use: after Disable (H) or a completed Shutdown
 the arm is limp, and a new session, which checks the reference pose again, is
 needed to enable it. Stopping a session with the arm powered lowers it to its
 reference first, as Shutdown (X) does, then disables it; Helm asks first.
-Disable (H) removes torque at once: the arm goes limp where it is.
+Disable (H) removes torque at once: the arm goes limp where it is. While the arms are
+under torque (a session past Idle, or a sweep) Helm asks first: H again or the
+dialog's button disables, Esc cancels, and T or X still hold or shut down.
 
 **What happens when something is lost:**
 
@@ -591,7 +593,7 @@ and the gripper only; speed ceilings are 1.5 rad/s for J1–J3, 2.5 for J4 and
 
 **Finish (X)** returns the joint under test to its reference, then disables
 the arm. **Disable (H)** removes torque at once, and the arm goes limp where it
-is. Stopping the session lowers the arm to the reference first, then disables
+is; Helm asks first (H again disables). Stopping the session lowers the arm to the reference first, then disables
 it; Helm asks first.
 
 **Return to reference** brings the chosen arm back to its reference pose after

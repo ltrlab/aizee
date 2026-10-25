@@ -327,6 +327,20 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         need_episodes()
         return web.json_response(await off_loop(episodes.listing), headers={'Cache-Control': 'no-store'})
 
+    def model_mapping():
+        """Motor -> URDF joint, scale, offset and unit: how a recorded position poses the 3D model, as the stopped
+        reader's telemetry maps it (helm.telemetry.stopped_packet)."""
+        from contextlib import nullcontext
+        mapping, transmissions = getattr(session, 'mapping', None) or {}, getattr(session, 'transmissions', None) or []
+        with getattr(session, 'lock', None) or nullcontext():
+            rows = {row['motor']: dict(joint=joint, scale=row['sign'], offset=row['offset_rad'], unit='rad')
+                    for joint, row in mapping.items()}
+            for entry in transmissions:
+                scale = entry['metres_per_motor_rad']
+                rows[entry['motor']] = dict(joint=entry['joint'], scale=scale, unit='m',
+                                            offset=entry['joint_reference_m'] - scale * entry['motor_reference_rad'])
+        return rows
+
     async def episode_get(request):
         from .episodes import EpisodeBusy
         need_episodes()
@@ -335,7 +349,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             data = await off_loop(lambda: episodes.episode(name))
         except EpisodeBusy as exc:
             return web.json_response({'error': str(exc), 'busy': True}, status=409)
-        return web.json_response(data, headers={'Cache-Control': 'no-store'})
+        return web.json_response(dict(data, model_mapping=model_mapping()), headers={'Cache-Control': 'no-store'})
 
     async def policies_list(_request):
         """Policy mode's choices: the exported policies on the robot, read by Replay's worker."""

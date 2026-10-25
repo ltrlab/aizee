@@ -1,7 +1,7 @@
 import {SettingsPanel} from './settings.js';
 import {LiveCameraView} from './camera_live.js';
-import {PedalControls, presentation, recordingLabel, StateOrder} from './pedals.js';
-import {LiveReplayCard, ReplayView} from './replay.js';
+import {PedalControls, presentation, recordingLabel, recordingMode, StateOrder} from './pedals.js';
+import {LiveReplayCard, ReplayView, replayTelemetry} from './replay.js';
 import {HOLD_STILL, policyLabel, policyNote, policyOptions, policyStats} from './policy.js';
 import {GRIP_SETTINGS, gripLive, gripSettingText, gripSliderValue, gripView} from './grip.js';
 import {upsView} from './ups.js';
@@ -218,6 +218,7 @@ function render(state) {
   last = state;
   if(newlyReceived)pedalControls.update(state,meta?.startedAt);
   renderGripperZero(state);
+  if (!underTorque(state)) closeDisable();  // Nothing left to drop: the question no longer applies.
   token = state.action_token;
   const {feed, limits, robot, session} = state;
   $('robot-name').textContent = $('robot-name').title = `${robot.model} · ${robot.asset_id} · ${robot.address}`;
@@ -287,6 +288,7 @@ function render(state) {
   replayView?.setTeleop(state.teleop, state.mode);
   renderGripFeedback(state.teleop);
   renderCalibration(state);
+  renderRecording(state);
   renderUps(state.ups);
   renderAccess(state);
   renderTune(state.tune, state);
@@ -411,6 +413,46 @@ for (const setting of GRIP_SETTINGS) {
     `Saved: ${setting.label} ${gripSettingText(setting, input.value)}.`);
 }
 $('grip-defaults').onclick = () => setGripFeedback({reset: true}, 'Saved: the default settings.');
+
+// Recording, seen from the leader arms: a frame round the whole window and a big badge over the view, red while
+// recording (with the time since this page saw it start), amber while it starts or saves; a short green "Saved", or
+// red "Recording failed", when it ends.
+const REC_FLASH_MS = {saved: 5000, failed: 10000};
+let recIndicator = {mode: 'off', since: null, shown: 'off', until: 0, elapsed: 0};
+function recClock(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+function renderRecording(state) {
+  const running = ['running', 'starting'].includes(state.teleop?.phase);
+  const mode = running ? recordingMode(state.teleop?.task) : 'off';
+  const now = performance.now();
+  if (mode === 'recording' && recIndicator.since === null) recIndicator.since = now;
+  if (['recording', 'finishing'].includes(mode) && recIndicator.since !== null) recIndicator.elapsed = now - recIndicator.since;
+  if (mode !== recIndicator.mode) {
+    if (['saved', 'failed'].includes(mode) && ['recording', 'starting', 'finishing'].includes(recIndicator.mode)) {
+      recIndicator.shown = mode;
+      recIndicator.until = now + REC_FLASH_MS[mode];
+    } else if (['starting', 'recording', 'finishing'].includes(mode)) {
+      recIndicator.shown = mode;
+    } else {
+      recIndicator.shown = 'off';
+    }
+    if (!['recording', 'finishing'].includes(mode)) recIndicator.since = null;
+    recIndicator.mode = mode;
+  }
+  if (['saved', 'failed'].includes(recIndicator.shown) && now > recIndicator.until) recIndicator.shown = 'off';
+  const shown = recIndicator.shown;
+  document.body.dataset.recording = shown;
+  $('rec-badge').hidden = shown === 'off';
+  $('rec-frame').hidden = !['starting', 'recording', 'finishing'].includes(shown);
+  $('rec-text').textContent = {starting: 'REC starting', recording: 'REC', finishing: 'Saving', saved: 'Saved',
+    failed: 'Recording failed'}[shown] || 'REC';
+  $('rec-time').textContent = ['recording', 'finishing', 'saved'].includes(shown) && recIndicator.elapsed
+    ? recClock(recIndicator.elapsed) : '';
+  const title = shown === 'recording' ? `● REC ${recClock(recIndicator.elapsed)} · Helm` : 'Helm';
+  if (document.title !== title) document.title = title;
+}
 
 // Wrist camera calibration: stills in a live session, then the solve (helm.calibration).
 let calibrationRole = 'left_wrist', calibrationPending = false;
@@ -1244,6 +1286,7 @@ function renderTeleop(t) {
     button.hidden = (last?.mode === 'simulation' && button.dataset.target !== 'pc')
       || (last?.robot?.connection === 'robot' && button.dataset.target === 'pc');  // Helm on Minerva: never in Helm.
   }
+  $('t-target').setAttribute('data-single', String([...document.querySelectorAll('#t-target button')].filter(b => !b.hidden).length < 2));
   for (const button of document.querySelectorAll('#t-receiver-choice button')) {
     const liveButton = button.dataset.receiver === 'live';
     const choiceKey = liveButton ? button.dataset.arm : 'virtual';
@@ -1327,8 +1370,12 @@ function onKey(event) {
   const sweeping = ['running', 'starting'].includes(last?.tune?.phase);
   if (document.body.dataset.tab === 'tune' || (sweeping && (stopKey || document.body.dataset.tab === 'check'))) {
     const key = event.key.length === 1 ? event.key.toUpperCase() : '';
-    if (key === 'X' || key === 'H') {
+    if (key === 'H') {
       event.preventDefault();
+      requestDisable();
+    } else if (key === 'X') {
+      event.preventDefault();
+      closeDisable();
       tuneKey(key);
     }
     return;
@@ -1336,8 +1383,12 @@ function onKey(event) {
   if (!['teleop','settings'].includes(document.body.dataset.tab) && !stopKey) return;
   if (!['running','starting'].includes(last?.teleop?.phase)) return;
   const key = event.key.length === 1 ? event.key.toUpperCase() : '';
-  if ('IETHX'.includes(key) && key) {
+  if (key === 'H') {
     event.preventDefault();
+    requestDisable();
+  } else if ('IETX'.includes(key) && key) {
+    event.preventDefault();
+    closeDisable();
     sendKey(key);
   } else if (key === 'P' && last?.calibration) {
     event.preventDefault();
@@ -1357,7 +1408,30 @@ $('model-view').addEventListener('load', () => {
     doc.addEventListener('keyup', event => pedalControls.keyup(event));
   } catch { /* not ready */ }
 });
-for (const button of document.querySelectorAll('.lifecycle button[data-key]')) button.onclick = () => sendKey(button.dataset.key);
+for (const button of document.querySelectorAll('.lifecycle button[data-key]')) {
+  button.onclick = () => button.dataset.key === 'H' ? requestDisable() : sendKey(button.dataset.key);
+}
+// Disable takes the torque off at once and the arms drop. While they hold under torque (a session past Idle, or a
+// sweep) it asks first: H again or the dialog's button disables, Esc cancels, and T or X still hold or shut down.
+function underTorque(state) {
+  if (['running', 'starting'].includes(state?.tune?.phase)) return true;
+  const lifecycle = state?.teleop?.state;
+  return ['running', 'starting'].includes(state?.teleop?.phase) && !!lifecycle && !['DISABLED', 'IDLE'].includes(lifecycle);
+}
+function closeDisable() {
+  if ($('disable-confirm').open) $('disable-confirm').close();
+}
+function disableNow() {
+  closeDisable();
+  return ['running', 'starting'].includes(last?.tune?.phase) ? tuneKey('H') : sendKey('H');
+}
+function requestDisable() {
+  if ($('disable-confirm').open || !underTorque(last)) return disableNow();
+  $('disable-confirm').showModal();
+  $('disable-cancel').focus();
+}
+$('disable-go').onclick = disableNow;
+$('disable-cancel').onclick = closeDisable;
 async function setZero() {
   // Like H and X, never dropped behind another pending action.
   try {
@@ -1827,6 +1901,10 @@ function showTab(name) {
   updateCameraView();
   renderPedals();
 }
+// Settings -> Pedals is on screen: the only place the pedal test runs.
+function pedalTestShown() {
+  return document.body.dataset.tab === 'settings' && !$('settings-pedals').hidden;
+}
 function renderPedals() {
   const view=presentation(pedalControls.state,pedalControls.fresh());
   document.body.dataset.touchPhase=view.tone;
@@ -1860,19 +1938,28 @@ function renderPedals() {
     button.dataset.tested=String(pedalControls.testMode && pedalControls.testLast===button.dataset.pedal);
     button.querySelector('small').textContent=pedalControls.testMode ? String(pedalControls.testCounts[button.dataset.pedal]) : '';
   }
-  $('pedal-test').hidden=!pedalControls.canTest();
-  $('pedal-test').disabled=!pedalControls.fresh();
+  if(pedalControls.testMode && !pedalTestShown())pedalControls.setTest(false);  // Leaving the page ends the test.
+  $('pedal-test').disabled=!pedalControls.canTest() || !pedalControls.fresh();
   $('pedal-test').textContent=pedalControls.testMode?'End pedal test':'Test pedals';
   $('pedal-test').setAttribute('aria-pressed',String(pedalControls.testMode));
   $('pedal-test-status').hidden=!pedalControls.testMode;
   $('pedal-test-status').textContent=pedalControls.testMode
     ? 'Test only · no commands sent. '+(pedalControls.testLast ? 'Last: '+pedalControls.testLast.toUpperCase() : 'Press A, B or C.'):'';
+  $('pedal-test-counts').hidden=!pedalControls.testMode;
+  for(const chip of document.querySelectorAll('[data-test-pedal]')) {
+    chip.querySelector('b').textContent=String(pedalControls.testCounts[chip.dataset.testPedal]);
+    chip.dataset.last=String(pedalControls.testMode && pedalControls.testLast===chip.dataset.testPedal);
+  }
+  $('pedal-test-note').textContent=pedalControls.canTest()
+    ? 'The test sends nothing to Minerva. It works only while no session runs, and ends when you leave this page.'
+    : 'Stop the session to test the pedals: during a session they act.';
   const warning=pedalControls.state?.teleop?.pedals?.actions?.c?.warning;
   $('pedal-warning').hidden=!warning;$('pedal-warning').textContent=warning || '';
 }
 const pedalControls=new PedalControls({
   request,onState:render,onError:message=>say(message,'bad'),onChange:renderPedals,
-  context:()=>({tab:document.body.dataset.tab,hidden:document.hidden,confirming:!!pendingConfirm}),
+  context:()=>({tab:document.body.dataset.tab,hidden:document.hidden,
+    confirming:!!pendingConfirm || $('disable-confirm').open,pedalTest:pedalTestShown()}),
 });
 for(const button of document.querySelectorAll('[data-pedal]'))button.onclick=()=>pedalControls.press(button.dataset.pedal);
 $('pedal-test').onclick=()=>pedalControls.setTest(!pedalControls.testMode);
@@ -1887,12 +1974,22 @@ function updateCameraView() {
 const settingsPanel = new SettingsPanel({request,navigate:showTab,onDisplay:publishTelemetry,onCameraView:updateCameraView});
 $('open-motor-settings').onclick=()=>{showTab('settings');settingsPanel.show('motors');};
 $('open-display').onclick=()=>{showTab('settings');settingsPanel.show('display');};
+// Replay poses the model from the episode at the playhead; every other tab shows the live joints.
+let replayPose=null, replaySequence=0, replayBadge='REPLAY', viewerHeld=false;
 function publishTelemetry() {
   const frame=$('model-view').contentWindow;
-  const telemetry=last?.telemetry;
-  if(frame && !modelViewerPaused) frame.postMessage({type:'helm-viewer-overlay',version:1,settings:settingsPanel.display,telemetry},location.origin);
+  const replaying=document.body.dataset.tab==='replay' && !!replayPose;
+  const telemetry=replaying ? replayPose : last?.telemetry;
+  if(frame && !modelViewerPaused) {
+    frame.postMessage({type:'helm-viewer-overlay',version:1,settings:settingsPanel.display,telemetry},location.origin);
+    // The pose itself: Replay holds the model at the playhead; leaving Replay releases it to the live guide.
+    if(replaying) frame.postMessage({type:'helm-viewer-pose',badge:replayBadge,
+      positions:Object.fromEntries(replayPose.rows.map(row=>[row.joint,row.position]))},location.origin);
+    else if(viewerHeld) frame.postMessage({type:'helm-viewer-pose',positions:null},location.origin);
+    viewerHeld=replaying;
+  }
   const reading=(telemetry?.rows||[]).filter(row=>Number.isFinite(row.position));
-  $('model-source').textContent=reading.length
+  $('model-source').textContent=replaying ? 'Episode replay · recorded joints at the playhead' : reading.length
     ? `${reading[0].source==='simulated'?'Virtual feedback':'Measured feedback'} · ${telemetry.stale?'stale':Number.isFinite(telemetry.age_seconds)?Math.round(telemetry.age_seconds*1000)+' ms old':'age unavailable'}`
     : 'No joint readings · reference pose';
 }
@@ -1916,7 +2013,7 @@ function renderGlobalControls(state) {
   $('global-disable').disabled=!visible;
 }
 $('global-hold').onclick=()=>sendKey('T');
-$('global-disable').onclick=()=>['running','starting'].includes(last?.tune?.phase)?tuneKey('H'):sendKey('H');
+$('global-disable').onclick=requestDisable;
 $('global-shutdown').onclick=()=>['running','starting'].includes(last?.tune?.phase)?tuneKey('X'):sendKey('X');
 document.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key===','){event.preventDefault();showTab('settings');}});
 replayView = new ReplayView({request, elements: {
@@ -1929,6 +2026,11 @@ replayView = new ReplayView({request, elements: {
   live: $('replay-live'), liveReceiver: $('replay-live-receiver'), liveSpeed: $('replay-live-speed'),
   liveStart: $('replay-live-start'), liveStatus: $('replay-live-status'),
 }, onLive: startReplay});
+replayView.subscribe(view => {
+  replayPose = replayTelemetry(view, last?.telemetry, ++replaySequence);
+  replayBadge = `REPLAY · frame ${view.index + 1} of ${view.series?.t?.length || '?'} · recorded joints`;
+  publishTelemetry();
+});
 replayCard = new LiveReplayCard({elements: {
   card: $('t-replay'), title: $('t-replay-title'), time: $('t-replay-time'), track: document.querySelector('.live-replay-track'),
   fill: $('t-replay-fill'), frames: $('t-replay-frames'), note: $('t-replay-note'),

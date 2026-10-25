@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {ReplayModel, formatSeconds, groupEpisodes, reviewCounts, sessionDate, shownBy, SPEEDS, verdictOf} from '../../src/robot_platform/helm/static/replay.js';
+import {ReplayModel, formatSeconds, groupEpisodes, replayTelemetry, reviewCounts, sessionDate, shownBy, SPEEDS, verdictOf} from '../../src/robot_platform/helm/static/replay.js';
 
 // Uneven gaps, as recording waits for a new frame from every camera: playback must follow the recorded times.
 const times = [0, .05, .16, .2, .3];
@@ -148,4 +148,18 @@ assert.equal(images()[0].src, live.frameUrl('s/e', 23, 'left_wrist'));
 assert.equal(elements.title.textContent, 's/e');  // No label: the episode's id.
 card.render({...playing, episode: 's/other', frame: 0});
 assert.equal(images()[0].src, live.frameUrl('s/other', 0, 'left_wrist'));  // Another episode: fresh cameras.
+// The model at a replayed frame: recorded positions through the stopped reader's mapping, as the viewer's telemetry.
+const mapping = {left_arm_j1: {joint: 'left_arm_j1', scale: 1, offset: 0, unit: 'rad'},
+  right_arm_j1: {joint: 'right_arm_j1', scale: -1, offset: .1, unit: 'rad'},
+  left_gripper: {joint: 'left_gripper_finger_a_slide', scale: .00921, offset: -.03, unit: 'm'}};
+const view = {episode: 's/e', index: 1, mapping, summary: {joints: ['left_arm_j1', 'right_arm_j1', 'left_gripper', 'extra']},
+  series: {qpos: [[0, 0, 0, 0], [.5, .25, 2, 9]]}};
+const pose = replayTelemetry(view, {model: 'minerva', urdf_sha256: 'abc'}, 7);
+assert.deepEqual([pose.model, pose.urdf_sha256, pose.stream_id, pose.sequence, pose.stale], ['minerva', 'abc', 'replay:s/e', 7, false]);
+assert.deepEqual(pose.rows.map(row => [row.motor, row.joint, row.position_unit, row.source]),
+  [['left_arm_j1', 'left_arm_j1', 'rad', 'replay'], ['right_arm_j1', 'right_arm_j1', 'rad', 'replay'],
+   ['left_gripper', 'left_gripper_finger_a_slide', 'm', 'replay']]);  // Unmapped columns are left out.
+assert.ok(Math.abs(pose.rows[1].position - (-.25 + .1)) < 1e-12 && Math.abs(pose.rows[2].position - (2 * .00921 - .03)) < 1e-12);
+assert.equal(replayTelemetry({...view, mapping: null}, {model: 'minerva', urdf_sha256: 'abc'}, 8), null);
+assert.equal(replayTelemetry(view, null, 9), null);  // No live model identity: nothing to pose.
 console.log('live replay checks passed');

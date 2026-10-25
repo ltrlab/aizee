@@ -503,3 +503,56 @@ body[data-touch=on] .grip-switch input{width:26px;height:26px}
 #bridge-pill,#access-pill{--pix:var(--pix-line)!important;color:var(--muted)!important;background:var(--card)!important}
 #bridge-pill[data-tone=good],#access-pill[data-tone=good]{--pix:var(--pix-good)!important;color:var(--good)!important;background:var(--good-soft)!important}
 #bridge-pill[data-tone=warn],#access-pill[data-tone=warn]{--pix:var(--pix-warn)!important;color:var(--warn)!important;background:var(--warn-soft)!important}
+
+/* The Teleop column scrolls as one: the pedals stay pinned above and the status line below, so nothing between them
+   is squeezed (the task and calibration cards had 18 px at 1080p). While a session runs, the setup that only applies
+   at the next start steps aside; Helm on Minerva has one place for the loop, so that row goes too. */
+#panel-teleop{overflow-y:auto;overscroll-behavior-y:contain}
+#panel-teleop>.pedal-console{position:sticky;top:0;z-index:3}
+#panel-teleop .scroll{flex:0 0 auto;overflow:visible}
+#panel-teleop>.save-bar{position:sticky;bottom:0;z-index:3;margin-top:auto}
+body[data-session-active=true] #panel-teleop .panel-head>:is(h1,.lead,#t-target,#t-receiver-choice,#t-choice-note){display:none}
+#t-target[data-single=true]{display:none}
+#t-receiver-choice{flex-wrap:nowrap;white-space:nowrap;overflow-x:auto;scrollbar-width:thin}
+#t-receiver-choice button{padding:3px 7px;flex-shrink:0}
+#t-receiver-choice .target-live{margin:0 0 0 6px;padding-left:8px}
+#t-status{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px 8px}
+#t-status b{font-size:14px}
+/* Control's law is a phrase: one line of its own, label and value side by side. */
+#t-status>span:last-child{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:baseline;gap:0 8px}
+#t-status>span:last-child b{display:inline;margin:0}#t-control small{display:inline;margin:0 0 0 6px}
+.force-bars{grid-template-columns:repeat(2,minmax(0,1fr))}
+.force-bar{grid-template-columns:34px minmax(0,1fr) 38px;gap:6px}
+.pedal-test-counts{display:flex;gap:8px;margin:8px 0 0}.pedal-test-counts[hidden]{display:none}
+.pedal-test-counts span{font:12px var(--mono);padding:3px 8px}
+.disable-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:10px}
+#t-receiver-choice .target-live{border-left:3px solid var(--line)}
+/* RetroUI's pixel font is wider: tighter spacing keeps the row on one line in the 440 px column. */
+#t-receiver-choice{gap:4px}#t-receiver-choice>span:first-child{margin-right:2px}
+#t-receiver-choice button{padding:3px 5px}#t-receiver-choice .target-live{margin-left:2px;padding-left:6px}
+.pedal-test-counts span{border:3px solid var(--line);border-image:var(--pix-line) 1/3px/0 stretch;background:var(--card)}
+.pedal-test-counts span[data-last=true]{background:var(--green-soft);border-image-source:var(--pix-good)}
+.disable-confirm{--pix:var(--pix-bad);max-width:min(480px,calc(100vw - 32px));padding:18px 20px;color:var(--text);background:var(--card);
+  border:3px solid var(--bad);border-image:var(--pix) 1/3px/0 stretch;box-shadow:4px 4px 0 var(--drop)}
+.disable-confirm::backdrop{background:rgba(0,0,0,.5)}
+.disable-confirm h2{margin:0 0 8px;font-size:18px;color:var(--bad)}
+.disable-confirm p{margin:0 0 14px;font-size:14px;line-height:1.5}
+
+/* Recording: a frame round the whole window and a badge over the view, big enough to read from the leader arms. */
+.rec-frame{position:fixed;inset:0;z-index:1001;pointer-events:none;box-shadow:inset 0 0 0 12px var(--rec-color)}
+.rec-frame[hidden],.rec-badge[hidden]{display:none}
+.rec-badge{position:absolute;top:8px;right:12px;z-index:6;display:flex;align-items:center;gap:12px;padding:4px 16px;
+  font:700 34px/1.2 var(--font);letter-spacing:.04em;color:#fff;background:var(--rec-color);border:3px solid #000;
+  box-shadow:3px 3px 0 #000;pointer-events:none;white-space:nowrap}
+.rec-dot{width:22px;height:22px;border-radius:50%;background:currentColor;flex:none}
+body{--rec-color:#e5242b}
+body:is([data-recording=starting],[data-recording=finishing]){--rec-color:#f0a81a}
+body:is([data-recording=starting],[data-recording=finishing]) .rec-badge{color:#1f1600}
+body[data-recording=saved]{--rec-color:#1b9e4b}
+body[data-recording=recording] .rec-dot{animation:rec-blink 1s steps(2,jump-none) infinite}
+body[data-recording=recording] .rec-frame{animation:rec-frame 2s ease-in-out infinite}
+@keyframes rec-blink{50%{opacity:0}}
+@keyframes rec-frame{50%{opacity:.55}}
+@media(prefers-reduced-motion:reduce){.rec-dot,.rec-frame{animation:none!important}}
+/* The model toolbar sits below the badge's strip. */
+body:is([data-recording=starting],[data-recording=recording],[data-recording=finishing],[data-recording=saved],[data-recording=failed]) .model-toolbar{top:68px}

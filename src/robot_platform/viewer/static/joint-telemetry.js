@@ -96,7 +96,8 @@ export class JointTelemetry {
 }
 
 export function describeJoint(row, fields=DEFAULT_OVERLAY.fields) {
-  const source=row.source === 'measured' ? 'Measured' : row.source === 'simulated' ? 'Simulated' : 'Source unavailable';
+  const source=row.source === 'measured' ? 'Measured' : row.source === 'simulated' ? 'Simulated'
+    : row.source === 'replay' ? 'Recorded (replay)' : 'Source unavailable';
   const lines=[];
   if (fields.position) lines.push({kind:'position', label:'Joint position', value:signedValue(row.position,row.position_unit)});
   if (fields.effort) lines.push({kind:'effort', label:row.effort_label,
