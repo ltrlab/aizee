@@ -12,6 +12,9 @@
   - "Make what you need to [get] functional tuning for these servos", under "as much shared architecture as the
     robstrides as possible", and "in Helm, they should fall under the same tabs and menu".
   - "The head gets its own receiver that should be synced with the dual arms and cameras."
+  - A Meta Quest Pro steers the head in teleop: "The headset should connect to a webxr service that interfaces with
+    Helm (or is a part of Helm, part of the teleop tab). If there is no headset connected, the head stays static at
+    the zero positions for now."
 
 ## Decisions
 
@@ -66,6 +69,8 @@ otherwise.
 | Derivation | `config/devices/minerva-head.json`, `neck/head.py` | The arms' `derive_receiver`, described below |
 | Tune | `helm/tune.py`, the Tune tab | The arms' sweep engine on the head, described below |
 | Release | `ops/release.py` | Carries `bin/head_controller` and the head model's URDF, its mesh digests in the asset lock |
+| Teleop | `helm/head_teleop.py`, `helm/teleop.py` | The head in the arms' session, described below |
+| Headset | `helm/xr.py`, `static/xr.html`, `static/xr.js`, the Teleop tab's Head card (`static/head.js`) | The Quest steering the head, described below |
 
 **Head receiver.** It runs the arms' receiver core behind `FeetechHardware`.
 
@@ -104,11 +109,66 @@ with direct updates (no collision envelope):
 Saving writes `<asset>-head-servo.json`, bound to each servo's identity, and the next derivation uses it. The
 virtual receiver uses a nominal reference until the head is set up.
 
+**Teleop.** A teleop session runs the head's receiver beside the arms', with the same keys and states: I, E, T, X
+and H act on both. The head uses the arms' direct lifecycle (`TeleopLifecycle`, `DirectLifecycleSession`), so the
+arms' speed caps, alignment and braking near the ends apply. It cycles every 40 ms.
+
+- **What it follows while the session follows (T):**
+  1. the headset, while its latest pose is at most 0.2 s old;
+  2. then its last target, held until that pose is 1 s old;
+  3. then its zero.
+
+  Without a headset, the head holds at its zero.
+- **Faults hold both:**
+  - a head fault makes the arms disengage, with a notice;
+  - an arms fault disengages the head, and H disables it.
+- **Start-up:** a head that fails to start shows as a head fault, and the arms run on.
+- **Receivers:** a virtual session gets a virtual head. A live session gets the physical head only when the head's
+  files exist and its bus is pinned.
+
+**Headset (Meta Quest Pro).** Helm serves `/xr`, a WebXR page for the Quest's browser.
+
+- **What it sends:** the headset's orientation in the level `local` space, at most 60 times a second, over
+  `/api/helm/xr`. `helm.xr` turns it into yaw (left positive) and pitch (up positive) from a zero, and the running
+  session's head takes them: yaw drives `neck_z` and pitch drives `neck_y`, through the head's directions, clamped
+  to the usable range.
+- **The zero:**
+  - Starting head tracking, or recentering the headset (hold the Meta button), sets the zero at the headset's
+    heading, level.
+  - A trigger pull or a pinch makes the zero wherever the headset looks, as does Zero headset on the Teleop tab.
+- **Who may steer:**
+  - The socket needs a logged-in device, Helm's action token and the same origin.
+  - It does not need control: the session that the device in control engages decides whether the head moves.
+  - One device's headset steers at a time. Another device is refused while it is connected; the same device
+    reconnecting takes its stream back.
+  - Zero headset on the Teleop tab is a change, so it needs control.
+- **A stalled loop gets no poses:** poses go only to a loop that answered within 0.75 s, and never wait for another
+  send. A stalled loop's pipe therefore never fills with poses, which would block Helm's sends, Disable's among them.
+- **The Head card,** under the gripper card, says:
+  - what the head does: its state, whether it follows the headset, holds or sits at its zero, or its fault;
+  - whether a headset tracks: its name, rate, yaw and pitch;
+  - without a headset, the address of the headset page.
+
+**Using it.** The Quest joins Minerva's Wi-Fi.
+
+1. In the Quest's browser, open `https://192.168.8.180:8760/xr`, Minerva's Wi-Fi address, which the certificate
+   names.
+2. Accept Helm's self-signed certificate once.
+3. Log in. Helm names the device "Quest headset" and comes back to `/xr`.
+4. Look straight ahead and level, and press Start head tracking. The page asks for passthrough, falling back to VR.
+5. The head follows once the session is engaged (T).
+
 **Tests:**
 
-- Python: `tests/unit/test_neck_feetech.py` (13), `tests/unit/test_neck_head.py` (3) and
-  `tests/contract/test_helm_tune_head.py` (4), which includes a whole head sweep on the real core. All are in the
-  gate.
+- Python:
+  - `tests/unit/test_neck_feetech.py` (13), `tests/unit/test_neck_head.py` (3);
+  - `tests/contract/test_helm_tune_head.py` (4), which includes a whole head sweep on the real core;
+  - `tests/contract/test_head_teleop.py` (3) and `tests/contract/test_teleop_head.py` (3), the head in a session;
+  - `tests/unit/test_helm_xr.py` (6): the gaze maths, the one-headset rule, the zero, the socket and the zero
+    endpoint, and a stalled loop.
+
+  All are in the gate.
+- Browser: `tests/ui/test_helm_head.mjs`, the Head card's text, run by `tests/unit/test_browser_scripts.py`.
 - Rust: 10 host tests for the Feetech hardware and the head config. The Linux service cross-builds for the Jetson.
 
 ## Bring-up on the hardware, with the user
@@ -145,14 +205,15 @@ the end; there the tools need the release (a deploy, with the user's OK).
 - **Limits tab:** a stopped Feetech reader in Helm's live link, so the head's range is swept in the Limits tab like
   the arms'. `neck sweep-limits` stands in until then.
 - **Minerva Check:** the head's identity and pose checks, and its live sweep.
-- **Teleop:** the head receiver driven beside the arms' in one session, synced as described above.
-  - Its input is still the user's choice; the leaders' unused joystick values are one option.
-  - Recording gains the neck's stream.
+- **Recording:** the neck's stream beside the arms and cameras.
+- **The headset on the hardware:** try the Quest on Minerva's Helm (a deploy, with the user's OK), first with a
+  virtual session.
+- **Option:** the head camera's picture in the headset. Today the operator watches Helm's screen, through
+  passthrough or without the headset.
 - **The arms' keep-out of the head's reachable volume:** the motion-contract owner's change. The head moves only
   with the arms down until it lands.
 
 ## Open questions
 
 - Which servo is pan and which is tilt? The plan above gives pan id 1 and tilt id 2.
-- What drives the neck in teleop?
 - Does the foot switch cut the head's 12 V supply?
