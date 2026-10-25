@@ -6,7 +6,11 @@
 //! enforce physical pre-enable gates; collision envelopes expire in this core.
 pub mod can_adapter;
 pub mod collision;
+pub mod feetech;
 pub mod hardware;
+pub mod head_config;
+#[cfg(all(target_os = "linux", feature = "linux-service"))]
+pub mod head_service;
 pub mod protocol;
 pub mod recorder;
 pub mod reference;

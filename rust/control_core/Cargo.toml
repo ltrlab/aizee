@@ -31,3 +31,8 @@ required-features = ["linux-service"]
 name = "motor_watchdog_trial"
 path = "src/bin/motor_watchdog_trial.rs"
 required-features = ["linux-service"]
+
+[[bin]]
+name = "head_controller"
+path = "src/bin/head_controller.rs"
+required-features = ["linux-service"]
