@@ -112,6 +112,7 @@ scripts/.jetson_password
 
 # Local onshape-to-robot retrieval snapshot (trusted local pickle, not source).
 /urdf/minerva/onshape-to-robot/robot.pkl
+/urdf/minerva/onshape-to-robot-head-v1/robot.pkl
 
 # URDF meshes (large STL/GLTF) are tracked via Git LFS — see .gitattributes.
 # .part files are tiny OnShape provenance metadata, tracked as normal git.

@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "id": "minerva_head_v1",
+  "title": "Minerva (Head V1)",
+  "urdf": "minerva.urdf",
+  "front_direction": [
+    0,
+    -1,
+    0
+  ],
+  "groups": {
+    "Left arm": [
+      "left_arm_j1",
+      "left_arm_j2",
+      "left_arm_j3",
+      "left_arm_j4",
+      "left_arm_j5",
+      "left_arm_j6"
+    ],
+    "Left gripper": [
+      "left_gripper_finger_a_slide"
+    ],
+    "Right arm": [
+      "right_arm_j1",
+      "right_arm_j2",
+      "right_arm_j3",
+      "right_arm_j4",
+      "right_arm_j5",
+      "right_arm_j6"
+    ],
+    "Right gripper": [
+      "right_gripper_finger_a_slide"
+    ],
+    "Head": [
+      "neck_z",
+      "neck_y"
+    ]
+  },
+  "provisional_limits": [
+    "left_arm_j1",
+    "left_arm_j2",
+    "left_arm_j3",
+    "left_arm_j4",
+    "left_arm_j5",
+    "left_arm_j6",
+    "right_arm_j1",
+    "right_arm_j2",
+    "right_arm_j3",
+    "right_arm_j4",
+    "right_arm_j5",
+    "right_arm_j6",
+    "neck_z",
+    "neck_y"
+  ],
+  "notes": [
+    "Head V1+urdf: 3DP URDF 1.1 plus the head on a two-joint neck (neck_z pan, neck_y tilt). Arm joint frames match 1.1 within 0.005 mm.",
+    "Preview profile: the active model (../model.json) gains the neck only when its collision model covers the head. No collision model or limit review here.",
+    "Every range is the exporter's default of plus or minus pi, including the neck: not the servos' travel.",
+    "Gripper sliders move the CAD jaws in metres; both jaws follow the exported coupling. Motor-to-jaw calibration is not applied.",
+    "Source mass properties are missing. This is a kinematic view, not validated physics."
+  ]
+}
