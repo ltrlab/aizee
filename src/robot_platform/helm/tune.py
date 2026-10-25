@@ -788,6 +788,12 @@ class TuneSession:
         self.absent = None  # Drives unplugged for a wiring check, which the next tuning sweep leaves out.
         self._swept_without = None  # Those the last sweep left out: its results are not saved.
         self.path = servo_path(helm.profile_path, helm.asset_id, getattr(helm, 'operator_files', None))
+        # The head's files sit beside the arms' servo calibration, in the arms' formats (neck.head).
+        from robot_platform.neck.head import PROFILE, files
+        from robot_platform.ops.release import ROOT
+        self.head_profile_path = ROOT / PROFILE
+        self.head_paths = files(self.path.parent, helm.asset_id)
+        self.head_saved, self.head_saved_error = None, None
         self._lock = threading.Lock()
         self._conn = self._views = self._worker = self._reader = None
         self._view = {'phase': 'stopped', 'stage': None, 'message': 'The servo sweep is not running.',
@@ -795,6 +801,7 @@ class TuneSession:
         self.results = None
         self.saved = self._load()
         self.saved_error = None
+        self._load_head()
         self._guides = 0  # Views that carried the arm's pose: the 3D view's sequence.
         self._start_pose = None  # A return's confirmed pose, while it starts.
         self.offer = None  # The return last shown to the operator (return_offer), until confirmed or replaced.
@@ -806,16 +813,22 @@ class TuneSession:
             self.saved_error = str(exc)
             return None
 
+    def _load_head(self):
+        try:
+            self.head_saved, self.head_saved_error = load_servo(self.head_paths['servo']), None
+        except (OSError, ValueError) as exc:
+            self.head_saved, self.head_saved_error = None, str(exc)
+
     @property
     def active(self):
         worker = self._worker
         return worker is not None and worker.is_alive()
 
     def configure(self, *, arm, joints=None, mode='live', target=None, verify=False, absent=None):
-        if arm not in ('left', 'right') or mode not in ('live', 'virtual'):
-            raise ValueError('Sweep the left or right arm, live or on the virtual receiver')
+        if arm not in ('left', 'right', 'head') or mode not in ('live', 'virtual'):
+            raise ValueError('Sweep the left or right arm, or the head, live or on the virtual receiver')
         # Only the gripper, the end of the chain, can be unplugged and left out: a wiring check of the rest.
-        if absent and (verify or not set(absent) <= {f'{arm}_gripper'}):
+        if absent and (verify or arm == 'head' or not set(absent) <= {f'{arm}_gripper'}):
             raise ValueError(f'Only a tuning sweep leaves a drive out, and only the {arm} gripper')
         with self._lock:
             if self.active:
@@ -889,8 +902,26 @@ class TuneSession:
                 self.receiver, self.joints, self.mode, self.absent = previous
                 self._start_pose = None
 
+    def _head_bundle(self):
+        """The head's sweep: its profile, saved reference, limits and servo calibration; the virtual receiver
+        falls back to a nominal reference and provisional limits until the head is set up."""
+        from robot_platform.neck import head
+        reference, limits = head.load_document(self.head_paths['reference']), head.load_document(
+            self.head_paths['limits'])
+        if self.receiver['mode'] == 'live' and (reference is None or limits is None):
+            raise ValueError("Set up the head first: centre each servo at the head's reference pose and save its "
+                             'reference, then sweep its limits (docs/development/NECK_FEETECH.md)')
+        profile = head.load_profile(self.head_profile_path)
+        reference = reference or head.virtual_reference(profile)
+        return {'kind': 'tune', 'mode': self.mode, 'teleop_profile': str(self.head_profile_path),
+                'asset_id': self.helm.asset_id, 'receiver': dict(self.receiver), 'arm': 'head', 'joints': self.joints,
+                'servo': deepcopy(self.head_saved), 'head_reference': reference,
+                'limits': limits or head.virtual_limits(reference)}
+
     def _bundle(self):
         helm = self.helm
+        if self.receiver['arm'] == 'head':
+            return self._head_bundle()
         return {'kind': 'tune', 'mode': self.mode, 'calibration_profile': str(helm.profile_path),
                 'bindings': deepcopy(helm.bindings),
                 'directions': deepcopy(helm.mapping), 'limits': deepcopy(helm.saved_limits),
@@ -905,12 +936,15 @@ class TuneSession:
             if self.active:
                 raise ValueError('The sweep is already running')
             live = self.receiver['mode'] == 'live'
+            head = self.receiver['arm'] == 'head'
             if live and confirm is not True:
-                raise ValueError(f"Confirm the sweep: the {self.receiver['arm']} arm's motors move on their own, "
+                raise ValueError("Confirm the sweep: the head's servos move on their own, the foot switch is in reach "
+                                 'and the head faces straight ahead, level' if head else
+                                 f"Confirm the sweep: the {self.receiver['arm']} arm's motors move on their own, "
                                  'the foot switch is in reach and the arm hangs in its reference pose')
             if live and getattr(self.helm, 'connection', 'tether') not in WIRED:
                 raise ValueError('A live sweep runs over the wired tether: choose Tether at the top first')
-            if self.helm.saved_limits is None:
+            if not head and self.helm.saved_limits is None:
                 raise ValueError('Save joint limits for every motor in the Limits workspace first')
             bundle = self._bundle()
             self._swept_without = bundle.get('absent')
@@ -929,19 +963,21 @@ class TuneSession:
                 from robot_platform.control.commissioning import motor_models
                 from robot_platform.ops.release import ROOT
                 from .edge import EdgeWorker
-                for key in ('calibration_profile', 'teleop_profile'):
+                for key in [key for key in ('calibration_profile', 'teleop_profile') if key in bundle]:
                     path = Path(bundle[key]).resolve()
                     if not path.is_relative_to(ROOT):
                         raise ValueError(f'{path.name} is not part of the robot release')
                     bundle[key] = path.relative_to(ROOT).as_posix()
-                if live:
+                if live and not head:
                     bundle['receiver'] = dict(bundle['receiver'], motor_models=motor_models(self.helm.device, ROOT))
                 worker = (self.edge_factory or EdgeWorker)(bundle, None, base_view=dict(self._view),
                                                            real_leaders=False, name='The servo sweep',
                                                            address=getattr(self.helm, 'address', None))
                 command_writer, view_reader = worker.commands, worker.views
             self._view = dict(self._view, phase='starting', fault=None, results=None, mode=self.mode,
-                              message=(f"Returning the {self.receiver['arm']} arm: checking it is still where you "
+                              message=("Starting the sweep on the head: its receiver checks each servo and that the "
+                                       'head is in its reference pose…' if head else
+                                       f"Returning the {self.receiver['arm']} arm: checking it is still where you "
                                        'confirmed it, then starting the receiver…' if self.mode == 'return' else
                                        f"Starting the sweep on the {self.receiver['arm']} arm: checking it is still and "
                                        'in its reference pose, then starting the receiver…'))
@@ -1033,6 +1069,21 @@ class TuneSession:
                              'sweep again with every drive plugged in to save settings')
         if not motors:
             raise ValueError('Choose the joints to save')
+        if all(motor.startswith('head_') for motor in motors):
+            # The head's own calibration, bound to its servos' identities (neck.head).
+            from robot_platform.neck import head
+            reference = head.load_document(self.head_paths['reference'])
+            if reference is None:
+                raise ValueError("The head has no saved reference: a virtual head sweep's settings are not saved")
+            roster, _, _ = head.roster(head.load_profile(self.head_profile_path), reference)
+            document = save_servo(self.head_paths['servo'], asset_id=self.helm.asset_id, reference=roster,
+                                  results=results, motors=motors, session=self._view.get('evidence') or utc_now(),
+                                  existing=self.head_saved)
+            with self._lock:
+                self.head_saved, self.head_saved_error = document, None
+            return document
+        if any(motor.startswith('head_') for motor in motors):
+            raise ValueError('Save the head and an arm separately')
         document = save_servo(self.path, asset_id=self.helm.asset_id, reference=self.helm.reference,
                               results=results, motors=motors, session=self._view.get('evidence') or utc_now(),
                               existing=self.saved)
@@ -1078,4 +1129,14 @@ class TuneSession:
                         mode=view.get('mode', self.mode) if running else self.mode,
                         results=deepcopy(self.results), saved=deepcopy(self.saved), saved_error=self.saved_error,
                         return_offer=deepcopy(self.offer),
-                        path=str(self.path))
+                        path=str(self.path), head=self._head_state())
+
+    def _head_state(self):
+        """The head's servos for the Tune tab, its saved calibration and which of its files exist."""
+        from robot_platform.neck.head import load_profile
+        try:
+            motors = [{'name': m['name'], 'label': m['label']} for m in load_profile(self.head_profile_path)['motors']]
+        except (OSError, ValueError, KeyError):
+            motors = []
+        return {'motors': motors, 'saved': deepcopy(self.head_saved), 'saved_error': self.head_saved_error,
+                'files': {kind: path.is_file() for kind, path in self.head_paths.items()}}

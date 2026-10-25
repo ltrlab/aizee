@@ -105,3 +105,67 @@ def test_the_head_sweep_needs_the_head_profile_and_cannot_return(bundle):
     arms = dict(bundle, teleop_profile=str(ROOT / 'config/devices/minerva-teleop.json'))
     with pytest.raises(ValueError, match='head profile'):
         TuneCore(arms)
+
+
+def session(tmp_path):
+    from robot_platform.helm.tune import TuneSession
+    helm = SimpleNamespace(profile_path=ROOT / 'config/devices/minerva-joint-calibration.json', asset_id='minerva-test',
+                           operator_files=tmp_path / 'operator')
+    (tmp_path / 'operator').mkdir(exist_ok=True)
+    return TuneSession(helm, ROOT / 'config/devices/minerva-teleop.json')
+
+
+def test_the_tune_session_offers_the_head_and_needs_it_set_up_to_run_live(tmp_path):
+    tune = session(tmp_path)
+    assert [m['name'] for m in tune.snapshot()['head']['motors']] == ['head_pan', 'head_tilt']
+    tune.configure(arm='head', mode='virtual', target='pc')
+    virtual = tune._bundle()
+    assert virtual['arm'] == 'head' and virtual['head_reference']['id'] == 'virtual-head'
+    assert Path(virtual['teleop_profile']).name == 'minerva-head.json' and 'calibration_profile' not in virtual
+    tune.configure(arm='head', mode='live', target='jetson')
+    with pytest.raises(ValueError, match='Set up the head first'):
+        tune._bundle()
+    with pytest.raises(ValueError, match='Only a tuning sweep leaves a drive out'):
+        tune.configure(arm='head', mode='live', absent=['head_tilt'])
+
+
+def test_a_head_sweep_saves_its_own_calibration_which_the_next_derivation_takes(tmp_path):
+    tune = session(tmp_path)
+    profile = head.load_profile(ROOT / head.PROFILE)
+    reference = dict(head.virtual_reference(profile), id='head-test')
+    for motor in reference['motors']:
+        motor.update(uid=f"5A46083062/{motor['id']}", firmware='3.10')
+    limits = head.virtual_limits(reference, span_rad=.8)
+    tune.head_paths['reference'].write_text(json.dumps(reference))
+    tune.head_paths['limits'].write_text(json.dumps(limits))
+    tune.configure(arm='head', mode='live', target='jetson', joints=['head_pan'])
+    bundle = tune._bundle()
+    assert bundle['head_reference']['id'] == 'head-test'
+    clock = Clock()
+
+    def open_receiver(config, device, reference):
+        return Receiver(config, reference, clock)
+    bundle['teleop_profile'] = str(ROOT / head.PROFILE)
+    core = TuneCore(dict(bundle, receiver={'mode': 'virtual', 'arm': 'head'}), clock=clock,
+                    evidence_root=tmp_path / 'evidence')
+    core.build()
+    for _ in range(40000):
+        core.tick(None, clock())
+        clock.now += core.period_s
+        assert core.fault is None, core.fault
+        if core.stage == 'finished':
+            break
+    assert core.engine.task == 'finished', core.message
+    tune.results = core.engine.summary()
+    core.close()
+    with pytest.raises(ValueError, match='separately'):
+        tune.save(['head_pan', 'left_arm_j1'])
+    document = tune.save(['head_pan'])
+    saved = json.loads(tune.head_paths['servo'].read_text())
+    assert saved['joints']['head_pan']['uid'] == '5A46083062/1' and saved['joints']['head_pan']['firmware'] == '3.10'
+    assert document['joints']['head_pan']['hold_kp'] == saved['joints']['head_pan']['hold_kp']
+    assert tune.snapshot()['head']['files'] == {'reference': True, 'limits': True, 'servo': True}
+    pan = saved['joints']['head_pan']
+    derived = head.derive(profile, reference, limits, core.model, servo=saved)
+    joint = {j['name']: j for j in derived['config']['joints']}['head_pan']
+    assert (joint['hold_kp'], joint['hold_kd']) == (pan['hold_kp'], pan['hold_kd'])

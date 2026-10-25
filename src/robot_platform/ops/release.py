@@ -23,10 +23,13 @@ import tarfile
 ROOT = Path(__file__).resolve().parents[3]
 TARGET = 'aarch64-unknown-linux-gnu'
 MODEL = 'urdf/minerva/model.json'
+# The head's model: its receiver and sweep read the neck's joints from it (neck.head); meshes stay here, as the
+# active model's do, their digests in the asset lock.
+HEAD_MODEL = 'urdf/minerva/onshape-to-robot-head-v1/model.json'
 CALIBRATION = 'config/devices/minerva-joint-calibration.json'
 MANIFEST, LOCK = 'release.json', 'assets.lock.json'
 HELM_LOCK = 'requirements/helm-robot.lock'  # Helm on Minerva's own dependencies (ops.helm_service).
-BINARIES = ('guarded_controller', 'control_harness', 'motor_watchdog_trial')
+BINARIES = ('guarded_controller', 'control_harness', 'motor_watchdog_trial', 'head_controller')
 LIBRARY = 'librobot_collision.so'
 # Each artifact is only as stale as its own crate: binaries come from control_core,
 # the library from collision.
@@ -75,6 +78,9 @@ def collect(root=ROOT):
     profile = ModelProfile.load(root / MODEL)
     for path in (root / MODEL, profile.urdf, profile.collision_model, profile.limit_review):
         files[_key(path, root)] = Path(path)
+    head = ModelProfile.load(root / HEAD_MODEL)
+    for path in (root / HEAD_MODEL, head.urdf):
+        files[_key(path, root)] = Path(path)
     built = root / 'rust/target' / TARGET / 'release'
     for name in BINARIES:
         files[f'bin/{name}'] = built / name
@@ -108,6 +114,8 @@ def verify_model(root=ROOT):
     runtime = RuntimeCollisionModel(profile)  # Proxies enclose the source CAD.
     load_plan(Path(root) / CALIBRATION)  # Calibration, reference and model agree.
     digests = {_key(path, root): _sha(path.read_bytes()) for path in model.assets}
+    digests.update({_key(path, root): _sha(path.read_bytes())
+                    for path in UrdfModel(ModelProfile.load(Path(root) / HEAD_MODEL)).assets})
     facts = {'model_id': profile.id, 'urdf_sha256': model.sha256, 'collision_model_revision': runtime.revision,
              'meshes': len(digests)}
     return digests, facts

@@ -23,6 +23,18 @@ from .feetech import RESOLUTION
 RAD_PER_STEP = 2 * math.pi / RESOLUTION
 BUS = 'head'
 VIRTUAL_FIRMWARE = '3.10'
+PROFILE = 'config/devices/minerva-head.json'
+
+
+def files(directory, asset_id):
+    """The head's measured files, beside the arms' servo calibration (the operator's files)."""
+    return {kind: Path(directory) / f'{asset_id}-head-{kind}.json' for kind in ('reference', 'limits', 'servo')}
+
+
+def load_document(path):
+    """A saved head file, or None when there is none yet."""
+    path = Path(path)
+    return json.loads(path.read_text(encoding='utf-8')) if path.is_file() else None
 
 
 def load_profile(path):

@@ -1626,6 +1626,8 @@ const ucards = new Map();
 const fmt = (value, digits = 2) => value == null || !Number.isFinite(value) ? '—' : value.toFixed(digits);
 
 function tuneMotors(state, arm) {
+  // The head's servos come with the sweep's state.
+  if (arm === 'head') return state?.tune?.head?.motors || [];
   // Grippers are not swept (they squeeze what they hold): Minerva Check's live sweep opens and closes them.
   return (state?.limits?.rows || []).filter(row => row.arm === arm && !row.name.endsWith('_gripper'));
 }
@@ -1713,8 +1715,9 @@ function renderTune(u, state) {
   const live = choice.mode === 'live';
   const what = u.mode === 'verify' ? 'MINERVA CHECK LIVE JOINT SWEEP' : u.mode === 'return' ? 'RETURN TO REFERENCE'
     : 'SERVO SWEEP';
+  const part = choice.arm === 'head' ? 'HEAD' : `${choice.arm.toUpperCase()} ARM`;
   $('u-eyebrow').textContent = live
-    ? `${what} · LIVE ${choice.arm.toUpperCase()} ARM · MOTORS MOVE ON THEIR OWN · FOOT SWITCH IN REACH`
+    ? `${what} · LIVE ${part} · MOTORS MOVE ON THEIR OWN · ${choice.arm === 'head' ? 'H IN REACH' : 'FOOT SWITCH IN REACH'}`
     : `${what} · VIRTUAL RECEIVER · NO MOTORS MOVE`;
   $('u-eyebrow').className = `eyebrow ${live ? 'live' : 'warn'}`;
   for (const button of document.querySelectorAll('#u-arm button')) {
@@ -1777,7 +1780,7 @@ function renderTune(u, state) {
   const session = $('u-session');
   session.textContent = running ? 'Stop session' : live ? 'Start LIVE sweep' : 'Start sweep';
   session.disabled = u.phase === 'starting';
-  $('u-return').disabled = running || !live;
+  $('u-return').disabled = running || !live || choice.arm === 'head';  // The head has no return yet.
   if (tuneConfirm && running) closeTuneConfirm();
 
   const container = $('tune-results');
@@ -1801,7 +1804,8 @@ function renderTune(u, state) {
 }
 
 for (const button of document.querySelectorAll('#u-arm button')) {
-  button.onclick = () => act('/api/helm/tune/configure', {arm: button.dataset.arm}, `The sweep will run on the ${button.dataset.arm} arm.`);
+  button.onclick = () => act('/api/helm/tune/configure', {arm: button.dataset.arm},
+    `The sweep will run on the ${button.dataset.arm === 'head' ? 'head' : `${button.dataset.arm} arm`}.`);
 }
 $('u-finish').onclick = () => tuneKey('X');
 $('u-disable').onclick = () => tuneKey('H');
@@ -1847,6 +1851,18 @@ $('u-session').onclick = () => {
   const motors = tuneMotors(last, choice.arm);
   const picked = u?.joints_choice ? motors.filter(row => u.joints_choice.includes(row.name)) : motors;
   const names = picked.map(row => row.label.replace(/^(Left|Right) /, '')).join(', ');
+  if (choice.arm === 'head') {
+    askTune('Start the LIVE servo sweep on the head?', [
+      u?.joints_choice ? `Joints: ${names} only.` : `Joints: both: ${names}.`,
+      `The head's servos move on their own, joint by joint, about 5 to 7 minutes per joint (${picked.length} joint${picked.length === 1 ? '' : 's'}).`,
+      'The head faces straight ahead and level (its reference pose), and nothing is within its reach.',
+      'Both arms hang in their reference pose and stay disabled: nothing checks the head against the arms here.',
+      "H disables the head at once (its servos go limp). The foot switch may not cut the head's 12 V supply.",
+      'Guards stop a task on lag, effort or heat.',
+    ], 'Start LIVE sweep on the head', () => act('/api/helm/tune/start', {confirm: true},
+      "Starting the sweep on the head: its receiver checks each servo and the head's reference pose."));
+    return;
+  }
   askTune(`Start the LIVE servo sweep on the ${choice.arm} arm?`, [
     u?.joints_choice ? `Joints: ${names} only.` : `Joints: all ${motors.length}: ${names}.`,
     `The motors move on their own, joint by joint, about 5 to 7 minutes per joint (${picked.length} joint${picked.length === 1 ? '' : 's'}).`,
