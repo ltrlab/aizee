@@ -81,4 +81,25 @@ cd ~/minerva/current/src && sudo python3 -B -m robot_platform.ops.network instal
 - `tests/unit/test_helm_on_robot.py`: the link binds where the bridge reached Minerva, and Wi-Fi is said.
 - `tests/ui/test_helm_network.mjs`: the pills and Settings → Network.
 
-**Not yet tried on the robot.** The first install is the user's sudo.
+## On the robot
+
+The user installed it on 2026-10-25 at 16:39, on release `20261025T202846Z-7ec2cb4`, with the cable on the home
+network.
+
+- **Network mode:** `lan` within a second. The port got 192.168.8.159 by DHCP. Minerva's Wi-Fi stepped aside, the
+  default route went over the cable, and `minerva0` holds 10.42.0.1. dnsmasq is disabled at boot.
+- **Name:** `aizee-rover.local` resolves to 192.168.8.159 over IPv4.
+- **Bridge:** soliloquy's bridge (`dc19eb5`) lost its Wi-Fi path, then "reached Minerva at aizee-rover.local
+  (192.168.8.159)" three seconds later. Its route leaves on the cable, so Helm counts it wired.
+- **The old relay** stayed until TCP gave up on it. `e15ea1a` cuts it at once, on the next deploy.
+
+**Not yet tried on the robot:**
+- the tether, with the cable on a PC's adapter;
+- the access point;
+- leader teleop over each path.
+
+**Earlier on 2026-10-25:**
+- **Name resolution:** Windows resolved `aizee-rover.local` to Minerva's IPv6 link-local address first, which the
+  bridge key refuses, so the bridge resolves names to IPv4 only.
+- **Before the install:** with the cable on the network but the port still fixed at 10.42.0.1, mDNS gave out
+  10.42.0.1, which nothing on the network can reach.
