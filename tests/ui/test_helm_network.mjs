@@ -26,6 +26,8 @@ const both = networkView({...base, mode: 'tether', ethernet: {carrier: true, add
   ap: {...base.ap, wanted: true, on: true}});
 assert.equal(both.text, 'Tether + AP');
 assert.ok(both.lines.some(line => /Access point "minerva" is on: its devices reach Minerva at 10\.42\.0\.1/.test(line)));
+// 10.42.0.1 once, never the access point's own 10.42.1.1 (it listed both, twice, in a preview, 2026-10-25).
+assert.equal(both.lines.at(-1), 'Open Helm at https://10.42.0.1:8760 (or https://aizee-rover.local:8760).');
 assert.equal(both.apLabel, 'Turn the access point off');
 assert.match(both.apConfirm, /Turn the access point off\?/);
 

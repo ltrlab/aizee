@@ -44,7 +44,11 @@ export function networkView(network, {host = 'aizee-rover', busy = false} = {}) 
     tone = 'bad';
     lines.unshift(`The network service has not reported for ${network.age_s ?? '?'} s: is it running?`);
   }
-  const reach = [...wired, ...(network.mode === 'tether' || ap.on ? [network.local] : []), ...wifi];
+  // Where Helm opens: the wired address on a network, 10.42.0.1 from the tether or the access point (never the
+  // access point's own 10.42.1.1), and the Wi-Fi address when Minerva is a client on a network.
+  const reach = [...new Set([...(network.mode === 'lan' ? wired : []),
+    ...(network.mode === 'tether' || ap.on ? [network.local] : []),
+    ...(network.wifi?.mode === 'client' ? wifi : [])])];
   if (reach.length) lines.push(`Open Helm at ${reach.map(address => `https://${address}:8760`).join(' or ')}`
     + ` (or https://${host}.local:8760).`);
   const on = Boolean(ap.wanted);
