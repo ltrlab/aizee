@@ -90,7 +90,7 @@ def video_backlog(transport):
 
 def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None, live=False,
                gripper_zero=None, simulation_only=False, cameras=None, camera_video=None, episodes=None, ups=None,
-               access=None, bridge=None, mesh_store=None, operator_files=None, calibration=None):
+               access=None, bridge=None, mesh_store=None, operator_files=None, calibration=None, network=None):
     """`live`: keep the stopped reader running whenever Minerva is online and nothing else holds the motors
     (helm.live_view); sessions then take the motors from it instead of asking for Disconnect first.
     `episodes`: the recorded-episode library behind Replay (helm.episodes), told to read nothing while a
@@ -100,7 +100,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     control, stopping always allowed. `bridge` (helm.bridge.BridgeHub): the GELLO bridge's state for the page.
     `mesh_store`: the 3D view's meshes, converted on the build PC (viewer.server.ModelStore). `operator_files`:
     where Helm on Minerva saves the operator's files and what its start changed there (helm.operator_files).
-    `calibration` (helm.calibration.CameraCalibration): wrist camera stills during a live session, and their solve."""
+    `calibration` (helm.calibration.CameraCalibration): wrist camera stills during a live session, and their solve.
+    `network` (helm.network.NetworkView): Minerva's network for the header and Settings, and its access point switch."""
     from aiohttp import web
     from robot_platform.viewer.server import create_app as viewer_app
     from .live_view import LiveView
@@ -228,6 +229,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         state['action_token'] = token
         state['access'] = access.view(CURRENT_SESSION.get()) if access is not None else {'enabled': False}
         state['bridge'] = bridge.snapshot() if bridge is not None else None
+        state['network'] = network.snapshot() if network is not None else None
         state['xr'] = headset.status()
         state['operator_files'] = operator_files
         return web.json_response(state, headers={'Cache-Control': 'no-store'})
@@ -847,6 +849,20 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             raise web.HTTPNotFound()
         return state_response()
 
+    async def network_ap(request):
+        """Minerva's access point on or off (helm.network, robot_platform.ops.network). Not while something holds the
+        motors: the access point takes Minerva's Wi-Fi, which a session's leader link or viewer may be using."""
+        payload = await body(request)
+        if network is None:
+            raise ValueError("Minerva's network is switched from Helm on Minerva")
+        if set(payload) != {'on'} or type(payload['on']) is not bool:
+            raise ValueError('Expected on: true or false')
+        busy = owner()
+        if busy is not None:
+            raise ValueError(f"Stop {busy} first: switching the access point moves Minerva's Wi-Fi")
+        await off_loop(lambda: network.set_ap(payload['on']))
+        return state_response()
+
     async def xr_page(_request):
         return web.FileResponse(STATIC / 'xr.html', headers={'Cache-Control': 'no-store'})
 
@@ -1026,6 +1042,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     app.on_shutdown.append(shutdown)
     app.router.add_get('/api/helm/cameras/live', camera_live)
     app.router.add_get('/xr', xr_page)
+    app.router.add_post('/api/helm/network/ap', network_ap)
     app.router.add_get('/api/helm/xr', xr_socket)
     app.router.add_post('/api/helm/xr/zero', xr_zero)
     app.router.add_get('/api/helm/cameras', camera_get)

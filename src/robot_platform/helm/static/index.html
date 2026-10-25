@@ -34,6 +34,7 @@
       <span id="bridge-pill" class="pill" role="status" hidden></span>
       <span id="access-pill" class="pill" role="status" hidden></span>
       <button id="access-claim" type="button" hidden>Take control</button>
+      <span id="net-pill" class="pill" role="status" hidden></span>
       <span id="ups-pill" class="pill" role="status" data-tone="muted" title="Reading Minerva's UPS"><span class="battery" aria-hidden="true"><span class="battery-fill"></span></span><svg class="bolt" viewBox="0 0 8 12" aria-hidden="true"><path d="M5 0 0 7h3l-1 5 6-8H4z"/></svg><span id="ups-text">…</span></span>
       <span id="mode-pill" class="pill" role="status">Robot mode</span>
       <span id="feed-pill" class="pill" role="status"><span class="dot"></span><span id="feed-text">Not connected</span></span>
@@ -471,6 +472,16 @@
             <button id="camera-refresh">Read camera settings</button>
             <p id="camera-status" role="status" aria-live="polite" class="muted"></p>
             <div id="camera-cards"></div>
+          </section>
+          <section id="settings-network" class="settings-group" hidden>
+            <h2>Network</h2>
+            <p class="muted">How Minerva is connected. Its Ethernet port finds its own mode: plugged into a network it takes
+              the network's address; plugged into a PC's USB Ethernet adapter it is 10.42.0.1 and gives the PC an address.
+              The access point puts devices on Minerva's own Wi-Fi, where it is 10.42.0.1 as well.</p>
+            <p id="network-mode" class="network-mode" role="status"></p>
+            <ul id="network-lines" class="network-lines"></ul>
+            <button id="network-ap" type="button" disabled>Turn the access point on</button>
+            <p id="network-status" class="muted" role="status" aria-live="polite"></p>
           </section>
           <section id="settings-display" class="settings-group" hidden>
             <div class="touch-preference" id="look-preference">

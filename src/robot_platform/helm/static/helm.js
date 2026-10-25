@@ -5,6 +5,7 @@ import {LiveReplayCard, ReplayView, replayTelemetry} from './replay.js';
 import {HOLD_STILL, policyLabel, policyNote, policyOptions, policyStats} from './policy.js';
 import {GRIP_SETTINGS, gripLive, gripSettingText, gripSliderValue, gripView} from './grip.js';
 import {upsView} from './ups.js';
+import {bridgeView, networkView} from './network.js';
 import {headView} from './head.js';
 import {captureBlock, countsText, lastText, resultLines} from './calibration.js';
 
@@ -312,16 +313,14 @@ let claimArmed = 0;
 function renderAccess(state) {
   const onRobot = state.robot?.connection === 'robot';
   $('via').hidden = $('mode-pill').hidden = onRobot;
-  const bridge = state.bridge, bridgePill = $('bridge-pill');
-  bridgePill.hidden = !bridge;
-  if (bridge) {
-    bridgePill.textContent = bridge.connected ? 'GELLO' : 'No GELLO';
-    bridgePill.dataset.tone = bridge.connected ? 'good' : 'warn';
-    bridgePill.title = bridge.connected
-      ? `The GELLO bridge on ${bridge.host}${bridge.peer ? ` (${bridge.peer})` : ''} serves the leader arms over the tether`
-      : 'The GELLO bridge is not connected: start it on the PC the leader arms are plugged into. Replay, policies '
-        + 'and Check work without it.';
+  const bridge = bridgeView(state.bridge), bridgePill = $('bridge-pill');
+  bridgePill.hidden = bridge.hidden;
+  if (!bridge.hidden) {
+    bridgePill.textContent = bridge.text;
+    bridgePill.dataset.tone = bridge.tone;
+    bridgePill.title = bridge.title;
   }
+  renderNetwork(state.network);
   const access = state.access || {}, pill = $('access-pill'), claim = $('access-claim');
   pill.hidden = !access.enabled || !access.in_control;
   claim.hidden = !access.enabled || access.in_control;
@@ -352,6 +351,34 @@ $('access-claim').onclick = () => {
 };
 
 // Minerva's UPS (helm.ups): a battery pill in the header on every tab, and a banner on battery or shutting down.
+// Minerva's network (network.js): the header pill and Settings → Network with the access point switch.
+let networkShown = {hidden: true};
+function renderNetwork(network) {
+  const view = networkShown = networkView(network);
+  const pill = $('net-pill');
+  pill.hidden = view.hidden || !view.text;
+  if (!pill.hidden) {
+    pill.textContent = view.text;
+    pill.dataset.tone = view.tone;
+    pill.title = view.title;
+  }
+  $('network-mode').textContent = network ? (view.mode || '') : 'Helm runs on this PC: the network belongs to Minerva.';
+  $('network-lines').replaceChildren(...(view.lines || []).map(line => {
+    const item = document.createElement('li');
+    item.textContent = line;
+    return item;
+  }));
+  $('network-ap').hidden = !network || !network.installed;
+  $('network-ap').textContent = view.apLabel || 'Turn the access point on';
+  $('network-ap').disabled = !view.apEnabled;
+}
+$('network-ap').onclick = () => {
+  const view = networkShown;
+  if (!view.apConfirm || !window.confirm(view.apConfirm)) return;
+  say(view.apOn ? 'Switching the access point off…' : 'Switching the access point on…');
+  act('/api/helm/network/ap', {on: !view.apOn}, view.apOn ? 'Access point off.' : 'Access point on.');
+};
+
 function renderUps(ups) {
   const view = upsView(ups);
   const pill = $('ups-pill');

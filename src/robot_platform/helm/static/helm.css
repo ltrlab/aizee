@@ -503,9 +503,13 @@ body[data-touch=on] .grip-switch input{width:26px;height:26px}
 /* Helm on Minerva: where it runs, the GELLO bridge, and which device is in control (their own tones, not the feed's). */
 .pill[hidden],#via[hidden],#access-claim[hidden]{display:none}
 #access-claim{font-size:12px;padding:3px 10px;color:var(--warn);background:var(--warn-soft);white-space:nowrap;--pix:var(--pix-warn)}
-#bridge-pill,#access-pill{--pix:var(--pix-line)!important;color:var(--muted)!important;background:var(--card)!important}
-#bridge-pill[data-tone=good],#access-pill[data-tone=good]{--pix:var(--pix-good)!important;color:var(--good)!important;background:var(--good-soft)!important}
-#bridge-pill[data-tone=warn],#access-pill[data-tone=warn]{--pix:var(--pix-warn)!important;color:var(--warn)!important;background:var(--warn-soft)!important}
+#bridge-pill,#access-pill,#net-pill{--pix:var(--pix-line)!important;color:var(--muted)!important;background:var(--card)!important}
+#bridge-pill[data-tone=good],#access-pill[data-tone=good],#net-pill[data-tone=good]{--pix:var(--pix-good)!important;color:var(--good)!important;background:var(--good-soft)!important}
+#bridge-pill[data-tone=warn],#access-pill[data-tone=warn],#net-pill[data-tone=warn]{--pix:var(--pix-warn)!important;color:var(--warn)!important;background:var(--warn-soft)!important}
+#net-pill[data-tone=bad]{--pix:var(--pix-bad)!important;color:var(--bad)!important;background:var(--bad-soft)!important}
+/* Settings -> Network (network.js). */
+.network-mode{margin:10px 0 4px;font-size:18px}
+.network-lines{margin:0 0 12px;padding-left:18px;line-height:1.5;overflow-wrap:anywhere}
 
 /* The Teleop column scrolls as one: the pedals stay pinned above and the status line below, so nothing between them
    is squeezed (the task and calibration cards had 18 px at 1080p). While a session runs, the setup that only applies

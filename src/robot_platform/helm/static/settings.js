@@ -119,7 +119,7 @@ export class SettingsPanel {
     const host=$('settings-nav');host.replaceChildren();
     const sections=this.state?.sections||[],session=sections.filter(section=>section.fields?.some(field=>field.editable));
     const groups=[['Session',[{id:'changed',label:'Changed from profile'},{id:'motors',label:'Motor tuning'},{id:'grippers',label:'Grippers'},{id:'pedals',label:'Pedals'},...session]],
-      ['Read-only',sections.filter(section=>!session.includes(section))],['View',[{id:'cameras',label:'Cameras'},{id:'display',label:'Display & touch'}]]];
+      ['Read-only',sections.filter(section=>!session.includes(section))],['View',[{id:'network',label:'Network'},{id:'cameras',label:'Cameras'},{id:'display',label:'Display & touch'}]]];
     for (const [title,items] of groups) {
       if (!items.length) continue;
       const heading=document.createElement('div');heading.className='rail-group';heading.textContent=title;host.append(heading);
@@ -177,6 +177,7 @@ export class SettingsPanel {
     }
     $('settings-motors').hidden=!!this.search||this.category!=='motors';
     $('settings-display').hidden=!!this.search||this.category!=='display';
+    $('settings-network').hidden=!!this.search||this.category!=='network';
     $('settings-grippers').hidden=!!this.search||this.category!=='grippers';
     $('settings-cameras').hidden=!!this.search||this.category!=='cameras';
     $('settings-pedals').hidden=!!this.search||this.category!=='pedals';
@@ -198,7 +199,7 @@ export class SettingsPanel {
     $('settings-empty').textContent=changed
       ? 'Nothing differs from the profile: every session setting is at its profile value.'
       : 'No settings match. Try a motor name, “speed”, or “timeout”.';
-    $('settings-footer').hidden=!this.search&&['motors','display','grippers','cameras','pedals'].includes(this.category);
+    $('settings-footer').hidden=!this.search&&['motors','display','grippers','cameras','pedals','network'].includes(this.category);
     this.onCameraView?.();
   }
   feedback(message,bad=false) {const node=$('settings-status');node.textContent=message;node.classList.toggle('bad',bad);}

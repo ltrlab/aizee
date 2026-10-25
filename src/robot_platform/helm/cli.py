@@ -185,6 +185,11 @@ def main(argv=None):
         # Minerva's UPS: the battery pill and banner, and Helm's part in a low-battery shutdown (helm.ups).
         from .ups import UpsWatch, robot_ups
         ups = None if args.sim else UpsWatch(robot_ups(session.profile_path), lambda: session.address)
+        # Minerva's network service (ops.network): its state, and the access point switch.
+        network = None
+        if args.on_robot:
+            from .network import NetworkView
+            network = NetworkView()
         access = None
         if args.access is not None:
             from .access import Access
@@ -192,7 +197,8 @@ def main(argv=None):
         app = create_app(session, link, teleop=teleop, leaders=leaders, check=check, tune=tune,
                          live=not (args.sim or args.no_live), simulation_only=args.sim, cameras=cameras,
                          camera_video=camera_video, episodes=episodes, ups=ups, access=access, bridge=bridge,
-                         mesh_store=args.mesh_store, operator_files=operator, calibration=calibration)
+                         mesh_store=args.mesh_store, operator_files=operator, calibration=calibration,
+                         network=network)
         if session.stale_lock_pid:
             print(f'Took over a calibration lock left by exited process {session.stale_lock_pid}.', flush=True)
         mode = ('SIMULATION ONLY; no physical robot connection' if args.sim else

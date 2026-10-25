@@ -391,9 +391,13 @@ body[data-touch=on] .grip-switch input{width:24px;height:24px}
 /* Helm on Minerva: where it runs, the GELLO bridge, and which device is in control (their own tones, not the feed's). */
 .pill[hidden],#via[hidden],#access-claim[hidden]{display:none}
 #access-claim{font-size:12px;padding:6px 12px;border-radius:20px;color:var(--warn);border-color:#6d5a37;white-space:nowrap}
-#bridge-pill,#access-pill{color:var(--muted)!important;border-color:#3a3f46!important}
-#bridge-pill[data-tone=good],#access-pill[data-tone=good]{color:var(--good)!important;border-color:#3c6e55!important}
-#bridge-pill[data-tone=warn],#access-pill[data-tone=warn]{color:var(--warn)!important;border-color:#6d5a37!important}
+#bridge-pill,#access-pill,#net-pill{color:var(--muted)!important;border-color:#3a3f46!important}
+#bridge-pill[data-tone=good],#access-pill[data-tone=good],#net-pill[data-tone=good]{color:var(--good)!important;border-color:#3c6e55!important}
+#bridge-pill[data-tone=warn],#access-pill[data-tone=warn],#net-pill[data-tone=warn]{color:var(--warn)!important;border-color:#6d5a37!important}
+#net-pill[data-tone=bad]{color:var(--bad)!important;border-color:#7a3b3b!important}
+/* Settings -> Network (network.js). */
+.network-mode{margin:10px 0 4px;font-size:15px;font-weight:600}
+.network-lines{margin:0 0 12px;padding-left:18px;line-height:1.5;overflow-wrap:anywhere}
 #access-claim{font-size:12px;padding:5px 10px;white-space:nowrap}
 
 /* Classic look: Helm's original styles, kept beside the RetroUI ones (helm.css) and chosen in Settings → Display &
