@@ -2,15 +2,14 @@
 // line under it, and a status panel. Either can be grabbed with a controller's grip button and moved; let go, it
 // turns upright to face the viewer. Each controller shows its pointing ray (cyan over a screen, green holding one).
 // They start in front of where the session began: WebXR's 'local' space has the head at its origin, looking down -Z.
+// The screens' canvases are drawn by xr_panels.js, as Settings → Headset draws its flat copy.
 import * as THREE from 'three';
+import {SIZES, drawPanel, drawPlaceholder, drawStrip} from './xr_panels.js';
 
 const SCREEN_W = 1.12, SCREEN_H = 0.84, STRIP_H = 0.075, PANEL_W = 0.56, PANEL_H = 0.42;
 const RAY = {idle: 0x9aa3b2, aim: 0x4fd3ff, hold: 0x3fbf7f};
-const TONE = {ok: '#3fbf7f', warn: '#e0a83a', bad: '#e05a5a', '': '#e9ecf1', muted: '#9aa3b2'};
-const BACKGROUND = 'rgba(16, 19, 24, 0.92)';
-const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 
-function drawable(width, height) {
+function drawable([width, height]) {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -34,7 +33,7 @@ export class HeadsetScene {
     this.head = new THREE.Vector3();
 
     // The camera screen: the picture (a placeholder until the first frame), and the status line under it.
-    this.placeholder = drawable(1024, 768);
+    this.placeholder = drawable(SIZES.picture);
     this.video = new THREE.Texture();
     this.video.colorSpace = THREE.SRGBColorSpace;
     this.video.flipY = false;  // ImageBitmaps upload top row first: the screen's UVs are flipped instead.
@@ -45,14 +44,14 @@ export class HeadsetScene {
     this.placeholder.texture.flipY = false;
     this.screen = new THREE.Group();
     this.screen.add(new THREE.Mesh(picture, this.screenMaterial));
-    this.strip = drawable(1536, 104);
+    this.strip = drawable(SIZES.strip);
     const strip = panelMesh(SCREEN_W, STRIP_H, this.strip.texture);
     strip.position.y = -(SCREEN_H + STRIP_H) / 2 - .01;
     this.screen.add(strip);
     this.writePlaceholder('Waiting for the head camera…');
 
     this.panel = new THREE.Group();
-    this.panelCanvas = drawable(1024, 768);
+    this.panelCanvas = drawable(SIZES.panel);
     this.panel.add(panelMesh(PANEL_W, PANEL_H, this.panelCanvas.texture));
 
     this.panels = [this.screen, this.panel];
@@ -144,54 +143,17 @@ export class HeadsetScene {
   }
 
   writePlaceholder(text) {
-    const {canvas, context, texture} = this.placeholder;
-    context.fillStyle = '#0f1218';
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = TONE.muted;
-    context.font = `48px ${FONT}`;
-    context.textAlign = 'center';
-    context.fillText(text, canvas.width / 2, canvas.height / 2);
-    context.textAlign = 'left';
-    texture.needsUpdate = true;
+    drawPlaceholder(this.placeholder.context, text);
+    this.placeholder.texture.needsUpdate = true;
   }
 
   // The status line ([[text, tone], [text, tone]]: left, right), the panel's rows ([label, value, tone]) and hints;
   // `fresh`: whether the picture is current.
   setText(strip, rows, hints, fresh) {
     this.screenMaterial.color.setHex(fresh || this.screenMaterial.map !== this.video ? 0xffffff : 0x5a5a5a);
-    let {canvas, context, texture} = this.strip;
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = BACKGROUND;
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.font = `500 42px ${FONT}`;
-    const [[left, leftTone], [right, rightTone]] = strip;
-    context.fillStyle = TONE[leftTone] || TONE[''];
-    context.fillText(left, 28, 68, canvas.width * .44);
-    context.textAlign = 'right';
-    context.fillStyle = TONE[rightTone] || TONE[''];
-    context.fillText(right, canvas.width - 28, 68, canvas.width * .5);
-    context.textAlign = 'left';
-    texture.needsUpdate = true;
-
-    ({canvas, context, texture} = this.panelCanvas);
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = BACKGROUND;
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = TONE[''];
-    context.font = `700 54px ${FONT}`;
-    context.fillText('Minerva head tracking', 48, 92);
-    rows.forEach(([label, value, tone], index) => {
-      const y = 190 + index * 84;
-      context.font = `42px ${FONT}`;
-      context.fillStyle = TONE.muted;
-      context.fillText(label, 48, y);
-      context.fillStyle = TONE[tone] || TONE[''];
-      context.font = `600 42px ${FONT}`;
-      context.fillText(value, 360, y, canvas.width - 400);
-    });
-    context.font = `32px ${FONT}`;
-    context.fillStyle = TONE.muted;
-    hints.forEach((hint, index) => context.fillText(hint, 48, 640 + index * 42, canvas.width - 96));
-    texture.needsUpdate = true;
+    drawStrip(this.strip.context, strip);
+    this.strip.texture.needsUpdate = true;
+    drawPanel(this.panelCanvas.context, rows, hints);
+    this.panelCanvas.texture.needsUpdate = true;
   }
 }
