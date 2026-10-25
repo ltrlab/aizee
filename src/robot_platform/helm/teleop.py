@@ -359,6 +359,12 @@ class TeleopCore:
         self.pedals = Pedals()
         self._pedal_task = None
         self._pedal_closing = False
+        # The head (helm.head_teleop): its own receiver beside the arms', on the same keys, steered by the
+        # operator's headset (helm.xr) or still at its zero. A fault in either holds both.
+        self.head, self._head_hold = None, False
+        if bundle.get('head') is not None:
+            from .head_teleop import HeadTeleop
+            self.head = HeadTeleop(bundle['head'], live=bool(self.live_arm), clock=self.clock)
 
     # -- resources -------------------------------------------------------
 
@@ -648,6 +654,14 @@ class TeleopCore:
         else:
             # In the lifecycle's order, which it checks every target against (`names` is a set with Motor tuning).
             self.source, self.route_leaders = self._open_source(lifecycle.names), set()
+        if self.head is not None:
+            self._closers.append(self.head.close)  # Closed with the arms' resources, even if its build fails.
+            try:
+                self.head.build()
+            except Exception as exc:
+                # The arms run on without the head; its card shows why it did not start.
+                self.head.fault = f'The head did not start: {exc}'
+                self._event('head_fault', reason=self.head.fault)
         # Full garbage-collector passes over the CAD/collision object graphs took
         # 30+ ms, longer than a cycle's budget. Freeze everything long-lived so
         # later passes only walk new objects; reference counting still frees.
@@ -1108,6 +1122,7 @@ class TeleopCore:
         from robot_platform.teleop.guarded_lifecycle import minerva_action
         self._input_timing = {}
         if self.fault:
+            self._head_cycle('disable' if key == 'H' else 'disengage', started)
             # The receiver stopped itself and revoked the lease. It holds the arm: take it back there and
             # lower it, keeping the original reason on screen; a new session is needed to follow again.
             if key == 'H':
@@ -1139,6 +1154,12 @@ class TeleopCore:
             if engaged and action not in ('disable', 'shutdown'):
                 action = 'disengage'  # A new zero never overrides H/X or a session stop.
                 notice = 'Leader zero set. Holding: engage (T) to follow from it.'
+        if getattr(self, '_head_hold', False):
+            self._head_hold = False
+            if engaged and action not in ('disable', 'shutdown'):
+                action = 'disengage'
+                notice = (f'{self.head.fault} · The arms hold: Engage (T) follows again without the head; stop '
+                          'the session to start the head again.')
         capture_hold = False
         if self.recording_fault and action not in ('disable', 'shutdown'):
             # Never poll/reuse leader targets or allow a queued enable/engage
@@ -1233,6 +1254,7 @@ class TeleopCore:
             detail = fault_detail(self.harness.last, self.derived['config'], self.labels) if self.harness else ''
             self.fault = (f"Receiver {status.get('state')}: {reason}" + (f' ({detail})' if detail else '')
                           + f' · {exc}') if reason not in (None, 'ok') else str(exc)
+            self._head_cycle('disengage', started)  # The head holds while the arms are taken back.
             if self._held():
                 self._lowering, self._lowerings = True, 0
                 self.message = (f'{self._receiver_name} FAULT · {self.fault} · The receiver braked {self._the_arm} '
@@ -1243,6 +1265,7 @@ class TeleopCore:
                                 + '. Stop the session and start it again.')
             return
         self._record(record)
+        self._head_cycle(action if record.get('accepted') else None, started)
         self.sequence += 1
         current = lifecycle.state
         self._powered = self._powered or current != 'DISABLED'
@@ -1266,6 +1289,28 @@ class TeleopCore:
                                  'session; a new one checks the reference pose again.')
         if self.recording_fault and not self.fault:
             self.message = self._recording_notice()
+
+    def _head_cycle(self, action, started):
+        """The head's cycle with the arms' action (helm.head_teleop); a fault in it holds the arms next cycle."""
+        head = getattr(self, 'head', None)  # Tests build cores without __init__: no head.
+        if head is None or head.fault or head.session is None:
+            return
+        try:
+            self.head.cycle(action, started)
+        except Exception:
+            self._head_hold = True
+            self._event('head_fault', reason=self.head.fault)
+
+    def head_pose(self, yaw, pitch):
+        """The headset's latest yaw and pitch (helm.xr), as the loop received it."""
+        if getattr(self, 'head', None) is not None:
+            self.head.pose(yaw, pitch)
+
+    def _head_status(self):
+        head = getattr(self, 'head', None)
+        if head is None:
+            return None
+        return head.status() if head.session is not None else {'state': None, 'fault': head.fault}
 
     def _held(self):
         """Whether the receiver brakes or holds the arm itself (after a trip, or the stop a failed cycle asked
@@ -1346,7 +1391,9 @@ class TeleopCore:
             return False
         if self.fault:
             return self._lowering
-        return self._land or self.session.lifecycle.state == 'SHUTDOWN'
+        head = getattr(self, 'head', None)
+        head = head is not None and not head.fault and head.state == 'SHUTDOWN'
+        return self._land or self.session.lifecycle.state == 'SHUTDOWN' or head
 
     @property
     def _receiver_name(self):
@@ -1456,6 +1503,7 @@ class TeleopCore:
                   'grip_feedback': self._grip_status(),
                   'replay': self._replay_view(),
                   'policy': self._policy_view(),
+                  'head': self._head_status(),
                   'scheduling': self.scheduling, 'cycle_ms': None, 'joints': []}
         self._pedal_task = result['task']
         result['pedals'] = self.pedals.view(self._pedal_context(), self.clock())
@@ -1719,6 +1767,8 @@ def run_loop(commands, views, core, *, silence_s=None):
                         reply(request, None, core.task_action(action))
                     except Exception as exc:
                         reply(request, str(exc) or type(exc).__name__)
+                elif message[0] == 'head_pose':
+                    core.head_pose(message[1], message[2])  # Latest only; no reply, no view change.
                 elif message[0] == 'grip_feedback':
                     view_changed = True
                     _, request, payload = message
@@ -1908,7 +1958,28 @@ class TeleopSession:
                    if self.simulation is not None and self.receiver['mode'] == 'virtual' else {}),
                 **({'manual_tuning': self.manual.bundle()} if self.manual else {}),
                 **({'operator_settings': self.settings.bundle()} if self.settings and self.settings.enabled else {}),
-                'grip_feedback': dict(self.grip_settings)}
+                'grip_feedback': dict(self.grip_settings), 'head': self._head_bundle()}
+
+    def _head_bundle(self):
+        """The head's files for this session (helm.head_teleop), or None: a virtual session always has a head (its
+        nominal reference and limits until it is set up); a live one only once it is set up and its bus pinned."""
+        from robot_platform.control.servo_calibration import load_servo, servo_path
+        from robot_platform.neck import head
+        from robot_platform.ops.release import ROOT
+        try:
+            profile = head.load_profile(ROOT / head.PROFILE)
+            directory = servo_path(self.helm.profile_path, self.helm.asset_id,
+                                   getattr(self.helm, 'operator_files', None)).parent
+            paths = head.files(directory, self.helm.asset_id)
+            reference, limits = head.load_document(paths['reference']), head.load_document(paths['limits'])
+            if self.receiver['mode'] == 'live' and (reference is None or limits is None
+                                                    or not profile['bus'].get('usb_serial')):
+                return None
+            reference = reference or head.virtual_reference(profile)
+            return {'teleop_profile': str(ROOT / head.PROFILE), 'head_reference': reference,
+                    'limits': limits or head.virtual_limits(reference), 'servo': load_servo(paths['servo'])}
+        except (OSError, ValueError, KeyError):
+            return None
 
     def _load_grip_settings(self):
         from robot_platform.teleop.grip_feedback import SETTINGS, validate_settings
@@ -2022,6 +2093,9 @@ class TeleopSession:
             bundle[key] = path.relative_to(ROOT).as_posix()
         bundle.update(routes_path=None, leader_factory=None,
                       route_edits=load_route_edits(self.routes_path, self.profile, self.helm.asset_id))
+        if bundle.get('head') is not None:
+            bundle['head'] = dict(bundle['head'], teleop_profile=Path(bundle['head']['teleop_profile']).resolve()
+                                  .relative_to(ROOT).as_posix())
         if self.receiver['mode'] == 'live' or self.manual:
             # Motor models live in the hardware profiles, which stay on this PC.
             from robot_platform.control.commissioning import motor_models
@@ -2175,6 +2249,19 @@ class TeleopSession:
                 conn.send(message)
         except (OSError, ValueError) as exc:
             raise ValueError(f'Teleop session is not reachable: {exc}') from exc
+
+    def head_pose(self, yaw, pitch):
+        """The headset's latest yaw and pitch (helm.xr) to the running loop; nothing while no session runs."""
+        with self._lock:
+            conn = self._conn
+        if conn is None or not self.active or self._view.get('phase') != 'running':
+            return False
+        try:
+            with self._send_lock:
+                conn.send(('head_pose', float(yaw), float(pitch)))
+        except (OSError, ValueError):
+            return False
+        return True
 
     def key(self, key):
         if key not in KEYS:

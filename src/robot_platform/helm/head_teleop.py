@@ -8,6 +8,7 @@ direct law: speed caps, alignment, braking near the ends) and the head receiver'
 """
 from copy import deepcopy
 import math
+from pathlib import Path
 import time
 
 PERIOD_S = .04  # The head's commands at 25 Hz (its profile's loop_hz); its receiver ramps each over 40 ms.
@@ -36,10 +37,12 @@ class HeadTeleop:
     # -- resources -------------------------------------------------------------------------
 
     def _open_receiver(self, config, reference):
+        from pathlib import Path
         from robot_platform.neck.head import HeadReceiver, service_config
         from robot_platform.ops.release import ROOT
         service = service_config(self.profile, reference, self.derived, mode='teleop_direct')
-        return HeadReceiver(service, binary=ROOT / 'bin' / 'head_controller', directory=self.bundle['evidence'],
+        evidence = Path.home() / 'minerva' / 'evidence' / time.strftime('live-head-%Y%m%dT%H%M%SZ', time.gmtime())
+        return HeadReceiver(service, binary=ROOT / 'bin' / 'head_controller', directory=evidence,
                             labels=self.labels).start()
 
     def _open_harness(self, config, initial):
@@ -55,7 +58,8 @@ class HeadTeleop:
         from robot_platform.ops.release import ROOT
         from robot_platform.teleop.direct_lifecycle import DirectLifecycleSession
         from robot_platform.teleop.lifecycle import TeleopLifecycle
-        self.profile = head.load_profile(self.bundle['teleop_profile'])
+        path = Path(self.bundle['teleop_profile'])
+        self.profile = head.load_profile(path if path.is_absolute() else ROOT / path)  # Release-relative on the robot.
         reference = self.bundle['head_reference']
         self.labels = {motor['name']: motor['label'] for motor in self.profile['motors']}
         self.model = UrdfModel(ModelProfile.load(ROOT / self.profile['model_profile']))
@@ -135,12 +139,12 @@ class HeadTeleop:
         which holds the arms)."""
         if self.fault or self.session is None:
             return None
-        if action is None and self._last_cycle is not None and started - self._last_cycle < PERIOD_S:
-            return None
         allowed = {'enable': ('IDLE',), 'engage': ('IDLE', 'HOLD'), 'disengage': ('ENGAGING', 'TELEOP'),
                    'shutdown': ('IDLE', 'HOLD', 'ENGAGING', 'TELEOP')}
         if action in allowed and self.state not in allowed[action]:
             action = None  # The head follows the arms' lifecycle; a transition it is not in is skipped.
+        if action is None and self._last_cycle is not None and started - self._last_cycle < PERIOD_S:
+            return None
         self._last_cycle = started
         try:
             return self.session.cycle(action=action, target=self._target(started), started_at=started)
