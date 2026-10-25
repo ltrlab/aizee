@@ -123,6 +123,13 @@ def test_settings_shows_what_the_headset_shows_and_streams_only_while_on_screen(
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
 
 
+def test_the_retro_look_outlines_the_model_and_redraws_it_only_when_it_changes():
+    node = shutil.which('node')
+    assert node, 'Node.js is required to check the 3D view outline'
+    result = subprocess.run([node, str(ROOT / 'tests/ui/test_viewer_outline.mjs')], capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
+
+
 def test_the_network_pill_and_settings_say_how_minerva_is_connected():
     node = shutil.which('node')
     assert node, 'Node.js is required to check the network view'

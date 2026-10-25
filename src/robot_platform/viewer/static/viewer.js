@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import {OrbitControls} from './vendor/OrbitControls.js';
 import {PoseCollisionChecker} from './collision-checks.js';
 import {JointOverlay} from './joint-overlay.js';
-import {sceneTheme} from './joint-telemetry.js';
+import {sceneOutline, sceneTheme} from './joint-telemetry.js';
+import {Outline, OUTLINE_LAYER} from './outline.js';
 
 const api = new URL('../api/models', import.meta.url).pathname;
 const $ = id => document.getElementById(id);
@@ -33,11 +34,13 @@ let center=new THREE.Vector3(), radius=1;
 const resize=()=>{const w=viewport.clientWidth,h=viewport.clientHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();};
 new ResizeObserver(resize).observe(viewport);resize();
 const jointOverlay=new JointOverlay({viewport,camera,renderer,scene});
+const outline=new Outline(renderer);
 // The floor grid in the scene theme's colours, placed again when Helm switches day / night (read each frame).
 let gridAt=null,gridTheme=null;
 function placeGrid(){if(grid){scene.remove(grid);grid.geometry.dispose();grid.material.dispose();}const theme=sceneTheme();gridTheme=theme.name;
   grid=new THREE.GridHelper(gridAt.size,20,...theme.grid);grid.material.toneMapped=false;grid.rotation.x=Math.PI/2;grid.position.copy(gridAt.position);scene.add(grid);}
-function animate(){requestAnimationFrame(animate);if(gridAt&&sceneTheme().name!==gridTheme)placeGrid();orbit.update();renderer.render(scene,camera);jointOverlay.update();}animate();
+function animate(){requestAnimationFrame(animate);if(gridAt&&sceneTheme().name!==gridTheme)placeGrid();orbit.update();renderer.render(scene,camera);
+  const outlined=sceneOutline();if(outlined&&robot)outline.render(scene,camera,outlined);jointOverlay.update();}animate();
 function message(text,error=false){$('notice').textContent=text;$('render-error').hidden=!error;$('render-error').textContent=error?text:'';}
 async function json(url,options){const response=await fetch(url,options);const data=await response.json();if(!response.ok)throw new Error(data.error||`HTTP ${response.status}`);return data;}
 const collisionChecks=new PoseCollisionChecker({
@@ -155,7 +158,7 @@ function allPositions(positions,measured=false){
   return result;
 }
 function applyPose(positions,measured=false){
-  const values=allPositions(positions,measured);q={...positions};previewLinks.clear();
+  const values=allPositions(positions,measured);q={...positions};previewLinks.clear();outline.invalidate();
   for(const joint of model.joints){const object=motions.get(joint.name);if(joint.type==='prismatic')object.position.fromArray(joint.axis).multiplyScalar(values[joint.name]);else if(joint.type!=='fixed')object.quaternion.setFromAxisAngle(new THREE.Vector3(...joint.axis),values[joint.name]);}
   collisionChecks.setPose(collisionReady&&($('collision-mode').value!=='keepout'||keepoutLoaded)?collisionPose():null);
   for(const name of model.independent){const row=groups.get(name);if(row){row.range.value=q[name];row.number.value=q[name].toFixed(row.digits);}}
@@ -241,7 +244,7 @@ async function loadModel(id){
       else {geom=new THREE.CylinderGeometry(desc.radius,desc.radius,desc.length,28);geom.rotateX(Math.PI/2);}
       if(token!==generation)return;
       const collision=desc.role!=='visual';const material=new THREE.MeshStandardMaterial({color:collision?0xf5ba66:new THREE.Color().setRGB(...desc.color.slice(0,3),THREE.SRGBColorSpace),flatShading:true,roughness:collision?.8:.6,metalness:0,toneMapped:!collision,transparent:collision||desc.color[3]<1,opacity:collision?.2:desc.color[3],depthWrite:!collision,side:THREE.DoubleSide});
-      const object=new THREE.Mesh(geom,material);transform(object,desc.origin);if(desc.scale)object.scale.fromArray(desc.scale);object.userData={link:desc.link,role:desc.role,collisionId:desc.collision_id};object.visible=!collision||$('collision-geometry').checked;links.get(desc.link).add(object);meshes.push(object);
+      const object=new THREE.Mesh(geom,material);transform(object,desc.origin);if(desc.scale)object.scale.fromArray(desc.scale);object.userData={link:desc.link,role:desc.role,collisionId:desc.collision_id};if(!collision){object.layers.enable(OUTLINE_LAYER);outline.invalidate();}object.visible=!collision||$('collision-geometry').checked;links.get(desc.link).add(object);meshes.push(object);
     }catch(e){failures.push(`${desc.link}: ${e.message}`);}finally{done++;if(token===generation)$('loading').textContent=`Loading geometry ${done}/${data.geometry.length}`;}}}
     await Promise.all(Array.from({length:4},worker));if(token!==generation)return;
     if($('collision-mode').value==='keepout')await ensureKeepout();if(token!==generation)return;

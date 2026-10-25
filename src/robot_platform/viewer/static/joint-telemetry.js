@@ -179,6 +179,13 @@ export const SCENE_THEMES={
     gauge:{track:0x9aa4b0,reference:0x15181d,value:0x1f5fbf,needle:0x15181d,stale:0xa59b90,torque:0x7a4fd0},
     label:{fill:'rgba(255,255,255,.94)',edge:'rgba(21,24,29,.4)',selected:'#1f5fbf',text:'#15181d',unverified:'#566070',stale:'#8a7a68'}},
   classic:{...DARK,name:'classic',type:{family:'system-ui, sans-serif',px:12,weight:600,baseline:.35}}};
+// Helm's RetroUI look outlines the model in black (outline.js), by day and night; its original look and the
+// standalone viewer draw it without. `width`: CSS pixels each side of an edge; `depth`: the share of the distance a
+// depth jump must reach; `normal`: 1 - cos of the turn a crease must reach.
+export const OUTLINE=Object.freeze({color:0x000000,width:1,depth:.02,normal:.5,opacity:1});
+export function sceneOutline(doc=globalThis.document) {
+  return doc?.documentElement?.dataset?.look === 'retro' ? OUTLINE : null;
+}
 export function sceneTheme(doc=globalThis.document) {
   const data=doc?.documentElement?.dataset;
   return SCENE_THEMES[data?.look === 'classic' ? 'classic' : data?.theme === 'light' ? 'light' : 'dark'];
