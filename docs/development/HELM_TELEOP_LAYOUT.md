@@ -82,4 +82,11 @@ first Hold and shuts down from a later Hold or Teleop, so one press would both c
 - **2026-10-25 ~01:47Z, with the user's OK ("deploy when the gate passes"):** Minerva runs `20261025T014629Z-bfc2ae1`
   (`claude/helm-on-jetson` fast-forwarded to this branch: `ee48eb9` the P key, `cd82dad` the screens, `bfc2ae1` this
   record). Helm restarted and listens; no errors since its start; soliloquy's bridge is unchanged.
+- **2026-10-25 ~02:37Z, the follow-up, with the user's OK ("no session running, deploy when the gate passes"):**
+  Minerva runs `20261025T023633Z-282d261` (`fbebb72` bigger cameras, `6525e6c` head first, `b43f47d` their record,
+  `282d261` a test fix). The first gate on them failed one test the change does not touch:
+  `test_helm_policy_mode.py::test_a_policy_session_carries_the_policy_and_on_the_robot_the_cameras_not_a_capture`
+  raised KeyError: 'policy', a race in the test (its stand-in loop's first view can replace the starting one before it
+  reads it; 1 failure in 20 runs under CPU load). `282d261` reads it with `get` (0 in 30), and the gate then passed
+  1322 tests. Helm restarted, listens, and its log is clean; soliloquy's bridge is unchanged.
 - Not yet seen on the operator's screen, nor Replay with a real recorded episode.
