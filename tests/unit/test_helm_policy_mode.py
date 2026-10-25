@@ -93,7 +93,8 @@ def test_a_policy_session_carries_the_policy_and_on_the_robot_the_cameras_not_a_
     session.start(policy={'policy': 'hold_still'})
     try:
         starting = session.snapshot()
-        assert starting['policy'] in ({'spec': 'hold_still', 'policy': None, 'loading': True}, None) or starting['phase'] == 'running'
+        # The stand-in loop's first view has no policy entry and may already have replaced the starting one.
+        assert starting.get('policy') in ({'spec': 'hold_still', 'policy': None, 'loading': True}, None) or starting['phase'] == 'running'
         wait_until(lambda: session.snapshot()['phase'] == 'running')
         bundle = Core.made[-1].bundle
         assert bundle['source'] == {'kind': 'policy', 'policy': 'hold_still'}
