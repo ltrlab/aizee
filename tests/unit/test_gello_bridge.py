@@ -205,8 +205,25 @@ def test_the_bridge_tries_minervas_addresses_in_order_and_remembers_where_it_was
             raise RuntimeError('SSH host fingerprint mismatch')  # Something answers there, but not Minerva.
         return None, None, lambda: None
     reachable = {'aizee-rover.local', '192.168.8.180', '192.168.8.43'}  # Not the tether: no adapter.
-    gello_bridge.run(profile=profile, key='k', connect=connect, stop=stop, probe=lambda address: address in reachable)
+    gello_bridge.run(profile=profile, key='k', connect=connect, stop=stop, probe=lambda address: address in reachable,
+                     resolve=lambda name: name)
     # The tether does not answer; the name answers but is not Minerva; the profile's address is. The next time,
     # the wired address Helm reported comes before the name.
     assert attempts == ['aizee-rover.local', '192.168.8.180', '192.168.8.43']
     assert sessions == ['192.168.8.180', '192.168.8.43']
+
+
+def test_names_resolve_to_ipv4_only(monkeypatch):
+    """Windows answers aizee-rover.local with an IPv6 link-local address first; the bridge key allows IPv4 networks."""
+    import socket
+    families = []
+
+    def getaddrinfo(host, port, family=0, kind=0):
+        families.append(family)
+        if host == 'nowhere.local':
+            raise socket.gaierror('not found')
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('192.168.8.43', port))]
+    monkeypatch.setattr(gello_bridge.socket, 'getaddrinfo', getaddrinfo)
+    assert gello_bridge.ipv4('aizee-rover.local') == '192.168.8.43'
+    assert gello_bridge.ipv4('nowhere.local') is None
+    assert set(families) == {socket.AF_INET}

@@ -265,8 +265,17 @@ def reachable(address, port=22, timeout=1.5):
         return False
 
 
+def ipv4(address):
+    """`address` as an IPv4 address: a name resolves to IPv4 only, or None. Windows answers aizee-rover.local with
+    Minerva's IPv6 link-local address first, which the bridge key's from= (IPv4 networks) refuses (2026-10-25)."""
+    try:
+        return socket.getaddrinfo(address, 22, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
+    except (OSError, IndexError):
+        return None
+
+
 def run(*, profile, robot='auto', key, synthetic=False, connect=None, stop=None, session_options=None,
-        probe=reachable):
+        probe=reachable, resolve=ipv4):
     """Connect to the first of Minerva's addresses (candidates) that answers and proves to be Minerva, serve, and
     connect again after a pause, until `stop` is set."""
     from robot_platform.ops.ssh import robot_identity
@@ -277,15 +286,16 @@ def run(*, profile, robot='auto', key, synthetic=False, connect=None, stop=None,
     while not stop.is_set():
         started = time.monotonic()
         tried = candidates(profile, robot, remembered)
-        for address in tried:
-            if stop.is_set() or not probe(address):
+        for name in tried:
+            address = resolve(name)
+            if stop.is_set() or address is None or not probe(address):
                 continue
             try:
                 reader, writer, close = connect(address)
             except Exception as exc:  # noqa: BLE001 - not Minerva, or Helm not running there: the next one.
-                log(f'cannot reach Helm on {address}: {exc or type(exc).__name__}')
+                log(f'cannot reach Helm on {name}: {exc or type(exc).__name__}')
                 continue
-            log(f'reached Minerva at {address}')
+            log(f'reached Minerva at {name}' + (f' ({address})' if address != name else ''))
             session = BridgeSession(reader, writer, machine_id=machine_id, synthetic=synthetic, hangup=close,
                                     **(session_options or {}))
             try:
