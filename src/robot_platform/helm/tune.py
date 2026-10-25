@@ -53,11 +53,18 @@ class TuneCore:
                  evidence_root=None):
         self.bundle, self.clock = deepcopy(bundle), clock
         self.evidence_root = Path(evidence_root) if evidence_root else Path.home() / 'minerva' / 'evidence'
-        self.profile = load_profile(bundle['teleop_profile'])
-        if self.profile['receiver'].get('collision_mode') == 'disabled':
-            raise ValueError('Servo tuning requires its collision-enabled calibration profile; direct teleop is a separate mode')
-        self.period_s = loop_period_s(self.profile)  # As teleop's: Minerva Check verifies at teleop's rate.
         receiver = bundle.get('receiver') or {'mode': 'virtual'}
+        # The head runs on its own receiver with collision checks off (the arms keep out of everywhere it can reach):
+        # its profile reads as a teleop profile, and its commands go as direct updates (neck.head).
+        self.head = (receiver.get('arm') or bundle.get('arm')) == 'head'
+        if self.head:
+            from robot_platform.neck.head import load_profile as load_head_profile
+            self.profile = load_head_profile(bundle['teleop_profile'])
+        else:
+            self.profile = load_profile(bundle['teleop_profile'])
+            if self.profile['receiver'].get('collision_mode') == 'disabled':
+                raise ValueError('Servo tuning requires its collision-enabled calibration profile; direct teleop is a separate mode')
+        self.period_s = loop_period_s(self.profile)  # As teleop's: Minerva Check verifies at teleop's rate.
         # 'verify': Minerva Check's live joint sweep. 'return': the arm from a pose the operator confirmed
         # (bundle['start_pose'], {motor: raw rad}) back to its reference, then disabled.
         self.mode = bundle.get('mode') or 'tune'
@@ -67,15 +74,18 @@ class TuneCore:
             raise ValueError('A return starts from the pose the operator confirmed')
         self.live_arm = receiver.get('arm') if receiver.get('mode') == 'live' else None
         self.arm = receiver.get('arm') or bundle.get('arm')
-        if self.arm not in ('left', 'right'):
-            raise ValueError('A servo sweep runs on the left or right arm')
+        if self.arm not in ('left', 'right', 'head'):
+            raise ValueError('A servo sweep runs on the left or right arm, or the head')
+        if self.head and self.mode == 'return':
+            raise ValueError('The head has no return yet: its sweep ends at its reference')
         if receiver.get('mode') == 'live' and 'live' not in self.profile:
             raise ValueError("A live servo sweep needs the teleop profile's live block")
         self.open_backend = open_backend or self._open_backend
         self.open_harness = open_harness or self._open_harness
-        self.open_receiver = open_receiver or self._open_receiver
+        self.open_receiver = open_receiver or (self._open_head_receiver if self.head else self._open_receiver)
         self.phase, self.stage = 'starting', 'starting'
-        self.message = ('Checking the arm, then starting the live receiver…' if self.live_arm
+        self.message = ("Starting the head's receiver…" if self.head else
+                        'Checking the arm, then starting the live receiver…' if self.live_arm
                         else 'Loading the collision model and virtual receiver…')
         self.fault = None
         self.stopped_by = None  # Why the receiver stopped the arm, when it did.
@@ -124,9 +134,19 @@ class TuneCore:
         return LiveReceiver(service, device=device, reference=reference, binary=ROOT / 'bin' / 'guarded_controller',
                             directory=self.evidence, labels=self.labels, confirmed_pose=returning).start()
 
+    def _open_head_receiver(self, config, device, reference):
+        """bin/head_controller for head teleop: its own configuration from the derived one (neck.head)."""
+        from robot_platform.neck.head import HeadReceiver, service_config
+        from robot_platform.ops.release import ROOT
+        service = service_config(self.profile, reference, self.derived, mode='teleop_direct')
+        return HeadReceiver(service, binary=ROOT / 'bin' / 'head_controller', directory=self.evidence,
+                            labels=self.labels).start()
+
     # -- build -------------------------------------------------------------------------------
 
     def build(self):
+        if self.head:
+            return self._build_head()
         from robot_platform.control.guarded import GuardedControllerClient
         from robot_platform.control.joint_calibration import load_plan, validate_preview_transmissions
         from robot_platform.control.servo_sweep import PathChecker, SweepEngine, sweep_profile, sweep_settings
@@ -247,6 +267,80 @@ class TuneCore:
                                   # A saved sweep's inertia, fed forward as teleop does (this sweep refits it).
                                   inertia={row['name']: row['inertia'] for row in base['lifecycle']
                                            if row.get('inertia')})
+        self._start(names)
+
+    def _build_head(self):
+        """The head's sweep: its profile, reference, limits and servo calibration through the arms' derivation
+        (neck.head), collision checks off, on its own receiver (bin/head_controller, or the virtual one)."""
+        from robot_platform.control.approach import OVERSPEED_HEADROOM, limit_reaction_s
+        from robot_platform.control.guarded import GuardedControllerClient
+        from robot_platform.control.servo_sweep import SweepEngine, sweep_profile, sweep_settings
+        from robot_platform.models import ModelProfile, UrdfModel
+        from robot_platform.neck import head
+        from robot_platform.ops.release import ROOT
+        reference, limits = self.bundle['head_reference'], self.bundle['limits']
+        self.model = model = UrdfModel(ModelProfile.load(ROOT / self.profile['model_profile']))
+        self.labels = {motor['name']: motor['label'] for motor in self.profile['motors']}
+        motors = [motor['name'] for motor in self.profile['motors']]
+        sweep = [motor for motor in (self.bundle.get('joints') or motors) if motor in motors]
+        if not sweep:
+            raise ValueError('Choose at least one head joint to sweep')
+        servo = self.bundle.get('servo')
+        base = head.derive(self.profile, reference, limits, model, servo=servo)
+        gains = {joint['name']: (joint['hold_kp'], joint['hold_kd']) for joint in base['config']['joints']}
+        derived = base if self.mode == 'verify' else head.derive(
+            sweep_profile(self.profile, motors, gains, sweep=sweep), reference, limits, model)
+        today = {joint['name']: joint for joint in base['config']['joints']}
+        self.travel = {row['motor']: dict(row, today={
+            'max_tracking_error': today[row['motor']]['max_tracking_error'],
+            'stop_acceleration': today[row['motor']]['stop_acceleration'],
+            'max_velocity': today[row['motor']]['max_velocity'] / OVERSPEED_HEADROOM}) for row in base['report']}
+        self.derived = derived
+        stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
+        self.evidence = (self.evidence_root / f"{'check-sweep' if self.mode == 'verify' else 'sweep'}-head-{stamp}"
+                         if self.live_arm else None)
+        if self.evidence is not None:
+            self.evidence.mkdir(parents=True, exist_ok=True)
+        names = tuple(joint['name'] for joint in derived['config']['joints'])
+        if self.live_arm:
+            self.receiver = self.open_receiver(derived['config'], None, reference)
+            self._closers.append(self.receiver.close)
+            self.receiver.transport.on_result = self.pending.append
+            exchange = self.receiver.exchange
+            self.latest = lambda: self.receiver.last  # noqa: E731
+        else:
+            harness = self.open_harness(derived['config'], derived['initial'])
+            self._closers.append(harness.close)
+            epoch = self.clock()
+
+            def exchange(request):
+                now_ms = max(harness.now_ms, int((self.clock() - epoch) * 1000))
+                if now_ms > harness.now_ms:
+                    self.pending.append(harness.step(now_ms))
+                result = harness.step(now_ms, request)
+                self.pending.append(result)
+                return result['reply']
+            self.receiver = harness
+            self.latest = lambda: harness.last  # noqa: E731
+        self.controller = GuardedControllerClient(exchange, group=derived['config']['group'],
+                                                  identity=derived['config']['identity'], joint_names=names)
+        tolerance = {row['name']: row['tolerance'] for row in derived['lifecycle']}
+        settings = {name: dict(sweep_settings(self.profile, name), tolerance=tolerance[name]) for name in names}
+        calibration = ((servo or {}).get('joints') or {})
+        self.engine = SweepEngine(derived['config']['joints'], home={m['name']: m['raw_reference_rad']
+                                                                     for m in reference['motors']},
+                                  gains=gains, settings=settings, sweep=sweep, checker=None,
+                                  # No collision verdict to wait for: the receiver's reaction at a limit is all.
+                                  window_s=limit_reaction_s(self.profile['receiver']), verdict_s=0.,
+                                  labels=self.labels, mode=self.mode, period_s=self.period_s,
+                                  calibration={m: calibration[m] for m in sweep if m in calibration},
+                                  travel=self.travel, receiver=self.profile['receiver'],
+                                  interpolation_s=derived['config'].get('interpolation_ms', 0) / 1000,
+                                  inertia={row['name']: row['inertia'] for row in base['lifecycle'] if row.get('inertia')})
+        self._start(names)
+
+    def _start(self, names):
+        """Evidence, the frozen collector and the arming stage: the same for an arm and the head."""
         if self.evidence is not None:
             self.sink = (self.evidence / 'samples.f32').open('ab')
             self.engine.recording.sink = self.sink
@@ -270,7 +364,8 @@ class TuneCore:
                  else 'the sweep moves the arm')
         if self.absent:
             what += ' · WITHOUT ' + ', '.join(self.labels.get(name, name).upper() for name in self.absent)
-        self.message = (f'{what} · LIVE {self.arm.upper()} ARM · enabling, then {moves}. '
+        part = 'HEAD' if self.head else f'{self.arm.upper()} ARM'
+        self.message = (f'{what} · LIVE {part} · enabling, then {moves}. '
                         'Keep the foot switch in reach.' if self.live_arm else
                         f'{what} · VIRTUAL RECEIVER · no motors move.')
 
@@ -297,6 +392,10 @@ class TuneCore:
                                                                  command.get('velocities') or [0.] * count,
                                                                  command.get('efforts') or [0.] * count,
                                                                  command['gains'])]
+        if self.compiler is None:  # The head: the offer bounds the update's age, no envelope.
+            self.controller.direct_update(joints, offered, valid_for_ms=self.profile['receiver']['direct']['command_ms'],
+                                          ramp_efforts=command.get('ramp_efforts'))
+            return
         envelope = self.compiler.compile(offered, feedback, joints, started_at=offer_started)
         self.controller.move(joints, collision=envelope, ramp_efforts=command.get('ramp_efforts'))
 
@@ -416,7 +515,8 @@ class TuneCore:
         offer_started = self.clock()
         offered = self.controller.collision_offer()
         feedback = (self.latest() or {}).get('feedback') or []
-        self.controller.arm(collision=self.compiler.compile(offered, feedback, None, started_at=offer_started))
+        self.controller.arm(collision=None if self.compiler is None else
+                            self.compiler.compile(offered, feedback, None, started_at=offer_started))
         self.engine.begin({name: sample['position'] for name, sample in zip(self.engine.names, feedback)})
         self.stage = 'sweeping'
         self.message = ('Holding where it rests. Each joint returns alone to the reference.' if self.mode == 'return'
@@ -462,8 +562,8 @@ class TuneCore:
             feedback = (self.latest() or {}).get('feedback') or []
             held = status['joints']  # The stop's hold: re-armed there, with its feed-forward.
             try:
-                status = self.controller.arm(collision=self.compiler.compile(offered, feedback, held,
-                                                                             started_at=offer_started))
+                status = self.controller.arm(collision=None if self.compiler is None else
+                                             self.compiler.compile(offered, feedback, held, started_at=offer_started))
             except GuardRejected as exc:
                 if exc.reason not in WAIT_TO_REARM:
                     raise

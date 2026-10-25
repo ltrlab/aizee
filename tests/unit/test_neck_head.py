@@ -26,7 +26,9 @@ def test_the_head_derives_through_the_arms_receiver_derivation():
     reference, result = derived()
     config = result['config']
     assert [j['name'] for j in config['joints']] == ['head_pan', 'head_tilt']
-    assert config['identity']['collision_policy'] == 'disabled-v1' and config['direct']['position_only'] is True
+    assert config['identity']['collision_policy'] == 'disabled-v1' and config['interpolation_ms'] == 40
+    assert config['direct'] == {'command_ms': 60, 'velocity_timeout_ms': 50, 'limit_reaction_ms': 20,
+                                'position_only': False}
     assert 'collision' not in config
     pan = config['joints'][0]
     centre = 2048 * head.RAD_PER_STEP
