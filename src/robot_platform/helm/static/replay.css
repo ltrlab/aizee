@@ -119,3 +119,14 @@ body[data-tab=replay] #model-view{position:absolute;z-index:2;margin:0;
 :root:not([data-theme=dark]) :is(.replay-camera,.replay-timeline){border-color:var(--ink);border-image-source:var(--pix-ink)}
 .replay-camera,.replay-camera img{background:var(--camera-letterbox)}
 .replay-camera figcaption{background:var(--camera-caption)}
+
+/* Replay's stacked pictures take their whole tiles too: the caption sits over the picture's bottom edge. */
+.replay-stage .replay-camera figcaption{position:absolute;left:0;bottom:0;max-width:100%}
+.replay-stage .replay-camera-note{inset:0}
+
+/* With a session running, the centre column stops above the session controls (they start right of the cameras). */
+body.has-controls[data-tab=replay] .replay-stage{grid-template-rows:var(--replay-head) minmax(0,1fr) var(--replay-controls)
+  var(--replay-timeline) 52px;grid-template-areas:"cameras head" "cameras model" "cameras controls" "cameras timeline" "cameras ."}
+body.has-controls[data-tab=replay] #model-view{height:calc(100% - 2 * var(--replay-pad) - var(--replay-head)
+  - var(--replay-controls) - var(--replay-timeline) - 52px - 4 * var(--replay-gap))}
+.replay-stage .replay-cameras{gap:8px}

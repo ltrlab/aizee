@@ -38,10 +38,24 @@ body[data-camera-view=model] .preview-view-choice:not([hidden])~#model-view{heig
 
 /* Teleop on a wide screen: the three cameras stacked in a column on the left, the model beside them (between the
    cameras and the controls). The column keeps clear of the session controls along the bottom. */
-body{--camera-column:clamp(220px,22vw,380px)}
-body[data-camera-view=stacked] .camera-live-view{right:auto;width:var(--camera-column);grid-template-rows:auto minmax(0,1fr);
-  padding:60px 10px 10px}
-body.has-controls[data-camera-view=stacked] .camera-live-view{padding-bottom:96px}
+/* The column is as wide as three 4:3 pictures that fill the height allow (header, padding and gaps: ~98 px), so the
+   pictures, not the letterbox, grow; the model keeps at least 64 % of the view's width. Stacked, there is no pause
+   button or heading: each caption says its camera's state, and Retry shows over the column only after a failure. */
+body{--camera-column:clamp(260px,calc((100vh - 98px) * 4 / 9 + 20px),36vw)}
+body[data-camera-view=stacked] .camera-live-view{right:auto;width:var(--camera-column);grid-template-rows:minmax(0,1fr);
+  gap:6px;padding:8px 10px 10px}
+body[data-camera-view=stacked] .camera-live-heading{display:none}
+/* Captions over the pictures: each picture takes its whole tile. */
+body[data-camera-view=stacked] .camera-thumbnails{gap:8px}
+body[data-camera-view=stacked] .camera-thumbnails button{position:relative;display:block;padding:0!important}
+body[data-camera-view=stacked] .camera-thumbnails img{position:absolute;inset:0}
+body[data-camera-view=stacked] .camera-thumbnails :is(b,span){position:absolute;bottom:0;padding:3px 8px;max-width:60%}
+body[data-camera-view=stacked] .camera-thumbnails b{left:0}body[data-camera-view=stacked] .camera-thumbnails span{right:0}
+/* The session controls start right of the camera column (Teleop stacked, Replay) instead of covering its bottom. */
+body.has-controls:is([data-camera-view=stacked],[data-tab=replay]) .global-controls{left:calc(var(--camera-column) + 12px);
+  flex-wrap:wrap}
+body[data-camera-view=stacked] .camera-thumbnails :is(b,span){background:rgba(10,12,15,.85)}
+body[data-camera-view=stacked] .camera-thumbnails b{color:var(--text)}
 body[data-camera-view=stacked] .camera-focus{display:none}
 body[data-camera-view=stacked] .camera-thumbnails{grid-template-columns:minmax(0,1fr);grid-template-rows:repeat(3,minmax(0,1fr))}
 body[data-camera-view=stacked] #model-view{width:calc(100% - var(--camera-column));margin-left:var(--camera-column)}

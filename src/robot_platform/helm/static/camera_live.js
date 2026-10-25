@@ -91,6 +91,7 @@ export class LiveCameraView {
   sync() {
     const physical = this.robotMode === 'robot';
     this.stacked = this.stackedLayout();
+    if (this.stacked) this.paused = false;  // Stacked, the cameras are part of Teleop's view: nothing to pause.
     this.showing = !!this.scope && physical && (this.mode === 'cameras' || this.stacked);
     $('preview-view-choice').hidden = !this.scope;
     $('camera-live-view').hidden = !this.showing;
@@ -104,7 +105,7 @@ export class LiveCameraView {
       ? 'Physical camera feeds are unavailable in simulation. Use the simulation scene window.'
       : 'Live physical cameras appear in the camera pane. Preview freshness is separate from recording readiness.';
     $('camera-pause').textContent = this.paused ? 'Resume preview' : 'Pause preview';
-    $('camera-pause').hidden = !this.showing;
+    $('camera-pause').hidden = !this.showing || this.stacked;
     this.onView(this.showing && !this.stacked);  // Stacked, the model stays loaded beside the cameras.
     const wanted = this.wanted();
     if (wanted && !this.wasWanted) this.attempt = 0;
