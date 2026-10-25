@@ -12,7 +12,7 @@ const LABEL_PX = 22;  // Label type comes with the scene theme (joint-telemetry.
 const EDGE_ON = .25;  // |axis · view| below this, a dial collapses to a line: hide it.
 
 function material(color, opacity=1) {
-  return new THREE.MeshBasicMaterial({color, transparent:true, opacity, depthTest:false, depthWrite:false,
+  return new THREE.MeshBasicMaterial({color, transparent:true, opacity, depthTest:false, depthWrite:false, toneMapped:false,
     side:THREE.DoubleSide});
 }
 
@@ -45,7 +45,7 @@ class Label {
     this.texture.colorSpace = THREE.SRGBColorSpace;
     this.texture.generateMipmaps = false;
     this.texture.minFilter = this.texture.magFilter = THREE.NearestFilter;
-    this.sprite = new THREE.Sprite(new THREE.SpriteMaterial({map:this.texture, transparent:true, depthTest:false,
+    this.sprite = new THREE.Sprite(new THREE.SpriteMaterial({map:this.texture, transparent:true, depthTest:false, toneMapped:false,
       depthWrite:false, sizeAttenuation:false}));
     this.sprite.center.set(0, .5);
     this.sprite.renderOrder = 12;
@@ -182,7 +182,7 @@ class Gauge {
     const at = value => side.clone().addScaledVector(axis, value);
     const live = spec.verified && !spec.stale, line = (a, b, color, opacity) => {
       const object = new THREE.Line(new THREE.BufferGeometry().setFromPoints([at(a), at(b)]),
-        new THREE.LineBasicMaterial({color, transparent:true, opacity, depthTest:false, depthWrite:false}));
+        new THREE.LineBasicMaterial({color, transparent:true, opacity, depthTest:false, depthWrite:false, toneMapped:false}));
       object.renderOrder = 10;
       return object;
     };

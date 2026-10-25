@@ -10,15 +10,20 @@ const viewport = $('viewport');
 const renderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
 renderer.setPixelRatio(Math.min(devicePixelRatio,2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+// The CAD's colours are sRGB, and Minerva's printed parts nearly black: AgX shows them dark grey with their shading
+// and keeps the light ones short of white. Whatever is drawn over the model (gauges, labels, arrows, the grid, axes,
+// collision and keep-out shapes) is not tone mapped, so it keeps its exact colours.
+renderer.toneMapping = THREE.AgXToneMapping;
+renderer.toneMappingExposure = 2.4;
 viewport.prepend(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45,1,.001,1000);
 camera.up.set(0,0,1);
 const orbit = new OrbitControls(camera,renderer.domElement);
 orbit.enableDamping = true;
-scene.add(new THREE.HemisphereLight(0xd3e8f9,0x475365,2));
-const light = new THREE.DirectionalLight(0xffffff,2.4); light.position.set(2,-3,5);scene.add(light);
-const fill = new THREE.DirectionalLight(0xaecbff,.8);fill.position.set(-2,1,3);scene.add(fill);
+scene.add(new THREE.HemisphereLight(0xd3e8f9,0x475365,1.2));
+const light = new THREE.DirectionalLight(0xffffff,3.4); light.position.set(2,-3,5);scene.add(light);
+const fill = new THREE.DirectionalLight(0xaecbff,.9);fill.position.set(-2,1,3);scene.add(fill);
 let robot=null, model=null, q={}, generation=0, groups=new Map(), motions=new Map(), linkAxes=[], meshes=[], grid=null;
 let collisionReady=false, calibrationMode=false, previewLinks=new Set();
 let linkNodes=new Map(),keepoutLoaded=false,keepoutPromise=null;
@@ -31,7 +36,7 @@ const jointOverlay=new JointOverlay({viewport,camera,renderer,scene});
 // The floor grid in the scene theme's colours, placed again when Helm switches day / night (read each frame).
 let gridAt=null,gridTheme=null;
 function placeGrid(){if(grid){scene.remove(grid);grid.geometry.dispose();grid.material.dispose();}const theme=sceneTheme();gridTheme=theme.name;
-  grid=new THREE.GridHelper(gridAt.size,20,...theme.grid);grid.rotation.x=Math.PI/2;grid.position.copy(gridAt.position);scene.add(grid);}
+  grid=new THREE.GridHelper(gridAt.size,20,...theme.grid);grid.material.toneMapped=false;grid.rotation.x=Math.PI/2;grid.position.copy(gridAt.position);scene.add(grid);}
 function animate(){requestAnimationFrame(animate);if(gridAt&&sceneTheme().name!==gridTheme)placeGrid();orbit.update();renderer.render(scene,camera);jointOverlay.update();}animate();
 function message(text,error=false){$('notice').textContent=text;$('render-error').hidden=!error;$('render-error').textContent=error?text:'';}
 async function json(url,options){const response=await fetch(url,options);const data=await response.json();if(!response.ok)throw new Error(data.error||`HTTP ${response.status}`);return data;}
@@ -124,7 +129,7 @@ async function ensureKeepout(){
       }else if(desc.shape==='box')geom=new THREE.BoxGeometry(...desc.size);
       else if(desc.shape==='sphere')geom=new THREE.SphereGeometry(desc.radius,20,12);
       else {geom=new THREE.CylinderGeometry(desc.radius,desc.radius,desc.length,20);geom.rotateX(Math.PI/2);}
-      const material=new THREE.MeshStandardMaterial({color:0xf5ba66,flatShading:true,transparent:true,opacity:.2,depthWrite:false,side:THREE.DoubleSide});
+      const material=new THREE.MeshStandardMaterial({color:0xf5ba66,flatShading:true,transparent:true,opacity:.2,depthWrite:false,side:THREE.DoubleSide,toneMapped:false});
       const object=new THREE.Mesh(geom,material);transform(object,desc.origin);object.userData={link:desc.link,role:'keepout',collisionId:desc.id};object.visible=false;linkNodes.get(desc.link).add(object);meshes.push(object);
     }
     keepoutLoaded=true;
@@ -222,7 +227,7 @@ async function loadModel(id){
     $('notes-body').replaceChildren();for(const note of [...model.notes,'Joint values are mechanical CAD coordinates. Pose files do not change controller settings.']){const p=document.createElement('p');p.textContent=note;$('notes-body').append(p);}
     const links=linkNodes=new Map(model.links.map(n=>[n,new THREE.Group()]));robot.add(links.get(model.root));
     for(const joint of model.joints){const frame=new THREE.Group(),motion=new THREE.Group();transform(frame,joint.origin);links.get(joint.parent).add(frame);frame.add(motion);motion.add(links.get(joint.child));motions.set(joint.name,motion);}
-    for(const link of links.values()){const axes=new THREE.AxesHelper(.06);axes.visible=$('axes').checked;link.add(axes);linkAxes.push(axes);}
+    for(const link of links.values()){const axes=new THREE.AxesHelper(.06);axes.material.toneMapped=false;axes.visible=$('axes').checked;link.add(axes);linkAxes.push(axes);}
     const geometries=new Map();
     async function meshGeometry(index){
       if(!geometries.has(index))geometries.set(index,(async()=>{const response=await fetch(`${api}/${encodeURIComponent(id)}/meshes/${index}`);if(!response.ok){const error=await response.json();throw new Error(error.error||'Mesh load failed');}const buffer=await response.arrayBuffer(),header=new DataView(buffer),nv=header.getUint32(0,true),nf=header.getUint32(4,true);if(buffer.byteLength!==8+nv*12+nf*12)throw new Error('Incomplete mesh response');const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.BufferAttribute(new Float32Array(buffer,8,nv*3),3));geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(buffer,8+nv*12,nf*3),1));geometry.computeVertexNormals();return geometry;})());
@@ -235,7 +240,7 @@ async function loadModel(id){
       else if(desc.shape==='sphere')geom=new THREE.SphereGeometry(desc.radius,28,20);
       else {geom=new THREE.CylinderGeometry(desc.radius,desc.radius,desc.length,28);geom.rotateX(Math.PI/2);}
       if(token!==generation)return;
-      const collision=desc.role!=='visual';const material=new THREE.MeshStandardMaterial({color:collision?0xf5ba66:new THREE.Color(...desc.color.slice(0,3)),flatShading:true,roughness:.8,metalness:0,transparent:collision||desc.color[3]<1,opacity:collision?.2:desc.color[3],depthWrite:!collision,side:THREE.DoubleSide});
+      const collision=desc.role!=='visual';const material=new THREE.MeshStandardMaterial({color:collision?0xf5ba66:new THREE.Color().setRGB(...desc.color.slice(0,3),THREE.SRGBColorSpace),flatShading:true,roughness:collision?.8:.6,metalness:0,toneMapped:!collision,transparent:collision||desc.color[3]<1,opacity:collision?.2:desc.color[3],depthWrite:!collision,side:THREE.DoubleSide});
       const object=new THREE.Mesh(geom,material);transform(object,desc.origin);if(desc.scale)object.scale.fromArray(desc.scale);object.userData={link:desc.link,role:desc.role,collisionId:desc.collision_id};object.visible=!collision||$('collision-geometry').checked;links.get(desc.link).add(object);meshes.push(object);
     }catch(e){failures.push(`${desc.link}: ${e.message}`);}finally{done++;if(token===generation)$('loading').textContent=`Loading geometry ${done}/${data.geometry.length}`;}}}
     await Promise.all(Array.from({length:4},worker));if(token!==generation)return;

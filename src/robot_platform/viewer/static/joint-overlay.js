@@ -95,9 +95,9 @@ export class JointOverlay {
     } else {
       const arc=rotationArc(joint.axis,direction,scale); if(!arc) return;
       const geometry=new THREE.BufferGeometry().setFromPoints(arc.points.map(p=>new THREE.Vector3(...p)));
-      card.arrow.add(new THREE.Line(geometry,new THREE.LineBasicMaterial({color,depthTest:false,transparent:true,opacity:.95})));
+      card.arrow.add(new THREE.Line(geometry,new THREE.LineBasicMaterial({color,depthTest:false,transparent:true,opacity:.95,toneMapped:false})));
       const tip=new THREE.Mesh(new THREE.ConeGeometry(scale*.18,scale*.5,10),
-        new THREE.MeshBasicMaterial({color,depthTest:false}));
+        new THREE.MeshBasicMaterial({color,depthTest:false,toneMapped:false}));
       tip.position.fromArray(arc.points.at(-1));
       tip.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),new THREE.Vector3(...arc.tangent).normalize());
       card.arrow.add(tip);
