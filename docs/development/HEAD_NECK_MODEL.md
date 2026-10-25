@@ -46,13 +46,16 @@ At zero, the head and neck occupy x −90…90, y −117…60 and z 1128…1428 
 origin and 244 mm from the right's, and each arm reaches about 945 mm from j2. **The active collision model has no
 head.** If the head is mounted on Minerva, the guard does not know it is there, and nothing stops an arm from
 hitting it in teleop, replay or a policy run. Helm's 3D view showing the head does not change this: it only draws
-it. Until the collision model includes it, keep the arms clear of the
-head. The motion-contract owner should decide whether the head's static box goes into the keep-out first, before
-the neck moves.
+it.
+
+**The user's decision (2026-10-25), after seeing the head in Helm's 3D view:** the head does not need to be added to
+the collision checks. Step 1 below, and the collision half of step 2, are therefore not planned; the operator keeps
+the arms clear of the head.
 
 ## Remaining work, in order
 
-1. **Collision model (motion-contract owner).**
+1. **Collision model (motion-contract owner). Not planned:** the user decided the head needs no collision checks.
+   Kept for reference:
    - Add `neck_z` and `neck_y`, with the frames above, to a new collision URDF, plus simplified collision geometry
      for both neck links: the pan bracket and the head.
    - Extend the broad phase (`urdf/minerva/collision/broadphase-*.json`) and the pair lists for arm against head,
