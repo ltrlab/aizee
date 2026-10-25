@@ -12,6 +12,10 @@ from pathlib import Path
 import time
 
 PERIOD_S = .04  # The head's commands at 25 Hz (its profile's loop_hz); its receiver ramps each over 40 ms.
+# The head cycles on the arms' ticks, on a grid of PERIOD_S slots: a tick this early still takes its slot (the ticks
+# meet the grid only to float precision), and a late one does not push the next slot. Each command takes the offer of
+# the reply before it, so two consecutive gaps must stay under the direct policy's command lifetime (100 ms).
+DUE_SLACK_S = PERIOD_S / 4
 CYCLE_BUDGET_S = .035
 POSE_FRESH_S = .2  # A headset pose this recent steers the head;
 RETURN_AFTER_S = 1.  # without one the head holds its last target this long, then returns to its zero pose.
@@ -31,7 +35,7 @@ class HeadTeleop:
         self._pose = None  # (yaw, pitch, received at) from the headset, on this loop's clock.
         self._poses = 0
         self._held = None  # The last target followed, held while the headset is briefly quiet.
-        self._last_cycle = None
+        self._due = None  # The next slot on the head's grid (helm clock); None before the first cycle.
         self._sequence = 0
 
     # -- resources -------------------------------------------------------------------------
@@ -143,9 +147,12 @@ class HeadTeleop:
                    'shutdown': ('IDLE', 'HOLD', 'ENGAGING', 'TELEOP')}
         if action in allowed and self.state not in allowed[action]:
             action = None  # The head follows the arms' lifecycle; a transition it is not in is skipped.
-        if action is None and self._last_cycle is not None and started - self._last_cycle < PERIOD_S:
+        if action is None and self._due is not None and started < self._due - DUE_SLACK_S:
             return None
-        self._last_cycle = started
+        # On the grid, the next slot follows this one; a key between slots, or a cycle half a period late (a
+        # stall), starts the grid again from now.
+        on_grid = action is None and self._due is not None and started - self._due < PERIOD_S / 2
+        self._due = (self._due if on_grid else started) + PERIOD_S
         try:
             return self.session.cycle(action=action, target=self._target(started), started_at=started)
         except Exception as exc:

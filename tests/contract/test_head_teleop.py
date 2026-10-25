@@ -88,3 +88,33 @@ def test_disable_leaves_the_head_limp_and_a_fault_stops_its_cycles(teleop):
     assert core.state == 'DISABLED' and core.status()['motors_enabled'] is False
     core.fault = 'test'
     assert core.cycle('idle', clock.now) is None
+
+
+def test_the_head_keeps_its_grid_on_the_arms_ticks_so_its_commands_never_expire(teleop):
+    """Each head command takes the offer of the reply before it: two gaps must stay under the 100 ms command
+    lifetime. On the guarded arms' 20 ms ticks a relative due check lost a tick to float rounding (60 ms gaps) and
+    the head's command expired (2026-10-25); a late tick must not push the next slot either."""
+    core, clock = teleop
+    starts = []
+    original = core.session.cycle
+
+    def cycle(**kwargs):
+        starts.append(kwargs['started_at'])
+        return original(**kwargs)
+    core.session.cycle = cycle
+    core.cycle('idle', clock.now)
+    clock.now += .02
+    core.cycle('enable', clock.now)
+    clock.now += .02
+    core.cycle('engage', clock.now)
+    for tick in range(150):  # Three seconds of the guarded arms' 20 ms ticks, one of them 15 ms late.
+        late = .015 if tick == 70 else 0.
+        clock.now += .02 + late
+        core.cycle(None, clock.now)
+        clock.now -= late  # The arms' loop keeps its schedule: the next tick is on time.
+    assert core.fault is None and core.state == 'TELEOP'
+    gaps = [b - a for a, b in zip(starts[2:], starts[3:])]
+    assert len(gaps) > 70 and min(gaps) > .02
+    assert max(a + b for a, b in zip(gaps, gaps[1:])) < .1 - 1e-9  # Two gaps inside the command lifetime.
+    assert sum(abs(gap - PERIOD_S) > 1e-6 for gap in gaps) == 2  # The late tick moved one cycle; the grid held.
+    assert starts[-1] - starts[2] == pytest.approx(PERIOD_S * len(gaps))
