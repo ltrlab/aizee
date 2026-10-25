@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "kind": "head_profile",
+  "id": "minerva-head",
+  "runtime_approved": false,
+  "notes": [
+    "Minerva's head: two Feetech STS3250s on a Waveshare bus servo adapter, on their own receiver (bin/head_controller).",
+    "Read as a teleop profile by the arms' derivation (guarded_config.derive_receiver), collision checks off: the arms keep out of everywhere the head can reach.",
+    "The receiver works in raw servo radians (steps x 2 pi / 4096); kp and kd are the servos' P and D registers (0..255).",
+    "Motion values are starting points for the head's servo sweep, not measured settings. The bus, the servos' firmware and their reference readings are filled in from the hardware (robot-platform neck probe, centre)."
+  ],
+  "model_profile": "urdf/minerva/onshape-to-robot-head-v1/model.json",
+  "bus": {
+    "device": null,
+    "usb_serial": null,
+    "baud": 1000000
+  },
+  "motors": [
+    {"name": "head_pan", "joint": "neck_z", "label": "Head pan", "id": 1, "model": 2825, "full_load_nm": 4.9},
+    {"name": "head_tilt", "joint": "neck_y", "label": "Head tilt", "id": 2, "model": 2825, "full_load_nm": 4.9}
+  ],
+  "receiver": {
+    "collision_mode": "disabled",
+    "lease_ms": 150,
+    "feedback_timeout_ms": 50,
+    "settled_velocity": 0.05,
+    "interpolation_ms": 0,
+    "loop_hz": 100,
+    "direct": {
+      "command_ms": 50,
+      "velocity_timeout_ms": 30,
+      "limit_reaction_ms": 20,
+      "position_only": true
+    }
+  },
+  "live": {
+    "endpoint": "tcp://127.0.0.1:5591",
+    "reference_tolerance_rad": 0.05,
+    "period_us": 10000,
+    "maximum_lateness_us": 15000
+  },
+  "motion": {
+    "defaults": {
+      "max_velocity": 1.0,
+      "stop_acceleration": 6.0,
+      "max_tracking_error": 0.15,
+      "align_speed": 0.3,
+      "shutdown_speed": 0.2,
+      "tolerance": 0.03,
+      "settled_velocity": 0.05,
+      "max_temperature": 65.0
+    },
+    "joints": [
+      {"match": "head_*", "hold_kp": 32.0, "hold_kd": 32.0, "max_kp": 64.0, "max_kd": 64.0, "max_effort": 3.0}
+    ]
+  },
+  "sweep": {
+    "joints": [
+      {"match": "head_*", "kp_ceiling": 64.0, "ripple_nm": 0.3, "max_step_rad": 0.05, "temperature_c": 55.0,
+       "speeds": [0.2, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0], "speed_ceiling": 2.0, "bound_ceiling": 0.3}
+    ]
+  }
+}
