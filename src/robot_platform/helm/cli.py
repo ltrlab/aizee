@@ -194,11 +194,15 @@ def main(argv=None):
         if args.access is not None:
             from .access import Access
             access = Access(args.access)
+        # The 3D view draws the head model (Minerva with her neck); the guard and the receivers keep the active one.
+        from robot_platform.ops.release import HEAD_MODEL, ROOT as RELEASE_ROOT
+        from .display_model import DisplayModel
+        display = DisplayModel.load(session.model, RELEASE_ROOT / HEAD_MODEL)
         app = create_app(session, link, teleop=teleop, leaders=leaders, check=check, tune=tune,
                          live=not (args.sim or args.no_live), simulation_only=args.sim, cameras=cameras,
                          camera_video=camera_video, episodes=episodes, ups=ups, access=access, bridge=bridge,
                          mesh_store=args.mesh_store, operator_files=operator, calibration=calibration,
-                         network=network)
+                         network=network, display=display)
         if session.stale_lock_pid:
             print(f'Took over a calibration lock left by exited process {session.stale_lock_pid}.', flush=True)
         mode = ('SIMULATION ONLY; no physical robot connection' if args.sim else

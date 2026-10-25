@@ -90,7 +90,8 @@ def video_backlog(transport):
 
 def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None, live=False,
                gripper_zero=None, simulation_only=False, cameras=None, camera_video=None, episodes=None, ups=None,
-               access=None, bridge=None, mesh_store=None, operator_files=None, calibration=None, network=None):
+               access=None, bridge=None, mesh_store=None, operator_files=None, calibration=None, network=None,
+               display=None):
     """`live`: keep the stopped reader running whenever Minerva is online and nothing else holds the motors
     (helm.live_view); sessions then take the motors from it instead of asking for Disconnect first.
     `episodes`: the recorded-episode library behind Replay (helm.episodes), told to read nothing while a
@@ -101,7 +102,9 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     `mesh_store`: the 3D view's meshes, converted on the build PC (viewer.server.ModelStore). `operator_files`:
     where Helm on Minerva saves the operator's files and what its start changed there (helm.operator_files).
     `calibration` (helm.calibration.CameraCalibration): wrist camera stills during a live session, and their solve.
-    `network` (helm.network.NetworkView): Minerva's network for the header and Settings, and its access point switch."""
+    `network` (helm.network.NetworkView): Minerva's network for the header and Settings, and its access point switch.
+    `display` (helm.display_model.DisplayModel): the model the 3D view draws (the head model), when not the active
+    one; every guide is drawn on it, the neck at the head's measured angles while a session drives it."""
     from aiohttp import web
     from robot_platform.viewer.server import create_app as viewer_app
     from .live_view import LiveView
@@ -146,8 +149,17 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
                 return pose
         return session.guide()
 
-    app = viewer_app([session.model.profile], session.model.profile.id,
-                     guide=guide, index_html=STATIC / 'index.html', local_only=access is None, mesh_store=mesh_store)
+    def shown():
+        """What the 3D view draws: the guide, on the display model when Helm has one."""
+        pose = guide()
+        if display is None:
+            return pose
+        head = getattr(teleop, 'head_joints', None)
+        return display.guide(pose, head() if head is not None else None)
+
+    drawn = display.profile if display is not None else session.model.profile
+    app = viewer_app([drawn], drawn.id, guide=shown, index_html=STATIC / 'index.html', local_only=access is None,
+                     mesh_store=mesh_store)
     if access is not None:
         from .access import COOKIE, stop_request
 
@@ -226,6 +238,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
                                                        or ('left_wrist', 'right_wrist', 'head'))
         # The model's joint telemetry from the one source the 3D view shows: a running session, else the reader.
         state['telemetry'] = select_telemetry(state)
+        if display is not None:  # For the model the 3D view draws, as its guide is.
+            state['telemetry'] = display.telemetry(state['telemetry'])
         state['action_token'] = token
         state['access'] = access.view(CURRENT_SESSION.get()) if access is not None else {'enabled': False}
         state['bridge'] = bridge.snapshot() if bridge is not None else None

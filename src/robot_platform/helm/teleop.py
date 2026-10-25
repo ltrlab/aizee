@@ -2276,6 +2276,14 @@ class TeleopSession:
             self._send_lock.release()
         return True
 
+    def head_joints(self):
+        """The neck's CAD angles ({joint: rad}) from the head's measured positions while a session runs; None
+        otherwise (nothing reads the neck then: the 3D view draws it at its zero)."""
+        with self._lock:
+            if not self.active or self._view.get('phase') != 'running':
+                return None
+            return dict((self._view.get('head') or {}).get('joints') or {}) or None
+
     def key(self, key):
         if key not in KEYS:
             raise ValueError('Use I, E, T, H or X')

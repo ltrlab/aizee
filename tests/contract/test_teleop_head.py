@@ -54,6 +54,7 @@ def test_a_headset_pose_steers_the_head_while_the_arms_follow_the_leaders(core):
     assert core.head.source == 'headset'
     pan = core.view()['head']['positions']['head_pan'] - core.head.zero['head_pan']
     assert pan == pytest.approx(.25, abs=.02)
+    assert core.view()['head']['joints'] == pytest.approx({'neck_z': .25, 'neck_y': .1}, abs=.02)  # Helm's 3D view.
     assert core.session.lifecycle.state == 'TELEOP'  # The arms follow on.
     run(core, clock, 'X', until='DISABLED', limit=3000)
     run(core, clock, limit=300)  # The head returns to its zero and is disabled with the arms.

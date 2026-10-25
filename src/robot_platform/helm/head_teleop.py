@@ -167,9 +167,13 @@ class HeadTeleop:
         pose = None if self._pose is None else {'yaw': self._pose[0], 'pitch': self._pose[1],
                                                 'age_s': now - self._pose[2], 'count': self._poses}
         last = (self.receiver.last or {}) if self.receiver is not None else {}
+        positions = ({row['name']: row['position'] for row in (self.session.last_feedback or [])}
+                     if self.session is not None else {})
+        # The neck's CAD angles (neck_z, neck_y), for the 3D view: each motor's measured position through its axis.
+        joints = {joint: positions[motor] * scale + offset for motor, (joint, scale, offset)
+                  in getattr(self, 'axes', {}).items() if motor in positions}
         return {'state': self.state, 'fault': self.fault, 'source': getattr(self, 'source', None), 'headset': pose,
-                'positions': {row['name']: row['position'] for row in (self.session.last_feedback or [])}
-                if self.session is not None else {}, 'motors_enabled': last.get('hardware_enabled')}
+                'positions': positions, 'joints': joints, 'motors_enabled': last.get('hardware_enabled')}
 
     def close(self):
         if self.session is not None and self.session.owned:

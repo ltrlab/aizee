@@ -27,6 +27,16 @@ beside the untouched 1.1 export that the active model references.
   of the existing parts is unchanged apart from re-tessellation.
 - **Preview:** a profile, `Minerva (Head V1)`, shows the head with neck sliders in the 3D viewer. It has no
   collision model of its own.
+- **Helm's 3D view draws it** (`helm.display_model`, branch `claude/head-in-3d-view`, at the user's request on
+  2026-10-25). This is for display only:
+  - Helm checks at start that this model is the active one plus the neck: every active joint has the same links,
+    axis, frame, bounds and coupling. Otherwise the view draws the active model, as before.
+  - Every guide (the stopped reader's, a session's, a sweep's) and the joint telemetry are drawn on it by joint name.
+  - The neck shows the head's measured angles (`HeadTeleop.status()['joints']`, each servo through its axis) while
+    a teleop session drives it. Otherwise nothing reads the neck, and the view draws it at its zero.
+  - Its 73 meshes that the active model lacks go to Minerva's mesh store with the active model's
+    (`ops.helm_robot meshes`).
+  - The guard, the receivers, the guides and the recordings keep the active model.
 - **Unchanged:** the active model (`urdf/minerva/model.json` and `minerva.urdf`), the collision models, the limit
   reviews and the MuJoCo export.
 
@@ -35,7 +45,8 @@ beside the untouched 1.1 export that the active model references.
 At zero, the head and neck occupy x −90…90, y −117…60 and z 1128…1428 mm. That box is 177 mm from the left arm's j2
 origin and 244 mm from the right's, and each arm reaches about 945 mm from j2. **The active collision model has no
 head.** If the head is mounted on Minerva, the guard does not know it is there, and nothing stops an arm from
-hitting it in teleop, replay or a policy run. Until the collision model includes it, keep the arms clear of the
+hitting it in teleop, replay or a policy run. Helm's 3D view showing the head does not change this: it only draws
+it. Until the collision model includes it, keep the arms clear of the
 head. The motion-contract owner should decide whether the head's static box goes into the keep-out first, before
 the neck moves.
 

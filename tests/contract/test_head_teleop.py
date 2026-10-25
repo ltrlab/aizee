@@ -71,6 +71,8 @@ def test_the_head_follows_a_fresh_headset_pose_then_holds_and_returns_to_zero(te
     assert core.state == 'TELEOP' and core.source == 'headset'
     pan, tilt = (positions(core)[name] - core.zero[name] for name in ('head_pan', 'head_tilt'))
     assert pan == pytest.approx(.3, abs=.02) and tilt == pytest.approx(-.2, abs=.02)
+    # The neck's CAD angles (the 3D view's) are the headset's yaw and pitch it follows.
+    assert core.status()['joints'] == pytest.approx({'neck_z': .3, 'neck_y': -.2}, abs=.02)
     run(core, clock, .5)  # The headset goes quiet: the head holds where it was.
     assert core.source == 'holding' and positions(core)['head_pan'] - core.zero['head_pan'] == pytest.approx(.3, abs=.02)
     run(core, clock, RETURN_AFTER_S + 2.)  # Then it goes back to its zero, at the lifecycle's speed.
