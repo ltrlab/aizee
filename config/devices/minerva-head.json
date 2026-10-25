@@ -7,7 +7,7 @@
     "Minerva's head: two Feetech STS3250s on a Waveshare bus servo adapter, on their own receiver (bin/head_controller).",
     "Read as a teleop profile by the arms' derivation (guarded_config.derive_receiver), collision checks off: the arms keep out of everywhere the head can reach.",
     "The receiver works in raw servo radians (steps x 2 pi / 4096); kp and kd are the servos' P and D registers (0..255).",
-    "Commands come at 25 Hz and the receiver ramps each over 40 ms with its velocity, so the servos get goals at 100 Hz; the servos take neither velocity nor effort.",
+    "Commands come at 25 Hz and the receiver ramps each over 40 ms with its velocity, so the servos get goals at 100 Hz; the servos take neither velocity nor effort. A command lives 100 ms: in teleop each takes the offer of the reply before it, a cycle old.",
     "Motion values are starting points for the head's servo sweep, not measured settings. The bus, the servos' firmware and their reference readings are filled in from the hardware (robot-platform neck probe, centre)."
   ],
   "model_profile": "urdf/minerva/onshape-to-robot-head-v1/model.json",
@@ -22,13 +22,13 @@
   ],
   "receiver": {
     "collision_mode": "disabled",
-    "lease_ms": 150,
+    "lease_ms": 200,
     "feedback_timeout_ms": 50,
     "settled_velocity": 0.05,
     "interpolation_ms": 40,
     "loop_hz": 25,
     "direct": {
-      "command_ms": 60,
+      "command_ms": 100,
       "velocity_timeout_ms": 50,
       "limit_reaction_ms": 20,
       "position_only": false
