@@ -480,6 +480,9 @@ body[data-teleop-state=STALE] #t-state{color:var(--bad)}
   border-image:var(--pix-line) 1/3px/0 stretch}
 .grip-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 #grip-readout{margin:6px 0 0;line-height:1.45}
+/* The head and the headset steering it (helm/xr.py). */
+#head-readout,#head-headset{margin:6px 0 0;line-height:1.45;overflow-wrap:anywhere}
+#head-headset{font:12px/1.5 var(--mono)}
 body[data-touch=on] .grip-switch input{width:26px;height:26px}
 /* Minerva's UPS (helm.ups): the header's battery pill and its banner. ID selectors: the feed state recolours every .pill. */
 #ups-pill{gap:6px;padding:3px 9px;font-family:var(--mono);font-size:12px}

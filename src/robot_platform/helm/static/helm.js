@@ -5,6 +5,7 @@ import {LiveReplayCard, ReplayView, replayTelemetry} from './replay.js';
 import {HOLD_STILL, policyLabel, policyNote, policyOptions, policyStats} from './policy.js';
 import {GRIP_SETTINGS, gripLive, gripSettingText, gripSliderValue, gripView} from './grip.js';
 import {upsView} from './ups.js';
+import {headView} from './head.js';
 import {captureBlock, countsText, lastText, resultLines} from './calibration.js';
 
 // Helm operator page. Reads /api/helm/state; every action needs the session token.
@@ -287,6 +288,7 @@ function render(state) {
   renderTeleop(state.teleop);
   replayView?.setTeleop(state.teleop, state.mode);
   renderGripFeedback(state.teleop);
+  renderHead(state);
   renderCalibration(state);
   renderRecording(state);
   renderUps(state.ups);
@@ -368,6 +370,17 @@ function renderUps(ups) {
 // Gripper force feedback: the leader trigger pushes open while the robot's gripper squeezes, only while following.
 // Teleop shows the switch and a force bar per gripper; Settings → Grippers holds the saved maximum and strength.
 let gripPending = false;
+// The head and the headset steering it (head.js).
+function renderHead(state) {
+  const view = headView(state.teleop, state.xr, location.host);
+  $('t-head').hidden = !view.shown;
+  $('head-readout').textContent = view.readout;
+  $('head-readout').className = view.fault ? 'bad' : 'muted';
+  $('head-headset').textContent = view.headset;
+  $('head-zero').disabled = !view.zero;
+}
+$('head-zero').onclick = () => act('/api/helm/xr/zero', {}, "Zeroed: where the headset looks is the head's straight ahead.");
+
 function renderGripFeedback(teleop) {
   const view = gripView(teleop);
   const on = $('grip-on');

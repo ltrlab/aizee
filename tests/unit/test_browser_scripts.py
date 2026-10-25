@@ -100,3 +100,10 @@ def test_policy_mode_choices_and_card_text():
     assert node, 'Node.js is required to check the policy mode page'
     result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_policy.mjs')], capture_output=True, timeout=60)
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-1200:]
+
+
+def test_the_head_card_says_what_the_head_follows_and_where_the_headset_page_is():
+    node = shutil.which('node')
+    assert node, 'Node.js is required to check the head card'
+    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_head.mjs')], capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
