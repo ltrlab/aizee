@@ -110,7 +110,7 @@ def test_simulation_cli_constructs_no_physical_workspaces(monkeypatch, tmp_path,
     from aiohttp import web
     from robot_platform.helm import cli, session, leaders, teleop, server, link, tune, check, gripper_zero
     fake = SimpleNamespace(profile_path=tmp_path/'profile.json', asset_id='test', labels={}, evidence=tmp_path,
-                           stale_lock_pid=None, close=lambda: None)
+                           stale_lock_pid=None, close=lambda: None, model=None)  # No model: the view draws no head.
     monkeypatch.setattr(session, 'HelmSession', lambda *a, **k: fake)
     monkeypatch.setattr(leaders, 'LeaderWorkspace', lambda *a, **k: object())
     def forbidden(*a, **k):

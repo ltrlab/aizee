@@ -76,7 +76,8 @@ def test_a_model_that_moves_an_active_joint_is_not_drawn_in_its_place(models):
     assert _same(joint, flipped)
     logged = []
     assert DisplayModel.load(active, ROOT / 'urdf/minerva/missing/model.json', log=logged.append) is None
-    assert 'without the head' in logged[0]
+    assert DisplayModel.load(None, ROOT / HEAD_MODEL, log=logged.append) is None  # Never stops Helm.
+    assert all('without the head' in line for line in logged) and len(logged) == 2
 
 
 def test_the_session_hands_the_view_the_necks_angles_only_while_it_runs():

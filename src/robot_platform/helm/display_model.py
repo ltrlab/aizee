@@ -27,13 +27,13 @@ class DisplayModel:
 
     @classmethod
     def load(cls, active, path, *, log=print):
-        """The shown model at `path` for `active`; None (the view draws the active model) when it is missing or does
-        not extend it."""
+        """The shown model at `path` for `active`; None (the view draws the active model) when it is missing, does not
+        extend it or cannot be read: drawing the head never stops Helm."""
         from robot_platform.models import ModelProfile, UrdfModel
         try:
             return cls(active, UrdfModel(ModelProfile.load(path)))
-        except (OSError, ValueError, KeyError) as exc:
-            log(f'3D view: drawing {active.profile.title}, without the head ({exc})')
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+            log(f'3D view: drawing the active model, without the head ({exc})')
             return None
 
     @property
