@@ -72,6 +72,8 @@
     - Helm serves each mesh by its release-verified digest, gzip-encoded, with an ETag. A browser revalidates what
       it already holds instead of downloading it again.
     - The store holds 158 distinct meshes: 142 MB of STL as 35.5 MB gzip, converted in 12 s.
+    - The 3D view draws the head model (`helm.display_model`, see [HEAD_NECK_MODEL](HEAD_NECK_MODEL.md)). Its 73
+      meshes that the active model lacks, 108 MB of STL, go to the same store.
   - **Dependencies:** `requirements/helm-robot.lock` adds aiohttp and its dependencies for the Jetson's CPython 3.10
     on aarch64, at the development lock's versions plus async-timeout. That is 11 wheels, 2.9 MB.
     - The build PC downloads them with their hashes checked (`ops.helm_robot deps`).

@@ -23,7 +23,7 @@ import subprocess
 import sys
 import zipfile
 
-from .release import HELM_LOCK, MODEL, ROOT
+from .release import HEAD_MODEL, HELM_LOCK, MODEL, ROOT
 from .ssh import TETHER, run
 
 SERVICE = 'cd ~/minerva/current && PYTHONPATH=src python3 -m robot_platform.ops.helm_service'
@@ -59,14 +59,15 @@ def _atomic(path, data):
 
 
 def wanted_meshes(root=ROOT):
-    """{stored mesh name: its CAD file} for the model this checkout builds releases of."""
+    """{stored mesh name: its CAD file} for the models this checkout builds releases of: the active model, and the
+    head model Helm's 3D view draws (helm.display_model)."""
     from robot_platform.models import ModelProfile, UrdfModel
     from robot_platform.models.urdf import asset_digest
     from robot_platform.viewer.server import stored_mesh_name
-    model = UrdfModel(ModelProfile.load(Path(root) / MODEL))
     wanted = {}
-    for path in model.assets:
-        wanted.setdefault(stored_mesh_name(asset_digest(path)), Path(path))
+    for name in (MODEL, HEAD_MODEL):
+        for path in UrdfModel(ModelProfile.load(Path(root) / name)).assets:
+            wanted.setdefault(stored_mesh_name(asset_digest(path)), Path(path))
     return wanted
 
 

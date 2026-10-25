@@ -163,6 +163,18 @@ def test_run_starts_helm_with_minervas_options_or_says_what_is_missing(tmp_path,
     assert os.environ['AIZEE_SSH_KEY_FILE'] == str(p.local_key) and sys.path[0] == str(p.deps / lock)
 
 
+def test_the_mesh_store_gets_the_head_models_meshes_too():
+    """Helm's 3D view draws the head model (helm.display_model): its meshes go to Minerva with the active model's."""
+    from robot_platform.models import ModelProfile, UrdfModel
+    from robot_platform.models.urdf import asset_digest
+    from robot_platform.ops.release import HEAD_MODEL, MODEL
+    from robot_platform.viewer.server import stored_mesh_name
+    wanted = helm_robot.wanted_meshes(ROOT)
+    for model in (MODEL, HEAD_MODEL):
+        assets = UrdfModel(ModelProfile.load(ROOT / model)).assets
+        assert {stored_mesh_name(asset_digest(asset)) for asset in assets} <= set(wanted), model
+
+
 def test_meshes_upload_only_what_minerva_lacks_and_verify_it_there(tmp_path, monkeypatch):
     import gzip
     trimesh = pytest.importorskip('trimesh')
