@@ -174,7 +174,14 @@ class BridgeHub:
                 self._replies.clear()
                 self._lock.notify_all()
             if previous is not None:
-                previous.close()  # The newest bridge wins; the old relay ends.
+                # The newest bridge wins; the old relay ends now. close() alone leaves the socket open while its
+                # reader thread holds a file on it: a bridge that moved from Wi-Fi to a cable kept its old relay
+                # until TCP gave up (2026-10-25).
+                try:
+                    previous.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                previous.close()
             sock.settimeout(None)
             while True:
                 message = _recv(stream)

@@ -227,3 +227,28 @@ def test_names_resolve_to_ipv4_only(monkeypatch):
     assert gello_bridge.ipv4('aizee-rover.local') == '192.168.8.43'
     assert gello_bridge.ipv4('nowhere.local') is None
     assert set(families) == {socket.AF_INET}
+
+
+def test_a_newer_bridge_cuts_the_older_relay_at_once(hub):
+    """A bridge that reconnects (Minerva moved from Wi-Fi to a cable) replaces its old relay: the hub ends the old
+    connection now, not when TCP gives up on it (2026-10-25: close() left it open under its reader thread)."""
+    import socket
+
+    def relay_socket(host):
+        sock = socket.create_connection(('127.0.0.1', hub.port))
+        writer, reader = sock.makefile('wb'), sock.makefile('rb')
+        write_frame(writer, {'relay': hub_module.VERSION, 'token': hub.token, 'peer': None, 'server': None})
+        write_frame(writer, ['hello', {'version': hub_module.VERSION, 'host': host}])
+        assert read_frame(reader)[0] == 'welcome'
+        return sock, reader
+    old, old_reader = relay_socket('old')
+    new, _ = relay_socket('new')
+    try:
+        old.settimeout(3.)
+        with pytest.raises(EOFError):
+            while True:
+                read_frame(old_reader)  # Beats sent before the switch, then the end: never a timeout.
+        wait_until(lambda: hub.connected and hub.snapshot()['host'] == 'new')
+    finally:
+        old.close()
+        new.close()
