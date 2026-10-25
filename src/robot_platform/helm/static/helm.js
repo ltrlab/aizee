@@ -1339,7 +1339,7 @@ function onKey(event) {
   if ('IETHX'.includes(key) && key) {
     event.preventDefault();
     sendKey(key);
-  } else if (key === 'C' && last?.calibration) {
+  } else if (key === 'P' && last?.calibration) {
     event.preventDefault();
     captureStill();
   } else if (key === 'Z') {

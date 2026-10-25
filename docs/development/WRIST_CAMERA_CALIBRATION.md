@@ -85,7 +85,7 @@ A board corner p is seen at `project(camera, X^-1 F(q)^-1 Y p)`, with F(q) the U
   11 px window put corners 3 px off on small tags (rehearsed).
 - **The light on each tag:** its black border and the white label half a cell outside, as levels, temporal noise and
   the white's R/G and B/G: exposure and white balance checked in the working scene.
-- **Helm:** the Teleop tab's "Wrist camera calibration" card: camera choice, Capture (C), Undo, Solve, New run, the
+- **Helm:** the Teleop tab's "Wrist camera calibration" card: camera choice, Capture (P: C is pedal C, Next stage), Undo, Solve, New run, the
   last still with its tags outlined, and the solve's lines. Runs live under `~/minerva/helm/calibration/<run>/`
   (`stills.jsonl`, `images/`, `result.json`). Calibration exists only with Helm on Minerva.
 
@@ -117,7 +117,7 @@ A board corner p is seen at `project(camera, X^-1 F(q)^-1 Y p)`, with F(q) the U
    The solve reports the same numbers (the "placement" line), so the two can be compared.
 2. **Start a live session** (Live · left, then Live · right, or Live · both). For each wrist camera, 15-25 stills:
    - bring the camera over the table until it sees one or more tags; more tags a still is better, but one is fine;
-   - hold (T), wait a moment, Capture (C), then T to move on;
+   - hold (T), wait a moment, Capture (P), then T to move on;
    - vary distance (about 15-50 cm), tilt (up to ~45 degrees), roll (turn J6), and where the tags fall in the image,
      corners and edges included (distortion is largest there);
    - check each still's line: tags seen, movement under 1.5 mrad, white well above black (aim for white 150-230).
