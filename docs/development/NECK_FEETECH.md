@@ -4,11 +4,36 @@
 - **Base commit:** `e0165a0` (`claude/head-model`: the Head V1 export and the
   [head and neck handoff](HEAD_NECK_MODEL.md)).
 - **Owner:** Claude (2026-10-25 session).
-- **Request:** "start on the neck controller with the feetech servos". The neck has two Feetech STS3250s on a
-  Waveshare bus servo board, the SO-101 arm's adapter. The user wants it to "have the same limits, teleop and all
-  pipeline that we use for the robstrides", with "tuning parameters extracted too".
-- **This first step:** the bus driver, a simulated bus, and read-only tools. Nothing here enables torque, writes
-  a register on hardware or moves a servo.
+- **Requests:**
+  - "start on the neck controller with the feetech servos". The neck has two Feetech STS3250s on a Waveshare bus
+    servo board, the SO-101 arm's adapter.
+  - The neck should "have the same limits, teleop and all pipeline that we use for the robstrides", with "tuning
+    parameters extracted too".
+  - "Make what you need to [get] functional tuning for these servos", under "as much shared architecture as the
+    robstrides as possible", and "in Helm, they should fall under the same tabs and menu".
+  - "The head gets its own receiver that should be synced with the dual arms and cameras."
+
+## Decisions
+
+The user chose a separate head receiver. The defaults below were stated to the user and stand unless they say
+otherwise.
+
+1. **One shared core, its own process.** The head receiver runs the arms' Rust core (leases, limits, stops,
+   protocol, recorder) behind a Feetech `Hardware`, as its own process on the Jetson (`bin/head_controller`). Helm
+   drives it with the same client code.
+2. **Collision.** Two receivers cannot check each other's live motion. The head's whole reachable volume, over its
+   swept limits, becomes a fixed keep-out in the arms' collision model, so the head moves freely in its range and
+   never meets an arm. The arms lose only the space next to the head. That collision-model change belongs to the
+   motion-contract owner. Until then, the head moves only with the arms down and disabled.
+3. **Sync.**
+   - The arms, head and cameras run on the Jetson's one monotonic clock.
+   - One Helm session drives both receivers through the same states.
+   - Recordings store the neck as its own timestamped stream beside the arms and cameras. That is a deliberate
+     format change, since episodes assert 14 axes today.
+4. **Faults.** A fault in either receiver holds both. The head keeps its pose, since a servo holds its last goal.
+   Torque is cut only on lost feedback, a servo fault or an e-stop, as for the arms.
+5. **Names.** The motors are `head_pan` and `head_tilt` (the robot definition's names). They drive the CAD joints
+   `neck_z` and `neck_y` (the URDF's) through the head's directions, as an arm motor drives its CAD joint.
 
 ## The servos and the protocol
 
@@ -19,116 +44,115 @@
 | Position | 12-bit magnetic encoder, 4096 steps a turn |
 | Bus | Half-duplex TTL, factory 1 Mbps, factory id 1 |
 
-Every servo ships as id 1, so the two must get distinct ids before they share the bus.
-
 - **Control table:** the STS/SMS series table, the same one the SO-101's STS3215 uses. EEPROM is addresses 0–39
   and persists across power cycles; writing it needs `Lock` (55) at 0. RAM starts at 40.
+- **Homing offset:** Present_Position = actual position − Homing_Offset.
 - **Sign-magnitude registers:** `Homing_Offset` (sign in bit 11); goal and present position and velocity
   (bit 15); `Present_Load` (bit 10).
 - **Status error bits:** input voltage, angle sensor, overheat, overcurrent, overload.
 - **Sources:**
-  - LeRobot v0.4.0 [`motors/feetech/tables.py`](https://github.com/huggingface/lerobot/blob/v0.4.0/src/lerobot/motors/feetech/tables.py)
-    for model numbers, encodings and baud codes.
-  - rustypot [`servo/feetech/sts3215.rs`](https://github.com/pollen-robotics/rustypot/blob/main/src/servo/feetech/sts3215.rs)
-    for the register map and the load sign bit.
-  - Feetech's packet format, as implemented by the SO-101 leader in `python/teleop/so101_leader.py`.
+  - LeRobot v0.4.0 [`tables.py`](https://github.com/huggingface/lerobot/blob/v0.4.0/src/lerobot/motors/feetech/tables.py)
+    and [`feetech.py`](https://github.com/huggingface/lerobot/blob/v0.4.0/src/lerobot/motors/feetech/feetech.py)
+    (the homing convention);
+  - rustypot [`sts3215.rs`](https://github.com/pollen-robotics/rustypot/blob/main/src/servo/feetech/sts3215.rs).
 
 ## Built so far
 
-- **`src/robot_platform/neck/feetech.py`** builds packets and holds the register table.
-  - Every reply is checked strictly. Silence raises `NoReply`, alarm bits raise `ServoAlarm`, and a malformed
-    reply raises `FeetechError`. Nothing retries or reconnects.
-  - Operations: ping, read, `read_many` (one span), write, `sync_read` and `sync_write`.
-  - EEPROM writes need `allow_eeprom=True`.
-  - `detect_echo` checks once whether the adapter loops requests back.
-- **`src/robot_platform/neck/sim.py`** simulates servos that answer the same bytes.
-  - Its motion model slews to the goal within the position limits, speed and acceleration. It is not the real
-    servo's dynamics, and its 2900 steps/s no-load speed is a stand-in until measured.
-  - A hand can move a torque-off servo. Silence, corrupt checksums and alarm bits can be injected.
-  - Every request is logged, so a test can prove a tool only read.
-- **`robot-platform neck`** has three read-only commands that send only PING, READ and SYNC_READ:
-  - `ports` lists serial ports with their USB ids.
-  - `probe --port DEV [--ids 0-20]` prints what each servo that answers holds, as JSON: model, firmware, id,
-    baud, limits, offset, mode, P/D/I, torque, lock, position, voltage, temperature and alarms.
-  - `watch --port DEV --ids 1,2` prints positions and the range seen so far while you turn the joints by hand
-    with the torque off.
-- **Tests:** [tests/unit/test_neck_feetech.py](../../tests/unit/test_neck_feetech.py), 9 of them, in the gate.
+| Piece | Where | What it does |
+|---|---|---|
+| Head receiver | `rust/control_core/src/feetech.rs`, `head_config.rs`, `head_service.rs`, `bin/head_controller.rs` | The core behind `FeetechHardware`, described below |
+| Python driver | `neck/feetech.py`, `neck/sim.py`, `neck/probe.py` | The same protocol for tools; a byte-level simulator |
+| Setup | `neck/setup.py`, `robot-platform neck ...` | Ids, centring, servo limits, the head's files, described below |
+| Derivation | `config/devices/minerva-head.json`, `neck/head.py` | The arms' `derive_receiver`, described below |
+| Tune | `helm/tune.py`, the Tune tab | The arms' sweep engine on the head, described below |
+| Release | `ops/release.py` | Carries `bin/head_controller` and the head model's URDF, its mesh digests in the asset lock |
 
-## First live step (read-only, with the user)
+**Head receiver.** It runs the arms' receiver core behind `FeetechHardware`.
 
-1. Power the Waveshare board from the servos' 12 V supply, then plug its USB into the computer that will run the
-   tools.
-2. Run `robot-platform neck ports` to find the adapter's device and USB ids.
-3. Connect **one servo at a time**. Two servos at the factory id 1 answer together, and their replies collide.
-   Run `robot-platform neck probe --port /dev/ttyACM0` and keep the JSON.
-4. Run `robot-platform neck watch --port /dev/ttyACM0 --ids 1` and turn that joint by hand to both ends.
+- **Command mapping:**
+  - position goes to Goal_Position;
+  - kp and kd go to the P and D registers, written with the EEPROM locked so they never persist;
+  - zero gains mean torque off, the core's limp Idle;
+  - velocity and effort are not sent, since a position servo takes neither.
+- **Feedback:** position, speed, load as effort, and temperature. Any alarm bit faults the joint, and a servo that
+  reboots while driven reads as dropped.
+- **Startup gates:** the servos' model and firmware, then the arms' reference-pose gate, before the socket opens.
+  There is no command watchdog: a servo holds its last goal.
+- **Modes:** `virtual_bus`, `observe` and `teleop_direct`. The physical bus is pinned by its adapter's
+  `/dev/serial/by-id` path.
 
-The code runs on the Jetson only after a deploy, which needs the user's OK. Before that it runs from a PC with the
-adapter plugged in.
+**Setup.** Every step needs the torque off and exactly the expected servo answering.
 
-## Where the RobStride pipeline needs the neck
+- `set-id`, `centre` and `limits` write EEPROM, so each needs `--confirm`. Each verifies what it wrote, undoes a
+  centring that does not read back, and locks the EEPROM again.
+- `save-reference` and `sweep-limits` only read the servos. They write the head's files beside the arms' servo
+  calibration, in the arms' formats.
 
-A read-only map of the code (2026-10-25) found the following.
+**Derivation.** The head profile reads as a teleop profile. The head derives through the arms' `derive_receiver`
+with collision checks off: the swept range plus overtravel, the approach margins, speed headroom, the hold gains
+and the servo calibration all apply unchanged. The receiver works in raw servo radians. Commands come at 25 Hz;
+the receiver ramps each over 40 ms, so the servos get 100 Hz goals.
 
-- **The only hardware abstraction** is the Rust receiver's `Hardware` trait (`rust/control_core/src/hardware.rs`).
-  Its only implementations are `Loopback` and CAN.
-- **Everything around it assumes RobStride on CAN:** identity (uid and firmware), the stopped reader
-  (`control/joint_capture.py`), the mechanical zero, the power-on range, wire ranges, the watchdog, and the
-  rule that each arm is one bus.
-- **Tune's analysis assumes torque control** (`control/servo_analysis.py`): kp and kd in Nm/rad, effort in Nm.
-  An STS3250 is a position servo with internal P/D/I registers that reports load as a percentage. "Tuning
-  parameters extracted" therefore needs a position-servo version of the sweep. It would extract the P, D and I
-  registers, acceleration, maximum velocity, stopping, and the tracking error.
-- **The collision envelope requires one receiver to own every actuator in the model.** Joints outside it are
-  held at their reference pose.
-- **Names:** the robot definition (`robots/definitions/minerva.json`) has inactive `head_pan`/`head_tilt`, while
-  the URDF has `neck_z`/`neck_y`. The calibration plan's steps would map motors `head_pan`/`head_tilt` to the
-  CAD joints `neck_z`/`neck_y`.
-- **Hard-coded 14 motors and left/right arms:**
-  - task capture asserts exactly 14 axes;
-  - Tune, Check, the live receiver choices and Helm's pages loop over left and right only.
+**Tune.** The Tune tab has a Head choice beside Left and Right. The arms' sweep engine runs on the head's receiver
+with direct updates (no collision envelope):
 
-  The Limits page already groups unknown motors as "OTHER".
-- **The LeRobot exporter is generic.** Policy vectors take whatever joints the receiver has, so adding the neck
-  to them must be a deliberate choice.
+1. characterise;
+2. a P × D ladder in register units;
+3. speeds and braking;
+4. verify.
 
-**The decision this needs (the motion-contract owner and the user):** the neck joins the arms' receiver, or runs
-its own.
+Saving writes `<asset>-head-servo.json`, bound to each servo's identity, and the next derivation uses it. The
+virtual receiver uses a nominal reference until the head is set up.
 
-- **Joining (recommended):** a Feetech `Hardware` implementation and a serial "bus" in the service
-  configuration. The neck then gets the same lifecycle, limits, freshness, telemetry and recording, and one
-  receiver owns every actuator, as the collision envelope requires.
-- **Separate:** a neck receiver is quicker to build, but the guard could not certify arm motion against a head
-  pose it does not control.
+**Tests:**
 
-Either way, the receiver part belongs to the motion contract.
+- Python: `tests/unit/test_neck_feetech.py` (13), `tests/unit/test_neck_head.py` (3) and
+  `tests/contract/test_helm_tune_head.py` (4), which includes a whole head sweep on the real core. All are in the
+  gate.
+- Rust: 10 host tests for the Feetech hardware and the head config. The Linux service cross-builds for the Jetson.
 
-## Plan
+## Bring-up on the hardware, with the user
 
-1. **Ids and safe settings.** These are EEPROM writes and need the user's OK.
-   - One servo at a time on the bus: pan gets id 1 and tilt id 2.
-   - Write their position limits, torque limit and protection settings, recorded in a neck servo file.
-2. **Identity, stopped reader and limits, as for the RobStrides.**
-   - Identity: an STS has no uid, so it is the servo id, model and firmware plus the adapter's pinned USB serial.
-   - A stopped Feetech reader, like `joint_capture.py`, feeds Limits, the live view and Check.
-   - A torque-off hand sweep (`watch`) gives each neck joint's range.
-   - Store it with the same margin rule as the arms' swept ranges.
-   - Set the direction and zero against the CAD pose: head straight ahead and level.
-3. **Motion and tuning** (the receiver part with the motion-contract owner).
-   - Position mode with speed and acceleration caps.
-   - A Tune sweep for the neck: step responses over P, D and acceleration rungs, picking the stiffest rung that
-     passes, written to the neck servo file.
-   - Rehearsed on the simulator first, then live with the user present.
-4. **Helm and teleop.**
-   - Neck entries in Limits, Tune and Check.
-   - Live telemetry, so the 3D view moves the neck.
-   - A teleop input. The OpenRB leader frames already carry joystick values, which could drive the neck.
-   - Recording: the neck's state goes into episodes only on purpose, since it changes the dataset.
-5. **Collision.** The head goes into the collision model first; that model belongs to the motion-contract owner,
-   see [HEAD_NECK_MODEL](HEAD_NECK_MODEL.md). Until then the neck should not move while the arms do under the guard.
+The servo tools run on whichever computer the Waveshare board is plugged into. The board stays on the Jetson in
+the end; there the tools need the release (a deploy, with the user's OK).
+
+1. Power the board from the servos' 12 V supply, plug its USB in, and run `robot-platform neck ports`. Note the
+   adapter's device, USB serial and its `/dev/serial/by-id/...` path.
+2. **One servo on the bus at a time.** Both ship as id 1.
+   - Run `robot-platform neck probe --port DEV` and keep the JSON.
+   - Run `robot-platform neck set-id --port DEV --to 2 --confirm` for the tilt servo. The pan servo keeps id 1.
+3. **Both servos on the bus, the head held straight ahead and level, torque off.** For each id, run
+   `robot-platform neck centre --port DEV --id N --confirm`. Each then reads 2048 there, mid-turn, so its range
+   never wraps.
+4. Run `robot-platform neck save-reference --port DEV --directory <operator files> --asset minerva-production-01`.
+5. Run `robot-platform neck sweep-limits --port DEV --directory ... --asset ...` and turn each joint slowly to both
+   ends by hand.
+6. **Optional:** `neck limits --id N --low L --high H --confirm` sets each servo's own limits, a little outside
+   the swept range, as a backstop.
+7. Fill the head profile's `bus` (the by-id path and USB serial), then commit and deploy, with the user's OK.
+8. In Helm's Tune tab, choose Head, then try a virtual sweep, then a live one with the user present. The arms stay
+   down and disabled.
+
+**To verify on the first live run:**
+
+- Gains written with the EEPROM locked take effect: read P back after the receiver's first gain write. They are
+  lost at power-off by design.
+- The head's directions against the CAD (the sign).
+- Whether the foot switch cuts the head's 12 V supply. H always disables the head.
+
+## Next
+
+- **Limits tab:** a stopped Feetech reader in Helm's live link, so the head's range is swept in the Limits tab like
+  the arms'. `neck sweep-limits` stands in until then.
+- **Minerva Check:** the head's identity and pose checks, and its live sweep.
+- **Teleop:** the head receiver driven beside the arms' in one session, synced as described above.
+  - Its input is still the user's choice; the leaders' unused joystick values are one option.
+  - Recording gains the neck's stream.
+- **The arms' keep-out of the head's reachable volume:** the motion-contract owner's change. The head moves only
+  with the arms down until it lands.
 
 ## Open questions
 
-- Which servo is pan and which is tilt, and are both still at id 1?
-- What should drive the neck in teleop? The leaders' joysticks, Helm controls, the pedals, or something
-  automatic such as looking at the active gripper?
+- Which servo is pan and which is tilt? The plan above gives pan id 1 and tilt id 2.
+- What drives the neck in teleop?
+- Does the foot switch cut the head's 12 V supply?
