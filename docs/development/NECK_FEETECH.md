@@ -231,6 +231,11 @@ the end; there the tools need the release (a deploy, with the user's OK).
     the simulator's steps/s. The receiver sends goals only, so it does not depend on it.
   - The tilt reached the 40 % torque limit while moving (the pan 10 %), so it was either the start or a load on its
     horn. It held at rest with no load.
+- **Second motion, the user watching ("they moved smoothly"):** from 2048, one at a time, the pan ±300 steps and
+  back, then the tilt −300 and back, each held 1 s, then limp at 2048. With the speed register at 100, the tilt
+  moved at 100 steps/s, but the pan at 280-390 (peaks 550-750). Their registers differ only in id, limits and
+  homing offset. The pan's leftover offset (2047) puts its encoder at 4095, the wrap, where it reads 2048: its
+  speed estimate may be off across the wrap. Check again once centring has rewritten the offset.
 
 **To verify on the first live run:**
 
