@@ -225,13 +225,25 @@ the end; there the tools need the release (a deploy, with the user's OK).
   write's late acknowledgement (from the old id, `ff ff 0b 02 00 f2`) was read as the reply to the next ping: a
   "malformed reply", although the write had taken. `set-id`, `centre` and `limits` would hit it too. EEPROM writes
   now wait up to 100 ms for their own acknowledgement (`feetech.EEPROM_ACK_S`).
+- **First motion (the user asked):** both servos, torque limit 40 %, to their mid-turn reading 2048 (pan from 2224,
+  tilt from 1307), held 2 s, then limp; they stayed at 2048. Two surprises:
+  - A speed register of 400 gave about 1200 steps/s (there in 0.62 s, not 2 s): the STS3250's speed unit is not
+    the simulator's steps/s. The receiver sends goals only, so it does not depend on it.
+  - The tilt reached the 40 % torque limit while moving (the pan 10 %), so it was either the start or a load on its
+    horn. It held at rest with no load.
 
 **To verify on the first live run:**
 
 - Gains written with the EEPROM locked take effect: read P back after the receiver's first gain write. They are
   lost at power-off by design.
 - The head's directions against the CAD (the sign).
-- Whether the foot switch cuts the head's 12 V supply. H always disables the head.
+- **The foot switch does not cut the head's 12 V supply** (the user, 2026-10-25). The user wants Disable to stop the
+  head and Shutdown to bring it to a stable pose, which is what the lifecycle does:
+  - Disable (H) cuts the head's torque at once, in any state.
+  - Shutdown (X) brings each joint to its zero (the reference pose: straight ahead, level) at the shutdown speed,
+    then disables once it settles.
+  - If the assembled head does not rest stably at its zero without torque, give the head a rest pose of its own
+    (tilted onto a stop) for Shutdown.
 
 ## Next
 
@@ -245,4 +257,4 @@ the end; there the tools need the release (a deploy, with the user's OK).
 ## Open questions
 
 - ~~Which servo is pan and which is tilt?~~ Pan is id 1 and tilt id 2, set on the hardware on 2026-10-25.
-- Does the foot switch cut the head's 12 V supply?
+- ~~Does the foot switch cut the head's 12 V supply?~~ No (the user, 2026-10-25): Disable is the head's stop.
