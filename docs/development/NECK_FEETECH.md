@@ -208,6 +208,24 @@ the end; there the tools need the release (a deploy, with the user's OK).
 8. In Helm's Tune tab, choose Head, then try a virtual sweep, then a live one with the user present. The arms stay
    down and disabled.
 
+**Done on Minerva, 2026-10-25 (bench, the head still printing):**
+
+- **The board:** on the Jetson, a CH343 (`1a86:55d3`, USB serial `5A68010635`) at
+  `/dev/serial/by-id/usb-1a86_USB_Single_Serial_5A68010635-if00`, on the onboard hub the CAN adapters share. The
+  head profile's `bus` is pinned to it.
+- **The probe** found two STS3250s (firmware 3.9, 1 Mbaud, 12.1 V, 24-25 °C, torque off, no alarms) at ids 1 and 11.
+  Neither was fresh: both carry offsets and limits from earlier use (id 1: offset −219, limits 360..2145; id 11:
+  offset 2047, limits 1050..3730). Centring and limits replace them on the assembled head.
+- **Which is which:** the user turned the tilt servo; id 1 moved (1783 → 1307 steps), so the tilt was id 1 and the
+  pan id 11.
+- **Renumbered** with both on the bus, each step with its source id answering, its target id free and the servo
+  limp, as `set-id` does: the tilt 1 → 2, then the pan 11 → 1. The bus now holds ids 1 (pan) and 2 (tilt), both
+  locked.
+- **Found doing it:** an EEPROM write is acknowledged only once stored, after the driver's 20 ms reply window. The id
+  write's late acknowledgement (from the old id, `ff ff 0b 02 00 f2`) was read as the reply to the next ping: a
+  "malformed reply", although the write had taken. `set-id`, `centre` and `limits` would hit it too. EEPROM writes
+  now wait up to 100 ms for their own acknowledgement (`feetech.EEPROM_ACK_S`).
+
 **To verify on the first live run:**
 
 - Gains written with the EEPROM locked take effect: read P back after the receiver's first gain write. They are
@@ -221,14 +239,10 @@ the end; there the tools need the release (a deploy, with the user's OK).
   the arms'. `neck sweep-limits` stands in until then.
 - **Minerva Check:** the head's identity and pose checks, and its live sweep.
 - **Recording:** the neck's stream beside the arms and cameras.
-- **The headset on the hardware:** try the Quest on Minerva's Helm (a deploy, with the user's OK), first with a
-  virtual session.
-- **Option:** the head camera's picture in the headset. Today the operator watches Helm's screen, through
-  passthrough or without the headset.
-- **The arms' keep-out of the head's reachable volume:** the motion-contract owner's change. The head moves only
-  with the arms down until it lands.
+- **The assembled head:** centre, save-reference and sweep-limits (steps 3-5), then the Tune tab's head sweep.
+- **No arm-vs-head collision checks:** the user decided (2026-10-25) the head needs none.
 
 ## Open questions
 
-- Which servo is pan and which is tilt? The plan above gives pan id 1 and tilt id 2.
+- ~~Which servo is pan and which is tilt?~~ Pan is id 1 and tilt id 2, set on the hardware on 2026-10-25.
 - Does the foot switch cut the head's 12 V supply?

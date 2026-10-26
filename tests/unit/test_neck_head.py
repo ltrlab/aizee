@@ -47,11 +47,11 @@ def test_the_head_service_configuration_follows_the_receiver_rules():
     virtual = head.service_config(PROFILE, reference, result, mode='virtual_bus')
     assert virtual['bus'] == {'device': '', 'usb_serial': None, 'baud': 1000000} and not virtual['reference_positions']
     assert {(s['direction'], s['zero_steps']) for s in virtual['servos']} == {(1.0, 0.0)}  # Raw servo radians.
+    unpinned = dict(PROFILE, bus={'device': None, 'usb_serial': None, 'baud': 1000000})
     with pytest.raises(ValueError, match='not pinned'):
-        head.service_config(PROFILE, reference, result, mode='teleop_direct')
-    pinned = dict(PROFILE, bus={'device': '/dev/serial/by-id/usb-1a86_USB_Single_Serial_5A46083062-if00',
-                                'usb_serial': '5A46083062', 'baud': 1000000})
-    live = head.service_config(pinned, reference, result, mode='teleop_direct')
+        head.service_config(unpinned, reference, result, mode='teleop_direct')
+    live = head.service_config(PROFILE, reference, result, mode='teleop_direct')  # Pinned on Minerva, 2026-10-25.
+    assert live['bus']['usb_serial'] == '5A68010635'
     assert [r['raw_position_rad'] for r in live['reference_positions']] == pytest.approx([math.pi, math.pi])
     # Every joint's range stays inside one turn of the servo (the receiver refuses any other).
     for joint in live['controller']['joints']:

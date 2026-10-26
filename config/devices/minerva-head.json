@@ -5,15 +5,15 @@
   "runtime_approved": false,
   "notes": [
     "Minerva's head: two Feetech STS3250s on a Waveshare bus servo adapter, on their own receiver (bin/head_controller).",
-    "Read as a teleop profile by the arms' derivation (guarded_config.derive_receiver), collision checks off: the arms keep out of everywhere the head can reach.",
+    "Read as a teleop profile by the arms' derivation (guarded_config.derive_receiver), collision checks off: the user decided (2026-10-25) the head needs none.",
     "The receiver works in raw servo radians (steps x 2 pi / 4096); kp and kd are the servos' P and D registers (0..255).",
     "Commands come at 25 Hz and the receiver ramps each over 40 ms with its velocity, so the servos get goals at 100 Hz; the servos take neither velocity nor effort. A command lives 100 ms: in teleop each takes the offer of the reply before it, a cycle old.",
     "Motion values are starting points for the head's servo sweep, not measured settings. The bus, the servos' firmware and their reference readings are filled in from the hardware (robot-platform neck probe, centre)."
   ],
   "model_profile": "urdf/minerva/onshape-to-robot-head-v1/model.json",
   "bus": {
-    "device": null,
-    "usb_serial": null,
+    "device": "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5A68010635-if00",
+    "usb_serial": "5A68010635",
     "baud": 1000000
   },
   "motors": [
