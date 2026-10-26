@@ -134,6 +134,12 @@ def span(names):
     return start, max(r.address + r.size for r in registers) - start
 
 
+# An EEPROM write is acknowledged once the servo has stored it, far later than a RAM write: renumbering the neck's
+# STS3250s (2026-10-25), an id write's acknowledgement came after the 20 ms reply window and was read as the reply
+# to the next request. Each EEPROM write waits up to this long for its own.
+EEPROM_ACK_S = .1
+
+
 class FeetechBus:
     """One half-duplex bus on an open transport: `write(bytes)`, `read(n)` returning at most n bytes within its
     own short timeout, and `reset_input_buffer()`, as pyserial's Serial has. Requests go strictly one at a time.
@@ -151,22 +157,22 @@ class FeetechBus:
             data.extend(self.transport.read(size - len(data)))
         return bytes(data)
 
-    def _send(self, request):
+    def _send(self, request, timeout_s=None):
         """Send `request`, consume its echo if the adapter has one, and return the reply deadline."""
         self.transport.reset_input_buffer()
         self.transport.write(request)
-        deadline = self.clock() + self.timeout_s
+        deadline = self.clock() + (timeout_s or self.timeout_s)
         if self.echo:
             echoed = self._read_exact(len(request), deadline)
             if echoed != request:
                 raise FeetechError(f"Adapter echo mismatch: sent {request.hex(' ')}, read {echoed.hex(' ')}")
         return deadline
 
-    def _transact(self, servo_id, code, params, reply_length):
-        deadline = self._send(instruction(servo_id, code, params))
+    def _transact(self, servo_id, code, params, reply_length, timeout_s=None):
+        deadline = self._send(instruction(servo_id, code, params), timeout_s)
         reply = self._read_exact(reply_length + 6, deadline)
         if not reply:
-            raise NoReply(f"Servo {servo_id}: no reply within {self.timeout_s * 1000:.0f} ms")
+            raise NoReply(f"Servo {servo_id}: no reply within {(timeout_s or self.timeout_s) * 1000:.0f} ms")
         error, data = parse_status(reply, servo_id, reply_length)
         if error:
             raise ServoAlarm(servo_id, alarms_of(error), data)
@@ -221,7 +227,8 @@ class FeetechBus:
         if servo_id == BROADCAST:
             self._send(instruction(servo_id, WRITE, params))
             return
-        self._transact(servo_id, WRITE, params, 0)
+        eeprom = register.address < EEPROM_END
+        self._transact(servo_id, WRITE, params, 0, max(self.timeout_s, EEPROM_ACK_S) if eeprom else None)
 
     def sync_read(self, servo_ids, names):
         """Registers `names` (one contiguous span) from several servos in one request; each answers in turn, in

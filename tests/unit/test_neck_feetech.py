@@ -1,4 +1,6 @@
 """Feetech STS driver for the neck: packets, encodings, strict replies, the simulated bus and the read-only probe."""
+import time
+
 import pytest
 
 from robot_platform.neck import feetech
@@ -150,6 +152,51 @@ def test_setup_gives_the_only_servo_its_id_and_relocks():
     two_sim, two = bus_with(SimulatedServo(1), SimulatedServo(2))
     with pytest.raises(setup.SetupError, match="exactly one servo"):
         setup.set_id(two, 3, ids=range(0, 6))
+
+
+class SlowEeprom:
+    """A bus whose servo, after an EEPROM write, is busy storing it for `busy_s`, as the neck's STS3250s were when
+    renumbered: its acknowledgement (from the id it was written at) and its reply to anything asked meanwhile come
+    only then, in that order."""
+    def __init__(self, sim, busy_s):
+        self.sim, self.busy_s, self.until, self.held = sim, busy_s, 0., bytearray()
+
+    def reset_input_buffer(self):
+        self.sim.reset_input_buffer()  # Only what has arrived: the held replies have not.
+
+    def write(self, request):
+        busy = time.perf_counter() < self.until
+        self.sim.write(request)
+        if request[4] == WRITE and request[5] < feetech.EEPROM_END and self.sim.pending:
+            self.sim.pending.clear()
+            body = bytes((request[2], 2, 0))
+            self.held.extend(feetech.HEADER + body + bytes((feetech.checksum(body),)))
+            self.until = time.perf_counter() + self.busy_s
+        elif busy:
+            self.held.extend(self.sim.pending)
+            self.sim.pending.clear()
+
+    def read(self, size):
+        if self.held and time.perf_counter() >= self.until:
+            self.sim.pending[:0] = self.held
+            self.held.clear()
+        return self.sim.read(size)
+
+
+def test_an_eeprom_write_waits_for_its_own_late_acknowledgement():
+    """With only the short window, the id write's late acknowledgement (from the old id) was read as the reply to
+    the ping of the new id: "malformed reply ff ff 0b 02 00 f2" renumbering servo 11 to 1."""
+    from robot_platform.neck import setup
+    sim = SimulatedBus([SimulatedServo(1, position=1500)])
+    bus = FeetechBus(SlowEeprom(sim, .007), timeout_s=.005)
+    assert setup.set_id(bus, 2, ids=range(0, 6)) == (1, 2)
+    assert bus.read(2, "ID") == 2 and bus.read(2, "Lock") == 1
+    bus.write(2, "Lock", 0)  # RAM writes keep the short window.
+    started = time.perf_counter()
+    with pytest.raises(NoReply, match="100 ms"):  # Silence on an EEPROM write: the long window, then NoReply.
+        sim.servos[2].silent = True
+        bus.write(2, "Max_Position_Limit", 3000, allow_eeprom=True)
+    assert time.perf_counter() - started >= .1
 
 
 def test_setup_centres_the_reading_and_sets_limits_on_a_limp_servo():
