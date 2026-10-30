@@ -440,3 +440,19 @@ def test_live_head_alone_needs_the_head_set_up_and_drives_no_replay(tmp_path):
     with pytest.raises(ValueError, match='Limits → Head'):
         teleop.start(confirm=True)  # This checkout keeps no head reference or limits.
     assert not teleop.active
+
+
+def test_the_heads_jog_starts_on_the_robot_without_the_arms_calibration(monkeypatch):
+    # The head's Tune bundle names no arms' calibration, and its profile is the head's: the robot side refused the
+    # first live jog with KeyError: 'calibration_profile' (2026-10-30).
+    from robot_platform.ops import release
+    monkeypatch.setattr(release, 'activate', lambda root: {})
+    start = {'bundle': {'kind': 'tune', 'mode': 'jog', 'arm': 'head', 'receiver': {'mode': 'live', 'arm': 'head'},
+                        'teleop_profile': 'config/devices/minerva-head.json'}, 'key': '00' * 32, 'bind': '127.0.0.1'}
+    bundle, link = edge.prepare(start, ROOT, leaders=False)
+    assert link is None and 'calibration_profile' not in bundle
+    assert bundle['teleop_profile'] == str(ROOT / 'config/devices/minerva-head.json')
+    arms = dict(start, bundle=dict(start['bundle'], calibration_profile='config/devices/minerva-joint-calibration.json',
+                                   bindings={'left_arm_j1': 'mismatch'}))
+    with pytest.raises(ValueError, match='calibration files differ'):  # The arms' check still holds.
+        edge.prepare(arms, ROOT, leaders=False)

@@ -158,7 +158,9 @@ class Outbox:
 # -- Robot side ----------------------------------------------------------------------
 
 def prepare(start, root=ROOT, *, leaders=True):
-    """Activate the release, match Helm's calibration and bind the leader link: (bundle, link or None)."""
+    """Activate the release, match Helm's calibration and bind the leader link: (bundle, link or None). The head's
+    jog names no arms' calibration and its profile is the head's, so with no leaders neither is read (a jog failed
+    here with KeyError: 'calibration_profile', 2026-10-30)."""
     from robot_platform.control.joint_calibration import load_plan
     from robot_platform.ops.release import activate
     from robot_platform.teleop.leader_link import LeaderLinkInput
@@ -167,13 +169,14 @@ def prepare(start, root=ROOT, *, leaders=True):
     activate(root)
     bundle = dict(start['bundle'])
     for key in ('calibration_profile', 'teleop_profile'):
-        bundle[key] = str(root / bundle[key])
-    if load_plan(bundle['calibration_profile'])[-1] != bundle['bindings']:
+        if key in bundle:
+            bundle[key] = str(root / bundle[key])
+    if 'calibration_profile' in bundle and load_plan(bundle['calibration_profile'])[-1] != bundle['bindings']:
         raise ValueError("The robot's calibration files differ from this PC's. "
                          'Deploy (scripts/deploy_minerva_arms.sh) and start again.')
-    teleop = load_profile(bundle['teleop_profile'])
     if not leaders:
         return bundle, None
+    teleop = load_profile(bundle['teleop_profile'])
     leaders = json.loads((Path(bundle['teleop_profile']).parent / teleop['leader_profile']).read_text(encoding='utf-8'))
     link = LeaderLinkInput(bytes.fromhex(start['key']), leaders, bind=(start['bind'], 0),
                            timeout_s=min(.02, .4 * loop_period_s(teleop)))
