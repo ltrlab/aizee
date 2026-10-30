@@ -150,9 +150,11 @@ class HeadReceiver(LiveReceiver):
     the reference pose before it opens its socket, so there is no separate prescan or bus to bring up."""
 
     def __init__(self, config, *, binary, directory, labels=None, **options):
-        super().__init__(config, device={'buses': []}, reference={'motors': []}, binary=binary,
+        # The arms' receiver names itself after its CAN buses (config['buses']); the head's servos share one Feetech
+        # bus of its own (config['bus']), so it starts with none and keeps its own configuration for its service.
+        super().__init__(dict(config, buses=[]), device={'buses': []}, reference={'motors': []}, binary=binary,
                          directory=directory, labels=labels, **options)
-        self.buses, self.label = [], 'head'
+        self.config, self.buses, self.label = config, [], 'head'
 
     def _prescan(self):
         return None

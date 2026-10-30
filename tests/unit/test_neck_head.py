@@ -1,5 +1,6 @@
 """The head on the arms' pipeline: its settings from the arms' derivation, its receiver's configuration, and a
 session on the real receiver core (the harness) under the direct policy."""
+import json
 import math
 from pathlib import Path
 
@@ -87,3 +88,38 @@ def test_a_head_session_holds_and_follows_direct_updates_on_the_receiver_core():
             client.direct_update(too_stiff, reply, valid_for_ms=40)
     finally:
         harness.close()
+
+
+def test_the_head_receiver_starts_and_stops_its_own_service(tmp_path):
+    # The first live jog stopped with "'buses'" (the user, 2026-10-30): the head's receiver had never been built,
+    # since the arms' receiver reads its CAN buses and the head has one Feetech bus. Faked service and process.
+    from types import SimpleNamespace
+    reference, result = derived()
+    service = head.service_config(PROFILE, reference, result, mode='teleop_direct')
+    spawned, closed = [], []
+    process = SimpleNamespace(returncode=None, poll=lambda: process.returncode, wait=lambda timeout=None: 0,
+                              terminate=lambda: setattr(process, 'returncode', 0), kill=lambda: None)
+
+    class Transport:
+        def __init__(self, endpoint, *, timeout_ms):
+            self.endpoint, self.last = endpoint, None
+
+        def request(self, request):
+            rows = [{'position': math.pi, 'velocity': 0., 'effort': 0., 'temperature': 30., 'sequence': 2,
+                     'sampled_at_ms': 10, 'fault': False} for _ in service['servos']]
+            self.last = {'reply': {}, 'status': {'state': 'disarmed', 'reason': 'ok'}, 'feedback': rows}
+            return self.last
+
+        def close(self):
+            closed.append(self.endpoint)
+
+    live = head.HeadReceiver(service, binary='/release/bin/head_controller', directory=tmp_path,
+                             spawn=lambda args, **options: spawned.append(args) or process, transport_factory=Transport)
+    assert live.start() is live and live.label == 'head' and live.buses == []
+    assert Path(spawned[0][0]).name == 'head_controller' and len(spawned) == 1
+    assert spawned[0][1:] == [str(tmp_path / 'live-head.json'), '--allow-powered-teleop', '--confirm-reference-pose']
+    assert json.loads((tmp_path / 'live-head.json').read_text()) == service  # Its own configuration, nothing added.
+    assert live.config == service and live.last['status']['state'] == 'disarmed'
+    live.close()
+    assert closed == [service['endpoint']] and process.returncode == 0
+    assert (tmp_path / 'live-head-last.json').exists()
