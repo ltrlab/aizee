@@ -129,6 +129,21 @@ may tilt depends on how far it is turned, as NAO's head pitch range narrows with
   below the floor rises straight up first.
 - Live sessions take the head only once its clearance is saved (`TeleopSession._head_bundle`); virtual ones always.
 
+**Where the head rests.** The user, 2026-10-30: "the head cannot stay straight and ahead. there should be an
+"engage" phase for the head as it will have a starting position and resting position where it currently is." Limp,
+the head droops. So a live head session or jog starts where it rests:
+
+- Just before the head's receiver starts, Helm reads the servos limp (`neck.head.read_rest`). The receiver's start
+  check then takes that pose (`service_config(start=...)`, tolerance 0.05 rad, the head still) in place of the
+  reference. A reading more than 0.1 rad outside the saved limits starts nothing.
+- Engage raises it: the jog's first move takes each joint from where it rests to its reference at 0.15 rad/s; in
+  teleop, Enable holds it where it rests and Engage (T) steps it toward the headset at the alignment speed.
+- Return (X), the end of a jog, a stopped jog and a session's close take it back to its reference first, then down
+  to where it rested (inside its usable range and clear of the shoulder), then disable it: it is never dropped from
+  straight ahead. Each stage is a straight move toward or away from straight ahead, so neither crosses the shoulder
+  corner. In teleop that is `HeadTeleop.returning` ('centre', then 'rest'), not the lifecycle's own Shutdown; X with
+  the head limp (Idle) just disables it, and H still cuts its torque at once.
+
 **Live · Head.** The Teleop tab's Head choice (`helm.head_only.HeadOnlyCore`) runs the head alone under the session's
 keys and pedals B and C, steered by the headset. The arms' receivers are never opened: their drives stay as they are,
 and Helm's live view keeps reading them. No leaders, bridge, task or arm limits are needed; a replay or a policy
@@ -282,8 +297,8 @@ the end; there the tools need the release (a deploy, with the user's OK).
   - Disable (H) cuts the head's torque at once, in any state.
   - Shutdown (X) brings each joint to its zero (the reference pose: straight ahead, level) at the shutdown speed,
     then disables once it settles.
-  - If the assembled head does not rest stably at its zero without torque, give the head a rest pose of its own
-    (tilted onto a stop) for Shutdown.
+  - The assembled head does not rest at its zero without torque (it droops), so Shutdown ends where the head
+    rested when the session began (see "Where the head rests").
 
 ## Next
 
