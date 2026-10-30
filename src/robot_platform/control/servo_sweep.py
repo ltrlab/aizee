@@ -195,6 +195,7 @@ class JointReport:
     verification: dict | None = None
     recommendation: dict | None = None
     check: dict | None = None
+    jog: dict | None = None  # The head's jog: how far each end of the joint was reached, and the worst lag.
     status: str = 'pending'
 
 
@@ -353,9 +354,10 @@ class SweepEngine:
                  interpolation_s=0., gravity=None, inertia=None):
         """mode 'tune' steps the settings; 'verify' (Minerva Check) checks each joint at the settings it has
         (`gains`, and each joint's speed cap), against its saved sweep (`calibration`: {motor: entry}) if any;
-        'return' only brings the arm from where it rests to its reference (`sweep` empty)."""
-        if mode not in ('tune', 'verify', 'return'):
-            raise ValueError('The sweep tunes, verifies or returns the arm')
+        'return' only brings the arm from where it rests to its reference (`sweep` empty); 'jog' (the head's test)
+        takes each joint alone, slowly, from its reference to each end and back."""
+        if mode not in ('tune', 'verify', 'return', 'jog'):
+            raise ValueError('The sweep tunes, verifies, jogs or returns the arm')
         if mode == 'tune' and any(joint.get('gripper') for joint in joints if joint['name'] in sweep):
             raise ValueError('Grippers are not swept: Minerva Check opens and closes each one')
         self.mode, self.calibration = mode, dict(calibration or {})
@@ -807,6 +809,8 @@ class SweepEngine:
                 try:
                     if self.mode == 'tune':
                         yield from self._joint(motor, report)
+                    elif self.mode == 'jog':
+                        yield from self._jog_joint(motor, report)
                     elif self.limits[motor].get('gripper'):
                         yield from self._verify_gripper(motor, report)
                     else:
@@ -1098,6 +1102,33 @@ class SweepEngine:
         self._task(f'{self._label(motor)}: back to the reference')
         yield from self._go(motor, home, slow)
         yield from self._hold(motor, settings['rest_s'])
+
+    def _jog_joint(self, motor, report):
+        """The head's test (the user, 2026-10-29: never sweep the head): the joint alone, from its reference slowly
+        to one end of its usable range, back, to the other end and back, every other joint held at its reference.
+        Turned and tilted down together, the head reaches its shoulder; one joint from the reference never does."""
+        settings, home = self.settings[motor], self.home[motor]
+        speed = settings['characterize_speed']
+        self._task(f'{self._label(motor)}: to the reference')
+        yield from self._go(motor, home, speed)
+        yield from self._hold(motor, settings['rest_s'])
+        low, high = self._allowed(motor)
+        reached, lag = {}, 0.
+        for end, name in ((low, 'lower'), (high, 'upper')):
+            self._task(f'{self._label(motor)}: slowly to its {name} limit')
+            for _ in self._go(motor, end, speed):
+                measured = self.measured(motor)
+                if measured is not None:
+                    lag = max(lag, abs(self.targets[motor] - measured))
+                yield
+            yield from self._hold(motor, 1.)
+            measured = self.measured(motor)
+            reached[name] = None if measured is None else measured - home
+            self._task(f'{self._label(motor)}: back to the reference')
+            yield from self._go(motor, home, speed)
+            yield from self._hold(motor, settings['rest_s'])
+        report.jog = {'speed': speed, 'lower': low - home, 'upper': high - home,
+                      'reached': reached, 'max_lag': lag}
 
     def _verify_joint(self, motor, report):
         """Minerva Check's live sweep of one joint: a short out-and-back for friction, then a pass across
@@ -1451,5 +1482,6 @@ class SweepEngine:
                 'holds': {str(kp): error for kp, error in report.holds.items()},
                 'speeds': report.speeds, 'decelerations': report.decelerations,
                 'verification': report.verification, 'recommendation': report.recommendation,
-                'check': report.check, 'usable': self._usable(motor, report), 'events': report.events}
+                'check': report.check, 'jog': report.jog, 'usable': self._usable(motor, report),
+                'events': report.events}
         return result

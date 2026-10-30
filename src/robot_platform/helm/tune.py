@@ -66,18 +66,20 @@ class TuneCore:
                 raise ValueError('Servo tuning requires its collision-enabled calibration profile; direct teleop is a separate mode')
         self.period_s = loop_period_s(self.profile)  # As teleop's: Minerva Check verifies at teleop's rate.
         # 'verify': Minerva Check's live joint sweep. 'return': the arm from a pose the operator confirmed
-        # (bundle['start_pose'], {motor: raw rad}) back to its reference, then disabled.
+        # (bundle['start_pose'], {motor: raw rad}) back to its reference, then disabled. 'jog': the head's test.
         self.mode = bundle.get('mode') or 'tune'
-        if self.mode not in ('tune', 'verify', 'return'):
-            raise ValueError('The sweep tunes, verifies or returns the arm')
+        if self.mode not in ('tune', 'verify', 'return', 'jog'):
+            raise ValueError('The sweep tunes, verifies, jogs or returns the arm')
         if self.mode == 'return' and not bundle.get('start_pose'):
             raise ValueError('A return starts from the pose the operator confirmed')
         self.live_arm = receiver.get('arm') if receiver.get('mode') == 'live' else None
         self.arm = receiver.get('arm') or bundle.get('arm')
         if self.arm not in ('left', 'right', 'head'):
             raise ValueError('A servo sweep runs on the left or right arm, or the head')
-        if self.head and self.mode == 'return':
-            raise ValueError('The head has no return yet: its sweep ends at its reference')
+        if self.head != (self.mode == 'jog'):
+            # Turned and tilted down together, the head reaches its shoulder: it is never swept (the user,
+            # 2026-10-29), only jogged one joint at a time from its reference; and only the head is jogged.
+            raise ValueError('The head is jogged, never swept, and only the head is jogged')
         if receiver.get('mode') == 'live' and 'live' not in self.profile:
             raise ValueError("A live servo sweep needs the teleop profile's live block")
         self.open_backend = open_backend or self._open_backend
@@ -274,7 +276,7 @@ class TuneCore:
         (neck.head), collision checks off, on its own receiver (bin/head_controller, or the virtual one)."""
         from robot_platform.control.approach import OVERSPEED_HEADROOM, limit_reaction_s
         from robot_platform.control.guarded import GuardedControllerClient
-        from robot_platform.control.servo_sweep import SweepEngine, sweep_profile, sweep_settings
+        from robot_platform.control.servo_sweep import SweepEngine, sweep_settings
         from robot_platform.models import ModelProfile, UrdfModel
         from robot_platform.neck import head
         from robot_platform.ops.release import ROOT
@@ -288,8 +290,7 @@ class TuneCore:
         servo = self.bundle.get('servo')
         base = head.derive(self.profile, reference, limits, model, servo=servo)
         gains = {joint['name']: (joint['hold_kp'], joint['hold_kd']) for joint in base['config']['joints']}
-        derived = base if self.mode == 'verify' else head.derive(
-            sweep_profile(self.profile, motors, gains, sweep=sweep), reference, limits, model)
+        derived = base  # The jog runs at the head's own settings: nothing is raised to try.
         today = {joint['name']: joint for joint in base['config']['joints']}
         self.travel = {row['motor']: dict(row, today={
             'max_tracking_error': today[row['motor']]['max_tracking_error'],
@@ -297,8 +298,7 @@ class TuneCore:
             'max_velocity': today[row['motor']]['max_velocity'] / OVERSPEED_HEADROOM}) for row in base['report']}
         self.derived = derived
         stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
-        self.evidence = (self.evidence_root / f"{'check-sweep' if self.mode == 'verify' else 'sweep'}-head-{stamp}"
-                         if self.live_arm else None)
+        self.evidence = self.evidence_root / f'jog-head-{stamp}' if self.live_arm else None
         if self.evidence is not None:
             self.evidence.mkdir(parents=True, exist_ok=True)
         names = tuple(joint['name'] for joint in derived['config']['joints'])
@@ -358,9 +358,10 @@ class TuneCore:
             self._slow_log = (self.evidence / 'slow-cycles.jsonl').open('a', encoding='utf-8')
         self.phase, self.stage = 'running', 'arming'
         self._stage_since = self.clock()
-        what = {'verify': 'LIVE JOINT SWEEP (MINERVA CHECK)', 'return': 'RETURN TO REFERENCE'}.get(self.mode,
-                                                                                                   'SERVO SWEEP')
+        what = {'verify': 'LIVE JOINT SWEEP (MINERVA CHECK)', 'return': 'RETURN TO REFERENCE',
+                'jog': 'JOG'}.get(self.mode, 'SERVO SWEEP')
         moves = ('each joint returns alone to the reference' if self.mode == 'return'
+                 else 'one joint at a time goes slowly to each end and back' if self.mode == 'jog'
                  else 'the sweep moves the arm')
         if self.absent:
             what += ' · WITHOUT ' + ', '.join(self.labels.get(name, name).upper() for name in self.absent)
@@ -844,7 +845,8 @@ class TuneSession:
             self.receiver = {'mode': mode, 'arm': arm}
             self.joints = list(joints) if joints else None
             self.absent = sorted(set(absent)) if absent else None
-            self.mode = 'verify' if verify else 'tune'
+            # The head is only jogged (the user, 2026-10-29): turned and tilted down, it reaches its shoulder.
+            self.mode = 'jog' if arm == 'head' else 'verify' if verify else 'tune'
 
     def return_offer(self, arm):
         """What a return of `arm` to its reference would do, from the stopped link's live readings: each motor's
@@ -938,8 +940,8 @@ class TuneSession:
             live = self.receiver['mode'] == 'live'
             head = self.receiver['arm'] == 'head'
             if live and confirm is not True:
-                raise ValueError("Confirm the sweep: the head's servos move on their own, the foot switch is in reach "
-                                 'and the head faces straight ahead, level' if head else
+                raise ValueError("Confirm the jog: the head's servos move on their own, one joint at a time, nothing "
+                                 "is in the head's way and it faces straight ahead, level" if head else
                                  f"Confirm the sweep: the {self.receiver['arm']} arm's motors move on their own, "
                                  'the foot switch is in reach and the arm hangs in its reference pose')
             if live and getattr(self.helm, 'connection', 'tether') not in WIRED:
@@ -975,8 +977,8 @@ class TuneSession:
                                                            address=getattr(self.helm, 'address', None))
                 command_writer, view_reader = worker.commands, worker.views
             self._view = dict(self._view, phase='starting', fault=None, results=None, mode=self.mode,
-                              message=("Starting the sweep on the head: its receiver checks each servo and that the "
-                                       'head is in its reference pose…' if head else
+                              message=("Starting the head's jog: its receiver checks each servo and that the head "
+                                       'is in its reference pose…' if head else
                                        f"Returning the {self.receiver['arm']} arm: checking it is still where you "
                                        'confirmed it, then starting the receiver…' if self.mode == 'return' else
                                        f"Starting the sweep on the {self.receiver['arm']} arm: checking it is still and "
@@ -1069,21 +1071,10 @@ class TuneSession:
                              'sweep again with every drive plugged in to save settings')
         if not motors:
             raise ValueError('Choose the joints to save')
-        if all(motor.startswith('head_') for motor in motors):
-            # The head's own calibration, bound to its servos' identities (neck.head).
-            from robot_platform.neck import head
-            reference = head.load_document(self.head_paths['reference'])
-            if reference is None:
-                raise ValueError("The head has no saved reference: a virtual head sweep's settings are not saved")
-            roster, _, _ = head.roster(head.load_profile(self.head_profile_path), reference)
-            document = save_servo(self.head_paths['servo'], asset_id=self.helm.asset_id, reference=roster,
-                                  results=results, motors=motors, session=self._view.get('evidence') or utc_now(),
-                                  existing=self.head_saved)
-            with self._lock:
-                self.head_saved, self.head_saved_error = document, None
-            return document
         if any(motor.startswith('head_') for motor in motors):
-            raise ValueError('Save the head and an arm separately')
+            # The head is only jogged (the user, 2026-10-29), and a jog measures no settings to save: the head
+            # keeps its profile's.
+            raise ValueError("The head's jog saves nothing: it checks each joint reaches its ends slowly")
         document = save_servo(self.path, asset_id=self.helm.asset_id, reference=self.helm.reference,
                               results=results, motors=motors, session=self._view.get('evidence') or utc_now(),
                               existing=self.saved)

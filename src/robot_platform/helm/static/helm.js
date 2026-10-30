@@ -1863,7 +1863,7 @@ function renderTune(u, state) {
   const choice = u.receiver_choice || {mode: 'live', arm: 'right'};
   const live = choice.mode === 'live';
   const what = u.mode === 'verify' ? 'MINERVA CHECK LIVE JOINT SWEEP' : u.mode === 'return' ? 'RETURN TO REFERENCE'
-    : 'SERVO SWEEP';
+    : choice.arm === 'head' ? 'JOG' : 'SERVO SWEEP';
   const part = choice.arm === 'head' ? 'HEAD' : `${choice.arm.toUpperCase()} ARM`;
   $('u-eyebrow').textContent = live
     ? `${what} · LIVE ${part} · MOTORS MOVE ON THEIR OWN · ${choice.arm === 'head' ? 'H IN REACH' : 'FOOT SWITCH IN REACH'}`
@@ -1954,7 +1954,8 @@ function renderTune(u, state) {
 
 for (const button of document.querySelectorAll('#u-arm button')) {
   button.onclick = () => act('/api/helm/tune/configure', {arm: button.dataset.arm},
-    `The sweep will run on the ${button.dataset.arm === 'head' ? 'head' : `${button.dataset.arm} arm`}.`);
+    button.dataset.arm === 'head' ? 'The head is jogged: each joint alone, slowly, to its ends and back.'
+      : `The sweep will run on the ${button.dataset.arm} arm.`);
 }
 $('u-finish').onclick = () => tuneKey('X');
 $('u-disable').onclick = () => tuneKey('H');
@@ -2001,15 +2002,17 @@ $('u-session').onclick = () => {
   const picked = u?.joints_choice ? motors.filter(row => u.joints_choice.includes(row.name)) : motors;
   const names = picked.map(row => row.label.replace(/^(Left|Right) /, '')).join(', ');
   if (choice.arm === 'head') {
-    askTune('Start the LIVE servo sweep on the head?', [
-      u?.joints_choice ? `Joints: ${names} only.` : `Joints: both: ${names}.`,
-      `The head's servos move on their own, joint by joint, about 5 to 7 minutes per joint (${picked.length} joint${picked.length === 1 ? '' : 's'}).`,
+    // Never a sweep: turned and tilted down together, the head reaches its shoulder (the user, 2026-10-29).
+    askTune('Start the LIVE jog on the head?', [
+      u?.joints_choice ? `Joints: ${names} only.` : `Joints: both: ${names}, one after the other.`,
+      "Each joint alone goes slowly from the head's reference to one end of its range, back, to the other end and "
+        + 'back; the other joint stays at its reference. Nothing is measured to save.',
       'The head faces straight ahead and level (its reference pose), and nothing is within its reach.',
-      'Both arms hang in their reference pose and stay disabled: nothing checks the head against the arms here.',
-      "H disables the head at once (its servos go limp). The foot switch may not cut the head's 12 V supply.",
-      'Guards stop a task on lag, effort or heat.',
-    ], 'Start LIVE sweep on the head', () => act('/api/helm/tune/start', {confirm: true},
-      "Starting the sweep on the head: its receiver checks each servo and the head's reference pose."));
+      'Both arms hang in their reference pose and stay disabled.',
+      "H disables the head at once (its servos go limp): the foot switch does not cut the head's power.",
+      'Guards stop it on lag, effort or heat.',
+    ], 'Start LIVE jog on the head', () => act('/api/helm/tune/start', {confirm: true},
+      "Starting the head's jog: its receiver checks each servo and the head's reference pose."));
     return;
   }
   askTune(`Start the LIVE servo sweep on the ${choice.arm} arm?`, [
