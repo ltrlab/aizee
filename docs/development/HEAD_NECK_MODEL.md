@@ -52,6 +52,10 @@ it.
 the collision checks. Step 1 below, and the collision half of step 2, are therefore not planned; the operator keeps
 the arms clear of the head.
 
+**The head and its own shoulder (2026-10-29):** turned to a side and tilted all the way down, the head reaches its
+shoulder. That is a coupled limit of the neck's two joints, measured by hand in Helm (Limits → Head's shoulder
+corners) and enforced on every head target (`neck.clearance`, see NECK_FEETECH.md); the head is jogged, never swept.
+
 ## Remaining work, in order
 
 1. **Collision model (motion-contract owner). Not planned:** the user decided the head needs no collision checks.
@@ -73,7 +77,7 @@ the arms clear of the head.
    serial bus servos and adapter as the SO-101 arm. The user wants the RobStride pipeline for them:
    - swept limits (Limits);
    - teleop;
-   - tuning parameters extracted by sweeps (Tune), with Minerva Check covering them;
+   - a slow jog of each joint alone in Tune (the user, 2026-10-29: never a sweep), with Minerva Check covering it;
    - live telemetry and recording.
 
    Still undecided: the neck's teleop input, its signs and zero against the CAD, and the servos' mechanical travel.

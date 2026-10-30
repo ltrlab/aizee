@@ -98,16 +98,41 @@ with collision checks off: the swept range plus overtravel, the approach margins
 and the servo calibration all apply unchanged. The receiver works in raw servo radians. Commands come at 25 Hz;
 the receiver ramps each over 40 ms, so the servos get 100 Hz goals.
 
-**Tune.** The Tune tab has a Head choice beside Left and Right. The arms' sweep engine runs on the head's receiver
-with direct updates (no collision envelope):
+**Tune: a jog, never a sweep.** The user, 2026-10-29: "do not sweep the head. the sweep test for the head should
+only be a slow jog to its limits, one at a time from their center reference, because at some angles if the head is
+angled all the way down and rotated to the side, it will hit its shoulder." The Tune tab's Head choice runs the
+arms' sweep engine in its `jog` mode (`servo_sweep.SweepEngine._jog_joint`) on the head's receiver, with direct
+updates and the head's own settings (nothing raised to try):
 
-1. characterise;
-2. a P × D ladder in register units;
-3. speeds and braking;
-4. verify.
+1. each joint alone, the other held at its reference;
+2. from the reference slowly (`characterize_speed`, 0.15 rad/s) to one end of its usable range, held 1 s, back;
+3. the same to the other end.
 
-Saving writes `<asset>-head-servo.json`, bound to each servo's identity, and the next derivation uses it. The
-virtual receiver uses a nominal reference until the head is set up.
+The results say how far each end was reached and the worst lag. Nothing is saved: the head keeps its profile's
+settings, and `TuneCore` refuses any other mode on the head (and the jog on an arm).
+
+**Shoulder clearance (coupled limits).** Turned to a side and tilted all the way down, the head reaches its shoulder.
+The per-joint limits, the servos' own among them, are a rectangle that holds those corners, so how far down the head
+may tilt depends on how far it is turned, as NAO's head pitch range narrows with its yaw (`neck.clearance`):
+
+- Limits → Head's last step: with the servos limp, turn the head to a side and tilt it down until it is just clear of
+  the shoulder, Record corner; record each side's end and halfway; Save shoulder clearance. The corners go into the
+  limits file (`clearance`: the corners in radians from the reference, the down side, `margin_rad` 0.1), so a new
+  reference or new limits drop them.
+- The floor (how far down at a pan) is the whole tilt range straight ahead, runs straight to each corner less the
+  margin, and never eases off further out. The region allowed only shrinks outward and downward, so Return, which
+  moves each joint toward its zero at its own speed, stays in it.
+- Head teleop clamps each headset target onto the floor (pan kept) and steps toward it in moves the lifecycle takes
+  whole (90 % of its speeds per 40 ms cycle), each clear: the lifecycle moves each joint at its own speed, so one long
+  move toward a clear pose could cut through the corner below it. Aligning (Engage), the head holds where it is;
+  following, it goes at the alignment speed until it first reaches its target, then at its own speed. A head left
+  below the floor rises straight up first.
+- Live sessions take the head only once its clearance is saved (`TeleopSession._head_bundle`); virtual ones always.
+
+**Live · Head.** The Teleop tab's Head choice (`helm.head_only.HeadOnlyCore`) runs the head alone under the session's
+keys and pedals B and C, steered by the headset. The arms' receivers are never opened: their drives stay as they are,
+and Helm's live view keeps reading them. No leaders, bridge, task or arm limits are needed; a replay or a policy
+refuses it. A head disabled after it was powered needs a new session, as the arms do.
 
 **Teleop.** A teleop session runs the head's receiver beside the arms', with the same keys and states: I, E, T, X
 and H act on both. The head uses the arms' direct lifecycle (`TeleopLifecycle`, `DirectLifecycleSession`), so the
@@ -213,8 +238,10 @@ the end; there the tools need the release (a deploy, with the user's OK).
    The CLI's `centre`, `save-reference`, `sweep-limits` and `limits` remain for the bench and tests; on Minerva,
    use Helm.
 7. Fill the head profile's `bus` (the by-id path and USB serial), then commit and deploy, with the user's OK.
-8. In Helm's Tune tab, choose Head, then try a virtual sweep, then a live one with the user present. The arms stay
+8. In Limits → Head, record the shoulder corners and save the clearance.
+9. In Helm's Tune tab, choose Head and run the jog, virtual first, then live with the user present. The arms stay
    down and disabled.
+10. Teleop → Head (Live · Head) with the headset, before the head joins Live · Both.
 
 **Done on Minerva, 2026-10-25 (bench, the head still printing):**
 
@@ -264,7 +291,8 @@ the end; there the tools need the release (a deploy, with the user's OK).
   the arms'. `neck sweep-limits` stands in until then.
 - **Minerva Check:** the head's identity and pose checks, and its live sweep.
 - **Recording:** the neck's stream beside the arms and cameras.
-- **The assembled head:** centre, save-reference and sweep-limits (steps 3-5), then the Tune tab's head sweep.
+- **The assembled head:** reference and limits saved in Helm (2026-10-30 02:02Z); then the shoulder corners, the
+  Tune tab's jog and a Live · Head session with the headset (steps 8-10).
 - **No arm-vs-head collision checks:** the user decided (2026-10-25) the head needs none.
 
 ## Open questions
