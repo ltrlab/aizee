@@ -196,14 +196,22 @@ the end; there the tools need the release (a deploy, with the user's OK).
 2. **One servo on the bus at a time.** Both ship as id 1.
    - Run `robot-platform neck probe --port DEV` and keep the JSON.
    - Run `robot-platform neck set-id --port DEV --to 2 --confirm` for the tilt servo. The pan servo keeps id 1.
-3. **Both servos on the bus, the head held straight ahead and level, torque off.** For each id, run
-   `robot-platform neck centre --port DEV --id N --confirm`. Each then reads 2048 there, mid-turn, so its range
-   never wraps.
-4. Run `robot-platform neck save-reference --port DEV --directory <operator files> --asset minerva-production-01`.
-5. Run `robot-platform neck sweep-limits --port DEV --directory ... --asset ...` and turn each joint slowly to both
-   ends by hand.
-6. **Optional:** `neck limits --id N --low L --high H --confirm` sets each servo's own limits, a little outside
-   the swept range, as a backstop.
+3. **The head's setup is in Helm: Limits tab, Head** (`helm.head_setup`, on Helm on Minerva, where the board is).
+   The user's rule (2026-10-29): calibrations and reference saves run only through flows in Helm, so they can be
+   redone at any time. The servos stay limp throughout; each step can be done again.
+   - **Read the head.** A limp reader on the profile's pinned bus (10 Hz, health once a second); the 3D view's head
+     follows it, each reading a pose of its own. It stops for any session that needs the motors.
+   - **Set the reference…** With the head held straight ahead and level: both servos centred (each reads 2048,
+     mid-turn), then `<asset>-head-reference.json` saved. If either fails, both offsets go back. Directions
+     checked before carry over for the same servos. Saved limits then belong to the old reference and must be
+     swept again.
+   - **Directions.** Turn each joint: if the 3D view's head turns the other way, Flip; then Looks right.
+   - **Limits.** Turn each joint to both ends and hold there (the arms' recorder), Confirm both, Save head limits:
+     `<asset>-head-limits.json`, naming its reference, and each servo's own limits set 0.05 rad outside, a
+     backstop under Helm's.
+   - Replaced files are kept under the runs folder's `head-setup-*`.
+   The CLI's `centre`, `save-reference`, `sweep-limits` and `limits` remain for the bench and tests; on Minerva,
+   use Helm.
 7. Fill the head profile's `bus` (the by-id path and USB serial), then commit and deploy, with the user's OK.
 8. In Helm's Tune tab, choose Head, then try a virtual sweep, then a live one with the user present. The arms stay
    down and disabled.
