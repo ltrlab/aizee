@@ -116,7 +116,25 @@
             Confirm each joint, then save.</p>
           <p id="saved-summary" class="muted"></p>
         </div>
-        <div id="joints" class="scroll"></div>
+        <div id="joints" class="scroll">
+          <section id="head-setup" class="head-setup" aria-label="Head setup">
+            <div class="arm">HEAD</div>
+            <p class="muted head-intro">The head's servos stay limp: turn the head by hand. Read the head, hold it
+              straight ahead and level and set its reference. Turn each joint and watch the 3D view's head: Flip a
+              joint that turns the other way, then Looks right. Then sweep each joint to both ends, confirm both and
+              save. Any step can be done again; a new reference asks for a new sweep.</p>
+            <p id="hs-note" class="muted" hidden></p>
+            <div id="hs-steps">
+              <div class="head-step"><button id="hs-read" type="button">Read the head</button>
+                <span id="hs-reading" class="muted" role="status"></span></div>
+              <div class="head-step"><button id="hs-reference" type="button" disabled>Set the reference…</button>
+                <span id="hs-reference-text" class="muted"></span></div>
+              <div id="head-joints"></div>
+              <div class="head-step"><button id="hs-save" type="button" class="primary" disabled>Save head limits</button>
+                <span id="hs-limits-text" class="muted" role="status" aria-live="polite"></span></div>
+            </div>
+          </section>
+        </div>
         <div class="save-bar">
           <p id="action-status" role="status"></p>
           <button id="save" class="primary" disabled>Save limits</button>

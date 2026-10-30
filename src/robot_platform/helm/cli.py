@@ -198,11 +198,18 @@ def main(argv=None):
         from robot_platform.ops.release import HEAD_MODEL, ROOT as RELEASE_ROOT
         from .display_model import DisplayModel
         display = DisplayModel.load(session.model, RELEASE_ROOT / HEAD_MODEL)
+        # The head's setup (Limits tab, Head) reads the neck's servos on their board, which only Minerva has.
+        head_setup = None
+        if args.on_robot and not args.sim:
+            from robot_platform.control.servo_calibration import servo_path
+            from .head_setup import HeadSetup
+            head_setup = HeadSetup(servo_path(session.profile_path, session.asset_id, session.operator_files).parent,
+                                   session.asset_id, session.evidence)
         app = create_app(session, link, teleop=teleop, leaders=leaders, check=check, tune=tune,
                          live=not (args.sim or args.no_live), simulation_only=args.sim, cameras=cameras,
                          camera_video=camera_video, episodes=episodes, ups=ups, access=access, bridge=bridge,
                          mesh_store=args.mesh_store, operator_files=operator, calibration=calibration,
-                         network=network, display=display)
+                         network=network, display=display, head_setup=head_setup)
         if session.stale_lock_pid:
             print(f'Took over a calibration lock left by exited process {session.stale_lock_pid}.', flush=True)
         mode = ('SIMULATION ONLY; no physical robot connection' if args.sim else

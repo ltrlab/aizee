@@ -510,6 +510,9 @@ body[data-touch=on] .grip-switch input{width:26px;height:26px}
 /* Settings -> Network (network.js). */
 .network-mode{margin:10px 0 4px;font-size:18px}
 .headset-state{margin:10px 0 4px;font-size:18px}
+.head-setup{margin-top:18px}.head-intro{margin:4px 0 10px;line-height:1.45}
+.head-step{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0}
+.head-step .ok{color:var(--good)}.head-step .warn{color:var(--warn)}.head-step .bad{color:var(--bad)}
 .headset-controls{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:8px 0}
 .headset-preview{display:flex;align-items:center;gap:6px}
 .settings-group h3{margin:14px 0 8px}

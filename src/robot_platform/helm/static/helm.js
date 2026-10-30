@@ -8,6 +8,7 @@ import {upsView} from './ups.js';
 import {bridgeView, networkView} from './network.js';
 import {headView} from './head.js';
 import {HeadsetMirror} from './headset_mirror.js';
+import {headSetupView} from './head_setup.js';
 import {captureBlock, countsText, lastText, resultLines} from './calibration.js';
 
 // Helm operator page. Reads /api/helm/state; every action needs the session token.
@@ -62,7 +63,9 @@ async function act(path, payload, done) {
   }
 }
 
-function build(row) {
+// A joint card's steps: the arms' endpoints, or the head's (Head section, below).
+const ARM_API = {limits: '/api/helm/limits', direction: '/api/helm/direction'};
+function build(row, api = ARM_API) {
   const card = document.createElement('div');
   card.className = 'joint';
   card.innerHTML = `<div class="joint-top"><div><span class="joint-name"></span><span class="motor"></span></div>
@@ -75,17 +78,17 @@ function build(row) {
   card.querySelector('.joint-name').textContent = row.label;
   card.querySelector('.motor').textContent = row.name;
   card.querySelector('.reset').onclick = () =>
-    act('/api/helm/limits', {action: 'reset', motor: row.name}, `Cleared the sweep for ${row.label}.`);
+    act(api.limits, {action: 'reset', motor: row.name}, `Cleared the sweep for ${row.label}.`);
   card.querySelector('.confirm').onclick = () => {
     const undo = ['confirmed', 'changed'].includes(card.dataset.status);
-    act('/api/helm/limits', {action: undo ? 'unconfirm' : 'confirm', motor: row.name},
+    act(api.limits, {action: undo ? 'unconfirm' : 'confirm', motor: row.name},
       undo ? `${row.label} is no longer confirmed.` : `${row.label} confirmed. Save when you are done.`);
   };
   if (row.direction && row.direction.editable !== false) {
     card.querySelector('.flip').onclick = () =>
-      act('/api/helm/direction', {action: 'flip', joint: row.direction.joint}, `Reversed the model direction for ${row.label}.`);
+      act(api.direction, {action: 'flip', joint: row.direction.joint}, `Reversed the model direction for ${row.label}.`);
     card.querySelector('.accept').onclick = () =>
-      act('/api/helm/direction', {action: 'accept', joint: row.direction.joint}, `Direction confirmed for ${row.label}.`);
+      act(api.direction, {action: 'accept', joint: row.direction.joint}, `Direction confirmed for ${row.label}.`);
   } else {
     card.querySelector('.flip').remove();
     card.querySelector('.accept').remove();
@@ -284,6 +287,7 @@ function render(state) {
         container.append(card);
       }
     }
+    container.append($('head-setup'));  // The head's section stays after the arms.
   }
   for (const row of limits.rows) update(cards.get(row.name), row, live);
   renderLeaders(state.leaders);
@@ -292,6 +296,7 @@ function render(state) {
   renderGripFeedback(state.teleop);
   renderHead(state);
   renderHeadset(state);
+  renderHeadSetup(state);
   renderCalibration(state);
   renderRecording(state);
   renderUps(state.ups);
@@ -425,6 +430,46 @@ function renderHeadset(state) {
     && !document.hidden);
 }
 $('headset-zero').onclick = $('head-zero').onclick;
+
+// The Limits tab's Head section (head_setup.js): the head's own limp reader, its reference, directions and limits.
+const HEAD_API = {limits: '/api/helm/head/limits', direction: '/api/helm/head/direction'};
+const headCards = new Map();
+let headSetupShown = null;
+function renderHeadSetup(state) {
+  const view = headSetupShown = headSetupView(state.head_setup);
+  $('hs-note').hidden = view.available;
+  $('hs-note').textContent = view.note || '';
+  $('hs-steps').hidden = !view.available;
+  if (!view.available) return;
+  $('hs-read').textContent = view.readLabel;
+  $('hs-reading').textContent = view.readingText;
+  $('hs-reading').className = `muted ${view.readingTone}`;
+  $('hs-reference').textContent = view.referenceLabel;
+  $('hs-reference').disabled = !view.referenceEnabled;
+  $('hs-reference-text').textContent = view.referenceText;
+  $('hs-save').textContent = view.saveLabel;
+  $('hs-save').disabled = !view.saveEnabled;
+  $('hs-limits-text').textContent = [view.limitsText, view.status].filter(Boolean).join(' ');
+  if ([...headCards.keys()].join() !== view.rows.map(row => row.name).join()) {
+    headCards.clear();
+    $('head-joints').replaceChildren(...view.rows.map(row => {
+      const card = build(row, HEAD_API);
+      headCards.set(row.name, card);
+      return card;
+    }));
+  }
+  for (const row of view.rows) update(headCards.get(row.name), row, view.live);
+}
+$('hs-read').onclick = () => {
+  const reading = !!headSetupShown?.reading;
+  act('/api/helm/head/read', {on: !reading}, reading ? 'Stopped reading the head.' : 'Reading the head: its servos stay limp.');
+};
+$('hs-reference').onclick = () => {
+  if (!headSetupShown || !window.confirm(headSetupShown.referenceConfirm)) return;
+  act('/api/helm/head/reference', {}, "Reference set: both servos read mid-turn with the head straight ahead and level.");
+};
+$('hs-save').onclick = () =>
+  act('/api/helm/head/limits/save', {}, "Head limits saved, and each servo's own limits set just outside them.");
 $('headset-preview').onchange = () => {
   const on = $('headset-preview').checked;
   act('/api/helm/xr/preview', {on}, on ? 'Preview on: the 3D view\'s head follows the headset; no motors move.'

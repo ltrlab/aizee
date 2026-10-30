@@ -91,7 +91,7 @@ def video_backlog(transport):
 def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None, live=False,
                gripper_zero=None, simulation_only=False, cameras=None, camera_video=None, episodes=None, ups=None,
                access=None, bridge=None, mesh_store=None, operator_files=None, calibration=None, network=None,
-               display=None):
+               display=None, head_setup=None):
     """`live`: keep the stopped reader running whenever Minerva is online and nothing else holds the motors
     (helm.live_view); sessions then take the motors from it instead of asking for Disconnect first.
     `episodes`: the recorded-episode library behind Replay (helm.episodes), told to read nothing while a
@@ -104,7 +104,9 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     `calibration` (helm.calibration.CameraCalibration): wrist camera stills during a live session, and their solve.
     `network` (helm.network.NetworkView): Minerva's network for the header and Settings, and its access point switch.
     `display` (helm.display_model.DisplayModel): the model the 3D view draws (the head model), when not the active
-    one; every guide is drawn on it, the neck at the head's measured angles while a session drives it."""
+    one; every guide is drawn on it, the neck at the head's measured angles while a session drives it.
+    `head_setup` (helm.head_setup.HeadSetup): the head's setup on Helm on Minerva (Limits tab, Head): its reader,
+    reference, directions and limits."""
     from aiohttp import web
     from robot_platform.viewer.server import create_app as viewer_app
     from .live_view import LiveView
@@ -140,7 +142,10 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     live_view.enabled = live
 
     async def take_motors():
-        """The reader steps aside for a session that needs the motors (it starts again once they're free)."""
+        """The reader steps aside for a session that needs the motors (it starts again once they're free); the
+        head's setup stops reading, so a session's head receiver has its serial port."""
+        if head_setup is not None:
+            await off_loop(head_setup.stop)
         if not simulation_only:
             await off_loop(live_view.yield_motors)
 
@@ -153,12 +158,18 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
 
     def shown():
         """What the 3D view draws: the guide, on the display model when Helm has one: the neck at the head's
-        measured angles while a session drives it, else (with the headset preview on) where the headset looks."""
+        measured angles while a session drives it or its setup reads it, else (with the headset preview on) where
+        the headset looks."""
         pose = guide()
         if display is None:
             return pose
         head = getattr(teleop, 'head_joints', None)
         joints = head() if head is not None else None
+        if joints is None and head_setup is not None:
+            read = head_setup.joints()
+            if read is not None:  # Each reading a pose of its own, as each headset pose is.
+                return display.preview(pose, read, head_setup.sequence, source='head-setup',
+                                       note='read by its setup, the servos limp')
         if joints is None and xr_preview['on']:
             return display.preview(pose, headset.angles(), headset.poses)
         return display.guide(pose, joints)
@@ -251,6 +262,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         state['bridge'] = bridge.snapshot() if bridge is not None else None
         state['network'] = network.snapshot() if network is not None else None
         state['xr'] = dict(headset.status(), preview=xr_preview['on'], preview_available=display is not None)
+        state['head_setup'] = head_setup.snapshot() if head_setup is not None else None
         state['operator_files'] = operator_files
         return web.json_response(state, headers={'Cache-Control': 'no-store'})
 
@@ -942,6 +954,55 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         headset.zero()
         return state_response()
 
+    def need_head_setup():
+        if head_setup is None:
+            raise ValueError("The head is set up in Helm on Minerva, beside its servo board")
+
+    async def head_read(request):
+        """Read the head (its servos limp), or stop. Not while a session holds the motors."""
+        payload = await body(request)
+        if set(payload) != {'on'} or not isinstance(payload['on'], bool):
+            raise ValueError('Expected {"on": true} or {"on": false}')
+        need_head_setup()
+        if payload['on']:
+            held = owner()
+            if held:
+                raise ValueError(f'The head is read once {held} has ended')
+            await off_loop(head_setup.start)
+        else:
+            await off_loop(head_setup.stop)
+        return state_response()
+
+    async def head_reference(request):
+        await body(request)
+        need_head_setup()
+        await off_loop(head_setup.set_reference)
+        return state_response()
+
+    async def head_direction(request):
+        payload = await body(request)
+        if set(payload) != {'action', 'joint'}:
+            raise ValueError('Expected action and joint')
+        need_head_setup()
+        await off_loop(lambda: head_setup.direction(payload['action'], payload['joint']))
+        return state_response()
+
+    async def head_limits(request):
+        payload = await body(request)
+        if set(payload) != {'action', 'motor'}:
+            raise ValueError('Expected action and motor')
+        need_head_setup()
+        await off_loop(lambda: head_setup.limit(payload['action'], payload['motor']))
+        return state_response()
+
+    async def head_limits_save(request):
+        await body(request)
+        need_head_setup()
+        result = await off_loop(head_setup.save_limits)
+        response = state_response()
+        response.headers['X-Helm-Saved'] = result['path']
+        return response
+
     async def xr_preview_switch(request):
         """Settings → Headset: the 3D view's head follows the headset, or not. Display only."""
         payload = await body(request)
@@ -1070,6 +1131,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             await off_loop(camera_video.close)
         if episodes is not None:
             await off_loop(episodes.close)
+        if head_setup is not None:
+            await off_loop(head_setup.close)
 
     app.on_startup.append(startup)
     app.on_shutdown.append(shutdown)
@@ -1079,6 +1142,11 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     app.router.add_get('/api/helm/xr', xr_socket)
     app.router.add_post('/api/helm/xr/zero', xr_zero)
     app.router.add_post('/api/helm/xr/preview', xr_preview_switch)
+    app.router.add_post('/api/helm/head/read', head_read)
+    app.router.add_post('/api/helm/head/reference', head_reference)
+    app.router.add_post('/api/helm/head/direction', head_direction)
+    app.router.add_post('/api/helm/head/limits', head_limits)
+    app.router.add_post('/api/helm/head/limits/save', head_limits_save)
     app.router.add_get('/api/helm/cameras', camera_get)
     app.router.add_post('/api/helm/cameras/{role}', camera_set)
     app.router.add_get('/api/helm/cameras/{role}/frame', camera_frame)

@@ -130,6 +130,13 @@ def test_the_retro_look_outlines_the_model_and_redraws_it_only_when_it_changes()
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
 
 
+def test_the_head_setup_section_follows_its_reader_reference_and_sweep():
+    node = shutil.which('node')
+    assert node, 'Node.js is required to check the head setup section'
+    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_head_setup.mjs')], capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
+
+
 def test_the_network_pill_and_settings_say_how_minerva_is_connected():
     node = shutil.which('node')
     assert node, 'Node.js is required to check the network view'
