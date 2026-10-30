@@ -122,7 +122,10 @@
             <p class="muted head-intro">The head's servos stay limp: turn the head by hand. Read the head, hold it
               straight ahead and level and set its reference. Turn each joint and watch the 3D view's head: Flip a
               joint that turns the other way, then Looks right. Then sweep each joint to both ends, confirm both and
-              save. Any step can be done again; a new reference asks for a new sweep.</p>
+              save. Last, the shoulder corners: turn the head to a side and tilt it down until it is just clear of the
+              shoulder, and record that corner; record each side's end and halfway, then save. Live sessions take the
+              head only once its shoulder clearance is saved. Any step can be done again; a new reference asks for a
+              new sweep and new corners.</p>
             <p id="hs-note" class="muted" hidden></p>
             <div id="hs-steps">
               <div class="head-step"><button id="hs-read" type="button">Read the head</button>
@@ -132,6 +135,11 @@
               <div id="head-joints"></div>
               <div class="head-step"><button id="hs-save" type="button" class="primary" disabled>Save head limits</button>
                 <span id="hs-limits-text" class="muted" role="status" aria-live="polite"></span></div>
+              <div class="head-step"><button id="hs-corner" type="button" disabled
+                  title="The head's pose now, turned to a side and tilted down until just clear of the shoulder">Record corner</button>
+                <button id="hs-corners-clear" type="button" disabled>Clear corners</button>
+                <button id="hs-clearance-save" type="button" class="primary" disabled>Save shoulder clearance</button>
+                <span id="hs-clearance-text" class="muted" role="status" aria-live="polite"></span></div>
             </div>
           </section>
         </div>

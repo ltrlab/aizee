@@ -227,6 +227,16 @@ def test_helm_serves_each_step_and_refuses_to_read_while_a_session_holds_the_mot
             saved = await post('/api/helm/head/limits/save', {})
             assert saved.status == 200 and saved.headers['X-Helm-Saved'].endswith(f'{ASSET}-head-limits.json')
             assert (await saved.json())['head_setup']['limits']['matches_reference']
+            for steps in (2248, 1848):  # The shoulder corners: turned each way, tilted down until just clear.
+                pan.move_by_hand(steps)
+                tilt.move_by_hand(1948)
+                await asyncio.get_running_loop().run_in_executor(None, settle, setup)
+                state = await (await post('/api/helm/head/corner', {'action': 'record'})).json()
+            assert len(state['head_setup']['corners']) == 2
+            assert (await post('/api/helm/head/corner', {'action': 'record', 'motor': 'head_pan'})).status == 422
+            saved = await post('/api/helm/head/clearance/save', {})
+            assert saved.status == 200 and saved.headers['X-Helm-Saved'].endswith(f'{ASSET}-head-limits.json')
+            assert len((await saved.json())['head_setup']['clearance']['corners']) == 2
             assert (await (await post('/api/helm/head/read', {'on': False})).json())['head_setup']['reading'] is False
             bad = await post('/api/helm/head/limits', {'action': 'confirm'})
             assert bad.status == 422
@@ -253,3 +263,79 @@ def test_helm_without_the_head_board_says_where_the_head_is_set_up(tmp_path):
         asyncio.run(run())
     finally:
         helm.close()
+
+
+def sweep_and_save(setup, pan, tilt):
+    for servo, ends in ((pan, (1648, 2548)), (tilt, (1748, 2448))):
+        for steps in (*ends, 2048):
+            hand(setup, servo, steps)
+    for motor in ('head_pan', 'head_tilt'):
+        setup.limit('confirm', motor)
+    setup.save_limits()
+
+
+def test_the_shoulder_corners_are_recorded_by_hand_and_saved_with_the_limits(rig, tmp_path):
+    # Turned to a side and tilted all the way down, the head reaches its shoulder (2026-10-29): each corner is the
+    # head turned and tilted down until just clear, read limp; together they make the floor (neck.clearance).
+    from robot_platform.neck import clearance
+    setup, pan, tilt = rig
+    setup.start()
+    settle(setup)
+    setup.set_reference()
+    with pytest.raises(ValueError, match="limits first"):
+        setup.corner('record')
+    sweep_and_save(setup, pan, tilt)
+    hand(setup, pan, 2348)
+    hand(setup, tilt, 1848)
+    setup.corner('record')
+    with pytest.raises(ValueError, match='each side'):
+        setup.save_clearance()
+    hand(setup, pan, 1748)
+    setup.corner('record')
+    state = setup.snapshot()
+    assert state['corners'] == [pytest.approx({'pan': 300 * RAD_PER_STEP, 'tilt': -200 * RAD_PER_STEP}),
+                                pytest.approx({'pan': -300 * RAD_PER_STEP, 'tilt': -200 * RAD_PER_STEP})]
+    assert state['clearance'] is None
+    setup.save_clearance()
+    saved = json.loads((tmp_path / 'operator' / f'{ASSET}-head-limits.json').read_text())
+    assert saved['clearance']['down'] == -1 and len(saved['clearance']['corners']) == 2
+    assert set(saved['joints']) == {'head_pan', 'head_tilt'} and saved['reference_id'] == setup.reference['id']
+    floor = clearance.from_limits(saved, setup.reference)
+    assert floor.depth(0.) == pytest.approx(300 * RAD_PER_STEP)  # Its whole tilt range below level (swept to 1748).
+    assert floor.depth(300 * RAD_PER_STEP) == pytest.approx(200 * RAD_PER_STEP - clearance.MARGIN_RAD)
+    state = setup.snapshot()
+    assert state['corners'] == [] and state['clearance']['margin_rad'] == clearance.MARGIN_RAD
+    setup.corner('record')
+    setup.corner('clear')
+    assert setup.snapshot()['corners'] == []
+    # A new reference: corners read against the old one go, and the saved clearance is stale with the limits.
+    hand(setup, pan, 2048)
+    hand(setup, tilt, 2048)
+    setup.corner('record')
+    setup.set_reference()
+    state = setup.snapshot()
+    assert state['corners'] == [] and state['clearance'] is None
+
+
+def test_live_sessions_take_the_head_only_once_its_shoulder_clearance_is_saved(rig, tmp_path):
+    from types import SimpleNamespace
+    from robot_platform.helm.teleop import TeleopSession
+    setup, pan, tilt = rig
+    setup.start()
+    settle(setup)
+    setup.set_reference()
+    sweep_and_save(setup, pan, tilt)
+    helm = SimpleNamespace(profile_path=ROOT / 'config/devices/minerva-joint-calibration.json', asset_id=ASSET,
+                           operator_files=tmp_path / 'operator')
+    session = TeleopSession.__new__(TeleopSession)  # Only its head bundle: no profile, routes or settings needed.
+    session.helm, session.receiver = helm, {'mode': 'live', 'arm': 'both'}
+    assert session._head_bundle() is None  # Reference and limits, no clearance: the head stays out.
+    session.receiver = {'mode': 'virtual'}
+    assert session._head_bundle()['limits']['reference_id'] == setup.reference['id']  # Rehearsals take it.
+    for steps in (2348, 1748):
+        hand(setup, pan, steps)
+        hand(setup, tilt, 1848)
+        setup.corner('record')
+    setup.save_clearance()
+    session.receiver = {'mode': 'live', 'arm': 'both'}
+    assert session._head_bundle()['limits']['clearance']['down'] == -1

@@ -120,3 +120,43 @@ def test_the_head_keeps_its_grid_on_the_arms_ticks_so_its_commands_never_expire(
     assert max(a + b for a, b in zip(gaps, gaps[1:])) < .1 - 1e-9  # Two gaps inside the command lifetime.
     assert sum(abs(gap - PERIOD_S) > 1e-6 for gap in gaps) == 2  # The late tick moved one cycle; the grid held.
     assert starts[-1] - starts[2] == pytest.approx(PERIOD_S * len(gaps))
+
+
+def test_with_its_shoulder_clearance_the_head_never_reaches_the_shoulder_following_or_returning():
+    # Turned to a side and tilted all the way down, the head reaches its shoulder (2026-10-29): with the clearance
+    # saved, every pose it takes stays above the floor its corners make, following the headset or returning.
+    from robot_platform.neck.clearance import section
+    profile = head.load_profile(ROOT / head.PROFILE)
+    reference = head.virtual_reference(profile)
+    limits = dict(head.virtual_limits(reference, span_rad=.8), reference_id=reference['id'],
+                  clearance=section([{'pan': -.6, 'tilt': -.4}, {'pan': .6, 'tilt': -.4}]))
+    clock = Clock()
+    core = HeadTeleop({'teleop_profile': str(ROOT / head.PROFILE), 'head_reference': reference, 'limits': limits,
+                       'servo': None}, live=False, clock=clock)
+    core.build()
+    try:
+        def pose_now():
+            measured = positions(core)
+            return measured['head_pan'] - core.centre['head_pan'], measured['head_tilt'] - core.centre['head_tilt']
+
+        def follow(seconds, pose=None, action=None):
+            for _ in range(int(seconds / .01)):
+                if pose is not None:
+                    core.pose(*pose, now=clock.now)
+                core.cycle(action, clock.now)
+                action = None
+                clock.now += .01
+                assert core.clearance.clear(*pose_now()), pose_now()
+
+        for action in ('idle', 'enable', 'engage'):
+            follow(.2, action=action)
+        follow(4., (0., -.75))  # Straight down: its whole range there.
+        assert pose_now() == (pytest.approx(0., abs=.01), pytest.approx(-.75, abs=.01))
+        follow(4., (.75, -.75))  # Then turned far to the side, still looking all the way down.
+        assert pose_now() == (pytest.approx(.75, abs=.01), pytest.approx(-.3, abs=.01))  # As far down as clears it.
+        assert core.status()['clearance'] == {'limited': True}
+        follow(.2, action='shutdown')
+        follow(8.)  # Return: back to its zero on the lifecycle's own move, then disabled.
+        assert core.state == 'DISABLED' and pose_now() == (pytest.approx(0., abs=.01), pytest.approx(0., abs=.01))
+    finally:
+        core.close()

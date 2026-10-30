@@ -56,4 +56,23 @@ const stale = headSetupView({...base, reading: true, fresh: true, rows,
 assert.match(stale.limitsText, /older reference: sweep both joints again and save/);
 assert.match(stale.referenceText, /directions checked$/);
 
+// The shoulder corners: after the limits; both sides before saving; the saved clearance and its margin named.
+assert.equal(idle.cornerEnabled, false);
+assert.match(idle.clearanceText, /^The shoulder corners come after the head limits\.$/);
+assert.equal(swept.cornerEnabled, true);
+assert.match(swept.clearanceText, /^No shoulder clearance yet: live sessions leave the head out/);
+const oneSide = headSetupView({...base, reading: true, fresh: true, rows,
+  limits: {created_at: '2026-10-29T12:05:00Z', matches_reference: true}, corners: [{pan: .9, tilt: -.5}]});
+assert.deepEqual([oneSide.cornerLabel, oneSide.clearEnabled, oneSide.clearanceSaveEnabled],
+  ['Record corner (1)', true, false]);
+assert.match(oneSide.clearanceText, /^Recorded: pan \+52° tilt −29°\. Record the other side too/);
+const bothSides = headSetupView({...base, reading: true, fresh: true, rows,
+  limits: {created_at: '2026-10-29T12:05:00Z', matches_reference: true},
+  corners: [{pan: .9, tilt: -.5}, {pan: -.9, tilt: -.5}],
+  clearance: {created_at: '2026-10-29T12:20:00Z', corners: [{pan: .5, tilt: -.6}, {pan: -.5, tilt: -.6}], margin_rad: .1}});
+assert.equal(bothSides.clearanceSaveEnabled, true);
+assert.match(bothSides.clearanceText, /Shoulder clearance saved .*: 2 corners; the head keeps 6° above them\.$/);
+assert.equal(headSetupView({...stale, corners: [{pan: .9, tilt: -.5}, {pan: -.9, tilt: -.5}]}).clearanceSaveEnabled,
+  false);  // Limits of an older reference: no corners saved with them.
+
 console.log('Head setup: steps follow the reader, the reference and the sweep; stale limits are named.');

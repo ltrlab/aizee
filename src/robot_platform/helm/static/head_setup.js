@@ -1,6 +1,25 @@
 // The Limits tab's Head section (helm/head_setup.py): what it says and which of its steps can run, from Helm's
 // state. The joint cards themselves are the arms' (helm.js build/update), on the head's endpoints.
 const date = text => (text ? new Date(text).toLocaleString() : '');
+const degrees = radians => `${radians >= 0 ? '+' : '−'}${Math.abs(radians * 180 / Math.PI).toFixed(0)}°`;
+const cornerText = corner => `pan ${degrees(corner.pan)} tilt ${degrees(corner.tilt)}`;
+
+// The shoulder corners (helm/head_setup.py, neck/clearance.py): those recorded, and the clearance saved.
+function cornersView(setup, limitsMatch) {
+  const corners = setup.corners || [], saved = setup.clearance;
+  const bothSides = corners.some(c => c.pan > 0) && corners.some(c => c.pan < 0);
+  const recorded = corners.length ? `Recorded: ${corners.map(cornerText).join(', ')}.`
+    + (bothSides ? '' : ' Record the other side too: the head reaches both shoulders.') : '';
+  const clearance = saved
+    ? `Shoulder clearance saved ${date(saved.created_at)}: ${saved.corners.length} corners; the head keeps `
+      + `${(saved.margin_rad * 180 / Math.PI).toFixed(0)}° above them.`
+    : limitsMatch ? 'No shoulder clearance yet: live sessions leave the head out until it is saved.'
+      : 'The shoulder corners come after the head limits.';
+  return {cornerEnabled: limitsMatch && !!setup.fresh, clearEnabled: corners.length > 0,
+    clearanceSaveEnabled: limitsMatch && bothSides,
+    cornerLabel: corners.length ? `Record corner (${corners.length})` : 'Record corner',
+    clearanceText: [recorded, clearance].filter(Boolean).join(' ')};
+}
 
 function servoText(servo) {
   if (servo.steps == null) return `${servo.label} —`;
@@ -44,6 +63,7 @@ export function headSetupView(setup) {
     limitsText,
     saveEnabled: fresh && rows.length > 0 && pending === rows.length,
     saveLabel: pending ? `Save head limits (${pending}/${rows.length})` : 'Save head limits',
+    ...cornersView(setup, !!(limits && limits.matches_reference)),
     status: setup.message || '',
   };
 }

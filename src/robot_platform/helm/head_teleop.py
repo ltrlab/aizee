@@ -4,12 +4,15 @@ Engage, Return, Disable) as the arms, one session for both.
 Its target is the operator's headset (helm.xr: yaw turns neck_z, pitch turns neck_y, one to one from the headset's
 zero) while a pose is fresh. Without one it holds its last target for a moment, then goes back to its zero pose, so
 with no headset at all the head holds still at zero. Every target goes through the arms' lifecycle classes (the
-direct law: speed caps, alignment, braking near the ends) and the head receiver's own limits.
+direct law: speed caps, alignment, braking near the ends) and the head receiver's own limits. With its shoulder
+clearance saved (neck.clearance), each target keeps clear of the shoulder too, and steps there so its path does.
 """
 from copy import deepcopy
 import math
 from pathlib import Path
 import time
+
+from robot_platform.neck import clearance
 
 PERIOD_S = .04  # The head's commands at 25 Hz (its profile's loop_hz); its receiver ramps each over 40 ms.
 # The head cycles on the arms' ticks, on a grid of PERIOD_S slots: a tick this early still takes its slot (the ticks
@@ -19,6 +22,8 @@ DUE_SLACK_S = PERIOD_S / 4
 CYCLE_BUDGET_S = .035
 POSE_FRESH_S = .2  # A headset pose this recent steers the head;
 RETURN_AFTER_S = 1.  # without one the head holds its last target this long, then returns to its zero pose.
+# With a shoulder clearance, the head's targets step at this share of its speeds: steps the lifecycle takes whole.
+SPEED_SHARE = .9
 
 
 class HeadTeleop:
@@ -37,6 +42,8 @@ class HeadTeleop:
         self._held = None  # The last target followed, held while the headset is briefly quiet.
         self._due = None  # The next slot on the head's grid (helm clock); None before the first cycle.
         self._sequence = 0
+        self.clearance = None
+        self._stepped, self._aligned, self.limited = None, False, False  # Stepping clear of the shoulder (_clear).
 
     # -- resources -------------------------------------------------------------------------
 
@@ -100,6 +107,12 @@ class HeadTeleop:
         # The headset's yaw and pitch are the CAD angles of neck_z and neck_y; each motor maps from its CAD joint.
         self.axes = {row['actuator']: (joint, row['scale'], row['offset'])
                      for joint, row in derived['joint_map'].items()}
+        # The shoulder clearance (neck.clearance), when one is saved for this reference: its targets then step.
+        self.clearance = clearance.from_limits(self.bundle['limits'], reference)
+        by_joint = {m['joint']: m for m in reference['motors']}
+        self.pan, self.tilt = by_joint[clearance.PAN]['name'], by_joint[clearance.TILT]['name']
+        self.centre = {m['name']: float(m['raw_reference_rad']) for m in reference['motors']}
+        self.speeds = {row['name']: (row['align_speed'], row['max_velocity']) for row in derived['lifecycle']}
 
     # -- the headset -------------------------------------------------------------------------
 
@@ -125,8 +138,34 @@ class HeadTeleop:
         self._held = None
         return dict(self.zero), 'zero'
 
+    def _clear(self, desired):
+        """Toward `desired` in steps the lifecycle takes whole, each clear of the shoulder: the lifecycle moves each
+        joint at its own speed, so one long move toward a clear pose could cut through the corner below it. Aligning
+        (ENGAGING), the head holds where it is; following, it goes at the alignment speed until it first reaches its
+        target, then at the head's speed. Without a clearance saved, `desired` as it is."""
+        self.limited = False
+        if self.clearance is None:
+            return desired
+        measured = {row['name']: row['position'] for row in (self.session.last_feedback or [])}
+        if self.state not in ('ENGAGING', 'TELEOP') or self._stepped is None:
+            self._stepped = {name: measured.get(name, self.zero[name]) for name in self.names}
+            self._aligned = False
+        if self.state != 'TELEOP':
+            return dict(self._stepped)
+        pan, tilt, centre = self.pan, self.tilt, self.centre
+        goal = (desired[pan] - centre[pan], desired[tilt] - centre[tilt])
+        cleared = self.clearance.clamp(*goal)
+        self.limited = cleared != goal
+        limit = tuple(SPEED_SHARE * self.speeds[name][self._aligned] * PERIOD_S for name in (pan, tilt))
+        step = self.clearance.step((self._stepped[pan] - centre[pan], self._stepped[tilt] - centre[tilt]), cleared,
+                                   limit)
+        self._stepped = {pan: centre[pan] + step[0], tilt: centre[tilt] + step[1]}
+        self._aligned = self._aligned or max(abs(a - b) for a, b in zip(step, cleared)) < 1e-6
+        return dict(self._stepped)
+
     def _target(self, now):
         positions, self.source = self._following(now)
+        positions = self._clear(positions)
         self._sequence += 1
         return [{'name': name, 'position': positions[name], 'sampled_at': now, 'sequence': self._sequence}
                 for name in self.names]
@@ -173,7 +212,9 @@ class HeadTeleop:
         joints = {joint: positions[motor] * scale + offset for motor, (joint, scale, offset)
                   in getattr(self, 'axes', {}).items() if motor in positions}
         return {'state': self.state, 'fault': self.fault, 'source': getattr(self, 'source', None), 'headset': pose,
-                'positions': positions, 'joints': joints, 'motors_enabled': last.get('hardware_enabled')}
+                'positions': positions, 'joints': joints, 'motors_enabled': last.get('hardware_enabled'),
+                # Whether the shoulder clearance holds the head above where the headset looks, this cycle.
+                'clearance': None if self.clearance is None else {'limited': self.limited}}
 
     def close(self):
         if self.session is not None and self.session.owned:

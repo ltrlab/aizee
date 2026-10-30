@@ -5,7 +5,10 @@
    file saved;
 3. check each joint's direction against the 3D view (flip or accept it, in the reference);
 4. sweep each joint's limits by hand (the arms' LimitRecorder: an end counts once two readings agree) and save them,
-   which also sets each servo's own position limits MARGIN_RAD outside, a backstop under Helm's limits.
+   which also sets each servo's own position limits MARGIN_RAD outside, a backstop under Helm's limits;
+5. record the shoulder corners (neck.clearance): turned to a side and tilted down, the head reaches its shoulder, so
+   with the head turned and tilted down until just clear, each corner is recorded, and they are saved with the limits.
+   Live sessions leave the head out until its clearance is saved.
 
 Every servo write goes through neck.setup's checked steps (limp servos, values read back, the EEPROM locked
 again). The files go beside the arms' servo calibration (neck.head.files), where Tune and teleop read them; a file
@@ -21,7 +24,7 @@ import time
 import uuid
 
 from robot_platform.control.joint_calibration import save_json
-from robot_platform.neck import head, setup
+from robot_platform.neck import clearance, head, setup
 from robot_platform.neck.feetech import RESOLUTION, FeetechError, alarms_of
 
 from .limits import LimitRecorder
@@ -60,6 +63,7 @@ class HeadSetup:
         self.reference = head.load_document(self.paths['reference'])
         self.limits = head.load_document(self.paths['limits'])
         self.recorder = self._recorder()
+        self.corners = []  # Shoulder corners recorded since the clearance was last saved ({pan, tilt}, rad).
 
     def _open_bus(self):
         if not self.device:
@@ -180,6 +184,7 @@ class HeadSetup:
             self._replace(self.paths['reference'], document)
             self.reference = document
             self.recorder = self._recorder()  # A new sweep, from the new reference.
+            self.corners = []  # Corners read against the old reference: recorded again after the sweep.
             self.message = 'Reference set: both servos read mid-turn with the head straight ahead and level.' + (
                 '' if self.limits is not None else ' Now check the directions and sweep the limits.')
             return document
@@ -240,8 +245,42 @@ class HeadSetup:
             self._replace(self.paths['limits'], document)
             self.limits = document
             self.recorder.confirmed.clear()
-            self.message = "Head limits saved, and each servo's own limits set just outside them."
+            self.message = ("Head limits saved, and each servo's own limits set just outside them. Now record the "
+                            'shoulder corners.')
             return {'path': str(self.paths['limits'])}
+
+    def _matching_limits(self):
+        return bool(self.limits and self.reference and self.limits.get('reference_id') == self.reference['id'])
+
+    def corner(self, action):
+        """`record` the head's pose now as a shoulder corner (turned to a side and tilted down until just clear of the
+        shoulder), or `clear` the corners recorded so far."""
+        with self.lock:
+            if action == 'clear':
+                self.corners = []
+                return
+            if action != 'record':
+                raise ValueError('Use record or clear')
+            if not self._matching_limits():
+                raise ValueError("Save the head's limits first: its corners are saved with them")
+            self._need_fresh('Recording a corner')
+            relative = self._relative()
+            joints = {m['joint']: m['name'] for m in self.reference['motors']}
+            self.corners.append({'pan': relative[joints[clearance.PAN]], 'tilt': relative[joints[clearance.TILT]]})
+
+    def save_clearance(self):
+        """The corners recorded, as the shoulder clearance in the limits file (neck.clearance)."""
+        with self.lock:
+            if not self._matching_limits():
+                raise ValueError("Save the head's limits first: its corners are saved with them")
+            document = dict(deepcopy(self.limits), clearance=dict(clearance.section(self.corners),
+                                                                  created_at=_now().isoformat()))
+            clearance.from_limits(document, self.reference)  # The floor they make, checked before it is saved.
+            self._replace(self.paths['limits'], document)
+            self.limits, self.corners = document, []
+            self.message = ('Shoulder clearance saved: the head keeps above its corners in the next session, and live '
+                            'sessions take the head.')
+            return {'path': str(self.paths['limits']), 'corners': len(document['clearance']['corners'])}
 
     def _replace(self, path, document):
         if self.evidence is None:
@@ -286,6 +325,12 @@ class HeadSetup:
                     'directions_verified': all(m['direction_verified'] for m in reference['motors'])},
                 'limits': None if limits is None else {
                     'created_at': limits.get('created_at'), 'matches_reference': matches},
+                # The shoulder corners recorded, and the clearance saved with the limits for this reference.
+                'corners': [dict(c) for c in self.corners],
+                'clearance': None if not (matches and limits.get('clearance')) else {
+                    'created_at': limits['clearance'].get('created_at'),
+                    'corners': [dict(c) for c in limits['clearance']['corners']],
+                    'margin_rad': limits['clearance']['margin_rad']},
                 'rows': cards, 'pending': len(self.recorder.confirmed) if self.recorder else 0,
                 'files': {kind: str(path) for kind, path in self.paths.items() if kind != 'servo'},
             }

@@ -449,6 +449,11 @@ function renderHeadSetup(state) {
   $('hs-reference-text').textContent = view.referenceText;
   $('hs-save').textContent = view.saveLabel;
   $('hs-save').disabled = !view.saveEnabled;
+  $('hs-corner').textContent = view.cornerLabel;
+  $('hs-corner').disabled = !view.cornerEnabled;
+  $('hs-corners-clear').disabled = !view.clearEnabled;
+  $('hs-clearance-save').disabled = !view.clearanceSaveEnabled;
+  $('hs-clearance-text').textContent = view.clearanceText;
   $('hs-limits-text').textContent = [view.limitsText, view.status].filter(Boolean).join(' ');
   if ([...headCards.keys()].join() !== view.rows.map(row => row.name).join()) {
     headCards.clear();
@@ -470,6 +475,11 @@ $('hs-reference').onclick = () => {
 };
 $('hs-save').onclick = () =>
   act('/api/helm/head/limits/save', {}, "Head limits saved, and each servo's own limits set just outside them.");
+$('hs-corner').onclick = () => act('/api/helm/head/corner', {action: 'record'},
+  'Corner recorded. Record each side\'s end and halfway, then save the shoulder clearance.');
+$('hs-corners-clear').onclick = () => act('/api/helm/head/corner', {action: 'clear'}, 'Corners cleared.');
+$('hs-clearance-save').onclick = () => act('/api/helm/head/clearance/save', {},
+  'Shoulder clearance saved: the head keeps above its corners from the next session.');
 $('headset-preview').onchange = () => {
   const on = $('headset-preview').checked;
   act('/api/helm/xr/preview', {on}, on ? 'Preview on: the 3D view\'s head follows the headset; no motors move.'

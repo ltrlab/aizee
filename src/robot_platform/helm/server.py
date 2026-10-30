@@ -1003,6 +1003,23 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         response.headers['X-Helm-Saved'] = result['path']
         return response
 
+    async def head_corner(request):
+        """A shoulder corner: `record` the head's pose now (turned and tilted down until just clear), or `clear` them."""
+        payload = await body(request)
+        if set(payload) != {'action'}:
+            raise ValueError('Expected action: record or clear')
+        need_head_setup()
+        await off_loop(lambda: head_setup.corner(payload['action']))
+        return state_response()
+
+    async def head_clearance_save(request):
+        await body(request)
+        need_head_setup()
+        result = await off_loop(head_setup.save_clearance)
+        response = state_response()
+        response.headers['X-Helm-Saved'] = result['path']
+        return response
+
     async def xr_preview_switch(request):
         """Settings → Headset: the 3D view's head follows the headset, or not. Display only."""
         payload = await body(request)
@@ -1147,6 +1164,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     app.router.add_post('/api/helm/head/direction', head_direction)
     app.router.add_post('/api/helm/head/limits', head_limits)
     app.router.add_post('/api/helm/head/limits/save', head_limits_save)
+    app.router.add_post('/api/helm/head/corner', head_corner)
+    app.router.add_post('/api/helm/head/clearance/save', head_clearance_save)
     app.router.add_get('/api/helm/cameras', camera_get)
     app.router.add_post('/api/helm/cameras/{role}', camera_set)
     app.router.add_get('/api/helm/cameras/{role}/frame', camera_frame)

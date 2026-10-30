@@ -1963,9 +1963,10 @@ class TeleopSession:
 
     def _head_bundle(self):
         """The head's files for this session (helm.head_teleop), or None: a virtual session always has a head (its
-        nominal reference and limits until it is set up); a live one only once it is set up and its bus pinned."""
+        nominal reference and limits until it is set up); a live one only once it is set up, its shoulder clearance
+        saved (neck.clearance: turned and tilted down, the head reaches its shoulder) and its bus pinned."""
         from robot_platform.control.servo_calibration import load_servo, servo_path
-        from robot_platform.neck import head
+        from robot_platform.neck import clearance, head
         from robot_platform.ops.release import ROOT
         try:
             profile = head.load_profile(ROOT / head.PROFILE)
@@ -1974,7 +1975,8 @@ class TeleopSession:
             paths = head.files(directory, self.helm.asset_id)
             reference, limits = head.load_document(paths['reference']), head.load_document(paths['limits'])
             if self.receiver['mode'] == 'live' and (reference is None or limits is None
-                                                    or not profile['bus'].get('usb_serial')):
+                                                    or not profile['bus'].get('usb_serial')
+                                                    or clearance.from_limits(limits, reference) is None):
                 return None
             reference = reference or head.virtual_reference(profile)
             return {'teleop_profile': str(ROOT / head.PROFILE), 'head_reference': reference,
