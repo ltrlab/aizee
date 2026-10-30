@@ -1633,7 +1633,9 @@ $('teleop-session').onclick = () => {
   const direct = t?.collision?.mode === 'disabled';
   if (arm === 'head') {
     askConfirm('start', arm, 'Start LIVE on the head?', [
-      "The head's servos are powered when you press Idle (I); Enable (E) holds it, Engage (T) follows the headset.",
+      "The head's servos are powered when you press Idle (I); Enable (E) holds it where it rests, Engage (T) "
+        + 'raises it slowly toward the headset and follows it.',
+      'Return (X) takes it back to straight ahead, then down to where it rested, before its torque goes.',
       "Nothing is in the head's way and its cables are clear through its whole range.",
       "Disable (H) removes its torque at once: the foot switch does not cut the head's power.",
       'The arms are left as they are: this session powers none of their motors.',
@@ -2007,12 +2009,13 @@ $('u-session').onclick = () => {
       u?.joints_choice ? `Joints: ${names} only.` : `Joints: both: ${names}, one after the other.`,
       "Each joint alone goes slowly from the head's reference to one end of its range, back, to the other end and "
         + 'back; the other joint stays at its reference. Nothing is measured to save.',
-      'The head faces straight ahead and level (its reference pose), and nothing is within its reach.',
+      "The head rests limp where it is: the jog first raises it slowly to its reference (straight ahead, level) "
+        + 'and ends by lowering it back to where it rested. Nothing is within its reach.',
       'Both arms hang in their reference pose and stay disabled.',
       "H disables the head at once (its servos go limp): the foot switch does not cut the head's power.",
       'Guards stop it on lag, effort or heat.',
     ], 'Start LIVE jog on the head', () => act('/api/helm/tune/start', {confirm: true},
-      "Starting the head's jog: its receiver checks each servo and the head's reference pose."));
+      "Starting the head's jog: its receiver checks each servo and that the head is still where it rests."));
     return;
   }
   askTune(`Start the LIVE servo sweep on the ${choice.arm} arm?`, [

@@ -1393,7 +1393,8 @@ class TeleopCore:
         if self.fault:
             return self._lowering
         head = getattr(self, 'head', None)
-        head = head is not None and not head.fault and head.state == 'SHUTDOWN'
+        head = (head is not None and not head.fault
+                and (head.state == 'SHUTDOWN' or getattr(head, 'returning', None) is not None))
         return self._land or self.session.lifecycle.state == 'SHUTDOWN' or head
 
     @property

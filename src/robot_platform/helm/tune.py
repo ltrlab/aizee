@@ -137,10 +137,12 @@ class TuneCore:
                             directory=self.evidence, labels=self.labels, confirmed_pose=returning).start()
 
     def _open_head_receiver(self, config, device, reference):
-        """bin/head_controller for head teleop: its own configuration from the derived one (neck.head)."""
-        from robot_platform.neck.head import HeadReceiver, service_config
+        """bin/head_controller for the head's jog: its own configuration from the derived one (neck.head), checking
+        the head is still where it was read resting (it droops: it cannot wait at its reference)."""
+        from robot_platform.neck.head import HeadReceiver, read_rest, service_config
         from robot_platform.ops.release import ROOT
-        service = service_config(self.profile, reference, self.derived, mode='teleop_direct')
+        rest = read_rest(self.profile, self.bundle['limits'])
+        service = service_config(self.profile, reference, self.derived, mode='teleop_direct', start=rest)
         return HeadReceiver(service, binary=ROOT / 'bin' / 'head_controller', directory=self.evidence,
                             labels=self.labels).start()
 
@@ -430,6 +432,10 @@ class TuneCore:
                         self._disable('Returned: the arm is at its reference and disabled.'
                                       if self.engine.task == 'finished' else
                                       f'Return stopped ({why}): the arm was disabled where it is, and rests there.')
+                    elif self.mode == 'jog':
+                        self._disable('Jog finished: the head is back where it rested, and limp.'
+                                      if self.engine.task == 'finished' else
+                                      'Jog stopped: the head is back where it rested, and limp.')
                     else:
                         self._disable('Sweep finished: the arm is back at the reference and disabled. Review the '
                                       'results, then save the joints you accept.' if self.engine.task == 'finished'
@@ -940,8 +946,8 @@ class TuneSession:
             live = self.receiver['mode'] == 'live'
             head = self.receiver['arm'] == 'head'
             if live and confirm is not True:
-                raise ValueError("Confirm the jog: the head's servos move on their own, one joint at a time, nothing "
-                                 "is in the head's way and it faces straight ahead, level" if head else
+                raise ValueError("Confirm the jog: the head's servos move on their own, one joint at a time, from "
+                                 "where it rests and back there, and nothing is in the head's way" if head else
                                  f"Confirm the sweep: the {self.receiver['arm']} arm's motors move on their own, "
                                  'the foot switch is in reach and the arm hangs in its reference pose')
             if live and getattr(self.helm, 'connection', 'tether') not in WIRED:
@@ -978,7 +984,7 @@ class TuneSession:
                 command_writer, view_reader = worker.commands, worker.views
             self._view = dict(self._view, phase='starting', fault=None, results=None, mode=self.mode,
                               message=("Starting the head's jog: its receiver checks each servo and that the head "
-                                       'is in its reference pose…' if head else
+                                       'is still where it rests…' if head else
                                        f"Returning the {self.receiver['arm']} arm: checking it is still where you "
                                        'confirmed it, then starting the receiver…' if self.mode == 'return' else
                                        f"Starting the sweep on the {self.receiver['arm']} arm: checking it is still and "

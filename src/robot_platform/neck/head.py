@@ -92,13 +92,43 @@ def derive(profile, reference, limits, model, servo=None):
                            limits=limits, profile=profile, backend=None, servo=servo)
 
 
-def service_config(profile, reference, derived, *, mode):
+REST_MARGIN_RAD = .1  # A head resting this far outside its saved limits is not where its setup left it.
+
+
+def read_rest(profile, limits, *, open_bus=None):
+    """Where the head rests, its servos limp ({motor: raw rad}), read just before its receiver starts. The head cannot
+    stay at its reference (it droops, the user 2026-10-30), so a session starts where it rests: the receiver's start
+    check takes this pose, and the session raises the head from it and lowers it back there. A reading outside the
+    saved limits (by more than REST_MARGIN_RAD) starts nothing."""
+    if open_bus is None:
+        from .probe import open_bus as open_head_bus
+        open_bus = lambda: open_head_bus(profile['bus']['device'], profile['bus']['baud'])  # noqa: E731
+    bus = open_bus()
+    try:
+        values = bus.sync_read([m['id'] for m in profile['motors']], ['Present_Position'])
+    finally:
+        bus.transport.close()
+    rest = {}
+    for motor in profile['motors']:
+        raw = values[motor['id']]['Present_Position'] * RAD_PER_STEP
+        saved = limits['joints'][motor['name']]
+        if not saved['min_rad'] - REST_MARGIN_RAD <= raw <= saved['max_rad'] + REST_MARGIN_RAD:
+            raise ValueError(f"{motor['label']} rests at {raw:.3f} rad, outside its saved limits "
+                             f"{saved['min_rad']:.3f}…{saved['max_rad']:.3f}: set the head up again in Limits → Head")
+        rest[motor['name']] = raw
+    return rest
+
+
+def service_config(profile, reference, derived, *, mode, start=None):
     """bin/head_controller's configuration (rust head_config::HeadServiceConfig). `mode`: virtual_bus, observe
-    or teleop_direct; the physical ones need the profile's bus pinned by its adapter's USB serial."""
+    or teleop_direct; the physical ones need the profile's bus pinned by its adapter's USB serial. `start`
+    ({motor: raw rad}, read_rest): the pose the receiver checks the head is still at before it starts, where it
+    rests; else its reference."""
     if mode not in ('virtual_bus', 'observe', 'teleop_direct'):
         raise ValueError('The head receiver runs virtual_bus, observe or teleop_direct')
     live = profile['live']
     by_name = {m['name']: m for m in reference['motors']}
+    start = start or {name: m['raw_reference_rad'] for name, m in by_name.items()}
     bus = profile['bus']
     if mode == 'virtual_bus':
         bus = {'device': '', 'usb_serial': None, 'baud': bus['baud']}
@@ -107,7 +137,7 @@ def service_config(profile, reference, derived, *, mode):
     servos = [{'name': m['name'], 'id': m['id'], 'model': m['model'], 'firmware': by_name[m['name']]['firmware'],
                'direction': 1.0, 'zero_steps': 0.0, 'full_load_nm': m['full_load_nm']} for m in profile['motors']]
     references = [] if mode != 'teleop_direct' else [
-        {'name': m['name'], 'raw_position_rad': by_name[m['name']]['raw_reference_rad'],
+        {'name': m['name'], 'raw_position_rad': float(start[m['name']]),
          'tolerance_rad': live['reference_tolerance_rad']} for m in profile['motors']]
     return {'mode': mode, 'endpoint': live['endpoint'], 'period_us': live['period_us'],
             'maximum_lateness_us': live['maximum_lateness_us'], 'bus': dict(bus), 'servos': servos,

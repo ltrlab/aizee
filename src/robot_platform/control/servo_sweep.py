@@ -392,6 +392,9 @@ class SweepEngine:
         self.stopping = False
         self.done = False
         self.aside = set()  # Grippers the receiver set aside (lower): they keep their last command.
+        # The head's jog: where it rested when it began ({motor: rad}). It cannot stay straight ahead (it droops), so
+        # the jog raises it from there to its reference first and lowers it back there at the end, never dropping.
+        self.rest = {}
         self.events = []
         self.latest = None
         self._fresh = []  # The rows observed since the last command, for the guard.
@@ -460,8 +463,11 @@ class SweepEngine:
     # -- command ----------------------------------------------------------------------
 
     def begin(self, positions):
-        """Start from the measured pose ({motor: rad}); the sweep brings every joint to the reference slowly."""
+        """Start from the measured pose ({motor: rad}); the sweep brings every joint to the reference slowly. A jog
+        keeps it as the head's rest, to end there."""
         self.targets.update({name: float(q) for name, q in positions.items() if name in self.targets})
+        if self.mode == 'jog':
+            self.rest = {name: float(q) for name, q in positions.items() if name in self.targets}
 
     def command(self, now):
         """The next command: {'targets': [...], 'gains': [(kp, kd), ...], 'task': str}, or None when done."""
@@ -522,7 +528,7 @@ class SweepEngine:
         self.test_gains.clear()
         self.current, self.recovering, self.stopping, self._stop_sent = None, True, True, True
         self.done = False
-        self._plan = self._home_all()
+        self._plan = self._lower_all()
 
     def _compose(self):
         targets, gains, velocities, efforts = [], [], [], []
@@ -720,11 +726,24 @@ class SweepEngine:
 
     # -- the plan ---------------------------------------------------------------------------
 
-    def _home_all(self):
-        """Every joint to its reference together, each at its characterisation speed."""
-        self._task('to the reference pose')
-        moves = [self._go(name, self.home[name], (self.settings.get(name) or self.settings[(self.sweep or self.names)[0]])
-                          ['characterize_speed']) for name in self.names if name not in self.aside]
+    def _lower_all(self):
+        """To the reference, and for the head's jog on down to where it rested."""
+        yield from self._home_all()
+        yield from self._rest_all()
+
+    def _rest_all(self):
+        """The head's jog ends where the head rested: from its reference, every joint together at its
+        characterisation speed. Each moves away from straight ahead toward where the head rested, so none crosses
+        the shoulder corner on the way (neck.clearance's floor never eases off outward)."""
+        if self.rest:
+            yield from self._home_all(self.rest, 'down to where it rested')
+
+    def _home_all(self, goal=None, label='to the reference pose'):
+        """Every joint to its reference (or `goal`) together, each at its characterisation speed."""
+        goal = goal or self.home
+        self._task(label)
+        moves = [self._go(name, goal[name], (self.settings.get(name) or self.settings[(self.sweep or self.names)[0]])
+                          ['characterize_speed']) for name in self.names if name not in self.aside and name in goal]
         while moves:
             for move in list(moves):
                 try:
@@ -831,6 +850,7 @@ class SweepEngine:
         except SweepStopped:
             self.task = 'stopped'
             self.current = None
+        yield from self._rest_all()  # The head's jog: back down to where it rested before its torque goes.
 
     def _task(self, label):
         self.task = label

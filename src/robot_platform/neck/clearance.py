@@ -38,6 +38,11 @@ def section(corners, *, margin_rad=MARGIN_RAD):
     return {'corners': corners, 'down': int(downs.pop()), 'margin_rad': float(margin_rad)}
 
 
+def unbounded():
+    """No floor: the same steps for a head with no clearance saved (a virtual session's)."""
+    return Clearance({'corners': [], 'down': -1, 'margin_rad': 0.}, math.inf)
+
+
 def from_limits(limits, reference):
     """The clearance saved in a head limits file, for its reference; None when none is saved."""
     saved = (limits or {}).get('clearance')

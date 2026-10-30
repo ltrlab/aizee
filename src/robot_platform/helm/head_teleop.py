@@ -6,6 +6,11 @@ zero) while a pose is fresh. Without one it holds its last target for a moment, 
 with no headset at all the head holds still at zero. Every target goes through the arms' lifecycle classes (the
 direct law: speed caps, alignment, braking near the ends) and the head receiver's own limits. With its shoulder
 clearance saved (neck.clearance), each target keeps clear of the shoulder too, and steps there so its path does.
+
+The head cannot stay at its reference: limp, it droops to where it rests (the user, 2026-10-30). A session starts
+there (its receiver checks the head is still where it was read resting, neck.head.read_rest), Engage raises it
+slowly, and Return (X), or the session's end, takes it back to its reference, then down to where it rested, before
+its torque goes: it is never dropped from straight ahead, and never crosses the shoulder corner on the way.
 """
 from copy import deepcopy
 import math
@@ -44,14 +49,18 @@ class HeadTeleop:
         self._sequence = 0
         self.clearance = None
         self._stepped, self._aligned, self.limited = None, False, False  # Stepping clear of the shoulder (_clear).
+        self.rest = None  # Where the head rested when the session began ({motor: raw rad}): Return ends there.
+        self.returning = None  # Return's stage: 'centre' (to the reference), then 'rest'; None otherwise.
+        self._disable_next = False
 
     # -- resources -------------------------------------------------------------------------
 
     def _open_receiver(self, config, reference):
         from pathlib import Path
-        from robot_platform.neck.head import HeadReceiver, service_config
+        from robot_platform.neck.head import HeadReceiver, read_rest, service_config
         from robot_platform.ops.release import ROOT
-        service = service_config(self.profile, reference, self.derived, mode='teleop_direct')
+        self.rest = read_rest(self.profile, self.bundle['limits'])
+        service = service_config(self.profile, reference, self.derived, mode='teleop_direct', start=self.rest)
         evidence = Path.home() / 'minerva' / 'evidence' / time.strftime('live-head-%Y%m%dT%H%M%SZ', time.gmtime())
         return HeadReceiver(service, binary=ROOT / 'bin' / 'head_controller', directory=evidence,
                             labels=self.labels).start()
@@ -81,7 +90,10 @@ class HeadTeleop:
             receiver = self.open_receiver(config, reference)
             exchange = receiver.exchange
         else:
-            receiver = self.open_harness(config, derived['initial'])
+            # A rehearsal may start the head where it would rest (`rest_pose`), as the live head does.
+            joints = [joint['name'] for joint in config['joints']]
+            self.rest = {**dict(zip(joints, derived['initial'])), **(self.bundle.get('rest_pose') or {})}
+            receiver = self.open_harness(config, [self.rest[name] for name in joints])
             epoch = self.clock()
 
             def exchange(request):
@@ -112,7 +124,18 @@ class HeadTeleop:
         by_joint = {m['joint']: m for m in reference['motors']}
         self.pan, self.tilt = by_joint[clearance.PAN]['name'], by_joint[clearance.TILT]['name']
         self.centre = {m['name']: float(m['raw_reference_rad']) for m in reference['motors']}
-        self.speeds = {row['name']: (row['align_speed'], row['max_velocity']) for row in derived['lifecycle']}
+        self.speeds = {row['name']: {'align': row['align_speed'], 'follow': row['max_velocity'],
+                                     'return': row['shutdown_speed']} for row in derived['lifecycle']}
+        self.tolerance = {row['name']: row['tolerance'] for row in derived['lifecycle']}
+        # Return ends where the head rested, inside its usable range and clear of the shoulder: the last of a droop
+        # past them happens limp.
+        rest = dict(self.zero, **(self.rest or {}))
+        rest = {name: min(max(rest[name], self.usable[name][0]), self.usable[name][1]) for name in names}
+        if self.clearance is not None:
+            pan, tilt = self.clearance.clamp(rest[self.pan] - self.centre[self.pan],
+                                             rest[self.tilt] - self.centre[self.tilt])
+            rest.update({self.pan: self.centre[self.pan] + pan, self.tilt: self.centre[self.tilt] + tilt})
+        self.rest_target = rest
 
     # -- the headset -------------------------------------------------------------------------
 
@@ -125,6 +148,8 @@ class HeadTeleop:
 
     def _following(self, now):
         """The positions the head should take now ({motor: raw rad}) and where they come from."""
+        if self.returning is not None:
+            return dict(self.zero if self.returning == 'centre' else self.rest_target), 'returning'
         if self._pose is not None and now - self._pose[2] <= POSE_FRESH_S:
             angles = {'neck_z': self._pose[0], 'neck_y': self._pose[1]}
             positions = {}
@@ -142,9 +167,11 @@ class HeadTeleop:
         """Toward `desired` in steps the lifecycle takes whole, each clear of the shoulder: the lifecycle moves each
         joint at its own speed, so one long move toward a clear pose could cut through the corner below it. Aligning
         (ENGAGING), the head holds where it is; following, it goes at the alignment speed until it first reaches its
-        target, then at the head's speed. Without a clearance saved, `desired` as it is."""
+        target, then at the head's speed; returning, at its shutdown speed. Without a clearance saved, `desired` as
+        it is, except returning: those steps keep the two stages a straight line each."""
         self.limited = False
-        if self.clearance is None:
+        floor = self.clearance or (clearance.unbounded() if self.returning is not None else None)
+        if floor is None:
             return desired
         measured = {row['name']: row['position'] for row in (self.session.last_feedback or [])}
         if self.state not in ('ENGAGING', 'TELEOP') or self._stepped is None:
@@ -154,11 +181,11 @@ class HeadTeleop:
             return dict(self._stepped)
         pan, tilt, centre = self.pan, self.tilt, self.centre
         goal = (desired[pan] - centre[pan], desired[tilt] - centre[tilt])
-        cleared = self.clearance.clamp(*goal)
+        cleared = floor.clamp(*goal)
         self.limited = cleared != goal
-        limit = tuple(SPEED_SHARE * self.speeds[name][self._aligned] * PERIOD_S for name in (pan, tilt))
-        step = self.clearance.step((self._stepped[pan] - centre[pan], self._stepped[tilt] - centre[tilt]), cleared,
-                                   limit)
+        pace = 'return' if self.returning is not None else 'follow' if self._aligned else 'align'
+        limit = tuple(SPEED_SHARE * self.speeds[name][pace] * PERIOD_S for name in (pan, tilt))
+        step = floor.step((self._stepped[pan] - centre[pan], self._stepped[tilt] - centre[tilt]), cleared, limit)
         self._stepped = {pan: centre[pan] + step[0], tilt: centre[tilt] + step[1]}
         self._aligned = self._aligned or max(abs(a - b) for a, b in zip(step, cleared)) < 1e-6
         return dict(self._stepped)
@@ -182,8 +209,23 @@ class HeadTeleop:
         which holds the arms)."""
         if self.fault or self.session is None:
             return None
-        allowed = {'enable': ('IDLE',), 'engage': ('IDLE', 'HOLD'), 'disengage': ('ENGAGING', 'TELEOP'),
-                   'shutdown': ('IDLE', 'HOLD', 'ENGAGING', 'TELEOP')}
+        if self._disable_next:  # Back where it rested: its torque goes.
+            self._disable_next, action = False, 'disable'
+        if action == 'shutdown':
+            # Return: limp already (Idle), it rests where it is; powered, it goes back to its reference, then down
+            # to where it rested, following (from Hold it engages first, where it is), and is disabled there.
+            if self.state == 'IDLE':
+                action = 'disable'
+            elif self.state in ('HOLD', 'ENGAGING', 'TELEOP') and self.returning is None:
+                self.returning = 'centre'
+                action = 'engage' if self.state == 'HOLD' else None
+            else:
+                action = None
+        elif self.returning is not None and action != 'disable':
+            action = None  # Returning: only Disable (H) acts.
+        if action == 'disable':
+            self.returning = None
+        allowed = {'enable': ('IDLE',), 'engage': ('IDLE', 'HOLD'), 'disengage': ('ENGAGING', 'TELEOP')}
         if action in allowed and self.state not in allowed[action]:
             action = None  # The head follows the arms' lifecycle; a transition it is not in is skipped.
         if action is None and self._due is not None and started < self._due - DUE_SLACK_S:
@@ -193,13 +235,28 @@ class HeadTeleop:
         on_grid = action is None and self._due is not None and started - self._due < PERIOD_S / 2
         self._due = (self._due if on_grid else started) + PERIOD_S
         try:
-            return self.session.cycle(action=action, target=self._target(started), started_at=started)
+            record = self.session.cycle(action=action, target=self._target(started), started_at=started)
+            self._advance_return()
+            return record
         except Exception as exc:
             status = getattr(exc, 'status', None) or self.session.controller.status or {}
             reason = status.get('reason')
             self.fault = f"Head receiver {status.get('state')}: {reason} · {exc}" if reason not in (None, 'ok') \
                 else f'Head: {exc}'
             raise
+
+    def _advance_return(self):
+        """Return's next stage once the head has reached this one's goal (its steps there, and its reading)."""
+        if self.returning is None or self.state != 'TELEOP' or self._stepped is None:
+            return
+        goal = self.zero if self.returning == 'centre' else self.rest_target
+        measured = {row['name']: row['position'] for row in (self.session.last_feedback or [])}
+        if all(name in measured and abs(self._stepped[name] - goal[name]) < 1e-6
+               and abs(measured[name] - goal[name]) <= self.tolerance[name] for name in self.names):
+            if self.returning == 'centre':
+                self.returning = 'rest'
+            else:
+                self._disable_next = True
 
     def status(self):
         now = self.clock()
@@ -213,6 +270,7 @@ class HeadTeleop:
                   in getattr(self, 'axes', {}).items() if motor in positions}
         return {'state': self.state, 'fault': self.fault, 'source': getattr(self, 'source', None), 'headset': pose,
                 'positions': positions, 'joints': joints, 'motors_enabled': last.get('hardware_enabled'),
+                'returning': self.returning,
                 # Whether the shoulder clearance holds the head above where the headset looks, this cycle.
                 'clearance': None if self.clearance is None else {'limited': self.limited}}
 

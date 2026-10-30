@@ -93,3 +93,27 @@ def test_a_return_toward_straight_ahead_stays_clear_whatever_each_joint_speed(pa
             pan = max(0., pan - pan_speed * .04) if pan > 0 else min(0., pan + pan_speed * .04)
             tilt = min(0., tilt + tilt_speed * .04)
             assert clear.clear(pan, tilt)
+
+
+def test_a_head_rests_where_its_servos_read_inside_its_saved_limits():
+    # Limp, the head droops (the user, 2026-10-30): a session starts where it rests, and its receiver checks the head
+    # is still there (neck.head.read_rest, service_config's start pose).
+    from robot_platform.neck import head
+    from robot_platform.neck.feetech import FeetechBus
+    from robot_platform.neck.sim import SimulatedServo, realtime_bus
+    from robot_platform.ops.release import ROOT
+    profile = head.load_profile(ROOT / head.PROFILE)
+    pan, tilt = SimulatedServo(1, position=2060), SimulatedServo(2, position=1650)
+    bus = realtime_bus([pan, tilt])
+    limits = {'joints': {'head_pan': {'min_rad': 985 * head.RAD_PER_STEP, 'max_rad': 3055 * head.RAD_PER_STEP},
+                         'head_tilt': {'min_rad': 1418 * head.RAD_PER_STEP, 'max_rad': 2754 * head.RAD_PER_STEP}}}
+    rest = head.read_rest(profile, limits, open_bus=lambda: FeetechBus(bus, timeout_s=.005))
+    assert rest == pytest.approx({'head_pan': 2060 * head.RAD_PER_STEP, 'head_tilt': 1650 * head.RAD_PER_STEP})
+    reference = head.virtual_reference(profile)
+    derived = {'config': {'joints': []}}
+    references = head.service_config(dict(profile, bus={'device': '/dev/x', 'usb_serial': 'S', 'baud': 1000000}),
+                                     reference, derived, mode='teleop_direct', start=rest)['reference_positions']
+    assert [r['raw_position_rad'] for r in references] == pytest.approx([rest['head_pan'], rest['head_tilt']])
+    tilt.move_by_hand(1300)  # Far below its swept range: not where its setup left it.
+    with pytest.raises(ValueError, match='Head tilt rests at .* outside its saved limits'):
+        head.read_rest(profile, limits, open_bus=lambda: FeetechBus(bus, timeout_s=.005))

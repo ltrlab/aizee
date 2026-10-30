@@ -31,9 +31,10 @@ class Clock:
 class Receiver:
     """The head receiver's interface (exchange, last, transport hook, close) over the actual Rust core."""
 
-    def __init__(self, config, reference, clock):
+    def __init__(self, config, reference, clock, start=None):
         roster = {m['name']: m['raw_reference_rad'] for m in reference['motors']}
-        self.harness = NativeControlHarness(config, [roster[joint['name']] + .02 for joint in config['joints']])
+        start = start or {name: q + .02 for name, q in roster.items()}
+        self.harness = NativeControlHarness(config, [start[joint['name']] for joint in config['joints']])
         self.harness.step(0)
         self.clock, self.epoch, self.config, self.requests = clock, clock(), config, []
         self.transport = SimpleNamespace(on_result=None)
@@ -153,3 +154,40 @@ def test_a_head_jog_saves_nothing(tmp_path):
         with pytest.raises(ValueError, match='saves nothing'):
             tune.save(motors)
     assert not tune.head_paths['servo'].exists()
+
+
+def test_the_head_jog_raises_the_head_from_where_it_rests_and_lowers_it_back_there(bundle, tmp_path):
+    # The head cannot stay straight ahead: limp, it droops (the user, 2026-10-30). The jog starts there, raises it
+    # to its reference first, and ends back where it rested, so it is never dropped from straight ahead.
+    clock = Clock()
+    centre = {m['name']: m['raw_reference_rad'] for m in bundle['head_reference']['motors']}
+    rest = {'head_pan': centre['head_pan'] + .02, 'head_tilt': centre['head_tilt'] - .6}
+    receivers = []
+
+    def open_receiver(config, device, reference):
+        receivers.append(Receiver(config, reference, clock, start=rest))
+        return receivers[-1]
+    core = TuneCore(bundle, open_receiver=open_receiver, clock=clock, evidence_root=tmp_path / 'evidence')
+    core.build()
+    engine = core.engine
+    speed = engine.settings['head_tilt']['characterize_speed']
+    before, tasks = None, []
+    for _ in range(40000):
+        core.tick(None, clock())
+        clock.now += core.period_s
+        assert core.fault is None, core.fault
+        targets = dict(engine.targets)
+        if engine.task != 'starting':
+            assert max(abs(targets[name] - before[name]) for name in targets) <= speed * core.period_s + 1e-9
+            if not tasks or tasks[-1] != engine.task:
+                tasks.append(engine.task)
+        before = targets
+        if core.stage == 'finished':
+            break
+    assert core.stage == 'finished' and engine.task == 'finished', core.message
+    assert engine.rest == pytest.approx(rest)
+    assert tasks[0] == 'to the reference pose' and 'down to where it rested' in tasks
+    assert engine.targets == pytest.approx(rest)  # Back where it rested, then disabled there.
+    assert receivers[0].last['feedback'][1]['position'] == pytest.approx(rest['head_tilt'], abs=.02)
+    assert not receivers[0].last['hardware_enabled'] and 'back where it rested' in core.message
+    core.close()

@@ -1,11 +1,13 @@
 """Live · Head: the head alone in a teleop session (the Teleop tab's Head choice), for its bring-up with the headset.
 
 The head's own receiver (helm.head_teleop) under the session's keys, with none of the arms' motors: the arms'
-receivers are never opened, so their drives stay as they are and Helm's live view keeps reading them. Idle (I) takes
-the head's receiver with its torque off, Enable (E) holds the head where it is, Engage (T) aligns it to the headset and
-follows it, T again holds it, Return (X) takes it to its zero and then disables it, and Disable (H) removes its torque
-at once. As with the arms, a head disabled after it was powered needs a new session. The pedals step it the same way
-(C: Idle, Enable, Engage, then Return; B: hold and resume); A, recording, has nothing to record.
+receivers are never opened, so their drives stay as they are and Helm's live view keeps reading them. The session
+starts where the head rests limp (it droops; helm.head_teleop). Idle (I) takes the head's receiver with its torque off,
+Enable (E) holds the head where it is, Engage (T) raises it slowly toward the headset and follows it, T again holds
+it, Return (X) takes it back to its reference, then down to where it rested, and disables it there, and Disable (H)
+removes its torque at once. As with the arms, a head disabled after it was powered needs a new session. The pedals
+step it the same way (C: Idle, Enable, Engage, then Return; B: hold and resume); A, recording, has nothing to
+record.
 
 The loop (helm.teleop.run_loop) drives this core as it drives TeleopCore, one head cycle each 40 ms period.
 """
@@ -23,10 +25,13 @@ ALLOWED = {'enable': ('IDLE',), 'engage': ('IDLE', 'HOLD'), 'disengage': ENGAGED
            'shutdown': ('IDLE', 'HOLD', *ENGAGED)}
 CYCLE_HISTORY = 100
 STATES = {'IDLE': 'torque off. Enable (E) holds the head where it is.',
-          'HOLD': 'holding. Engage (T) aligns it to the headset, then follows it.',
+          'HOLD': 'holding. Engage (T) raises it slowly toward the headset, then follows it.',
           'ENGAGING': 'aligning to the headset.',
-          'TELEOP': 'following the headset. T holds it; Return (X) takes it to its zero.',
+          'TELEOP': 'following the headset. T holds it; Return (X) takes it back to its reference, then down to '
+                    'where it rested.',
           'SHUTDOWN': 'returning to its zero, then disabling.'}
+RETURNING = {'centre': 'returning: back to its reference first.',
+             'rest': 'returning: down to where it rested, then its torque goes.'}
 
 
 def head_only(receiver):
@@ -70,8 +75,9 @@ class HeadOnlyCore:
     def build(self):
         self.head.build()
         self.phase = 'running'
-        self.message = (f'{self._name} · the servos are powered from Idle (I); then Enable (E) holds the head and Engage '
-                        '(T) follows the headset. Return (X) takes it to its zero; Disable (H) removes its torque.')
+        self.message = (f'{self._name} · the servos are powered from Idle (I); then Enable (E) holds the head where it '
+                        'rests and Engage (T) raises it toward the headset. Return (X) takes it back, then down to '
+                        'where it rested; Disable (H) removes its torque.')
 
     # -- the cycle ---------------------------------------------------------------------------
 
@@ -83,7 +89,7 @@ class HeadOnlyCore:
             if key == 'H':
                 self._disable_now()
             return
-        previous = head.state
+        previous, was_returning = head.state, head.returning
         action = minerva_action(key, previous) if key else None
         notice = None
         if self._land:
@@ -114,6 +120,8 @@ class HeadOnlyCore:
         self._powered = self._powered or current not in (None, 'DISABLED')
         if notice:
             self.message = notice
+        elif head.returning is not None and head.returning != was_returning:
+            self.message = f'{self._name} · {RETURNING[head.returning]}'
         elif current != previous:
             self.message = f'{self._name} · {current} · ' + STATES.get(current, (
                 'torque off. Stop the session; a new one powers it again.' if self.live and self._powered
@@ -151,7 +159,7 @@ class HeadOnlyCore:
         """Whether the loop is still returning the head before it may close its receiver."""
         if self.head.session is None or self.fault:
             return False
-        return self._land or self.head.state == 'SHUTDOWN'
+        return self._land or self.head.returning is not None or self.head.state == 'SHUTDOWN'
 
     def helm_gone(self, reason):
         """Helm closed the channel or went silent: the loop lands and closes, as when asked to stop."""
@@ -191,7 +199,9 @@ class HeadOnlyCore:
     # -- the pedals -------------------------------------------------------------------------------
 
     def _pedal_context(self):
-        return dict(phase=self.phase, state=self.head.state, fault=self.fault, recording_fault=None,
+        # Returning is the head's shutdown: pedal C's Return is confirmed by it.
+        state = 'SHUTDOWN' if self.head.returning is not None else self.head.state
+        return dict(phase=self.phase, state=state, fault=self.fault, recording_fault=None,
                     spent=bool(self.live and self._powered), closing=self._closing, task=None)
 
     def prepare_pedal(self, payload):

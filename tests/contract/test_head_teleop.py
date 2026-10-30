@@ -160,3 +160,92 @@ def test_with_its_shoulder_clearance_the_head_never_reaches_the_shoulder_followi
         assert core.state == 'DISABLED' and pose_now() == (pytest.approx(0., abs=.01), pytest.approx(0., abs=.01))
     finally:
         core.close()
+
+
+def drooped(span=.8, rest_tilt=-.6, corners=True):
+    """A head that rests limp tilted down (rest_tilt from its reference), with or without its shoulder corners."""
+    from robot_platform.neck.clearance import section
+    profile = head.load_profile(ROOT / head.PROFILE)
+    reference = head.virtual_reference(profile)
+    centre = {m['name']: m['raw_reference_rad'] for m in reference['motors']}
+    limits = dict(head.virtual_limits(reference, span_rad=span), reference_id=reference['id'])
+    if corners:
+        limits['clearance'] = section([{'pan': -.6, 'tilt': -.4}, {'pan': .6, 'tilt': -.4}])
+    clock = Clock()
+    core = HeadTeleop({'teleop_profile': str(ROOT / head.PROFILE), 'head_reference': reference, 'limits': limits,
+                       'servo': None, 'rest_pose': {'head_tilt': centre['head_tilt'] + rest_tilt}},
+                      live=False, clock=clock)
+    core.build()
+    return core, clock, centre
+
+
+def test_the_head_starts_where_it_rests_and_return_takes_it_back_there_through_its_reference():
+    # Limp, the head droops (the user, 2026-10-30): Enable holds it there, Engage raises it slowly, and Return goes
+    # back to straight ahead first, then down to where it rested, before its torque goes: never dropped, never
+    # across the shoulder corner, however each joint's speed shares the move.
+    core, clock, centre = drooped()
+    try:
+        def rel():
+            measured = positions(core)
+            return measured['head_pan'] - centre['head_pan'], measured['head_tilt'] - centre['head_tilt']
+
+        def follow(seconds, pose=None, action=None):
+            seen = []
+            for _ in range(int(seconds / .01)):
+                if pose is not None:
+                    core.pose(*pose, now=clock.now)
+                core.cycle(action, clock.now)
+                action = None
+                clock.now += .01
+                assert core.clearance.clear(*rel()), rel()
+                seen.append((core.returning, core.state))
+            return seen
+
+        follow(.2, action='idle')
+        assert rel() == (pytest.approx(0.), pytest.approx(-.6))  # Where it rests, read before anything moved.
+        follow(.2, action='enable')
+        assert core.state == 'HOLD' and rel() == (pytest.approx(0., abs=.01), pytest.approx(-.6, abs=.01))
+        follow(.2, action='engage')
+        follow(6., (.75, -.1))  # Up from where it rested, then turned far to the side.
+        assert core.state == 'TELEOP' and rel() == (pytest.approx(.75, abs=.01), pytest.approx(-.1, abs=.01))
+        seen = follow(.2, action='shutdown')
+        seen += follow(15.)
+        stages = [stage for stage, _ in seen]
+        assert stages.index('rest') > stages.index('centre') and core.returning is None
+        assert core.state == 'DISABLED' and rel() == (pytest.approx(0., abs=.03), pytest.approx(-.6, abs=.03))
+        assert core.status()['motors_enabled'] is False
+    finally:
+        core.close()
+
+
+def test_return_from_hold_engages_where_the_head_is_and_from_idle_just_lets_it_rest():
+    core, clock, centre = drooped(corners=False)
+    try:
+        run(core, clock, .2, 'idle')
+        run(core, clock, .2, 'shutdown')  # Limp already: nothing moves, it rests where it is.
+        assert core.state == 'DISABLED' and core.returning is None
+    finally:
+        core.close()
+    core, clock, centre = drooped(corners=False)
+    try:
+        for action in ('idle', 'enable'):
+            run(core, clock, .2, action)
+        run(core, clock, .2, 'shutdown')
+        assert core.returning is not None and core.state in ('ENGAGING', 'TELEOP')
+        run(core, clock, .2, 'disengage')  # Returning, only Disable acts.
+        assert core.returning is not None
+        run(core, clock, 15.)
+        assert core.state == 'DISABLED'
+        assert positions(core)['head_tilt'] - centre['head_tilt'] == pytest.approx(-.6, abs=.03)
+    finally:
+        core.close()
+    core, clock, centre = drooped(corners=False)
+    try:
+        for action in ('idle', 'enable', 'engage'):
+            run(core, clock, .2, action)
+        run(core, clock, 2.)
+        run(core, clock, .2, 'shutdown')
+        run(core, clock, .1, 'disable')  # H mid-return: limp at once, where it is.
+        assert core.state == 'DISABLED' and core.returning is None
+    finally:
+        core.close()
