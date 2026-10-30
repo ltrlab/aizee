@@ -234,6 +234,9 @@ def test_the_head_reference_and_limits_files_feed_its_derivation():
     assert (pan['uid'], pan['firmware'], pan['raw_reference_steps'], tilt['raw_reference_steps']) == (
         '5A46083062/1', '3.10', 2048, 2050)
     assert set(sim.instructions()) <= {PING, READ}  # Saving the reference only reads the servos.
+    again = setup.reference_document(bus, profile, asset_id='minerva-test', usb_serial='5A46083062',
+                                     device='/dev/serial/by-id/x', now=now)
+    assert again['id'] != reference['id']  # Limits name their reference: two at one moment must differ.
     limits = setup.limits_document({1: (1500, 2600), 2: (1800, 2300)}, profile, reference, now=now)
     assert limits['joints']['head_pan']['min_rad'] == pytest.approx(1500 * head.RAD_PER_STEP)
     model = UrdfModel(ModelProfile.load(root / profile['model_profile']))

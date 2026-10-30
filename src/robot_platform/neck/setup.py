@@ -6,6 +6,8 @@ with the torque off and exactly the expected servo answering. Each verifies what
 not read back as intended is put back and the step fails. The EEPROM is locked again afterwards, so later gain
 writes (the receiver's) never persist.
 """
+import uuid
+
 from .feetech import BROADCAST, FeetechError, RESOLUTION
 
 CENTRE = RESOLUTION // 2  # 2048 steps: the reading at the reference pose, mid-turn, so the range never wraps.
@@ -88,6 +90,11 @@ def centre(bus, servo_id, target=CENTRE):
     return offset
 
 
+def restore_offset(bus, servo_id, offset):
+    """Put back a servo's Homing_Offset (a step that centred several servos failed part way)."""
+    _locked(bus, servo_id, [("Homing_Offset", offset)])
+
+
 def set_limits(bus, servo_id, low, high):
     """The servo's own position limits (steps): it refuses goals outside them, a backstop under the receiver's."""
     if not 0 <= low < high <= RESOLUTION - 1:
@@ -124,7 +131,9 @@ def reference_document(bus, profile, *, asset_id, usb_serial, device, now):
                        "raw_reference_steps": steps, "raw_reference_rad": steps * 2 * math.pi / RESOLUTION,
                        "sign": 1, "direction_verified": False})
     stamp = now.strftime("%Y%m%dT%H%M%SZ")
-    return {"schema": 1, "kind": "head_reference", "id": f"{asset_id}-head-{stamp}", "asset_id": asset_id,
+    # Unique even within a second: the head's limits name the reference they were swept from.
+    return {"schema": 1, "kind": "head_reference", "id": f"{asset_id}-head-{stamp}-{uuid.uuid4().hex[:6]}",
+            "asset_id": asset_id,
             "created_at": now.isoformat(), "bus": {"usb_serial": usb_serial, "device": device}, "motors": motors}
 
 

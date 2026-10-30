@@ -108,6 +108,9 @@ class SimulatedBus:
     def reset_input_buffer(self):
         self.pending.clear()
 
+    def close(self):
+        """As a serial port closes: nothing to release here."""
+
     def read(self, size):
         out = bytes(self.pending[:size])
         del self.pending[:size]
