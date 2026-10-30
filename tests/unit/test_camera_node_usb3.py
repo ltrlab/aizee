@@ -4,6 +4,7 @@ live receiver runs; a camera that is gone never holds up the exit; systemd start
 a fake SDK and clock (Minerva's D435 dropped its USB 3 link six times on 2026-10-24/25)."""
 import configparser
 import importlib.util
+import json
 from pathlib import Path
 import threading
 import time
@@ -125,6 +126,44 @@ def test_resets_that_do_not_hold_back_off(rig):
         resets.append(rig.clock.now)
     gaps = [round(b - a) for a, b in zip(resets, resets[1:])]
     assert gaps == [30, 120, 600, 600]  # RETRAIN_BACKOFF_S, then its cap.
+
+
+def test_a_camera_replugged_at_usb3_during_the_backoff_streams_at_once(rig):
+    # 12 resets on the old cable left a 10-minute backoff; the head camera went onto a new cable 30 s into it and
+    # stayed dark until the backoff ran out (2026-10-29).
+    rig.state.write_text(json.dumps({'failures': 12, 'last_reset': rig.clock.now - 11.}))
+    rig.bus.cameras = [old := Camera(rig.bus, '2.1')]
+    replugged = rig.clock.now + 30.
+    rig.bus.pending = (replugged, Camera(rig.bus, '3.2'))
+    node = rig.node()
+    assert node.ensure_usb3() is True and old.resets == 0
+    assert rig.clock.now - replugged <= rig.module.LOOK_S
+    assert '"failures": 0' in rig.state.read_text()
+
+
+def test_a_camera_unplugged_during_the_backoff_is_looked_for_again_never_reset(rig):
+    rig.state.write_text(json.dumps({'failures': 3, 'last_reset': rig.clock.now - 11.}))
+    old, new = Camera(rig.bus, '2.1'), Camera(rig.bus, '3.2')
+    start = rig.clock.now
+    timeline = ((start + 20., []), (start + 50., [new]))
+
+    def query():
+        cameras = [old]
+        for at, present in timeline:
+            if rig.clock.now >= at:
+                cameras = present
+        return list(cameras)
+    rig.bus.query = query
+    node = rig.node()
+    assert node.ensure_usb3() is True and old.resets == 0 and node.device_serial == '919122072056'
+    assert rig.clock.now - (start + 50.) <= rig.module.POLL_S
+
+
+def test_a_camera_back_at_usb3_while_a_live_receiver_runs_is_not_reset(rig):
+    rig.bus.cameras = [old := Camera(rig.bus, '2.1')]
+    rig.live.extend([True] * 10)
+    rig.bus.pending = (rig.clock.now + 7., Camera(rig.bus, '3.2'))
+    assert rig.node().ensure_usb3() is True and old.resets == 0
 
 
 def test_no_reset_while_a_live_receiver_runs(rig):

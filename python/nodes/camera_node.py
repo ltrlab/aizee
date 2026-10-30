@@ -44,6 +44,7 @@ RETRAIN_BACKOFF_S = (0., 30., 120., 600.)  # Before a reset, by how many resets 
 RETRAIN_EXIT = 75  # EX_TEMPFAIL: the camera was reset and is re-attaching; systemd starts a fresh process.
 SETTLE_S = 10.  # A camera reset this recently may still be re-attaching: wait for it before resetting again.
 POLL_S = .5
+LOOK_S = 2.  # While a reset waits, the camera is read again this often: a replug ends the wait within it.
 LIVE_POLL_S = 5.
 NO_CAMERA_WAIT_S = 60.  # With no camera at all, the process waits this long, then exits (systemd starts it again).
 LIVE_RECEIVERS = ('guarded_controller', 'head_controller')  # Minerva's live receivers: no reset while one runs.
@@ -125,6 +126,12 @@ def _first_camera():
         return None
 
 
+def _look_camera():
+    """The connected camera and its USB link, (device, usb), or None."""
+    device = _first_camera()
+    return None if device is None else (device, _info(device, rs.camera_info.usb_type_descriptor))
+
+
 class Usb3Keeper:
     """Keeps the camera streaming over USB 3 only.
 
@@ -133,7 +140,8 @@ class Usb3Keeper:
     found at USB 2 is reset: it reboots and re-attaches, which retrains USB 3 (a USB 2 port reset does not). Each
     recovery is a fresh process, so how many resets in a row did not hold, and when the last was sent, live in a
     small state file. The next reset waits RETRAIN_BACKOFF_S for that count, and none is sent while a live arm or
-    head receiver runs: the reset re-attaches the camera on the CAN adapters' hub.
+    head receiver runs: the reset re-attaches the camera on the CAN adapters' hub. A camera found back at USB 3 while
+    a reset waits (replugged, or on a new cable) needs none: it streams at once.
     """
 
     def __init__(self, state_path, *, clock=time.time, sleep=time.sleep, live=_live_receiver_running):
@@ -164,20 +172,45 @@ class Usb3Keeper:
         """Seconds the last reset may still need to re-attach the camera."""
         return max(0., self._load()['last_reset'] + SETTLE_S - self.clock())
 
-    def reset(self, device, usb):
-        """The camera is at USB `usb` (2.x): wait out the backoff and any live receiver, then reset it."""
+    def _wait(self, seconds, look):
+        """Sleep `seconds`, reading the camera again every LOOK_S: True as soon as it needs no reset, back at USB 3
+        or gone (unplugged)."""
+        end = self.clock() + seconds
+        while self.clock() < end:
+            self.sleep(min(LOOK_S, end - self.clock()))
+            found = look() if look is not None else ()
+            if found is None:
+                logger.info("Camera gone while its reset waited: looking for it again")
+                return True
+            if found and _usb_major(found[1]) != 2:
+                logger.info(f"Camera back at USB {found[1]} by itself while its reset waited")
+                return True
+        return False
+
+    def reset(self, device, usb, look=None):
+        """The camera is at USB `usb` (2.x): wait out the backoff and any live receiver, then reset it; True once
+        reset. `look()` reads the camera again ((device, usb), or None if there is none): a camera replugged or on a
+        new cable meanwhile needs no reset, so the waits end as soon as it is back at USB 3 or gone (False). A blind
+        backoff kept the head camera dark for 9 minutes after it went onto a new cable (2026-10-29)."""
         state = self._load()
         wait = (state['last_reset'] + RETRAIN_BACKOFF_S[min(state['failures'], len(RETRAIN_BACKOFF_S) - 1)]
                 - self.clock())
         if wait > 0:
             logger.warning(f"Camera at USB {usb}: {state['failures']} reset(s) in a row did not hold it at USB 3; "
-                           f"the next in {wait:.0f} s")
-            self.sleep(wait)
+                           f"the next in {wait:.0f} s, unless it comes back by itself")
+            if self._wait(wait, look):
+                return False
         if self.live():
             logger.warning(f"Camera at USB {usb}: waiting for the live arm/head session to end before resetting it "
                            "(the reset re-attaches it on the CAN adapters' hub)")
             while self.live():
-                self.sleep(LIVE_POLL_S)
+                if self._wait(LIVE_POLL_S, look):
+                    return False
+        if look is not None:
+            found = look()  # The camera as it is now, not as it was before the waits.
+            if found is None or _usb_major(found[1]) != 2:
+                return False
+            device, usb = found
         logger.warning(f"Camera at USB {usb} (its USB 3 link dropped): resetting it to re-attach at USB 3; it never "
                        "streams over USB 2")
         self._save({'failures': state['failures'] + 1, 'last_reset': self.clock()})
@@ -185,6 +218,7 @@ class Usb3Keeper:
             device.hardware_reset()
         except RuntimeError as e:
             logger.error(f"Camera reset failed: {e}")
+        return True
 
 
 class CameraNode:
@@ -266,8 +300,11 @@ class CameraNode:
                 keeper.held(usb)
                 return True
             if device is not None and keeper.settling() <= 0:
-                keeper.reset(device, usb)
-                return False
+                if keeper.reset(device, usb, look=_look_camera):
+                    return False
+                # Back at USB 3, or unplugged, while the reset waited: look again, a gone camera for as long anew.
+                deadline = keeper.clock() + NO_CAMERA_WAIT_S
+                continue
             if keeper.clock() >= deadline:
                 raise RuntimeError('No RealSense camera connected' if device is None
                                    else f'The camera stayed at USB {usb} after its reset')
