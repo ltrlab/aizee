@@ -1374,8 +1374,10 @@ function renderTeleop(t) {
   // Live replay or policy mode: an episode or a policy drives the arms in place of the leaders; nothing is recorded.
   const replaying = !!t.replay && (running || starting);
   const policyMode = !!t.policy && (running || starting);
+  const headOnly = live && choice.arm === 'head';  // The head alone (helm/head_only.py): no leaders, no arms.
   $('t-title').textContent = replaying ? 'Replay an episode on the arms'
-    : policyMode ? 'Run a policy on the arms' : 'Drive the arms with the leaders';
+    : policyMode ? 'Run a policy on the arms' : headOnly ? 'Steer the head with the headset'
+    : 'Drive the arms with the leaders';
   $('t-lead').textContent = replaying
     ? "Idle (I), then Enable (E) to hold, then Engage (T): the arms align to the episode's frame at the alignment "
       + 'speed, then follow its recorded commands. T again pauses; Shutdown (X) returns slowly to the reference; '
@@ -1384,17 +1386,22 @@ function renderTeleop(t) {
     ? "Idle (I), then Enable (E) to hold, then Engage (T): the arms align to the policy's first action at the "
       + 'alignment speed, then the policy drives them. T again pauses; Shutdown (X) returns slowly to the reference; '
       + 'Disable (H) removes torque.'
+    : headOnly
+    ? 'Idle (I), then Enable (E) to hold the head, then Engage (T) to align it to the headset and follow it. T again '
+      + 'holds; Return (X) takes it to its zero; Disable (H) removes its torque. The arms are left as they are.'
     : 'Idle (I), then Enable (E) to hold, then Engage (T) to align with the leaders and follow them. T again holds; '
       + 'Shutdown (X) returns slowly to the reference; Disable (H) removes torque.';
-  document.querySelector('.task-workflow').hidden = replaying || policyMode;
-  document.querySelector('.grip-feedback').hidden = replaying || policyMode;  // No leaders: no triggers to push.
+  document.querySelector('.task-workflow').hidden = replaying || policyMode || headOnly;
+  // No leaders: no triggers to push.
+  document.querySelector('.grip-feedback').hidden = replaying || policyMode || headOnly;
   replayCard?.render(replaying ? t.replay : null, {state: t.state, label: replaying ? replayView?.labelFor(t.replay.episode) : null});
   renderPolicy(t, policyMode, running || starting, live);
+  if (headOnly) $('t-policy-start').hidden = true;  // A policy drives the arms.
   const where = t.target === 'jetson' ? "ON MINERVA'S JETSON" : 'ON THIS PC';
   const eyebrow = $('t-eyebrow');
   const kind = replaying ? 'REPLAY' : policyMode ? 'POLICY' : 'TELEOP';
   eyebrow.textContent = live
-    ? `${kind} · LIVE ${choice.arm === 'both' ? 'BOTH ARMS' : choice.arm.toUpperCase() + ' ARM'} ${where} · MOTORS MOVE · FOOT SWITCH IN REACH`
+    ? `${kind} · LIVE ${choice.arm === 'both' ? 'BOTH ARMS' : choice.arm === 'head' ? 'HEAD' : choice.arm.toUpperCase() + ' ARM'} ${where} · MOTORS MOVE · ${choice.arm === 'head' ? 'DISABLE (H) STOPS IT' : 'FOOT SWITCH IN REACH'}`
     : `${kind} · ${last?.mode === 'simulation' ? 'SIMULATED MINERVA' : 'VIRTUAL RECEIVER'}${choice.collision === 'motion' ? ' · TWO-ARM BOUND' : ''} ${where} · NO MOTORS MOVE`;
   eyebrow.className = `eyebrow ${live ? 'live' : 'warn'}`;
   for (const button of document.querySelectorAll('#t-target button')) {
@@ -1410,7 +1417,9 @@ function renderTeleop(t) {
     const choiceKey = liveButton ? button.dataset.arm : 'virtual';
     button.hidden = (last?.mode === 'simulation' && liveButton) || (direct && !!button.dataset.collision)
       || (Array.isArray(t.receiver_choices) && !t.receiver_choices.includes(choiceKey));
-    if (!button.dataset.collision) button.title = liveButton
+    if (!button.dataset.collision) button.title = liveButton && button.dataset.arm === 'head'
+      ? "The head's servos alone, steered by the headset; the arms are left as they are. Loop on Minerva's Jetson only."
+      : liveButton
       ? `${button.dataset.arm === 'both' ? 'Both arms' : `The ${button.dataset.arm} arm`}; ${direct ? 'no collision detection' : button.dataset.arm === 'both' ? 'two-arm collision bound enforced' : 'collision checks advisory'}. Loop on Minerva's Jetson only.`
       : `Virtual receiver; ${direct ? 'no collision detection' : 'collision checks advisory'}. No motors move.`;
     button.setAttribute('aria-pressed', String(liveButton ? live && choice.arm === button.dataset.arm
@@ -1574,6 +1583,7 @@ for (const button of document.querySelectorAll('#t-receiver-choice button')) {
   button.onclick = () => act('/api/helm/teleop/receiver',
     arm ? {mode: 'live', arm} : collision ? {mode: 'virtual', collision} : {mode: 'virtual'},
     arm === 'both' ? 'Live on both arms: their motors are powered once the session reaches Idle.'
+      : arm === 'head' ? "Live on the head alone: its servos are powered once the session reaches Idle; the arms are left as they are."
       : arm ? `Live on the ${arm} arm: its motors are powered once the session reaches Idle.`
       : collision ? 'Virtual receiver with the two-arm bound enforced: no motors move.' : 'Virtual receiver: no motors move.');
 }
@@ -1605,10 +1615,13 @@ $('teleop-session').onclick = () => {
       stop();
       return;
     }
-    const arms = t.live.arm === 'both' ? 'Both arms are' : `The ${t.live.arm} arm is`;
-    askConfirm('stop', t.live.arm, `${arms} powered (${t.state}). Stop the session?`,
-      ['Lowered slowly to the reference first (as Shutdown X does), then disabled.',
-       'Disable (H) instead removes torque at once: the arms go limp where they are.'], 'Stop', stop);
+    const head = t.live.arm === 'head';
+    const arms = t.live.arm === 'both' ? 'Both arms are' : head ? 'The head is' : `The ${t.live.arm} arm is`;
+    askConfirm('stop', t.live.arm, `${arms} powered (${t.state}). Stop the session?`, head
+      ? ['Returned to its zero first (as Return X does), then disabled.',
+         'Disable (H) instead removes its torque at once: the head goes limp where it is.']
+      : ['Lowered slowly to the reference first (as Shutdown X does), then disabled.',
+         'Disable (H) instead removes torque at once: the arms go limp where they are.'], 'Stop', stop);
     return;
   }
   const choice = t?.receiver_choice || {mode: 'virtual'};
@@ -1618,6 +1631,16 @@ $('teleop-session').onclick = () => {
   }
   const arm = choice.arm, other = arm === 'left' ? 'right' : 'left';
   const direct = t?.collision?.mode === 'disabled';
+  if (arm === 'head') {
+    askConfirm('start', arm, 'Start LIVE on the head?', [
+      "The head's servos are powered when you press Idle (I); Enable (E) holds it, Engage (T) follows the headset.",
+      "Nothing is in the head's way and its cables are clear through its whole range.",
+      "Disable (H) removes its torque at once: the foot switch does not cut the head's power.",
+      'The arms are left as they are: this session powers none of their motors.',
+    ], 'Start LIVE on the head', () => act('/api/helm/teleop/start', {confirm: true},
+      'Starting LIVE on the head: its receiver, the servos limp until Idle.'));
+    return;
+  }
   if (arm === 'both') {
     askConfirm('start', arm, 'Start LIVE teleop on both arms?', [
       'Both arms\' motors are powered when you press Idle (I).',
@@ -1652,6 +1675,10 @@ function startReplay(episode, speed, label) {
   const choice = t.receiver_choice || {mode: 'virtual'};
   if (choice.mode !== 'live') {
     act('/api/helm/teleop/start', {replay}, `Starting the replay of ${label} at ${speed}×: no motors move.`);
+    return;
+  }
+  if (choice.arm === 'head') {
+    say('A replay drives the arms: choose Left, Right or Both first.', 'bad');
     return;
   }
   const arm = choice.arm, arms = arm === 'both' ? 'both arms' : `the ${arm} arm`;
@@ -1711,6 +1738,10 @@ function startPolicy(spec) {
   const choice = t.receiver_choice || {mode: 'virtual'};
   if (choice.mode !== 'live') {
     act('/api/helm/teleop/start', {policy}, `Starting the policy ${label}: no motors move.`);
+    return;
+  }
+  if (choice.arm === 'head') {
+    say('A policy drives the arms: choose Left, Right or Both first.', 'bad');
     return;
   }
   const arm = choice.arm, arms = arm === 'both' ? 'both arms' : `the ${arm} arm`;

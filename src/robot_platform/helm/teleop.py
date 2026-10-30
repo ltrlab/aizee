@@ -1854,7 +1854,8 @@ def run_loop(commands, views, core, *, silence_s=None):
 
 
 def _process_main(commands, views, bundle):
-    core = TeleopCore(bundle)
+    from .head_only import HeadOnlyCore, head_only
+    core = (HeadOnlyCore if head_only(bundle.get('receiver')) else TeleopCore)(bundle)
     core.scheduling['loop'] = prefer_responsive()
     run_loop(commands, views, core)
 
@@ -2063,11 +2064,11 @@ class TeleopSession:
 
     def set_receiver(self, mode, arm=None, collision=None):
         """The virtual receiver (`collision` 'motion': enforcing the two-arm bound), or the live one driving one arm's
-        motors or both arms' (Minerva's Jetson only)."""
-        if (mode not in ('virtual', 'live') or (mode == 'live') != (arm in ('left', 'right', 'both'))
+        motors or both arms', or the head's alone (helm.head_only; all on Minerva's Jetson only)."""
+        if (mode not in ('virtual', 'live') or (mode == 'live') != (arm in ('left', 'right', 'both', 'head'))
                 or collision not in (None, 'motion') or (collision and mode != 'virtual')):
             raise ValueError('Choose the virtual receiver (the two-arm bound enforced or not), or live on the left, '
-                             'right or both arms')
+                             'right or both arms, or the head alone')
         if self.simulation is not None and mode != 'virtual':
             raise ValueError('Simulation mode cannot select a physical receiver')
         with self._lock:
@@ -2119,28 +2120,35 @@ class TeleopSession:
         if policy is not None:
             from robot_platform.teleop.policy_source import validate_request
             source = validate_request(policy, live=self.receiver['mode'] == 'live')
+        from .head_only import head_only
+        head = head_only(self.receiver)  # The head alone: no arms, so no leaders, bridge, task or arm limits.
         with self._lock:
             if self.active:
                 raise ValueError('Teleop is already running')
+            if head and source is not None:
+                raise ValueError('A replay or a policy drives the arms: choose Left, Right or Both for it')
             if self.simulation is not None and (self.target != 'pc' or self.receiver['mode'] != 'virtual'):
                 raise ValueError('Simulation mode needs the virtual receiver on this PC')
-            if (source is None and self.task_capture_config is not None
+            if (source is None and not head and self.task_capture_config is not None
                     and self.receiver != {'mode': 'live', 'arm': 'both'}):
                 raise ValueError('Configured task capture requires Live both arms')
             if self._tuning_lock.locked():
                 raise ValueError('Wait for the tuning operation before starting')
             if self.receiver['mode'] == 'live' and getattr(self.helm, 'connection', 'tether') not in WIRED:
                 raise ValueError('Live teleop runs over the wired tether: choose Tether at the top first')
-            if self.receiver['mode'] == 'live' and confirm is not True:
+            if head and confirm is not True:
+                raise ValueError("Confirm the live session: the head's servos will be powered, nothing is in the "
+                                 "head's way and the arms are left as they are")
+            if self.receiver['mode'] == 'live' and not head and confirm is not True:
                 arms = 'both arms\'' if self.receiver['arm'] == 'both' else f"the {self.receiver['arm']} arm's"
                 raise ValueError(f'Confirm the live session: {arms} motors will be powered, the foot switch is in '
                                  'reach and the arms hang in their reference pose')
-            if self.helm.saved_limits is None:
+            if self.helm.saved_limits is None and not head:
                 raise ValueError('Save joint limits for every motor in the Limits workspace first')
-            if self.bridge is not None and source is None and not self.bridge.connected:
+            if self.bridge is not None and source is None and not head and not self.bridge.connected:
                 raise ValueError('The GELLO bridge is not connected: Helm runs on Minerva, so start the bridge on the '
                                  'PC the leader arms are plugged into')
-            if self.leaders is not None and source is None:
+            if self.leaders is not None and source is None and not head:
                 missing = self.leaders.missing(self.profile['routes'])
                 if missing:
                     raise ValueError('Sweep and save the leader ranges in the Leaders tab first; missing: '
@@ -2154,6 +2162,11 @@ class TeleopSession:
             if self.settings:
                 self.settings.new_session()  # A draft made before Start cannot be applied to this session.
             bundle = self._bundle() if local else self._edge_bundle()
+            if head:
+                if bundle.get('head') is None:
+                    raise ValueError('The head is not set up: save its reference, limits and shoulder clearance in '
+                                     'Limits → Head first')
+                bundle.pop('task_capture', None)  # Nothing is recorded: the arms are not in the session.
             if source is not None and source['kind'] == 'episode':
                 # The episode on this PC from Helm's --episodes; on the robot from its own recordings.
                 bundle['source'] = dict(source, root=str(self.episodes_root) if local and self.episodes_root else None)
@@ -2178,7 +2191,8 @@ class TeleopSession:
                                               args=(command_reader, view_writer, self.core_factory(bundle)))
                 opening = ({'episode': 'reading the episode', 'policy': 'loading the policy'}[source['kind']]
                            if source is not None else 'opening the leaders')
-                message = (f'Starting: loading the simulated Minerva and its window; {opening}…'
+                message = ('Starting the head: its receiver…' if head else
+                           f'Starting: loading the simulated Minerva and its window; {opening}…'
                            if 'simulation' in bundle else
                            f'Starting: loading the collision model and virtual receiver; {opening}…')
             else:
@@ -2201,11 +2215,14 @@ class TeleopSession:
                            if source else 'linking the leaders')
                 message = ("Starting on Minerva's Jetson: connecting, loading the collision model and virtual "
                            f"receiver, {opening}…") if self.receiver['mode'] == 'virtual' else (
+                    "Starting LIVE on the head: its receiver, the servos limp until Idle; the arms are left as "
+                    'they are…') if head else (
                     ('Starting LIVE on both arms: checking they are still and in their reference pose, then '
                      'starting the receiver (the motors stay disabled until Idle)…') if self.receiver['arm'] == 'both'
                     else f"Starting LIVE on the {self.receiver['arm']} arm: checking it is still and in its reference "
                     'pose, then starting the receiver (its motors stay disabled until Idle)…')
-                if source is None and self.bridge is not None and getattr(self.bridge, 'path', None) == 'wifi':
+                if (source is None and not head and self.bridge is not None
+                        and getattr(self.bridge, 'path', None) == 'wifi'):
                     # Allowed (the user's choice, 2026-10-25), and said: samples late over the air make the arms hold.
                     message += ' The leader link runs over Wi-Fi: expect holds when samples arrive late.'
             # A replay or policy session says which from the start; the loop's views then carry its progress.
@@ -2356,7 +2373,7 @@ class TeleopSession:
             self._sync_tuning()
             allowed, reason = self._tuning_gate()
             choices = ['virtual'] + ([self.profile['trial']['motor'].split('_')[0]] if self.profile.get('trial') else
-                                     ['left', 'right', 'both'])
+                                     ['left', 'right', 'both', 'head'])
             observed = self._view.get('observed_at')
             age = (max(observed, self._view.get('status_at', observed)) - observed
                    + time.perf_counter() - self._view_received_at) * 1000 if observed is not None else None

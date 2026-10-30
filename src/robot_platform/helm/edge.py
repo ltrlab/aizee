@@ -184,6 +184,7 @@ def serve(start, commands, views, *, root=ROOT, core_factory=None, scheduling=No
     """One session after its start frame; returns when the loop ends. `scheduling`: the hints main applied.
     `ups_state`: the UPS service's state file; no session starts while it announces a low-battery shutdown."""
     from robot_platform.ops.ups import STATE, shutdown_announced
+    from .head_only import HeadOnlyCore, head_only
     from .teleop import TeleopCore, run_loop
     refusal = shutdown_announced(STATE if ups_state is None else ups_state)
     if refusal:
@@ -193,11 +194,12 @@ def serve(start, commands, views, *, root=ROOT, core_factory=None, scheduling=No
     tune = (start.get('bundle') or {}).get('kind') == 'tune'
     # Live replay or policy mode: an episode or a policy gives the loop its target in place of the leaders.
     replay = (start.get('bundle') or {}).get('source') is not None
+    head = head_only((start.get('bundle') or {}).get('receiver'))  # The head alone (helm.head_only): no leaders.
     # A Helm that beats says how long a silence ends the session; an older one never beats.
     silence = start.get('silence_s')
     silence = silence if type(silence) in (int, float) and silence > 0 else None
     try:
-        bundle, link = prepare(start, root, leaders=False) if tune or replay else prepare(start, root)
+        bundle, link = prepare(start, root, leaders=False) if tune or replay or head else prepare(start, root)
     except Exception as exc:
         views.send(['error', str(exc) or type(exc).__name__])
         views.close()
@@ -210,7 +212,10 @@ def serve(start, commands, views, *, root=ROOT, core_factory=None, scheduling=No
             core.scheduling['loop'] = scheduling
         run_tune_loop(commands, views, core, silence_s=silence)
         return 0
-    if replay:
+    if head:
+        views.send(['link', 0])  # No leaders: the headset steers the head.
+        core = (core_factory or HeadOnlyCore)(bundle)
+    elif replay:
         # An episode recorded on this computer (~/minerva/evidence), never a directory Helm names. A policy source
         # (policy mode) names its policy; the cameras come with the bundle (policy_cameras).
         if isinstance(bundle['source'], dict) and bundle['source'].get('kind') == 'episode':

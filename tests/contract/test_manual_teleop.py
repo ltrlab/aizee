@@ -177,6 +177,6 @@ def test_stopped_manual_edits_save_restore_and_stale_revision(manual_bundle, tmp
         assert session.snapshot()['tuning']['rows'][0]['kp'] == 42.
         assert session.snapshot()['tuning']['dirty'] is False
         assert not session.active
-        assert session.snapshot()['receiver_choices'] == ['virtual', 'left', 'right', 'both']
+        assert session.snapshot()['receiver_choices'] == ['virtual', 'left', 'right', 'both', 'head']
     finally:
         helm.close()

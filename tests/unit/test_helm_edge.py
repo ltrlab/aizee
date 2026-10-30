@@ -378,3 +378,65 @@ def test_no_session_starts_while_the_ups_announces_a_shutdown(tmp_path):
     from robot_platform.ops.ups import shutdown_announced
     state.write_text(json.dumps({'updated_at': time.time() - 60, 'shutdown': {'reason': 'old'}}))
     assert shutdown_announced(state) is None  # A stopped service's last word blocks nothing.
+
+
+def test_live_head_alone_takes_no_leader_link_on_the_robot(monkeypatch):
+    seen, sent, built = {}, [], []
+
+    def prepare(start, root, *, leaders=True):
+        seen['leaders'] = leaders
+        return dict(start['bundle']), None
+    monkeypatch.setattr(edge, 'prepare', prepare)
+
+    class Views:
+        def send(self, message):
+            sent.append(message)
+
+        def close(self):
+            sent.append('closed')
+
+    class HeadCore:
+        """Stands in for helm.head_only.HeadOnlyCore."""
+        period_s, collision_mode, landing = .04, None, False
+        clock = staticmethod(time.perf_counter)
+
+        def __init__(self, bundle):
+            built.append(bundle)
+            self.scheduling = {}
+
+        def view(self):
+            return {'phase': 'running'}
+
+        def guide(self):
+            return None
+
+        def build(self):
+            pass
+
+        def land(self):
+            return False
+
+        def fail(self, reason):
+            pass
+
+        def close(self):
+            pass
+    commands = Inbox()
+    commands.end('Helm closed the session')
+    start = {'bundle': {'receiver': {'mode': 'live', 'arm': 'head'}}}
+    assert serve(start, commands, Views(), core_factory=HeadCore) == 0
+    assert seen['leaders'] is False and sent[0] == ['link', 0] and built == [start['bundle']]
+
+
+def test_live_head_alone_needs_the_head_set_up_and_drives_no_replay(tmp_path):
+    teleop = session(tmp_path, Robot())
+    teleop.set_receiver('live', 'head')
+    snapshot = teleop.snapshot()
+    assert snapshot['receiver_choice'] == {'mode': 'live', 'arm': 'head'} and 'head' in snapshot['receiver_choices']
+    with pytest.raises(ValueError, match="head's servos will be powered"):
+        teleop.start()
+    with pytest.raises(ValueError, match='choose Left, Right or Both'):
+        teleop.start(confirm=True, replay={'episode': 'live-20261024T120000Z/task_episode_' + '0' * 32, 'speed': .5})
+    with pytest.raises(ValueError, match='Limits → Head'):
+        teleop.start(confirm=True)  # This checkout keeps no head reference or limits.
+    assert not teleop.active

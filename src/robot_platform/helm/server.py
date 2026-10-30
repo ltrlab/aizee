@@ -17,6 +17,7 @@ from pathlib import Path
 import secrets
 import socket
 import time
+from .head_only import head_only
 from .session import WIRED
 
 STATIC = Path(__file__).parent / 'static'
@@ -126,9 +127,13 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         from .gripper_zero import GripperZero
         grippers = gripper_zero or GripperZero(lambda: getattr(session, 'address', None) or session.device['address'])
 
-    def owner():
-        """What holds the motors, other than the reader."""
-        if teleop is not None and teleop.active:
+    def head_alone():
+        """Whether the teleop session drives the head alone (helm.head_only), leaving the arms to the reader."""
+        return teleop is not None and head_only(getattr(teleop, 'receiver', None))
+
+    def owner(arms=False):
+        """What holds the motors, other than the reader; with `arms`, the arms' motors only."""
+        if teleop is not None and teleop.active and not (arms and head_alone()):
             return 'teleop'
         if tune is not None and tune.active:
             return {'verify': 'the live joint sweep', 'return': 'the return'}.get(tune.mode, 'the servo sweep')
@@ -138,15 +143,16 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             return 'the gripper zero'
         return None
 
-    live_view = LiveView(session, link, owner)
+    live_view = LiveView(session, link, lambda: owner(arms=True))
     live_view.enabled = live
 
-    async def take_motors():
+    async def take_motors(arms=True):
         """The reader steps aside for a session that needs the motors (it starts again once they're free); the
-        head's setup stops reading, so a session's head receiver has its serial port."""
+        head's setup stops reading, so a session's head receiver has its serial port. A session of the head alone
+        (`arms` False) leaves the arms' reader running."""
         if head_setup is not None:
             await off_loop(head_setup.stop)
-        if not simulation_only:
+        if arms and not simulation_only:
             await off_loop(live_view.yield_motors)
 
     def guide():
@@ -597,7 +603,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
 
     async def connect(request):
         await body(request)
-        if teleop is not None and teleop.active:
+        if teleop is not None and teleop.active and not head_alone():
             raise ValueError('Stop the teleop session before connecting to the motors')
         not_checking()
         live_view.set_enabled(True)
@@ -668,7 +674,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         if camera_change.locked():
             raise ValueError('A camera change is running; wait for readback before starting teleop')
         async with camera_change:
-            await take_motors()
+            await take_motors(arms=not head_alone())
             teleop.start(confirm=payload.get('confirm') is True, **({'replay': replay} if replay is not None else {}),
                          **({'policy': policy} if policy is not None else {}))
         return state_response()
