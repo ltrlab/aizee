@@ -9,7 +9,7 @@ from robot_platform.helm.teleop import TeleopCore
 from robot_platform.neck import head
 from robot_platform.simulation.control_harness import NativeControlHarness
 from tests.contract.test_direct_teleop import direct_profile
-from tests.contract.test_helm_teleop_live import ROOT, Clock, Leaders, bundle, run  # noqa: F401
+from tests.contract.test_helm_teleop_live import ROOT, Clock, Leaders, Receiver, bundle, run  # noqa: F401
 
 
 def head_bundle():
@@ -260,3 +260,53 @@ def test_an_arms_fault_takes_the_head_back_to_its_rest_before_its_torque_goes(bu
         assert tilt == pytest.approx(core.head.rest_target['head_tilt'], abs=.03)  # Disabled at its rest.
     finally:
         core.close()
+
+
+class HeadService(Receiver):
+    """A live head's receiver: its replies carry the service's rows (`recent`), as bin/head_controller's do."""
+
+    @property
+    def last(self):
+        from robot_platform.control.servo_sweep import result_rows
+        last = self.harness.last
+        return dict(last, recent=result_rows(last, ())[0]) if last else last
+
+
+class Feed:
+    def __init__(self, camera_pose):
+        self.camera_pose, self.replies = camera_pose, []
+
+    def publish(self, last, wall_now):
+        self.replies.append((last['recent'][-1][0], wall_now))
+
+
+def test_a_live_head_publishes_every_reply_for_the_headsets_world_locked_view():
+    # The headset keeps the head camera's depth where it is in the room from the head's measured pose at each
+    # frame's capture (neck.head_pose): a live head puts each of its service's replies on the feed, and the relay
+    # stamps the frames from it. A failing feed ends; the head goes on.
+    from robot_platform.helm.head_teleop import HeadTeleop
+    feeds = []
+    live = HeadTeleop(head_bundle(), live=True, open_receiver=lambda config, reference: HeadService(
+        config, reference, time.perf_counter), open_feed=lambda pose: feeds.append(Feed(pose)) or feeds[-1])
+    live.build()
+    try:
+        (feed,) = feeds
+        assert feed.camera_pose.joints == ['neck_z', 'neck_y'] and live.feed is feed
+        exchanges = []
+        inner = live.receiver.exchange
+        live.receiver.exchange = lambda request: exchanges.append(request) or inner(request)
+        for key in ('enable', None, None):
+            live.cycle(key, time.perf_counter() + 1)
+        assert len(feed.replies) == len(exchanges) > 0  # Every reply.
+        assert all(a[0] <= b[0] and a[1] <= b[1] for a, b in zip(feed.replies, feed.replies[1:]))
+
+        def broken(last, wall_now):
+            raise OSError('feed gone')
+        feed.publish = broken
+        live.cycle(None, time.perf_counter() + 2)
+        assert live.feed is None and live.fault is None
+    finally:
+        live.close()
+    virtual = HeadTeleop(head_bundle(), live=False, open_feed=lambda pose: pytest.fail('A virtual head has no feed'))
+    virtual.build()
+    virtual.close()

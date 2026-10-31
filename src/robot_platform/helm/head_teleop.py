@@ -38,10 +38,13 @@ class HeadTeleop:
     """`bundle`: the head's profile path, reference, limits and servo calibration (helm.tune's head bundle shape).
     Openers are injectable for tests, as the arms' are."""
 
-    def __init__(self, bundle, *, live, clock=time.perf_counter, open_receiver=None, open_harness=None):
+    def __init__(self, bundle, *, live, clock=time.perf_counter, open_receiver=None, open_harness=None,
+                 open_feed=None):
         self.bundle, self.live, self.clock = deepcopy(bundle), live, clock
         self.open_receiver = open_receiver or self._open_receiver
         self.open_harness = open_harness or self._open_harness
+        self.open_feed = open_feed or self._open_feed
+        self.feed = None  # The head's measured pose for the headset's world-locked 3D view (neck.head_pose).
         self.derived = self.session = self.receiver = self.model = None
         self.fault = None
         self._closers = []
@@ -67,6 +70,22 @@ class HeadTeleop:
         evidence = Path.home() / 'minerva' / 'evidence' / time.strftime('live-head-%Y%m%dT%H%M%SZ', time.gmtime())
         return HeadReceiver(service, binary=ROOT / 'bin' / 'head_controller', directory=evidence,
                             labels=self.labels).start()
+
+    def _open_feed(self, camera_pose):
+        """The head's pose feed on its local PUB (neck.head_pose.ENDPOINT), or None where the port is taken: the
+        headset's 3D view then follows the eyes, as without a session."""
+        import zmq
+        from robot_platform.neck.head_pose import ENDPOINT, HeadPoseFeed
+        socket = zmq.Context.instance().socket(zmq.PUB)
+        socket.setsockopt(zmq.LINGER, 0)
+        socket.setsockopt(zmq.SNDHWM, 50)
+        try:
+            socket.bind(ENDPOINT)
+        except zmq.ZMQError:
+            socket.close(0)
+            return None
+        self._closers.append(lambda: socket.close(0))
+        return HeadPoseFeed(camera_pose, self.axes, self.names, socket)
 
     def _open_harness(self, config, initial):
         from robot_platform.simulation.control_harness import NativeControlHarness
@@ -97,7 +116,11 @@ class HeadTeleop:
         self.centre = {m['name']: float(m['raw_reference_rad']) for m in reference['motors']}
         if self.live:
             receiver = self.open_receiver(config, reference)
-            exchange = receiver.exchange
+
+            def exchange(request):
+                reply = receiver.exchange(request)
+                self._publish_pose(receiver.last)  # Every reply: each carries only the rows since the one before.
+                return reply
         else:
             # No head to read: the virtual one rests where the real one droops, limp, tilted down to the end of its
             # range on the shoulder's down side (its saved clearance says which way that is), so Return shows the
@@ -150,6 +173,19 @@ class HeadTeleop:
                                              rest[self.tilt] - self.centre[self.tilt])
             rest.update({self.pan: self.centre[self.pan] + pan, self.tilt: self.centre[self.tilt] + tilt})
         self.rest_target = rest
+        if self.live and self.profile.get('camera'):
+            from robot_platform.neck.head_pose import CameraPose
+            self.feed = self.open_feed(CameraPose(self.model, self.profile['camera']))
+
+    def _publish_pose(self, last):
+        """A reply's rows on the head's pose feed. The feed is for the headset's view only: a failure there ends
+        the feed (the view then follows the eyes), never the head."""
+        if self.feed is None:
+            return
+        try:
+            self.feed.publish(last, time.time())
+        except Exception:
+            self.feed = None
 
     # -- the headset -------------------------------------------------------------------------
 

@@ -11,6 +11,11 @@
     "Motion values are starting points for the head's servo sweep, not measured settings. The bus, the servos' firmware and their reference readings are filled in from the hardware (robot-platform neck probe, centre)."
   ],
   "model_profile": "urdf/minerva/onshape-to-robot-head-v1/model.json",
+  "camera": {
+    "link": "awg_rgb_camera_5",
+    "origin_m": [-0.109, -0.0821, -0.0508],
+    "note": "The head camera's colour view origin, the AWG_RGB_CAMERA part's centre, in the head link (the user, 2026-10-25; urdf/minerva/onshape-to-robot-head-v1/README.md). It looks along the model's front, level, with the neck at zero (neck.head_pose)."
+  },
   "bus": {
     "device": "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5A68010635-if00",
     "usb_serial": "5A68010635",
