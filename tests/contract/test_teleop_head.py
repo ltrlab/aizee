@@ -136,6 +136,32 @@ def test_a_live_head_cycles_on_a_thread_of_its_own_so_the_arms_never_wait_for_it
         core.close()
 
 
+def test_beside_a_live_heads_thread_the_interpreter_changes_hands_within_a_millisecond(bundle):
+    # Beside the head's thread, the arms' exchanges took up to 10.6 ms (2-3 ms alone) and a command came within 2 ms
+    # of expiring (2026-10-31): CPython hands its interpreter between threads after 5 ms. With a live head's thread
+    # it does after 1 ms, until the session closes.
+    import sys
+    data, path = bundle
+    direct_profile(path, 100)
+    before = sys.getswitchinterval()
+    core = TeleopCore(dict(data, receiver={'mode': 'virtual'}, head=head_bundle()),
+                      open_leaders=lambda _: Leaders(time.perf_counter))
+    core.head_thread = True  # As a live session's.
+    core.build()
+    try:
+        assert sys.getswitchinterval() == pytest.approx(.001)
+    finally:
+        core.close()
+    assert sys.getswitchinterval() == pytest.approx(before)
+    core = TeleopCore(dict(data, receiver={'mode': 'virtual'}, head=head_bundle()),
+                      open_leaders=lambda _: Leaders(time.perf_counter))
+    core.build()  # Its head cycles on the arms' ticks: nothing changes.
+    try:
+        assert sys.getswitchinterval() == pytest.approx(before)
+    finally:
+        core.close()
+
+
 def test_a_fault_on_the_heads_own_thread_holds_the_arms(bundle, monkeypatch):
     # A fault ends the live head's thread; the arms' next tick holds the arms, as after a failed inline head cycle.
     # The thread stands in here: each post cycles the head at once, on this test's clock, its fault kept on its side.

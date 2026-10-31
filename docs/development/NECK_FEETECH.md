@@ -168,6 +168,12 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
   30 ms apart, each 30 ms long, and Enable faulted (2026-10-31, "command_expired · wrong_owner"). A live head
   cycles on a thread of its own (`helm.head_teleop.HeadLoop`), taking the arms' actions in order; the arms' loop
   never waits for it. A virtual head answers at once and cycles on the arms' ticks.
+- **One interpreter:** the head's thread and the arms' loop share Python's. In the first full VR session (2026-10-31,
+  no faults) the arms' loop held its median, but its worst cycles got slower: exchanges up to 10.6 ms (2-3 ms with
+  the arms alone), 29 late cycles in 21,795, and an arm command came within 2 ms of expiring (6-7 ms alone). CPython
+  hands its interpreter to a waiting thread after 5 ms; beside a live head's thread it does after 1 ms (as the demo
+  collector's loop has it), until the session closes. Next if that is not enough: the head's service and thread off
+  the control CPUs, or the head in a process of its own.
 
 - **What it follows while the session follows (T):**
   1. the headset, while its latest pose is at most 0.2 s old;
@@ -243,7 +249,7 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
 - Python:
   - `tests/unit/test_neck_feetech.py` (13), `tests/unit/test_neck_head.py` (3);
   - `tests/contract/test_helm_tune_head.py` (4), which includes a whole head sweep on the real core;
-  - `tests/contract/test_head_teleop.py` (11) and `tests/contract/test_teleop_head.py` (6), the head in a session;
+  - `tests/contract/test_head_teleop.py` (11) and `tests/contract/test_teleop_head.py` (7), the head in a session;
   - `tests/unit/test_head_loop.py` (3), a live head's own thread;
   - `tests/unit/test_helm_xr.py` (6): the gaze maths, the one-headset rule, the zero, the socket and the zero
     endpoint, and a stalled loop.

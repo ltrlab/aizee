@@ -22,6 +22,7 @@ import json
 import math
 import multiprocessing
 from pathlib import Path
+import sys
 import threading
 import time
 from types import SimpleNamespace
@@ -160,6 +161,11 @@ RECORDING_FLUSH_S = 1.
 # 750 ms). Status is computed every cycle anyway; sending it costs no control time.
 STATUS_HEARTBEAT_S = .25
 HEAD_POSE_ANSWER_S = .75  # Headset poses go to a loop that answered this recently, like the pedals.
+# A live head's thread shares the interpreter with the arms' loop. When an arms' reply arrives while the head's code
+# runs, CPython hands the interpreter over after its switch interval, 5 ms: beside the head, the arms' exchanges took
+# up to 10.6 ms (2-3 ms alone) and a command came within 2 ms of expiring (2026-10-31). 1 ms, as the demo collector's
+# loop has it.
+HEAD_SWITCH_INTERVAL_S = .001
 
 
 def routes_path(runs, asset_id):
@@ -688,6 +694,9 @@ class TeleopCore:
             # Started last: building (its garbage collection above) holds the interpreter longer than a head cycle's
             # budget.
             from .head_teleop import HeadLoop
+            switch_interval = sys.getswitchinterval()
+            sys.setswitchinterval(HEAD_SWITCH_INTERVAL_S)
+            self._closers.append(lambda: sys.setswitchinterval(switch_interval))
             self._head_loop = HeadLoop(self.head, clock=self.clock).start()
             self._closers.append(self._head_loop.stop)  # Closers run last first: its cycles end before the head closes.
         self.phase = 'running'
