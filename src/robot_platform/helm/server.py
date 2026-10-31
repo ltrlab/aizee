@@ -523,6 +523,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
                     for role, (header, jpeg) in frames.items():
                         if viewer_heartbeat['sequence'] is None or (wanted and role not in wanted):
                             continue
+                        if role == DEPTH_ROLE and role not in wanted:
+                            continue  # The head's depth goes only to a viewer that asks for it by name.
                         if header['sequence'] == sent.get(role):
                             continue
                         if video_backlog(transport) > VIDEO_BACKLOG:

@@ -600,6 +600,32 @@ def test_a_headset_asking_for_depth_gets_the_heads_frames_with_their_depth(helm)
     asyncio.run(run())
 
 
+def test_a_viewer_naming_no_cameras_never_gets_the_heads_depth(helm):
+    # Helm's own camera cards ask for every camera (no roles): while a headset showed 3D they got head_depth packets
+    # too, had no card for them, and read "Invalid camera stream" (2026-10-31).
+    from aiohttp import WSMsgType
+    from aiohttp.test_utils import TestClient, TestServer
+    video = DepthCamera()
+
+    async def run():
+        async with TestClient(TestServer(create_app(helm, SimulationLink(), camera_video=video,
+                                                    token='secret'))) as client:
+            ws = await client.ws_connect('/api/helm/cameras/live?token=secret')
+            roles = []
+            for beat in range(1, 60):
+                await ws.send_json({'type': 'heartbeat', 'sequence': beat})
+                message = await ws.receive(timeout=1)
+                if message.type == WSMsgType.BINARY:
+                    count = struct.unpack('!I', message.data[:4])[0]
+                    roles.append(json.loads(message.data[4:4 + count])['role'])
+                    if len(roles) >= 4:
+                        break
+            await ws.close()
+            assert roles and set(roles) == {'head'}
+            assert video.depth == [False]
+    asyncio.run(run())
+
+
 def test_the_actual_relay_sends_depth_after_the_heads_jpeg_while_asked():
     import numpy as np
     import zlib

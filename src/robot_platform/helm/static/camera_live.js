@@ -208,6 +208,7 @@ export class LiveCameraView {
   }
   frame({metadata, jpeg}, generation) {
     const role = this.roles.get(metadata.role);
+    if (!role) return;  // A stream this page does not show (the headset's head_depth): never this page's fault.
     const boundedAge = metadata.age_s + this.transitBound(metadata.viewer_heartbeat);
     if (boundedAge >= STALE_S) {this.clear(role, 'Stale · waiting for fresh frame'); this.paint(); return;}
     if (metadata.sequence <= role.sequence) return;
