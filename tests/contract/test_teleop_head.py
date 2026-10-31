@@ -19,6 +19,17 @@ def head_bundle():
             'limits': head.virtual_limits(reference, span_rad=.8), 'servo': None}
 
 
+def drooped_head():
+    """As on Minerva: its shoulder clearance saved, and the head resting limp below the lowest tilt its receiver
+    takes."""
+    from robot_platform.neck.clearance import section
+    data = head_bundle()
+    centre = {m['name']: m['raw_reference_rad'] for m in data['head_reference']['motors']}
+    data['limits'] = dict(data['limits'], reference_id=data['head_reference']['id'],
+                          clearance=section([{'pan': -.6, 'tilt': -.4}, {'pan': .6, 'tilt': -.4}]))
+    return dict(data, rest_pose={'head_tilt': centre['head_tilt'] - .8})
+
+
 @pytest.fixture
 def core(bundle):
     data, path = bundle
@@ -162,5 +173,45 @@ def test_a_fault_on_the_heads_own_thread_holds_the_arms(bundle, monkeypatch):
         run(core, clock, limit=20)
         assert core.head.fault and core.session.lifecycle.state == 'HOLD'
         assert 'The arms hold' in core.message
+    finally:
+        core.close()
+
+
+def test_an_arms_fault_takes_the_head_back_to_its_rest_before_its_torque_goes(bundle):
+    # Live, the arms faulted at Enable ("command_expired · wrong_owner", 2026-10-31) and the head only held: stopping
+    # the session then cuts its torque wherever it is held, and a raised head falls. After the arms' fault the head
+    # goes back as Return (X) takes it, to its reference, then down to where it rested, and is disabled there; the
+    # session lands only once it is.
+    data, path = bundle
+    direct_profile(path, 100)
+    clock = Clock()
+    core = TeleopCore(dict(data, receiver={'mode': 'virtual'}, head=drooped_head()),
+                      open_leaders=lambda _: Leaders(clock), clock=clock)
+    core.build()
+    try:
+        for key in ('I', 'E'):
+            run(core, clock, key)
+        run(core, clock, 'T', until='TELEOP', limit=1000)
+        for _ in range(800):  # The operator looks straight ahead: the head rises from its rest.
+            core.head_pose(0., 0.)
+            run(core, clock)
+        tilt = core.view()['head']['positions']['head_tilt']
+        assert core.head.state == 'TELEOP' and tilt == pytest.approx(core.head.centre['head_tilt'], abs=.02)
+        due = core.head.due
+        while core.head.due == due:  # Just after the head's cycle, whose own command lives on,
+            run(core, clock)
+        clock.now += .035  # a late arms' cycle: their command expires.
+        core.tick(None, clock())
+        assert core.fault and 'command_expired' in core.fault and core.head.fault is None
+        assert core.land()  # The session is stopped: it lands first.
+        for _ in range(3000):
+            if not core.landing:
+                break
+            clock.now += core.period_s
+            core.tick(None, clock())
+        assert not core.landing and core.head.fault is None
+        assert (core.session.lifecycle.state, core.head.state) == ('DISABLED', 'DISABLED')
+        tilt = core.view()['head']['positions']['head_tilt']
+        assert tilt == pytest.approx(core.head.rest_target['head_tilt'], abs=.03)  # Disabled at its rest.
     finally:
         core.close()

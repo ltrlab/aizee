@@ -1137,7 +1137,7 @@ class TeleopCore:
             self._head_noticed = self._head_hold = True
             self._event('head_fault', reason=self.head.fault)
         if self.fault:
-            self._head_cycle('disable' if key == 'H' else 'disengage', started)
+            self._head_after_fault(key, started)
             # The receiver stopped itself and revoked the lease. It holds the arm: take it back there and
             # lower it, keeping the original reason on screen; a new session is needed to follow again.
             if key == 'H':
@@ -1269,7 +1269,7 @@ class TeleopCore:
             detail = fault_detail(self.harness.last, self.derived['config'], self.labels) if self.harness else ''
             self.fault = (f"Receiver {status.get('state')}: {reason}" + (f' ({detail})' if detail else '')
                           + f' · {exc}') if reason not in (None, 'ok') else str(exc)
-            self._head_cycle('disengage', started)  # The head holds while the arms are taken back.
+            self._head_after_fault(key, started)  # The head goes back to its rest while the arms are lowered.
             if self._held():
                 self._lowering, self._lowerings = True, 0
                 self.message = (f'{self._receiver_name} FAULT · {self.fault} · The receiver braked {self._the_arm} '
@@ -1319,6 +1319,21 @@ class TeleopCore:
         except Exception:
             self._head_hold = True
             self._event('head_fault', reason=self.head.fault)
+
+    def _head_after_fault(self, key, started):
+        """After the arms' fault, a powered head goes back as Return (X) takes it, to its reference, then down to
+        where it rested, and is disabled there: stopping the session would otherwise cut its torque wherever it was
+        held, and a raised head falls (2026-10-31; the user: shutdown takes the head to a stable pose). H disables
+        it at once; a limp head (Idle) stays as it is."""
+        head = getattr(self, 'head', None)
+        if key == 'H':
+            action = 'disable'
+        elif (head is not None and head.session is not None and head.returning is None
+              and head.state in ('HOLD', 'ENGAGING', 'TELEOP')):
+            action = 'shutdown'
+        else:
+            action = None
+        self._head_cycle(action, started)
 
     def head_pose(self, yaw, pitch):
         """The headset's latest yaw and pitch (helm.xr), as the loop received it."""
@@ -1405,15 +1420,16 @@ class TeleopCore:
 
     @property
     def landing(self):
-        """Whether the loop is still lowering the arm before it may close the receiver."""
+        """Whether the loop is still lowering the arm, or returning the head to its rest, before it may close the
+        receivers."""
         if self.session is None:
             return False
-        if self.fault:
-            return self._lowering
         head, loop = getattr(self, 'head', None), getattr(self, '_head_loop', None)
         head = (head is not None and not head.fault
                 and ((loop is not None and loop.pending)  # Return (X), posted to its thread, not yet taken.
                      or head.state == 'SHUTDOWN' or getattr(head, 'returning', None) is not None))
+        if self.fault:
+            return self._lowering or head
         return self._land or self.session.lifecycle.state == 'SHUTDOWN' or head
 
     @property

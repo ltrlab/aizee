@@ -177,7 +177,9 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
   Without a headset, the head holds at its zero.
 - **Faults hold both:**
   - a head fault makes the arms disengage, with a notice;
-  - an arms fault disengages the head, and H disables it.
+  - an arms fault sends a powered head back as Return (X) does, to its reference, then down to where it rested,
+    and disables it there; the session closes only once it has. Before, the head only held, and closing the
+    session cut its torque wherever it was (2026-10-31). H disables it at once.
 - **Start-up:** a head that fails to start shows as a head fault, and the arms run on.
 - **Receivers:** a virtual session gets a virtual head. A live session gets the physical head only when the head's
   files exist and its bus is pinned.
@@ -234,7 +236,7 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
 - Python:
   - `tests/unit/test_neck_feetech.py` (13), `tests/unit/test_neck_head.py` (3);
   - `tests/contract/test_helm_tune_head.py` (4), which includes a whole head sweep on the real core;
-  - `tests/contract/test_head_teleop.py` (11) and `tests/contract/test_teleop_head.py` (5), the head in a session;
+  - `tests/contract/test_head_teleop.py` (11) and `tests/contract/test_teleop_head.py` (6), the head in a session;
   - `tests/unit/test_head_loop.py` (3), a live head's own thread;
   - `tests/unit/test_helm_xr.py` (6): the gaze maths, the one-headset rule, the zero, the socket and the zero
     endpoint, and a stalled loop.
