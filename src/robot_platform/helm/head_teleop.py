@@ -12,10 +12,12 @@ there (its receiver checks the head is still where it was read resting, neck.hea
 slowly, and Return (X), or the session's end, takes it back to its reference, then down to where it rested, before
 its torque goes: it is never dropped from straight ahead, and never crosses the shoulder corner on the way.
 """
+from collections import deque
 from copy import deepcopy
 import json
 import math
 from pathlib import Path
+import threading
 import time
 
 from robot_platform.neck import clearance
@@ -222,6 +224,11 @@ class HeadTeleop:
     def state(self):
         return self.session.lifecycle.state if self.session is not None else None
 
+    @property
+    def due(self):
+        """When the head's next cycle is due (on its clock), or None before its first."""
+        return self._due
+
     def cycle(self, action, started):
         """One head cycle with the arms' action (None between keys), at most every PERIOD_S unless a key came.
         Returns the cycle's record, or None when it was not due. A failure faults the head (raised to the caller,
@@ -329,3 +336,63 @@ class HeadTeleop:
         self._closers = []
         if failures:
             raise RuntimeError('Closing the head: ' + '; '.join(failures))
+
+
+class HeadLoop:
+    """A live head's cycles on a thread of their own, beside the arms' loop (helm.teleop). Each exchange with the
+    head's service waits for its next 10 ms tick, so a head cycle (two of them) took 22 ms of the arms' 10 ms loop
+    every 40 ms: the arms' commands went out 10 and 30 ms apart, each 30 ms long, and the one Enable sent expired
+    before the next arrived (2026-10-31, "command_expired · wrong_owner"). The arms' actions reach the head in order
+    (`post`); between them it cycles on its own 40 ms grid. A fault ends the thread (`head.fault` says why; the arms'
+    loop holds the arms when it sees it), and `stop` ends it before the head closes."""
+
+    JOIN_S = 2.  # Several of the head's 200 ms exchange timeouts: a cycle stuck past this is not coming back.
+
+    def __init__(self, head, *, clock=time.perf_counter):
+        self.head, self.clock = head, clock
+        self._actions = deque()
+        self._lock = threading.Lock()
+        self._wake = threading.Event()
+        self._stopping = False
+        self._thread = threading.Thread(target=self._run, daemon=True, name='helm-head')
+
+    def start(self):
+        self._thread.start()
+        return self
+
+    def post(self, action):
+        """One of the arms' actions for the head (None is none), taken at its next cycle after those before it."""
+        if action is None:
+            return
+        with self._lock:
+            if not self._actions or self._actions[-1] != action:  # A faulted arms' loop repeats its action each tick.
+                self._actions.append(action)
+        self._wake.set()
+
+    @property
+    def pending(self):
+        """Whether actions wait for the head (a landing session waits for them too)."""
+        with self._lock:
+            return bool(self._actions)
+
+    def _run(self):
+        head = self.head
+        while not self._stopping and not head.fault:
+            self._wake.clear()  # Before taking an action: one posted from here on wakes the wait below.
+            with self._lock:
+                action = self._actions.popleft() if self._actions else None
+            try:
+                head.cycle(action, self.clock())
+            except Exception:
+                return  # head.fault says why.
+            if not self.pending:
+                wait = PERIOD_S if head.due is None else head.due - self.clock()
+                if wait > 0:
+                    self._wake.wait(wait)
+
+    def stop(self):
+        self._stopping = True
+        self._wake.set()
+        self._thread.join(self.JOIN_S)
+        if self._thread.is_alive():
+            raise RuntimeError("The head's cycles did not stop")

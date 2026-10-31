@@ -363,6 +363,10 @@ class TeleopCore:
         # The head (helm.head_teleop): its own receiver beside the arms', on the same keys, steered by the
         # operator's headset (helm.xr) or still at its zero. A fault in either holds both.
         self.head, self._head_hold = None, False
+        # Live, each exchange with the head's service waits for its next 10 ms tick: the head cycles on a thread of
+        # its own (helm.head_teleop.HeadLoop), never in the arms' loop. Virtual, its harness answers at once, and it
+        # cycles on the arms' ticks.
+        self.head_thread, self._head_loop, self._head_noticed = bool(self.live_arm), None, False
         if bundle.get('head') is not None:
             from .head_teleop import HeadTeleop
             self.head = HeadTeleop(bundle['head'], live=bool(self.live_arm), clock=self.clock)
@@ -680,6 +684,12 @@ class TeleopCore:
             # call per 2.5 ms tick. Catch them up now: building took longer than a cycle's budget, and the first
             # cycle's exchange would otherwise simulate all of it (a 108 ms first cycle faulted a replay).
             self.harness.advance()
+        if self.head is not None and not self.head.fault and self.head_thread:
+            # Started last: building (its garbage collection above) holds the interpreter longer than a head cycle's
+            # budget.
+            from .head_teleop import HeadLoop
+            self._head_loop = HeadLoop(self.head, clock=self.clock).start()
+            self._closers.append(self._head_loop.stop)  # Closers run last first: its cycles end before the head closes.
         self.phase = 'running'
         self.message = (f'{self._receiver_name} · motors are enabled from Idle (I). Keep the foot '
                         'switch in reach; then Enable (E) and Engage (T).' if self.live_arm else
@@ -1122,6 +1132,10 @@ class TeleopCore:
     def _tick(self, key, started):
         from robot_platform.teleop.guarded_lifecycle import minerva_action
         self._input_timing = {}
+        if getattr(self, '_head_loop', None) is not None and self.head.fault and not self._head_noticed:
+            # The head faulted on its own thread: the arms hold this cycle, as after a failed inline head cycle.
+            self._head_noticed = self._head_hold = True
+            self._event('head_fault', reason=self.head.fault)
         if self.fault:
             self._head_cycle('disable' if key == 'H' else 'disengage', started)
             # The receiver stopped itself and revoked the lease. It holds the arm: take it back there and
@@ -1292,9 +1306,13 @@ class TeleopCore:
             self.message = self._recording_notice()
 
     def _head_cycle(self, action, started):
-        """The head's cycle with the arms' action (helm.head_teleop); a fault in it holds the arms next cycle."""
+        """The head's cycle with the arms' action (helm.head_teleop); a fault in it holds the arms next cycle. On
+        its own thread (live), the action waits for its next cycle there."""
         head = getattr(self, 'head', None)  # Tests build cores without __init__: no head.
         if head is None or head.fault or head.session is None:
+            return
+        if getattr(self, '_head_loop', None) is not None:
+            self._head_loop.post(action)
             return
         try:
             self.head.cycle(action, started)
@@ -1392,9 +1410,10 @@ class TeleopCore:
             return False
         if self.fault:
             return self._lowering
-        head = getattr(self, 'head', None)
+        head, loop = getattr(self, 'head', None), getattr(self, '_head_loop', None)
         head = (head is not None and not head.fault
-                and (head.state == 'SHUTDOWN' or getattr(head, 'returning', None) is not None))
+                and ((loop is not None and loop.pending)  # Return (X), posted to its thread, not yet taken.
+                     or head.state == 'SHUTDOWN' or getattr(head, 'returning', None) is not None))
         return self._land or self.session.lifecycle.state == 'SHUTDOWN' or head
 
     @property

@@ -163,6 +163,12 @@ refuses it. A head disabled after it was powered needs a new session, as the arm
 and H act on both. The head uses the arms' direct lifecycle (`TeleopLifecycle`, `DirectLifecycleSession`), so the
 arms' speed caps, alignment and braking near the ends apply. It cycles every 40 ms.
 
+- **Its own thread, live:** each exchange with the head's service waits for the service's next 10 ms tick. In the
+  arms' 100 Hz loop, a head cycle (two exchanges) took 22 ms of every 40 ms: the arms' commands went out 10 and
+  30 ms apart, each 30 ms long, and Enable faulted (2026-10-31, "command_expired · wrong_owner"). A live head
+  cycles on a thread of its own (`helm.head_teleop.HeadLoop`), taking the arms' actions in order; the arms' loop
+  never waits for it. A virtual head answers at once and cycles on the arms' ticks.
+
 - **What it follows while the session follows (T):**
   1. the headset, while its latest pose is at most 0.2 s old;
   2. then its last target, held until that pose is 1 s old;
@@ -228,7 +234,8 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
 - Python:
   - `tests/unit/test_neck_feetech.py` (13), `tests/unit/test_neck_head.py` (3);
   - `tests/contract/test_helm_tune_head.py` (4), which includes a whole head sweep on the real core;
-  - `tests/contract/test_head_teleop.py` (3) and `tests/contract/test_teleop_head.py` (3), the head in a session;
+  - `tests/contract/test_head_teleop.py` (11) and `tests/contract/test_teleop_head.py` (5), the head in a session;
+  - `tests/unit/test_head_loop.py` (3), a live head's own thread;
   - `tests/unit/test_helm_xr.py` (6): the gaze maths, the one-headset rule, the zero, the socket and the zero
     endpoint, and a stalled loop.
 
