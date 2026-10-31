@@ -96,6 +96,48 @@ pub fn alarm_names(bits: u8) -> String {
     }
 }
 
+/// A servo's temperature changes by a degree over seconds, never by many in one 10 ms reading. Under torque,
+/// Minerva's head pan servo answered 150 degC, in valid replies, between 34 degC ones: four times in 2 s of its
+/// first live jog (2026-10-31), and the receiver's 65 degC limit stopped the head each time. A reading more than
+/// TEMPERATURE_STEP_C from the one last taken is held back until TEMPERATURE_READINGS in a row agree with it: a
+/// real rise is taken 50 ms later and the limit sees it as before; the servo's own overheat alarm faults at once.
+pub const TEMPERATURE_STEP_C: u8 = 5;
+pub const TEMPERATURE_READINGS: u8 = 5;
+
+/// One servo's temperature readings: the one taken, and those held back.
+#[derive(Clone, Copy, Debug, Default, Serialize)]
+pub struct TemperatureCheck {
+    /// The reading taken, degC (None before the first).
+    taken: Option<u8>,
+    /// A reading held back and how many in a row agree with it.
+    held: Option<(u8, u8)>,
+    /// Readings held back so far, and the last of them.
+    pub held_back: u32,
+    pub last_held: Option<u8>,
+}
+impl TemperatureCheck {
+    /// The temperature to report for `reading`.
+    pub fn observe(&mut self, reading: u8) -> u8 {
+        let Some(taken) = self.taken else {
+            self.taken = Some(reading);
+            return reading;
+        };
+        let agreeing = match self.held {
+            Some((value, count)) if value.abs_diff(reading) <= TEMPERATURE_STEP_C => count + 1,
+            _ => 1,
+        };
+        if reading.abs_diff(taken) <= TEMPERATURE_STEP_C || agreeing >= TEMPERATURE_READINGS {
+            self.held = None;
+            self.taken = Some(reading);
+            return reading;
+        }
+        self.held = Some((reading, agreeing));
+        self.held_back += 1;
+        self.last_held = Some(reading);
+        taken
+    }
+}
+
 /// A half-duplex serial bus: requests out, replies back, strictly one exchange at a time.
 pub trait SerialPort {
     /// Drop anything unread (a late reply must not be taken for the next one).
@@ -177,6 +219,7 @@ pub struct FeetechHardware<P: SerialPort> {
     reference: Option<crate::reference::Gate>,
     failure: Option<String>,
     dropped: Option<String>,
+    temperatures: Vec<TemperatureCheck>,
 }
 impl<P: SerialPort> Drop for FeetechHardware<P> {
     fn drop(&mut self) {
@@ -215,7 +258,12 @@ impl<P: SerialPort> FeetechHardware<P> {
             reference: None,
             failure: None,
             dropped: None,
+            temperatures: vec![TemperatureCheck::default(); n],
         })
+    }
+    /// Per servo, its temperature readings taken and held back.
+    pub fn temperatures(&self) -> &[TemperatureCheck] {
+        &self.temperatures
     }
     pub fn failure(&self) -> Option<&str> {
         self.failure.as_deref()
@@ -382,6 +430,7 @@ impl<P: SerialPort> FeetechHardware<P> {
                 self.readings[i] = reading;
                 continue;
             }
+            let temperature = f64::from(self.temperatures[i].observe(reading.temperature));
             let raw = f64::from(reading.steps) * TAU / RESOLUTION;
             let raw_velocity = f64::from(reading.speed) * TAU / RESOLUTION;
             if let Some(gate) = &mut self.reference {
@@ -392,7 +441,7 @@ impl<P: SerialPort> FeetechHardware<P> {
                     position: raw,
                     velocity: raw_velocity,
                     effort: 0.0,
-                    temperature: f64::from(reading.temperature),
+                    temperature,
                 };
                 gate.observe(i, feedback, now_ms, now_ms).map_err(|_| {
                     gate.failure
@@ -405,7 +454,7 @@ impl<P: SerialPort> FeetechHardware<P> {
                     / RESOLUTION,
                 velocity: servo.direction * raw_velocity,
                 effort: servo.direction * f64::from(reading.load) / 1000.0 * servo.full_load_nm,
-                temperature: f64::from(reading.temperature),
+                temperature,
                 sequence: self.samples[i]
                     .sequence
                     .checked_add(1)
@@ -898,6 +947,34 @@ mod tests {
         assert_eq!(hw.reference_status(), "ready");
         hw.enable().unwrap();
         assert_eq!(hw.reference_status(), "consumed");
+    }
+
+    #[test]
+    fn a_temperature_no_servo_reaches_in_one_reading_is_held_back() {
+        // The head pan servo answered 150 degC between 34 degC readings under torque (2026-10-31): the 65 degC
+        // limit stopped the jog four times. A jump is held back until it persists; a gradual change is taken.
+        let mut hw = head(true);
+        let mut feedback = [JointFeedback::default(); 2];
+        let mut read = |hw: &mut FeetechHardware<SimBus>, t: u64, celsius: u8| {
+            hw.port.servos[0].memory[63] = celsius;
+            hw.read(t, &mut feedback).unwrap();
+            feedback[0].temperature
+        };
+        assert_eq!(read(&mut hw, 0, 34), 34.0);
+        assert_eq!(read(&mut hw, 10, 150), 34.0);
+        assert_eq!(read(&mut hw, 20, 34), 34.0);
+        assert_eq!(hw.temperatures()[0].held_back, 1);
+        assert_eq!(hw.temperatures()[0].last_held, Some(150));
+        // A rise that persists is taken TEMPERATURE_READINGS readings on, and the limit sees it as before.
+        for t in 1..u64::from(TEMPERATURE_READINGS) {
+            assert_eq!(read(&mut hw, 20 + 10 * t, 70), 34.0);
+        }
+        assert_eq!(read(&mut hw, 100, 70), 70.0);
+        assert_eq!(read(&mut hw, 110, 72), 72.0);
+        assert_eq!(read(&mut hw, 120, 150), 72.0); // Alternating glitches never pass.
+        assert_eq!(read(&mut hw, 130, 72), 72.0);
+        assert_eq!(hw.temperatures()[0].held_back, 1 + 4 + 1);
+        assert_eq!(hw.temperatures()[1].held_back, 0);
     }
 
     #[test]

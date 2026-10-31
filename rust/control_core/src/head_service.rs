@@ -163,6 +163,8 @@ struct Output<'a> {
     tx_frames: u64,
     rx_frames: u64,
     timing: &'a Timing,
+    /// Per servo, its temperature readings taken and held back (feetech::TemperatureCheck).
+    temperatures: &'a [crate::feetech::TemperatureCheck],
     observations: [u8; 0],
     recent: Vec<&'a [f64]>,
     recent_dropped: u64,
@@ -347,6 +349,7 @@ fn serve<P: SerialPort>(
                         tx_frames: hardware.requests,
                         rx_frames: hardware.replies,
                         timing: &timing,
+                        temperatures: hardware.temperatures(),
                         observations: [],
                         recent,
                         recent_dropped,
@@ -397,7 +400,8 @@ fn serve<P: SerialPort>(
         "{}",
         serde_json::json!({"timing": timing, "requests": hardware.requests, "replies": hardware.replies,
         "disable_operation_succeeded": disabled, "mode": config.mode,
-        "hardware_failure": hardware.failure(), "hardware_dropped": hardware.dropped()})
+        "hardware_failure": hardware.failure(), "hardware_dropped": hardware.dropped(),
+        "temperatures": hardware.temperatures()})
     );
     Ok(())
 }

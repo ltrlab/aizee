@@ -53,6 +53,12 @@ otherwise.
 - **Sign-magnitude registers:** `Homing_Offset` (sign in bit 11); goal and present position and velocity
   (bit 15); `Present_Load` (bit 10).
 - **Status error bits:** input voltage, angle sensor, overheat, overcurrent, overload.
+- **Temperature glitches under torque:** in the head's first live jog (2026-10-31) the pan servo answered 150 °C,
+  in valid replies, between 34 °C ones: four times in 2 s while the tilt servo lifted the head, each stopping the
+  head at the receiver's 65 °C limit. Limp, 279 reads in 3 s held 33–34 °C at 12.1 V. The head's adapter
+  (`feetech::TemperatureCheck`) holds back a reading more than 5 °C from the last one taken until 5 readings in
+  a row (50 ms) agree with it, so a real rise still reaches the limit; the servo's own overheat alarm still faults
+  at once. The service's status and exit summary (`live-head.log`) count what it held back (`temperatures`).
 - **Sources:**
   - LeRobot v0.4.0 [`tables.py`](https://github.com/huggingface/lerobot/blob/v0.4.0/src/lerobot/motors/feetech/tables.py)
     and [`feetech.py`](https://github.com/huggingface/lerobot/blob/v0.4.0/src/lerobot/motors/feetech/feetech.py)
