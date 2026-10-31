@@ -1,15 +1,28 @@
 // The head camera in the headset: Helm's camera stream (the same packets camera_live.js reads), asking for the head's
-// frames only, each newest one decoded to an ImageBitmap for the screen (xr_scene.js). Read-only: this socket never
-// starts a session or changes a camera. Its heartbeats tell Helm the headset still watches, as the page's viewer does.
+// frames only, each newest one decoded to an ImageBitmap for the screen (xr_scene.js). For the 3D picture it asks for
+// the head's frames with their depth (role head_depth) and inflates the depth too, for xr_depth.js. Read-only: this
+// socket never starts a session or changes a camera. Its heartbeats tell Helm the headset still watches, as the
+// page's viewer does. No three.js here.
 import {parseCameraPacket} from './camera_live.js';
 
 const HEARTBEAT_MS = 250, SILENT_MS = 5000, RETRY_MS = 2000, STALE_S = 1, FPS_WINDOW_MS = 2000;
 
-// `token`: Helm's action token, or a function giving the current one (a restarted Helm has a new one).
+// The depth readings (raw units, a Uint16Array) from the bytes after a head_depth packet's JPEG
+// (camera_video_worker.head_depth), inflated with the browser's own DecompressionStream.
+export async function inflateDepth(packed, meta) {
+  if (meta.encoding !== 'zlib-u16le') throw new Error(`Unknown depth encoding ${meta.encoding}`);
+  const stream = new Blob([packed]).stream().pipeThrough(new DecompressionStream('deflate'));
+  const values = new Uint16Array(await new Response(stream).arrayBuffer());  // Little-endian, as the headset is.
+  if (values.length !== meta.width * meta.height) throw new Error('Depth size does not match its metadata');
+  return values;
+}
+
+// `token`: Helm's action token, or a function giving the current one (a restarted Helm has a new one). `role`:
+// 'head', or 'head_depth' with the depth (onFrame then gets {meta, values} after the bitmap and its metadata).
 export class HeadCamera {
-  constructor({token, onFrame, url = location.href, open = address => new WebSocket(address),
-    decode = blob => createImageBitmap(blob), now = () => performance.now()}) {
-    Object.assign(this, {token, onFrame, url, open, decode, now});
+  constructor({token, onFrame, role = 'head', url = location.href, open = address => new WebSocket(address),
+    decode = blob => createImageBitmap(blob), inflate = inflateDepth, now = () => performance.now()}) {
+    Object.assign(this, {token, onFrame, role, url, open, decode, inflate, now});
     this.socket = null;
     this.stopped = true;
     this.sequence = -1;
@@ -35,11 +48,25 @@ export class HeadCamera {
     this.socket = null;
   }
 
+  // The 3D picture switched on or off: Helm streams the role a viewer asks for as it connects, so connect again.
+  setRole(role) {
+    if (role === this.role) return;
+    this.role = role;
+    this.sequence = -1;
+    this.pending = null;
+    if (this.stopped) return;
+    clearTimeout(this.retry);
+    const socket = this.socket;
+    this.socket = null;
+    socket?.close();
+    this.connect();
+  }
+
   connect() {
     const address = new URL('/api/helm/cameras/live', this.url);
     address.protocol = address.protocol === 'https:' ? 'wss:' : 'ws:';
     address.searchParams.set('token', typeof this.token === 'function' ? this.token() : this.token);
-    address.searchParams.set('roles', 'head');
+    address.searchParams.set('roles', this.role);
     const socket = this.socket = this.open(address.toString());
     socket.binaryType = 'arraybuffer';
     this.lastMessage = this.now();
@@ -85,7 +112,7 @@ export class HeadCamera {
       this.message = error.message;
       return;
     }
-    if (packet.metadata.role !== 'head' || packet.metadata.sequence <= this.sequence) return;
+    if (packet.metadata.role !== this.role || packet.metadata.sequence <= this.sequence) return;
     this.sequence = packet.metadata.sequence;
     const now = this.now();
     this.arrivals = [...this.arrivals.filter(at => now - at < FPS_WINDOW_MS), now];
@@ -96,10 +123,11 @@ export class HeadCamera {
   async show(packet) {
     this.decoding = true;
     try {
-      const bitmap = await this.decode(new Blob([packet.jpeg], {type: 'image/jpeg'}));
+      const [bitmap, depth] = await Promise.all([this.decode(new Blob([packet.jpeg], {type: 'image/jpeg'})),
+        packet.depth && this.inflate(packet.depth, packet.metadata.depth)]);
       this.shownAt = this.now();
       this.shownAge = packet.metadata.age_s;
-      this.onFrame(bitmap, packet.metadata);
+      this.onFrame(bitmap, packet.metadata, depth ? {meta: packet.metadata.depth, values: depth} : null);
     } catch (error) {
       this.message = `undecodable frame (${error.message})`;
     } finally {

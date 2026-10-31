@@ -2,11 +2,14 @@
 // line and a bar of controls under it, and a status panel. Either screen can be grabbed with a controller's grip
 // button and moved; let go, it turns upright to face the viewer. The bar's Follow head switch keeps the picture in
 // front of the eyes as the head turns, level (as the robot's head, pan and tilt, keeps its camera), or leaves it where
-// it is; its slider sets the picture's opacity. The headset's browser remembers both (xr_view.js). Each controller
+// it is; its 3D switch shows the head camera's depth around the eyes instead of the flat picture (xr_depth.js); its
+// slider sets the opacity of whichever shows. The headset's browser remembers them (xr_view.js). Each controller
 // shows its pointing ray (cyan over a screen, green holding one), and its trigger works the bar's control under it.
 // They start in front of where the session began: WebXR's 'local' space has the head at its origin, looking down -Z.
-// The screens' canvases are drawn by xr_panels.js, as Settings → Headset draws its flat copy.
+// The screens' canvases are drawn by xr_panels.js, as Settings → Headset draws its flat copy; they and the rays draw
+// over the 3D picture, which surrounds them.
 import * as THREE from 'three';
+import {DepthView} from './xr_depth.js';
 import {SIZES, controlAt, drawControls, drawPanel, drawPlaceholder, drawStrip, opacityAt} from './xr_panels.js';
 import {loadView, lookAngles, offsetOf, opacityStep, saveView} from './xr_view.js';
 
@@ -23,16 +26,21 @@ function drawable([width, height]) {
   return {canvas, context: canvas.getContext('2d'), texture};
 }
 
+// A screen of text: drawn over the 3D picture around it (never hidden inside it).
 function panelMesh(width, height, texture) {
-  return new THREE.Mesh(new THREE.PlaneGeometry(width, height),
-    new THREE.MeshBasicMaterial({map: texture, transparent: true, side: THREE.DoubleSide}));
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height),
+    new THREE.MeshBasicMaterial({map: texture, transparent: true, side: THREE.DoubleSide, depthTest: false}));
+  mesh.renderOrder = 2;
+  return mesh;
 }
 
 export class HeadsetScene {
-  // `storage`: where the picture's view is remembered (the headset browser's localStorage), or null.
-  constructor(renderer, {storage = null} = {}) {
+  // `storage`: where the picture's view is remembered (the headset browser's localStorage), or null. `onDepth`:
+  // called with the 3D switch's new state (xr.js asks Helm for the depth then).
+  constructor(renderer, {storage = null, onDepth = () => {}} = {}) {
     this.renderer = renderer;
     this.storage = storage;
+    this.onDepth = onDepth;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(70, 1, .05, 50);  // WebXR's own cameras replace it while presenting.
     this.raycaster = new THREE.Raycaster();
@@ -60,7 +68,8 @@ export class HeadsetScene {
     this.screenMaterial = new THREE.MeshBasicMaterial({map: this.placeholder.texture, side: THREE.DoubleSide});
     this.placeholder.texture.flipY = false;
     this.screen = new THREE.Group();
-    this.screen.add(new THREE.Mesh(picture, this.screenMaterial));
+    this.picture = new THREE.Mesh(picture, this.screenMaterial);
+    this.screen.add(this.picture);
     this.strip = drawable(SIZES.strip);
     const strip = panelMesh(SCREEN_W, STRIP_H, this.strip.texture);
     strip.position.y = -(SCREEN_H + STRIP_H) / 2 - .01;
@@ -77,6 +86,10 @@ export class HeadsetScene {
 
     this.panels = [this.screen, this.panel];
     for (const group of this.panels) this.scene.add(group);
+    // The 3D picture: the head camera's depth around the eyes, once a frame with depth has come.
+    this.depth = new DepthView();
+    this.depthFramed = false;
+    this.scene.add(this.depth.rig);
     this.view = loadView(storage);
     this.hover = null;
     this.setOffset(this.point.fromArray(this.view.offset));
@@ -95,7 +108,8 @@ export class HeadsetScene {
   controller(index) {
     const controller = this.renderer.xr.getController(index);
     const ray = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -1)]),
-      new THREE.LineBasicMaterial({color: RAY.idle, transparent: true, opacity: .75}));
+      new THREE.LineBasicMaterial({color: RAY.idle, transparent: true, opacity: .75, depthTest: false}));
+    ray.renderOrder = 3;
     ray.scale.z = 2.5;
     ray.visible = false;
     controller.add(ray);
@@ -177,7 +191,9 @@ export class HeadsetScene {
     const controller = this.controllers.find(other => other.userData.source === source);
     const pressed = controller?.userData.pressed;
     if (!pressed) return false;
-    if (pressed === 'follow' && this.barControl(controller)?.control === 'follow') this.setFollow(!this.view.follow);
+    const control = this.barControl(controller)?.control;
+    if (pressed === 'follow' && control === 'follow') this.setFollow(!this.view.follow);
+    if (pressed === 'depth' && control === 'depth') this.setDepth(!this.view.depth);
     this.unpress(controller);
     return true;
   }
@@ -191,6 +207,15 @@ export class HeadsetScene {
     this.view.follow = follow;  // Off, it stays where it is now; on, it goes in front of the eyes at the next frame.
     this.applyView();
     this.save();
+  }
+
+  // The 3D picture on or off: the flat picture gives way to the head camera's depth around the eyes (once its first
+  // frame has come), and xr.js asks Helm for the depth, or stops.
+  setDepth(depth) {
+    this.view.depth = depth;
+    this.applyView();
+    this.save();
+    this.onDepth(depth);
   }
 
   setOpacity(value) {
@@ -212,7 +237,8 @@ export class HeadsetScene {
     this.followFacing.copy(this.facing.quaternion);
   }
 
-  // The picture's opacity and the bar's drawing, as the view and the pointed-at control are now.
+  // The picture's opacity, which of the flat and 3D pictures shows, and the bar's drawing, as the view and the
+  // pointed-at control are now.
   applyView() {
     const transparent = this.view.opacity < 1;
     if (this.screenMaterial.transparent !== transparent) {
@@ -220,17 +246,35 @@ export class HeadsetScene {
       this.screenMaterial.needsUpdate = true;
     }
     this.screenMaterial.opacity = this.view.opacity;
-    drawControls(this.controls.context, {follow: this.view.follow, opacity: this.view.opacity, hover: this.hover});
+    this.depth.setOpacity(this.view.opacity);
+    const depth = this.view.depth && this.depthFramed;  // Until the first depth comes, the flat picture stays.
+    this.picture.visible = !depth;
+    this.depth.rig.visible = depth;
+    drawControls(this.controls.context, {follow: this.view.follow, depth: this.view.depth, opacity: this.view.opacity,
+      hover: this.hover});
     this.controls.texture.needsUpdate = true;
   }
 
-  // Following, from this frame's viewer pose: the screen at its offset from the eyes, turned with their yaw and pitch.
-  follow(pose) {
+  // A frame's depth ({meta, values}, xr_camera.js) with the picture it came with (showFrame, just before).
+  showDepth({meta, values}) {
+    this.depth.show(meta, values, this.video);
+    if (!this.depthFramed) {
+      this.depthFramed = true;
+      this.applyView();
+    }
+  }
+
+  // This frame's eyes, from its viewer pose: where they are, and their look (yaw and pitch; no roll).
+  see(pose) {
     const {position, orientation} = pose.transform;
     const [yaw, pitch] = lookAngles([orientation.x, orientation.y, orientation.z, orientation.w]);
     this.look.setFromEuler(this.euler.set(pitch, yaw, 0, 'YXZ'));
     this.eye.set(position.x, position.y, position.z);
     this.looked = true;
+  }
+
+  // Following: the screen at its offset from the eyes, turned with their yaw and pitch.
+  follow() {
     this.screen.position.copy(this.followOffset).applyQuaternion(this.look).add(this.eye);
     this.screen.quaternion.copy(this.look).multiply(this.followFacing);
     this.screen.updateMatrixWorld(true);  // This frame's rays meet it where it is drawn.
@@ -262,7 +306,13 @@ export class HeadsetScene {
   // Each frame, with its viewer pose (null when the headset lost tracking): the picture following the head, the
   // rays' colours and lengths, a dragged slider, and the bar's pointed-at control.
   update(pose = null) {
-    if (pose && this.view.follow && !this.held(this.screen)) this.follow(pose);
+    if (pose) this.see(pose);
+    if (pose && this.view.follow) {
+      if (!this.held(this.screen)) this.follow();
+      // The 3D picture from the operator's eyes, as the head camera sees from its own: its rig is the camera.
+      this.depth.rig.position.copy(this.eye);
+      this.depth.rig.quaternion.copy(this.look);
+    }
     let hover = null;
     for (const controller of this.controllers) {
       const {ray, held, pointer, pressed} = controller.userData;

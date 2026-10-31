@@ -123,6 +123,13 @@ def test_the_headset_picture_follows_the_head_or_stays_and_its_bar_sets_follow_a
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
 
 
+def test_the_headset_shows_the_head_cameras_depth_in_3d_from_the_head_depth_stream():
+    node = shutil.which('node')
+    assert node, 'Node.js is required to check the headset 3D picture'
+    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_xr_depth.mjs')], capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
+
+
 def test_settings_shows_what_the_headset_shows_and_streams_only_while_on_screen():
     node = shutil.which('node')
     assert node, 'Node.js is required to check the headset section'

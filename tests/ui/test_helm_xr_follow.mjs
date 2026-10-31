@@ -44,9 +44,11 @@ assert.deepEqual(loadView(null), DEFAULT_VIEW);
 store.set(STORAGE_KEY, '{not json');
 assert.deepEqual(loadView(storage), DEFAULT_VIEW);
 store.set(STORAGE_KEY, JSON.stringify({follow: false, opacity: .437, offset: [0, 0, .5]}));
-assert.deepEqual(loadView(storage), {follow: false, opacity: .45, offset: FOLLOW_OFFSET});  // Behind the eyes: no.
-saveView(storage, {follow: true, opacity: 2, offset: [.2, -.1, -1]});
-assert.deepEqual(JSON.parse(store.get(STORAGE_KEY)), {follow: true, opacity: 1, offset: [.2, -.1, -1]});
+assert.deepEqual(loadView(storage), {follow: false, depth: false, opacity: .45, offset: FOLLOW_OFFSET});  // Behind: no.
+store.set(STORAGE_KEY, JSON.stringify({depth: true}));
+assert.equal(loadView(storage).depth, true);  // The 3D picture, remembered.
+saveView(storage, {follow: true, depth: true, opacity: 2, offset: [.2, -.1, -1]});
+assert.deepEqual(JSON.parse(store.get(STORAGE_KEY)), {follow: true, depth: true, opacity: 1, offset: [.2, -.1, -1]});
 saveView({setItem() { throw new Error('full'); }}, DEFAULT_VIEW);  // Unremembered, not broken.
 assert.equal(opacityStep(-1), 0);
 assert.equal(opacityStep('x'), 1);
@@ -63,9 +65,10 @@ for (const [yaw, pitch, roll] of [[0, 0, 0], [30, -10, 20], [-120, 35, -15], [17
 
 // The bar's controls, by where a controller points on it.
 assert.deepEqual(controlAt([280, 64]), {control: 'follow'});
+assert.deepEqual(controlAt([CONTROLS.depth.x + 100, 64]), {control: 'depth'});
 assert.deepEqual(controlAt([CONTROLS.track.x + CONTROLS.track.width / 2, 64]), {control: 'opacity', value: .5});
 assert.deepEqual(controlAt([CONTROLS.slider.x + 2, 20]), {control: 'opacity', value: 0});  // Just before the track.
-assert.equal(controlAt([650, 64]), null);  // The slider's label.
+assert.equal(controlAt([CONTROLS.slider.x - 60, 64]), null);  // The slider's label.
 assert.equal(opacityAt(5000), 1);
 
 // The scene, on a stand-in renderer: its controllers are three.js groups, as WebXR's are.

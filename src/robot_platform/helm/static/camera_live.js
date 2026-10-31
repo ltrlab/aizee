@@ -32,14 +32,23 @@ export function parseCameraPacket(packet) {
   if (!length || length > MAX_HEADER || length + 4 >= packet.byteLength || packet.byteLength - length - 4 > MAX_JPEG)
     throw new Error('Invalid camera header size');
   const metadata = JSON.parse(new TextDecoder('utf-8', {fatal:true}).decode(new Uint8Array(packet, 4, length)));
-  if (!Object.hasOwn(ROLES, metadata.role) || !Number.isSafeInteger(metadata.sequence) || metadata.sequence < 0
-      || !Number.isFinite(metadata.age_s) || metadata.age_s < 0 || metadata.age_s >= STALE_S
+  if (!(Object.hasOwn(ROLES, metadata.role) || metadata.role === 'head_depth') || !Number.isSafeInteger(metadata.sequence)
+      || metadata.sequence < 0 || !Number.isFinite(metadata.age_s) || metadata.age_s < 0 || metadata.age_s >= STALE_S
       || !Number.isFinite(metadata.source_timestamp) || !Number.isSafeInteger(metadata.viewer_heartbeat)
       || metadata.viewer_heartbeat < 0) throw new Error('Invalid camera metadata');
-  const jpeg = new Uint8Array(packet, length + 4);
+  // The headset's 3D picture (role head_depth): the head's frame, its compressed depth after its JPEG.
+  let end = packet.byteLength, depth;
+  if (metadata.role === 'head_depth') {
+    const size = metadata.jpeg_bytes;
+    if (!Number.isSafeInteger(size) || size < 4 || length + 4 + size > packet.byteLength || !metadata.depth
+        || metadata.depth.bytes !== packet.byteLength - length - 4 - size) throw new Error('Invalid camera depth');
+    end = length + 4 + size;
+    depth = new Uint8Array(packet, end);
+  }
+  const jpeg = new Uint8Array(packet, length + 4, end - length - 4);
   if (jpeg[0] !== 0xff || jpeg[1] !== 0xd8) throw new Error('Invalid camera JPEG');
   boundedJpeg(jpeg);
-  return {metadata, jpeg};
+  return {metadata, jpeg, depth};
 }
 
 // Teleop on a wide screen shows the cameras and the model at once: the three cameras stacked in a column on the

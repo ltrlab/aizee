@@ -32,10 +32,10 @@ export function drawStrip(context, [[left, leftTone], [right, rightTone]]) {
   context.textAlign = 'left';
 }
 
-// The picture's controls, in the bar's canvas pixels: the Follow head switch, and the opacity slider's track (the
-// value is where along it a controller points; the slider takes points a little past either end).
-export const CONTROLS = {follow: {x: 20, y: 14, width: 520, height: 100}, track: {x: 820, y: 64, width: 520},
-  slider: {x: 780, width: 600}};
+// The picture's controls, in the bar's canvas pixels: the Follow head and 3D switches, and the opacity slider's
+// track (the value is where along it a controller points; the slider takes points a little past either end).
+export const CONTROLS = {follow: {x: 20, y: 14, width: 400, height: 100}, depth: {x: 440, y: 14, width: 210, height: 100},
+  track: {x: 880, y: 64, width: 460}, slider: {x: 840, width: 540}};
 
 // The opacity a point `x` along the bar (canvas pixels) sets: 0 to 1 along the track, held at its ends past them.
 export function opacityAt(x) {
@@ -43,38 +43,47 @@ export function opacityAt(x) {
   return Math.min(1, Math.max(0, (x - track.x) / track.width));
 }
 
-// The control a point on the bar is on ([x, y] canvas pixels): {control: 'follow'}, {control: 'opacity', value} with
-// value 0 to 1 along the track, or null between them.
+// The control a point on the bar is on ([x, y] canvas pixels): {control: 'follow'}, {control: 'depth'},
+// {control: 'opacity', value} with value 0 to 1 along the track, or null between them.
 export function controlAt([x, y]) {
-  const {follow, slider} = CONTROLS;
-  if (x >= follow.x && x <= follow.x + follow.width && y >= follow.y && y <= follow.y + follow.height) {
-    return {control: 'follow'};
+  const {slider} = CONTROLS;
+  for (const name of ['follow', 'depth']) {
+    const button = CONTROLS[name];
+    if (x >= button.x && x <= button.x + button.width && y >= button.y && y <= button.y + button.height) {
+      return {control: name};
+    }
   }
   if (x >= slider.x && x <= slider.x + slider.width) return {control: 'opacity', value: opacityAt(x)};
   return null;
 }
 
-// The bar: the Follow head switch (on: the picture stays in front of the eyes) and the picture's opacity;
-// `hover`: the control a controller points at ('follow' or 'opacity'), drawn lighter.
-export function drawControls(context, {follow, opacity, hover = null}) {
-  const {canvas} = context;
-  const {follow: button, track} = CONTROLS;
-  context.clearRect(0, 0, canvas.width, canvas.height);
-  context.fillStyle = BACKGROUND;
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  context.fillStyle = follow ? (hover === 'follow' ? '#4fd08f' : TONE.ok) : (hover === 'follow' ? '#3a4150' : '#2a303b');
+// A switch on the bar: green while on, lighter where a controller points.
+function drawSwitch(context, button, text, on, hovered) {
+  context.fillStyle = on ? (hovered ? '#4fd08f' : TONE.ok) : (hovered ? '#3a4150' : '#2a303b');
   context.beginPath();
   context.roundRect(button.x, button.y, button.width, button.height, button.height / 2);
   context.fill();
-  context.fillStyle = follow ? '#0f1218' : TONE[''];
-  context.font = `600 42px ${FONT}`;
+  context.fillStyle = on ? '#0f1218' : TONE[''];
+  context.font = `600 40px ${FONT}`;
   context.textAlign = 'center';
-  context.fillText(`Follow head · ${follow ? 'on' : 'off'}`, button.x + button.width / 2, button.y + 64,
-    button.width - 40);
+  context.fillText(text, button.x + button.width / 2, button.y + 64, button.width - 36);
   context.textAlign = 'left';
+}
+
+// The bar: the Follow head switch (on: the picture stays in front of the eyes), the 3D switch (the head camera's
+// depth around the eyes instead of the flat picture) and the picture's opacity; `hover`: the control a controller
+// points at ('follow', 'depth' or 'opacity'), drawn lighter.
+export function drawControls(context, {follow, depth = false, opacity, hover = null}) {
+  const {canvas} = context;
+  const {track} = CONTROLS;
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = BACKGROUND;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  drawSwitch(context, CONTROLS.follow, `Follow head · ${follow ? 'on' : 'off'}`, follow, hover === 'follow');
+  drawSwitch(context, CONTROLS.depth, `3D · ${depth ? 'on' : 'off'}`, depth, hover === 'depth');
   context.fillStyle = TONE.muted;
-  context.font = `42px ${FONT}`;
-  context.fillText('Opacity', 600, 78);
+  context.font = `40px ${FONT}`;
+  context.fillText('Opacity', 676, 78);
   context.fillStyle = hover === 'opacity' ? '#5a6272' : '#3a4150';
   context.beginPath();
   context.roundRect(track.x, track.y - 8, track.width, 16, 8);

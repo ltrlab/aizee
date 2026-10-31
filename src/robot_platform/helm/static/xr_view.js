@@ -1,13 +1,14 @@
-// How the headset shows the head camera's picture (xr_scene.js): whether it follows the head, its opacity, and where
-// it sits in front of the eyes while it follows. The operator changes them on the bar under the picture; the headset's
-// browser remembers them. No DOM and no three.js, so node tests it.
+// How the headset shows the head camera's picture (xr_scene.js): whether it follows the head, whether it shows in 3D
+// (the head camera's depth around the eyes, xr_depth.js), its opacity, and where the flat picture sits in front of
+// the eyes while it follows. The operator changes them on the bar under the picture; the headset's browser
+// remembers them. No DOM and no three.js, so node tests it.
 
 export const STORAGE_KEY = 'helm.xr.view';
 export const OPACITY_STEP = .05;
 // Following, the picture sits this far in front of the eyes (metres: x right, y up, z back), as it starts in front
 // of where the session began.
 export const FOLLOW_OFFSET = [0, -.08, -1.45];
-export const DEFAULT_VIEW = {follow: true, opacity: 1, offset: FOLLOW_OFFSET};
+export const DEFAULT_VIEW = {follow: true, depth: false, opacity: 1, offset: FOLLOW_OFFSET};
 
 export function opacityStep(value) {
   const stepped = Math.round(Number(value) / OPACITY_STEP) * OPACITY_STEP;
@@ -33,13 +34,14 @@ export function loadView(storage) {
     saved = {};
   }
   return {follow: typeof saved.follow === 'boolean' ? saved.follow : DEFAULT_VIEW.follow,
+    depth: typeof saved.depth === 'boolean' ? saved.depth : DEFAULT_VIEW.depth,
     opacity: 'opacity' in saved ? opacityStep(saved.opacity) : DEFAULT_VIEW.opacity, offset: offsetOf(saved.offset)};
 }
 
 export function saveView(storage, view) {
   try {
-    storage?.setItem(STORAGE_KEY, JSON.stringify({follow: !!view.follow, opacity: opacityStep(view.opacity),
-      offset: offsetOf(view.offset)}));
+    storage?.setItem(STORAGE_KEY, JSON.stringify({follow: !!view.follow, depth: !!view.depth,
+      opacity: opacityStep(view.opacity), offset: offsetOf(view.offset)}));
   } catch {
     // A private window or a full store: the view still works, unremembered.
   }

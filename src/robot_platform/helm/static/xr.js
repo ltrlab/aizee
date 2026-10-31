@@ -122,7 +122,9 @@ async function start() {
     renderer = new THREE.WebGLRenderer({antialias: true, alpha: true});
     renderer.xr.enabled = true;
     renderer.xr.setReferenceSpaceType('local');
-    view = new HeadsetScene(renderer, {storage: browserStorage()});
+    // The 3D switch asks Helm for the head camera's frames with their depth (or just the frames) from here on.
+    view = new HeadsetScene(renderer, {storage: browserStorage(),
+      onDepth: depth => camera?.setRole(depth ? 'head_depth' : 'head')});
   }
   renderer.setClearColor(0x0f1218, mode === 'immersive-ar' ? 0 : 1);  // Passthrough shows through a clear frame.
   await renderer.xr.setSession(session);
@@ -133,7 +135,11 @@ async function start() {
   session.addEventListener('select', event => {
     if (!view.select(event.inputSource)) send({type: 'zero'});
   });
-  camera = new HeadCamera({token: () => token, onFrame: bitmap => view.showFrame(bitmap)});
+  camera = new HeadCamera({token: () => token, role: view.view.depth ? 'head_depth' : 'head',
+    onFrame: (bitmap, _metadata, depth) => {
+      view.showFrame(bitmap);
+      if (depth) view.showDepth(depth);
+    }});
   camera.start();
   session.addEventListener('end', () => {
     renderer.setAnimationLoop(null);

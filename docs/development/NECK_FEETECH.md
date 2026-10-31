@@ -224,14 +224,31 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
   - a bar under that (the user, 2026-10-31: looking around, the picture was somewhere else):
     - Follow head: on, the picture stays in front of the eyes as the head turns, level (its yaw and pitch; roll
       left out, as the robot's head keeps its camera); off, it stays where it is. On by default.
-    - Opacity: 0 to 100 % in 5 % steps, for the room to show through the picture.
-    - The headset's browser remembers both (`static/xr_view.js`), and where the picture sits while it follows.
+    - 3D (the user, 2026-10-31: "it is very hard to gather a sense of depth from the 2D image"): the head camera's
+      depth around the eyes instead of the flat picture, below. Off by default.
+    - Opacity: 0 to 100 % in 5 % steps, for the room to show through the picture (flat or 3D).
+    - The headset's browser remembers them (`static/xr_view.js`), and where the picture sits while it follows.
+  - **The 3D picture** (`static/xr_depth.js`, phase 1 of the plan: depth images to the headset, 3D built there):
+    - The head camera service already publishes its depth beside the picture (640×480 at 15 fps; the D435 makes
+      it). Only while a headset asks (`?roles=head_depth`), Helm's camera relay on the Jetson takes each sent frame's
+      depth: the nearest reading of each 2×2 block, readings outside 0.15–2.5 m dropped, zlib level 1 (about 53 KB
+      a frame, 2-6 ms on the background CPUs, where the relay keeps), after the frame's JPEG.
+    - The headset inflates it (the browser's DecompressionStream) and a grid with a vertex per reading (320×240) is
+      placed on the GPU from the camera's intrinsics, coloured from the very picture it came with through the
+      camera's registration (its color intrinsics and the depth sensor's pose in the color camera, published by
+      the camera service since `6aeeb56` on `claude/head-depth-registration`). Where the depth sees wider than the
+      color camera, or a camera publishes no registration, it is grey, lighter nearer.
+    - At a depth edge (a neighbour more than 4 % of the depth nearer) the far reading is cut: near objects keep
+      their outline, nothing joins near to far, and the camera's shadow behind an object is empty (passthrough).
+    - Its rig is the head camera, at the operator's eyes and turned with their look while Follow head is on; held
+      where it is while it is off. As the robot's head lags the headset, the 3D picture lags with it (as the flat
+      one does) until phase 2 places each frame by the head's measured pose.
   - a status panel to the lower left: Helm's link, tracking, yaw and pitch, the head, the camera, and the controls;
   - the grip buttons grab either and move it; let go, it turns upright to face the viewer. Following, the picture
     keeps the place it was let go of, in front of the eyes. A trigger pulled on the bar works its controls (drag along
     the slider); pulled anywhere else, it zeroes.
-  - The picture comes over Helm's camera socket asking for the head camera only (`?roles=head`), at Helm's camera
-    rate (10 fps). Only the newest frame is decoded, and it dims once a second old.
+  - The picture comes over Helm's camera socket asking for the head camera only (`?roles=head`, or `head_depth`
+    with its depth), at Helm's camera rate (10 fps). Only the newest frame is decoded, and it dims once a second old.
 - **Settings → Headset:**
   - the headset's state and Zero headset, as on the Head card;
   - **Preview in the 3D view:** while no session drives the head, the 3D view's head turns where the headset looks,
@@ -263,7 +280,9 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
   All are in the gate.
 - Browser: `tests/ui/test_helm_head.mjs`, the Head card's text, and `tests/ui/test_helm_xr_follow.mjs`, the headset's
   picture on the real three.js (following the head or staying, its bar's switch and slider, a trigger on the bar not
-  zeroing, the remembered view), run by `tests/unit/test_browser_scripts.py`.
+  zeroing, the remembered view), and `tests/ui/test_helm_xr_depth.mjs`, the 3D picture (the head_depth packet,
+  inflating, the camera's role switch, the shader's placement and colouring, the bar's 3D switch), run by
+  `tests/unit/test_browser_scripts.py`. The relay's depth and Helm's head_depth role: `tests/unit/test_helm_camera_video.py`.
 - Rust: 10 host tests for the Feetech hardware and the head config. The Linux service cross-builds for the Jetson.
 
 ## Bring-up on the hardware, with the user
