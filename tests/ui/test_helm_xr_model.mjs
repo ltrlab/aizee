@@ -98,6 +98,29 @@ robot.track(false);
 await timers.shift()();
 assert.equal(timers.length, 0);  // Hidden: it stops asking.
 
+// With the browser's own timers: they throw "Illegal invocation" when called as another object's method (they want
+// the window), and the headset's model never followed Helm's guide (2026-10-31). Here as strict as there.
+{
+  const [plainSet, plainClear] = [globalThis.setTimeout, globalThis.clearTimeout];
+  const scheduled = [];
+  const strict = (name, act) => function (...args) {
+    if (this !== undefined && this !== globalThis) throw new TypeError(`Illegal invocation: ${name}`);
+    return act(...args);
+  };
+  globalThis.setTimeout = strict('setTimeout', (fn, ms) => scheduled.push(ms));
+  globalThis.clearTimeout = strict('clearTimeout', () => {});
+  try {
+    const browser = new RobotModel({fetch});
+    await browser.load();
+    browser.track(true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(scheduled.length, 1);  // Asked again, as the browser lets it.
+    browser.track(false);
+  } finally {
+    [globalThis.setTimeout, globalThis.clearTimeout] = [plainSet, plainClear];
+  }
+}
+
 // A model Helm cannot serve: asked again only after RETRY_MS, not at each depth frame.
 let clock = 0, tries = 0;
 const failing = new RobotModel({now: () => clock, fetch: async () => {

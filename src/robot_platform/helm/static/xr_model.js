@@ -38,9 +38,11 @@ export function meshGeometry(buffer) {
 }
 
 export class RobotModel {
-  // `fetch`, the timers and the clock (ms): the browser's (tests pass their own).
-  constructor({fetch: get = (...args) => fetch(...args), setTimer = setTimeout, clearTimer = clearTimeout,
-    now = () => performance.now()} = {}) {
+  // `fetch`, the timers and the clock (ms): the browser's (tests pass their own). Each is wrapped: called as this
+  // object's method, the browser's own setTimeout throws "Illegal invocation" (it wants the window), and the model
+  // never followed Helm's guide in the headset (2026-10-31).
+  constructor({fetch: get = (...args) => fetch(...args), setTimer = (fn, ms) => setTimeout(fn, ms),
+    clearTimer = id => clearTimeout(id), now = () => performance.now()} = {}) {
     Object.assign(this, {get, setTimer, clearTimer, now});
     this.group = new THREE.Group();
     this.group.visible = false;

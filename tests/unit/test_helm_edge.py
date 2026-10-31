@@ -129,8 +129,8 @@ class End:
 class Robot:
     """Stands in for SSH: each exec runs edge.serve in a thread behind OS pipes."""
 
-    def __init__(self):
-        self.commands = []
+    def __init__(self, core=None):
+        self.commands, self.core = [], core or Core
 
     def exec_command(self, command):
         self.commands.append(command)
@@ -142,7 +142,7 @@ class Robot:
             start = read_frame(robot_in)
             inbox = Inbox()
             threading.Thread(target=lambda: inbox.end(pump(robot_in, inbox)), daemon=True).start()
-            channel.status = serve(start, inbox, Outbox(robot_out), core_factory=Core)
+            channel.status = serve(start, inbox, Outbox(robot_out), core_factory=self.core)
 
         robot = threading.Thread(target=run, daemon=True)
         channel = Channel(robot, pc_in)
@@ -467,3 +467,49 @@ def test_the_robots_poses_are_stamped_on_arrival_with_or_without_a_full_view():
     view, pose, neck = inbox.recv(), inbox.recv(), inbox.recv()
     assert abs(view[2]['updated_at'] - time.time()) < 1 and abs(pose[1]['updated_at'] - time.time()) < 1
     assert neck == ['guide', None, {'neck_z': .2}]
+
+
+class SlowViews(Core):
+    """As on Minerva in a live session beside the head: direct mode, and full views (the only ones carrying the 3D
+    views' pose until 2026-10-31) slower than what any cycle has left."""
+    collision_mode = 'disabled'
+
+    def view(self):
+        end = time.perf_counter() + .009
+        while time.perf_counter() < end:
+            pass
+        return super().view()
+
+    def status_view(self):
+        return {'phase': 'running', 'fault': None, 'message': ''}
+
+    def finish_cycle(self, *args):
+        pass
+
+    def guide(self):
+        return {'model': 'minerva', 'positions': {'right_arm_j1': self.samples / 1000}, 'sequence': self.samples,
+                'live': True, 'updated_at': 0., 'source_age_seconds': 0.}
+
+    def pose_view(self):
+        return self.guide(), {'neck_z': .1, 'neck_y': 0.}
+
+
+def test_a_session_on_the_robot_keeps_the_3d_views_pose_fresh_when_full_views_do_not_fit(tmp_path, monkeypatch):
+    # The whole way, as on Minerva: the loop on the robot side, the edge's frames, Helm's session. Full views never fit
+    # after the first (as in live-20261031T190356Z: 30 in 69,212 cycles); the pose alone keeps coming, stamped on
+    # arrival, and moving.
+    monkeypatch.setattr(edge, 'prepare', fake_prepare)
+    teleop = session(tmp_path, Robot(SlowViews))
+    teleop.start()
+    try:
+        wait_until(lambda: teleop.snapshot()['phase'] == 'running')
+        time.sleep(.5)
+        sequences = []
+        for _ in range(8):
+            guide = teleop.guide()
+            assert guide is not None and 0 <= time.time() - guide['updated_at'] < .4, guide
+            sequences.append(guide['sequence'])
+            time.sleep(.1)
+        assert sequences[-1] > sequences[0]  # The leaders' samples move it.
+    finally:
+        teleop.stop()
