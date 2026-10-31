@@ -137,6 +137,13 @@ class CameraVideo:
                 or not finite(meta.get('scale')) or not isinstance(k, dict)
                 or not all(finite(k.get(key)) for key in ('fx', 'fy', 'cx', 'cy'))):
             raise ValueError('Malformed relay depth metadata')
+        head = meta.get('head')  # The head's measured pose at the frame's capture, while a session runs.
+        if head is not None and (
+                not isinstance(head, dict) or not isinstance(head.get('joints'), dict)
+                or not all(map(finite, head['joints'].values())) or not finite(head.get('skew_ms'))
+                or any(not isinstance(head.get(key), list) or len(head[key]) != 7 or not all(map(finite, head[key]))
+                       for key in ('pose', 'zero'))):
+            raise ValueError('Malformed relay head pose')
         return payload[:size], (meta, payload[size:])
 
     def _accept(self, header, jpeg):

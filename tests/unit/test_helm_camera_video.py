@@ -677,3 +677,111 @@ def test_the_actual_relay_sends_depth_after_the_heads_jpeg_while_asked():
         process.stderr.close()
         publisher.close(0)
         context.term()
+
+
+POSE_ZERO = [.0328, -.1105, 1.2699, 0., .7071068, -.7071068, 0.]
+
+
+def pose_message(*times, zero=POSE_ZERO):
+    """The head's pose feed (neck.head_pose): each sample its wall time, neck_z and neck_y, and the camera's pose."""
+    return json.dumps({'joints': ['neck_z', 'neck_y'], 'zero': zero,
+                       'samples': [[t, t % 1, -(t % 1), t % 1, -.11, 1.27, 0., .7071068, .7071068, 0.]
+                                   for t in times]}).encode()
+
+
+def test_the_relay_finds_the_heads_pose_nearest_each_depth_frames_capture():
+    from robot_platform.helm.camera_video_worker import HEAD_POSE, HEAD_POSE_SKEW_S, HeadPoses
+    from robot_platform.neck.head_pose import ENDPOINT
+    assert HEAD_POSE == ENDPOINT  # The relay goes to the robot alone, so it keeps its own copy.
+    poses = HeadPoses(keep_s=1.)
+    poses.add(pose_message(100.00, 100.01, 100.02))
+    poses.add(pose_message(100.02, 100.03))  # A row already seen is not kept twice.
+    assert [row[0] for row in poses.samples] == [100.00, 100.01, 100.02, 100.03]
+    head = poses.at(100.012)
+    assert head['joints'] == pytest.approx({'neck_z': .01, 'neck_y': -.01}) and head['skew_ms'] == pytest.approx(-2.)
+    assert head['pose'][:3] == pytest.approx([.01, -.11, 1.27]) and head['zero'] == POSE_ZERO
+    assert poses.at(100.03 + HEAD_POSE_SKEW_S + .001) is None  # The feed stopped (no session): none.
+    poses.add(pose_message(*(100.04 + i / 100 for i in range(150))))
+    assert poses.samples[0][0] >= poses.samples[-1][0] - 1.  # Only the last second is kept.
+    poses.add(pose_message(102., zero=[0.] * 6 + [1.]))  # Another session's head: its samples start again.
+    assert [row[0] for row in poses.samples] == [102.]
+    for bad in (b'{', json.dumps({'joints': ['neck_z'], 'zero': POSE_ZERO, 'samples': [[1., 2.]]}).encode(),
+                json.dumps({'joints': [], 'zero': [0.] * 6, 'samples': []}).encode()):
+        with pytest.raises((ValueError, KeyError, TypeError)):
+            poses.add(bad)
+
+
+def test_helm_passes_the_heads_pose_on_with_its_depth_and_refuses_a_malformed_one(tmp_path):
+    import numpy as np
+    from robot_platform.helm.camera_video import DEPTH_ROLE
+    from robot_platform.helm.camera_video_worker import HeadPoses, head_depth
+    video = CameraVideo(tmp_path/'profile', address=lambda: 'fixture', clock=lambda: 10.)
+    video._heartbeats.append((1, 9.9))
+    meta, packed = head_depth(depth_parts(np.full((6, 8), 1000, dtype=np.uint16)))
+    poses = HeadPoses()
+    poses.add(pose_message(999.98))
+    meta = dict(meta, head=poses.at(999.98))
+    assert len(packet(header(jpeg_bytes=len(JPEG), depth=meta), JPEG + packed)) < MAX_HEADER + len(JPEG + packed) + 8
+    video._accept(header(jpeg_bytes=len(JPEG), depth=meta), JPEG + packed)
+    assert video.snapshot()[1][DEPTH_ROLE][0]['depth']['head'] == meta['head']
+    for head in ({'joints': {}, 'pose': [0.] * 6, 'zero': POSE_ZERO, 'skew_ms': 0.},
+                 dict(meta['head'], skew_ms=math.nan), dict(meta['head'], joints={'neck_z': 'x'}), []):
+        with pytest.raises(ValueError, match='head pose'):
+            video._accept(header(source_timestamp=1001., jpeg_bytes=len(JPEG), depth=dict(meta, head=head)),
+                          JPEG + packed)
+
+
+def test_the_actual_relay_stamps_the_heads_depth_with_its_pose_while_a_session_runs():
+    import numpy as np
+    from robot_platform.helm.camera_video_worker import CAPTURE_LAG_S, HEAD_POSE_SKEW_S
+    context = zmq.Context()
+    camera, feed = context.socket(zmq.PUB), context.socket(zmq.PUB)
+    port, pose_port = camera.bind_to_random_port('tcp://127.0.0.1'), feed.bind_to_random_port('tcp://127.0.0.1')
+    code = ('from robot_platform.helm.camera_video_worker import run; run(' + repr({'head': (port, 'scene_cam')})
+            + f', head_pose="tcp://127.0.0.1:{pose_port}")')
+    process = subprocess.Popen([sys.executable, '-u', '-c', code], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE)
+    received = []
+
+    def read():
+        decoder = PacketDecoder()
+        while True:
+            chunk = process.stdout.read1(65536)
+            if not chunk:
+                return
+            received.extend(data for data, payload in decoder.feed(chunk) if payload)
+    reader = threading.Thread(target=read)
+    reader.start()
+    depth = np.full((6, 8), 1500, dtype=np.uint16)
+    try:
+        start, next_heartbeat, sent_until = time.monotonic(), 0., time.time() - .1
+        while time.monotonic() - start < 2.:
+            now = time.time()
+            if time.monotonic() >= next_heartbeat:
+                process.stdin.write(b'{"heartbeat":5,"depth":true}\n')
+                process.stdin.flush()
+                next_heartbeat = time.monotonic() + .1
+            if time.monotonic() - start < 1.2:  # The session's head, for the first part: its rows every 10 ms.
+                times = [sent_until + (i + 1) / 100 for i in range(int((now - sent_until) * 100))]
+                if times:
+                    feed.send(pose_message(*times))
+                    sent_until = times[-1]
+            camera.send_multipart(depth_parts(depth, stamp=now))
+            time.sleep(.015)
+        time.sleep(.3)  # The last frames out of the pipe.
+        frames = [(data['source_timestamp'] - CAPTURE_LAG_S, data['depth'].get('head'))
+                  for data in received if 'depth' in data]
+        joined = frames[0][0] + .2  # Once the relay has joined the feed too.
+        during = [head for capture, head in frames if joined < capture < sent_until - .1]
+        after = [head for capture, head in frames if capture > sent_until + HEAD_POSE_SKEW_S]
+        assert during and all(during) and all(abs(head['skew_ms']) <= 10 for head in during)
+        assert after and not any(after)  # Then no session: none.
+    finally:
+        process.stdin.close()
+        process.wait(timeout=2)
+        reader.join(1)
+        process.stdout.close()
+        process.stderr.close()
+        camera.close(0)
+        feed.close(0)
+        context.term()

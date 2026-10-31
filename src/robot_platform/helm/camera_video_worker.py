@@ -2,7 +2,10 @@
 
 No image decoding, camera writes, motor interfaces, or disk artifacts. numpy only
 for the head camera's depth, and only while Helm asks for it (a headset's 3D
-picture); the relay keeps to the robot's background CPUs.
+picture); the relay keeps to the robot's background CPUs. Each head depth frame
+carries the head's measured pose at its capture, from the head teleop's local
+feed (neck.head_pose), while a session runs: the headset then keeps the 3D where
+it is in the room.
 The stdin watchdog terminates even when a pipe write is blocked.
 """
 import json
@@ -12,6 +15,7 @@ import struct
 import sys
 import threading
 import time
+from collections import deque
 
 MAX_HEADER = 4096
 MAX_JPEG = 2 * 1024 * 1024
@@ -21,6 +25,14 @@ DEPTH_RANGE_M = (.15, 2.5)
 DEPTH_ENCODING = 'zlib-u16le'
 MAX_DEPTH_SIDE = 1280
 PARTITION = '/etc/minerva/cpu-partition.json'
+# The head's measured pose while a teleop session runs (neck.head_pose.ENDPOINT: this file is sent alone, so it
+# cannot import it): the Jetson's wall time, the neck's CAD angles and the colour camera's pose in the robot frame.
+HEAD_POSE = 'tcp://127.0.0.1:5596'
+HEAD_POSE_KEEP_S = 2.
+# A frame's timestamp is when the camera's SDK handed it over; it was taken about this long before (an estimate:
+# the skew each frame carries shows how near the sample came).
+CAPTURE_LAG_S = .02
+HEAD_POSE_SKEW_S = .05  # No sample this near a frame's capture: it goes without one (the headset follows the eyes).
 
 
 def keep_off_control_cpus(path=PARTITION):
@@ -72,6 +84,42 @@ def head_depth(parts):
     return out, packed
 
 
+class HeadPoses:
+    """The head's recent poses from its teleop's feed (neck.head_pose), for the head's depth frames."""
+
+    def __init__(self, keep_s=HEAD_POSE_KEEP_S):
+        self.keep_s, self.samples, self.joints, self.zero = keep_s, deque(), None, None
+
+    def add(self, message):
+        """One message of the feed: {'joints': [...], 'zero': pose, 'samples': [[t, *angles, *pose], ...]}."""
+        data = json.loads(message)
+        joints, zero, samples = data['joints'], data['zero'], data['samples']
+        finite = lambda value: type(value) in (int, float) and math.isfinite(value)  # noqa: E731
+        width = 1 + len(joints) + 7
+        if (not isinstance(joints, list) or not all(isinstance(name, str) for name in joints)
+                or not isinstance(zero, list) or len(zero) != 7 or not all(map(finite, zero))
+                or not isinstance(samples, list)
+                or not all(isinstance(row, list) and len(row) == width and all(map(finite, row)) for row in samples)):
+            raise ValueError('Malformed head pose')
+        if joints != self.joints or zero != self.zero:  # Another session's head: its samples start again.
+            self.samples.clear()
+            self.joints, self.zero = joints, zero
+        for row in samples:
+            if not self.samples or row[0] > self.samples[-1][0]:
+                self.samples.append(row)
+        while self.samples and self.samples[0][0] < self.samples[-1][0] - self.keep_s:
+            self.samples.popleft()
+
+    def at(self, t, skew_s=HEAD_POSE_SKEW_S):
+        """The sample nearest the wall time `t`, as a depth frame's `head`, or None with none within `skew_s`."""
+        row = min(self.samples, key=lambda sample: abs(sample[0] - t), default=None)
+        if row is None or abs(row[0] - t) > skew_s:
+            return None
+        count = len(self.joints)
+        return {'joints': dict(zip(self.joints, row[1:1 + count])), 'pose': row[1 + count:], 'zero': self.zero,
+                'skew_ms': round((row[0] - t) * 1000, 1)}
+
+
 def camera_packet(parts, camera_id, wall_now):
     import msgpack
     if not 2 <= len(parts) <= 3 or len(parts[0]) > MAX_HEADER:
@@ -104,7 +152,7 @@ def write_packet(output, header, jpeg=b''):
     output.flush()
 
 
-def run(roles=None, *, heartbeat_timeout=3.):
+def run(roles=None, *, heartbeat_timeout=3., head_pose=HEAD_POSE):
     import zmq
     keep_off_control_cpus()
     roles = roles or ROLES
@@ -133,7 +181,7 @@ def run(roles=None, *, heartbeat_timeout=3.):
                 os._exit(0)
     threading.Thread(target=read_parent, daemon=True).start()
     threading.Thread(target=watchdog, daemon=True).start()
-    context, poller, sockets = zmq.Context(), zmq.Poller(), {}
+    context, poller, sockets, pose_socket = zmq.Context(), zmq.Poller(), {}, None
     errors, sent, stamps = {}, {}, {}
     try:
         for role, (port, identity) in roles.items():
@@ -145,11 +193,25 @@ def run(roles=None, *, heartbeat_timeout=3.):
             socket.connect('tcp://127.0.0.1:' + str(port))
             sockets[socket] = role, identity
             poller.register(socket, zmq.POLLIN)
+        poses, pose_socket = HeadPoses(), context.socket(zmq.SUB)
+        pose_socket.setsockopt(zmq.LINGER, 0)
+        pose_socket.setsockopt(zmq.RCVHWM, 100)
+        pose_socket.setsockopt(zmq.MAXMSGSIZE, 65536)
+        pose_socket.setsockopt(zmq.SUBSCRIBE, b'')
+        pose_socket.connect(head_pose)
+        poller.register(pose_socket, zmq.POLLIN)
         status_at = 0.
         while True:
             ready = dict(poller.poll(50))
             with lock:
                 token, depth_wanted = heartbeat['token'], heartbeat['depth']
+            while pose_socket in ready:
+                try:
+                    poses.add(pose_socket.recv(zmq.NOBLOCK))
+                except zmq.Again:
+                    break
+                except (ValueError, KeyError, TypeError):
+                    pass  # A malformed pose: its frames go without one.
             if token is None:
                 continue
             for socket, (role, identity) in sockets.items():
@@ -166,6 +228,9 @@ def run(roles=None, *, heartbeat_timeout=3.):
                     header, payload = dict(header, kind='frame', role=role, heartbeat=token), jpeg
                     depth = head_depth(parts) if role == 'head' and depth_wanted else None
                     if depth is not None:  # The depth rides after its own frame's JPEG.
+                        head = poses.at(header['source_timestamp'] - CAPTURE_LAG_S)
+                        if head is not None:
+                            depth[0]['head'] = head
                         header.update(jpeg_bytes=len(jpeg), depth=depth[0])
                         payload = jpeg + depth[1]
                     write_packet(sys.stdout.buffer, header, payload)
@@ -179,6 +244,8 @@ def run(roles=None, *, heartbeat_timeout=3.):
     finally:
         for socket in sockets:
             socket.close(0)
+        if pose_socket is not None:
+            pose_socket.close(0)
         context.term()
 
 
