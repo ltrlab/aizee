@@ -60,16 +60,28 @@ would; every other camera pose and every robot link follows through `M`.
 - **Next for the holes:** learned completion (PromptDA-style, as GHOST) needs a GPU: soliloquy's first (phase 4),
   the Quest's own once WebGPU models are small enough.
 
-## Phase 3: Minerva's model and the wrist cameras (next)
+## Phase 3: Minerva's model and the wrist cameras (built)
 
-- **The model in the same space.** The headset loads the display model as Helm's 3D view does (`/api/models/<id>`,
-  its meshes) and poses it with the live positions (`/api/calibration-guide`, arms and neck), placed by `M`. The
-  arms in the depth then lie on the arms of the model: the operator sees the arms even where the camera does not,
-  and any misalignment shows the camera's mount needs a calibration (through a Helm flow, the user's rule).
-- **The wrist cameras above the hands.** The session asks for hand tracking (`hand-tracking`, optional); each wrist
-  camera's picture (Helm's `left_wrist`, `right_wrist`) floats just above the matching hand, facing the eyes, as
-  GHOST floats the gripper camera above the controller. The operator's hands hold the GELLO leaders, so the hands,
-  not controllers, carry them; without hand tracking, the controllers do. A switch on the bar turns them off.
+- **The model in the same space** (`static/xr_model.js`). The headset loads the display model Helm's 3D view draws
+  (`/api/models/<id>`), posed by the positions the 3D view follows (`/api/calibration-guide`, arms and neck, at
+  10 Hz while shown), and places it by `M`, as the 3D picture is. The arms in the depth then lie on the arms of the
+  model: the operator sees the arms even where the camera does not, and any misalignment shows the camera's mount
+  needs a calibration (through a Helm flow, the user's rule). It shows with the world-locked 3D only (M comes from
+  the depth's head pose).
+  - Its meshes come coarse: the full model is 2.66 M triangles and 128 MB, too much for a Quest in stereo. Helm
+    serves each mesh with `?detail=coarse` (`viewer/server.py`: vertices merged within 5 mm cubes, made once from the
+    mesh store's copy on Minerva, cached): 89 k triangles, 0.67 MB over the wire.
+  - The head's own links (from `neck_z` on) are left out: they would sit around the operator's eyes.
+  - It is drawn see-through (55 % of the picture's opacity), on top where it and the depth meet; a real surface in
+    front of it still hides it.
+- **The wrist cameras above the hands** (`static/xr_hands.js`). The session asks for hand tracking
+  (`hand-tracking`, optional); each wrist camera's picture (Helm's `left_wrist`, `right_wrist`) floats 14 cm above
+  the matching hand's wrist, facing the eyes, as GHOST floats the gripper camera above the controller. A hand lost to
+  tracking leaves its picture where it was, dimmed; without hand tracking, the controllers carry them.
+- **The bar** has Model and Hands switches, both on by default. The two wrist streams add about 1 MB/s to the Quest's
+  Wi-Fi; if the head camera's rate drops, Hands off frees it.
+- **Checked offline:** the coarse model, loaded through the real scene from the model viewer, stands upright where
+  the zero puts it, its head left out. Hand tracking needs the headset.
 
 ## Phase 4: Gaussian splatting on soliloquy
 

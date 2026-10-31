@@ -205,7 +205,9 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
 - **The zero:**
   - Starting head tracking, or recentering the headset (hold the Meta button), sets the zero at the headset's
     heading, level.
-  - A trigger pull or a pinch makes the zero wherever the headset looks, as does Zero headset on the Teleop tab.
+  - A controller's trigger pull makes the zero wherever the headset looks, as does Zero headset on the Teleop tab. A
+    pinch does not (since phase 3 tracks the hands for the wrist cameras: holding the leaders, they pinch by accident,
+    and a zero moves the head); nor do hands point at the screens.
 - **Who may steer:**
   - The socket needs a logged-in device, Helm's action token and the same origin.
   - It does not need control: the session that the device in control engages decides whether the head moves.
@@ -227,7 +229,14 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
     - 3D (the user, 2026-10-31: "it is very hard to gather a sense of depth from the 2D image"): the head camera's
       depth instead of the flat picture, below. Off by default. While a session drives the head, it stays where the
       head camera saw it in the room, whatever Follow head says.
-    - Opacity: 0 to 100 % in 5 % steps, for the room to show through the picture (flat or 3D).
+    - Model: Minerva's model with the world-locked 3D (`static/xr_model.js`), the display model's meshes made coarse
+      (`?detail=coarse`, 89 k triangles), its head left out, posed by Helm's guide and placed as the 3D is. On by
+      default.
+    - Hands: the wrist cameras' pictures above the tracked hands, facing the eyes (`static/xr_hands.js`; the session
+      asks for hand tracking; without it, the controllers carry them). On by default; the two streams add about
+      1 MB/s to the Quest's Wi-Fi.
+    - Opacity: 0 to 100 % in 5 % steps, for the room to show through the picture (flat or 3D), the model and the
+      wrist cameras.
     - The headset's browser remembers them (`static/xr_view.js`), and where the picture sits while it follows.
   - **The 3D picture** (`static/xr_depth.js`, phase 1 of the plan: depth images to the headset, 3D built there):
     - The head camera service already publishes its depth beside the picture (640×480 at 15 fps; the D435 makes
@@ -312,8 +321,11 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
   zeroing, the remembered view), `tests/ui/test_helm_xr_depth.mjs`, the 3D picture (the head_depth packet,
   inflating, the camera's role switch, the shader's placement and colouring, the bar's 3D switch),
   `tests/ui/test_helm_xr_fill.mjs`, the fill (dropouts, the colour camera's hidden pixels, the background layer and
-  its plane, the worker), and `tests/ui/test_helm_xr_world.mjs`, the world-locked rig (the zero's anchor, a panned
-  head, the scene keeping a frame put as the eyes turn), run by `tests/unit/test_browser_scripts.py`. The relay's
+  its plane, the worker), `tests/ui/test_helm_xr_world.mjs`, the world-locked rig (the zero's anchor, a panned
+  head, the scene keeping a frame put as the eyes turn, the model placed by it), and `tests/ui/test_helm_xr_model.mjs`,
+  the model (coarse meshes, the head left out, the guide's poses, a failed load retried) and the wrist cameras above
+  the hands, run by `tests/unit/test_browser_scripts.py`. The coarse meshes: `tests/unit/test_model_viewer.py` and
+  `tests/unit/test_helm_on_robot.py`. The relay's
   depth, its head pose stamp and Helm's head_depth role: `tests/unit/test_helm_camera_video.py`.
 - Rust: 10 host tests for the Feetech hardware and the head config. The Linux service cross-builds for the Jetson.
 
