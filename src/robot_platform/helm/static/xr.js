@@ -1,9 +1,9 @@
 // The headset's pose to Helm (helm/xr.py), which steers Minerva's head while a teleop session follows. A WebXR session
 // (passthrough where the headset has it) reads the viewer's orientation in the level 'local' space each frame and sends
 // it, at most 60 times a second, over Helm's socket. A trigger pull or a pinch (select) zeroes the head where the
-// headset looks; starting the session or recentering the headset restarts the zero at the heading, level. Inside, the
-// headset shows the head camera's picture with a status line, and a status panel; the grip buttons grab and move them
-// (xr_scene.js).
+// headset looks, except on the picture's bar; starting the session or recentering the headset restarts the zero at
+// the heading, level. Inside, the headset shows the head camera's picture with a status line and a bar (Follow head,
+// opacity) under it, and a status panel; the grip buttons grab and move them (xr_scene.js).
 import * as THREE from 'three';
 import {HeadCamera} from './xr_camera.js';
 import {HeadsetScene} from './xr_scene.js';
@@ -122,14 +122,17 @@ async function start() {
     renderer = new THREE.WebGLRenderer({antialias: true, alpha: true});
     renderer.xr.enabled = true;
     renderer.xr.setReferenceSpaceType('local');
-    view = new HeadsetScene(renderer);
+    view = new HeadsetScene(renderer, {storage: browserStorage()});
   }
   renderer.setClearColor(0x0f1218, mode === 'immersive-ar' ? 0 : 1);  // Passthrough shows through a clear frame.
   await renderer.xr.setSession(session);
   const space = renderer.xr.getReferenceSpace();
   send({type: 'start'});
   space.addEventListener('reset', () => send({type: 'start'}));  // A recenter: the space starts again here.
-  session.addEventListener('select', () => send({type: 'zero'}));
+  // A trigger pull zeroes the head, unless it was on the picture's bar: that one works the bar's control.
+  session.addEventListener('select', event => {
+    if (!view.select(event.inputSource)) send({type: 'zero'});
+  });
   camera = new HeadCamera({token: () => token, onFrame: bitmap => view.showFrame(bitmap)});
   camera.start();
   session.addEventListener('end', () => {
@@ -156,9 +159,18 @@ async function start() {
       const word = performance.now() - statusAt > STATUS_STALE_MS ? {...headset, tracking: false} : headset;
       view.setText(stripText(word, picture), panelRows(link, word, picture), HINTS, picture.fresh);
     }
-    view.update();
+    view.update(pose);  // This frame's pose: a following picture is drawn where the eyes are now.
     renderer.render(view.scene, view.camera);
   });
+}
+
+// The headset browser's localStorage, where the picture's view is remembered, or null where it is refused.
+function browserStorage() {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
 }
 
 if (typeof document !== 'undefined' && $('start')) {

@@ -55,5 +55,5 @@ export function panelRows(link, headset, camera) {
   ];
 }
 
-export const HINTS = ['Trigger: the head\'s straight ahead is where you look', 'Grip: grab a screen and move it',
+export const HINTS = ['Trigger: zero the head where you look, or use the bar', 'Grip: grab a screen and move it',
   'Meta button: stop head tracking'];

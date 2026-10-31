@@ -1,12 +1,17 @@
 // What the headset shows while it steers Minerva's head (xr.js): the head camera's picture on a screen with a status
-// line under it, and a status panel. Either can be grabbed with a controller's grip button and moved; let go, it
-// turns upright to face the viewer. Each controller shows its pointing ray (cyan over a screen, green holding one).
+// line and a bar of controls under it, and a status panel. Either screen can be grabbed with a controller's grip
+// button and moved; let go, it turns upright to face the viewer. The bar's Follow head switch keeps the picture in
+// front of the eyes as the head turns, level (as the robot's head, pan and tilt, keeps its camera), or leaves it where
+// it is; its slider sets the picture's opacity. The headset's browser remembers both (xr_view.js). Each controller
+// shows its pointing ray (cyan over a screen, green holding one), and its trigger works the bar's control under it.
 // They start in front of where the session began: WebXR's 'local' space has the head at its origin, looking down -Z.
 // The screens' canvases are drawn by xr_panels.js, as Settings → Headset draws its flat copy.
 import * as THREE from 'three';
-import {SIZES, drawPanel, drawPlaceholder, drawStrip} from './xr_panels.js';
+import {SIZES, controlAt, drawControls, drawPanel, drawPlaceholder, drawStrip, opacityAt} from './xr_panels.js';
+import {loadView, lookAngles, offsetOf, opacityStep, saveView} from './xr_view.js';
 
 const SCREEN_W = 1.12, SCREEN_H = 0.84, STRIP_H = 0.075, PANEL_W = 0.56, PANEL_H = 0.42;
+const CONTROLS_H = SCREEN_W * SIZES.controls[1] / SIZES.controls[0];
 const RAY = {idle: 0x9aa3b2, aim: 0x4fd3ff, hold: 0x3fbf7f};
 
 function drawable([width, height]) {
@@ -24,15 +29,27 @@ function panelMesh(width, height, texture) {
 }
 
 export class HeadsetScene {
-  constructor(renderer) {
+  // `storage`: where the picture's view is remembered (the headset browser's localStorage), or null.
+  constructor(renderer, {storage = null} = {}) {
     this.renderer = renderer;
+    this.storage = storage;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(70, 1, .05, 50);  // WebXR's own cameras replace it while presenting.
     this.raycaster = new THREE.Raycaster();
     this.rotation = new THREE.Matrix4();
     this.head = new THREE.Vector3();
+    this.eye = new THREE.Vector3();  // Following: this frame's eye position and look (yaw, pitch; no roll).
+    this.look = new THREE.Quaternion();
+    this.looked = false;
+    this.euler = new THREE.Euler();
+    this.facing = new THREE.Object3D();
+    this.followOffset = new THREE.Vector3();
+    this.followFacing = new THREE.Quaternion();
+    this.barPlane = new THREE.Plane();
+    this.point = new THREE.Vector3();
+    this.normal = new THREE.Vector3();
 
-    // The camera screen: the picture (a placeholder until the first frame), and the status line under it.
+    // The camera screen: the picture (a placeholder until the first frame), the status line and the controls under it.
     this.placeholder = drawable(SIZES.picture);
     this.video = new THREE.Texture();
     this.video.colorSpace = THREE.SRGBColorSpace;
@@ -48,6 +65,10 @@ export class HeadsetScene {
     const strip = panelMesh(SCREEN_W, STRIP_H, this.strip.texture);
     strip.position.y = -(SCREEN_H + STRIP_H) / 2 - .01;
     this.screen.add(strip);
+    this.controls = drawable(SIZES.controls);
+    this.bar = panelMesh(SCREEN_W, CONTROLS_H, this.controls.texture);
+    this.bar.position.y = strip.position.y - (STRIP_H + CONTROLS_H) / 2 - .01;
+    this.screen.add(this.bar);
     this.writePlaceholder('Waiting for the head camera…');
 
     this.panel = new THREE.Group();
@@ -56,6 +77,10 @@ export class HeadsetScene {
 
     this.panels = [this.screen, this.panel];
     for (const group of this.panels) this.scene.add(group);
+    this.view = loadView(storage);
+    this.hover = null;
+    this.setOffset(this.point.fromArray(this.view.offset));
+    this.applyView();
     this.place();
     this.controllers = [0, 1].map(index => this.controller(index));
   }
@@ -74,33 +99,141 @@ export class HeadsetScene {
     ray.scale.z = 2.5;
     ray.visible = false;
     controller.add(ray);
-    controller.userData = {ray, held: null, pointer: false};
+    controller.userData = {ray, held: null, pointer: false, source: null, pressed: null};
     controller.addEventListener('connected', event => {
+      controller.userData.source = event.data;
       controller.userData.pointer = event.data?.targetRayMode === 'tracked-pointer';  // Controllers, not hands.
       ray.visible = controller.userData.pointer;
     });
     controller.addEventListener('disconnected', () => {
       this.release(controller);
+      this.unpress(controller);
+      controller.userData.source = null;
       controller.userData.pointer = ray.visible = false;
     });
     controller.addEventListener('squeezestart', () => this.grab(controller));
     controller.addEventListener('squeezeend', () => this.release(controller));
+    // A trigger pressed on the bar is the bar's (select, below, then takes it); on the slider, it drags.
+    controller.addEventListener('selectstart', () => {
+      const hit = this.barControl(controller);
+      controller.userData.pressed = hit ? hit.control || 'bar' : null;
+      if (hit?.control === 'opacity') this.setOpacity(hit.value);
+    });
+    controller.addEventListener('selectend', () => this.unpress(controller));  // A press the session cancelled.
     this.scene.add(controller);
     return controller;
   }
 
-  // The screen or panel a controller points at, and how far: its ray against the free ones.
-  aim(controller) {
+  // A controller's pointing ray, in the raycaster.
+  pointRay(controller) {
     controller.updateWorldMatrix(true, false);  // This frame's pose: the scene's own update comes at render.
     this.rotation.identity().extractRotation(controller.matrixWorld);
     this.raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
     this.raycaster.ray.direction.set(0, 0, -1).applyMatrix4(this.rotation);
+  }
+
+  // The screen or panel a controller points at, and how far: its ray against the free ones.
+  aim(controller) {
+    this.pointRay(controller);
     const held = new Set(this.controllers.map(other => other.userData.held).filter(Boolean));
     const hits = this.raycaster.intersectObjects(this.panels.filter(group => !held.has(group)), true);
     if (!hits.length) return null;
     let group = hits[0].object;
     while (group && !this.panels.includes(group)) group = group.parent;
     return group ? {group, distance: hits[0].distance} : null;
+  }
+
+  held(group) {
+    return this.controllers.some(controller => controller.userData.held === group);
+  }
+
+  // Where a controller points on the bar, in its canvas pixels, or null off it (or while the screen is carried).
+  // `anywhere`: on the bar's plane, past its edges too (a slider dragged off the thin bar keeps going).
+  barPoint(controller, anywhere = false) {
+    if (this.held(this.screen)) return null;
+    this.pointRay(controller);
+    const [width, height] = SIZES.controls;
+    if (!anywhere) {
+      const hit = this.raycaster.intersectObject(this.bar, false)[0];
+      return hit?.uv ? [hit.uv.x * width, (1 - hit.uv.y) * height] : null;
+    }
+    this.bar.updateWorldMatrix(true, false);
+    this.barPlane.setFromNormalAndCoplanarPoint(this.normal.set(0, 0, 1).transformDirection(this.bar.matrixWorld),
+      this.point.setFromMatrixPosition(this.bar.matrixWorld));
+    if (!this.raycaster.ray.intersectPlane(this.barPlane, this.point)) return null;
+    this.bar.worldToLocal(this.point);
+    return [(this.point.x / SCREEN_W + .5) * width, (.5 - this.point.y / CONTROLS_H) * height];
+  }
+
+  // The control a controller points at on the bar ({control: null} between its controls), or null off the bar.
+  barControl(controller) {
+    const point = this.barPoint(controller);
+    return point ? controlAt(point) || {control: null} : null;
+  }
+
+  // A trigger pull (select) from `source`: one pressed on the bar works the control under it and is the bar's
+  // (true); anywhere else it is not (false: xr.js zeroes the head).
+  select(source) {
+    const controller = this.controllers.find(other => other.userData.source === source);
+    const pressed = controller?.userData.pressed;
+    if (!pressed) return false;
+    if (pressed === 'follow' && this.barControl(controller)?.control === 'follow') this.setFollow(!this.view.follow);
+    this.unpress(controller);
+    return true;
+  }
+
+  unpress(controller) {
+    if (controller.userData.pressed === 'opacity') this.save();
+    controller.userData.pressed = null;
+  }
+
+  setFollow(follow) {
+    this.view.follow = follow;  // Off, it stays where it is now; on, it goes in front of the eyes at the next frame.
+    this.applyView();
+    this.save();
+  }
+
+  setOpacity(value) {
+    const opacity = opacityStep(value);
+    if (opacity === this.view.opacity) return;
+    this.view.opacity = opacity;
+    this.applyView();
+  }
+
+  save() {
+    saveView(this.storage, {...this.view, offset: this.followOffset.toArray()});
+  }
+
+  // Following: where the picture sits in front of the eyes (in the frame of their yaw and pitch), turned to face them.
+  setOffset(offset) {
+    this.followOffset.copy(offset);
+    this.facing.position.copy(offset);
+    this.facing.lookAt(0, 0, 0);
+    this.followFacing.copy(this.facing.quaternion);
+  }
+
+  // The picture's opacity and the bar's drawing, as the view and the pointed-at control are now.
+  applyView() {
+    const transparent = this.view.opacity < 1;
+    if (this.screenMaterial.transparent !== transparent) {
+      this.screenMaterial.transparent = transparent;
+      this.screenMaterial.needsUpdate = true;
+    }
+    this.screenMaterial.opacity = this.view.opacity;
+    drawControls(this.controls.context, {follow: this.view.follow, opacity: this.view.opacity, hover: this.hover});
+    this.controls.texture.needsUpdate = true;
+  }
+
+  // Following, from this frame's viewer pose: the screen at its offset from the eyes, turned with their yaw and pitch.
+  follow(pose) {
+    const {position, orientation} = pose.transform;
+    const [yaw, pitch] = lookAngles([orientation.x, orientation.y, orientation.z, orientation.w]);
+    this.look.setFromEuler(this.euler.set(pitch, yaw, 0, 'YXZ'));
+    this.eye.set(position.x, position.y, position.z);
+    this.looked = true;
+    this.screen.position.copy(this.followOffset).applyQuaternion(this.look).add(this.eye);
+    this.screen.quaternion.copy(this.look).multiply(this.followFacing);
+    this.screen.updateMatrixWorld(true);  // This frame's rays meet it where it is drawn.
   }
 
   grab(controller) {
@@ -118,16 +251,35 @@ export class HeadsetScene {
     this.scene.attach(group);
     this.renderer.xr.getCamera().getWorldPosition(this.head);
     group.lookAt(this.head);  // Upright, facing the viewer.
+    if (group === this.screen && this.view.follow && this.looked) {
+      // Following, the picture stays where it was let go of in front of the eyes: its offset from them, unturned.
+      const offset = this.point.copy(group.position).sub(this.eye).applyQuaternion(this.look.clone().invert());
+      this.setOffset(this.point.fromArray(offsetOf(offset.toArray())));
+      this.save();
+    }
   }
 
-  // Each frame: the rays' colours and lengths.
-  update() {
+  // Each frame, with its viewer pose (null when the headset lost tracking): the picture following the head, the
+  // rays' colours and lengths, a dragged slider, and the bar's pointed-at control.
+  update(pose = null) {
+    if (pose && this.view.follow && !this.held(this.screen)) this.follow(pose);
+    let hover = null;
     for (const controller of this.controllers) {
-      const {ray, held, pointer} = controller.userData;
+      const {ray, held, pointer, pressed} = controller.userData;
       if (!pointer) continue;
+      if (pressed === 'opacity') {
+        const point = this.barPoint(controller, true);
+        if (point) this.setOpacity(opacityAt(point[0]));
+      }
       const hit = held ? null : this.aim(controller);
       ray.material.color.setHex(held ? RAY.hold : hit ? RAY.aim : RAY.idle);
       ray.scale.z = hit ? hit.distance : held ? .3 : 2.5;
+      const control = pressed === 'opacity' ? 'opacity' : held ? null : this.barControl(controller)?.control;
+      hover = hover || control || null;
+    }
+    if (hover !== this.hover) {
+      this.hover = hover;
+      this.applyView();
     }
   }
 

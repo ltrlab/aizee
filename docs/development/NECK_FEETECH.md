@@ -209,8 +209,15 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
 - **Inside the headset** (`static/xr_scene.js`, three.js, passthrough where the headset has it):
   - the head camera's picture on a screen ahead, with a status line under it: the picture's rate and age, and what
     the head does;
+  - a bar under that (the user, 2026-10-31: looking around, the picture was somewhere else):
+    - Follow head: on, the picture stays in front of the eyes as the head turns, level (its yaw and pitch; roll
+      left out, as the robot's head keeps its camera); off, it stays where it is. On by default.
+    - Opacity: 0 to 100 % in 5 % steps, for the room to show through the picture.
+    - The headset's browser remembers both (`static/xr_view.js`), and where the picture sits while it follows.
   - a status panel to the lower left: Helm's link, tracking, yaw and pitch, the head, the camera, and the controls;
-  - the grip buttons grab either and move it; let go, it turns upright to face the viewer. The trigger still zeroes.
+  - the grip buttons grab either and move it; let go, it turns upright to face the viewer. Following, the picture
+    keeps the place it was let go of, in front of the eyes. A trigger pulled on the bar works its controls (drag along
+    the slider); pulled anywhere else, it zeroes.
   - The picture comes over Helm's camera socket asking for the head camera only (`?roles=head`), at Helm's camera
     rate (10 fps). Only the newest frame is decoded, and it dims once a second old.
 - **Settings → Headset:**
@@ -242,7 +249,9 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
     endpoint, and a stalled loop.
 
   All are in the gate.
-- Browser: `tests/ui/test_helm_head.mjs`, the Head card's text, run by `tests/unit/test_browser_scripts.py`.
+- Browser: `tests/ui/test_helm_head.mjs`, the Head card's text, and `tests/ui/test_helm_xr_follow.mjs`, the headset's
+  picture on the real three.js (following the head or staying, its bar's switch and slider, a trigger on the bar not
+  zeroing, the remembered view), run by `tests/unit/test_browser_scripts.py`.
 - Rust: 10 host tests for the Feetech hardware and the head config. The Linux service cross-builds for the Jetson.
 
 ## Bring-up on the hardware, with the user
