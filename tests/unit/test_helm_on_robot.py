@@ -350,7 +350,11 @@ def test_a_status_only_view_keeps_the_last_pose_in_the_3d_view(tmp_path):
     session = TeleopSession(helm, TELEOP, runs=tmp_path, target='jetson',
                             leaders=SimpleNamespace(saved=None, missing=lambda routes: []))
     pose = {'positions': {'right_arm_j1': .3}, 'sequence': 1}
-    messages = iter([['view', {'phase': 'running'}, pose], ['view', {'phase': 'running', 'status_at': 2.}, None]])
+    later = {'positions': {'right_arm_j1': .4}, 'sequence': 2}
+    # Between full views the loop sends the 3D views' pose alone (the arms', the neck's): it takes over.
+    messages = iter([['view', {'phase': 'running', 'head': {'state': 'TELEOP', 'joints': {'neck_z': 0.}}}, pose],
+                     ['view', {'phase': 'running', 'status_at': 2., 'head': {'state': 'TELEOP', 'joints': {}}}, None],
+                     ['guide', later, {'neck_z': .2, 'neck_y': -.1}]])
     seen = []
 
     class Channel:
@@ -360,8 +364,16 @@ def test_a_status_only_view_keeps_the_last_pose_in_the_3d_view(tmp_path):
                 return next(messages)
             except StopIteration:
                 raise EOFError from None
+    heads = []
+    original = Channel.recv
+
+    def recv(self):
+        heads.append(session._view.get('head', {}).get('joints'))
+        return original(self)
+    Channel.recv = recv
     session._read(Channel())
-    assert seen == [None, pose, pose]  # Still the session's pose after the status-only view.
+    assert seen == [None, pose, pose, later]  # Still the session's pose after the status-only view, then the next.
+    assert heads[-1] == {'neck_z': .2, 'neck_y': -.1}  # The neck too, for the 3D view's head.
     assert session.guide() is None  # The session's end clears it.
 
 

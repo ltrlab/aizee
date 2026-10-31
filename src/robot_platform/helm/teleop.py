@@ -160,6 +160,11 @@ RECORDING_FLUSH_S = 1.
 # three receiver exchanges leave none, and Helm must still tell a quiet loop from a lost one (the pedals lock at
 # 750 ms). Status is computed every cycle anyway; sending it costs no control time.
 STATUS_HEARTBEAT_S = .25
+# The 3D views' pose (Helm's guide: the arms and the neck) alone, this often, in any cycle with POSE_COST_S left: a
+# full view, the only one that carried it, took ~3 ms of the arms' 10 ms cycle and, beside a live head's thread,
+# found room 30 times in 12 minutes of TELEOP (2026-10-31): Helm's 3D view and the headset's model stood still.
+POSE_INTERVAL_S = .1
+POSE_COST_S = .0005
 HEAD_POSE_ANSWER_S = .75  # Headset poses go to a loop that answered this recently, like the pedals.
 # A live head's thread shares the interpreter with the arms' loop. When an arms' reply arrives while the head's code
 # runs, CPython hands the interpreter over after its switch interval, 5 ms: beside the head, the arms' exchanges took
@@ -1513,6 +1518,13 @@ class TeleopCore:
             return None
         return {row['name']: row['position'] for row in feedback}
 
+    def pose_view(self):
+        """The 3D views' pose alone (run_loop sends it between full views): the arms' guide and the neck's measured
+        CAD angles, or None for either."""
+        head = getattr(self, 'head', None)
+        joints = head.status()['joints'] if head is not None and head.session is not None else None
+        return self.guide(), joints or None
+
     def guide(self):
         measured = self._positions()
         if measured is None or self.phase != 'running':
@@ -1669,20 +1681,23 @@ def run_loop(commands, views, core, *, silence_s=None):
     clock = core.clock
     keys = []
     ready = threading.Condition()
-    outbox = {'view': None, 'replies': [], 'closing': False}
+    outbox = {'view': None, 'pose': None, 'replies': [], 'closing': False}
     cached_view = None
     published_status = None
     view_cost_s = .003
     next_view_at = None
     sent_at = None  # When the last view of either kind was queued.
+    pose_at = None  # When the 3D views' pose last went, with a full view or alone.
+    pose_view = getattr(core, 'pose_view', None)
 
     def sender():
         while True:
             with ready:
-                ready.wait_for(lambda: outbox['view'] is not None or outbox['replies'] or outbox['closing'])
-                view, replies = outbox['view'], outbox['replies']
-                outbox['view'], outbox['replies'] = None, []
-                finished = outbox['closing'] and view is None and not replies
+                ready.wait_for(lambda: outbox['view'] is not None or outbox['pose'] is not None or outbox['replies']
+                               or outbox['closing'])
+                view, pose, replies = outbox['view'], outbox['pose'], outbox['replies']
+                outbox['view'], outbox['pose'], outbox['replies'] = None, None, []
+                finished = outbox['closing'] and view is None and pose is None and not replies
             if finished:
                 return
             try:
@@ -1690,6 +1705,8 @@ def run_loop(commands, views, core, *, silence_s=None):
                     views.send(('reply', *reply))
                 if view is not None:
                     views.send(('view', *view))
+                if pose is not None:
+                    views.send(('guide', *pose))
             except (OSError, EOFError, ValueError):
                 return
 
@@ -1706,11 +1723,22 @@ def run_loop(commands, views, core, *, silence_s=None):
                 + tuple((view.get('pedals') or {}).get('actions', {}).get(p, {}).get('revision') for p in 'abc'))
 
     def publish(guide=True):
-        nonlocal cached_view, published_status, sent_at
+        nonlocal cached_view, published_status, sent_at, pose_at
         cached_view = core.view()
         cached_view['observed_at'] = sent_at = clock()
         published_status = status_key(cached_view)
         queue_view(cached_view, core.guide() if guide else None)
+        if guide:
+            pose_at = sent_at
+
+    def publish_pose():
+        nonlocal pose_at
+        guide, head = pose_view()
+        pose_at = clock()
+        if guide is not None or head is not None:
+            with ready:
+                outbox['pose'] = (guide, head)
+                ready.notify()
 
     def publish_status(status):
         nonlocal published_status, sent_at
@@ -1879,6 +1907,9 @@ def run_loop(commands, views, core, *, silence_s=None):
                         or sent_at is None or clock() - sent_at >= STATUS_HEARTBEAT_S):
                     publish_status(status)
                 publish_in_budget(scheduled + core.period_s, view_changed)
+                if (pose_view is not None and (pose_at is None or clock() - pose_at >= POSE_INTERVAL_S)
+                        and scheduled + core.period_s - clock() >= POSE_COST_S):
+                    publish_pose()
             else:
                 publish()
             completed = clock()
@@ -2306,6 +2337,11 @@ class TeleopSession:
                         if message[2] is not None:
                             self._guide = message[2]
                         self._view_received_at = time.perf_counter()
+                    elif message[0] == 'guide':  # The 3D views' pose between full views: the arms, the neck.
+                        if message[1] is not None:
+                            self._guide = message[1]
+                        if message[2] is not None and self._view.get('head') is not None:
+                            self._view = dict(self._view, head=dict(self._view['head'], joints=message[2]))
                     elif message[0] == 'reply':
                         self._replies[message[1]] = message[2:]
                         self._reply_ready.notify_all()

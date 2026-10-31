@@ -274,3 +274,58 @@ def test_cycle_history_keeps_only_recent_timing_and_never_trims_in_batches():
     assert core.cycles[-1]['started_at'] == pytest.approx(9.99)
     recent = sorted(.004 + i * 1e-6 for i in range(975, 1000))
     assert core._recent_cycle_s() == pytest.approx(recent[int(.9 * 24)])
+
+
+def test_the_3d_views_pose_goes_between_full_views_too_slow_for_the_cycle(monkeypatch):
+    # In a live two-arm session beside a live head's thread, a full view (~3 ms, the only one carrying the pose)
+    # found room in 30 of 69 212 cycles of TELEOP (2026-10-31): Helm's 3D view and the headset's model stood still.
+    # The pose alone goes ten times a second in any cycle with POSE_COST_S left, so never past a deadline.
+    from types import SimpleNamespace
+    from robot_platform.helm.teleop import POSE_INTERVAL_S, run_loop
+    from tests.unit.test_helm_teleop import FakeCore
+
+    now, cycles, poses, late = [10.], [0], [], []
+
+    class Core(FakeCore):
+        collision_mode = 'disabled'
+        clock = staticmethod(lambda: now[0])
+
+        def tick(self, key, started):
+            now[0] += .0056  # That session's median tick.
+            cycles[0] += 1
+
+        def finish_cycle(self, started, scheduled, completed, skipped):
+            late.append((completed > scheduled + self.period_s, len(poses)))
+
+        def view(self):
+            now[0] += .006  # More than any cycle has left: after the first, none fits.
+            return super().view()
+
+        def status_view(self):
+            return {'phase': self.phase}
+
+        def pose_view(self):
+            now[0] += .0001
+            poses.append(now[0])
+            return {'positions': {'right_arm_j1': cycles[0] / 100}}, {'neck_z': .1}
+
+    class Commands:
+        def poll(self):
+            return cycles[0] >= 300
+
+        def recv(self):
+            return ('stop',)
+
+        def close(self):
+            pass
+
+    sent = []
+    monkeypatch.setattr('robot_platform.helm.teleop.time.sleep', lambda s: now.__setitem__(0, now[0] + s))
+    run_loop(Commands(), SimpleNamespace(send=sent.append, close=lambda: None), Core())
+    assert 24 <= len(poses) <= 31  # Three seconds of cycles: about ten a second (the next cycle after 0.1 s).
+    assert min(b - a for a, b in zip(poses, poses[1:])) >= POSE_INTERVAL_S - .01
+    # Only the one full view that fitted at first ran late; no cycle that sent a pose did.
+    sent_pose = [is_late for (is_late, count), (_, before) in zip(late[1:], late) if count > before]
+    assert sent_pose and not any(sent_pose)
+    assert sum(is_late for is_late, _ in late) <= 1
+    assert any(message[0] == 'guide' and message[2] == {'neck_z': .1} for message in sent)

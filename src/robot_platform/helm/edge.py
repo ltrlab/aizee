@@ -100,6 +100,8 @@ class ArrivalInbox(Inbox):
     def put(self, message):
         if isinstance(message, list) and len(message) == 3 and message[0] == 'view' and message[2]:
             message[2]['updated_at'] = time.time()
+        if isinstance(message, list) and len(message) == 3 and message[0] == 'guide' and message[1]:
+            message[1]['updated_at'] = time.time()  # The 3D views' pose between full views (run_loop), likewise.
         super().put(message)
 
 

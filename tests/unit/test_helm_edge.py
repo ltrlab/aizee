@@ -456,3 +456,14 @@ def test_the_heads_jog_starts_on_the_robot_without_the_arms_calibration(monkeypa
                                    bindings={'left_arm_j1': 'mismatch'}))
     with pytest.raises(ValueError, match='calibration files differ'):  # The arms' check still holds.
         edge.prepare(arms, ROOT, leaders=False)
+
+
+def test_the_robots_poses_are_stamped_on_arrival_with_or_without_a_full_view():
+    # The 3D view ages a guide by Helm's clock: a full view's and the pose sent alone between them (run_loop) alike.
+    inbox = edge.ArrivalInbox()
+    inbox.put(['view', {'phase': 'running'}, {'sequence': 1, 'updated_at': 1.}])
+    inbox.put(['guide', {'sequence': 2, 'updated_at': 1.}, {'neck_z': .1}])
+    inbox.put(['guide', None, {'neck_z': .2}])  # The neck alone: nothing to stamp.
+    view, pose, neck = inbox.recv(), inbox.recv(), inbox.recv()
+    assert abs(view[2]['updated_at'] - time.time()) < 1 and abs(pose[1]['updated_at'] - time.time()) < 1
+    assert neck == ['guide', None, {'neck_z': .2}]

@@ -252,6 +252,13 @@
 - **Deployed `863a47b`** (`20261024T013534Z-863a47b`, gate `20261024T012143Z-6726427e`, 1297 tests):
   - **Model flicker:** in a virtual session the 3D model jumped between the session's pose and the resting arms'.
     The loop's status-only views had cleared the session's pose; now they keep it.
+  - **A still model, 2026-10-31:** in the user's 12-minute live two-arm session with the head
+    (`live-20261031T190356Z`), Helm's 3D view and the headset's model stood still. The arms' tick took 5.6 ms of the
+    10 ms cycle (median), leaving 4.4 ms; a full view, the only one carrying the pose, fitted 30 times in 69,212
+    cycles of TELEOP, and its admission cost only ever rises. The pose went stale and both views stopped following
+    it. Since then the loop also sends the pose alone (`guide` messages: the arms' guide and the neck's angles, about
+    0.1 ms to build) about ten times a second in any cycle with 0.5 ms left (`POSE_INTERVAL_S`, `POSE_COST_S`), never
+    past a deadline. Full views keep their budget: the Teleop tab's joint rows still update only when one fits.
   - **Wi-Fi state:** the camera stream keeps about one frame queued (64 kB in Helm's buffer, a 32 kB kernel send
     buffer), so on Wi-Fi the page's state no longer waits behind video and the pedals don't lock as stale.
   - **The user's virtual sessions over the tether** (leader-link reports): 20 s and 256 s, 25,657 requests at
