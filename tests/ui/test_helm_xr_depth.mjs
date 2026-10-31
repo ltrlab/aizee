@@ -22,7 +22,8 @@ globalThis.document = {createElement: () => {
 const THREE = await import(three);
 const {parseCameraPacket} = await import(new URL('src/robot_platform/helm/static/camera_live.js', root).href);
 const {HeadCamera, inflateDepth} = await import(new URL('src/robot_platform/helm/static/xr_camera.js', root).href);
-const {colorUv, depthPoint} = await import(new URL('src/robot_platform/helm/static/xr_depth.js', root).href);
+const {BACKDROP_M, backdropCorners, colorUv, depthPoint} = await import(
+  new URL('src/robot_platform/helm/static/xr_depth.js', root).href);
 const {HeadsetScene} = await import(new URL('src/robot_platform/helm/static/xr_scene.js', root).href);
 const {CONTROLS, SIZES} = await import(new URL('src/robot_platform/helm/static/xr_panels.js', root).href);
 const close = (actual, expected, tolerance = 1e-6) => assert.ok(Math.abs(actual - expected) <= tolerance,
@@ -106,6 +107,21 @@ const [u, v] = colorUv([.1, -.05, 1], COLOR_K, TO_COLOR);
 close(u, (615 * (.1 + .015) + 320 + .5) / 640);
 close(v, (615 * -.05 + 240 + .5) / 480);
 
+// The backdrop: the colour picture's edges at 3 m ahead of the colour camera, 15 mm to the depth sensor's right.
+const corners = backdropCorners(COLOR_K, TO_COLOR);
+assert.equal(BACKDROP_M, 3);
+close(corners[0].position[0], (-.5 - 320) / 615 * 3 - .015);  // Top left: x, then y up and z ahead (three.js).
+close(corners[0].position[1], -((-.5 - 240) / 615 * 3));
+close(corners[0].position[2], -3);
+assert.deepEqual(corners.map(corner => corner.uv), [[0, 0], [1, 0], [1, 1], [0, 1]]);
+// Each corner seen from the colour camera lands on the picture's own corner.
+for (const corner of corners) {
+  const optical = [corner.position[0], -corner.position[1], -corner.position[2]];
+  const [cu, cv] = colorUv(optical, COLOR_K, TO_COLOR);
+  close(cu, corner.uv[0], 1e-9);
+  close(cv, corner.uv[1], 1e-9);
+}
+
 // The bar's 3D switch: the flat picture gives way to the depth once its first frame comes, around the eyes.
 const eyes = new THREE.PerspectiveCamera();
 const renderer = {xr: {getController: () => new THREE.Group(), getCamera: () => eyes}};
@@ -142,14 +158,21 @@ assert.equal(uniforms.registered.value, 1);
 assert.equal(uniforms.colorMap.value, view.video);  // Coloured from the very picture it came with.
 assert.deepEqual(uniforms.toColorT.value.toArray(), [.015, 0, 0]);
 assert.deepEqual([...view.depth.depthTexture.image.data], [...readings]);
+assert.ok(view.depth.backdrop.visible);  // Where the depth has no reading, the picture fills in behind it.
+assert.equal(view.depth.backdropMaterial.map, view.video);
+const backdrop = view.depth.backdrop.geometry.attributes.position;
+close(backdrop.getZ(0), -3);
+close(backdrop.getX(0), corners[0].position[0]);
 view.update(pose);  // Following: the rig is the head camera, at the eyes, turned with their look.
 assert.deepEqual(view.depth.rig.position.toArray(), [.1, 1.6, .2]);
 assert.ok(view.depth.rig.quaternion.angleTo(look) < 1e-6);
 view.setOpacity(.4);
 assert.equal(uniforms.opacity.value, .4);
-assert.ok(view.depth.material.transparent);
+assert.ok(view.depth.material.transparent && view.depth.backdropMaterial.transparent);
+assert.equal(view.depth.backdropMaterial.opacity, .4);
 view.showDepth({meta: {...META, color_intrinsics: undefined, to_color: undefined}, values: readings});
-assert.equal(uniforms.registered.value, 0);  // An older camera, no registration: shaded by depth instead.
+assert.equal(uniforms.registered.value, 0);  // An older camera, no registration: shaded by depth instead,
+assert.ok(!view.depth.backdrop.visible);  // with no picture to place behind it.
 aimAtBar([CONTROLS.depth.x + 100, 64]);
 controller.dispatchEvent({type: 'selectstart'});
 view.select(source);

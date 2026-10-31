@@ -239,7 +239,13 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
       the camera service since `6aeeb56` on `claude/head-depth-registration`). Where the depth sees wider than the
       color camera, or a camera publishes no registration, it is grey, lighter nearer.
     - At a depth edge (a neighbour more than 4 % of the depth nearer) the far reading is cut: near objects keep
-      their outline, nothing joins near to far, and the camera's shadow behind an object is empty (passthrough).
+      their outline, nothing joins near to far.
+    - Behind the depth, the colour picture itself, 3 m ahead of the colour camera (past the depth's 2.5 m range,
+      `BACKDROP_M`), fills where the depth has no reading: too far, or the camera's shadow behind an object (the
+      user, 2026-10-31). From another viewpoint than the camera's, a shadow shows the picture as it is at 3 m (an
+      object's colours behind it), the limit of a flat filler.
+    - Helm's own camera cards ask for every camera; `head_depth` goes only to a viewer that names it (they read
+      "Invalid camera stream" while a headset showed 3D, 2026-10-31).
     - Its rig is the head camera, at the operator's eyes and turned with their look while Follow head is on; held
       where it is while it is off. As the robot's head lags the headset, the 3D picture lags with it (as the flat
       one does) until phase 2 places each frame by the head's measured pose.

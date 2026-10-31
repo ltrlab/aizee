@@ -2,12 +2,28 @@
 // pixel, each put on the GPU where its reading says (the camera's intrinsics); coloured from the head camera's
 // picture through the registration the camera publishes (camera_node: its color intrinsics and the depth sensor's
 // pose in the color camera); and cut where neighbouring readings jump (an object's edge), so near and far never
-// join. Helm sends the depth after the picture's JPEG, compressed (camera_video_worker.head_depth); xr_camera.js
+// join. Behind it, the colour picture itself at BACKDROP_M fills where the depth has no reading. Helm sends the
+// depth after the picture's JPEG, compressed (camera_video_worker.head_depth); xr_camera.js
 // inflates it. The grid sits in the camera's frame at its rig's origin, looking down -Z, as the head camera looks;
 // the rig goes where the eyes are (xr_scene.js).
 import * as THREE from 'three';
 
 export const EDGE_SHARE = .04;  // Neighbouring readings further apart than this share of the depth: an edge.
+// The colour picture behind the depth, just past its 2.5 m range, in the colour camera's own view: where the depth
+// has no reading (too far, or behind something), the picture fills in (the user, 2026-10-31).
+export const BACKDROP_M = 3;
+
+// The backdrop's corners in the rig's frame, with their texture coordinates: the colour picture's edges (pixel
+// centres at whole numbers) at `distance` ahead of the colour camera, which sits where the registration puts it.
+export function backdropCorners(colorK, toColor, distance = BACKDROP_M) {
+  const [r, t] = [toColor.rotation, toColor.translation];
+  const [w, h] = [colorK.width, colorK.height];
+  return [[-.5, -.5], [w - .5, -.5], [w - .5, h - .5], [-.5, h - .5]].map(([u, v]) => {
+    const c = [(u - colorK.cx) / colorK.fx * distance, (v - colorK.cy) / colorK.fy * distance, distance];
+    const d = [0, 1, 2].map(j => r[0][j] * (c[0] - t[0]) + r[1][j] * (c[1] - t[1]) + r[2][j] * (c[2] - t[2]));
+    return {position: [d[0], -d[1], -d[2]], uv: [(u + .5) / w, (v + .5) / h]};  // Depth optical: p = R^T (c - t).
+  });
+}
 
 // A reading's point in the rig's frame (x right, y up, -z ahead): the vertex shader's placement, for the tests.
 export function depthPoint(u, v, z, k) {
@@ -100,6 +116,34 @@ export class DepthView {
         edgeShare: {value: EDGE_SHARE}, opacity: {value: 1}, range: {value: new THREE.Vector2(.15, 2.5)}},
       vertexShader: VERTEX, fragmentShader: FRAGMENT, side: THREE.DoubleSide});
     this.material.toneMapped = false;
+    this.backdropMaterial = new THREE.MeshBasicMaterial({side: THREE.DoubleSide, toneMapped: false});
+    const backdrop = new THREE.BufferGeometry();
+    backdrop.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12), 3));
+    backdrop.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(8), 2));
+    backdrop.setIndex([0, 3, 1, 1, 3, 2]);
+    this.backdrop = new THREE.Mesh(backdrop, this.backdropMaterial);
+    this.backdrop.frustumCulled = false;
+    this.backdrop.visible = false;
+    this.backdropKey = null;
+    this.rig.add(this.backdrop);
+  }
+
+  // The colour picture behind the depth, where the registration puts the colour camera (only with one).
+  placeBackdrop(colorK, toColor, colorTexture) {
+    const key = JSON.stringify([colorK, toColor]);
+    if (key !== this.backdropKey) {
+      const {position, uv} = this.backdrop.geometry.attributes;
+      backdropCorners(colorK, toColor).forEach((corner, i) => {
+        position.setXYZ(i, ...corner.position);
+        uv.setXY(i, ...corner.uv);
+      });
+      position.needsUpdate = uv.needsUpdate = true;
+      this.backdropKey = key;
+    }
+    if (this.backdropMaterial.map !== colorTexture) {
+      this.backdropMaterial.map = colorTexture;
+      this.backdropMaterial.needsUpdate = true;
+    }
   }
 
   // A grid of width x height vertices, each one's position its depth pixel (the shader places it).
@@ -153,16 +197,21 @@ export class DepthView {
       u.colorSize.value.set(ck.width, ck.height);
       u.toColorR.value.set(...toColor.rotation.flat());  // Row by row; three keeps it column-major for the shader.
       u.toColorT.value.set(...toColor.translation);
+      this.placeBackdrop(ck, toColor, colorTexture);
     }
+    this.backdrop.visible = !!u.registered.value;
   }
 
   setOpacity(opacity) {
     this.material.opacity = opacity;
     this.material.uniforms.opacity.value = opacity;
+    this.backdropMaterial.opacity = opacity;
     const transparent = opacity < 1;
-    if (this.material.transparent !== transparent) {
-      this.material.transparent = transparent;
-      this.material.needsUpdate = true;
+    for (const material of [this.material, this.backdropMaterial]) {
+      if (material.transparent !== transparent) {
+        material.transparent = transparent;
+        material.needsUpdate = true;
+      }
     }
   }
 }
