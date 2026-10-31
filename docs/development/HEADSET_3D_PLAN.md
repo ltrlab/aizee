@@ -83,8 +83,43 @@ would; every other camera pose and every robot link follows through `M`.
 - **Checked offline:** the coarse model, loaded through the real scene from the model viewer, stands upright where
   the zero puts it, its head left out. Hand tracking needs the headset.
 
+## Alignment: the cameras with each other, then the model with the cameras (next, before the map)
+
+The user asked (2026-10-31) for one way to align everything, using the table's fiducials, which are placed to within
+5 mm. Today each view lines up only by CAD: the head camera's mount is the `AWG_RGB_CAMERA` part's centre, looking
+along the model's front, and the wrist cameras are only calibrated for their own lenses. Everything after (the model
+over the depth, the wrist pictures, the map's frame) depends on these being measured.
+
+- **The table is the reference.** The board frame (`config/devices/minerva-table-board.json`: origin at tag 0's
+  outer corner, x toward tag 1, y away from Minerva, z up; tags 0-5, 43.18 mm squares) is the world frame of the
+  workcell, and later the map's.
+- **Head camera first.** The head is held at a few poses where it sees the board, steered by the headset or jogged
+  (never swept: the user's rule). At each, a noise-stacked still (as the wrist calibration takes them) and the neck's
+  measured angles (the head pose feed). Each still's tag corners give the camera's pose against the board (the
+  camera's own published intrinsics). Over the poses, one solve finds both the camera's mount in the head link and
+  where the board lies in Minerva's frame (a hand-eye problem, refined on every corner's reprojection). It reports
+  the residuals in pixels and millimetres.
+- **Wrist cameras next, against the same board.** The arms are posed (teleop) so each wrist camera sees the board;
+  with the board's place in Minerva's frame now known and the arms' measured joints, each wrist camera's mount in its
+  wrist link follows. The cameras are then aligned with each other through the board.
+- **Then the model with the cameras.** With every mount measured, the model's arms and grippers are drawn over each
+  camera's picture: where they miss, the residuals say whether a joint's zero is off (a separate, deliberate step),
+  or a mount.
+- **A Helm flow, redone at will** (the user's rule: calibrations only through Helm flows): steps on screen, a capture
+  key or pedal per still, the solve, its residuals and the overlay, then save into the operator files with the
+  previous ones kept. The head pose feed, the headset's model placement and the map all read the saved mounts.
+- **Accuracy to expect:** the board's tags within 5 mm, each still's pose to 1-2 mm at the table (the head camera fit
+  the tags to 0.75 px on 2026-10-18), so the views should agree to about 5 mm.
+
 ## Phase 4: Gaussian splatting on soliloquy (training set up; a moving Minerva needs a live map)
 
+- **Frames:** the map in the world frame (the table's board, from the alignment), Minerva's pose in it
+  `T_world_robot`: fixed today (the alignment's board pose), from odometry and the map's tracking once the base moves.
+  Every capture and every live frame carries the camera's pose in the world: `T_world_robot · T_robot_camera(q)`.
+- **Static first:** with the base still, the head camera's posed RGB-D builds the map on soliloquy (the trainer here,
+  then the live mapping), in the world frame; the headset draws it placed through Minerva's pose.
+- **Rover-ready from the start:** `T_world_robot` is an input of its own everywhere (a constant now, a stream later),
+  so nothing changes when the base starts reporting odometry but where that pose comes from.
 - **Training on soliloquy** (set up 2026-10-31, the user: "yes, set up WSL2 training on soliloquy"). Its Ubuntu (WSL2)
   has a venv of its own in `~/minerva-splat` (5.1 GB: CUDA PyTorch 2.4.1 cu124, gsplat 1.5.3's prebuilt wheel,
   nothing system-wide). WSL runs bridged there (the user's `.wslconfig`) and its Ubuntu has no network, so
@@ -131,4 +166,5 @@ would; every other camera pose and every robot link follows through `M`.
 |---|---|
 | 2 | Turning the head, the table stays put in the headset; leaning shows what is behind an object, filled. |
 | 3 | The model's arms lie on the arms in the depth; each wrist camera follows its hand. |
+| Alignment | From the table's tags, each camera's mount and the board's place in Minerva's frame, saved by a Helm flow; every view agrees to about 5 mm. |
 | 4 | A live splat map of the room renders in the headset around the live depth, aligned with it, and stays put as Minerva moves. |
