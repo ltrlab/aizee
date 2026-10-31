@@ -156,8 +156,52 @@ def test_with_its_shoulder_clearance_the_head_never_reaches_the_shoulder_followi
         assert pose_now() == (pytest.approx(.75, abs=.01), pytest.approx(-.3, abs=.01))  # As far down as clears it.
         assert core.status()['clearance'] == {'limited': True}
         follow(.2, action='shutdown')
-        follow(8.)  # Return: back to its zero on the lifecycle's own move, then disabled.
-        assert core.state == 'DISABLED' and pose_now() == (pytest.approx(0., abs=.01), pytest.approx(0., abs=.01))
+        follow(15.)  # Return: back to its zero, then down to where it rests (drooped), and disabled there.
+        rest = core.rest_target['head_tilt'] - core.centre['head_tilt']
+        assert rest < -.7
+        assert core.state == 'DISABLED' and pose_now() == (pytest.approx(0., abs=.01), pytest.approx(rest, abs=.03))
+    finally:
+        core.close()
+
+
+def test_a_virtual_head_rests_drooped_like_the_real_one_so_return_never_ends_straight_ahead():
+    # Virtual teleop has no head to read: with its shoulder clearance saved, it rests where the real head droops,
+    # at its tilt end on the shoulder's down side, and Return comes back there through its reference (the user,
+    # 2026-10-31: "the shutdown brings the head back to zero, but it should bring it back to its rest position").
+    from robot_platform.neck.clearance import section
+    profile = head.load_profile(ROOT / head.PROFILE)
+    reference = head.virtual_reference(profile)
+    limits = dict(head.virtual_limits(reference, span_rad=.8), reference_id=reference['id'])
+    bundle = {'teleop_profile': str(ROOT / head.PROFILE), 'head_reference': reference, 'servo': None}
+    clock = Clock()
+    core = HeadTeleop(dict(bundle, limits=dict(limits, clearance=section([{'pan': -.6, 'tilt': -.4},
+                                                                          {'pan': .6, 'tilt': -.4}]))),
+                      live=False, clock=clock)
+    core.build()
+    try:
+        low = core.usable['head_tilt'][0]  # Tilted down reads lower here (its corners' sign).
+        assert core.rest == {'head_pan': pytest.approx(core.centre['head_pan']), 'head_tilt': pytest.approx(low)}
+        run(core, clock, .02)  # A cycle reads it, limp.
+        assert positions(core)['head_tilt'] == pytest.approx(low)
+        for action in ('idle', 'enable', 'engage'):
+            run(core, clock, .2, action)
+        run(core, clock, 6., pose=(0., 0.))  # Raised to look straight ahead.
+        assert positions(core)['head_tilt'] == pytest.approx(core.centre['head_tilt'], abs=.01)
+        stages = []
+        core.cycle('shutdown', clock.now)
+        for _ in range(1500):
+            clock.now += .01
+            core.cycle(None, clock.now)
+            stages.append(core.returning)
+        assert stages.index('rest') > stages.index('centre') and core.state == 'DISABLED'
+        assert positions(core)['head_tilt'] == pytest.approx(low, abs=.03)
+    finally:
+        core.close()
+    # With no clearance saved yet, which way is down is not known: it rests at its zero, as before.
+    core = HeadTeleop(dict(bundle, limits=limits), live=False, clock=Clock())
+    core.build()
+    try:
+        assert core.rest == pytest.approx(core.centre)
     finally:
         core.close()
 

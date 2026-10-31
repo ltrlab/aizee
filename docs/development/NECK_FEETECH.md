@@ -149,6 +149,10 @@ the head droops. So a live head session or jog starts where it rests:
   straight ahead. Each stage is a straight move toward or away from straight ahead, so neither crosses the shoulder
   corner. In teleop that is `HeadTeleop.returning` ('centre', then 'rest'), not the lifecycle's own Shutdown; X with
   the head limp (Idle) just disables it, and H still cuts its torque at once.
+- A virtual session has no head to read: it rests where the real head droops, tilted down to the end of its range
+  on the shoulder's down side (its saved clearance gives the side), so it starts there and Return comes back there
+  (the user, 2026-10-31: it had ended straight ahead, where the real head would fall). With no clearance saved yet
+  it rests at its zero.
 
 **Live · Head.** The Teleop tab's Head choice (`helm.head_only.HeadOnlyCore`) runs the head alone under the session's
 keys and pedals B and C, steered by the headset. The arms' receivers are never opened: their drives stay as they are,

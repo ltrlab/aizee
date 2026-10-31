@@ -86,13 +86,26 @@ class HeadTeleop:
         self.derived = derived = head.derive(self.profile, reference, self.bundle['limits'], self.model,
                                              servo=self.bundle.get('servo'))
         config = derived['config']
+        self.usable = {row['motor']: row['usable'] for row in derived['report']}
+        # The shoulder clearance (neck.clearance), when one is saved for this reference: its targets then step.
+        self.clearance = clearance.from_limits(self.bundle['limits'], reference)
+        by_joint = {m['joint']: m for m in reference['motors']}
+        self.pan, self.tilt = by_joint[clearance.PAN]['name'], by_joint[clearance.TILT]['name']
+        self.centre = {m['name']: float(m['raw_reference_rad']) for m in reference['motors']}
         if self.live:
             receiver = self.open_receiver(config, reference)
             exchange = receiver.exchange
         else:
-            # A rehearsal may start the head where it would rest (`rest_pose`), as the live head does.
+            # No head to read: the virtual one rests where the real one droops, limp, tilted down to the end of its
+            # range on the shoulder's down side (its saved clearance says which way that is), so Return shows the
+            # real path, never ending straight ahead, where the real head would fall (the user, 2026-10-31). A
+            # rehearsal may say where (`rest_pose`); with no clearance saved yet, it rests at its zero.
             joints = [joint['name'] for joint in config['joints']]
-            self.rest = {**dict(zip(joints, derived['initial'])), **(self.bundle.get('rest_pose') or {})}
+            self.rest = dict(zip(joints, derived['initial']))
+            if self.clearance is not None:
+                low, high = self.usable[self.tilt]
+                self.rest[self.tilt] = low if self.clearance.down < 0 else high
+            self.rest.update(self.bundle.get('rest_pose') or {})
             receiver = self.open_harness(config, [self.rest[name] for name in joints])
             epoch = self.clock()
 
@@ -115,15 +128,9 @@ class HeadTeleop:
                                               period_s=PERIOD_S, cycle_budget_s=CYCLE_BUDGET_S, clock=self.clock)
         self.names = names
         self.zero = {row['name']: row['zero_position'] for row in derived['lifecycle']}
-        self.usable = {row['motor']: row['usable'] for row in derived['report']}
         # The headset's yaw and pitch are the CAD angles of neck_z and neck_y; each motor maps from its CAD joint.
         self.axes = {row['actuator']: (joint, row['scale'], row['offset'])
                      for joint, row in derived['joint_map'].items()}
-        # The shoulder clearance (neck.clearance), when one is saved for this reference: its targets then step.
-        self.clearance = clearance.from_limits(self.bundle['limits'], reference)
-        by_joint = {m['joint']: m for m in reference['motors']}
-        self.pan, self.tilt = by_joint[clearance.PAN]['name'], by_joint[clearance.TILT]['name']
-        self.centre = {m['name']: float(m['raw_reference_rad']) for m in reference['motors']}
         self.speeds = {row['name']: {'align': row['align_speed'], 'follow': row['max_velocity'],
                                      'return': row['shutdown_speed']} for row in derived['lifecycle']}
         self.tolerance = {row['name']: row['tolerance'] for row in derived['lifecycle']}
