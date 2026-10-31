@@ -127,6 +127,76 @@ def test_existing_depth_decoder_preserves_original_sensor_ray(camera_node, rotat
         assert not thread.is_alive()
 
 
+@pytest.mark.parametrize('rotation', [0, 180])
+@pytest.mark.parametrize('output_resolution', [None, (32, 24)])
+def test_the_publisher_registers_depth_to_the_color_picture_it_sends(camera_node, monkeypatch, rotation,
+                                                                   output_resolution):
+    # Helm's headset textures each depth point with its color pixel: the color camera's intrinsics for the raster
+    # as published (rotated, scaled) and the depth sensor's pose in the color camera's optical frame.
+    color = np.zeros((48, 64, 3), dtype=np.uint8)
+    depth = np.full((6, 8), 1000, dtype=np.uint16)
+    depth_k = SimpleNamespace(fx=4., fy=5., ppx=3.25, ppy=2.75, width=8, height=6)
+    color_k = SimpleNamespace(fx=40., fy=42., ppx=31.5, ppy=23.25, width=64, height=48)
+    angle = .05  # The color camera turned slightly about y, and 15 mm to the side, as a D435's sits.
+    rotation_rows = [[np.cos(angle), 0., np.sin(angle)], [0., 1., 0.], [-np.sin(angle), 0., np.cos(angle)]]
+    column_major = [rotation_rows[row][col] for col in range(3) for row in range(3)]
+    extrinsics = SimpleNamespace(rotation=column_major, translation=[.015, .001, -.002])
+
+    def stream(kind):
+        k = color_k if kind == 1 else depth_k
+        return SimpleNamespace(as_video_stream_profile=lambda: SimpleNamespace(get_intrinsics=lambda: k),
+                               get_extrinsics_to=lambda other: extrinsics)
+    frame = SimpleNamespace(
+        get_timestamp=lambda: 100.,
+        get_color_frame=lambda: SimpleNamespace(get_data=lambda: color),
+        get_depth_frame=lambda: SimpleNamespace(get_data=lambda: depth),
+        first_or_default=lambda stream: None)
+    profile = SimpleNamespace(get_stream=stream, get_device=lambda: SimpleNamespace(
+        first_depth_sensor=lambda: SimpleNamespace(get_depth_scale=lambda: .001)))
+    pipeline = SimpleNamespace(start=lambda config: profile, wait_for_frames=lambda **kwargs: frame,
+                               poll_for_frames=lambda: None)
+    monkeypatch.setattr(camera_node, 'rs', SimpleNamespace(
+        pipeline=lambda: pipeline, config=lambda: SimpleNamespace(enable_stream=lambda *args: None),
+        stream=SimpleNamespace(color=1, depth=2, accel=3, gyro=4), format=SimpleNamespace(rgb8=1, z16=2)))
+    node = camera_node.CameraNode(image_rotation_deg=rotation, color_resolution=(64, 48), depth_resolution=(8, 6),
+                                  output_resolution=output_resolution)
+    node.initialize_camera()
+    messages = []
+
+    def send(parts):
+        messages.append(unpack_camera(parts))
+        node.running = False
+    node.zmq_socket = SimpleNamespace(send_multipart=send)
+    node.process_frames()
+    message = messages[0]
+    np.testing.assert_allclose(message['depth']['to_color']['rotation'], rotation_rows)
+    np.testing.assert_allclose(message['depth']['to_color']['translation'], [.015, .001, -.002])
+    k, ck = message['depth']['intrinsics'], message['color']['intrinsics']
+    width, height = output_resolution or (64, 48)
+    assert (ck['width'], ck['height']) == (width, height) == (message['color']['width'], message['color']['height'])
+    # A depth pixel of the published raster lands, through the published registration, on the color pixel the
+    # original sensors give, rotated and scaled as the published color raster is.
+    for u, v in ((0, 0), (7, 5), (3, 2)):
+        z = 1.
+        point = np.array([(u - k['cx']) / k['fx'] * z, (v - k['cy']) / k['fy'] * z, z])
+        seen = np.array(rotation_rows) @ point + extrinsics.translation
+        published = (ck['fx'] * seen[0] / seen[2] + ck['cx'], ck['fy'] * seen[1] / seen[2] + ck['cy'])
+        uo = 40. * seen[0] / seen[2] + 31.5
+        vo = 42. * seen[1] / seen[2] + 23.25
+        if rotation == 180:
+            uo, vo = 63 - uo, 47 - vo
+        expected = ((uo + .5) * width / 64 - .5, (vo + .5) * height / 48 - .5)
+        np.testing.assert_allclose(published, expected, atol=1e-9)
+
+
+def test_without_an_sdk_registration_the_stream_goes_on_without_it(camera_node, monkeypatch):
+    profile = SimpleNamespace(get_stream=lambda kind: SimpleNamespace(
+        as_video_stream_profile=lambda: SimpleNamespace(get_intrinsics=lambda: SimpleNamespace(
+            fx=4., fy=5., ppx=1.25, ppy=2.75, width=8, height=6))))  # No get_extrinsics_to.
+    monkeypatch.setattr(camera_node, 'rs', SimpleNamespace(stream=SimpleNamespace(color=1, depth=2)))
+    assert camera_node._color_registration(profile, profile.get_stream(2), 0) == (None, None)
+
+
 @pytest.mark.parametrize('invalid', [True, False, 90, -180, 360, 180., '180', None])
 def test_bad_rotation_fails_before_any_camera_initialization(camera_node, invalid):
     with pytest.raises(ValueError, match='integer 0 or 180'):

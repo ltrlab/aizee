@@ -82,6 +82,34 @@ def _rotate_depth_intrinsics(intrinsics: dict, rotation: int) -> dict:
     return result
 
 
+def _color_registration(profile, depth_stream, rotation: int) -> tuple:
+    """The color camera's intrinsics for the published raster (rotated as the depth's are) and the depth sensor's
+    pose in the color camera's optical frame ({'rotation': 3x3 row-major, 'translation': metres}): p_color =
+    R p_depth + t, both in the sensors' original optical frames, as the signed focal lengths keep them. (None, None)
+    where the SDK gives either not: the stream goes on without them."""
+    try:
+        color_stream = profile.get_stream(rs.stream.color)
+        ci = color_stream.as_video_stream_profile().get_intrinsics()
+        intrinsics = _rotate_depth_intrinsics({
+            "fx": ci.fx, "fy": ci.fy, "cx": ci.ppx, "cy": ci.ppy, "width": ci.width, "height": ci.height,
+        }, rotation)
+        extrinsics = depth_stream.get_extrinsics_to(color_stream)
+        rotation_matrix = [[float(extrinsics.rotation[col * 3 + row]) for col in range(3)] for row in range(3)]
+        return intrinsics, {"rotation": rotation_matrix, "translation": [float(v) for v in extrinsics.translation]}
+    except (AttributeError, RuntimeError, TypeError, IndexError) as exc:
+        logger.warning("No color registration from the SDK: %s", exc)
+        return None, None
+
+
+def _scaled_intrinsics(intrinsics: Optional[dict], width: int, height: int) -> Optional[dict]:
+    """`intrinsics` for the raster scaled to width x height (pixel centres kept), or None."""
+    if intrinsics is None:
+        return None
+    sx, sy = width / intrinsics["width"], height / intrinsics["height"]
+    return dict(intrinsics, fx=intrinsics["fx"] * sx, fy=intrinsics["fy"] * sy,
+                cx=(intrinsics["cx"] + .5) * sx - .5, cy=(intrinsics["cy"] + .5) * sy - .5, width=width, height=height)
+
+
 def _usb_major(usb) -> Optional[int]:
     """The major USB version in a usb_type_descriptor ('3.2' -> 3, '2.1' -> 2), or None."""
     try:
@@ -274,6 +302,10 @@ class CameraNode:
         # Depth calibration (populated on pipeline start)
         self.depth_intrinsics: Optional[dict] = None
         self.depth_scale: float = 0.001  # metres per uint16 unit (D455 default)
+        # The color camera's projection at capture size, and where the depth sensor sits relative to it: a consumer
+        # textures each depth point with its color pixel (Helm's headset view). None where the SDK gave none.
+        self.color_intrinsics: Optional[dict] = None
+        self.depth_to_color: Optional[dict] = None
 
         # Statistics
         self.frame_count = 0
@@ -363,6 +395,9 @@ class CameraNode:
                 f"fx={di.fx:.2f}, fy={di.fy:.2f}, "
                 f"cx={di.ppx:.2f}, cy={di.ppy:.2f}"
             )
+
+            self.color_intrinsics, self.depth_to_color = _color_registration(
+                profile, depth_stream, self.image_rotation_deg)
 
             # Get depth scale (metres per uint16 unit; typically 0.001 for D455)
             depth_sensor = profile.get_device().first_depth_sensor()
@@ -478,6 +513,12 @@ class CameraNode:
                         'scale': self.depth_scale,
                     }
                 }
+                # Registration, where the SDK gave it: the color raster's intrinsics as encoded, and the depth
+                # sensor's pose in the color camera's optical frame.
+                color_k = _scaled_intrinsics(self.color_intrinsics, _cw, _ch)
+                if color_k is not None and self.depth_to_color is not None:
+                    message['color']['intrinsics'] = color_k
+                    message['depth']['to_color'] = self.depth_to_color
 
                 # Try to get IMU data (non-blocking)
                 try:
