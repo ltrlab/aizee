@@ -85,3 +85,34 @@ def test_the_compact_splat_keeps_what_shows_most_visible_first():
     assert list(record['rgba'][1]) == [128, 128, 128, 243]  # Grey from a zero harmonic; sigmoid(3) of 255.
     assert list(record["rgba"][0][:3]) == [199, 56, 128]  # 0.5 +- C0, of 255.
     assert list(record['rot'][0]) == [128, 255, 128, 128] and list(record['rot'][1]) == [255, 128, 128, 128]
+
+
+def test_the_station_trains_the_newest_capture_without_a_map_and_makes_its_folders():
+    import train_on_station
+    listing = {'captures': ['20261101T010000Z', '20261101T020000Z', '20261101T030000Z'],
+               'maps': ['20261101T010000Z', '20261101T030000Z']}
+    assert train_on_station.choose(listing, None) == '20261101T020000Z'
+    assert train_on_station.choose(listing, '20261101T030000Z') == '20261101T030000Z'  # Named: trained again.
+    with pytest.raises(SystemExit, match='No capture'):
+        train_on_station.choose(listing, '20261101T040000Z')
+    with pytest.raises(SystemExit, match='has its map'):
+        train_on_station.choose({'captures': ['a'], 'maps': ['a']}, None)
+
+    class Folders:
+        def __init__(self, existing):
+            self.existing, self.made = set(existing), []
+
+        def stat(self, path):
+            if path not in self.existing:
+                raise OSError(path)
+
+        def mkdir(self, path):
+            self.existing.add(path)
+            self.made.append(path)
+    robot = Folders({'/home', '/home/ltr', '/home/ltr/minerva'})
+    train_on_station._mkdirs(robot, '/home/ltr/minerva/helm/maps/maps/20261101T020000Z')
+    assert robot.made == ['/home/ltr/minerva/helm', '/home/ltr/minerva/helm/maps', '/home/ltr/minerva/helm/maps/maps',
+                          '/home/ltr/minerva/helm/maps/maps/20261101T020000Z']
+    station = Folders({'C:/Users', 'C:/Users/598Jo'})
+    train_on_station._mkdirs(station, 'C:/Users/598Jo/minerva-splat/scripts')
+    assert station.made == ['C:/Users/598Jo/minerva-splat', 'C:/Users/598Jo/minerva-splat/scripts']
