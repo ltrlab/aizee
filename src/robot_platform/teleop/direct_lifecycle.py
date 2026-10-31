@@ -13,13 +13,20 @@ from .guarded_lifecycle import GuardedLifecycleSession
 
 class DirectLifecycleSession(GuardedLifecycleSession):
     def __init__(self, controller, config, lifecycle, snapshot, *, period_s=.02,
-                 cycle_budget_s=.035, clock=time.perf_counter):
+                 cycle_budget_s=.035, hold_budget_s=None, clock=time.perf_counter):
+        """`hold_budget_s`: how long a cycle following nothing (Idle, Enable, a hold: no target) may take before its
+        command goes out, at most that command's lifetime, which the receiver bounds it by (default: the cycle
+        budget). The head's receiver answers each request at its next 10 ms tick, and Idle takes it and a fresh
+        offer first: 37 ms on the Jetson, past the 35 ms of a following cycle (2026-10-31)."""
         names = tuple(j['name'] for j in config['joints'])
         if (not config.get('direct') or config.get('collision') is not None
                 or controller.identity != config['identity'] or controller.group != config['group']
                 or controller.joint_names != names or lifecycle.names != names
                 or not all(math.isfinite(v) and 0 < v <= lifecycle.max_step_s
-                           for v in (period_s, cycle_budget_s))):
+                           for v in (period_s, cycle_budget_s))
+                or (hold_budget_s is not None
+                    and not (math.isfinite(hold_budget_s)
+                             and cycle_budget_s <= hold_budget_s <= config['direct']['command_ms'] / 1000))):
             raise ValueError('Matching explicit direct configuration and valid timing required')
         for row, limit in zip(lifecycle.joints, config['joints']):
             if (any(row[k] != limit[k] for k in ('name', 'lower', 'upper', 'hold_kp', 'hold_kd'))
@@ -28,7 +35,7 @@ class DirectLifecycleSession(GuardedLifecycleSession):
         self.controller, self.lifecycle, self.snapshot, self.clock = controller, lifecycle, snapshot, clock
         self.compiler = None
         self.period_s, self.cycle_budget_s = period_s, cycle_budget_s
-        self._verdict_s = cycle_budget_s
+        self._verdict_s = cycle_budget_s if hold_budget_s is None else hold_budget_s
         self.owned = False
         self.stop_error = self.last_cycle = self.last_feedback = self.blocked = None
         self._cached = None

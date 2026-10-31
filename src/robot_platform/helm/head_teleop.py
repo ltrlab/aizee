@@ -124,8 +124,12 @@ class HeadTeleop:
         lifecycle = TeleopLifecycle(derived['lifecycle'], clock=self.clock, max_step_s=2 * PERIOD_S,
                                     feedback_max_age_s=1.5 * PERIOD_S, target_max_age_s=2.5 * PERIOD_S,
                                     allow_repeated_source=True)
+        # A cycle following nothing (Idle, Enable, Hold) takes the receiver, renews it or takes a fresh offer at
+        # the head service's 10 ms ticks before its command: it has that command's lifetime, which the receiver
+        # bounds it by, as the arms' holds have their verdict's. Following cycles keep the cycle budget.
         self.session = DirectLifecycleSession(controller, config, lifecycle, lambda: receiver.last,
-                                              period_s=PERIOD_S, cycle_budget_s=CYCLE_BUDGET_S, clock=self.clock)
+                                              period_s=PERIOD_S, cycle_budget_s=CYCLE_BUDGET_S,
+                                              hold_budget_s=config['direct']['command_ms'] / 1000, clock=self.clock)
         self.names = names
         self.zero = {row['name']: row['zero_position'] for row in derived['lifecycle']}
         # The headset's yaw and pitch are the CAD angles of neck_z and neck_y; each motor maps from its CAD joint.
@@ -242,7 +246,10 @@ class HeadTeleop:
         on_grid = action is None and self._due is not None and started - self._due < PERIOD_S / 2
         self._due = (self._due if on_grid else started) + PERIOD_S
         try:
-            record = self.session.cycle(action=action, target=self._target(started), started_at=started)
+            target = self._target(started)
+            # Only Engage and following use it; any other cycle follows nothing (the session's hold budget).
+            following = action == 'engage' or (action is None and self.state in ('ENGAGING', 'TELEOP'))
+            record = self.session.cycle(action=action, target=target if following else None, started_at=started)
             self._advance_return()
             return record
         except Exception as exc:

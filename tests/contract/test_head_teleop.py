@@ -293,3 +293,48 @@ def test_return_from_hold_engages_where_the_head_is_and_from_idle_just_lets_it_r
         assert core.state == 'DISABLED' and core.returning is None
     finally:
         core.close()
+
+
+def test_the_head_runs_on_a_receiver_that_answers_each_request_at_its_ticks():
+    # Live, each request waits for the head service's next 10 ms tick, and the Jetson's own time: Idle, which takes
+    # the receiver and a fresh offer before its command, ran past the 35 ms budget of a following cycle, and the
+    # session faulted before the head was powered (2026-10-31, "cycle exceeded its deadline"). A cycle following
+    # nothing has its command's lifetime, as the arms' holds have their verdict's; following cycles keep 35 ms.
+    from robot_platform.neck.clearance import section
+    from robot_platform.simulation.control_harness import NativeControlHarness
+    profile = head.load_profile(ROOT / head.PROFILE)
+    reference = head.virtual_reference(profile)
+    limits = dict(head.virtual_limits(reference, span_rad=.8), reference_id=reference['id'],
+                  clearance=section([{'pan': -.6, 'tilt': -.4}, {'pan': .6, 'tilt': -.4}]))
+    clock = Clock()
+
+    class Ticking:
+        """The harness, each request answered 12 ms after it was sent."""
+
+        def __init__(self, config, initial):
+            self.inner = NativeControlHarness(config, initial)
+            self.close = self.inner.close
+
+        now_ms = property(lambda self: self.inner.now_ms)
+        last = property(lambda self: self.inner.last)
+
+        def step(self, now_ms, request=None):
+            if request is not None:
+                clock.now += .012
+            return self.inner.step(max(now_ms, self.inner.now_ms), request)
+    core = HeadTeleop({'teleop_profile': str(ROOT / head.PROFILE), 'head_reference': reference, 'limits': limits,
+                       'servo': None}, live=False, clock=clock, open_harness=Ticking)
+    core.build()
+    try:
+        for action in ('idle', 'enable', 'engage'):
+            run(core, clock, .3, action)
+            assert core.fault is None, core.fault
+        run(core, clock, 6., pose=(.3, 0.))
+        assert core.fault is None and core.state == 'TELEOP'
+        assert positions(core)['head_pan'] - core.centre['head_pan'] == pytest.approx(.3, abs=.02)
+        run(core, clock, .2, 'shutdown')
+        run(core, clock, 15.)
+        assert core.fault is None and core.state == 'DISABLED'
+        assert positions(core)['head_tilt'] == pytest.approx(core.rest_target['head_tilt'], abs=.03)
+    finally:
+        core.close()
