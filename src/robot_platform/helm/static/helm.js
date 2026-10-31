@@ -11,6 +11,7 @@ import {HeadsetMirror} from './headset_mirror.js';
 import {headSetupView} from './head_setup.js';
 import {captureBlock, countsText, headCaptureBlock, headCountsText, headLastText, headResultLines, lastText,
   resultLines} from './calibration.js';
+import {mapCaptureBlock, mapLines, mapStatusText} from './maps.js';
 
 // Helm operator page. Reads /api/helm/state; every action needs the session token.
 const $ = id => document.getElementById(id);
@@ -299,6 +300,7 @@ function render(state) {
   renderHeadset(state);
   renderHeadSetup(state);
   renderCalibration(state);
+  renderMaps(state);
   renderRecording(state);
   renderUps(state.ups);
   renderAccess(state);
@@ -658,6 +660,50 @@ $('calibration-undo').onclick = () => calibrationAction('undo', {role: calibrati
 $('calibration-solve').onclick = () => calibrationAction('solve', {}, 600000);
 $('calibration-new').onclick = () => calibrationAction('new');
 $('calibration-save').onclick = () => calibrationAction('save');
+
+// Splat maps: a head scene capture in a live session, and the captures and maps (helm.maps).
+let mapSeconds = 30, mapsPending = false;
+function renderMaps(state) {
+  const maps = state.maps, section = $('maps');
+  section.hidden = !maps;
+  if (!maps) return;
+  const blocked = mapCaptureBlock(maps, state.teleop);
+  for (const button of document.querySelectorAll('#maps-seconds button')) {
+    button.setAttribute('aria-pressed', String(Number(button.dataset.seconds) === mapSeconds));
+    button.disabled = mapsPending || maps.busy;
+  }
+  $('maps-capture').disabled = mapsPending || Boolean(blocked);
+  $('maps-capture').textContent = maps.busy ? 'Capturing…' : `Capture ${mapSeconds} s`;
+  $('maps-status').textContent = mapStatusText(maps) + (blocked && !maps.busy ? ` · ${blocked}` : '');
+  $('maps-list').replaceChildren(...mapLines(maps).map(line => {
+    const item = document.createElement('li');
+    const title = document.createElement('b');
+    title.textContent = line.title;
+    item.append(title, document.createTextNode(` ${line.text}`));
+    if (line.bad) item.className = 'bad';
+    return item;
+  }));
+  $('maps-error').hidden = !maps.error;
+  $('maps-error').textContent = maps.error || '';
+}
+async function captureMap() {
+  if (mapsPending || mapCaptureBlock(last?.maps, last?.teleop) !== null) return;
+  mapsPending = true;
+  if (last) renderMaps(last);
+  try {
+    render(await request('/api/helm/maps/capture', {seconds: mapSeconds}, (mapSeconds + 90) * 1000));
+  } catch (error) {
+    $('maps-error').hidden = false;
+    $('maps-error').textContent = error.message;
+  } finally {
+    mapsPending = false;
+    if (last) renderMaps(last);
+  }
+}
+for (const button of document.querySelectorAll('#maps-seconds button')) {
+  button.onclick = () => { mapSeconds = Number(button.dataset.seconds); if (last) renderMaps(last); };
+}
+$('maps-capture').onclick = captureMap;
 
 // Mode is fixed at launch. The server enforces the same separation for every action.
 function renderMode(state) {

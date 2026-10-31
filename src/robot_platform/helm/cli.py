@@ -167,7 +167,7 @@ def main(argv=None):
             check = CheckWorkspace(profile=session.profile_path, teleop=args.teleop or DEFAULT_TELEOP,
                                    runs=args.runs, limits=session.limits_path, address=lambda: session.address,
                                    operator_files=args.operator_files)
-        calibration = head_alignment = None
+        calibration = head_alignment = maps = None
         if args.on_robot and teleop is not None:
             # Wrist camera stills during a live session; the robot saves their images under the same folder.
             from .calibration import CameraCalibration
@@ -178,11 +178,15 @@ def main(argv=None):
             from robot_platform.control.servo_calibration import servo_path
             from robot_platform.neck import head
             from .head_alignment import HeadAlignment
-            head_alignment = HeadAlignment(
-                session.profile_path, address=lambda: session.address, teleop=teleop.snapshot,
-                root=f'{CALIBRATION_ROOT}/head', wrists=CALIBRATION_ROOT,
-                files=lambda: head.files(servo_path(session.profile_path, session.asset_id,
-                                                    session.operator_files).parent, session.asset_id))
+            head_files = lambda: head.files(servo_path(session.profile_path, session.asset_id,  # noqa: E731
+                                                       session.operator_files).parent, session.asset_id)
+            head_alignment = HeadAlignment(session.profile_path, address=lambda: session.address,
+                                           teleop=teleop.snapshot, root=f'{CALIBRATION_ROOT}/head',
+                                           wrists=CALIBRATION_ROOT, files=head_files)
+            # Head scene captures for splat maps, and the trained maps the headset draws.
+            from .maps import MapLibrary
+            maps = MapLibrary(session.profile_path, address=lambda: session.address, teleop=teleop.snapshot,
+                              root='~/minerva/helm/maps', files=head_files)
         if tune is not None:
             # Minerva Check's live joint sweep runs through the Tune loop; its outcome goes into the report.
             tune.on_finished = lambda mode, arm, results, fault: (
@@ -218,7 +222,8 @@ def main(argv=None):
                          live=not (args.sim or args.no_live), simulation_only=args.sim, cameras=cameras,
                          camera_video=camera_video, episodes=episodes, ups=ups, access=access, bridge=bridge,
                          mesh_store=args.mesh_store, operator_files=operator, calibration=calibration,
-                         network=network, display=display, head_setup=head_setup, head_alignment=head_alignment)
+                         network=network, display=display, head_setup=head_setup, head_alignment=head_alignment,
+                         maps=maps)
         if session.stale_lock_pid:
             print(f'Took over a calibration lock left by exited process {session.stale_lock_pid}.', flush=True)
         mode = ('SIMULATION ONLY; no physical robot connection' if args.sim else

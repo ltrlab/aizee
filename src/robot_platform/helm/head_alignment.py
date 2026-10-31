@@ -32,6 +32,21 @@ from robot_platform.vision.head_alignment import CAMERA, DEFAULT_RIG, ROOT, alig
 from .calibration import RECORDING, SOLVE_TIMEOUT_S, _still_summary, run_remote
 
 
+def check_live_head(view, what, then):
+    """Refused (ValueError) unless the teleop snapshot `view` runs the live head, enabled, and nothing records: `what`
+    names what needs it ('Head stills'), `then` what to do once the head is enabled."""
+    view = view or {}
+    if view.get('phase') != 'running':
+        raise ValueError(f'{what} need a running session with the live head')
+    if (view.get('receiver_choice') or {}).get('mode') != 'live':
+        raise ValueError(f'{what} need the real head (a live session), not a virtual one')
+    if ((view.get('head') or {}).get('state')) not in ('HOLD', 'TELEOP'):
+        raise ValueError(f'Enable the head (E), then {then}')
+    recording = (view.get('task') or {}).get('recording') or {}
+    if recording.get('active') or recording.get('state') in RECORDING:
+        raise ValueError(f'Stop the recording first: {what.lower()} would share its CPUs')
+
+
 class HeadAlignment:
     """Call capture/solve/save from worker threads. `teleop()` is the teleop session's snapshot (helm.teleop);
     `files()` the head's files (neck.head.files); `wrists` the wrist calibration's runs, to compare the board."""
@@ -93,31 +108,20 @@ class HeadAlignment:
             raise ValueError("Set the head's reference first (Limits tab, Head)")
         return reference
 
-    def _check_session(self):
-        view = self.teleop() or {}
-        if view.get('phase') != 'running':
-            raise ValueError('Head stills need a running session with the live head')
-        if (view.get('receiver_choice') or {}).get('mode') != 'live':
-            raise ValueError('Head stills need the real head (a live session), not a virtual one')
-        if ((view.get('head') or {}).get('state')) not in ('HOLD', 'TELEOP'):
-            raise ValueError('Enable the head (E), then hold it (T) where its camera sees the table\'s tags')
-        recording = (view.get('task') or {}).get('recording') or {}
-        if recording.get('active') or recording.get('state') in RECORDING:
-            raise ValueError('Stop the recording first: a head still would share its CPUs')
-
     def capture(self):
         with self._claim():
             self.busy, self.error = True, None
             try:
-                return self._capture()
+                self._capture()
             except Exception as exc:
                 self.error = str(exc)
                 raise
             finally:
                 self.busy = False
+        return self.snapshot()  # Once it is no longer busy.
 
     def _capture(self):
-        self._check_session()
+        check_live_head(self.teleop(), 'Head stills', "hold it (T) where its camera sees the table's tags")
         digest = reference_digest(self._reference())
         if self.run is None:
             self._new_run()
@@ -146,7 +150,6 @@ class HeadAlignment:
         self._thumbnail = (name, base64.b64decode(thumbnail)) if thumbnail else None
         self.last = dict(_still_summary(record), thumbnail=self._thumbnail is not None,
                          joints_deg={k: round(math.degrees(v), 2) for k, v in pose['joints'].items()})
-        return self.snapshot()
 
     def thumbnail(self):
         return self._thumbnail[1] if self._thumbnail else None
@@ -172,12 +175,12 @@ class HeadAlignment:
             self.solving, self.error = True, None
             try:
                 self.result = summary(self.solver(self.run))
-                return self.snapshot()
             except Exception as exc:
                 self.error = str(exc)
                 raise
             finally:
                 self.solving = False
+        return self.snapshot()
 
     def _solve_process(self, folder):
         env = dict(os.environ, OPENBLAS_NUM_THREADS='1', OMP_NUM_THREADS='1', MKL_NUM_THREADS='1')

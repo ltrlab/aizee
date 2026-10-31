@@ -311,6 +311,22 @@
             <ul id="calibration-result" class="calibration-result"></ul>
             <p id="calibration-error" class="bad" role="alert" hidden></p>
           </section>
+          <section id="maps" class="camera-calibration" aria-labelledby="maps-title" hidden>
+            <div class="eyebrow">HEAD MAP</div>
+            <h2 id="maps-title">A splat map of the room for the headset</h2>
+            <p class="muted">In a session with the live head, engage it (T), press Capture, then look slowly around the workspace in the headset: a frame is kept each time the head has turned a few degrees and held steady. Train the capture on soliloquy (scripts/splat/train_on_station.py), then turn the headset's Map on with its 3D.</p>
+            <div class="calibration-actions" role="group" aria-label="Map capture">
+              <div class="target" id="maps-seconds" role="group" aria-label="Capture length">
+                <button data-seconds="15">15 s</button>
+                <button data-seconds="30">30 s</button>
+                <button data-seconds="60">60 s</button>
+              </div>
+              <button id="maps-capture" class="primary" title="Record the head camera's pictures and depth with the head's pose as you look around">Capture</button>
+            </div>
+            <p id="maps-status" class="muted" role="status"></p>
+            <ul id="maps-list" class="calibration-result"></ul>
+            <p id="maps-error" class="bad" role="alert" hidden></p>
+          </section>
           <div class="tuning-shortcut"><div><b>Motor tuning &amp; session settings</b><p id="t-tuning-summary" class="muted">Configure gains, following and return speeds in Settings.</p></div><button id="open-motor-settings">Open Settings</button></div>
           <div id="teleop-joints"></div>
         </div>

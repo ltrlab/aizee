@@ -27,18 +27,19 @@ RECORDING = ('starting', 'recording', 'stopping', 'finishing')
 MAX_REPLY = 1024 * 1024
 
 
-def run_remote(profile, address, request, *, open_ssh=None, timeout_s=15.):
-    """Run helm.calibration_still's remote_main(request) on the robot over Helm's pinned SSH; its result."""
+def run_remote(profile, address, request, *, open_ssh=None, timeout_s=15., script='calibration_still.py'):
+    """Run a robot helper's remote_main(request) on the robot over Helm's pinned SSH (helm.calibration_still, or
+    `script` beside it: helm.scene_capture); its result."""
     from robot_platform.ops.ssh import connect, open_command
     client = channel = None
     try:
         client = (open_ssh or connect)(profile, address=address(), timeout=3.)
-        script = (Path(__file__).with_name('calibration_still.py').read_text(encoding='utf-8')
+        source = (Path(__file__).with_name(script).read_text(encoding='utf-8')
                   + '\nremote_main(' + repr(request) + ')\n')
         stdin, out, _ = open_command(client, 'python3 -', timeout=3.)
         channel = out.channel
         channel.settimeout(3.)
-        stdin.write(script)
+        stdin.write(source)
         stdin.flush()
         channel.shutdown_write()
         deadline, stdout, stderr = time.monotonic() + timeout_s, bytearray(), bytearray()
@@ -52,7 +53,7 @@ def run_remote(profile, address, request, *, open_ssh=None, timeout_s=15.):
             if channel.exit_status_ready() and not channel.recv_ready() and not channel.recv_stderr_ready():
                 break
             if time.monotonic() >= deadline:
-                raise TimeoutError('Calibration still timed out')
+                raise TimeoutError(f'{script} timed out on the robot')
             time.sleep(.01)
         if channel.recv_exit_status():
             raise RuntimeError('Calibration helper failed: ' + stderr.decode(errors='replace')[:1000])

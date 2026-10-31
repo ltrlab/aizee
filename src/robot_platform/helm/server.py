@@ -92,7 +92,7 @@ def video_backlog(transport):
 def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None, live=False,
                gripper_zero=None, simulation_only=False, cameras=None, camera_video=None, episodes=None, ups=None,
                access=None, bridge=None, mesh_store=None, operator_files=None, calibration=None, network=None,
-               display=None, head_setup=None, head_alignment=None):
+               display=None, head_setup=None, head_alignment=None, maps=None):
     """`live`: keep the stopped reader running whenever Minerva is online and nothing else holds the motors
     (helm.live_view); sessions then take the motors from it instead of asking for Disconnect first.
     `episodes`: the recorded-episode library behind Replay (helm.episodes), told to read nothing while a
@@ -108,7 +108,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     one; every guide is drawn on it, the neck at the head's measured angles while a session drives it.
     `head_setup` (helm.head_setup.HeadSetup): the head's setup on Helm on Minerva (Limits tab, Head): its reader,
     reference, directions and limits. `head_alignment` (helm.head_alignment.HeadAlignment): head camera stills of the
-    table's tags during a live session, their solve, and the measured mount saved for the head's pose feed."""
+    table's tags during a live session, their solve, and the measured mount saved for the head's pose feed.
+    `maps` (helm.maps.MapLibrary): head scene captures for splat maps, and the trained maps the headset draws."""
     from aiohttp import web
     from robot_platform.viewer.server import create_app as viewer_app
     from .live_view import LiveView
@@ -253,6 +254,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         state['ups'] = ups.snapshot() if ups is not None else None
         state['calibration'] = calibration.snapshot() if calibration is not None else None
         state['head_alignment'] = head_alignment.snapshot() if head_alignment is not None else None
+        state['maps'] = maps.snapshot() if maps is not None else None
         state['mode'] = 'simulation' if simulation_only else 'robot'
         task = (state['teleop'] or {}).get('task')
         if simulation_only and task is not None:
@@ -922,6 +924,35 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         await off_loop(action)
         return state_response()
 
+    def need_maps():
+        if maps is None:
+            raise ValueError('Splat maps run with Helm on Minerva and a teleop profile')
+
+    async def maps_listing(_request):
+        """The trained maps (newest first) and Minerva's pose in each world, as the headset reads them."""
+        need_maps()
+        return web.json_response(await off_loop(maps.listing), headers={'Cache-Control': 'no-store'})
+
+    async def map_splat(request):
+        """A trained map's compact Gaussians (xr_splat.js draws them)."""
+        need_maps()
+        try:
+            path = maps.splat(request.match_info['name'])
+        except FileNotFoundError as exc:
+            raise web.HTTPNotFound(text=str(exc))
+        return web.FileResponse(path, headers={'Content-Type': 'application/octet-stream',
+                                               'Cache-Control': 'no-store'})
+
+    async def map_capture(request):
+        """A head scene capture for a map, recorded on the robot as the operator looks around (helm.maps); it moves
+        no motor."""
+        payload = await body(request)
+        need_maps()
+        if set(payload) != {'seconds'}:
+            raise ValueError('Expected seconds')
+        await off_loop(lambda: maps.capture(payload['seconds']))
+        return state_response()
+
     async def network_ap(request):
         """Minerva's access point on or off (helm.network, robot_platform.ops.network). Not while something holds the
         motors: the access point takes Minerva's Wi-Fi, which a session's leader link or viewer may be using."""
@@ -1246,6 +1277,9 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     app.router.add_post('/api/helm/calibration/{action}', calibration_action)
     app.router.add_get('/api/helm/head-alignment/thumbnail', head_alignment_thumbnail)
     app.router.add_post('/api/helm/head-alignment/{action}', head_alignment_action)
+    app.router.add_get('/api/helm/maps', maps_listing)
+    app.router.add_get('/api/helm/maps/{name}/map.splat', map_splat)
+    app.router.add_post('/api/helm/maps/capture', map_capture)
     app.router.add_post('/api/helm/tune/configure', tune_configure)
     app.router.add_post('/api/helm/tune/start', tune_start)
     app.router.add_post('/api/helm/tune/return', tune_return)

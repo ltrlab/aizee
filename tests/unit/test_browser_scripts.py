@@ -177,3 +177,17 @@ def test_the_network_pill_and_settings_say_how_minerva_is_connected():
     assert node, 'Node.js is required to check the network view'
     result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_network.mjs')], capture_output=True, timeout=60)
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
+
+
+def test_the_headset_draws_minervas_splat_map_placed_in_its_world():
+    node = shutil.which('node')
+    assert node, 'Node.js is required to check the headset splat map'
+    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_xr_splat.mjs')], capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
+
+
+def test_the_map_card_captures_with_the_live_head_and_lists_maps():
+    node = shutil.which('node')
+    assert node, 'Node.js is required to check the map card'
+    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_maps.mjs')], capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
