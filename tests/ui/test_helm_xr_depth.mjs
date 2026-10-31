@@ -3,9 +3,9 @@ import {register} from 'node:module';
 import {pathToFileURL} from 'node:url';
 import {deflateSync} from 'node:zlib';
 
-// The headset's 3D picture: the head camera's frames with their depth (Helm's head_depth role), inflated in the
-// headset (xr_camera.js), placed on the GPU from the camera's intrinsics and coloured through its registration
-// (xr_depth.js), and the bar's 3D switch (xr_scene.js, on the real three.js).
+// The headset's 3D picture: the head camera's frames with their depth (Helm's head_depth role), inflated and filled
+// in the headset (xr_camera.js, xr_fill.js), placed on the GPU from the camera's intrinsics and coloured through its
+// registration (xr_depth.js), and the bar's 3D switch (xr_scene.js, on the real three.js).
 const root = new URL('../../', import.meta.url);
 const three = new URL('src/robot_platform/viewer/static/vendor/three.module.js', root).href;
 register('data:text/javascript,' + encodeURIComponent(`export async function resolve(specifier, context, next) {
@@ -22,6 +22,7 @@ globalThis.document = {createElement: () => {
 const THREE = await import(three);
 const {parseCameraPacket} = await import(new URL('src/robot_platform/helm/static/camera_live.js', root).href);
 const {HeadCamera, inflateDepth} = await import(new URL('src/robot_platform/helm/static/xr_camera.js', root).href);
+const {fillDepth, registrationOf} = await import(new URL('src/robot_platform/helm/static/xr_fill.js', root).href);
 const {BACKDROP_M, backdropCorners, colorUv, depthPoint} = await import(
   new URL('src/robot_platform/helm/static/xr_depth.js', root).href);
 const {HeadsetScene} = await import(new URL('src/robot_platform/helm/static/xr_scene.js', root).href);
@@ -91,7 +92,10 @@ sockets[0].onmessage({data: depthPacket(7)});
 for (let turn = 0; turn < 200 && !frames.length; turn++) await new Promise(resolve => setImmediate(resolve));
 assert.equal(frames.length, 1, camera.message);
 assert.equal(frames[0].bitmap, 'bitmap');
-assert.deepEqual([...frames[0].depth.values], [...readings]);
+// Filled here, as where the browser has no worker: the readings, each its own source, and the one hole filled.
+const layers = frames[0].depth.layers;
+assert.deepEqual([...layers.foreground.filter((_, i) => i % 2 === 0)].slice(1, 11), [...readings].slice(1, 11));
+assert.deepEqual(layers, fillDepth(readings, 4, 3, {registration: registrationOf(META)}));
 assert.equal(frames[0].depth.meta.encoding, 'zlib-u16le');
 camera.setRole('head');
 assert.equal(sockets[0].readyState, 3);
@@ -150,14 +154,17 @@ assert.equal(view.select(source), true);  // The bar's, not the head's zero.
 assert.deepEqual(switched, [true]);
 assert.ok(view.view.depth && view.picture.visible && !view.depth.rig.visible);  // No depth yet: the picture stays.
 assert.ok(view.controls.context.texts.includes('3D · on'));
-view.showDepth({meta: META, values: readings});
+view.showDepth({meta: META, layers});
 assert.ok(!view.picture.visible && view.depth.rig.visible);
 const uniforms = view.depth.material.uniforms;
 assert.deepEqual([uniforms.depthK.value.x, uniforms.depthK.value.z, uniforms.depthScale.value], [191, 161.2, .001]);
 assert.equal(uniforms.registered.value, 1);
 assert.equal(uniforms.colorMap.value, view.video);  // Coloured from the very picture it came with.
 assert.deepEqual(uniforms.toColorT.value.toArray(), [.015, 0, 0]);
-assert.deepEqual([...view.depth.depthTexture.image.data], [...readings]);
+assert.deepEqual([...view.depth.textures.foreground.image.data], [...layers.foreground]);
+assert.deepEqual([...view.depth.textures.background.image.data], [...layers.background]);
+assert.equal(view.depth.behindMaterial.uniforms.depthMap.value, view.depth.textures.background);
+assert.equal(view.depth.behindMaterial.uniforms.registered.value, 1);  // Both layers coloured alike.
 assert.ok(view.depth.backdrop.visible);  // Where the depth has no reading, the picture fills in behind it.
 assert.equal(view.depth.backdropMaterial.map, view.video);
 const backdrop = view.depth.backdrop.geometry.attributes.position;
@@ -168,9 +175,10 @@ assert.deepEqual(view.depth.rig.position.toArray(), [.1, 1.6, .2]);
 assert.ok(view.depth.rig.quaternion.angleTo(look) < 1e-6);
 view.setOpacity(.4);
 assert.equal(uniforms.opacity.value, .4);
-assert.ok(view.depth.material.transparent && view.depth.backdropMaterial.transparent);
+assert.ok(view.depth.material.transparent && view.depth.behindMaterial.transparent
+  && view.depth.backdropMaterial.transparent);
 assert.equal(view.depth.backdropMaterial.opacity, .4);
-view.showDepth({meta: {...META, color_intrinsics: undefined, to_color: undefined}, values: readings});
+view.showDepth({meta: {...META, color_intrinsics: undefined, to_color: undefined}, layers});
 assert.equal(uniforms.registered.value, 0);  // An older camera, no registration: shaded by depth instead,
 assert.ok(!view.depth.backdrop.visible);  // with no picture to place behind it.
 aimAtBar([CONTROLS.depth.x + 100, 64]);

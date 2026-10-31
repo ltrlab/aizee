@@ -130,6 +130,20 @@ def test_the_headset_shows_the_head_cameras_depth_in_3d_from_the_head_depth_stre
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
 
 
+def test_the_headset_fills_the_depths_holes_and_a_background_layer_behind_near_objects():
+    node = shutil.which('node')
+    assert node, 'Node.js is required to check the headset depth fill'
+    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_xr_fill.mjs')], capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
+
+
+def test_the_headsets_3d_stays_where_the_head_camera_saw_it_in_the_room():
+    node = shutil.which('node')
+    assert node, 'Node.js is required to check the headset world-locked 3D'
+    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_xr_world.mjs')], capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
+
+
 def test_settings_shows_what_the_headset_shows_and_streams_only_while_on_screen():
     node = shutil.which('node')
     assert node, 'Node.js is required to check the headset section'

@@ -9,7 +9,13 @@ assert.deepEqual(stripText(following, fresh),
   [['Head camera · 10 fps · 0.1 s old', ''], ['Following · yaw +12° · pitch −5°', 'ok']]);
 assert.deepEqual(panelRows({connected: true}, following, fresh), [
   ['Helm', 'connected', 'ok'], ['Tracking', 'yes · 60 Hz', 'ok'], ['Yaw / pitch', '+12.0° / −5.2°', ''],
-  ['Head', 'teleop · following the headset', 'ok'], ['Camera', '10 fps · 0.1 s old', 'ok']]);
+  ['Head', 'teleop · following the headset', 'ok'], ['Camera', '10 fps · 0.1 s old', 'ok'], ['3D', 'off', '']]);
+// The 3D picture: waiting for its first depth, fixed in the room from the head's pose, or around the eyes without.
+const depthRow = depth => panelRows({connected: true}, following, fresh, depth).at(-1);
+assert.deepEqual(depthRow({on: true, shown: false}), ['3D', 'waiting for depth', 'warn']);
+assert.deepEqual(depthRow({on: true, shown: true, locked: true}), ['3D', 'fixed in the room', 'ok']);
+assert.deepEqual(depthRow({on: true, shown: true, locked: false}),
+  ['3D', 'around the eyes: no head pose (no session)', 'warn']);
 
 // A session not yet engaged, none at all, a quiet headset, a head at its zero, a head that failed.
 const stale = {fresh: false, fps: 0, age_s: 3.2, message: 'last frame 3 s ago'};
@@ -22,8 +28,9 @@ assert.deepEqual(stripText({head: 'TELEOP', source: 'zero'}, fresh)[1], ['At its
 assert.deepEqual(stripText({head: null, head_fault: 'Head receiver did not start: no bus'}, fresh)[1],
   ['Head fault: Head receiver did not start: no bus', 'bad']);
 const lost = panelRows({connected: false, message: 'reconnecting…'}, {tracking: false}, stale);
-assert.deepEqual(lost.map(row => row[1]), ['reconnecting…', 'no', '— / —', 'no teleop session', 'last frame 3 s ago']);
-assert.deepEqual(lost.map(row => row[2]), ['warn', 'warn', '', 'warn', 'warn']);
+assert.deepEqual(lost.map(row => row[1]),
+  ['reconnecting…', 'no', '— / —', 'no teleop session', 'last frame 3 s ago', 'off']);
+assert.deepEqual(lost.map(row => row[2]), ['warn', 'warn', '', 'warn', 'warn', '']);
 assert.deepEqual(panelRows({connected: true, error: 'Quest headset is steering the head'}, {}, stale)[0],
   ['Helm', 'Quest headset is steering the head', 'bad']);
 assert.equal(HINTS.length, 3);

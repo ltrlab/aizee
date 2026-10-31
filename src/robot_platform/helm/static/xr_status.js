@@ -42,8 +42,15 @@ export function stripText(headset, camera) {
     camera.fresh ? '' : 'warn'], [head, tone]];
 }
 
+// How the 3D picture is placed (xr_scene.depthState): [the panel's text, tone].
+function depthWord(depth) {
+  if (!depth?.on) return ['off', ''];
+  if (!depth.shown) return ['waiting for depth', 'warn'];
+  return depth.locked ? ['fixed in the room', 'ok'] : ['around the eyes: no head pose (no session)', 'warn'];
+}
+
 // The status panel's rows: [label, value, tone] with tone 'ok', 'warn', 'bad' or ''.
-export function panelRows(link, headset, camera) {
+export function panelRows(link, headset, camera, depth = null) {
   const [, head, tone] = headWord(headset);
   return [
     ['Helm', link.error || (link.connected ? 'connected' : link.message || 'reconnecting…'),
@@ -52,6 +59,7 @@ export function panelRows(link, headset, camera) {
     ['Yaw / pitch', `${signed(headset.yaw, 1)} / ${signed(headset.pitch, 1)}`, ''],
     ['Head', head, tone],
     ['Camera', cameraText(camera), camera.fresh ? 'ok' : 'warn'],
+    ['3D', ...depthWord(depth)],
   ];
 }
 

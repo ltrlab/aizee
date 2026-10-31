@@ -61,6 +61,7 @@ function onStatus(status) {
   }
   link.error = null;
   headset = {...headset, ...status};  // A zero or start reply says nothing of the head: its last word stays.
+  view?.setZero(status.zero);  // Helm's zero, wherever it was set (here, or Helm's teleop tab): the 3D's anchor.
   statusAt = performance.now();
   show('tracking', status.tracking ? `yes · ${status.rate_hz ? Math.round(status.rate_hz) + ' Hz' : ''}` : 'no',
     status.tracking ? 'ok' : 'warn');
@@ -130,10 +131,16 @@ async function start() {
   await renderer.xr.setSession(session);
   const space = renderer.xr.getReferenceSpace();
   send({type: 'start'});
-  space.addEventListener('reset', () => send({type: 'start'}));  // A recenter: the space starts again here.
+  view.rezero();
+  space.addEventListener('reset', () => {  // A recenter: the space starts again here.
+    send({type: 'start'});
+    view.rezero();
+  });
   // A trigger pull zeroes the head, unless it was on the picture's bar: that one works the bar's control.
   session.addEventListener('select', event => {
-    if (!view.select(event.inputSource)) send({type: 'zero'});
+    if (view.select(event.inputSource)) return;
+    send({type: 'zero'});
+    view.rezero();
   });
   camera = new HeadCamera({token: () => token, role: view.view.depth ? 'head_depth' : 'head',
     onFrame: (bitmap, _metadata, depth) => {
@@ -163,7 +170,7 @@ async function start() {
       textAt = time;
       const picture = camera.stats;
       const word = performance.now() - statusAt > STATUS_STALE_MS ? {...headset, tracking: false} : headset;
-      view.setText(stripText(word, picture), panelRows(link, word, picture), HINTS, picture.fresh);
+      view.setText(stripText(word, picture), panelRows(link, word, picture, view.depthState), HINTS, picture.fresh);
     }
     view.update(pose);  // This frame's pose: a following picture is drawn where the eyes are now.
     renderer.render(view.scene, view.camera);

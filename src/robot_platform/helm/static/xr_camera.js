@@ -1,28 +1,24 @@
 // The head camera in the headset: Helm's camera stream (the same packets camera_live.js reads), asking for the head's
 // frames only, each newest one decoded to an ImageBitmap for the screen (xr_scene.js). For the 3D picture it asks for
-// the head's frames with their depth (role head_depth) and inflates the depth too, for xr_depth.js. Read-only: this
-// socket never starts a session or changes a camera. Its heartbeats tell Helm the headset still watches, as the
-// page's viewer does. No three.js here.
+// the head's frames with their depth (role head_depth), inflated and filled in a worker (xr_fill.js) for xr_depth.js.
+// Read-only: this socket never starts a session or changes a camera. Its heartbeats tell Helm the headset still
+// watches, as the page's viewer does. No three.js here.
 import {parseCameraPacket} from './camera_live.js';
+import {DepthFiller, inflateDepth} from './xr_fill.js';
+
+export {inflateDepth};
 
 const HEARTBEAT_MS = 250, SILENT_MS = 5000, RETRY_MS = 2000, STALE_S = 1, FPS_WINDOW_MS = 2000;
 
-// The depth readings (raw units, a Uint16Array) from the bytes after a head_depth packet's JPEG
-// (camera_video_worker.head_depth), inflated with the browser's own DecompressionStream.
-export async function inflateDepth(packed, meta) {
-  if (meta.encoding !== 'zlib-u16le') throw new Error(`Unknown depth encoding ${meta.encoding}`);
-  const stream = new Blob([packed]).stream().pipeThrough(new DecompressionStream('deflate'));
-  const values = new Uint16Array(await new Response(stream).arrayBuffer());  // Little-endian, as the headset is.
-  if (values.length !== meta.width * meta.height) throw new Error('Depth size does not match its metadata');
-  return values;
-}
-
 // `token`: Helm's action token, or a function giving the current one (a restarted Helm has a new one). `role`:
-// 'head', or 'head_depth' with the depth (onFrame then gets {meta, values} after the bitmap and its metadata).
+// 'head', or 'head_depth' with the depth (onFrame then gets {meta, layers} after the bitmap and its metadata: the
+// depth's two filled layers, xr_fill.fillDepth). `fill`: (packed depth, its metadata) to those layers; by default a
+// worker, started with the first depth.
 export class HeadCamera {
   constructor({token, onFrame, role = 'head', url = location.href, open = address => new WebSocket(address),
-    decode = blob => createImageBitmap(blob), inflate = inflateDepth, now = () => performance.now()}) {
-    Object.assign(this, {token, onFrame, role, url, open, decode, inflate, now});
+    decode = blob => createImageBitmap(blob), fill = null, now = () => performance.now()}) {
+    Object.assign(this, {token, onFrame, role, url, open, decode, now});
+    this.fill = fill || ((packed, meta) => (this.filler ||= new DepthFiller()).fill(packed, meta));
     this.socket = null;
     this.stopped = true;
     this.sequence = -1;
@@ -123,11 +119,11 @@ export class HeadCamera {
   async show(packet) {
     this.decoding = true;
     try {
-      const [bitmap, depth] = await Promise.all([this.decode(new Blob([packet.jpeg], {type: 'image/jpeg'})),
-        packet.depth && this.inflate(packet.depth, packet.metadata.depth)]);
+      const [bitmap, layers] = await Promise.all([this.decode(new Blob([packet.jpeg], {type: 'image/jpeg'})),
+        packet.depth && this.fill(packet.depth, packet.metadata.depth)]);
       this.shownAt = this.now();
       this.shownAge = packet.metadata.age_s;
-      this.onFrame(bitmap, packet.metadata, depth ? {meta: packet.metadata.depth, values: depth} : null);
+      this.onFrame(bitmap, packet.metadata, layers ? {meta: packet.metadata.depth, layers} : null);
     } catch (error) {
       this.message = `undecodable frame (${error.message})`;
     } finally {

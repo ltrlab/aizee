@@ -113,7 +113,7 @@ export function drawPanel(context, rows, hints) {
   context.font = `700 54px ${FONT}`;
   context.fillText('Minerva head tracking', 48, 92);
   rows.forEach(([label, value, tone], index) => {
-    const y = 190 + index * 84;
+    const y = 190 + index * 76;
     context.font = `42px ${FONT}`;
     context.fillStyle = TONE.muted;
     context.fillText(label, 48, y);
