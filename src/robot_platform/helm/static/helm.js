@@ -9,7 +9,8 @@ import {bridgeView, networkView} from './network.js';
 import {headView} from './head.js';
 import {HeadsetMirror} from './headset_mirror.js';
 import {headSetupView} from './head_setup.js';
-import {captureBlock, countsText, lastText, resultLines} from './calibration.js';
+import {captureBlock, countsText, headCaptureBlock, headCountsText, headLastText, headResultLines, lastText,
+  resultLines} from './calibration.js';
 
 // Helm operator page. Reads /api/helm/state; every action needs the session token.
 const $ = id => document.getElementById(id);
@@ -572,37 +573,55 @@ function renderRecording(state) {
   if (document.title !== title) document.title = title;
 }
 
-// Wrist camera calibration: stills in a live session, then the solve (helm.calibration).
+// Camera calibration: stills in a live session, then the solve: the wrist cameras' (helm.calibration), or the head
+// camera's alignment (helm.head_alignment), which is saved for the head's pose feed.
 let calibrationRole = 'left_wrist', calibrationPending = false;
+const headSelected = () => calibrationRole === 'head';
+function calibrationBlock(state) {
+  return headSelected() ? headCaptureBlock(state?.head_alignment, state?.teleop)
+    : captureBlock(state?.calibration, state?.teleop);
+}
 function renderCalibration(state) {
-  const calibration = state.calibration, section = $('calibration');
-  section.hidden = !calibration;
-  if (!calibration) return;
-  const blocked = captureBlock(calibration, state.teleop);
+  const head = headSelected(), calibration = head ? state.head_alignment : state.calibration;
+  const section = $('calibration');
+  section.hidden = !state.calibration && !state.head_alignment;
+  if (section.hidden) return;
+  const blocked = calibrationBlock(state);
   for (const button of document.querySelectorAll('#calibration-role button')) {
     button.setAttribute('aria-pressed', String(button.dataset.role === calibrationRole));
+    button.disabled = !(button.dataset.role === 'head' ? state.head_alignment : state.calibration);
   }
+  const idle = !calibrationPending && Boolean(calibration) && !calibration.busy && !calibration.solving;
   $('calibration-capture').disabled = calibrationPending || Boolean(blocked);
-  $('calibration-capture').title = blocked || 'Average a stack of frames and find the tags; the arm must stay still (C)';
-  const stills = calibration.counts?.[calibrationRole]?.stills || 0;
-  $('calibration-undo').disabled = calibrationPending || calibration.busy || calibration.solving || !stills;
-  $('calibration-solve').disabled = calibrationPending || calibration.busy || calibration.solving
-    || !Object.values(calibration.counts || {}).some(count => count.tagged);
-  $('calibration-new').disabled = calibrationPending || calibration.busy || calibration.solving;
-  $('calibration-counts').textContent = countsText(calibration) + (blocked && !calibration.busy ? ` · ${blocked}` : '');
-  const last = calibration.last;
+  $('calibration-capture').title = blocked || (head
+    ? 'Average a stack of frames and find the tags; the head must stay still (P)'
+    : 'Average a stack of frames and find the tags; the arm must stay still (P)');
+  const stills = head ? calibration?.stills || 0 : calibration?.counts?.[calibrationRole]?.stills || 0;
+  $('calibration-undo').disabled = !idle || !stills;
+  $('calibration-solve').disabled = !idle || !(head ? calibration.tagged
+    : Object.values(calibration.counts || {}).some(count => count.tagged));
+  $('calibration-solve').title = head ? "Fit the head camera's mount and the board to the run's stills"
+    : "Fit both cameras to the run's stills";
+  $('calibration-new').disabled = !idle;
+  $('calibration-save').hidden = !head;
+  $('calibration-save').disabled = !idle || !calibration?.result || Boolean(calibration.result.error);
+  $('calibration-counts').textContent = (head ? headCountsText(calibration) : countsText(calibration))
+    + (blocked && !calibration?.busy ? ` · ${blocked}` : '');
+  const last = calibration?.last;
   $('calibration-last').hidden = !last;
   if (last) {
     const thumb = $('calibration-thumb');
     thumb.hidden = !last.thumbnail;
-    if (last.thumbnail && thumb.dataset.still !== last.name) {  // Fetched once per still, not with every state.
-      thumb.dataset.still = last.name;
-      thumb.src = `/api/helm/calibration/thumbnail?still=${encodeURIComponent(last.name)}`;
+    const source = head ? 'head-alignment' : 'calibration';
+    if (last.thumbnail && thumb.dataset.still !== `${source}/${last.name}`) {  // Once per still, not every state.
+      thumb.dataset.still = `${source}/${last.name}`;
+      thumb.src = `/api/helm/${source}/thumbnail?still=${encodeURIComponent(last.name)}`;
     }
-    $('calibration-last-text').textContent = lastText(last);
+    $('calibration-last-text').textContent = head ? headLastText(last) : lastText(last);
   }
   const list = $('calibration-result');
-  list.replaceChildren(...resultLines(calibration.result).map(line => {
+  const lines = head ? headResultLines(calibration?.result) : resultLines(calibration?.result);
+  list.replaceChildren(...lines.map(line => {
     const item = document.createElement('li');
     const title = document.createElement('b');
     title.textContent = line.title;
@@ -610,15 +629,16 @@ function renderCalibration(state) {
     if (line.bad) item.className = 'bad';
     return item;
   }));
-  $('calibration-error').hidden = !calibration.error;
-  $('calibration-error').textContent = calibration.error || '';
+  $('calibration-error').hidden = !calibration?.error;
+  $('calibration-error').textContent = calibration?.error || '';
 }
 async function calibrationAction(action, payload = {}, timeoutMs = 15000) {
   if (calibrationPending) return;
   calibrationPending = true;
   if (last) renderCalibration(last);
   try {
-    render(await request(`/api/helm/calibration/${action}`, payload, timeoutMs));
+    const path = headSelected() ? `/api/helm/head-alignment/${action}` : `/api/helm/calibration/${action}`;
+    render(await request(path, headSelected() ? {} : payload, timeoutMs));
   } catch (error) {
     $('calibration-error').hidden = false;
     $('calibration-error').textContent = error.message;
@@ -628,7 +648,7 @@ async function calibrationAction(action, payload = {}, timeoutMs = 15000) {
   }
 }
 function captureStill() {
-  if (captureBlock(last?.calibration, last?.teleop) === null) calibrationAction('capture', {role: calibrationRole});
+  if (calibrationBlock(last) === null) calibrationAction('capture', {role: calibrationRole});
 }
 for (const button of document.querySelectorAll('#calibration-role button')) {
   button.onclick = () => { calibrationRole = button.dataset.role; if (last) renderCalibration(last); };
@@ -637,6 +657,7 @@ $('calibration-capture').onclick = captureStill;
 $('calibration-undo').onclick = () => calibrationAction('undo', {role: calibrationRole});
 $('calibration-solve').onclick = () => calibrationAction('solve', {}, 600000);
 $('calibration-new').onclick = () => calibrationAction('new');
+$('calibration-save').onclick = () => calibrationAction('save');
 
 // Mode is fixed at launch. The server enforces the same separation for every action.
 function renderMode(state) {

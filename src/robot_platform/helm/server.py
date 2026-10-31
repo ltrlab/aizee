@@ -92,7 +92,7 @@ def video_backlog(transport):
 def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None, live=False,
                gripper_zero=None, simulation_only=False, cameras=None, camera_video=None, episodes=None, ups=None,
                access=None, bridge=None, mesh_store=None, operator_files=None, calibration=None, network=None,
-               display=None, head_setup=None):
+               display=None, head_setup=None, head_alignment=None):
     """`live`: keep the stopped reader running whenever Minerva is online and nothing else holds the motors
     (helm.live_view); sessions then take the motors from it instead of asking for Disconnect first.
     `episodes`: the recorded-episode library behind Replay (helm.episodes), told to read nothing while a
@@ -107,7 +107,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     `display` (helm.display_model.DisplayModel): the model the 3D view draws (the head model), when not the active
     one; every guide is drawn on it, the neck at the head's measured angles while a session drives it.
     `head_setup` (helm.head_setup.HeadSetup): the head's setup on Helm on Minerva (Limits tab, Head): its reader,
-    reference, directions and limits."""
+    reference, directions and limits. `head_alignment` (helm.head_alignment.HeadAlignment): head camera stills of the
+    table's tags during a live session, their solve, and the measured mount saved for the head's pose feed."""
     from aiohttp import web
     from robot_platform.viewer.server import create_app as viewer_app
     from .live_view import LiveView
@@ -251,6 +252,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         state['gripper_zero'] = grippers.snapshot() if grippers is not None else None
         state['ups'] = ups.snapshot() if ups is not None else None
         state['calibration'] = calibration.snapshot() if calibration is not None else None
+        state['head_alignment'] = head_alignment.snapshot() if head_alignment is not None else None
         state['mode'] = 'simulation' if simulation_only else 'robot'
         task = (state['teleop'] or {}).get('task')
         if simulation_only and task is not None:
@@ -893,6 +895,33 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             raise web.HTTPNotFound()
         return state_response()
 
+    def need_head_alignment():
+        if head_alignment is None:
+            raise ValueError('Head camera alignment runs with Helm on Minerva and a teleop profile')
+
+    async def head_alignment_thumbnail(_request):
+        """The last head still's small JPEG, its tags outlined."""
+        need_head_alignment()
+        jpeg = head_alignment.thumbnail()
+        if jpeg is None:
+            raise web.HTTPNotFound(text='No still yet')
+        return web.Response(body=jpeg, content_type='image/jpeg', headers={'Cache-Control': 'no-store'})
+
+    async def head_alignment_action(request):
+        """Capture a head still, undo the last, start a new run, solve, or save the solve as the head's camera file
+        (helm.head_alignment); none moves a motor."""
+        payload = await body(request)
+        need_head_alignment()
+        actions = {'capture': head_alignment.capture, 'undo': head_alignment.undo, 'new': head_alignment.new_run,
+                   'solve': head_alignment.solve, 'save': head_alignment.save}
+        action = actions.get(request.match_info['action'])
+        if action is None:
+            raise web.HTTPNotFound()
+        if payload:
+            raise ValueError('Expected no fields')
+        await off_loop(action)
+        return state_response()
+
     async def network_ap(request):
         """Minerva's access point on or off (helm.network, robot_platform.ops.network). Not while something holds the
         motors: the access point takes Minerva's Wi-Fi, which a session's leader link or viewer may be using."""
@@ -1215,6 +1244,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     app.router.add_post('/api/helm/grippers/zero', gripper_zero_run)
     app.router.add_get('/api/helm/calibration/thumbnail', calibration_thumbnail)
     app.router.add_post('/api/helm/calibration/{action}', calibration_action)
+    app.router.add_get('/api/helm/head-alignment/thumbnail', head_alignment_thumbnail)
+    app.router.add_post('/api/helm/head-alignment/{action}', head_alignment_action)
     app.router.add_post('/api/helm/tune/configure', tune_configure)
     app.router.add_post('/api/helm/tune/start', tune_start)
     app.router.add_post('/api/helm/tune/return', tune_return)

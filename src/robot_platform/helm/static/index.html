@@ -288,18 +288,20 @@
             <p id="task-error" class="bad" role="alert" hidden></p>
           </section>
           <section id="calibration" class="camera-calibration" aria-labelledby="calibration-title" hidden>
-            <div class="eyebrow">WRIST CAMERA CALIBRATION</div>
+            <div class="eyebrow">CAMERA CALIBRATION</div>
             <h2 id="calibration-title">Stills of the table's tags</h2>
-            <p class="muted">In a live session, bring a wrist camera over the table until it sees one or more tags, hold (T), then capture (P). Vary the distance, tilt and roll, and put tags near the image's edges too. Take 15–25 stills a camera, then Solve.</p>
+            <p class="muted">In a live session, bring a wrist camera over the table until it sees one or more tags, hold (T), then capture (P). Vary the distance, tilt and roll, and put tags near the image's edges too. Take 15–25 stills a camera, then Solve. For the head, in a session with the live head, turn it until its camera sees three or more tags, hold (T), then capture (P); take 8–12 stills, turned and tilted at least 10° apart, Solve, then Save alignment: the headset's 3D view and model use it from the next session.</p>
             <div class="calibration-actions" role="group" aria-label="Calibration stills">
               <div class="target" id="calibration-role" role="group" aria-label="Camera">
                 <button data-role="left_wrist">Left wrist</button>
                 <button data-role="right_wrist">Right wrist</button>
+                <button data-role="head">Head</button>
               </div>
               <button id="calibration-capture" class="primary" title="Average a stack of frames and find the tags; the arm must stay still (P)">Capture still <kbd>P</kbd></button>
               <button id="calibration-undo" title="Drop this camera's last still">Undo last</button>
               <button id="calibration-solve" title="Fit both cameras to the run's stills">Solve</button>
               <button id="calibration-new" title="Start a new run; the old one stays on Minerva">New run</button>
+              <button id="calibration-save" title="Save this solve as the head camera's alignment; the one it replaces is kept with the run" hidden>Save alignment</button>
             </div>
             <p id="calibration-counts" class="muted" role="status"></p>
             <div id="calibration-last" class="calibration-last" hidden>

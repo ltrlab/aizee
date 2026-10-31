@@ -1,16 +1,19 @@
 """One calibration still from a camera, run on the robot: a stack of fresh frames averaged, the table's tags found in
-the average, and the light on the tags (their black border and the white label around it).
+the average, and the light on the tags (their black border and the white label around it). The reply carries the
+intrinsics the camera published with the frames, and for a head still (helm.head_alignment) the neck's measured
+angles over them, from the head's pose feed.
 
 Helm sends this file as source over its pinned SSH (as helm.cameras does), so it imports only what the robot's
 python3 has: numpy, OpenCV with cv2.aruco (4.5's API or 4.7's), pyzmq and msgpack. It reads the camera's published
-stream; nothing here moves a motor or changes a camera setting. It saves the averaged image as a PNG under the
-calibration folder and prints one JSON reply.
+stream and the head's feed; nothing here moves a motor or changes a camera setting. It saves the averaged image as a
+PNG under the calibration folder and prints one JSON reply.
 """
 import base64
 import json
 import math
 import os
 from pathlib import Path
+import threading
 import time
 
 ROLES = {
@@ -25,10 +28,18 @@ FRESH_AFTER_S = .1
 # The marker's cells across its black square: 4 code bits and a one-cell border each side (DICT_4X4).
 CELLS = 6
 THUMBNAIL_WIDTH = 320
+# The head's measured angles while a session runs it live (neck.head_pose.ENDPOINT): each of the head service's
+# 100 Hz rows at the Jetson's wall time, the clock the frames are stamped with.
+HEAD_POSE = 'tcp://127.0.0.1:5596'
+CAPTURE_LAG_S = .02  # A frame's stamp is this long after its exposure (helm.camera_video_worker).
+HEAD_MARGIN_S = .05  # The head's samples this far either side of the frames count (the relay's HEAD_POSE_SKEW_S).
+HEAD_FIRST_S = 1.  # The feed's first sample is awaited this long before the frames: none means no live head.
+HEAD_WAIT_S = .5  # After the last frame, the feed's samples past it are awaited this long.
 
 
-def collect(role, count, *, timeout_s=3., fresh_after_s=FRESH_AFTER_S, clock=time.time):
-    """`count` consecutive frames from the role's stream, each stamped after the request: [(timestamp, jpeg)]."""
+def collect(role, count, *, timeout_s=3., fresh_after_s=FRESH_AFTER_S, clock=time.time, meta=None):
+    """`count` consecutive frames from the role's stream, each stamped after the request: [(timestamp, jpeg)]. With
+    `meta` (a list), each frame's colour intrinsics and image rotation as the camera published them are appended."""
     import msgpack
     import zmq
     config = ROLES[role]
@@ -61,10 +72,73 @@ def collect(role, count, *, timeout_s=3., fresh_after_s=FRESH_AFTER_S, clock=tim
             if stamp < start + fresh_after_s:
                 continue
             frames.append((float(stamp), bytes(parts[1 + names.index('color')])))
+            if meta is not None:
+                meta.append({'intrinsics': header['color'].get('intrinsics'),
+                             'image_rotation_deg': header.get('image_rotation_deg')})
         return frames
     finally:
         socket.close(0)
         context.term()
+
+
+class HeadPoses:
+    """The head pose feed's samples ([wall time, *angles]) and joint names, read on a thread of its own while the
+    frames are collected."""
+
+    def __init__(self, endpoint=HEAD_POSE):
+        self.endpoint, self.samples, self.joints = endpoint, [], None
+        self._stop, self._ready = threading.Event(), threading.Event()
+        self._thread = threading.Thread(target=self._read, daemon=True)
+        self._thread.start()
+        self._ready.wait(1.)
+
+    def _read(self):
+        import zmq
+        context = zmq.Context()
+        socket = context.socket(zmq.SUB)
+        try:
+            socket.setsockopt(zmq.LINGER, 0)
+            socket.setsockopt(zmq.SUBSCRIBE, b'')
+            socket.connect(self.endpoint)
+            self._ready.set()
+            while not self._stop.is_set():
+                if not socket.poll(20):
+                    continue
+                data = json.loads(socket.recv_string())
+                joints, width = list(data['joints']), 1 + len(data['joints'])
+                if self.joints not in (None, joints):
+                    raise ValueError('The head pose feed changed its joints')
+                self.joints = joints
+                self.samples.extend([float(v) for v in row[:width]] for row in data['samples'])
+        finally:
+            socket.close(0)
+            context.term()
+
+    def newest(self):
+        return self.samples[-1][0] if self.samples else None
+
+    def close(self):
+        self._stop.set()
+        self._thread.join(1.)
+
+
+def head_window(samples, joints, first_stamp, last_stamp, *, lag_s=CAPTURE_LAG_S, margin_s=HEAD_MARGIN_S):
+    """The neck over a stack of frames: its mean CAD angles from the feed's samples within `margin_s` of the frames'
+    exposures (their stamps less `lag_s`), and the largest spread of any joint over them. Refused unless the samples
+    cover the whole stack."""
+    import numpy as np
+    low, high = first_stamp - lag_s, last_stamp - lag_s
+    window = [row for row in samples if low - margin_s <= row[0] <= high + margin_s]
+    if not joints or not window:
+        raise ValueError('The head pose feed was silent during the frames: a head still needs a session running '
+                         'the live head')
+    if window[0][0] > low or window[-1][0] < high:
+        raise ValueError('The head pose feed did not cover the whole stack of frames; capture again')
+    values = np.array([row[1:] for row in window], float)
+    if values.shape[1] != len(joints) or not np.isfinite(values).all():
+        raise ValueError('Malformed head pose samples')
+    return dict(joints={name: float(v) for name, v in zip(joints, values.mean(axis=0))},
+                moved_rad=float((values.max(axis=0) - values.min(axis=0)).max()), samples=len(window))
 
 
 def decode(jpeg):
@@ -244,7 +318,9 @@ def still(request):
         raise ValueError(f'frames must be 2..{MAX_FRAMES}')
     wanted = {int(t) for t in request.get('tags', [])}
     target = _image_path(request.get('path', ''))
-    frames = collect(role, count)
+    frames, meta, head = frames_and_head(role, count, request.get('head_pose'))
+    if any(item != meta[0] for item in meta):
+        raise ValueError(f'{role}: the camera\'s intrinsics or rotation changed within the stack; capture again')
     mean, sigma = stack([decode(jpeg) for _, jpeg in frames])
     gray = cv2.cvtColor(np.clip(mean + .5, 0, 255).astype(np.uint8), cv2.COLOR_BGR2GRAY)
     tags, others, duplicates = detect(gray, request.get('family', 'DICT_4X4_50'), wanted)
@@ -252,12 +328,40 @@ def still(request):
     if not cv2.imwrite(str(target), np.clip(mean + .5, 0, 255).astype(np.uint8)):
         raise RuntimeError('The still did not save')
     stamps = [t for t, _ in frames]
-    return dict(role=role, frames=len(frames), first_stamp=stamps[0], last_stamp=stamps[-1],
-                size=[int(mean.shape[1]), int(mean.shape[0])], image=str(target),
-                tags={str(t): np.round(q, 3).tolist() for t, q in sorted(tags.items())}, others=others,
-                duplicates=duplicates, photometry=photometry(mean, sigma, tags),
-                noise=dict(luma_sigma_median=round(float(np.median(sigma)), 3), frames=len(frames)),
-                thumbnail=thumbnail(mean, tags, others))
+    reply = dict(role=role, frames=len(frames), first_stamp=stamps[0], last_stamp=stamps[-1],
+                 size=[int(mean.shape[1]), int(mean.shape[0])], image=str(target),
+                 tags={str(t): np.round(q, 3).tolist() for t, q in sorted(tags.items())}, others=others,
+                 duplicates=duplicates, photometry=photometry(mean, sigma, tags),
+                 noise=dict(luma_sigma_median=round(float(np.median(sigma)), 3), frames=len(frames)),
+                 thumbnail=thumbnail(mean, tags, others), **meta[0])
+    if head is not None:
+        reply['head'] = head
+    return reply
+
+
+def frames_and_head(role, count, head_pose, *, endpoint=HEAD_POSE, clock=time.time, sleep=time.sleep):
+    """The stack's frames (collect) and what the camera published with each; with `head_pose` ({'lag_s', 'margin_s'},
+    or None), also the neck over them (head_window): the feed is read from before the first frame until it has
+    passed the last."""
+    meta = []
+    if not head_pose:
+        return collect(role, count, meta=meta), meta, None
+    lag_s, margin_s = float(head_pose.get('lag_s', CAPTURE_LAG_S)), float(head_pose.get('margin_s', HEAD_MARGIN_S))
+    poses = HeadPoses(endpoint)
+    try:
+        deadline = clock() + HEAD_FIRST_S
+        while poses.newest() is None and clock() < deadline:  # Read from before the first frame.
+            sleep(.01)
+        if poses.newest() is None:
+            raise ValueError('The head pose feed is silent: a head still needs a session running the live head')
+        frames = collect(role, count, meta=meta)
+        deadline = clock() + HEAD_WAIT_S
+        while (poses.newest() or -math.inf) < frames[-1][0] - lag_s and clock() < deadline:
+            sleep(.01)
+        return frames, meta, head_window(list(poses.samples), poses.joints, frames[0][0], frames[-1][0],
+                                         lag_s=lag_s, margin_s=margin_s)
+    finally:
+        poses.close()
 
 
 def remote_main(request):

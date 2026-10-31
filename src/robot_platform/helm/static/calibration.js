@@ -1,6 +1,7 @@
-// Wrist camera calibration in Helm without the DOM: what the Teleop tab's calibration card shows (helm.calibration).
+// Camera calibration in Helm without the DOM: what the Teleop tab's calibration card shows, for the wrist cameras
+// (helm.calibration) and the head camera's alignment (helm.head_alignment).
 
-export const ROLE_LABELS = {left_wrist: 'Left wrist', right_wrist: 'Right wrist'};
+export const ROLE_LABELS = {left_wrist: 'Left wrist', right_wrist: 'Right wrist', head: 'Head'};
 const MODEL_LABELS = {plain: 'URDF as is', joint_offsets: 'with joint offsets'};
 
 const fixed = (value, digits = 1) => Number.isFinite(value) ? value.toFixed(digits) : '—';
@@ -75,6 +76,73 @@ export function resultLines(result) {
       text: (shoulders.length ? `from tag 0's outer corner (mm): ${shoulders.join('; ')} · turned `
         + `${fixed(robot.yaw_deg, 2)}°` : `tag 0's corner at ${model.board_mm?.map(v => fixed(v)).join(', ')} mm`)
         + agree});
+  }
+  for (const note of result.notes || []) lines.push({title: 'Check', text: note, bad: true});
+  return lines;
+}
+
+// The head camera: why a still cannot be captured now, or null. It needs the live head, held where its camera sees
+// the tags (the robot reads the neck's angles over the frames from the head's pose feed).
+export function headCaptureBlock(alignment, teleop) {
+  if (!alignment) return 'Head alignment runs with Helm on Minerva.';
+  if (alignment.busy) return 'Capturing a still…';
+  if (alignment.solving) return 'Solving…';
+  if (teleop?.phase !== 'running') return 'Start a live session with the head to capture its stills.';
+  if (teleop?.receiver_choice?.mode !== 'live') return 'Head stills need the real head: start a live session.';
+  if (!['HOLD', 'TELEOP'].includes(teleop?.head?.state)) {
+    return 'Enable the head (E), then hold (T) where its camera sees the tags.';
+  }
+  const recording = teleop?.task?.recording;
+  if (recording?.active || ['starting', 'recording', 'stopping', 'finishing'].includes(recording?.state)) {
+    return 'Stop the recording to capture stills.';
+  }
+  return null;
+}
+
+// The head's run, and which alignment the next session's head uses.
+export function headCountsText(alignment) {
+  if (!alignment) return '';
+  const count = `Head ${alignment.stills} still${alignment.stills === 1 ? '' : 's'}`
+    + (alignment.tagged !== alignment.stills ? ` (${alignment.tagged} see tags)` : '');
+  const saved = alignment.saved;
+  const use = !saved ? 'no alignment saved: the head uses its CAD mount'
+    : saved.error ? saved.error
+    : saved.current ? `in use: run ${saved.run} (${fixed(saved.fit?.rms_px, 2)} px)`
+    : `run ${saved.run} was saved for another head reference: the head uses its CAD mount`;
+  return `${alignment.run ? `Run ${alignment.run}` : 'No run yet'} · ${count} · ${use}`;
+}
+
+// The last head still: as a wrist still's, with the neck's angles.
+export function headLastText(last) {
+  if (!last) return '';
+  const angles = last.joints_deg
+    ? ` · pan ${fixed(last.joints_deg.neck_z)}°, tilt ${fixed(last.joints_deg.neck_y)}°` : '';
+  return lastText(last) + (last.tags?.length ? angles : '');
+}
+
+// A head solve's lines: the fit, the mount (against the CAD one), where the board lies, and against the arms.
+export function headResultLines(result) {
+  if (!result) return [];
+  if (result.error) return [{title: 'Solve', text: result.error, bad: true}];
+  const lines = [];
+  lines.push({title: 'Fit', bad: false,
+    text: `${fixed(result.rms_px, 2)} px (held out ${fixed(result.holdout_px, 2)}), ${fixed(result.rms_mm, 1)} mm at the`
+      + ` board ${fixed(result.distance_m?.median, 2)} m away, over ${result.stills} stills`
+      + (result.outliers?.length ? ` · outliers ${result.outliers.join(', ')}` : '')});
+  const sigma = result.mount_sigma_mm ? ` ± ${result.mount_sigma_mm.map(v => fixed(v)).join('/')}` : '';
+  lines.push({title: 'Mount', bad: false,
+    text: `${result.mount_mm.map(v => fixed(v)).join(', ')} mm${sigma} in the head link · `
+      + `${fixed(result.cad?.translation_mm)} mm, ${fixed(result.cad?.rotation_deg, 2)}° from the CAD guess`});
+  const axis = result.pan_axis_in_board_mm;
+  lines.push({title: 'Board', bad: false,
+    text: `the neck's pan axis at x ${fixed(axis[0], 0)}, y ${fixed(axis[1], 0)} mm from tag 0's outer corner, `
+      + `${fixed(axis[2], 0)} mm above the table · turned ${fixed(result.spread_deg?.neck_z, 0)}°, tilted `
+      + `${fixed(result.spread_deg?.neck_y, 0)}° over the stills`});
+  if (result.arms) {
+    lines.push({title: 'Against the arms', bad: false,
+      text: `the board's middle ${fixed(result.arms.board_mm)} mm apart (run ${result.arms.run}); a pan zero of `
+        + `${fixed(result.arms.pan_deg, 2)}° explains all but ${fixed(result.arms.other_mm)} mm,`
+        + ` ${fixed(result.arms.other_deg, 2)}°`});
   }
   for (const note of result.notes || []) lines.push({title: 'Check', text: note, bad: true});
   return lines;
