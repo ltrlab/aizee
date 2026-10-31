@@ -83,16 +83,32 @@ would; every other camera pose and every robot link follows through `M`.
 - **Checked offline:** the coarse model, loaded through the real scene from the model viewer, stands upright where
   the zero puts it, its head left out. Hand tracking needs the headset.
 
-## Phase 4: Gaussian splatting on soliloquy
+## Phase 4: Gaussian splatting on soliloquy (training set up)
 
-- **Offline first.** A recorder on the Jetson keeps posed RGB-D (the head camera with its phase 2 pose) for a few
-  minutes of a session. soliloquy trains a 3D Gaussian Splatting scene from it (depth-initialised, gsplat or
-  nerfstudio on the RTX 3080, minutes). The headset renders the splats (a three.js splat renderer over WebXR) in
-  the robot frame through `M`, with the live depth over it: a full, photo-real workcell around the live view.
-- **Then live.** An incremental splatting SLAM (SplaTAM, MonoGS and kin) on soliloquy keeps the scene up to date
-  from the live stream and sends the changed Gaussians to the headset.
-- **Then on the Quest alone.** Rendering splats is light enough for the Quest Pro's GPU; building them is not yet.
-  When it is (WebGPU, smaller models), soliloquy drops out.
+- **Training on soliloquy** (set up 2026-10-31, the user: "yes, set up WSL2 training on soliloquy"). Its Ubuntu (WSL2)
+  has a venv of its own in `~/minerva-splat` (5.1 GB: CUDA PyTorch 2.4.1 cu124, gsplat 1.5.3's prebuilt wheel,
+  nothing system-wide). WSL runs bridged there (the user's `.wslconfig`) and its Ubuntu has no network, so
+  `scripts/splat/download_wheels.ps1` fetches the Linux wheels on the Windows side (2.7 GB, including torch's
+  Linux-only CUDA libraries, which pip skips on Windows) and `scripts/splat/install_wsl.sh` installs them offline.
+  Switching WSL to mirrored networking would let it download directly; that is the user's setting.
+- **The trainer** (`scripts/splat/train_head_scene.py`) takes a head scene capture: `scene.json` (the colour and
+  depth intrinsics, the registration, each frame's colour camera pose in the robot frame), the camera's JPEGs and its
+  depth (zlib uint16). Gaussians start from the depth, registered into the colour camera and back-projected into the
+  robot frame (one per centimetre cube); colour (L1 + SSIM) and depth are fitted with gsplat's rasterizer and its
+  default densification; every eighth frame is held out and scored. It writes a standard 3DGS PLY in the robot
+  frame, which the headset places by `M` as it places the model.
+- **Checked on a synthetic capture** (`scripts/splat/synthetic_scene.py`: a table, a box and a wall seen as the neck
+  pans and tilts, 64 frames): 3000 steps in 59 s on the 3080 (shared), 105 k to 158 k Gaussians, 34.3 dB PSNR on the
+  held-out frames; the PLY is 39 MB (spherical harmonics of degree 3).
+- **Next:**
+  - a capture flow in Helm: record the head camera's frames with the head's pose (the relay's feed) at ~5 fps
+    while the operator looks round in VR, into `~/minerva/helm/scenes/`;
+  - the trained scene back on Minerva, compact for the headset (the 32-byte-a-splat `.splat` layout, degree 0
+    colour: about 5 MB for 158 k splats), and a splat renderer in the headset (instanced quads, the splats sorted
+    by depth in a worker), placed by `M` around the live depth;
+  - **then live:** an incremental splatting SLAM (SplaTAM, MonoGS and kin) on soliloquy from the live stream;
+  - **then on the Quest alone:** rendering splats is light enough for the Quest Pro's GPU; building them is not
+    yet. When it is (WebGPU, smaller models), soliloquy drops out.
 
 ## What each phase must show
 
