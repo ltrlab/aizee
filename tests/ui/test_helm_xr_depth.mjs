@@ -128,7 +128,8 @@ for (const corner of corners) {
 
 // The bar's 3D switch: the flat picture gives way to the depth once its first frame comes, around the eyes.
 const eyes = new THREE.PerspectiveCamera();
-const renderer = {xr: {getController: () => new THREE.Group(), getCamera: () => eyes}};
+const renderer = {xr: {getController: () => new THREE.Group(), getHand: () => new THREE.Group(),
+  getControllerGrip: () => new THREE.Group(), getCamera: () => eyes}};
 const switched = [];
 const view = new HeadsetScene(renderer, {onDepth: depth => switched.push(depth)});
 assert.equal(view.view.depth, false);

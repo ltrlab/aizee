@@ -44,11 +44,15 @@ assert.deepEqual(loadView(null), DEFAULT_VIEW);
 store.set(STORAGE_KEY, '{not json');
 assert.deepEqual(loadView(storage), DEFAULT_VIEW);
 store.set(STORAGE_KEY, JSON.stringify({follow: false, opacity: .437, offset: [0, 0, .5]}));
-assert.deepEqual(loadView(storage), {follow: false, depth: false, opacity: .45, offset: FOLLOW_OFFSET});  // Behind: no.
+assert.deepEqual(loadView(storage), {follow: false, depth: false, model: true, hands: true, opacity: .45,
+  offset: FOLLOW_OFFSET});  // Behind: no.
 store.set(STORAGE_KEY, JSON.stringify({depth: true}));
 assert.equal(loadView(storage).depth, true);  // The 3D picture, remembered.
-saveView(storage, {follow: true, depth: true, opacity: 2, offset: [.2, -.1, -1]});
-assert.deepEqual(JSON.parse(store.get(STORAGE_KEY)), {follow: true, depth: true, opacity: 1, offset: [.2, -.1, -1]});
+store.set(STORAGE_KEY, JSON.stringify({model: false, hands: false}));
+assert.deepEqual([loadView(storage).model, loadView(storage).hands], [false, false]);  // The model and wrists, off.
+saveView(storage, {follow: true, depth: true, model: false, hands: true, opacity: 2, offset: [.2, -.1, -1]});
+assert.deepEqual(JSON.parse(store.get(STORAGE_KEY)), {follow: true, depth: true, model: false, hands: true, opacity: 1,
+  offset: [.2, -.1, -1]});
 saveView({setItem() { throw new Error('full'); }}, DEFAULT_VIEW);  // Unremembered, not broken.
 assert.equal(opacityStep(-1), 0);
 assert.equal(opacityStep('x'), 1);
@@ -68,15 +72,18 @@ assert.deepEqual(controlAt([280, 64]), {control: 'follow'});
 assert.deepEqual(controlAt([CONTROLS.depth.x + 100, 64]), {control: 'depth'});
 assert.deepEqual(controlAt([CONTROLS.track.x + CONTROLS.track.width / 2, 64]), {control: 'opacity', value: .5});
 assert.deepEqual(controlAt([CONTROLS.slider.x + 2, 20]), {control: 'opacity', value: 0});  // Just before the track.
-assert.equal(controlAt([CONTROLS.slider.x - 60, 64]), null);  // The slider's label.
+assert.deepEqual(controlAt([CONTROLS.model.x + 100, 64]), {control: 'model'});
+assert.deepEqual(controlAt([CONTROLS.hands.x + 100, 64]), {control: 'hands'});
+assert.equal(controlAt([CONTROLS.hands.x + CONTROLS.hands.width + 6, 64]), null);  // Between the switches and slider.
 assert.equal(opacityAt(5000), 1);
 
 // The scene, on a stand-in renderer: its controllers are three.js groups, as WebXR's are.
 const eyes = new THREE.PerspectiveCamera();
-const renderer = {xr: {getController: () => new THREE.Group(), getCamera: () => eyes}};
+const renderer = {xr: {getController: () => new THREE.Group(), getHand: () => new THREE.Group(),
+  getControllerGrip: () => new THREE.Group(), getCamera: () => eyes}};
 const view = new HeadsetScene(renderer, {storage});
 const picture = view.screen.children[0];
-const barTexts = () => view.controls.context.texts.slice(-4);
+const barTexts = () => view.controls.context.texts.slice(-5);
 assert.equal(view.view.follow, true);
 assert.ok(barTexts().includes('Follow head · on') && barTexts().includes('100 %'));
 

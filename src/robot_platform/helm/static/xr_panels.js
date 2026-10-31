@@ -32,10 +32,12 @@ export function drawStrip(context, [[left, leftTone], [right, rightTone]]) {
   context.textAlign = 'left';
 }
 
-// The picture's controls, in the bar's canvas pixels: the Follow head and 3D switches, and the opacity slider's
-// track (the value is where along it a controller points; the slider takes points a little past either end).
-export const CONTROLS = {follow: {x: 20, y: 14, width: 400, height: 100}, depth: {x: 440, y: 14, width: 210, height: 100},
-  track: {x: 880, y: 64, width: 460}, slider: {x: 840, width: 540}};
+// The picture's controls, in the bar's canvas pixels: the Follow head, 3D, Model and Hands switches, and the opacity
+// slider's track (the value is where along it a controller points; the slider takes points a little past either end).
+export const CONTROLS = {follow: {x: 16, y: 14, width: 330, height: 100}, depth: {x: 358, y: 14, width: 170, height: 100},
+  model: {x: 540, y: 14, width: 220, height: 100}, hands: {x: 772, y: 14, width: 220, height: 100},
+  track: {x: 1032, y: 64, width: 330}, slider: {x: 1006, width: 382}};
+export const SWITCHES = ['follow', 'depth', 'model', 'hands'];
 
 // The opacity a point `x` along the bar (canvas pixels) sets: 0 to 1 along the track, held at its ends past them.
 export function opacityAt(x) {
@@ -43,11 +45,11 @@ export function opacityAt(x) {
   return Math.min(1, Math.max(0, (x - track.x) / track.width));
 }
 
-// The control a point on the bar is on ([x, y] canvas pixels): {control: 'follow'}, {control: 'depth'},
-// {control: 'opacity', value} with value 0 to 1 along the track, or null between them.
+// The control a point on the bar is on ([x, y] canvas pixels): {control} for a switch (SWITCHES), {control:
+// 'opacity', value} with value 0 to 1 along the track, or null between them.
 export function controlAt([x, y]) {
   const {slider} = CONTROLS;
-  for (const name of ['follow', 'depth']) {
+  for (const name of SWITCHES) {
     const button = CONTROLS[name];
     if (x >= button.x && x <= button.x + button.width && y >= button.y && y <= button.y + button.height) {
       return {control: name};
@@ -71,9 +73,10 @@ function drawSwitch(context, button, text, on, hovered) {
 }
 
 // The bar: the Follow head switch (on: the picture stays in front of the eyes), the 3D switch (the head camera's
-// depth around the eyes instead of the flat picture) and the picture's opacity; `hover`: the control a controller
-// points at ('follow', 'depth' or 'opacity'), drawn lighter.
-export function drawControls(context, {follow, depth = false, opacity, hover = null}) {
+// depth instead of the flat picture), the Model switch (Minerva's model with the 3D), the Hands switch (the wrist
+// cameras above the hands) and the picture's opacity; `hover`: the control a controller points at (a switch's name
+// or 'opacity'), drawn lighter.
+export function drawControls(context, {follow, depth = false, model = false, hands = false, opacity, hover = null}) {
   const {canvas} = context;
   const {track} = CONTROLS;
   context.clearRect(0, 0, canvas.width, canvas.height);
@@ -81,9 +84,8 @@ export function drawControls(context, {follow, depth = false, opacity, hover = n
   context.fillRect(0, 0, canvas.width, canvas.height);
   drawSwitch(context, CONTROLS.follow, `Follow head · ${follow ? 'on' : 'off'}`, follow, hover === 'follow');
   drawSwitch(context, CONTROLS.depth, `3D · ${depth ? 'on' : 'off'}`, depth, hover === 'depth');
-  context.fillStyle = TONE.muted;
-  context.font = `40px ${FONT}`;
-  context.fillText('Opacity', 676, 78);
+  drawSwitch(context, CONTROLS.model, `Model · ${model ? 'on' : 'off'}`, model, hover === 'model');
+  drawSwitch(context, CONTROLS.hands, `Hands · ${hands ? 'on' : 'off'}`, hands, hover === 'hands');
   context.fillStyle = hover === 'opacity' ? '#5a6272' : '#3a4150';
   context.beginPath();
   context.roundRect(track.x, track.y - 8, track.width, 16, 8);

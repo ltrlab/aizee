@@ -1,9 +1,10 @@
 // The headset's pose to Helm (helm/xr.py), which steers Minerva's head while a teleop session follows. A WebXR session
 // (passthrough where the headset has it) reads the viewer's orientation in the level 'local' space each frame and sends
-// it, at most 60 times a second, over Helm's socket. A trigger pull or a pinch (select) zeroes the head where the
+// it, at most 60 times a second, over Helm's socket. A controller's trigger pull (select) zeroes the head where the
 // headset looks, except on the picture's bar; starting the session or recentering the headset restarts the zero at
 // the heading, level. Inside, the headset shows the head camera's picture with a status line and a bar (Follow head,
-// opacity) under it, and a status panel; the grip buttons grab and move them (xr_scene.js).
+// 3D, Model, Hands, opacity) under it, and a status panel; the grip buttons grab and move them (xr_scene.js). The
+// session asks for hand tracking where the headset has it: the wrist cameras float above the hands.
 import * as THREE from 'three';
 import {HeadCamera} from './xr_camera.js';
 import {HeadsetScene} from './xr_scene.js';
@@ -27,6 +28,7 @@ let immersive = null;  // Whether this browser can start an immersive session; n
 let renderer = null;
 let view = null;
 let camera = null;
+let wrists = [];  // The wrist cameras' streams, while the Hands switch is on.
 let headset = {};  // Helm's latest word on the headset and the head (its status replies),
 let statusAt = -Infinity;  // and when it came.
 const link = {connected: false, message: 'connecting…', error: null};  // `error`: Helm's last refusal, until a status.
@@ -118,14 +120,14 @@ async function start() {
     return;
   }
   mode = await navigator.xr.isSessionSupported('immersive-ar') ? 'immersive-ar' : 'immersive-vr';
-  session = await navigator.xr.requestSession(mode, {requiredFeatures: ['local']});
+  session = await navigator.xr.requestSession(mode, {requiredFeatures: ['local'], optionalFeatures: ['hand-tracking']});
   if (!renderer) {
     renderer = new THREE.WebGLRenderer({antialias: true, alpha: true});
     renderer.xr.enabled = true;
     renderer.xr.setReferenceSpaceType('local');
     // The 3D switch asks Helm for the head camera's frames with their depth (or just the frames) from here on.
     view = new HeadsetScene(renderer, {storage: browserStorage(),
-      onDepth: depth => camera?.setRole(depth ? 'head_depth' : 'head')});
+      onDepth: depth => camera?.setRole(depth ? 'head_depth' : 'head'), onHands: streamWrists});
   }
   renderer.setClearColor(0x0f1218, mode === 'immersive-ar' ? 0 : 1);  // Passthrough shows through a clear frame.
   await renderer.xr.setSession(session);
@@ -138,7 +140,9 @@ async function start() {
   });
   // A trigger pull zeroes the head, unless it was on the picture's bar: that one works the bar's control.
   session.addEventListener('select', event => {
-    if (view.select(event.inputSource)) return;
+    // Not a hand's pinch: tracked for the wrist cameras, the hands hold the GELLO leaders and pinch by accident, and a
+    // zero moves the head.
+    if (event.inputSource.hand || view.select(event.inputSource)) return;
     send({type: 'zero'});
     view.rezero();
   });
@@ -148,11 +152,13 @@ async function start() {
       if (depth) view.showDepth(depth);
     }});
   camera.start();
+  streamWrists(view.view.hands);
   session.addEventListener('end', () => {
     renderer.setAnimationLoop(null);
     camera?.stop();
     camera = null;
     session = null;
+    streamWrists(false);
     $('start').textContent = 'Start head tracking';
     show('status', 'Head tracking stopped: the head holds, then returns to its zero.', 'warn');
   });
@@ -175,6 +181,16 @@ async function start() {
     view.update(pose);  // This frame's pose: a following picture is drawn where the eyes are now.
     renderer.render(view.scene, view.camera);
   });
+}
+
+// The wrist cameras above the hands: their streams while the Hands switch is on (and a session runs), else none.
+function streamWrists(on) {
+  for (const stream of wrists) stream.stop();
+  wrists = on && session ? ['left_wrist', 'right_wrist'].map(role => {
+    const stream = new HeadCamera({token: () => token, role, onFrame: bitmap => view.showWrist(role, bitmap)});
+    stream.start();
+    return stream;
+  }) : [];
 }
 
 // The headset browser's localStorage, where the picture's view is remembered, or null where it is refused.
