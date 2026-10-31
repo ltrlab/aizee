@@ -235,8 +235,8 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
     - Hands: the wrist cameras' pictures above the tracked hands, facing the eyes (`static/xr_hands.js`; the session
       asks for hand tracking; without it, the controllers carry them). On by default; the two streams add about
       1 MB/s to the Quest's Wi-Fi.
-    - Opacity: 0 to 100 % in 5 % steps, for the room to show through the picture (flat or 3D), the model and the
-      wrist cameras.
+    - On a second row, two sliders, 0 to 100 % in 5 % steps: Picture, for the room to show through the picture
+      (flat or 3D) and the model; and Hands, the wrist cameras' own (the user, 2026-10-31: theirs set apart).
     - The headset's browser remembers them (`static/xr_view.js`), and where the picture sits while it follows.
   - **The 3D picture** (`static/xr_depth.js`, phase 1 of the plan: depth images to the headset, 3D built there):
     - The head camera service already publishes its depth beside the picture (640×480 at 15 fps; the D435 makes

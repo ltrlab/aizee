@@ -9,7 +9,8 @@ export const OPACITY_STEP = .05;
 // Following, the picture sits this far in front of the eyes (metres: x right, y up, z back), as it starts in front
 // of where the session began.
 export const FOLLOW_OFFSET = [0, -.08, -1.45];
-export const DEFAULT_VIEW = {follow: true, depth: false, model: true, hands: true, opacity: 1, offset: FOLLOW_OFFSET};
+export const DEFAULT_VIEW = {follow: true, depth: false, model: true, hands: true, opacity: 1, wristOpacity: 1,
+  offset: FOLLOW_OFFSET};
 
 export function opacityStep(value) {
   const stepped = Math.round(Number(value) / OPACITY_STEP) * OPACITY_STEP;
@@ -36,13 +37,16 @@ export function loadView(storage) {
   }
   const flag = name => typeof saved[name] === 'boolean' ? saved[name] : DEFAULT_VIEW[name];
   return {follow: flag('follow'), depth: flag('depth'), model: flag('model'), hands: flag('hands'),
-    opacity: 'opacity' in saved ? opacityStep(saved.opacity) : DEFAULT_VIEW.opacity, offset: offsetOf(saved.offset)};
+    opacity: 'opacity' in saved ? opacityStep(saved.opacity) : DEFAULT_VIEW.opacity,
+    wristOpacity: 'wristOpacity' in saved ? opacityStep(saved.wristOpacity) : DEFAULT_VIEW.wristOpacity,
+    offset: offsetOf(saved.offset)};
 }
 
 export function saveView(storage, view) {
   try {
     storage?.setItem(STORAGE_KEY, JSON.stringify({follow: !!view.follow, depth: !!view.depth, model: !!view.model,
-      hands: !!view.hands, opacity: opacityStep(view.opacity), offset: offsetOf(view.offset)}));
+      hands: !!view.hands, opacity: opacityStep(view.opacity), wristOpacity: opacityStep(view.wristOpacity ?? 1),
+      offset: offsetOf(view.offset)}));
   } catch {
     // A private window or a full store: the view still works, unremembered.
   }

@@ -5,7 +5,8 @@
 // it is; its 3D switch shows the head camera's depth instead of the flat picture (xr_depth.js), where the head camera
 // saw it in the room while a session runs (world-locked: it stays put as the eyes turn, and needs no following), else
 // around the eyes; its Model switch shows Minerva's model with the world-locked 3D (xr_model.js), and its Hands switch
-// the wrist cameras above the hands (xr_hands.js); its slider sets the opacity of whichever shows. The headset's browser remembers them (xr_view.js). Each controller
+// the wrist cameras above the hands (xr_hands.js); its sliders set the picture's opacity (flat or 3D, and the model)
+// and the wrist cameras'. The headset's browser remembers them (xr_view.js). Each controller
 // shows its pointing ray (cyan over a screen, green holding one), and its trigger works the bar's control under it.
 // They start in front of where the session began: WebXR's 'local' space has the head at its origin, looking down -Z.
 // The screens' canvases are drawn by xr_panels.js, as Settings → Headset draws its flat copy; they and the rays draw
@@ -14,7 +15,8 @@ import * as THREE from 'three';
 import {DepthView, depthRig, robotToWorld, zeroAnchor} from './xr_depth.js';
 import {WristScreens} from './xr_hands.js';
 import {RobotModel} from './xr_model.js';
-import {SIZES, SWITCHES, controlAt, drawControls, drawPanel, drawPlaceholder, drawStrip, opacityAt} from './xr_panels.js';
+import {SIZES, SLIDERS, SWITCHES, controlAt, drawControls, drawPanel, drawPlaceholder, drawStrip, sliderAt} from
+  './xr_panels.js';
 import {loadView, lookAngles, offsetOf, opacityStep, saveView} from './xr_view.js';
 
 const SCREEN_W = 1.12, SCREEN_H = 0.84, STRIP_H = 0.075, PANEL_W = 0.56, PANEL_H = 0.42;
@@ -153,7 +155,7 @@ export class HeadsetScene {
     controller.addEventListener('selectstart', () => {
       const hit = this.barControl(controller);
       controller.userData.pressed = hit ? hit.control || 'bar' : null;
-      if (hit?.control === 'opacity') this.setOpacity(hit.value);
+      if (SLIDERS.includes(hit?.control)) this.setSlider(hit.control, hit.value);
     });
     controller.addEventListener('selectend', () => this.unpress(controller));  // A press the session cancelled.
     this.scene.add(controller);
@@ -223,7 +225,7 @@ export class HeadsetScene {
   }
 
   unpress(controller) {
-    if (controller.userData.pressed === 'opacity') this.save();
+    if (SLIDERS.includes(controller.userData.pressed)) this.save();
     controller.userData.pressed = null;
   }
 
@@ -258,9 +260,18 @@ export class HeadsetScene {
   }
 
   setOpacity(value) {
-    const opacity = opacityStep(value);
-    if (opacity === this.view.opacity) return;
-    this.view.opacity = opacity;
+    this.setSlider('opacity', value);
+  }
+
+  setWristOpacity(value) {
+    this.setSlider('wristOpacity', value);
+  }
+
+  // A slider's value (SLIDERS: the picture's opacity, the wrist cameras'), in its steps.
+  setSlider(name, value) {
+    const stepped = opacityStep(value);
+    if (stepped === this.view[name]) return;
+    this.view[name] = stepped;
     this.applyView();
   }
 
@@ -287,14 +298,14 @@ export class HeadsetScene {
     this.screenMaterial.opacity = this.view.opacity;
     this.depth.setOpacity(this.view.opacity);
     this.robot.setOpacity(this.view.opacity);
-    this.wrists.setOpacity(this.view.opacity);
+    this.wrists.setOpacity(this.view.wristOpacity);
     const depth = this.view.depth && this.depthFramed;  // Until the first depth comes, the flat picture stays.
     this.picture.visible = !depth;
     this.depth.rig.visible = depth;
     this.wrists.group.visible = this.view.hands;
     this.placeRobot();
     drawControls(this.controls.context, {...Object.fromEntries(SWITCHES.map(name => [name, this.view[name]])),
-      opacity: this.view.opacity, hover: this.hover});
+      opacity: this.view.opacity, wristOpacity: this.view.wristOpacity, hover: this.hover});
     this.controls.texture.needsUpdate = true;
   }
 
@@ -419,14 +430,14 @@ export class HeadsetScene {
     for (const controller of this.controllers) {
       const {ray, held, pointer, pressed} = controller.userData;
       if (!pointer) continue;
-      if (pressed === 'opacity') {
+      if (SLIDERS.includes(pressed)) {
         const point = this.barPoint(controller, true);
-        if (point) this.setOpacity(opacityAt(point[0]));
+        if (point) this.setSlider(pressed, sliderAt(pressed, point[0]));
       }
       const hit = held ? null : this.aim(controller);
       ray.material.color.setHex(held ? RAY.hold : hit ? RAY.aim : RAY.idle);
       ray.scale.z = hit ? hit.distance : held ? .3 : 2.5;
-      const control = pressed === 'opacity' ? 'opacity' : held ? null : this.barControl(controller)?.control;
+      const control = SLIDERS.includes(pressed) ? pressed : held ? null : this.barControl(controller)?.control;
       hover = hover || control || null;
     }
     if (hover !== this.hover) {

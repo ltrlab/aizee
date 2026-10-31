@@ -28,7 +28,7 @@ globalThis.document = {createElement: () => {
 
 const THREE = await import(three);
 const {HeadsetScene} = await import(new URL('src/robot_platform/helm/static/xr_scene.js', root).href);
-const {CONTROLS, SIZES, controlAt, opacityAt} = await import(new URL('src/robot_platform/helm/static/xr_panels.js', root).href);
+const {CONTROLS, SIZES, controlAt, sliderAt} = await import(new URL('src/robot_platform/helm/static/xr_panels.js', root).href);
 const {DEFAULT_VIEW, FOLLOW_OFFSET, STORAGE_KEY, loadView, lookAngles, opacityStep, saveView} =
   await import(new URL('src/robot_platform/helm/static/xr_view.js', root).href);
 
@@ -45,14 +45,14 @@ store.set(STORAGE_KEY, '{not json');
 assert.deepEqual(loadView(storage), DEFAULT_VIEW);
 store.set(STORAGE_KEY, JSON.stringify({follow: false, opacity: .437, offset: [0, 0, .5]}));
 assert.deepEqual(loadView(storage), {follow: false, depth: false, model: true, hands: true, opacity: .45,
-  offset: FOLLOW_OFFSET});  // Behind: no.
+  wristOpacity: 1, offset: FOLLOW_OFFSET});  // Behind: no.
 store.set(STORAGE_KEY, JSON.stringify({depth: true}));
 assert.equal(loadView(storage).depth, true);  // The 3D picture, remembered.
 store.set(STORAGE_KEY, JSON.stringify({model: false, hands: false}));
 assert.deepEqual([loadView(storage).model, loadView(storage).hands], [false, false]);  // The model and wrists, off.
 saveView(storage, {follow: true, depth: true, model: false, hands: true, opacity: 2, offset: [.2, -.1, -1]});
 assert.deepEqual(JSON.parse(store.get(STORAGE_KEY)), {follow: true, depth: true, model: false, hands: true, opacity: 1,
-  offset: [.2, -.1, -1]});
+  wristOpacity: 1, offset: [.2, -.1, -1]});
 saveView({setItem() { throw new Error('full'); }}, DEFAULT_VIEW);  // Unremembered, not broken.
 assert.equal(opacityStep(-1), 0);
 assert.equal(opacityStep('x'), 1);
@@ -70,12 +70,15 @@ for (const [yaw, pitch, roll] of [[0, 0, 0], [30, -10, 20], [-120, 35, -15], [17
 // The bar's controls, by where a controller points on it.
 assert.deepEqual(controlAt([280, 64]), {control: 'follow'});
 assert.deepEqual(controlAt([CONTROLS.depth.x + 100, 64]), {control: 'depth'});
-assert.deepEqual(controlAt([CONTROLS.track.x + CONTROLS.track.width / 2, 64]), {control: 'opacity', value: .5});
-assert.deepEqual(controlAt([CONTROLS.slider.x + 2, 20]), {control: 'opacity', value: 0});  // Just before the track.
+// The second row: the picture's opacity and the wrist cameras', each on its own half.
+const PICTURE = CONTROLS.opacity.track, WRISTS = CONTROLS.wristOpacity.track;
+assert.deepEqual(controlAt([PICTURE.x + PICTURE.width / 2, PICTURE.y]), {control: 'opacity', value: .5});
+assert.deepEqual(controlAt([CONTROLS.opacity.x + 2, CONTROLS.opacity.y + 4]), {control: 'opacity', value: 0});
+assert.deepEqual(controlAt([WRISTS.x + WRISTS.width / 4, WRISTS.y]), {control: 'wristOpacity', value: .25});
 assert.deepEqual(controlAt([CONTROLS.model.x + 100, 64]), {control: 'model'});
 assert.deepEqual(controlAt([CONTROLS.hands.x + 100, 64]), {control: 'hands'});
 assert.equal(controlAt([CONTROLS.hands.x + CONTROLS.hands.width + 6, 64]), null);  // Between the switches and slider.
-assert.equal(opacityAt(5000), 1);
+assert.equal(sliderAt('opacity', 5000), 1);
 
 // The scene, on a stand-in renderer: its controllers are three.js groups, as WebXR's are.
 const eyes = new THREE.PerspectiveCamera();
@@ -83,7 +86,7 @@ const renderer = {xr: {getController: () => new THREE.Group(), getHand: () => ne
   getControllerGrip: () => new THREE.Group(), getCamera: () => eyes}};
 const view = new HeadsetScene(renderer, {storage});
 const picture = view.screen.children[0];
-const barTexts = () => view.controls.context.texts.slice(-5);
+const barTexts = () => view.controls.context.texts.slice(-8);  // Four switches; each slider's label and value.
 assert.equal(view.view.follow, true);
 assert.ok(barTexts().includes('Follow head · on') && barTexts().includes('100 %'));
 
@@ -156,18 +159,28 @@ assert.equal(view.select(source), true);
 assert.equal(view.view.follow, false);
 
 // The slider: pressed at its middle, dragged to a quarter (off the thin bar, still along it), let go.
-onBar([CONTROLS.track.x + CONTROLS.track.width / 2, 64]);
+onBar([PICTURE.x + PICTURE.width / 2, PICTURE.y]);
 controller.dispatchEvent({type: 'selectstart'});
 assert.equal(view.view.opacity, .5);
 assert.ok(picture.material.transparent);
 close(picture.material.opacity, .5);
-onBar([CONTROLS.track.x + CONTROLS.track.width / 4, 64 + 400]);
+onBar([PICTURE.x + PICTURE.width / 4, PICTURE.y + 400]);
 view.update(pose(40, 0));
 assert.equal(view.view.opacity, .25);
 assert.equal(view.select(source), true);
 controller.dispatchEvent({type: 'selectend'});
 assert.equal(JSON.parse(store.get(STORAGE_KEY)).opacity, .25);
 assert.ok(barTexts().includes('25 %'));
+// The wrist cameras' slider sets theirs alone (the user, 2026-10-31), remembered too.
+onBar([WRISTS.x + WRISTS.width * .6, WRISTS.y]);
+controller.dispatchEvent({type: 'selectstart'});
+assert.equal(view.view.wristOpacity, .6);
+assert.equal(view.wrists.opacity, .6);
+assert.equal(view.view.opacity, .25);
+view.select(source);
+controller.dispatchEvent({type: 'selectend'});
+assert.equal(JSON.parse(store.get(STORAGE_KEY)).wristOpacity, .6);
+assert.ok(barTexts().includes('60 %') && barTexts().includes('Hands'));
 
 // Following again: it goes back in front of the eyes. Carried with the grip and let go, it keeps that place there.
 onBar([280, 64]);
