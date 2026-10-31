@@ -3,8 +3,10 @@
 `python/nodes/camera_node.py` accepts `camera.image_rotation_deg: 0` or `180`
 in its YAML configuration, or `--image-rotation-deg` without `--config`.
 The default is zero. The generic scene-camera configuration remains unchanged.
-For Minerva's upside-down static-neck D435, the deployment owner sets
-`camera.image_rotation_deg: 180` in that camera's deployed configuration.
+Minerva's D435 was mounted upside down on the static neck, so its deployed
+configuration on the Jetson (`/home/ltr/aizee/config/hardware_jetson_scene_cam.yaml`,
+not this repository's copy) set `camera.image_rotation_deg: 180`. On the head
+the camera sits upright (turned over 2026-10-30), so that setting is back to `0`.
 No wrist-camera configuration changes are required.
 
 The publisher applies the same half-turn to RGB and native Z16 depth before
