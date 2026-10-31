@@ -139,6 +139,45 @@ def test_display_preserves_dense_mesh_and_small_disconnected_features(tmp_path):
     np.testing.assert_array_equal(vertices[faces], source.triangles.astype('<f4'))
 
 
+def test_the_headset_gets_a_coarse_copy_of_each_mesh_never_the_3d_view(tmp_path):
+    # Minerva's display model is 2.66 M triangles as the 3D view draws it, too much for a Quest in stereo; the
+    # headset's model (helm/static/xr_model.js) asks for each mesh coarse: vertices merged within 5 mm cubes.
+    import numpy as np
+    import trimesh
+    from aiohttp.test_utils import TestClient, TestServer
+    from robot_platform.viewer.server import COARSE_CELL_M, ModelStore, coarse_payload, create_app
+
+    p = profile(tmp_path, mesh=True)
+    ball = trimesh.creation.icosphere(subdivisions=5, radius=.05)  # A 10 cm ball of 20 480 triangles.
+    ball.export(tmp_path / 'shape.stl')
+    store = ModelStore([p])
+    full = store.mesh(p.id, 0)
+    coarse = coarse_payload(full)
+    vertex_count, face_count = struct.unpack('<II', coarse[:8])
+    assert len(coarse) == 8 + 12 * (vertex_count + face_count)
+    assert 500 < face_count < len(ball.faces) / 5  # Its surface spans ~1 250 cells of 5 mm: ~3 000 triangles.
+    vertices = np.frombuffer(coarse, '<f4', vertex_count * 3, 8).reshape(-1, 3)
+    faces = np.frombuffer(coarse, '<u4', face_count * 3, 8 + vertex_count * 12).reshape(-1, 3)
+    assert faces.max() < vertex_count and not (faces[:, 0] == faces[:, 1]).any()
+    radius = np.linalg.norm(vertices, axis=1)  # Still the ball, to within a cell.
+    assert np.all(np.abs(radius - .05) < COARSE_CELL_M)
+    assert len(np.unique(faces)) == vertex_count  # No vertex left unused.
+    assert len(np.unique(np.sort(faces, axis=1), axis=0)) == face_count  # No triangle twice.
+    assert struct.unpack('<II', store.mesh(p.id, 0)[:8])[1] == len(ball.faces)  # The 3D view's own: every triangle.
+
+    async def run():
+        async with TestClient(TestServer(create_app([p]))) as client:
+            response = await client.get('/api/models/fixture/meshes/0?detail=coarse')
+            assert response.status == 200 and await response.read() == coarse
+            assert response.headers['Content-Encoding'] == 'gzip' and 'coarse5mm' in response.headers['ETag']
+            again = await client.get('/api/models/fixture/meshes/0?detail=coarse',
+                                     headers={'If-None-Match': response.headers['ETag']})
+            assert again.status == 304
+            assert await (await client.get('/api/models/fixture/meshes/0')).read() == full
+            assert (await client.get('/api/models/fixture/meshes/3?detail=coarse')).status == 404
+    asyncio.run(run())
+
+
 def test_http_routes_scoped_assets_post_validation_and_embedded_mount(tmp_path):
     from aiohttp import web
     from aiohttp.test_utils import TestClient,TestServer

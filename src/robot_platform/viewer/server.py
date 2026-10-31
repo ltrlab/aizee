@@ -15,6 +15,10 @@ from robot_platform.models import UrdfModel
 from robot_platform.models.urdf import asset_digest
 
 MESH_FORMAT = "mesh1"  # mesh_payload's layout; a stored mesh's name carries it, so a new layout never reads an old file.
+# The headset's model (helm/static/xr_model.js): each mesh's vertices merged within 5 mm cubes. Minerva's display
+# model, 2.66 M triangles and 128 MB as drawn in the 3D view, is too much for a Quest to load and draw in stereo; so
+# coarse it is 89 k triangles and 0.67 MB gzip-compressed (2026-10-31).
+COARSE_CELL_M = .005
 
 
 def mesh_payload(path):
@@ -35,6 +39,28 @@ def mesh_payload(path):
     if not np.isfinite(vertices).all() or faces.max() >= len(vertices):
         raise ValueError("Invalid converted mesh")
     return struct.pack("<II", len(vertices), len(faces)) + vertices.tobytes() + faces.tobytes()
+
+
+def coarse_payload(payload, cell_m=COARSE_CELL_M):
+    """A mesh payload (mesh_payload) with its vertices merged within `cell_m` cubes, each at its vertices' mean, and the
+    triangles that collapse dropped (vertex clustering): a light copy for the headset, never the 3D view's own."""
+    import numpy as np
+    vertex_count, face_count = struct.unpack("<II", payload[:8])
+    vertices = np.frombuffer(payload, "<f4", vertex_count * 3, 8).reshape(-1, 3)
+    faces = np.frombuffer(payload, "<u4", face_count * 3, 8 + vertex_count * 12).reshape(-1, 3)
+    cells = np.floor(vertices / cell_m).astype(np.int64)
+    cells -= cells.min(axis=0)
+    span = cells.max(axis=0) + 1
+    _keys, cell_of = np.unique((cells[:, 0] * span[1] + cells[:, 1]) * span[2] + cells[:, 2], return_inverse=True)
+    count = np.bincount(cell_of).astype(np.float64)
+    merged = np.stack([np.bincount(cell_of, vertices[:, k]) for k in range(3)], axis=1) / count[:, None]
+    mapped = cell_of.reshape(-1)[faces]
+    mapped = mapped[(mapped[:, 0] != mapped[:, 1]) & (mapped[:, 1] != mapped[:, 2]) & (mapped[:, 0] != mapped[:, 2])]
+    _same, first = np.unique(np.sort(mapped, axis=1), axis=0, return_index=True)  # One of each, in its own winding.
+    mapped = mapped[np.sort(first)]
+    used, mapped = np.unique(mapped, return_inverse=True)  # Only the vertices the triangles left use.
+    merged, mapped = merged[used].astype("<f4"), mapped.reshape(-1, 3).astype("<u4")
+    return struct.pack("<II", len(merged), len(mapped)) + merged.tobytes() + mapped.tobytes()
 
 
 def stored_mesh_name(sha256):
@@ -104,6 +130,26 @@ class ModelStore:
             raise ValueError(f"{model.assets[index].name} is not in the mesh store yet: upload the meshes from the "
                              "build PC (python -m robot_platform.ops.helm_robot meshes)") from None
         return body, f'"{sha}-{MESH_FORMAT}"'
+
+    def coarse_mesh(self, name, index):
+        """(gzip-compressed coarse payload, ETag) of a mesh for the headset (coarse_payload), made once from the mesh
+        store's copy where Helm has one (on Minerva), else from the CAD."""
+        model = self.model(name)
+        if not 0 <= index < len(model.assets):
+            raise KeyError(index)
+        key = (name, index, "coarse")
+        with self.lock:
+            if key in self.meshes:
+                return self.meshes[key]
+        if self.mesh_store is not None:
+            body, etag = self.stored_mesh(name, index)
+            payload = gzip.decompress(body)
+        else:
+            payload, etag = self.mesh(name, index), f'"{asset_digest(model.assets[index])}-{MESH_FORMAT}"'
+        result = gzip.compress(coarse_payload(payload), 6, mtime=0), f'{etag[:-1]}-coarse{COARSE_CELL_M * 1000:g}mm"'
+        with self.lock:
+            self.meshes[key] = result
+        return result
 
     def runtime_model(self, name):
         from robot_platform.simulation.runtime_model import RuntimeCollisionModel
@@ -244,17 +290,21 @@ def create_app(profiles, selected=None, local_only=True, guide=None, index_html=
     async def metadata(request):
         model = await offline(store.model, request.match_info["model"])
         return web.json_response(model.metadata())
+    def gzipped(request, body, etag):
+        headers = {"ETag": etag, "Cache-Control": "no-cache"}
+        if etag in request.headers.get("If-None-Match", ""):
+            return web.Response(status=304, headers=headers)
+        if "gzip" in request.headers.get("Accept-Encoding", ""):
+            return web.Response(body=body, content_type="application/octet-stream",
+                                headers={**headers, "Content-Encoding": "gzip"})
+        return web.Response(body=gzip.decompress(body), content_type="application/octet-stream", headers=headers)
     async def mesh(request):
+        name, index = request.match_info["model"], int(request.match_info["index"])
+        if request.query.get("detail") == "coarse":  # The headset's model (coarse_payload).
+            return gzipped(request, *await offline(store.coarse_mesh, name, index))
         if store.mesh_store is not None:
-            body, etag = await offline(store.stored_mesh, request.match_info["model"], int(request.match_info["index"]))
-            headers = {"ETag": etag, "Cache-Control": "no-cache"}
-            if etag in request.headers.get("If-None-Match", ""):
-                return web.Response(status=304, headers=headers)
-            if "gzip" in request.headers.get("Accept-Encoding", ""):
-                return web.Response(body=body, content_type="application/octet-stream",
-                                    headers={**headers, "Content-Encoding": "gzip"})
-            return web.Response(body=gzip.decompress(body), content_type="application/octet-stream", headers=headers)
-        payload = await offline(store.mesh, request.match_info["model"], int(request.match_info["index"]))
+            return gzipped(request, *await offline(store.stored_mesh, name, index))
+        payload = await offline(store.mesh, name, index)
         response = web.Response(body=payload, content_type="application/octet-stream", zlib_executor_size=65536)
         response.enable_compression()
         return response

@@ -263,7 +263,8 @@ def test_the_mesh_store_serves_converted_meshes_by_digest_and_revalidates(tmp_pa
     trimesh = pytest.importorskip('trimesh')
     from aiohttp.test_utils import TestClient, TestServer
     from robot_platform.models import ModelProfile
-    from robot_platform.viewer.server import ModelStore, create_app as viewer_app, mesh_payload, stored_mesh_name
+    from robot_platform.viewer.server import (ModelStore, coarse_payload, create_app as viewer_app, mesh_payload,
+                                              stored_mesh_name)
     trimesh.creation.box().export(tmp_path / 'shape.stl')
     (tmp_path / 'machine.urdf').write_text('<robot name="m"><link name="base"><visual><geometry>'
                                            '<mesh filename="package://parts/shape.stl"/></geometry></visual></link></robot>')
@@ -289,6 +290,10 @@ def test_the_mesh_store_serves_converted_meshes_by_digest_and_revalidates(tmp_pa
         assert again.status == 304  # The browser keeps what it fetched.
         plain = await client.get('/api/models/fixture/meshes/0', headers={'Accept-Encoding': 'identity'})
         assert await plain.read() == payload and 'Content-Encoding' not in plain.headers
+        # The headset's coarse copy, made from the store's (no CAD on the robot), revalidated by its own tag.
+        coarse = await client.get('/api/models/fixture/meshes/0?detail=coarse')
+        assert coarse.status == 200 and await coarse.read() == coarse_payload(payload)
+        assert sha in coarse.headers['ETag'] and coarse.headers['ETag'] != etag
 
     async def run():
         async with TestClient(TestServer(viewer_app([profile], mesh_store=store))) as client:
