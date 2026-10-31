@@ -1,0 +1,11 @@
+{
+  "kind": "minerva_head_alignment",
+  "head_profile": "config/devices/minerva-head.json",
+  "board": "config/devices/minerva-table-board.json",
+  "note": "Helm's head camera alignment (helm.head_alignment, vision.head_alignment): stills of the table's tags from the head camera, the head held at several poses, give the camera's mount in the head link (the head profile's camera.link) and where the board lies in Minerva's frame. The camera's own published intrinsics are held.",
+  "still": {
+    "frames": {"value": 8, "source": "as the wrist stills (minerva-wrist-cameras.json): a stack of 8 cuts per-frame noise ~2.2 DN to ~0.8"},
+    "still_rad": {"value": 0.0035, "source": "chosen: two of the neck servos' 1.53 mrad steps over the stack (a holding Feetech servo dithers by a step); the still keeps the angles' mean"},
+    "margin_s": {"value": 0.05, "source": "as the camera relay's HEAD_POSE_SKEW_S (helm.camera_video_worker): the head's samples this far either side of the frames count"}
+  }
+}

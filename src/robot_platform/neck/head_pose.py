@@ -1,14 +1,17 @@
 """Where the head camera looks, for the headset's world-locked 3D view (docs/development/HEADSET_3D_PLAN.md).
 
 The colour camera's pose in the robot frame from the neck's CAD angles: forward kinematics on the head model's URDF,
-then the camera's mount in the head link (the head profile's `camera`: its centre, and its axes from the model's
-front, which the camera looks along, level, with the neck at zero). Optical axes: x right, y down, z ahead.
+then the camera's mount in the head link. The mount is the one measured on the table's tags (Helm's head camera
+alignment, saved as the head's camera file) when there is one for this head reference; else the CAD guess, the head
+profile's `camera`: its centre, and its axes from the model's front, which the camera looks along, level, with the
+neck at zero. Optical axes: x right, y down, z ahead.
 
 The head's teleop publishes the head's measured pose on a local feed (ENDPOINT, ZMQ PUB): every one of the head
 service's 100 Hz rows, at the Jetson's wall time, as CAD angles and that camera pose. Helm's camera relay
 (helm.camera_video_worker) stamps each head depth frame with the sample nearest its capture: both clocks are the
 Jetson's.
 """
+import hashlib
 import json
 import math
 
@@ -18,6 +21,42 @@ from robot_platform.vision.geometry import rotation, rotvec, rpy_matrix, transfo
 
 ENDPOINT = 'tcp://127.0.0.1:5596'
 UP = np.array([0., 0., 1.])
+ALIGNMENT_KIND = 'head_camera_alignment'
+MAX_MOUNT_M = .5  # A mount farther than this from its link's origin is not the head camera's.
+
+
+def cad_mount(link_at_zero, front_direction, origin_m):
+    """The camera's CAD mount in its link (4x4): at `origin_m`, looking along the model's front, level, with the neck
+    at zero (`link_at_zero`: the link's pose in the robot frame there)."""
+    front = np.asarray(front_direction, dtype=float)
+    ahead = front / np.linalg.norm(front)
+    right = np.cross(ahead, UP)
+    right /= np.linalg.norm(right)
+    down = np.cross(ahead, right)
+    return transform(link_at_zero[:3, :3].T @ np.column_stack([right, down, ahead]), origin_m)
+
+
+def reference_digest(reference):
+    """A head reference's identity: the neck's CAD angles, and so a measured mount, hold only for the reference they
+    were read through."""
+    return hashlib.sha256(json.dumps(reference, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def aligned_mount(document, link, reference):
+    """The measured mount (4x4) in a saved head camera alignment (helm.head_alignment), for the camera on `link` and
+    the head reference in use; ValueError says why it does not apply."""
+    if not isinstance(document, dict) or document.get('kind') != ALIGNMENT_KIND or document.get('schema') != 1:
+        raise ValueError('not a head camera alignment')
+    if document.get('link') != link:
+        raise ValueError(f"the alignment is for the camera on {document.get('link')}, not {link}")
+    if document.get('reference_sha256') != reference_digest(reference):
+        raise ValueError("the alignment was made through another head reference: align the head camera again")
+    mount = np.asarray((document.get('mount') or {}).get('matrix'), dtype=float)
+    if (mount.shape != (4, 4) or not np.isfinite(mount).all() or not np.allclose(mount[3], (0., 0., 0., 1.))
+            or not np.allclose(mount[:3, :3] @ mount[:3, :3].T, np.eye(3), atol=1e-6)
+            or np.linalg.det(mount[:3, :3]) < 0 or np.linalg.norm(mount[:3, 3]) > MAX_MOUNT_M):
+        raise ValueError('the alignment\'s mount is not a rigid transform near its link')
+    return mount
 
 
 def pose7(transform):
@@ -31,9 +70,10 @@ def pose7(transform):
 
 class CameraPose:
     """The colour camera's optical pose in the robot frame for the neck's CAD angles ({joint: rad}; the others in
-    its chain at zero). `model`: the head model (models.UrdfModel); `camera`: the head profile's `camera`."""
+    its chain at zero). `model`: the head model (models.UrdfModel); `camera`: the head profile's `camera`; `mount`:
+    a measured mount (aligned_mount) in place of the CAD one."""
 
-    def __init__(self, model, camera):
+    def __init__(self, model, camera, mount=None):
         by_child = {joint['child']: joint for joint in model.joints}
         chain, link = [], camera['link']
         while link != model.root:
@@ -43,16 +83,8 @@ class CameraPose:
             link = joint['parent']
         self.chain = chain[::-1]
         self.joints = [name for name, _origin, _axis, kind in self.chain if kind in ('revolute', 'continuous')]
-        # The camera looks along the model's front, level, with the neck at zero: its axes there in the robot frame,
-        # carried into the head link.
-        front = np.asarray(model.profile.front_direction, dtype=float)
-        ahead = front / np.linalg.norm(front)
-        right = np.cross(ahead, UP)
-        right /= np.linalg.norm(right)
-        down = np.cross(ahead, right)
-        link_at_zero = self._link({})
-        axes = link_at_zero[:3, :3].T @ np.column_stack([right, down, ahead])
-        self.mount = transform(axes, camera['origin_m'])
+        self.cad = cad_mount(self._link({}), model.profile.front_direction, camera['origin_m'])
+        self.mount = self.cad if mount is None else np.asarray(mount, dtype=float)
         self.zero = self.pose({})
 
     def _link(self, positions):

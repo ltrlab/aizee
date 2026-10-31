@@ -2,7 +2,8 @@
 
 A still is one camera's view of some of the board's tags while its arm is held still: the tags' corner pixels and the
 arm's joint positions. The unknowns:
-- each camera's intrinsics (fx, fy, cx, cy) and distortion (k1, k2, p1, p2, and k3 when asked);
+- each camera's intrinsics (fx, fy, cx, cy) and distortion (k1, k2, p1, p2, and k3 when asked), unless held at a
+  camera's own published calibration (the head camera's, vision.head_alignment);
 - each camera's mount X = T_link_camera, the camera in the link it is fixed to;
 - the board's placement Y = T_base_board, shared by both arms;
 - each tag's offset (dx, dy, dyaw) from its nominal place, with the board file's sigmas as priors;
@@ -216,19 +217,21 @@ def _initial_pose(still, board, camera):
     return plane_pose(homography(plane, normalize(camera, pixels)), plane)
 
 
-def _planar(board, stills, size, f0, fit_k3, loss_px):
-    """Intrinsics and per-still board poses (with tag offsets) for one camera from starting focal length f0."""
+def _planar(board, stills, size, f0, fit_k3, loss_px, held=None):
+    """Intrinsics and per-still board poses (with tag offsets) for one camera from starting focal length f0; with
+    `held` (nine numbers), the poses alone, the intrinsics held at them."""
     tags = sorted(board.tags)
     obs = _Observations(stills, [stills[0].camera], tags)
     n_still, n_tag = len(stills), len(tags)
-    n_intr = 9 if fit_k3 else 8
-    camera0 = np.array([f0, f0, (size[0] - 1) / 2, (size[1] - 1) / 2, 0., 0., 0., 0., 0.])
+    n_intr = 0 if held is not None else 9 if fit_k3 else 8
+    camera0 = (np.array(held, float) if held is not None else
+               np.array([f0, f0, (size[0] - 1) / 2, (size[1] - 1) / 2, 0., 0., 0., 0., 0.]))
     poses = np.array([pose_vector(_initial_pose(s, board, camera0)) for s in stills])
     x0 = np.concatenate([camera0[:n_intr], poses.ravel(), np.zeros(3 * n_tag)])
     sigmas = np.array([board.sigma_m, board.sigma_m, board.sigma_yaw])
 
     def unpack(x):
-        camera = np.zeros(9)
+        camera = camera0.copy()
         camera[:n_intr] = x[:n_intr]
         pose = x[n_intr:n_intr + 6 * n_still].reshape(n_still, 6)
         offsets = x[n_intr + 6 * n_still:].reshape(n_tag, 3)
@@ -451,20 +454,41 @@ def _fitted_joints(cameras, joint_offsets):
     return result
 
 
-def calibrate(board, cameras, stills, *, fit_k3=False, joint_offsets=None, joint_sigma_deg=1., loss_px=1., folds=5):
+def _held_intrinsics(intrinsics, names):
+    """{camera: nine finite numbers} for every camera, or None; held for some cameras but not others is refused."""
+    if not intrinsics:
+        return None
+    if set(intrinsics) != set(names):
+        raise CalibrationError("Hold every camera's intrinsics or none")
+    held = {}
+    for name in names:
+        camera = np.asarray(intrinsics[name], float)
+        if camera.shape != (9,) or not np.isfinite(camera).all() or min(camera[:2]) <= 0:
+            raise CalibrationError(f'{name}: held intrinsics are nine finite numbers (fx, fy, cx, cy, k1, k2, p1, p2, '
+                                   'k3), the focal lengths positive')
+        held[name] = camera
+    return held
+
+
+def calibrate(board, cameras, stills, *, fit_k3=False, joint_offsets=None, joint_sigma_deg=1., loss_px=1., folds=5,
+              intrinsics=None):
     """Calibrate the cameras (CameraSpec) from stills (Still). `joint_offsets` is None, True (each chain's joints but
-    the last) or {camera: joint names}. Returns a JSON-ready report (see the module docstring)."""
+    the last) or {camera: joint names}. `intrinsics` ({camera: nine numbers} for every camera, or None) holds each
+    camera's intrinsics as given, a camera's own published calibration, instead of fitting them. Returns a JSON-ready
+    report (see the module docstring)."""
     usable = _check(board, cameras, stills)
     specs = {c.name: c for c in cameras}
     names = [c.name for c in cameras]
     stills = [s for name in names for s in usable[name]]
     joints = _fitted_joints(cameras, joint_offsets)
     joint_sigma = math.radians(joint_sigma_deg)
+    held_intrinsics = _held_intrinsics(intrinsics, names)
     intrinsics, mounts, placements, planar = {}, {}, [], {}
     for name in names:
         items = usable[name]
-        starts = _focal_starts(specs[name], items, board)
-        best = None
+        starts = [] if held_intrinsics else _focal_starts(specs[name], items, board)
+        best = _planar(board, items, specs[name].size, None, fit_k3, loss_px,
+                       held=held_intrinsics[name]) if held_intrinsics else None
         for f0 in starts:  # The likeliest first; stop at the first that fits.
             fit = _planar(board, items, specs[name].size, f0, fit_k3, loss_px)
             if best is None or fit['cost'] < best['cost']:
@@ -483,12 +507,13 @@ def calibrate(board, cameras, stills, *, fit_k3=False, joint_offsets=None, joint
     start[:3, 3] = np.mean([p[:3, 3] for p in placements], axis=0)
     held = _State(intrinsics, mounts, start, np.zeros((len(board.tags), 3)),
                   {name: np.zeros(len(joints.get(name, ()))) for name in names})
-    model = _Model(board, specs, stills, fit_k3=fit_k3, free={'intrinsics', 'tags'} | ({'joints'} if joints else set()),
-                   joints=joints, joint_sigma=joint_sigma)
+    free = {'tags'} | (set() if held_intrinsics else {'intrinsics'}) | ({'joints'} if joints else set())
+    model = _Model(board, specs, stills, fit_k3=fit_k3, free=free, joints=joints, joint_sigma=joint_sigma)
     fit, state = model.fit(held, loss_px)
     report = _report(model, specs, fit, state, planar)
     report['options'] = dict(fit_k3=fit_k3, joint_offsets={k: list(v) for k, v in joints.items()},
-                             joint_sigma_deg=joint_sigma_deg, loss_px=loss_px)
+                             joint_sigma_deg=joint_sigma_deg, loss_px=loss_px,
+                             intrinsics='held' if held_intrinsics else 'fitted')
     report['cross_validation'] = _cross_validate(board, specs, stills, state, fit_k3, folds, loss_px, joints,
                                                  joint_sigma)
     report['per_camera_placement'] = _per_camera_placement(board, specs, stills, state, fit_k3, loss_px, joints,
