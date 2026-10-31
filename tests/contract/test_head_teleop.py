@@ -382,3 +382,58 @@ def test_a_refused_head_command_leaves_its_cycle_beside_the_receivers_evidence(t
         assert set(cycle['proposal']['joints'][0]) >= {'position', 'velocity', 'effort', 'kp', 'kd'}
     finally:
         core.close()
+
+
+def test_engage_holds_where_the_head_is_held_not_where_its_weight_sags_it():
+    # Live, Engage faulted ("Head: Guarded controller rejected request: invalid_command", 2026-10-31): the head
+    # rests below the lowest command its receiver takes, Enable held it at that floor, and its weight sagged it
+    # 0.022 rad below the hold. Aligning, the head took that reading as where it is and its command stepped down
+    # after it, under the floor (fault-20261031T030047Z.json: 2.2110 to 2.2090 at -0.05 rad/s). Engage now holds
+    # where the head is held, and every command stays inside the receiver's range.
+    from robot_platform.neck.clearance import section
+    from robot_platform.simulation.control_harness import NativeControlHarness
+    profile = head.load_profile(ROOT / head.PROFILE)
+    reference = head.virtual_reference(profile)
+    centre = {m['name']: m['raw_reference_rad'] for m in reference['motors']}
+    limits = dict(head.virtual_limits(reference, span_rad=.8), reference_id=reference['id'],
+                  clearance=section([{'pan': -.6, 'tilt': -.4}, {'pan': .6, 'tilt': -.4}]))
+    clock = Clock()
+    sent = []
+
+    class Sagging:
+        """The harness on a plant: held, tilt reads 0.022 rad below its command (its weight on the servo's
+        stiffness); limp, the head droops to where it rests, below the receiver's floor."""
+
+        def __init__(self, config, initial):
+            self.inner, self.rest = NativeControlHarness(config, initial), list(initial)
+            self.close = self.inner.close
+
+        now_ms = property(lambda self: self.inner.now_ms)
+        last = property(lambda self: self.inner.last)
+
+        def step(self, now_ms, request=None):
+            # Every frame reads the plant: a request is answered from the same readings as the ticks.
+            if request is not None and request.get('type') == 'direct_update':
+                sent.append(request['joints'][1]['position'])
+            if self.inner.last is None:
+                return self.inner.step(max(now_ms, self.inner.now_ms), request)
+            feedback = [{'position': max(rest, joint['position'] - (.022 if i == 1 else 0.)) if joint['kp'] > 0
+                         else rest, 'velocity': 0., 'effort': 0.}
+                        for i, (joint, rest) in enumerate(zip(self.inner.last['status']['joints'], self.rest))]
+            return self.inner.step(max(now_ms, self.inner.now_ms), request, feedback=feedback)
+    core = HeadTeleop({'teleop_profile': str(ROOT / head.PROFILE), 'head_reference': reference, 'limits': limits,
+                       'servo': None, 'rest_pose': {'head_tilt': centre['head_tilt'] - .8}},
+                      live=False, clock=clock, open_harness=Sagging)
+    core.build()
+    try:
+        floor = core.usable['head_tilt'][0]
+        assert core.rest['head_tilt'] < floor - .03  # It rests below the lowest command its receiver takes.
+        for action in ('idle', 'enable'):
+            run(core, clock, .5, action)
+        assert positions(core)['head_tilt'] == pytest.approx(floor - .022, abs=1e-6)  # Held at the floor, sagged.
+        run(core, clock, .5, 'engage')
+        run(core, clock, 1.)
+        assert core.fault is None and core.state == 'TELEOP'
+        assert sent and min(sent) >= floor - 1e-9
+    finally:
+        core.close()

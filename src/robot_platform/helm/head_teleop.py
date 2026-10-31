@@ -187,7 +187,14 @@ class HeadTeleop:
             return desired
         measured = {row['name']: row['position'] for row in (self.session.last_feedback or [])}
         if self.state not in ('ENGAGING', 'TELEOP') or self._stepped is None:
-            self._stepped = {name: measured.get(name, self.zero[name]) for name in self.names}
+            # From where the head is held (the lifecycle's hold), else where it reads, inside its usable range (the
+            # lowest and highest commands its receiver takes): never where its weight sags it. Held at the bottom of
+            # tilt, the head read 0.022 rad below its hold; aligning from that reading, its command stepped down after
+            # it, under the receiver's floor, and Engage faulted (2026-10-31, "invalid_command").
+            held = self.session.lifecycle.target if self.state == 'HOLD' else None
+            start = dict(zip(self.names, held)) if held is not None else measured
+            self._stepped = {name: min(max(start.get(name, self.zero[name]), self.usable[name][0]),
+                                       self.usable[name][1]) for name in self.names}
             self._aligned = False
         if self.state != 'TELEOP':
             return dict(self._stepped)
