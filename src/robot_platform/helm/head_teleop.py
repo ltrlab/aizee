@@ -13,6 +13,7 @@ slowly, and Return (X), or the session's end, takes it back to its reference, th
 its torque goes: it is never dropped from straight ahead, and never crosses the shoulder corner on the way.
 """
 from copy import deepcopy
+import json
 import math
 from pathlib import Path
 import time
@@ -257,7 +258,25 @@ class HeadTeleop:
             reason = status.get('reason')
             self.fault = f"Head receiver {status.get('state')}: {reason} · {exc}" if reason not in (None, 'ok') \
                 else f'Head: {exc}'
+            self._keep_fault(exc, status)
             raise
+
+    def _keep_fault(self, exc, status):
+        """The failing cycle, beside the live head receiver's evidence (fault-<UTC>.json): what was asked of the
+        receiver, what it read and why the cycle failed. A command the receiver refuses leaves no trace there, and
+        "invalid_command" alone does not say which joint or limit (2026-10-31)."""
+        directory = getattr(self.receiver, 'directory', None)
+        if directory is None:
+            return
+        try:
+            stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
+            record = {'fault': self.fault, 'error': f'{type(exc).__name__}: {exc}', 'status': status,
+                      'cycle': self.session.last_cycle, 'returning': self.returning, 'stepped': self._stepped,
+                      'rest_target': self.rest_target, 'limited': self.limited}
+            (Path(directory) / f'fault-{stamp}.json').write_text(
+                json.dumps(record, indent=1, default=repr) + '\n', encoding='utf-8')
+        except (OSError, TypeError, ValueError):
+            pass  # Evidence only: never stands in the way of the fault itself.
 
     def _advance_return(self):
         """Return's next stage once the head has reached this one's goal (its steps there, and its reading)."""

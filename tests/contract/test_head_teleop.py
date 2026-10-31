@@ -338,3 +338,47 @@ def test_the_head_runs_on_a_receiver_that_answers_each_request_at_its_ticks():
         assert positions(core)['head_tilt'] == pytest.approx(core.rest_target['head_tilt'], abs=.03)
     finally:
         core.close()
+
+
+def test_a_refused_head_command_leaves_its_cycle_beside_the_receivers_evidence(tmp_path):
+    # Live, the receiver refused a head command ("Head: Guarded controller rejected request: invalid_command",
+    # 2026-10-31), and nothing said which joint or limit: the failing cycle is kept beside the receiver's evidence.
+    import json
+    from robot_platform.simulation.control_harness import NativeControlHarness
+    profile = head.load_profile(ROOT / head.PROFILE)
+    reference = head.virtual_reference(profile)
+    clock = Clock()
+
+    class Refusing:
+        """The harness as a live receiver (with its evidence directory), its tenth direct update over the gains'
+        ceiling, which the receiver core refuses."""
+
+        def __init__(self, config, initial):
+            self.inner, self.updates, self.directory = NativeControlHarness(config, initial), 0, tmp_path
+            self.close = self.inner.close
+
+        now_ms = property(lambda self: self.inner.now_ms)
+        last = property(lambda self: self.inner.last)
+
+        def step(self, now_ms, request=None):
+            if request is not None and request.get('type') == 'direct_update':
+                self.updates += 1
+                if self.updates == 10:
+                    request = dict(request, joints=[dict(joint, kp=1e3) for joint in request['joints']])
+            return self.inner.step(max(now_ms, self.inner.now_ms), request)
+    core = HeadTeleop({'teleop_profile': str(ROOT / head.PROFILE), 'head_reference': reference,
+                       'limits': head.virtual_limits(reference, span_rad=.8), 'servo': None},
+                      live=False, clock=clock, open_harness=Refusing)
+    core.build()
+    try:
+        with pytest.raises(Exception, match='invalid_command'):
+            for action in ('idle', 'enable', 'engage', None):
+                run(core, clock, .5, action)
+        record = json.loads(next(tmp_path.glob('fault-*.json')).read_text(encoding='utf-8'))
+        assert record['fault'] == 'Head: Guarded controller rejected request: invalid_command'
+        cycle = record['cycle']
+        assert 'invalid_command' in cycle['failure'] and cycle['lifecycle_before'] in ('HOLD', 'ENGAGING', 'TELEOP')
+        assert [len(cycle['proposal']['joints']), len(cycle['feedback'])] == [2, 2]
+        assert set(cycle['proposal']['joints'][0]) >= {'position', 'velocity', 'effort', 'kp', 'kd'}
+    finally:
+        core.close()
