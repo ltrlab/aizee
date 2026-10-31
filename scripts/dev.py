@@ -70,6 +70,9 @@ CORE = [
     'tests/contract/test_helm_tune_head.py', 'tests/contract/test_head_teleop.py',
     'tests/contract/test_teleop_head.py', 'tests/unit/test_helm_xr.py', 'tests/unit/test_minerva_network.py',
     'tests/unit/test_helm_network.py', 'tests/unit/test_helm_display_model.py', 'tests/unit/test_helm_head_setup.py',
+    'tests/unit/test_head_pose.py', 'tests/unit/test_head_loop.py', 'tests/unit/test_helm_camera_video.py',
+    'tests/unit/test_wrist_calibration.py', 'tests/unit/test_helm_calibration.py', 'tests/unit/test_head_alignment.py',
+    'tests/unit/test_helm_head_alignment.py', 'tests/unit/test_splat_scene.py', 'tests/unit/test_helm_maps.py',
 ]
 # The motion contract (AGENTS.md: approach, collision envelope, guarded lifecycle and receiver checks, the receiver
 # and collision crates) and the locks: a change there runs the whole check, never the quick lane.

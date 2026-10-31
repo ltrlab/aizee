@@ -316,6 +316,9 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
   - `tests/contract/test_head_teleop.py` (11) and `tests/contract/test_teleop_head.py` (11), the head in a session
     (a live head's process: the arms never wait for it, its fault or death holds them; and its pose feed);
   - `tests/unit/test_head_pose.py` (5): the camera's pose from the neck's angles, and the feed's rows and clock;
+  - `tests/unit/test_head_alignment.py` (8): the head camera's alignment on the table's tags (the solve, what the
+    head alone cannot tell, the saved mount the feed takes only for its head reference), and
+    `tests/unit/test_helm_head_alignment.py` (7), Helm's flow for it (HEADSET_3D_PLAN.md, Alignment);
   - `tests/unit/test_head_loop.py` (4), a live head's cycles on its own grid (in its process);
   - `tests/unit/test_helm_xr.py` (6): the gaze maths, the one-headset rule, the zero, the socket and the zero
     endpoint, and a stalled loop.

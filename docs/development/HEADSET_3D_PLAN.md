@@ -83,7 +83,7 @@ would; every other camera pose and every robot link follows through `M`.
 - **Checked offline:** the coarse model, loaded through the real scene from the model viewer, stands upright where
   the zero puts it, its head left out. Hand tracking needs the headset.
 
-## Alignment: the cameras with each other, then the model with the cameras (next, before the map)
+## Alignment: the cameras with each other, then the model with the cameras (head camera built)
 
 The user asked (2026-10-31) for one way to align everything, using the table's fiducials, which are placed to within
 5 mm. Today each view lines up only by CAD: the head camera's mount is the `AWG_RGB_CAMERA` part's centre, looking
@@ -111,7 +111,38 @@ over the depth, the wrist pictures, the map's frame) depends on these being meas
 - **Accuracy to expect:** the board's tags within 5 mm, each still's pose to 1-2 mm at the table (the head camera fit
   the tags to 0.75 px on 2026-10-18), so the views should agree to about 5 mm.
 
-## Phase 4: Gaussian splatting on soliloquy (training set up; a moving Minerva needs a live map)
+**The head camera's part, built (2026-10-31; not yet run on the real head):**
+- **The flow:** the Teleop tab's calibration card (Stills of the table's tags) has the head as a third camera. In a
+  session with the live head: turn it until its camera sees three or more tags, hold (T), capture (P); 8-12 stills
+  turned and tilted at least 10 degrees apart; Solve; Save alignment. Runs live beside the wrists' under
+  `~/minerva/helm/calibration/head/<run>/` (stills.jsonl, the averaged images, result.json).
+- **A still** (`helm.calibration_still`, on the robot): the stack of fresh frames averaged and its tags found, as a
+  wrist still; and the head's pose feed read from before the first frame until past the last. The still keeps the
+  neck's mean CAD angles over the stack, refused when either joint spread more than two of the servos' 1.53 mrad steps
+  (`config/devices/minerva-head-alignment.json`) or the samples do not cover the frames. Every still carries the
+  intrinsics the camera published with its frames and names the head reference its angles were read through.
+- **The solve** (`vision.head_alignment`): the wrist calibration's (each still's board pose, the robot-world hand-eye
+  closed form, then every corner's reprojection with soft-L1), with the intrinsics held at the D435's published ones.
+  It reports the mount against the CAD guess, the error in pixels and millimetres at the board, where the neck's pan
+  axis lies on the board from tag 0's corner (a tape measure can check it), and whether the head turned and tilted
+  enough. A two-joint neck cannot tell its pan zero from where the board lies (the placement takes it up) nor its tilt
+  zero from the mount: the result compares the board with the arms' own placement from the latest solved wrist
+  calibration, and the part of the difference about the pan axis is the pan zero error.
+- **Saved** as the head's camera file beside its reference and limits (`<asset>-head-camera.json`, the one it
+  replaces kept in the run's folder). A live head's pose feed then places the camera through the measured mount
+  when the file was made through the head reference in use (`neck.head_pose.aligned_mount`), else through the CAD
+  one; the head's status says which (`camera_mount`). So the headset's world-locked 3D and model, and the relay's
+  stamps on the head's depth, use it from the next session. Display only: nothing that moves reads it.
+- **Checked offline** (`tests/unit/test_head_alignment.py`, synthetic stills with 0.2 px noise from a mount 10.8 mm
+  and 2.7 degrees off the CAD guess): ten stills find the mount within 1.5 mm and 0.15 degrees and the board within
+  1 mm; with a 2 degree pan zero error the mount stays as good and the comparison with the arms reads 1.97 degrees.
+  Five stills already find the mount to about 1 mm. On Minerva, a head still from the real camera (a stand-in head
+  feed): 8 frames in 0.47 s, 54 feed samples covering them, the D435's intrinsics, 1.7 s in all.
+- **Still to come:** the wrist cameras' mounts against the same board (their calibration solves the board's place
+  too; held against the head's), the model drawn over each camera's picture, and the pan zero, if the arms' board
+  says it is off, set deliberately (the head's reference flow).
+
+## Phase 4: Gaussian splatting on soliloquy (a static map built end to end; a moving Minerva needs a live map)
 
 - **Frames:** the map in the world frame (the table's board, from the alignment), Minerva's pose in it
   `T_world_robot`: fixed today (the alignment's board pose), from odometry and the map's tracking once the base moves.
@@ -150,6 +181,29 @@ over the depth, the wrist pictures, the map's frame) depends on these being meas
     put around the operator and Minerva moves through it. The live depth keeps drawing over the map, for what moves.
   - The trainer built here stays useful: for first maps of a room, for tests, and as the quality reference for what
     the live mapping reaches.
+- **The static map, built (2026-10-31; not yet captured live):**
+  - **Capture:** the Teleop tab's map card (Head map), in a session with the live head engaged: Capture 15, 30 or
+    60 s, then look slowly around the workspace in the headset. `helm.scene_capture` runs on the robot, reading the
+    head camera's frames and the head's pose feed; a frame is kept when the head turned 3 degrees or moved 3 cm since
+    the last kept one (at most 3 a second), steady around its exposure. It goes to
+    `~/minerva/helm/maps/captures/<stamp>/` in the trainer's format: the picture as published, the depth, the
+    camera's pose in Minerva's frame and Minerva's pose in the world beside it (the board's once the head camera's
+    alignment holds, else her own frame). Rehearsed on Minerva (a stand-in head feed stepping 5 degrees): 61 frames
+    seen in 4 s, 10 kept, 1.8 MB.
+  - **Train:** `scripts/splat/train_on_station.py` on the build PC (it holds both keys) zips the newest capture
+    without a map on Minerva, trains it in soliloquy's WSL venv (its GPU's load printed first; nothing trains with
+    less than 3 GB free) and writes `map.splat` and `map.json` into `~/minerva/helm/maps/maps/<capture>/`. The
+    trainer builds the scene in the capture's world and writes the compact `.splat` (32 bytes a Gaussian, most
+    visible first: 3.5 MB for 109 k Gaussians, against the PLY's 27 MB). Run end to end on the real machines.
+  - **Serve:** `/api/helm/maps` lists the maps (newest first) with Minerva's pose in each world;
+    `/api/helm/maps/<name>/map.splat` serves the Gaussians.
+  - **Draw:** the headset's bar has a Map switch. With the world-locked 3D, `xr_splat.js` draws the newest map it can
+    place, by Minerva's pose in its world and `M`: each Gaussian a quad facing the eye, sized by its covariance
+    projected for that eye, blended back to front, the order sorted in a worker as the view turns. Drawn from a
+    synthetic capture's own frames it matches what the trainer fitted: 34.4 dB on a trained frame, 32.0 dB on a
+    held-out one (the trainer scored 32.7 dB held out).
+  - **Rover-ready:** Minerva's pose in the world is an input of its own everywhere (each capture frame records it,
+    the listing gives the headset the current one); when the base drives, only where that pose comes from changes.
 - **Next:**
   1. Stream the head camera's posed RGB-D to soliloquy: the relay's frames with their head pose (phase 2), at a rate
      the tether carries.
@@ -166,5 +220,5 @@ over the depth, the wrist pictures, the map's frame) depends on these being meas
 |---|---|
 | 2 | Turning the head, the table stays put in the headset; leaning shows what is behind an object, filled. |
 | 3 | The model's arms lie on the arms in the depth; each wrist camera follows its hand. |
-| Alignment | From the table's tags, each camera's mount and the board's place in Minerva's frame, saved by a Helm flow; every view agrees to about 5 mm. |
+| Alignment | From the table's tags, each camera's mount and the board's place in Minerva's frame, saved by a Helm flow; every view agrees to about 5 mm. The head camera's flow is built; its first real run is pending. |
 | 4 | A live splat map of the room renders in the headset around the live depth, aligned with it, and stays put as Minerva moves. |
