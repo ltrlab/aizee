@@ -224,9 +224,9 @@ def helm(tmp_path):
 
 
 class VideoFixture:
-    def __init__(self): self.viewers=set(); self.closed=False
-    def subscribe(self):
-        token=object(); self.viewers.add(token); return token
+    def __init__(self): self.viewers=set(); self.closed=False; self.depth=[]
+    def subscribe(self, depth=False):
+        token=object(); self.viewers.add(token); self.depth.append(depth); return token
     def unsubscribe(self,token): self.viewers.discard(token)
     def close(self): self.closed=True; self.viewers.clear()
     def snapshot(self):
@@ -448,3 +448,206 @@ def test_closing_the_last_viewer_tolerates_a_relay_already_gone():
     video._client, video._channel = Gone(), Gone()
     video.unsubscribe(token)
     assert not video._viewers and video._error == 'No camera viewers'
+
+
+# The head camera's depth for the headset's 3D picture: compressed on the robot only while a headset asks.
+DEPTH_K = {'fx': 4., 'fy': 5., 'cx': 3.5, 'cy': 2.5, 'width': 8, 'height': 6}
+COLOR_K = {'fx': 40., 'fy': 42., 'cx': 31.5, 'cy': 23.5, 'width': 64, 'height': 48}
+TO_COLOR = {'rotation': [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]], 'translation': [.015, 0., 0.]}
+
+
+def depth_parts(depth, stamp=1000., registered=True):
+    """The head camera's multipart: header, JPEG and its raw depth (camera_node's)."""
+    import numpy as np
+    raw = {'camera_id': 'scene_cam', 'timestamp': stamp, 'parts': ['color', 'depth'],
+           'color': dict({'format': 'jpeg', 'width': 64, 'height': 48}, **({'intrinsics': COLOR_K} if registered else {})),
+           'depth': dict({'format': 'uint16', 'width': depth.shape[1], 'height': depth.shape[0], 'intrinsics': DEPTH_K,
+                          'intrinsics_frame': 'sensor_optical', 'scale': .001},
+                         **({'to_color': TO_COLOR} if registered else {}))}
+    return [msgpack.packb(raw), JPEG, np.ascontiguousarray(depth, dtype='<u2').tobytes()]
+
+
+def test_the_relay_compresses_the_head_cameras_depth_for_a_headset():
+    import numpy as np
+    import zlib
+    from robot_platform.helm.camera_video_worker import DEPTH_RANGE_M, head_depth
+    depth = np.zeros((6, 8), dtype=np.uint16)
+    depth[0:2, 0:2] = [[0, 900], [1200, 0]]  # The nearest reading of each 2x2 block,
+    depth[0:2, 2:4] = [[100, 1000], [3000, 0]]  # its readings out of range set aside (0.15-2.5 m),
+    depth[2:4, 0:2] = [[4000, 0], [0, 120]]  # and none left: no reading.
+    depth[4:6, 6:8] = 2000
+    meta, packed = head_depth(depth_parts(depth))
+    near = np.frombuffer(zlib.decompress(packed), dtype='<u2').reshape(3, 4)
+    expected = np.zeros((3, 4), dtype=np.uint16)
+    expected[0, 0], expected[0, 1], expected[2, 3] = 900, 1000, 2000
+    np.testing.assert_array_equal(near, expected)
+    assert meta['bytes'] == len(packed) and meta['encoding'] == 'zlib-u16le' and meta['range_m'] == list(DEPTH_RANGE_M)
+    assert (meta['width'], meta['height'], meta['scale']) == (4, 3, .001)
+    # A half-size pixel's ray is its 2x2 block's centre ray.
+    k = meta['intrinsics']
+    for u, v in ((0, 0), (3, 2), (1, 1)):
+        assert ((u - k['cx']) / k['fx'], (v - k['cy']) / k['fy']) == pytest.approx(
+            ((2 * u + .5 - DEPTH_K['cx']) / DEPTH_K['fx'], (2 * v + .5 - DEPTH_K['cy']) / DEPTH_K['fy']))
+    assert meta['color_intrinsics'] == COLOR_K and meta['to_color'] == TO_COLOR
+    assert 'to_color' not in head_depth(depth_parts(depth, registered=False))[0]  # An older camera: depth only.
+    assert head_depth([msgpack.packb({'parts': ['color']}), JPEG]) is None
+    with pytest.raises(ValueError, match='Malformed'):
+        head_depth(depth_parts(np.zeros((5, 8), dtype=np.uint16)))
+
+
+def test_the_relay_keeps_to_the_background_cpus(tmp_path, monkeypatch):
+    from robot_platform.helm import camera_video_worker
+    moved = []
+    monkeypatch.setattr(camera_video_worker.os, 'sched_setaffinity', lambda pid, cpus: moved.append((pid, cpus)),
+                        raising=False)
+    camera_video_worker.keep_off_control_cpus(tmp_path / 'none.json')  # No CPU split: it stays where it is.
+    assert moved == []
+    split = tmp_path / 'cpu-partition.json'
+    split.write_text(json.dumps({'control': [4, 5], 'background': [0, 1, 2, 3]}), encoding='utf-8')
+    camera_video_worker.keep_off_control_cpus(split)
+    assert moved == [(0, {0, 1, 2, 3})]
+
+
+def test_helm_serves_the_head_frame_with_its_depth_as_a_role_of_its_own(tmp_path):
+    import numpy as np
+    from robot_platform.helm.camera_video import DEPTH_ROLE
+    from robot_platform.helm.camera_video_worker import head_depth
+    video = CameraVideo(tmp_path/'profile', address=lambda: 'fixture', clock=lambda: 10.)
+    video._heartbeats.append((1, 9.9))
+    meta, packed = head_depth(depth_parts(np.full((6, 8), 1000, dtype=np.uint16)))
+    video._accept(header(jpeg_bytes=len(JPEG), depth=meta), JPEG + packed)
+    _status, frames = video.snapshot()
+    assert frames['head'][1] == JPEG  # Every other viewer sees the head's picture as before.
+    depth_header, payload = frames[DEPTH_ROLE]
+    assert depth_header['role'] == DEPTH_ROLE and depth_header['sequence'] == frames['head'][0]['sequence']
+    assert depth_header['jpeg_bytes'] == len(JPEG) and depth_header['depth'] == meta and payload == JPEG + packed
+    video._accept(header(source_timestamp=1001.), JPEG)  # A frame without depth: no depth to serve.
+    assert DEPTH_ROLE not in video.snapshot()[1]
+    for bad in (header(jpeg_bytes=len(JPEG), depth=dict(meta, bytes=1)),
+                header(jpeg_bytes=len(JPEG) + 5, depth=meta),
+                header(jpeg_bytes=len(JPEG), depth=dict(meta, encoding='png')),
+                header(role='left_wrist', jpeg_bytes=len(JPEG), depth=meta)):
+        with pytest.raises(ValueError):
+            video._accept(bad, JPEG + packed)
+
+
+def test_helm_asks_the_relay_for_depth_only_while_a_headset_wants_it(tmp_path):
+    lines = []
+
+    class Watching(Channel):
+        def send_heartbeat(self, line):
+            lines.append(json.loads(line))
+            super().send_heartbeat(line)
+
+    class Watched(Client):
+        def __init__(self):
+            super().__init__()
+            self.channel = Watching()
+    video = CameraVideo(tmp_path/'profile', address=lambda: 'fixture', open_ssh=lambda *args, **kwargs: Watched())
+    plain = video.subscribe()
+    try:
+        until(lambda: len(lines) >= 2)
+        assert not any(line['depth'] for line in lines)
+        headset = video.subscribe(depth=True)
+        count = len(lines)
+        until(lambda: len(lines) >= count + 2)
+        assert lines[-1]['depth'] is True
+        video.unsubscribe(headset)
+        count = len(lines)
+        until(lambda: len(lines) >= count + 2)
+        assert lines[-1]['depth'] is False
+        video.unsubscribe(plain)
+    finally:
+        video.close()
+
+
+class DepthCamera(VideoFixture):
+    """The head's picture, and the same frame with its depth."""
+    def __init__(self):
+        super().__init__()
+        self.sequence = 0
+
+    def snapshot(self):
+        self.sequence += 1
+        status, _frames = super().snapshot()
+        base = {'sequence': self.sequence, 'age_s': .02, 'source_timestamp': time.time()}
+        return status, {'head': (dict(base, role='head'), JPEG),
+                        'head_depth': (dict(base, role='head_depth', jpeg_bytes=len(JPEG), depth={'bytes': 3}),
+                                       JPEG + b'zzz')}
+
+
+def test_a_headset_asking_for_depth_gets_the_heads_frames_with_their_depth(helm):
+    from aiohttp import WSMsgType
+    from aiohttp.test_utils import TestClient, TestServer
+    video = DepthCamera()
+
+    async def run():
+        async with TestClient(TestServer(create_app(helm, SimulationLink(), camera_video=video,
+                                                    token='secret'))) as client:
+            ws = await client.ws_connect('/api/helm/cameras/live?token=secret&roles=head_depth')
+            seen = []
+            for beat in range(1, 60):
+                await ws.send_json({'type': 'heartbeat', 'sequence': beat})
+                message = await ws.receive(timeout=1)
+                if message.type == WSMsgType.BINARY:
+                    count = struct.unpack('!I', message.data[:4])[0]
+                    seen.append((json.loads(message.data[4:4 + count])['role'], message.data[4 + count:]))
+                    if len(seen) >= 4:
+                        break
+            await ws.close()
+            assert seen and all(item == ('head_depth', JPEG + b'zzz') for item in seen)
+            assert video.depth == [True]
+    asyncio.run(run())
+
+
+def test_the_actual_relay_sends_depth_after_the_heads_jpeg_while_asked():
+    import numpy as np
+    import zlib
+    context = zmq.Context()
+    publisher = context.socket(zmq.PUB)
+    port = publisher.bind_to_random_port('tcp://127.0.0.1')
+    code = 'from robot_platform.helm.camera_video_worker import run; run(' + repr({'head': (port, 'scene_cam')}) + ')'
+    process = subprocess.Popen([sys.executable, '-u', '-c', code], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE)
+    received = []
+
+    def read():
+        decoder = PacketDecoder()
+        while True:
+            chunk = process.stdout.read1(65536)
+            if not chunk:
+                return
+            for data, payload in decoder.feed(chunk):
+                if payload:
+                    received.append((data, payload))
+    reader = threading.Thread(target=read)
+    reader.start()
+    depth = np.full((6, 8), 1500, dtype=np.uint16)
+    try:
+        for depth_wanted in (False, True):
+            count, start, next_heartbeat = len(received), time.monotonic(), 0.
+            line = json.dumps({'heartbeat': 4, 'depth': depth_wanted}).encode() + b'\n'
+            while time.monotonic() - start < 1.:
+                if time.monotonic() >= next_heartbeat:
+                    process.stdin.write(line)
+                    process.stdin.flush()
+                    next_heartbeat = time.monotonic() + .1
+                publisher.send_multipart(depth_parts(depth, stamp=time.time()))
+                time.sleep(.015)
+            later = received[count + 2:]  # After the relay has the new heartbeat.
+            assert later
+            if not depth_wanted:
+                assert all('depth' not in data and payload == JPEG for data, payload in later)
+            else:
+                for data, payload in later:
+                    assert payload[:data['jpeg_bytes']] == JPEG and data['depth']['bytes'] == len(payload) - len(JPEG)
+                    near = np.frombuffer(zlib.decompress(payload[len(JPEG):]), dtype='<u2')
+                    assert near.shape == (12,) and (near == 1500).all()
+    finally:
+        process.stdin.close()
+        process.wait(timeout=2)
+        reader.join(1)
+        process.stdout.close()
+        process.stderr.close()
+        publisher.close(0)
+        context.term()

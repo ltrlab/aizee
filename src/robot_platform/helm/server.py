@@ -485,7 +485,11 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             if raw is not None:
                 raw.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, VIDEO_SOCKET_BUFFER)
         video_sockets.add(ws)
-        acquiring = asyncio.create_task(off_loop(camera_video.subscribe))
+        # A viewer may want some cameras only (?roles=head: the headset's screen), not every camera's frames; the
+        # headset's 3D picture asks for the head camera's frames with their depth (?roles=head_depth).
+        wanted = {role for role in request.query.get('roles', '').split(',') if role}
+        from .camera_video import DEPTH_ROLE
+        acquiring = asyncio.create_task(off_loop(lambda: camera_video.subscribe(depth=DEPTH_ROLE in wanted)))
         try:
             viewer = await asyncio.shield(acquiring)
         except asyncio.CancelledError:
@@ -494,8 +498,6 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             video_sockets.discard(ws)
             raise
         viewer_heartbeat = {'sequence':None, 'at':asyncio.get_running_loop().time()}
-        # A viewer may want some cameras only (?roles=head: the headset's screen), not every camera's frames.
-        wanted = {role for role in request.query.get('roles', '').split(',') if role}
 
         async def close_video(code=1000, message=b''):
             try:

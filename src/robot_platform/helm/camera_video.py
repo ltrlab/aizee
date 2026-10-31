@@ -8,9 +8,12 @@ import struct
 import threading
 import time
 
-from .camera_video_worker import MAX_HEADER, MAX_JPEG, ROLES
+from .camera_video_worker import DEPTH_ENCODING, MAX_DEPTH_SIDE, MAX_HEADER, MAX_JPEG, ROLES
 
 STALE_AFTER = 1.
+# The head camera's frame with its depth (camera_video_worker.head_depth), for a headset's 3D picture: a viewer
+# asks for it as a role of its own.
+DEPTH_ROLE = 'head_depth'
 
 
 class PacketDecoder:
@@ -45,6 +48,7 @@ class CameraVideo:
         self.profile, self.address, self.open_ssh, self.clock = Path(profile), address, open_ssh, clock
         self._lock = threading.Lock()
         self._viewers, self._frames, self._errors = set(), {}, {}
+        self._depth_viewers = set()  # Viewers of DEPTH_ROLE: the relay compresses depth only while there are any.
         self._sequences = {role:0 for role in ROLES}
         self._heartbeats = deque(maxlen=32)
         self._heartbeat_sequence = 0
@@ -53,12 +57,15 @@ class CameraVideo:
         self._closed = False
         self._error = 'Waiting for a viewer'
 
-    def subscribe(self):
+    def subscribe(self, depth=False):
+        """A viewer's token; `depth`: it wants the head camera's depth too (DEPTH_ROLE)."""
         with self._lock:
             if self._closed:
                 raise RuntimeError('Camera video is closed')
             token = object()
             self._viewers.add(token)
+            if depth:
+                self._depth_viewers.add(token)
             if self._thread is None:
                 self._start_locked()
             return token
@@ -72,6 +79,7 @@ class CameraVideo:
     def unsubscribe(self, token):
         with self._lock:
             self._viewers.discard(token)
+            self._depth_viewers.discard(token)
             if self._viewers:
                 return
             self._stop.set()
@@ -91,6 +99,7 @@ class CameraVideo:
         with self._lock:
             self._closed = True
             self._viewers.clear()
+            self._depth_viewers.clear()
         self.unsubscribe(None)
 
     def snapshot(self):
@@ -107,7 +116,28 @@ class CameraVideo:
                     header = {'role':role, 'sequence':frame['sequence'], 'age_s':age,
                               'source_timestamp':frame['source_timestamp']}
                     frames[role] = (header, frame['jpeg'])
+                    if frame.get('depth') is not None:  # The same frame with its depth, after its JPEG.
+                        meta, packed = frame['depth']
+                        frames[DEPTH_ROLE] = (dict(header, role=DEPTH_ROLE, jpeg_bytes=len(frame['jpeg']), depth=meta),
+                                              frame['jpeg'] + packed)
             return {'type':'status', 'cameras':cameras, 'target_fps':10, 'stale_after_s':STALE_AFTER}, frames
+
+    @staticmethod
+    def _depth(header, payload):
+        """(jpeg, (depth metadata, compressed depth)) from a relay frame carrying the head camera's depth after its
+        JPEG (camera_video_worker.head_depth)."""
+        size, meta = header.get('jpeg_bytes'), header.get('depth')
+        if type(size) is not int or not 4 <= size <= len(payload) or not isinstance(meta, dict):
+            raise ValueError('Malformed relay depth')
+        finite = lambda value: type(value) in (int, float) and math.isfinite(value)  # noqa: E731
+        k = meta.get('intrinsics')
+        if (meta.get('encoding') != DEPTH_ENCODING or meta.get('bytes') != len(payload) - size
+                or any(type(meta.get(side)) is not int or not 1 <= meta[side] <= MAX_DEPTH_SIDE // 2
+                       for side in ('width', 'height'))
+                or not finite(meta.get('scale')) or not isinstance(k, dict)
+                or not all(finite(k.get(key)) for key in ('fx', 'fy', 'cx', 'cy'))):
+            raise ValueError('Malformed relay depth metadata')
+        return payload[:size], (meta, payload[size:])
 
     def _accept(self, header, jpeg):
         now = self.clock()
@@ -137,6 +167,11 @@ class CameraVideo:
             age, stamp = header.get('source_age_s'), header.get('source_timestamp')
             if any(type(value) not in (int,float) or not math.isfinite(value) for value in (age, stamp)) or age < 0:
                 raise ValueError('Invalid camera freshness metadata')
+            depth = None
+            if 'depth' in header:
+                if role != 'head':
+                    raise ValueError('Only the head camera carries depth')
+                jpeg, depth = self._depth(header, jpeg)
             if not 4 <= len(jpeg) <= MAX_JPEG or not jpeg.startswith(b'\xff\xd8') or not jpeg.endswith(b'\xff\xd9'):
                 raise ValueError('Invalid relay JPEG envelope')
             bound = age + transit_bound
@@ -146,7 +181,7 @@ class CameraVideo:
                 return
             self._sequences[role] += 1
             self._frames[role] = {'jpeg':jpeg, 'source_timestamp':stamp, 'age_at_receive':bound,
-                                 'received_at':now, 'sequence':self._sequences[role]}
+                                 'received_at':now, 'sequence':self._sequences[role], 'depth':depth}
             self._errors.pop(role, None)
             self._error = None
 
@@ -157,7 +192,8 @@ class CameraVideo:
                     self._heartbeat_sequence += 1
                     token = self._heartbeat_sequence
                     self._heartbeats.append((token, self.clock()))
-                stdin.write(json.dumps({'heartbeat':token}) + '\n')
+                    depth = bool(self._depth_viewers)  # The relay compresses the head's depth only while asked.
+                stdin.write(json.dumps({'heartbeat':token, 'depth':depth}) + '\n')
                 stdin.flush()
                 stop.wait(.2)
         except Exception:
