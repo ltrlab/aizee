@@ -694,6 +694,12 @@ class TeleopCore:
             # Started last: building (its garbage collection above) holds the interpreter longer than a head cycle's
             # budget.
             from .head_teleop import HeadLoop
+            from robot_platform.control.scheduling import prefer_background
+            # The head keeps off the arms' CPUs: its service process now, its thread as it starts (HeadLoop). On them,
+            # the arms' receiver started its ticks up to 9.2 ms late beside the head, and an arm command expired
+            # (2026-10-31, 15:15); the head's service only stops at 15 ms late.
+            process = getattr(self.head.receiver, 'process', None)
+            self.scheduling['head'] = prefer_background(process.pid) if process is not None else []
             switch_interval = sys.getswitchinterval()
             sys.setswitchinterval(HEAD_SWITCH_INTERVAL_S)
             self._closers.append(lambda: sys.setswitchinterval(switch_interval))

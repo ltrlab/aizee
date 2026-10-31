@@ -162,6 +162,25 @@ def test_beside_a_live_heads_thread_the_interpreter_changes_hands_within_a_milli
         core.close()
 
 
+def test_a_live_heads_service_moves_off_the_arms_cpus(bundle, monkeypatch):
+    # On the arms' CPUs, beside the head, the arms' receiver started its ticks up to 9.2 ms late and an arm command
+    # expired (2026-10-31, 15:15). With a live head's thread, the head's service process moves to the background
+    # CPUs (control.scheduling.prefer_background), as its thread does when it starts.
+    from robot_platform.control import scheduling
+    moved = []
+    monkeypatch.setattr(scheduling, 'prefer_background', lambda pid=None: moved.append(pid) or ['background_cpus'])
+    data, path = bundle
+    direct_profile(path, 100)
+    core = TeleopCore(dict(data, receiver={'mode': 'virtual'}, head=head_bundle()),
+                      open_leaders=lambda _: Leaders(time.perf_counter))
+    core.head_thread = True  # As a live session's.
+    core.build()
+    try:
+        assert moved == [core.head.receiver.process.pid] and core.scheduling['head'] == ['background_cpus']
+    finally:
+        core.close()
+
+
 def test_a_fault_on_the_heads_own_thread_holds_the_arms(bundle, monkeypatch):
     # A fault ends the live head's thread; the arms' next tick holds the arms, as after a failed inline head cycle.
     # The thread stands in here: each post cycles the head at once, on this test's clock, its fault kept on its side.

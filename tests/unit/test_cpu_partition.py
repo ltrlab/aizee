@@ -8,7 +8,8 @@ from types import SimpleNamespace
 import pytest
 
 from robot_platform.control import scheduling
-from robot_platform.control.scheduling import cpu_partition, prefer_background, prefer_responsive
+from robot_platform.control.scheduling import (cpu_partition, prefer_background, prefer_background_thread,
+                                               prefer_responsive)
 
 ALL = set(range(6))
 
@@ -74,6 +75,21 @@ def test_a_refused_move_reports_no_hint(linux):
     linux.refuse = PermissionError('another user')
     assert prefer_responsive(100) == [] and prefer_background(100) == []
     assert prefer_responsive(4242) == []  # No such process.
+
+
+def test_a_thread_of_a_control_process_moves_alone_onto_the_background_cpus(linux):
+    # A live head's cycles beside the arms' (helm.head_teleop.HeadLoop): the calling thread (0) moves, its process
+    # stays on the control CPUs.
+    linux.cpus[0] = set(ALL)
+    assert prefer_background_thread() == [] and linux.cpus[0] == ALL  # No partition installed: nothing moves.
+    split(linux.partition)
+    for tid in (100, 101):
+        linux.thread(100, tid)
+    assert prefer_responsive(100) == ['control_cpus']
+    assert prefer_background_thread() == ['background_cpus']
+    assert linux.cpus == {0: {0, 1, 2, 3}, 100: {4, 5}, 101: {4, 5}}
+    linux.refuse = PermissionError('refused')
+    assert prefer_background_thread() == []
 
 
 @pytest.mark.parametrize('content', [

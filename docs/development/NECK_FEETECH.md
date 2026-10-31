@@ -172,8 +172,14 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
   no faults) the arms' loop held its median, but its worst cycles got slower: exchanges up to 10.6 ms (2-3 ms with
   the arms alone), 29 late cycles in 21,795, and an arm command came within 2 ms of expiring (6-7 ms alone). CPython
   hands its interpreter to a waiting thread after 5 ms; beside a live head's thread it does after 1 ms (as the demo
-  collector's loop has it), until the session closes. Next if that is not enough: the head's service and thread off
-  the control CPUs, or the head in a process of its own.
+  collector's loop has it), until the session closes.
+- **Off the arms' CPUs:** that was not it. The second full VR session faulted after 3 minutes following
+  ("command_expired · wrong_owner", 2026-10-31 15:15): the arms' receiver started a tick 9.24 ms late (its longest
+  work was 4.06 ms) right where a command ran out. Beside the head, the receiver's starts more than 4 ms late came
+  10-30 a minute, against 1-8 with the arms alone, even with everything limp before Idle. The arms' loop and receiver
+  keep to the control CPUs (4-5), and the head had joined them: its service process and its thread. Beside the arms,
+  both now move to the background CPUs (`scheduling.prefer_background`, `prefer_background_thread`); the head's
+  service stops only when a tick is 15 ms late, against the receiver's 2.5 ms ticks.
 
 - **What it follows while the session follows (T):**
   1. the headset, while its latest pose is at most 0.2 s old;
@@ -249,8 +255,8 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
 - Python:
   - `tests/unit/test_neck_feetech.py` (13), `tests/unit/test_neck_head.py` (3);
   - `tests/contract/test_helm_tune_head.py` (4), which includes a whole head sweep on the real core;
-  - `tests/contract/test_head_teleop.py` (11) and `tests/contract/test_teleop_head.py` (7), the head in a session;
-  - `tests/unit/test_head_loop.py` (3), a live head's own thread;
+  - `tests/contract/test_head_teleop.py` (11) and `tests/contract/test_teleop_head.py` (8), the head in a session;
+  - `tests/unit/test_head_loop.py` (4), a live head's own thread, off the arms' CPUs;
   - `tests/unit/test_helm_xr.py` (6): the gaze maths, the one-headset rule, the zero, the socket and the zero
     endpoint, and a stalled loop.
 

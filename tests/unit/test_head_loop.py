@@ -82,3 +82,28 @@ def test_stop_ends_the_heads_cycles_at_once():
     cycles = head.cycles
     time.sleep(3 * PERIOD_S)
     assert head.cycles == cycles
+
+
+def test_the_heads_thread_moves_off_the_arms_cpus_before_its_first_cycle():
+    # Beside the head, the arms' receiver started its ticks up to 9.2 ms late on their shared CPUs and an arm command
+    # expired (2026-10-31): the head's thread places itself (control.scheduling) on itself, first.
+    head, seen = Head(), []
+
+    def placement():
+        seen.append((threading.get_ident(), head.cycles))
+        return ['background_cpus']
+    loop = HeadLoop(head, placement=placement).start()
+    try:
+        assert wait_for(lambda: head.cycles >= 2)
+        assert seen == [(loop._thread.ident, 0)] and loop.placement == ['background_cpus']
+    finally:
+        loop.stop()
+
+    def refused():
+        raise OSError('refused')
+    head = Head()
+    loop = HeadLoop(head, placement=refused).start()  # A hint, not a condition: it cycles where it is.
+    try:
+        assert wait_for(lambda: head.cycles >= 2) and loop.placement == []
+    finally:
+        loop.stop()

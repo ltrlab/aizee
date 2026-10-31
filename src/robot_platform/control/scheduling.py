@@ -13,8 +13,11 @@ its receiver, and their load stretched the loop's cycles until a command
 expired (2026-10-17). A host with a CPU partition installed (PARTITION, written
 by ops.cpu_partition with the camera services' CPUAffinity) keeps every thread
 of a control process on the partition's control CPUs, and prefer_background
-moves camera-side work, such as live task capture, onto the others. Without the
-file nothing moves: control CPUs only help where the cameras keep off them.
+moves camera-side work, such as live task capture, onto the others;
+prefer_background_thread moves one thread of a control process there (a live
+head's cycles beside the arms', whose receiver otherwise started its ticks up to
+9 ms late and let an arm command expire, 2026-10-31). Without the file nothing
+moves: control CPUs only help where the cameras keep off them.
 """
 import json
 import os
@@ -72,6 +75,19 @@ def prefer_background(pid=None):
     """Keep work that must not delay a control loop (camera decoding, episode writing) off its CPUs."""
     partition = cpu_partition() if sys.platform.startswith('linux') else None
     return ['background_cpus'] if partition and pin_threads(partition[1], pid) else []
+
+
+def prefer_background_thread():
+    """Move the calling thread alone onto the background CPUs: work inside a control process that must not delay its
+    loop (a live head's cycles beside the arms', helm.head_teleop). Threads it starts later go there too."""
+    partition = cpu_partition() if sys.platform.startswith('linux') else None
+    if not partition:
+        return []
+    try:
+        os.sched_setaffinity(0, partition[1])  # 0: the calling thread, not its process.
+    except OSError:
+        return []
+    return ['background_cpus']
 
 
 def prefer_responsive(pid=None):

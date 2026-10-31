@@ -344,12 +344,18 @@ class HeadLoop:
     every 40 ms: the arms' commands went out 10 and 30 ms apart, each 30 ms long, and the one Enable sent expired
     before the next arrived (2026-10-31, "command_expired · wrong_owner"). The arms' actions reach the head in order
     (`post`); between them it cycles on its own 40 ms grid. A fault ends the thread (`head.fault` says why; the arms'
-    loop holds the arms when it sees it), and `stop` ends it before the head closes."""
+    loop holds the arms when it sees it), and `stop` ends it before the head closes.
+
+    The thread first moves off the arms' CPUs (`placement`, control.scheduling): on them, beside the head, the arms'
+    receiver started its ticks up to 9.2 ms late and an arm command expired (2026-10-31, 15:15)."""
 
     JOIN_S = 2.  # Several of the head's 200 ms exchange timeouts: a cycle stuck past this is not coming back.
 
-    def __init__(self, head, *, clock=time.perf_counter):
+    def __init__(self, head, *, clock=time.perf_counter, placement=None):
+        from robot_platform.control.scheduling import prefer_background_thread
         self.head, self.clock = head, clock
+        self._place = placement or prefer_background_thread
+        self.placement = None  # The hints that took on the thread, once it started.
         self._actions = deque()
         self._lock = threading.Lock()
         self._wake = threading.Event()
@@ -376,6 +382,10 @@ class HeadLoop:
             return bool(self._actions)
 
     def _run(self):
+        try:
+            self.placement = self._place()
+        except Exception:
+            self.placement = []  # A hint, not a condition: the head cycles where it is.
         head = self.head
         while not self._stopping and not head.fault:
             self._wake.clear()  # Before taking an action: one posted from here on wakes the wait below.
