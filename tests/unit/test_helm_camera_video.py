@@ -650,10 +650,24 @@ def test_the_actual_relay_sends_depth_after_the_heads_jpeg_while_asked():
     reader.start()
     depth = np.full((6, 8), 1500, dtype=np.uint16)
     try:
+        # Until the relay is up: its process can take more than the second each phase runs to start (one run in
+        # about a dozen here; under a loaded gate, more).
+        deadline, next_heartbeat = time.monotonic() + 30., 0.
+        while not received:
+            assert time.monotonic() < deadline, 'The relay sent no frame'
+            if time.monotonic() >= next_heartbeat:
+                process.stdin.write(b'{"heartbeat": 4, "depth": false}\n')
+                process.stdin.flush()
+                next_heartbeat = time.monotonic() + .1
+            publisher.send_multipart(depth_parts(depth, stamp=time.time()))
+            time.sleep(.015)
         for depth_wanted in (False, True):
-            count, start, next_heartbeat = len(received), time.monotonic(), 0.
+            # Each way until six frames have come since its first heartbeat: a fixed second came up short now and
+            # then on a busy PC.
+            count, deadline, next_heartbeat = len(received), time.monotonic() + 10., 0.
             line = json.dumps({'heartbeat': 4, 'depth': depth_wanted}).encode() + b'\n'
-            while time.monotonic() - start < 1.:
+            while len(received) - count < 6:
+                assert time.monotonic() < deadline, f'depth {depth_wanted}: {len(received) - count} frames in 10 s'
                 if time.monotonic() >= next_heartbeat:
                     process.stdin.write(line)
                     process.stdin.flush()
@@ -753,25 +767,35 @@ def test_the_actual_relay_stamps_the_heads_depth_with_its_pose_while_a_session_r
     reader = threading.Thread(target=read)
     reader.start()
     depth = np.full((6, 8), 1500, dtype=np.uint16)
+    heartbeat = {'next': 0.}
+
+    def send_frame():
+        if time.monotonic() >= heartbeat['next']:
+            process.stdin.write(b'{"heartbeat":5,"depth":true}\n')
+            process.stdin.flush()
+            heartbeat['next'] = time.monotonic() + .1
+        camera.send_multipart(depth_parts(depth, stamp=time.time()))
+        time.sleep(.015)
     try:
-        start, next_heartbeat, sent_until = time.monotonic(), 0., time.time() - .1
-        while time.monotonic() - start < 2.:
-            now = time.time()
-            if time.monotonic() >= next_heartbeat:
-                process.stdin.write(b'{"heartbeat":5,"depth":true}\n')
-                process.stdin.flush()
-                next_heartbeat = time.monotonic() + .1
-            if time.monotonic() - start < 1.2:  # The session's head, for the first part: its rows every 10 ms.
-                times = [sent_until + (i + 1) / 100 for i in range(int((now - sent_until) * 100))]
+        # Until the relay is up: under a loaded gate its process takes seconds to start (2026-10-31: no frame came
+        # within the 1.2 s the session's head ran).
+        deadline = time.monotonic() + 30.
+        while not any('depth' in data for data in received):
+            assert time.monotonic() < deadline, 'The relay sent no depth frame'
+            send_frame()
+        session, sent_until = time.time(), time.time() - .1
+        end = time.monotonic() + 2.8
+        while time.monotonic() < end:
+            if end - time.monotonic() > .8:  # The session's head, for its first 2 s: its rows every 10 ms.
+                times = [sent_until + (i + 1) / 100 for i in range(int((time.time() - sent_until) * 100))]
                 if times:
                     feed.send(pose_message(*times))
                     sent_until = times[-1]
-            camera.send_multipart(depth_parts(depth, stamp=now))
-            time.sleep(.015)
+            send_frame()
         time.sleep(.3)  # The last frames out of the pipe.
         frames = [(data['source_timestamp'] - CAPTURE_LAG_S, data['depth'].get('head'))
                   for data in received if 'depth' in data]
-        joined = frames[0][0] + .2  # Once the relay has joined the feed too.
+        joined = session + .2  # Once the relay has joined the feed too.
         during = [head for capture, head in frames if joined < capture < sent_until - .1]
         after = [head for capture, head in frames if capture > sent_until + HEAD_POSE_SKEW_S]
         assert during and all(during) and all(abs(head['skew_ms']) <= 10 for head in during)
