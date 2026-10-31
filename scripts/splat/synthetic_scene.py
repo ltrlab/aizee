@@ -95,8 +95,11 @@ def render(pose, k):
     return np.clip(colour, 0, 255).astype(np.uint8), depth
 
 
-def write(out, frames=64):
+def write(out, frames=64, robot_in_world=None):
+    """The capture; with `robot_in_world` (4 x 4), Minerva stands there in the world the scene is built in: the
+    frames' poses stay in the robot frame, each with Minerva's pose in the world beside it."""
     out = Path(out)
+    world = np.eye(4) if robot_in_world is None else np.asarray(robot_in_world, float)
     (out / 'color').mkdir(parents=True, exist_ok=True)
     (out / 'depth').mkdir(exist_ok=True)
     to_color = np.eye(4)
@@ -107,16 +110,18 @@ def write(out, frames=64):
         pan = .55 * math.sin(2 * math.pi * i / frames) + rng.normal(0, .02)
         tilt = -.55 + .2 * math.cos(4 * math.pi * i / frames) + rng.normal(0, .02)
         pose = camera_pose(pan, tilt)
-        image, _ = render(pose, COLOR_K)
-        _, depth = render(pose @ to_color, DEPTH_K)  # The depth sensor where the registration puts it.
+        image, _ = render(world @ pose, COLOR_K)
+        _, depth = render(world @ pose @ to_color, DEPTH_K)  # The depth sensor where the registration puts it.
         buffer = io.BytesIO()
         Image.fromarray(image).save(buffer, format='JPEG', quality=92)
         (out / f'color/{i:06d}.jpg').write_bytes(buffer.getvalue())
         raw = np.where((depth > .15) & (depth < 3.), np.round(depth * 1000), 0).astype('<u2')
         (out / f'depth/{i:06d}.u16.z').write_bytes(zlib.compress(raw.tobytes(), 1))
-        records.append({'color': f'color/{i:06d}.jpg', 'depth': f'depth/{i:06d}.u16.z', 'pose': pose7(pose)})
+        records.append({'color': f'color/{i:06d}.jpg', 'depth': f'depth/{i:06d}.u16.z', 'pose': pose7(pose),
+                        'robot_in_world': pose7(world)})
     (out / 'scene.json').write_text(json.dumps({
-        'schema': 1, 'kind': 'head_scene', 'source': 'synthetic', 'color_intrinsics': COLOR_K,
+        'schema': 1, 'kind': 'head_scene', 'source': 'synthetic', 'world': 'robot' if robot_in_world is None else
+        'board', 'color_intrinsics': COLOR_K,
         'depth_intrinsics': DEPTH_K, 'to_color': TO_COLOR, 'depth_scale': .001, 'frames': records}, indent=1))
     return out
 

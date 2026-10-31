@@ -3,21 +3,25 @@
 Runs on the operator station soliloquy, in its Ubuntu (WSL2) venv with CUDA PyTorch and gsplat (setup_wsl.sh), not in
 the platform: the robot never trains. The capture is a folder:
 
-    scene.json   {"schema": 1, "kind": "head_scene", "color_intrinsics": {fx, fy, cx, cy, width, height},
-                  "depth_intrinsics": {...}, "to_color": {"rotation", "translation"}, "depth_scale": metres a unit,
+    scene.json   {"schema": 1, "kind": "head_scene", "world": "board" or "robot",
+                  "color_intrinsics": {fx, fy, cx, cy, width, height}, "depth_intrinsics": {...},
+                  "to_color": {"rotation", "translation"}, "depth_scale": metres a unit,
                   "frames": [{"color": "color/000000.jpg", "depth": "depth/000000.u16.z",
-                              "pose": [x, y, z, qx, qy, qz, qw]}, ...]}
+                              "pose": [x, y, z, qx, qy, qz, qw], "robot_in_world": [x, y, z, qx, qy, qz, qw]}, ...]}
     color/*.jpg  the head camera's colour pictures as published
     depth/*.u16.z its depth, zlib-compressed little-endian uint16 at depth_intrinsics' size
 
 Each pose is the colour camera's optical frame (x right, y down, z ahead) in Minerva's robot frame, from the head's
-measured pose (neck.head_pose): the trained scene is in the robot frame, so the headset places it as it places the
-model, by the zero mapping M.
+measured pose (neck.head_pose); each frame's robot_in_world is Minerva's pose in the world when it was taken: the
+board's frame once the head camera is aligned on the table's tags, constant while the base stands still, from
+odometry once it drives (absent: the world is the robot frame). The trained scene is in that world, so a moving
+Minerva does not move it; the headset places it by Minerva's pose in the world and the zero mapping M.
 
-Gaussians start from the depth, back-projected into the robot frame and coloured from the pictures; then the
-colour (L1 and SSIM) and the depth (where the sensor read one) are fitted with gsplat's rasterizer and its default
-densification. Every eighth frame is held out and scored (PSNR). The result is a standard 3DGS PLY (positions,
-spherical harmonics, opacity, scales, rotations), as three.js splat renderers read it.
+Gaussians start from the depth, back-projected into the world and coloured from the pictures; then the colour (L1
+and SSIM) and the depth (where the sensor read one) are fitted with gsplat's rasterizer and its default
+densification. Every eighth frame is held out and scored (PSNR). The results are a standard 3DGS PLY (positions,
+spherical harmonics, opacity, scales, rotations) and the compact .splat the headset draws (write_splat), with a
+report naming the world they are in.
 
     python train_head_scene.py <capture> <out.ply> [--steps 7000] [--sh 3]
 """
@@ -37,6 +41,8 @@ VOXEL_M = .01  # The starting Gaussians: one per centimetre cube of depth.
 DEPTH_RANGE_M = (.15, 3.)
 DEPTH_WEIGHT = .2  # Of the depth's L1 (metres) in the loss.
 SSIM_WEIGHT = .2
+C0 = 0.28209479177387814  # The zeroth spherical harmonic.
+MIN_OPACITY = .005  # Fainter Gaussians are left out of the .splat: nothing would show.
 
 
 def pose_matrix(pose):
@@ -56,8 +62,9 @@ def intrinsics(k):
 
 
 def load(folder):
-    """The capture: colour pictures (uint8, H x W x 3), poses (camera to robot, 4 x 4), the colour camera's K, and
-    each picture's depth registered into it (metres, 0 for none)."""
+    """The capture: colour pictures (uint8, H x W x 3), poses (camera to world, 4 x 4: each frame's robot_in_world
+    after its pose in the robot frame), the colour camera's K, and each picture's depth registered into it (metres, 0
+    for none)."""
     folder = Path(folder)
     scene = json.loads((folder / 'scene.json').read_text())
     if scene.get('schema') != 1 or scene.get('kind') != 'head_scene':
@@ -74,7 +81,8 @@ def load(folder):
         raw = np.frombuffer(zlib.decompress((folder / frame['depth']).read_bytes()), '<u2')
         depth = raw.reshape(dk['height'], dk['width']).astype(np.float64) * scale
         images.append(image)
-        poses.append(pose_matrix(frame['pose']))
+        world = pose_matrix(frame['robot_in_world']) if frame.get('robot_in_world') else np.eye(4)
+        poses.append(world @ pose_matrix(frame['pose']))
         depths.append(register(depth, depth_k, color_k, r, t, ck['width'], ck['height']))
     return np.stack(images), np.stack(poses), color_k, np.stack(depths).astype(np.float32)
 
@@ -98,7 +106,7 @@ def register(depth, depth_k, color_k, r, t, width, height):
 
 def starting_points(images, poses, color_k, depths, voxel=VOXEL_M):
     """Gaussians' starting positions and colours: the registered depth of the training frames, back-projected into
-    the robot frame, one per voxel."""
+    the world, one per voxel."""
     points, colours = [], []
     for image, pose, depth in zip(images, poses, depths):
         v, u = np.nonzero(depth[::2, ::2])
@@ -155,6 +163,33 @@ def write_ply(path, params, sh_degree):
     PlyData([PlyElement.describe(data, 'vertex')]).write(str(path))
 
 
+def splat_bytes(means, log_scales, quats, opacity_logits, sh0):
+    """The compact .splat the headset draws (xr_splat.js), 32 bytes a Gaussian: its centre and scales (float32 x 3
+    each), its colour from the zeroth harmonic and its opacity (uint8 RGBA), its rotation (uint8 x 4, w x y z, each
+    q * 128 + 128). The most visible first (size times opacity), the faintest left out."""
+    means = np.asarray(means, np.float32).reshape(-1, 3)
+    scales = np.exp(np.asarray(log_scales, np.float64).reshape(-1, 3))
+    alpha = 1 / (1 + np.exp(-np.asarray(opacity_logits, np.float64).reshape(-1)))
+    quats = np.asarray(quats, np.float64).reshape(-1, 4)
+    quats = quats / np.maximum(np.linalg.norm(quats, axis=1, keepdims=True), 1e-12)
+    rgb = .5 + C0 * np.asarray(sh0, np.float64).reshape(-1, 3)
+    keep = alpha >= MIN_OPACITY
+    order = np.argsort(-(scales.prod(axis=1) * alpha)[keep], kind='stable')
+    record = np.zeros(int(keep.sum()), dtype=[('mean', '<f4', 3), ('scale', '<f4', 3), ('rgba', 'u1', 4),
+                                               ('rot', 'u1', 4)])
+    record['mean'] = means[keep][order]
+    record['scale'] = scales[keep][order]
+    record['rgba'][:, :3] = np.clip(np.round(rgb[keep][order] * 255), 0, 255)
+    record['rgba'][:, 3] = np.clip(np.round(alpha[keep][order] * 255), 0, 255)
+    record['rot'] = np.clip(np.round(quats[keep][order] * 128 + 128), 0, 255)
+    return record.tobytes()
+
+
+def write_splat(path, params):
+    Path(path).write_bytes(splat_bytes(*(params[name].detach().cpu().numpy() for name in (
+        'means', 'scales', 'quats', 'opacities', 'sh0'))))
+
+
 def train(capture, out, steps=7000, sh_degree=3, device='cuda'):
     import torch
     import torch.nn.functional as F
@@ -173,7 +208,6 @@ def train(capture, out, steps=7000, sh_degree=3, device='cuda'):
           f'scene radius {scene_scale:.2f} m', flush=True)
 
     sh_count = (sh_degree + 1) ** 2
-    C0 = 0.28209479177387814
     params = torch.nn.ParameterDict({
         'means': torch.nn.Parameter(torch.tensor(points, device=device)),
         'scales': torch.nn.Parameter(torch.full((len(points), 3), math.log(VOXEL_M), device=device)),
@@ -232,7 +266,10 @@ def train(capture, out, steps=7000, sh_degree=3, device='cuda'):
             truth = images_t[index].to(device).float() / 255.
             scores.append(float(-10 * torch.log10(F.mse_loss(rgb.clamp(0, 1), truth))))
     write_ply(out, params, sh_degree)
-    report = {'frames': count, 'held_out': len(held), 'gaussians': len(params['means']), 'steps': steps,
+    write_splat(Path(out).with_suffix('.splat'), params)
+    scene = json.loads((Path(capture) / 'scene.json').read_text())
+    report = {'world': scene.get('world', 'robot'), 'capture': Path(capture).name, 'frames': count,
+              'held_out': len(held), 'gaussians': len(params['means']), 'steps': steps,
               'psnr_held_out': float(np.mean(scores)) if scores else None, 'seconds': round(time.time() - started),
               'scene_radius_m': scene_scale}
     Path(out).with_suffix('.json').write_text(json.dumps(report, indent=1) + '\n')
