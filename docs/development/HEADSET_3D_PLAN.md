@@ -83,7 +83,7 @@ would; every other camera pose and every robot link follows through `M`.
 - **Checked offline:** the coarse model, loaded through the real scene from the model viewer, stands upright where
   the zero puts it, its head left out. Hand tracking needs the headset.
 
-## Phase 4: Gaussian splatting on soliloquy (training set up)
+## Phase 4: Gaussian splatting on soliloquy (training set up; a moving Minerva needs a live map)
 
 - **Training on soliloquy** (set up 2026-10-31, the user: "yes, set up WSL2 training on soliloquy"). Its Ubuntu (WSL2)
   has a venv of its own in `~/minerva-splat` (5.1 GB: CUDA PyTorch 2.4.1 cu124, gsplat 1.5.3's prebuilt wheel,
@@ -100,15 +100,30 @@ would; every other camera pose and every robot link follows through `M`.
 - **Checked on a synthetic capture** (`scripts/splat/synthetic_scene.py`: a table, a box and a wall seen as the neck
   pans and tilts, 64 frames): 3000 steps in 59 s on the 3080 (shared), 105 k to 158 k Gaussians, 34.3 dB PSNR on the
   held-out frames; the PLY is 39 MB (spherical harmonics of degree 3).
+- **Not a static scene: Minerva will move** (the user, 2026-10-31: "Minerva will not stay static, I am working on a
+  mobile base for it"). A scene trained once in the robot frame stops lining up the moment the base drives. The map
+  has to live in a world frame, with Minerva's pose in it tracked all the time:
+  - **Tracking:** Minerva's pose in the world from the head camera's RGB-D (visual odometry against the map), with
+    the neck's measured pose (the camera's motion relative to the body, known exactly) and, once the base exists,
+    its wheel odometry as priors.
+  - **Mapping, live, on soliloquy:** an incremental RGB-D Gaussian-splatting SLAM fed by the head camera's frames as
+    they come (candidates to try on the 3080: GS-ICP SLAM and RTG-SLAM for speed; MonoGS and SplaTAM as references).
+    It adds what the camera sees, refines what it saw before, and keeps out what moves: Minerva's own arms (the
+    model, posed, projected into each frame) and anything the live depth disagrees with.
+  - **In the headset:** the map drawn in the world frame. The zero mapping becomes world to room, anchored at the
+    zero. Minerva's model and the live depth are placed by her tracked pose, so as the base drives, the room stays
+    put around the operator and Minerva moves through it. The live depth keeps drawing over the map, for what moves.
+  - The trainer built here stays useful: for first maps of a room, for tests, and as the quality reference for what
+    the live mapping reaches.
 - **Next:**
-  - a capture flow in Helm: record the head camera's frames with the head's pose (the relay's feed) at ~5 fps
-    while the operator looks round in VR, into `~/minerva/helm/scenes/`;
-  - the trained scene back on Minerva, compact for the headset (the 32-byte-a-splat `.splat` layout, degree 0
-    colour: about 5 MB for 158 k splats), and a splat renderer in the headset (instanced quads, the splats sorted
-    by depth in a worker), placed by `M` around the live depth;
-  - **then live:** an incremental splatting SLAM (SplaTAM, MonoGS and kin) on soliloquy from the live stream;
-  - **then on the Quest alone:** rendering splats is light enough for the Quest Pro's GPU; building them is not
-    yet. When it is (WebGPU, smaller models), soliloquy drops out.
+  1. Stream the head camera's posed RGB-D to soliloquy: the relay's frames with their head pose (phase 2), at a rate
+     the tether carries.
+  2. A live splatting SLAM on soliloquy from that stream, the neck's pose as its prior; first with the base still,
+     then with odometry once the base exists.
+  3. The map's changes to the headset, and a splat renderer there (instanced quads, the splats sorted by depth in a
+     worker), placed by Minerva's tracked pose.
+  4. **Then on the Quest alone:** rendering splats is light enough for the Quest Pro's GPU; building them is not
+     yet. When it is (WebGPU, smaller models), soliloquy drops out.
 
 ## What each phase must show
 
@@ -116,4 +131,4 @@ would; every other camera pose and every robot link follows through `M`.
 |---|---|
 | 2 | Turning the head, the table stays put in the headset; leaning shows what is behind an object, filled. |
 | 3 | The model's arms lie on the arms in the depth; each wrist camera follows its hand. |
-| 4 | A recorded splat scene of the workcell renders in the headset around the live depth, aligned with it. |
+| 4 | A live splat map of the room renders in the headset around the live depth, aligned with it, and stays put as Minerva moves. |
