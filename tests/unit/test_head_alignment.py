@@ -162,3 +162,21 @@ def test_the_head_camera_pose_rides_the_measured_mount(rig):
     q = {'neck_z': .3, 'neck_y': -.7}
     assert np.allclose(pose.pose(q), rig['chain'].pose(q) @ rig['truth'], atol=1e-9)
     assert np.allclose(CameraPose(model, profile['camera']).mount, rig['cad'])
+
+
+def test_a_live_heads_feed_takes_the_saved_mount_only_for_its_reference(rig, tmp_path):
+    from robot_platform.helm.head_teleop import HeadTeleop
+    write_run(tmp_path / 'run', synthetic(rig), references={k: reference_digest(REFERENCE) for k in range(10)})
+    document = alignment_document(ha.solve_run(tmp_path / 'run'), saved_at='now')
+    teleop = HeadTeleop.__new__(HeadTeleop)  # Only what choosing the mount reads.
+    teleop.profile = head.load_profile(ROOT / head.PROFILE)
+    teleop.model = UrdfModel(ModelProfile.load(ROOT / teleop.profile['model_profile']))
+    teleop.bundle = {'camera': document}
+    pose = teleop._camera_pose(REFERENCE)
+    assert teleop.camera_mount == 'aligned' and np.allclose(pose.mount, document['mount']['matrix'])
+    pose = teleop._camera_pose(dict(REFERENCE, motors=[]))
+    assert teleop.camera_mount.startswith('cad: ') and 'another head reference' in teleop.camera_mount
+    assert np.allclose(pose.mount, pose.cad)
+    teleop.bundle = {'camera': None}
+    teleop._camera_pose(REFERENCE)
+    assert teleop.camera_mount == 'cad: no head camera alignment saved'

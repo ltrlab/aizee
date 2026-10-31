@@ -8,7 +8,9 @@ everywhere the head can reach. It reads files in the arms' formats:
   read as a teleop profile;
 - the head reference: per servo its identity (the adapter's USB serial and its id, so `uid`; `firmware`), its raw
   reading at the reference pose (head straight ahead and level, centred to read mid-turn) and its CAD direction;
-- its joint limits and servo calibration, as the arms' (min_rad/max_rad; the servo sweep's settings).
+- its joint limits and servo calibration, as the arms' (min_rad/max_rad; the servo sweep's settings);
+- its camera alignment (helm.head_alignment): the head camera's mount measured on the table's tags, for the head's
+  pose feed (neck.head_pose), display only.
 The receiver works in raw servo radians (steps x 2 pi / 4096), as the arms' works in raw motor radians.
 """
 import json
@@ -28,7 +30,8 @@ PROFILE = 'config/devices/minerva-head.json'
 
 def files(directory, asset_id):
     """The head's measured files, beside the arms' servo calibration (the operator's files)."""
-    return {kind: Path(directory) / f'{asset_id}-head-{kind}.json' for kind in ('reference', 'limits', 'servo')}
+    return {kind: Path(directory) / f'{asset_id}-head-{kind}.json'
+            for kind in ('reference', 'limits', 'servo', 'camera')}
 
 
 def load_document(path):

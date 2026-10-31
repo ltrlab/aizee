@@ -332,7 +332,7 @@ class HeadSetup:
                     'corners': [dict(c) for c in limits['clearance']['corners']],
                     'margin_rad': limits['clearance']['margin_rad']},
                 'rows': cards, 'pending': len(self.recorder.confirmed) if self.recorder else 0,
-                'files': {kind: str(path) for kind, path in self.paths.items() if kind != 'servo'},
+                'files': {kind: str(path) for kind, path in self.paths.items() if kind in ('reference', 'limits')},
             }
 
     def close(self):

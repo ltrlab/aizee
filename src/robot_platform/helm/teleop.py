@@ -2060,7 +2060,8 @@ class TeleopSession:
                 return None
             reference = reference or head.virtual_reference(profile)
             return {'teleop_profile': str(ROOT / head.PROFILE), 'head_reference': reference,
-                    'limits': limits or head.virtual_limits(reference), 'servo': load_servo(paths['servo'])}
+                    'limits': limits or head.virtual_limits(reference), 'servo': load_servo(paths['servo']),
+                    'camera': head.load_document(paths['camera'])}
         except (OSError, ValueError, KeyError):
             return None
 

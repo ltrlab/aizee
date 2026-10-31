@@ -174,8 +174,21 @@ class HeadTeleop:
             rest.update({self.pan: self.centre[self.pan] + pan, self.tilt: self.centre[self.tilt] + tilt})
         self.rest_target = rest
         if self.live and self.profile.get('camera'):
-            from robot_platform.neck.head_pose import CameraPose
-            self.feed = self.open_feed(CameraPose(self.model, self.profile['camera']))
+            self.feed = self.open_feed(self._camera_pose(reference))
+
+    def _camera_pose(self, reference):
+        """The head camera's pose for the feed: through the mount measured on the table's tags (the head's camera
+        file, helm.head_alignment) when it was made through this reference, else the CAD one."""
+        from robot_platform.neck.head_pose import CameraPose, aligned_mount
+        mount, saved = None, self.bundle.get('camera')
+        self.camera_mount = 'cad: no head camera alignment saved'
+        if saved is not None:
+            try:
+                mount = aligned_mount(saved, self.profile['camera']['link'], reference)
+                self.camera_mount = 'aligned'
+            except ValueError as exc:
+                self.camera_mount = f'cad: {exc}'
+        return CameraPose(self.model, self.profile['camera'], mount)
 
     def _publish_pose(self, last):
         """A reply's rows on the head's pose feed. The feed is for the headset's view only: a failure there ends
@@ -353,7 +366,7 @@ class HeadTeleop:
                   in getattr(self, 'axes', {}).items() if motor in positions}
         return {'state': self.state, 'fault': self.fault, 'source': getattr(self, 'source', None), 'headset': pose,
                 'positions': positions, 'joints': joints, 'motors_enabled': last.get('hardware_enabled'),
-                'returning': self.returning,
+                'returning': self.returning, 'camera_mount': getattr(self, 'camera_mount', None),
                 # Whether the shoulder clearance holds the head above where the headset looks, this cycle.
                 'clearance': None if self.clearance is None else {'limited': self.limited}}
 
