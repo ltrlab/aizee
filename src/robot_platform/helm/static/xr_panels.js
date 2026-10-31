@@ -32,15 +32,16 @@ export function drawStrip(context, [[left, leftTone], [right, rightTone]]) {
   context.textAlign = 'left';
 }
 
-// The picture's controls, in the bar's canvas pixels: the Follow head, 3D, Model and Hands switches on its first row;
+// The picture's controls, in the bar's canvas pixels: the Follow head, 3D, Model, Hands and Map switches on its first row;
 // on its second, two sliders, the picture's opacity (flat or 3D, and the model with it) and the wrist cameras' (the
 // user, 2026-10-31: theirs set apart). A slider's value is where along its track a controller points; it takes points
 // anywhere on its own half of the row, held at its track's ends past them.
 export const CONTROLS = {follow: {x: 16, y: 14, width: 330, height: 100}, depth: {x: 358, y: 14, width: 170, height: 100},
   model: {x: 540, y: 14, width: 220, height: 100}, hands: {x: 772, y: 14, width: 220, height: 100},
+  map: {x: 1004, y: 14, width: 200, height: 100},
   opacity: {x: 16, y: 126, width: 744, height: 100, label: 'Picture', track: {x: 220, y: 176, width: 360}},
   wristOpacity: {x: 776, y: 126, width: 744, height: 100, label: 'Hands', track: {x: 980, y: 176, width: 360}}};
-export const SWITCHES = ['follow', 'depth', 'model', 'hands'];
+export const SWITCHES = ['follow', 'depth', 'model', 'hands', 'map'];
 export const SLIDERS = ['opacity', 'wristOpacity'];
 
 // The value a point `x` along the bar (canvas pixels) sets on a slider: 0 to 1 along its track, held at its ends.
@@ -101,10 +102,10 @@ function drawSlider(context, area, value, hovered) {
 
 // The bar: the Follow head switch (on: the picture stays in front of the eyes), the 3D switch (the head camera's
 // depth instead of the flat picture), the Model switch (Minerva's model with the 3D), the Hands switch (the wrist
-// cameras above the hands), and the picture's and the wrist cameras' opacities; `hover`: the control a controller
-// points at (a switch's or a slider's name), drawn lighter.
-export function drawControls(context, {follow, depth = false, model = false, hands = false, opacity, wristOpacity = 1,
-  hover = null}) {
+// cameras above the hands), the Map switch (her splat map around the 3D), and the picture's and the wrist cameras'
+// opacities; `hover`: the control a controller points at (a switch's or a slider's name), drawn lighter.
+export function drawControls(context, {follow, depth = false, model = false, hands = false, map = false, opacity,
+  wristOpacity = 1, hover = null}) {
   const {canvas} = context;
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.fillStyle = BACKGROUND;
@@ -113,6 +114,7 @@ export function drawControls(context, {follow, depth = false, model = false, han
   drawSwitch(context, CONTROLS.depth, `3D · ${depth ? 'on' : 'off'}`, depth, hover === 'depth');
   drawSwitch(context, CONTROLS.model, `Model · ${model ? 'on' : 'off'}`, model, hover === 'model');
   drawSwitch(context, CONTROLS.hands, `Hands · ${hands ? 'on' : 'off'}`, hands, hover === 'hands');
+  drawSwitch(context, CONTROLS.map, `Map · ${map ? 'on' : 'off'}`, map, hover === 'map');
   drawSlider(context, CONTROLS.opacity, opacity, hover === 'opacity');
   drawSlider(context, CONTROLS.wristOpacity, wristOpacity, hover === 'wristOpacity');
 }
@@ -127,7 +129,7 @@ export function drawPanel(context, rows, hints) {
   context.font = `700 54px ${FONT}`;
   context.fillText('Minerva head tracking', 48, 92);
   rows.forEach(([label, value, tone], index) => {
-    const y = 190 + index * 76;
+    const y = 176 + index * 66;
     context.font = `42px ${FONT}`;
     context.fillStyle = TONE.muted;
     context.fillText(label, 48, y);

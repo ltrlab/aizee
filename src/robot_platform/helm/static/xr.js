@@ -176,7 +176,8 @@ async function start() {
       textAt = time;
       const picture = camera.stats;
       const word = performance.now() - statusAt > STATUS_STALE_MS ? {...headset, tracking: false} : headset;
-      view.setText(stripText(word, picture), panelRows(link, word, picture, view.depthState), HINTS, picture.fresh);
+      view.setText(stripText(word, picture), panelRows(link, word, picture, view.depthState, view.mapState), HINTS,
+        picture.fresh);
     }
     view.update(pose);  // This frame's pose: a following picture is drawn where the eyes are now.
     renderer.render(view.scene, view.camera);

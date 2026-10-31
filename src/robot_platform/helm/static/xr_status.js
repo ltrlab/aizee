@@ -49,8 +49,17 @@ function depthWord(depth) {
   return depth.locked ? ['fixed in the room', 'ok'] : ['around the eyes: no head pose (no session)', 'warn'];
 }
 
+// The splat map (xr_scene.mapState): [the panel's text, tone].
+function mapWord(map) {
+  if (!map?.on) return ['off', ''];
+  if (map.loading) return ['loading…', 'warn'];
+  if (map.error && !map.shown) return [map.error, 'warn'];
+  if (!map.shown) return [map.name ? 'with the 3D, fixed in the room' : 'waiting for a map', 'warn'];
+  return [`${map.name} · ${Math.round(map.count / 1000)} k splats`, 'ok'];
+}
+
 // The status panel's rows: [label, value, tone] with tone 'ok', 'warn', 'bad' or ''.
-export function panelRows(link, headset, camera, depth = null) {
+export function panelRows(link, headset, camera, depth = null, map = null) {
   const [, head, tone] = headWord(headset);
   return [
     ['Helm', link.error || (link.connected ? 'connected' : link.message || 'reconnecting…'),
@@ -60,6 +69,7 @@ export function panelRows(link, headset, camera, depth = null) {
     ['Head', head, tone],
     ['Camera', cameraText(camera), camera.fresh ? 'ok' : 'warn'],
     ['3D', ...depthWord(depth)],
+    ['Map', ...mapWord(map)],
   ];
 }
 

@@ -4,9 +4,10 @@
 // front of the eyes as the head turns, level (as the robot's head, pan and tilt, keeps its camera), or leaves it where
 // it is; its 3D switch shows the head camera's depth instead of the flat picture (xr_depth.js), where the head camera
 // saw it in the room while a session runs (world-locked: it stays put as the eyes turn, and needs no following), else
-// around the eyes; its Model switch shows Minerva's model with the world-locked 3D (xr_model.js), and its Hands switch
-// the wrist cameras above the hands (xr_hands.js); its sliders set the picture's opacity (flat or 3D, and the model)
-// and the wrist cameras'. The headset's browser remembers them (xr_view.js). Each controller
+// around the eyes; its Model switch shows Minerva's model with the world-locked 3D (xr_model.js), its Hands switch
+// the wrist cameras above the hands (xr_hands.js), and its Map switch Minerva's splat map around the world-locked 3D
+// (xr_splat.js); its sliders set the picture's opacity (flat or 3D, the model and the map) and the wrist cameras'.
+// The headset's browser remembers them (xr_view.js). Each controller
 // shows its pointing ray (cyan over a screen, green holding one), and its trigger works the bar's control under it.
 // They start in front of where the session began: WebXR's 'local' space has the head at its origin, looking down -Z.
 // The screens' canvases are drawn by xr_panels.js, as Settings → Headset draws its flat copy; they and the rays draw
@@ -15,6 +16,7 @@ import * as THREE from 'three';
 import {DepthView, depthRig, robotToWorld, zeroAnchor} from './xr_depth.js';
 import {WristScreens} from './xr_hands.js';
 import {RobotModel} from './xr_model.js';
+import {SplatMap} from './xr_splat.js';
 import {SIZES, SLIDERS, SWITCHES, controlAt, drawControls, drawPanel, drawPlaceholder, drawStrip, sliderAt} from
   './xr_panels.js';
 import {loadView, lookAngles, offsetOf, opacityStep, saveView} from './xr_view.js';
@@ -43,8 +45,9 @@ function panelMesh(width, height, texture) {
 export class HeadsetScene {
   // `storage`: where the picture's view is remembered (the headset browser's localStorage), or null. `onDepth` and
   // `onHands`: called with the 3D and Hands switches' new states (xr.js asks Helm for the depth, or the wrist cameras,
-  // then). `robot`: Minerva's model (xr_model.js; tests pass their own).
-  constructor(renderer, {storage = null, onDepth = () => {}, onHands = () => {}, robot = new RobotModel()} = {}) {
+  // then). `robot`: Minerva's model (xr_model.js), `map`: her splat map (xr_splat.js); tests pass their own.
+  constructor(renderer, {storage = null, onDepth = () => {}, onHands = () => {}, robot = new RobotModel(),
+    map = new SplatMap()} = {}) {
     this.renderer = renderer;
     this.storage = storage;
     this.onDepth = onDepth;
@@ -113,6 +116,10 @@ export class HeadsetScene {
     this.scene.add(this.robot.group, new THREE.HemisphereLight(0xffffff, 0x3a3f4b, 2.5));
     this.wrists = new WristScreens(renderer);
     this.scene.add(this.wrists.group);
+    // The splat map, placed by M and Minerva's pose in its world, with the world-locked 3D.
+    this.map = map;
+    this.eyes = new THREE.Matrix4();
+    this.scene.add(this.map.group);
     this.view = loadView(storage);
     this.hover = null;
     this.setOffset(this.point.fromArray(this.view.offset));
@@ -220,6 +227,7 @@ export class HeadsetScene {
     if (pressed === 'depth' && control === 'depth') this.setDepth(!this.view.depth);
     if (pressed === 'model' && control === 'model') this.setModel(!this.view.model);
     if (pressed === 'hands' && control === 'hands') this.setHands(!this.view.hands);
+    if (pressed === 'map' && control === 'map') this.setMap(!this.view.map);
     this.unpress(controller);
     return true;
   }
@@ -257,6 +265,13 @@ export class HeadsetScene {
     this.applyView();
     this.save();
     this.onHands(hands);
+  }
+
+  // Minerva's splat map around the world-locked 3D, or not.
+  setMap(map) {
+    this.view.map = map;
+    this.applyView();
+    this.save();
   }
 
   setOpacity(value) {
@@ -298,6 +313,7 @@ export class HeadsetScene {
     this.screenMaterial.opacity = this.view.opacity;
     this.depth.setOpacity(this.view.opacity);
     this.robot.setOpacity(this.view.opacity);
+    this.map.setOpacity(this.view.opacity);
     this.wrists.setOpacity(this.view.wristOpacity);
     const depth = this.view.depth && this.depthFramed;  // Until the first depth comes, the flat picture stays.
     this.picture.visible = !depth;
@@ -354,12 +370,20 @@ export class HeadsetScene {
   }
 
   // Minerva's model where M puts the robot, while the world-locked 3D shows and the Model switch is on: loaded the
-  // first time, following Helm's guide while shown.
+  // first time, following Helm's guide while shown. The map, with the Map switch on, by M and her pose in its world.
   placeRobot() {
-    const shown = this.view.model && this.view.depth && this.depthFramed && this.worldLocked;
+    const locked = this.view.depth && this.depthFramed && this.worldLocked;
+    const shown = this.view.model && locked;
     if (shown && !this.robot.model) this.robot.load().then(() => this.placeRobot(), () => {});
     this.robot.place(shown ? this.world : null);
     this.robot.track(shown && !!this.robot.model);
+    this.map.show(this.view.map);
+    this.map.place(this.view.map && locked ? this.world : null);
+  }
+
+  // The map for the status panel (xr_status.panelRows).
+  get mapState() {
+    return this.map.state;
   }
 
   // A wrist camera's frame (xr.js streams them while the Hands switch is on).
@@ -412,6 +436,7 @@ export class HeadsetScene {
   update(pose = null, now = performance.now() / 1000) {
     if (pose) this.see(pose);
     if (pose && this.view.hands) this.wrists.update(this.eye, now);
+    if (pose && this.view.map) this.map.update(this.eyes.fromArray(pose.transform.matrix));
     if (pose && this.anchorPending) {
       this.anchor = zeroAnchor(this.eye, this.zero, this.anchor || new THREE.Matrix4());
       this.anchorPending = false;

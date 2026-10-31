@@ -116,6 +116,28 @@ assert.equal(placements.at(-1), null);
 scene.setHands(false);
 scene.setHands(true);
 assert.deepEqual(hands, [false, true]);
+// The splat map: placed by M (it then puts itself by Minerva's pose in its world) while the world-locked 3D shows
+// and its switch is on (off at first); hidden around the eyes. It sorts for each frame's eyes.
+const mapPlacements = [], mapShown = [], mapEyes = [];
+const map = {group: new THREE.Group(), state: {}, setOpacity() {}, show: on => mapShown.push(on),
+  place: matrix => mapPlacements.push(matrix && matrix.clone()), update: eyes => mapEyes.push(eyes.clone())};
+const mapped = new HeadsetScene({xr: {getController: () => new THREE.Group(), getHand: () => new THREE.Group(),
+  getControllerGrip: () => new THREE.Group(), getCamera: () => eyes}}, {robot, map});
+mapped.setDepth(true);
+mapped.setZero(zero);
+mapped.update(pose(eye, zero.yaw, zero.pitch));
+mapped.showDepth({meta: {...META, head: {pose: panned(.5), zero: ZERO, joints: {}, skew_ms: 0}}, layers});
+assert.equal(mapPlacements.at(-1), null);
+assert.equal(mapShown.at(-1), false);
+mapped.setMap(true);
+near(mapPlacements.at(-1), world);
+assert.equal(mapShown.at(-1), true);
+const eyesAt = new THREE.Matrix4().makeTranslation(.1, 1.6, .2);
+mapped.update({...pose(eye, zero.yaw, zero.pitch), transform: {...pose(eye, zero.yaw, zero.pitch).transform,
+  matrix: eyesAt.toArray()}});
+near(mapEyes.at(-1), eyesAt);
+mapped.showDepth({meta: META, layers});  // No head pose: no M, no map.
+assert.equal(mapPlacements.at(-1), null);
 // A tracked hand is no pointer (it holds a leader): no ray, and nothing on the bar.
 scene.controllers[0].dispatchEvent({type: 'connected', data: {targetRayMode: 'tracked-pointer', hand: {}}});
 assert.equal(scene.controllers[0].userData.pointer, false);
