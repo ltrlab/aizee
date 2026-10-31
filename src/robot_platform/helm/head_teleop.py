@@ -442,3 +442,244 @@ class HeadLoop:
         self._thread.join(self.JOIN_S)
         if self._thread.is_alive():
             raise RuntimeError("The head's cycles did not stop")
+
+
+STATUS_S = PERIOD_S  # The head's process reports its status this often, as often as it cycles.
+START_S = 30.  # Building a live head (its service checks the servos and that the head rests where it was read).
+
+
+def serve_head(bundle, live, conn, open_receiver=None, open_harness=None, verified=None):
+    """The head in a process of its own (HeadProcess's child). It moves itself, and so its receiver's service, off
+    the arms' CPUs, builds the head, and cycles it on its own grid (HeadLoop), steered over `conn` by the arms' loop:
+    ('action', action, number), ('pose', yaw, pitch) and ('close',). It answers ('built', scheduling) or ('fault',
+    reason) once, then ('status', head status, loop word) every cycle, and ('closed', error) as it ends. A lost
+    channel (the arms' process gone) closes the head as ('close',) would. `verified`: the release's mesh digests the
+    arms' process registered (models.urdf.verified_assets): on the robot, with no CAD files, the head model loads by
+    them, as there (a head process without them failed to build in its rehearsal on Minerva, 2026-10-31)."""
+    import os
+    from robot_platform.control.scheduling import prefer_background
+    from robot_platform.models.urdf import register_verified_assets
+    if verified:
+        register_verified_assets(verified)
+    scheduling = prefer_background(os.getpid())
+    head = HeadTeleop(bundle, live=live, open_receiver=open_receiver, open_harness=open_harness)
+    try:
+        head.build()
+    except Exception as exc:
+        try:
+            head.close()
+        except Exception:
+            pass
+        conn.send(('fault', str(exc) or type(exc).__name__))
+        return
+    loop = HeadLoop(head, placement=lambda: scheduling).start()
+    conn.send(('built', scheduling))
+    received, sent_at, error = 0, None, None
+    try:
+        while True:
+            if conn.poll(STATUS_S):
+                message = conn.recv()
+                if message[0] == 'close':
+                    break
+                if message[0] == 'action':
+                    loop.post(message[1])
+                    received = message[2]
+                elif message[0] == 'pose':
+                    try:
+                        head.pose(message[1], message[2])
+                    except ValueError:
+                        pass  # Checked on the arms' side already.
+            now = time.perf_counter()
+            if sent_at is None or now - sent_at >= STATUS_S:
+                conn.send(('status', head.status(), {'fault': head.fault, 'state': head.state,
+                                                     'returning': head.returning, 'pending': loop.pending,
+                                                     'received': received}))
+                sent_at = now
+    except (EOFError, OSError):
+        pass
+    finally:
+        try:
+            loop.stop()
+        except Exception as exc:
+            error = str(exc)
+        try:
+            head.close()
+        except Exception as exc:
+            error = error or str(exc)
+        try:
+            conn.send(('closed', error))
+        except (OSError, ValueError):
+            pass
+
+
+class HeadProcess:
+    """A live head in a process of its own (serve_head), beside the arms' loop (helm.teleop), which talks to it as
+    to HeadTeleop and HeadLoop together. On a thread in the arms' process the head shared their interpreter, and the
+    arms' slow cycles kept time with its 40 ms cycle (phase-locked, R 0.7, in two full VR sessions): one of their
+    commands expired (2026-10-31, live-20261031T195313Z, "command_expired · wrong_owner"). Nothing here waits for the
+    head: actions and headset poses go to a sender thread, the head's status comes back on a reader thread, and the
+    arms' side reads the last of it. `open_receiver` and `open_harness` go to the child (module-level callables)."""
+
+    JOIN_S = 10.  # The head's close (its torque off at its rest, its service stopped) takes a few seconds at most.
+
+    def __init__(self, bundle, *, live=True, open_receiver=None, open_harness=None, start_s=START_S):
+        self.bundle, self.live = bundle, live
+        self.open_receiver, self.open_harness, self.start_s = open_receiver, open_harness, start_s
+        self.session = None  # True once built: the arms' side asks as it asks HeadTeleop.
+        self.scheduling = []
+        self._fault = None
+        self._status, self._word = None, {}
+        self._lock = threading.Lock()
+        self._wake = threading.Condition(self._lock)
+        self._actions = deque()
+        self._pose = None
+        self._numbered = 0
+        self._closing, self._closed = False, None
+        self._process = self._conn = None
+        self._threads = []
+
+    @classmethod
+    def instead_of(cls, head):
+        """The process for an unbuilt HeadTeleop, with its openers where they are not its own (a test's harness)."""
+        own = lambda opener: None if getattr(opener, '__self__', None) is head else opener  # noqa: E731
+        return cls(head.bundle, live=head.live, open_receiver=own(head.open_receiver),
+                   open_harness=own(head.open_harness))
+
+    # -- HeadTeleop's face -----------------------------------------------------------------------
+
+    @property
+    def fault(self):
+        with self._lock:
+            return self._fault or self._word.get('fault')
+
+    @fault.setter
+    def fault(self, value):
+        with self._lock:
+            self._fault = value
+
+    @property
+    def state(self):
+        with self._lock:
+            return self._word.get('state')
+
+    @property
+    def returning(self):
+        with self._lock:
+            return self._word.get('returning')
+
+    def status(self):
+        with self._lock:
+            status = dict(self._status) if self._status is not None else {'state': None}
+            if self._fault:
+                status['fault'] = self._fault
+            return status
+
+    def pose(self, yaw, pitch, *, now=None):
+        if not (math.isfinite(yaw) and math.isfinite(pitch)):
+            raise ValueError('A headset pose is finite yaw and pitch')
+        with self._wake:
+            self._pose = (float(yaw), float(pitch))  # Only the newest goes.
+            self._wake.notify()
+
+    # -- HeadLoop's face -------------------------------------------------------------------------
+
+    def post(self, action):
+        if action is None:
+            return
+        with self._wake:
+            if not self._actions or self._actions[-1][0] != action:  # A faulted arms' loop repeats its action.
+                self._numbered += 1
+                self._actions.append((action, self._numbered))
+            self._wake.notify()
+
+    @property
+    def pending(self):
+        """Whether actions wait for the head: here, on their way, or in its loop (a landing session waits too)."""
+        with self._lock:
+            waiting = bool(self._actions) or self._word.get('received', 0) < self._numbered
+            return waiting or bool(self._word.get('pending'))
+
+    def stop(self):
+        """Its cycles end with close(), in its own process."""
+
+    # -- the process -----------------------------------------------------------------------------
+
+    def build(self):
+        import multiprocessing
+        from robot_platform.models.urdf import verified_assets
+        context = multiprocessing.get_context('spawn')  # Never a fork of the arms' process, its threads and locks.
+        conn, child = context.Pipe()
+        self._process = context.Process(target=serve_head, name='helm-head', daemon=True,
+                                        args=(self.bundle, self.live, child, self.open_receiver, self.open_harness,
+                                              verified_assets()))
+        self._process.start()
+        child.close()
+        self._conn = conn
+        if not conn.poll(self.start_s):
+            raise RuntimeError(f'the head process did not answer within {self.start_s:g} s')
+        try:
+            message = conn.recv()
+        except EOFError:
+            self._process.join(2.)
+            raise RuntimeError(f'the head process ended before it answered (exit code {self._process.exitcode})') \
+                from None
+        if message[0] == 'fault':
+            raise RuntimeError(message[1])
+        self.scheduling, self.session = message[1], True
+        self._threads = [threading.Thread(target=self._send, daemon=True, name='helm-head-send'),
+                         threading.Thread(target=self._read, daemon=True, name='helm-head-read')]
+        for thread in self._threads:
+            thread.start()
+
+    def _send(self):
+        while True:
+            with self._wake:
+                self._wake.wait_for(lambda: self._actions or self._pose is not None or self._closing)
+                actions, pose, closing = list(self._actions), self._pose, self._closing
+                self._actions.clear()
+                self._pose = None
+            try:
+                for action, number in actions:
+                    self._conn.send(('action', action, number))
+                if pose is not None:
+                    self._conn.send(('pose', *pose))
+                if closing:
+                    self._conn.send(('close',))
+                    return
+            except (OSError, EOFError, ValueError):
+                return
+
+    def _read(self):
+        try:
+            while True:
+                message = self._conn.recv()
+                with self._lock:
+                    if message[0] == 'status':
+                        self._status, self._word = message[1], message[2]
+                    elif message[0] == 'closed':
+                        self._closed = message[1] or ''
+                        return
+        except (EOFError, OSError):
+            with self._lock:
+                if not self._closing and not self._fault:
+                    self._fault = 'the head process ended unexpectedly'
+
+    def close(self):
+        if self._process is None:
+            return
+        with self._wake:
+            self._closing = True
+            self._wake.notify_all()
+        if self.session is not None:
+            for thread in self._threads:
+                thread.join(self.JOIN_S)
+        self._process.join(self.JOIN_S)
+        stuck = self._process.is_alive()
+        if stuck:
+            self._process.terminate()
+            self._process.join(2.)
+        self._conn.close()
+        if stuck:
+            raise RuntimeError('the head process did not close in time: stopped')
+        if self._closed:
+            raise RuntimeError(self._closed)

@@ -36,6 +36,12 @@ def verified_release_active():
     return bool(_VERIFIED_ASSETS)
 
 
+def verified_assets():
+    """{mesh path: sha256} this process holds from its verified release (empty without one): for a process it starts
+    to register as its own (helm.head_teleop.HeadProcess)."""
+    return {str(path): sha for path, sha in _VERIFIED_ASSETS.items()}
+
+
 def asset_digest(path):
     """sha256 of a mesh: from a verified release when registered, otherwise from its bytes."""
     path = Path(path).resolve()

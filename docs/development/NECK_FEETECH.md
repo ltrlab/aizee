@@ -163,23 +163,28 @@ refuses it. A head disabled after it was powered needs a new session, as the arm
 and H act on both. The head uses the arms' direct lifecycle (`TeleopLifecycle`, `DirectLifecycleSession`), so the
 arms' speed caps, alignment and braking near the ends apply. It cycles every 40 ms.
 
-- **Its own thread, live:** each exchange with the head's service waits for the service's next 10 ms tick. In the
+- **Its own process, live:** each exchange with the head's service waits for the service's next 10 ms tick. In the
   arms' 100 Hz loop, a head cycle (two exchanges) took 22 ms of every 40 ms: the arms' commands went out 10 and
-  30 ms apart, each 30 ms long, and Enable faulted (2026-10-31, "command_expired · wrong_owner"). A live head
-  cycles on a thread of its own (`helm.head_teleop.HeadLoop`), taking the arms' actions in order; the arms' loop
-  never waits for it. A virtual head answers at once and cycles on the arms' ticks.
-- **One interpreter:** the head's thread and the arms' loop share Python's. In the first full VR session (2026-10-31,
-  no faults) the arms' loop held its median, but its worst cycles got slower: exchanges up to 10.6 ms (2-3 ms with
-  the arms alone), 29 late cycles in 21,795, and an arm command came within 2 ms of expiring (6-7 ms alone). CPython
-  hands its interpreter to a waiting thread after 5 ms; beside a live head's thread it does after 1 ms (as the demo
-  collector's loop has it), until the session closes.
-- **Off the arms' CPUs:** that was not it. The second full VR session faulted after 3 minutes following
-  ("command_expired · wrong_owner", 2026-10-31 15:15): the arms' receiver started a tick 9.24 ms late (its longest
-  work was 4.06 ms) right where a command ran out. Beside the head, the receiver's starts more than 4 ms late came
-  10-30 a minute, against 1-8 with the arms alone, even with everything limp before Idle. The arms' loop and receiver
-  keep to the control CPUs (4-5), and the head had joined them: its service process and its thread. Beside the arms,
-  both now move to the background CPUs (`scheduling.prefer_background`, `prefer_background_thread`); the head's
-  service stops only when a tick is 15 ms late, against the receiver's 2.5 ms ticks.
+  30 ms apart, each 30 ms long, and Enable faulted (2026-10-31, "command_expired · wrong_owner"). A live head now
+  cycles in a process of its own (`helm.head_teleop.HeadProcess`, its child `serve_head`): the arms' loop posts it
+  their actions and the headset's poses, and reads its last status, and never waits for it (a sender thread and a
+  reader thread do the pipe's work). The child moves itself, and so its service, to the background CPUs before it
+  builds the head, and cycles it there on its own 40 ms grid (`HeadLoop`). A fault there, or the child dying,
+  holds the arms as an inline head's fault does. A virtual head answers at once and cycles on the arms' ticks.
+- **Why a process, not a thread** (2026-10-31): on a thread the head shared the arms' interpreter.
+  - First, the head's thread ran on the control CPUs beside the arms' loop and receiver. The arms' worst cycles got
+    slower: exchanges up to 10.6 ms (2-3 ms alone), and a command came within 2 ms of expiring.
+  - Moved to the background CPUs (cameras, the relay, Helm), with the interpreter changing hands after 1 ms instead
+    of 5, the faults went on: 15:15 (blamed then on the CPUs' deep idle state, c7, since disabled) and 15:53,
+    after 2.4 minutes of TELEOP (`live-20261031T195313Z`). The failing cycle mapped its leader sample on time but
+    sent its command 11 ms late, while the arms' receiver ticked regularly. The arms' slow cycles kept time with
+    the head's 40 ms cycle (phase-locked, R 0.71; 0.67 in the clean 12-minute session before it, which came within
+    1 ms of the same fault). The 1 ms switch interval cannot help a thread holding the interpreter while it is not
+    running, as a thread preempted on busy CPUs is.
+  - Offline, a head holding its interpreter for 8 ms of each answer slowed 51 of 200 arms ticks past 8 ms on a
+    thread (worst 16 ms), and at most 3 in its own process.
+  - The arms' process still runs threads beside their loop (the views' sender, the recorder, the head process's
+    proxy): beside a live head the interpreter still changes hands after 1 ms.
 
 - **What it follows while the session follows (T):**
   1. the headset, while its latest pose is at most 0.2 s old;
@@ -308,10 +313,10 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
 - Python:
   - `tests/unit/test_neck_feetech.py` (13), `tests/unit/test_neck_head.py` (3);
   - `tests/contract/test_helm_tune_head.py` (4), which includes a whole head sweep on the real core;
-  - `tests/contract/test_head_teleop.py` (11) and `tests/contract/test_teleop_head.py` (9), the head in a session
-    (and a live head's pose feed);
+  - `tests/contract/test_head_teleop.py` (11) and `tests/contract/test_teleop_head.py` (11), the head in a session
+    (a live head's process: the arms never wait for it, its fault or death holds them; and its pose feed);
   - `tests/unit/test_head_pose.py` (5): the camera's pose from the neck's angles, and the feed's rows and clock;
-  - `tests/unit/test_head_loop.py` (4), a live head's own thread, off the arms' CPUs;
+  - `tests/unit/test_head_loop.py` (4), a live head's cycles on its own grid (in its process);
   - `tests/unit/test_helm_xr.py` (6): the gaze maths, the one-headset rule, the zero, the socket and the zero
     endpoint, and a stalled loop.
 

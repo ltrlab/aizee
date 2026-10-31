@@ -374,10 +374,10 @@ class TeleopCore:
         # The head (helm.head_teleop): its own receiver beside the arms', on the same keys, steered by the
         # operator's headset (helm.xr) or still at its zero. A fault in either holds both.
         self.head, self._head_hold = None, False
-        # Live, each exchange with the head's service waits for its next 10 ms tick: the head cycles on a thread of
-        # its own (helm.head_teleop.HeadLoop), never in the arms' loop. Virtual, its harness answers at once, and it
-        # cycles on the arms' ticks.
-        self.head_thread, self._head_loop, self._head_noticed = bool(self.live_arm), None, False
+        # Live, each exchange with the head's service waits for its next 10 ms tick: the head cycles in a process of
+        # its own (helm.head_teleop.HeadProcess), never in the arms' loop nor their interpreter. Virtual, its harness
+        # answers at once, and it cycles on the arms' ticks.
+        self.head_process, self._head_loop, self._head_noticed = bool(self.live_arm), None, False
         if bundle.get('head') is not None:
             from .head_teleop import HeadTeleop
             self.head = HeadTeleop(bundle['head'], live=bool(self.live_arm), clock=self.clock)
@@ -670,6 +670,9 @@ class TeleopCore:
         else:
             # In the lifecycle's order, which it checks every target against (`names` is a set with Motor tuning).
             self.source, self.route_leaders = self._open_source(lifecycle.names), set()
+        if self.head is not None and self.head_process:
+            from .head_teleop import HeadProcess
+            self.head = HeadProcess.instead_of(self.head)
         if self.head is not None:
             self._closers.append(self.head.close)  # Closed with the arms' resources, even if its build fails.
             try:
@@ -695,21 +698,15 @@ class TeleopCore:
             # call per 2.5 ms tick. Catch them up now: building took longer than a cycle's budget, and the first
             # cycle's exchange would otherwise simulate all of it (a 108 ms first cycle faulted a replay).
             self.harness.advance()
-        if self.head is not None and not self.head.fault and self.head_thread:
-            # Started last: building (its garbage collection above) holds the interpreter longer than a head cycle's
-            # budget.
-            from .head_teleop import HeadLoop
-            from robot_platform.control.scheduling import prefer_background
-            # The head keeps off the arms' CPUs: its service process now, its thread as it starts (HeadLoop). On them,
-            # the arms' receiver started its ticks up to 9.2 ms late beside the head, and an arm command expired
-            # (2026-10-31, 15:15); the head's service only stops at 15 ms late.
-            process = getattr(self.head.receiver, 'process', None)
-            self.scheduling['head'] = prefer_background(process.pid) if process is not None else []
+        if self.head is not None and not self.head.fault and self.head_process:
+            # The head's process placed itself and its service off the arms' CPUs; it takes the arms' actions as its
+            # loop (post, pending), and closes with the head. This process still runs threads beside the arms' loop
+            # (the views' sender, the recorder, the head's proxy): none holds the interpreter past a millisecond.
+            self.scheduling['head'] = self.head.scheduling
             switch_interval = sys.getswitchinterval()
             sys.setswitchinterval(HEAD_SWITCH_INTERVAL_S)
             self._closers.append(lambda: sys.setswitchinterval(switch_interval))
-            self._head_loop = HeadLoop(self.head, clock=self.clock).start()
-            self._closers.append(self._head_loop.stop)  # Closers run last first: its cycles end before the head closes.
+            self._head_loop = self.head
         self.phase = 'running'
         self.message = (f'{self._receiver_name} · motors are enabled from Idle (I). Keep the foot '
                         'switch in reach; then Enable (E) and Engage (T).' if self.live_arm else
@@ -1153,7 +1150,7 @@ class TeleopCore:
         from robot_platform.teleop.guarded_lifecycle import minerva_action
         self._input_timing = {}
         if getattr(self, '_head_loop', None) is not None and self.head.fault and not self._head_noticed:
-            # The head faulted on its own thread: the arms hold this cycle, as after a failed inline head cycle.
+            # The head faulted in its own process: the arms hold this cycle, as after a failed inline head cycle.
             self._head_noticed = self._head_hold = True
             self._event('head_fault', reason=self.head.fault)
         if self.fault:
@@ -1326,8 +1323,8 @@ class TeleopCore:
             self.message = self._recording_notice()
 
     def _head_cycle(self, action, started):
-        """The head's cycle with the arms' action (helm.head_teleop); a fault in it holds the arms next cycle. On
-        its own thread (live), the action waits for its next cycle there."""
+        """The head's cycle with the arms' action (helm.head_teleop); a fault in it holds the arms next cycle. In
+        its own process (live), the action waits for its next cycle there."""
         head = getattr(self, 'head', None)  # Tests build cores without __init__: no head.
         if head is None or head.fault or head.session is None:
             return
@@ -1446,7 +1443,7 @@ class TeleopCore:
             return False
         head, loop = getattr(self, 'head', None), getattr(self, '_head_loop', None)
         head = (head is not None and not head.fault
-                and ((loop is not None and loop.pending)  # Return (X), posted to its thread, not yet taken.
+                and ((loop is not None and loop.pending)  # Return (X), posted to its process, not yet taken.
                      or head.state == 'SHUTDOWN' or getattr(head, 'returning', None) is not None))
         if self.fault:
             return self._lowering or head

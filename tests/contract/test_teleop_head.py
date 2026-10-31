@@ -1,6 +1,7 @@
 """The head in a teleop session with the arms: one TeleopCore, the arms' receiver and the head's (both the native
 harness), the same keys for both. Without a headset the head holds at its zero; a headset pose steers it while the
 arms follow the leaders; a fault in the head holds the arms."""
+import os
 import time
 
 import pytest
@@ -89,7 +90,7 @@ def test_a_head_fault_holds_the_arms(core):
 
 class Ticking:
     """The head's harness answering each request 10 ms after it was sent, as the live head service does at its
-    ticks."""
+    ticks. Module-level, so a head process (helm.head_teleop.HeadProcess) builds it in its own interpreter."""
 
     def __init__(self, config, initial):
         self.inner, self.requests = NativeControlHarness(config, initial), 0
@@ -101,52 +102,90 @@ class Ticking:
     def step(self, now_ms, request=None):
         if request is not None:
             self.requests += 1
-            time.sleep(.01)
+            self.wait()
         return self.inner.step(max(now_ms, self.inner.now_ms), request)
 
+    def wait(self):
+        time.sleep(.01)
 
-def test_a_live_head_cycles_on_a_thread_of_its_own_so_the_arms_never_wait_for_it(bundle):
-    # Live, each exchange with the head's service waits for its next 10 ms tick: cycled in the arms' loop, the head
-    # (two exchanges a cycle) took 22 ms of their 10 ms period every 40 ms, their commands went out 10 and 30 ms
-    # apart, each 30 ms long, and Enable faulted ("command_expired · wrong_owner", 2026-10-31). A live head cycles
-    # on a thread of its own: here, in real time, its receiver answers as the service does, and the arms' ticks
-    # still take only their own few ms.
+
+class Greedy(Ticking):
+    """A head holding its interpreter for 8 ms of each 10 ms answer, as a thread stalled (or descheduled) while it
+    holds the interpreter does: in the arms' process, the arms' loop would wait each time."""
+
+    def wait(self):
+        end = time.perf_counter() + .008
+        while time.perf_counter() < end:
+            pass
+        time.sleep(.002)
+
+
+class Failing(Ticking):
+    """A head whose receiver goes away mid-session: once the file HEAD_FAIL_FLAG names exists (the test's process
+    and the head's share the environment, not their objects)."""
+
+    def step(self, now_ms, request=None):
+        if request is not None and os.path.exists(os.environ['HEAD_FAIL_FLAG']):
+            raise RuntimeError('the head receiver went away')
+        return super().step(now_ms, request)
+
+
+def live(core, key=None, *, until=None, limit=1):
+    """The arms' ticks in real time, as run_loop gives them: a head in its own process cycles on the wall clock."""
+    for _ in range(limit):
+        started = time.perf_counter()
+        core.tick(key, started)
+        key = None
+        assert core.fault is None, core.fault
+        if until is not None and until(core):
+            return
+        time.sleep(max(0., started + core.period_s - time.perf_counter()))
+    assert until is None, f'still {core.session.lifecycle.state}: {core.message}'
+
+
+def test_a_live_head_cycles_in_a_process_of_its_own_so_the_arms_never_wait_for_it(bundle):
+    # Cycled in the arms' loop, the live head (each exchange waits for its service's 10 ms tick) took 22 ms of their
+    # 10 ms period every 40 ms, and Enable faulted. On a thread beside them it shared their interpreter: their slow
+    # cycles kept time with its 40 ms cycle (R 0.7) and one command expired (2026-10-31, live-20261031T195313Z,
+    # "command_expired · wrong_owner"). In a process of its own, even a head that holds its interpreter for most of
+    # each answer leaves the arms' ticks their own few ms.
+    from robot_platform.helm.head_teleop import HeadProcess
     data, path = bundle
     direct_profile(path, 100)
     clock = time.perf_counter
     core = TeleopCore(dict(data, receiver={'mode': 'virtual'}, head=head_bundle()),
                       open_leaders=lambda _: Leaders(clock), clock=clock)
-    core.head.open_harness = Ticking
-    core.head_thread = True  # As a live session's.
+    core.head.open_harness = Greedy
+    core.head_process = True  # As a live session's.
     core.build()
     try:
+        assert isinstance(core.head, HeadProcess) and core.head.session and core._head_loop is core.head
         durations = []
-        for key in ['I'] + [None] * 99:  # A second of the arms' 10 ms ticks.
+        for key in ['I'] + [None] * 199:  # Two seconds of the arms' 10 ms ticks.
             started = clock()
             core.tick(key, started)
             durations.append(clock() - started)
             time.sleep(max(0., started + core.period_s - clock()))
         assert core.fault is None and core.head.fault is None
         assert (core.session.lifecycle.state, core.head.state) == ('IDLE', 'IDLE')
-        assert core.head.receiver.requests > 15  # The head cycled on its own grid meanwhile.
-        # In the arms' loop, every fourth tick waited 20 ms or more for the head; beside it, none does (but for an
-        # odd stall of the machine running this).
-        assert sum(duration > .018 for duration in durations) <= 2, durations
+        assert core.head.status()['positions']  # Its cycles' word, from its process.
+        assert sum(duration > .008 for duration in durations) <= 3, sorted(durations)[-5:]
     finally:
         core.close()
+    assert not core.head._process.is_alive()  # Closed with the session.
 
 
-def test_beside_a_live_heads_thread_the_interpreter_changes_hands_within_a_millisecond(bundle):
-    # Beside the head's thread, the arms' exchanges took up to 10.6 ms (2-3 ms alone) and a command came within 2 ms
-    # of expiring (2026-10-31): CPython hands its interpreter between threads after 5 ms. With a live head's thread
-    # it does after 1 ms, until the session closes.
+def test_beside_a_live_head_the_interpreter_changes_hands_within_a_millisecond(bundle):
+    # With the head's thread, the arms' exchanges took up to 10.6 ms (2-3 ms alone): CPython hands its interpreter
+    # between threads after 5 ms. The arms' process still runs threads beside their loop (the views' sender, the
+    # recorder, the head process's proxy): beside a live head it hands over after 1 ms, until the session closes.
     import sys
     data, path = bundle
     direct_profile(path, 100)
     before = sys.getswitchinterval()
     core = TeleopCore(dict(data, receiver={'mode': 'virtual'}, head=head_bundle()),
                       open_leaders=lambda _: Leaders(time.perf_counter))
-    core.head_thread = True  # As a live session's.
+    core.head_process = True  # As a live session's.
     core.build()
     try:
         assert sys.getswitchinterval() == pytest.approx(.001)
@@ -162,64 +201,103 @@ def test_beside_a_live_heads_thread_the_interpreter_changes_hands_within_a_milli
         core.close()
 
 
-def test_a_live_heads_service_moves_off_the_arms_cpus(bundle, monkeypatch):
-    # On the arms' CPUs, beside the head, the arms' receiver started its ticks up to 9.2 ms late and an arm command
-    # expired (2026-10-31, 15:15). With a live head's thread, the head's service process moves to the background
-    # CPUs (control.scheduling.prefer_background), as its thread does when it starts.
+def test_the_heads_process_moves_itself_off_the_arms_cpus(monkeypatch):
+    # On the arms' CPUs, beside the head, the arms' receiver started its ticks up to 9.2 ms late (2026-10-31, 15:15).
+    # The head's process moves itself (control.scheduling.prefer_background, every thread of it) before it builds
+    # the head, so its receiver's service starts there too, and says so to the arms' side.
+    import os
     from robot_platform.control import scheduling
+    from robot_platform.helm.head_teleop import serve_head
     moved = []
     monkeypatch.setattr(scheduling, 'prefer_background', lambda pid=None: moved.append(pid) or ['background_cpus'])
-    data, path = bundle
-    direct_profile(path, 100)
-    core = TeleopCore(dict(data, receiver={'mode': 'virtual'}, head=head_bundle()),
-                      open_leaders=lambda _: Leaders(time.perf_counter))
-    core.head_thread = True  # As a live session's.
-    core.build()
-    try:
-        assert moved == [core.head.receiver.process.pid] and core.scheduling['head'] == ['background_cpus']
-    finally:
-        core.close()
+
+    class Conn:
+        def __init__(self):
+            self.sent = []
+
+        def send(self, message):
+            self.sent.append(message)
+
+        def poll(self, timeout):
+            return True
+
+        def recv(self):
+            return ('close',)
+    conn = Conn()
+    serve_head(head_bundle(), False, conn)
+    assert moved == [os.getpid()]
+    assert conn.sent[0] == ('built', ['background_cpus']) and conn.sent[-1] == ('closed', None)
 
 
-def test_a_fault_on_the_heads_own_thread_holds_the_arms(bundle, monkeypatch):
-    # A fault ends the live head's thread; the arms' next tick holds the arms, as after a failed inline head cycle.
-    # The thread stands in here: each post cycles the head at once, on this test's clock, its fault kept on its side.
+def test_the_heads_process_loads_the_head_model_by_the_releases_digests(monkeypatch):
+    # On the robot there are no CAD files: a process loads the model by the digests its verified release vouches for
+    # (ops.release.activate). The head's process got none and failed to build in its rehearsal on Minerva
+    # (2026-10-31): it registers those the arms' process holds.
     from robot_platform.helm import head_teleop
+    from robot_platform.models import urdf
+    registered = []
+    monkeypatch.setattr(urdf, 'register_verified_assets', lambda digests: registered.append(dict(digests)))
+    monkeypatch.setattr(urdf, '_VERIFIED_ASSETS', {ROOT / 'urdf/part.stl': 'abc'})
+    assert urdf.verified_assets() == {str(ROOT / 'urdf/part.stl'): 'abc'}
 
-    class Beside:
-        def __init__(self, head, *, clock):
-            self.head, self.clock, self.pending = head, clock, False
+    class Conn:
+        sent = []
 
-        def start(self):
-            return self
+        def send(self, message):
+            self.sent.append(message)
 
-        def post(self, action):
-            try:
-                self.head.cycle(action, self.clock())
-            except Exception:
-                pass
+        def poll(self, timeout):
+            return True
 
-        def stop(self):
-            pass
-    monkeypatch.setattr(head_teleop, 'HeadLoop', Beside)
+        def recv(self):
+            return ('close',)
+    head_teleop.serve_head(head_bundle(), False, Conn(), verified={'urdf/part.stl': 'abc'})
+    assert registered == [{'urdf/part.stl': 'abc'}]
+    head_teleop.serve_head(head_bundle(), False, Conn())  # A source checkout: none to register.
+    assert len(registered) == 1
+
+
+def test_a_fault_in_the_heads_own_process_holds_the_arms(bundle, tmp_path, monkeypatch):
+    # A fault ends the head's cycles in its process; the arms' next tick after its word holds the arms, as after a
+    # failed inline head cycle.
+    flag = tmp_path / 'head-fails'
+    monkeypatch.setenv('HEAD_FAIL_FLAG', str(flag))
     data, path = bundle
     direct_profile(path, 100)
-    clock = Clock()
     core = TeleopCore(dict(data, receiver={'mode': 'virtual'}, head=head_bundle()),
-                      open_leaders=lambda _: Leaders(clock), clock=clock)
-    core.head_thread = True
+                      open_leaders=lambda _: Leaders(time.perf_counter), clock=time.perf_counter)
+    core.head.open_harness = Failing
+    core.head_process = True
     core.build()
     try:
-        assert isinstance(core._head_loop, Beside)
-        for key in ('I', 'E'):
-            run(core, clock, key)
-        run(core, clock, 'T', until='TELEOP', limit=1000)
-        core.head.receiver.close()  # The head's receiver goes away mid-session.
-        run(core, clock, limit=20)
-        assert core.head.fault and core.session.lifecycle.state == 'HOLD'
-        assert 'The arms hold' in core.message
+        live(core, 'I', until=lambda c: c.head.state == 'IDLE', limit=200)
+        live(core, 'E', until=lambda c: c.session.lifecycle.state == 'HOLD', limit=200)
+        live(core, 'T', until=lambda c: c.session.lifecycle.state in ('ENGAGING', 'TELEOP'), limit=200)
+        flag.write_text('gone')
+        live(core, until=lambda c: c.head.fault and c.session.lifecycle.state == 'HOLD', limit=300)
+        assert 'went away' in core.head.fault and 'The arms hold' in core.message
     finally:
         core.close()
+
+
+def test_the_heads_process_ending_on_its_own_holds_the_arms_too(bundle):
+    # A head process that dies (killed, or crashed) says nothing more: the arms' side takes its silence as a fault.
+    data, path = bundle
+    direct_profile(path, 100)
+    core = TeleopCore(dict(data, receiver={'mode': 'virtual'}, head=head_bundle()),
+                      open_leaders=lambda _: Leaders(time.perf_counter), clock=time.perf_counter)
+    core.head_process = True
+    core.build()
+    try:
+        live(core, 'I', until=lambda c: c.head.state == 'IDLE', limit=200)
+        core.head._process.kill()
+        live(core, until=lambda c: c.head.fault, limit=200)
+        assert 'ended unexpectedly' in core.head.fault
+    finally:
+        try:
+            core.close()
+        except RuntimeError:
+            pass  # Closing a head process that is already gone may say so.
 
 
 def test_an_arms_fault_takes_the_head_back_to_its_rest_before_its_torque_goes(bundle):
