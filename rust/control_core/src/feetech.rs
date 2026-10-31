@@ -899,4 +899,45 @@ mod tests {
         hw.enable().unwrap();
         assert_eq!(hw.reference_status(), "consumed");
     }
+
+    #[test]
+    fn the_reference_pose_and_the_first_enable_share_one_clock() {
+        // Helm's first live head jog (2026-10-30): the service proved the pose on one clock, then served on one
+        // restarted at zero. Readings stamped before the gate's newest are ignored, so the enable 91 ms in was
+        // refused and the receiver faulted. The service now proves it on its serve loop's own clock.
+        let at = |steps: f64| steps * TAU / RESOLUTION;
+        let proved = || {
+            let mut hw = head(true);
+            hw.configure_reference(vec![
+                crate::reference::Reference {
+                    name: "head_pan".into(),
+                    raw_position_rad: at(2048.0),
+                    tolerance_rad: 0.05,
+                },
+                crate::reference::Reference {
+                    name: "head_tilt".into(),
+                    raw_position_rad: at(1000.0),
+                    tolerance_rad: 0.05,
+                },
+            ])
+            .unwrap();
+            let mut feedback = [JointFeedback::default(); 2];
+            for t in (0..=110).step_by(10) {
+                hw.read(t, &mut feedback).unwrap();
+            }
+            assert_eq!(hw.reference_status(), "ready");
+            hw
+        };
+        let mut feedback = [JointFeedback::default(); 2];
+        let mut restarted = proved();
+        for t in (0..=91).step_by(10) {
+            restarted.read(t, &mut feedback).unwrap();
+        }
+        assert_eq!(restarted.reference_status(), "unverified");
+        assert!(restarted.enable().is_err());
+        let mut continued = proved();
+        continued.read(120, &mut feedback).unwrap();
+        continued.enable().unwrap();
+        assert_eq!(continued.reference_status(), "consumed");
+    }
 }

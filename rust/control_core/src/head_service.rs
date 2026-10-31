@@ -204,32 +204,39 @@ pub fn run(
                 .map_err(|e| format!("head servo identity: {e}"))?;
             if transmit {
                 hardware.configure_reference(config.reference_positions.clone())?;
-                let clock = Instant::now();
-                let mut feedback = vec![JointFeedback::default(); config.servos.len()];
-                let deadline = Instant::now() + Duration::from_millis(1000);
-                // The reference pose is proven before the command socket opens.
-                loop {
-                    if SHUTDOWN.load(std::sync::atomic::Ordering::Relaxed)
-                        || Instant::now() >= deadline
-                    {
-                        return Err("head reference check interrupted or timed out".into());
-                    }
-                    hardware
-                        .read(clock.elapsed().as_millis() as u64, &mut feedback)
-                        .map_err(|_| {
-                            format!(
-                                "head reference check failed: {}",
-                                hardware.failure().unwrap_or("no detail")
-                            )
-                        })?;
-                    if hardware.reference_status() == "ready" {
-                        break;
-                    }
-                    std::thread::sleep(Duration::from_micros(config.period_us));
-                }
             }
             serve(config, hardware, run_seconds)
         }
+    }
+}
+
+/// Reads the head until its reference-pose gate is ready, before the command socket opens, stamping each reading on
+/// the serve loop's own `clock`: the gate ignores readings stamped before its newest, so on a restarted clock an
+/// enable is refused until the new clock catches up (Helm's first live head jog, 2026-10-30, armed 91 ms in).
+fn prove_reference<P: SerialPort>(
+    hardware: &mut FeetechHardware<P>,
+    clock: Instant,
+    servos: usize,
+    period_us: u64,
+) -> Result<(), String> {
+    let mut feedback = vec![JointFeedback::default(); servos];
+    let deadline = Instant::now() + Duration::from_millis(1000);
+    loop {
+        if SHUTDOWN.load(std::sync::atomic::Ordering::Relaxed) || Instant::now() >= deadline {
+            return Err("head reference check interrupted or timed out".into());
+        }
+        hardware
+            .read(clock.elapsed().as_millis() as u64, &mut feedback)
+            .map_err(|_| {
+                format!(
+                    "head reference check failed: {}",
+                    hardware.failure().unwrap_or("no detail")
+                )
+            })?;
+        if hardware.reference_status() == "ready" {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_micros(period_us));
     }
 }
 
@@ -239,6 +246,9 @@ fn serve<P: SerialPort>(
     run_seconds: Option<f64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let clock = Instant::now();
+    if config.mode == HeadMode::TeleopDirect {
+        prove_reference(&mut hardware, clock, config.servos.len(), config.period_us)?;
+    }
     let epoch = fs::read_to_string("/proc/sys/kernel/random/uuid")?
         .trim()
         .to_owned();
