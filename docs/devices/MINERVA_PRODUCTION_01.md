@@ -3074,3 +3074,24 @@ back. There were no faults and no holds, and cycles took 6.7 ms (p50), 7.5 ms
 
 Blocked two-arm moves now try again only while the leader target is still fresh,
 and a hold no longer needs a fresh target.
+
+### 2026-11-01 — right J4 and J5 re-zeroed through Helm's Joint zero
+
+The operator swapped the right wrist structure and remounted it in a different
+position, which moved right J4 and J5: at the zero pose they read −0.551 and
+−1.636 rad. This was the first use of Helm's Joint zero (Limits tab, release
+`20261101T191240Z-ed3bb30`). With the operator confirming the zero pose, it
+zeroed and saved those two drives only, after verifying every drive's identity
+(evidence `~/minerva/evidence/mechanical-zero-right-j4-j5-20261101T192227Z.json`).
+Both acknowledged the zero and returned their UID to the save. After the
+operator's power cycle, Helm's Verify read right J4 at +0.00005 and J5 at
+−0.00010 rad, and all 14 drives answered with their identities and fault-free
+Reset (`check-motors-20261101T192305Z.json`).
+
+Reference revision `minerva-mechanical-reference-20261101T192305Z` records it.
+It lives in Helm's operator files on Minerva, not in git (see
+[mechanical reference](../MECHANICAL_REFERENCE.md) and the
+[action summary](MINERVA_MECHANICAL_ZERO_20261101.json)). Helm re-bound the
+saved limits, the direction session and the manual tuning preset to it and
+cleared the two joints' limits. The operator re-swept them a minute later:
+J4 −1.913 … 2.080 rad, J5 −3.102 … 3.176 rad.

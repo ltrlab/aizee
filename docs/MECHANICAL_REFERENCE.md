@@ -120,6 +120,17 @@ re-sweep; the direction session and manual tuning presets move to it. A release
 that brings a different committed reference replaces Helm's copy, the replaced
 copy kept aside (helm.operator_files).
 
+Its first use, on 2026-11-01, re-zeroed right J4 and J5 after the operator
+remounted the right wrist structure in a different position: at the zero pose
+they read −0.551 and −1.636 rad. Both drives acknowledged the zero and returned
+their UID to the save. After the power cycle, Verify read them at +0.00005 and
+−0.00010 rad, with all 14 drives answering with their identities and a
+fault-free Reset. That is revision
+`minerva-mechanical-reference-20261101T192305Z` (sha256 `0b3d5a87…`;
+[action summary](devices/MINERVA_MECHANICAL_ZERO_20261101.json),
+[device log](devices/MINERVA_PRODUCTION_01.md)). The other twelve motors keep
+their 2026-09-24 or 2026-10-09 zero.
+
 ## Why an apparent zero may change
 
 A reading one whole turn off has a known cause on Minerva: the drives' power-on
