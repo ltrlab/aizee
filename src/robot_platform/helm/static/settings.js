@@ -1,4 +1,5 @@
 // Settings stay outside the control loop. Drafts only change runtime via an explicit Apply.
+import {CameraSettings} from './cameras.js';
 const $ = id => document.getElementById(id);
 const DEFAULT_DISPLAY = {enabled:true, scope:'selected', card:true, selected_motor:null,
   fields:{position:true, effort:true, temperature:true, direction:true}};
@@ -22,11 +23,12 @@ export function validDisplay(value) {
 }
 
 export class SettingsPanel {
-  constructor({request,navigate,onDisplay}) {
-    Object.assign(this,{request,navigate,onDisplay});
+  constructor({request,navigate,onDisplay,onCameraView}) {
+    Object.assign(this,{request,navigate,onDisplay,onCameraView});
     this.state=null; this.draft=new Map(); this.inputs=new Map(); this.category='motors';
     this.pending=false; this.conflict=false; this.serial=0; this.search=''; this.lastFetch=0;
     this.display=clone(DEFAULT_DISPLAY); this.robot=null; this.context=null;
+    this.cameras=new CameraSettings({request});
     $('settings-search').oninput=event => {this.search=event.target.value.trim().toLowerCase();this.filter();};
     $('settings-apply').onclick=()=>this.apply('apply');
     $('settings-reset').onclick=()=>this.apply('reset');
@@ -52,6 +54,7 @@ export class SettingsPanel {
   }
   updateContext(context) {
     this.context=context;
+    this.cameras.updateContext(context);
     if (this.robot!==context.robot.asset_id) {
       this.robot=context.robot.asset_id;
       try {this.display=validDisplay(JSON.parse(localStorage.getItem(`helm-display:${this.robot}`)));}
@@ -116,7 +119,7 @@ export class SettingsPanel {
     const host=$('settings-nav');host.replaceChildren();
     const sections=this.state?.sections||[],session=sections.filter(section=>section.fields?.some(field=>field.editable));
     const groups=[['Session',[{id:'changed',label:'Changed from profile'},{id:'motors',label:'Motor tuning'},{id:'grippers',label:'Gripper zero'},...session]],
-      ['Read-only',sections.filter(section=>!session.includes(section))],['View',[{id:'display',label:'3D display'}]]];
+      ['Read-only',sections.filter(section=>!session.includes(section))],['View',[{id:'cameras',label:'Cameras'},{id:'display',label:'Display & touch'}]]];
     for (const [title,items] of groups) {
       if (!items.length) continue;
       const heading=document.createElement('div');heading.className='rail-group';heading.textContent=title;host.append(heading);
@@ -175,6 +178,7 @@ export class SettingsPanel {
     $('settings-motors').hidden=!!this.search||this.category!=='motors';
     $('settings-display').hidden=!!this.search||this.category!=='display';
     $('settings-grippers').hidden=!!this.search||this.category!=='grippers';
+    $('settings-cameras').hidden=!!this.search||this.category!=='cameras';
     // Rows stay listed while this view is open, so one edited back to its profile value does not vanish mid-edit.
     let count=0,changed=null;
     if(this.category==='changed'&&!this.search) {
@@ -193,7 +197,8 @@ export class SettingsPanel {
     $('settings-empty').textContent=changed
       ? 'Nothing differs from the profile: every session setting is at its profile value.'
       : 'No settings match. Try a motor name, “speed”, or “timeout”.';
-    $('settings-footer').hidden=!this.search&&['motors','display','grippers'].includes(this.category);
+    $('settings-footer').hidden=!this.search&&['motors','display','grippers','cameras'].includes(this.category);
+    this.onCameraView?.();
   }
   feedback(message,bad=false) {const node=$('settings-status');node.textContent=message;node.classList.toggle('bad',bad);}
   actions() {

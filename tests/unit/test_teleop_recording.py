@@ -1,4 +1,4 @@
-"""Control progress, error stops and cleanup ordering with a blocked recording disk."""
+"""Control progress, guarded recording-fault holds and receiver-first cleanup."""
 import json
 from pathlib import Path
 import threading
@@ -9,6 +9,7 @@ import pytest
 
 from robot_platform.helm import teleop
 from robot_platform.helm.recording import RecordingError, RecordingWriter
+from robot_platform.teleop.lifecycle import TeleopLifecycle
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -82,50 +83,148 @@ def test_real_core_cycles_continue_while_latency_disk_write_is_blocked(monkeypat
     assert instance.phase == 'stopped' and instance.fault is None
 
 
+class LifecycleReceiver:
+    """In-memory receiver boundary; use the real lifecycle and core dispatch.
+
+    Native lease renewal and fourteen-axis authority are covered separately by
+    test_helm_capture_failure. This fixture makes no hardware/timing claim.
+    """
+    def __init__(self, state, callback, order):
+        self.callback, self.order = callback, order
+        self.now, self.position, self.records = 10., .02, []
+        self.blocked = None
+        joint = dict(name='joint', lower=-2., upper=2., hold_kp=10., hold_kd=1.,
+                     max_velocity=.5, align_speed=.1, shutdown_speed=.05,
+                     max_lead=.2, tolerance=.005, settled_velocity=.01, zero_position=0.)
+        self.lifecycle = TeleopLifecycle([joint], settle_time_s=0.)
+        self.lifecycle.action('idle', self.feedback(), now=self.now)
+        self.lifecycle.action('enable', self.feedback(), now=self.now)
+        if state == 'TELEOP':
+            self.lifecycle.action('engage', self.feedback(), target=self.feedback(), now=self.now)
+            self.now += .05
+            self.lifecycle.step(self.feedback(), target=self.feedback(), now=self.now)
+        assert self.lifecycle.state == state
+        self.enabled = True
+
+    def feedback(self):
+        return [dict(name='joint', position=self.position, velocity=0.,
+                     sampled_at=self.now-.001, sequence=round(self.now*1000))]
+
+    def cycle(self, *, action, target, started_at):
+        self.now = started_at
+        rows = self.feedback()
+        proposal = (self.lifecycle.action(action, rows, target=target, now=self.now) if action
+                    else self.lifecycle.step(rows, target=target, now=self.now))
+        self.enabled = self.lifecycle.state not in ('DISABLED', 'IDLE')
+        # Shutdown feedback tracks the bounded proposal, without sleeping or I/O.
+        if self.lifecycle.state == 'SHUTDOWN':
+            self.position = proposal['positions'][0]
+        record = dict(action=action, target=target, proposal=proposal, feedback=rows,
+                      started_at=started_at, completed_at=started_at+.001,
+                      accepted=True, status={'state': 'holding' if self.enabled else 'disarmed'})
+        self.records.append(record)
+        self.callback(sample())  # Includes the response to H / shutdown disable.
+        return record
+
+    def disable(self):
+        self.lifecycle.action('disable')
+        self.enabled = False
+        self.callback(sample())
+        self.order.append('disabled')
+
+
 @pytest.mark.parametrize('failure_at', ['callback', 'event', 'latency', 'flush', 'worker'])
-def test_recording_failure_latches_and_never_interrupts_disable_callbacks(tmp_path, failure_at):
+@pytest.mark.parametrize('initial_state', ['HOLD', 'TELEOP'])
+@pytest.mark.parametrize('ending', ['H', 'X', 'stop'])
+def test_recording_failure_holds_until_operator_stop_and_preserves_cleanup(
+        tmp_path, failure_at, initial_state, ending):
     instance = core(tmp_path)
     receiver = SimpleNamespace(directory=tmp_path, transport=SimpleNamespace(on_result=None))
     instance._start_recording(receiver, {'joints': [{'name': 'joint'}]})
     original = instance._recorder
+    order = []
+    session = instance.session = LifecycleReceiver(initial_state, receiver.transport.on_result, order)
+    instance._leader_target = lambda *_: pytest.fail('failed session polled the leaders')
+    original_close = original.close
+
+    def drain(**kwargs):
+        assert not session.enabled and order[-2:] == ['disabled', 'receiver closed']
+        order.append('drain')
+        original_close(**kwargs)
+    original.close = drain
+    instance._closers.append(lambda: order.append('receiver closed'))
+
     class BrokenStream:
         def write(self, data): raise RecordingError('incomplete injected recording')
         def flush(self): raise RecordingError('incomplete injected recording')
     class BrokenWriter:
         def check(self): raise RecordingError('incomplete injected recording')
-        def close(self, **kwargs): original.close(**kwargs)
-    if failure_at == 'callback':
+        def close(self, **kwargs):
+            original.close(**kwargs)
+            self.check()  # A failed RecordingWriter also reports its error on close.
+
+    try:
+        if failure_at == 'callback':
+            instance._samples = BrokenStream()
+            receiver.transport.on_result(sample())
+        elif failure_at == 'event':
+            instance._events = BrokenStream()
+            instance._event('test')
+        elif failure_at == 'latency':
+            instance._latency = BrokenStream()
+            instance._pending_latency = {'index': 1}
+            instance._flush_latency()
+        elif failure_at == 'flush':
+            instance._samples = BrokenStream()
+            instance._note()
+        else:
+            instance._recorder = BrokenWriter()
+
+        instance.tick('T', session.now+.01)  # Queued Engage must lose to the fault latch.
+        assert instance.recording_fault == 'incomplete injected recording'
+        assert instance.fault is None and instance.phase == 'running'
+        assert session.lifecycle.state == 'HOLD' and session.enabled
+        assert session.records[-1]['action'] == ('disengage' if initial_state == 'TELEOP' else None)
+        assert instance._recording_hold_confirmed
+        assert instance._samples is instance._events is instance._latency is None
+        held = session.lifecycle.target
+        for index in range(30):
+            session.position = .02 + .001*(index % 5)  # Feedback drift must not recapture the hold.
+            instance.tick(('I', 'E', 'T')[index % 3], session.now+.01)
+            assert instance.fault is None and session.lifecycle.state == 'HOLD'
+            assert session.enabled and session.lifecycle.target == held
+            assert session.records[-1]['action'] is None and session.records[-1]['target'] is None
+        assert len(session.records) == instance.sequence == 31
+        assert all(row['accepted'] and row['proposal']['operation'] == 'move' for row in session.records)
+        assert original._worker.is_alive() and not order  # No powered-tick drain/disable.
+        with pytest.raises(ValueError, match='Recording failed'):
+            instance.task_action('start_record')
+
+        # Repeated writer errors in a receiver callback must not interrupt H or
+        # controlled shutdown, nor escape later receiver-first resource cleanup.
         instance._samples = BrokenStream()
-        receiver.transport.on_result(sample())
-    elif failure_at == 'event':
-        instance._events = BrokenStream()
-        instance._event('test')
-    elif failure_at == 'latency':
-        instance._latency = BrokenStream()
-        instance._pending_latency = {'index': 1}
-        instance._flush_latency()
-    elif failure_at == 'flush':
-        instance._samples = BrokenStream()
-        instance._note()
-    else:
-        instance._recorder = BrokenWriter()
-    instance._tick = lambda *args: pytest.fail('motion submitted after recording failure')
-    with pytest.raises(RecordingError, match='incomplete injected'):
-        instance.tick(None, 10.)
-    # The same callback may execute while processing the disable response. It
-    # must return normally even with an already failed/overflowed writer.
-    instance._samples = BrokenStream()
-    receiver.transport.on_result(sample())
-    order = []
-    def disable():
-        receiver.transport.on_result(sample())
-        order.append('disabled')
-    instance.session = SimpleNamespace(disable=disable)
-    instance._closers.append(lambda: order.append('receiver closed'))
-    instance.close()
-    assert order == ['disabled', 'receiver closed']
+        if ending == 'stop':
+            assert instance.land()
+        instance.tick(ending if ending != 'stop' else None, session.now+.01)
+        assert session.records[-1]['action'] == ('disable' if ending == 'H' else 'shutdown')
+        assert session.lifecycle.state == ('DISABLED' if ending == 'H' else 'SHUTDOWN')
+        for _ in range(100):
+            if session.lifecycle.state == 'DISABLED':
+                break
+            instance.tick(None, session.now+.01)
+            assert instance.fault is None
+        assert session.lifecycle.state == 'DISABLED' and not session.enabled
+        for key in ('I', 'E', 'T'):
+            instance.tick(key, session.now+.01)
+            assert session.lifecycle.state == 'DISABLED' and not session.enabled
+            assert session.records[-1]['action'] is None
+        assert instance.recording_fault == 'incomplete injected recording'
+    finally:
+        instance.close()
+    assert order == ['disabled', 'receiver closed', 'drain']
     assert instance.phase == 'fault' and 'incomplete injected' in instance.message
     assert not original._worker.is_alive()
+    receiver.transport.on_result(sample())  # Late callbacks cannot restart recording.
 
 
 def test_drain_only_after_receiver_cleanup_even_when_disable_failed(tmp_path):

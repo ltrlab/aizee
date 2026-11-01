@@ -6,6 +6,7 @@ Guides for the shared platform, robot applications and device deployments.
 
 - **[Platform consolidation plan](architecture/PLATFORM_CONSOLIDATION_PLAN.md)** — integration order and acceptance for the bimanual learning/correction loop
 - **[October 16 integration record](development/PLATFORM_INTEGRATION_20261016.md)** — accepted source, CI, task scene, capture and physical validation
+- **[Minerva policy evaluation](development/MINERVA_EVAL.md)** — N-trial closed-loop task harness, shared sim/real report, success intervals and trial-count planning
 
 - **[Implemented monorepo guide](architecture/MONOREPO_IMPLEMENTATION.md)** — package installation, interchangeable profiles/settings, application launchers, shared backend APIs, and current migration status
 - **[Session backend migration](architecture/SESSION_BACKEND_MIGRATION.md)** — collector/inference integration, command lifecycle, freshness and remaining legacy tools

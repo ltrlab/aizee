@@ -23,6 +23,10 @@ main{display:grid;grid-template-columns:minmax(0,1fr) var(--aside);height:calc(1
 body.has-banner main{height:calc(100% - 64px - 38px)}
 .view{position:relative;min-width:0;background:radial-gradient(ellipse at 50% 40%,#25282d,#0c0d0f)}
 .view iframe{display:block;width:100%;height:100%;border:0}
+.view iframe[hidden],.task-window-note[hidden]{display:none}
+.task-window-note{height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:80px 36px;text-align:center}
+.task-window-note h2{max-width:420px;margin:0 0 12px;font-size:22px;line-height:1.35}
+.task-window-note p{max-width:400px;margin:5px 0;color:var(--muted);line-height:1.6}
 aside{display:flex;flex-direction:column;min-height:0;background:var(--panel);border-left:1px solid var(--line)}
 .panel{display:flex;flex-direction:column;min-height:0;flex:1}.panel[hidden]{display:none}
 .panel-head{padding:18px 20px 6px}.eyebrow{color:var(--accent);font-size:10px;letter-spacing:.15em;font-weight:650}
@@ -247,3 +251,91 @@ body[data-mode="simulation"] #mode-pill { color: #266344; background: #e6f5eb; }
 body[data-mode="simulation"] #via, body[data-mode="simulation"] #connect,
 body[data-mode="simulation"] .tab[data-tab="check"], body[data-mode="simulation"] .tab[data-tab="limits"],
 body[data-mode="simulation"] .tab[data-tab="tune"], body[data-mode="simulation"] #settings-grippers { display: none !important; }
+
+/* Opt-in touch layout. Hidden/disabled controls keep their existing behavior. */
+.touch-shortcut{min-height:44px;white-space:nowrap}
+.touch-preference{margin-bottom:22px;padding-bottom:18px;border-bottom:1px solid var(--line)}
+.touch-preference button{margin-top:12px;min-height:48px}
+[data-touch-toggle][aria-pressed=true]{background:#17385a;border-color:#4a9ee0}
+body[data-touch=on]{display:flex;flex-direction:column;height:100dvh;overflow:hidden;font-size:16px;--aside:min(54vw,560px)}
+body[data-touch=on][data-tab=settings]{--aside:min(64vw,700px)}
+body[data-touch=on] button{min-height:48px;min-width:48px;padding:10px 14px;font-size:16px;touch-action:manipulation}
+body[data-touch=on] :is(input:not([type=checkbox]):not([type=radio]),select){min-height:48px;max-width:100%;font-size:16px}
+body[data-touch=on] :is(input[type=checkbox],input[type=radio]){width:24px;height:24px;flex-shrink:0}
+body[data-touch=on] :is(.display-toggle,.display-select,.display-options label,.manual-follow,.manual-vff,.ucard label){min-height:48px;font-size:16px}
+body[data-touch=on] header{height:auto;min-height:64px;flex-shrink:0;flex-wrap:wrap;gap:8px;padding:8px 12px}
+body[data-touch=on] header .brand{flex-shrink:0}
+body[data-touch=on] header nav{display:flex;order:3;flex:1 1 100%;overflow-x:auto;padding:2px;gap:6px}
+body[data-touch=on] header nav button{flex:1 0 auto}
+body[data-touch=on] header .link{min-width:0;flex:1;flex-wrap:wrap;justify-content:flex-end;gap:6px}
+body[data-touch=on] #banner{flex-shrink:0}
+body[data-touch=on] main{display:grid;flex:1;min-height:0;height:auto}
+body[data-touch=on] .view{min-height:0;height:auto}
+body[data-touch=on] aside{min-width:0;overflow:hidden}
+body[data-touch=on] .panel{overflow-y:auto;overscroll-behavior-y:contain;scroll-padding:12px}
+body[data-touch=on] .scroll{flex:0 0 auto;overflow:visible}
+body[data-touch=on] :is(.panel-head,.save-bar){padding:12px}
+body[data-touch=on] :is(.target,.teleop-keys,.tuning-shortcut){flex-wrap:wrap}
+body[data-touch=on] .target{gap:6px}
+body[data-touch=on] .settings-panel{flex-direction:column}
+body[data-touch=on] .settings-rail{width:auto;flex-shrink:0;border-right:0;border-bottom:1px solid var(--line)}
+body[data-touch=on] .settings-nav{flex-direction:row;overflow-x:auto;gap:6px}
+body[data-touch=on] .settings-nav button{white-space:nowrap;flex-shrink:0}
+body[data-touch=on] :is(.rail-group,.settings-meta){display:none}
+body[data-touch=on] .settings-main{flex:0 0 auto}
+body[data-touch=on] .manual-fields{grid-template-columns:repeat(2,minmax(0,1fr))}
+body[data-touch=on] .global-controls{position:relative;left:auto;right:auto;bottom:auto;flex-shrink:0;flex-wrap:wrap;gap:8px;margin:8px}
+body[data-touch=on] .global-controls button{white-space:normal;flex:1 1 auto}
+body[data-touch=on] .global-controls>div{min-width:110px}
+@media(max-width:700px){
+  body[data-touch=on] main{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(100px,28%) minmax(0,1fr)}
+  body[data-touch=on] header .link{flex-basis:100%;justify-content:flex-start}
+  body[data-touch=on] .global-controls>div{flex-basis:100%}
+  body[data-touch=on] .global-controls button{flex:1 1 0;padding:8px;font-size:14px}
+  body[data-touch=on] .display-select{flex-wrap:wrap}
+}
+
+
+/* Actual lifecycle stage, not an estimated completion percentage. */
+.pedal-console{padding:10px 12px;border-bottom:1px solid var(--line);background:#10161c;flex-shrink:0}
+.phase-bar{border:1px solid var(--line);border-radius:6px;padding:8px}
+.phase-title{display:flex;gap:8px;align-items:baseline;justify-content:space-between}
+.phase-title strong{font-size:15px}.phase-title span{font-size:11px;color:var(--muted);text-align:right}
+.phase-stages{list-style:none;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:3px;padding:0;margin:7px 0 5px}
+.phase-stages li{font-size:10px;text-align:center;border-top:3px solid #303943;padding-top:3px;color:var(--muted)}
+.phase-stages li[data-current=true]{border-color:currentColor;color:var(--accent);font-weight:700}
+.phase-bar p{font-size:11px;line-height:1.35;color:var(--muted);margin:0}
+.phase-bar[data-tone=hold]{border-color:var(--accent)}
+.phase-bar:is([data-tone=engaging],[data-tone=teleop]){border-color:var(--good)}
+.phase-bar:is([data-tone=engaging],[data-tone=teleop]) strong{color:var(--good)}
+.phase-bar[data-tone=shutdown]{border-color:var(--warn)}.phase-bar[data-tone=shutdown] strong{color:var(--warn)}
+.phase-bar[data-tone=fault]{border-color:var(--bad)}.phase-bar[data-tone=fault] strong{color:var(--bad)}
+.pedal-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:6px}
+.pedal-actions button{display:flex;align-items:center;justify-content:center;gap:6px;font-size:12px;padding:7px 5px;min-width:0}
+.pedal-actions kbd{margin:0;font-size:13px;color:var(--text)}.pedal-actions span{overflow-wrap:anywhere}
+#pedal-warning{font-size:11px;line-height:1.35;margin:6px 0 0}
+body[data-touch=on] .pedal-actions button{font-size:13px;padding:7px 5px}
+body[data-touch=on] #panel-teleop>.pedal-console{position:sticky;top:0;z-index:3}
+body[data-touch=on][data-session-active=true] #panel-teleop .panel-head>:is(h1,.lead,#t-target,#t-receiver-choice,#t-choice-note){display:none}
+body[data-touch=on][data-session-active=true] #panel-teleop .panel-head{padding-top:8px}
+body[data-touch=on] #panel-teleop .phase-title strong{font-size:16px}
+/* Inset overlay never changes layout or intercepts a touchscreen hit. */
+body[data-touch=on]::after{content:"";position:fixed;inset:0;z-index:1000;pointer-events:none;box-shadow:inset 0 0 0 5px var(--touch-state-color,transparent)}
+body[data-touch-phase=hold]{--touch-state-color:#65b8ff}
+body:is([data-touch-phase=engaging],[data-touch-phase=teleop]){--touch-state-color:#56dc8a}
+body[data-touch-phase=fault]{--touch-state-color:#ff526b}
+body[data-touch-phase=shutdown]{--touch-state-color:#f2cd52}
+body[data-touch=on]:is([data-touch-phase=engaging],[data-touch-phase=shutdown])::after{animation:touch-state-pulse 1.8s ease-in-out infinite}
+@keyframes touch-state-pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@media(prefers-reduced-motion:reduce){body[data-touch=on]::after{animation:none!important}}
+
+.pedal-help{font-size:10px;color:var(--muted);margin:5px 0 0;line-height:1.3}
+.pedal-test-row{display:flex;gap:8px;align-items:center}.pedal-test-row button{margin-top:6px}
+.pedal-test-row p{font-size:11px;color:var(--accent);margin:5px 0}
+.pedal-actions button[data-tested=true]{opacity:1;border-color:var(--accent);background:#17385a}
+.pedal-actions small:empty{display:none}.pedal-actions small{font-variant-numeric:tabular-nums;color:var(--accent)}
+
+.phase-title{align-items:center}.phase-readout{display:flex;flex-direction:column;gap:3px;min-width:0}
+.phase-readout span{text-align:left}body[data-touch=on] #teleop-session{font-size:13px;padding:7px 10px;flex-shrink:0}
+
+body[data-teleop-state=STALE] #t-state{color:var(--bad)}

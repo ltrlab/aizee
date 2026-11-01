@@ -4,10 +4,12 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Helm</title>
   <link rel="stylesheet" href="helm/helm.css">
+  <link rel="stylesheet" href="helm/cameras.css">
 </head>
 <body data-feed="disconnected" data-tab="check">
   <header>
     <div class="brand"><span class="mark" aria-hidden="true">⎈</span><div><span class="name">Helm</span><small id="robot-name">Loading robot…</small></div></div>
+    <button type="button" class="touch-shortcut" data-touch-toggle aria-pressed="false" title="Larger controls for a touchscreen; also in Settings → 3D display">Touch mode: Off</button>
     <nav aria-label="Workspaces">
       <button class="tab" data-tab="check" aria-current="page">Check</button>
       <button class="tab" data-tab="limits">Limits</button>
@@ -30,8 +32,28 @@
   <p id="banner" role="status" hidden></p>
   <main>
     <section class="view" aria-label="Live robot model">
-      <div class="model-toolbar"><div><span class="eyebrow">MODEL &amp; TELEMETRY</span><span id="model-source" class="muted">Waiting for feedback</span></div><button id="open-display">Display options</button></div>
+      <div id="preview-view-choice" class="preview-view-choice" role="group" aria-label="Preview source" hidden>
+        <button type="button" data-preview-view="cameras" aria-pressed="true">Cameras</button>
+        <button type="button" data-preview-view="model" aria-pressed="false">Model</button>
+        <button id="camera-pause" type="button">Pause preview</button>
+        <button id="camera-retry" type="button" hidden>Retry preview</button>
+      </div>
+      <section id="camera-live-view" class="camera-live-view" aria-label="Live physical cameras" hidden>
+        <div class="camera-live-heading"><span class="eyebrow">PHYSICAL CAMERAS</span><p id="camera-stream-status" role="status">Disconnected</p></div>
+        <div class="camera-focus">
+          <img id="camera-focus-image" alt="Selected physical camera" hidden>
+          <p id="camera-focus-placeholder">Waiting for frame</p>
+          <div class="camera-focus-caption"><b id="camera-focus-title">Right wrist</b><span id="camera-focus-status">Disconnected</span></div>
+        </div>
+        <div id="camera-thumbnails" class="camera-thumbnails" role="group" aria-label="Choose camera"></div>
+      </section>
+      <div class="model-toolbar"><div><span id="model-heading" class="eyebrow">MODEL &amp; TELEMETRY</span><span id="model-source" class="muted">Waiting for feedback</span></div><button id="open-display">Display options</button></div>
       <iframe id="model-view" src="viewer?embed=1" title="Live robot model"></iframe>
+      <div id="task-window-note" class="task-window-note" role="status" hidden>
+        <h2>Task scene is in the Minerva simulation window</h2>
+        <p>Use that window to watch the cube, grippers and bucket.</p>
+        <p>Live joint telemetry and session controls remain available in Teleop.</p>
+      </div>
     </section>
     <aside>
       <section id="panel-check" class="panel" aria-label="Minerva Check">
@@ -96,6 +118,24 @@
         </div>
       </section>
       <section id="panel-teleop" class="panel" aria-label="Teleoperation" hidden>
+        <section class="pedal-console" aria-label="Pedals and reported session state">
+          <div id="pedal-phase" class="phase-bar" role="status" aria-live="polite">
+            <div class="phase-title"><div class="phase-readout"><strong id="pedal-phase-label">Waiting for state</strong><span id="pedal-recording">Not recording</span></div><button id="teleop-session" class="primary">Start session</button></div>
+            <ol class="phase-stages" aria-label="Lifecycle stages">
+              <li data-phase-stage="off">Off</li><li data-phase-stage="idle">Idle</li><li data-phase-stage="hold">Hold</li>
+              <li data-phase-stage="align">Align</li><li data-phase-stage="teleop">Teleop</li><li data-phase-stage="shutdown">Return</li>
+            </ol>
+            <p id="pedal-phase-detail">Touch Start session first.</p>
+          </div>
+          <div class="pedal-actions" role="group" aria-label="Pedal next actions">
+            <button type="button" data-pedal="a" disabled><kbd>A</kbd><span>Record</span><small></small></button>
+            <button type="button" data-pedal="b" disabled><kbd>B</kbd><span>Pause / resume</span><small></small></button>
+            <button type="button" data-pedal="c" disabled><kbd>C</kbd><span>Next stage</span><small></small></button>
+          </div>
+          <div class="pedal-test-row"><button type="button" id="pedal-test" aria-pressed="false" hidden>Test pedals</button><p id="pedal-test-status" role="status" hidden></p></div>
+          <p class="pedal-help">Software pedals · Pause holds position; motors stay enabled. H disables; X shuts down.</p>
+          <p id="pedal-warning" class="warn" hidden></p>
+        </section>
         <div class="panel-head">
           <div class="eyebrow warn" id="t-eyebrow">TELEOP · VIRTUAL RECEIVER · NO MOTORS MOVE</div>
           <h1>Drive the arms with the leaders</h1>
@@ -165,7 +205,6 @@
         </div>
         <div class="save-bar">
           <p id="teleop-status" role="status"></p>
-          <button id="teleop-session" class="primary">Start session</button>
         </div>
       </section>
       <section id="panel-tune" class="panel" aria-label="Servo sweep" hidden>
@@ -275,7 +314,21 @@
             </div>
             <p id="gripper-zero-feedback" class="muted" role="status" aria-live="polite"></p>
           </section>
+          <section id="settings-cameras" class="settings-group" hidden>
+            <h2>Cameras</h2>
+            <p class="muted">Check the table and grippers before recording. Exposure changes apply immediately to the camera while the session is stopped. Values last until the camera service restarts.</p>
+            <p id="camera-live-note" class="muted">Live physical cameras appear in the camera pane. Preview freshness is separate from recording readiness.</p>
+            <button id="camera-refresh">Read camera settings</button>
+            <p id="camera-status" role="status" aria-live="polite" class="muted"></p>
+            <div id="camera-cards"></div>
+          </section>
           <section id="settings-display" class="settings-group" hidden>
+            <div class="touch-preference">
+              <h2>Touchscreen layout</h2>
+              <p class="muted" id="touch-description">Larger controls and scrollable panels for a small touch console. Applies immediately and is saved in this browser.</p>
+              <button type="button" data-touch-toggle aria-pressed="false" aria-describedby="touch-description">Touch mode: Off</button>
+              <p id="touch-status" class="muted" role="status" aria-live="polite"></p>
+            </div>
             <h2>3D telemetry</h2><p class="muted">Display preferences apply immediately in this browser. They do not change robot control.</p>
             <label class="display-toggle"><input type="checkbox" data-display="enabled" checked> Show joint telemetry on the model</label>
             <label class="display-select">Show readings as <select data-display="scope"><option value="selected">Selected joint only</option><option value="all">Tags for all joints</option><option value="model">On the model (dials)</option></select></label>
@@ -311,6 +364,7 @@
     <button id="global-shutdown">Return &amp; disable <kbd>X</kbd></button>
     <button id="global-disable" class="danger">Disable now <kbd>H</kbd></button>
   </div>
+  <script type="module" src="helm/touch.js"></script>
   <script type="module" src="helm/helm.js"></script>
 </body>
 </html>

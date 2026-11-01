@@ -15,6 +15,7 @@ import time
 from urllib.parse import urlparse
 
 from robot_platform.transport.wire import unpack_camera
+from robot_platform.data.capture_process import STATUS_TIMEOUT_S
 
 CAMERAS = ('left_wrist', 'right_wrist', 'head')
 
@@ -50,7 +51,51 @@ def validate_config(value):
         if isinstance(v, bool) or not isinstance(v, (float, int)) or not math.isfinite(v) or not 0 < v <= high:
             raise ValueError(f'{field} must be finite and in (0, {high}]')
         result[field] = float(v)
+    size = value.get('recording_image_size')
+    if size is not None and (not isinstance(size, list) or len(size) != 2
+            or any(type(v) is not int for v in size)
+            or not 0 < size[0] <= 1280 or not 0 < size[1] <= 960):
+        raise ValueError('recording_image_size must be [width, height] within 1280x960, or null')
+    result['recording_image_size'] = list(size) if size is not None else None
     return result
+
+
+def recording_images(frames, size):
+    """Transform only an admitted coherent set; preserve cached RGB and its clocks.
+
+    This is spatial downsampling, not lossless image preservation. The episode
+    stores the transformed RGB losslessly; no stored-image intrinsics are known.
+    """
+    import numpy as np
+    import PIL
+    from PIL import Image
+    images, provenance = {}, {}
+    for name, frame in frames.items():
+        source = frame['image']
+        height, width = source.shape[:2]
+        target = tuple(size) if size is not None else (width, height)
+        if target[0] > width or target[1] > height or target[0]*height != target[1]*width:
+            raise ValueError(f'{name}: recording_image_size must downsample without changing aspect ratio')
+        changed = target != (width, height)
+        integer_reduce = width == target[0]*2 and height == target[1]*2
+        if changed:
+            image = Image.fromarray(source)
+            # Exact integer reduction avoids the general BOX filter overhead.
+            # Its rounding differs from BOX, so record the actual algorithm.
+            image = (image.reduce(2) if integer_reduce else
+                     image.resize(target, getattr(Image, 'Resampling', Image).BOX))
+            images[name] = np.asarray(image).copy()
+        else:
+            images[name] = source
+        provenance[name] = {k: v for k, v in frame.items() if k != 'image'}
+        provenance[name]['image_transform'] = dict(
+            operation='integer_reduce' if integer_reduce else 'resize' if changed else 'identity',
+            source_shape=list(source.shape), stored_shape=list(images[name].shape),
+            algorithm='Pillow.Image.reduce' if integer_reduce else 'Pillow.BOX' if changed else 'identity',
+            pillow_version=PIL.__version__, color_order='RGB', stored_image_intrinsics=None)
+        if integer_reduce:
+            provenance[name]['image_transform']['factor'] = [2, 2]
+    return images, provenance
 
 
 class CameraCache:
@@ -81,6 +126,9 @@ class CameraCache:
                 return False
             if previous and stamp < previous['publisher_time']:
                 raise ValueError('publisher clock moved backwards; restart capture after checking its clock')
+            rotation = msg.get('image_rotation_deg')
+            if rotation is not None and (type(rotation) is not int or rotation not in (0, 180)):
+                raise ValueError('publisher image_rotation_deg must be 0 or 180 when supplied')
             color = msg.get('color') or {}
             raw = color.get('data_bytes')
             if color.get('format') != 'jpeg' or not isinstance(raw, bytes) or not 0 < len(raw) <= 16 * 1024 * 1024:
@@ -96,6 +144,7 @@ class CameraCache:
             frame = dict(image=rgb, publisher_time=float(stamp), sampled_at=received_at-age,
                          received_at=received_at, mapping_uncertainty_s=max(0., (mapped_at or received_at)-received_at),
                          receive_id=self.sequence, publisher_frame_number=msg.get('frame_number'),
+                         image_rotation_deg=rotation,
                          timestamp_semantics=expected['timestamp_semantics'], exposure_time_known=False)
             self.frames[name].append(frame)
             self.errors.pop(name, None)
@@ -140,8 +189,58 @@ class CameraCache:
             result[name] = dict(fresh=bool(row and name not in self.errors and 0 <= age <= self.config['max_camera_age_s']),
                                 age_s=age, error=self.errors.get(name),
                                 publisher_time=row['publisher_time'] if row else None,
+                                image_rotation_deg=row['image_rotation_deg'] if row else None,
                                 receive_id=row['receive_id'] if row else None)
         return result
+
+
+def paired_receiver_sample(result, rows, names, config, *, dropped=0, started_at, received_at):
+    """Bounded scalar snapshot shared by the thread worker and its process adapter."""
+    try:
+        if not rows or started_at is None:
+            return
+        if (type(started_at) not in (int, float) or type(received_at) not in (int, float)
+                or not math.isfinite(started_at) or not math.isfinite(received_at) or received_at < started_at):
+            raise ValueError('Receiver exchange timestamps are invalid')
+        status = result.get('status') or {}
+        feedback = result.get('feedback') or []
+        if (dropped or len(feedback) != len(names) or status.get('set_aside')
+                or tuple(status.get('joint_names', ())) != names
+                or any(f.get('fault') is True for f in feedback)):
+            raise ValueError('Receiver capture lost rows or a required motor is unavailable')
+        now_ms = status['now_ms']
+        if (type(now_ms) not in (int, float) or not math.isfinite(now_ms)
+                or now_ms < 0 or now_ms != math.floor(now_ms)):
+            raise ValueError('Receiver status clock must be a finite nonnegative integer millisecond')
+        # Rust status floors elapsed milliseconds; its later recorder sample retains
+        # fractions. Admit only the same half-open bucket, and use its upper bound
+        # for every age/cutoff calculation rather than adding grace to the timeout.
+        status_upper_ms = now_ms+1
+        max_age_ms = config['max_receiver_age_s']*1000
+        stamps = [f['sampled_at_ms'] for f in feedback]
+        if any(type(stamp) not in (int, float) or not math.isfinite(stamp)
+               or not 0 <= stamp <= now_ms or status_upper_ms-stamp > max_age_ms for stamp in stamps):
+            raise ValueError('Required motor feedback is stale or in the future')
+        row = rows[-1]
+        if (type(row[0]) not in (int, float) or not math.isfinite(row[0])
+                or not 0 <= row[0] < status_upper_ms or status_upper_ms-row[0] > max_age_ms):
+            raise ValueError('Receiver recorder row is stale or in the future')
+        q, qcmd = tuple(row[1+4*i] for i in range(14)), tuple(row[4+4*i] for i in range(14))
+        if not all(math.isfinite(v) for v in q+qcmd):
+            raise ValueError('Receiver positions or emitted commands are not finite')
+        sampled_ms = min(row[0], *stamps)
+        cutoff = started_at-(status_upper_ms-sampled_ms)/1000
+        rpc_round_trip_s = received_at-started_at
+        return dict(q=q, qcmd=qcmd, source_time=cutoff, received_at=received_at,
+                            receiver_ms=row[0], receiver_feedback_ms=stamps,
+                            receiver_status_ms=now_ms, receiver_status_upper_ms=status_upper_ms,
+                            status_clock_quantization_s=.001, rpc_round_trip_s=rpc_round_trip_s,
+                            clock_uncertainty_s=rpc_round_trip_s+.001, error=None,
+                            command_valid=result.get('hardware_enabled') is True
+                                and status.get('state') in ('holding', 'executing'),
+                            hardware_enabled=result.get('hardware_enabled'), receiver_state=status.get('state'))
+    except (ValueError, KeyError, TypeError, IndexError) as exc:
+        return dict(error=str(exc), received_at=received_at)
 
 
 class LiveTaskCapture:
@@ -157,47 +256,42 @@ class LiveTaskCapture:
         self.clock, self.wall_clock = clock, wall_clock
         self.writer_factory, self.context_factory = writer_factory, context_factory
         self._sample = None
+        self._writer, self._abort_reason = None, None
+        self._last_progress, self._finalizing = self.clock(), False
         self._commands = queue.Queue(maxsize=4)
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self._request = 0
-        self._state = dict(available=True, capabilities={'source': 'real', 'contacts': 'unobserved',
+        self._state = dict(available=False, capabilities={'source': 'real', 'contacts': 'unobserved',
                            'task_success': 'operator_review_required'}, task={'phase': 'camera preflight'},
                            recording={'state': 'idle', 'active': False}, cameras={}, camera_roles=list(self.camera_roles),
-                           capture_ready=False, error=None,
+                           capture_ready=False, camera_valid_until=None, error=None,
                            failed=False, last_command=None)
         self._thread = threading.Thread(target=self._run, daemon=True, name='helm-task-capture')
         self._thread.start()
 
     def receive(self, result, rows, *, dropped=0, started_at, received_at):
-        """Called after the receiver RPC; never decode, allocate images, block on I/O or publish commands."""
-        try:
-            if not rows or started_at is None:
-                return
-            status = result.get('status') or {}
-            feedback = result.get('feedback') or []
-            if (dropped or len(feedback) != len(self.names) or status.get('set_aside')
-                    or tuple(status.get('joint_names', ())) != self.names
-                    or any(f.get('fault') is True for f in feedback)):
-                raise ValueError('Receiver capture lost rows or a required motor is unavailable')
-            now_ms = status['now_ms']
-            stamps = [f['sampled_at_ms'] for f in feedback]
-            if (not math.isfinite(now_ms) or any(not math.isfinite(stamp)
-                    or not 0 <= now_ms-stamp <= self.config['max_receiver_age_s']*1000 for stamp in stamps)):
-                raise ValueError('Required motor feedback is stale')
-            row = rows[-1]
-            if not math.isfinite(row[0]) or not 0 <= now_ms-row[0] <= self.config['max_receiver_age_s']*1000:
-                raise ValueError('Receiver recorder row is stale or in the future')
-            q, qcmd = tuple(row[1+4*i] for i in range(14)), tuple(row[4+4*i] for i in range(14))
-            if not all(math.isfinite(v) for v in q+qcmd):
-                raise ValueError('Receiver positions or emitted commands are not finite')
-            sampled_ms = min(row[0], *stamps)
-            cutoff = started_at-max(0., now_ms-sampled_ms)/1000
-            self._sample = dict(q=q, qcmd=qcmd, source_time=cutoff, received_at=received_at,
-                                receiver_ms=row[0], receiver_feedback_ms=stamps,
-                                clock_uncertainty_s=max(0., received_at-started_at), error=None)
-        except (ValueError, KeyError, TypeError, IndexError) as exc:
-            self._sample = dict(error=str(exc), received_at=received_at)
+        """Snapshot paired receiver values; never decode images, perform I/O or send commands."""
+        sample = paired_receiver_sample(result, rows, self.names, self.config, dropped=dropped,
+                                        started_at=started_at, received_at=received_at)
+        if sample is not None:
+            self.receive_sample(sample)
+
+    def receive_sample(self, sample):
+        self._sample = sample
+        writer = getattr(self, '_writer', None)
+        if writer is not None and (sample.get('error') or not sample.get('command_valid')):
+            self.abort(sample.get('error') or 'Receiver no longer has active emitted command authority')
+
+    def abort(self, reason):
+        """Fence publication immediately, including while finish waits on disk, without joining."""
+        with self._lock:
+            self._abort_reason = self._abort_reason or str(reason)
+            writer = self._writer
+            self._state.update(error=self._abort_reason, failed=True, capture_ready=False)
+        self._stop.set()
+        if writer is not None:
+            writer.abort(self._abort_reason)
 
     def command(self, action, payload=None):
         if action not in ('start_record', 'stop_record') or payload:
@@ -220,9 +314,18 @@ class LiveTaskCapture:
         age = self.clock()-sample['source_time'] if sample and not sample.get('error') else None
         with self._lock:
             recording = self._state['recording']
-            return dict(available=self._state['available'], error=self._state['error'],
-                        failed=self._state['failed'], source_age_s=age,
-                        capture_ready=bool(self._state['capture_ready'] and age is not None
+            progress = getattr(self, '_last_progress', None)
+            finalizing = getattr(self, '_finalizing', False)
+            stalled = bool(progress is not None and not finalizing
+                           and self.clock()-progress > STATUS_TIMEOUT_S)
+            camera_deadline = self._state.get('camera_valid_until')
+            camera_expired = 'camera_valid_until' in self._state and (camera_deadline is None
+                              or self.clock() > camera_deadline)
+            return dict(available=self._state['available'] and not stalled,
+                        error='Capture camera worker stalled' if stalled else self._state['error'],
+                        failed=self._state['failed'] or stalled, source_age_s=age, camera_valid_until=camera_deadline,
+                        capture_ready=bool(self._state['capture_ready'] and not camera_expired
+                            and not stalled and not finalizing and age is not None
                             and 0 <= age <= self.config['max_receiver_age_s']),
                         recording={key: recording.get(key) for key in ('active', 'error', 'state', 'complete')})
 
@@ -279,7 +382,7 @@ class LiveTaskCapture:
                         if action == 'start_record':
                             if writer is not None:
                                 raise ValueError('An episode is already recording')
-                            self._ready(sample, now)
+                            self._ready(sample, now, require_commands=True)
                             cache.select(sample['source_time'])
                             writer = factory(self.directory, self.names,
                                 dict(self.metadata, capture_profile=self.config,
@@ -290,13 +393,26 @@ class LiveTaskCapture:
                                                     'camera_times': 'mapped host read-complete stamps; sensor exposure time unknown'},
                                      action_semantics='receiver_emitted_position_at_sample',
                                      task_success='operator_review_required'), hz=self.config['hz'])
+                            with self._lock:
+                                self._writer = writer
+                                cancelled = self._abort_reason
+                            if cancelled:
+                                writer.abort(cancelled)
+                                raise RuntimeError(cancelled)
                             next_frame, last_sources = 0., None
                         else:
                             if writer is None:
                                 raise ValueError('No episode is recording')
-                            writer.finish()
+                            with self._lock:
+                                self._finalizing = True
+                            try:
+                                writer.finish()
+                            finally:
+                                with self._lock:
+                                    self._finalizing = False
                             with self._lock:
                                 self._state['recording'] = writer.status()
+                                self._writer = None
                             writer = None
                     except Exception as exc:
                         error = str(exc)
@@ -304,29 +420,31 @@ class LiveTaskCapture:
                         self._state.update(error=error, last_command=dict(id=request, action=action,
                                            state='failed' if error else 'complete', error=error))
                 if writer is not None and now >= next_frame:
-                    self._ready(sample, now)
+                    self._ready(sample, now, require_commands=True)
                     frames = cache.select(sample['source_time'])
                     sources = (sample['source_time'], *(frames[n]['publisher_time'] for n in self.camera_roles))
                     # Wait for a new acquisition from every camera; never relabel a repeated frame as new.
                     if last_sources is None or all(a > b for a, b in zip(sources, last_sources)):
-                        provenance = {n: {k: v for k, v in f.items() if k != 'image'} for n, f in frames.items()}
-                        writer.append(q=sample['q'], qcmd=sample['qcmd'], source_time=sample['source_time'], scene_time=None,
-                                      images={n: f['image'] for n, f in frames.items()},
-                                      camera_times={n: f['sampled_at'] for n, f in frames.items()},
-                                      task_state={'capture': {k: v for k, v in sample.items() if k not in ('q', 'qcmd')},
-                                                  'cameras': provenance, 'success': 'operator_review_required'},
-                                      authority='human')
+                        self._append_frame(writer, sample, frames)
                         last_sources = sources
                     next_frame = now+1/self.config['hz']
                 with self._lock:
+                    self._last_progress = self.clock()
+                    self._state['available'] = True
                     self._state['cameras'] = cache.status(now)
+                    for camera in self._state['cameras'].values():
+                        camera['valid_until'] = (now+self.config['max_camera_age_s']-camera['age_s']
+                                                  if camera['age_s'] is not None else None)
                     fresh = all(row['fresh'] for row in self._state['cameras'].values())
                     try:
-                        self._ready(sample, now)
-                        cache.select(sample['source_time'])
+                        self._ready(sample, now, require_commands=True)
+                        selected = cache.select(sample['source_time'])
+                        self._state['camera_valid_until'] = min(frame['sampled_at']
+                            + self.config['max_camera_age_s'] for frame in selected.values())
                         self._state['capture_ready'] = True
                     except ValueError:
                         self._state['capture_ready'] = False
+                        self._state['camera_valid_until'] = None
                     self._state['task'] = {'phase': 'recording' if writer else
                                            'ready for recording' if self._state['capture_ready'] else
                                            'waiting for fresh paired receiver and camera timing' if fresh else 'waiting for cameras'}
@@ -354,14 +472,50 @@ class LiveTaskCapture:
                 if writer is not None:
                     self._state['recording'] = writer.status()
 
-    def _ready(self, sample, now):
+    def _append_frame(self, writer, sample, frames):
+        images, provenance = recording_images(frames, self.config['recording_image_size'])
+        # Resizing may take time or overlap an authority-loss notification. Keep
+        # the original paired sample and acquisitions; never restamp or replace q.
+        now = self.clock()
+        self._ready(sample, now, require_commands=True)
+        if self._abort_reason:
+            raise ValueError(self._abort_reason)
+        for name, frame in frames.items():
+            if not 0 <= now-frame['sampled_at'] <= self.config['max_camera_age_s']:
+                raise ValueError(f'{name}: camera frame expired during recording preprocessing')
+        writer.append(q=sample['q'], qcmd=sample['qcmd'], source_time=sample['source_time'], scene_time=None,
+                      images=images, camera_times={n: f['sampled_at'] for n, f in frames.items()},
+                      task_state={'capture_admission_at': now,
+                                  'capture': {k: v for k, v in sample.items() if k not in ('q', 'qcmd')},
+                                  'cameras': provenance, 'success': 'operator_review_required'}, authority='human')
+
+    def _ready(self, sample, now, *, require_commands=False):
         if sample is None or sample.get('error'):
             raise ValueError((sample or {}).get('error') or 'Waiting for complete receiver feedback')
         if not 0 <= now-sample['source_time'] <= self.config['max_receiver_age_s']:
             raise ValueError('Receiver sample expired before capture')
+        if require_commands and not sample.get('command_valid'):
+            raise ValueError('Receiver has no active emitted command authority')
 
-    def close(self):
+    def close(self, *, timeout=5.):
+        # A requested stop_record is the sole successful completion path. Closing
+        # the owning session must win an in-progress finish before its rename.
+        deadline = time.monotonic()+timeout
+        with self._lock:
+            unfinished = self._writer is not None or not self._commands.empty()
+        if unfinished:
+            self.abort('Capture session ended before explicit recording completion')
         self._stop.set()
-        self._thread.join(timeout=5.)
+        self._thread.join(timeout=max(0., deadline-time.monotonic()))
         if self._thread.is_alive():
-            raise RuntimeError('Task capture worker did not close; episode completion is unconfirmed')
+            raise TimeoutError('Task capture worker did not close; partial episode integrity is unconfirmed')
+        # The camera thread may have ended on error while its daemon writer is
+        # still closing HDF5. Keep the reference and spend only the remaining
+        # teardown budget; this path runs in the capture child, never a tick.
+        with self._lock:
+            writer = self._writer
+        if writer is not None:
+            writer.wait_closed(timeout=max(0., deadline-time.monotonic()))
+            with self._lock:
+                self._state['recording'] = writer.status()
+                self._writer = None

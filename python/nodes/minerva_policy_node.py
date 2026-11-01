@@ -64,7 +64,11 @@ from python.common.minerva_constants import (
     max_delta_vector,
 )
 from python.training.language import TextConditioner
-from python.training.minerva_dataset import denormalize_actions, imagenet_normalize
+from python.training.minerva_dataset import (
+    denormalize_actions,
+    imagenet_normalize,
+    normalize_actions,
+)
 from python.training.minerva_model import MinervaPolicy
 
 _CAMERAS = ["left_wrist", "right_wrist", "head"]
@@ -135,8 +139,8 @@ def decode_image(msg: dict, size_wh) -> Optional[np.ndarray]:
     return np.array(img, dtype=np.uint8)
 
 
-def model_observation(observation: Observation, state_mode: str):
-    """Adapt a shared observation to the historical Minerva model input.
+def model_observation(observation: Observation, state_mode: str, num_joints: int = NUM_MINERVA_JOINTS):
+    """Adapt a shared observation to the Minerva model input (14 active or 17 canonical joints).
 
     Only explicitly inactive slots become zero, matching collected v6/v7 data.
     An absent/stale active joint always rejects the entire observation. Torque
@@ -147,14 +151,21 @@ def model_observation(observation: Observation, state_mode: str):
     if state_mode not in ("qpos", "qpos_qcmd", "qpos_qcmd_tq"):
         raise ValueError(f"Unsupported checkpoint state_mode: {state_mode!r}")
     active = np.asarray(observation.active_mask, dtype=bool)
+    active_count = int(np.sum(active))
+    if num_joints not in (active_count, len(observation.joint_names)):
+        raise ValueError(f"Unsupported checkpoint num_joints: {num_joints}")
     if not all(valid for enabled, valid in zip(active, observation.position_valid_mask) if enabled):
         return None
     qpos = np.where(active, observation.positions, 0.0).astype(np.float32)
+    if num_joints == active_count:
+        qpos = qpos[active]
     torques = None
     if state_mode == "qpos_qcmd_tq":
         if not all(valid for enabled, valid in zip(active, observation.torque_valid_mask) if enabled):
             return None
         torques = np.where(active, observation.torques, 0.0).astype(np.float32)
+        if num_joints == active_count:
+            torques = torques[active]
     return qpos, torques
 
 
@@ -226,7 +237,7 @@ def build_state(qpos_raw, last_action, torques_raw, state_mode, stats) -> np.nda
     qcmd_n = (qcmd_src - stats["qcmd_mean"]) / stats["qcmd_std"]
     if state_mode == "qpos_qcmd":
         return np.concatenate([qpos_n, qcmd_n]).astype(np.float32)
-    tq = torques_raw if torques_raw is not None else np.zeros(NUM_MINERVA_JOINTS, np.float32)
+    tq = torques_raw if torques_raw is not None else np.zeros(len(qpos_raw), np.float32)
     tq_n = (tq - stats["torque_mean"]) / stats["torque_std"]
     return np.concatenate([qpos_n, qcmd_n, tq_n]).astype(np.float32)
 
@@ -234,14 +245,22 @@ def build_state(qpos_raw, last_action, torques_raw, state_mode, stats) -> np.nda
 def policy_target(action: np.ndarray, session: RobotSession) -> np.ndarray:
     """Reject unsupported motion and normalize only floating-point residue.
 
+    Accepts either a 14-joint active arm vector or a 17-joint canonical vector.
     Zero-range action denormalization can leave tiny residuals in inactive
     placeholder slots; values within 1e-5 are rounded to zero. Material head or
     lift predictions require a robot definition/backend that supports them.
     """
     action = np.asarray(action, dtype=np.float32).copy()
-    if action.shape != (len(session.joint_names),) or not np.isfinite(action).all():
-        raise ValueError("Policy action must be a finite canonical joint vector")
     active = np.asarray(session.active_mask, dtype=bool)
+    active_count = int(np.sum(active))
+    if not np.isfinite(action).all():
+        raise ValueError("Policy action must be a finite canonical joint vector")
+    if action.shape == (active_count,):
+        full = np.zeros(len(session.joint_names), dtype=np.float32)
+        full[active] = action
+        return full
+    if action.shape != (len(session.joint_names),):
+        raise ValueError("Policy action must be a finite canonical joint vector")
     unsupported = np.flatnonzero(~active & (np.abs(action) > 1e-5))
     if unsupported.size:
         names = [session.joint_names[index] for index in unsupported]
@@ -292,19 +311,25 @@ def main(argv=None):
     state_mode = mcfg["state_mode"]
     action_mode = mcfg["action_mode"]
     chunk_size = mcfg["chunk_size"]
+    num_joints = int(mcfg["num_joints"])
+    active_count = int(np.sum(getattr(spec, "active_mask", [True] * 14)))
     execute_steps = min(int(ctl["execute_steps"]), chunk_size)
-    if execute_steps < 1 or mcfg["num_joints"] != len(spec.joints):
-        raise ValueError("Checkpoint must use the Minerva 17-joint layout and positive execution steps")
+    if execute_steps < 1 or num_joints not in (active_count, len(spec.joints)):
+        raise ValueError("Checkpoint must use the Minerva 14-joint or 17-joint layout and positive execution steps")
     flow_steps = int(ctl["flow_steps"])
     tick = 1.0 / float(ctl["rate_hz"])
     stale = float(settings["control"]["stale_after_s"])
-    cam_size = {c: (cam_cfg[c]["width"], cam_cfg[c]["height"]) for c in cameras}
+    ckpt_shapes = mcfg.get("image_shapes") or {}
+    cam_size = {
+        c: (int(ckpt_shapes[c][1]), int(ckpt_shapes[c][0])) if c in ckpt_shapes and len(ckpt_shapes[c]) >= 2
+        else (cam_cfg[c]["width"], cam_cfg[c]["height"])
+        for c in cameras
+    }
     print(f"cameras={cameras} state_mode={state_mode} action_mode={action_mode} "
           f"chunk={chunk_size} execute={execute_steps} flow_steps={flow_steps}")
     if state_mode not in ("qpos", "qpos_qcmd", "qpos_qcmd_tq"):
         raise ValueError(f"Unsupported checkpoint state_mode: {state_mode!r}")
     require_torque = state_mode == "qpos_qcmd_tq"
-    action_range = (stats["action_lo"], stats["action_hi"]) if action_mode == "absolute" else (None, None)
     max_delta = max_delta_vector(
         arm=float(safe["max_delta_arm"]), gripper=float(safe["max_delta_gripper"]),
         head=float(safe["max_delta_head"]), lift=float(safe["max_delta_lift"]))
@@ -331,6 +356,19 @@ def main(argv=None):
 
     # The shared backend owns both arm transports; cameras remain policy inputs.
     session = RobotSession(spec, settings, max_age_s=stale)
+    active_mask = np.asarray(session.active_mask, dtype=bool)
+    if action_mode == "absolute":
+        lo_raw, hi_raw = np.asarray(stats["action_lo"], np.float32), np.asarray(stats["action_hi"], np.float32)
+        if lo_raw.shape == (active_count,):
+            lo_full = np.zeros(len(session.joint_names), dtype=np.float32)
+            hi_full = np.zeros(len(session.joint_names), dtype=np.float32)
+            lo_full[active_mask] = lo_raw
+            hi_full[active_mask] = hi_raw
+            action_range = (lo_full, hi_full)
+        else:
+            action_range = (lo_raw, hi_raw)
+    else:
+        action_range = (None, None)
     ctx = zmq.Context()
     client = ZmqRobotClient(session, context=ctx, receive_only=args.dry_run)
     cam_subs = {}
@@ -358,7 +396,7 @@ def main(argv=None):
     cam_last_t = {c: 0.0 for c in cameras}
     latest_cam: Dict[str, dict] = {}
     last_action: Optional[np.ndarray] = None
-    chunk_buf: Optional[np.ndarray] = None      # [K, 17] absolute positions
+    chunk_buf: Optional[np.ndarray] = None      # [K, num_joints] absolute positions
     chunk_idx = 0
     ready = False
 
@@ -367,7 +405,7 @@ def main(argv=None):
         while True:
             t0 = time.monotonic()
             observation = client.poll()
-            measured = model_observation(observation, state_mode)
+            measured = model_observation(observation, state_mode, num_joints)
             for c in cameras:
                 m = drain_camera(cam_subs[c])
                 if m is not None:
@@ -404,10 +442,17 @@ def main(argv=None):
                 images_t = {c: torch.from_numpy(imagenet_normalize(imgs[c])).unsqueeze(0).to(device)
                             for c in cameras}
                 state_t = torch.from_numpy(state).unsqueeze(0).to(device)
+                prefix_t = None
+                if chunk_buf is not None and chunk_idx < len(chunk_buf):
+                    rem = chunk_buf[chunk_idx:]
+                    rem_norm = normalize_actions(rem, stats, action_mode, qpos=qpos_raw)
+                    prefix_t = torch.from_numpy(rem_norm).unsqueeze(0).to(device)
                 t_inf = time.monotonic()
                 with torch.no_grad():
-                    chunk_n = policy.select_action(state_t, images_t, language=lang_vec_t,
-                                                   num_steps=flow_steps)[0].cpu().numpy()
+                    select_kwargs = {"language": lang_vec_t, "num_steps": flow_steps}
+                    if prefix_t is not None:
+                        select_kwargs["prefix_actions"] = prefix_t
+                    chunk_n = policy.select_action(state_t, images_t, **select_kwargs)[0].cpu().numpy()
                 chunk_buf = denormalize_actions(chunk_n, stats, action_mode, qpos=qpos_raw)
                 chunk_idx = 0
                 infer_ms = (time.monotonic() - t_inf) * 1000
@@ -417,7 +462,7 @@ def main(argv=None):
 
             # Inference can outlast the stale threshold. Drain fresh telemetry
             # again, then clamp against the measured pose at command time.
-            measured = model_observation(client.poll(), state_mode)
+            measured = model_observation(client.poll(), state_mode, num_joints)
             camera_stale = any(time.monotonic() - cam_last_t[c] >= stale for c in cameras)
             if measured is None or camera_stale:
                 chunk_buf, last_action = None, None
@@ -425,9 +470,10 @@ def main(argv=None):
                 time.sleep(max(0, tick - (time.monotonic() - t0)))
                 continue
             qpos_raw, _ = measured
+            qpos_full = policy_target(qpos_raw, session)
             action = policy_target(chunk_buf[chunk_idx], session)
             action, clamped = apply_safety_limits(
-                action, qpos_raw,
+                action, qpos_full,
                 dataset_action_min=action_range[0], dataset_action_max=action_range[1],
                 max_delta=max_delta)
             action = policy_target(action, session)
@@ -441,7 +487,7 @@ def main(argv=None):
                 print("\r[SKIP] arm telemetry expired before sending   ", end="", flush=True)
                 time.sleep(max(0, tick - (time.monotonic() - t0)))
                 continue
-            last_action = action.copy()
+            last_action = action[active_mask].copy() if num_joints == active_count else action.copy()
             chunk_idx += 1
 
             flag = " [CLAMP]" if clamped.any() else ""

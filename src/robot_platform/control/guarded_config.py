@@ -127,27 +127,11 @@ def fit_motor_ranges(joints, models):
     return joints
 
 
-# The most a profile may add to every joint's calibrated speed (extra_speed_rad_s).
-MAX_EXTRA_SPEED_RAD_S = 5.
-
-
-def extra_speed(profile):
-    """What the manual-tuning profile adds to every joint's speed over its calibration, in rad/s (0 by default).
-
-    An operator's choice for direct teleop (2026-10-12: +2 rad/s), never a measured speed: the servo
-    calibration, its sweeps and Minerva Check keep their own. Only the manual-tuning profile may set it."""
-    extra = profile['motion'].get('extra_speed_rad_s', 0.)
-    if not _finite(extra) or not 0 <= extra <= MAX_EXTRA_SPEED_RAD_S:
-        raise ValueError(f'extra_speed_rad_s must be 0 to {MAX_EXTRA_SPEED_RAD_S:g} rad/s')
-    if extra and profile.get('manual_tuning') is not True:
-        raise ValueError('extra_speed_rad_s is for the manual-tuning profile only')
-    return float(extra)
-
-
-def servo_settings(settings, motor, servo):
+def servo_settings(settings, motor, servo, *, manual_tuning=False):
     """A joint's motion settings with its saved servo calibration applied, if it has one.
 
     The calibration is bound to the motor's identity: a replaced motor must be swept again.
+    The manual-tuning profile keeps its explicit per-joint speed ceilings from `motion.joints`.
     """
     entry = ((servo or {}).get('joints') or {}).get(motor['name'])
     if entry is None:
@@ -155,7 +139,8 @@ def servo_settings(settings, motor, servo):
     if entry.get('uid') != motor.get('uid') or entry.get('firmware') != motor.get('firmware'):
         raise ValueError(f"{motor['name']}: the servo calibration was made with another motor or firmware; "
                          'sweep it again')
-    keys = [key for key in SERVO_KEYS if key != 'max_velocity' or entry.get('control') == CONTROL_LAW]
+    keys = [key for key in SERVO_KEYS
+            if key != 'max_velocity' or (entry.get('control') == CONTROL_LAW and not manual_tuning)]
     merged = dict(settings, **{key: float(entry[key]) for key in keys if entry.get(key) is not None})
     merged['max_kp'] = max(merged['max_kp'], merged['hold_kp'])
     merged['max_kd'] = max(merged['max_kd'], merged['hold_kd'])
@@ -194,15 +179,14 @@ def derive_receiver(*, reference, steps, directions, transmissions, model, limit
     terms = gravity_model(model, directions, reference['motors'], fits) if fits else {}
     joints, lifecycle, initial, report = [], [], [], []
     cad_limits = {}
-    extra = extra_speed(profile)
+    manual_tuning = profile.get('manual_tuning') is True
     for motor in reference['motors']:
         name = motor['name']
         saved = limits['joints'].get(name)
         if saved is None:
             raise ValueError(f'{name}: no saved joint limits; sweep it in Helm first')
-        settings, calibrated = servo_settings(motion_settings(profile['motion'], name), motor, servo)
-        # The commanded cap, the receiver's cap over it and its braking curve all follow from this speed.
-        settings['max_velocity'] += extra
+        settings, calibrated = servo_settings(
+            motion_settings(profile['motion'], name), motor, servo, manual_tuning=manual_tuning)
         gripper = settings.get('gripper') is True
         # The friction its servo sweep measured, for friction feed-forward (arm joints only: a gripper's
         # squeeze is its stiffness times its lead).

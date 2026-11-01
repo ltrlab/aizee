@@ -1,6 +1,7 @@
 """Offline camera identity/clock admission and actual local SUB worker fixtures; no robot access."""
 from copy import deepcopy
 from io import BytesIO
+import json
 import time
 
 import numpy as np
@@ -8,8 +9,8 @@ from PIL import Image
 import pytest
 import zmq
 
-from robot_platform.helm.task_capture import CAMERAS, CameraCache, LiveTaskCapture, validate_config
-from robot_platform.transport.wire import pack_camera
+from robot_platform.helm.task_capture import CAMERAS, CameraCache, LiveTaskCapture, paired_receiver_sample, recording_images, validate_config
+from robot_platform.transport.wire import pack_camera, unpack_camera
 
 NAMES = tuple(f'{side}_arm_j{k}' for side in ('left', 'right') for k in range(1, 7)) + ('left_gripper', 'right_gripper')
 
@@ -19,16 +20,46 @@ def config():
                 camera_id=n, timestamp_clock='local_unix', timestamp_semantics='host_read_complete') for i, n in enumerate(CAMERAS)})
 
 
-def camera(name, stamp=1000., frame=99, width=8):
+def camera(name, stamp=1000., frame=99, width=8, rotation=None):
     payload = BytesIO()
     Image.fromarray(np.full((6, 8, 3), 80, dtype=np.uint8)).save(payload, format='JPEG')
-    return pack_camera(dict(camera_id=name, timestamp=stamp, frame_number=frame,
-                       color=dict(format='jpeg', width=width, height=6)), payload.getvalue())
+    header = dict(camera_id=name, timestamp=stamp, frame_number=frame,
+                  color=dict(format='jpeg', width=width, height=6))
+    if rotation is not None:
+        header['image_rotation_deg'] = rotation
+    return pack_camera(header, payload.getvalue())
 
 
 def fill(cache, *, stamp=1000., received=10.01, frame=99):
     for name in CAMERAS:
         assert cache.ingest(name, camera(name, stamp, frame), received_at=received, wall_time=stamp+.01)
+
+
+@pytest.mark.parametrize('rotation', [None, 0, 180])
+def test_camera_orientation_preserved_in_selected_frame_provenance_and_status(rotation):
+    cache = CameraCache(config())
+    fill(cache)
+    message = unpack_camera(camera('head', stamp=1000.02))
+    payload = message['color'].pop('data_bytes')
+    if rotation is not None:
+        message['image_rotation_deg'] = rotation
+    assert cache.ingest('head', pack_camera(message, payload), received_at=10.03, wall_time=1000.03)
+    assert cache.select(10.031)['head']['image_rotation_deg'] == rotation
+    assert cache.status(10.031)['head']['image_rotation_deg'] == rotation
+    # No inference that legacy, unlabelled publishers applied zero correction.
+    assert cache.status(10.031)['right_wrist']['image_rotation_deg'] is None
+
+
+@pytest.mark.parametrize('rotation', [True, 90, 180., '180', {}])
+def test_invalid_orientation_metadata_invalidates_cached_frame(rotation):
+    cache = CameraCache(config())
+    fill(cache)
+    message = unpack_camera(camera('head', stamp=1000.02))
+    payload = message['color'].pop('data_bytes')
+    message['image_rotation_deg'] = rotation
+    assert not cache.ingest('head', pack_camera(message, payload), received_at=10.03, wall_time=1000.03)
+    with pytest.raises(ValueError, match='image_rotation_deg'):
+        cache.select(10.031)
 
 
 def test_camera_counter_can_reset_but_duplicate_acquisition_never_renews_freshness():
@@ -117,7 +148,8 @@ def result(now_ms=100):
     row = [now_ms]
     for i in range(14): row += [float(i), .0, .0, i+.2]
     feedback = [dict(sampled_at_ms=now_ms, fault=False) for _ in NAMES]
-    return dict(status=dict(now_ms=now_ms, joint_names=list(NAMES)), feedback=feedback), [row]
+    return dict(status=dict(now_ms=now_ms, joint_names=list(NAMES), state='executing'),
+                hardware_enabled=True, feedback=feedback), [row]
 
 
 def test_receiver_pairs_preserve_emitted_commands_and_conservative_clock_interval():
@@ -129,8 +161,8 @@ def test_receiver_pairs_preserve_emitted_commands_and_conservative_clock_interva
     sample = capture._sample
     assert sample['q'] == tuple(float(i) for i in range(14))
     assert sample['qcmd'] == tuple(i+.2 for i in range(14))
-    assert sample['source_time'] == pytest.approx(9.998)
-    assert sample['clock_uncertainty_s'] == pytest.approx(.004)
+    assert sample['source_time'] == pytest.approx(9.997)
+    assert sample['clock_uncertainty_s'] == pytest.approx(.005)
     for change in ('order', 'fault', 'stale', 'future', 'dropped'):
         response, rows = result()
         if change == 'order': response['status']['joint_names'].reverse()
@@ -139,6 +171,57 @@ def test_receiver_pairs_preserve_emitted_commands_and_conservative_clock_interva
         if change == 'future': rows[0][0] = 101
         capture.receive(response, rows, dropped=int(change == 'dropped'), started_at=10., received_at=10.004)
         assert capture._sample['error'], change
+
+
+def test_receiver_fractional_recorder_stamp_preserves_observed_snapshot_and_uncertainty():
+    # Saved Jetson loaded-camera failure: status floors milliseconds while the
+    # recorder reads the clock later within that same millisecond.
+    response, rows = result(2106)
+    response['status']['state'], response['hardware_enabled'] = 'disarmed', False
+    rows[0][0] = 2106.23714
+    for feedback in response['feedback']:
+        feedback['sampled_at_ms'] = 2103
+    sample = paired_receiver_sample(response, rows, NAMES, validate_config(config()),
+                                    started_at=10., received_at=10.004)
+    assert sample['error'] is None
+    assert sample['receiver_ms'] == 2106.23714
+    assert sample['receiver_feedback_ms'] == [2103]*14
+    assert sample['receiver_status_ms'] == 2106
+    assert sample['receiver_status_upper_ms'] == 2107
+    assert sample['source_time'] == pytest.approx(9.996)
+    assert sample['rpc_round_trip_s'] == pytest.approx(.004)
+    assert sample['status_clock_quantization_s'] == .001
+    assert sample['clock_uncertainty_s'] == pytest.approx(.005)
+    assert not sample['command_valid']  # Parsing fresh stopped evidence never grants authority.
+
+
+@pytest.mark.parametrize('now_ms', [-1, 100.5, float('nan'), float('inf'), True, '100'])
+def test_receiver_quantization_requires_integral_nonnegative_status_clock(now_ms):
+    response, rows = result()
+    response['status']['now_ms'] = now_ms
+    sample = paired_receiver_sample(response, rows, NAMES, validate_config(config()),
+                                    started_at=10., received_at=10.004)
+    assert 'finite nonnegative integer' in sample['error']
+
+
+@pytest.mark.parametrize('row_ms,feedback_ms,accepted', [
+    (100.999999, 100, True),  # Strictly inside status [100, 101).
+    (101, 100, False), (101.000001, 100, False),  # A later recorder bucket is unproven.
+    (71, 100, True), (70.999999, 100, False),  # Conservative row age <=30 ms.
+    (100, 71, True), (100, 70.999999, False),  # Same bound for every feedback stamp.
+    (100, 100.000001, False),  # Feedback must not be later than integer status.
+    (-.001, 100, False), (100, -.001, False),
+    (True, 100, False), (100, True, False),
+])
+def test_receiver_quantization_half_open_bucket_and_strict_age_bounds(row_ms, feedback_ms, accepted):
+    response, rows = result(100.)  # Integral numeric representation is supported.
+    rows[0][0] = row_ms
+    response['feedback'][0]['sampled_at_ms'] = feedback_ms
+    sample = paired_receiver_sample(response, rows, NAMES, validate_config(config()),
+                                    started_at=10., received_at=10.004)
+    assert (sample['error'] is None) is accepted
+    if accepted:
+        assert sample['source_time'] == pytest.approx(10.-(101-min(row_ms, feedback_ms))/1000)
 
 
 class Writer:
@@ -158,6 +241,8 @@ class Writer:
         self.active, self.complete = False, True
     def abort(self, reason):
         self.active, self.error = False, reason
+    def wait_closed(self, *, timeout):
+        assert not self.active and timeout >= 0
 
 
 @pytest.fixture
@@ -166,7 +251,10 @@ def socket_capture(tmp_path, request):
     clock = [10.]
     context = zmq.Context()
     publishers, cfg = {}, config()
-    roles = tuple(getattr(request, 'param', CAMERAS))
+    options = getattr(request, 'param', CAMERAS)
+    roles = tuple(options.get('roles', CAMERAS) if isinstance(options, dict) else options)
+    if isinstance(options, dict):
+        cfg['recording_image_size'] = options['recording_image_size']
     cfg['camera_roles'] = list(roles)
     cfg['cameras'] = {name: cfg['cameras'][name] for name in roles}
     for name in roles:
@@ -188,7 +276,8 @@ def socket_capture(tmp_path, request):
             clock[0] += .004
             for name, pub in publishers.items():
                 if name not in missing:
-                    pub.send_multipart(camera(name, clock[0]+990.-.01, frame=0))
+                    pub.send_multipart(camera(name, clock[0]+990.-.01, frame=0,
+                                              rotation=180 if name == 'head' else None))
             if receiver:
                 response, rows = result()
                 capture.receive(response, rows, started_at=clock[0]-.001, received_at=clock[0])
@@ -217,6 +306,8 @@ def test_socket_worker_requires_all_cameras_and_explicit_finish(socket_capture):
     frame = writers[0].frames[0]
     assert all(t <= frame['source_time'] for t in frame['camera_times'].values())
     assert 'publisher_frame_number' in frame['task_state']['cameras']['head']
+    assert frame['task_state']['cameras']['head']['image_rotation_deg'] == 180
+    assert frame['task_state']['cameras']['right_wrist']['image_rotation_deg'] is None
     assert not capture.snapshot()['failed']
 
 
@@ -307,3 +398,215 @@ def test_capture_camera_roster_must_be_explicit_supported_and_distinct(roles):
     value['camera_roles'] = roles
     with pytest.raises(ValueError, match='camera_roles'):
         validate_config(value)
+
+
+@pytest.mark.parametrize('size', [[0, 240], [320, -1], [True, 240], [320., 240], [1281, 960],
+                                  [1280, 961], [320], [320, 240, 3], '320x240', (320, 240), {}])
+def test_recording_image_size_rejects_invalid_or_unbounded_profiles(size):
+    with pytest.raises(ValueError, match='recording_image_size'):
+        validate_config(dict(config(), recording_image_size=size))
+
+
+def test_default_capture_keeps_source_resolution_and_profile_keeps_timing_bounds():
+    from pathlib import Path
+    assert validate_config(config())['recording_image_size'] is None
+    assert validate_config(dict(config(), recording_image_size=None))['recording_image_size'] is None
+    profile = validate_config(json.loads((Path(__file__).parents[2]/'config/devices/minerva-task-capture.json').read_text()))
+    assert profile['recording_image_size'] == [320, 240]
+    assert (profile['hz'], profile['max_receiver_age_s'], profile['max_camera_age_s'],
+            profile['max_camera_skew_s']) == (20., .03, .2, .02)
+    cache = CameraCache(config())
+    fill(cache)
+    frames = cache.select(10.02)
+    images, provenance = recording_images(frames, None)
+    for role in CAMERAS:
+        assert images[role] is frames[role]['image']
+        assert provenance[role]['image_transform']['operation'] == 'identity'
+        assert provenance[role]['image_transform']['source_shape'] == [6, 8, 3]
+        assert provenance[role]['image_transform']['stored_shape'] == [6, 8, 3]
+
+
+@pytest.mark.parametrize('size', [[16, 12], [4, 4]])
+def test_recording_resize_refuses_upsampling_or_aspect_distortion(size):
+    cache = CameraCache(config())
+    fill(cache)
+    with pytest.raises(ValueError, match='downsample without changing aspect ratio'):
+        recording_images(cache.select(10.02), size)
+
+
+def test_resized_rgb_hdf5_preserves_pairing_source_pixels_and_declared_geometry(tmp_path):
+    import h5py
+    import PIL
+    from robot_platform.data.task_capture import TaskEpisodeWriter
+    capture = LiveTaskCapture.__new__(LiveTaskCapture)
+    capture.config = validate_config(dict(config(), recording_image_size=[320, 240]))
+    clock = [10.01]
+    capture.clock, capture._abort_reason = lambda: clock[0], None
+    # A textured nonconstant RGB input makes an incorrect resize observable.
+    source = np.random.default_rng(174).integers(0, 256, (480, 640, 3), dtype=np.uint8)
+    original = source.copy()
+    source.setflags(write=False)
+    frames = {role: dict(image=source, publisher_time=1000., sampled_at=9.99,
+                         received_at=9.995, receive_id=i, image_rotation_deg=180 if role == 'head' else None,
+                         timestamp_semantics='host_read_complete', exposure_time_known=False)
+              for i, role in enumerate(CAMERAS)}
+    sample = dict(q=list(range(14)), qcmd=[i+.25 for i in range(14)], source_time=10.,
+                  received_at=10.002, error=None, command_valid=True, receiver_ms=125.5)
+    writer = TaskEpisodeWriter(tmp_path, NAMES, dict(data_source='real', capture_profile=capture.config))
+    try:
+        capture._append_frame(writer, sample, frames)
+        clock[0] = 10.06
+        later_frames = {role: dict(frame, publisher_time=1000.05, sampled_at=10.04, received_at=10.045)
+                        for role, frame in frames.items()}
+        capture._append_frame(writer, dict(sample, source_time=10.05), later_frames)
+        path = writer.finish()
+    finally:
+        if not writer.status()['complete']:
+            writer.abort('test teardown')
+            writer.wait_closed(timeout=2.)
+    # Independent integer arithmetic, not the production Pillow operation.
+    summed = original.astype(np.uint16).reshape(240, 2, 320, 2, 3).sum(axis=(1, 3), dtype=np.uint16)
+    expected = ((summed+2)//4).astype(np.uint8)
+    np.testing.assert_array_equal(source, original)
+    assert not source.flags.writeable
+    with h5py.File(path) as f:
+        assert f.attrs['complete'] and not f.attrs['training_promoted']
+        assert not list(tmp_path.glob('episode_*.hdf5'))
+        np.testing.assert_array_equal(f['observations/qpos'][0], sample['q'])
+        np.testing.assert_array_equal(f['observations/qcmd'][0], sample['qcmd'])
+        assert f['timestamps/telem'][0] == 10.
+        assert f['action_valid'][:].tolist() == [True, False]
+        state = json.loads(f['task_state'][0])
+        assert state['capture']['receiver_ms'] == 125.5
+        assert state['capture_admission_at'] == 10.01
+        for role in CAMERAS:
+            dataset = f['observations/images/'+role]
+            assert dataset.dtype == np.uint8 and dataset.shape == (2, 240, 320, 3)
+            assert dataset.chunks == (1, 240, 320, 3) and dataset.compression == 'gzip'
+            np.testing.assert_array_equal(dataset[0], expected)
+            assert f['timestamps/camera_'+role][0] == 9.99
+            provenance = state['cameras'][role]
+            assert {k: v for k, v in provenance.items() if k != 'image_transform'} == {
+                k: v for k, v in frames[role].items() if k != 'image'}
+            assert provenance['image_transform'] == dict(operation='integer_reduce', source_shape=[480, 640, 3],
+                stored_shape=[240, 320, 3], algorithm='Pillow.Image.reduce', pillow_version=PIL.__version__,
+                color_order='RGB', stored_image_intrinsics=None, factor=[2, 2])
+
+
+@pytest.mark.parametrize('expired', ['receiver', 'camera'])
+def test_resize_time_cannot_renew_original_sample_or_camera_freshness(monkeypatch, expired):
+    from robot_platform.helm import task_capture
+    capture = LiveTaskCapture.__new__(LiveTaskCapture)
+    capture.config = validate_config(dict(config(), recording_image_size=[4, 3]))
+    now = [10.008 if expired == 'receiver' else 10.]
+    capture.clock, capture._abort_reason = lambda: now[0], None
+    cache = CameraCache(config())
+    fill(cache, stamp=1000., received=9.815 if expired == 'camera' else 9.995)
+    frames = cache.select(10.)
+    sample = dict(q=[0.]*14, qcmd=[.1]*14, source_time=10., error=None, command_valid=True)
+    writer = Writer(None, NAMES, dict(data_source='real', camera_roles=CAMERAS), hz=20.)
+    original_transform = task_capture.recording_images
+    def slow_transform(*args):
+        transformed = original_transform(*args)
+        now[0] += .024 if expired == 'receiver' else .011
+        # A newer paired sample exists, but must never replace the selected q/qcmd.
+        capture._sample = dict(sample, source_time=now[0], qcmd=[9.]*14)
+        return transformed
+    monkeypatch.setattr(task_capture, 'recording_images', slow_transform)
+    message = 'Receiver sample expired' if expired == 'receiver' else 'camera frame expired'
+    with pytest.raises(ValueError, match=message):
+        capture._append_frame(writer, sample, frames)
+    assert not writer.frames
+    assert sample['source_time'] == 10. and sample['qcmd'] == [.1]*14
+
+
+@pytest.mark.parametrize('socket_capture', [{'recording_image_size': [4, 3]}], indirect=True)
+def test_socket_worker_resizes_only_selected_recorded_triplets(socket_capture, monkeypatch):
+    from robot_platform.helm import task_capture
+    capture, writers, pump = socket_capture
+    calls = []
+    original_transform = task_capture.recording_images
+    def observed_transform(frames, size):
+        calls.append(tuple(frame['receive_id'] for frame in frames.values()))
+        return original_transform(frames, size)
+    monkeypatch.setattr(task_capture, 'recording_images', observed_transform)
+    pump(lambda: capture.snapshot()['capture_ready'])
+    assert not calls  # Ingest/preflight/preview does not resize incoming images.
+    capture.command('start_record')
+    pump(lambda: writers and len(writers[0].frames) >= 3)
+    capture.command('stop_record')
+    pump(lambda: capture.snapshot()['recording'].get('complete'))
+    assert len(calls) == len(writers[0].frames) and len(calls) == len(set(calls))
+    for frame in writers[0].frames:
+        assert all(image.shape == (3, 4, 3) for image in frame['images'].values())
+        assert all(c['image_transform']['source_shape'] == [6, 8, 3]
+                   for c in frame['task_state']['cameras'].values())
+
+
+def test_authority_loss_during_resize_aborts_even_if_new_valid_sample_arrives(socket_capture, monkeypatch):
+    from robot_platform.helm import task_capture
+    capture, writers, pump = socket_capture
+    pump(lambda: capture.snapshot()['capture_ready'])
+    original_transform = task_capture.recording_images
+    def lose_authority(*args):
+        transformed = original_transform(*args)
+        old = capture._sample
+        capture.receive_sample(dict(old, command_valid=False))
+        capture.receive_sample(old)
+        return transformed
+    monkeypatch.setattr(task_capture, 'recording_images', lose_authority)
+    capture.command('start_record')
+    pump(lambda: capture.snapshot()['failed'])
+    assert writers and not writers[0].frames and not writers[0].complete
+    assert 'command authority' in writers[0].error
+    assert 'command authority' in capture.snapshot()['error']
+
+
+def test_recording_transform_supports_legacy_pillow_without_resampling_enum(monkeypatch):
+    import PIL
+    from types import SimpleNamespace
+    cache = CameraCache(config())
+    fill(cache)
+    frames = cache.select(10.02)
+    for frame in frames.values():
+        frame['image'] = np.arange(8*12*3, dtype=np.uint8).reshape(8, 12, 3)
+    expected = np.asarray(Image.fromarray(frames['head']['image']).resize((3, 2), Image.Resampling.BOX))
+    # Jetson currently has Pillow9.0.1: constants live directly on Image. Keep
+    # the installed module's internal globals untouched while testing that API.
+    legacy_image = SimpleNamespace(fromarray=Image.fromarray, BOX=Image.Resampling.BOX)
+    monkeypatch.setattr(PIL, 'Image', legacy_image)
+    images, provenance = recording_images(frames, [3, 2])
+    np.testing.assert_array_equal(images['head'], expected)
+    assert provenance['head']['image_transform']['algorithm'] == 'Pillow.BOX'
+    assert 'factor' not in provenance['head']['image_transform']
+
+
+
+def test_integer_reduction_has_explicit_rounding_distinct_from_box():
+    # Each 2x2 block has channel sum1: integer reduction rounds1/4 to0,
+    # whereas the separable BOX operation rounds twice and produces1.
+    plane = np.tile(np.array([[0, 0], [0, 1]], dtype=np.uint8), (2, 2))
+    source = np.repeat(plane[:, :, None], 3, axis=2)
+    frames = {'head': dict(image=source, sampled_at=10.)}
+    images, provenance = recording_images(frames, [2, 2])
+    assert not images['head'].any()
+    assert np.asarray(Image.fromarray(source).resize((2, 2), Image.Resampling.BOX)).min() == 1
+    assert provenance['head']['image_transform']['operation'] == 'integer_reduce'
+    assert provenance['head']['image_transform']['algorithm'] == 'Pillow.Image.reduce'
+    assert provenance['head']['image_transform']['factor'] == [2, 2]
+    np.testing.assert_array_equal(source[:, :, 0], plane)
+
+
+@pytest.mark.parametrize('shape,target', [((9, 15, 3), [5, 3]), ((8, 12, 3), [3, 2])])
+def test_other_downsample_ratios_keep_box_without_integer_round_up(shape, target, monkeypatch):
+    source = np.arange(np.prod(shape), dtype=np.uint8).reshape(shape)
+    expected = np.asarray(Image.fromarray(source).resize(tuple(target), Image.Resampling.BOX))
+    def forbidden_reduce(*args, **kwargs):
+        pytest.fail('Non-2x shape used integer reduce/round-up')
+    monkeypatch.setattr(Image.Image, 'reduce', forbidden_reduce)
+    images, provenance = recording_images({'head': {'image': source}}, target)
+    np.testing.assert_array_equal(images['head'], expected)
+    assert images['head'].shape == (target[1], target[0], 3)
+    assert provenance['head']['image_transform']['operation'] == 'resize'
+    assert provenance['head']['image_transform']['algorithm'] == 'Pillow.BOX'
+    assert 'factor' not in provenance['head']['image_transform']

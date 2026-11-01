@@ -1,43 +1,84 @@
 # Current development status
 
-Updated 2026-10-16. Current milestone: both Minerva arms and grippers (14 axes),
-collecting a cube pickup, handoff and bucket placement in simulation and on the
-robot. Initial cameras: **right wrist + head**. The D435 head is on a static neck;
-its mounting transform has not been calibrated.
+Updated 2026-10-16; final acceptance and activation occurred on 2026-10-17 UTC.
+The current milestone remains a 14-axis Minerva cube pickup, handoff and bucket
+placement. **Recording source `4c5237074b506d6c1abc4a8157b129b14cae5971` is
+verified and deployed; physical task collection is not yet qualified.** Pedal
+A/B/C controls and the touch-state border are implemented in the feature branch,
+under final acceptance, and are not yet part of this deployed release. See the
+[pedal workflow and validation](development/HELM_PEDALS.md).
 
-## Accepted source and delivery
+Jetson `current` is `20261017T014715Z-4c52370`. Minerva terminal runs
+`%LOCALAPPDATA%/Minerva/helm-recording-4c5237074b`, with the previous installation
+preserved. The final observed Helm task was Running (PID 6328), with teleop and
+tuning stopped, the motor feed disconnected and automatic reading disabled by
+`--no-live`. Both CAN links were down after the stopped checks; no new motion was
+performed for this recording acceptance.
 
-`codex/overhaul-integration` at `610c66b` includes completed fault fixes, later
-receiver ramp fix `6b47de8`, and calibrated simulation `d7a1610`. The fault
-checkpoint passed 741 Python / 132 Rust tests; the merged simulation passed
-796 / 132; the delivery baseline passed **801 / 132**, zero required skips/xfails.
-Original overhaul edits and untracked work remain preserved by hash/inventory.
-[Windows/Linux CI](https://github.com/ltrlab/aizee/actions/runs/38952454408) is
-qualifying this published baseline, including mandatory ARM64 release artifacts.
+The frozen full offline gate passed **1049 Python / 132 Rust tests**, zero
+skips/xfails, with identical clean source before and after. Report:
+`build/dev-check/20261017T014826Z-196f9736/report.json` in the
+`helm-live-cameras` worktree. This resolves the earlier recording-test gate
+failure; its dated result remains in [the live-camera record](development/HELM_LIVE_CAMERAS.md).
+See [recording readiness and evidence](development/HELM_RECORDING_READINESS.md)
+for the complete handoff and [operator workflow](development/HELM_TASK_WORKFLOW.md).
 
-The next candidate adds simulation isolation, the task GUI/contact scene and
-atomic raw capture. Its focused tests pass; full candidate qualification is
-pending. See [the integration record](development/PLATFORM_INTEGRATION_20261016.md),
-[operator workflow](development/HELM_TASK_WORKFLOW.md) and
-[physics limitations](development/MINERVA_TASK_SCENE.md).
+## Recording acceptance and scope
 
-## Observed robot state
+An isolated Jetson proof used all three actual cameras (left wrist, right wrist,
+head) with the native Loopback receiver and stationary virtual 14-axis state.
+It completed **144 frames over 10.097 seconds**, then deliberately interrupted a
+second recording and retained **6 readable partial frames**. All 450 stored
+images, raw q/qcmd pairing, timestamps, validity masks and provenance passed
+independent validation. Receiver admission age stayed below 30 ms (maximum
+23.632 ms); finalization, abort teardown and process/namespace cleanup passed.
+These artifacts are explicitly mixed qualification fixtures, not recordings of
+physical robot state, and are ineligible for training.
 
-Read-only verification found release `20261016T181317Z-6b47de8`, from clean source.
-The existing operator report recorded all 14 stopped identity/position checks and
-right-gripper travel passing. Right J5/J6 failed the sweep lag limits at
-0.053/0.042 rad; the left sweep remains pending. These observations do not waive
-bimanual readiness. After operator connection, right wrist and D435 head supplied
-valid 640x480 JPEGs. The recorder uses RGB; D435 depth is not stored in this format.
-Exposure timestamps/extrinsics remain uncalibrated. h5py 3.14.0 was installed in the
-Jetson user environment without changing NumPy 1.21.5; HDF5 write/read passed.
-No new task runtime has been activated or motors commanded by this integration.
+Camera previews remain 640x480. The recording profile stores three 320x240 RGB
+views using exact 2x integer reduction with per-frame transform provenance.
+Capture retains the original paired receiver sample and acquisition clocks and
+rechecks the unchanged freshness bounds after preprocessing. Head depth is not
+stored; exposure timestamps, head mounting transform and camera extrinsics remain
+uncalibrated. Settings -> Cameras and Teleop retain live views, focus, pause,
+Camera/Model controls, touch preference and explicit wrist exposure/gain reads
+and writes. Head exposure remains unsupported.
 
-The task fixture demonstrates contact-driven handoff using FK-driven robot links,
-approximate terminal finger pads and unmeasured contact properties. Coupled robot
-dynamics, leader/controller workload and sim-to-real transfer remain unqualified.
-Raw captures are not automatically training datasets. Validation, training,
-evaluation, inference takeover/correction and promotion remain plan work packages.
+## Observed robot state and remaining work
+
+The deployed manifest matched all **145 files**. All 14 motors answered the
+stopped identity/firmware/position scan in fault-free Reset, and all were inside
+saved travel ranges. Minerva Check remains **INCOMPLETE**: left wrist J6 was
++0.24 rad from reference against the 0.1 rad live-start tolerance, and attended
+left/right sweeps remain pending. The user confirmed that the bucket opening is
+visible and the hanging pose is clear, but a full sweep would hit the table.
+**Do not run that sweep in the present setup.** No new motion is authorized by
+this documentation or by the isolated recording proof.
+
+The next delivery is the pedal A/B/C feature after its full acceptance checks;
+it must not be represented as already deployed or qualified. Physical collection
+still requires an attended, clear workspace and resolution of the start-pose
+warning within the existing operating contract. Neither this stopped scan nor
+the virtual proof establishes moving-arm tracking or control-loop timing with
+real capture load. No physical cube demonstration or training-ready dataset has
+been produced by this acceptance.
+
+## Integration and broader platform work
+
+The published integration checkpoint `2c7867c` previously passed 879 Python /
+132 Rust tests and both [Windows/Ubuntu CI checks](https://github.com/ltrlab/aizee/actions/runs/38955598530).
+Those checks protect `codex/overhaul-integration`, including administrators;
+force pushes and deletion are disabled. This historical CI result does not
+substitute for CI on later recording or pedal changes. Main has not been
+promoted. Original overhaul edits and prior releases remain preserved.
+
+The task simulation uses FK-driven links, approximate terminal finger pads and
+unmeasured contact properties. Coupled robot dynamics and sim-to-real transfer
+remain unqualified. Dataset validation/promotion, training, evaluation and
+inference takeover/correction remain platform work packages. See the
+[integration record](development/PLATFORM_INTEGRATION_20261016.md),
+[physics limitations](development/MINERVA_TASK_SCENE.md) and
+[head orientation](development/HEAD_CAMERA_ORIENTATION.md).
 
 ---
 

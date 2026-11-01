@@ -36,7 +36,7 @@ class WholeIntervalCompiler:
         self.config, self.names = cfg, NAMES
         self.last_verdict = None
 
-    def compile(self, offered, feedback, joints=None, *, started_at=None):
+    def compile(self, offered, feedback, joints=None, *, started_at=None, hold=False):
         self.last_verdict = {"clear": True}
         return {"offer": offered["offer"]["id"], "world_revision": "fixture-world", "scope": "inter_branch",
                 "lower": [j["lower"] for j in self.config["joints"]],

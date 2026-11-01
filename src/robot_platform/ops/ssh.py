@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import socket
+import threading
 
 DEFAULT_PROFILE = Path(__file__).resolve().parents[3] / 'config/devices/minerva-joint-calibration.json'
 TETHER = '10.42.0.1'  # USB Ethernet tether; the control path never uses Wi-Fi.
@@ -53,14 +54,62 @@ def connect(profile_path=DEFAULT_PROFILE, *, address=TETHER, timeout=8.):
                    key_filename=str(key_file(connection, directory)),
                    look_for_keys=False, allow_agent=False, timeout=timeout, auth_timeout=timeout,
                    banner_timeout=timeout)
+    expired = threading.Event()
+    def identity_expired():
+        expired.set()
+        client.close()  # Also interrupts subsystem negotiation before SFTP exposes its channel.
+    watchdog = threading.Timer(timeout, identity_expired)
+    watchdog.daemon = True
+    watchdog.start()
     try:
-        with client.open_sftp() as sftp, sftp.open('/etc/machine-id', 'rb') as handle:
-            if handle.read().strip().decode() != device['machine_id']:
-                raise RuntimeError('Wrong robot computer: machine id differs from the device profile')
-    except BaseException:
+        # Bound identity verification too: TCP/auth timeouts do not cover a
+        # stalled SFTP channel open or machine-id read on an established link.
+        client.get_transport().channel_timeout = timeout
+        with client.open_sftp() as sftp:
+            sftp.get_channel().settimeout(timeout)
+            with sftp.open('/etc/machine-id', 'rb') as handle:
+                if handle.read(256).strip().decode() != device['machine_id']:
+                    raise RuntimeError('Wrong robot computer: machine id differs from the device profile')
+    except BaseException as exc:
         client.close()
+        if expired.is_set():
+            raise TimeoutError('SSH robot identity verification timed out') from exc
         raise
+    finally:
+        watchdog.cancel()
+        watchdog.join()  # No late timer may close an accepted client after return.
+    if expired.is_set():
+        raise TimeoutError('SSH robot identity verification timed out')
     return client
+
+
+
+def open_command(client, command, *, timeout=3.):
+    """Bound exec-request acknowledgment as well as channel-open/I/O timeouts.
+
+    Paramiko's Channel._wait_for_event does not use its socket timeout. Closing
+    this dedicated client interrupts a stalled acknowledgment before it returns
+    a channel. Only camera helpers use this wrapper; control transports are unchanged.
+    """
+    expired = threading.Event()
+    def expire():
+        expired.set()
+        client.close()
+    watchdog = threading.Timer(timeout, expire)
+    watchdog.daemon = True
+    watchdog.start()
+    try:
+        result = client.exec_command(command, timeout=timeout)
+    except BaseException as exc:
+        if expired.is_set():
+            raise TimeoutError('SSH command startup timed out') from exc
+        raise
+    finally:
+        watchdog.cancel()
+        watchdog.join()
+    if expired.is_set():
+        raise TimeoutError('SSH command startup timed out')
+    return result
 
 
 def run(client, command, *, timeout=60., stdin=None):

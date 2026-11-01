@@ -1,24 +1,30 @@
 import {SettingsPanel} from './settings.js';
+import {LiveCameraView} from './camera_live.js';
+import {PedalControls, presentation, recordingLabel, StateOrder} from './pedals.js';
 
 // Helm operator page. Reads /api/helm/state; every action needs the session token.
 const $ = id => document.getElementById(id);
 const DEG = 180 / Math.PI;
 const cards = new Map();
 let token = null, last = null, busy = false, lockNoticeShown = false;
+const responseMeta=new WeakMap(), stateOrder=new StateOrder();
+let requestId=0;
 let pendingConfirm = null;  // An open live confirmation: {kind: 'start' | 'stop', arm}
 
 const signed = (q, digits = 3) => (q == null || !Number.isFinite(q)) ? '—' : `${q < 0 ? '−' : '+'}${Math.abs(q).toFixed(digits)}`;
 const range = entry => `${signed(entry.min_rad, 2)} … ${signed(entry.max_rad, 2)} rad`;
 
-async function request(path, payload, timeoutMs = 15000) {
+async function request(path, payload, timeoutMs = payload === undefined ? 3000 : 15000) {
+  const meta={id:++requestId,startedAt:performance.now()};
   const options = payload === undefined
-    ? {cache: 'no-store', signal: AbortSignal.timeout(3000)}
+    ? {cache: 'no-store', signal: AbortSignal.timeout(timeoutMs)}
     : {method: 'POST', cache: 'no-store', signal: AbortSignal.timeout(timeoutMs), body: JSON.stringify(payload),
        headers: {'Content-Type': 'application/json', 'X-Helm-Token': token || ''}};
   const response = await fetch(path, options);
   let data = null;
   try { data = await response.json(); } catch { data = null; }
   if (!response.ok) throw new Error(data?.error || `Helm returned HTTP ${response.status}`);
+  if(data && typeof data==='object')responseMeta.set(data,meta);
   return data;
 }
 
@@ -197,7 +203,11 @@ for (const block of document.querySelectorAll('.gripper-zero')) {
 
 function render(state) {
   if (!state) return;
+  const meta=responseMeta.get(state);
+  if(meta && state !== last && !stateOrder.accept(state,meta.id))return;
+  const newlyReceived=state !== last;
   last = state;
+  if(newlyReceived)pedalControls.update(state,meta?.startedAt);
   renderGripperZero(state);
   token = state.action_token;
   const {feed, limits, robot, session} = state;
@@ -270,7 +280,9 @@ function render(state) {
   renderGlobalControls(state);
   renderMode(state);
   renderTask(state);
+  updateCameraView();
   publishTelemetry(state);
+  renderPedals();
 }
 
 // Mode is fixed at launch. The server enforces the same separation for every action.
@@ -285,6 +297,26 @@ function renderMode(state) {
   }
 }
 
+const modelViewerSource = $('model-view').getAttribute('src');
+let modelViewerPaused = false;
+
+function taskOwnsViewer(state) {
+  return state?.mode === 'simulation' && state.teleop?.task_configured === true
+    && ['starting', 'running'].includes(state.teleop?.phase);
+}
+
+function renderTaskViewer(state, cameras = false) {
+  const taskWindow = taskOwnsViewer(state), paused = taskWindow || cameras;
+  if (paused !== modelViewerPaused) {
+    // Unload the duplicate WebGL document; hiding it leaves its animation loop running.
+    $('model-view').src = paused ? 'about:blank' : modelViewerSource;
+    modelViewerPaused = paused;
+  }
+  $('model-view').hidden = paused;
+  $('task-window-note').hidden = !taskWindow;
+  $('model-heading').textContent = paused ? 'LIVE TELEMETRY' : 'MODEL & TELEMETRY';
+}
+
 function renderTask(state) {
   const t = state.teleop, task = t?.task || {}, configured = !!t?.task_configured;
   const running = ['starting', 'running'].includes(t?.phase), simulation = state.mode === 'simulation';
@@ -292,16 +324,16 @@ function renderTask(state) {
   const pending = task.last_command?.state === 'pending';
   $('task-mode').textContent = simulation ? 'SIMULATED CONTACT TASK' : 'BIMANUAL ROBOT CAPTURE';
   $('task-capability').textContent = simulation
-    ? 'Dynamic object contacts with posed fingers; simulated arm response is not a validated coupled physics model. No synthetic grasp attachment.'
+    ? `${task.display_visual || 'Camera appearance is not reported yet.'} Dynamic object contacts with posed fingers; simulated arm response is not a validated coupled physics model. No synthetic grasp attachment.`
     : 'Records the current guarded receiver and existing camera streams. Both arms and grippers must be healthy; camera timing must be verified.';
   $('task-setup').disabled = running || !t;
   $('task-setup').textContent = configured ? 'Task configured' : 'Set up task';
   $('task-reset').hidden = !simulation;
-  $('task-reset').disabled = !task.available || !running || active || !['DISABLED', 'IDLE'].includes(t?.state);
-  $('task-record').disabled = !task.available || !task.capture_ready || !running || active || pending || task.failed || !['HOLD', 'TELEOP'].includes(t?.state);
-  $('task-stop').disabled = !running || !active || pending;
+  $('task-reset').disabled = !!t?.recording_fault || !task.available || !running || active || !['DISABLED', 'IDLE'].includes(t?.state);
+  $('task-record').disabled = !task.available || !task.capture_ready || !running || active || pending || task.failed || t?.recording_fault || !['HOLD', 'TELEOP'].includes(t?.state);
+  $('task-stop').disabled = !!t?.recording_fault || !running || !active || pending;
   const progress = task.task || {};
-  $('task-state').textContent = task.error ? 'Task needs attention.' : !configured ? 'Task not configured.'
+  $('task-state').textContent = t?.recording_fault || task.error ? 'Task needs attention.' : !configured ? 'Task not configured.'
     : !running ? 'Ready to start a session. Task controls do not enable motors.'
     : task.display_phase || progress.phase || progress.stage || (task.available ? 'Task ready.' : 'Preparing task…');
   $('task-cameras').hidden = simulation;
@@ -312,7 +344,7 @@ function renderTask(state) {
     + (recording.path || recording.directory ? ` · ${recording.path || recording.directory}` : '')
     + (simulation ? (task.cameras?.ready ? ' · simulated cameras rendered' : '')
       : task.cameras ? ` · cameras: ${Object.entries(task.cameras).map(([name, c]) => `${name} ${c.fresh ? 'fresh' : c.error || 'waiting'}`).join(', ')}` : '');
-  const error = task.error || recording.error || task.last_command?.error || '';
+  const error = t?.recording_fault || task.error || recording.error || task.last_command?.error || '';
   $('task-error').hidden = !error;
   $('task-error').textContent = error;
 }
@@ -1026,7 +1058,8 @@ function renderTeleop(t) {
   session.className = running || starting || live ? 'danger' : 'primary';
   session.disabled = starting;
   for (const button of document.querySelectorAll('.lifecycle button'))
-    button.disabled = !running || (!!t.fault && button.dataset.key !== 'H');
+    button.disabled = !running || (!!t.fault && button.dataset.key !== 'H')
+      || (!!t.recording_fault && !['H', 'X'].includes(button.dataset.key));
   $('t-engage').innerHTML = ENGAGED.includes(t.state) ? 'Hold <kbd>T</kbd>' : 'Engage <kbd>T</kbd>';
   renderManual(t);
   $('t-tuning-summary').textContent=t.tuning?.enabled
@@ -1069,6 +1102,7 @@ async function sendKey(key) {
 }
 
 function onKey(event) {
+  pedalControls.keydown(event);
   if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
   const stopKey = ['H', 'X'].includes(event.key.toUpperCase());
   const numericInput = event.target?.tagName === 'INPUT' && ['number','checkbox'].includes(event.target.type)
@@ -1096,9 +1130,14 @@ function onKey(event) {
   }
 }
 document.addEventListener('keydown', onKey);
+document.addEventListener('keyup', event => pedalControls.keyup(event));
 // The 3D view is same-origin: keys pressed while it has focus still count.
 $('model-view').addEventListener('load', () => {
-  try { $('model-view').contentWindow.document.addEventListener('keydown', onKey); } catch { /* not ready */ }
+  try {
+    const doc=$('model-view').contentWindow.document;
+    doc.addEventListener('keydown', onKey);
+    doc.addEventListener('keyup', event => pedalControls.keyup(event));
+  } catch { /* not ready */ }
 });
 for (const button of document.querySelectorAll('.lifecycle button[data-key]')) button.onclick = () => sendKey(button.dataset.key);
 async function setZero() {
@@ -1146,6 +1185,7 @@ function closeConfirm() {
 }
 $('t-confirm-cancel').onclick = closeConfirm;
 $('teleop-session').onclick = () => {
+  pedalControls.setTest(false);
   const t = last?.teleop;
   if (['running', 'starting'].includes(t?.phase)) {
     const stop = () => act('/api/helm/teleop/stop', {}, 'Teleop stopped.');
@@ -1469,14 +1509,73 @@ function showTab(name) {
   for (const panel of ['check', 'limits', 'leaders', 'teleop', 'tune', 'settings']) $(`panel-${panel}`).hidden = name !== panel;
   if(name==='settings' && typeof settingsPanel !== 'undefined') settingsPanel.refresh();
   try { localStorage.setItem('helm-tab', name); } catch { /* storage unavailable */ }
+  updateCameraView();
+  renderPedals();
 }
-const settingsPanel = new SettingsPanel({request,navigate:showTab,onDisplay:publishTelemetry});
+function renderPedals() {
+  const view=presentation(pedalControls.state,pedalControls.fresh());
+  document.body.dataset.touchPhase=view.tone;
+  document.body.dataset.sessionActive=String(['starting','running'].includes(pedalControls.state?.teleop?.phase));
+  $('pedal-phase').dataset.tone=view.tone;
+  // The older detail row must expire with the prominent phase bar, too.
+  if(view.label==='State unavailable') {
+    document.body.dataset.teleopState='STALE';
+    $('t-state').textContent='State unavailable';
+  } else if(view.tone==='fault') {
+    document.body.dataset.teleopState='FAULT';
+    $('t-state').textContent=(pedalControls.state?.teleop?.state || 'Fault')+' · fault';
+  }
+  if(['starting','running'].includes(pedalControls.state?.teleop?.phase) && !['starting','running'].includes(pedalControls.state?.tune?.phase))
+    $('global-session-state').textContent='Teleop · '+view.label;
+  $('pedal-phase-label').textContent=view.label;
+  $('pedal-phase-detail').textContent=view.detail;
+  for(const node of document.querySelectorAll('[data-phase-stage]')) {
+    const current=node.dataset.phaseStage===view.stage;
+    node.dataset.current=String(current);
+    if(current)node.setAttribute('aria-current','step');else node.removeAttribute('aria-current');
+  }
+  const pendingA=pedalControls.pending.get('a');
+  $('pedal-recording').textContent=pendingA ? (pendingA.action==='stop_record'?'Requesting finish…':'Requesting recording…')
+    : recordingLabel(pedalControls.state?.teleop?.task);
+  for(const button of document.querySelectorAll('[data-pedal]')) {
+    const offer=pedalControls.offer(button.dataset.pedal);
+    button.disabled=!offer.enabled;
+    button.querySelector('span').textContent=offer.label || {a:'Record',b:'Pause / resume',c:'Next stage'}[button.dataset.pedal];
+    button.title=offer.reason || offer.warning || (button.dataset.pedal==='b'?'Pause holds position; motors stay enabled.':'');
+    button.dataset.tested=String(pedalControls.testMode && pedalControls.testLast===button.dataset.pedal);
+    button.querySelector('small').textContent=pedalControls.testMode ? String(pedalControls.testCounts[button.dataset.pedal]) : '';
+  }
+  $('pedal-test').hidden=!pedalControls.canTest();
+  $('pedal-test').disabled=!pedalControls.fresh();
+  $('pedal-test').textContent=pedalControls.testMode?'End pedal test':'Test pedals';
+  $('pedal-test').setAttribute('aria-pressed',String(pedalControls.testMode));
+  $('pedal-test-status').hidden=!pedalControls.testMode;
+  $('pedal-test-status').textContent=pedalControls.testMode
+    ? 'Test only · no commands sent. '+(pedalControls.testLast ? 'Last: '+pedalControls.testLast.toUpperCase() : 'Press A, B or C.'):'';
+  const warning=pedalControls.state?.teleop?.pedals?.actions?.c?.warning;
+  $('pedal-warning').hidden=!warning;$('pedal-warning').textContent=warning || '';
+}
+const pedalControls=new PedalControls({
+  request,onState:render,onError:message=>say(message,'bad'),onChange:renderPedals,
+  context:()=>({tab:document.body.dataset.tab,hidden:document.hidden,confirming:!!pendingConfirm}),
+});
+for(const button of document.querySelectorAll('[data-pedal]'))button.onclick=()=>pedalControls.press(button.dataset.pedal);
+$('pedal-test').onclick=()=>pedalControls.setTest(!pedalControls.testMode);
+setInterval(renderPedals,100);
+document.addEventListener('visibilitychange',renderPedals);
+const cameraView = new LiveCameraView({onView: showing => renderTaskViewer(last, showing)});
+function updateCameraView() {
+  const tab = document.body.dataset.tab;
+  const scope = tab === 'teleop' ? 'teleop' : tab === 'settings' && !$('settings-cameras').hidden ? 'settings-cameras' : '';
+  cameraView.updateContext(last, scope);
+}
+const settingsPanel = new SettingsPanel({request,navigate:showTab,onDisplay:publishTelemetry,onCameraView:updateCameraView});
 $('open-motor-settings').onclick=()=>{showTab('settings');settingsPanel.show('motors');};
 $('open-display').onclick=()=>{showTab('settings');settingsPanel.show('display');};
 function publishTelemetry() {
   const frame=$('model-view').contentWindow;
   const telemetry=last?.telemetry;
-  if(frame) frame.postMessage({type:'helm-viewer-overlay',version:1,settings:settingsPanel.display,telemetry},location.origin);
+  if(frame && !modelViewerPaused) frame.postMessage({type:'helm-viewer-overlay',version:1,settings:settingsPanel.display,telemetry},location.origin);
   const reading=(telemetry?.rows||[]).filter(row=>Number.isFinite(row.position));
   $('model-source').textContent=reading.length
     ? `${reading[0].source==='simulated'?'Virtual feedback':'Measured feedback'} · ${telemetry.stale?'stale':Number.isFinite(telemetry.age_seconds)?Math.round(telemetry.age_seconds*1000)+' ms old':'age unavailable'}`
@@ -1496,7 +1595,7 @@ function renderGlobalControls(state) {
   $('global-controls').hidden=!visible;document.body.classList.toggle('has-controls',visible);
   $('global-session-state').textContent=sweeping?`Servo task · ${state.tune.phase}`:`Teleop · ${state.teleop?.state||state.teleop?.phase||'stopped'}`;
   $('global-hold').hidden=sweeping;
-  $('global-hold').disabled=!running||!!state.teleop?.fault||!['HOLD','ENGAGING','TELEOP'].includes(state.teleop?.state);
+  $('global-hold').disabled=!running||!!state.teleop?.fault||!!state.teleop?.recording_fault||!['HOLD','ENGAGING','TELEOP'].includes(state.teleop?.state);
   $('global-hold').innerHTML=ENGAGED.includes(state.teleop?.state)?'Hold <kbd>T</kbd>':'Engage <kbd>T</kbd>';
   $('global-shutdown').disabled=!sweeping&&(!running||!!state.teleop?.fault);
   $('global-disable').disabled=!visible;
@@ -1530,6 +1629,7 @@ async function poll() {
     if (!busy) render(await request('/api/helm/state'));
   } catch (error) {
     document.body.dataset.feed = 'fault';
+    pedalControls.disconnect();
     $('feed-text').textContent = 'Helm server unreachable';
   }
   setTimeout(poll, 250);

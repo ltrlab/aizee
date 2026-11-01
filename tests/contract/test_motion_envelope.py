@@ -274,3 +274,57 @@ def test_a_blocked_move_is_tried_again_only_while_the_cycle_has_time(setup, age)
             holds += record.get("reduced") == 0.
         assert holds and lifecycle.state in ("ENGAGING", "TELEOP")
         assert harness.last["status"]["state"] == "executing"  # Held, never stopped.
+
+
+def test_hold_cycles_check_stationary_box_without_approach_margin_or_offer_transport_penalty(setup):
+    from robot_platform.teleop.guarded_lifecycle import GuardedLifecycleSession
+    from robot_platform.teleop.lifecycle import TeleopLifecycle
+    backend, cfg, mapping = setup
+    clock = [0.]
+    compiler = MotionEnvelopeCompiler(backend, cfg, mapping, compute_budget_s=.012, clock=lambda: clock[0])
+    compile_box = compiler.compile
+    hold_flags = []
+
+    def tracked_compile(*args, **kwargs):
+        hold_flags.append(bool(kwargs.get("hold")))
+        clock[0] += .008
+        return compile_box(*args, **kwargs)
+
+    compiler.compile = tracked_compile
+    with NativeControlHarness(cfg, [-.2, .2]) as harness:
+        now = [0]
+
+        def exchange(request):
+            # Simulate 6 ms ZMQ + CAN tick + sample recording overhead during collision_offer.
+            if request.get("type") == "collision_offer":
+                clock[0] += .006
+            return harness.step(now[0], request)["reply"]
+
+        control = GuardedControllerClient(exchange, group=cfg["group"], identity=cfg["identity"],
+                                          joint_names=("a", "b"))
+        lifecycle = TeleopLifecycle(lifecycle_joints(cfg), clock=lambda: clock[0], max_source_misses=4)
+        session = GuardedLifecycleSession(control, compiler, lifecycle, lambda: harness.last,
+                                          period_s=.02, cycle_budget_s=.035, clock=lambda: clock[0])
+
+        def cycle(action=None, a=None, b=None, sequence=[0]):
+            now[0] = max(now[0], math.ceil(clock[0] * 1000)) + 20
+            harness.step(now[0])
+            clock[0] = now[0] / 1000
+            target = None
+            if a is not None:
+                sequence[0] += 1
+                target = [dict(name=name, position=q, sampled_at=clock[0] - .030, sequence=sequence[0])
+                          for name, q in (("a", a), ("b", b))]
+            return session.cycle(action=action, target=target)
+
+        cycle("idle")
+        cycle("enable")
+        assert session.lifecycle.state == "HOLD"
+        for _ in range(10):
+            # Pass a preview leader target as TeleopCore._tick does even in HOLD.
+            record = cycle(None, -.5, .5)
+            assert record["accepted"] and not record.get("blocked"), record
+            assert compiler.last_verdict["queries"] == 1
+        assert hold_flags[1:] == [True] * 10
+        assert harness.last["status"]["state"] == "executing"
+

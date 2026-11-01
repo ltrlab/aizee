@@ -131,7 +131,7 @@ def test_original_offer_expiry_during_fallback_still_faults_without_retry():
 
 def core_for_queue(velocity):
     core = TeleopCore.__new__(TeleopCore)
-    core.phase, core.fault = 'running', None
+    core.phase, core.fault, core.recording_fault = 'running', None, None
     core._tuning_pending = core._tuning_confirm = core._tuning_result = None
     core._manual_state = dict(session_id='session', revision=1, joints=settings())
     core._manual_rows = [dict(settings()[0], bounds={'kp': [0., 50.], 'kd': [0., 10.],

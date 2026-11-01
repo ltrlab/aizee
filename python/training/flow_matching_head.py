@@ -245,18 +245,41 @@ class FlowMatchingActionHead(nn.Module):
         num_steps: int = 8,
         memory_key_padding_mask: Optional[torch.Tensor] = None,
         generator: Optional[torch.Generator] = None,
+        prefix_actions: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """Integrate the velocity field with forward Euler -> action chunk [B, K, A]."""
+        """Integrate the velocity field with forward Euler -> action chunk [B, K, A].
+
+        If `prefix_actions` ([B, P, A] with 0 < P <= K, normalized) is provided,
+        Real-Time Chunking (RTC) inpainting pins the first P tokens along the
+        rectified linear path x_t[:, :P] = (1 - t) * noise[:, :P] + t * prefix_actions
+        at every Euler step so the newly generated tail [P, K) smoothly branches
+        from the committed in-flight prefix.
+        """
         B = memory.size(0)
         device = memory.device
-        x = torch.randn(
+        noise = torch.randn(
             B, self.chunk_size, self.action_dim, device=device, generator=generator,
         )
+        P = 0
+        if prefix_actions is not None:
+            if (prefix_actions.ndim != 3 or prefix_actions.size(0) != B
+                    or prefix_actions.size(2) != self.action_dim
+                    or not (0 <= prefix_actions.size(1) <= self.chunk_size)):
+                raise ValueError(
+                    f"prefix_actions must have shape [B={B}, P<=K={self.chunk_size}, A={self.action_dim}]"
+                )
+            P = prefix_actions.size(1)
+        x = noise.clone()
         dt = 1.0 / num_steps
         for k in range(num_steps):
-            t = torch.full((B,), k * dt, device=device)
+            t_val = k * dt
+            if P > 0:
+                x[:, :P] = (1.0 - t_val) * noise[:, :P] + t_val * prefix_actions
+            t = torch.full((B,), t_val, device=device)
             v = self.forward(x, t, cond, memory, memory_key_padding_mask)
             x = x + dt * v
+        if P > 0:
+            x[:, :P] = prefix_actions
         return x
 
 
