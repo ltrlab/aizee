@@ -96,13 +96,35 @@ def preview_transmission_row(transmission, raw_rad):
             'display_only': True}
 
 
-def load_plan(path):
+def arms_reference_name(asset_id):
+    """The arms' mechanical reference as Helm keeps it among the operator's files (helm.operator_files): a copy of
+    the profile's until Helm's Joint zero records a new revision there (helm.joint_zero)."""
+    return f'{asset_id}-arms-reference.json'
+
+
+def operator_reference(profile, directory):
+    """The arms' reference in `directory` (Helm's operator files) that takes the place of the profile's, or None:
+    no directory, or no copy there yet."""
+    if directory is None:
+        return None
+    profile = Path(profile).resolve()
+    plan = json.loads(profile.read_text())
+    asset_id = json.loads((profile.parent / plan['device']).read_text())['asset_id']
+    path = Path(directory).resolve() / arms_reference_name(asset_id)
+    return path if path.is_file() else None
+
+
+def load_plan(path, reference=None):
+    """The calibration plan and the files it names. `reference`: the arms' mechanical reference to take in place of
+    the one the plan names (operator_reference); it must still be the same device's and CAD revision's."""
     from robot_platform.models import ModelProfile, UrdfModel
     path = Path(path).resolve()
     plan = json.loads(path.read_text())
     if plan.get('schema') != 1 or not plan.get('steps'):
         raise ValueError('Expected a calibration plan with steps')
     paths = {key: (path.parent / plan[key]).resolve() for key in ('device', 'reference', 'model')}
+    if reference is not None:
+        paths['reference'] = Path(reference).resolve()
     device, reference = (json.loads(paths[key].read_text()) for key in ('device', 'reference'))
     model = UrdfModel(ModelProfile.load(paths['model']))
     if reference['asset_id'] != device['asset_id'] or reference['model_revision'] != model.sha256:

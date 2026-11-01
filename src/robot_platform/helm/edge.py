@@ -170,10 +170,12 @@ def prepare(start, root=ROOT, *, leaders=True):
     root = Path(root).resolve()
     activate(root)
     bundle = dict(start['bundle'])
-    for key in ('calibration_profile', 'teleop_profile'):
+    # The arms' reference may be Helm's operator copy (helm.joint_zero), an absolute path on this computer.
+    for key in ('calibration_profile', 'teleop_profile', 'calibration_reference'):
         if key in bundle:
             bundle[key] = str(root / bundle[key])
-    if 'calibration_profile' in bundle and load_plan(bundle['calibration_profile'])[-1] != bundle['bindings']:
+    if 'calibration_profile' in bundle and load_plan(
+            bundle['calibration_profile'], reference=bundle.get('calibration_reference'))[-1] != bundle['bindings']:
         raise ValueError("The robot's calibration files differ from this PC's. "
                          'Deploy (scripts/deploy_minerva_arms.sh) and start again.')
     if not leaders:

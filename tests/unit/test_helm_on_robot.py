@@ -230,8 +230,12 @@ def test_operator_files_start_from_the_release_and_a_release_change_wins_without
     assert prepare(files, mine) == [] and (mine / 'servo.json').read_text() == 'servo v3'
     found = operator_files(PROFILE, 'minerva-production-01', TELEOP)
     assert set(found) == {'minerva-production-01-joint-limits.json', 'minerva-production-01-servo.json',
-                          'gello-dual-leader-ranges.json'}
+                          'minerva-production-01-arms-reference.json', 'gello-dual-leader-ranges.json'}
     assert all(path.parent == PROFILE.parent.resolve() for path in found.values())
+    # The arms' reference starts as the profile's own; Joint zero revises Helm's copy (helm.joint_zero).
+    import json
+    reference = json.loads(PROFILE.read_text(encoding='utf-8'))['reference']
+    assert found['minerva-production-01-arms-reference.json'] == (PROFILE.parent / reference).resolve()
 
 
 def test_helm_reads_and_saves_the_operator_files_in_their_folder(tmp_path):

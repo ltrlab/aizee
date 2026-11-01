@@ -3,7 +3,9 @@
 Helm saves three files that sit beside the profiles in this repository: the joint limits (Limits tab), the servo
 calibration (Tune tab) and the leader ranges (Leaders tab). On Minerva, Helm runs from a verified release, which must
 not change (ops.release.verify_tree: a changed file stops every session from starting), so `helm --operator-files DIR`
-reads and saves them in DIR instead.
+reads and saves them in DIR instead. The arms' mechanical reference is kept there too, as
+`<asset>-arms-reference.json` (control.joint_calibration.operator_reference): a copy of the profile's, until Joint zero
+records a new revision (helm.joint_zero).
 
 Each start reconciles DIR with the release it runs (prepare):
 - a file DIR lacks is copied from the release;
@@ -23,10 +25,13 @@ REGISTRY = 'operator-files.json'
 
 
 def operator_files(profile_path, asset_id, teleop_path=None):
-    """{file name: the copy beside the profiles} of the joint limits, servo calibration and (with a teleop profile)
-    leader ranges."""
+    """{file name: the copy beside the profiles} of the joint limits, servo calibration, arms' reference and (with a
+    teleop profile) leader ranges."""
+    from robot_platform.control.joint_calibration import arms_reference_name
     profile_path = Path(profile_path).resolve()
     files = {name: profile_path.parent / name for name in (f'{asset_id}-joint-limits.json', f'{asset_id}-servo.json')}
+    reference = json.loads(profile_path.read_text(encoding='utf-8'))['reference']
+    files[arms_reference_name(asset_id)] = (profile_path.parent / reference).resolve()
     if teleop_path is not None:
         teleop_path = Path(teleop_path).resolve()
         ranges = json.loads(teleop_path.read_text(encoding='utf-8')).get('leader_ranges')

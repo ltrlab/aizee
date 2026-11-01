@@ -27,7 +27,8 @@ from robot_platform.control.scheduling import prefer_responsive
 from .limits import utc_now
 from robot_platform.control.guarded import GuardRejected
 from robot_platform.control.live_receiver import trip_text
-from .teleop import HELD, LOWERING_ATTEMPTS, WAIT_TO_REARM, AdvisoryCompiler, load_profile, loop_period_s
+from .teleop import (HELD, LOWERING_ATTEMPTS, WAIT_TO_REARM, AdvisoryCompiler, calibration_reference, edge_reference,
+                     load_profile, loop_period_s)
 from .session import WIRED
 
 PERIOD_S = .04
@@ -154,7 +155,8 @@ class TuneCore:
         from robot_platform.control.guarded import GuardedControllerClient
         from robot_platform.control.joint_calibration import load_plan, validate_preview_transmissions
         from robot_platform.control.servo_sweep import PathChecker, SweepEngine, sweep_profile, sweep_settings
-        plan, _paths, device, reference, model, pose, bindings = load_plan(self.bundle['calibration_profile'])
+        plan, _paths, device, reference, model, pose, bindings = load_plan(
+            self.bundle['calibration_profile'], reference=self.bundle.get('calibration_reference'))
         if bindings != self.bundle['bindings']:
             raise ValueError('Calibration files changed since Helm started; restart Helm')
         transmissions = validate_preview_transmissions(plan.get('preview_transmissions', []), plan['steps'],
@@ -931,7 +933,7 @@ class TuneSession:
         if self.receiver['arm'] == 'head':
             return self._head_bundle()
         return {'kind': 'tune', 'mode': self.mode, 'calibration_profile': str(helm.profile_path),
-                'bindings': deepcopy(helm.bindings),
+                'bindings': deepcopy(helm.bindings), **calibration_reference(helm),
                 'directions': deepcopy(helm.mapping), 'limits': deepcopy(helm.saved_limits),
                 'teleop_profile': str(self.profile_path), 'asset_id': helm.asset_id,
                 'receiver': dict(self.receiver), 'arm': self.receiver['arm'], 'joints': self.joints,
@@ -976,6 +978,8 @@ class TuneSession:
                     if not path.is_relative_to(ROOT):
                         raise ValueError(f'{path.name} is not part of the robot release')
                     bundle[key] = path.relative_to(ROOT).as_posix()
+                if 'calibration_reference' in bundle:
+                    bundle['calibration_reference'] = edge_reference(bundle['calibration_reference'], self.helm)
                 if live and not head:
                     bundle['receiver'] = dict(bundle['receiver'], motor_models=motor_models(self.helm.device, ROOT))
                 worker = (self.edge_factory or EdgeWorker)(bundle, None, base_view=dict(self._view),

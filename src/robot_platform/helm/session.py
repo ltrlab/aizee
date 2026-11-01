@@ -13,7 +13,7 @@ import time
 import uuid
 
 from robot_platform.control.joint_calibration import (digest, edit_preview, live_positions, load_plan,
-    preview_transmission_row, save_json, seed_results, validate_preview_transmissions)
+    operator_reference, preview_transmission_row, save_json, seed_results, validate_preview_transmissions)
 from robot_platform.ops.ssh import TETHER
 
 # Connections live operations may use: the USB Ethernet tether, or Helm running on Minerva itself (`helm
@@ -80,8 +80,10 @@ class HelmSession:
         # Where the joint limits, servo calibration and leader ranges are saved instead of beside the profiles: Helm
         # on Minerva runs from a release that must not change (helm.operator_files).
         self.operator_files = Path(operator_files).resolve() if operator_files else None
+        # The arms' reference kept with them, once Helm has a copy (Joint zero revises it there): else the profile's.
+        self.reference_path = operator_reference(self.profile_path, self.operator_files)
         (self.plan, self.paths, self.device, self.reference, self.model,
-         self.pose, self.bindings) = load_plan(self.profile_path)
+         self.pose, self.bindings) = load_plan(self.profile_path, reference=self.reference_path)
         self.asset_id = self.device['asset_id']
         # How Helm reaches the robot computer: the USB Ethernet tether, or its Wi-Fi
         # address from the device profile. Minerva Check and live teleop need the tether.

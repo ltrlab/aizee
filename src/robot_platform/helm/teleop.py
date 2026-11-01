@@ -177,6 +177,25 @@ def routes_path(runs, asset_id):
     return Path(runs).resolve() / (asset_id + '-teleop') / 'routes.json'
 
 
+def calibration_reference(helm):
+    """For a session's bundle: the arms' reference Helm keeps in its operator files, which the loop loads in place of
+    the plan's (helm.joint_zero revises it there); nothing while Helm uses the plan's own."""
+    path = getattr(helm, 'reference_path', None)
+    return {'calibration_reference': str(path)} if path is not None else {}
+
+
+def edge_reference(path, helm):
+    """The arms' reference as the loop on Minerva names it: release-relative, or Helm's operator copy, which is on
+    Minerva when Helm runs there."""
+    from robot_platform.ops.release import ROOT
+    path = Path(path).resolve()
+    if path.is_relative_to(ROOT):
+        return path.relative_to(ROOT).as_posix()
+    if not getattr(helm, 'on_robot', False):
+        raise ValueError(f"{path.name} is in this PC's operator files, which the loop on Minerva cannot read")
+    return str(path)
+
+
 def routes_sha256(profile):
     """The digest of a profile's route definitions."""
     return hashlib.sha256(json.dumps(profile.get('routes') or {}, sort_keys=True, separators=(',', ':'))
@@ -516,7 +535,8 @@ class TeleopCore:
         from robot_platform.teleop.guarded_lifecycle import GuardedLifecycleSession
         from robot_platform.teleop.leader_ranges import range_table, reference_table, validate_ranges
         from robot_platform.teleop.lifecycle import TeleopLifecycle
-        plan, _paths, device, reference, model, pose, bindings = load_plan(self.bundle['calibration_profile'])
+        plan, _paths, device, reference, model, pose, bindings = load_plan(
+            self.bundle['calibration_profile'], reference=self.bundle.get('calibration_reference'))
         if bindings != self.bundle['bindings']:
             raise ValueError('Calibration files changed since Helm started; restart Helm')
         transmissions = validate_preview_transmissions(plan.get('preview_transmissions', []), plan['steps'],
@@ -2031,6 +2051,7 @@ class TeleopSession:
     def _bundle(self):
         helm = self.helm
         return {'calibration_profile': str(helm.profile_path), 'bindings': deepcopy(helm.bindings),
+                **calibration_reference(helm),
                 'directions': deepcopy(helm.mapping), 'limits': deepcopy(helm.saved_limits),
                 'teleop_profile': str(self.profile_path), 'routes_path': str(self.routes_path),
                 'asset_id': helm.asset_id, 'leader_factory': self.leader_factory, 'receiver': dict(self.receiver),
@@ -2182,6 +2203,8 @@ class TeleopSession:
             if not path.is_relative_to(ROOT):
                 raise ValueError(f'{path.name} is not part of the robot release')
             bundle[key] = path.relative_to(ROOT).as_posix()
+        if 'calibration_reference' in bundle:
+            bundle['calibration_reference'] = edge_reference(bundle['calibration_reference'], self.helm)
         bundle.update(routes_path=None, leader_factory=None,
                       route_edits=load_route_edits(self.routes_path, self.profile, self.helm.asset_id))
         if bundle.get('head') is not None:

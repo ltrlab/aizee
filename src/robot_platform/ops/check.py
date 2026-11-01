@@ -135,8 +135,10 @@ def _teleop(ctx):
 
 @check('pc', 'calibration', 'Calibration profile')
 def _calibration(ctx):
-    from robot_platform.control.joint_calibration import load_plan, validate_preview_transmissions
-    plan, _paths, device, reference, model, _pose, bindings = load_plan(ctx.profile)
+    from robot_platform.control.joint_calibration import load_plan, operator_reference, validate_preview_transmissions
+    # Helm on Minerva's own copy of the arms' reference (Joint zero revises it there), as Helm itself loads it.
+    plan, _paths, device, reference, model, _pose, bindings = load_plan(
+        ctx.profile, reference=operator_reference(ctx.profile, ctx.operator_files))
     transmissions = validate_preview_transmissions(plan.get('preview_transmissions', []), plan['steps'],
                                                    reference, model)
     labels = {step['motor']: step['label'] for step in plan['steps']}
