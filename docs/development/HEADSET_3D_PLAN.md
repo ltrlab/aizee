@@ -139,8 +139,36 @@ over the depth, the wrist pictures, the map's frame) depends on these being meas
   Five stills already find the mount to about 1 mm. On Minerva, a head still from the real camera (a stand-in head
   feed): 8 frames in 0.47 s, 54 feed samples covering them, the D435's intrinsics, 1.7 s in all.
 - **Still to come:** the wrist cameras' mounts against the same board (their calibration solves the board's place
-  too; held against the head's), the model drawn over each camera's picture, and the pan zero, if the arms' board
-  says it is off, set deliberately (the head's reference flow).
+  too; held against the head's), the model drawn over each camera's picture, and, once the twin's correction below
+  holds up live, the zeros set deliberately (the arms' and the head's reference flows) instead of drawn.
+
+**Twin correction, built (2026-11-01; drawing only, not yet deployed or run on real stills):**
+- **What the user asked** (2026-11-01): calibrate the wrist cameras to the head camera, then correct the digital twin
+  to those joint positions with the relative calibration; "drawing only first". No measurement of where Minerva's
+  base stands is needed: both solves give the board's place in Minerva's own frame.
+- **What it corrects** (`vision.twin`): the arms' joint zeros J1-J5 from the newest solved wrist run, when its
+  joint-offset model is the recommended one (J6's zero is its camera's mount); and the head's pan zero, from the saved
+  head camera alignment against that run's board (`against_arms`). The tilt's zero is the camera's mount; the rest of
+  the difference (the neck's place on the frame against CAD) is shown, not drawn. A joint is drawn at its measured
+  angle plus its offset, as the solves add a fitted offset.
+- **The flow** (`helm.twin`, the Teleop tab's Digital twin card under the calibration card): the proposal with each
+  offset (and its sigma), Apply to the model, Remove. Saved as `<asset>-twin.json` beside the head's files; each one
+  replaced or removed is kept in `~/minerva/helm/calibration/twin/`.
+- **Where it is drawn:** Helm's 3D view and the headset's model at once (both read the 3D view's guide): the arms when
+  measured (the stopped reader's, a live session's, a sweep's; never the reference pose or a virtual follower) and the
+  neck when measured (a live session's, the head setup's; never the headset preview). The head camera's pose, which
+  places the headset's depth, takes the pan from the next session (the head's status: `camera_twin`,
+  `camera_offsets`), and a map's board world turns with it, so captures and maps already made stay in place. Replay
+  draws the recorded angles. The motors' zeros, control, collision and recordings keep the measured angles.
+- **It holds only for what it was made through:** each wrist still now records the arms' mechanical reference (runs
+  from before give no arms' part); the arms' part stops when the arms are zeroed again, the head's when the head gets
+  a new reference or its camera is aligned again (the card says which: Apply again). Refused beyond 10 degrees (not a
+  zero error), and for the head when its board and the arms' differ by more than 30 mm or 3 degrees beside the pan:
+  the board moved between the wrist and head stills, so take both in one session.
+- **Checked offline** (`tests/unit/test_twin.py`, `test_helm_twin.py`): with a 2 degree pan zero error, the head solve
+  then the twin read 1.97 degrees (0.99 mm and 0.09 degrees beside it), and the camera drawn through it lands within
+  1.2 mm and 0.05 degrees of the true one (6.1 mm and 1.97 degrees without); the map's board, turned, is the arms'
+  within 1.4 mm.
 
 ## Phase 4: Gaussian splatting on soliloquy (a static map built end to end; a moving Minerva needs a live map)
 
