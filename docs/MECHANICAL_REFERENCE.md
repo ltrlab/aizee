@@ -105,6 +105,21 @@ angles were not measured physical targets: these observations establish signs,
 not transmission ratios or alignment accuracy. The other ten arm-joint signs
 remain pending. No runtime mapping or mechanical zero was changed by these reads.
 
+## Joint zero in Helm, from 2026-11-01
+
+Later re-zeroes of arm joints run through Helm's **Joint zero** (Limits tab;
+[Helm](HELM.md#joint-zero)), so the operator can redo them without a release:
+the same stopped maintenance (`ops.probe zero_joints`) at the operator-confirmed
+zero pose, then a power cycle and Helm's Verify, which needs every zeroed joint
+within 0.01 rad of zero. The revision is not committed: Helm on Minerva keeps it
+in its operator files as `<asset>-arms-reference.json`, which every session,
+the loop and Minerva Check load in place of the profile's reference. Each
+revision names the one it supersedes, keeps its direction evidence, records the
+zero and power-cycle readings, and clears the zeroed joints' saved limits for a
+re-sweep; the direction session and manual tuning presets move to it. A release
+that brings a different committed reference replaces Helm's copy, the replaced
+copy kept aside (helm.operator_files).
+
 ## Why an apparent zero may change
 
 A reading one whole turn off has a known cause on Minerva: the drives' power-on

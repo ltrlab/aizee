@@ -130,6 +130,35 @@ right** confirms an unconfirmed direction. These edits need live readings and ar
 saved to the direction session (`calibration_runs/<asset>-directions/`), shared
 with `scripts/calibrate_minerva.ps1`.
 
+## Joint zero
+
+A joint that goes back on differently (a wrist structure remounted) no longer
+reads 0 at the zero pose. The **Joint zero** card at the top of the Limits tab
+sets arm joints' motor zeros again, with Helm on Minerva (it keeps the arms'
+reference among its operator files):
+
+1. Hold the arm in its zero pose, straight down as in the 3D view's reference
+   pose, and keep it still. **Choose joints to zero…** lists the twelve arm
+   joints with their readings; pick the ones that moved and press **Zero**. The
+   robot checks every drive, then zeroes and saves the chosen ones, nothing
+   enabled (`ops.probe zero_joints`).
+2. The zeros wait for the motors' power cycle; nothing that moves the arms
+   starts until then. Switch the motors' power off and on, leave the arm where it
+   is, tick the box and press **Verify**. It reads every drive stopped; each
+   zeroed joint must read within 0.01 rad of zero. A joint that reads its old
+   value lost its zero: zero it again.
+3. Verify records the arms' next reference revision as
+   `<asset>-arms-reference.json` in the operator files and moves what was bound to
+   the old one onto it: the joint limits less the zeroed joints', the direction
+   session and the manual tuning presets. The old copies go to the run's evidence
+   folder (`joint-zero-<UTC>/`). Helm then restarts to load it; log in again.
+4. Sweep the zeroed joints again and save, then run Minerva Check before a
+   session. Move each zeroed joint by hand first: if the 3D view turns it the
+   other way, the remount reversed it; Flip it.
+
+Wrist camera stills and the twin correction recorded before a zero are refused
+afterwards: they belong to the old reference.
+
 ## Persistent calibration
 
 Limits are saved to `config/devices/minerva-production-01-joint-limits.json`
