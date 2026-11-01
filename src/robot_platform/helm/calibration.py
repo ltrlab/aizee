@@ -4,9 +4,10 @@ A still needs a session on the real arms with the camera's arm held still (T hol
 joints from the session's telemetry twice, `settle_s` apart, runs helm.calibration_still on the robot (a stack of
 fresh frames averaged, the table's tags found, the light on them measured), then reads the joints again; the still
 is kept only if no joint moved more than `still_rad` over all of it. Stills are appended to
-<root>/<run>/stills.jsonl, beside the averaged images the robot saves. Solve runs vision.solve in its own process
-(one BLAS thread, lowered priority) and keeps its result.json. Nothing here moves a motor or changes a camera
-setting.
+<root>/<run>/stills.jsonl, beside the averaged images the robot saves, each with the arms' mechanical reference it
+was read through (the digital twin's correction holds only for that reference, vision.twin). Solve runs vision.solve
+in its own process (one BLAS thread, lowered priority) and keeps its result.json. Nothing here moves a motor or
+changes a camera setting.
 """
 import base64
 from contextlib import contextmanager
@@ -84,13 +85,14 @@ def run_remote(profile, address, request, *, open_ssh=None, timeout_s=15., scrip
 
 
 class CameraCalibration:
-    """Call capture/solve from worker threads. `teleop()` is the teleop session's snapshot (helm.teleop)."""
+    """Call capture/solve from worker threads. `teleop()` is the teleop session's snapshot (helm.teleop);
+    `reference()` the arms' mechanical reference digest Helm's session binds."""
 
-    def __init__(self, profile, *, address, teleop, root, rig=DEFAULT_RIG, remote=None, solver=None,
-                 clock=time.time, sleep=time.sleep):
+    def __init__(self, profile, *, address, teleop, root, reference=lambda: None, rig=DEFAULT_RIG, remote=None,
+                 solver=None, clock=time.time, sleep=time.sleep):
         self.config = load_rig(rig)
         self.board = load_board(self.config['board'])
-        self.profile, self.address, self.teleop = profile, address, teleop
+        self.profile, self.address, self.teleop, self.reference = profile, address, teleop, reference
         self.root = Path(os.path.expanduser(str(root)))
         self.remote = remote or (lambda request: run_remote(self.profile, self.address, request))
         self.solver = solver or self._solve_process
@@ -196,7 +198,7 @@ class CameraCalibration:
         captured_at = datetime.fromtimestamp(self.clock(), timezone.utc).isoformat()
         record = dict(name=name, camera=role, captured_at=captured_at,
                       joints={k: (before[k] + after[k]) / 2 for k in sorted(before)}, moved_rad=moved,
-                      link=self.config['cameras'][role]['link'], **reply)
+                      link=self.config['cameras'][role]['link'], reference_sha256=self.reference(), **reply)
         with open(self.run / 'stills.jsonl', 'a', encoding='utf-8') as file:
             file.write(json.dumps(record) + '\n')
         self.stills.append(record)

@@ -212,7 +212,8 @@ def still_reply(request):
 def calibration(tmp_path, session, *, remote=still_reply, solver=None):
     times = iter(range(1792900000, 1792999999, 7))
     return CameraCalibration(None, address=lambda: '127.0.0.1', teleop=session, root=tmp_path / 'calibration',
-                             remote=remote, solver=solver, clock=lambda: float(next(times)), sleep=lambda _: None)
+                             reference=lambda: 'arms-reference', remote=remote, solver=solver,
+                             clock=lambda: float(next(times)), sleep=lambda _: None)
 
 
 def test_a_still_needs_a_live_session_holding_or_following(tmp_path):
@@ -240,6 +241,7 @@ def test_a_still_records_the_arm_and_what_the_robot_saw(tmp_path):
     record = json.loads((cal.run / 'stills.jsonl').read_text(encoding='utf-8'))
     assert record['joints'] == {j: pytest.approx(.1 * k) for k, j in enumerate(ARM)}  # The left arm only.
     assert record['link'] == '1_1_02_eb571_960_stp_2' and record['tags'] == {'0': [[1, 2], [3, 4], [5, 6], [7, 8]]}
+    assert record['reference_sha256'] == 'arms-reference'  # The twin's correction holds only for that reference.
     assert 'thumbnail' not in record
     assert state['counts']['left_wrist'] == {'stills': 1, 'tagged': 1} and state['last']['thumbnail'] is True
     assert cal.thumbnail() == b'jpg'  # Served on its own, not in every state.
