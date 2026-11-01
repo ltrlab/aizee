@@ -33,6 +33,16 @@ BUCKET_HALF = .085
 BUCKET_HEIGHT = .08
 PHYSICS_DT = .0005
 MAX_SOURCE_GAP_S = .25
+# The simulated robot has no neck: its head camera is fixed where the real one looks with the neck at zero. Episodes
+# (format 9) still record the head's two axes, at that zero, with no head pose sample or effort (NaN, masked).
+SIMULATED_HEAD = "fixed at the neck's zero: the simulation has no neck; no head pose sample or effort is recorded"
+
+
+def with_fixed_head(frame):
+    """A rendered frame for the 16-axis episode writer: the arms' 14 axes, then the head's at the neck's zero."""
+    from robot_platform.data.roster import HEAD_AXES
+    zero = (0.,)*len(HEAD_AXES)
+    return dict(frame, q=tuple(frame["q"])+zero, qcmd=tuple(frame["qcmd"])+zero)
 
 
 def _world_aabbs(model, data, ids):
@@ -569,7 +579,7 @@ class _ThreadTaskSceneView:
                 if rendered is not None and not rendered.get("preview"):
                     if writer is None:
                         raise RuntimeError("rendered frame lost its recording owner")
-                    writer.append(**rendered)
+                    writer.append(**with_fixed_head(rendered))
                     render_pending = False
                     self._publish(recording=writer.status(), cameras={"ready": True,
                         "timestamps": rendered["camera_times"], "source_time": rendered["source_time"],
@@ -598,7 +608,10 @@ class _ThreadTaskSceneView:
                                             sample_policy="latest paired motor snapshot; FK interpolation over actual source-time interval",
                                             max_source_gap_s=MAX_SOURCE_GAP_S,
                                             language_instruction=payload.get("language_instruction", "Pick up the cube, pass it to the other gripper, then drop it into the bucket"))
-                            writer = TaskEpisodeWriter(self.directory, self._args[1], metadata, hz=self.record_hz)
+                            from robot_platform.data.roster import HEAD_AXES
+                            metadata["head"] = SIMULATED_HEAD
+                            writer = TaskEpisodeWriter(self.directory, self._args[1] + HEAD_AXES, metadata,
+                                                       hz=self.record_hz)
                             self._writer = writer
                             next_record, last_source = float(scene.data.time), None
                         elif action == "stop_record":

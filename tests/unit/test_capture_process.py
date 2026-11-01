@@ -16,13 +16,15 @@ from robot_platform.helm.task_capture import LiveTaskCapture, paired_receiver_sa
 from robot_platform.helm.task_capture_process import LiveTaskCaptureProcess, _sample, _worker
 
 NAMES = tuple(f'{side}_arm_j{k}' for side in ('left', 'right') for k in range(1, 7)) + ('left_gripper', 'right_gripper')
+ROSTER = NAMES + ('head_pan', 'head_tilt')  # An episode records the whole robot.
 
 
 def config():
     return validate_config(dict(schema=1, camera_roles=['right_wrist', 'head'], cameras={
         role: dict(endpoint=f'tcp://127.0.0.1:{5900+i}', camera_id=role,
                    timestamp_clock='local_unix', timestamp_semantics='host_read_complete')
-        for i, role in enumerate(('right_wrist', 'head'))}))
+        for i, role in enumerate(('right_wrist', 'head'))},
+        head=dict(endpoint='tcp://127.0.0.1:5996', motors=['head_pan', 'head_tilt'])))
 
 
 def receiver(state='executing', enabled=True):
@@ -202,11 +204,11 @@ def test_parent_eof_aborts_real_writer_during_fsync_before_publication(monkeypat
     view._abort_reason, view._commands = None, __import__('queue').Queue()
     view._state = dict(available=True, capture_ready=False, failed=False, error=None,
                        recording={'active': True}, capabilities={}, task={}, last_command=None)
-    writer = TaskEpisodeWriter(tmp_path, NAMES, {'data_source':'real','camera_roles':['right_wrist','head']})
+    writer = TaskEpisodeWriter(tmp_path, ROSTER, {'data_source':'real','camera_roles':['right_wrist','head']})
     view._writer = writer
     frames = {role: np.zeros((6,8,3), dtype=np.uint8) for role in ('right_wrist','head')}
     for stamp in (10.,10.05):
-        writer.append(q=[0.]*14,qcmd=[.1]*14,source_time=stamp,scene_time=None,images=frames,
+        writer.append(q=[0.]*16,qcmd=[.1]*16,source_time=stamp,scene_time=None,images=frames,
                       camera_times={role:stamp for role in frames},task_state={},authority='human')
     in_fsync, resume_fsync = threading.Event(), threading.Event()
     real_fsync = os.fsync
@@ -269,6 +271,7 @@ from types import SimpleNamespace
 import queue, sys, threading, time
 import h5py, numpy as np
 from robot_platform.data.capture_process import _write
+from robot_platform.data.roster import AXES as ROSTER
 from robot_platform.data.task_capture import TaskEpisodeWriter
 from robot_platform.helm.task_capture import LiveTaskCapture
 from robot_platform.helm.task_capture_process import _worker
@@ -297,11 +300,10 @@ def factory(**kwargs):
     view._abort_reason, view._commands = None, queue.Queue()
     view._state = dict(available=True, capture_ready=False, failed=False, error=None,
                       recording={'active':True}, capabilities={}, task={}, last_command=None)
-    names = [f'{side}_arm_j{k}' for side in ('left','right') for k in range(1,7)] + ['left_gripper','right_gripper']
-    writer = view._writer = TaskEpisodeWriter(root, names, {'data_source':'real','camera_roles':['right_wrist','head']})
+    writer = view._writer = TaskEpisodeWriter(root, ROSTER, {'data_source':'real','camera_roles':['right_wrist','head']})
     images = {name:np.zeros((6,8,3),np.uint8) for name in ('right_wrist','head')}
     for stamp in (10.,10.05):
-        writer.append(q=[0.]*14,qcmd=[.1]*14,source_time=stamp,scene_time=None,images=images,
+        writer.append(q=[0.]*16,qcmd=[.1]*16,source_time=stamp,scene_time=None,images=images,
                       camera_times={name:stamp for name in images},task_state={},authority='human')
     deadline = time.monotonic()+3
     while writer.status()['frames'] < 2:

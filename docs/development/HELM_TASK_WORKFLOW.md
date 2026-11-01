@@ -92,8 +92,9 @@ existing physical stop accessible. This addition records data; it does not chang
 motion gains, watchdogs or collision enforcement, and does not qualify a
 collision-disabled profile for overlapping bimanual motion.
 
-The current profile requires **left_wrist, right_wrist and head**, with both arms
-and both grippers (14 axes). All three views must be fresh before recording.
+The current profile requires **left_wrist, right_wrist and head**, with both arms,
+both grippers and the neck (16 axes, [episode format 9](../EPISODE_FORMAT.md)). All
+three views and the head's pose feed must be fresh before recording.
 Older two-view episodes retain their original camera roster; missing views are
 never filled with placeholders:
 
@@ -101,14 +102,17 @@ never filled with placeholders:
 | --- | --- | --- | --- |
 | left_wrist | `left_wrist` | `tcp://127.0.0.1:5563` | USB `05a3:9230` |
 | right_wrist | `right_wrist` | `tcp://127.0.0.1:5565` | USB `32e4:9230` |
-| head | `scene_cam` | `tcp://127.0.0.1:5564` | Intel RealSense D435, static neck mount; extrinsics unknown |
+| head | `scene_cam` | `tcp://127.0.0.1:5564` | Intel RealSense D435 on the 2-DoF neck; pose recorded per frame |
 
 After the operator connected the left wrist on 2026-10-16, all three identities
 and fresh 640 x 480 JPEG streams were verified. Check the current **3/3 cameras
 fresh** indication each session; service status and earlier checks do not establish
 current availability. Capture stores RGB only, even though the D435 publisher
-also supplies depth. The head is mounted on the static neck; its extrinsics and
-the stored images' intrinsics remain unavailable in capture metadata.
+also supplies depth. The head camera moves with the neck: each frame records the
+neck's angles and the camera's pose from the head pose feed (`tcp://127.0.0.1:5596`,
+at most 0.1 s old at the frame's cutoff). That pose is Helm's saved head alignment
+when there is one, else the CAD mount. The stored images' intrinsics remain
+unavailable in capture metadata.
 
 The profile sets `recording_image_size: [320, 240]`. It downsamples each selected
 640 x 480 RGB triplet with `Image.reduce(2)`; live previews retain the original
@@ -133,8 +137,9 @@ Omitting the size or setting it to null preserves source resolution.
 4. Perform the attended task and finish the episode explicitly as in simulation.
    Inspect the final path and completed frame count. Evaluate task success by
    operator review; the physical collector does not infer object contact/success.
-5. Confirm file readability, all 14 named axes, all three RGB streams, timestamps,
-   action validity and provenance before promoting the episode into a dataset.
+5. Confirm file readability, all 16 named axes, effort and head-pose masks, all
+   three RGB streams, timestamps, action validity and provenance before promoting
+   the episode into a dataset.
 
 The profile's current capture admission bounds are 20 Hz requested recording,
 receiver age ≤ 30 ms, camera age ≤ 200 ms and inter-camera publisher timestamp skew ≤ 20 ms.
@@ -208,11 +213,11 @@ Transitioning from following into this HOLD captures measured positions for all
 change verifies continued bounded arm control after capture failure, not a safe
 physical grasp-retention policy. Qualify that policy before a physical object task.
 
-The raw v8 capture declares camera_roles and joint names; paired measured and emitted commanded
-motor coordinates; RGB images; source, scene and camera clocks; per-frame task
-state; authority; terminal/authority-boundary action-validity masks; and source
-provenance. Physical scene time is absent, and unavailable torque is explicitly
-masked. Simulation is labeled synthetic. This format is deliberately excluded
+The raw v9 capture ([EPISODE_FORMAT.md](../EPISODE_FORMAT.md)) declares camera_roles and joint names; paired
+measured and emitted commanded motor coordinates; measured effort and velocity; the head's neck angles and camera
+pose; RGB images; source, head, scene and camera clocks; per-frame task state; authority; terminal/authority-boundary
+action-validity masks; and source provenance. Physical scene time is absent, and an unavailable effort, velocity or
+head reading is NaN with its mask false. Simulation is labeled synthetic. This format is deliberately excluded
 from legacy `episode_*.hdf5` discovery: a validator/loader that honors its validity
 masks must promote it before training. A completed recording is not automatically
 a validated training dataset, a successful task, or a qualified control policy.

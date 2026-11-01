@@ -1,6 +1,7 @@
 """Replay's episode reader, library and API on episodes written by the real TaskEpisodeWriter; no robot access."""
 import asyncio
 from io import BytesIO
+import json
 from pathlib import Path
 import time
 
@@ -17,18 +18,21 @@ from robot_platform.helm.session import HelmSession
 ROOT = Path(__file__).resolve().parents[2]
 PROFILE = ROOT / 'config/devices/minerva-joint-calibration.json'
 NAMES = tuple(f'{side}_arm_j{k}' for side in ('left', 'right') for k in range(1, 7)) + ('left_gripper', 'right_gripper')
+ROSTER = NAMES + ('head_pan', 'head_tilt')  # An episode records the whole robot.
 ROLES = ('left_wrist', 'right_wrist', 'head')
 LEVEL = {'left_wrist': 40, 'right_wrist': 120, 'head': 200}  # Each camera's flat grey, plus the frame index.
 
 
 def record(directory, frames, *, times=None, finish=True):
-    """An episode with flat images (camera level + frame index) and qpos[i][j] = i/100 + j."""
+    """An episode with flat images (camera level + frame index), qpos[i][j] = i/100 + j and effort j/10, except the
+    neck's effort in frame 2, which the servos did not report."""
     # Appended faster than real time: a queue deep enough for the whole episode.
-    writer = TaskEpisodeWriter(directory, NAMES, {'data_source': 'real', 'camera_roles': list(ROLES)}, hz=20.,
+    writer = TaskEpisodeWriter(directory, ROSTER, {'data_source': 'real', 'camera_roles': list(ROLES)}, hz=20.,
                                max_pending=64)
     times = times or [10. + .05 * i for i in range(frames)]
     for i, t in enumerate(times):
-        writer.append(q=[i / 100 + j for j in range(14)], qcmd=[i / 100 + j + .001 for j in range(14)],
+        writer.append(q=[i / 100 + j for j in range(16)], qcmd=[i / 100 + j + .001 for j in range(16)],
+                      torques=[np.nan if i == 2 and j >= 14 else j / 10 for j in range(16)],
                       source_time=t, scene_time=None,
                       images={role: np.full((24, 32, 3), LEVEL[role] + i, dtype=np.uint8) for role in ROLES},
                       camera_times={role: t - .03 for role in ROLES}, task_state={'frame': i}, authority='human')
@@ -82,7 +86,7 @@ def test_summary_series_and_frames_come_from_the_recorded_file(root):
     episodes = Episodes(root)
     episode = next(entry['id'] for entry in episodes.list() if entry['frames'] == 12)
     summary = episodes.summary(episode)
-    assert summary['frames'] == 12 and summary['complete'] is True and summary['joints'] == list(NAMES)
+    assert summary['frames'] == 12 and summary['complete'] is True and summary['joints'] == list(ROSTER)
     assert summary['duration'] == pytest.approx(.85) and summary['roles'] == list(ROLES)
     assert summary['image_shapes'] == {role: [24, 32, 3] for role in ROLES}
     series = _series(episodes.series(episode))
@@ -90,6 +94,10 @@ def test_summary_series_and_frames_come_from_the_recorded_file(root):
     assert series['qpos'][3][5] == pytest.approx(5.03, abs=1e-4)
     assert series['qcmd'][3][5] == pytest.approx(5.031, abs=1e-4)
     assert series['action_valid'] == [True] * 11 + [False]
+    assert series['qpos'][3][15] == pytest.approx(15.03, abs=1e-4)  # The neck's head_tilt.
+    assert series['torques'][3] == pytest.approx([j / 10 for j in range(16)], abs=1e-4)
+    assert series['torques'][2][14:] == [None, None] and 'qvel' in series  # Unreported, never zero.
+    json.dumps(series, allow_nan=False)
     frame = episodes.frame(episode, 7)
     assert frame['index'] == 7 and frame['t'] == pytest.approx(.6)
     for role in ROLES:

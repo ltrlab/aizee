@@ -12,15 +12,15 @@ import threading
 import time
 
 from robot_platform.data.capture_process import ProcessCapture, STATUS_TIMEOUT_S, _read, _write
+from robot_platform.data.roster import ARM_AXES
 from .task_capture import paired_receiver_sample, validate_config
 
 
 class LiveTaskCaptureProcess(ProcessCapture):
     def __init__(self, directory, names, config, *, metadata=None):
         self.config, self.names = validate_config(config), tuple(names)
-        expected = {f'{side}_arm_j{k}' for side in ('left', 'right') for k in range(1, 7)} | {'left_gripper', 'right_gripper'}
-        if len(self.names) != 14 or set(self.names) != expected:
-            raise ValueError('Live task capture needs the complete 14-axis Minerva roster')
+        if len(self.names) != len(ARM_AXES) or set(self.names) != set(ARM_AXES):
+            raise ValueError('Live task capture needs the complete 14-axis receiver roster of both arms')
         self.camera_roles = tuple(self.config['camera_roles'])
         self._record_requested = False
         super().__init__(dict(directory=str(Path(directory)), names=list(self.names), config=self.config,
@@ -89,7 +89,7 @@ def _sample(value):
     for key in ('source_time', 'received_at', 'receiver_ms', 'clock_uncertainty_s'):
         if type(value.get(key)) not in (int, float) or not math.isfinite(value[key]):
             raise ValueError(f'capture sample {key} must be finite')
-    for key in ('q', 'qcmd', 'receiver_feedback_ms'):
+    for key in ('q', 'qcmd', 'qvel', 'effort', 'receiver_feedback_ms'):
         row = value.get(key)
         if not isinstance(row, (list, tuple)) or len(row) != 14 or any(
                 type(v) not in (int, float) or not math.isfinite(v) for v in row):

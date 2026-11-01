@@ -35,12 +35,13 @@ class Clock:
 
 
 def write_episode(root, names, home, *, seconds=1.5, hz=15.):
-    """Each moving joint sways out from its reference and back over the episode; the others hold."""
-    writer = TaskEpisodeWriter(root / SESSION / 'episodes', names, {'data_source': 'real', 'camera_roles': ['head']},
+    """Each moving joint sways out from its reference and back over the episode; the others, and the neck, hold."""
+    roster = (*names, 'head_pan', 'head_tilt')  # An episode records the whole robot; a replay drives the arms by name.
+    writer = TaskEpisodeWriter(root / SESSION / 'episodes', roster, {'data_source': 'real', 'camera_roles': ['head']},
                                hz=hz, max_pending=64)
     for i in range(int(seconds * hz) + 1):
         t = i / hz
-        q = [home[name] + MOVING.get(name, 0.) * math.sin(math.pi * t / seconds) for name in names]
+        q = [home.get(name, 0.) + MOVING.get(name, 0.) * math.sin(math.pi * t / seconds) for name in roster]
         writer.append(q=q, qcmd=q, source_time=50. + t, scene_time=None, images={'head': np.zeros((4, 6, 3), np.uint8)},
                       camera_times={'head': 50. + t - .01}, task_state={'i': i}, authority='human')
     path = Path(writer.finish())

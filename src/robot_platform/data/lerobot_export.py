@@ -1,4 +1,4 @@
-"""Export Minerva's kept demonstrations (task capture format 8) to a LeRobot dataset for ACT and pi0/pi0.5 fine-tuning.
+"""Export Minerva's kept demonstrations (task capture formats 8 and 9) to a LeRobot dataset for ACT and pi0/pi0.5 fine-tuning.
 
 LeRobot dataset format v2.1, the version openpi pins (lerobot 0cf864870cf29f4738d3ade893e6fd13fbd7cdb5): run it where
 that LeRobot is installed, beside the episodes copied off the robot (docs/development/DATASET_PIPELINE.md):
@@ -15,7 +15,11 @@ Each episode, as recorded:
     its frame (two dropped frames in a row) is a gap in the recording and refuses the episode.
   - observation.state = qpos and action = actions (the next commanded position), both in receiver motor radians in
     the episode's own joint order; observation.images.<role> per camera, as stored (HxWx3 uint8).
-Episodes with different joints, cameras or image sizes are never mixed in one dataset: the 2-DoF head adds two joints.
+  - Format 9 (16 axes: both arms, both grippers and the neck) adds, when every exported row has it:
+    observation.effort (the motors' measured effort, N m), observation.velocity (rad/s) and
+    observation.head_camera_pose (the head camera's [x, y, z, qx, qy, qz, qw] in the robot frame). docs/EPISODE_FORMAT.md
+Episodes with different joints, cameras, image sizes or extra features are never mixed in one dataset: format 8
+recorded the arms alone (14 axes), format 9 the whole robot (16).
 A sidecar meta/minerva_provenance.json records each exported episode's source, hash, review and span.
 
 The selection and resampling need only numpy and h5py; LeRobot is imported only to write.
@@ -28,7 +32,12 @@ from pathlib import Path
 import sys
 
 TASK = 'Pick up the cube with the left hand, hand it to the right hand, and put it in the box.'
-FORMAT = 8
+FORMATS = (8, 9)
+# Format 9's extra observations: (LeRobot feature, episode dataset, validity mask, width, names or None for the joints).
+EXTRAS = (('observation.effort', 'observations/torques', 'observations/torque_valid', None, None),
+          ('observation.velocity', 'observations/qvel', 'observations/qvel_valid', None, None),
+          ('observation.head_camera_pose', 'observations/head_camera_pose', 'timestamps/head_valid', 7,
+           ['x', 'y', 'z', 'qx', 'qy', 'qz', 'qw']))
 MAX_GAP_PERIODS = 2.5  # One dropped camera frame (a two-period gap) passes; two in a row refuse the episode.
 
 
@@ -50,15 +59,20 @@ def read_episode(path):
     with h5py.File(path, 'r') as f:
         attrs = f.attrs
         version = int(_text(attrs.get('format_version', 0)) or 0)
-        if version != FORMAT:
-            raise ExportError(f'{path.name}: format {version}, not the task capture format {FORMAT}')
+        if version not in FORMATS:
+            raise ExportError(f'{path.name}: format {version}, not a task capture format {FORMATS}')
         joints = [name for name in str(_text(attrs.get('minerva_joints', ''))).split(',') if name]
         roles = json.loads(_text(attrs.get('camera_roles', '[]')))
         shapes = {role: tuple(f[f'observations/images/{role}'].shape[1:]) for role in roles}
         if len(set(shapes.values())) != 1:
             raise ExportError(f'{path.name}: cameras of different sizes {shapes}')
         authority = [_text(value) for value in f['authority'][:]]
-        return dict(joints=joints, roles=roles, image_shape=next(iter(shapes.values())),
+        extras = {}
+        for name, dataset, mask, _width, _names in EXTRAS:
+            if dataset in f and mask in f:
+                values, valid = np.asarray(f[dataset][:], dtype=np.float32), np.asarray(f[mask][:], dtype=bool)
+                extras[name] = (values, valid.all(axis=-1) if valid.ndim > 1 else valid)
+        return dict(joints=joints, roles=roles, image_shape=next(iter(shapes.values())), version=version, extras=extras,
                     telem=np.asarray(f['timestamps/telem'][:], dtype=np.float64),
                     qpos=np.asarray(f['observations/qpos'][:], dtype=np.float32),
                     actions=np.asarray(f['actions'][:], dtype=np.float32),
@@ -94,10 +108,14 @@ def resample(telem, first, last, fps):
     return rows
 
 
-def features(joints, roles, image_shape):
-    """The LeRobot features of one dataset: state and action in the episodes' joint order, a video per camera."""
+def features(joints, roles, image_shape, extras=()):
+    """The LeRobot features of one dataset: state and action in the episodes' joint order, a video per camera, and
+    the format 9 extras every episode has (EXTRAS)."""
     vector = {'dtype': 'float32', 'shape': (len(joints),), 'names': list(joints)}
     result = {'observation.state': dict(vector), 'action': dict(vector)}
+    for name, _dataset, _mask, width, names in EXTRAS:
+        if name in extras:
+            result[name] = dict(vector) if width is None else {'dtype': 'float32', 'shape': (width,), 'names': names}
     for role in roles:
         result[f'observation.images.{role}'] = {'dtype': 'video', 'shape': tuple(image_shape),
                                                 'names': ['height', 'width', 'channels']}
@@ -111,7 +129,10 @@ def plan_episode(path, fps):
         raise ExportError(f'{path.name}: the recording did not finish')
     first, last = usable_span(episode['action_valid'], episode['authority'])
     rows = resample(episode['telem'], first, last, fps)
-    return dict(episode, path=path, first=first, last=last, rows=rows)
+    # An extra is exported only when every row the grid takes has it: no NaN, nothing filled in.
+    extras = tuple(name for name, _dataset, _mask, _width, _names in EXTRAS
+                   if name in episode['extras'] and bool(episode['extras'][name][1][rows].all()))
+    return dict(episode, path=path, first=first, last=last, rows=rows, exported_extras=extras)
 
 
 def frames(plan, task):
@@ -125,6 +146,7 @@ def frames(plan, task):
             if cached[0] != row:  # A repeated row (a grid finer than the recording) reads its images once.
                 cached = (row, {role: images[role][row] for role in plan['roles']})
             frame = {'observation.state': plan['qpos'][row], 'action': plan['actions'][row], 'task': task}
+            frame.update({name: plan['extras'][name][0][row] for name in plan['exported_extras']})
             frame.update({f'observation.images.{role}': image for role, image in cached[1].items()})
             yield frame
 
@@ -154,9 +176,9 @@ def plan(evidence, fps, *, include_unreviewed=False):
             refused.append((path, str(exc)))
             continue
         planned['review'] = review
-        if plans and (planned['joints'], planned['roles'], planned['image_shape']) != (
-                plans[0]['joints'], plans[0]['roles'], plans[0]['image_shape']):
-            refused.append((path, 'different joints, cameras or image size from the first episode: '
+        key = ('joints', 'roles', 'image_shape', 'exported_extras')
+        if plans and tuple(planned[k] for k in key) != tuple(plans[0][k] for k in key):
+            refused.append((path, 'different joints, cameras, image size or extra features from the first episode: '
                                   'export them as their own dataset'))
             continue
         plans.append(planned)
@@ -181,7 +203,7 @@ def write(plans, out, repo_id, fps, task, *, create=None):
     out = Path(out)
     first = plans[0]
     dataset = create(repo_id=repo_id, fps=fps, root=out, robot_type='minerva',
-                     features=features(first['joints'], first['roles'], first['image_shape']),
+                     features=features(first['joints'], first['roles'], first['image_shape'], first['exported_extras']),
                      use_videos=True, image_writer_threads=4)
     provenance = []
     for index, planned in enumerate(plans):
@@ -197,8 +219,9 @@ def write(plans, out, repo_id, fps, task, *, create=None):
     meta = out / 'meta'
     meta.mkdir(parents=True, exist_ok=True)
     (meta / 'minerva_provenance.json').write_text(json.dumps(dict(
-        fps=fps, task=task, format='minerva task capture 8 -> LeRobot v2.1', state='qpos', action='actions',
-        joints=first['joints'], cameras=first['roles'], episodes=provenance), indent=1) + '\n', encoding='utf-8')
+        fps=fps, task=task, format=f"minerva task capture {first['version']} -> LeRobot v2.1", state='qpos',
+        action='actions', extras=list(first['exported_extras']), joints=first['joints'], cameras=first['roles'],
+        episodes=provenance), indent=1) + '\n', encoding='utf-8')
     return dataset
 
 

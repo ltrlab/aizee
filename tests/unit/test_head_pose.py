@@ -81,7 +81,8 @@ AXES = {'head_pan': ('neck_z', 1., -3.), 'head_tilt': ('neck_y', -1., 3.2)}
 def reply(now_ms, *times):
     """The head service's reply: its clock, and its rows (ms, then position, velocity, effort and command for each
     servo, then the command block)."""
-    rows = [[t, 3. + t / 1e4, 0., 0., 0., 3.2 - t / 2e4, 0., 0., 0.] + [0.] * 8 for t in times]
+    rows = [[t, 3. + t / 1e4, .01, .4, 3.001 + t / 1e4, 3.2 - t / 2e4, -.01, -.6, 3.199 - t / 2e4] + [0.] * 8
+            for t in times]
     return {'status': {'now_ms': now_ms}, 'recent': rows}
 
 
@@ -98,6 +99,9 @@ def test_the_feed_sends_each_row_once_at_the_jetsons_wall_time(camera_pose):
     t, pan, tilt, *pose = second['samples'][0]
     assert (pan, tilt) == pytest.approx((1010 / 1e4, -(3.2 - 1010 / 2e4) + 3.2))
     assert pose == pytest.approx(pose7(camera_pose.pose({'neck_z': pan, 'neck_y': tilt})))
+    # Each row's servo readings as recorded, for the episodes (helm.task_capture): not the command block.
+    assert second['motors'] == ['head_pan', 'head_tilt'] and len(first['raw']) == 3
+    assert second['raw'][0] == pytest.approx([3.101, .01, .4, 3.102, 3.1495, -.01, -.6, 3.1485])
 
 
 def test_the_feeds_clock_takes_the_quickest_reply_and_rises_only_slowly(camera_pose):

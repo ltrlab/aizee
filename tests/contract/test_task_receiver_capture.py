@@ -105,15 +105,20 @@ def test_receiver_rows_and_two_real_rendered_cameras_form_one_episode_and_worker
             assert not file.attrs['training_promoted'] and not file.attrs['sim2real_validated']
             assert set(file['observations/images'])=={'right_wrist','head'}
             q,qcmd=file['observations/qpos'][:],file['observations/qcmd'][:]
-            assert q.shape[1]==14 and q.shape[0]>=6
+            # The whole robot's 16 axes: the receiver's 14, then the neck the simulation holds at its zero.
+            assert q.shape[1]==16 and q.shape[0]>=6
+            assert file.attrs['minerva_joints']==','.join((*names,'head_pan','head_tilt'))
+            assert file.attrs['format_version']==9 and file.attrs['authority_scope']=='whole_robot'
             for stamp,measured,command in zip(file['timestamps/telem'][:],q,qcmd):
                 expected=paired[stamp]
-                assert np.array_equal(measured,expected[0]) and np.array_equal(command,expected[1])
+                assert np.array_equal(measured[:14],expected[0]) and np.array_equal(command[:14],expected[1])
+            assert not q[:,14:].any() and not qcmd[:,14:].any()
             for name in ('left_arm_j1','right_arm_j1'):
                 assert np.ptp(qcmd[:,names.index(name)])>.001
             assert file['action_valid'][:-1].all() and not file['action_valid'][-1]
             assert np.array_equal(file['actions'][:-1],qcmd[1:])
-            assert np.isnan(file['observations/torques'][:]).all()
+            assert np.isnan(file['observations/torques'][:]).all() and not file['observations/torque_valid'][:].any()
+            assert np.isnan(file['observations/head_camera_pose'][:]).all() and not file['timestamps/head_valid'][:].any()
             for role in ('right_wrist','head'):
                 images=file[f'observations/images/{role}'][:]
                 assert images.shape[1:]==(120,160,3) and images.std()>10
@@ -122,6 +127,7 @@ def test_receiver_rows_and_two_real_rendered_cameras_form_one_episode_and_worker
             assert metadata['scene']['visual_mode']=='collision_proxy'
             assert metadata['scene']['attachment_assistance'] is False
             assert metadata['clock_playback']=='explicitly stepped non-real-time contract'
+            assert metadata['head'].startswith('fixed at the neck')
         # A fresh recording whose worker dies may leave a partial file, never a
         # second completed episode; normal control health must expose the failure.
         core.task_action('start_record')

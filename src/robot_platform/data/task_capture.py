@@ -19,6 +19,8 @@ import uuid
 import h5py
 import numpy as np
 
+from robot_platform.data.roster import ARM_AXES, AXES, FORMAT_VERSION, HEAD_AXES, HEAD_JOINTS, HEAD_POSE_WIDTH  # noqa: F401
+
 CAMERAS = ("left_wrist", "right_wrist", "head")
 AUTHORITY = {"human", "policy", "correction", "scripted_fixture"}
 
@@ -30,9 +32,13 @@ def _json(value):
 class TaskEpisodeWriter:
     """Nonblocking append, bounded memory and no published file until successful finish.
 
-    q/qcmd are paired receiver motor coordinates in joint_names order. Actions use
-    next-sample qcmd, like the existing Minerva collector, with explicit terminal
-    and authority-transition masks. No torque or clock is invented when absent.
+    q/qcmd are paired receiver motor coordinates in joint_names order: the 16 AXES,
+    both arms and grippers plus the neck's two servos. Actions use next-sample qcmd,
+    like the existing Minerva collector, with explicit terminal and authority-transition
+    masks. Torques and velocities are the receivers' measured effort (N m) and velocity;
+    NaN marks a reading that is unavailable (simulation), with its validity mask. The
+    head sample (neck angles, the head camera's pose and the head's own source time)
+    is optional for the same reason. No torque, pose or clock is invented when absent.
     Camera timestamps must be publisher/render timestamps in the declared clock;
     The acquisition stage of each publisher stamp must be declared (for example,
     exposure or host read-complete); clock uncertainty belongs in task_state.
@@ -41,10 +47,9 @@ class TaskEpisodeWriter:
 
     def __init__(self, directory, joint_names, metadata, *, hz=20., max_pending=8, camera_roles=None):
         self.names = tuple(joint_names)
-        required = {f"{side}_arm_j{j}" for side in ("left", "right") for j in range(1, 7)}
-        required.update({"left_gripper", "right_gripper"})
-        if len(self.names) != 14 or set(self.names) != required:
-            raise ValueError("task capture requires exactly 14 named bimanual arm/gripper axes")
+        if len(self.names) != len(AXES) or set(self.names) != set(AXES):
+            raise ValueError("task capture requires exactly the 16 named axes: both arms, both grippers and the "
+                             "neck's head_pan and head_tilt")
         if not math.isfinite(hz) or hz <= 0 or not isinstance(max_pending, int) or max_pending < 1:
             raise ValueError("capture rate and pending-frame bound must be positive")
         self.metadata = copy.deepcopy(metadata)
@@ -92,18 +97,18 @@ class TaskEpisodeWriter:
         self._thread.start()
 
     def append(self, *, q, qcmd, source_time, scene_time, images, camera_times,
-               task_state, authority="human", torques=None):
+               task_state, authority="human", torques=None, velocities=None, head=None):
         try:
             self._append(q=q, qcmd=qcmd, source_time=source_time, scene_time=scene_time,
                          images=images, camera_times=camera_times, task_state=task_state,
-                         authority=authority, torques=torques)
+                         authority=authority, torques=torques, velocities=velocities, head=head)
         except Exception as exc:
             if not self._complete:
                 self.abort(str(exc))
             raise
 
     def _append(self, *, q, qcmd, source_time, scene_time, images, camera_times,
-                task_state, authority="human", torques=None):
+                task_state, authority="human", torques=None, velocities=None, head=None):
         if self._closed:
             raise RuntimeError("episode is closed")
         if self._error:
@@ -113,26 +118,45 @@ class TaskEpisodeWriter:
         if authority == "scripted_fixture" and (self.metadata["data_source"] != "simulation" or
                                                 self.metadata.get("collection_mode") != "scripted_fixture"):
             raise ValueError("scripted_fixture authority requires explicitly labelled simulation fixture metadata")
+        width = len(self.names)
         vectors = {}
         for key, value in (("qpos", q), ("qcmd", qcmd)):
             array = np.asarray(value, dtype=np.float32)
-            if array.shape != (14,) or not np.all(np.isfinite(array)):
-                raise ValueError(f"{key} requires 14 finite motor coordinates")
+            if array.shape != (width,) or not np.all(np.isfinite(array)):
+                raise ValueError(f"{key} requires {width} finite motor coordinates")
             vectors[key] = array.copy()
-        if torques is None:
-            vectors["torques"] = np.full(14, np.nan, dtype=np.float32)
+        for key, mask, value in (("torques", "torque_valid", torques), ("qvel", "qvel_valid", velocities)):
+            if value is None:
+                vectors[key] = np.full(width, np.nan, dtype=np.float32)
+            else:
+                array = np.asarray(value, dtype=np.float32)
+                if array.shape != (width,) or np.any(np.isinf(array)):
+                    raise ValueError(f"{key} requires {width} numbers with NaN for unavailable readings")
+                vectors[key] = array.copy()
+            vectors[mask] = np.isfinite(vectors[key])
+        if head is None:
+            head_time, angles, pose = np.nan, np.full(len(HEAD_AXES), np.nan), np.full(HEAD_POSE_WIDTH, np.nan)
         else:
-            array = np.asarray(torques, dtype=np.float32)
-            if array.shape != (14,) or np.any(np.isinf(array)):
-                raise ValueError("torques requires 14 numbers with NaN for unavailable readings")
-            vectors["torques"] = array.copy()
-        vectors["torque_valid"] = np.isfinite(vectors["torques"])
+            head_time = head.get("time")
+            if not isinstance(head_time, (int, float)) or not math.isfinite(head_time):
+                raise ValueError("head time must be finite seconds in the source clock")
+            angles = np.asarray(head.get("angles"), dtype=np.float64)
+            pose = np.asarray(head.get("camera_pose"), dtype=np.float64)
+            if angles.shape != (len(HEAD_AXES),) or not np.all(np.isfinite(angles)):
+                raise ValueError("head angles require the neck's two finite CAD angles (neck_z, neck_y)")
+            if pose.shape != (HEAD_POSE_WIDTH,) or not np.all(np.isfinite(pose)):
+                raise ValueError("head camera_pose requires a finite [x, y, z, qx, qy, qz, qw]")
+        vectors["neck_angles"] = np.asarray(angles, dtype=np.float32)
+        vectors["head_camera_pose"] = np.asarray(pose, dtype=np.float64)
+        vectors["head_time"] = float(head_time)
         if not isinstance(source_time, (int, float)) or not math.isfinite(source_time):
             raise ValueError("source_time must be finite seconds from the paired receiver snapshot")
         if self._last_time is not None and source_time <= self._last_time:
             raise ValueError("source_time must increase strictly; duplicate samples are not new observations")
         if self._last_time is not None and source_time-self._last_time > self.max_source_gap_s + 1e-8:
             raise ValueError("source sample gap exceeds capture bound; episode quarantined")
+        if head is not None and vectors["head_time"] > source_time:
+            raise ValueError("head sample is newer than the paired receiver sample; pairing must be causal")
         if self.metadata["data_source"] == "simulation":
             if scene_time is None or not math.isfinite(scene_time):
                 raise ValueError("simulation requires finite scene_time")
@@ -237,12 +261,15 @@ class TaskEpisodeWriter:
     def _run(self):
         try:
             with h5py.File(self.partial_path, "x") as file:
-                file.attrs.update(format_version=8, task_capture_schema=1, complete=False,
+                file.attrs.update(format_version=FORMAT_VERSION, task_capture_schema=2, complete=False,
                                   hz=self.hz, minerva_joints=",".join(self.names), camera_roles=_json(list(self.camera_roles)), action_space="absolute",
                                   action_semantics="next paired receiver qcmd; action_valid excludes terminal and authority transitions",
-                                  action_units="receiver motor radians; see joint map for model conversion",
+                                  action_units="receiver motor radians (arms) and raw servo radians (head); see joint map for model conversion",
+                                  torque_units="N m, as each receiver reports its motors' effort; torque_valid marks a reading",
+                                  head_joints=",".join(HEAD_JOINTS),
+                                  head_camera_pose_layout="x,y,z,qx,qy,qz,qw; robot frame; optical axes x right, y down, z ahead",
                                   requires_action_valid_mask=True, data_source=self.metadata["data_source"],
-                                  authority_scope="both_arms", metadata_json=_json(self.metadata),
+                                  authority_scope="whole_robot", metadata_json=_json(self.metadata),
                                   language_instruction=str(self.metadata.get("language_instruction", "")),
                                   collected_at=datetime.now(timezone.utc).isoformat())
                 datasets = {}
@@ -254,10 +281,14 @@ class TaskEpisodeWriter:
                         raise RuntimeError(self._abort)
                     if packet is None:
                         break
-                    values = {f"observations/{key}": packet[key] for key in ("qpos", "qcmd", "torques", "torque_valid")}
+                    values = {f"observations/{key}": packet[key] for key in (
+                        "qpos", "qcmd", "torques", "torque_valid", "qvel", "qvel_valid", "neck_angles",
+                        "head_camera_pose")}
                     values.update({f"observations/images/{key}": value for key, value in packet["images"].items()})
                     values.update({f"timestamps/camera_{key}": np.float64(value) for key, value in packet["camera_times"].items()})
-                    values.update({"timestamps/telem": np.float64(packet["source_time"]),
+                    values.update({"timestamps/head": np.float64(packet["head_time"]),
+                                   "timestamps/head_valid": np.bool_(math.isfinite(packet["head_time"])),
+                                   "timestamps/telem": np.float64(packet["source_time"]),
                                    "timestamps/scene": np.float64(packet["scene_time"]),
                                    "timestamps/scene_valid": np.bool_(math.isfinite(packet["scene_time"])),
                                    "actions": packet["qcmd"], "action_valid": np.bool_(False),

@@ -8,9 +8,10 @@ neck at zero. Optical axes: x right, y down, z ahead. The digital twin's correct
 when one holds, is added to the measured angles the pose is worked out on; the feed still publishes them as measured.
 
 The head's teleop publishes the head's measured pose on a local feed (ENDPOINT, ZMQ PUB): every one of the head
-service's 100 Hz rows, at the Jetson's wall time, as CAD angles and that camera pose. Helm's camera relay
-(helm.camera_video_worker) stamps each head depth frame with the sample nearest its capture: both clocks are the
-Jetson's.
+service's 100 Hz rows, at the Jetson's wall time, as CAD angles and that camera pose, with each row's raw motor
+readings (position, velocity, effort, command). Helm's camera relay (helm.camera_video_worker) stamps each head depth
+frame with the sample nearest its capture, and the task capture (helm.task_capture) records the head's axes and
+camera pose with every episode frame: both clocks are the Jetson's.
 """
 import hashlib
 import json
@@ -124,7 +125,7 @@ class HeadPoseFeed:
             return False
         gap = wall_now - now_ms / 1000
         self.offset = gap if self.offset is None else min(gap, self.offset + 1e-4)
-        samples = []
+        samples, raw = [], []
         for row in rows:
             if row[0] <= self.last_ms:
                 continue
@@ -134,13 +135,16 @@ class HeadPoseFeed:
                 angles[joint] = row[1 + 4 * index] * scale + offset
             pose = pose7(self.camera_pose.pose(angles))
             samples.append([row[0] / 1000 + self.offset, *(angles.get(j, 0.) for j in self.camera_pose.joints), *pose])
+            # The row as the service recorded it, for the episodes (helm.task_capture): per motor, its position,
+            # velocity, effort (N m) and the command it was given, in `motors` order.
+            raw.append([float(v) for v in row[1:1 + 4 * len(self.motors)]])
             self.last_ms = row[0]
         if not samples:
             return False
         import zmq
         try:
             self.socket.send_string(json.dumps({'joints': self.camera_pose.joints, 'zero': self.zero,
-                                                'samples': samples}), zmq.NOBLOCK)
+                                                'samples': samples, 'motors': self.motors, 'raw': raw}), zmq.NOBLOCK)
         except zmq.Again:
             return False  # Nobody keeps up: the next rows go with the next reply.
         return True
