@@ -644,6 +644,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     async def save(request):
         await body(request)
         result = await off_loop(session.save_limits)
+        if teleop is not None:
+            await off_loop(teleop.reload_tuning)
         response = state_response()
         response.headers['X-Helm-Saved'] = result['path']
         return response

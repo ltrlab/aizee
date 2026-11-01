@@ -2030,18 +2030,33 @@ class TeleopSession:
         self._view, self._guide = stopped, None
         self._view_received_at = time.perf_counter()
         self._tuning_lock = threading.Lock()
-        self.manual = None
-        if self.profile.get('manual_tuning') is True:
-            from .manual_tuning import ManualTuning
-            self.manual = ManualTuning(helm, self.profile, runs, self._servo())
-        # Operator session settings (helm.settings): editable with the direct profile, a read-only catalog
-        # otherwise. Helm still starts when they cannot be derived (no saved limits yet); Settings says why.
-        self.settings, self.settings_error = None, None
+        self._runs = runs
+        self.manual = self.manual_error = self.settings = self.settings_error = None
+        self.reload_tuning()
+
+    def reload_tuning(self):
+        """Derive the manual tuning and the operator settings from the saved limits: at start, and after a limits save
+        those not derived yet (once derived they stay, with any edits not yet saved, as before). Helm still starts
+        when they cannot be derived (no saved limits yet, or a joint zeroed again until it is re-swept:
+        helm.joint_zero); a session waits for the manual tuning, and Settings says why."""
+        if self.active:
+            return
+        # Manual tuning (helm.manual_tuning), with the profile that asks for it.
+        if self.profile.get('manual_tuning') is True and self.manual is None:
+            try:
+                from .manual_tuning import ManualTuning
+                self.manual, self.manual_error = ManualTuning(self.helm, self.profile, self._runs, self._servo()), None
+            except (ValueError, KeyError, TypeError, AttributeError, OSError) as exc:
+                self.manual, self.manual_error = None, f'Manual tuning is unavailable: {exc}'
+        # Operator session settings (helm.settings): editable with the direct profile, a read-only catalog otherwise.
+        if self.settings is not None:
+            return
         try:
             from .settings import OperatorSettings
-            self.settings = OperatorSettings(helm, self.profile, runs, self._servo(), self.manual)
+            self.settings = OperatorSettings(self.helm, self.profile, self._runs, self._servo(), self.manual)
+            self.settings_error = None
         except (ValueError, KeyError, TypeError, AttributeError, OSError) as exc:
-            self.settings_error = f'Settings are unavailable: {exc}'
+            self.settings, self.settings_error = None, f'Settings are unavailable: {exc}'
 
     @property
     def active(self):
@@ -2255,6 +2270,10 @@ class TeleopSession:
                                  'reach and the arms hang in their reference pose')
             if self.helm.saved_limits is None and not head:
                 raise ValueError('Save joint limits for every motor in the Limits workspace first')
+            if self.profile.get('manual_tuning') is True and self.manual is None and not head:
+                self.reload_tuning()
+                if self.manual is None:
+                    raise ValueError(self.manual_error or 'Manual tuning is unavailable')
             if self.bridge is not None and source is None and not head and not self.bridge.connected:
                 raise ValueError('The GELLO bridge is not connected: Helm runs on Minerva, so start the bridge on the '
                                  'PC the leader arms are plugged into')
@@ -2531,7 +2550,7 @@ class TeleopSession:
 
     def _tuning_gate(self):
         if not self.manual:
-            return False, 'Start Helm with the manual tuning profile to edit settings'
+            return False, self.manual_error or 'Start Helm with the manual tuning profile to edit settings'
         if self._tuning_lock.locked():
             return False, 'Waiting for the tuning operation to finish'
         if not self.active:
