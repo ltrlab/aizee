@@ -4,7 +4,8 @@ The colour camera's pose in the robot frame from the neck's CAD angles: forward 
 then the camera's mount in the head link. The mount is the one measured on the table's tags (Helm's head camera
 alignment, saved as the head's camera file) when there is one for this head reference; else the CAD guess, the head
 profile's `camera`: its centre, and its axes from the model's front, which the camera looks along, level, with the
-neck at zero. Optical axes: x right, y down, z ahead.
+neck at zero. Optical axes: x right, y down, z ahead. The digital twin's correction of the pan's zero (vision.twin),
+when one holds, is added to the measured angles the pose is worked out on; the feed still publishes them as measured.
 
 The head's teleop publishes the head's measured pose on a local feed (ENDPOINT, ZMQ PUB): every one of the head
 service's 100 Hz rows, at the Jetson's wall time, as CAD angles and that camera pose. Helm's camera relay
@@ -71,9 +72,10 @@ def pose7(transform):
 class CameraPose:
     """The colour camera's optical pose in the robot frame for the neck's CAD angles ({joint: rad}; the others in
     its chain at zero). `model`: the head model (models.UrdfModel); `camera`: the head profile's `camera`; `mount`:
-    a measured mount (aligned_mount) in place of the CAD one."""
+    a measured mount (aligned_mount) in place of the CAD one; `offsets`: the digital twin's correction of the neck's
+    zeros ({joint: rad}, vision.twin.head_offsets), added to the angles the pose is worked out on."""
 
-    def __init__(self, model, camera, mount=None):
+    def __init__(self, model, camera, mount=None, offsets=None):
         by_child = {joint['child']: joint for joint in model.joints}
         chain, link = [], camera['link']
         while link != model.root:
@@ -85,6 +87,7 @@ class CameraPose:
         self.joints = [name for name, _origin, _axis, kind in self.chain if kind in ('revolute', 'continuous')]
         self.cad = cad_mount(self._link({}), model.profile.front_direction, camera['origin_m'])
         self.mount = self.cad if mount is None else np.asarray(mount, dtype=float)
+        self.offsets = dict(offsets or {})
         self.zero = self.pose({})
 
     def _link(self, positions):
@@ -96,8 +99,9 @@ class CameraPose:
         return result
 
     def pose(self, positions):
-        """The camera's 4x4 optical pose in the robot frame."""
-        return self._link(positions) @ self.mount
+        """The camera's 4x4 optical pose in the robot frame, for the neck's measured angles."""
+        drawn = {name: positions.get(name, 0.) + self.offsets.get(name, 0.) for name in self.joints}
+        return self._link(drawn) @ self.mount
 
 
 class HeadPoseFeed:

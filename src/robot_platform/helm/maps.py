@@ -49,10 +49,12 @@ def _rigid(matrix):
 
 class MapLibrary:
     """Call capture from a worker thread. `teleop()` is the teleop session's snapshot (helm.teleop); `files()` the
-    head's files (neck.head.files)."""
+    head's files (neck.head.files); `correction()` the turn (4x4) the head camera's poses take from the digital twin's
+    correction (helm.twin.TwinCorrection.camera_turn), None for none."""
 
-    def __init__(self, profile, *, address, teleop, root, files, remote=None, clock=time.time):
+    def __init__(self, profile, *, address, teleop, root, files, correction=None, remote=None, clock=time.time):
         self.profile, self.address, self.teleop, self.files = profile, address, teleop, files
+        self.correction = correction
         self.root = Path(os.path.expanduser(str(root)))
         self.remote = remote or (lambda request, timeout_s: run_remote(
             self.profile, self.address, request, timeout_s=timeout_s, script='scene_capture.py'))
@@ -65,7 +67,9 @@ class MapLibrary:
 
     def worlds(self):
         """Minerva's pose in each world ({'robot': 4 x 4, 'board': 4 x 4 or None}): the board's once the head camera's
-        alignment holds for the head reference in use, its placement inverted."""
+        alignment holds for the head reference in use, its placement inverted. The placement turns with the camera's
+        poses when the twin's correction turns them (its pan zero), so a frame's pose in the board's world, and a map's
+        place against the headset's depth, stay as they were."""
         poses = {'robot': np.eye(4), 'board': None}
         try:
             files = self.files()
@@ -73,6 +77,9 @@ class MapLibrary:
             if document is not None and reference is not None:
                 aligned_mount(document, document.get('link'), reference)  # Made through this head reference.
                 board = np.asarray(document['board_in_robot']['matrix'], float)
+                turn = self.correction() if self.correction is not None else None
+                if turn is not None:
+                    board = np.asarray(turn, float) @ board
                 if _rigid(board):
                     poses['board'] = invert(board)
         except (OSError, ValueError, KeyError, TypeError):

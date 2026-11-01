@@ -178,17 +178,29 @@ class HeadTeleop:
 
     def _camera_pose(self, reference):
         """The head camera's pose for the feed: through the mount measured on the table's tags (the head's camera
-        file, helm.head_alignment) when it was made through this reference, else the CAD one."""
+        file, helm.head_alignment) when it was made through this reference, else the CAD one; with the digital twin's
+        correction of the pan zero (vision.twin, helm.twin) when one holds for that alignment and reference."""
         from robot_platform.neck.head_pose import CameraPose, aligned_mount
+        from robot_platform.vision.twin import head_offsets
         mount, saved = None, self.bundle.get('camera')
         self.camera_mount = 'cad: no head camera alignment saved'
+        self.camera_offsets, self.camera_twin = {}, 'none: no correction of the head applied'
         if saved is not None:
             try:
                 mount = aligned_mount(saved, self.profile['camera']['link'], reference)
                 self.camera_mount = 'aligned'
             except ValueError as exc:
                 self.camera_mount = f'cad: {exc}'
-        return CameraPose(self.model, self.profile['camera'], mount)
+        correction = self.bundle.get('twin')
+        if correction is not None and correction.get('head') is not None:
+            try:
+                if mount is None:  # The pan was compared through the aligned mount, never the CAD one.
+                    raise ValueError(f'the camera is on its CAD mount ({self.camera_mount[5:]})')
+                self.camera_offsets = head_offsets(correction, reference, saved)
+                self.camera_twin = 'corrected'
+            except ValueError as exc:
+                self.camera_twin = f'none: {exc}'
+        return CameraPose(self.model, self.profile['camera'], mount, self.camera_offsets)
 
     def _publish_pose(self, last):
         """A reply's rows on the head's pose feed. The feed is for the headset's view only: a failure there ends
@@ -367,6 +379,10 @@ class HeadTeleop:
         return {'state': self.state, 'fault': self.fault, 'source': getattr(self, 'source', None), 'headset': pose,
                 'positions': positions, 'joints': joints, 'motors_enabled': last.get('hardware_enabled'),
                 'returning': self.returning, 'camera_mount': getattr(self, 'camera_mount', None),
+                # The neck's offsets ({joint: rad}) the camera's published poses take (helm.maps places a capture by
+                # them), and why; None without a camera feed.
+                'camera_offsets': getattr(self, 'camera_offsets', None),
+                'camera_twin': getattr(self, 'camera_twin', None),
                 # Whether the shoulder clearance holds the head above where the headset looks, this cycle.
                 'clearance': None if self.clearance is None else {'limited': self.limited}}
 

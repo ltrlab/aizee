@@ -111,3 +111,19 @@ def test_the_feeds_clock_takes_the_quickest_reply_and_rises_only_slowly(camera_p
     assert not HeadPoseFeed(camera_pose, AXES, ['head_pan', 'head_tilt'], Socket(full=True)).publish(
         reply(1000, 1000), wall_now=10.)  # No reader keeps up: it waits for nobody.
     assert not feed.publish({'status': {}}, wall_now=11.)  # A reply without the service's clock.
+
+
+def test_the_twins_offsets_turn_the_pose_and_leave_the_published_angles_measured(camera_pose):
+    profile = head.load_profile(ROOT / head.PROFILE)
+    turned = CameraPose(UrdfModel(ModelProfile.load(ROOT / profile['model_profile'])), profile['camera'],
+                        offsets={'neck_z': .05})
+    np.testing.assert_allclose(turned.pose({'neck_z': .2, 'neck_y': -.3}),
+                               camera_pose.pose({'neck_z': .25, 'neck_y': -.3}), atol=1e-12)
+    np.testing.assert_allclose(turned.cad, camera_pose.cad)  # The CAD mount is the neck's zero's, as before.
+    np.testing.assert_allclose(turned.zero, camera_pose.pose({'neck_z': .05}), atol=1e-12)
+    socket = Socket()
+    HeadPoseFeed(turned, AXES, ['head_pan', 'head_tilt'], socket).publish(reply(1000, 1000), wall_now=10.)
+    _t, pan, tilt, *pose = socket.sent[0]['samples'][0]
+    assert pan == pytest.approx(.1)  # As measured: head stills are fitted on these.
+    assert pose == pytest.approx(pose7(camera_pose.pose({'neck_z': pan + .05, 'neck_y': tilt})))
+    assert socket.sent[0]['zero'] == pytest.approx(pose7(turned.zero))

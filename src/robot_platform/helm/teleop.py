@@ -1529,9 +1529,11 @@ class TeleopCore:
         positions = dict(self.pose)
         positions.update(to_cad(self.derived['joint_map'], measured, self.derived['cad_limits']))
         state = self.session.lifecycle.state
+        # `measured`: the real arms' readings, not the virtual follower's (the digital twin corrects readings only).
         return {'model': self.model.profile.id, 'urdf_sha256': self.model.sha256,
-                'positions': positions, 'live': True, 'rows': [], 'stream_id': 'helm-teleop',
-                'sequence': self.sequence, 'updated_at': time.time(), 'source_age_seconds': 0.,
+                'positions': positions, 'live': True, 'measured': bool(self.live_arm), 'rows': [],
+                'stream_id': 'helm-teleop', 'sequence': self.sequence, 'updated_at': time.time(),
+                'source_age_seconds': 0.,
                 'scan_seconds': self.period_s, 'feed_state': 'reading', 'reconnections': 0, 'view': 'fit',
                 'badge': (f'{self._receiver_name} · {state} · foot switch in reach' if self.live_arm
                           else f'VIRTUAL FOLLOWER · {state} · no motors move'),
@@ -2048,6 +2050,7 @@ class TeleopSession:
         from robot_platform.control.servo_calibration import load_servo, servo_path
         from robot_platform.neck import clearance, head
         from robot_platform.ops.release import ROOT
+        from robot_platform.vision.twin import path as twin_path
         try:
             profile = head.load_profile(ROOT / head.PROFILE)
             directory = servo_path(self.helm.profile_path, self.helm.asset_id,
@@ -2059,9 +2062,13 @@ class TeleopSession:
                                                     or clearance.from_limits(limits, reference) is None):
                 return None
             reference = reference or head.virtual_reference(profile)
+            try:  # The digital twin's correction (helm.twin): its head part turns the camera's poses by the pan zero.
+                twin = head.load_document(twin_path(directory, self.helm.asset_id))
+            except (OSError, ValueError):
+                twin = None  # Unreadable, it is left out: the head runs as before, and Helm's twin card says why.
             return {'teleop_profile': str(ROOT / head.PROFILE), 'head_reference': reference,
                     'limits': limits or head.virtual_limits(reference), 'servo': load_servo(paths['servo']),
-                    'camera': head.load_document(paths['camera'])}
+                    'camera': head.load_document(paths['camera']), 'twin': twin}
         except (OSError, ValueError, KeyError):
             return None
 

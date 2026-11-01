@@ -92,7 +92,7 @@ def video_backlog(transport):
 def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None, live=False,
                gripper_zero=None, simulation_only=False, cameras=None, camera_video=None, episodes=None, ups=None,
                access=None, bridge=None, mesh_store=None, operator_files=None, calibration=None, network=None,
-               display=None, head_setup=None, head_alignment=None, maps=None):
+               display=None, head_setup=None, head_alignment=None, maps=None, twin=None):
     """`live`: keep the stopped reader running whenever Minerva is online and nothing else holds the motors
     (helm.live_view); sessions then take the motors from it instead of asking for Disconnect first.
     `episodes`: the recorded-episode library behind Replay (helm.episodes), told to read nothing while a
@@ -109,7 +109,9 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     `head_setup` (helm.head_setup.HeadSetup): the head's setup on Helm on Minerva (Limits tab, Head): its reader,
     reference, directions and limits. `head_alignment` (helm.head_alignment.HeadAlignment): head camera stills of the
     table's tags during a live session, their solve, and the measured mount saved for the head's pose feed.
-    `maps` (helm.maps.MapLibrary): head scene captures for splat maps, and the trained maps the headset draws."""
+    `maps` (helm.maps.MapLibrary): head scene captures for splat maps, and the trained maps the headset draws.
+    `twin` (helm.twin.TwinCorrection): the digital twin's correction of the measured joints' zeros, for drawing only:
+    the 3D view and the headset's model draw through it."""
     from aiohttp import web
     from robot_platform.viewer.server import create_app as viewer_app
     from .live_view import LiveView
@@ -167,20 +169,26 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     def shown():
         """What the 3D view draws: the guide, on the display model when Helm has one: the neck at the head's
         measured angles while a session drives it or its setup reads it, else (with the headset preview on) where
-        the headset looks."""
+        the headset looks. The digital twin's correction (helm.twin) turns the measured joints by their zeros."""
+        drawn, neck = posed()
+        return twin.draw(drawn, neck=neck) if twin is not None else drawn
+
+    def posed():
+        """The 3D view's pose, and whether its neck's angles are measured (by a live session or the head's setup)."""
         pose = guide()
         if display is None:
-            return pose
+            return pose, False
         head = getattr(teleop, 'head_joints', None)
         joints = head() if head is not None else None
         if joints is None and head_setup is not None:
             read = head_setup.joints()
             if read is not None:  # Each reading a pose of its own, as each headset pose is.
                 return display.preview(pose, read, head_setup.sequence, source='head-setup',
-                                       note='read by its setup, the servos limp')
+                                       note='read by its setup, the servos limp'), True
         if joints is None and xr_preview['on']:
-            return display.preview(pose, headset.angles(), headset.poses)
-        return display.guide(pose, joints)
+            return display.preview(pose, headset.angles(), headset.poses), False
+        live = (getattr(teleop, 'receiver', None) or {}).get('mode') == 'live'
+        return display.guide(pose, joints), joints is not None and live
 
     drawn = display.profile if display is not None else session.model.profile
     app = viewer_app([drawn], drawn.id, guide=shown, index_html=STATIC / 'index.html', local_only=access is None,
@@ -255,6 +263,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         state['calibration'] = calibration.snapshot() if calibration is not None else None
         state['head_alignment'] = head_alignment.snapshot() if head_alignment is not None else None
         state['maps'] = maps.snapshot() if maps is not None else None
+        state['twin'] = twin.snapshot() if twin is not None else None
         state['mode'] = 'simulation' if simulation_only else 'robot'
         task = (state['teleop'] or {}).get('task')
         if simulation_only and task is not None:
@@ -924,6 +933,20 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         await off_loop(action)
         return state_response()
 
+    async def twin_action(request):
+        """Apply the digital twin's correction (helm.twin) or remove it; drawing only, so neither moves a motor or
+        changes a zero."""
+        payload = await body(request)
+        if twin is None:
+            raise ValueError("The digital twin's correction runs with Helm on Minerva and a teleop profile")
+        action = {'apply': twin.apply, 'clear': twin.clear}.get(request.match_info['action'])
+        if action is None:
+            raise web.HTTPNotFound()
+        if payload:
+            raise ValueError('Expected no fields')
+        await off_loop(action)
+        return state_response()
+
     def need_maps():
         if maps is None:
             raise ValueError('Splat maps run with Helm on Minerva and a teleop profile')
@@ -1277,6 +1300,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     app.router.add_post('/api/helm/calibration/{action}', calibration_action)
     app.router.add_get('/api/helm/head-alignment/thumbnail', head_alignment_thumbnail)
     app.router.add_post('/api/helm/head-alignment/{action}', head_alignment_action)
+    app.router.add_post('/api/helm/twin/{action}', twin_action)
     app.router.add_get('/api/helm/maps', maps_listing)
     app.router.add_get('/api/helm/maps/{name}/map.splat', map_splat)
     app.router.add_post('/api/helm/maps/capture', map_capture)
