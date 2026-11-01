@@ -32,6 +32,7 @@ from robot_platform.control.joint_calibration import save_json
 from robot_platform.control.live_receiver import fault_detail
 from robot_platform.control.scheduling import prefer_responsive
 from robot_platform.control.plain_data import plain_copy
+from .camera_watch import CameraWatch
 from .limits import utc_now
 from .recording import RecordingError, RecordingWriter
 from .pedals import Pedals
@@ -51,6 +52,13 @@ LOWERING_ATTEMPTS = 3  # Re-arms after the receiver stops the arm, before it is 
 # A re-arm the receiver refuses for these waits (it holds the arm meanwhile): a drive not answering, a joint over
 # a limit, or one still moving.
 WAIT_TO_REARM = ('feedback_stale', 'limit_violation', 'invalid_state')
+# A camera that drops off USB pauses the arms (helm.camera_watch): following stops, and a receiver trip for a late
+# cycle this soon after (the reconnect's hotplug burst stalls the loop) holds the arm where the receiver braked it
+# rather than lowering it (2026-11-01, the user: "pause and not shutdown when a camera drops out"). More such trips
+# than PAUSE_ATTEMPTS in PAUSE_WINDOW_S are lowered, as any other fault.
+HOST_STALL = ('command_expired', 'collision_expired')
+CAMERA_PAUSE_S = 10.
+PAUSE_ATTEMPTS, PAUSE_WINDOW_S = 3, 60.
 
 
 def load_profile(path):
@@ -359,6 +367,12 @@ class TeleopCore:
         self.fault = self.input_error = self.last_target = None
         # After a fault the receiver holds the arm: it is taken back and lowered (the lifecycle's shutdown).
         self._lowering, self._lowerings = False, 0
+        # A camera that dropped off USB (camera_watch, live sessions only) pauses the arms; a late cycle's trip just
+        # after is held where the receiver braked the arm (_pause), not lowered.
+        self.camera_watch = None
+        self._camera_dropped = self._camera_dropped_at = None
+        self._camera_hold = self._pausing = False
+        self._pauses = deque(maxlen=PAUSE_ATTEMPTS)
         self._land = False  # Closing: shut down (lower, then disable) before the receiver closes.
         self.late_targets, self.sequence, self.overruns = 0, 0, 0
         self._shown_block = None  # The hold on screen: why a move was not certified.
@@ -617,6 +631,9 @@ class TeleopCore:
             harness = self.open_receiver(derived['config'], device, reference)
             self._closers.append(harness.close)
             self._start_recording(harness, derived['config'])
+            self.camera_watch = CameraWatch.open()  # Linux only: elsewhere no camera pauses.
+            if self.camera_watch is not None:
+                self._closers.append(self.camera_watch.close)
             def exchange(request):
                 self._capture_exchange_started = self.clock()
                 return harness.exchange(request)
@@ -784,6 +801,7 @@ class TeleopCore:
                 except Exception as exc:
                     failures.append(str(exc) or type(exc).__name__)
             self._closers = []
+            self.camera_watch = None
             # Wait for evidence only after successful resource cleanup. If any
             # teardown is unconfirmed, initiate recorder close without waiting.
             try:
@@ -1173,12 +1191,25 @@ class TeleopCore:
             # The head faulted in its own process: the arms hold this cycle, as after a failed inline head cycle.
             self._head_noticed = self._head_hold = True
             self._event('head_fault', reason=self.head.fault)
+        watch = getattr(self, 'camera_watch', None)
+        dropped = watch.poll() if watch is not None else None
+        if dropped:
+            # A camera dropped off USB: the arms stop following (below), and a late cycle's trip soon after is held
+            # where the receiver braked the arm, not lowered (_pause).
+            self._camera_dropped, self._camera_dropped_at = dropped, self.clock()
+            self._camera_hold = not self.fault
+            self._event('camera_dropped', camera=dropped)
+        pausing = getattr(self, '_pausing', False)
         if self.fault:
-            self._head_after_fault(key, started)
+            if pausing and key != 'H':
+                self._head_cycle(None, started)  # The head follows on while the arms are taken back to a hold.
+            else:
+                self._head_after_fault(key, started)
             # The receiver stopped itself and revoked the lease. It holds the arm: take it back there and
-            # lower it, keeping the original reason on screen; a new session is needed to follow again.
+            # lower it, keeping the original reason on screen; a new session is needed to follow again. After a
+            # camera dropped out, it is held there instead, and Engage (T) follows again (_pause).
             if key == 'H':
-                self._lowering = False
+                self._lowering = self._pausing = False
                 try:
                     self.session.disable_now()
                 except Exception as exc:
@@ -1188,6 +1219,8 @@ class TeleopCore:
                 else:
                     self.message = (f'{self._receiver_name} FAULT · {self.fault} · Disabled at your request: the arm '
                                     'is limp where it was. Stop the session and start it again.')
+            elif pausing:
+                self._pause(started)
             elif self._lowering:
                 self._lower(started)
             return
@@ -1212,6 +1245,12 @@ class TeleopCore:
                 action = 'disengage'
                 notice = (f'{self.head.fault} · The arms hold: Engage (T) follows again without the head; stop '
                           'the session to start the head again.')
+        if getattr(self, '_camera_hold', False):
+            self._camera_hold = False
+            if engaged and action not in ('disable', 'shutdown'):
+                action = 'disengage'
+                notice = (f'Paused: {self._camera_dropped} dropped off USB. The arms hold: Engage (T) follows again '
+                          'once it is back.')
         capture_hold = False
         if self.recording_fault and action not in ('disable', 'shutdown'):
             # Never poll/reuse leader targets or allow a queued enable/engage
@@ -1306,6 +1345,13 @@ class TeleopCore:
             detail = fault_detail(self.harness.last, self.derived['config'], self.labels) if self.harness else ''
             self.fault = (f"Receiver {status.get('state')}: {reason}" + (f' ({detail})' if detail else '')
                           + f' · {exc}') if reason not in (None, 'ok') else str(exc)
+            if (reason in HOST_STALL and previous in ('HOLD', *ENGAGED) and self._camera_pause_due(started)
+                    and self._held()):
+                self._pausing = True
+                self._head_cycle(None, started)
+                self.message = (f'{self._receiver_name} PAUSED · {self.fault} · {self._camera_dropped} dropped off '
+                                f'USB and the receiver braked {self._the_arm} to a hold; taking it back there…')
+                return
             self._head_after_fault(key, started)  # The head goes back to its rest while the arms are lowered.
             if self._held():
                 self._lowering, self._lowerings = True, 0
@@ -1430,6 +1476,53 @@ class TeleopCore:
                 self._lowering = False
                 self.message = (f'{self._receiver_name} FAULT · {self.fault} · Lowering stopped: {exc}. '
                                 'Stop the session and start it again.')
+
+    def _camera_pause_due(self, now):
+        """Whether a late cycle's trip now pauses the arms rather than lowering them: a camera dropped off USB
+        within CAMERA_PAUSE_S, and fewer than PAUSE_ATTEMPTS pauses took the arm back in the last PAUSE_WINDOW_S."""
+        dropped_at = getattr(self, '_camera_dropped_at', None)
+        pauses = getattr(self, '_pauses', ())
+        return (dropped_at is not None and now - dropped_at <= CAMERA_PAUSE_S
+                and sum(now - at <= PAUSE_WINDOW_S for at in pauses) < PAUSE_ATTEMPTS)
+
+    def _pause(self, started):
+        """After a camera dropped out and the receiver braked the arm for a late cycle: take the arm back where the
+        receiver holds it, as _lower does, and hold it there (the lifecycle's shutdown disengaged at once, to HOLD)
+        instead of lowering it. The fault clears; Engage (T) follows again. Another trip while it is taken back
+        tries again, PAUSE_ATTEMPTS times in PAUSE_WINDOW_S, then the arm is lowered as after any other fault."""
+        session = self.session
+        try:
+            if session.lifecycle.state == 'FAULT':
+                if sum(started - at <= PAUSE_WINDOW_S for at in self._pauses) >= PAUSE_ATTEMPTS:
+                    self._pausing, self._lowering, self._lowerings = False, True, 0
+                    self.message = (f'{self._receiver_name} FAULT · {self.fault} · The receiver stopped the arms '
+                                    f'{PAUSE_ATTEMPTS} times in a minute after cameras dropped out; lowering to the '
+                                    'reference, then disabling…')
+                    return
+                if session.recover():
+                    self._pauses.append(started)
+                    self.message = (f'{self._receiver_name} PAUSED · {self.fault} · {self._set_aside()}Re-armed '
+                                    'where the receiver held it; holding it there…')
+                return
+            record = session.cycle(action='disengage', target=None, started_at=started)
+            self._record(record)
+            if session.lifecycle.state == 'HOLD':
+                self._pausing = False
+                self.message = (f'{self._receiver_name} · HOLD · PAUSED: {self._camera_dropped} dropped off USB and '
+                                f'a late cycle stopped the arms ({self.fault}). They hold where the receiver stopped '
+                                'them: Engage (T) follows again once the camera is back.')
+                self.fault = None
+        except Exception as exc:
+            self._record(session.last_cycle or {}, failure=str(exc))
+            if self._held():  # The next cycle takes it back again, or lowers it once the attempts are spent.
+                if getattr(exc, 'reason', None) in WAIT_TO_REARM:
+                    self.message = (f'{self._receiver_name} PAUSED · {self.fault} · The receiver holds the arm; '
+                                    f'waiting to re-arm it ({exc.reason}). If it stays held, support the arm, then '
+                                    'press H to disable it (it goes limp).')
+                return
+            self._pausing = False
+            self.message = (f'{self._receiver_name} FAULT · {self.fault} · The receiver stopped itself ({exc}). '
+                            'Stop the session and start it again.')
 
     def _set_aside(self):
         """The grippers the receiver set aside (they stopped answering; the arm is lowered without them), as the

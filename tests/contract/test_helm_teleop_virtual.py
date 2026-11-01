@@ -3,6 +3,7 @@ limits, the native keep-out model and the actual Rust receiver (native harness),
 driven through the GUI keys with scripted leaders on a test clock. Each leader
 channel's saved range scales straight onto its robot joint's usable range, and
 the leader zero maps onto the robot's reference pose."""
+from collections import deque
 import json
 import math
 from pathlib import Path
@@ -12,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from robot_platform.helm.session import HelmSession
-from robot_platform.helm.teleop import TeleopCore, TeleopSession
+from robot_platform.helm.teleop import PAUSE_ATTEMPTS, TeleopCore, TeleopSession
 from robot_platform.simulation.control_harness import default_binary
 from robot_platform.simulation.native_collision import library_path
 from robot_platform.teleop.leader_ranges import KIND, SCHEMA, UNITS, pins
@@ -240,6 +241,62 @@ def test_a_stalled_cycle_faults_with_the_receivers_reason_then_lowers_the_held_a
     assert core.session.lifecycle.state == 'DISABLED' and core.harness.last['status']['state'] == 'disarmed'
     assert 'lowered to the reference and disabled' in core.message
     assert 'Stop the session and start it again' in core.message
+
+
+class Drops:
+    """A camera watch (helm.camera_watch) reporting the given cameras dropping off USB, one a poll."""
+
+    def __init__(self, *cameras):
+        self.cameras = list(cameras)
+
+    def poll(self):
+        return self.cameras.pop(0) if self.cameras else None
+
+    def close(self):
+        pass
+
+
+def watch(core, monkeypatch, *cameras):
+    """Cameras dropping off USB on the shared rig's core, its camera state restored after the test."""
+    monkeypatch.setattr(core, 'camera_watch', Drops(*cameras))
+    monkeypatch.setattr(core, '_camera_dropped_at', None)
+    monkeypatch.setattr(core, '_pauses', deque(maxlen=PAUSE_ATTEMPTS))
+
+
+def test_a_camera_dropping_off_usb_pauses_the_following_arm_and_engage_follows_again(rig, monkeypatch):
+    core, clock, _leaders = rig
+    run(core, clock, 'I')
+    run(core, clock, 'E')
+    run(core, clock, 'T', until='TELEOP', seconds=16)
+    watch(core, monkeypatch, 'the camera at USB 1-2.2 (05a3:9230)')
+    run(core, clock)
+    assert core.session.lifecycle.state == 'HOLD'
+    assert core.message.startswith('Paused: the camera at USB 1-2.2 (05a3:9230) dropped off USB'), core.message
+    run(core, clock, 'T', until='TELEOP', seconds=16)
+
+
+def test_a_late_cycle_just_after_a_camera_dropped_holds_the_arm_where_it_stopped(rig, monkeypatch):
+    core, clock, _leaders = rig
+    run(core, clock, 'I')
+    run(core, clock, 'E')
+    run(core, clock, 'T', until='TELEOP', seconds=16)
+    watch(core, monkeypatch, 'the camera at USB 1-2.2 (05a3:9230)')
+    clock.now += .1  # The reconnect's hotplug burst: past the 80 ms collision verdict, the receiver brakes.
+    core.tick(None, clock())
+    assert re.match(r'Receiver stop(ping|ped): collision_expired · ', core.fault), core.fault
+    assert 'PAUSED' in core.message and 'taking it back there' in core.message, core.message
+    stopped = [joint['position'] for joint in core.harness.last['status']['joints']]
+    for _ in range(400):
+        clock.now += core.period_s
+        core.tick(None, clock())
+        if core.fault is None:
+            break
+    # Held where the receiver braked it, not lowered: the fault clears and Engage follows again.
+    assert core.fault is None and core.session.lifecycle.state == 'HOLD', core.message
+    assert 'PAUSED' in core.message and 'Engage (T) follows again' in core.message, core.message
+    held = [joint['position'] for joint in core.harness.last['status']['joints']]
+    assert max(abs(a - b) for a, b in zip(held, stopped)) < .05
+    run(core, clock, 'T', until='TELEOP', seconds=16)
 
 
 def test_a_drive_that_left_run_mode_is_named_while_the_receiver_holds_the_arm(rig, monkeypatch):
