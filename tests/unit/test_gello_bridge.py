@@ -1,6 +1,7 @@
 """The GELLO bridge for Helm on Minerva: the PC's bridge reaches Helm's hub through the relay, serves a session's
 leader link (the same PC-end process as before) so the robot's loop gets signed samples, streams restamped samples
 to the Leaders workspace, and refuses a wrong robot, a wrong token and a silent Helm."""
+import io
 import os
 import threading
 import time
@@ -177,6 +178,23 @@ def test_the_relay_says_where_the_bridge_reached_minerva_and_the_bridge_remember
         wait_until(lambda: session.addresses == ['192.168.8.43', '10.42.0.1'])
     finally:
         hub.close()
+
+
+def test_the_relay_keeps_off_the_arms_loops_cpus_before_it_joins_helm(tmp_path, monkeypatch):
+    """The bridge's SSH session may run on every CPU, the arms' loop's too (2026-11-01). The relay moves itself onto
+    the background CPUs first, so the thread it starts goes there as well."""
+    from robot_platform.control import scheduling
+    events = []
+    monkeypatch.setattr(scheduling, 'prefer_background_thread', lambda: events.append('placed') or ['background_cpus'])
+
+    def connect(*_args, **_kwargs):
+        events.append('connect')
+        raise OSError('no hub')
+    monkeypatch.setattr(hub_module.socket, 'create_connection', connect)
+    token = tmp_path / 'helm-bridge-token'
+    token.write_text('t')
+    assert relay(io.BytesIO(), io.BytesIO(), port=9, token_file=token) == 1  # Helm not running: it says so, ends.
+    assert events == ['placed', 'connect']
 
 
 def test_the_bridge_tries_minervas_addresses_in_order_and_remembers_where_it_was(monkeypatch):

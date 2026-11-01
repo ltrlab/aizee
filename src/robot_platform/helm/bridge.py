@@ -286,8 +286,13 @@ class BridgeHub:
 # -- the relay: the forced command of the bridge's SSH key ---------------------------------------------------------
 
 def relay(stdin=None, stdout=None, *, port=PORT, token_file=TOKEN_FILE):
-    """Join the hub on loopback, prove it with the token, then pass bytes both ways until either side ends."""
+    """Join the hub on loopback, prove it with the token, then pass bytes both ways until either side ends, off the
+    arms' loop's CPUs."""
+    from robot_platform.control.scheduling import prefer_background_thread
     from .edge import write_frame
+    # An SSH session may run on every CPU (its login resets the CPUs it inherits), the loop's too: this thread and
+    # the one it starts keep to the background CPUs where the robot has the split.
+    prefer_background_thread()
     stdin = stdin or sys.stdin.buffer
     stdout = stdout or sys.stdout.buffer
     try:
