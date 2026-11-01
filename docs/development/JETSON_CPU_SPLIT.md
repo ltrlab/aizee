@@ -116,3 +116,46 @@ Stop any Helm session first; the cameras restart.
 - **Not done:**
   - the wrist nodes' `passthrough_mjpg` option, which would cut their decode and re-encode load;
   - confining `aizee-heartbeat` (about 6% of a core, left free as in the measured hold).
+
+## Work started over SSH, and deep idle (2026-11-01)
+
+- **SSH sessions take every CPU.** sshd and every session it starts are allowed CPUs 0-5. That includes Helm's
+  robot paths, which go over its loopback SSH, and the GELLO bridge's relay, its key's forced command. A head map
+  capture launched that way ran on CPUs 4-5 about a fifth of its time. In `live-20261101T020612Z` the loop's slow
+  cycles rose fourfold once it started, keeping time with its 15 fps frames, until an arm command expired.
+- **Pinning the ssh service would not help.** A login moves its session into
+  `user.slice/user-1000.slice/session-N.scope`, whose cpuset differs from `system.slice/ssh.service`'s, and this
+  kernel (5.15) resets a task's CPUs to the new cpuset's (0-5) on that move. So what SSH starts pins itself:
+  - Helm's robot helpers, since d3ec1db: `helm.calibration.BACKGROUND` runs before each helper's `remote_main`
+    (background CPUs, nice 10);
+  - the bridge's relay, since 27674a8: `prefer_background_thread` before it joins Helm's hub.
+  Both were verified on Minerva.
+- **The old heartbeat dashboard** (`aizee-heartbeat.service`, about 6 % of a core) is a system service, so a drop-in
+  holds it to 0-3. The user runs, once:
+
+  ```
+  ssh -t ltr@192.168.8.159 "sudo mkdir -p /etc/systemd/system/aizee-heartbeat.service.d && printf '[Service]\nCPUAffinity=\nCPUAffinity=0 1 2 3\n' | sudo tee /etc/systemd/system/aizee-heartbeat.service.d/50-minerva-cpu-partition.conf >/dev/null && sudo systemctl daemon-reload && sudo systemctl restart aizee-heartbeat && systemctl show aizee-heartbeat -p CPUAffinity"
+  ```
+
+- **Deep idle on the control CPUs.** cpuidle let CPUs 4-5 enter `c7`, whose wake takes 5 ms, and the receiver's ticks
+  started 4-11 ms late. It was switched off by hand through sysfs on 2026-10-31, which lasts only until a reboot.
+  This unit switches it off at every boot (staged in `~/minerva/setup/` by Claude):
+
+  ```
+[Unit]
+Description=Minerva: keep the arms' loop's CPUs 4-5 out of deep idle (a c7 wake takes 5 ms)
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'for c in 4 5; do d=/sys/devices/system/cpu/cpu$${c}/cpuidle/state1; grep -qx c7 $${d}/name && echo 1 > $${d}/disable; done'
+
+[Install]
+WantedBy=multi-user.target
+  ```
+
+  The user installs it once:
+
+  ```
+  ssh -t ltr@192.168.8.159 "sudo install -m 644 /home/ltr/minerva/setup/minerva-control-cpus.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now minerva-control-cpus.service && cat /sys/devices/system/cpu/cpu4/cpuidle/state1/disable /sys/devices/system/cpu/cpu5/cpuidle/state1/disable"
+  ```

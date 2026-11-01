@@ -189,7 +189,9 @@ over the depth, the wrist pictures, the map's frame) depends on these being meas
     `~/minerva/helm/maps/captures/<stamp>/` in the trainer's format: the picture as published, the depth, the
     camera's pose in Minerva's frame and Minerva's pose in the world beside it (the board's once the head camera's
     alignment holds, else her own frame). Rehearsed on Minerva (a stand-in head feed stepping 5 degrees): 61 frames
-    seen in 4 s, 10 kept, 1.8 MB.
+    seen in 4 s, 10 kept, 1.8 MB. Captures and maps live on the NVMe: `~/minerva/helm/maps` links to
+    `/mnt/minerva-data/maps` (2026-11-01, as the session evidence does), and with the drive missing the link
+    dangles, so a capture fails rather than fill the microSD.
   - **Train:** `scripts/splat/train_on_station.py` on the build PC (it holds both keys) zips the newest capture
     without a map on Minerva, trains it in soliloquy's WSL venv (its GPU's load printed first; nothing trains with
     less than 3 GB free) and writes `map.splat` and `map.json` into `~/minerva/helm/maps/maps/<capture>/`. The
