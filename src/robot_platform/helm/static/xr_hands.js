@@ -9,6 +9,10 @@ export const WRIST_W = .26, WRIST_H = .195;  // Metres: the wrist cameras' 4:3 p
 export const ABOVE_M = .14;  // Above the wrist.
 export const LOST_S = .5;  // A hand this long untracked: its picture dims where it was.
 export const SIDES = {left: 'left_wrist', right: 'right_wrist'};
+// The wrist cameras' pictures come as the cameras take them, the jaws at the bottom (Helm's camera cards, recordings
+// and calibrations keep them so), and above the operator's hands they read upside down (user, 2026-11-01): each
+// screen turns its picture a half turn.
+export const TURNED = true;
 
 export class WristScreens {
   constructor(renderer) {
@@ -21,6 +25,7 @@ export class WristScreens {
       const geometry = new THREE.PlaneGeometry(WRIST_W, WRIST_H);
       const uv = geometry.attributes.uv;
       for (let i = 0; i < uv.count; i++) uv.setY(i, 1 - uv.getY(i));
+      if (TURNED) for (let i = 0; i < uv.count; i++) uv.setXY(i, 1 - uv.getX(i), 1 - uv.getY(i));
       const material = new THREE.MeshBasicMaterial({map: texture, transparent: true, side: THREE.DoubleSide,
         depthTest: false, toneMapped: false});
       const mesh = new THREE.Mesh(geometry, material);

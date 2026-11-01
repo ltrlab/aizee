@@ -13,7 +13,7 @@ register('data:text/javascript,' + encodeURIComponent(`export async function res
 const THREE = await import(three);
 const {MODEL_OPACITY, RETRY_MS, RobotModel, headLinks, meshGeometry} = await import(
   new URL('src/robot_platform/helm/static/xr_model.js', root).href);
-const {ABOVE_M, LOST_S, WristScreens} = await import(new URL('src/robot_platform/helm/static/xr_hands.js', root).href);
+const {ABOVE_M, LOST_S, TURNED, WristScreens} = await import(new URL('src/robot_platform/helm/static/xr_hands.js', root).href);
 const close = (actual, expected, tolerance = 1e-6) => assert.ok(Math.abs(actual - expected) <= tolerance,
   `${actual} is not ${expected}`);
 const at = (vector, expected) => expected.forEach((value, i) => close(vector.toArray()[i], value));
@@ -161,6 +161,11 @@ const facing = new THREE.Vector3(0, 0, 1).applyQuaternion(left.quaternion);
 const toEye = eye.clone().sub(left.position).normalize();
 assert.ok(facing.angleTo(toEye) < 1e-6);
 assert.equal(screens.screens.left.material.opacity, 1);
+// A half turn: the screen's top left shows the picture's bottom right (an ImageBitmap's rows run top down).
+assert.equal(TURNED, true);
+const {position, uv} = left.geometry.attributes;
+const corner = [...Array(uv.count).keys()].find(i => position.getX(i) < 0 && position.getY(i) > 0);
+assert.deepEqual([uv.getX(corner), uv.getY(corner)], [1, 1]);
 // A newer frame releases the old one.
 screens.showFrame('left_wrist', {close() {}});
 assert.equal(bitmap.closed, 1);
