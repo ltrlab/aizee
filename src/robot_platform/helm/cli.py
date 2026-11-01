@@ -2,6 +2,9 @@
 import argparse
 from pathlib import Path
 import sys
+import threading
+
+RESTART_EXIT = 75  # Helm stopped to load the arms' new reference (Joint zero): its service starts it again.
 
 
 def serve(app, listeners, *, handle_signals=True, stop=None):
@@ -227,12 +230,25 @@ def main(argv=None):
             from .head_setup import HeadSetup
             head_setup = HeadSetup(servo_path(session.profile_path, session.asset_id, session.operator_files).parent,
                                    session.asset_id, session.evidence)
+        # Joint zero (Limits tab): arm joints' motor zeros at the zero pose, and the arms' new reference it records
+        # with the operator's files. Loading that reference needs a restart: with the loopback port (Helm on
+        # Minerva's service) Helm stops itself and the service starts it again; otherwise the page says to.
+        joint_zero = None
+        if not args.sim:
+            from .joint_zero import JointZero
+            joint_zero = JointZero(session, runs=args.runs)
+        stop, restarting = threading.Event(), threading.Event()
+
+        def restart():
+            restarting.set()
+            stop.set()
         app = create_app(session, link, teleop=teleop, leaders=leaders, check=check, tune=tune,
                          live=not (args.sim or args.no_live), simulation_only=args.sim, cameras=cameras,
                          camera_video=camera_video, episodes=episodes, ups=ups, access=access, bridge=bridge,
                          mesh_store=args.mesh_store, operator_files=operator, calibration=calibration,
                          network=network, display=display, head_setup=head_setup, head_alignment=head_alignment,
-                         maps=maps, twin=twin)
+                         maps=maps, twin=twin, joint_zero=joint_zero,
+                         restart=restart if args.loopback_port is not None else None)
         if session.stale_lock_pid:
             print(f'Took over a calibration lock left by exited process {session.stale_lock_pid}.', flush=True)
         mode = ('SIMULATION ONLY; no physical robot connection' if args.sim else
@@ -249,7 +265,10 @@ def main(argv=None):
         if args.loopback_port is None:
             web.run_app(app, host=args.host, port=args.port, print=None, ssl_context=tls)
         else:
-            serve(app, [(args.host, args.port, tls), ('127.0.0.1', args.loopback_port, None)])
+            serve(app, [(args.host, args.port, tls), ('127.0.0.1', args.loopback_port, None)], stop=stop)
+        if restarting.is_set():
+            print("Helm stopped to load the arms' new reference (Joint zero); its service starts it again.", flush=True)
+            return RESTART_EXIT
         return 0
     finally:
         session.close()

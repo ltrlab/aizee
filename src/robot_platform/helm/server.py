@@ -24,6 +24,7 @@ STATIC = Path(__file__).parent / 'static'
 # Served before a login, so the login page has Helm's type: these exact paths, nothing else under /helm.
 LOGIN_FONTS = frozenset({'/helm/fonts/minecraft-regular.woff2', '/helm/fonts/minecraft-bold.woff2'})
 RETURN_MOVED_RAD = .02  # A confirmed return starts only if no joint moved more than this since it was shown.
+RESTART_DELAY_S = 1.5  # Joint zero's Verify answers the page before Helm stops to load the new reference.
 
 
 
@@ -92,7 +93,8 @@ def video_backlog(transport):
 def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None, live=False,
                gripper_zero=None, simulation_only=False, cameras=None, camera_video=None, episodes=None, ups=None,
                access=None, bridge=None, mesh_store=None, operator_files=None, calibration=None, network=None,
-               display=None, head_setup=None, head_alignment=None, maps=None, twin=None):
+               display=None, head_setup=None, head_alignment=None, maps=None, twin=None, joint_zero=None,
+               restart=None):
     """`live`: keep the stopped reader running whenever Minerva is online and nothing else holds the motors
     (helm.live_view); sessions then take the motors from it instead of asking for Disconnect first.
     `episodes`: the recorded-episode library behind Replay (helm.episodes), told to read nothing while a
@@ -111,7 +113,10 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     table's tags during a live session, their solve, and the measured mount saved for the head's pose feed.
     `maps` (helm.maps.MapLibrary): head scene captures for splat maps, and the trained maps the headset draws.
     `twin` (helm.twin.TwinCorrection): the digital twin's correction of the measured joints' zeros, for drawing only:
-    the 3D view and the headset's model draw through it."""
+    the 3D view and the headset's model draw through it. `joint_zero` (helm.joint_zero.JointZero): arm joints' motor
+    zeros at the zero pose (Limits tab, Joint zero); while one waits for its power cycle nothing that moves the arms
+    starts. `restart()`: stop Helm so its service starts it again, as Joint zero's Verify needs to load the arms' new
+    reference; None: the page says to restart it."""
     from aiohttp import web
     from robot_platform.viewer.server import create_app as viewer_app
     from .live_view import LiveView
@@ -145,6 +150,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             return 'Minerva Check'
         if grippers is not None and grippers.running:
             return 'the gripper zero'
+        if joint_zero is not None and joint_zero.running:
+            return 'the joint zero'
         return None
 
     live_view = LiveView(session, link, lambda: owner(arms=True))
@@ -264,6 +271,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         state['head_alignment'] = head_alignment.snapshot() if head_alignment is not None else None
         state['maps'] = maps.snapshot() if maps is not None else None
         state['twin'] = twin.snapshot() if twin is not None else None
+        state['joint_zero'] = (dict(joint_zero.snapshot(), restarts=restart is not None)
+                               if joint_zero is not None else None)
         state['mode'] = 'simulation' if simulation_only else 'robot'
         task = (state['teleop'] or {}).get('task')
         if simulation_only and task is not None:
@@ -610,9 +619,18 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     if ups is not None and ups.on_shutdown is None:
         ups.on_shutdown = ups_shutdown
 
+    def zero_settled():
+        """Nothing that moves the arms starts while a joint zero waits for its power cycle (helm.joint_zero), or
+        while Helm restarts to load the reference Verify recorded."""
+        reason = joint_zero.blocking() if joint_zero is not None else None
+        if reason:
+            raise ValueError(reason)
+
     def not_checking():
         if grippers is not None and grippers.running:
             raise ValueError('A gripper zero is running; wait for it to finish')
+        if joint_zero is not None and joint_zero.running:
+            raise ValueError('A joint zero is running; wait for it to finish')
         if check is not None and check.running:
             raise ValueError('Minerva Check is running; wait for it to finish')
         if tune is not None and tune.active:
@@ -692,6 +710,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             raise ValueError(cameras.write_fault)
         if camera_change.locked():
             raise ValueError('A camera change is running; wait for readback before starting teleop')
+        if (getattr(teleop, 'receiver', None) or {}).get('mode') == 'live' and not head_alone():
+            zero_settled()
         async with camera_change:
             await take_motors(arms=not head_alone())
             teleop.start(confirm=payload.get('confirm') is True, **({'replay': replay} if replay is not None else {}),
@@ -867,6 +887,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         await body(request)
         if grippers is not None and grippers.running:
             raise ValueError('A gripper zero is running; wait for it to finish')
+        if joint_zero is not None and joint_zero.running:
+            raise ValueError('A joint zero is running; wait for it to finish')
         if check is None:
             raise ValueError('Helm was started without Minerva Check')
         if teleop is not None and teleop.active:
@@ -933,6 +955,42 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         if payload:
             raise ValueError('Expected no fields')
         await off_loop(action)
+        return state_response()
+
+    async def joint_zero_action(request):
+        """Joint zero (helm.joint_zero): `zero` sets the chosen arm joints' motor zeros where the arm is, after the
+        operator's confirmation that it is at the zero pose; `verify`, after the motors' power cycle, reads them and
+        records the arms' new reference, then Helm restarts to load it. Both read the motors stopped: the live reader
+        steps aside, nothing is enabled."""
+        payload = await body(request)
+        action = request.match_info['action']
+        if action not in ('zero', 'verify'):
+            raise web.HTTPNotFound()
+        if joint_zero is None:
+            raise ValueError("Joint zero runs with Helm on Minerva, which keeps the arms' reference with its files")
+        if not set(payload) <= ({'motors', 'confirm'} if action == 'zero' else {'confirm'}):
+            raise ValueError('Expected motors and confirm' if action == 'zero' else 'Expected confirm')
+        if teleop is not None and teleop.active and not head_alone():
+            raise ValueError('Stop the teleop session first: the joint zero reads the arms itself')
+        not_checking()
+        if getattr(session, 'connection', 'tether') not in WIRED:
+            raise ValueError('Joint zero runs over the wired tether; choose Tether first')
+        confirm = payload.get('confirm') is True
+        if action == 'zero':
+            motors = payload.get('motors')
+            if not confirm:
+                raise ValueError('Hold the arm at the zero pose (every joint at 0 in the 3D view), then confirm')
+            power_ok()
+            await take_motors()  # The live reader steps aside; the zero takes the motors.
+            await off_loop(lambda: joint_zero.zero(motors, confirm=True))
+        else:
+            if not confirm:
+                raise ValueError("Switch the motors' power off and on, leave the arm at the zero pose, then confirm")
+            await take_motors()
+            report = await off_loop(lambda: joint_zero.verify(confirm=True))
+            if report.get('restart') and restart is not None:
+                # The page gets its answer first; the service starts Helm again with the new reference.
+                asyncio.get_running_loop().call_later(RESTART_DELAY_S, restart)
         return state_response()
 
     async def twin_action(request):
@@ -1143,10 +1201,15 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         need_tune()
         if grippers is not None and grippers.running:
             raise ValueError('A gripper zero is running; wait for it to finish')
+        if joint_zero is not None and joint_zero.running:
+            raise ValueError('A joint zero is running; wait for it to finish')
         if teleop is not None and teleop.active:
             raise ValueError('Stop the teleop session before the servo sweep')
         if check is not None and check.running:
             raise ValueError('Minerva Check is running; wait for it to finish')
+        receiver = getattr(tune, 'receiver', None) or {}
+        if receiver.get('mode') == 'live' and receiver.get('arm') != 'head':
+            zero_settled()
         power_ok()
         await take_motors()
         tune.start(confirm=payload.get('confirm') is True)
@@ -1174,6 +1237,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
                 or any(abs(a['position'] - b['position']) > RETURN_MOVED_RAD
                        for a, b in zip(shown['joints'], offer['joints']))):
             raise ValueError('The arm moved since its pose was shown: look at it again, then confirm')
+        zero_settled()
         power_ok()
         await take_motors()  # The live receiver needs the CAN links; the reader must be down.
         tune.start_return(offer['arm'], {row['motor']: row['position'] for row in offer['joints']})
@@ -1211,6 +1275,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         if teleop is not None and teleop.active:
             raise ValueError('Stop the teleop session before the live joint sweep')
         check.live_ready(payload['arm'])
+        zero_settled()
         power_ok()
         await take_motors()
         tune.configure(arm=payload['arm'], mode='live', verify=True)
@@ -1298,6 +1363,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     app.router.add_post('/api/helm/check/run', check_run)
     app.router.add_post('/api/helm/check/live', check_live)
     app.router.add_post('/api/helm/grippers/zero', gripper_zero_run)
+    app.router.add_post('/api/helm/joint-zero/{action}', joint_zero_action)
     app.router.add_get('/api/helm/calibration/thumbnail', calibration_thumbnail)
     app.router.add_post('/api/helm/calibration/{action}', calibration_action)
     app.router.add_get('/api/helm/head-alignment/thumbnail', head_alignment_thumbnail)
