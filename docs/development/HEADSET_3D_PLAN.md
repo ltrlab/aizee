@@ -111,7 +111,7 @@ over the depth, the wrist pictures, the map's frame) depends on these being meas
 - **Accuracy to expect:** the board's tags within 5 mm, each still's pose to 1-2 mm at the table (the head camera fit
   the tags to 0.75 px on 2026-10-18), so the views should agree to about 5 mm.
 
-**The head camera's part, built (2026-10-31; not yet run on the real head):**
+**The head camera's part, built (2026-10-31, deployed `2552fe2`; not yet run on the real head):**
 - **The flow:** the Teleop tab's calibration card (Stills of the table's tags) has the head as a third camera. In a
   session with the live head: turn it until its camera sees three or more tags, hold (T), capture (P); 8-12 stills
   turned and tilted at least 10 degrees apart; Solve; Save alignment. Runs live beside the wrists' under
@@ -181,7 +181,7 @@ over the depth, the wrist pictures, the map's frame) depends on these being meas
     put around the operator and Minerva moves through it. The live depth keeps drawing over the map, for what moves.
   - The trainer built here stays useful: for first maps of a room, for tests, and as the quality reference for what
     the live mapping reaches.
-- **The static map, built (2026-10-31; not yet captured live):**
+- **The static map, built (2026-10-31, deployed `2552fe2`; not yet captured live):**
   - **Capture:** the Teleop tab's map card (Head map), in a session with the live head engaged: Capture 15, 30 or
     60 s, then look slowly around the workspace in the headset. `helm.scene_capture` runs on the robot, reading the
     head camera's frames and the head's pose feed; a frame is kept when the head turned 3 degrees or moved 3 cm since
