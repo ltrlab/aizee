@@ -18,7 +18,10 @@ ROOT=Path(__file__).resolve().parents[2]
 DEV=ROOT/'config/devices'
 _spec=importlib.util.spec_from_file_location('capture_fault_fixtures',Path(__file__).with_name('test_helm_sim.py'))
 fixtures=importlib.util.module_from_spec(_spec);_spec.loader.exec_module(fixtures)
-pytestmark=pytest.mark.integration
+# Serial: under the gate's parallel load, about one run in ten, a test here faults with an OSError (EINVAL): its native
+# harness died mid-reply, exit code 1 and nothing on stderr, as a kill from outside leaves it (2026-10-30). Until the
+# killer is found, these run alone, as they always did.
+pytestmark=[pytest.mark.integration, pytest.mark.serial]
 
 class Capture:
     def __init__(self):

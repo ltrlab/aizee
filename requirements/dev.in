@@ -13,6 +13,7 @@ aiohttp>=3.9
 paramiko>=3.4
 pyserial>=3.5
 pytest>=7.4
+pytest-xdist>=3.6  # The full check's tests across the cores (scripts/dev.py).
 hypothesis>=6.100
 setuptools>=68
 wheel

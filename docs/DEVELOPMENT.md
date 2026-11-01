@@ -15,6 +15,11 @@ an editable package from this checkout only. It does not change `.venv-platform`
 Check builds/tests both portable Rust crates, builds the receiver harness and
 collision library, checks their presence/ABI, then runs the required control and
 rehearsal tests. A skip or xfail fails this gate. `--offline` uses Cargo's cache.
+The tests run in two phases: first across the CPU cores (pytest-xdist; `ROBOT_GATE_WORKERS`
+sets the workers, by default half the CPUs up to 12), each test file on one worker unless
+`tests/conftest.py` lists it as independent tests, then the tests marked `serial` alone.
+Those wait on wall-clock progress (real rendering, live loops), which the other workers' load
+only slows. Mark a test `serial` for that reason only, never to hide a race between tests.
 Other suites remain available through this environment's `python -m pytest`;
 the focused gate does not claim to cover learning, full UI behavior, Linux services or hardware.
 Node checks all shipped browser modules. ARM64 release inputs are mandatory even
@@ -40,7 +45,7 @@ qualification record or a substitute for the existing release manifest.
 `python scripts/gate_time_study.py [run...]` splits a run's time into its stages, test files and
 slowest tests, and compares runs. A run that spans the computer's sleep counts the sleep.
 
-### Quick lane for prototypes
+### Quick lane
 
 `python scripts/dev.py quick tests/unit/test_x.py ...` runs only the named test files, plus every changed test and,
 for a changed page file, the page checks: seconds, for iterating on one feature. Without names it runs the gate's
@@ -50,8 +55,10 @@ most of the gate that way, so name the tests for those. The lane keeps the gate'
 during the run), writes `build/dev-quick/<run>/report.json`, and refuses any change to the motion contract
 (approach, collision envelope, guarded lifecycle, receiver checks, the Rust crates) or to the locks.
 
-A prototype that passes it may be deployed for a supervised trial, with the user's approval of that deploy. The full
-`check` still has to pass before the branch is handed off or merged, and before a change counts as done.
+A change that leaves the motion contract, Rust and the locks untouched may be deployed once it passes, with the
+deployment owner's approval of that deploy (user decision, 2026-10-29: "We need to be able to make small changes like
+this quicker"). The full `check` still has to pass before the branch is merged, and before any motion-contract, Rust
+or lock change is deployed.
 
 ## Dependency updates
 

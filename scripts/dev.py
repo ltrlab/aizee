@@ -178,8 +178,10 @@ def release_artifacts(env):
     return json.loads(result.stdout)
 
 
-def required_test_results(path, report=None):
-    cases = ET.parse(path).findall('.//testcase')
+def required_test_results(paths, report=None):
+    """The JUnit reports of a run (one path, or the parallel and serial phases'): every test executed, none skipped."""
+    paths = [paths] if isinstance(paths, (str, Path)) else paths
+    cases = [case for path in paths for case in ET.parse(path).findall('.//testcase')]
     skipped = [case.get('name') for case in cases if case.find('skipped') is not None]
     results = {'collected': len(cases), 'skipped': skipped}
     if report is not None:
@@ -196,7 +198,7 @@ def new_run(folder, gate):
     run_dir.mkdir(parents=True)
     report = {'schema_version': 1, 'gate': gate, 'passed': False, 'commands': []}
 
-    def run(args, env):
+    def run(args, env, ok=(0,)):
         args = list(map(str, args))
         args[0] = shutil.which(args[0], path=env['PATH']) or args[0]
         print('+ ' + ' '.join(args), flush=True)
@@ -205,9 +207,33 @@ def new_run(folder, gate):
             log.flush()
             result = subprocess.run(args, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
         report['commands'].append({'args': args, 'returncode': result.returncode})
-        if result.returncode:
+        if result.returncode not in ok:
             raise RuntimeError(f'Command failed ({result.returncode}); see {run_dir / "output.log"}')
     return run_dir, report, run
+
+
+SERIAL = 'serial'  # Tests that wait on wall-clock progress (pyproject.toml's markers): run alone.
+NO_TESTS = 5  # pytest's exit code when a phase selects nothing (no serial test among those given).
+
+
+def workers(tests):
+    """The parallel phase's workers: ROBOT_GATE_WORKERS, else half the CPUs up to 12, never more than test files."""
+    configured = os.environ.get('ROBOT_GATE_WORKERS')
+    count = int(configured) if configured else min(12, max(1, (os.cpu_count() or 2) // 2))
+    return max(1, min(count, len(tests)))
+
+
+def run_tests(run, env, run_dir, tests, report):
+    """The tests across the cores (pytest-xdist; tests/conftest.py keeps each file on one worker, so its tests keep
+    their order and fixtures as in one process, except files of independent tests), then those marked serial alone: they
+    wait on wall-clock progress (real rendering, live loops), which the other workers' load only slows (a capture
+    test's 20 s wait ran out at 8 workers). Both phases count, and neither may skip."""
+    common = [PYTHON, '-m', 'pytest', '-q', '--strict-markers', '-o', 'xfail_strict=true']
+    run([*common, '-n', workers(tests), '--dist', 'loadgroup', '-m', f'not {SERIAL}', '--basetemp', run_dir / 'pytest',
+         '--junitxml', run_dir / 'tests.xml', *tests], env, ok=(0, NO_TESTS))
+    run([*common, '-m', SERIAL, '--basetemp', run_dir / 'pytest-serial', '--junitxml', run_dir / 'tests-serial.xml',
+         *tests], env, ok=(0, NO_TESTS))
+    return required_test_results([run_dir / 'tests.xml', run_dir / 'tests-serial.xml'], report)
 
 
 def gate_environment(run_dir):
@@ -254,9 +280,7 @@ def check(offline=False):
         run([PYTHON, '-c', 'import ctypes, os; '
              'lib=ctypes.CDLL(os.environ["ROBOT_COLLISION_LIBRARY"]); '
              'assert lib.rpc_abi_version() == 3; import fcl, numpy, scipy, pytest, mujoco, hypothesis'], env)
-        run([PYTHON, '-m', 'pytest', '-q', '--strict-markers', '-o', 'xfail_strict=true',
-             '--basetemp', run_dir / 'pytest', '--junitxml', run_dir / 'tests.xml', *CORE], env)
-        required_test_results(run_dir / 'tests.xml', report)
+        run_tests(run, env, run_dir, CORE, report)
         report['source_after'] = source_identity()
         if report['source_before'] != report['source_after']:
             raise RuntimeError('Source changed during verification; rerun in an isolated worktree')
@@ -340,9 +364,7 @@ def quick(base=None, named=()):
         print(f'{len(changed)} file(s) changed since {base[:10]}; {len(tests)} test file(s) touch them', flush=True)
         if tests:
             env = gate_environment(run_dir)
-            run([PYTHON, '-m', 'pytest', '-q', '--strict-markers', '-o', 'xfail_strict=true',
-                 '--basetemp', run_dir / 'pytest', '--junitxml', run_dir / 'tests.xml', *tests], env)
-            required_test_results(run_dir / 'tests.xml', report)
+            run_tests(run, env, run_dir, tests, report)
         else:
             print('No test of the gate touches this change.', flush=True)
         report['source_after'] = source_identity()
