@@ -102,6 +102,13 @@ def test_policy_mode_choices_and_card_text():
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-1200:]
 
 
+def test_teleop_modes_choose_the_cards_and_a_calibrate_pause_takes_one_still():
+    node = shutil.which('node')
+    assert node, 'Node.js is required to check the teleop modes'
+    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_teleop_mode.mjs')], capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
+
+
 def test_the_head_card_says_what_the_head_follows_and_where_the_headset_page_is():
     node = shutil.which('node')
     assert node, 'Node.js is required to check the head card'

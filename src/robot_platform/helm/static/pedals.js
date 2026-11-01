@@ -100,6 +100,8 @@ export class PedalControls {
     else if (!p || !action || !Number.isSafeInteger(action.revision) || !p.session_id) reason='Pedal offers unavailable.';
     else if (this.blockedUntilRefresh) reason='Wait for a fresh state after the last response.';
     else if (this.pending.has(pedal) || (pedal !== 'a' && [...this.pending.keys()].some(k=>k !== 'a'))) reason='Motion input pending.';
+    // Teleop's mode may record nothing (Calibrate); finishing a recording is never refused.
+    else if (pedal === 'a' && context.noRecording && action.action === 'start_record') reason=context.noRecording;
     else if (!action.enabled) reason=action.reason || 'Action unavailable.';
     return {...action, enabled:!reason && action?.enabled === true, reason:reason || action?.reason || ''};
   }

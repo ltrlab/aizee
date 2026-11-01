@@ -14,6 +14,7 @@ import {captureBlock, countsText, headCaptureBlock, headCountsText, headLastText
 import {mapCaptureBlock, mapLines, mapStatusText} from './maps.js';
 import {twinCanApply, twinLines, twinStatusText} from './twin.js';
 import {jointZeroBlocked, jointZeroResult, jointZeroStatus, pendingLines, zeroChoices} from './joint_zero.js';
+import {knownMode, modeCards, modeChoice, NO_RECORDING, PauseStill, pauseStillText, sessionMode} from './teleop_mode.js';
 
 // Helm operator page. Reads /api/helm/state; every action needs the session token.
 const $ = id => document.getElementById(id);
@@ -23,6 +24,10 @@ let token = null, last = null, busy = false, lockNoticeShown = false;
 let replayView = null;  // Built once the page's other panels are; showTab may run before.
 let replayCard = null;  // Teleop's live replay card, built with replayView.
 let policyListing = null, policyListedAt = -Infinity;  // Policy mode's choices, read from Minerva when Teleop opens.
+// Teleop's mode (teleop_mode.js), remembered in this browser: Direct, Calibrate or Policy.
+let teleopMode = 'direct';
+try { teleopMode = knownMode(localStorage.getItem('helm-teleop-mode')); } catch { /* storage unavailable */ }
+const pauseStill = new PauseStill();  // Calibrate: the still a pause takes.
 const responseMeta=new WeakMap(), stateOrder=new StateOrder();
 let requestId=0;
 let pendingConfirm = null;  // An open live confirmation: {kind: 'start' | 'stop', arm}
@@ -665,6 +670,10 @@ function renderRecording(state) {
 // Camera calibration: stills in a live session, then the solve: the wrist cameras' (helm.calibration), or the head
 // camera's alignment (helm.head_alignment), which is saved for the head's pose feed.
 let calibrationRole = 'left_wrist', calibrationPending = false;
+try {
+  const role = localStorage.getItem('helm-calibration-role');
+  if (['left_wrist', 'right_wrist', 'head'].includes(role)) calibrationRole = role;
+} catch { /* storage unavailable */ }
 const headSelected = () => calibrationRole === 'head';
 function calibrationBlock(state) {
   return headSelected() ? headCaptureBlock(state?.head_alignment, state?.teleop)
@@ -673,8 +682,9 @@ function calibrationBlock(state) {
 function renderCalibration(state) {
   const head = headSelected(), calibration = head ? state.head_alignment : state.calibration;
   const section = $('calibration');
-  section.hidden = !state.calibration && !state.head_alignment;
+  section.hidden = (!state.calibration && !state.head_alignment) || !teleopView(state.teleop).cards.calibration;
   if (section.hidden) return;
+  $('calibration-auto').textContent = pauseStillText(pauseStill.remaining(performance.now()), calibrationRole);
   const blocked = calibrationBlock(state);
   for (const button of document.querySelectorAll('#calibration-role button')) {
     button.setAttribute('aria-pressed', String(button.dataset.role === calibrationRole));
@@ -739,8 +749,19 @@ async function calibrationAction(action, payload = {}, timeoutMs = 15000) {
 function captureStill() {
   if (calibrationBlock(last) === null) calibrationAction('capture', {role: calibrationRole});
 }
+// Calibrate: the still a pause takes once the arms have held SETTLE_MS (teleop_mode.js), checked every 100 ms.
+setInterval(() => {
+  const now = performance.now();
+  if (pauseStill.due(last?.teleop, now, teleopView(last?.teleop).mode)) captureStill();
+  if (last && !$('calibration').hidden)
+    $('calibration-auto').textContent = pauseStillText(pauseStill.remaining(now), calibrationRole);
+}, 100);
 for (const button of document.querySelectorAll('#calibration-role button')) {
-  button.onclick = () => { calibrationRole = button.dataset.role; if (last) renderCalibration(last); };
+  button.onclick = () => {
+    calibrationRole = button.dataset.role;
+    try { localStorage.setItem('helm-calibration-role', calibrationRole); } catch { /* storage unavailable */ }
+    if (last) renderCalibration(last);
+  };
 }
 $('calibration-capture').onclick = captureStill;
 $('calibration-undo').onclick = () => calibrationAction('undo', {role: calibrationRole});
@@ -1563,34 +1584,40 @@ function renderTeleop(t) {
     + (t.control_law_next && t.tuning?.enabled ? ' Switch it in Motor tuning, between sessions.' : '');
   $('t-message').textContent = t.message || '';
   // Live replay or policy mode: an episode or a policy drives the arms in place of the leaders; nothing is recorded.
-  const replaying = !!t.replay && (running || starting);
-  const policyMode = !!t.policy && (running || starting);
-  const headOnly = live && choice.arm === 'head';  // The head alone (helm/head_only.py): no leaders, no arms.
+  // Otherwise Teleop's mode chooses the cards: Direct records episodes, Calibrate takes stills, Policy starts one.
+  const {replaying, policyMode, headOnly, mode, cards: shown} = teleopView(t);
+  const policyChosen = mode === 'policy' && !headOnly && !replaying;
+  const calibrating = mode === 'calibrate' && !replaying;
   $('t-title').textContent = replaying ? 'Replay an episode on the arms'
-    : policyMode ? 'Run a policy on the arms' : headOnly ? 'Steer the head with the headset'
-    : 'Drive the arms with the leaders';
+    : policyChosen ? 'Run a policy on the arms' : headOnly ? 'Steer the head with the headset'
+    : calibrating ? 'Calibrate the cameras with the leaders' : 'Drive the arms with the leaders';
   $('t-lead').textContent = replaying
     ? "Idle (I), then Enable (E) to hold, then Engage (T): the arms align to the episode's frame at the alignment "
       + 'speed, then follow its recorded commands. T again pauses; Shutdown (X) returns slowly to the reference; '
       + 'Disable (H) removes torque.'
-    : policyMode
+    : policyChosen
     ? "Idle (I), then Enable (E) to hold, then Engage (T): the arms align to the policy's first action at the "
       + 'alignment speed, then the policy drives them. T again pauses; Shutdown (X) returns slowly to the reference; '
       + 'Disable (H) removes torque.'
     : headOnly
     ? 'Idle (I), then Enable (E) to hold the head, then Engage (T) to align it to the headset and follow it. T again '
       + 'holds; Return (X) takes it to its zero; Disable (H) removes its torque. The arms are left as they are.'
+      + (calibrating ? ' Pause (pedal B or T) where its camera sees the tags: a second later Helm takes a still.' : '')
+    : calibrating
+    ? "Idle (I), then Enable (E) to hold, then Engage (T) to follow the leaders. Bring a camera over the table's tags "
+      + 'and pause (pedal B or T): a second later Helm takes a still of the camera chosen below. Resume for the next '
+      + 'pose; Shutdown (X) returns slowly to the reference; Disable (H) removes torque. Nothing is recorded.'
     : 'Idle (I), then Enable (E) to hold, then Engage (T) to align with the leaders and follow them. T again holds; '
       + 'Shutdown (X) returns slowly to the reference; Disable (H) removes torque.';
-  document.querySelector('.task-workflow').hidden = replaying || policyMode || headOnly;
+  document.querySelector('.task-workflow').hidden = !shown.task;
   // No leaders: no triggers to push.
-  document.querySelector('.grip-feedback').hidden = replaying || policyMode || headOnly;
+  document.querySelector('.grip-feedback').hidden = !shown.grip;
   replayCard?.render(replaying ? t.replay : null, {state: t.state, label: replaying ? replayView?.labelFor(t.replay.episode) : null});
-  renderPolicy(t, policyMode, running || starting, live);
-  if (headOnly) $('t-policy-start').hidden = true;  // A policy drives the arms.
+  renderPolicy(t, policyMode, running || starting);
+  renderTeleopMode(t, mode);
   const where = t.target === 'jetson' ? "ON MINERVA'S JETSON" : 'ON THIS PC';
   const eyebrow = $('t-eyebrow');
-  const kind = replaying ? 'REPLAY' : policyMode ? 'POLICY' : 'TELEOP';
+  const kind = replaying ? 'REPLAY' : policyChosen ? 'POLICY' : calibrating ? 'CALIBRATE' : 'TELEOP';
   eyebrow.textContent = live
     ? `${kind} · LIVE ${choice.arm === 'both' ? 'BOTH ARMS' : choice.arm === 'head' ? 'HEAD' : choice.arm.toUpperCase() + ' ARM'} ${where} · MOTORS MOVE · ${choice.arm === 'head' ? 'DISABLE (H) STOPS IT' : 'FOOT SWITCH IN REACH'}`
     : `${kind} · ${last?.mode === 'simulation' ? 'SIMULATED MINERVA' : 'VIRTUAL RECEIVER'}${choice.collision === 'motion' ? ' · TWO-ARM BOUND' : ''} ${where} · NO MOTORS MOVE`;
@@ -1629,9 +1656,14 @@ function renderTeleop(t) {
   if (pendingConfirm && (pendingConfirm.kind === 'start'
       ? running || starting || !live || choice.arm !== pendingConfirm.arm : !running && !starting)) closeConfirm();
   const session = $('teleop-session');
-  session.textContent = running || starting ? 'Stop session' : live ? 'Start LIVE session' : 'Start session';
+  // Policy mode starts a policy session: the policy chosen in its card drives the arms.
+  const policyStart = policyChosen && !running && !starting, unchosen = policyStart && !$('t-policy-choice').value;
+  session.textContent = running || starting ? 'Stop session'
+    : policyStart ? (live ? 'Start LIVE policy session' : 'Start policy session')
+    : live ? 'Start LIVE session' : 'Start session';
   session.className = running || starting || live ? 'danger' : 'primary';
-  session.disabled = starting;
+  session.disabled = starting || unchosen;
+  session.title = unchosen ? 'Choose a policy first' : '';
   for (const button of document.querySelectorAll('.lifecycle button'))
     button.disabled = !running || (!!t.fault && button.dataset.key !== 'H')
       || (!!t.recording_fault && !['H', 'X'].includes(button.dataset.key));
@@ -1668,7 +1700,26 @@ function renderTeleop(t) {
   }
 }
 
+// What Teleop shows: the chosen mode (teleop_mode.js), unless a replay or a policy session runs.
+function teleopView(t) {
+  const active = ['running', 'starting'].includes(t?.phase), choice = t?.receiver_choice || {mode: 'virtual'};
+  const replaying = !!t?.replay && active, policyMode = !!t?.policy && active;
+  const headOnly = choice.mode === 'live' && choice.arm === 'head';  // The head alone (helm/head_only.py).
+  const mode = sessionMode(teleopMode, {policyMode});
+  return {replaying, policyMode, headOnly, mode, cards: modeCards(mode, {replaying, policyMode, headOnly})};
+}
+function renderTeleopMode(t, mode) {
+  for (const button of document.querySelectorAll('#t-mode button')) {
+    const {allowed, reason} = modeChoice(button.dataset.mode, t, teleopMode);
+    button.dataset.title ??= button.title;
+    button.title = reason || button.dataset.title;
+    button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
+    button.disabled = !allowed;
+  }
+}
+
 async function sendKey(key) {
+  if (key === 'T') pauseStill.keyPause(last?.teleop, performance.now());  // Calibrate: T while following pauses.
   // Never dropped behind another pending action: H and X must always get through.
   try {
     render(await request('/api/helm/teleop/key', {key}));
@@ -1708,7 +1759,7 @@ function onKey(event) {
     event.preventDefault();
     closeDisable();
     sendKey(key);
-  } else if (key === 'P' && last?.calibration) {
+  } else if (key === 'P' && !$('calibration').hidden) {  // Calibrate shows the card.
     event.preventDefault();
     captureStill();
   } else if (key === 'Z') {
@@ -1815,6 +1866,10 @@ $('teleop-session').onclick = () => {
          'Disable (H) instead removes torque at once: the arms go limp where they are.'], 'Stop', stop);
     return;
   }
+  if (teleopView(t).mode === 'policy') {
+    startPolicy($('t-policy-choice').value);
+    return;
+  }
   const choice = t?.receiver_choice || {mode: 'virtual'};
   if (choice.mode !== 'live') {
     act('/api/helm/teleop/start', {}, 'Starting: loading the collision model and opening the leaders.');
@@ -1908,11 +1963,9 @@ async function refreshPolicies(explicit = false) {
   if ([...select.options].some(option => option.value === chosen && !option.disabled)) select.value = chosen;
 }
 
-function renderPolicy(t, policyMode, active, live) {
-  $('t-policy-start').hidden = active;
-  $('t-policy-go').textContent = live ? 'Start LIVE policy session' : 'Start policy session';
-  $('t-policy-go').className = live ? 'danger' : 'primary';
-  $('t-policy-go').disabled = !$('t-policy-choice').value;
+function renderPolicy(t, policyMode, active) {
+  // Policy mode's card: the choice before a session; Start session starts it.
+  $('t-policy-start').hidden = active || !teleopView(t).cards.policyStart;
   $('t-policy').hidden = !policyMode;
   if (!policyMode) return;
   const policy = t.policy;
@@ -1956,8 +2009,16 @@ function startPolicy(spec) {
   ], `Run LIVE on ${arms}`, () => act('/api/helm/teleop/start', {confirm: true, policy},
     `Starting the policy ${label} LIVE on ${arms}: checking that ${arm === 'both' ? 'they are' : 'it is'} still and in the reference pose, then the receiver.`));
 }
-$('t-policy-go').onclick = () => startPolicy($('t-policy-choice').value);
 $('t-policy-refresh').onclick = () => refreshPolicies(true);
+$('t-policy-choice').onchange = () => { if (last) renderTeleop(last.teleop); };  // Start session needs a choice.
+for (const button of document.querySelectorAll('#t-mode button')) {
+  button.onclick = () => {
+    teleopMode = knownMode(button.dataset.mode);
+    try { localStorage.setItem('helm-teleop-mode', teleopMode); } catch { /* storage unavailable */ }
+    if (teleopMode === 'policy' && !policyListing) refreshPolicies();
+    if (last) render(last);
+  };
+}
 
 // -- Tune: the servo sweep ------------------------------------------------------------------
 
@@ -2321,7 +2382,8 @@ function renderPedals() {
 const pedalControls=new PedalControls({
   request,onState:render,onError:message=>say(message,'bad'),onChange:renderPedals,
   context:()=>({tab:document.body.dataset.tab,hidden:document.hidden,
-    confirming:!!pendingConfirm || $('disable-confirm').open,pedalTest:pedalTestShown()}),
+    confirming:!!pendingConfirm || $('disable-confirm').open,pedalTest:pedalTestShown(),
+    noRecording:teleopView(last?.teleop).mode==='calibrate'?NO_RECORDING:''}),
 });
 for(const button of document.querySelectorAll('[data-pedal]'))button.onclick=()=>pedalControls.press(button.dataset.pedal);
 $('pedal-test').onclick=()=>pedalControls.setTest(!pedalControls.testMode);

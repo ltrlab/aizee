@@ -236,6 +236,23 @@ calibration files: deploy first (Minerva Check shows whether they match).
 **Loop runs on** switches between Minerva's Jetson and this PC while no session
 runs; `helm --loop pc` starts on this PC.
 
+**Mode** says what a session is for (the choice is kept in this browser):
+
+- **Direct**: drive the arms with the leaders and record episodes (pedal A, or
+  the task card's Record).
+- **Calibrate**: the camera calibration card instead of the task card. Choose
+  the camera (left wrist, right wrist or head), bring it over the table's tags
+  and pause (pedal B, or T while following): once the session has held for one
+  second, Helm takes a still of that camera. Resuming before then takes none,
+  and neither does a hold the operator did not ask for (a camera dropping off
+  USB, a head fault). P still captures by hand. Nothing is recorded: pedal A
+  cannot start a recording here, and a still refuses to run beside one.
+- **Policy**: choose a policy in the policy card; Start session then starts a
+  policy session (policy mode, docs/development/POLICY_MODE.md).
+
+Direct and Calibrate switch during a leader session (not while it records);
+Policy needs a session of its own.
+
 Measured with the real leaders, 30 s in TELEOP, at 25 Hz (before 2026-10-04)
 against its 40 ms period:
 

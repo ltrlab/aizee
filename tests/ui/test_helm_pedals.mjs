@@ -108,4 +108,15 @@ assert.equal(recordingMode({recording:{state:'finishing'}}),'finishing');
 assert.equal(recordingMode({recording:{complete:true,state:'idle'}}),'saved');
 assert.equal(recordingMode({recording:{state:'failed',error:'camera worker exited'}}),'failed');
 assert.equal(recordingMode({error:'task failed',recording:{active:true}}),'failed');
+// Teleop's Calibrate mode records nothing: A cannot start a recording there, but always finishes one.
+{
+  const calibrate=new PedalControls({now:()=>time,context:()=>({...ctx,noRecording:'Calibrate records nothing'}),
+    request:()=>new Promise(()=>{})});
+  const idle=clone(base);idle.teleop.pedals.actions.a=action('start_record',9);
+  calibrate.update(idle);
+  assert.deepEqual([calibrate.offer('a').enabled,calibrate.offer('a').reason],[false,'Calibrate records nothing']);
+  assert.equal(calibrate.offer('b').enabled,true);
+  calibrate.update(clone(base));
+  assert.equal(calibrate.offer('a').enabled,true);
+}
 console.log('Pedal offers, independent safety input, held/editable keys, stale/order guards, true state and stopped tester passed.');

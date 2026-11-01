@@ -264,6 +264,12 @@
             <button data-receiver="live" data-arm="both" title="Both arms' motors in one receiver. Loop on Minerva's Jetson only.">Both</button>
             <button data-receiver="live" data-arm="head" title="The head's servos alone, steered by the headset; the arms are left as they are. Loop on Minerva's Jetson only.">Head</button>
           </div>
+          <div class="target" id="t-mode" role="group" aria-label="Teleop mode">
+            <span>Mode</span>
+            <button data-mode="direct" title="Drive the arms with the leaders and record episodes (pedal A)">Direct</button>
+            <button data-mode="calibrate" title="Camera calibration with the leaders: each pause (pedal B or T) takes a still a second later; nothing is recorded">Calibrate</button>
+            <button data-mode="policy" title="A trained policy drives the arms in place of the leaders">Policy</button>
+          </div>
           <p class="choice-note" id="t-choice-note" hidden></p>
           <div class="teleop-status" id="t-status">
             <span>Phase<b id="t-state">—</b></span><span>Receiver<b id="t-receiver">—</b></span>
@@ -283,11 +289,10 @@
         <div id="teleop-content" class="scroll">
           <section id="t-policy-start" class="policy-start" aria-labelledby="t-policy-start-title" hidden>
             <div class="policy-start-head"><span class="eyebrow">POLICY MODE</span><b id="t-policy-start-title">Run a policy on the arms</b></div>
-            <p class="muted">A trained policy drives the arms in a teleop session: Enable shows its first action, Engage aligns to it at the alignment speed, then it drives; Hold pauses, Shutdown (X) lowers. Nothing is recorded.</p>
+            <p class="muted">Choose a policy, then Start policy session above. A trained policy drives the arms in a teleop session: Enable shows its first action, Engage aligns to it at the alignment speed, then it drives; Hold pauses, Shutdown (X) lowers. Nothing is recorded.</p>
             <div class="policy-start-actions">
               <select id="t-policy-choice" aria-label="Policy"></select>
               <button id="t-policy-refresh" type="button" title="Read the policies on Minerva again">Refresh</button>
-              <button id="t-policy-go" type="button" class="primary">Start policy session</button>
             </div>
             <p id="t-policy-status" class="muted" role="status"></p>
           </section>
@@ -315,7 +320,8 @@
           <section id="calibration" class="camera-calibration" aria-labelledby="calibration-title" hidden>
             <div class="eyebrow">CAMERA CALIBRATION</div>
             <h2 id="calibration-title">Stills of the table's tags</h2>
-            <p class="muted">In a live session, bring a wrist camera over the table until it sees one or more tags, hold (T), then capture (P). Vary the distance, tilt and roll, and put tags near the image's edges too. Take 15–25 stills a camera, then Solve. For the head, in a session with the live head, turn it until its camera sees three or more tags, hold (T), then capture (P); take 8–12 stills, turned and tilted at least 10° apart, Solve, then Save alignment: the headset's 3D view and model use it from the next session.</p>
+            <p class="muted">In a live session, bring a wrist camera over the table until it sees one or more tags and pause (pedal B or T): a second later Helm takes a still (or capture with P). Vary the distance, tilt and roll, and put tags near the image's edges too. Take 15–25 stills a camera, then Solve. For the head, in a session with the live head, turn it until its camera sees three or more tags and pause; take 8–12 stills, turned and tilted at least 10° apart, Solve, then Save alignment: the headset's 3D view and model use it from the next session.</p>
+            <p id="calibration-auto" class="muted" role="status"></p>
             <div class="calibration-actions" role="group" aria-label="Calibration stills">
               <div class="target" id="calibration-role" role="group" aria-label="Camera">
                 <button data-role="left_wrist">Left wrist</button>
