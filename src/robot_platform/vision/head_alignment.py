@@ -116,9 +116,9 @@ def _difference(a, b):
                 rotation_deg=round(math.degrees(float(np.linalg.norm(rotvec(d[:3, :3])))), 3))
 
 
-def latest_wrist_placement(root):
-    """(run name, 4x4) of the board's placement in Minerva's frame from the newest solved wrist calibration under
-    `root` (helm.calibration's runs), its recommended model; None when there is none."""
+def latest_wrist_run(root):
+    """(run folder, its result.json, the board's placement 4x4 in Minerva's frame) of the newest solved wrist
+    calibration under `root` (helm.calibration's runs), its recommended model; None when there is none."""
     root = Path(root)
     runs = sorted(p for p in root.glob('*') if (p / 'result.json').is_file()) if root.is_dir() else []
     for run in reversed(runs):
@@ -129,8 +129,13 @@ def latest_wrist_placement(root):
         except (OSError, ValueError, KeyError, TypeError):
             continue
         if matrix.shape == (4, 4) and np.isfinite(matrix).all():
-            return run.name, matrix
+            return run, result, matrix
     return None
+
+
+def board_middle(board):
+    """The middle of the board's tags (board frame), where the head's placement of it and the arms' are compared."""
+    return np.r_[np.mean([board.tags[t][:2] for t in board.tags], axis=0), 0.]
 
 
 def against_arms(head_placement, arms_placement, chain, middle):
@@ -184,7 +189,7 @@ def _findings(report, stills, chain, config, board, camera, wrists):
     cad = cad_mount(chain.pose({name: 0. for name in chain.joints}), config['front'], config['origin_m'])
     found['cad'] = dict(matrix=np.round(cad, 7).tolist(), **_difference(cad, mount))
     # The camera's distance to the board's middle in each still, and the error it makes of a pixel there.
-    middle = np.r_[np.mean([board.tags[t][:2] for t in board.tags], axis=0), 0.]
+    middle = board_middle(board)
     distances = [float(np.linalg.norm((invert(chain.pose(s.joints) @ mount) @ placement @ np.r_[middle, 1.])[:3]))
                  for s in stills]
     found['distance_m'] = dict(median=round(float(np.median(distances)), 3), low=round(min(distances), 3),
@@ -201,9 +206,9 @@ def _findings(report, stills, chain, config, board, camera, wrists):
             notes.append(f'{name} moved only {spread[name]}° over the stills: {"turn" if name == PAN else "tilt"} '
                          f'the head more between them (at least {MIN_SPREAD_DEG:.0f}°)')
     found['spread_deg'] = spread
-    arms = latest_wrist_placement(wrists) if wrists else None
+    arms = latest_wrist_run(wrists) if wrists else None
     if arms is not None:
-        found['arms'] = dict(run=arms[0], **against_arms(placement, arms[1], chain, middle))
+        found['arms'] = dict(run=arms[0].name, **against_arms(placement, arms[2], chain, middle))
     else:
         notes.append("No solved wrist calibration to compare: the head alone cannot tell its pan zero from where the "
                      "board lies")
