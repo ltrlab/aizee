@@ -191,3 +191,10 @@ def test_the_map_card_captures_with_the_live_head_and_lists_maps():
     assert node, 'Node.js is required to check the map card'
     result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_maps.mjs')], capture_output=True, timeout=60)
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
+
+
+def test_the_twin_card_says_what_the_3d_views_draw_and_when_to_apply():
+    node = shutil.which('node')
+    assert node, 'Node.js is required to check the twin card'
+    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_twin.mjs')], capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]

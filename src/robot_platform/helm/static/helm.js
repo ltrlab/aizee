@@ -12,6 +12,7 @@ import {headSetupView} from './head_setup.js';
 import {captureBlock, countsText, headCaptureBlock, headCountsText, headLastText, headResultLines, lastText,
   resultLines} from './calibration.js';
 import {mapCaptureBlock, mapLines, mapStatusText} from './maps.js';
+import {twinCanApply, twinLines, twinStatusText} from './twin.js';
 
 // Helm operator page. Reads /api/helm/state; every action needs the session token.
 const $ = id => document.getElementById(id);
@@ -300,6 +301,7 @@ function render(state) {
   renderHeadset(state);
   renderHeadSetup(state);
   renderCalibration(state);
+  renderTwin(state);
   renderMaps(state);
   renderRecording(state);
   renderUps(state.ups);
@@ -660,6 +662,43 @@ $('calibration-undo').onclick = () => calibrationAction('undo', {role: calibrati
 $('calibration-solve').onclick = () => calibrationAction('solve', {}, 600000);
 $('calibration-new').onclick = () => calibrationAction('new');
 $('calibration-save').onclick = () => calibrationAction('save');
+
+// The digital twin's correction (helm.twin), drawing only: Apply saves the proposal, Remove takes it away.
+let twinPending = false;
+function renderTwin(state) {
+  const twin = state.twin, section = $('twin');
+  section.hidden = !twin;
+  if (!twin) return;
+  $('twin-apply').disabled = twinPending || !twinCanApply(twin);
+  $('twin-clear').disabled = twinPending || twin.busy || !twin.applied;
+  $('twin-status').textContent = twinStatusText(twin);
+  $('twin-lines').replaceChildren(...twinLines(twin).map(line => {
+    const item = document.createElement('li');
+    const title = document.createElement('b');
+    title.textContent = line.title;
+    item.append(title, document.createTextNode(line.title ? ` ${line.text}` : line.text));
+    if (line.bad) item.className = 'bad';
+    return item;
+  }));
+  $('twin-error').hidden = !twin.error;
+  $('twin-error').textContent = twin.error || '';
+}
+async function twinAction(action) {
+  if (twinPending) return;
+  twinPending = true;
+  if (last) renderTwin(last);
+  try {
+    render(await request(`/api/helm/twin/${action}`, {}));
+  } catch (error) {
+    $('twin-error').hidden = false;
+    $('twin-error').textContent = error.message;
+  } finally {
+    twinPending = false;
+    if (last) renderTwin(last);
+  }
+}
+$('twin-apply').onclick = () => twinAction('apply');
+$('twin-clear').onclick = () => twinAction('clear');
 
 // Splat maps: a head scene capture in a live session, and the captures and maps (helm.maps).
 let mapSeconds = 30, mapsPending = false;
