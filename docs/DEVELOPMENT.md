@@ -53,6 +53,29 @@ during the run), writes `build/dev-quick/<run>/report.json`, and refuses any cha
 A prototype that passes it may be deployed for a supervised trial, with the user's approval of that deploy. The full
 `check` still has to pass before the branch is handed off or merged, and before a change counts as done.
 
+### Commit checks (ltr-code)
+
+This repository is public. [ltr-code](https://github.com/ltrlab/ltr-code), the LTR LABS code standard, checks every
+commit before it lands: keys, tokens, passwords, private network addresses and credential files; file size,
+whitespace, CRLF and conflict markers; and formatting (ruff, rustfmt, clang-format, shfmt, prettier). Install it
+once per machine and its hooks once per worktree:
+
+```sh
+python -m venv ~/.ltr-code
+~/.ltr-code/bin/pip install "ltr-code[tools] @ git+https://github.com/ltrlab/ltr-code"
+ltr-code install --worktree   # in each new worktree; leaves the clone's other worktrees alone
+```
+
+The pre-commit hook checks the lines a commit adds; the pre-push hook checks every commit a push sends; Git LFS's
+hooks keep running. `ltr-code check --all` audits the whole tree and `ltr-code scan --history` every commit ever made.
+Minerva's own networks (USB-C Ethernet, its access points, L4T's USB device mode) are allowed in
+`.ltr-code/secrets.toml`; a home LAN or tailnet address is not: take it from configuration instead.
+
+Formatting only warns until the one-time format commit that follows the merges for the public main, because a
+formatter rewrites whole files and every open branch would conflict with it. That commit is
+`ltr-code format --all`, on its own, then listed in `.git-blame-ignore-revs`; delete `.ltr-code/checks.toml` with it.
+The house style is in `ruff.toml`, `rustfmt.toml`, `.clang-format`, `.prettierrc.json` and `.editorconfig`.
+
 ## Dependency updates
 
 The development lock is separate from optional training/operator dependencies.

@@ -1,0 +1,12 @@
+# Minerva's changes to the LTR LABS standard's checks.toml (github.com/ltrlab/ltr-code, config/checks.toml).
+#
+# Adopted 2026-11-01, while the branches for the public main were still open. Formatting only warns, and the hook
+# fixes nothing, until the one-time format commit after those merges: a formatter rewrites whole files, so every open
+# branch would conflict with its result. Then delete this file (docs/DEVELOPMENT.md, "Commit checks").
+
+[pre-commit]
+format = "warn"
+fix = false
+
+[check]
+format = "warn"

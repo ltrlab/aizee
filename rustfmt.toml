@@ -1,0 +1,2 @@
+# The LTR LABS Rust style: rustfmt's defaults (written by `ltr-code init`).
+edition = "2021"

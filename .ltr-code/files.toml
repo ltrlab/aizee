@@ -1,0 +1,10 @@
+# Minerva's changes to the LTR LABS standard's files.toml (github.com/ltrlab/ltr-code, config/files.toml).
+# Exact-byte files (CAD exports, checksummed manifests, the qualified joint-limit reference) are marked -text in
+# .gitattributes, which ltr-code honours; they need no entry here.
+
+[exclude]
+extend-paths = [
+    "firmware/openrb_leader/openrb150_bsp/", # the vendored ROBOTIS Arduino core
+    "src/robot_platform/viewer/static/vendor/", # vendored three.js, checksummed in sources.json
+    "urdf/", # CAD exports
+]

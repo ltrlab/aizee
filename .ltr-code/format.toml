@@ -1,0 +1,9 @@
+# Minerva's changes to the LTR LABS standard's format.toml (github.com/ltrlab/ltr-code, config/format.toml).
+# Formatting warns until the one-time format commit (checks.toml).
+
+[settings]
+extend-exclude = [
+    "firmware/openrb_leader/openrb150_bsp/", # the vendored ROBOTIS Arduino core
+    "src/robot_platform/viewer/static/vendor/", # vendored three.js
+    "urdf/", # CAD exports
+]
