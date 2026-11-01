@@ -142,7 +142,7 @@ over the depth, the wrist pictures, the map's frame) depends on these being meas
   too; held against the head's), the model drawn over each camera's picture, and, once the twin's correction below
   holds up live, the zeros set deliberately (the arms' and the head's reference flows) instead of drawn.
 
-**Twin correction, built (2026-11-01; drawing only, not yet deployed or run on real stills):**
+**Twin correction, built (2026-11-01; drawing only, deployed `e664767`; not yet run on real stills):**
 - **What the user asked** (2026-11-01): calibrate the wrist cameras to the head camera, then correct the digital twin
   to those joint positions with the relative calibration; "drawing only first". No measurement of where Minerva's
   base stands is needed: both solves give the board's place in Minerva's own frame.
