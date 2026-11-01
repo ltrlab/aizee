@@ -23,6 +23,29 @@ import xml.etree.ElementTree as ET
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON = ROOT / '.venv-dev' / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
 CORE = [
+    # Every other test file that runs without torch or OpenCV (2026-11-01): Helm's leaders, limits, cameras and
+    # Tune tab, live and virtual teleop, the collision model, the neck's clearance and the shared session transport.
+    'tests/unit/test_actuator_char.py', 'tests/unit/test_camera_node_orientation.py',
+    'tests/unit/test_can_driver_maintenance.py', 'tests/unit/test_characterization_measurements.py',
+    'tests/unit/test_collision.py', 'tests/unit/test_collision_cli.py', 'tests/unit/test_commissioning.py',
+    'tests/unit/test_compose_collision_model.py', 'tests/unit/test_gravity.py', 'tests/unit/test_helm_cameras.py',
+    'tests/unit/test_helm_leaders.py', 'tests/unit/test_helm_limits.py', 'tests/unit/test_leader_input.py',
+    'tests/unit/test_leader_ranges.py', 'tests/unit/test_leader_routes.py', 'tests/unit/test_leader_shadow.py',
+    'tests/unit/test_leader_viewer.py', 'tests/unit/test_limit_probe.py', 'tests/unit/test_limit_sweep.py',
+    'tests/unit/test_mechanical_zero.py', 'tests/unit/test_minerva_guarded_adapter.py',
+    'tests/unit/test_model_audit.py', 'tests/unit/test_model_audit_cli.py', 'tests/unit/test_model_viewer.py',
+    'tests/unit/test_neck_clearance.py', 'tests/unit/test_openrb_parallel.py', 'tests/unit/test_power_on_range.py',
+    'tests/unit/test_profiles.py', 'tests/unit/test_servo_analysis.py', 'tests/unit/test_servo_sweep.py',
+    'tests/unit/test_transmission_calibration.py', 'tests/unit/test_vision_geometry.py',
+    'tests/contract/test_aizee_session_adapter.py', 'tests/contract/test_application_launch.py',
+    'tests/contract/test_head_only.py', 'tests/contract/test_helm_teleop_live.py',
+    'tests/contract/test_helm_teleop_virtual.py', 'tests/contract/test_helm_tune.py',
+    'tests/contract/test_minerva_session_adapter.py', 'tests/contract/test_session_background.py',
+    'tests/contract/test_session_inproc.py', 'tests/contract/test_session_routing.py',
+    'tests/contract/test_session_transport.py', 'tests/contract/test_shared_discovery.py',
+    'tests/contract/test_shared_recording.py', 'tests/contract/test_shared_wire.py',
+    'tests/contract/test_source_freshness.py', 'tests/contract/test_verified_release_model.py',
+    'tests/evidence/test_sim2real_20261015.py',
     'tests/unit/test_approach.py', 'tests/unit/test_joint_box_bound.py',
     'tests/unit/test_runtime_collision.py', 'tests/contract/test_guarded_controller.py',
     'tests/contract/test_collision_envelope.py', 'tests/contract/test_motion_envelope.py',
