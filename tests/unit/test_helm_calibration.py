@@ -2,8 +2,11 @@
 parts; detection needs OpenCV and was rehearsed on the robot), the still capture's stillness gate and run files, the
 solve on synthetic stills, and the API."""
 import asyncio
+import builtins
+import io
 import json
 import math
+import os
 from pathlib import Path
 import threading
 import time
@@ -118,6 +121,65 @@ def test_the_helper_answers_with_json_even_when_it_fails(capsys):
     cs.remote_main({'operation': 'move'})
     reply = json.loads(capsys.readouterr().out)
     assert reply == {'ok': False, 'error': 'ValueError: Unknown calibration operation'}
+
+
+def test_a_helper_moves_off_the_arms_loops_cpus_before_it_starts(monkeypatch):
+    """Helm's SSH sessions may run on every CPU, the arms' loop's too: a map capture there let an arm command expire
+    (2026-11-01). Each helper moves onto the background CPUs at a lower priority before remote_main starts its
+    threads."""
+    from robot_platform.helm import calibration
+    from robot_platform.ops import ssh
+    sent = []
+
+    class Channel:
+        def __init__(self):
+            self.reply = json.dumps({'ok': True, 'result': 'done'}).encode()
+
+        def recv_ready(self):
+            return bool(self.reply)
+
+        def recv(self, _size):
+            reply, self.reply = self.reply, b''
+            return reply
+
+        settimeout = shutdown_write = close = lambda *_: None
+        recv_stderr_ready = lambda _: False
+        exit_status_ready = lambda _: True
+        recv_exit_status = lambda _: 0
+
+    class Out:
+        def __init__(self):
+            self.channel = Channel()
+
+    class Stdin:
+        write, flush = sent.append, lambda _: None
+
+    class Client:
+        close = lambda _: None
+
+    monkeypatch.setattr(ssh, 'open_command', lambda client, command, timeout: (Stdin(), Out(), None))
+    for script in ('calibration_still.py', 'scene_capture.py'):
+        sent.clear()
+        assert calibration.run_remote(None, lambda: '127.0.0.1', {'operation': 'x'}, script=script,
+                                      open_ssh=lambda *_, **__: Client()) == 'done'
+        source = ''.join(sent)
+        assert source.index('def remote_main') < source.index(calibration.BACKGROUND) < source.index('\nremote_main(')
+
+    calls = []
+    monkeypatch.setattr(os, 'sched_setaffinity', lambda pid, cpus: calls.append(('cpus', pid, cpus)), raising=False)
+    monkeypatch.setattr(os, 'nice', lambda step: calls.append(('nice', step)), raising=False)
+
+    def partition(path, *_args, **_kwargs):
+        assert path == '/etc/minerva/cpu-partition.json'
+        return io.StringIO(json.dumps({'control': [4, 5], 'background': [0, 1, 2, 3]}))
+
+    def missing(path, *_args, **_kwargs):
+        raise FileNotFoundError(path)
+    exec(calibration.BACKGROUND, {'__builtins__': {**vars(builtins), 'open': partition}})
+    assert calls == [('cpus', 0, [0, 1, 2, 3]), ('nice', 10)]
+    calls.clear()  # Without the split installed it only lowers its priority.
+    exec(calibration.BACKGROUND, {'__builtins__': {**vars(builtins), 'open': missing}})
+    assert calls == [('nice', 10)]
 
 
 # -- the capture ----------------------------------------------------------------------------------------------------

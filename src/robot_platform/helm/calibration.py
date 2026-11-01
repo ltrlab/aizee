@@ -25,16 +25,31 @@ from robot_platform.vision.rig import DEFAULT_RIG, ROOT, load_rig
 SOLVE_TIMEOUT_S = 300.
 RECORDING = ('starting', 'recording', 'stopping', 'finishing')
 MAX_REPLY = 1024 * 1024
+# Run before a helper's remote_main, which starts its threads: they inherit the background CPUs (when the robot has
+# the split, robot_platform.ops.cpu_partition) and the lower priority, as helm.episode_worker.background does. Helm's
+# SSH sessions may run on every CPU, the arms' loop's too: a map capture there stretched the loop's cycles until an
+# arm command expired (2026-11-01).
+BACKGROUND = '''
+import json as _json, os as _os
+try:
+    _os.sched_setaffinity(0, _json.load(open('/etc/minerva/cpu-partition.json'))['background'])
+except Exception:
+    pass
+try:
+    _os.nice(10)
+except Exception:
+    pass
+'''
 
 
 def run_remote(profile, address, request, *, open_ssh=None, timeout_s=15., script='calibration_still.py'):
     """Run a robot helper's remote_main(request) on the robot over Helm's pinned SSH (helm.calibration_still, or
-    `script` beside it: helm.scene_capture); its result."""
+    `script` beside it: helm.scene_capture), off the arms' loop's CPUs; its result."""
     from robot_platform.ops.ssh import connect, open_command
     client = channel = None
     try:
         client = (open_ssh or connect)(profile, address=address(), timeout=3.)
-        source = (Path(__file__).with_name(script).read_text(encoding='utf-8')
+        source = (Path(__file__).with_name(script).read_text(encoding='utf-8') + BACKGROUND
                   + '\nremote_main(' + repr(request) + ')\n')
         stdin, out, _ = open_command(client, 'python3 -', timeout=3.)
         channel = out.channel
