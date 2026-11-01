@@ -362,12 +362,12 @@ def test_the_server_zeroes_on_confirmation_and_holds_the_arms_until_verify(tmp_p
         session.close()
 
 
-def test_the_loop_on_minerva_reads_helms_copy_of_the_reference(tmp_path):
+def test_the_loop_on_minerva_reads_helms_copy_of_the_reference():
     from types import SimpleNamespace
     from robot_platform.helm.teleop import calibration_reference, edge_reference
     from robot_platform.ops.release import ROOT as RELEASE
     assert calibration_reference(SimpleNamespace(reference_path=None)) == {}
-    copy = tmp_path / arms_reference_name(ASSET)
+    copy = RELEASE.parent / 'operator' / arms_reference_name(ASSET)  # Outside the release (the gate's tmp is in it).
     assert calibration_reference(SimpleNamespace(reference_path=copy)) == {'calibration_reference': str(copy)}
     assert edge_reference(copy, SimpleNamespace(on_robot=True)) == str(copy.resolve())
     with pytest.raises(ValueError, match="this PC's operator files"):
