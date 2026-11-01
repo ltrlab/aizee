@@ -1,0 +1,7 @@
+# The LTR LABS C and C++ style (written by `ltr-code init`; ltr-code runs clang-format with it).
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 120
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: true
+SortIncludes: false

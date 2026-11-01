@@ -1,0 +1,25 @@
+# The LTR LABS editor settings (written by `ltr-code init`): what the hooks check, applied while typing.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{js,mjs,cjs,jsx,ts,tsx,css,html,json,yaml,yml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab
+
+# Exact bytes (.gitattributes -text): an editor must not touch line endings or whitespace in these.
+[{urdf/**,config/devices/minerva-reference-20261009.json,src/robot_platform/viewer/static/vendor/**}]
+end_of_line = unset
+trim_trailing_whitespace = unset
+insert_final_newline = unset

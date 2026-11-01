@@ -32,6 +32,9 @@ device and architecture documents; current work and blockers go in the status fi
   receiver. Physics libraries must run behind that boundary.
 - Report what was tested, skipped or unverified, and link the generated report.
   Never replace a measured physical parameter with a plausible invented value.
+- The repository is public. Run `ltr-code install --worktree` in each new worktree
+  (`docs/DEVELOPMENT.md`, "Commit checks"). Never commit with `--no-verify` to get
+  past a finding: remove the secret, or allow a real non-secret with a reason.
 
 ## Branch handoff
 

@@ -1,0 +1,5 @@
+# The LTR LABS Python style (written by `ltr-code init`; ltr-code runs `ruff format` with it).
+line-length = 120
+
+[format]
+quote-style = "single"
