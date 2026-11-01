@@ -5,10 +5,13 @@
     python3 -m robot_platform.ops.probe motors   stopped-only scan of every motor
     python3 -m robot_platform.ops.probe zero_gripper left_gripper|right_gripper
                                                  mechanical zero of one gripper, saved (Helm's Gripper zero)
+    python3 -m robot_platform.ops.probe zero_joints MOTOR [MOTOR ...]
+                                                 mechanical zero of arm joints, saved (Helm's Joint zero)
 
 Each prints one JSON object (link prints "ready <port>" first). Nothing here
-enables a motor; only zero_gripper writes, and only the one gripper's zero and its
-flash save, after the operator confirmed its jaws fully closed. The motor scan is the calibration tool's
+enables a motor; only zero_gripper and zero_joints write, and only the named drives' zero and its
+flash save, after the operator confirmed the pose: a gripper's jaws fully closed, or the arm at its six-joint zero
+pose. The motor scan is the calibration tool's
 stopped reader: host, adapter, service and CAN-down checks, then identity,
 firmware and fault-free Reset for every motor and one position read each; CAN
 links go down again afterwards.
@@ -183,16 +186,15 @@ def motors(root=ROOT):
 GRIPPERS = ('left_gripper', 'right_gripper')
 
 
-def zero_gripper(motor, root=ROOT, *, capture=None, maintenance=None):
-    """Mechanical zero of one gripper's drive, saved to its flash, at its fully closed jaws (the gripper zero:
-    inner jaw faces together, confirmed by the operator in Helm). The same stopped maintenance as a joint re-zero
-    (2026-10-09): run_capture checks host, adapters and services and brings CAN up; StoppedMaintenance verifies
-    the whole roster's identity and Reset, needs the drive still, zeroes and saves this one drive (no enable, no
-    retry) and reads it back; CAN goes down after. A gear skip moves the closed jaws off the motor's zero; this
-    puts the zero back there, so the gripper's swept range holds again. Evidence: mechanical-zero-<motor>-<UTC>."""
+ARM_JOINTS = tuple(f'{side}_arm_j{number}' for side in ('left', 'right') for number in range(1, 7))
+
+
+def _zero(names, description, slug, root, capture, maintenance):
+    """The stopped maintenance of a re-zero (2026-10-09): run_capture checks host, adapters and services, brings CAN
+    up and verifies the whole roster's identity and Reset; StoppedMaintenance then checks the named drives again,
+    needs each still, zeroes and saves it (no enable, no retry) and reads it back; CAN goes down after. The evidence
+    file is written as it goes: (report, its path)."""
     import signal
-    if motor not in GRIPPERS:
-        raise ValueError('Only a gripper can be zeroed here: left_gripper or right_gripper')
     if capture is None or maintenance is None:
         from robot_platform.control.joint_capture import run_capture
         from robot_platform.control.mechanical_zero import StoppedMaintenance
@@ -201,7 +203,7 @@ def zero_gripper(motor, root=ROOT, *, capture=None, maintenance=None):
         signal.signal(signal.SIGHUP, signal.SIG_IGN)
     device, reference = identity(root)
     EVIDENCE.mkdir(parents=True, exist_ok=True)
-    path = EVIDENCE / f"mechanical-zero-{motor.replace('_', '-')}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}.json"
+    path = EVIDENCE / f"mechanical-zero-{slug}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}.json"
     with path.open('x', encoding='utf-8') as output:
         def save(result):
             output.seek(0)
@@ -211,12 +213,13 @@ def zero_gripper(motor, root=ROOT, *, capture=None, maintenance=None):
             os.fsync(output.fileno())
 
         def maintain(exchange, motors, result):
-            roster = [m for m in motors if m['name'] == motor]
-            if len(roster) != 1:
-                raise RuntimeError(f'{motor} is not in the roster')
+            roster = [m for m in motors if m['name'] in names]
+            missing = sorted(set(names) - {m['name'] for m in roster})
+            if missing:
+                raise RuntimeError(f"{', '.join(missing)} not in the roster")
             zero = result['zero'] = {'reference': {
                 'motors': roster, 'model_revision': reference.get('model_revision'), 'previous_reference': reference['id'],
-                'reference_description': f'{motor} zeroed from Helm at its fully closed jaws, operator-confirmed.'}}
+                'reference_description': description}}
             maintenance(exchange).run(roster, zero, reference_confirmed=True, save=True, checkpoint=lambda: save(result))
             save(result)
             if not zero.get('success'):
@@ -224,28 +227,75 @@ def zero_gripper(motor, root=ROOT, *, capture=None, maintenance=None):
 
         report = capture(device, reference, maintain=maintain)
         save(report)
+    return report, path
+
+
+def _last(row, key):
+    """A maintenance row's last sample of `key` (a list of readings), or its value."""
+    value = row.get(key)
+    return (value or [None])[-1] if isinstance(value, list) else value
+
+
+def zero_gripper(motor, root=ROOT, *, capture=None, maintenance=None):
+    """Mechanical zero of one gripper's drive, saved to its flash, at its fully closed jaws (the gripper zero:
+    inner jaw faces together, confirmed by the operator in Helm), by the re-zero's stopped maintenance (_zero). A
+    gear skip moves the closed jaws off the motor's zero; this puts the zero back there, so the gripper's swept range
+    holds again. Evidence: mechanical-zero-<motor>-<UTC>."""
+    if motor not in GRIPPERS:
+        raise ValueError('Only a gripper can be zeroed here: left_gripper or right_gripper')
+    report, path = _zero([motor], f'{motor} zeroed from Helm at its fully closed jaws, operator-confirmed.',
+                         motor.replace('_', '-'), root, capture, maintenance)
     zero = report.get('zero') or {}
     row = next(iter(zero.get('motors') or []), {})
-    last = lambda key: (row.get(key) or [None])[-1] if isinstance(row.get(key), list) else row.get(key)
     return {'motor': motor, 'success': bool(report.get('success') and zero.get('success')),
             'error': zero.get('error') or report.get('error'), 'evidence': str(path),
-            'before_rad': last('before_rad'), 'after_zero_rad': last('after_zero_rad'),
-            'after_save_rad': last('after_save_rad'), 'save_response_missing': bool(row.get('save_response_missing')),
+            'before_rad': _last(row, 'before_rad'), 'after_zero_rad': _last(row, 'after_zero_rad'),
+            'after_save_rad': _last(row, 'after_save_rad'), 'save_response_missing': bool(row.get('save_response_missing')),
+            'power_cycle_verified': False}
+
+
+def zero_joints(motors, root=ROOT, *, capture=None, maintenance=None):
+    """Mechanical zero of arm joints' drives, saved to their flash, with the operator holding the arm at its six-joint
+    zero pose (Helm's Joint zero, helm.joint_zero), by the re-zero's stopped maintenance (_zero). A joint put back
+    differently (a wrist remounted) reads off by the remount at that pose; this puts its zero back there. The drives
+    are zeroed one after another, so a failure can leave the earlier ones zeroed: each joint says whether its zero was
+    sent. The power cycle proves the drives kept it (Helm's Verify). Evidence: mechanical-zero-<joints>-<UTC>."""
+    motors = list(motors)
+    if not motors or len(set(motors)) != len(motors) or any(motor not in ARM_JOINTS for motor in motors):
+        raise ValueError('Only arm joints can be zeroed here (left_arm_j1 … right_arm_j6), each once')
+    slug = '-'.join(side + ''.join('-' + motor.rsplit('_', 1)[1] for motor in motors if motor.startswith(side + '_'))
+                    for side in ('left', 'right') if any(motor.startswith(side + '_') for motor in motors))
+    report, path = _zero(motors, f"{', '.join(motors)} zeroed from Helm at the six-joint zero pose, operator-confirmed.",
+                         slug, root, capture, maintenance)
+    zero = report.get('zero') or {}
+    rows = {row.get('name'): row for row in zero.get('motors') or []}
+    joints = []
+    for motor in motors:
+        row = rows.get(motor, {})
+        joints.append({'motor': motor, 'uid': row.get('uid'), 'firmware': row.get('firmware'),
+                       'zero_sent': bool(row.get('zero_requested')), 'zero_acknowledged': bool(row.get('zero_reply')),
+                       'save_sent': bool(row.get('save_requested')),
+                       'save_response_missing': bool(row.get('save_response_missing')),
+                       'before_rad': _last(row, 'before_rad'), 'after_zero_rad': _last(row, 'after_zero_rad'),
+                       'after_save_rad': _last(row, 'after_save_rad')})
+    return {'motors': motors, 'success': bool(report.get('success') and zero.get('success')),
+            'error': zero.get('error') or report.get('error'), 'evidence': str(path), 'joints': joints,
             'power_cycle_verified': False}
 
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     probes = {'health': health, 'link': link, 'motors': motors}
-    if argv[:1] == ['zero_gripper'] and len(argv) == 2:
+    zeroes = {'zero_gripper': lambda motors: zero_gripper(*motors), 'zero_joints': zero_joints}
+    if argv[:1] == ['zero_gripper'] and len(argv) == 2 or argv[:1] == ['zero_joints'] and len(argv) >= 2:
         try:
-            report = {'ok': True, **zero_gripper(argv[1])}
+            report = {'ok': True, **zeroes[argv[0]](argv[1:])}
         except Exception as exc:
             report = {'ok': False, 'error': f'{type(exc).__name__}: {exc}'}
         print(json.dumps(report, allow_nan=False, default=str), flush=True)
         return 0 if report['ok'] else 1
     if len(argv) != 1 or argv[0] not in probes:
-        print(json.dumps({'ok': False, 'error': 'Use health, link, motors or zero_gripper MOTOR'}))
+        print(json.dumps({'ok': False, 'error': 'Use health, link, motors, zero_gripper MOTOR or zero_joints MOTOR...'}))
         return 2
     try:
         report = {'ok': True, **probes[argv[0]]()}
