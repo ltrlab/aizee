@@ -198,3 +198,10 @@ def test_the_twin_card_says_what_the_3d_views_draw_and_when_to_apply():
     assert node, 'Node.js is required to check the twin card'
     result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_twin.mjs')], capture_output=True, timeout=60)
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
+
+
+def test_the_joint_zero_card_says_what_waits_for_the_power_cycle_and_what_to_sweep_again():
+    node = shutil.which('node')
+    assert node, 'Node.js is required to check the joint zero card'
+    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_joint_zero.mjs')], capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]

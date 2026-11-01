@@ -398,6 +398,17 @@ body[data-touch=on] .grip-switch input{width:24px;height:24px}
 /* Settings -> Network (network.js). */
 .network-mode{margin:10px 0 4px;font-size:15px;font-weight:600}
 .headset-state{margin:10px 0 4px;font-size:15px;font-weight:600}
+/* Joint zero (Limits, joint_zero.js): the arm joints to zero at the zero pose, the zeros waiting for the power cycle. */
+.joint-zero{margin-bottom:14px}.jz-intro{margin:4px 0 8px;line-height:1.45}
+.jz-status{margin:6px 0;font-size:13px;font-weight:600;line-height:1.4}.jz-status.bad,#jz-feedback.bad{color:var(--bad)}
+.jz-pending{margin:4px 0 8px;padding-left:18px;font:12px var(--mono)}
+.jz-step{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0}
+.jz-step[hidden],.jz-picker[hidden]{display:none}
+.jz-check{display:flex;align-items:center;gap:6px;font-size:12px}
+.jz-joints{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 14px;margin:8px 0}
+.jz-joints label{display:flex;align-items:baseline;gap:6px;font-size:12px}
+.jz-reading{margin-left:auto;font:12px var(--mono);color:var(--muted)}
+.jz-warning{font-size:12px;margin:6px 0 8px}
 .head-setup{margin-top:18px}.head-intro{margin:4px 0 10px;line-height:1.45}
 .head-step{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0}
 .head-step .ok{color:var(--good)}.head-step .warn{color:var(--warn)}.head-step .bad{color:var(--bad)}

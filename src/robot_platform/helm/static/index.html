@@ -117,6 +117,31 @@
           <p id="saved-summary" class="muted"></p>
         </div>
         <div id="joints" class="scroll">
+          <section id="joint-zero" class="joint-zero" aria-label="Joint zero" hidden>
+            <div class="arm">JOINT ZERO</div>
+            <p class="muted jz-intro">When a joint goes back on differently (a wrist remounted), it no longer reads 0 at
+              the zero pose. Hold the arm in its zero pose, straight down as in the 3D view's reference pose, choose the
+              joints and zero them: their drives take the zero there and save it, with every motor disabled. Then
+              switch the motors' power off and on and press Verify, which records the arms' new reference. Sweep the
+              zeroed joints again below afterwards.</p>
+            <p id="jz-status" class="jz-status" role="status" aria-live="polite"></p>
+            <ul id="jz-pending" class="jz-pending"></ul>
+            <div id="jz-verify" class="jz-step" hidden>
+              <label class="jz-check"><input id="jz-cycled" type="checkbox"> I switched the motors' power off and on,
+                and the arm stayed where it was</label>
+              <button id="jz-verify-go" type="button" class="primary" disabled>Verify</button>
+            </div>
+            <div class="jz-step"><button id="jz-choose" type="button">Choose joints to zero…</button>
+              <span id="jz-blocked" class="muted"></span></div>
+            <div id="jz-picker" class="jz-picker" hidden>
+              <div id="jz-joints" class="jz-joints" role="group" aria-label="Arm joints to zero"></div>
+              <p class="jz-warning">Hold the arm in its zero pose and keep it still. The chosen joints' zeros are set
+                where they are now and saved on their drives.</p>
+              <button id="jz-zero" type="button" class="danger" disabled>Zero the chosen joints now</button>
+              <button id="jz-cancel" type="button">Cancel</button>
+            </div>
+            <p id="jz-feedback" class="muted" role="status" aria-live="polite"></p>
+          </section>
           <section id="head-setup" class="head-setup" aria-label="Head setup">
             <div class="arm">HEAD</div>
             <p class="muted head-intro">The head's servos stay limp: turn the head by hand. Read the head, hold it

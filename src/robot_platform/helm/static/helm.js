@@ -13,6 +13,7 @@ import {captureBlock, countsText, headCaptureBlock, headCountsText, headLastText
   resultLines} from './calibration.js';
 import {mapCaptureBlock, mapLines, mapStatusText} from './maps.js';
 import {twinCanApply, twinLines, twinStatusText} from './twin.js';
+import {jointZeroBlocked, jointZeroResult, jointZeroStatus, pendingLines, zeroChoices} from './joint_zero.js';
 
 // Helm operator page. Reads /api/helm/state; every action needs the session token.
 const $ = id => document.getElementById(id);
@@ -219,6 +220,89 @@ for (const block of document.querySelectorAll('.gripper-zero')) {
   };
 }
 
+// Joint zero (helm.joint_zero, Limits tab): choose arm joints and zero them at the zero pose, then Verify after the
+// motors' power cycle, which records the arms' new reference; Helm then restarts to load it.
+let jointZeroPending = null, jointZeroError = null;  // A refusal shows until the next action.
+const jointZeroChosen = new Set();
+function renderJointZero(state) {
+  const zero = state?.joint_zero, section = $('joint-zero');
+  section.hidden = !zero;
+  if (!zero) return;
+  const blocked = jointZeroBlocked(state), busy = !!jointZeroPending || !!zero.running;
+  const status = $('jz-status');
+  status.textContent = jointZeroStatus(zero);
+  status.classList.toggle('bad', !!zero.pending?.length);
+  $('jz-pending').replaceChildren(...pendingLines(zero).map(text => {
+    const item = document.createElement('li');
+    item.textContent = text;
+    return item;
+  }));
+  $('jz-verify').hidden = !zero.pending?.length || !!zero.applied;
+  $('jz-verify-go').disabled = busy || !!blocked || !$('jz-cycled').checked;
+  $('jz-choose').disabled = busy || !!blocked;
+  $('jz-blocked').textContent = busy ? '' : blocked;
+  const choices = zeroChoices(state.limits?.rows), container = $('jz-joints');
+  if (container.childElementCount !== choices.length) {
+    container.replaceChildren(...choices.map(choice => {
+      const label = document.createElement('label'), box = document.createElement('input');
+      const reading = document.createElement('span');
+      box.type = 'checkbox';
+      box.dataset.motor = choice.motor;
+      box.onchange = () => {
+        if (box.checked) jointZeroChosen.add(choice.motor); else jointZeroChosen.delete(choice.motor);
+        if (last) renderJointZero(last);
+      };
+      reading.className = 'jz-reading';
+      label.append(box, document.createTextNode(choice.label), reading);
+      return label;
+    }));
+  }
+  choices.forEach((choice, index) => {
+    const label = container.children[index], box = label.querySelector('input');
+    box.checked = jointZeroChosen.has(choice.motor);
+    box.disabled = busy;
+    label.querySelector('.jz-reading').textContent = choice.text;
+  });
+  const zeroButton = $('jz-zero'), count = jointZeroChosen.size;
+  zeroButton.disabled = busy || !!blocked || !count;
+  zeroButton.textContent = count ? `Zero ${count} joint${count === 1 ? '' : 's'} now` : 'Zero the chosen joints now';
+  const node = $('jz-feedback'), result = jointZeroError || jointZeroResult(zero);
+  node.textContent = jointZeroPending === 'zero'
+    ? 'Zeroing: the live view pauses, every drive is checked, then the chosen ones are zeroed and saved. Keep the arm '
+      + 'still…'
+    : jointZeroPending === 'verify' ? 'Reading every drive, motors disabled…' : result?.text || zero.error || '';
+  node.classList.toggle('bad', !jointZeroPending && (!!result?.bad || (!result && !!zero.error)));
+}
+async function jointZeroAction(action, payload) {
+  if (jointZeroPending) return;
+  jointZeroPending = action;
+  jointZeroError = null;
+  if (last) renderJointZero(last);
+  try {
+    render(await request(`/api/helm/joint-zero/${action}`, payload, 240000));
+    if (action === 'zero') {
+      jointZeroChosen.clear();
+      $('jz-picker').hidden = true;
+    } else {
+      $('jz-cycled').checked = false;
+    }
+  } catch (error) {
+    jointZeroError = {text: `${action === 'zero' ? 'Not zeroed' : 'Not verified'}: ${error.message}`, bad: true};
+  } finally {
+    jointZeroPending = null;
+    if (last) renderJointZero(last);
+  }
+}
+$('jz-choose').onclick = () => { $('jz-picker').hidden = false; };
+$('jz-cancel').onclick = () => {
+  $('jz-picker').hidden = true;
+  jointZeroChosen.clear();
+  if (last) renderJointZero(last);
+};
+$('jz-cycled').onchange = () => { if (last) renderJointZero(last); };
+$('jz-zero').onclick = () => jointZeroAction('zero', {motors: [...jointZeroChosen], confirm: true});
+$('jz-verify-go').onclick = () => jointZeroAction('verify', {confirm: true});
+
 function render(state) {
   if (!state) return;
   const meta=responseMeta.get(state);
@@ -227,6 +311,7 @@ function render(state) {
   last = state;
   if(newlyReceived)pedalControls.update(state,meta?.startedAt);
   renderGripperZero(state);
+  renderJointZero(state);
   if (!underTorque(state)) closeDisable();  // Nothing left to drop: the question no longer applies.
   token = state.action_token;
   const {feed, limits, robot, session} = state;
