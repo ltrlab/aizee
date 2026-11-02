@@ -219,7 +219,7 @@ def test_session_relays_keys_and_route_edits_and_stops_cleanly(tmp_path):
             session.start()
         session.key('I')
         session.key('E')
-        with pytest.raises(ValueError, match='Use I, E, T, H or X'):
+        with pytest.raises(ValueError, match='Use I, E, T, H, X or O'):  # O: take over in a policy session.
             session.key('Q')
         wait_until(lambda: session.snapshot()['keys'] == ['I', 'E'])
         assert session.guide() == {'sequence': 2}
