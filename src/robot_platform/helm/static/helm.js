@@ -745,17 +745,24 @@ async function calibrationAction(action, payload = {}, timeoutMs = 15000) {
   calibrationPending = true;
   if (last) renderCalibration(last);
   const role = calibrationRole, head = headSelected();
-  let note = null;
+  let note = null, tone = 'bad';
   try {
     const path = head ? `/api/helm/head-alignment/${action}` : `/api/helm/calibration/${action}`;
-    render(await request(path, head ? {} : payload, timeoutMs));
-    if (action === 'capture') note = stillOutcome((head ? last?.head_alignment : last?.calibration)?.last, null, role);
+    const state = await request(path, head ? {} : payload, timeoutMs);
+    render(state);
+    if (action === 'capture') {  // From the reply: the page's state may keep an older poll.
+      const still = (head ? state?.head_alignment : state?.calibration)?.last;
+      [note, tone] = [stillOutcome(still, null, role), still?.tags?.length ? 'good' : 'bad'];
+    }
   } catch (error) {
     $('calibration-error').hidden = false;
     $('calibration-error').textContent = error.message;
     if (action === 'capture') note = stillOutcome(null, error.message, role);
   } finally {
-    if (note) stillNote = {text: note, until: performance.now() + NOTE_MS};
+    if (note) {  // The card says it for NOTE_MS; the status line, until the next message.
+      stillNote = {text: note, until: performance.now() + NOTE_MS};
+      say(note, tone);
+    }
     calibrationPending = false;
     if (last) renderCalibration(last);
   }
