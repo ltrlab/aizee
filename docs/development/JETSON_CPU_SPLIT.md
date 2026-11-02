@@ -130,6 +130,15 @@ Stop any Helm session first; the cameras restart.
     (background CPUs, nice 10);
   - the bridge's relay, since 27674a8: `prefer_background_thread` before it joins Helm's hub.
   Both were verified on Minerva.
+- **A still's SSH logout stalled the arms (2026-11-02, `live-20261102T022748Z`, the first live Calibrate still).**
+  The loop's cycles were on time, but one receiver call took 13 ms with its feedback 19 ms old, and an arm command
+  expired 1.5 s into Teleop (`command_expired`, then the arms lowered and disabled). The still's loopback SSH session
+  closed in the same 20 ms (sshd's PAM close, systemd stopping its scope, logind removing it). It was the only SSH
+  login or logout while the arms were engaged, and the night's only stall without a camera dropping off USB; the
+  helper itself had run on CPUs 0-3. The services doing that work were allowed CPUs 4-5: the system slices'
+  `AllowedCPUs=0-3` was not in force (an undo had been run in its place). So since then Helm on Minerva runs its
+  robot helpers (wrist and head stills, map captures) as its own children (`helm.calibration.run_helper`): no login,
+  logout or session scope during teleop, and the child inherits Helm's CPUs 0-3 before `BACKGROUND` lowers it.
 - **The old heartbeat dashboard** (`aizee-heartbeat.service`, about 6 % of a core) is a system service, so a drop-in
   holds it to 0-3. The user runs, once:
 

@@ -27,9 +27,9 @@ SOLVE_TIMEOUT_S = 300.
 RECORDING = ('starting', 'recording', 'stopping', 'finishing')
 MAX_REPLY = 1024 * 1024
 # Run before a helper's remote_main, which starts its threads: they inherit the background CPUs (when the robot has
-# the split, robot_platform.ops.cpu_partition) and the lower priority, as helm.episode_worker.background does. Helm's
-# SSH sessions may run on every CPU, the arms' loop's too: a map capture there stretched the loop's cycles until an
-# arm command expired (2026-11-01).
+# the split, robot_platform.ops.cpu_partition) and the lower priority, as helm.episode_worker.background does. A
+# helper started over SSH could run on every CPU, the arms' loop's too: a map capture there stretched the loop's
+# cycles until an arm command expired (2026-11-01).
 BACKGROUND = '''
 import json as _json, os as _os
 try:
@@ -43,58 +43,46 @@ except Exception:
 '''
 
 
-def run_remote(profile, address, request, *, open_ssh=None, timeout_s=15., script='calibration_still.py'):
-    """Run a robot helper's remote_main(request) on the robot over Helm's pinned SSH (helm.calibration_still, or
-    `script` beside it: helm.scene_capture), off the arms' loop's CPUs; its result."""
-    from robot_platform.ops.ssh import connect, open_command
-    client = channel = None
+def run_helper(request, *, timeout_s=15., script='calibration_still.py', python='python3', popen=subprocess.Popen):
+    """Run a robot helper's remote_main(request) (helm.calibration_still, or `script` beside it: helm.scene_capture)
+    in the robot's python3, as a child of Helm on Minerva, off the arms' loop's CPUs; its result.
+
+    Not over SSH to this same computer, as it once was: a login's end (sshd, PAM, logind removing the session's
+    scope) runs on the loop's CPUs as well, and a still's logout stalled the arms' receiver until a command expired
+    (2026-11-02, 10 ms after the session closed). The child starts as such a login started it: from the home folder,
+    without Helm's PYTHONPATH."""
+    source = (Path(__file__).with_name(script).read_text(encoding='utf-8') + BACKGROUND
+              + '\nremote_main(' + repr(request) + ')\n')
+    environment = {name: value for name, value in os.environ.items() if name not in ('PYTHONPATH', 'PYTHONHOME')}
+    process = popen([python, '-'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    cwd=os.path.expanduser('~'), env=environment)
     try:
-        client = (open_ssh or connect)(profile, address=address(), timeout=3.)
-        source = (Path(__file__).with_name(script).read_text(encoding='utf-8') + BACKGROUND
-                  + '\nremote_main(' + repr(request) + ')\n')
-        stdin, out, _ = open_command(client, 'python3 -', timeout=3.)
-        channel = out.channel
-        channel.settimeout(3.)
-        stdin.write(source)
-        stdin.flush()
-        channel.shutdown_write()
-        deadline, stdout, stderr = time.monotonic() + timeout_s, bytearray(), bytearray()
-        while True:
-            if channel.recv_ready():
-                stdout.extend(channel.recv(65536))
-            if channel.recv_stderr_ready():
-                stderr.extend(channel.recv_stderr(4096))
-            if len(stdout) > MAX_REPLY or len(stderr) > 65536:
-                raise RuntimeError('Calibration helper exceeded its output limit')
-            if channel.exit_status_ready() and not channel.recv_ready() and not channel.recv_stderr_ready():
-                break
-            if time.monotonic() >= deadline:
-                raise TimeoutError(f'{script} timed out on the robot')
-            time.sleep(.01)
-        if channel.recv_exit_status():
-            raise RuntimeError('Calibration helper failed: ' + stderr.decode(errors='replace')[:1000])
-        reply = json.loads(stdout)
-        if reply.get('ok') is not True:
-            raise RuntimeError(reply.get('error') or 'Calibration helper failed')
-        return reply['result']
-    finally:
-        if channel is not None:
-            channel.close()
-        if client is not None:
-            client.close()
+        stdout, stderr = process.communicate(source.encode('utf-8'), timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.communicate()
+        raise TimeoutError(f'{script} timed out on the robot') from None
+    if len(stdout) > MAX_REPLY or len(stderr) > 65536:
+        raise RuntimeError('Calibration helper exceeded its output limit')
+    if process.returncode:
+        raise RuntimeError('Calibration helper failed: ' + stderr.decode(errors='replace')[:1000])
+    reply = json.loads(stdout)
+    if reply.get('ok') is not True:
+        raise RuntimeError(reply.get('error') or 'Calibration helper failed')
+    return reply['result']
 
 
 class CameraCalibration:
     """Call capture/solve from worker threads. `teleop()` is the teleop session's snapshot (helm.teleop);
     `reference()` the arms' mechanical reference digest Helm's session binds."""
 
-    def __init__(self, profile, *, address, teleop, root, reference=lambda: None, rig=DEFAULT_RIG, remote=None,
-                 solver=None, clock=time.time, sleep=time.sleep):
+    def __init__(self, *, teleop, root, reference=lambda: None, rig=DEFAULT_RIG, remote=None, solver=None,
+                 clock=time.time, sleep=time.sleep):
         self.config = load_rig(rig)
         self.board = load_board(self.config['board'])
-        self.profile, self.address, self.teleop, self.reference = profile, address, teleop, reference
+        self.teleop, self.reference = teleop, reference
         self.root = Path(os.path.expanduser(str(root)))
-        self.remote = remote or (lambda request: run_remote(self.profile, self.address, request))
+        self.remote = remote or run_helper
         self.solver = solver or self._solve_process
         self.clock, self.sleep = clock, sleep
         self._lock = threading.Lock()

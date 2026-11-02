@@ -61,8 +61,7 @@ def flow(tmp_path, session, robot, **options):
     files['reference'].parent.mkdir(parents=True, exist_ok=True)
     files['reference'].write_text(json.dumps(REFERENCE), encoding='utf-8')
     times = iter(range(1793000000, 1793999999, 7))
-    return HeadAlignment(None, address=lambda: '127.0.0.1', teleop=session, root=tmp_path / 'calibration' / 'head',
-                         files=lambda: files, remote=robot,
+    return HeadAlignment(teleop=session, root=tmp_path / 'calibration' / 'head', files=lambda: files, remote=robot,
                          solver=lambda folder: ha.solve_run(folder, wrists=options.get('wrists')),
                          clock=lambda: float(next(times)), **options), files
 

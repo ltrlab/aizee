@@ -29,7 +29,7 @@ from robot_platform.neck.head_pose import reference_digest
 from robot_platform.vision.board import load_board
 from robot_platform.vision.head_alignment import CAMERA, DEFAULT_RIG, ROOT, alignment_document, load_rig, summary
 
-from .calibration import RECORDING, SOLVE_TIMEOUT_S, _still_summary, run_remote
+from .calibration import RECORDING, SOLVE_TIMEOUT_S, _still_summary, run_helper
 
 
 def check_live_head(view, what, then):
@@ -51,14 +51,14 @@ class HeadAlignment:
     """Call capture/solve/save from worker threads. `teleop()` is the teleop session's snapshot (helm.teleop);
     `files()` the head's files (neck.head.files); `wrists` the wrist calibration's runs, to compare the board."""
 
-    def __init__(self, profile, *, address, teleop, root, files, wrists=None, rig=DEFAULT_RIG, remote=None,
-                 solver=None, clock=time.time):
+    def __init__(self, *, teleop, root, files, wrists=None, rig=DEFAULT_RIG, remote=None, solver=None,
+                 clock=time.time):
         self.config = load_rig(rig)
         self.board = load_board(self.config['board'])
-        self.profile, self.address, self.teleop, self.files = profile, address, teleop, files
+        self.teleop, self.files = teleop, files
         self.root = Path(os.path.expanduser(str(root)))
         self.wrists = Path(os.path.expanduser(str(wrists))) if wrists else None
-        self.remote = remote or (lambda request: run_remote(self.profile, self.address, request))
+        self.remote = remote or run_helper
         self.solver = solver or self._solve_process
         self.clock = clock
         self._lock = threading.Lock()
