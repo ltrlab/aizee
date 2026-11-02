@@ -96,21 +96,33 @@ What makes switching easy:
 - With Ethernet on a network the access point runs beside it; without Ethernet the access point takes Minerva's only
   Wi-Fi, and devices on the home network lose Minerva.
 
-## Phase 1: Minerva arm IK (started 2026-11-01)
+## Phase 1: Minerva arm IK (built 2026-11-01; Jetson timing pending)
 
 - `teleop/arm_ik.py`: each arm's chain from the robot's base to the tool point; forward kinematics and the
   geometric Jacobian (every arm joint turns about its own z); damped least squares with weighted position and
-  orientation, a step cap, warm starts and limits.
-- The limits are the receiver's usable range, mapped to CAD angles, so the IK never asks for what the receiver
-  refuses.
-- **Done when:** round trips from random poses across the swept ranges come back within 1 mm and 0.01 rad; no
-  answer is outside its limits; an unreachable target returns the nearest answer and says so; the solve time is
-  measured on the laptop and the Jetson.
+  orientation (1 : 0.5), a step cap, warm starts and limits. The damping adapts (Levenberg-Marquardt): a fixed 0.05
+  crawled near singular poses, 1 in 30 round trips unconverged after 100 iterations.
+- The limits are the receiver's usable range, mapped to CAD angles (`cad_limits` from a derived receiver's report),
+  so the IK never asks for what the receiver refuses.
+- **Checked offline** (`tests/unit/test_arm_ik.py`, the swept travel with every direction sign tried both ways, as
+  the signs live in Helm's run state):
+  - the tool's pose agrees with `vision/chain.py` to 1e-12, the Jacobian with finite differences;
+  - poses come back within 0.2 mm and 0.002 rad from seeds 0.1 rad away, in at most 6 iterations; from 0.3 rad
+    away 97 % or more (the rest settle on another configuration with a joint at its limit, and say so);
+  - a smooth path at 0.6 rad/s a joint takes at most 4 iterations a 60 Hz frame; no answer leaves its limits; a
+    target 3 m away returns the nearest answer, unconverged; a pinned joint leaves the others to move.
+- **Time, laptop**: a solve from the last answer takes 0.5 ms (median) and 0.9 ms (95th percentile) for one arm;
+  from 0.3 rad away, 0.8 and 1.9 ms. **The Jetson's is not measured yet.**
+- **Found: the reference pose is singular.** The arms hang straight: they cannot move further down, and J1 and J5
+  are both vertical, so a 1 cm sideways drag asks ±0.2 rad of J1 against J5. Phase 2 caps each joint's motion a
+  frame (AIZEE's 4 rad/s) and the headset says to raise the arm before grabbing it there.
 
 ## Phase 2: VR arms source
 
 - `teleop/vr_arms.py`, a plain class tested offline: per arm, the grip, the filters, the workspace box, the speed
   caps, the trigger to the gripper, release on stale poses or a recenter (WebXR's `reset`), forward from the zero.
+- Near a singular pose (the reference among them) each joint's motion a frame is capped, so the target lags rather
+  than a joint whipping round; the arm's nearness to one goes to the headset with each grip's state.
 - Scripted controller tracks (from `fake_quest.py`'s modes) drive it through the IK.
 
 ## Phase 3: Headset page and relay
