@@ -97,7 +97,7 @@ What makes switching easy:
 - With Ethernet on a network the access point runs beside it; without Ethernet the access point takes Minerva's only
   Wi-Fi, and devices on the home network lose Minerva.
 
-## Phase 1: Minerva arm IK (built 2026-11-01; Jetson timing pending)
+## Phase 1: Minerva arm IK (built 2026-11-01; Jetson timing in phase 4)
 
 - `teleop/arm_ik.py`: each arm's chain from the robot's base to the tool point; forward kinematics and the
   geometric Jacobian (every arm joint turns about its own z); damped least squares with weighted position and
@@ -113,7 +113,7 @@ What makes switching easy:
   - a smooth path at 0.6 rad/s a joint takes at most 4 iterations a 60 Hz frame; no answer leaves its limits; a
     target 3 m away returns the nearest answer, unconverged; a pinned joint leaves the others to move.
 - **Time, laptop**: a solve from the last answer takes 0.5 ms (median) and 0.9 ms (95th percentile) for one arm;
-  from 0.3 rad away, 0.8 and 1.9 ms. **The Jetson's is not measured yet.**
+  from 0.3 rad away, 0.8 and 1.9 ms. The Jetson's is in phase 4.
 - **Found: the reference pose is singular.** The arms hang straight: they cannot move further down, and J1 and J5
   are both vertical, so a 1 cm sideways drag asks ±0.2 rad of J1 against J5. Phase 2 caps each joint's motion a
   frame (3 rad/s, AIZEE's Quest following speed) and the headset says to raise the arm before grabbing it there.
@@ -176,12 +176,49 @@ What makes switching easy:
   Settings → Headset and the headset page were also checked in a local preview. **Not yet tried on a real Quest**:
   the controller messages, the thumbstick zero and the links.
 
-## Phase 4: Loop integration
+## Phase 4: Loop integration (built 2026-11-02 but the VR profile; not yet run with a Quest)
 
-- A `headset` source beside episode and policy. The IK runs in its own process, as the head's does since the
-  2026-10-31 stalls, never in the arms' loop.
-- Helm: the Input switch; each arm's grip, tracking and clamp on the Teleop card; a VR profile with tighter speed
-  caps (AIZEE's 3 rad/s, 0.2 rad lead as the starting point, sized against Minerva's).
+- **The IK in its own process** (`teleop/vr_worker.py`), as the head's runs since the 2026-10-31 stalls. Helm's
+  loop starts `python -m robot_platform.teleop.vr_worker` and talks to it in the policy worker's length-prefixed
+  frames (the PC's loop process is daemonic: no multiprocessing). It builds both arms' chains from the model and the
+  receiver's usable limits, then updates on its own 20 ms grid from the newest hands and seed. Hands are stamped on
+  arrival in the worker (no clocks compared); each answer names the seed it comes from, counts B/Y presses, and
+  gives each fresh controller's trigger even before a seed. On the robot it runs on the background CPUs (0-3) at
+  nice 10.
+- **The source** (`teleop/headset_source.py`, `TeleopCore`'s `headset` kind). Idle and Hold aim where the arms are,
+  each gripper at its trigger. Engage freezes that pose and seeds the worker from the measured joints. Following
+  takes only answers from the latest seed while they are fresh (0.2 s); a stale answer gives no target, so the
+  lifecycle holds, and never the seed again (that would pull the arm back). CAD angles become motor positions
+  through the report's scale and offset, a trigger the gripper's position between open and closed; a lost hand
+  keeps its gripper's target. B/Y while engaged is Hold (T), once a press.
+- **The relay**: Helm's xr socket forwards each checked controller (`hand_sample`) to a running headset session
+  (`TeleopSession.hands`, never waiting on a send), and the loop to the worker.
+- **Helm**: Teleop's Input switch (GELLO / Headset) beside Mode, remembered in the browser, for Direct and
+  Calibrate; a running session keeps its own. With the headset, a card shows each arm's state (Ready, Free,
+  Dragging, No controller), what holds a dragged arm back (out of reach, nearly straight, at a limit, held to its
+  box or speed), the IK's time and the answer's age. The leaders' trigger card goes; nothing is recorded yet;
+  Calibrate's still follows a B/Y hold as it does pedal B. The live confirmations say what the headset does.
+- **Jetson timing** (2026-11-02; background CPUs, nice 10, numpy single-threaded): a solve 0.71 ms from the last
+  answer, 1.5 ms cold; both arms dragged at 50 Hz, 3.4 ms an update (median), 6.6 ms (99th percentile), 12.4 ms at
+  most, none of 1490 over 20 ms (at 100 Hz, 2 over). **One worker serves both arms at the loop's 50 Hz.** For that,
+  a solve takes at most 4 iterations an update (was 12) and the Jacobian is built with an explicit cross product.
+- **The hanging pose's elbow**: from the reference pose the plain solve leaves the elbow straight or folds it back
+  (J3 positive). An update that does not converge with J3 within 0.05 rad of straight solves again from J3 at
+  -0.05 (`elbow_bend`: the forearm folded forward, as Minerva's arms fold) and keeps the better answer.
+- **Checked offline**:
+  - `test_vr_worker.py` (4, the real process among them), `test_headset_source.py` (7);
+  - contract `test_headset_mode.py` (3) on the real Rust virtual receiver: Engage moves only the grippers, a
+    raise-and-reach drag lands within 6 mm with the forearm folded forward, the trigger closes, lost hands and B/Y
+    hold, Engage seeds again;
+  - `test_helm_xr.py` (20), `test_helm_teleop_mode.mjs`, `test_helm_pedals.mjs`;
+  - Helm's Teleop panel in a local preview, a scripted controller driving the virtual receiver.
+- **Found: the hanging pose's swing, in a session.** In that preview a 3 cm sideways circle, 6 cm from the
+  reference pose, swings J1 and J5 against each other by up to 1.14 rad, within the 3 rad/s cap (the smallest
+  singular value falls to 0 as the hand crosses the shoulder's vertical). From a working pose, forearms forward, the
+  same circle moves no joint more than 0.39 rad (J1 0.05). Every session starts at the reference pose, so this is
+  an operator's first drag (phase 2's finding; open below).
+- **Not built yet**: the VR profile with tighter speed caps (AIZEE's 3 rad/s and 0.2 rad lead as the starting
+  point, sized against Minerva's).
 
 ## Phase 5: Feedback in the headset
 
@@ -196,5 +233,6 @@ What makes switching easy:
 ## Open
 
 - The tool point's fingertip offset, from the finger meshes.
-- The IK's time on the Jetson, which decides whether one worker serves both arms.
+- How the first drags stay clear of the hanging pose's swing (phase 4): Engage raising the arms to a working pose
+  first, the gripper's orientation giving way near those poses, or slower caps there.
 - Whether the Quest's browser resolves `.local` names; until seen, the links use addresses.
