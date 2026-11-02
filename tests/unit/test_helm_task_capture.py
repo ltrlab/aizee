@@ -609,6 +609,25 @@ def test_recorded_frames_leave_no_image_work_between_pairing_and_admission(monke
     assert {c['image_transform']['operation'] for c in state['cameras'].values()} == {'jpeg_dct_scale'}
 
 
+def test_a_labelled_sample_records_who_drove_the_frame_and_its_lifecycle_state():
+    # Policy corrections: a policy session's frames are the policy's, or a correction while the leaders drive.
+    capture = LiveTaskCapture.__new__(LiveTaskCapture)
+    capture.config = validate_config(dict(config(), recording_image_size=[4, 3]))
+    capture.clock, capture._abort_reason = lambda: 10.008, None
+    cache = CameraCache(capture.config)
+    fill(cache, stamp=1000., received=9.995)
+    frames = cache.select(10.)
+    sample = dict(q=[0.]*14, qcmd=[.1]*14, source_time=10., error=None, command_valid=True,
+                  authority='correction', lifecycle='TELEOP')
+    writer = Writer(None, NAMES, dict(data_source='real', camera_roles=CAMERAS), hz=20.)
+    capture._append_frame(writer, sample, frames)
+    capture._append_frame(writer, {k: v for k, v in sample.items() if k not in ('authority', 'lifecycle')}, frames)
+    labelled, plain = writer.frames
+    assert labelled['authority'] == 'correction' and labelled['task_state']['lifecycle'] == 'TELEOP'
+    assert not {'authority', 'lifecycle'} & set(labelled['task_state']['capture'])
+    assert plain['authority'] == 'human' and plain['task_state']['lifecycle'] is None  # A teleop session's frame.
+
+
 def jpeg_camera(name, image, *, stamp=1000.):
     payload = BytesIO()
     Image.fromarray(image).save(payload, format='JPEG', quality=95)

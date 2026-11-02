@@ -15,7 +15,15 @@ from robot_platform.data.capture_process import ProcessCapture, STATUS_TIMEOUT_S
 from .task_capture import paired_receiver_sample, validate_config
 
 
+# Who drove a frame (data.task_capture's authority, less the simulation's scripted fixture) and the loop's lifecycle
+# states a frame may carry: policy corrections record a policy session's frames as the policy's or as a correction.
+AUTHORITIES = ('human', 'policy', 'correction')
+LIFECYCLE = ('DISABLED', 'IDLE', 'HOLD', 'ENGAGING', 'TELEOP', 'SHUTDOWN', 'FAULT')
+
+
 class LiveTaskCaptureProcess(ProcessCapture):
+    labels = True  # Each frame carries who drove it (helm.teleop._capture_label), so a policy rollout may be recorded.
+
     def __init__(self, directory, names, config, *, metadata=None):
         self.config, self.names = validate_config(config), tuple(names)
         expected = {f'{side}_arm_j{k}' for side in ('left', 'right') for k in range(1, 7)} | {'left_gripper', 'right_gripper'}
@@ -50,11 +58,14 @@ class LiveTaskCaptureProcess(ProcessCapture):
                 camera['age_s'] = now-(deadline-self.config['max_camera_age_s'])
         return result
 
-    def receive(self, result, rows, *, dropped=0, started_at, received_at):
+    def receive(self, result, rows, *, dropped=0, started_at, received_at, label=None):
+        """`label`: {'authority', 'lifecycle'} for the frames this sample becomes (helm.teleop._capture_label)."""
         sample = paired_receiver_sample(result, rows, self.names, self.config, dropped=dropped,
                                         started_at=started_at, received_at=received_at)
         if sample is None:
             return
+        if label:
+            sample.update(authority=label.get('authority', 'human'), lifecycle=label.get('lifecycle'))
         with self._lock:
             last = self._state.get('last_command') or {}
             recording = self._state.get('recording') or {}
@@ -99,6 +110,10 @@ def _sample(value):
     if value['command_valid'] and (value.get('hardware_enabled') is not True
                                   or value.get('receiver_state') not in ('holding', 'executing')):
         raise ValueError('capture sample command validity disagrees with receiver authority')
+    if value.get('authority', 'human') not in AUTHORITIES:
+        raise ValueError('capture sample authority must be human, policy or correction')
+    if value.get('lifecycle') is not None and value['lifecycle'] not in LIFECYCLE:
+        raise ValueError('capture sample lifecycle must be a teleop lifecycle state')
     return value
 
 
