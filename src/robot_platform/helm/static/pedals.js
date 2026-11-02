@@ -12,8 +12,10 @@ export function presentation(state, fresh = true) {
   if (fault) return {tone:'fault', label:'Fault · reset required', detail:String(fault), stage:''};
   if (!running(t)) return {tone:'off', label:'Session stopped', detail:'Touch Start session first. Pedals cannot start a session.', stage:'off'};
   if (t.phase === 'starting') return {tone:'off', label:'Starting session', detail:'Waiting for the control worker. No pedal action yet.', stage:'off'};
-  // A live replay follows a recorded episode, and policy mode a policy, in place of the leaders.
-  const followed = t.replay ? "the episode's pose" : t.policy ? "the policy's first action" : 'the leaders';
+  // A live replay follows a recorded episode, policy mode a policy, and the Headset input the controllers, in place
+  // of the leaders. Engage aligns only the headset's grippers: the arms stay until a grip drags one.
+  const followed = t.replay ? "the episode's pose" : t.policy ? "the policy's first action"
+    : t.headset ? "the triggers (grippers only)" : 'the leaders';
   const states = {
     DISABLED: ['off', 'Disabled', t.pedals?.actions?.c?.enabled === false && t.pedals.actions.c.reason
       ? t.pedals.actions.c.reason : 'C: Idle powers the motors with zero torque.', 'off'],
@@ -22,6 +24,7 @@ export function presentation(state, fresh = true) {
     ENGAGING: ['engaging', 'Engaging · aligning', `Aligning to ${followed}. Waiting for reported Teleop.`, 'align'],
     TELEOP: t.replay ? ['teleop', 'Replay · following', 'Following the recorded episode. B pauses in Hold.', 'teleop']
       : t.policy ? ['teleop', 'Policy · driving', 'The policy drives the arms. B pauses in Hold.', 'teleop']
+      : t.headset ? ['teleop', 'Headset · following', 'A held grip drags its arm. B/Y or pedal B pauses in Hold.', 'teleop']
       : ['teleop', 'Teleop · following', 'Following both leaders. B pauses in Hold.', 'teleop'],
     SHUTDOWN: ['shutdown', 'Shutdown · returning', 'Returning to the reference, then disabling. Keep the path clear.', 'shutdown'],
     FAULT: ['fault', 'Fault · reset required', t.message || 'Stop the session and inspect the fault.', ''],

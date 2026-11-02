@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
-import {modeCards, modeChoice, sessionMode} from '../../src/robot_platform/helm/static/teleop_mode.js';
+import {headsetArm, inputChoice, modeCards, modeChoice, sessionInput, sessionMode}
+  from '../../src/robot_platform/helm/static/teleop_mode.js';
 
 const source = await fs.readFile(new URL('../../src/robot_platform/helm/static/helm.js', import.meta.url), 'utf8');
 const section = (from, to) => source.slice(source.indexOf(from), source.indexOf(to, source.indexOf(from)));
@@ -14,7 +15,7 @@ const $ = id => {
 const lifecycle = ['I', 'E', 'T', 'H', 'X', undefined].map(key => ({dataset: {key}, disabled: false}));
 const context = {$, ENGAGED: ['ENGAGING', 'TELEOP'], CONTROL_LAWS: {}, teleopPhase: 'running',
   last: {mode: 'simulation'}, pendingConfirm: null, tcards: new Map(), renderManual() {}, replayCard: null, replayView: null, renderPolicy() {},
-  teleopMode: 'direct', modeCards, modeChoice, sessionMode,
+  teleopMode: 'direct', modeCards, modeChoice, sessionMode, teleopInput: 'gello', sessionInput, inputChoice, headsetArm,
   document: {body: {dataset: {}, classList: {toggle() {}}},
     querySelector: () => $('teleop-tab'), querySelectorAll: selector => selector === '.lifecycle button' ? lifecycle : []}};
 vm.createContext(context);

@@ -270,6 +270,11 @@
             <button data-mode="calibrate" title="Camera calibration with the leaders: each pause (pedal B or T) takes a still a second later; nothing is recorded">Calibrate</button>
             <button data-mode="policy" title="A trained policy drives the arms in place of the leaders">Policy</button>
           </div>
+          <div class="target" id="t-input" role="group" aria-label="Teleop input">
+            <span>Input</span>
+            <button data-input="gello" title="The GELLO leaders drive the arms">GELLO</button>
+            <button data-input="headset" title="The headset's controllers drive the arms: hold a grip to drag that arm's gripper, the trigger closes it, B or Y holds. Not recorded yet.">Headset</button>
+          </div>
           <p class="choice-note" id="t-choice-note" hidden></p>
           <div class="teleop-status" id="t-status">
             <span>Phase<b id="t-state">—</b></span><span>Receiver<b id="t-receiver">—</b></span>
@@ -295,6 +300,15 @@
               <button id="t-policy-refresh" type="button" title="Read the policies on Minerva again">Refresh</button>
             </div>
             <p id="t-policy-status" class="muted" role="status"></p>
+          </section>
+          <section id="t-headset" class="policy-start headset-card" aria-labelledby="t-headset-title" hidden>
+            <div class="policy-start-head"><span class="eyebrow">HEADSET</span><b id="t-headset-title">Drive the arms with the controllers</b></div>
+            <p class="muted">Open Helm's headset page on the Quest (Settings → Headset has its links) and enter VR. Once engaged, hold a controller's grip to drag that arm's gripper as the hand moves; let go and the arm holds. The trigger closes the gripper; B or Y holds both arms. Nothing is recorded.</p>
+            <div class="headset-arms">
+              <div class="headset-arm" id="t-headset-left"><span>Left</span><b>—</b><small></small></div>
+              <div class="headset-arm" id="t-headset-right"><span>Right</span><b>—</b><small></small></div>
+            </div>
+            <p id="t-headset-status" class="muted" role="status"></p>
           </section>
           <section class="task-workflow" aria-labelledby="task-title">
             <div class="eyebrow" id="task-mode">BIMANUAL DATA COLLECTION</div>

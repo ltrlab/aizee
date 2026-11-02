@@ -92,6 +92,16 @@ body[data-touch=on] .replay-live select{min-height:48px;font-size:18px}
 .live-policy p{margin:0;font-size:12px}
 body[data-touch=on] .policy-start-actions select,body[data-touch=on] .policy-start-actions button{min-height:48px;font-size:18px}
 
+/* The Headset input's card: each arm's grip and how it follows the hand. */
+.headset-arms{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.headset-arm{display:grid;gap:2px;min-width:0;padding:6px 8px;background:var(--panel);border:2px solid var(--line)}
+.headset-arm span{font-size:12px;color:var(--muted)}
+.headset-arm b{font-size:16px;font-weight:400}
+.headset-arm small{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.headset-arm[data-tone=near] b{color:var(--warn)}
+.headset-arm[data-tone=bad] b{color:var(--bad)}
+@media (max-width:520px){.headset-arms{grid-template-columns:1fr}}
+
 /* Replay: the episode's cameras stacked in a full-height column on the left; in the centre the 3D model at the
    playhead, above the playback controls and the joint timeline. The model is Helm's one viewer (#model-view), laid
    over the stage's empty model cell, so the sizes below are shared by both. */
