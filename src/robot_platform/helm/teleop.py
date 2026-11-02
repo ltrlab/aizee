@@ -44,7 +44,7 @@ from robot_platform.ops.ssh import TETHER
 # the Jetson loop about 3.5 ms every 100 cycles and, with one slow receiver reply, cost a 10 ms slot (2026-10-11).
 CYCLE_HISTORY = 100
 
-KEYS = frozenset('IETHX')
+KEYS = frozenset('IETHXO')  # O: take over from the policy, or hand back to it (policy corrections).
 ENGAGED = ('ENGAGING', 'TELEOP')
 REPLAY_SETTLE_S = .5  # After a replay's last frame, the arms follow it this long before the loop holds.
 HELD = ('stopping', 'stopped')  # Receiver states in which it brakes or holds the arm itself.
@@ -354,11 +354,17 @@ class TeleopCore:
             else:
                 from robot_platform.teleop.policy_source import validate_request
                 self.source_spec = validate_request(spec, live=bool(self.live_arm))
+        # Policy corrections (the user, 2026-11-01): a policy session asked with takeover also opens the leaders, and
+        # the operator takes over from the policy and hands back to it (O, pedal B), each time through a hold. Who
+        # drives now: 'policy' or 'leaders'; None in any other session.
+        self.driver = 'policy' if self._takeover else None
         self.open_backend = open_backend or self._open_backend
         self.open_harness = open_harness or self._open_harness
         self.phase = 'starting'
         opening = {'episode': 'reading the episode', 'policy': 'loading the policy'}.get(
             (self.source_spec or {}).get('kind'), 'opening the leaders')
+        if self._takeover:
+            opening += ' and opening the leaders'
         self.message = (f'Checking {self._the_arm}, then starting the live receiver…' if self.live_arm
                         else f'Loading the simulated Minerva and its window; {opening}…' if self.simulation
                         else f'Loading the collision model and virtual receiver; {opening}…')
@@ -607,7 +613,7 @@ class TeleopCore:
                                                   [joint['name'] for joint in derived['config']['joints']],
                                                   policy_context(derived, self.period_s), cameras=cameras)
             self._closers.append(self.policy_worker.close)
-        if self.source_spec is None:
+        if self._leaders_wanted:
             base = Path(self.bundle['teleop_profile']).resolve().parent
             leader_profile = json.loads((base / self.profile['leader_profile']).read_text(encoding='utf-8'))
             if self.bundle.get('leader_ranges') is None:
@@ -619,11 +625,12 @@ class TeleopCore:
                 raise ValueError('Set the leader zero in the Leaders tab first')
             self.leader_profile = leader_profile
             # The leaders whose profile names a trigger servo: the only ones the PC drives (teleop.grip_feedback).
+            # None in a policy session: force feedback stays off there, as before takeover existed.
             from robot_platform.teleop.grip_feedback import trigger_config
-            self.grip_triggers = trigger_config(leader_profile)
+            self.grip_triggers = {} if self._takeover else trigger_config(leader_profile)
             self.centers = {leader: [None if row is None else row[0] for row in rows]
                             for leader, rows in self.ranges.items()}
-        else:  # A replay takes no leaders.
+        else:  # A replay, or a policy without takeover, takes no leaders.
             self.leader_profile = self.ranges = self.references = None
             self.grip_triggers, self.centers = {}, {}
         # The receiver: the native harness (virtual) or the live service; both keep `.last`.
@@ -698,15 +705,17 @@ class TeleopCore:
             session = GuardedLifecycleSession(controller, compiler, lifecycle, lambda: harness.last,
                                               period_s=self.period_s, cycle_budget_s=CYCLE_BUDGET_S, clock=self.clock)
         self.derived, self.harness, self.session, self.compiler = derived, harness, session, compiler
-        if self.source_spec is None:
+        if self._leaders_wanted:
             self.leaders = self.open_leaders(leader_profile)
             if self.collision_mode == 'disabled' and hasattr(self.leaders, 'allow_repeated'):
                 self.leaders.allow_repeated = True
             self._closers.append(self.leaders.close)
             self.mapper = self._mapper()
-        else:
+        if self.source_spec is not None:
             # In the lifecycle's order, which it checks every target against (`names` is a set with Motor tuning).
-            self.source, self.route_leaders = self._open_source(lifecycle.names), set()
+            self.source = self._open_source(lifecycle.names)
+            if not self._takeover:
+                self.route_leaders = set()
         if self.head is not None and self.head_process:
             from .head_teleop import HeadProcess
             self.head = HeadProcess.instead_of(self.head)
@@ -751,6 +760,9 @@ class TeleopCore:
         if self._source_kind == 'policy':
             self.message += (f' POLICY {self.source.policy.name}: Enable (E) shows its first action, Engage (T) aligns '
                              'the arms to it at the alignment speed, then the policy drives them; Hold (T) pauses.')
+            if self._takeover:
+                self.message += (' Take over (O or pedal B): the arms hold, then Resume aligns them to your leaders; '
+                                 'O or B again hands back to the policy the same way.')
         elif self.source is not None:
             self.message += (f' REPLAY at {self.source.speed:g}×: Engage (T) first aligns the arms to the episode\'s '
                              'first frame, then replays it; Hold pauses it.')
@@ -759,6 +771,16 @@ class TeleopCore:
     def _source_kind(self):
         spec = getattr(self, 'source_spec', None)
         return spec['kind'] if spec is not None else None
+
+    @property
+    def _takeover(self):
+        """A policy session the operator can take over from with the leaders (policy corrections)."""
+        spec = getattr(self, 'source_spec', None)
+        return bool(spec is not None and spec['kind'] == 'policy' and spec.get('takeover'))
+
+    @property
+    def _leaders_wanted(self):
+        return getattr(self, 'source_spec', None) is None or self._takeover
 
     def _open_policy(self, policy, names, context, cameras=None):
         from robot_platform.teleop.policy_worker import PolicyWorker
@@ -1010,7 +1032,7 @@ class TeleopCore:
             rows, dropped = result_rows(result, names)
             if self.live_arm and self.task_capture is not None:
                 self.task_capture.receive(result, rows, dropped=dropped,
-                    started_at=self._capture_exchange_started, received_at=self.clock())
+                    started_at=self._capture_exchange_started, received_at=self.clock(), label=self._capture_label())
             if dropped:
                 self._event('rows_dropped', count=dropped)
             if rows and self._recorded < RECORDING_BYTES:
@@ -1061,8 +1083,10 @@ class TeleopCore:
     def task_action(self, action):
         if action == 'start_record' and self._source_kind == 'episode':
             raise ValueError('A replay is not recorded: a replayed episode is not a human demonstration')
-        if action == 'start_record' and self._source_kind == 'policy':
-            raise ValueError('A policy rollout is not recorded yet: its frames would be labelled human')
+        if (action == 'start_record' and self._source_kind == 'policy' and self.task_capture is not None
+                and not getattr(self.task_capture, 'labels', False)):
+            # The robot's capture labels each frame policy or correction (_capture_label); another would say human.
+            raise ValueError('A policy rollout is recorded on the robot only: this capture would label its frames human')
         if self.recording_fault:
             raise ValueError('Recording failed; stop this session before starting another episode')
         if self.task_capture is None:
@@ -1077,11 +1101,20 @@ class TeleopCore:
             self.pedals.capture_command(action, result)
         return result
 
+    def _capture_label(self):
+        """Who drives the frames the capture records now (data.task_capture's authority) and the lifecycle state: in a
+        policy session the policy's frames, or a correction while the operator's leaders drive; otherwise human. The
+        state lets the export leave out the holds and the alignments between drivers."""
+        state = self.session.lifecycle.state if getattr(self, 'session', None) is not None else None
+        authority = ('human' if self._source_kind is None
+                     else 'correction' if getattr(self, 'driver', None) == 'leaders' else 'policy')
+        return {'authority': authority, 'lifecycle': state}
+
     def _pedal_context(self, task=None):
         state = self.session.lifecycle.state if self.session else None
         return dict(phase=self.phase, state=state, fault=self.fault, recording_fault=self.recording_fault,
                     spent=bool(self.live_arm and self._powered), closing=self._pedal_closing,
-                    task=self._pedal_task if task is None else task)
+                    task=self._pedal_task if task is None else task, driver=getattr(self, 'driver', None))
 
     def prepare_pedal(self, payload):
         self._poll_recording()
@@ -1228,7 +1261,9 @@ class TeleopCore:
         previous = lifecycle.state
         engaged = previous in ENGAGED
         action = minerva_action(key, previous) if key else None
-        notice = None
+        notice, switched = None, False
+        if key == 'O':
+            action, notice, switched = self._switch_driver(previous)
         if self._land:
             # Closing: lower the arm and disable it (as X) before the receiver closes; H still disables at once.
             self._land = False
@@ -1261,14 +1296,18 @@ class TeleopCore:
             notice = self._recording_notice()
         target = None
         source = getattr(self, 'source', None)
-        if key != 'H' and not self.recording_fault and source is not None and self._source_kind == 'policy':
+        # A policy session's policy drives unless the operator has taken over with the leaders (_switch_driver).
+        policy_drives = self._source_kind == 'policy' and getattr(self, 'driver', None) != 'leaders'
+        if switched:
+            self.input_error = None  # Who drives changed: the arms hold where they are (Hold needs no target).
+        elif key != 'H' and not self.recording_fault and source is not None and policy_drives:
             now = self.clock()
             self._policy_exchange(previous, now)
             target = source.target(previous, now)
             self.input_error = (None if target is not None or previous not in ENGAGED
                                 else source.last_error or 'The policy has no fresh chunk: holding')
             self.last_target = target  # The joint rows show the policy's target where a leader's would be.
-        elif key != 'H' and not self.recording_fault and source is not None:
+        elif key != 'H' and not self.recording_fault and source is not None and self._source_kind == 'episode':
             if action == 'engage' and source.finished:
                 source.rewind()  # Engage after the end replays from the start, aligning back to it first.
             target, self.input_error = source.target(previous, self.clock()), None
@@ -1291,7 +1330,7 @@ class TeleopCore:
             # new session, which checks the reference pose and the watchdogs again.
             notice = f'[{key}] The arm was disabled. Stop the session and start a new one to enable it again.'
             action = None
-        if action == 'engage' and target is None and self._source_kind == 'policy':
+        if action == 'engage' and target is None and policy_drives:
             notice = (f"[{key}] Engage waits for the policy's first action"
                       f"{': ' + source.last_error if source.last_error else ' (computing it)'}; press T again.")
             action = None
@@ -1702,12 +1741,35 @@ class TeleopCore:
                     frames=None, finished=False)
 
     def _policy_view(self):
-        """A policy session's policy and chunks; before it has loaded, just which one."""
+        """A policy session's policy and chunks; before it has loaded, just which one. With takeover, who drives."""
         if self._source_kind != 'policy':
             return None
+        takeover = {'takeover': True, 'driver': self.driver} if self._takeover else {}
         if getattr(self, 'source', None) is not None:
-            return dict(self.source.snapshot(self.clock()), spec=self.source_spec['policy'])
-        return dict(spec=self.source_spec['policy'], policy=None, loading=True)
+            return dict(self.source.snapshot(self.clock()), spec=self.source_spec['policy'], **takeover)
+        return dict(spec=self.source_spec['policy'], policy=None, loading=True, **takeover)
+
+    def _switch_driver(self, previous):
+        """O (pedal B while the arms follow): take over from the policy, or hand back to it (policy corrections).
+        Who drives changes only through a hold: engaged, the arms hold where they are this cycle, and Resume (T or
+        pedal B) then aligns them at the alignment speed to the new driver: to the leaders as Engage does, or to the
+        policy's first action from a new preview. Returns (action, notice, switched)."""
+        if not self._takeover:
+            return None, '[O] Take over in a policy session (Teleop mode Policy), which connects the leaders', False
+        if self.recording_fault or self._land or previous not in ('DISABLED', 'IDLE', 'HOLD', *ENGAGED):
+            return None, f'[O] Taking over is not available from {previous}', False
+        self.driver = 'leaders' if self.driver == 'policy' else 'policy'
+        self.source.pause()  # A take over ends the rollout; a hand back previews anew from where the arms hold.
+        self._event('driver', driver=self.driver, lifecycle=previous)
+        you = self.driver == 'leaders'
+        if previous in ('HOLD', *ENGAGED):
+            notice = ('You drive next: line up the leaders with the arms, then Resume (T or pedal B) aligns the arms '
+                      'to them.' if you else "The policy drives next: Resume (T or pedal B) aligns the arms to its "
+                      'first action.')
+        else:
+            notice = ('You drive: Engage (T) will align the arms to your leaders.' if you
+                      else "The policy drives: Engage (T) will align the arms to its first action.")
+        return ('disengage' if previous in ENGAGED else None), notice, True
 
     def _policy_exchange(self, state, now):
         """Collect the worker's answers, then hand it this cycle's observation if the source wants a chunk."""
@@ -1997,8 +2059,8 @@ def run_loop(commands, views, core, *, silence_s=None):
                     if pedal_intent['pedal'] == 'a':
                         pedal_command = core.task_action(action)['id']
                     else:
-                        key = {'idle': 'I', 'enable': 'E', 'engage': 'T', 'pause': 'T',
-                               'resume': 'T', 'shutdown': 'X'}[action]
+                        key = {'idle': 'I', 'enable': 'E', 'engage': 'T', 'pause': 'T', 'resume': 'T',
+                               'take_over': 'O', 'hand_back': 'O', 'shutdown': 'X'}[action]
                 except Exception as exc:
                     if pedal_intent is not None:
                         core.finish_pedal(pedal_intent, error=str(exc))
@@ -2338,6 +2400,8 @@ class TeleopSession:
         if policy is not None:
             from robot_platform.teleop.policy_source import validate_request
             source = validate_request(policy, live=self.receiver['mode'] == 'live')
+        # Without a source the leaders drive; a policy session with takeover connects them too, to take over.
+        leaders = source is None or bool(source.get('takeover'))
         from .head_only import head_only
         head = head_only(self.receiver)  # The head alone: no arms, so no leaders, bridge, task or arm limits.
         with self._lock:
@@ -2367,10 +2431,10 @@ class TeleopSession:
                 self.reload_tuning()
                 if self.manual is None:
                     raise ValueError(self.manual_error or 'Manual tuning is unavailable')
-            if self.bridge is not None and source is None and not head and not self.bridge.connected:
+            if self.bridge is not None and leaders and not head and not self.bridge.connected:
                 raise ValueError('The GELLO bridge is not connected: Helm runs on Minerva, so start the bridge on the '
                                  'PC the leader arms are plugged into')
-            if self.leaders is not None and source is None and not head:
+            if self.leaders is not None and leaders and not head:
                 missing = self.leaders.missing(self.profile['routes'])
                 if missing:
                     raise ValueError('Sweep and save the leader ranges in the Leaders tab first; missing: '
@@ -2395,7 +2459,10 @@ class TeleopSession:
                 bundle.pop('task_capture', None)  # A replay is never recorded: no capture process.
             elif source is not None:
                 bundle['source'] = dict(source)
-                bundle.pop('task_capture', None)  # Not recorded yet; the cameras feed the policy instead.
+                if self.receiver != {'mode': 'live', 'arm': 'both'}:
+                    # A rollout is recorded on both live arms only, its frames labelled policy or correction; the
+                    # cameras feed the policy beside the capture.
+                    bundle.pop('task_capture', None)
                 if not local and self.capture_profile is not None:
                     from .task_capture import validate_config
                     bundle['policy_cameras'] = validate_config(
@@ -2412,7 +2479,8 @@ class TeleopSession:
                     worker = threading.Thread(target=run_loop, daemon=True, name='helm-teleop',
                                               args=(command_reader, view_writer, self.core_factory(bundle)))
                 opening = ({'episode': 'reading the episode', 'policy': 'loading the policy'}[source['kind']]
-                           if source is not None else 'opening the leaders')
+                           + (' and opening the leaders' if leaders else '') if source is not None
+                           else 'opening the leaders')
                 message = ('Starting the head: its receiver…' if head else
                            f'Starting: loading the simulated Minerva and its window; {opening}…'
                            if 'simulation' in bundle else
@@ -2434,7 +2502,7 @@ class TeleopSession:
                                                                or TETHER} if self.bridge is not None else {}))
                 command_writer, view_reader = worker.commands, worker.views
                 opening = ({'episode': 'reading the episode', 'policy': 'loading the policy'}[source['kind']]
-                           if source else 'linking the leaders')
+                           + (' and linking the leaders' if leaders else '') if source else 'linking the leaders')
                 message = ("Starting on Minerva's Jetson: connecting, loading the collision model and virtual "
                            f"receiver, {opening}…") if self.receiver['mode'] == 'virtual' else (
                     "Starting LIVE on the head: its receiver, the servos limp until Idle; the arms are left as "
@@ -2443,7 +2511,7 @@ class TeleopSession:
                      'starting the receiver (the motors stay disabled until Idle)…') if self.receiver['arm'] == 'both'
                     else f"Starting LIVE on the {self.receiver['arm']} arm: checking it is still and in its reference "
                     'pose, then starting the receiver (its motors stay disabled until Idle)…')
-                if (source is None and not head and self.bridge is not None
+                if (leaders and not head and self.bridge is not None
                         and getattr(self.bridge, 'path', None) == 'wifi'):
                     # Allowed (the user's choice, 2026-10-25), and said: samples late over the air make the arms hold.
                     message += ' The leader link runs over Wi-Fi: expect holds when samples arrive late.'
@@ -2532,7 +2600,7 @@ class TeleopSession:
 
     def key(self, key):
         if key not in KEYS:
-            raise ValueError('Use I, E, T, H or X')
+            raise ValueError('Use I, E, T, H, X or O')
         if self._view.get('phase') != 'running':
             raise ValueError('Start a teleop session first')
         if self._view.get('fault') and key != 'H':

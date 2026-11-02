@@ -59,6 +59,7 @@ CORE = [
     'tests/unit/test_helm_ups.py', 'tests/unit/test_lerobot_export.py',
     'tests/unit/test_episode_source.py', 'tests/unit/test_helm_live_replay.py', 'tests/contract/test_live_replay.py',
     'tests/unit/test_policy_source.py', 'tests/unit/test_policy_worker.py', 'tests/contract/test_policy_mode.py',
+    'tests/contract/test_policy_takeover.py',
     'tests/unit/test_lerobot_policy.py', 'tests/unit/test_helm_policy_mode.py',
     'tests/unit/test_gello_bridge.py', 'tests/unit/test_helm_on_robot.py', 'tests/unit/test_helm_service.py',
     'tests/unit/test_task_capture.py', 'tests/unit/test_task_scene.py',

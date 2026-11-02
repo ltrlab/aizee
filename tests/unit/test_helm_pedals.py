@@ -48,6 +48,35 @@ def test_ordered_cycle_pause_resume_and_no_implicit_resume():
     assert 'Stop this session and start a new one' in p.view(c,1.)['actions']['c']['reason']
 
 
+def test_in_a_policy_session_with_takeover_b_takes_over_and_hands_back_through_a_hold():
+    p=Pedals();c=context(driver='policy')
+    assert Pedals().view(context(state='TELEOP'),1.)['actions']['b']['action']=='pause'  # No takeover: B pauses.
+    accepted(p,c,'c','IDLE')
+    accepted(p,c,'c','HOLD')
+    accepted(p,c,'c','ENGAGING')
+    c['state']='TELEOP'
+    b=p.view(c,1.)['actions']['b']
+    assert (b['action'],b['label'],b['enabled'])==('take_over','Take over',True)
+    intent=p.prepare(edge(p,c,'b',2),c,1.)
+    c['state']='HOLD'  # Held, but the policy still drives: the take over is not confirmed.
+    assert not p.finish(intent,c)['accepted'] and not p.paused
+    c['state']='TELEOP'
+    intent=p.prepare(edge(p,c,'b',3),c,1.)
+    c.update(state='HOLD',driver='leaders')
+    assert p.finish(intent,c)['accepted'] and p.paused
+    b=p.view(c,1.)['actions']['b']
+    assert (b['action'],b['label'],b['enabled'])==('resume','Resume: you drive',True)
+    accepted(p,c,'b','ENGAGING',4)
+    c['state']='TELEOP'
+    b=p.view(c,1.)['actions']['b']
+    assert (b['action'],b['label'])==('hand_back','Hand back to policy')
+    intent=p.prepare(edge(p,c,'b',5),c,1.)
+    c.update(state='HOLD',driver='policy')
+    assert p.finish(intent,c)['accepted'] and p.paused
+    assert p.view(c,1.)['actions']['b']['label']=='Resume: policy drives'
+    assert p.view(c,1.)['actions']['c']['action']=='shutdown'
+
+
 def test_duplicate_lost_reply_expired_offer_and_state_change_do_not_advance():
     p=Pedals();c=context();request=edge(p,c)
     intent=p.prepare(request,c,1.)

@@ -27,9 +27,11 @@ CHECKPOINTS = ('checkpoint:', 'lerobot:')
 
 
 def validate_request(payload, *, live):
-    """Helm's policy request: {'policy': a spec for evaluation.policies.load_policy}."""
-    if (not isinstance(payload, dict) or set(payload) - {'kind', 'policy'} or payload.get('kind', 'policy') != 'policy'
-            or not isinstance(payload.get('policy'), str)):
+    """Helm's policy request: {'policy': a spec for evaluation.policies.load_policy, 'takeover': true when the
+    operator's leaders stay connected to take over from it (policy corrections, helm.teleop)}."""
+    if (not isinstance(payload, dict) or set(payload) - {'kind', 'policy', 'takeover'}
+            or payload.get('kind', 'policy') != 'policy' or not isinstance(payload.get('policy'), str)
+            or type(payload.get('takeover', False)) is not bool):
         raise ValueError('A policy session names its policy')
     spec = payload['policy'].strip()
     if not spec or len(spec) > 1000:
@@ -37,7 +39,7 @@ def validate_request(payload, *, live):
     if live and not (spec in LIVE_REFERENCE or spec.startswith(CHECKPOINTS)):
         raise ValueError('On the arms a policy session runs a trained checkpoint (checkpoint:<path> or '
                          "lerobot:<path>) or hold_still; the harness's other policies are for the simulation")
-    return {'kind': 'policy', 'policy': spec}
+    return {'kind': 'policy', 'policy': spec, **({'takeover': True} if payload.get('takeover') else {})}
 
 
 class PolicySource:
@@ -139,9 +141,12 @@ class PolicySource:
         return q
 
     def pause(self):
-        """Hold or a fault ended the rollout: its chunks are not followed again, and Engage aligns anew."""
+        """Hold, a fault or a take over ended the rollout: its chunks are not followed again, and Engage aligns anew.
+        It forgets the state it last saw: after a take over (helm.teleop) the next one it sees is the hand back's
+        Hold, which must not end the new preview's request as a rollout's end would."""
         self.chunk = self.previous = self.aligned = None
         self.pending = None
+        self._state = None
 
     def expire(self, now):
         """A request unanswered for max_age_s is given up: its chunk would be stale, and the next cycle asks again."""

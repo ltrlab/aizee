@@ -103,6 +103,36 @@
     - Both partial folders are set aside; the terminal still runs `helm-recording-f486fb3f27`.
   - The Jetson closed the open (disabled) session on "Helm went silent for 5 s", as designed.
   - Waiting on a memory test of the terminal before the deploy is retried.
+- **Policy corrections (2026-11-01, `claude/policy-takeover` on `claude/teleop-modes`):** the user asked for "policy
+  mode which would have human in the loop corrections", taking over with today's leaders (the arms align to them;
+  powered leaders that follow the robot would need firmware), and: "policies own successful stretches should be
+  recorded and concated with the corrections".
+  - **The session:** Teleop's Policy mode starts `policy: {policy, takeover: true}`. The loop (`helm.teleop`)
+    opens the leaders as a teleop session does (ranges, zero, routes; on the robot the edge links them), beside the
+    policy source; force feedback stays off. `driver` says who drives: `policy`, or `leaders` after a take over.
+  - **Switching:** O (Helm's key, and the policy card's button) or pedal B while the arms follow (`take_over`,
+    `hand_back` in `helm.pedals`). Who drives changes only through a hold: engaged, the cycle disengages (the
+    lifecycle's own Hold, measured pose, no target), and Resume (B or T) aligns the arms to the new driver at the
+    alignment speed. To the leaders, as Engage does; to the policy, from a new preview taken where the arms hold.
+    A take over drops the rollout (`PolicySource.pause`, which now also forgets the last state, so the hand back's
+    Hold does not cancel its own preview). The policy is asked nothing while the operator drives. Disabled or Idle,
+    O only chooses who drives first. The lifecycle, receiver, collision mode and speed limits are unchanged: this is
+    target selection above the motion contract.
+  - **Recording:** pedal A records in a policy session on both live arms. The capture process now carries a label
+    with each receiver sample (`helm.teleop._capture_label`): `authority` (`policy`, or `correction` while the
+    leaders drive; `human` in a teleop session) and the lifecycle state, written as the frame's authority and its
+    task state's `lifecycle`. One episode holds the policy's stretches and the corrections in recorded order; the
+    episode writer already marks an action invalid where the authority changes. A capture that cannot label (the
+    simulation's) still refuses a rollout.
+  - **Export:** `lerobot_export.corrected_stretches` (see `docs/development/DATASET_PIPELINE.md`).
+  - **Tests:** `tests/contract/test_policy_takeover.py` on the actual Rust receiver: take over by key (arms held,
+    policy no longer asked, then aligned to and following the leaders), hand back (one preview, aligned, following
+    the policy's trajectory again), the full pedal sequence through the loop worker, and a session without takeover
+    opening no leaders. Unit tests for the pedal offers and confirmation, the capture label (process and frame), the
+    export's stretches, the session start and the edge's leader link; page tests for the card, notes and pedals.
+  - **Not done:** not deployed or run live. Rehearse on the Jetson's virtual receiver with the real leaders first
+    (take over, hand back, a recording), then live with the user present. Training does not yet weight corrections
+    above the policy's stretches; the provenance sidecar says which LeRobot episode is which.
 - **Next:**
   1. **Deploy** after the terminal's memory test.
   2. **`hold_still` on the Jetson's virtual receiver, then live** with the user present: Engage aligns to the
@@ -111,5 +141,6 @@
      - export it on coolserver (`python -m robot_platform.data.lerobot_policy export ...`), copy it to
        `~/minerva/policies/<name>`;
      - run it on the virtual receiver on the Jetson with the live cameras, then live.
-  4. **Recording rollouts** with `policy` authority, and Hold/Engage interventions as `correction`.
+  4. **Recording rollouts** with `policy` authority and corrections as `correction`: built (policy corrections,
+     above), not yet run live.
   5. **Simulated cameras** for policy mode in `helm --sim`.
