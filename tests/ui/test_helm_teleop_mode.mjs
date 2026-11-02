@@ -146,9 +146,13 @@ assert.match(NO_RECORDING, /Calibrate records nothing/);
 
 // The headset card's arm lines: waiting, lost, free, dragging, and what holds a dragged arm back.
 assert.deepEqual(headsetArm(undefined), {state: 'Waiting for the headset', detail: '', tone: ''});
-// Before Engage nothing tracks: a fresh controller (its trigger reported) is ready, else there is none.
-assert.equal(headsetArm({tracking: false, trigger: 0}, {engaged: false}).state, 'Ready');
-assert.equal(headsetArm({tracking: false, trigger: null}, {engaged: false}).state, 'No controller');
+// Before following nothing tracks: a fresh controller (its trigger reported) is ready, else there is none; while
+// Engage aligns, a hanging arm says it rises and any other that it stays.
+assert.equal(headsetArm({tracking: false, trigger: 0}, {stage: 'held'}).state, 'Ready');
+assert.equal(headsetArm({tracking: false, trigger: null}, {stage: 'held'}).state, 'No controller');
+assert.deepEqual(headsetArm({tracking: false, trigger: 0}, {stage: 'aligning', raising: true}),
+  {state: 'Raising', detail: 'To its ready pose at the alignment speed: forearm forward, gripper level', tone: 'near'});
+assert.equal(headsetArm({tracking: false, trigger: 0}, {stage: 'aligning'}).state, 'Aligning');
 assert.equal(headsetArm({tracking: false, gripped: false}).tone, 'near');
 assert.deepEqual(headsetArm({tracking: true, gripped: false, trigger: .25}),
   {state: 'Free', detail: 'Hold the grip to drag this arm · gripper 25% closed', tone: ''});

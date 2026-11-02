@@ -13,9 +13,9 @@ export function presentation(state, fresh = true) {
   if (!running(t)) return {tone:'off', label:'Session stopped', detail:'Touch Start session first. Pedals cannot start a session.', stage:'off'};
   if (t.phase === 'starting') return {tone:'off', label:'Starting session', detail:'Waiting for the control worker. No pedal action yet.', stage:'off'};
   // A live replay follows a recorded episode, policy mode a policy, and the Headset input the controllers, in place
-  // of the leaders. Engage aligns only the headset's grippers: the arms stay until a grip drags one.
+  // of the leaders. With the headset Engage raises a hanging arm to its ready pose; the grippers go to the triggers.
   const followed = t.replay ? "the episode's pose" : t.policy ? "the policy's first action"
-    : t.headset ? "the triggers (grippers only)" : 'the leaders';
+    : t.headset ? 'the ready pose (a hanging arm rises) and the triggers' : 'the leaders';
   const states = {
     DISABLED: ['off', 'Disabled', t.pedals?.actions?.c?.enabled === false && t.pedals.actions.c.reason
       ? t.pedals.actions.c.reason : 'C: Idle powers the motors with zero torque.', 'off'],

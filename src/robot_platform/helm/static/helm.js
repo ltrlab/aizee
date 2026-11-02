@@ -1621,9 +1621,10 @@ function renderTeleop(t) {
       + 'holds; Return (X) takes it to its zero; Disable (H) removes its torque. The arms are left as they are.'
       + (calibrating ? ' Pause (pedal B or T) where its camera sees the tags: a second later Helm takes a still.' : '')
     : headsetDrives
-    ? 'Idle (I), then Enable (E) to hold, then Engage (T): the grippers go to the triggers and the arms stay where '
-      + 'they are until a grip drags one. T or B/Y holds; Shutdown (X) returns slowly to the reference; Disable (H) '
-      + 'removes torque.'
+    ? 'Idle (I), then Enable (E) to hold, then Engage (T): an arm hanging at the reference rises to its ready pose '
+      + '(forearm forward, gripper level, about 30 cm ahead) at the alignment speed, any other stays where it is, '
+      + 'and the grippers go to the triggers; then a held grip drags its arm. T or B/Y holds; Shutdown (X) returns '
+      + 'slowly to the reference; Disable (H) removes torque.'
       + (calibrating ? " Bring a camera over the table's tags and pause (B/Y, pedal B or T): a second later Helm takes "
         + 'a still of the camera chosen below.' : '')
     : calibrating
@@ -1759,7 +1760,8 @@ function renderHeadsetArms(t, shown) {
   for (const arm of ['left', 'right']) {
     const row = $(`t-headset-${arm}`), driven = !view || view.loading || !!view.arms?.[arm];
     const {state, detail, tone} = !view || view.loading ? {state: '—', detail: '', tone: ''}
-      : driven ? headsetArm(view.arms[arm], {engaged: ENGAGED.includes(t.state)})
+      : driven ? headsetArm(view.arms[arm], {raising: (view.raised || []).includes(arm),
+        stage: t.state === 'TELEOP' ? 'following' : t.state === 'ENGAGING' ? 'aligning' : 'held'})
       : {state: 'Not in this session', detail: '', tone: ''};
     row.querySelector('b').textContent = state;
     row.querySelector('small').textContent = detail;
@@ -1935,9 +1937,10 @@ $('teleop-session').onclick = () => {
   const arm = choice.arm, other = arm === 'left' ? 'right' : 'left';
   const direct = t?.collision?.mode === 'disabled';
   // The Headset input: the controllers drive the arms in the leaders' place.
-  const headsetLine = 'The headset drives the arms: Engage (T) moves only the grippers; a held grip drags its arm '
-    + 'as the hand moves, at 1:1, and letting go holds it. B or Y holds. Near the hanging pose, lift the hand a '
-    + 'little before reaching forward.';
+  const headsetLine = 'The headset drives the arms. Engage (T) raises each hanging arm to its ready pose at the '
+    + 'alignment speed: the forearm swings forward, then up, and the gripper ends level about 28 cm ahead and 24 cm '
+    + 'higher. Keep the space in front of the hands clear. Then a held grip drags its arm as the hand moves, at 1:1; '
+    + 'letting go holds it. B or Y holds.';
   if (arm === 'head') {
     askConfirm('start', arm, 'Start LIVE on the head?', [
       "The head's servos are powered when you press Idle (I); Enable (E) holds it where it rests, Engage (T) "

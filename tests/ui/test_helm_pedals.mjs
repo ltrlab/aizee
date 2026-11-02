@@ -21,10 +21,11 @@ const idleQuiet={...base,teleop:{...base.teleop,state:'IDLE',observation_age_ms:
 assert.equal(presentation(idleQuiet).label,'Idle');
 assert.equal(presentation({...idleQuiet,teleop:{...idleQuiet.teleop,status_age_ms:750}}).label,'State unavailable');
 assert.equal(presentation({...base,teleop:{...base.teleop,status_age_ms:10,observation_age_ms:20}}).tone,'teleop');
-// The Headset input follows the controllers: Engage aligns only the grippers, and B/Y pauses as pedal B does.
+// The Headset input follows the controllers: Engage raises a hanging arm to its ready pose, and B/Y pauses as pedal
+// B does.
 const headset={...base,teleop:{...base.teleop,headset:{arms:{}}}};
 assert.equal(presentation(headset).label,'Headset · following');
-assert.match(presentation({...headset,teleop:{...headset.teleop,state:'ENGAGING'}}).detail,/grippers only/);
+assert.match(presentation({...headset,teleop:{...headset.teleop,state:'ENGAGING'}}).detail,/ready pose/);
 assert.match(recordingLabel({recording:{active:true},last_command:{state:'pending',action:'stop_record'}}),/Finishing/);
 assert.equal(recordingLabel({recording:{state:'complete',complete:false}}),'Not recording');
 assert.equal(recordingLabel({recording:{complete:true}}),'Complete · saved');

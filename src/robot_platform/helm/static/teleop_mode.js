@@ -143,12 +143,17 @@ export function pauseStillText(remaining, role, input = 'gello') {
 }
 
 // The headset card's line for an arm (helm/teleop.py's headset view: the worker's latest answer for it). `tone` is
-// '' when all is well, 'near' when the arm holds or is held back, 'bad' when it cannot follow the hand. Until Engage
-// seeds the arms nothing tracks; a trigger is reported only for a fresh controller, so it tells one is there.
-export function headsetArm(arm, {engaged = true} = {}) {
+// '' when all is well, 'near' when the arm holds, moves on its own or is held back, 'bad' when it cannot follow the
+// hand. `stage`: 'held' before Engage, 'aligning' while Engage aligns (`raising`: a hanging arm rises to its ready
+// pose), 'following' once it follows. Until following begins nothing tracks: the worker is seeded then. A trigger is
+// reported only for a fresh controller, so it tells one is there.
+export function headsetArm(arm, {stage = 'following', raising = false} = {}) {
   const a = arm || {};
   const trigger = a.trigger == null ? '' : ` · gripper ${Math.round(a.trigger * 100)}% closed`;
-  if (!engaged) return a.trigger == null
+  if (stage === 'aligning') return raising
+    ? {state: 'Raising', detail: 'To its ready pose at the alignment speed: forearm forward, gripper level', tone: 'near'}
+    : {state: 'Aligning', detail: `It stays where it is; the gripper goes to its trigger${trigger}`, tone: ''};
+  if (stage !== 'following') return a.trigger == null
     ? {state: 'No controller', detail: 'Enter VR on the Quest: each controller drives its own arm.', tone: ''}
     : {state: 'Ready', detail: `Engage (T), then hold the grip to drag this arm${trigger}`, tone: ''};
   if (a.tracking == null) return {state: 'Waiting for the headset', detail: '', tone: ''};
