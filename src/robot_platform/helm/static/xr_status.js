@@ -21,6 +21,18 @@ export function handMessage(position, orientation, gamepad, ui) {
     trigger: rounded(3)(value(0)), b: Boolean(gamepad.buttons[5]?.pressed), ui: Boolean(ui)};
 }
 
+// Helm's /xr links other than this page's (helm/network.py: the network Minerva is on, and its access point), for the
+// page to say where to go when this one stops answering: [{where, url}].
+export function otherLinks(links, host) {
+  return (links || []).filter(link => {
+    try {
+      return new URL(link.url).host !== host;
+    } catch {
+      return false;
+    }
+  }).map(link => ({where: link.mode === 'network' ? 'the network' : "Minerva's access point", url: link.url}));
+}
+
 export function degrees(radians) {
   return radians == null ? '—' : `${radians >= 0 ? '+' : ''}${(radians * 180 / Math.PI).toFixed(1)}°`;
 }

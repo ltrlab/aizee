@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import zipfile
@@ -10,6 +11,7 @@ import pytest
 
 from robot_platform.ops import helm_robot, helm_service
 from robot_platform.ops.release import HELM_LOCK
+from robot_platform.ops.ssh import TETHER
 
 ROOT = Path(__file__).resolve().parents[2]
 BRIDGE_KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEnykGnVsgM3uUhoxQHByeKsZ1VBPh2wsL094geYmsMN claude@3080'
@@ -36,6 +38,10 @@ class Robot(helm_service.Host):
             Path(args[args.index('-keyout') + 1]).write_text('KEY')
             Path(args[args.index('-out') + 1]).write_text('CERT')
             self.config = Path(args[args.index('-config') + 1]).read_text()
+        elif args[:2] == ('openssl', 'x509') and '-ext' in args:  # The names of the certificate it issued last.
+            alt = re.search(r'subjectAltName = (.*)', getattr(self, 'config', ''))
+            return ('X509v3 Subject Alternative Name: \n    ' + alt.group(1).replace('IP:', 'IP Address:') + '\n'
+                    if alt else '')
         elif args[:2] == ('openssl', 'x509'):
             return 'notAfter=Jan 25 00:00:00 2029 GMT\nsha256 Fingerprint=AB:CD:EF\n'
         elif args[0] == 'loginctl':
@@ -67,11 +73,46 @@ def test_prepare_makes_the_folders_key_and_a_certificate_phones_accept_once(tmp_
                  'extendedKeyUsage = serverAuth'):
         assert line in robot.config
     assert ('-days', '825') == robot.calls[1][robot.calls[1].index('-days'):][:2]
-    assert report['certificate'] == {'present': True, 'expires': 'Jan 25 00:00:00 2029 GMT', 'sha256': 'AB:CD:EF'}
+    assert {k: report['certificate'][k] for k in ('present', 'expires', 'sha256')} == {
+        'present': True, 'expires': 'Jan 25 00:00:00 2029 GMT', 'sha256': 'AB:CD:EF'}
+    assert report['certificate']['names'][:2] == [TETHER, '127.0.0.1']
+    assert report['certificate']['uncovered'] == []
     assert any('set-password' in item for item in report['missing'])  # The operator chooses the password.
     calls = len(robot.calls)
     helm_service.prepare(robot)  # Once only: the key and certificate stay.
     assert not [call for call in robot.calls[calls:] if call[0] in ('ssh-keygen',) or call[:2] == ('openssl', 'req')]
+
+
+def network_state(path, wired=None, wifi=None):
+    """Minerva's network service state (ops.network): wired on a network, or its Wi-Fi client."""
+    path.write_text(json.dumps({'version': 1, 'mode': 'lan' if wired else 'unplugged', 'updated_at': 1e12,
+                                'local': TETHER,
+                                'ethernet': {'carrier': bool(wired), 'addresses': [wired + '/24'] if wired else []},
+                                'wifi': {'mode': 'client' if wifi else 'off', 'addresses': [wifi + '/24'] if wifi else []},
+                                'ap': {'wanted': False, 'on': False}}), encoding='utf-8')
+    return path
+
+
+def test_the_certificate_names_minervas_addresses_and_is_issued_again_when_one_is_missing(tmp_path):
+    # Plugged into a network, Minerva's wired address takes over from its Wi-Fi client's: a certificate issued before
+    # does not name it, and the headset's browser refuses Helm there until it is issued again.
+    robot = Robot(tmp_path)
+    robot.network_state = tmp_path / 'state.json'
+    with pytest.raises(RuntimeError, match='prepare'):
+        helm_service.certificate(robot)
+    network_state(robot.network_state, wifi='198.51.100.180')
+    report = helm_service.prepare(robot)
+    assert report['certificate']['uncovered'] == [] and '198.51.100.180' in report['certificate']['names']
+    network_state(robot.network_state, wired='198.51.100.43')
+    assert helm_service.status(robot)['certificate']['uncovered'] == ['198.51.100.43']
+    issued = len([c for c in robot.calls if c[:2] == ('openssl', 'req')])
+    report = helm_service.certificate(robot)
+    assert report['reissued'] and report['certificate']['uncovered'] == []
+    assert 'IP:198.51.100.43' in robot.config and f'IP:{TETHER}' in robot.config
+    assert len([c for c in robot.calls if c[:2] == ('openssl', 'req')]) == issued + 1
+    assert helm_service.certificate(robot)['reissued'] is False  # Names them all: kept.
+    assert helm_service.certificate(robot, force=True)['reissued'] is True
+    assert len([c for c in robot.calls if c[:2] == ('openssl', 'req')]) == issued + 2
 
 
 def test_keys_are_authorized_narrowly_once_and_removed_cleanly(tmp_path):

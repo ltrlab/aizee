@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {HINTS, handMessage, panelRows, poseMessage, stripText} from '../../src/robot_platform/helm/static/xr_status.js';
+import {HINTS, handMessage, otherLinks, panelRows, poseMessage, stripText} from '../../src/robot_platform/helm/static/xr_status.js';
 import {HeadCamera} from '../../src/robot_platform/helm/static/xr_camera.js';
 
 // The headset's screens: the line under the head camera's picture, and the status panel.
@@ -185,5 +185,13 @@ assert.ok(JSON.stringify(poseMessage({x: -.123456789, y: .987654321, z: -.123456
   {left: long, right: long})).length < 600);
 // Three hints fit the panel: the thumbstick zeroes the head now; the trigger is the gripper's.
 assert.match(HINTS[0], /Thumbstick/);
+// Opened on the network, the page knows the access point's link, and the other way round, for when this one drops.
+const links = [{mode: 'network', url: 'https://198.51.100.43:8760/xr'},
+  {mode: 'access_point', url: 'https://192.0.2.1:8760/xr'}];
+assert.deepEqual(otherLinks(links, '198.51.100.43:8760'), [{where: "Minerva's access point", url: links[1].url}]);
+assert.deepEqual(otherLinks(links, '192.0.2.1:8760'), [{where: 'the network', url: links[0].url}]);
+assert.deepEqual(otherLinks(links, 'aizee-rover.local:8760').length, 2);
+assert.deepEqual(otherLinks(undefined, 'x'), []);
+assert.deepEqual(otherLinks([{mode: 'network', url: 'not a url'}], 'x'), []);
 
 console.log('Headset screen text, and the head camera stream: role filter, heartbeats, newest-frame decode, reconnect.');

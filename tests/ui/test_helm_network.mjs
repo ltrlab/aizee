@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {bridgeView, networkView} from '../../src/robot_platform/helm/static/network.js';
+import {bridgeView, headsetLinks, networkView} from '../../src/robot_platform/helm/static/network.js';
 
 const base = {installed: true, running: true, age_s: .4, version: 1, local: '10.42.0.1',
   ethernet: {carrier: true, connection: 'minerva-lan', addresses: ['192.168.8.43/24']},
@@ -63,3 +63,23 @@ const air = bridgeView({connected: true, host: 'soliloquy', peer: '10.42.1.20', 
   path: 'wifi'});
 assert.deepEqual([air.text, air.tone], ['GELLO · Wi-Fi', 'warn']);
 assert.match(air.title, /over Wi-Fi: leader teleop runs, but expect holds/);
+
+// The headset's /xr links in Settings → Headset: which is live, and the certificate's word on each.
+const wiredAt = base.ethernet.addresses[0].split('/')[0];
+const linked = headsetLinks({...base, mode: 'lan', links: [
+  {mode: 'network', address: wiredAt, url: `https://${wiredAt}:8760/xr`, live: true, certified: false},
+  {mode: 'access_point', address: base.local, url: `https://${base.local}:8760/xr`, live: false, certified: true}]});
+assert.deepEqual(linked.links.map(link => [link.mode, link.tone]), [['network', 'bad'], ['access_point', 'muted']]);
+assert.equal(linked.links[0].text, `On the network: https://${wiredAt}:8760/xr (the certificate does not name it)`);
+assert.equal(linked.links[1].text,
+  `On the access point "minerva": https://${base.local}:8760/xr (off: turn it on in Settings → Network)`);
+assert.match(linked.hint, new RegExp(`does not name ${wiredAt.replaceAll('.', '[.]')}: .*helm_service certificate, `
+  + 'then helm_service restart'));
+const good = headsetLinks({...base, links: [{mode: 'access_point', address: base.local, url: 'u', live: true,
+  certified: true}]});
+assert.deepEqual([good.links[0].tone, good.hint], ['good', '']);
+assert.match(headsetLinks({...base, links: [{mode: 'network', url: 'u', live: true, certified: null}]}).hint,
+  /could not be read/);
+assert.match(headsetLinks({...base, links: []}).hint, /No link yet/);
+assert.deepEqual(headsetLinks(null).links, []);
+assert.match(headsetLinks({installed: false}).hint, /not installed/);

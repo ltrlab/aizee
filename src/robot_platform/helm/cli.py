@@ -210,11 +210,11 @@ def main(argv=None):
         # Minerva's UPS: the battery pill and banner, and Helm's part in a low-battery shutdown (helm.ups).
         from .ups import UpsWatch, robot_ups
         ups = None if args.sim else UpsWatch(robot_ups(session.profile_path), lambda: session.address)
-        # Minerva's network service (ops.network): its state, and the access point switch.
+        # Minerva's network service (ops.network): its state, the access point switch and the headset's links.
         network = None
         if args.on_robot:
             from .network import NetworkView
-            network = NetworkView()
+            network = NetworkView(certificate=args.tls_cert, port=args.port if args.tls_cert is not None else None)
         access = None
         if args.access is not None:
             from .access import Access

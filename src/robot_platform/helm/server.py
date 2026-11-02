@@ -288,7 +288,10 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         state['action_token'] = token
         state['access'] = access.view(CURRENT_SESSION.get()) if access is not None else {'enabled': False}
         state['bridge'] = bridge.snapshot() if bridge is not None else None
-        state['network'] = network.snapshot() if network is not None else None
+        state['network'] = None
+        if network is not None:  # With the headset's links on the network and the access point.
+            state['network'] = network.snapshot()
+            state['network']['links'] = network.links(state['network'])
         state['xr'] = dict(headset.status(), preview=xr_preview['on'], preview_available=display is not None)
         state['head_setup'] = head_setup.snapshot() if head_setup is not None else None
         state['operator_files'] = operator_files

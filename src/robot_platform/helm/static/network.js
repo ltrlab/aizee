@@ -69,6 +69,34 @@ export function networkView(network, {host = 'aizee-rover', busy = false} = {}) 
   };
 }
 
+// The headset's /xr links (helm/network.py): on the network Minerva is on (its wired address, or its Wi-Fi client's),
+// and on its access point (its local address, while the access point is on); a headset's browser refuses Helm at an
+// address its certificate does not name. {links: [{mode, url, live, text, tone}], hint}
+const CERTIFICATE = 'cd ~/minerva/current && PYTHONPATH=src python3 -m robot_platform.ops.helm_service certificate';
+export function headsetLinks(network) {
+  if (!network) return {links: [], hint: "Helm runs on this PC: open its /xr page at this PC's address."};
+  if (!network.installed) return {links: [], hint: 'The network service is not installed on Minerva.'};
+  const ssid = network.ap?.ssid || 'minerva';
+  const links = (network.links || []).map(link => {
+    const where = link.mode === 'network' ? 'On the network' : `On the access point "${ssid}"`;
+    const notes = [];
+    if (!link.live) notes.push('off: turn it on in Settings → Network');
+    if (link.certified === false) notes.push('the certificate does not name it');
+    return {mode: link.mode, url: link.url, live: link.live,
+      text: `${where}: ${link.url}${notes.length ? ` (${notes.join('; ')})` : ''}`,
+      tone: link.certified === false ? 'bad' : link.live ? 'good' : 'muted'};
+  });
+  const given = network.links || [];
+  const uncovered = given.filter(link => link.certified === false).map(link => link.address);
+  let hint = '';
+  if (!links.length) hint = 'No link yet: Minerva has no network address, and Helm serves no HTTPS here.';
+  else if (uncovered.length) {
+    hint = `Helm's certificate does not name ${uncovered.join(' or ')}: the headset's browser refuses it there. On `
+      + `the Jetson, run ${CERTIFICATE}, then helm_service restart, and accept the new certificate once on each device.`;
+  } else if (given.some(link => link.certified == null)) hint = "Helm's certificate could not be read.";
+  return {links, hint};
+}
+
 // The GELLO pill: whether the bridge is connected, where, and whether over Wi-Fi.
 export function bridgeView(bridge) {
   if (!bridge) return {hidden: true};

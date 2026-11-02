@@ -533,6 +533,7 @@ body[data-touch=on] .grip-switch input{width:26px;height:26px}
 .headset-mirror #headset-panel{max-width:460px}
 .headset-mirror canvas.stale{filter:brightness(.35)}
 .network-lines{margin:0 0 12px;padding-left:18px;line-height:1.5;overflow-wrap:anywhere}
+.network-lines li[data-tone=bad],.network-lines li[data-tone=bad] a{color:var(--bad)}.network-lines li[data-tone=muted] a{color:var(--muted)}
 
 /* The Teleop column scrolls as one: the pedals stay pinned above and the status line below, so nothing between them
    is squeezed (the task and calibration cards had 18 px at 1080p). While a session runs, the setup that only applies

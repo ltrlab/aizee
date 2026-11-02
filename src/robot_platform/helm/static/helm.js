@@ -5,7 +5,7 @@ import {LiveReplayCard, ReplayView, replayTelemetry} from './replay.js';
 import {HOLD_STILL, policyLabel, policyNote, policyOptions, policyStats} from './policy.js';
 import {GRIP_SETTINGS, gripLive, gripSettingText, gripSliderValue, gripView} from './grip.js';
 import {upsView} from './ups.js';
-import {bridgeView, networkView} from './network.js';
+import {bridgeView, headsetLinks, networkView} from './network.js';
 import {headView} from './head.js';
 import {HeadsetMirror} from './headset_mirror.js';
 import {headSetupView} from './head_setup.js';
@@ -521,6 +521,16 @@ function renderHeadset(state) {
   preview.disabled = !xr.preview_available;
   preview.title = xr.preview_available ? '' : 'The 3D view has no head model to preview';
   if (document.activeElement !== preview) preview.checked = !!xr.preview;
+  const links = headsetLinks(state.network);
+  $('headset-links').replaceChildren(...links.links.map(link => {
+    const item = document.createElement('li'), anchor = document.createElement('a');
+    anchor.href = link.url;
+    anchor.textContent = link.text;
+    item.dataset.tone = link.tone;
+    item.append(anchor);
+    return item;
+  }));
+  $('headset-links-hint').textContent = links.hint;
   headsetMirror.update(state, document.body.dataset.tab === 'settings' && !$('settings-headset').hidden
     && !document.hidden);
 }

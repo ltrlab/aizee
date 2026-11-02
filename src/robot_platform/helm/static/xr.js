@@ -10,7 +10,7 @@
 import * as THREE from 'three';
 import {HeadCamera} from './xr_camera.js';
 import {HeadsetScene} from './xr_scene.js';
-import {HINTS, handMessage, panelRows, poseMessage, degrees, stripText} from './xr_status.js';
+import {HINTS, handMessage, otherLinks, panelRows, poseMessage, degrees, stripText} from './xr_status.js';
 
 const $ = id => document.getElementById(id);
 const SEND_INTERVAL_MS = 1000 / 60;
@@ -34,6 +34,7 @@ let wrists = [];  // The wrist cameras' streams, while the Hands switch is on.
 let headset = {};  // Helm's latest word on the headset and the head (its status replies),
 let statusAt = -Infinity;  // and when it came.
 let sticks = {};  // Each controller's thumbstick press at the last frame, by hand.
+let others = [];  // Helm's /xr links elsewhere (the network, Minerva's access point), from its last state.
 const link = {connected: false, message: 'connecting…', error: null};  // `error`: Helm's last refusal, until a status.
 
 function show(id, text, tone) {
@@ -84,9 +85,16 @@ async function connect() {
       location.href = '/login?next=/xr';
       return;
     }
-    token = (await response.json()).action_token;
+    const state = await response.json();
+    token = state.action_token;
+    others = otherLinks(state.network?.links, location.host);
+    show('elsewhere', others.length ? others.map(other => `${other.where}: ${other.url}`).join(' · ') : '—');
   } catch (error) {
     show('link', `unreachable (${error.message})`, 'bad');
+    if (others.length && !session) {  // Minerva may have switched networks: say where Helm is then.
+      show('status', `Helm does not answer here. If Minerva moved to ${others.map(other => `${other.where}, open `
+        + other.url).join('; if to ')} (join its Wi-Fi first).`, 'warn');
+    }
     setTimeout(connect, RETRY_MS);
     return;
   }

@@ -5,6 +5,9 @@ Run on the Jetson as the robot's user, from the active release:
     cd ~/minerva/current && PYTHONPATH=src python3 -m robot_platform.ops.helm_service ACTION
 
     prepare           folders, Helm's SSH key to this computer and a self-signed HTTPS certificate
+    certificate       [--force] issue the certificate again when it does not name one of Minerva's addresses now (its
+                      wired address once Ethernet is on a network); restart Helm then, and accept it once more on
+                      each device
     authorize-local   let Helm's key log in to this computer from this computer only (adds a line to authorized_keys)
     authorize-bridge  --key "ssh-ed25519 AAAA..." --name NAME: let the GELLO bridge's key run Helm's relay and nothing
                       else, over the tether only (adds a line to authorized_keys)
@@ -86,9 +89,10 @@ class Paths:
 class Host:
     """The robot's commands and processes. Tests give it a home directory and record what it would run."""
 
-    def __init__(self, home=None, run=None, proc='/proc'):
+    def __init__(self, home=None, run=None, proc='/proc', network_state=None):
         self.paths = Paths(home or Path.home())
         self._run, self.proc = run, Path(proc)
+        self.network_state = network_state  # Minerva's network service state (helm.network.STATE by default).
 
     def run(self, *args, check=True):
         if self._run is not None:
@@ -155,12 +159,16 @@ def _write(path, data, mode=0o644):
 
 # -- prepare: folders, Helm's SSH key, the HTTPS certificate --------------------------------------------------------
 
-def addresses(profile=None):
+def addresses(profile=None, network_state=None):
     """(IP addresses, DNS names) the certificate names: the tether, loopback, the Wi-Fi address of the device profile,
-    and this computer's name."""
+    every address Minerva's network service reports now (wired, local, Wi-Fi: helm.network), and this computer's
+    name. A headset's browser refuses the certificate at an address it does not name: on the network, Minerva's
+    wired address once its Ethernet is plugged in."""
+    from robot_platform.helm.network import STATE, NetworkView
     from .ssh import TETHER, robot_identity
     device = robot_identity(profile or ROOT / PROFILE)[0]
     ips = [TETHER, '127.0.0.1'] + ([device['address']] if device.get('address') else [])
+    ips += NetworkView(network_state or STATE).addresses()
     name = socket.gethostname()
     return list(dict.fromkeys(ips)), [name, f'{name}.local']
 
@@ -186,17 +194,36 @@ def prepare(host=None, *, profile=None):
     if not p.local_key.is_file():
         host.run('ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-C', LOCAL_NAME, '-f', str(p.local_key))
     if not (p.cert.is_file() and p.tls_key.is_file()):
-        ips, names = addresses(profile)
-        with tempfile.TemporaryDirectory() as scratch:
-            config = Path(scratch) / 'helm-certificate.cnf'
-            config.write_text(certificate_config(ips, names), encoding='utf-8')
-            key, cert = p.tls / 'helm.key.partial', p.tls / 'helm.crt.partial'
-            host.run('openssl', 'req', '-x509', '-config', str(config), '-newkey', 'ec', '-pkeyopt',
-                     'ec_paramgen_curve:prime256v1', '-nodes', '-days', '825', '-keyout', str(key), '-out', str(cert))
-            os.chmod(key, 0o600)
-            os.replace(key, p.tls_key)
-            os.replace(cert, p.cert)
+        _issue(host, profile)
     return status(host)
+
+
+def _issue(host, profile=None):
+    """A new key and self-signed certificate naming every address (addresses), replacing any there."""
+    p = host.paths
+    ips, names = addresses(profile, host.network_state)
+    with tempfile.TemporaryDirectory() as scratch:
+        config = Path(scratch) / 'helm-certificate.cnf'
+        config.write_text(certificate_config(ips, names), encoding='utf-8')
+        key, cert = p.tls / 'helm.key.partial', p.tls / 'helm.crt.partial'
+        host.run('openssl', 'req', '-x509', '-config', str(config), '-newkey', 'ec', '-pkeyopt',
+                 'ec_paramgen_curve:prime256v1', '-nodes', '-days', '825', '-keyout', str(key), '-out', str(cert))
+        os.chmod(key, 0o600)
+        os.replace(key, p.tls_key)
+        os.replace(cert, p.cert)
+
+
+def certificate(host=None, *, force=False, profile=None):
+    """Issue Helm's certificate again when it does not name one of Minerva's addresses now (or with `force`): the
+    status, with `reissued`. Helm serves a new certificate once restarted, and each device accepts it once more."""
+    host = host or Host()
+    if not host.paths.cert.is_file():
+        raise RuntimeError('No certificate yet: prepare')
+    uncovered = (_certificate(host, profile) or {}).get('uncovered')
+    reissued = bool(force or uncovered)
+    if reissued:
+        _issue(host, profile)
+    return dict(status(host), reissued=reissued)
 
 
 # -- authorized keys -------------------------------------------------------------------------------------------------
@@ -393,17 +420,25 @@ def remove(host=None, *, clock=time.time):
     return status(host)
 
 
-def _certificate(host):
+def _certificate(host, profile=None):
+    """The certificate's expiry, fingerprint, the addresses and names it names, and `uncovered`: Minerva's addresses
+    now that it does not name (certificate issues it again)."""
     if not host.paths.cert.is_file():
         return None
     try:
         text = host.run('openssl', 'x509', '-in', str(host.paths.cert), '-noout', '-enddate', '-fingerprint',
                         '-sha256', check=False)
+        alt = host.run('openssl', 'x509', '-in', str(host.paths.cert), '-noout', '-ext', 'subjectAltName',
+                       check=False)
     except OSError:
         return {'present': True}
+    from robot_platform.helm.network import alt_names
     facts = dict(line.split('=', 1) for line in text.splitlines() if '=' in line)
+    names = alt_names(alt)
+    wanted = addresses(profile, host.network_state)[0]
     return {'present': True, 'expires': facts.get('notAfter'),
-            'sha256': next((value for key, value in facts.items() if 'Fingerprint' in key), None)}
+            'sha256': next((value for key, value in facts.items() if 'Fingerprint' in key), None),
+            'names': names, 'uncovered': [ip for ip in wanted if ip not in names] if names else None}
 
 
 def status(host=None, *, release=ROOT):
@@ -473,8 +508,9 @@ def main(argv=None):
         return run(argv[1:])  # Its own options (run --help).
     parser = argparse.ArgumentParser(prog='python3 -m robot_platform.ops.helm_service', description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('action', choices=('prepare', 'authorize-local', 'authorize-bridge', 'install', 'restart',
-                                           'status', 'remove', 'run'))
+    parser.add_argument('action', choices=('prepare', 'certificate', 'authorize-local', 'authorize-bridge', 'install',
+                                           'restart', 'status', 'remove', 'run'))
+    parser.add_argument('--force', action='store_true', help='certificate: issue it again even if it names them all')
     parser.add_argument('--key', help='authorize-bridge: the bridge PC\'s public key line')
     parser.add_argument('--name', help='authorize-bridge: a name for that PC, e.g. operator-3080')
     parser.add_argument('--teleop', default=TELEOP, help=f'install: teleop profile in config/devices ({TELEOP})')
@@ -484,6 +520,8 @@ def main(argv=None):
     try:
         if args.action == 'prepare':
             report = prepare()
+        elif args.action == 'certificate':
+            report = certificate(force=args.force)
         elif args.action == 'authorize-local':
             report = authorize_local()
         elif args.action == 'authorize-bridge':

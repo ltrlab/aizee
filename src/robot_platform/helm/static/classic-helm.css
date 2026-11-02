@@ -421,6 +421,7 @@ body[data-touch=on] .grip-switch input{width:24px;height:24px}
 .headset-mirror #headset-panel{max-width:460px}
 .headset-mirror canvas.stale{filter:brightness(.35)}
 .network-lines{margin:0 0 12px;padding-left:18px;line-height:1.5;overflow-wrap:anywhere}
+.network-lines li[data-tone=bad],.network-lines li[data-tone=bad] a{color:var(--bad)}.network-lines li[data-tone=muted] a{color:var(--muted)}
 #access-claim{font-size:12px;padding:5px 10px;white-space:nowrap}
 
 /* Classic look: Helm's original styles, kept beside the RetroUI ones (helm.css) and chosen in Settings → Display &

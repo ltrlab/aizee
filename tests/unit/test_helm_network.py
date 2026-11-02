@@ -1,6 +1,6 @@
 """Minerva's network in Helm (helm.network): the service's state for the header and Settings, the bridge's path
-(wired or Wi-Fi, by the interface the route to it leaves on), the addresses the bridge tries next, and the access
-point switch, which needs control and waits for nothing to hold the motors."""
+(wired or Wi-Fi, by the interface the route to it leaves on), the addresses the bridge tries next, the access
+point switch, which needs control and waits for nothing to hold the motors, and the headset's links."""
 import asyncio
 import json
 from pathlib import Path
@@ -73,6 +73,36 @@ def test_switching_the_access_point_runs_only_the_allowed_command(tmp_path):
         refused.set_ap(True)
 
 
+def test_the_headsets_links_are_the_network_and_the_access_point_and_what_the_certificate_names(tmp_path):
+    state = tmp_path / 'state.json'
+    wired, local = STATE['ethernet']['addresses'][0].split('/')[0], STATE['local']
+    reads = []
+
+    def openssl(command, **kwargs):
+        reads.append(command)
+        return SimpleNamespace(returncode=0, stdout='X509v3 Subject Alternative Name: \n'
+                               f'    DNS:aizee-rover, DNS:aizee-rover.local, IP Address:{local}, IP Address:127.0.0.1\n')
+    view = NetworkView(state, run=openssl, clock=lambda: 1000., certificate=tmp_path / 'helm.crt', port=8760)
+    assert view.links() == []  # Helm on a PC: no service, no links.
+    state.write_text(json.dumps(STATE), encoding='utf-8')
+    # Wired on a network the certificate predates: the headset's browser would refuse Helm there.
+    assert view.links() == [
+        {'mode': 'network', 'address': wired, 'url': f'https://{wired}:8760/xr', 'live': True, 'certified': False},
+        {'mode': 'access_point', 'address': local, 'url': f'https://{local}:8760/xr', 'live': False,
+         'certified': True}]
+    # Unplugged with the access point on: its link alone, live; and on a Wi-Fi network as its client.
+    alone = dict(STATE, mode='unplugged', ethernet={'carrier': False, 'addresses': []},
+                 wifi={'mode': 'ap', 'addresses': []}, ap=dict(STATE['ap'], wanted=True, on=True))
+    assert [(link['mode'], link['live']) for link in view.links(dict(alone, installed=True))] == [
+        ('access_point', True)]
+    client = dict(alone, wifi={'mode': 'client', 'addresses': ['198.51.100.180/24']}, ap=STATE['ap'])
+    assert view.links(dict(client, installed=True))[0]['url'] == 'https://198.51.100.180:8760/xr'
+    assert len(reads) == 1 and reads[0][:2] == ['openssl', 'x509']  # The certificate is read once.
+    unread = NetworkView(state, run=lambda *a, **k: SimpleNamespace(returncode=1, stdout=''), certificate='x', port=1)
+    assert {link['certified'] for link in unread.links()} == {None}
+    assert NetworkView(state, run=openssl, port=None).links() == []  # No HTTPS: WebXR needs it.
+
+
 class Teleop:
     active = False
 
@@ -100,6 +130,10 @@ class Network:
     def snapshot(self):
         return dict(STATE, installed=True, running=True, age_s=.5)
 
+    def links(self, state):
+        return [{'mode': 'access_point', 'address': state['local'], 'url': f"https://{state['local']}:8760/xr",
+                 'live': state['ap']['on'], 'certified': True}]
+
     def set_ap(self, on):
         self.switched.append(on)
 
@@ -114,6 +148,7 @@ def test_the_access_point_switch_in_helm(tmp_path):
         async with TestClient(TestServer(app)) as client:
             state = await (await client.get('/api/helm/state')).json()
             assert state['network']['mode'] == 'lan' and state['network']['ethernet']['addresses'] == ['192.168.8.43/24']
+            assert [link['mode'] for link in state['network']['links']] == ['access_point']  # The headset's links.
             headers = {'X-Helm-Token': 'secret'}
             for payload in ({'on': 'yes'}, {'on': True, 'x': 1}, {}):
                 assert (await client.post('/api/helm/network/ap', json=payload, headers=headers)).status == 422

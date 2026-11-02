@@ -574,7 +574,11 @@
           <section id="settings-headset" class="settings-group" hidden>
             <h2>Headset</h2>
             <p class="muted">The operator's headset steers Minerva's head while a teleop session follows (T). On the
-              Quest, open this Helm's /xr page and start head tracking there.</p>
+              Quest, open this Helm's /xr page and start head tracking there: on the network Minerva is on (the
+              Quest on the same Wi-Fi), or on Minerva's access point (the Quest joined to it), switched in
+              Settings → Network.</p>
+            <ul id="headset-links" class="network-lines"></ul>
+            <p id="headset-links-hint" class="muted" role="status"></p>
             <p id="headset-state" class="headset-state" role="status"></p>
             <div class="headset-controls">
               <button id="headset-zero" type="button" disabled>Zero headset</button>
