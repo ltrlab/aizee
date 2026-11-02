@@ -90,7 +90,9 @@ class BridgeLeaders:
         return samples
 
     def close(self):
-        self.hub._leaders.pop(self.request, None)
+        with self.hub._lock:  # A sample still on its way must not bring the stream back.
+            self.hub._streaming.discard(self.request)
+            self.hub._leaders.pop(self.request, None)
         try:
             self.hub._post(['leaders_close', self.request])
         except BridgeError:
@@ -128,6 +130,9 @@ class BridgeHub:
         self._sock = self.info = self.peer = None
         self._heard = None
         self._replies, self._leaders = {}, {}
+        # The open Leaders streams. A sample for any other crossed its close (the bridge sent it before reading the
+        # close) and is dropped: stored, it kept a closed stream in _leaders for good (1 close in 20, 2026-11-01).
+        self._streaming = set()
         self._ids = iter(range(1, 1 << 62))
         self._closed = False
         threading.Thread(target=self._accept, daemon=True, name='helm-bridge-accept').start()
@@ -190,7 +195,7 @@ class BridgeHub:
                         return
                     self._heard = self.clock()
                     kind = message[0] if isinstance(message, list) and message else None
-                    if kind == 'leaders' and len(message) == 3:
+                    if kind == 'leaders' and len(message) == 3 and message[1] in self._streaming:
                         self._leaders[message[1]] = (self._restamp(message[2]), self.clock())
                     elif kind in ('link_up', 'link_report', 'leaders_up', 'error') and len(message) >= 2:
                         self._replies[message[1]] = message
@@ -263,8 +268,16 @@ class BridgeHub:
     def open_leaders(self, profile, rate_hz=50.):
         """The leaders for the Leaders workspace: the bridge opens their USB and streams samples."""
         request = next(self._ids)
-        self._call(['leaders_open', request, {'profile': profile, 'rate_hz': float(rate_hz)}], 'leaders_up',
-                   LINK_TIMEOUT_S)
+        with self._lock:  # Before asking: the first samples may arrive before the bridge's answer is read.
+            self._streaming.add(request)
+        try:
+            self._call(['leaders_open', request, {'profile': profile, 'rate_hz': float(rate_hz)}], 'leaders_up',
+                       LINK_TIMEOUT_S)
+        except BridgeError:
+            with self._lock:
+                self._streaming.discard(request)
+                self._leaders.pop(request, None)
+            raise
         return BridgeLeaders(self, request)
 
     def snapshot(self):

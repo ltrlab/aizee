@@ -270,3 +270,37 @@ def test_a_newer_bridge_cuts_the_older_relay_at_once(hub):
     finally:
         old.close()
         new.close()
+
+
+def test_a_sample_that_crosses_the_leaders_close_does_not_reopen_them(hub):
+    """A sample the bridge sent before it read the close arrives after it: the hub drops it. Stored, it kept the
+    closed stream in the hub for good, and the Leaders test waited for its end in vain (1 close in 20, 2026-11-01)."""
+    import socket
+    sock = socket.create_connection(('127.0.0.1', hub.port))
+    writer, reader = sock.makefile('wb'), sock.makefile('rb')
+    try:
+        write_frame(writer, {'relay': hub_module.VERSION, 'token': hub.token, 'peer': None, 'server': None})
+        write_frame(writer, ['hello', {'version': hub_module.VERSION, 'host': 'pc'}])
+        assert read_frame(reader)[0] == 'welcome'
+        wait_until(lambda: hub.connected)
+        opened = []
+        opener = threading.Thread(target=lambda: opened.append(hub.open_leaders(PROFILE)), daemon=True)
+        opener.start()
+        message = read_frame(reader)
+        while message[0] != 'leaders_open':  # Beats may come first.
+            message = read_frame(reader)
+        request = message[1]
+        row = {'positions_rad': [0.] * 7, 'raw_positions': [2048] * 7, 'sequence': 1, 'age_s': 0., 'joystick': [0, 0],
+               'board_sample_ms': 0, 'board_reply_ms': 0}
+        write_frame(writer, ['leaders', request, {'left': row, 'right': row}])  # Before the answer: kept.
+        write_frame(writer, ['leaders_up', request])
+        opener.join(5.)
+        leaders, = opened
+        wait_until(lambda: request in hub._leaders)
+        leaders.close()
+        write_frame(writer, ['leaders', request, {'left': row, 'right': row}])  # Crossed the close.
+        write_frame(writer, ['error', 0, 'read in order: once this is in, so is the sample before it'])
+        wait_until(lambda: 0 in hub._replies)
+        assert request not in hub._leaders
+    finally:
+        sock.close()
