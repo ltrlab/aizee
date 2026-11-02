@@ -83,10 +83,11 @@ reaches Helm:
 
 What makes switching easy:
 
-- **One certificate for every address.** Helm's certificate (`ops.helm_service.addresses`) names the local address,
+- **One certificate for every address.** Helm's certificate (`ops.helm_service.addresses`) named the local address,
   loopback and the device profile's Wi-Fi address, but not the wired address, so with Ethernet on a network the
-  Quest cannot open Helm. It should name every address the network service reports (wired, Wi-Fi, local, the
-  computer's `.local` name), and `helm_service` reissue it when they change (the Quest accepts each address once).
+  Quest could not open Helm. Since phase 3 it names every address the network service reports (wired, Wi-Fi,
+  local, and the computer's `.local` name), and `helm_service certificate` issues it again when one is missing (the
+  Quest accepts each address once).
 - **The right link shown.** Settings → Headset shows the `/xr` link for the mode Minerva is in and the other one;
   the headset page shows the other link too, so a dropped link says where to go.
 - **Bookmarks.** One per mode in the Quest's browser. A page cannot switch the Quest's Wi-Fi: that stays in its
@@ -144,13 +145,36 @@ What makes switching easy:
   gripper's orientation should give way near those poses instead is for the rehearsal to decide** (phase 6). In
   front of the robot at working height the arms are well conditioned (0.16).
 
-## Phase 3: Headset page and relay
+## Phase 3: Headset page and relay (built 2026-11-01; not yet seen in the Quest)
 
-- `xr.js` adds each controller's grip pose, grip, trigger, thumbstick click and B/Y to the pose message; the head
-  zero moves to the thumbstick click.
-- `xr.py` checks the controller fields and Helm passes them on with the head pose's rules (never blocking, dropped
-  when stale). One headset owns the head and the arms.
-- The certificate and links of the network section.
+- `xr.js` sends each controller's grip pose (its grip space, in the level 'local' space), grip, trigger, B/Y and
+  `ui` with the head pose, at most 60 times a second (`xr_status.handMessage`; both hands fit in under 600 of
+  Helm's 1024 bytes). Tracked hands are left out: they hold the GELLO leaders. A controller holding or pressing a
+  headset screen is marked `ui`: its arm lets go, its gripper is left alone (`VRArms`), and its grip must be let go
+  before it attaches again.
+- The head zero moves from the trigger to a thumbstick press on either controller. The trigger is the gripper's,
+  and still works the picture's bar.
+- `xr.py` checks the controllers (`hand_sample`: positions within 10 m, unit quaternions, grip and trigger from 0 to
+  1; anything else refuses the whole pose). Helm keeps each hand's latest sample, with Helm's receive time and a
+  restart epoch (`Headset.hand_samples`), for phase 4's worker. Nothing reaches the arms' loop: after the
+  2026-10-31 GIL stalls, the worker reads hands in its own process. One headset owns the head and the arms. Helm's
+  state shows each hand's tracking, grip, trigger and `ui`.
+- **The certificate.** `helm_service status` lists the certificate's names and the addresses it misses
+  (`uncovered`). `helm_service certificate [--force]` issues it again when one is missing; then run `helm_service
+  restart`, and each device accepts it once more.
+- **The links.** Helm's state carries `network.links` (`NetworkView.links`): the network's and the access point's
+  `/xr` links, which one is live, and whether the certificate names each. Settings → Headset lists them, red when
+  the certificate misses the address and muted while the access point is off, with the command that reissues the
+  certificate. The headset page shows the other link ("Also at") and, when Helm stops answering, says where to go.
+- **Checked offline**:
+  - `test_helm_xr.py` (19 tests) and `test_helm_xr_view.mjs`;
+  - `test_helm_network.py` and `.mjs`: the links, with the certificate read once;
+  - `test_helm_service.py`: reissue;
+  - `test_vr_arms.py` (23 tests): the `ui` hand;
+  - `dev.py quick`: 137 tests.
+
+  Settings → Headset and the headset page were also checked in a local preview. **Not yet tried on a real Quest**:
+  the controller messages, the thumbstick zero and the links.
 
 ## Phase 4: Loop integration
 
