@@ -293,3 +293,23 @@ def test_an_access_point_the_radio_refuses_is_retried_every_30_s_not_every_step(
     bench.want_ap(True)  # Wanted again: tried at once, its old failure forgotten.
     bench.service.step()
     assert bench.nm.calls.count(('up', AP)) == 3
+
+
+def test_a_state_file_windows_will_not_replace_yet_is_written_once_it_will(tmp_path, monkeypatch):
+    # Under the gate's workers a virus scanner still had the last state.json open: os.replace was refused for up to
+    # 82 ms (2026-11-01). The write waits that out; a refusal that lasts is still an error.
+    replace, refusals = os.replace, iter([True, True, False])
+
+    def busy(source, target):
+        if next(refusals, False):
+            raise PermissionError(5, 'Access is denied')
+        replace(source, target)
+    monkeypatch.setattr(network.os, 'replace', busy)
+    network._write_json(tmp_path / 'state.json', {'mode': 'tether'})
+    assert json.loads((tmp_path / 'state.json').read_text(encoding='utf-8')) == {'mode': 'tether'}
+
+    def refused(source, target):
+        raise PermissionError(5, 'Access is denied')
+    monkeypatch.setattr(network.os, 'replace', refused)
+    with pytest.raises(PermissionError):
+        network._replace(tmp_path / 'state.json.partial', tmp_path / 'state.json', patience_s=.05)
