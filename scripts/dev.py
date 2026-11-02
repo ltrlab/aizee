@@ -214,6 +214,10 @@ def new_run(folder, gate):
 
 SERIAL = 'serial'  # Tests that wait on wall-clock progress (pyproject.toml's markers): run alone.
 NO_TESTS = 5  # pytest's exit code when a phase selects nothing (no serial test among those given).
+# One BLAS thread per worker: numpy's and scipy's OpenBLAS each commit a buffer per CPU thread at import, and Windows
+# never overcommits. That was 1.4 GB per process on a 22-thread laptop (80 MB with one thread), and 11 workers reached
+# the commit limit: fcl aborted loading meshes in from_urdf (2026-11-01).
+WORKER_ENV = {'OPENBLAS_NUM_THREADS': '1'}
 
 
 def workers(tests):
@@ -227,10 +231,12 @@ def run_tests(run, env, run_dir, tests, report):
     """The tests across the cores (pytest-xdist; tests/conftest.py keeps each file on one worker, so its tests keep
     their order and fixtures as in one process, except files of independent tests), then those marked serial alone: they
     wait on wall-clock progress (real rendering, live loops), which the other workers' load only slows (a capture
-    test's 20 s wait ran out at 8 workers). Both phases count, and neither may skip."""
+    test's 20 s wait ran out at 8 workers). Both phases count, and neither may skip. A worker that crashes fails the
+    run at once, naming its test: xdist's replacement worker crashed its loadgroup scheduler, or hung it for hours."""
     common = [PYTHON, '-m', 'pytest', '-q', '--strict-markers', '-o', 'xfail_strict=true']
-    run([*common, '-n', workers(tests), '--dist', 'loadgroup', '-m', f'not {SERIAL}', '--basetemp', run_dir / 'pytest',
-         '--junitxml', run_dir / 'tests.xml', *tests], env, ok=(0, NO_TESTS))
+    run([*common, '-n', workers(tests), '--max-worker-restart', '0', '--dist', 'loadgroup', '-m', f'not {SERIAL}',
+         '--basetemp', run_dir / 'pytest', '--junitxml', run_dir / 'tests.xml', *tests], {**env, **WORKER_ENV},
+        ok=(0, NO_TESTS))
     run([*common, '-m', SERIAL, '--basetemp', run_dir / 'pytest-serial', '--junitxml', run_dir / 'tests-serial.xml',
          *tests], env, ok=(0, NO_TESTS))
     return required_test_results([run_dir / 'tests.xml', run_dir / 'tests-serial.xml'], report)

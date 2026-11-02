@@ -59,6 +59,21 @@ def test_the_parallel_phase_uses_half_the_cpus_up_to_twelve_unless_told(monkeypa
     assert dev.workers(['t'] * 100) == 4
 
 
+def test_the_parallel_phase_runs_one_blas_thread_per_worker_and_stops_at_a_crash(tmp_path):
+    # 11 workers with a BLAS pool each reached Windows' commit limit, and xdist's replacement for the worker that
+    # crashed then broke its scheduler (2026-11-01). The serial phase keeps the environment it was given.
+    calls = []
+    (tmp_path / 'tests.xml').write_text('<testsuites><testsuite><testcase name="a"/></testsuite></testsuites>',
+                                        encoding='utf-8')
+    (tmp_path / 'tests-serial.xml').write_text('<testsuites><testsuite/></testsuites>', encoding='utf-8')
+    dev.run_tests(lambda args, env, ok: calls.append((list(map(str, args)), env)), {'KEEP': '1'}, tmp_path,
+                  ['tests/unit/test_x.py'], None)
+    (parallel, parallel_env), (serial, serial_env) = calls
+    assert parallel[parallel.index('--max-worker-restart') + 1] == '0'
+    assert parallel_env == {'KEEP': '1', 'OPENBLAS_NUM_THREADS': '1'} and serial_env == {'KEEP': '1'}
+    assert '-n' not in serial
+
+
 def test_the_serial_marker_is_registered_for_strict_markers():
     assert 'serial:' in (ROOT / 'pyproject.toml').read_text(encoding='utf-8')
 
