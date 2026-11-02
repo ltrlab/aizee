@@ -46,6 +46,11 @@
     - **Core (no LeRobot needed, tested in the gate):**
       - Reads a format-8 episode and refuses incomplete ones, and mixed joint rosters within one dataset.
       - Keeps only the span from the first to the last human-authority row with a valid action.
+      - A policy session's episode (every row `policy` or `correction`, each with its lifecycle state in its task
+        state; policy corrections, `docs/development/POLICY_MODE.md`) exports as its stretches instead: each run of
+        rows the policy or a correction drove while the arms followed (Teleop), each its own LeRobot episode, so none
+        spans a hold or an alignment between drivers. A policy stretch the operator took over from loses its last
+        `--pre-takeover-s` (1 s), where it went wrong; stretches under `--min-stretch-s` (0.5 s) are left out.
       - Resamples onto a fixed grid (15 fps) by the robot-clock timestamps: each grid time takes the latest recorded
         frame at or before it, and a grid time more than 1.5 periods after its frame is refused.
       - Maps `observation.state` = `qpos`, `action` = `actions` (the next commanded position), the three cameras as
@@ -53,7 +58,8 @@
     - **Writer:** LeRobot's `LeRobotDataset.create / add_frame / save_episode` at openpi's pinned revision, imported
       only when writing, in a training environment.
     - **Selection:** only episodes reviewed Keep, unless asked otherwise. A sidecar `minerva_provenance.json` records
-      each exported episode's source file, hash, review and kept span.
+      each exported episode's source file, hash, review and kept span, and who drove it (`human`, `policy` or
+      `correction`) with the seconds trimmed before a take over.
 - **Shared interfaces held fixed:** the episode format and writer, the receiver, the motion contract, and the capture
   admission bounds.
 - **Acceptance:**
