@@ -1,7 +1,8 @@
 // Teleop's mode: what a session is for (the user, 2026-11-01). Direct drives the arms with the leaders and records
 // episodes (pedal A). Calibrate takes a camera calibration still a second after each pause (pedal B, or T while the
-// arms follow), and records nothing: a still refuses to run beside a recording. Policy runs a trained policy in place
-// of the leaders (policy mode). Nothing here moves a motor: the mode chooses Teleop's cards and when a still is taken.
+// arms follow), and records nothing: a still refuses to run beside a recording. Policy runs a trained policy with the
+// leaders connected: the operator takes over and hands back (pedal B or O), and pedal A records both, each frame
+// labelled (policy corrections). Nothing here moves a motor: the mode chooses Teleop's cards and when a still is taken.
 export const MODES = ['direct', 'calibrate', 'policy'];
 export const SETTLE_MS = 1000;  // From the pause reaching Hold to the still: the arm and head stop ringing first.
 export const PAUSE_WAIT_MS = 3000;  // A pause that has not reached Hold by then was refused; it takes no still.
@@ -15,10 +16,11 @@ export function sessionMode(chosen, {policyMode = false} = {}) {
 }
 
 // Teleop's cards for a mode. A running replay shows its own card; the head alone has no leaders and drives no arms.
+// The recording card shows in Direct and in Policy, which records the policy's stretches and the corrections.
 export function modeCards(mode, {replaying = false, policyMode = false, headOnly = false} = {}) {
   const leaders = !replaying && !policyMode && !headOnly;
   return {
-    task: leaders && mode === 'direct',
+    task: (leaders && mode === 'direct') || (!replaying && !headOnly && mode === 'policy'),
     calibration: !replaying && !policyMode && mode === 'calibrate',
     policyStart: !replaying && !headOnly && mode === 'policy',
     grip: leaders,

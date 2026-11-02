@@ -2,7 +2,7 @@ import {SettingsPanel} from './settings.js';
 import {LiveCameraView} from './camera_live.js';
 import {PedalControls, presentation, recordingLabel, recordingMode, StateOrder} from './pedals.js';
 import {LiveReplayCard, ReplayView, replayTelemetry} from './replay.js';
-import {HOLD_STILL, policyLabel, policyNote, policyOptions, policyStats} from './policy.js';
+import {driverText, HOLD_STILL, policyLabel, policyNote, policyOptions, policyStats, switchLabel} from './policy.js';
 import {GRIP_SETTINGS, gripLive, gripSettingText, gripSliderValue, gripView} from './grip.js';
 import {upsView} from './ups.js';
 import {bridgeView, networkView} from './network.js';
@@ -890,7 +890,9 @@ function renderTask(state) {
   $('task-mode').textContent = simulation ? 'SIMULATED CONTACT TASK' : 'BIMANUAL ROBOT CAPTURE';
   $('task-capability').textContent = simulation
     ? `${task.display_visual || 'Camera appearance is not reported yet.'} Dynamic object contacts with posed fingers; simulated arm response is not a validated coupled physics model. No synthetic grasp attachment.`
-    : 'Records the current guarded receiver and existing camera streams. Both arms and grippers must be healthy; camera timing must be verified.';
+    : teleopView(t).mode === 'policy'
+      ? "Records a policy rollout: the policy's stretches and your corrections in one episode, each frame labelled with who drove it. The export keeps each stretch and leaves out the holds and alignments between them."
+      : 'Records the current guarded receiver and existing camera streams. Both arms and grippers must be healthy; camera timing must be verified.';
   $('task-setup').disabled = running || !t;
   $('task-setup').textContent = configured ? 'Task configured' : 'Set up task';
   $('task-reset').hidden = !simulation;
@@ -1759,6 +1761,9 @@ function onKey(event) {
     event.preventDefault();
     closeDisable();
     sendKey(key);
+  } else if (key === 'O' && last?.teleop?.policy?.takeover) {  // Take over from the policy, or hand back.
+    event.preventDefault();
+    sendKey(key);
   } else if (key === 'P' && !$('calibration').hidden) {  // Calibrate shows the card.
     event.preventDefault();
     captureStill();
@@ -1968,9 +1973,15 @@ function renderPolicy(t, policyMode, active) {
   $('t-policy-start').hidden = active || !teleopView(t).cards.policyStart;
   $('t-policy').hidden = !policyMode;
   if (!policyMode) return;
-  const policy = t.policy;
+  const policy = t.policy, label = switchLabel(t.state, policy);
   $('t-policy-title').textContent = policy.policy || policyLabel(policy.spec);
   $('t-policy-stats').textContent = policyStats(policy);
+  // Policy corrections: who drives, and O as a button (pedal B does it while the arms follow).
+  $('t-policy-takeover').hidden = !policy.takeover;
+  $('t-policy-driver').textContent = driverText(policy);
+  $('t-policy-switch').hidden = !label;
+  $('t-policy-switch').disabled = t.phase !== 'running' || !!t.fault || !!t.recording_fault;
+  if (label) $('t-policy-switch').textContent = label;
   $('t-policy-note').textContent = policyNote(t.state, policy);
   $('t-policy-error').hidden = !policy.error;
   $('t-policy-error').textContent = policy.error || '';
@@ -1980,7 +1991,7 @@ function startPolicy(spec) {
   const t = last?.teleop;
   if (!t || !spec || ['running', 'starting'].includes(t.phase)) return;
   pedalControls.setTest(false);
-  const label = policyLabel(spec), policy = {policy: spec};
+  const label = policyLabel(spec), policy = {policy: spec, takeover: true};  // Policy corrections: leaders connected.
   const choice = t.receiver_choice || {mode: 'virtual'};
   if (choice.mode !== 'live') {
     act('/api/helm/teleop/start', {policy}, `Starting the policy ${label}: no motors move.`);
@@ -2003,6 +2014,8 @@ function startPolicy(spec) {
         + 'but for the task objects and stand clear.',
     'Hold (T) pauses; Shutdown (X) lowers the arms; Disable (H) removes torque at once. If the policy stops '
       + 'answering, the arms hold.',
+    'Your leaders stay connected: Take over (pedal B or O) holds the arms, then Resume aligns them to the leaders at '
+      + 'the alignment speed, so line the leaders up with the arms first.',
     direct ? 'Collision detection is disabled. Nothing checks the arms against each other or the body.'
       : arm === 'both' ? 'The two-arm collision bound is enforced as in teleop. Nothing checks the arms against the body.'
       : 'Collision checks are advisory: nothing stops the arm from reaching the body or the other arm.',
@@ -2010,6 +2023,7 @@ function startPolicy(spec) {
     `Starting the policy ${label} LIVE on ${arms}: checking that ${arm === 'both' ? 'they are' : 'it is'} still and in the reference pose, then the receiver.`));
 }
 $('t-policy-refresh').onclick = () => refreshPolicies(true);
+$('t-policy-switch').onclick = () => sendKey('O');
 $('t-policy-choice').onchange = () => { if (last) renderTeleop(last.teleop); };  // Start session needs a choice.
 for (const button of document.querySelectorAll('#t-mode button')) {
   button.onclick = () => {

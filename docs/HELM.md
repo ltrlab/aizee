@@ -248,7 +248,14 @@ runs; `helm --loop pc` starts on this PC.
   USB, a head fault). P still captures by hand. Nothing is recorded: pedal A
   cannot start a recording here, and a still refuses to run beside one.
 - **Policy**: choose a policy in the policy card; Start session then starts a
-  policy session (policy mode, docs/development/POLICY_MODE.md).
+  policy session (policy mode, docs/development/POLICY_MODE.md) with the
+  leaders connected. Take over with pedal B (or O, or the card's button): the
+  arms hold where they are; line the leaders up with them, and Resume (B or T)
+  aligns the arms to the leaders at the alignment speed. B again hands back the
+  same way: the arms hold, the policy plans from there, and Resume aligns them
+  to its first action. Pedal A records an episode of both: each frame is
+  labelled with who drove it (policy or correction), and the LeRobot export
+  keeps each stretch, without the holds and alignments between them.
 
 Direct and Calibrate switch during a leader session (not while it records);
 Policy needs a session of its own.

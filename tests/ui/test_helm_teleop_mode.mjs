@@ -14,8 +14,9 @@ assert.equal(sessionMode('calibrate'), 'calibrate');
 // shows whenever leaders drive the arms.
 assert.deepEqual(modeCards('direct'), {task: true, calibration: false, policyStart: false, grip: true});
 assert.deepEqual(modeCards('calibrate'), {task: false, calibration: true, policyStart: false, grip: true});
-assert.deepEqual(modeCards('policy'), {task: false, calibration: false, policyStart: true, grip: true});
-assert.deepEqual(modeCards('policy', {policyMode: true}), {task: false, calibration: false, policyStart: true, grip: false});
+// Policy records too: the policy's stretches and the operator's corrections (policy corrections).
+assert.deepEqual(modeCards('policy'), {task: true, calibration: false, policyStart: true, grip: true});
+assert.deepEqual(modeCards('policy', {policyMode: true}), {task: true, calibration: false, policyStart: true, grip: false});
 // A replay shows its own card; the head alone takes head stills but neither records nor runs a policy.
 assert.deepEqual(modeCards('calibrate', {replaying: true}), {task: false, calibration: false, policyStart: false, grip: false});
 assert.deepEqual(modeCards('calibrate', {headOnly: true}), {task: false, calibration: true, policyStart: false, grip: false});

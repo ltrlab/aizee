@@ -21,6 +21,15 @@ const idleQuiet={...base,teleop:{...base.teleop,state:'IDLE',observation_age_ms:
 assert.equal(presentation(idleQuiet).label,'Idle');
 assert.equal(presentation({...idleQuiet,teleop:{...idleQuiet.teleop,status_age_ms:750}}).label,'State unavailable');
 assert.equal(presentation({...base,teleop:{...base.teleop,status_age_ms:10,observation_age_ms:20}}).tone,'teleop');
+// Policy corrections: the policy drives until a take over, then the operator's leaders, each change through a Hold.
+const policyDrives={...base,teleop:{...base.teleop,state:'TELEOP',policy:{takeover:true,driver:'policy'}}};
+assert.equal(presentation(policyDrives).label,'Policy · driving');
+assert.match(presentation(policyDrives).detail,/B takes over/);
+const youDrive={...policyDrives,teleop:{...policyDrives.teleop,policy:{takeover:true,driver:'leaders'}}};
+assert.equal(presentation(youDrive).label,'Correcting · you drive');
+assert.match(presentation({...youDrive,teleop:{...youDrive.teleop,state:'ENGAGING'}}).detail,/Aligning to the leaders/);
+assert.match(presentation({...youDrive,teleop:{...youDrive.teleop,state:'HOLD'}}).detail,/You drive after Resume/);
+assert.match(presentation({...policyDrives,teleop:{...policyDrives.teleop,state:'ENGAGING'}}).detail,/policy's first action/);
 assert.match(recordingLabel({recording:{active:true},last_command:{state:'pending',action:'stop_record'}}),/Finishing/);
 assert.equal(recordingLabel({recording:{state:'complete',complete:false}}),'Not recording');
 assert.equal(recordingLabel({recording:{complete:true}}),'Complete · saved');

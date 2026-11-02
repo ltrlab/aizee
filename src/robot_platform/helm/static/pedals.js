@@ -12,16 +12,22 @@ export function presentation(state, fresh = true) {
   if (fault) return {tone:'fault', label:'Fault · reset required', detail:String(fault), stage:''};
   if (!running(t)) return {tone:'off', label:'Session stopped', detail:'Touch Start session first. Pedals cannot start a session.', stage:'off'};
   if (t.phase === 'starting') return {tone:'off', label:'Starting session', detail:'Waiting for the control worker. No pedal action yet.', stage:'off'};
-  // A live replay follows a recorded episode, and policy mode a policy, in place of the leaders.
-  const followed = t.replay ? "the episode's pose" : t.policy ? "the policy's first action" : 'the leaders';
+  // A live replay follows a recorded episode, and policy mode a policy, in place of the leaders. With takeover (policy
+  // corrections) the operator's leaders drive after a take over, until they hand back.
+  const you = t.policy?.takeover && t.policy.driver === 'leaders', takeover = !!t.policy?.takeover;
+  const followed = t.replay ? "the episode's pose" : t.policy && !you ? "the policy's first action" : 'the leaders';
   const states = {
     DISABLED: ['off', 'Disabled', t.pedals?.actions?.c?.enabled === false && t.pedals.actions.c.reason
       ? t.pedals.actions.c.reason : 'C: Idle powers the motors with zero torque.', 'off'],
     IDLE: ['off', 'Idle', 'Motors on, zero torque. C: Enable holding.', 'idle'],
-    HOLD: ['hold', t.pedals?.paused ? 'Hold · paused' : 'Hold · enabled', 'Holding position; motors stay enabled.', 'hold'],
+    HOLD: ['hold', t.pedals?.paused ? 'Hold · paused' : 'Hold · enabled', takeover
+      ? `Holding position; motors stay enabled. ${you ? 'You drive' : 'The policy drives'} after Resume.`
+      : 'Holding position; motors stay enabled.', 'hold'],
     ENGAGING: ['engaging', 'Engaging · aligning', `Aligning to ${followed}. Waiting for reported Teleop.`, 'align'],
     TELEOP: t.replay ? ['teleop', 'Replay · following', 'Following the recorded episode. B pauses in Hold.', 'teleop']
-      : t.policy ? ['teleop', 'Policy · driving', 'The policy drives the arms. B pauses in Hold.', 'teleop']
+      : you ? ['teleop', 'Correcting · you drive', 'Following both leaders: a correction. B hands back through a Hold.', 'teleop']
+      : t.policy ? ['teleop', 'Policy · driving', takeover ? 'The policy drives the arms. B takes over through a Hold.'
+        : 'The policy drives the arms. B pauses in Hold.', 'teleop']
       : ['teleop', 'Teleop · following', 'Following both leaders. B pauses in Hold.', 'teleop'],
     SHUTDOWN: ['shutdown', 'Shutdown · returning', 'Returning to the reference, then disabling. Keep the path clear.', 'shutdown'],
     FAULT: ['fault', 'Fault · reset required', t.message || 'Stop the session and inspect the fault.', ''],
