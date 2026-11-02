@@ -115,15 +115,34 @@ What makes switching easy:
   from 0.3 rad away, 0.8 and 1.9 ms. **The Jetson's is not measured yet.**
 - **Found: the reference pose is singular.** The arms hang straight: they cannot move further down, and J1 and J5
   are both vertical, so a 1 cm sideways drag asks ±0.2 rad of J1 against J5. Phase 2 caps each joint's motion a
-  frame (AIZEE's 4 rad/s) and the headset says to raise the arm before grabbing it there.
+  frame (3 rad/s, AIZEE's Quest following speed) and the headset says to raise the arm before grabbing it there.
 
-## Phase 2: VR arms source
+## Phase 2: VR arms (built 2026-11-01)
 
-- `teleop/vr_arms.py`, a plain class tested offline: per arm, the grip, the filters, the workspace box, the speed
-  caps, the trigger to the gripper, release on stale poses or a recenter (WebXR's `reset`), forward from the zero.
-- Near a singular pose (the reference among them) each joint's motion a frame is capped, so the target lags rather
-  than a joint whipping round; the arm's nearness to one goes to the headset with each grip's state.
-- Scripted controller tracks (from `fake_quest.py`'s modes) drive it through the IK.
+- `teleop/vr_arms.py` (`VRArms`): plain hand samples in (position, orientation, grip, trigger, B/Y, the time Helm
+  received them), each arm's CAD angles and gripper closure (0 open, 1 closed) out; phase 4's source turns them into
+  motor targets. `seed(arm, positions)` at Engage and after any hold, fault or pause; `recenter()`, `set_forward(yaw)`,
+  `set_scale(s)`.
+- Per arm: the grip (attaches above 0.6, lets go below 0.4; a grip held at seeding must be let go first), the hand's
+  sign fix, jump check (0.3 m or 0.5 rad; after 3 in a row the hand attaches again there, so a glitch moves nothing)
+  and 20 ms low-pass filter; the tool's target at most 0.6 m/s and inside the arm's workspace box (given by phase
+  4's profile; none in code: the table's height is not measured yet); each joint at most 3 rad/s. A hand silent for
+  0.1 s lets go; back with the grip held, it attaches again where it is.
+- Each update reports gripped, tracking, clamped, the IK's convergence and limits, the smallest singular value and
+  whether the arm is near a singular pose (below 0.02), and a B/Y press (once).
+- **Checked offline** (`tests/unit/test_vr_arms.py`, 22 tests; hands at 60 Hz, updates at 100 Hz): the axis mapping
+  and forward yaw (5 cm drags within 1 mm), turns about the same world axis at the tool point, let go and grip again
+  continuing, lost hands, a recenter 1 m away, one-pose and persistent glitches, the tool and joint speed caps, the
+  workspace box, the trigger, B/Y, scale, and fake_quest.py's 10 cm circle followed within 8 mm.
+- **Time, laptop**: both arms 1.1 ms an update (median), 4.3 ms (95th percentile), 8.9 ms at most. It stays out of
+  the arms' loop (phase 4).
+- **Found: near-singular poses are common.** J2, J3 and J4 are parallel pitch joints, so whenever the wrist is near
+  the vertical through the shoulder, a sideways drag at a fixed orientation needs J1 and J5 to turn against each
+  other: from one such pose a 5 cm drag asked 0.86 rad of each, and ran into the singular pose. Over the swept
+  ranges, half of all poses have a smallest singular value under 0.06 and a fifth under 0.02. A lower orientation
+  weight does not help (the solver still finds the exact answer). The joint cap keeps the swing slow; **whether the
+  gripper's orientation should give way near those poses instead is for the rehearsal to decide** (phase 6). In
+  front of the robot at working height the arms are well conditioned (0.16).
 
 ## Phase 3: Headset page and relay
 
