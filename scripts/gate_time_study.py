@@ -5,8 +5,10 @@
                                                        whose time changed most from the first to the last
     python scripts/gate_time_study.py --json RUN       the same as JSON
 
-Stages come from the run's start (its folder name), pytest's start (tests.xml) and the report's write; tests and
-files from tests.xml. A run that spans sleep counts the sleep: an outlier test usually means the computer slept.
+Stages come from the run's start (its folder name), pytest's start (tests.xml), the serial phase's length
+(tests-serial.xml, after the parallel phase) and the report's write; tests and files from both reports. With the
+parallel phase a file's seconds add up across workers, so the percentages are shares of the summed test time.
+A run that spans sleep counts the sleep: an outlier test usually means the computer slept.
 """
 from __future__ import annotations
 
@@ -29,27 +31,37 @@ def module_path(classname):
     return '/'.join(parts[:end + 1]) + '.py'
 
 
+def suite_of(path):
+    root = ET.parse(path).getroot()
+    return root if root.tag == 'testsuite' else root.find('testsuite')
+
+
 def study(folder):
-    """The time study of one run folder (report.json and tests.xml)."""
+    """The time study of one run folder (report.json, tests.xml and the serial phase's tests-serial.xml, if any)."""
     folder = Path(folder)
     started = datetime.strptime(folder.name.split('-')[0], '%Y%m%dT%H%M%SZ').replace(tzinfo=timezone.utc)
     report = json.loads((folder / 'report.json').read_text(encoding='utf-8'))
     ended = datetime.fromtimestamp((folder / 'report.json').stat().st_mtime, timezone.utc)
-    suite = ET.parse(folder / 'tests.xml').getroot()
-    suite = suite if suite.tag == 'testsuite' else suite.find('testsuite')
-    pytest_started = datetime.fromisoformat(suite.get('timestamp'))
-    pytest_s = float(suite.get('time'))
+    suites = [suite_of(folder / 'tests.xml')]
+    if (folder / 'tests-serial.xml').is_file():
+        suites.append(suite_of(folder / 'tests-serial.xml'))
+    pytest_started = datetime.fromisoformat(suites[0].get('timestamp'))
+    pytest_s = float(suites[0].get('time'))
     files, tests = defaultdict(float), []
-    for case in suite.iter('testcase'):
+    for case in (case for suite in suites for case in suite.iter('testcase')):
         seconds = float(case.get('time') or 0.)
         name = module_path(case.get('classname'))
         files[name] += seconds
         tests.append({'test': f"{name}::{case.get('name')}", 'seconds': round(seconds, 3)})
     before = (pytest_started - started).total_seconds()
     wall = (ended - started).total_seconds()
+    stages = {'before_pytest': round(before, 1), 'pytest': round(pytest_s, 1)}
+    serial_s = float(suites[1].get('time')) if len(suites) > 1 else 0.
+    if len(suites) > 1:
+        stages['serial_pytest'] = round(serial_s, 1)
+    stages['after_pytest'] = round(wall - before - pytest_s - serial_s, 1)
     return {'run': folder.name, 'passed': report.get('passed'), 'tests': len(tests), 'wall_s': round(wall, 1),
-            'stages_s': {'before_pytest': round(before, 1), 'pytest': round(pytest_s, 1),
-                         'after_pytest': round(wall - before - pytest_s, 1)},
+            'stages_s': stages, 'test_s': round(sum(files.values()), 1),
             'files_s': {name: round(seconds, 1) for name, seconds in sorted(files.items(), key=lambda item: -item[1])},
             'slowest': sorted(tests, key=lambda item: -item['seconds'])[:15]}
 
@@ -85,12 +97,13 @@ def main(argv=None):
         return 0
     for s in studies:
         stages = s['stages_s']
+        serial = f", serial {stages['serial_pytest']:.0f} s" if 'serial_pytest' in stages else ''
         print(f"\n{s['run']}: {'passed' if s['passed'] else 'FAILED'}, {s['tests']} tests, {s['wall_s'] / 60:.1f} min "
-              f"(before pytest {stages['before_pytest']:.0f} s, pytest {stages['pytest']:.0f} s, "
-              f"after {stages['after_pytest']:.0f} s)")
+              f"(before pytest {stages['before_pytest']:.0f} s, pytest {stages['pytest']:.0f} s{serial}, "
+              f"after {stages['after_pytest']:.0f} s; {s['test_s']:.0f} s of tests)")
         print('  slowest files:')
         for name, seconds in list(s['files_s'].items())[:12]:
-            print(f"    {seconds:8.1f} s  {100 * seconds / max(stages['pytest'], 1e-9):5.1f} %  {name}")
+            print(f"    {seconds:8.1f} s  {100 * seconds / max(s['test_s'], 1e-9):5.1f} %  {name}")
         print('  slowest tests:')
         for row in s['slowest'][:10]:
             print(f"    {row['seconds']:8.1f} s  {row['test']}")

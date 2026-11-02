@@ -20,6 +20,9 @@ sets the workers, by default half the CPUs up to 12), each test file on one work
 `tests/conftest.py` lists it as independent tests, then the tests marked `serial` alone.
 Those wait on wall-clock progress (real rendering, live loops), which the other workers' load
 only slows. Mark a test `serial` for that reason only, never to hide a race between tests.
+The workers run one BLAS thread each (numpy's and scipy's OpenBLAS otherwise reserve memory for
+every CPU thread, 1.4 GB a process on a 22-thread laptop, which ran 11 workers out of memory),
+and a worker that crashes fails the run at once, naming its test.
 Other suites remain available through this environment's `python -m pytest`;
 the focused gate does not claim to cover learning, full UI behavior, Linux services or hardware.
 Node checks all shipped browser modules. ARM64 release inputs are mandatory even
