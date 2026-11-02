@@ -3,18 +3,23 @@ docs/development/VR_ARM_TELEOP_PLAN.md, phase 4).
 
 The controllers grab and drag the arms in a worker process (teleop.vr_worker runs teleop.vr_arms); this side turns
 each arm's commanded CAD angles into the receiver's motor positions (cad = scale * motor + offset, the derived
-report's) and each trigger into its gripper's position between open and closed, and seeds the drag from the arms'
-measured joints.
+report's) and each trigger into its gripper's position between open and closed, and seeds the drag from the pose
+Engage aligned to.
 
 What the arms do, by lifecycle state:
 - IDLE, HOLD: the target is where the arms are, each gripper at its trigger (at its measured position without a fresh
-  hand): Engage aligns to it, which moves only the grippers.
-- ENGAGING: the pose taken as Engage began, held; the worker is seeded with its arm joints.
-- TELEOP: the worker's newest answer computed from that seed, while it is fresh (within `max_age_s` of its arrival on
-  the loop's clock); until the first, the seed itself for at most `start_s`. Without one the source gives no target,
-  and the lifecycle treats that as it treats lost leaders. A gripper whose hand is lost keeps its last target.
-- Anything else: no target; the next Engage seeds again, so after a hold, fault or pause the drag starts from where
-  the arms are, never from where it was commanded before.
+  hand).
+- ENGAGING: the pose taken as Engage began, held, except that an arm hanging at its reference rises to its ready pose
+  (READY: forearm forward, the gripper level ahead of the robot). The hanging arm is singular: there a 3 cm sideways
+  drag swung J1 and J5 against each other by over a radian, where the ready pose is well conditioned (the user's
+  choice, 2026-11-02). The lifecycle aligns to it at the alignment speed, as to a replay's first frame.
+- TELEOP: the worker is seeded with the aligned pose's arm joints as following begins (a grip held through the raise
+  must be let go first, so nothing jumps); then its newest answer computed from that seed, while it is fresh (within
+  `max_age_s` of its arrival on the loop's clock); until the first, the aligned pose for at most `start_s`. Without
+  one the source gives no target, and the lifecycle treats that as it treats lost leaders. A gripper whose hand is
+  lost keeps its last target.
+- Anything else: no target; the next Engage aligns and seeds again, so after a hold, fault or pause the drag starts
+  from where the arms are (raised again only if they hang), never from where it was commanded before.
 
 Each B/Y press the worker counts asks for Hold while engaged: never Engage, never Disable.
 
@@ -27,6 +32,13 @@ from .arm_ik import ARM_JOINTS, ARMS, cad_limits
 
 HELD = ('IDLE', 'HOLD')
 ENGAGED = ('ENGAGING', 'TELEOP')
+# Each arm's ready pose (CAD joints, rad): the upper arm hanging, the forearm folded forward and the gripper level,
+# 28 cm ahead of the shoulder and 24 cm above where it hangs, the hands 48 cm apart. The Jacobian's smallest singular
+# value is 0.16 (the phase 2 working poses'), and J2-J4 sit 0.42 rad or more inside Minerva's swept limits, so a 6 cm
+# drag any way converges with no joint at a limit (2026-11-02). The arms mirror each other: J2 turns the other way on
+# the right. Rising, the forearm swings forward first: halfway the hand is 18 cm ahead and 7 cm up.
+READY = {'left': (0., -.3, -1.6, -.7, 0., 0.), 'right': (0., .3, -1.6, -.7, 0., 0.)}
+HANGING_RAD = .25  # An arm hangs while J2, J3 and J4 (its parallel pitch joints) are this close to the reference.
 
 
 def validate_request(payload):
@@ -44,7 +56,10 @@ def worker_limits(report, names):
 
 
 class HeadsetSource:
-    def __init__(self, names, report, *, max_age_s=.2, start_s=.5):
+    """`reference` ({motor: position}, the lifecycle's zero positions): where a hanging arm hangs. Without it no arm
+    rises on Engage."""
+
+    def __init__(self, names, report, *, reference=None, max_age_s=.2, start_s=.5):
         for value, label in ((max_age_s, 'max_age_s'), (start_s, 'start_s')):
             if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
                 raise ValueError(f'{label} must be a positive number of seconds')
@@ -62,6 +77,17 @@ class HeadsetSource:
             if row is not None:
                 low, high = row['usable']
                 self.grippers[arm] = (row['motor'], high, low) if row['opens'] > 0 else (row['motor'], low, high)
+        self.reference = None  # {arm: CAD joints} where each arm hangs.
+        if reference is not None:
+            self.reference = {arm: self._cad(arm, reference) for arm in self.arms}
+            for arm in self.arms:
+                limits = cad_limits(report, arm)
+                outside = [n for n, q in enumerate(READY[arm], 1)
+                           if not limits[f'{arm}_arm_j{n}'][0] < q < limits[f'{arm}_arm_j{n}'][1]]
+                if outside:
+                    raise ValueError(f"The headset's ready pose is outside the {arm} arm's limits at "
+                                     + ', '.join(f'J{n}' for n in outside))
+        self.raised = ()        # The arms this Engage raises to READY.
         self.seed = 0           # The latest seed's number: answers computed from another are not followed.
         self.pending_seed = None  # (number, {arm: CAD positions}) for the loop to hand the worker.
         self.aligned = None     # ENGAGING/TELEOP: the pose Engage aligned to, {motor: position}.
@@ -136,8 +162,15 @@ class HeadsetSource:
         return pose
 
     def pause(self):
-        """Hold, a fault or a pause ended following: the next Engage seeds again from where the arms are."""
+        """Hold, a fault or a pause ended following: the next Engage aligns and seeds again from where the arms are."""
         self.aligned, self.grip_targets, self._seeded_at, self._followed = None, {}, None, False
+        self.raised = ()
+
+    def _hanging(self, arm, measured):
+        if self.reference is None:
+            return False
+        cad = self._cad(arm, measured)
+        return all(abs(cad[n] - self.reference[arm][n]) < HANGING_RAD for n in (1, 2, 3))
 
     def target(self, state, now, measured):
         """This cycle's target rows from the receiver's measured motor positions ({motor: rad}), or None."""
@@ -151,14 +184,19 @@ class HeadsetSource:
             pose = self._held_pose(now, measured)
         elif state in ENGAGED:
             if self.aligned is None:
-                # Engage began: hold the pose it aligns to, and seed the drag with its arm joints.
+                # Engage began: the pose it aligns to, where the arms are but for a hanging arm, raised.
                 self.aligned = self._held_pose(now, measured)
-                self.seed += 1
-                self.pending_seed = (self.seed, {arm: self._cad(arm, self.aligned) for arm in self.arms})
-                self._seeded_at = now
+                self.raised = tuple(arm for arm in self.arms if self._hanging(arm, measured))
+                for arm in self.raised:
+                    self.aligned.update(self._motor(arm, READY[arm]))
                 self.grip_targets = {arm: self.aligned[motor] for arm, (motor, _, _) in self.grippers.items()}
             pose = dict(self.aligned)
             if state == 'TELEOP':
+                if self._seeded_at is None:
+                    # Aligned: the drag starts from the pose the arms settled to.
+                    self.seed += 1
+                    self.pending_seed = (self.seed, {arm: self._cad(arm, self.aligned) for arm in self.arms})
+                    self._seeded_at = now
                 commands = self._commands(now) if self.answer and self.answer[0].get('seed') == self.seed else None
                 if commands is None:
                     # Never back to the seed once following has begun: the arm would be pulled to where Engage
@@ -188,6 +226,7 @@ class HeadsetSource:
                       ('gripped', 'tracking', 'clamped', 'converged', 'near_singular', 'at_limit', 'sigma', 'trigger')}
                 for arm in self.arms}
         return dict(arms=arms, answers=self.answers, stale_cycles=self.stale_cycles, seed=self.seed,
-                    following=self.aligned is not None, hold_requests=self.hold_requests, error=self.last_error,
+                    following=self.aligned is not None, raised=list(self.raised), hold_requests=self.hold_requests,
+                    error=self.last_error,
                     compute_ms=self.answer[0].get('compute_ms') if self.answer else None,
                     answer_age_s=None if self.answer is None or now is None else round(now - self.answer[1], 3))

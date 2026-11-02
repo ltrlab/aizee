@@ -770,8 +770,9 @@ class TeleopCore:
             self.message += (f' POLICY {self.source.policy.name}: Enable (E) shows its first action, Engage (T) aligns '
                              'the arms to it at the alignment speed, then the policy drives them; Hold (T) pauses.')
         elif self._source_kind == 'headset':
-            self.message += (' HEADSET: Engage (T) moves only the grippers, to their triggers; then hold a '
-                             "controller's grip to drag its arm, and B or Y holds both.")
+            self.message += (' HEADSET: Engage (T) raises a hanging arm to its ready pose at the alignment speed and '
+                             "the grippers to their triggers; then hold a controller's grip to drag its arm, and B or "
+                             'Y holds both.')
         elif self.source is not None:
             self.message += (f' REPLAY at {self.source.speed:g}×: Engage (T) first aligns the arms to the episode\'s '
                              'first frame, then replays it; Hold pauses it.')
@@ -797,7 +798,9 @@ class TeleopCore:
             from robot_platform.teleop.headset_source import HeadsetSource
             info = self.vr_worker.ready()
             self._event('headset', arms=info['arms'])
-            return HeadsetSource(names, self.derived['report'])
+            # A hanging arm rises to its ready pose on Engage: where it hangs is the lifecycle's zero position.
+            reference = {joint['name']: joint['zero_position'] for joint in self.derived['lifecycle']}
+            return HeadsetSource(names, self.derived['report'], reference=reference)
         if self._source_kind == 'policy':
             from robot_platform.teleop.policy_source import PolicySource
             info = self.policy_worker.ready()
