@@ -685,12 +685,14 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     async def teleop_start(request):
         """Start a teleop session; with `replay` ({episode, speed}), a recorded episode drives the arms in place of
         the leaders (live replay), and Replay's library must know it as complete; with `policy` ({policy}), a policy
-        does (policy mode)."""
+        does (policy mode); with `headset` true, the operator's controllers do (the Headset input)."""
         payload = await body(request)
         need_teleop()
-        replay, policy = payload.get('replay'), payload.get('policy')
-        if replay is not None and policy is not None:
-            raise ValueError('A session replays an episode or runs a policy, not both')
+        replay, policy, headset_input = payload.get('replay'), payload.get('policy'), payload.get('headset', False)
+        if type(headset_input) is not bool:
+            raise ValueError('headset is true or false')
+        if sum((replay is not None, policy is not None, headset_input)) > 1:
+            raise ValueError('A session replays an episode, runs a policy or follows the headset: one of them')
         if replay is not None:
             from robot_platform.teleop.episode_source import validate_request
             from .episodes import EpisodeError
@@ -718,7 +720,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         async with camera_change:
             await take_motors(arms=not head_alone())
             teleop.start(confirm=payload.get('confirm') is True, **({'replay': replay} if replay is not None else {}),
-                         **({'policy': policy} if policy is not None else {}))
+                         **({'policy': policy} if policy is not None else {}),
+                         **({'headset': True} if headset_input else {}))
         return state_response()
 
     async def task_action(request):
@@ -1095,6 +1098,11 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
                 if pose is None:
                     continue
                 running = teleop is not None and teleop.head_pose(*pose)
+                # The controllers that came with it, as Helm checked them, to a headset session's grab and drag.
+                hands = {hand: {key: value for key, value in headset.hands[hand].items() if key != 'at'}
+                         for hand in (data.get('hands') or {}) if hand in headset.hands}
+                if hands and teleop is not None and hasattr(teleop, 'hands'):
+                    teleop.hands(hands, headset.epoch, headset.zero_yaw)
                 steered += 1
                 if steered % 15 == 1:  # Now and then: what the head does with it.
                     head = (((teleop.snapshot() if teleop is not None else None) or {}).get('head') or {})

@@ -131,14 +131,38 @@ def test_poses_reach_only_a_running_loop_that_answers_and_never_wait_for_a_send(
     assert len(sent) == 1
 
 
+def test_controllers_reach_only_a_running_headset_session_and_never_wait_for_a_send():
+    sent = []
+    hands = {'left': {'position': (0., 1.2, -.4), 'orientation': (0., 0., 0., 1.), 'grip': 1., 'trigger': 0.,
+                      'hold': False, 'ui': False}}
+    loop = SimpleNamespace(_lock=threading.Lock(), _send_lock=threading.Lock(), active=True,
+                           _view={'phase': 'running', 'headset': {'loading': True}},
+                           _view_received_at=time.perf_counter(), _conn=SimpleNamespace(send=sent.append))
+    assert TeleopSession.hands(loop, hands, 3, .25) is True
+    assert sent == [('hands', {'hands': hands, 'epoch': 3, 'forward': .25})]
+    loop._view = {'phase': 'running', 'headset': None}  # A leader, replay or policy session: nothing to drag.
+    assert TeleopSession.hands(loop, hands, 3, .25) is False
+    loop._view = {'phase': 'running', 'headset': {}}
+    loop._view_received_at = time.perf_counter() - HEAD_POSE_ANSWER_S - .1  # Quiet: a stalled loop.
+    assert TeleopSession.hands(loop, hands, 3, .25) is False
+    loop._view_received_at = time.perf_counter()
+    with loop._send_lock:  # Another send under way: dropped, not waited for.
+        assert TeleopSession.hands(loop, hands, 3, .25) is False
+    assert len(sent) == 1
+
+
 class Teleop:
     active = False
 
     def __init__(self):
-        self.poses = []
+        self.poses, self.hands_sent = [], []
 
     def head_pose(self, yaw, pitch):
         self.poses.append((yaw, pitch))
+        return True
+
+    def hands(self, hands, epoch, forward):
+        self.hands_sent.append((hands, epoch, forward))
         return True
 
     def snapshot(self):
@@ -337,5 +361,12 @@ def test_the_socket_takes_controllers_with_the_pose_and_helms_state_shows_each_h
             state = await (await client.get('/api/helm/state')).json()
             assert state['xr']['hands']['left'] == {'tracking': True, 'grip': .123, 'trigger': .987, 'ui': False}
             assert set(state['xr']['hands']) == {'left', 'right'}
+            # The session gets the controllers as Helm checked them (the quaternion made unit), with the epoch and the
+            # head zero's yaw; the refused pose sent none.
+            assert len(teleop.hands_sent) == 1
+            sent, epoch, forward = teleop.hands_sent[0]
+            assert set(sent) == {'left', 'right'} and epoch == state['xr']['epoch'] and forward == 0.
+            assert sent['left']['hold'] is True and 'at' not in sent['left']
+            assert sum(v * v for v in sent['left']['orientation']) == pytest.approx(1.)
             await ws.close()
     asyncio.run(run())

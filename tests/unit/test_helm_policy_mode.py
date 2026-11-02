@@ -88,7 +88,7 @@ def test_a_policy_session_carries_the_policy_and_on_the_robot_the_cameras_not_a_
     session = TeleopSession(helm_stub(), TELEOP, runs=tmp_path, core_factory=lambda bundle: Core(bundle),
                             capture_profile=CAPTURE)
     session.task_capture_config = {'hz': 15}  # Task set up for recording: a policy session still records nothing.
-    with pytest.raises(ValueError, match='replays an episode or runs a policy, not both'):
+    with pytest.raises(ValueError, match='replays an episode, runs a policy or follows the headset: one of them'):
         session.start(replay={'episode': 's/e'}, policy={'policy': 'hold_still'})
     session.start(policy={'policy': 'hold_still'})
     try:
@@ -165,7 +165,7 @@ def test_the_route_starts_a_policy_session(tmp_path):
             headers = {'X-Helm-Token': 'secret'}
             both = await client.post('/api/helm/teleop/start', headers=headers,
                                      json={'replay': {'episode': 's/e'}, 'policy': {'policy': 'hold_still'}})
-            assert both.status != 200 and 'not both' in (await both.json())['error']
+            assert both.status != 200 and 'one of them' in (await both.json())['error']
             started = await client.post('/api/helm/teleop/start', headers=headers,
                                         json={'confirm': True, 'policy': {'policy': 'hold_still'}})
             assert started.status == 200
