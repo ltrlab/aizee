@@ -143,6 +143,7 @@ def live(core, key=None, *, until=None, limit=1):
     assert until is None, f'still {core.session.lifecycle.state}: {core.message}'
 
 
+@pytest.mark.serial  # The arms' 8 ms ticks on this computer's clock: 10 slow ones beside the gate's workers (2026-11-01).
 def test_a_live_head_cycles_in_a_process_of_its_own_so_the_arms_never_wait_for_it(bundle):
     # Cycled in the arms' loop, the live head (each exchange waits for its service's 10 ms tick) took 22 ms of their
     # 10 ms period every 40 ms, and Enable faulted. On a thread beside them it shared their interpreter: their slow

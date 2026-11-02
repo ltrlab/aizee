@@ -224,6 +224,7 @@ def test_each_rejected_stiffness_says_why():
     assert grid_check(grid[3], tolerance=.03, limit=.04) is None
 
 
+@pytest.mark.serial  # A 50 ms budget on this computer's clock: 127 ms beside the gate's other workers (2026-11-01).
 def test_the_torque_map_of_a_wide_joint_takes_milliseconds():
     # It runs inside the sweep's control cycle. Right J1's characterisation (+1.35/-0.53 rad at 0.15 rad/s)
     # recorded tens of thousands of samples; summing them in Python missed the receiver's 80 ms deadline.
