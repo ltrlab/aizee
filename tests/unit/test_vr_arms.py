@@ -455,3 +455,22 @@ def test_a_hand_working_the_headsets_screens_leaves_its_arm_and_gripper_alone(ki
     assert all(not c["left"].gripped for c in after)  # Still held from the screen: not attached.
     script.run(0.1, still(position=(HOME[0], HOME[1] + 0.04, HOME[2]), grip=0.0))
     assert script.run(0.1, still(position=(HOME[0], HOME[1] + 0.04, HOME[2])))[-1]["left"].gripped
+
+
+@pytest.mark.parametrize("arm", ("left", "right"))
+def test_raised_from_hanging_straight_the_forearm_folds_forward(kinematics, arm):
+    # The hanging arm is singular (straight elbow). Raising the hand 5 cm bends the elbow; unbent the IK folded it
+    # the wrong way (forearm back, elbow ahead of the hand). Minerva's forearm folds forward: CAD J3 negative.
+    vr = make(kinematics, seed={arm: (0.0,) * 6})
+    script = Script(vr)
+    hands = lambda grip, position=HOME: lambda t: {arm: dict(position=position, grip=grip)}  # noqa: E731
+    start = tool(kinematics, script.run(0.1, hands(0.0))[-1], arm)[:3, 3]
+    script.run(0.1, hands(1.0))
+    command = script.run(1.5, hands(1.0, (HOME[0], HOME[1] + 0.05, HOME[2])))[-1][arm]
+    np.testing.assert_allclose(
+        kinematics[arm].pose(command.positions)[:3, 3] - start, (0.0, 0.0, 0.05), atol=1e-3
+    )
+    assert command.converged and command.positions[2] < -0.5
+    with pytest.raises(ValueError, match="elbow_bend"):
+        DragSettings(elbow_bend=0.5)
+

@@ -108,6 +108,11 @@ class DragSettings:
     singular_sigma: float = (
         0.02  # Below this smallest singular value the arm is near a singular pose.
     )
+    # A solve that fails with the elbow straight (|J3| below this) is tried again from this bend, and the better kept.
+    # The hanging arm is singular, and from straight the IK folds the elbow either way: unbent it chose the forearm
+    # back, the elbow ahead of the hand (toward the table). Minerva's forearm folds forward with CAD J3 negative, both
+    # arms (2026-11-02, the virtual receiver). A grip without a move bends nothing: that solve succeeds. 0: off.
+    elbow_bend: float = -0.05
     # Each update solves from the last answer, so a solve not done by then goes on at the next: a converging solve
     # takes 1-2, and an arm held at a joint limit no longer spends 12 iterations a frame (on the Jetson, 4 ms of an
     # arm's update).
@@ -139,6 +144,8 @@ class DragSettings:
             or self.ik_iterations < 1
         ):
             raise ValueError("The grip lets go below where it attaches, inside 0 to 1")
+        if not math.isfinite(self.elbow_bend) or abs(self.elbow_bend) > 0.3:
+            raise ValueError("elbow_bend is a small bend, at most 0.3 rad either way")
         for arm, box in self.workspace.items():
             low, high = (np.asarray(corner, dtype=float) for corner in box)
             if (
@@ -362,9 +369,13 @@ class VRArms:
             )
             clamped = True
         state.target = target
-        solution = state.kinematics.solve(
-            target, state.q, max_iterations=s.ik_iterations
-        )
+        solution = state.kinematics.solve(target, state.q, max_iterations=s.ik_iterations)
+        if s.elbow_bend and not solution.converged and abs(state.q[2]) < abs(s.elbow_bend):
+            seed = state.q.copy()
+            seed[2] = s.elbow_bend  # J3: again from the forearm folded forward (elbow_bend).
+            bent = state.kinematics.solve(target, seed, max_iterations=s.ik_iterations)
+            if bent.converged or bent.position_error_m < solution.position_error_m:
+                solution = bent
         step = np.asarray(solution.positions) - state.q
         largest = s.max_joint_speed_rad_s * step_s
         if np.max(np.abs(step)) > largest:
