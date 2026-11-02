@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from robot_platform.helm.head_teleop import PERIOD_S, RETURN_AFTER_S, HeadTeleop
+from robot_platform.control.approach import OVERSPEED_HEADROOM
+from robot_platform.helm.head_teleop import FOLLOW_SHARE, PERIOD_S, RETURN_AFTER_S, SPEED_SHARE, HeadTeleop
 from robot_platform.neck import head
 from robot_platform.simulation.control_harness import default_binary
 
@@ -160,6 +161,46 @@ def test_with_its_shoulder_clearance_the_head_never_reaches_the_shoulder_followi
         rest = core.rest_target['head_tilt'] - core.centre['head_tilt']
         assert rest < -.7
         assert core.state == 'DISABLED' and pose_now() == (pytest.approx(0., abs=.01), pytest.approx(rest, abs=.03))
+    finally:
+        core.close()
+
+
+@pytest.mark.parametrize('saved', [False, True], ids=['without-clearance', 'with-clearance'])
+def test_the_head_follows_well_under_its_receivers_cap_so_its_overshoot_never_trips_it(saved):
+    # Looking down at the head's full 1.0 rad/s, its tilt read 1.30 rad/s, past its receiver's 1.25 cap, and the head
+    # tripped (2026-11-02): its commands, catching up on quick looks included, keep under FOLLOW_SHARE of that speed,
+    # with or without its shoulder clearance, and its receiver keeps its cap.
+    from robot_platform.neck.clearance import section
+    profile = head.load_profile(ROOT / head.PROFILE)
+    reference = head.virtual_reference(profile)
+    limits = head.virtual_limits(reference, span_rad=.8)
+    if saved:
+        limits = dict(limits, reference_id=reference['id'],
+                      clearance=section([{'pan': -.6, 'tilt': -.4}, {'pan': .6, 'tilt': -.4}]))
+    clock = Clock()
+    core = HeadTeleop({'teleop_profile': str(ROOT / head.PROFILE), 'head_reference': reference, 'limits': limits,
+                       'servo': None}, live=False, clock=clock)
+    core.build()
+    try:
+        for action in ('idle', 'enable', 'engage'):
+            run(core, clock, .2, action)
+        moves = []
+        for pose in ((0., -.6), (.6, 0.), (-.6, -.5), (0., 0.)):  # Quick looks: each a jump the head catches up on.
+            for _ in range(150):
+                core.pose(*pose, now=clock.now)
+                record = core.cycle(None, clock.now)
+                clock.now += .01
+                if record is not None and record['proposal']['operation'] == 'move':
+                    moves.append(dict(zip(core.names, record['proposal']['positions'])))
+        assert core.fault is None and core.state == 'TELEOP' and core.source == 'headset'
+        caps = {joint['name']: joint['max_velocity'] for joint in core.derived['config']['joints']}
+        for row in core.derived['lifecycle']:
+            name, speed = row['name'], row['max_velocity']
+            fastest = max(abs(b[name] - a[name]) for a, b in zip(moves, moves[1:])) / PERIOD_S
+            # Briskly (with a clearance its targets step at SPEED_SHARE of that), never faster.
+            assert SPEED_SHARE * FOLLOW_SHARE * speed - 1e-6 <= fastest <= FOLLOW_SHARE * speed + 1e-9, name
+            assert caps[name] == pytest.approx(OVERSPEED_HEADROOM * speed)
+            assert 1.30 * fastest < caps[name]  # Room for the overshoot the tilt showed.
     finally:
         core.close()
 

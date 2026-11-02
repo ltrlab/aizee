@@ -163,6 +163,10 @@ refuses it. A head disabled after it was powered needs a new session, as the arm
 and H act on both. The head uses the arms' direct lifecycle (`TeleopLifecycle`, `DirectLifecycleSession`), so the
 arms' speed caps, alignment and braking near the ends apply. It cycles every 40 ms.
 
+- **Its speed:** it follows at most 0.7 rad/s (`FOLLOW_SHARE`, 0.7 of its profile's 1.0), catching up included;
+  with its shoulder clearance saved, its targets step at 0.63 rad/s. Its receiver keeps its own cap, 1.25 rad/s.
+  Coming down at 1.0 rad/s, the tilt read 1.30 rad/s, and the head tripped (2026-11-02, `sustained_speed`).
+
 - **Its own process, live:** each exchange with the head's service waits for the service's next 10 ms tick. In the
   arms' 100 Hz loop, a head cycle (two exchanges) took 22 ms of every 40 ms: the arms' commands went out 10 and
   30 ms apart, each 30 ms long, and Enable faulted (2026-10-31, "command_expired · wrong_owner"). A live head now
@@ -313,8 +317,9 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
 - Python:
   - `tests/unit/test_neck_feetech.py` (13), `tests/unit/test_neck_head.py` (3);
   - `tests/contract/test_helm_tune_head.py` (4), which includes a whole head sweep on the real core;
-  - `tests/contract/test_head_teleop.py` (11) and `tests/contract/test_teleop_head.py` (11), the head in a session
-    (a live head's process: the arms never wait for it, its fault or death holds them; and its pose feed);
+  - `tests/contract/test_head_teleop.py` (13) and `tests/contract/test_teleop_head.py` (11), the head in a session
+    (a live head's process: the arms never wait for it, its fault or death holds them; its pose feed; and its
+    speed, under its receiver's cap with room for the tilt's overshoot);
   - `tests/unit/test_head_pose.py` (5): the camera's pose from the neck's angles, and the feed's rows and clock;
   - `tests/unit/test_head_alignment.py` (8): the head camera's alignment on the table's tags (the solve, what the
     head alone cannot tell, the saved mount the feed takes only for its head reference), and
