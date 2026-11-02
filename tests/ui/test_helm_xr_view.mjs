@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {HINTS, panelRows, stripText} from '../../src/robot_platform/helm/static/xr_status.js';
+import {HINTS, handMessage, panelRows, poseMessage, stripText} from '../../src/robot_platform/helm/static/xr_status.js';
 import {HeadCamera} from '../../src/robot_platform/helm/static/xr_camera.js';
 
 // The headset's screens: the line under the head camera's picture, and the status panel.
@@ -166,5 +166,24 @@ tick(2000);
 tick(250);
 assert.equal(sockets.length, 2, 'a stopped camera never reconnects');
 assert.deepEqual(second.sent, [{type: 'heartbeat', sequence: 3}]);
+
+// The pose message: the headset's orientation and, for the arms' grab and drag, each controller (helm/xr.py).
+assert.deepEqual(poseMessage({x: 0, y: .1, z: 0, w: .995}, 7), {type: 'pose', seq: 7, q: [0, .1, 0, .995]});
+assert.equal('hands' in poseMessage({x: 0, y: 0, z: 0, w: 1}, 8, {}), false);
+const pad = {buttons: [{value: .456789, pressed: true}, {value: 1, pressed: true}, {}, {pressed: true}, {},
+  {pressed: true}]};
+const right = handMessage({x: .123456, y: 1.234567, z: -.4}, {x: 0, y: .7071068, z: 0, w: .7071068}, pad, false);
+assert.deepEqual(right, {p: [.1235, 1.2346, -.4], q: [0, .70711, 0, .70711], grip: 1, trigger: .457, b: true,
+  ui: false});
+// Out-of-range or missing buttons read as 0 to 1; a controller holding a screen says so.
+assert.deepEqual(handMessage({x: 0, y: 0, z: 0}, {x: 0, y: 0, z: 0, w: 1}, {buttons: [{value: 1.4}]}, true),
+  {p: [0, 0, 0], q: [0, 0, 0, 1], grip: 0, trigger: 1, b: false, ui: true});
+// Both hands at their longest stay well inside Helm's 1024-byte socket messages.
+const long = handMessage({x: -1.23456, y: 1.23456, z: -1.23456}, {x: -.7071068, y: .7071068, z: -.0000123, w: .0000234},
+  {buttons: [{value: .123456}, {value: .987654}, {}, {}, {}, {pressed: true}]}, false);
+assert.ok(JSON.stringify(poseMessage({x: -.123456789, y: .987654321, z: -.123456789, w: .0123456789}, 123456,
+  {left: long, right: long})).length < 600);
+// Three hints fit the panel: the thumbstick zeroes the head now; the trigger is the gripper's.
+assert.match(HINTS[0], /Thumbstick/);
 
 console.log('Headset screen text, and the head camera stream: role filter, heartbeats, newest-frame decode, reconnect.');

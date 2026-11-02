@@ -4,7 +4,8 @@ docs/development/VR_ARM_TELEOP_PLAN.md, phase 2).
 Holding a controller's grip attaches that hand to its arm. From the grip on, the arm's tool point (teleop.arm_ik) moves
 as the hand has moved since the grip, turned into the robot's frame and scaled, and turns as the hand has turned, about
 the same axes in the world. Releasing holds the arm where it was commanded; the next grip goes on from there. The
-trigger closes the gripper (0 open, 1 closed). B or Y asks for Hold.
+trigger closes the gripper (0 open, 1 closed). B or Y asks for Hold. A hand working the headset's screens (moving one
+with its grip, or pressing the bar with its trigger) lets go of its arm and leaves its gripper as it was.
 
 The VR world is WebXR's `local` space (x right, y up, -z ahead where the session started). With the forward yaw (the
 yaw of Helm's head zero, left positive) taken out, its right is the robot's right (-x), its up is up (+z) and its ahead
@@ -62,7 +63,8 @@ def about_up(yaw):
 @dataclass(frozen=True)
 class HandSample:
     """One controller's latest state, `at` when Helm received it (the loop's clock, seconds): position (metres) and
-    orientation (x, y, z, w) in the VR world, grip and trigger 0 to 1, and B/Y held."""
+    orientation (x, y, z, w) in the VR world, grip and trigger 0 to 1, B/Y held, and `ui`: it is working the
+    headset's screens (holding one, or pressing the bar), so its arm lets go and its gripper stays as it was."""
 
     position: tuple
     orientation: tuple
@@ -70,6 +72,7 @@ class HandSample:
     trigger: float
     hold: bool
     at: float
+    ui: bool = False
 
     def __post_init__(self):
         if len(self.position) != 3 or len(self.orientation) != 4:
@@ -216,7 +219,7 @@ class _Arm:
         self.q = None
         self.gripped = self.armed = self.pressed = self.held_button = False
         self.anchor_hand = self.anchor_tool = self.target = None
-        self.updated_at = None
+        self.updated_at = self.closure = None
         self.converged, self.at_limit = True, ()
 
     def attach(self):
@@ -320,15 +323,19 @@ class VRArms:
             state.pressed = True
         elif sample.grip <= s.grip_off:
             state.pressed = False
+        if sample.ui:
+            # Working the screens: the arm lets go, and its grip must be let go before it attaches again.
+            state.armed = False
+            state.let_go()
+            return self._command(state, True, state.closure, False, hold)
         if not state.pressed:
             state.armed = True
             state.let_go()
         elif state.armed and (not state.gripped or added == "new"):
             state.attach()  # A new grip, a hand back after a gap or a jump: attached where it is, nothing moves.
         clamped = self._drag(state, step_s) if state.gripped else False
-        return self._command(
-            state, True, min(1.0, max(0.0, float(sample.trigger))), clamped, hold
-        )
+        state.closure = min(1.0, max(0.0, float(sample.trigger)))
+        return self._command(state, True, state.closure, clamped, hold)
 
     def _drag(self, state, step_s):
         s = self.settings

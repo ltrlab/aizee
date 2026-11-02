@@ -1,8 +1,24 @@
 // What the headset's screens say (xr_scene.js), from Helm's replies on the pose socket (helm/xr.py) and the head
 // camera's stream (xr_camera.js). No DOM and no three.js, so node tests it.
 
-export function poseMessage(orientation, seq) {
-  return {type: 'pose', seq, q: [orientation.x, orientation.y, orientation.z, orientation.w]};
+const rounded = digits => value => Number(value.toFixed(digits));
+
+// A pose message: the headset's orientation and, when given ({left, right}: handMessage), its controllers.
+export function poseMessage(orientation, seq, hands = null) {
+  const message = {type: 'pose', seq, q: [orientation.x, orientation.y, orientation.z, orientation.w]};
+  if (hands && Object.keys(hands).length) message.hands = hands;
+  return message;
+}
+
+// A controller for Helm (helm/xr.py; the arms' grab and drag, teleop/vr_arms.py): its grip's position (metres, to a
+// tenth of a millimetre) and orientation in the 'local' space, its grip and trigger (0 to 1) and B or Y (an
+// xr-standard gamepad: buttons 1, 0 and 5), and `ui`: it is holding a screen or pressing the bar, so its arm takes
+// no part.
+export function handMessage(position, orientation, gamepad, ui) {
+  const value = index => Math.min(1, Math.max(0, Number(gamepad.buttons[index]?.value) || 0));
+  return {p: [position.x, position.y, position.z].map(rounded(4)),
+    q: [orientation.x, orientation.y, orientation.z, orientation.w].map(rounded(5)), grip: rounded(3)(value(1)),
+    trigger: rounded(3)(value(0)), b: Boolean(gamepad.buttons[5]?.pressed), ui: Boolean(ui)};
 }
 
 export function degrees(radians) {
@@ -73,5 +89,5 @@ export function panelRows(link, headset, camera, depth = null, map = null) {
   ];
 }
 
-export const HINTS = ['Trigger: zero the head where you look, or use the bar', 'Grip: grab a screen and move it',
-  'Meta button: stop head tracking'];
+export const HINTS = ['Thumbstick press: zero the head where you look',
+  'Trigger on the bar: its controls; grip: move a screen', 'Meta button: stop head tracking'];

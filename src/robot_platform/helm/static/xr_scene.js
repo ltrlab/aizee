@@ -237,6 +237,12 @@ export class HeadsetScene {
     controller.userData.pressed = null;
   }
 
+  // Whether `source`'s controller is working the screens (holding one, or pressing the bar): its arm takes no part.
+  busy(source) {
+    const controller = this.controllers.find(other => other.userData.source === source);
+    return Boolean(controller?.userData.held || controller?.userData.pressed);
+  }
+
   setFollow(follow) {
     this.view.follow = follow;  // Off, it stays where it is now; on, it goes in front of the eyes at the next frame.
     this.applyView();

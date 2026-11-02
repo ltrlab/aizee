@@ -260,3 +260,82 @@ def test_the_headset_logs_in_back_to_its_page_and_another_device_cannot_take_the
         asyncio.run(run())
     finally:
         session.close()
+
+
+def controller(p=(0.1, 1.2, -0.4), q=(0., 0., 0., 1.), grip=0., trigger=0., **more):
+    return dict({'p': list(p), 'q': list(q), 'grip': grip, 'trigger': trigger}, **more)
+
+
+def test_the_controllers_ride_the_pose_and_helm_keeps_each_hands_latest():
+    # For the arms' grab and drag (teleop.vr_arms): each hand's grip pose, grip, trigger, B/Y and whether it works the
+    # screens, with the time it came; a recenter or new XR session starts another epoch, where old hands mean nothing.
+    clock = Clock()
+    headset = Headset(clock)
+    quest = headset.connect('quest', 'Quest headset')
+    epoch = headset.status()['epoch']
+    pose = {'type': 'pose', 'seq': 1, 'q': gaze(0, 0),
+            'hands': {'left': controller(grip=1., trigger=.25, b=True), 'right': controller(q=(0, 0, 0, 1.04), ui=True)}}
+    assert headset.receive(quest, pose) == pytest.approx((0, 0))
+    hands, now_epoch = headset.hand_samples()
+    assert now_epoch == epoch and set(hands) == {'left', 'right'}
+    assert hands['left'] == {'position': pytest.approx((.1, 1.2, -.4)), 'orientation': (0., 0., 0., 1.), 'grip': 1.,
+                             'trigger': .25, 'hold': True, 'ui': False, 'at': 100.}
+    assert hands['right']['orientation'][3] == pytest.approx(1.) and hands['right']['ui'] is True  # Normalized.
+    assert headset.status()['hands'] == {'left': {'tracking': True, 'grip': 1., 'trigger': .25, 'ui': False},
+                                         'right': {'tracking': True, 'grip': 0., 'trigger': 0., 'ui': True}}
+    clock.now += .02
+    headset.receive(quest, {'type': 'pose', 'seq': 2, 'q': gaze(0, 0), 'hands': {'left': controller(grip=.5)}})
+    hands, _ = headset.hand_samples()
+    assert hands['left']['grip'] == .5 and hands['left']['at'] == 100.02 and hands['right']['at'] == 100.
+    clock.now += FRESH_S
+    assert headset.status()['hands']['right']['tracking'] is False and headset.status()['hands']['left']['tracking']
+    headset.start(quest)  # A recenter: another space.
+    assert headset.hand_samples() == ({}, epoch + 1) and headset.status()['hands'] == {}
+    headset.disconnect(quest)
+    assert headset.hand_samples()[0] == {}
+
+
+@pytest.mark.parametrize('hands, error', [
+    ({'middle': controller()}, 'left, right'),
+    ([controller()], 'left, right'),
+    ({'left': controller(p=(0, 0))}, 'three numbers'),
+    ({'left': controller(p=(0, 11., 0))}, 'within 10 m'),
+    ({'left': controller(q=(0, 0, 0, 2))}, 'unit quaternion'),
+    ({'left': controller(q=(0, 0, 1))}, 'four numbers'),
+    ({'left': controller(grip=1.5)}, '0 to 1'),
+    ({'left': controller(trigger=-.1)}, '0 to 1'),
+    ({'left': controller(b=1)}, 'true or false'),
+    ({'left': dict(controller(), extra=1)}, 'p, q, grip and trigger'),
+    ({'left': {'p': [0, 0, 0], 'q': [0, 0, 0, 1]}}, 'p, q, grip and trigger'),
+])
+def test_a_malformed_controller_refuses_the_whole_pose(hands, error):
+    clock = Clock()
+    headset = Headset(clock)
+    quest = headset.connect('quest', 'Quest headset')
+    with pytest.raises(ValueError, match=error):
+        headset.receive(quest, {'type': 'pose', 'seq': 1, 'q': gaze(.2, 0), 'hands': hands})
+    assert headset.status()['poses'] == 0 and headset.hand_samples()[0] == {}
+
+
+def test_the_socket_takes_controllers_with_the_pose_and_helms_state_shows_each_hand(helm):
+    from aiohttp.test_utils import TestClient, TestServer
+    teleop = Teleop()
+
+    async def run():
+        async with TestClient(TestServer(create_app(helm, Link(), teleop=teleop, token='secret',
+                                                    simulation_only=True))) as client:
+            ws = await client.ws_connect('/api/helm/xr?token=secret')
+            await ws.send_json({'type': 'start'})
+            await ws.receive_json(timeout=2)
+            # The page's largest message (both hands, rounded numbers) fits the socket's 1024-byte limit.
+            hands = {hand: {'p': [-1.2345, 1.2345, -1.2345], 'q': [-.70711, .70711, -0.00001, .00002], 'grip': .123,
+                            'trigger': .987, 'b': True, 'ui': False} for hand in ('left', 'right')}
+            await ws.send_json({'type': 'pose', 'seq': 1, 'q': gaze(.3, .2), 'hands': hands})
+            assert (await ws.receive_json(timeout=2))['steering'] is True
+            await ws.send_json({'type': 'pose', 'seq': 2, 'q': gaze(.3, .2), 'hands': {'left': {'p': [0, 0]}}})
+            assert 'controller' in (await ws.receive_json(timeout=2))['error'].lower()
+            state = await (await client.get('/api/helm/state')).json()
+            assert state['xr']['hands']['left'] == {'tracking': True, 'grip': .123, 'trigger': .987, 'ui': False}
+            assert set(state['xr']['hands']) == {'left', 'right'}
+            await ws.close()
+    asyncio.run(run())

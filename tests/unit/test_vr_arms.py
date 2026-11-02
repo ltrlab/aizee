@@ -66,9 +66,9 @@ def quaternion(rotation_vector):
     return (x, y, z, math.cos(angle / 2))
 
 
-def hand(at, position=HOME, turn=(0.0, 0.0, 0.0), grip=1.0, trigger=0.0, hold=False):
+def hand(at, position=HOME, turn=(0.0, 0.0, 0.0), grip=1.0, trigger=0.0, hold=False, ui=False):
     return HandSample(
-        tuple(float(v) for v in position), quaternion(turn), grip, trigger, hold, at
+        tuple(float(v) for v in position), quaternion(turn), grip, trigger, hold, at, ui
     )
 
 
@@ -440,3 +440,18 @@ def test_settings_and_samples_are_checked(kinematics):
         HandSample((0.0, math.nan, 0.0), (0.0, 0.0, 0.0, 1.0), 1.0, 0.0, False, 0.0)
     with pytest.raises(ValueError, match="Kinematics"):
         VRArms({"left": kinematics["right"]})
+
+
+def test_a_hand_working_the_headsets_screens_leaves_its_arm_and_gripper_alone(kinematics):
+    # Its grip moving a screen, or its trigger on the bar: the arm does not attach, the gripper stays where it was,
+    # and when the screen is let go of the grip must be let go too before the arm attaches.
+    vr = make(kinematics)
+    script = Script(vr)
+    script.run(0.1, still(grip=0.0, trigger=0.3))
+    busy = script.run(0.4, lambda t: {"left": dict(position=(HOME[0], HOME[1] + 0.1 * t, HOME[2]), trigger=0.9, ui=True)})
+    assert all(c["left"].positions == WORKING["left"] and not c["left"].gripped for c in busy)
+    assert all(c["left"].closure == pytest.approx(0.3) for c in busy)
+    after = script.run(0.2, still(position=(HOME[0], HOME[1] + 0.04, HOME[2])))
+    assert all(not c["left"].gripped for c in after)  # Still held from the screen: not attached.
+    script.run(0.1, still(position=(HOME[0], HOME[1] + 0.04, HOME[2]), grip=0.0))
+    assert script.run(0.1, still(position=(HOME[0], HOME[1] + 0.04, HOME[2])))[-1]["left"].gripped

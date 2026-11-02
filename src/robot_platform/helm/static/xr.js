@@ -1,14 +1,16 @@
 // The headset's pose to Helm (helm/xr.py), which steers Minerva's head while a teleop session follows. A WebXR session
 // (passthrough where the headset has it) reads the viewer's orientation in the level 'local' space each frame and sends
-// it, at most 60 times a second, over Helm's socket. A controller's trigger pull (select) zeroes the head where the
-// headset looks, except on the picture's bar; starting the session or recentering the headset restarts the zero at
-// the heading, level. Inside, the headset shows the head camera's picture with a status line and a bar (Follow head,
-// 3D, Model, Hands, opacity) under it, and a status panel; the grip buttons grab and move them (xr_scene.js). The
+// it, at most 60 times a second, over Helm's socket, with each controller's grip pose, grip, trigger and B/Y for the
+// arms' grab and drag (teleop/vr_arms.py; tracked hands are left out: they hold the GELLO leaders). A thumbstick press
+// zeroes the head where the headset looks (the trigger is the gripper's, and works the picture's bar); starting the
+// session or recentering the headset restarts the zero at the heading, level. Inside, the headset shows the head
+// camera's picture with a status line and a bar (Follow head, 3D, Model, Hands, opacity) under it, and a status
+// panel; the grip buttons grab and move them (xr_scene.js), and a controller doing so is marked busy for its arm. The
 // session asks for hand tracking where the headset has it: the wrist cameras float above the hands.
 import * as THREE from 'three';
 import {HeadCamera} from './xr_camera.js';
 import {HeadsetScene} from './xr_scene.js';
-import {HINTS, panelRows, poseMessage, degrees, stripText} from './xr_status.js';
+import {HINTS, handMessage, panelRows, poseMessage, degrees, stripText} from './xr_status.js';
 
 const $ = id => document.getElementById(id);
 const SEND_INTERVAL_MS = 1000 / 60;
@@ -31,6 +33,7 @@ let camera = null;
 let wrists = [];  // The wrist cameras' streams, while the Hands switch is on.
 let headset = {};  // Helm's latest word on the headset and the head (its status replies),
 let statusAt = -Infinity;  // and when it came.
+let sticks = {};  // Each controller's thumbstick press at the last frame, by hand.
 const link = {connected: false, message: 'connecting…', error: null};  // `error`: Helm's last refusal, until a status.
 
 function show(id, text, tone) {
@@ -138,13 +141,10 @@ async function start() {
     send({type: 'start'});
     view.rezero();
   });
-  // A trigger pull zeroes the head, unless it was on the picture's bar: that one works the bar's control.
+  // A trigger pull on the picture's bar works its control. Elsewhere the trigger is the gripper's: the head zeroes
+  // with a thumbstick press (zeroOnThumbstick). Not a hand's pinch: the hands hold the GELLO leaders.
   session.addEventListener('select', event => {
-    // Not a hand's pinch: tracked for the wrist cameras, the hands hold the GELLO leaders and pinch by accident, and a
-    // zero moves the head.
-    if (event.inputSource.hand || view.select(event.inputSource)) return;
-    send({type: 'zero'});
-    view.rezero();
+    if (!event.inputSource.hand) view.select(event.inputSource);
   });
   camera = new HeadCamera({token: () => token, role: view.view.depth ? 'head_depth' : 'head',
     onFrame: (bitmap, _metadata, depth) => {
@@ -158,6 +158,7 @@ async function start() {
     camera?.stop();
     camera = null;
     session = null;
+    sticks = {};
     streamWrists(false);
     $('start').textContent = 'Start head tracking';
     show('status', 'Head tracking stopped: the head holds, then returns to its zero.', 'warn');
@@ -169,9 +170,10 @@ async function start() {
     const pose = frame?.getViewerPose(renderer.xr.getReferenceSpace());
     if (pose && time - lastSent >= SEND_INTERVAL_MS) {
       sequence += 1;
-      send(poseMessage(pose.transform.orientation, sequence));
+      send(poseMessage(pose.transform.orientation, sequence, controllers(frame)));
       lastSent = time;
     }
+    zeroOnThumbstick();
     if (camera && time - textAt >= TEXT_INTERVAL_MS) {
       textAt = time;
       const picture = camera.stats;
@@ -182,6 +184,34 @@ async function start() {
     view.update(pose);  // This frame's pose: a following picture is drawn where the eyes are now.
     renderer.render(view.scene, view.camera);
   });
+}
+
+// The controllers in this frame, for Helm: {left, right} (handMessage), each with its grip's pose in the 'local'
+// space. Tracked hands are left out: they hold the GELLO leaders.
+function controllers(frame) {
+  const hands = {};
+  for (const source of session.inputSources) {
+    if (source.hand || !source.gripSpace || !source.gamepad || !['left', 'right'].includes(source.handedness)) continue;
+    const grip = frame.getPose(source.gripSpace, renderer.xr.getReferenceSpace());
+    if (grip) {
+      hands[source.handedness] = handMessage(grip.transform.position, grip.transform.orientation, source.gamepad,
+        view.busy(source));
+    }
+  }
+  return hands;
+}
+
+// A thumbstick pressed (xr-standard button 3) zeroes the head where the headset looks, once a press.
+function zeroOnThumbstick() {
+  for (const source of session.inputSources) {
+    if (source.hand || !source.gamepad) continue;
+    const pressed = Boolean(source.gamepad.buttons[3]?.pressed);
+    if (pressed && !sticks[source.handedness]) {
+      send({type: 'zero'});
+      view.rezero();
+    }
+    sticks[source.handedness] = pressed;
+  }
 }
 
 // The wrist cameras above the hands: their streams while the Hands switch is on (and a session runs), else none.

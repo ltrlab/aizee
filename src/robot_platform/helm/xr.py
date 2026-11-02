@@ -7,12 +7,46 @@ level) and -Z is forward where the XR session started. Yaw turns about Y, left p
 elevation, up positive; roll is ignored. The zero starts as that heading, level (a new XR session, or a recenter in
 the headset, starts it again), and moves to wherever the operator looks when they zero. One headset steers at a time:
 another device's is refused while it is connected; the same device reconnecting takes its stream back.
+
+A pose may carry the controllers (`hands`: {'left', 'right'}), for the arms' grab and drag (teleop.vr_arms, VR arm
+control): each its grip's position `p` (metres) and orientation `q` in the same space, `grip` and `trigger` (0 to 1),
+`b` (B or Y held) and `ui` (it is working the headset's screens). Helm keeps each hand's latest with the time it came
+(this clock), and counts the XR sessions and recenters (`epoch`): a hand from before one is in another space.
 """
 import math
 import time
 
 MAX_RATE_HZ = 120.  # Poses beyond this rate are dropped (a page renders at 72-90 Hz and sends at most 60).
 FRESH_S = .25  # A pose this recent counts as the headset tracking.
+HANDS = ('left', 'right')
+HAND_KEYS = frozenset({'p', 'q', 'grip', 'trigger', 'b', 'ui'})
+REACH_M = 10.  # A controller farther than this from where the session started is not a controller in the room.
+
+
+def _number(value):
+    return type(value) in (int, float) and math.isfinite(value)
+
+
+def hand_sample(message):
+    """A controller's fields as {position, orientation (unit), grip, trigger, hold, ui}; ValueError if malformed."""
+    if not isinstance(message, dict) or set(message) - HAND_KEYS or not {'p', 'q', 'grip', 'trigger'} <= set(message):
+        raise ValueError('A controller is p, q, grip and trigger, with b and ui')
+    position, orientation = message['p'], message['q']
+    if (not isinstance(position, list) or len(position) != 3 or not all(_number(v) for v in position)
+            or not all(abs(v) <= REACH_M for v in position)):
+        raise ValueError(f'A controller position is three numbers within {REACH_M:g} m')
+    if not isinstance(orientation, list) or len(orientation) != 4 or not all(_number(v) for v in orientation):
+        raise ValueError('A controller orientation is four numbers x, y, z, w')
+    norm = math.sqrt(sum(v * v for v in orientation))
+    if not .9 < norm < 1.1:
+        raise ValueError('A controller orientation is a unit quaternion')
+    if not all(_number(message[k]) and 0 <= message[k] <= 1 for k in ('grip', 'trigger')):
+        raise ValueError('A controller grip and trigger are 0 to 1')
+    if any(type(message.get(k, False)) is not bool for k in ('b', 'ui')):
+        raise ValueError('A controller b and ui are true or false')
+    return {'position': tuple(float(v) for v in position), 'orientation': tuple(float(v) / norm for v in orientation),
+            'grip': float(message['grip']), 'trigger': float(message['trigger']), 'hold': message.get('b', False),
+            'ui': message.get('ui', False)}
 
 
 def yaw_pitch(quaternion):
@@ -46,6 +80,8 @@ class Headset:
         self.raw = self.at = self.sequence = None
         self.poses = 0
         self._rate = None
+        self.hands = {}  # Each controller's latest (hand_sample, with 'at').
+        self.epoch = 0  # XR sessions and recenters so far.
 
     def connect(self, owner=None, device=None):
         """A connection from the login session `owner`, which steers from now on; its number. While another
@@ -74,20 +110,27 @@ class Headset:
         self.zero_yaw, self.zero_pitch = 0., 0.
         self.raw = self.at = self.sequence = None
         self._rate = None
+        self.hands = {}
+        self.epoch += 1
 
     def _current(self, connection):
         if connection is not None and connection != self.connection:
             raise ValueError('Another connection is steering the head')
 
     def receive(self, connection, message):
-        """A pose message ({'type': 'pose', 'seq': n, 'q': [x, y, z, w]}) from `connection`: (yaw, pitch) from the
-        zero, or None for one that is dropped (another connection's, an old sequence, too fast)."""
+        """A pose message ({'type': 'pose', 'seq': n, 'q': [x, y, z, w]}, optionally 'hands') from `connection`: (yaw,
+        pitch) from the zero, or None for one that is dropped (another connection's, an old sequence, too fast). A
+        malformed orientation or controller refuses the whole message (ValueError)."""
         if connection != self.connection or not isinstance(message, dict) or message.get('type') != 'pose':
             return None
         sequence = message.get('seq')
         if type(sequence) is not int or sequence < 1 or (self.sequence is not None and sequence <= self.sequence):
             return None
         yaw, pitch = yaw_pitch(message.get('q'))
+        hands = message.get('hands', {})
+        if not isinstance(hands, dict) or set(hands) - set(HANDS):
+            raise ValueError('Controllers are {left, right}')
+        hands = {hand: hand_sample(value) for hand, value in hands.items()}
         now = self.clock()
         if self.at is not None and now - self.at < 1 / MAX_RATE_HZ:
             return None
@@ -96,7 +139,14 @@ class Headset:
             self._rate = rate if self._rate is None else .9 * self._rate + .1 * rate
         self.raw, self.at, self.sequence = (yaw, pitch), now, sequence
         self.poses += 1
+        for hand, sample in hands.items():
+            self.hands[hand] = dict(sample, at=now)
         return self.relative()
+
+    def hand_samples(self):
+        """({hand: its latest sample with 'at'} while connected, else {}; epoch): for the arms' grab and drag, which
+        lets go of a hand whose sample is stale or from an earlier epoch."""
+        return ({hand: dict(sample) for hand, sample in self.hands.items()} if self.connection else {}), self.epoch
 
     def relative(self):
         yaw, pitch = self.raw
@@ -125,7 +175,10 @@ class Headset:
     def status(self):
         fresh = self.fresh()
         yaw, pitch = self.relative() if self.raw is not None else (None, None)
+        now = self.clock()
+        hands = {hand: {'tracking': self.connection != 0 and now - sample['at'] <= FRESH_S, 'grip': sample['grip'],
+                        'trigger': sample['trigger'], 'ui': sample['ui']} for hand, sample in self.hands.items()}
         return {'connected': self.connection != 0, 'device': self.device if self.connection else None,
-                'tracking': fresh, 'poses': self.poses, 'age_s': None if self.at is None else self.clock() - self.at,
+                'tracking': fresh, 'poses': self.poses, 'age_s': None if self.at is None else now - self.at,
                 'rate_hz': self._rate if fresh else None, 'yaw': yaw, 'pitch': pitch,
-                'zero': {'yaw': self.zero_yaw, 'pitch': self.zero_pitch}}
+                'zero': {'yaw': self.zero_yaw, 'pitch': self.zero_pitch}, 'hands': hands, 'epoch': self.epoch}
