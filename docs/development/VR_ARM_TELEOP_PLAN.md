@@ -186,11 +186,12 @@ What makes switching easy:
   gives each fresh controller's trigger even before a seed. On the robot it runs on the background CPUs (0-3) at
   nice 10.
 - **The source** (`teleop/headset_source.py`, `TeleopCore`'s `headset` kind). Idle and Hold aim where the arms are,
-  each gripper at its trigger. Engage freezes that pose and seeds the worker from the measured joints. Following
-  takes only answers from the latest seed while they are fresh (0.2 s); a stale answer gives no target, so the
-  lifecycle holds, and never the seed again (that would pull the arm back). CAD angles become motor positions
-  through the report's scale and offset, a trigger the gripper's position between open and closed; a lost hand
-  keeps its gripper's target. B/Y while engaged is Hold (T), once a press.
+  each gripper at its trigger. Engage freezes that pose, but an arm hanging at the reference rises to its ready pose
+  (below); the worker is seeded from the pose aligned to as following begins, and a grip held through the raise must
+  be let go first, so nothing jumps. Following takes only answers from the latest seed while they are fresh (0.2 s);
+  a stale answer gives no target, so the lifecycle holds, and never the seed again (that would pull the arm back).
+  CAD angles become motor positions through the report's scale and offset, a trigger the gripper's position between
+  open and closed; a lost hand keeps its gripper's target. B/Y while engaged is Hold (T), once a press.
 - **The relay**: Helm's xr socket forwards each checked controller (`hand_sample`) to a running headset session
   (`TeleopSession.hands`, never waiting on a send), and the loop to the worker.
 - **Helm**: Teleop's Input switch (GELLO / Headset) beside Mode, remembered in the browser, for Direct and
@@ -206,17 +207,31 @@ What makes switching easy:
   (J3 positive). An update that does not converge with J3 within 0.05 rad of straight solves again from J3 at
   -0.05 (`elbow_bend`: the forearm folded forward, as Minerva's arms fold) and keeps the better answer.
 - **Checked offline**:
-  - `test_vr_worker.py` (4, the real process among them), `test_headset_source.py` (7);
-  - contract `test_headset_mode.py` (3) on the real Rust virtual receiver: Engage moves only the grippers, a
-    raise-and-reach drag lands within 6 mm with the forearm folded forward, the trigger closes, lost hands and B/Y
-    hold, Engage seeds again;
+  - `test_vr_worker.py` (4, the real process among them), `test_headset_source.py` (9);
+  - contract `test_headset_mode.py` (3) on the real Rust virtual receiver: Engage raises both hanging arms to the
+    ready pose, a raise-and-reach drag lands within 6 mm and a 3 cm circle turns J1 under 0.2 rad, the trigger
+    closes, lost hands and B/Y hold, Engage again leaves the arms where they were held;
   - `test_helm_xr.py` (20), `test_helm_teleop_mode.mjs`, `test_helm_pedals.mjs`;
   - Helm's Teleop panel in a local preview, a scripted controller driving the virtual receiver.
 - **Found: the hanging pose's swing, in a session.** In that preview a 3 cm sideways circle, 6 cm from the
   reference pose, swings J1 and J5 against each other by up to 1.14 rad, within the 3 rad/s cap (the smallest
   singular value falls to 0 as the hand crosses the shoulder's vertical). From a working pose, forearms forward, the
   same circle moves no joint more than 0.39 rad (J1 0.05). Every session starts at the reference pose, so this is
-  an operator's first drag (phase 2's finding; open below).
+  an operator's first drag (phase 2's finding).
+- **The ready pose** (the user's choice, 2026-11-02, over the gripper's orientation giving way or slower caps).
+  Engage raises an arm hanging at the reference (J2, J3 and J4 within 0.25 rad of it) to its ready pose at the
+  alignment speed, as a replay's first frame is aligned to; any other arm stays where it is, so Engage after a hold
+  mid-task moves nothing. The pose (`headset_source.READY`, CAD joints): left (0, -0.3, -1.6, -0.7, 0, 0), the right
+  mirrored (J2 +0.3). The forearm is folded forward and the gripper level, 28 cm ahead of the shoulder and 24 cm
+  above where it hangs, the hands 48 cm apart. The smallest singular value there is 0.16, and J2-J4 sit 0.42 rad or
+  more inside the swept limits, so a 6 cm drag any way converges with no joint at a limit. A first choice, 0.22 rad
+  from the left J4's limit, stopped a 6 cm lift short. A ready pose outside the receiver's limits refuses the
+  session.
+  - **Rising**, the forearm swings forward before it lifts: halfway the hand is 18 cm ahead and only 7 cm up. The
+    live confirmation asks for the space in front of the hands to be clear.
+  - **In the preview**, the scripted circle from the ready pose kept J1 within ±0.09 rad (1.14 before).
+  - **The left wrist's travel**: with the gripper level, the left arm stops at J4's limit (-1.12 rad; the right's
+    is -1.49) once the hand is about 9 cm above the ready pose; the card says so. Tilting the hand goes higher.
 - **Not built yet**: the VR profile with tighter speed caps (AIZEE's 3 rad/s and 0.2 rad lead as the starting
   point, sized against Minerva's).
 
@@ -233,6 +248,6 @@ What makes switching easy:
 ## Open
 
 - The tool point's fingertip offset, from the finger meshes.
-- How the first drags stay clear of the hanging pose's swing (phase 4): Engage raising the arms to a working pose
-  first, the gripper's orientation giving way near those poses, or slower caps there.
+- The ready pose's raise against the real table and what stands on it: the forearm sweeps forward before it lifts
+  (phase 4). Not yet seen on Minerva.
 - Whether the Quest's browser resolves `.local` names; until seen, the links use addresses.
