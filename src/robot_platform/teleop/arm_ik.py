@@ -124,7 +124,8 @@ class ArmKinematics:
             raise ValueError("Each limit is a finite (low, high) with low below high")
 
     def _frames(self, q):
-        """The tool's pose and each joint's axis and origin (the robot frame) at positions `q`."""
+        """The tool's pose and each joint's axis and origin (the robot frame) at positions `q`. Few, small numpy calls:
+        on the Jetson a solve is mostly their overhead."""
         r, p = np.eye(3), np.zeros(3)
         axes, points = np.empty((ARM_JOINTS, 3)), np.empty((ARM_JOINTS, 3))
         for i, origin in enumerate(self._origins):
@@ -132,12 +133,22 @@ class ArmKinematics:
             r = r @ origin[:3, :3]
             axes[i], points[i] = r[:, 2], p
             c, s = math.cos(q[i]), math.sin(q[i])
-            r = np.column_stack(
-                (c * r[:, 0] + s * r[:, 1], c * r[:, 1] - s * r[:, 0], r[:, 2])
-            )
+            r[:, :2] = r[:, :2] @ np.array(((c, -s), (s, c)))  # The turn about the joint's own z.
         pose = np.eye(4)
         pose[:3, :3], pose[:3, 3] = r @ self._end[:3, :3], p + r @ self._end[:3, 3]
         return pose, axes, points
+
+    @staticmethod
+    def _columns(pose, axes, points):
+        """The 6x6 geometric Jacobian from `_frames`: each joint's axis crossed with the lever to the tool, then the
+        axis (written out: numpy's cross costs more than the rest)."""
+        lever = pose[:3, 3] - points
+        jacobian = np.empty((6, ARM_JOINTS))
+        jacobian[0] = axes[:, 1] * lever[:, 2] - axes[:, 2] * lever[:, 1]
+        jacobian[1] = axes[:, 2] * lever[:, 0] - axes[:, 0] * lever[:, 2]
+        jacobian[2] = axes[:, 0] * lever[:, 1] - axes[:, 1] * lever[:, 0]
+        jacobian[3:] = axes.T
+        return jacobian
 
     def pose(self, positions):
         """The tool point's 4x4 pose in the robot frame at `positions` (joints order)."""
@@ -145,8 +156,7 @@ class ArmKinematics:
 
     def jacobian(self, positions):
         """The 6x6 geometric Jacobian at the tool point: linear velocity over angular, each column one joint."""
-        pose, axes, points = self._frames(self._vector(positions))
-        return np.vstack((np.cross(axes, pose[:3, 3] - points).T, axes.T))
+        return self._columns(*self._frames(self._vector(positions)))
 
     def solve(
         self,
@@ -179,10 +189,7 @@ class ArmKinematics:
             if converged or iterations == max_iterations:
                 break
             iterations += 1
-            jacobian = (
-                np.vstack((np.cross(axes, pose[:3, 3] - points).T, axes.T))
-                * weights[:, None]
-            )
+            jacobian = self._columns(pose, axes, points) * weights[:, None]
             step = self._step(jacobian, error, damping, np.ones(ARM_JOINTS, dtype=bool))
             # A joint at a limit that the step pushes further takes no part in it: the others move instead.
             pinned = ((q <= self.lower) & (step < 0)) | ((q >= self.upper) & (step > 0))

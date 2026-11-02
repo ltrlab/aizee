@@ -108,7 +108,10 @@ class DragSettings:
     singular_sigma: float = (
         0.02  # Below this smallest singular value the arm is near a singular pose.
     )
-    ik_iterations: int = 12
+    # Each update solves from the last answer, so a solve not done by then goes on at the next: a converging solve
+    # takes 1-2, and an arm held at a joint limit no longer spends 12 iterations a frame (on the Jetson, 4 ms of an
+    # arm's update).
+    ik_iterations: int = 4
     workspace: dict = field(
         default_factory=dict
     )  # {arm: ((x, y, z) low, (x, y, z) high)} in the robot frame.
