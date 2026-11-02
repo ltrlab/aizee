@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import {MODES, NO_RECORDING, PAUSE_WAIT_MS, PauseStill, SETTLE_MS, knownMode, modeCards, modeChoice, pauseStillText,
-  sessionMode} from '../../src/robot_platform/helm/static/teleop_mode.js';
+import {MODES, NO_RECORDING, PAUSE_WAIT_MS, PauseStill, SETTLE_MS, STILL_PENDING, knownMode, modeCards, modeChoice,
+  pauseStillText, sessionMode, stillOutcome, stillTaking} from '../../src/robot_platform/helm/static/teleop_mode.js';
 
 // The modes, and an unknown or missing choice (a cleared browser) is Direct.
 assert.deepEqual(MODES, ['direct', 'calibrate', 'policy']);
@@ -101,8 +101,31 @@ assert.equal(still.due(session('TELEOP', null), 10000 + PAUSE_WAIT_MS + 1, 'cali
 assert.equal(still.due(session('HOLD', null), 10000 + PAUSE_WAIT_MS + 10, 'calibrate'), false);
 assert.equal(still.due(session('HOLD', null), 10000 + PAUSE_WAIT_MS + 10 + SETTLE_MS, 'calibrate'), false);
 
-// The card's line: what a pause does, then the countdown.
+// The card's line: what a pause does, the countdown, that the still is being taken, then what it found.
 assert.match(pauseStillText(null, 'head'), /each pause \(pedal B or T\) takes a still of the head camera 1 s later/);
+assert.match(pauseStillText(null, 'head'), /the arms hold until it is saved/);
 assert.equal(pauseStillText(.42, 'right_wrist'), 'Still of the right wrist camera in 0.4 s: hold still.');
+assert.equal(pauseStillText(null, 'left_wrist', {taking: true}),
+  'Taking a still of the left wrist camera: hold still. Resume once it is saved.');
+assert.equal(pauseStillText(.2, 'left_wrist', {taking: true}), 'Still of the left wrist camera in 0.2 s: hold still.');
+const found = stillOutcome({name: '004-left_wrist', tags: [1, 4]}, null, 'left_wrist');
+assert.equal(found, '004-left_wrist saved: tags 1, 4. Resume for the next pose.');
+assert.equal(pauseStillText(null, 'left_wrist', {note: found}), found);
+assert.equal(pauseStillText(null, 'left_wrist', {taking: true, note: found}),  // The next still is on its way.
+  'Taking a still of the left wrist camera: hold still. Resume once it is saved.');
+// 2026-11-02: the first live still saw no tags and nothing said so.
+assert.equal(stillOutcome({name: '003-left_wrist', tags: []}, null, 'left_wrist'),
+  '003-left_wrist saved, but it saw no board tags: aim the left wrist camera at the board, then pause again (Undo drops it).');
+assert.equal(stillOutcome({name: '005-right_wrist', tags: [6]}, null, 'right_wrist'),
+  '005-right_wrist saved: tag 6. Resume for the next pose.');
+assert.equal(stillOutcome(null, 'The arm moved 2.0 mrad while the frames were taken', 'left_wrist'),
+  'No still: The arm moved 2.0 mrad while the frames were taken');
+assert.equal(stillOutcome(null, null, 'head'), null);
+// A still is being taken while this page's request is out, or Helm reports one (another page's).
+assert.equal(stillTaking(), false);
+assert.equal(stillTaking({pending: true}), true);
+assert.equal(stillTaking({calibration: {busy: false}, headAlignment: {busy: true}}), true);
+assert.equal(stillTaking({calibration: {busy: false}, headAlignment: null}), false);
+assert.equal(STILL_PENDING, 'Taking a still: resume once it is saved');  // helm.teleop STILL_PENDING says the same.
 assert.match(NO_RECORDING, /Calibrate records nothing/);
 console.log('teleop mode checks passed');

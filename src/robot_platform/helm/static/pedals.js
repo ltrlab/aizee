@@ -108,6 +108,8 @@ export class PedalControls {
     else if (this.pending.has(pedal) || (pedal !== 'a' && [...this.pending.keys()].some(k=>k !== 'a'))) reason='Motion input pending.';
     // Teleop's mode may record nothing (Calibrate); finishing a recording is never refused.
     else if (pedal === 'a' && context.noRecording && action.action === 'start_record') reason=context.noRecording;
+    // A camera still is being taken: the arms hold until it is saved, so nothing sets them moving (Helm refuses too).
+    else if (context.stillPending && ['engage','resume'].includes(action.action)) reason=context.stillPending;
     else if (!action.enabled) reason=action.reason || 'Action unavailable.';
     return {...action, enabled:!reason && action?.enabled === true, reason:reason || action?.reason || ''};
   }

@@ -128,4 +128,20 @@ assert.equal(recordingMode({error:'task failed',recording:{active:true}}),'faile
   calibrate.update(clone(base));
   assert.equal(calibrate.offer('a').enabled,true);
 }
+// While a camera still is taken the arms hold: B's Resume and C's Engage wait until it is saved; a pause, a
+// recording and Shutdown do not.
+{
+  const waiting=new PedalControls({now:()=>time,context:()=>({...ctx,stillPending:'Taking a still: resume once it is saved'}),
+    request:()=>new Promise(()=>{})});
+  const held=clone(base);held.teleop.state='HOLD';held.teleop.pedals.actions.b=action('resume');
+  held.teleop.pedals.actions.c=action('engage');
+  waiting.update(held);
+  for(const pedal of ['b','c'])
+    assert.deepEqual([waiting.offer(pedal).enabled,waiting.offer(pedal).reason],[false,'Taking a still: resume once it is saved']);
+  assert.equal(waiting.offer('a').enabled,true);
+  held.teleop.pedals.actions.c=action('shutdown');waiting.update(held);
+  assert.equal(waiting.offer('c').enabled,true);
+  waiting.update(clone(base));
+  assert.equal(waiting.offer('b').enabled,true);  // Following: B pauses.
+}
 console.log('Pedal offers, independent safety input, held/editable keys, stale/order guards, true state and stopped tester passed.');

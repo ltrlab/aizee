@@ -3,10 +3,14 @@
 // arms follow), and records nothing: a still refuses to run beside a recording. Policy runs a trained policy with the
 // leaders connected: the operator takes over and hands back (pedal B or O), and pedal A records both, each frame
 // labelled (policy corrections). Nothing here moves a motor: the mode chooses Teleop's cards and when a still is taken.
+// While a still is taken the arms hold: Resume (T, or a pedal's Resume or Engage) waits until it is saved, here and in
+// Helm (helm.teleop STILL_PENDING). The first live still came 3.6 s after its pause, after the operator resumed.
 export const MODES = ['direct', 'calibrate', 'policy'];
 export const SETTLE_MS = 1000;  // From the pause reaching Hold to the still: the arm and head stop ringing first.
 export const PAUSE_WAIT_MS = 3000;  // A pause that has not reached Hold by then was refused; it takes no still.
+export const NOTE_MS = 10000;  // How long the card says what the last still found, unless the next pause comes first.
 export const NO_RECORDING = 'Calibrate records nothing: choose Direct to record an episode';
+export const STILL_PENDING = 'Taking a still: resume once it is saved';
 
 export const knownMode = mode => (MODES.includes(mode) ? mode : 'direct');
 
@@ -100,11 +104,30 @@ export class PauseStill {
   }
 }
 
-// The calibration card's line for the mode: what a pause does, and the countdown while a still is coming.
-export function pauseStillText(remaining, role) {
-  const camera = role === 'head' ? 'the head camera' : role === 'right_wrist' ? 'the right wrist camera'
-    : 'the left wrist camera';
-  return remaining === null
-    ? `Calibrate: each pause (pedal B or T) takes a still of ${camera} ${SETTLE_MS / 1000} s later. Resume for the next pose.`
-    : `Still of ${camera} in ${remaining.toFixed(1)} s: hold still.`;
+// Whether a still is being taken: this page's request is out, or Helm says a wrist or head still runs (another page's).
+export function stillTaking({pending = false, calibration = null, headAlignment = null} = {}) {
+  return Boolean(pending || calibration?.busy || headAlignment?.busy);
+}
+
+const cameraName = role => role === 'head' ? 'the head camera' : role === 'right_wrist' ? 'the right wrist camera'
+  : 'the left wrist camera';
+
+// What the last still found, for the card's line: the still Helm kept (its summary, helm.calibration
+// _still_summary), or why there is none.
+export function stillOutcome(last, error, role) {
+  if (error) return `No still: ${error}`;
+  if (!last) return null;
+  if (!last.tags?.length) return `${last.name} saved, but it saw no board tags: aim ${cameraName(role)} at the board, `
+    + 'then pause again (Undo drops it).';
+  return `${last.name} saved: tag${last.tags.length === 1 ? '' : 's'} ${last.tags.join(', ')}. Resume for the next pose.`;
+}
+
+// The calibration card's line for the mode: the countdown while a still is coming, that it is being taken, what the
+// last one found (`note`, for NOTE_MS), else what a pause does.
+export function pauseStillText(remaining, role, {taking = false, note = null} = {}) {
+  const camera = cameraName(role);
+  if (remaining !== null) return `Still of ${camera} in ${remaining.toFixed(1)} s: hold still.`;
+  if (taking) return `Taking a still of ${camera}: hold still. Resume once it is saved.`;
+  return note || `Calibrate: each pause (pedal B or T) takes a still of ${camera} ${SETTLE_MS / 1000} s later, and `
+    + 'the arms hold until it is saved. Resume for the next pose.';
 }

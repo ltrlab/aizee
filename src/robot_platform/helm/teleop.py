@@ -45,6 +45,7 @@ from robot_platform.ops.ssh import TETHER
 CYCLE_HISTORY = 100
 
 KEYS = frozenset('IETHXO')  # O: take over from the policy, or hand back to it (policy corrections).
+STILL_PENDING = 'Taking a still: resume once it is saved'  # The page says the same (static/teleop_mode.js).
 ENGAGED = ('ENGAGING', 'TELEOP')
 REPLAY_SETTLE_S = .5  # After a replay's last frame, the arms follow it this long before the loop holds.
 HELD = ('stopping', 'stopped')  # Receiver states in which it brakes or holds the arm itself.
@@ -2173,6 +2174,9 @@ class TeleopSession:
         # Or live on one arm, or both ({'mode': 'live', 'arm': 'left' | 'right' | 'both'}); virtual may enforce the
         # two-arm bound ({'mode': 'virtual', 'collision': 'motion'}).
         self.receiver = {'mode': 'virtual'}
+        # True while a camera still is taken (Helm on Minerva: helm.calibration, helm.head_alignment): the arms hold
+        # until it is saved. Calibrate's still came 3.6 s after its pause, and the operator had resumed (2026-11-02).
+        self.still_busy = lambda: False
         self._lock = threading.Lock()
         self._send_lock = threading.Lock()
         self._conn = self._views = self._worker = self._reader = None
@@ -2605,12 +2609,23 @@ class TeleopSession:
             raise ValueError('Start a teleop session first')
         if self._view.get('fault') and key != 'H':
             raise ValueError('Teleop faulted: stop the session and start it again')
+        if key == 'T':
+            self._wait_for_still()
         self._send(('key', key))
 
     def pedal(self, payload):
         if self._view.get('phase') != 'running':
             raise ValueError('Start a teleop session first')
+        offers = (self._view.get('pedals') or {}).get('actions') or {}
+        if (offers.get((payload or {}).get('pedal')) or {}).get('action') in ('engage', 'resume'):
+            self._wait_for_still()
         return self._request('pedal', payload)
+
+    def _wait_for_still(self):
+        """Refused while the arms hold for a camera still: what would set them moving waits until it is saved. T while
+        they follow still pauses them, and H, X and the other pedal actions are never held back."""
+        if self._view.get('state') == 'HOLD' and self.still_busy():
+            raise ValueError(STILL_PENDING)
 
 
     def _request(self, kind, *arguments, timeout=5.):

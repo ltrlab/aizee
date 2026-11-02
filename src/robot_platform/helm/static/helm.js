@@ -14,7 +14,8 @@ import {captureBlock, countsText, headCaptureBlock, headCountsText, headLastText
 import {mapCaptureBlock, mapLines, mapStatusText} from './maps.js';
 import {twinCanApply, twinLines, twinStatusText} from './twin.js';
 import {jointZeroBlocked, jointZeroResult, jointZeroStatus, pendingLines, zeroChoices} from './joint_zero.js';
-import {knownMode, modeCards, modeChoice, NO_RECORDING, PauseStill, pauseStillText, sessionMode} from './teleop_mode.js';
+import {knownMode, modeCards, modeChoice, NO_RECORDING, NOTE_MS, PauseStill, pauseStillText, sessionMode, STILL_PENDING,
+  stillOutcome, stillTaking} from './teleop_mode.js';
 
 // Helm operator page. Reads /api/helm/state; every action needs the session token.
 const $ = id => document.getElementById(id);
@@ -675,6 +676,14 @@ try {
   if (['left_wrist', 'right_wrist', 'head'].includes(role)) calibrationRole = role;
 } catch { /* storage unavailable */ }
 const headSelected = () => calibrationRole === 'head';
+let stillNote = {text: null, until: 0};  // What the last still found (stillOutcome), shown for NOTE_MS.
+// A still is being taken (this page's, or another's Helm reports): the arms hold until it is saved.
+const stillBusy = (state = last) => stillTaking({pending: calibrationPending, calibration: state?.calibration,
+  headAlignment: state?.head_alignment});
+function stillLine(now) {
+  return pauseStillText(pauseStill.remaining(now), calibrationRole,
+    {taking: stillBusy(), note: now < stillNote.until ? stillNote.text : null});
+}
 function calibrationBlock(state) {
   return headSelected() ? headCaptureBlock(state?.head_alignment, state?.teleop)
     : captureBlock(state?.calibration, state?.teleop);
@@ -684,7 +693,7 @@ function renderCalibration(state) {
   const section = $('calibration');
   section.hidden = (!state.calibration && !state.head_alignment) || !teleopView(state.teleop).cards.calibration;
   if (section.hidden) return;
-  $('calibration-auto').textContent = pauseStillText(pauseStill.remaining(performance.now()), calibrationRole);
+  $('calibration-auto').textContent = stillLine(performance.now());
   const blocked = calibrationBlock(state);
   for (const button of document.querySelectorAll('#calibration-role button')) {
     button.setAttribute('aria-pressed', String(button.dataset.role === calibrationRole));
@@ -735,13 +744,18 @@ async function calibrationAction(action, payload = {}, timeoutMs = 15000) {
   if (calibrationPending) return;
   calibrationPending = true;
   if (last) renderCalibration(last);
+  const role = calibrationRole, head = headSelected();
+  let note = null;
   try {
-    const path = headSelected() ? `/api/helm/head-alignment/${action}` : `/api/helm/calibration/${action}`;
-    render(await request(path, headSelected() ? {} : payload, timeoutMs));
+    const path = head ? `/api/helm/head-alignment/${action}` : `/api/helm/calibration/${action}`;
+    render(await request(path, head ? {} : payload, timeoutMs));
+    if (action === 'capture') note = stillOutcome((head ? last?.head_alignment : last?.calibration)?.last, null, role);
   } catch (error) {
     $('calibration-error').hidden = false;
     $('calibration-error').textContent = error.message;
+    if (action === 'capture') note = stillOutcome(null, error.message, role);
   } finally {
+    if (note) stillNote = {text: note, until: performance.now() + NOTE_MS};
     calibrationPending = false;
     if (last) renderCalibration(last);
   }
@@ -753,8 +767,7 @@ function captureStill() {
 setInterval(() => {
   const now = performance.now();
   if (pauseStill.due(last?.teleop, now, teleopView(last?.teleop).mode)) captureStill();
-  if (last && !$('calibration').hidden)
-    $('calibration-auto').textContent = pauseStillText(pauseStill.remaining(now), calibrationRole);
+  if (last && !$('calibration').hidden) $('calibration-auto').textContent = stillLine(now);
 }, 100);
 for (const button of document.querySelectorAll('#calibration-role button')) {
   button.onclick = () => {
@@ -1721,6 +1734,10 @@ function renderTeleopMode(t, mode) {
 }
 
 async function sendKey(key) {
+  if (key === 'T' && last?.teleop?.state === 'HOLD' && stillBusy()) {  // The arms hold until the still is saved.
+    say(STILL_PENDING, 'bad');
+    return;
+  }
   if (key === 'T') pauseStill.keyPause(last?.teleop, performance.now());  // Calibrate: T while following pauses.
   // Never dropped behind another pending action: H and X must always get through.
   try {
@@ -2397,7 +2414,7 @@ const pedalControls=new PedalControls({
   request,onState:render,onError:message=>say(message,'bad'),onChange:renderPedals,
   context:()=>({tab:document.body.dataset.tab,hidden:document.hidden,
     confirming:!!pendingConfirm || $('disable-confirm').open,pedalTest:pedalTestShown(),
-    noRecording:teleopView(last?.teleop).mode==='calibrate'?NO_RECORDING:''}),
+    noRecording:teleopView(last?.teleop).mode==='calibrate'?NO_RECORDING:'',stillPending:stillBusy()?STILL_PENDING:''}),
 });
 for(const button of document.querySelectorAll('[data-pedal]'))button.onclick=()=>pedalControls.press(button.dataset.pedal);
 $('pedal-test').onclick=()=>pedalControls.setTest(!pedalControls.testMode);

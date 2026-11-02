@@ -187,6 +187,8 @@ def main(argv=None):
             head_files = lambda: head.files(operator_directory(), session.asset_id)  # noqa: E731
             head_alignment = HeadAlignment(teleop=teleop.snapshot, root=f'{CALIBRATION_ROOT}/head',
                                            wrists=CALIBRATION_ROOT, files=head_files)
+            # The arms hold while a still is taken: Resume (T, or a pedal's Resume or Engage) waits for it.
+            teleop.still_busy = lambda: calibration.busy or head_alignment.busy
             # The digital twin's correction from both, for drawing only; its file beside the head's.
             from robot_platform.vision.twin import path as twin_path
             from .twin import TwinCorrection

@@ -243,6 +243,53 @@ def test_session_relays_keys_and_route_edits_and_stops_cleanly(tmp_path):
         session.key('I')
 
 
+class HoldingCore(FakeCore):
+    """A paused session's core: it holds (or follows, `state`), pedal B offers Resume and C Shutdown."""
+    state = 'HOLD'
+
+    def view(self):
+        return dict(super().view(), state=self.state,
+                    pedals={'actions': {'b': {'action': 'resume'}, 'c': {'action': 'shutdown'}}})
+
+    def prepare_pedal(self, payload):
+        return {'pedal': payload['pedal'], 'action': self.view()['pedals']['actions'][payload['pedal']]['action']}
+
+    def finish_pedal(self, intent, command_id=None, error=None):
+        return {'accepted': error is None, 'error': error}
+
+
+def test_the_arms_hold_until_a_camera_still_is_saved(tmp_path):
+    """Calibrate's first live still came 3.6 s after its pause, and the operator had resumed by then (2026-11-02).
+    While a still is taken (Helm on Minerva wires still_busy), T and a pedal's Resume or Engage are refused in Hold;
+    T while the arms follow still pauses them, and H, X and the other pedal actions are never held back."""
+    fake, busy = HoldingCore(), [True]
+    session = TeleopSession(helm_stub(), TELEOP, runs=tmp_path, core_factory=lambda bundle: fake)
+    session.still_busy = lambda: busy[0]
+    press = lambda pedal: session.pedal({'session_id': 's', 'revision': 1, 'press_id': 1, 'pedal': pedal})  # noqa: E731
+    session.start()
+    try:
+        wait_until(lambda: session.snapshot().get('state') == 'HOLD')
+        with pytest.raises(ValueError, match='^Taking a still: resume once it is saved$'):
+            session.key('T')
+        with pytest.raises(ValueError, match='^Taking a still: resume once it is saved$'):
+            press('b')
+        assert press('c') == {'accepted': True, 'error': None}  # Shutdown is never held back.
+        session.key('H')
+        wait_until(lambda: fake.keys == ['X', 'H'])
+        fake.state = 'TELEOP'  # Following: T pauses, still taken or not.
+        wait_until(lambda: session.snapshot().get('state') == 'TELEOP')
+        session.key('T')
+        wait_until(lambda: fake.keys == ['X', 'H', 'T'])
+        fake.state, busy[0] = 'HOLD', False  # Saved: Resume goes through.
+        wait_until(lambda: session.snapshot().get('state') == 'HOLD')
+        session.key('T')
+        wait_until(lambda: fake.keys == ['X', 'H', 'T', 'T'])
+        press('b')
+        wait_until(lambda: fake.keys == ['X', 'H', 'T', 'T', 'T'])
+    finally:
+        session.stop()
+
+
 def test_status_names_the_guarded_profiles_interpolated_law(tmp_path):
     """The status row's Control cell for a profile without Motor tuning: its own law, next and while running."""
     session = TeleopSession(helm_stub(), TELEOP, runs=tmp_path, core_factory=lambda bundle: FakeCore())
