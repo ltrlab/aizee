@@ -55,10 +55,10 @@ A prototype that passes it may be deployed for a supervised trial, with the user
 
 ### Commit checks (ltr-code)
 
-This repository is public. [ltr-code](https://github.com/ltrlab/ltr-code), the LTR LABS code standard, checks every
-commit before it lands: keys, tokens, passwords, private network addresses and credential files; file size,
-whitespace, CRLF and conflict markers; and formatting (ruff, rustfmt, clang-format, shfmt, prettier). Install it
-once per machine and its hooks once per worktree:
+This repository is public. [ltr-code](https://github.com/ltrlab/ltr-code), the LTR LABS code standard (its
+repository is private to LTR LABS), checks every commit before it lands: keys, tokens, passwords, private network
+addresses and credential files; file size, whitespace, CRLF and conflict markers; and formatting (ruff, rustfmt,
+clang-format, shfmt, prettier). Install it once per machine and its hooks once per worktree:
 
 ```sh
 python -m venv ~/.ltr-code
