@@ -15,10 +15,9 @@ and only then writes the partition file the loop reads, so the loop never keeps 
 still use them; remove takes the file away first for the same reason. Both refuse while a Helm session runs on
 the robot: restarting a camera interrupts its stream.
 
-The split also keeps CPU 3 for the head's receiver alone (2026-11-03), run real-time there: install gives the
-service manager of the user who ran sudo (user@UID.service, which runs Helm and so every session) a LimitRTPRIO
-drop-in, and restarts it, with Helm, to take it. Beside the cameras on 0-3 the receiver's 10 ms ticks started up to
-15 ms late, and one late tick stopped the head mid-session. Installing again moves an older split to this one.
+The split also keeps CPU 3 for the head's receiver alone (2026-11-03): beside the cameras on 0-3 its 10 ms ticks
+started up to 15 ms late, and one late tick stopped the head mid-session. Installing again moves an older split to
+this one; Helm, which keeps itself to the background CPUs, moves when it next starts (a deploy restarts it).
 """
 import argparse
 from itertools import combinations
@@ -28,14 +27,17 @@ from pathlib import Path, PurePosixPath
 import subprocess
 import sys
 
-from robot_platform.control.scheduling import PARTITION, REALTIME_PRIORITY, cpu_partition, head_cpus
+from robot_platform.control.scheduling import PARTITION, cpu_partition, head_cpus
 
 CONTROL = (4, 5)
 HEAD = (3,)
 BACKGROUND = (0, 1, 2)
 SERVICES = ('aizee-scene-cam.service', 'minerva-left-wrist.service', 'minerva-right-wrist.service')
 DROP_IN = '50-minerva-cpu-partition.conf'
-REALTIME_DROP_IN = '50-minerva-realtime.conf'
+# The LimitRTPRIO drop-in an earlier install gave the robot user's service manager (user@UID.service), to run the
+# head's receiver real-time: the manager's systemd-user PAM session drops the limit, so it never took (2026-11-03).
+# install and remove delete it.
+STALE_DROP_IN = '50-minerva-realtime.conf'
 UNITS = PurePosixPath('/etc/systemd/system')
 ONLINE = PurePosixPath('/sys/devices/system/cpu/online')
 SESSION = 'robot_platform.helm.edge'  # The command line of a Helm session's loop on the robot.
@@ -53,16 +55,6 @@ def cpu_list(text):
 def drop_in(cpus=BACKGROUND):
     return ('# robot_platform.ops.cpu_partition: this camera keeps off the control CPUs.\n'
             '[Service]\nCPUAffinity=\nCPUAffinity=' + ' '.join(map(str, cpus)) + '\n')
-
-
-def realtime_drop_in(priority=REALTIME_PRIORITY):
-    return ("# robot_platform.ops.cpu_partition: this user's services may run the head's receiver real-time.\n"
-            f'[Service]\nLimitRTPRIO={priority}\n')
-
-
-def manager(user):
-    """The service manager of user `user` (a uid): Helm's, so every session's."""
-    return f'user@{user}.service'
 
 
 class Host:
@@ -113,17 +105,6 @@ class Host:
                     result[int(task.name)] = cpu_list(line.split(':', 1)[1])
         return result
 
-    def realtime_limit(self, pid):
-        """Process `pid`'s soft RLIMIT_RTPRIO, None where it cannot be read."""
-        try:
-            text = (self.path('/proc') / str(pid) / 'limits').read_text()
-        except OSError:
-            return None
-        for line in text.splitlines():
-            if line.startswith('Max realtime priority'):
-                return int(line.split()[3])  # Max realtime priority  <soft>  <hard>
-        return None
-
 
 def _write(path, text, mode=0o644):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -131,6 +112,20 @@ def _write(path, text, mode=0o644):
     partial.write_text(text, encoding='utf-8')
     os.chmod(partial, mode)
     os.replace(partial, path)
+
+
+def _unlink(paths):
+    """Delete each of `paths` that exists, and its drop-in directory once that is empty."""
+    for path in paths:
+        if path.exists():
+            path.unlink()
+            if not any(path.parent.iterdir()):
+                path.parent.rmdir()
+
+
+def _stale(host):
+    """Every user service manager's STALE_DROP_IN."""
+    return sorted(host.path(UNITS).glob('user@*.service.d/' + STALE_DROP_IN))
 
 
 def _quiet(host):
@@ -151,8 +146,7 @@ def _restart(host):
     return placed
 
 
-def install(host=None, control=CONTROL, background=BACKGROUND, head=HEAD, *, user):
-    """`user`: the robot user's uid, whose services (Helm) may then run the head's receiver real-time."""
+def install(host=None, control=CONTROL, background=BACKGROUND, head=HEAD):
     host = host or Host()
     _quiet(host)
     online = cpu_list(host.path(ONLINE).read_text())
@@ -161,7 +155,7 @@ def install(host=None, control=CONTROL, background=BACKGROUND, head=HEAD, *, use
         raise RuntimeError(f'CPUs {sorted(online)} are online here: control {list(control)}, background '
                            f'{list(background)} and head {list(head)} must be online and apart. Check the power mode '
                            '(nvpmodel).')
-    for unit in SERVICES + (manager(user),):
+    for unit in SERVICES:
         if host.systemctl('show', '-p', 'LoadState', '--value', unit).strip() != 'loaded':
             raise RuntimeError(f'{unit} is not installed here.')
     partition = host.path(PARTITION)
@@ -169,6 +163,7 @@ def install(host=None, control=CONTROL, background=BACKGROUND, head=HEAD, *, use
         partition.unlink()  # An older split's: the loop keeps to no CPUs while the cameras move.
     for unit in SERVICES:
         _write(host.path(UNITS / (unit + '.d') / DROP_IN), drop_in(background))
+    _unlink(_stale(host))  # It never took, so its manager (Helm's) needs no restart.
     placed = _restart(host)
     stray = {unit: sorted(set().union(*threads.values())) for unit, threads in placed.items()
              if threads and any(cpus != set(background) for cpus in threads.values())}
@@ -178,35 +173,21 @@ def install(host=None, control=CONTROL, background=BACKGROUND, head=HEAD, *, use
     _write(partition, json.dumps({'control': list(control), 'background': list(background), 'head': list(head),
                                   'services': list(SERVICES)}, indent=2) + '\n')
     cpu_partition(partition), head_cpus(partition)  # The loop and the head read it back the same way.
-    # The manager takes its limit as it starts: restarted, it starts Helm again, which keeps to the new split.
-    _write(host.path(UNITS / (manager(user) + '.d') / REALTIME_DROP_IN), realtime_drop_in())
-    host.systemctl('daemon-reload')
-    host.systemctl('restart', manager(user))
-    report = status(host, user=user)
-    if report['realtime']['limit'] != REALTIME_PRIORITY:
-        raise RuntimeError(f"{manager(user)} restarted without the real-time limit ({report['realtime']['limit']}): "
-                           "the head's receiver keeps its CPU but runs at normal priority.")
-    return report
+    return status(host)
 
 
-def remove(host=None, *, user):
+def remove(host=None):
     host = host or Host()
     _quiet(host)
     partition = host.path(PARTITION)
     if partition.exists():
         partition.unlink()  # First: the loop stops keeping to its CPUs before the cameras may use them.
-    for path in [host.path(UNITS / (unit + '.d') / DROP_IN) for unit in SERVICES] + [
-            host.path(UNITS / (manager(user) + '.d') / REALTIME_DROP_IN)]:
-        if path.exists():
-            path.unlink()
-            if not any(path.parent.iterdir()):
-                path.parent.rmdir()
+    _unlink([host.path(UNITS / (unit + '.d') / DROP_IN) for unit in SERVICES] + _stale(host))
     _restart(host)
-    host.systemctl('restart', manager(user))  # Helm and the manager without the limit.
-    return status(host, user=user)
+    return status(host)
 
 
-def status(host=None, *, user=None):
+def status(host=None):
     host = host or Host()
     partition = cpu_partition(host.path(PARTITION))
     head = head_cpus(host.path(PARTITION))
@@ -214,10 +195,6 @@ def status(host=None, *, user=None):
                                                            'background': sorted(partition[1]),
                                                            'head': None if head is None else sorted(head)},
               'cameras': {}, 'sessions': {}}
-    if user is not None:
-        pid = host.main_pid(manager(user))
-        report['realtime'] = {'drop_in': host.path(UNITS / (manager(user) + '.d') / REALTIME_DROP_IN).exists(),
-                              'limit': host.realtime_limit(pid) if pid else None}
     for unit in SERVICES:
         pid = host.main_pid(unit)
         threads = host.cpus(pid) if pid else {}
@@ -241,15 +218,8 @@ def main(argv=None):
         print('Run as sudo python3 -B -m robot_platform.ops.cpu_partition, so no root-owned bytecode is left '
               'in the release.', file=sys.stderr)
         return 2
-    # The robot user's services get the real-time limit: the user who ran sudo, or for status the one asking.
-    user = os.environ.get('SUDO_UID') or (str(os.getuid()) if args.action == 'status' and hasattr(os, 'getuid')
-                                          else None)
-    if user is None or not user.isdigit() or user == '0':
-        print("Run it with sudo from the robot's user, whose services then may run the head real-time.",
-              file=sys.stderr)
-        return 2
     try:
-        report = {'install': install, 'remove': remove, 'status': status}[args.action](user=int(user))
+        report = {'install': install, 'remove': remove, 'status': status}[args.action]()
     except RuntimeError as exc:
         print(exc, file=sys.stderr)
         return 1

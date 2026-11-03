@@ -153,7 +153,7 @@ class HeadReceiver(LiveReceiver):
     with the harness and the arms' receiver. The service itself checks the servos' identity and, for head teleop,
     the reference pose before it opens its socket, so there is no separate prescan or bus to bring up.
 
-    Once spawned it moves to CPUs of its own, real-time there, where the host's partition keeps them (`place`:
+    Once spawned it moves to CPUs of its own where the host's partition keeps them (`place`:
     control.scheduling.prefer_head). On the background CPUs beside the cameras its 10 ms ticks started up to 15 ms
     late, and one late tick stopped the head mid-session (2026-11-03). Where each of its threads runs, once it
     answers, goes beside its evidence (scheduling.json)."""
@@ -181,7 +181,7 @@ class HeadReceiver(LiveReceiver):
         self.process = self.spawn([str(self.binary), str(path), *flags], stdout=self.log, stderr=subprocess.STDOUT,
                                   preexec_fn=_die_with_parent)
         # Before its first tick is due: it checks the servos and the reference pose first. Threads it starts later
-        # (its socket's) inherit the CPUs and the priority.
+        # (its socket's) inherit the CPUs.
         self.scheduling = self.place(self.process.pid)
 
     def _await_disarmed(self, timeout_s):

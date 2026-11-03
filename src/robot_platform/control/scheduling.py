@@ -19,11 +19,13 @@ head's cycles beside the arms', whose receiver otherwise started its ticks up to
 9 ms late and let an arm command expire, 2026-10-31). Without the file nothing
 moves: control CPUs only help where the cameras keep off them.
 
-A partition may also keep CPUs for the head's receiver alone (head_cpus):
-prefer_head moves it there and runs it real-time (SCHED_FIFO) where the host
-allows it. On the background CPUs beside the cameras its 10 ms ticks started up
-to 15 ms late, and one late tick stopped the head mid-session (2026-11-03). A
-real-time thread only ever runs on CPUs kept for it, so it can starve nothing.
+A partition may also keep CPUs for the head's receiver alone (head_cpus), and
+prefer_head moves it there: on the background CPUs beside the cameras its 10 ms
+ticks started up to 15 ms late, and one late tick stopped the head mid-session
+(2026-11-03). It runs there at normal priority. Real-time (SCHED_FIFO) would
+need the robot user's services to hold an RLIMIT_RTPRIO, which Minerva's
+systemd-user PAM session drops; on a CPU of its own, under a load filling the
+background CPUs, the receiver missed no deadline in 30 s.
 """
 import json
 import os
@@ -36,9 +38,6 @@ PROCESS_POWER_THROTTLING = 4  # PROCESS_INFORMATION_CLASS.ProcessPowerThrottling
 THROTTLE_EXECUTION_SPEED, THROTTLE_IGNORE_TIMER_RESOLUTION = 0x1, 0x4
 PARTITION = '/etc/minerva/cpu-partition.json'
 PROC = Path('/proc')
-# The head's receiver's SCHED_FIFO priority: above every ordinary thread, below the kernel's threaded interrupts (50).
-# ops.cpu_partition raises the robot user's services' RLIMIT_RTPRIO to it.
-REALTIME_PRIORITY = 20
 
 
 def _split(path):
@@ -78,44 +77,29 @@ def head_cpus(path=None):
     return frozenset(head)
 
 
-def _every_thread(pid, settled, change):
-    """`change` every thread of process `pid` (default: this one) not yet `settled`; False if the system refused."""
+def pin_threads(cpus, pid=None):
+    """Move every thread of process `pid` (default: this one) onto `cpus`; False if the system refused.
+
+    Threads started later inherit their creator's CPUs, and so do child processes such as a receiver."""
     tasks = PROC / str(pid or os.getpid()) / 'task'
-    for _ in range(5):  # A thread started during a pass by one not yet changed is caught by the next.
-        changed = False
+    for _ in range(5):  # A thread started during a pass by one not yet moved is caught by the next.
+        moved = False
         try:
             threads = [int(task.name) for task in tasks.iterdir()]
         except FileNotFoundError:
             return False
         for thread in threads:
             try:
-                if not settled(thread):
-                    change(thread)
-                    changed = True
+                if os.sched_getaffinity(thread) != cpus:
+                    os.sched_setaffinity(thread, cpus)
+                    moved = True
             except ProcessLookupError:
                 continue  # That thread has ended.
             except OSError:
                 return False
-        if not changed:
+        if not moved:
             return True
     return False
-
-
-def pin_threads(cpus, pid=None):
-    """Move every thread of process `pid` (default: this one) onto `cpus`; False if the system refused.
-
-    Threads started later inherit their creator's CPUs, and so do child processes such as a receiver."""
-    return _every_thread(pid, lambda thread: os.sched_getaffinity(thread) == cpus,
-                         lambda thread: os.sched_setaffinity(thread, cpus))
-
-
-def realtime_threads(pid, priority=REALTIME_PRIORITY):
-    """Every thread of process `pid` real-time, SCHED_FIFO at `priority`; False if the system refused (the
-    process's RLIMIT_RTPRIO is below it). Threads started later inherit their creator's policy."""
-    param = os.sched_param(priority)
-    return _every_thread(pid, lambda thread: os.sched_getscheduler(thread) == os.SCHED_FIFO
-                         and os.sched_getparam(thread).sched_priority == priority,
-                         lambda thread: os.sched_setscheduler(thread, os.SCHED_FIFO, param))
 
 
 def prefer_background(pid=None):
@@ -138,18 +122,15 @@ def prefer_background_thread():
 
 
 def prefer_head(pid):
-    """The head's receiver (neck.head.HeadReceiver), process `pid`: every thread onto the partition's head CPUs and
-    real-time there where the host allows it; where the partition keeps no head CPUs, onto the background CPUs as
-    before, never real-time. Returns the hints that took."""
+    """The head's receiver (neck.head.HeadReceiver), process `pid`: every thread onto the partition's head CPUs, or
+    where it keeps none, onto the background CPUs as before. Returns the hints that took."""
     partition = cpu_partition() if sys.platform.startswith('linux') else None
     if not partition:
         return []
     head = head_cpus()
     if head is None:
         return ['background_cpus'] if pin_threads(partition[1], pid) else []
-    if not pin_threads(head, pid):
-        return []
-    return ['head_cpus'] + (['realtime'] if realtime_threads(pid) else [])
+    return ['head_cpus'] if pin_threads(head, pid) else []
 
 
 def thread_placement(pid):

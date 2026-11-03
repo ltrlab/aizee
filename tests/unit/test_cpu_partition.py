@@ -8,12 +8,11 @@ from types import SimpleNamespace
 import pytest
 
 from robot_platform.control import scheduling
-from robot_platform.control.scheduling import (REALTIME_PRIORITY, cpu_partition, head_cpus, prefer_background,
-                                               prefer_background_thread, prefer_head, prefer_responsive,
-                                               thread_placement)
+from robot_platform.control.scheduling import (cpu_partition, head_cpus, prefer_background, prefer_background_thread,
+                                               prefer_head, prefer_responsive, thread_placement)
 
 ALL = set(range(6))
-OTHER, FIFO = 0, 1  # os.SCHED_OTHER and os.SCHED_FIFO on Linux.
+OTHER = 0  # os.SCHED_OTHER on Linux.
 
 
 @pytest.fixture
@@ -22,20 +21,11 @@ def linux(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, 'platform', 'linux')
     monkeypatch.setattr(scheduling, 'PROC', tmp_path / 'proc')
     monkeypatch.setattr(scheduling, 'PARTITION', str(tmp_path / 'cpu-partition.json'))
-    host = SimpleNamespace(cpus={}, started={}, refuse=None, partition=tmp_path / 'cpu-partition.json',
-                           policy={}, rtprio=0)
+    host = SimpleNamespace(cpus={}, started={}, refuse=None, partition=tmp_path / 'cpu-partition.json')
 
     def thread(pid, tid):
         (tmp_path / 'proc' / str(pid) / 'task' / str(tid)).mkdir(parents=True)
         host.cpus[tid] = set(ALL)
-        host.policy[tid] = (OTHER, 0)
-
-    def setscheduler(tid, policy, param):
-        if tid not in host.policy:
-            raise ProcessLookupError(tid)
-        if policy == FIFO and param.sched_priority > host.rtprio:  # Unprivileged: up to RLIMIT_RTPRIO.
-            raise PermissionError('Operation not permitted')
-        host.policy[tid] = (policy, param.sched_priority)
 
     def setaffinity(tid, cpus):
         if host.refuse:
@@ -49,12 +39,8 @@ def linux(tmp_path, monkeypatch):
     monkeypatch.setattr(os, 'sched_getaffinity', lambda tid: set(host.cpus[tid]), raising=False)
     monkeypatch.setattr(os, 'sched_setaffinity', setaffinity, raising=False)
     monkeypatch.setattr(os, 'SCHED_OTHER', OTHER, raising=False)
-    monkeypatch.setattr(os, 'SCHED_FIFO', FIFO, raising=False)
-    monkeypatch.setattr(os, 'sched_param', lambda priority: SimpleNamespace(sched_priority=priority), raising=False)
-    monkeypatch.setattr(os, 'sched_getscheduler', lambda tid: host.policy[tid][0], raising=False)
-    monkeypatch.setattr(os, 'sched_getparam', lambda tid: SimpleNamespace(sched_priority=host.policy[tid][1]),
-                        raising=False)
-    monkeypatch.setattr(os, 'sched_setscheduler', setscheduler, raising=False)
+    monkeypatch.setattr(os, 'sched_getscheduler', lambda tid: OTHER, raising=False)
+    monkeypatch.setattr(os, 'sched_getparam', lambda tid: SimpleNamespace(sched_priority=0), raising=False)
     host.thread = thread
     return host
 
@@ -111,28 +97,22 @@ def test_a_thread_of_a_control_process_moves_alone_onto_the_background_cpus(linu
     assert prefer_background_thread() == []
 
 
-def test_the_heads_receiver_runs_real_time_on_its_own_cpus(linux):
+def test_the_heads_receiver_keeps_to_its_own_cpus(linux):
     # 2026-11-03: beside the cameras on 0-3 its 10 ms ticks started up to 15 ms late; one late tick stopped the head.
     for tid in (300, 301):
         linux.thread(300, tid)
     assert prefer_head(300) == []  # No partition: nothing moves.
-    split(linux.partition)  # Installed before the head kept a CPU: the background, never real-time.
-    linux.rtprio = REALTIME_PRIORITY
-    assert prefer_head(300) == ['background_cpus'] and linux.cpus[300] == {0, 1, 2, 3}
-    assert linux.policy == {300: (OTHER, 0), 301: (OTHER, 0)}
+    split(linux.partition)  # Installed before the head kept a CPU: the background, as before.
+    assert prefer_head(300) == ['background_cpus'] and linux.cpus == {300: {0, 1, 2, 3}, 301: {0, 1, 2, 3}}
     split(linux.partition, background=(0, 1, 2), head=(3,))
-    linux.rtprio = 0  # The user's services without the limit (ops.cpu_partition not yet installed again).
     linux.started[300] = [(300, 302)]  # Started as it moves: the next pass catches it.
     assert prefer_head(300) == ['head_cpus'] and linux.cpus == {300: {3}, 301: {3}, 302: {3}}
-    assert linux.policy == {300: (OTHER, 0), 301: (OTHER, 0), 302: (OTHER, 0)}
-    linux.rtprio = REALTIME_PRIORITY
-    assert prefer_head(300) == ['head_cpus', 'realtime']
-    assert linux.cpus == {300: {3}, 301: {3}, 302: {3}}
-    assert linux.policy == {tid: (FIFO, REALTIME_PRIORITY) for tid in (300, 301, 302)}
-    assert thread_placement(300) == {tid: {'cpus': [3], 'policy': 'SCHED_FIFO', 'priority': REALTIME_PRIORITY}
+    assert thread_placement(300) == {tid: {'cpus': [3], 'policy': 'SCHED_OTHER', 'priority': 0}
                                      for tid in (300, 301, 302)}
     assert prefer_background(300) == ['background_cpus'] and linux.cpus[300] == {0, 1, 2}
     assert head_cpus(linux.partition) == {3} and thread_placement(4242) == {}
+    linux.refuse = PermissionError('refused')
+    assert prefer_head(300) == []
 
 
 @pytest.mark.parametrize('content', [

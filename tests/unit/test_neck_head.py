@@ -116,11 +116,11 @@ def test_the_head_receiver_starts_and_stops_its_own_service(tmp_path):
 
     live = head.HeadReceiver(service, binary='/release/bin/head_controller', directory=tmp_path,
                              spawn=lambda args, **options: spawned.append(args) or process, transport_factory=Transport,
-                             place=lambda pid: placed.append(pid) or ['head_cpus', 'realtime'])
+                             place=lambda pid: placed.append(pid) or ['head_cpus'])
     assert live.start() is live and live.label == 'head' and live.buses == []
-    # Its own CPUs, real-time, once spawned (control.scheduling.prefer_head), and the hints beside its evidence.
-    assert placed == [4242] and live.scheduling == ['head_cpus', 'realtime']
-    assert json.loads((tmp_path / 'scheduling.json').read_text())['hints'] == ['head_cpus', 'realtime']
+    # Its own CPUs once spawned (control.scheduling.prefer_head), and the hints beside its evidence.
+    assert placed == [4242] and live.scheduling == ['head_cpus']
+    assert json.loads((tmp_path / 'scheduling.json').read_text())['hints'] == ['head_cpus']
     assert Path(spawned[0][0]).name == 'head_controller' and len(spawned) == 1
     assert spawned[0][1:] == [str(tmp_path / 'live-head.json'), '--allow-powered-teleop', '--confirm-reference-pose']
     assert json.loads((tmp_path / 'live-head.json').read_text()) == service  # Its own configuration, nothing added.
