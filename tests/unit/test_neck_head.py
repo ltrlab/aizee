@@ -97,8 +97,9 @@ def test_the_head_receiver_starts_and_stops_its_own_service(tmp_path):
     reference, result = derived()
     service = head.service_config(PROFILE, reference, result, mode='teleop_direct')
     spawned, closed = [], []
-    process = SimpleNamespace(returncode=None, poll=lambda: process.returncode, wait=lambda timeout=None: 0,
+    process = SimpleNamespace(pid=4242, returncode=None, poll=lambda: process.returncode, wait=lambda timeout=None: 0,
                               terminate=lambda: setattr(process, 'returncode', 0), kill=lambda: None)
+    placed = []
 
     class Transport:
         def __init__(self, endpoint, *, timeout_ms):
@@ -114,8 +115,12 @@ def test_the_head_receiver_starts_and_stops_its_own_service(tmp_path):
             closed.append(self.endpoint)
 
     live = head.HeadReceiver(service, binary='/release/bin/head_controller', directory=tmp_path,
-                             spawn=lambda args, **options: spawned.append(args) or process, transport_factory=Transport)
+                             spawn=lambda args, **options: spawned.append(args) or process, transport_factory=Transport,
+                             place=lambda pid: placed.append(pid) or ['head_cpus', 'realtime'])
     assert live.start() is live and live.label == 'head' and live.buses == []
+    # Its own CPUs, real-time, once spawned (control.scheduling.prefer_head), and the hints beside its evidence.
+    assert placed == [4242] and live.scheduling == ['head_cpus', 'realtime']
+    assert json.loads((tmp_path / 'scheduling.json').read_text())['hints'] == ['head_cpus', 'realtime']
     assert Path(spawned[0][0]).name == 'head_controller' and len(spawned) == 1
     assert spawned[0][1:] == [str(tmp_path / 'live-head.json'), '--allow-powered-teleop', '--confirm-reference-pose']
     assert json.loads((tmp_path / 'live-head.json').read_text()) == service  # Its own configuration, nothing added.

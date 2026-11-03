@@ -1,34 +1,56 @@
 """ops.cpu_partition on a host directory: the cameras are confined and checked before the partition file the
-loop reads appears, and the file goes first when the split is removed."""
+loop reads appears, and the file goes first when the split is removed. The split keeps CPU 3 for the head's
+receiver, and the robot user's service manager restarts with the real-time limit it runs it with."""
+import json
 import os
 import sys
 from types import SimpleNamespace
 
 import pytest
 
-from robot_platform.control.scheduling import cpu_partition
+from robot_platform.control.scheduling import REALTIME_PRIORITY, cpu_partition, head_cpus
 from robot_platform.ops import cpu_partition as installer
-from robot_platform.ops.cpu_partition import DROP_IN, SERVICES, Host, cpu_list, drop_in, install, remove, status
+from robot_platform.ops.cpu_partition import (DROP_IN, REALTIME_DROP_IN, SERVICES, Host, cpu_list, drop_in, install,
+                                              manager, realtime_drop_in, remove, status)
+
+USER = 1000
+MANAGER = manager(USER)
 
 
 class System:
-    """systemctl over a host directory: a restart starts a new process placed as the unit's drop-in says,
-    as systemd does, unless `honour` is off."""
+    """systemctl over a host directory: a restart starts a new process placed as the unit's drop-in says, and the
+    user's manager with the limit its drop-in gives, as systemd does, unless `honour` is off."""
 
     def __init__(self, root, honour=True):
         self.root, self.honour, self.calls, self.pids, self.next = root, honour, [], {}, 1000
-        for unit in SERVICES:
+        self.grant = True  # Off: the manager restarts without the limit its drop-in gives.
+        for unit in SERVICES + (MANAGER,):
             self.start(unit)
+
+    def drop(self, unit, name):
+        return self.root / 'etc/systemd/system' / (unit + '.d') / name
 
     def start(self, unit):
         self.next += 1
-        pid, drop = self.next, self.root / 'etc/systemd/system' / (unit + '.d') / DROP_IN
-        placed = '0-3' if self.honour and drop.exists() else '0-5'
-        for tid in (pid, pid + 500):
-            task = self.root / 'proc' / str(pid) / 'task' / str(tid)
-            task.mkdir(parents=True)
-            (task / 'status').write_text(f'Name:\tpython3\nCpus_allowed_list:\t{placed}\n', encoding='utf-8')
-        (self.root / 'proc' / str(pid) / 'cmdline').write_bytes(b'/usr/bin/python3\0/home/ltr/camera_node.py\0')
+        pid = self.next
+        (self.root / 'proc' / str(pid)).mkdir(parents=True)
+        if unit == MANAGER:
+            realtime = self.drop(unit, REALTIME_DROP_IN)
+            limit = REALTIME_PRIORITY if self.honour and self.grant and realtime.exists() else 0
+            (self.root / 'proc' / str(pid) / 'limits').write_text(
+                'Limit                     Soft Limit           Hard Limit           Units\n'
+                f'Max realtime priority     {limit}                    {limit}\n', encoding='utf-8')
+            self.started_with = (self.root / 'etc/minerva/cpu-partition.json').exists()
+        else:
+            drop = self.drop(unit, DROP_IN)
+            placed = '0-5'
+            if self.honour and drop.exists():
+                placed = drop.read_text(encoding='utf-8').splitlines()[-1].split('=')[1].replace(' ', ',')
+            for tid in (pid, pid + 500):
+                task = self.root / 'proc' / str(pid) / 'task' / str(tid)
+                task.mkdir(parents=True)
+                (task / 'status').write_text(f'Name:\tpython3\nCpus_allowed_list:\t{placed}\n', encoding='utf-8')
+            (self.root / 'proc' / str(pid) / 'cmdline').write_bytes(b'/usr/bin/python3\0/home/ltr/camera_node.py\0')
         self.pids[unit] = pid
 
     def __call__(self, *args):
@@ -36,8 +58,10 @@ class System:
         if args[0] == 'show':
             return 'loaded\n' if args[2] == 'LoadState' else f'{self.pids[args[-1]]}\n'
         if args[0] == 'try-restart':
-            # Cameras restart before a partition appears (install) and after it is gone (remove).
+            # Cameras restart while no partition is in place (install) and after it is gone (remove).
             assert not (self.root / 'etc/minerva/cpu-partition.json').exists()
+            self.start(args[1])
+        if args[0] == 'restart':
             self.start(args[1])
         return ''
 
@@ -58,31 +82,55 @@ def session(root, pid=77, cpus='4-5'):
 
 
 def test_install_confines_the_cameras_then_writes_the_partition(jetson):
-    report = install(jetson.host)
+    report = install(jetson.host, user=USER)
     for unit in SERVICES:
         assert (jetson.root / 'etc/systemd/system' / (unit + '.d') / DROP_IN).read_text(encoding='utf-8') == (
             '# robot_platform.ops.cpu_partition: this camera keeps off the control CPUs.\n'
-            '[Service]\nCPUAffinity=\nCPUAffinity=0 1 2 3\n')
-    assert cpu_partition(jetson.root / 'etc/minerva/cpu-partition.json') == ({4, 5}, {0, 1, 2, 3})
-    restarts = [args for args in jetson.system.calls if args[0] in ('daemon-reload', 'try-restart')]
-    assert restarts == [('daemon-reload',)] + [('try-restart', unit) for unit in SERVICES]
-    assert report == {'partition': {'control': [4, 5], 'background': [0, 1, 2, 3]}, 'sessions': {},
-                      'cameras': {unit: {'drop_in': True, 'pid': jetson.system.pids[unit], 'cpus': [0, 1, 2, 3]}
-                                  for unit in SERVICES}}
+            '[Service]\nCPUAffinity=\nCPUAffinity=0 1 2\n')
+    partition = jetson.root / 'etc/minerva/cpu-partition.json'
+    assert cpu_partition(partition) == ({4, 5}, {0, 1, 2}) and head_cpus(partition) == {3}
+    # The user's manager (Helm's) restarts last, with the limit, once the partition Helm then keeps to is in place.
+    assert (jetson.root / 'etc/systemd/system' / (MANAGER + '.d') / REALTIME_DROP_IN).read_text(
+        encoding='utf-8') == realtime_drop_in() and realtime_drop_in().endswith(f'LimitRTPRIO={REALTIME_PRIORITY}\n')
+    restarts = [args for args in jetson.system.calls if args[0] in ('daemon-reload', 'try-restart', 'restart')]
+    assert restarts == [('daemon-reload',)] + [('try-restart', unit) for unit in SERVICES] + [
+        ('daemon-reload',), ('restart', MANAGER)]
+    assert jetson.system.started_with
+    assert report == {'partition': {'control': [4, 5], 'background': [0, 1, 2], 'head': [3]}, 'sessions': {},
+                      'cameras': {unit: {'drop_in': True, 'pid': jetson.system.pids[unit], 'cpus': [0, 1, 2]}
+                                  for unit in SERVICES},
+                      'realtime': {'drop_in': True, 'limit': REALTIME_PRIORITY}}
+
+
+def test_installing_again_moves_an_older_split_to_this_one(jetson):
+    # Installed 2026-10-18: the cameras on 0-3, no head CPU. The old file goes before the cameras move.
+    old = jetson.root / 'etc/minerva/cpu-partition.json'
+    old.parent.mkdir(parents=True)
+    old.write_text(json.dumps({'control': [4, 5], 'background': [0, 1, 2, 3], 'services': list(SERVICES)}))
+    for unit in SERVICES:
+        path = jetson.root / 'etc/systemd/system' / (unit + '.d') / DROP_IN
+        path.parent.mkdir(parents=True)
+        path.write_text(drop_in((0, 1, 2, 3)), encoding='utf-8')
+    assert head_cpus(old) is None
+    report = install(jetson.host, user=USER)
+    assert report['partition']['head'] == [3] and all(camera['cpus'] == [0, 1, 2]
+                                                      for camera in report['cameras'].values())
 
 
 def test_install_refuses_during_a_session_offline_cpus_or_a_missing_camera(jetson):
     session(jetson.root)
     with pytest.raises(RuntimeError, match='Helm session is running'):
-        install(jetson.host)
+        install(jetson.host, user=USER)
     (jetson.root / 'proc/77/cmdline').write_bytes(b'python3\0other\0')
     (jetson.root / 'sys/devices/system/cpu/online').write_text('0-3\n', encoding='utf-8')
     with pytest.raises(RuntimeError, match='nvpmodel'):
-        install(jetson.host)
+        install(jetson.host, user=USER)
     (jetson.root / 'sys/devices/system/cpu/online').write_text('0-5\n', encoding='utf-8')
+    with pytest.raises(RuntimeError, match='nvpmodel'):
+        install(jetson.host, head=(2,), user=USER)  # The head's CPU is the background's too.
     host = Host(jetson.root, systemctl=lambda *args: 'not-found\n' if args[2] == 'LoadState' else '')
     with pytest.raises(RuntimeError, match='is not installed'):
-        install(host)
+        install(host, user=USER)
     assert not (jetson.root / 'etc').exists()
     assert [args[0] for args in jetson.system.calls] == []
 
@@ -92,31 +140,42 @@ def test_a_camera_left_on_every_cpu_leaves_the_loop_unpinned(tmp_path):
     (tmp_path / 'sys/devices/system/cpu/online').write_text('0-5\n', encoding='utf-8')
     host = Host(tmp_path, systemctl=System(tmp_path, honour=False))
     with pytest.raises(RuntimeError, match='still run outside'):
-        install(host)
+        install(host, user=USER)
     assert not (tmp_path / 'etc/minerva/cpu-partition.json').exists()
 
 
+def test_a_manager_without_the_limit_is_reported(jetson):
+    jetson.system.grant = False
+    with pytest.raises(RuntimeError, match='without the real-time limit'):
+        install(jetson.host, user=USER)
+    # The split itself is in place: the head keeps its CPU at normal priority.
+    assert head_cpus(jetson.root / 'etc/minerva/cpu-partition.json') == {3}
+
+
 def test_remove_unpins_the_loop_before_the_cameras_return_everywhere(jetson):
-    install(jetson.host)
+    install(jetson.host, user=USER)
     session(jetson.root)
     with pytest.raises(RuntimeError, match='Helm session is running'):
-        remove(jetson.host)
+        remove(jetson.host, user=USER)
     (jetson.root / 'proc/77/cmdline').write_bytes(b'python3\0other\0')
-    report = remove(jetson.host)
+    report = remove(jetson.host, user=USER)
     assert not (jetson.root / 'etc/minerva/cpu-partition.json').exists()
     assert not any((jetson.root / 'etc/systemd/system').iterdir())
+    assert [args for args in jetson.system.calls if args[0] != 'show'][-1] == ('restart', MANAGER)
     assert report['partition'] is None and all(camera == {'drop_in': False, 'pid': camera['pid'],
                                                           'cpus': [0, 1, 2, 3, 4, 5]}
                                                for camera in report['cameras'].values())
+    assert report['realtime'] == {'drop_in': False, 'limit': 0}
 
 
 def test_status_reports_where_the_cameras_and_a_session_run(jetson):
-    install(jetson.host)
+    install(jetson.host, user=USER)
     session(jetson.root, pid=77, cpus='4-5')
-    assert status(jetson.host)['sessions'] == {77: [4, 5]}
+    assert status(jetson.host)['sessions'] == {77: [4, 5]} and 'realtime' not in status(jetson.host)
+    assert status(jetson.host, user=USER)['realtime'] == {'drop_in': True, 'limit': REALTIME_PRIORITY}
 
 
-def test_only_root_changes_the_units(monkeypatch, capsys):
+def test_only_root_changes_the_units_for_the_user_who_ran_sudo(monkeypatch, capsys):
     monkeypatch.setattr(os, 'geteuid', lambda: 1000, raising=False)
     assert installer.main(['install']) == 2 and installer.main(['remove']) == 2
     assert 'run them with sudo' in capsys.readouterr().err
@@ -124,6 +183,16 @@ def test_only_root_changes_the_units(monkeypatch, capsys):
     monkeypatch.setattr(os, 'geteuid', lambda: 0, raising=False)
     monkeypatch.setattr(sys, 'flags', SimpleNamespace(dont_write_bytecode=False))
     assert installer.main(['install']) == 2 and 'python3 -B' in capsys.readouterr().err
+    # And from the robot's user: its services get the real-time limit.
+    monkeypatch.setattr(sys, 'flags', SimpleNamespace(dont_write_bytecode=True))
+    monkeypatch.delenv('SUDO_UID', raising=False)
+    assert installer.main(['install']) == 2 and "sudo from the robot's user" in capsys.readouterr().err
+    monkeypatch.setenv('SUDO_UID', '0')
+    assert installer.main(['install']) == 2
+    ran = []
+    monkeypatch.setenv('SUDO_UID', '1000')
+    monkeypatch.setattr(installer, 'install', lambda **options: ran.append(options) or {})
+    assert installer.main(['install']) == 0 and ran == [{'user': 1000}]
 
 
 def test_cpu_lists_read_as_the_kernel_writes_them():

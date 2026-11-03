@@ -18,6 +18,12 @@ prefer_background_thread moves one thread of a control process there (a live
 head's cycles beside the arms', whose receiver otherwise started its ticks up to
 9 ms late and let an arm command expire, 2026-10-31). Without the file nothing
 moves: control CPUs only help where the cameras keep off them.
+
+A partition may also keep CPUs for the head's receiver alone (head_cpus):
+prefer_head moves it there and runs it real-time (SCHED_FIFO) where the host
+allows it. On the background CPUs beside the cameras its 10 ms ticks started up
+to 15 ms late, and one late tick stopped the head mid-session (2026-11-03). A
+real-time thread only ever runs on CPUs kept for it, so it can starve nothing.
 """
 import json
 import os
@@ -30,45 +36,86 @@ PROCESS_POWER_THROTTLING = 4  # PROCESS_INFORMATION_CLASS.ProcessPowerThrottling
 THROTTLE_EXECUTION_SPEED, THROTTLE_IGNORE_TIMER_RESOLUTION = 0x1, 0x4
 PARTITION = '/etc/minerva/cpu-partition.json'
 PROC = Path('/proc')
+# The head's receiver's SCHED_FIFO priority: above every ordinary thread, below the kernel's threaded interrupts (50).
+# ops.cpu_partition raises the robot user's services' RLIMIT_RTPRIO to it.
+REALTIME_PRIORITY = 20
+
+
+def _split(path):
+    """The partition file at `path` (default: PARTITION) and what it holds, None where there is none."""
+    path = Path(path or PARTITION)
+    try:
+        return path, json.loads(path.read_text(encoding='utf-8'))
+    except FileNotFoundError:
+        return path, None
+
+
+def _cpu_numbers(cpus):
+    return isinstance(cpus, list) and bool(cpus) and all(type(cpu) is int and cpu >= 0 for cpu in cpus)
 
 
 def cpu_partition(path=None):
     """The host's installed CPU split as (control, background) sets, or None where there is none."""
-    path = Path(path or PARTITION)
-    try:
-        split = json.loads(path.read_text(encoding='utf-8'))
-    except FileNotFoundError:
+    path, split = _split(path)
+    if split is None:
         return None
     control, background = (split.get(key) if isinstance(split, dict) else None for key in ('control', 'background'))
-    if not all(isinstance(cpus, list) and cpus and all(type(cpu) is int and cpu >= 0 for cpu in cpus)
-               for cpus in (control, background)) or set(control) & set(background):
+    if not all(_cpu_numbers(cpus) for cpus in (control, background)) or set(control) & set(background):
         raise ValueError(f'{path}: control and background must be disjoint, non-empty lists of CPU numbers')
     return frozenset(control), frozenset(background)
 
 
-def pin_threads(cpus, pid=None):
-    """Move every thread of process `pid` (default: this one) onto `cpus`; False if the system refused.
+def head_cpus(path=None):
+    """The CPUs the installed partition keeps for the head's receiver alone, or None where it keeps none (no
+    partition, or one installed before 2026-11-03)."""
+    path, split = _split(path)
+    partition = cpu_partition(path)
+    if partition is None or split.get('head') is None:
+        return None
+    head = split['head']
+    if not _cpu_numbers(head) or set(head) & (partition[0] | partition[1]):
+        raise ValueError(f'{path}: head must be a non-empty list of CPU numbers apart from control and background')
+    return frozenset(head)
 
-    Threads started later inherit their creator's CPUs, and so do child processes such as a receiver."""
+
+def _every_thread(pid, settled, change):
+    """`change` every thread of process `pid` (default: this one) not yet `settled`; False if the system refused."""
     tasks = PROC / str(pid or os.getpid()) / 'task'
-    for _ in range(5):  # A thread started during a pass by one not yet moved is caught by the next.
-        moved = False
+    for _ in range(5):  # A thread started during a pass by one not yet changed is caught by the next.
+        changed = False
         try:
             threads = [int(task.name) for task in tasks.iterdir()]
         except FileNotFoundError:
             return False
         for thread in threads:
             try:
-                if os.sched_getaffinity(thread) != cpus:
-                    os.sched_setaffinity(thread, cpus)
-                    moved = True
+                if not settled(thread):
+                    change(thread)
+                    changed = True
             except ProcessLookupError:
                 continue  # That thread has ended.
             except OSError:
                 return False
-        if not moved:
+        if not changed:
             return True
     return False
+
+
+def pin_threads(cpus, pid=None):
+    """Move every thread of process `pid` (default: this one) onto `cpus`; False if the system refused.
+
+    Threads started later inherit their creator's CPUs, and so do child processes such as a receiver."""
+    return _every_thread(pid, lambda thread: os.sched_getaffinity(thread) == cpus,
+                         lambda thread: os.sched_setaffinity(thread, cpus))
+
+
+def realtime_threads(pid, priority=REALTIME_PRIORITY):
+    """Every thread of process `pid` real-time, SCHED_FIFO at `priority`; False if the system refused (the
+    process's RLIMIT_RTPRIO is below it). Threads started later inherit their creator's policy."""
+    param = os.sched_param(priority)
+    return _every_thread(pid, lambda thread: os.sched_getscheduler(thread) == os.SCHED_FIFO
+                         and os.sched_getparam(thread).sched_priority == priority,
+                         lambda thread: os.sched_setscheduler(thread, os.SCHED_FIFO, param))
 
 
 def prefer_background(pid=None):
@@ -88,6 +135,43 @@ def prefer_background_thread():
     except OSError:
         return []
     return ['background_cpus']
+
+
+def prefer_head(pid):
+    """The head's receiver (neck.head.HeadReceiver), process `pid`: every thread onto the partition's head CPUs and
+    real-time there where the host allows it; where the partition keeps no head CPUs, onto the background CPUs as
+    before, never real-time. Returns the hints that took."""
+    partition = cpu_partition() if sys.platform.startswith('linux') else None
+    if not partition:
+        return []
+    head = head_cpus()
+    if head is None:
+        return ['background_cpus'] if pin_threads(partition[1], pid) else []
+    if not pin_threads(head, pid):
+        return []
+    return ['head_cpus'] + (['realtime'] if realtime_threads(pid) else [])
+
+
+def thread_placement(pid):
+    """Where each thread of process `pid` runs: {thread: {'cpus', 'policy', 'priority'}}, for the evidence beside
+    a receiver; empty where it cannot be read (not Linux, or the process has ended)."""
+    if not sys.platform.startswith('linux'):
+        return {}
+    policies = {getattr(os, name): name for name in ('SCHED_OTHER', 'SCHED_FIFO', 'SCHED_RR', 'SCHED_BATCH',
+                                                     'SCHED_IDLE') if hasattr(os, name)}
+    threads = {}
+    try:
+        tasks = [int(task.name) for task in (PROC / str(pid) / 'task').iterdir()]
+    except FileNotFoundError:
+        return {}
+    for thread in tasks:
+        try:
+            threads[thread] = {'cpus': sorted(os.sched_getaffinity(thread)),
+                               'policy': policies.get(os.sched_getscheduler(thread), 'unknown'),
+                               'priority': os.sched_getparam(thread).sched_priority}
+        except OSError:
+            continue  # That thread has ended.
+    return threads
 
 
 def prefer_responsive(pid=None):

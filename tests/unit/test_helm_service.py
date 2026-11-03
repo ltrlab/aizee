@@ -193,8 +193,11 @@ def test_run_starts_helm_with_minervas_options_or_says_what_is_missing(tmp_path,
     lock = helm_service.lock_id(ROOT)
     (p.deps / lock).mkdir()
     (p.deps / lock / helm_service.COMPLETE).write_text(lock)
+    from robot_platform.control import scheduling
+    monkeypatch.setattr(scheduling, 'prefer_background', lambda: started.append('background') or [])
     assert helm_service.run(['--teleop', 'minerva-teleop.json'], robot, main=lambda options: started.append(options) or 0) == 0
-    options = started[0]
+    assert started[0] == 'background'  # Onto the background CPUs before Helm starts anything.
+    options = started[1]
     flags = dict(zip(options[1::2], options[2::2])) if options[0] == '--on-robot' else {}
     assert options[0] == '--on-robot' and flags['--host'] == '0.0.0.0' and flags['--port'] == '8760'
     assert flags['--loopback-port'] == '8762'  # Plain HTTP for this computer's tools and SSH tunnels.
