@@ -352,7 +352,7 @@ Restart=on-failure
 RestartSec=5
 RestartPreventExitStatus={CONFIG_EXIT}
 # Off the control CPUs (4-5) the teleop loop and receiver keep to (robot_platform.ops.cpu_partition), and below the
-# cameras that share 0-3.
+# cameras that share 0-3. Helm then keeps to the partition's background CPUs (run), off a CPU kept for the head.
 CPUAffinity=0 1 2 3
 Nice=5
 StandardOutput=append:%h/minerva/helm/logs/helm.log
@@ -499,6 +499,10 @@ def run(argv=None, host=None, *, release=ROOT, main=None):
         options += ['--tls-cert', str(p.cert), '--tls-key', str(p.tls_key)]
     if main is None:
         from robot_platform.helm.cli import main
+    # Onto the partition's background CPUs, where its children start too: the partition may keep one of the unit's
+    # CPUs for the head's receiver alone (control.scheduling.prefer_head).
+    from robot_platform.control.scheduling import prefer_background
+    prefer_background()
     return main(options)
 
 

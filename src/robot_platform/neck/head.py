@@ -19,6 +19,7 @@ from pathlib import Path
 import subprocess
 
 from robot_platform.control.live_receiver import LiveReceiver, _die_with_parent
+from robot_platform.control.scheduling import prefer_head, thread_placement
 
 from .feetech import RESOLUTION
 
@@ -150,14 +151,20 @@ def service_config(profile, reference, derived, *, mode, start=None):
 class HeadReceiver(LiveReceiver):
     """The head's receiver, owned by this process: bin/head_controller with its configuration. Exchange-compatible
     with the harness and the arms' receiver. The service itself checks the servos' identity and, for head teleop,
-    the reference pose before it opens its socket, so there is no separate prescan or bus to bring up."""
+    the reference pose before it opens its socket, so there is no separate prescan or bus to bring up.
 
-    def __init__(self, config, *, binary, directory, labels=None, **options):
+    Once spawned it moves to CPUs of its own, real-time there, where the host's partition keeps them (`place`:
+    control.scheduling.prefer_head). On the background CPUs beside the cameras its 10 ms ticks started up to 15 ms
+    late, and one late tick stopped the head mid-session (2026-11-03). Where each of its threads runs, once it
+    answers, goes beside its evidence (scheduling.json)."""
+
+    def __init__(self, config, *, binary, directory, labels=None, place=prefer_head, **options):
         # The arms' receiver names itself after its CAN buses (config['buses']); the head's servos share one Feetech
         # bus of its own (config['bus']), so it starts with none and keeps its own configuration for its service.
         super().__init__(dict(config, buses=[]), device={'buses': []}, reference={'motors': []}, binary=binary,
                          directory=directory, labels=labels, **options)
         self.config, self.buses, self.label = config, [], 'head'
+        self.place, self.scheduling = place, []
 
     def _prescan(self):
         return None
@@ -173,11 +180,19 @@ class HeadReceiver(LiveReceiver):
         flags = ['--allow-powered-teleop', '--confirm-reference-pose'] if self.config['mode'] == 'teleop_direct' else []
         self.process = self.spawn([str(self.binary), str(path), *flags], stdout=self.log, stderr=subprocess.STDOUT,
                                   preexec_fn=_die_with_parent)
+        # Before its first tick is due: it checks the servos and the reference pose first. Threads it starts later
+        # (its socket's) inherit the CPUs and the priority.
+        self.scheduling = self.place(self.process.pid)
 
     def _await_disarmed(self, timeout_s):
         # The arms' wait, against the head's servos instead of a CAN roster.
         self.config = dict(self.config, motors=self.config['servos'])
         try:
-            return super()._await_disarmed(timeout_s)
+            answered = super()._await_disarmed(timeout_s)
         finally:
             self.config.pop('motors')
+        threads = thread_placement(self.process.pid)
+        (self.directory / 'scheduling.json').write_text(json.dumps(
+            {'hints': self.scheduling, 'threads': {str(thread): where for thread, where in threads.items()}},
+            indent=1) + '\n', encoding='utf-8')
+        return answered
