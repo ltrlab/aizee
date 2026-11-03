@@ -216,23 +216,36 @@ def _matrix(rows):
     return rows
 
 
+def _axis(camera):
+    """The rig's picture axis for a camera (its gripper's, in the link's frame) as a unit vector, or None."""
+    value = camera.get('picture_axis')
+    value = value.get('value') if isinstance(value, dict) else value
+    if not (isinstance(value, list) and len(value) == 3 and all(_number(v) for v in value)):
+        return None
+    norm = math.sqrt(sum(v * v for v in value))
+    return [v / norm for v in value] if norm > 1e-9 else None
+
+
 def wrist_mounts(cameras, root=None):
     """Each wrist camera's mount for the headset: {role: {link, matrix (T_link_camera, four rows of four), fov_deg
-    ([horizontal, vertical]), source}}, from the recommended model of the newest solved run under `root` (Helm's
-    wrist calibration runs), else the nominal mount on the rig's link (`cameras`: the rig file's, vision.rig)."""
+    ([horizontal, vertical]), axis, source}}, from the recommended model of the newest solved run under `root` (Helm's
+    wrist calibration runs), else the nominal mount on the rig's link (`cameras`: the rig file's, vision.rig). `axis`:
+    the rig's picture axis in the link's frame, which the headset squares the picture to (None: as the camera looks)."""
     solved = _solved(root)
     mounts = {}
     for role, camera in cameras.items():
         width, height = camera['size']
         horizontal = math.degrees(2 * math.atan(math.tan(math.radians(NOMINAL_FOV_Y_DEG) / 2) * width / height))
         mounts[role] = dict(link=camera['link'], matrix=[list(row) for row in NOMINAL_MOUNT],
-                            fov_deg=[round(horizontal, 2), NOMINAL_FOV_Y_DEG], source='nominal')
+                            fov_deg=[round(horizontal, 2), NOMINAL_FOV_Y_DEG], axis=_axis(camera), source='nominal')
         fitted = solved[0].get(role) if solved else None
         try:
             if fitted:
                 view = fitted['field_of_view_deg']
-                mounts[role] = dict(link=fitted.get('link') or camera['link'], matrix=_matrix(fitted['mount']['matrix']),
+                link = fitted.get('link') or camera['link']
+                mounts[role] = dict(link=link, matrix=_matrix(fitted['mount']['matrix']),
                                     fov_deg=[float(view['horizontal']), float(view['vertical'])],
+                                    axis=_axis(camera) if link == camera['link'] else None,  # The rig's link's axis.
                                     source=f'calibration {solved[1]}')
         except (KeyError, TypeError, ValueError):
             pass  # A solve without this camera's mount: the nominal stays.

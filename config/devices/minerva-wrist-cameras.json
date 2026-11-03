@@ -4,9 +4,11 @@
   "board": "config/devices/minerva-table-board.json",
   "cameras": {
     "left_wrist": {"arm": "left", "link": "1_1_02_eb571_960_stp_2", "size": [640, 480],
-                   "source": "simulation/task_scene.py WRISTS: the gripper body after J6, so the camera turns with J6. The solve also tries J6's parent link and reports which fits."},
+                   "source": "simulation/task_scene.py WRISTS: the gripper body after J6, so the camera turns with J6. The solve also tries J6's parent link and reports which fits.",
+                   "picture_axis": {"value": [0, 1, 0], "source": "the gripper link's y, along the gripper to its fingers (down with the arm hanging at the zero pose; J6 turns about the link's z): the headset squares this camera's picture to it, perpendicular to the wrist rather than tilted as the camera is (the user, 2026-11-03)"}},
     "right_wrist": {"arm": "right", "link": "1_1_02_eb571_960_stp", "size": [640, 480],
-                    "source": "simulation/task_scene.py WRISTS: the gripper body after J6, so the camera turns with J6. The solve also tries J6's parent link and reports which fits."}
+                    "source": "simulation/task_scene.py WRISTS: the gripper body after J6, so the camera turns with J6. The solve also tries J6's parent link and reports which fits.",
+                    "picture_axis": {"value": [0, 1, 0], "source": "the gripper link's y, along the gripper to its fingers (down with the arm hanging at the zero pose; J6 turns about the link's z): the headset squares this camera's picture to it, perpendicular to the wrist rather than tilted as the camera is (the user, 2026-11-03)"}}
   },
   "still": {
     "frames": {"value": 8, "source": "a stack of 8 cuts per-frame noise ~2.2 DN to ~0.8 (camera_noise_stack.py, 2026-10-24: white noise, sigma/sqrt(N) held to 120 frames)"},

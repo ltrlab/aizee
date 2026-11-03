@@ -1,10 +1,11 @@
 // The wrist cameras' pictures on Minerva's model in the headset (xr_scene.js): each where its camera is on the
-// model's wrist and along its view, a window a little in front of the lens as wide as the camera sees, so it moves
-// and turns with the real wrist (the user, 2026-11-03: not floating above the hands, facing the eyes). Each camera's
-// mount on its link (T_link_camera, optical axes x right, y down, z ahead) and field of view come from Helm
-// (/api/helm/xr/wrists: the newest wrist calibration's, else the nominal mount). Shown only while the model's wrists
-// are in the room (the world-locked 3D); the pictures upright as each camera takes them, since the screen turns with
-// its camera. No socket here: xr.js streams the pictures (xr_camera.js).
+// model's wrist, a window a little in front of the lens as wide as the camera sees, so it moves and turns with the
+// real wrist (the user, 2026-11-03: not floating above the hands, facing the eyes). Each is squared to its gripper's
+// axis (the rig's picture axis): perpendicular to the wrist, not tilted as the camera looks (the user, 2026-11-03),
+// keeping the camera's side to side. Each camera's mount on its link (T_link_camera, optical axes x right, y down,
+// z ahead), field of view and axis come from Helm (/api/helm/xr/wrists: the newest wrist calibration's mount, else
+// the nominal one). Shown only while the model's wrists are in the room (the world-locked 3D); the pictures upright
+// as each camera takes them. No socket here: xr.js streams the pictures (xr_camera.js).
 import * as THREE from 'three';
 
 export const WRIST_W = .2;  // Metres: each picture's width; it sits as far ahead of the lens as fills the view.
@@ -14,6 +15,22 @@ const FLIP = new THREE.Matrix4().makeScale(1, -1, -1);  // Optical axes to the p
 // A mount as Helm sends it (four rows of four) as a matrix.
 export function mountMatrix(rows, target = new THREE.Matrix4()) {
   return target.set(...rows.flat());
+}
+
+// A mount (T_link_camera) squared to `axis` (the gripper's, in the link's frame): at the lens, looking along the axis
+// (ahead of the lens, not behind it), its x the camera's own made perpendicular to the axis, so the picture loses only
+// the camera's tilt. The mount as it is when the camera's x runs along the axis.
+export function squared(mount, axis, target = new THREE.Matrix4()) {
+  const [x, y, z, lens] = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  mount.extractBasis(x, y, z);
+  lens.setFromMatrixPosition(mount);
+  const ahead = new THREE.Vector3().fromArray(axis).normalize();
+  if (ahead.dot(z) < 0) ahead.negate();
+  x.addScaledVector(ahead, -x.dot(ahead));
+  if (x.lengthSq() < 1e-9) return target.copy(mount);
+  x.normalize();
+  y.crossVectors(ahead, x);
+  return target.makeBasis(x, y, ahead).setPosition(lens);
 }
 
 // How far ahead of the lens a picture WRIST_W wide fills the view, and its height: [distance, height] in metres,
@@ -46,7 +63,8 @@ export class WristScreens {
     this.link = new THREE.Matrix4();
   }
 
-  // Helm's mounts ({role: {link, matrix, fov_deg}}): each screen's place on its link, sized to its camera's view.
+  // Helm's mounts ({role: {link, matrix, fov_deg, axis?}}): each screen's place on its link, sized to its camera's
+  // view, squared to the axis where one is given.
   setMounts(mounts) {
     for (const [role, screen] of Object.entries(this.screens)) {
       const mount = mounts?.[role];
@@ -62,7 +80,10 @@ export class WristScreens {
       screen.mesh.geometry = geometry;
       screen.link = mount.link;
       screen.mount = mountMatrix(mount.matrix);
-      screen.local.copy(screen.mount).multiply(new THREE.Matrix4().makeTranslation(0, 0, distance)).multiply(FLIP);
+      const axis = Array.isArray(mount.axis) && mount.axis.length === 3 && mount.axis.every(Number.isFinite)
+        ? mount.axis : null;
+      screen.local.copy(axis ? squared(screen.mount, axis) : screen.mount)
+        .multiply(new THREE.Matrix4().makeTranslation(0, 0, distance)).multiply(FLIP);
     }
   }
 

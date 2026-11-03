@@ -76,12 +76,15 @@ would; every other camera pose and every robot link follows through `M`.
     front of it still hides it.
 - **The wrist cameras on the model's wrists** (`static/xr_wrists.js`, since 2026-11-03; before, `xr_hands.js` floated
   them above the tracked hands, facing the eyes, which the user found in the way). Each wrist camera's picture
-  (Helm's `left_wrist`, `right_wrist`) sits a little in front of its lens on the model, along the camera's view and as
-  wide as it sees, so it moves and turns with the real wrist. The mount (T_link_camera, optical axes) and field of
-  view come from `GET /api/helm/xr/wrists` (`helm.xr.wrist_mounts`): the recommended model of the newest solved wrist
+  (Helm's `left_wrist`, `right_wrist`) sits a little in front of its lens on the model, as wide as the camera sees,
+  so it moves and turns with the real wrist. It is squared to the gripper's axis (the rig file's `picture_axis`: the
+  gripper link's y, along the gripper to its fingers), perpendicular to the wrist: the camera itself looks 37° off
+  that axis, and the user found the picture at the camera's tilt awkward (2026-11-03). The picture keeps the
+  camera's side to side and loses only the tilt. The mount (T_link_camera, optical axes), field of view and axis come
+  from `GET /api/helm/xr/wrists` (`helm.xr.wrist_mounts`): the recommended model of the newest solved wrist
   calibration run, else the nominal mount from the simulation's wrist camera (35 mm along the link's y and z, 37°
-  below y, 85° vertical). No solve exists on Minerva yet (2026-11-03), so the nominal one serves; its picture's
-  orientation is unchecked against real frames. The pictures show only while the model is in the room (the
+  off y, 85° vertical); a solve on another link than the rig's gets no axis. No solve exists on Minerva yet
+  (2026-11-03), so the nominal one serves. The pictures show only while the model is in the room (the
   world-locked 3D); the model is then placed and posed for them even with its own switch off, just not drawn. The
   session no longer asks for hand tracking.
 - **The ring's View level** has Model and Wrists switches, both on by default. The two wrist streams add about

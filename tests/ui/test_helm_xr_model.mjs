@@ -14,7 +14,7 @@ register('data:text/javascript,' + encodeURIComponent(`export async function res
 const THREE = await import(three);
 const {MODEL_OPACITY, RETRY_MS, RobotModel, headLinks, meshGeometry} = await import(
   new URL('src/robot_platform/helm/static/xr_model.js', root).href);
-const {CAMERAS, WRIST_W, WristScreens, mountMatrix, windowAt} = await import(
+const {CAMERAS, WRIST_W, WristScreens, mountMatrix, squared, windowAt} = await import(
   new URL('src/robot_platform/helm/static/xr_wrists.js', root).href);
 const close = (actual, expected, tolerance = 1e-6) => assert.ok(Math.abs(actual - expected) <= tolerance,
   `${actual} is not ${expected}`);
@@ -201,4 +201,33 @@ assert.equal(bitmap.closed, 1);
 const stray = {closed: 0, close() { this.closed++; }};
 screens.showFrame('head', stray);
 assert.equal(stray.closed, 1);
+// Squared to the gripper's axis (the user, 2026-11-03: perpendicular to the wrist, not tilted as the camera): the
+// simulation's camera, 35 mm along the link's y and z, looks 37 degrees off the link's y (the gripper's axis); its
+// picture looks along y from the lens, keeping the camera's x, so only the tilt goes.
+const NOMINAL = [[1, 0, 0, 0], [0, -.606, .795, .035], [0, -.795, -.606, .035], [0, 0, 0, 1]];
+const square = squared(mountMatrix(NOMINAL), [0, 1, 0]);
+const basis = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+square.extractBasis(...basis);
+at(basis[0], [1, 0, 0]);  // The camera's x, already across the gripper.
+at(basis[1], [0, 0, -1]);  // The picture's down: the link's -z, where the camera's leaned 37 degrees off it.
+at(basis[2], [0, 1, 0]);  // Ahead: along the gripper.
+at(new THREE.Vector3().setFromMatrixPosition(square), [0, .035, .035]);  // At the lens.
+squared(mountMatrix(NOMINAL), [0, -1, 0]).extractBasis(...basis);
+at(basis[2], [0, 1, 0]);  // An axis given the other way: still ahead of the lens.
+assert.deepEqual(squared(mountMatrix(NOMINAL), [1, 0, 0]).elements, mountMatrix(NOMINAL).elements);  // Along x.
+// On the model: the right wrist's picture in front of its lens along the gripper, facing back up it.
+const square2 = new WristScreens();
+square2.setMounts({right_wrist: {link: 'arm', matrix: NOMINAL, fov_deg: [90, 2 * Math.atan(.75) * 180 / Math.PI],
+  axis: [0, 1, 0]}});
+square2.showFrame('right_wrist', {close() {}});
+robot.pose({arm_j1: 0, neck_z: 0, neck_y: 0});
+robot.place(M, false);
+square2.update(robot, true);
+const right = square2.screens.right_wrist.mesh;
+assert.ok(right.visible);
+at(new THREE.Vector3().setFromMatrixPosition(right.matrix), [1, 2.1 + .035 + WRIST_W / 2, 3.5 + .035]);
+right.matrix.extractBasis(...basis);
+at(basis[0], [1, 0, 0]);  // Its right: the camera's.
+at(basis[1], [0, 0, 1]);  // Its up: the link's z, square to the gripper.
+at(basis[2], [0, -1, 0]);  // Its face: back up the gripper at the lens.
 console.log('headset model and wrist cameras: ok');

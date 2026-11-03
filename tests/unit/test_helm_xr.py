@@ -389,6 +389,7 @@ def test_the_headset_puts_the_wrist_pictures_by_the_newest_solves_mounts_else_th
     assert set(nominal) == {'left_wrist', 'right_wrist'}
     for role, mount in nominal.items():
         assert (mount['link'], mount['source']) == (cameras[role]['link'], 'nominal')
+        assert mount['axis'] == [0., 1., 0.]  # The rig's picture axis: the gripper's, which the headset squares to.
         assert mount['matrix'] == [list(row) for row in NOMINAL_MOUNT]
         assert mount['fov_deg'] == pytest.approx([101.41, 85.], abs=.01)
     rotation = np.array(nominal['left_wrist']['matrix'])[:3, :3]
@@ -413,8 +414,17 @@ def test_the_headset_puts_the_wrist_pictures_by_the_newest_solves_mounts_else_th
     (runs / '20261105T000000Z' / 'result.json').write_text('{not json')
     # The newest solved run's recommended model: each camera's mount, link and view.
     mounts = wrist_mounts(cameras, runs)
+    # On another link than the rig's (the solve's J6-parent check), the rig's axis is not that link's: none.
     assert mounts['left_wrist'] == {'link': 'fitted_link', 'matrix': fitted['mount']['matrix'], 'fov_deg': [90.5, 72.25],
-                                    'source': 'calibration 20261101T000000Z'}
+                                    'axis': None, 'source': 'calibration 20261101T000000Z'}
+    on_rig = wrist_mounts({'left_wrist': {**cameras['left_wrist'], 'link': 'fitted_link'}}, runs)['left_wrist']
+    assert on_rig['axis'] == [0., 1., 0.] and on_rig['source'] == 'calibration 20261101T000000Z'
+    # A rig without a picture axis, or a malformed one: the picture as the camera looks.
+    assert wrist_mounts({'left_wrist': {k: v for k, v in cameras['left_wrist'].items() if k != 'picture_axis'}}
+                        )['left_wrist']['axis'] is None
+    assert wrist_mounts({'left_wrist': {**cameras['left_wrist'], 'picture_axis': [0, 0]}})['left_wrist']['axis'] is None
+    assert wrist_mounts({'left_wrist': {**cameras['left_wrist'], 'picture_axis': [0, 3, 4]}}
+                        )['left_wrist']['axis'] == pytest.approx([0, .6, .8])
     # A newer solve supersedes it; a camera it lacks, or an unreadable mount, keeps the nominal one.
     run('20261102T000000Z', {'left_wrist': {**fitted, 'mount': {'matrix': [[1, 0], [0, 1]]}}})
     mounts = wrist_mounts(cameras, runs)
