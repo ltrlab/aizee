@@ -112,9 +112,9 @@ over the depth, the wrist pictures, the map's frame) depends on these being meas
   the tags to 0.75 px on 2026-10-18), so the views should agree to about 5 mm.
 
 **The head camera's part, built (2026-10-31, deployed `2552fe2`; not yet run on the real head):**
-- **The flow:** the Teleop tab's calibration card (Stills of the table's tags) has the head as a third camera. In a
-  session with the live head: turn it until its camera sees three or more tags, hold (T), capture (P); 8-12 stills
-  turned and tilted at least 10 degrees apart; Solve; Save alignment. Runs live beside the wrists' under
+- **The flow:** step 2, Head camera, of the Teleop tab's Calibrate card (docs/HELM.md). In a session with the live
+  head: turn it until its camera sees three or more tags and pause (B or T; P by hand); 10 stills turned and tilted
+  about 20 degrees each (under 10 the guide calls the solve not usable); Solve; Save alignment. Runs live beside the wrists' under
   `~/minerva/helm/calibration/head/<run>/` (stills.jsonl, the averaged images, result.json).
 - **A still** (`helm.calibration_still`, on the robot): the stack of fresh frames averaged and its tags found, as a
   wrist still; and the head's pose feed read from before the first frame until past the last. The still keeps the
@@ -151,7 +151,7 @@ over the depth, the wrist pictures, the map's frame) depends on these being meas
   head camera alignment against that run's board (`against_arms`). The tilt's zero is the camera's mount; the rest of
   the difference (the neck's place on the frame against CAD) is shown, not drawn. A joint is drawn at its measured
   angle plus its offset, as the solves add a fitted offset.
-- **The flow** (`helm.twin`, the Teleop tab's Digital twin card under the calibration card): the proposal with each
+- **The flow** (`helm.twin`, step 3, Digital twin, of the Teleop tab's Calibrate card): the proposal with each
   offset (and its sigma), Apply to the model, Remove. Saved as `<asset>-twin.json` beside the head's files; each one
   replaced or removed is kept in `~/minerva/helm/calibration/twin/`.
 - **Where it is drawn:** Helm's 3D view and the headset's model at once (both read the 3D view's guide): the arms when
