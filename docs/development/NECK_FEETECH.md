@@ -229,7 +229,9 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
   - what the head does: its state, whether it follows the headset, holds or sits at its zero, or its fault;
   - whether a headset tracks: its name, rate, yaw and pitch;
   - without a headset, the address of the headset page.
-- **Inside the headset** (`static/xr_scene.js`, three.js, passthrough where the headset has it):
+- **Inside the headset** (`static/xr_scene.js`, three.js, passthrough where the headset has it; since 2026-11-03 the
+  status line, the status panel and the bar below gave way to a ring of controls on A or X, and the wrist pictures
+  sit on the model's wrists: docs/development/HEADSET_3D_PLAN.md, "The ring of controls"):
   - the head camera's picture on a screen ahead, with a status line under it: the picture's rate and age, and what
     the head does;
   - a bar under that (the user, 2026-10-31: looking around, the picture was somewhere else):
