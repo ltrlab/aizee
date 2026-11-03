@@ -5,7 +5,8 @@ import {deflateSync} from 'node:zlib';
 
 // The headset's 3D picture: the head camera's frames with their depth (Helm's head_depth role), inflated and filled
 // in the headset (xr_camera.js, xr_fill.js), placed on the GPU from the camera's intrinsics and coloured through its
-// registration (xr_depth.js), and the bar's 3D switch (xr_scene.js, on the real three.js).
+// registration (xr_depth.js), and the bar's 3D switch (xr_scene.js, on the real three.js). A reading outside the
+// colour picture is left out, not drawn grey (the user, 2026-11-03: the near ones came out white).
 const root = new URL('../../', import.meta.url);
 const three = new URL('src/robot_platform/viewer/static/vendor/three.module.js', root).href;
 register('data:text/javascript,' + encodeURIComponent(`export async function resolve(specifier, context, next) {
@@ -155,6 +156,11 @@ assert.equal(view.select(source), true);  // The bar's, not the head's zero.
 assert.deepEqual(switched, [true]);
 assert.ok(view.view.depth && view.picture.visible && !view.depth.rig.visible);  // No depth yet: the picture stays.
 assert.ok(view.controls.context.texts.includes('3D · on'));
+// Registered, a reading outside the colour picture is discarded; unregistered, it is a dim grey, never near white.
+const fragment = view.depth.material.fragmentShader;
+assert.match(fragment, /else if \(registered > 0\.5\) \{[^}]*discard;/);
+assert.match(fragment, /mix\(0\.45, 0\.2, far\)/);
+assert.doesNotMatch(fragment, /0\.85/);
 view.showDepth({meta: META, layers});
 assert.ok(!view.picture.visible && view.depth.rig.visible);
 const uniforms = view.depth.material.uniforms;

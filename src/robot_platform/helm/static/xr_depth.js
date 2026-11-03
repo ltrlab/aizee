@@ -147,13 +147,17 @@ varying float vFilled;
 void main() {
   if (vKeep < 0.999) discard;  // A triangle touching no reading or an edge.
   vec3 color;
-  if (registered > 0.5 && all(greaterThanEqual(vColorUv, vec2(0.0))) && all(lessThanEqual(vColorUv, vec2(1.0)))) {
+  bool inside = all(greaterThanEqual(vColorUv, vec2(0.0))) && all(lessThanEqual(vColorUv, vec2(1.0)));
+  if (registered > 0.5 && inside) {
     color = texture2D(colorMap, vColorUv).rgb;
+  } else if (registered > 0.5) {
+    // Outside the colour picture (the depth sees wider): left out. Drawn grey, the nearest came out nearly white and
+    // speckled the view (the user, 2026-11-03).
+    discard;
   } else {
-    // Outside the color picture (the depth sees wider) or no registration: grey, lighter nearer, never mistaken for
-    // the scene's own colours.
+    // No registration: a dim grey, a little lighter nearer, never mistaken for the scene's own colours.
     float far = clamp((vDepth - range.x) / (range.y - range.x), 0.0, 1.0);
-    color = vec3(mix(0.85, 0.25, far));
+    color = vec3(mix(0.45, 0.2, far));
   }
   gl_FragColor = vec4(color * mix(1.0, fillShade, vFilled), opacity);
   #include <colorspace_fragment>
