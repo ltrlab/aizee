@@ -44,6 +44,7 @@ let sticks = {};  // Each controller's thumbstick press at the last frame, by ha
 let others = [];  // Helm's /xr links elsewhere (the network, Minerva's access point), from its last state.
 let alert = null;  // The alert with the ring closed: {text, tone, until} (until Infinity: it stays until the ring opens).
 let polling = null;
+let pollRun = 0;  // Each XR session's polling: one ended mid-request does not poll on beside the next one's.
 let status = [];  // The ring's middle, every TEXT_INTERVAL_MS.
 const link = {connected: false, message: 'connecting…', error: null};  // `error`: Helm's last refusal, until a status.
 
@@ -149,13 +150,13 @@ async function connect() {
 }
 
 // Helm's state while the headset runs: the ring's items and middle follow it, and a change may raise an alert.
-async function poll() {
+async function poll(run) {
   try {
     await control.refresh();
   } catch (error) {
     raise({text: `Helm: ${error.message}`, tone: 'warn', sticky: false});
   }
-  if (session) polling = setTimeout(poll, POLL_MS);
+  if (session && run === pollRun) polling = setTimeout(() => poll(run), POLL_MS);
 }
 
 async function start() {
@@ -190,7 +191,7 @@ async function start() {
   camera.start();
   loadMounts();
   streamWrists(view.view.hands);
-  poll();
+  poll(++pollRun);
   session.addEventListener('end', () => {
     renderer.setAnimationLoop(null);
     camera?.stop();
