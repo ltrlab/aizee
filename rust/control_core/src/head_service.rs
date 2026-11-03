@@ -1,6 +1,12 @@
 //! Linux head receiver: the arms' receiver loop (the same core, recorder, protocol and replies) on the head's
 //! Feetech bus. Virtual mode runs simulated servos in-process; observation only reads; head teleop enables
 //! after the servos' identity and the reference-pose gate pass. Nothing here writes a servo's EEPROM.
+//!
+//! Unlike the arms' receiver, a late tick (lateness or work over maximum_lateness_us) is counted, never a stop.
+//! The servos keep no watchdog: through a late tick each holds the last goal it was given, every one inside its
+//! limits, and a stall long enough for the client's command or lease to expire still brakes the head to a hold
+//! with its torque kept (Controller::tick). Stopping cut its torque instead and dropped the head mid-session over
+//! one 15.2 ms tick (2026-11-03).
 use crate::{
     feetech::{sim, FeetechHardware, SerialPort},
     hardware::{Hardware, HardwareError, JointFeedback},
@@ -278,8 +284,7 @@ fn serve<P: SerialPort>(
         let lateness = started.saturating_duration_since(scheduled).as_micros() as u64;
         timing.maximum_lateness_us = timing.maximum_lateness_us.max(lateness);
         if lateness > config.maximum_lateness_us {
-            timing.overruns += 1;
-            controller.handle_deferred(now_ms, Request::EmergencyStop, &mut hardware);
+            timing.overruns += 1; // Counted, never a stop: see the module's notes.
         }
         if config.mode == HeadMode::VirtualBus {
             // Simulated servos move in real time between reads.
@@ -379,12 +384,7 @@ fn serve<P: SerialPort>(
             timing.deadline_misses += 1;
         }
         if work_us > config.maximum_lateness_us {
-            timing.overruns += 1;
-            controller.handle_deferred(
-                clock.elapsed().as_millis() as u64,
-                Request::EmergencyStop,
-                &mut hardware,
-            );
+            timing.overruns += 1; // Counted, never a stop: see the module's notes.
         }
         if run_seconds.is_some_and(|seconds| clock.elapsed().as_secs_f64() >= seconds) {
             break;
