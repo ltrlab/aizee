@@ -1,6 +1,8 @@
 """The operator's headset steering the head (helm.xr): its gaze as yaw and pitch, one device's headset at a time, the
-zero, Helm's socket and zero endpoint (login, token, origin), and a stalled loop never receiving poses."""
+zero, Helm's socket and zero endpoint (login, token, origin), a stalled loop never receiving poses, and the wrist
+cameras' mounts the headset puts their pictures on the model's wrists by."""
 import asyncio
+import json
 import math
 from pathlib import Path
 import threading
@@ -370,3 +372,61 @@ def test_the_socket_takes_controllers_with_the_pose_and_helms_state_shows_each_h
             assert sum(v * v for v in sent['left']['orientation']) == pytest.approx(1.)
             await ws.close()
     asyncio.run(run())
+
+
+def test_the_headset_puts_the_wrist_pictures_by_the_newest_solves_mounts_else_the_nominal(helm, tmp_path):
+    import numpy as np
+    from aiohttp.test_utils import TestClient, TestServer
+    from robot_platform.helm.xr import NOMINAL_MOUNT, wrist_mounts
+    from robot_platform.vision.rig import load_rig
+    cameras = load_rig()['cameras']
+    runs = tmp_path / 'runs'
+
+    # No solve: each camera on its rig link, the simulation's mount (orthonormal, right-handed: optical axes), its
+    # 85 degree vertical view across 640 x 480.
+    nominal = wrist_mounts(cameras, runs)
+    assert set(nominal) == {'left_wrist', 'right_wrist'}
+    for role, mount in nominal.items():
+        assert (mount['link'], mount['source']) == (cameras[role]['link'], 'nominal')
+        assert mount['matrix'] == [list(row) for row in NOMINAL_MOUNT]
+        assert mount['fov_deg'] == pytest.approx([101.41, 85.], abs=.01)
+    rotation = np.array(nominal['left_wrist']['matrix'])[:3, :3]
+    assert np.allclose(rotation @ rotation.T, np.eye(3), atol=2e-3)
+    assert np.linalg.det(rotation) == pytest.approx(1., abs=3e-3)
+    # It looks along the link's y and down its z (simulation/task_scene.py: 37 degrees below y).
+    assert rotation[:, 2] == pytest.approx([0, .795, -.606])
+
+    def run(name, solved=None, recommended='plain'):
+        folder = runs / name
+        folder.mkdir(parents=True)
+        (folder / 'stills.jsonl').write_text('', encoding='utf-8')
+        if solved is not None:
+            (folder / 'result.json').write_text(json.dumps({'recommended': recommended,
+                                                            'models': {'plain': {'cameras': solved}}}))
+    fitted = {'link': 'fitted_link', 'mount': {'matrix': [[1, 0, 0, .01], [0, 1, 0, .02], [0, 0, 1, .03], [0, 0, 0, 1]]},
+              'field_of_view_deg': {'horizontal': 90.5, 'vertical': 72.25}}
+    run('20261101T000000Z', {'left_wrist': fitted, 'right_wrist': fitted})
+    run('20261103T000000Z')  # Stills only.
+    run('20261104T000000Z', {}, recommended=None)  # No model solved.
+    (runs / '20261105T000000Z').mkdir()
+    (runs / '20261105T000000Z' / 'result.json').write_text('{not json')
+    # The newest solved run's recommended model: each camera's mount, link and view.
+    mounts = wrist_mounts(cameras, runs)
+    assert mounts['left_wrist'] == {'link': 'fitted_link', 'matrix': fitted['mount']['matrix'], 'fov_deg': [90.5, 72.25],
+                                    'source': 'calibration 20261101T000000Z'}
+    # A newer solve supersedes it; a camera it lacks, or an unreadable mount, keeps the nominal one.
+    run('20261102T000000Z', {'left_wrist': {**fitted, 'mount': {'matrix': [[1, 0], [0, 1]]}}})
+    mounts = wrist_mounts(cameras, runs)
+    assert (mounts['left_wrist']['source'], mounts['right_wrist']['source']) == ('nominal', 'nominal')
+
+    # Helm's route: from its wrist calibration's runs, else the rig's nominal mounts.
+    async def ask(calibration):
+        async with TestClient(TestServer(create_app(helm, Link(), teleop=Teleop(), token='secret', simulation_only=True,
+                                                    calibration=calibration))) as client:
+            reply = await client.get('/api/helm/xr/wrists')
+            assert reply.status == 200 and reply.headers['Cache-Control'] == 'no-store'
+            return (await reply.json())['mounts']
+    assert asyncio.run(ask(None)) == json.loads(json.dumps(nominal))
+    (runs / '20261102T000000Z' / 'result.json').unlink()
+    calibration = SimpleNamespace(config={'cameras': cameras}, root=runs, snapshot=dict)
+    assert asyncio.run(ask(calibration))['right_wrist']['source'] == 'calibration 20261101T000000Z'
