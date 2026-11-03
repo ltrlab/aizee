@@ -3,8 +3,9 @@
 // posed by the positions Helm's 3D view follows (/api/calibration-guide), and placed in the room as the 3D picture is
 // (M, xr_depth.js): the model's arms lie on the arms in the 3D picture, and show where the camera does not see. Where
 // a part of it and the depth meet, the model is drawn on top; a real surface in front of it still hides it. The
-// head's own links (from neck_z on) are left out: they would sit around the operator's eyes. Read-only: nothing here
-// moves the robot.
+// head's own links (from neck_z on) are left out: they would sit around the operator's eyes. Placed, it may be left
+// undrawn and still carry the wrist cameras' pictures on its wrists (xr_wrists.js). Read-only: nothing here moves the
+// robot.
 import * as THREE from 'three';
 
 export const MODEL_OPACITY = .55;  // Of the picture's own opacity: the depth shows through it.
@@ -50,6 +51,8 @@ export class RobotModel {
     this.motions = new Map();
     this.materials = [];
     this.model = null;
+    this.links = new Map();  // Each link's group, by name.
+    this.placed = false;
     this.loading = null;
     this.error = null;
     this.failedAt = null;
@@ -110,6 +113,7 @@ export class RobotModel {
       };
       await Promise.all(Array.from({length: LOADERS}, loader));
       this.group.add(root);
+      this.links = links;
       this.model = model;
       this.error = null;
       return model;
@@ -161,11 +165,21 @@ export class RobotModel {
     if (this.tracking) this.timer = this.setTimer(() => this.poll(), GUIDE_MS);
   }
 
-  // Where the robot's frame is in the room (M), or null to hide it.
-  place(matrix) {
-    this.group.visible = !!matrix && !!this.model;
+  // Where the robot's frame is in the room (M), or null: not in the room. `drawn` false: placed, but not drawn (its
+  // links still carry the wrist cameras' pictures).
+  place(matrix, drawn = true) {
+    this.placed = !!matrix && !!this.model;
+    this.group.visible = this.placed && drawn;
     if (matrix) this.group.matrix.copy(matrix);
     this.group.matrixWorldNeedsUpdate = true;
+  }
+
+  // Where link `name` is in the room this frame, into `target`; null while the model is not in the room.
+  linkMatrix(name, target) {
+    const link = this.placed ? this.links.get(name) : null;
+    if (!link) return null;
+    link.updateWorldMatrix(true, false);
+    return target.copy(link.matrixWorld);
   }
 
   setOpacity(opacity) {

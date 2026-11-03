@@ -74,14 +74,49 @@ would; every other camera pose and every robot link follows through `M`.
   - The head's own links (from `neck_z` on) are left out: they would sit around the operator's eyes.
   - It is drawn see-through (55 % of the picture's opacity), on top where it and the depth meet; a real surface in
     front of it still hides it.
-- **The wrist cameras above the hands** (`static/xr_hands.js`). The session asks for hand tracking
-  (`hand-tracking`, optional); each wrist camera's picture (Helm's `left_wrist`, `right_wrist`) floats 14 cm above
-  the matching hand's wrist, facing the eyes, as GHOST floats the gripper camera above the controller. A hand lost to
-  tracking leaves its picture where it was, dimmed; without hand tracking, the controllers carry them.
-- **The bar** has Model and Hands switches, both on by default. The two wrist streams add about 1 MB/s to the Quest's
-  Wi-Fi; if the head camera's rate drops, Hands off frees it.
+- **The wrist cameras on the model's wrists** (`static/xr_wrists.js`, since 2026-11-03; before, `xr_hands.js` floated
+  them above the tracked hands, facing the eyes, which the user found in the way). Each wrist camera's picture
+  (Helm's `left_wrist`, `right_wrist`) sits a little in front of its lens on the model, along the camera's view and as
+  wide as it sees, so it moves and turns with the real wrist. The mount (T_link_camera, optical axes) and field of
+  view come from `GET /api/helm/xr/wrists` (`helm.xr.wrist_mounts`): the recommended model of the newest solved wrist
+  calibration run, else the nominal mount from the simulation's wrist camera (35 mm along the link's y and z, 37°
+  below y, 85° vertical). No solve exists on Minerva yet (2026-11-03), so the nominal one serves; its picture's
+  orientation is unchecked against real frames. The pictures show only while the model is in the room (the
+  world-locked 3D); the model is then placed and posed for them even with its own switch off, just not drawn. The
+  session no longer asks for hand tracking.
+- **The ring's View level** has Model and Wrists switches, both on by default. The two wrist streams add about
+  1 MB/s to the Quest's Wi-Fi; if the head camera's rate drops, Wrists off frees it.
 - **Checked offline:** the coarse model, loaded through the real scene from the model viewer, stands upright where
-  the zero puts it, its head left out. Hand tracking needs the headset.
+  the zero puts it, its head left out.
+
+## The ring of controls (2026-11-03)
+
+The user found the floating status panel, the picture's status line and its bar in the way, and asked for a ring of
+controls worked with the Quest Pro controllers' own buttons, and for starting and stopping sessions from the headset.
+
+- **Opening and choosing** (`static/xr_ring.js`): A or X opens the ring about 55 cm ahead and 18° below where the
+  eyes look; it stays there until closed. That controller's thumbstick, tilted past half, aims at an item (clockwise
+  from the top); A or X chooses it. With the stick centred, A or X goes back a level, or closes the ring. The
+  trigger, grip, B/Y and the thumbstick press keep their arm and head jobs; while the ring is open on a controller,
+  its arm takes no part (`ui`), and its stick press does not zero the head. The pointer rays and screen grabbing are
+  gone.
+- **What it offers** (`static/xr_session.js`, from Helm's state polled every 0.5 s): Start ▸ (Virtual, Left arm,
+  Right arm, Both arms, Head: the profile's receivers; live ones need Helm on Minerva), the session's next step
+  (Idle (I) → Enable (E) → Engage (T); Hold (T) once engaged), Shut down (X), End session, Disable (H), View ▸
+  (Follow head, 3D, Model, Wrists, Map, the two opacities, Recenter), Zero head, and Take control while another
+  device has it. Its middle shows the session, a fault, view-only, the head and the cameras.
+- **Held to confirm:** anything that powers or moves the robot needs A or X held 1 s on it, with the Teleop tab's own
+  words in the middle: a live Start, a live I, E and Engage, End session while powered, Disable under torque on a
+  live session (the arms drop), and Take control.
+- **Control:** starting from the headset claims Helm's control (`/api/helm/control/claim`), as the Teleop tab's
+  requests then are the headset's. The other device's page goes view-only, still showing the session live, and can
+  still Disable (H) or Shut down (X). A view-only headset can do the same and offers Take control.
+- **Alerts:** with the ring closed, one line low in view shows a fault or lost control (until the ring opens), a fall
+  into a hold (the loop's message: a trip or a camera drop) or a lost link (5 s). Requests Helm refuses show there
+  in its words.
+- **The head camera picture** stays and follows as before; Recenter puts it back in front.
+- **The 3D view's white specks:** depth readings outside the colour picture (the depth sees wider) were drawn grey,
+  lightest nearest, and read as white voxels. With registration they are now left out; without it, a dim grey.
 
 ## Alignment: the cameras with each other, then the model with the cameras (head camera built)
 

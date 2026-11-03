@@ -1,4 +1,5 @@
-// What the headset's screens say (xr_scene.js), from Helm's replies on the pose socket (helm/xr.py) and the head
+// What the headset says (xr_scene.js: in its ring's middle) and Settings → Headset's flat copy of it on the operator PC
+// (headset_mirror.js: the status line and panel), from Helm's replies on the pose socket (helm/xr.py) and the head
 // camera's stream (xr_camera.js). No DOM and no three.js, so node tests it.
 
 const rounded = digits => value => Number(value.toFixed(digits));
@@ -12,8 +13,8 @@ export function poseMessage(orientation, seq, hands = null) {
 
 // A controller for Helm (helm/xr.py; the arms' grab and drag, teleop/vr_arms.py): its grip's position (metres, to a
 // tenth of a millimetre) and orientation in the 'local' space, its grip and trigger (0 to 1) and B or Y (an
-// xr-standard gamepad: buttons 1, 0 and 5), and `ui`: it is holding a screen or pressing the bar, so its arm takes
-// no part.
+// xr-standard gamepad: buttons 1, 0 and 5), and `ui`: it is working the headset's ring (xr_ring.js), so its arm
+// takes no part.
 export function handMessage(position, orientation, gamepad, ui) {
   const value = index => Math.min(1, Math.max(0, Number(gamepad.buttons[index]?.value) || 0));
   return {p: [position.x, position.y, position.z].map(rounded(4)),
@@ -62,8 +63,19 @@ function headWord(headset) {
   return ['At its zero', 'teleop · at its zero', 'warn'];
 }
 
-// The line under the camera screen, as [[text, tone], [text, tone]]: the picture's freshness on the left, what the
-// head does on the right.
+// What the head does, as the ring's middle says it: [text, tone].
+export function headLine(headset) {
+  const [text, , tone] = headWord(headset);
+  return [text, tone];
+}
+
+// The head camera's picture while it is not current, as the ring's middle says it: [text, tone], or null.
+export function cameraLine(camera) {
+  return camera.fresh ? null : [`Head camera: ${cameraText(camera)}`, 'warn'];
+}
+
+// The mirror's line under the camera screen, as [[text, tone], [text, tone]]: the picture's freshness on the left,
+// what the head does on the right.
 export function stripText(headset, camera) {
   const [head, , tone] = headWord(headset);
   return [[camera.fresh ? `Head camera · ${cameraText(camera)}` : `Head camera: ${cameraText(camera)}`,
@@ -101,5 +113,5 @@ export function panelRows(link, headset, camera, depth = null, map = null) {
   ];
 }
 
-export const HINTS = ['Thumbstick press: zero the head where you look',
-  'Trigger on the bar: its controls; grip: move a screen', 'Meta button: stop head tracking'];
+export const HINTS = ['A or X: the ring of controls (stick aims, A/X chooses)',
+  'Thumbstick press: zero the head where you look', 'Meta button: stop head tracking'];

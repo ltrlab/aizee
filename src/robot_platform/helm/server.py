@@ -1118,6 +1118,18 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         headset.zero()
         return state_response()
 
+    async def xr_wrists(_request):
+        """The wrist cameras' mounts on the model's links, for the headset's wrist pictures (helm.xr.wrist_mounts):
+        the newest wrist calibration's, else the nominal mount."""
+        from .xr import wrist_mounts
+        if calibration is not None:
+            cameras, root = calibration.config['cameras'], calibration.root
+        else:
+            from robot_platform.vision.rig import load_rig
+            cameras, root = load_rig()['cameras'], None
+        mounts = await off_loop(lambda: wrist_mounts(cameras, root))
+        return web.json_response({'mounts': mounts}, headers={'Cache-Control': 'no-store'})
+
     def need_head_setup():
         if head_setup is None:
             raise ValueError("The head is set up in Helm on Minerva, beside its servo board")
@@ -1329,6 +1341,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     app.router.add_post('/api/helm/network/ap', network_ap)
     app.router.add_get('/api/helm/xr', xr_socket)
     app.router.add_post('/api/helm/xr/zero', xr_zero)
+    app.router.add_get('/api/helm/xr/wrists', xr_wrists)
     app.router.add_post('/api/helm/xr/preview', xr_preview_switch)
     app.router.add_post('/api/helm/head/read', head_read)
     app.router.add_post('/api/helm/head/reference', head_reference)

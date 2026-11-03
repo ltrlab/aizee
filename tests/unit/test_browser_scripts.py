@@ -131,10 +131,17 @@ def test_the_headset_screens_say_what_the_head_does_and_its_camera_streams_the_n
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
 
 
-def test_the_headset_picture_follows_the_head_or_stays_and_its_bar_sets_follow_and_opacity():
+def test_the_headset_picture_follows_the_head_or_stays_and_the_ring_and_alert_sit_in_view():
     node = shutil.which('node')
     assert node, 'Node.js is required to check the headset scene'
     result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_xr_follow.mjs')], capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
+
+
+def test_the_headsets_ring_starts_steps_and_stops_a_session_with_the_controllers_buttons():
+    node = shutil.which('node')
+    assert node, 'Node.js is required to check the headset ring'
+    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_xr_ring.mjs')], capture_output=True, timeout=60)
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
 
 
@@ -159,7 +166,7 @@ def test_the_headsets_3d_stays_where_the_head_camera_saw_it_in_the_room():
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
 
 
-def test_the_headset_shows_minervas_model_and_the_wrist_cameras_above_the_hands():
+def test_the_headset_shows_minervas_model_and_the_wrist_cameras_on_its_wrists():
     node = shutil.which('node')
     assert node, 'Node.js is required to check the headset model and wrist cameras'
     result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_xr_model.mjs')], capture_output=True, timeout=60)

@@ -10,10 +10,15 @@ another device's is refused while it is connected; the same device reconnecting 
 
 A pose may carry the controllers (`hands`: {'left', 'right'}), for the arms' grab and drag (teleop.vr_arms, VR arm
 control): each its grip's position `p` (metres) and orientation `q` in the same space, `grip` and `trigger` (0 to 1),
-`b` (B or Y held) and `ui` (it is working the headset's screens). Helm keeps each hand's latest with the time it came
+`b` (B or Y held) and `ui` (it is working the headset's ring). Helm keeps each hand's latest with the time it came
 (this clock), and counts the XR sessions and recenters (`epoch`): a hand from before one is in another space.
+
+The headset shows the wrist cameras' pictures on the model's wrists (static/xr_wrists.js), each where its camera is:
+wrist_mounts gives each camera's mount on its link, from the newest wrist calibration's solve, else the nominal one.
 """
+import json
 import math
+from pathlib import Path
 import time
 
 MAX_RATE_HZ = 120.  # Poses beyond this rate are dropped (a page renders at 72-90 Hz and sends at most 60).
@@ -21,6 +26,11 @@ FRESH_S = .25  # A pose this recent counts as the headset tracking.
 HANDS = ('left', 'right')
 HAND_KEYS = frozenset({'p', 'q', 'grip', 'trigger', 'b', 'ui'})
 REACH_M = 10.  # A controller farther than this from where the session started is not a controller in the room.
+# A wrist camera's mount on its link until a solve gives one (simulation/task_scene.py's wrist camera: 35 mm along the
+# link's y and z, looking 37 degrees below the link's y; optical axes x right, y down, z ahead), and its vertical field
+# of view.
+NOMINAL_MOUNT = ((1., 0., 0., 0.), (0., -.606, .795, .035), (0., -.795, -.606, .035), (0., 0., 0., 1.))
+NOMINAL_FOV_Y_DEG = 85.
 
 
 def _number(value):
@@ -182,3 +192,48 @@ class Headset:
                 'tracking': fresh, 'poses': self.poses, 'age_s': None if self.at is None else now - self.at,
                 'rate_hz': self._rate if fresh else None, 'yaw': yaw, 'pitch': pitch,
                 'zero': {'yaw': self.zero_yaw, 'pitch': self.zero_pitch}, 'hands': hands, 'epoch': self.epoch}
+
+
+def _solved(root):
+    """The newest wrist calibration run under `root` with a solve: (its recommended model's cameras, the run's name),
+    or None."""
+    folder = Path(root).expanduser() if root else None
+    if folder is None or not folder.is_dir():
+        return None
+    for result in sorted(folder.glob('*/result.json'), reverse=True):
+        try:
+            data = json.loads(result.read_text(encoding='utf-8'))
+            return data['models'][data['recommended']]['cameras'], result.parent.name
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    return None
+
+
+def _matrix(rows):
+    if not (isinstance(rows, list) and len(rows) == 4 and all(isinstance(row, list) and len(row) == 4 for row in rows)
+            and all(_number(value) for row in rows for value in row)):
+        raise ValueError('A mount is four rows of four numbers')
+    return rows
+
+
+def wrist_mounts(cameras, root=None):
+    """Each wrist camera's mount for the headset: {role: {link, matrix (T_link_camera, four rows of four), fov_deg
+    ([horizontal, vertical]), source}}, from the recommended model of the newest solved run under `root` (Helm's
+    wrist calibration runs), else the nominal mount on the rig's link (`cameras`: the rig file's, vision.rig)."""
+    solved = _solved(root)
+    mounts = {}
+    for role, camera in cameras.items():
+        width, height = camera['size']
+        horizontal = math.degrees(2 * math.atan(math.tan(math.radians(NOMINAL_FOV_Y_DEG) / 2) * width / height))
+        mounts[role] = dict(link=camera['link'], matrix=[list(row) for row in NOMINAL_MOUNT],
+                            fov_deg=[round(horizontal, 2), NOMINAL_FOV_Y_DEG], source='nominal')
+        fitted = solved[0].get(role) if solved else None
+        try:
+            if fitted:
+                view = fitted['field_of_view_deg']
+                mounts[role] = dict(link=fitted.get('link') or camera['link'], matrix=_matrix(fitted['mount']['matrix']),
+                                    fov_deg=[float(view['horizontal']), float(view['vertical'])],
+                                    source=f'calibration {solved[1]}')
+        except (KeyError, TypeError, ValueError):
+            pass  # A solve without this camera's mount: the nominal stays.
+    return mounts

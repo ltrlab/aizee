@@ -93,36 +93,52 @@ view.update(pose(eye, .1, 0));
 near(view.depth.rig.position, eye);
 assert.ok(view.depth.rig.quaternion.angleTo(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, .1, 0, 'YXZ')))
   < 1e-6);
-// Minerva's model: placed by M while the world-locked 3D shows and its switch is on, following Helm's guide then;
-// hidden around the eyes (no head pose) or with its switch off. The Hands switch asks xr.js for the wrist cameras.
-const placements = [], tracking = [], hands = [];
-const robot = {group: new THREE.Group(), model: {id: 'minerva'}, load: async () => {}, setOpacity() {},
-  place: matrix => placements.push(matrix && matrix.clone()), track: on => tracking.push(on)};
-const scene = new HeadsetScene({xr: {getController: () => new THREE.Group(), getHand: () => new THREE.Group(),
-  getControllerGrip: () => new THREE.Group(), getCamera: () => eyes}}, {robot, onHands: on => hands.push(on)});
+// Minerva's model: placed by M while the world-locked 3D shows and its switch or the Wrists switch is on (the wrists'
+// pictures ride on its links), following Helm's guide then, drawn only with its own switch on; not placed around the
+// eyes (no head pose) or with both switches off. The Wrists switch asks xr.js for the wrist cameras.
+const placements = [], drawn = [], tracking = [], hands = [];
+const robot = {group: new THREE.Group(), model: {id: 'minerva'}, placed: false, load: async () => {}, setOpacity() {},
+  linkMatrix: () => null, track: on => tracking.push(on), place(matrix, draw = true) {
+    this.placed = !!matrix;
+    placements.push(matrix && matrix.clone());
+    drawn.push(!!matrix && draw);
+  }};
+const scene = new HeadsetScene({}, {robot, onHands: on => hands.push(on)});
+assert.deepEqual(scene.wristState, [false, 'Wrists show on the model with the 3D on']);
 scene.setDepth(true);
 scene.setZero(zero);
 scene.update(pose(eye, zero.yaw, zero.pitch));
+assert.deepEqual(scene.wristState, [false, 'Wrists show on the model once a session places it']);
 scene.showDepth({meta: {...META, head: {pose: panned(.5), zero: ZERO, joints: {}, skew_ms: 0}}, layers});
 near(placements.at(-1), world);  // The robot's frame where M puts it,
+assert.equal(drawn.at(-1), true);
 assert.equal(tracking.at(-1), true);  // posed by the guide.
-scene.setModel(false);
+assert.deepEqual(scene.wristState, [false, 'Wrists: no camera mounts']);
+scene.setWristMounts({left_wrist: {link: 'arm', matrix: [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],
+  fov_deg: [90, 70]}});
+assert.deepEqual(scene.wristState, [true, null]);
+scene.setModel(false);  // The wrists still want it: placed, posed, not drawn.
+near(placements.at(-1), world);
+assert.equal(drawn.at(-1), false);
+assert.equal(tracking.at(-1), true);
+scene.setHands(false);
 assert.equal(placements.at(-1), null);
 assert.equal(tracking.at(-1), false);
+assert.equal(scene.wrists.group.visible, false);
 scene.setModel(true);
 near(placements.at(-1), world);
+assert.equal(drawn.at(-1), true);
 scene.showDepth({meta: META, layers});  // No head pose: no M, no model.
 assert.equal(placements.at(-1), null);
-scene.setHands(false);
 scene.setHands(true);
 assert.deepEqual(hands, [false, true]);
+assert.ok(scene.wrists.group.visible);
 // The splat map: placed by M (it then puts itself by Minerva's pose in its world) while the world-locked 3D shows
 // and its switch is on (off at first); hidden around the eyes. It sorts for each frame's eyes.
 const mapPlacements = [], mapShown = [], mapEyes = [];
 const map = {group: new THREE.Group(), state: {}, setOpacity() {}, show: on => mapShown.push(on),
   place: matrix => mapPlacements.push(matrix && matrix.clone()), update: eyes => mapEyes.push(eyes.clone())};
-const mapped = new HeadsetScene({xr: {getController: () => new THREE.Group(), getHand: () => new THREE.Group(),
-  getControllerGrip: () => new THREE.Group(), getCamera: () => eyes}}, {robot, map});
+const mapped = new HeadsetScene({}, {robot, map});
 mapped.setDepth(true);
 mapped.setZero(zero);
 mapped.update(pose(eye, zero.yaw, zero.pitch));
@@ -138,11 +154,4 @@ mapped.update({...pose(eye, zero.yaw, zero.pitch), transform: {...pose(eye, zero
 near(mapEyes.at(-1), eyesAt);
 mapped.showDepth({meta: META, layers});  // No head pose: no M, no map.
 assert.equal(mapPlacements.at(-1), null);
-// A tracked hand is no pointer (it holds a leader): no ray, and nothing on the bar.
-scene.controllers[0].dispatchEvent({type: 'connected', data: {targetRayMode: 'tracked-pointer', hand: {}}});
-assert.equal(scene.controllers[0].userData.pointer, false);
-assert.equal(scene.controllers[0].userData.ray.visible, false);
-scene.controllers[1].dispatchEvent({type: 'connected', data: {targetRayMode: 'tracked-pointer'}});
-assert.equal(scene.controllers[1].userData.pointer, true);
-assert.ok(scene.wrists.group.visible);
 console.log('headset world-locked 3D: ok');

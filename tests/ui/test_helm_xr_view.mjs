@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import {HINTS, handMessage, otherLinks, panelRows, poseMessage, stripText} from '../../src/robot_platform/helm/static/xr_status.js';
+import {HINTS, cameraLine, handMessage, headLine, otherLinks, panelRows, poseMessage, stripText} from
+  '../../src/robot_platform/helm/static/xr_status.js';
 import {HeadCamera} from '../../src/robot_platform/helm/static/xr_camera.js';
 
 // The headset's screens: the line under the head camera's picture, and the status panel.
@@ -43,6 +44,11 @@ assert.deepEqual(lost.map(row => row[2]), ['warn', 'warn', '', 'warn', 'warn', '
 assert.deepEqual(panelRows({connected: true, error: 'Quest headset is steering the head'}, {}, stale)[0],
   ['Helm', 'Quest headset is steering the head', 'bad']);
 assert.equal(HINTS.length, 3);
+// The ring's middle: what the head does, and the head camera only while its picture is not current.
+assert.deepEqual(headLine({}), ['No teleop session: the head holds still', 'warn']);
+assert.deepEqual(headLine({head_fault: 'servo 2 silent'}), ['Head fault: servo 2 silent', 'bad']);
+assert.equal(cameraLine(fresh), null);
+assert.deepEqual(cameraLine(stale), ['Head camera: last frame 3 s ago', 'warn']);
 
 // The head camera's stream: Helm's camera socket for the head's frames only, heartbeats, the newest frame decoded.
 const timers = [];
@@ -183,8 +189,9 @@ const long = handMessage({x: -1.23456, y: 1.23456, z: -1.23456}, {x: -.7071068, 
   {buttons: [{value: .123456}, {value: .987654}, {}, {}, {}, {pressed: true}]}, false);
 assert.ok(JSON.stringify(poseMessage({x: -.123456789, y: .987654321, z: -.123456789, w: .0123456789}, 123456,
   {left: long, right: long})).length < 600);
-// Three hints fit the panel: the thumbstick zeroes the head now; the trigger is the gripper's.
-assert.match(HINTS[0], /Thumbstick/);
+// Three hints fit the mirror's panel: A or X opens the headset's ring; the thumbstick zeroes the head.
+assert.match(HINTS[0], /A or X/);
+assert.match(HINTS[1], /Thumbstick/);
 // Opened on the network, the page knows the access point's link, and the other way round, for when this one drops.
 const links = [{mode: 'network', url: 'https://198.51.100.43:8760/xr'},
   {mode: 'access_point', url: 'https://192.0.2.1:8760/xr'}];

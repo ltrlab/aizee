@@ -5,7 +5,8 @@ import {deflateSync} from 'node:zlib';
 
 // The headset's 3D picture: the head camera's frames with their depth (Helm's head_depth role), inflated and filled
 // in the headset (xr_camera.js, xr_fill.js), placed on the GPU from the camera's intrinsics and coloured through its
-// registration (xr_depth.js), and the bar's 3D switch (xr_scene.js, on the real three.js).
+// registration (xr_depth.js), and the ring's 3D switch (xr_scene.js, on the real three.js). A reading outside the
+// colour picture is left out, not drawn grey (the user, 2026-11-03: the near ones came out white).
 const root = new URL('../../', import.meta.url);
 const three = new URL('src/robot_platform/viewer/static/vendor/three.module.js', root).href;
 register('data:text/javascript,' + encodeURIComponent(`export async function resolve(specifier, context, next) {
@@ -26,7 +27,6 @@ const {fillDepth, registrationOf} = await import(new URL('src/robot_platform/hel
 const {BACKDROP_M, backdropCorners, colorUv, depthPoint} = await import(
   new URL('src/robot_platform/helm/static/xr_depth.js', root).href);
 const {HeadsetScene} = await import(new URL('src/robot_platform/helm/static/xr_scene.js', root).href);
-const {CONTROLS, SIZES} = await import(new URL('src/robot_platform/helm/static/xr_panels.js', root).href);
 const close = (actual, expected, tolerance = 1e-6) => assert.ok(Math.abs(actual - expected) <= tolerance,
   `${actual} is not ${expected}`);
 
@@ -127,34 +127,21 @@ for (const corner of corners) {
 }
 
 // The bar's 3D switch: the flat picture gives way to the depth once its first frame comes, around the eyes.
-const eyes = new THREE.PerspectiveCamera();
-const renderer = {xr: {getController: () => new THREE.Group(), getHand: () => new THREE.Group(),
-  getControllerGrip: () => new THREE.Group(), getCamera: () => eyes}};
 const switched = [];
-const view = new HeadsetScene(renderer, {onDepth: depth => switched.push(depth)});
+const view = new HeadsetScene({}, {onDepth: depth => switched.push(depth)});
 assert.equal(view.view.depth, false);
 assert.ok(view.picture.visible && !view.depth.rig.visible);
 const look = new THREE.Quaternion().setFromEuler(new THREE.Euler(-.2, .5, 0, 'YXZ'));
 const pose = {transform: {position: {x: .1, y: 1.6, z: .2}, orientation: {x: look.x, y: look.y, z: look.z, w: look.w}}};
 view.update(pose);
-const controller = view.controllers[0];
-const source = {targetRayMode: 'tracked-pointer'};
-controller.dispatchEvent({type: 'connected', data: source});
-function aimAtBar([px, py]) {
-  view.bar.updateWorldMatrix(true, false);
-  const target = view.bar.localToWorld(new THREE.Vector3((px / SIZES.controls[0] - .5) * 1.12,
-    (.5 - py / SIZES.controls[1]) * view.bar.geometry.parameters.height, 0));
-  controller.position.set(.1, 1.6, .2);
-  controller.quaternion.setFromRotationMatrix(new THREE.Matrix4().lookAt(controller.position, target,
-    new THREE.Vector3(0, 1, 0)));
-  controller.updateMatrixWorld(true);
-}
-aimAtBar([CONTROLS.depth.x + 100, 64]);
-controller.dispatchEvent({type: 'selectstart'});
-assert.equal(view.select(source), true);  // The bar's, not the head's zero.
+assert.equal(view.choose({id: 'view:depth'}), true);  // The ring's View item.
 assert.deepEqual(switched, [true]);
 assert.ok(view.view.depth && view.picture.visible && !view.depth.rig.visible);  // No depth yet: the picture stays.
-assert.ok(view.controls.context.texts.includes('3D · on'));
+// Registered, a reading outside the colour picture is discarded; unregistered, it is a dim grey, never near white.
+const fragment = view.depth.material.fragmentShader;
+assert.match(fragment, /else if \(registered > 0\.5\) \{[^}]*discard;/);
+assert.match(fragment, /mix\(0\.45, 0\.2, far\)/);
+assert.doesNotMatch(fragment, /0\.85/);
 view.showDepth({meta: META, layers});
 assert.ok(!view.picture.visible && view.depth.rig.visible);
 const uniforms = view.depth.material.uniforms;
@@ -182,9 +169,7 @@ assert.equal(view.depth.backdropMaterial.opacity, .4);
 view.showDepth({meta: {...META, color_intrinsics: undefined, to_color: undefined}, layers});
 assert.equal(uniforms.registered.value, 0);  // An older camera, no registration: shaded by depth instead,
 assert.ok(!view.depth.backdrop.visible);  // with no picture to place behind it.
-aimAtBar([CONTROLS.depth.x + 100, 64]);
-controller.dispatchEvent({type: 'selectstart'});
-view.select(source);
+view.choose({id: 'view:depth'});
 assert.deepEqual(switched, [true, false]);
 assert.ok(view.picture.visible && !view.depth.rig.visible);
 console.log('headset 3D picture: ok');
