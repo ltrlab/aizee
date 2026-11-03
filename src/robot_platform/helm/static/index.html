@@ -337,40 +337,56 @@
           </section>
           <section id="calibration" class="camera-calibration" aria-labelledby="calibration-title" hidden>
             <div class="eyebrow">CAMERA CALIBRATION</div>
-            <h2 id="calibration-title">Stills of the table's tags</h2>
-            <p class="muted">In a live session, bring a wrist camera over the table until it sees one or more tags and pause (pedal B or T): a second later Helm takes a still (or capture with P). Vary the distance, tilt and roll, and put tags near the image's edges too. Take 15–25 stills a camera, then Solve. For the head, in a session with the live head, turn it until its camera sees three or more tags and pause; take 8–12 stills, turned and tilted at least 10° apart, Solve, then Save alignment: the headset's 3D view and model use it from the next session.</p>
-            <p id="calibration-auto" class="muted" role="status"></p>
-            <div class="calibration-actions" role="group" aria-label="Calibration stills">
-              <div class="target" id="calibration-role" role="group" aria-label="Camera">
-                <button data-role="left_wrist">Left wrist</button>
-                <button data-role="right_wrist">Right wrist</button>
-                <button data-role="head">Head</button>
+            <h2 id="calibration-title">Calibrate the cameras on the table's tags</h2>
+            <ol id="cal-steps" class="cal-steps" aria-label="Calibration steps">
+              <li><button type="button" data-step="wrists"><span class="cal-step-n">1</span><span class="cal-step-text"><b>Wrist cameras</b><small></small></span></button></li>
+              <li><button type="button" data-step="head"><span class="cal-step-n">2</span><span class="cal-step-text"><b>Head camera</b><small></small></span></button></li>
+              <li><button type="button" data-step="twin"><span class="cal-step-n">3</span><span class="cal-step-text"><b>Digital twin</b><small></small></span></button></li>
+            </ol>
+            <div id="cal-next" class="cal-next" data-tone="info">
+              <p id="cal-next-text" role="status"></p>
+              <button id="cal-next-go" type="button" class="primary" hidden></button>
+            </div>
+            <ul id="cal-checks" class="cal-checks" aria-label="What a still needs"></ul>
+            <p id="cal-warning" class="cal-warning" role="alert" hidden></p>
+            <div id="cal-stills">
+              <div id="cal-verdict" class="cal-verdict" hidden>
+                <p id="cal-verdict-title"></p>
+                <ul id="cal-verdict-reasons"></ul>
               </div>
-              <button id="calibration-capture" class="primary" title="Average a stack of frames and find the tags; the arm must stay still (P)">Capture still <kbd>P</kbd></button>
-              <button id="calibration-undo" title="Drop this camera's last still">Undo last</button>
-              <button id="calibration-solve" title="Fit both cameras to the run's stills">Solve</button>
-              <button id="calibration-new" title="Start a new run; the old one stays on Minerva">New run</button>
-              <button id="calibration-save" title="Save this solve as the head camera's alignment; the one it replaces is kept with the run" hidden>Save alignment</button>
+              <p id="calibration-auto" class="muted" role="status"></p>
+              <div id="cal-progress" class="cal-progress"></div>
+              <div class="calibration-actions" role="group" aria-label="Calibration stills">
+                <div class="target" id="calibration-role" role="group" aria-label="Camera">
+                  <button data-role="left_wrist">Left wrist</button>
+                  <button data-role="right_wrist">Right wrist</button>
+                </div>
+                <button id="calibration-capture" title="Average a stack of frames and find the tags; the arm must stay still (P)">Capture still <kbd>P</kbd></button>
+                <button id="calibration-undo" title="Drop this camera's last still">Undo last</button>
+                <button id="calibration-solve" title="Fit both cameras to the run's stills">Solve</button>
+                <button id="calibration-save" title="Save this solve as the head camera's alignment; the one it replaces is kept with the run" hidden>Save alignment</button>
+                <button id="calibration-new" title="Start a new run; the old one stays on Minerva">New run</button>
+              </div>
+              <p id="calibration-counts" class="muted" role="status"></p>
+              <div id="calibration-last" class="calibration-last" hidden>
+                <img id="calibration-thumb" alt="The last still, its tags outlined">
+                <p id="calibration-last-text"></p>
+              </div>
+              <details id="cal-details" class="cal-details" hidden><summary>The solve's numbers</summary>
+                <ul id="calibration-result" class="calibration-result"></ul>
+              </details>
+              <p id="calibration-error" class="bad" role="alert" hidden></p>
             </div>
-            <p id="calibration-counts" class="muted" role="status"></p>
-            <div id="calibration-last" class="calibration-last" hidden>
-              <img id="calibration-thumb" alt="The last still, its tags outlined">
-              <p id="calibration-last-text"></p>
+            <div id="twin" class="cal-twin" hidden>
+              <div class="calibration-actions" role="group" aria-label="Twin correction">
+                <button id="twin-apply" title="Draw the measured joints through the proposal below; the correction it replaces is kept">Apply to the model</button>
+                <button id="twin-clear" title="Draw the measured angles again; the correction is kept with the calibrations">Remove</button>
+              </div>
+              <p id="twin-status" class="muted" role="status"></p>
+              <ul id="twin-lines" class="calibration-result"></ul>
+              <p id="twin-error" class="bad" role="alert" hidden></p>
             </div>
-            <ul id="calibration-result" class="calibration-result"></ul>
-            <p id="calibration-error" class="bad" role="alert" hidden></p>
-          </section>
-          <section id="twin" class="camera-calibration" aria-labelledby="twin-title" hidden>
-            <div class="eyebrow">DIGITAL TWIN</div>
-            <h2 id="twin-title">Draw the arms and head where the cameras put them</h2>
-            <p class="muted">From the newest wrist calibration (the arms' joint zeros, J1–J5, when its joint-offset model fits best) and the saved head camera alignment (the head's pan zero, against the same board: take both with the board in one place). For drawing only: the 3D view and the headset's model use it at once, the headset's depth from the next session; the motors' zeros, control and collision keep the measured angles, and Replay draws the recorded ones.</p>
-            <div class="calibration-actions" role="group" aria-label="Twin correction">
-              <button id="twin-apply" class="primary" title="Draw the measured joints through the proposal below; the correction it replaces is kept">Apply to the model</button>
-              <button id="twin-clear" title="Draw the measured angles again; the correction is kept with the calibrations">Remove</button>
-            </div>
-            <p id="twin-status" class="muted" role="status"></p>
-            <ul id="twin-lines" class="calibration-result"></ul>
-            <p id="twin-error" class="bad" role="alert" hidden></p>
+            <details id="cal-how" class="cal-how"><summary>How this step works</summary><ul id="cal-how-list"></ul></details>
           </section>
           <section id="maps" class="camera-calibration" aria-labelledby="maps-title" hidden>
             <div class="eyebrow">HEAD MAP</div>

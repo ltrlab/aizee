@@ -364,6 +364,52 @@ body[data-teleop-state=FAULT] #t-state,#t-collision.bad,#t-control.bad{color:var
 .calibration-last p{flex:1 1 200px;margin:0;overflow-wrap:anywhere}
 .calibration-result{list-style:none;padding:0;margin:8px 0;font-size:13px;line-height:1.5;overflow-wrap:anywhere}
 .calibration-result b{margin-right:6px}
+/* The guided calibration (calibration_guide.js): its three steps, the one thing to do next, each camera's progress
+   and what a solve means. */
+.cal-steps{display:grid;gap:6px;list-style:none;padding:0;margin:10px 0 12px}
+.cal-steps button{width:100%;display:flex;align-items:center;gap:10px;text-align:left;padding:5px 10px 5px 6px}
+.cal-step-n{flex:none;display:inline-grid;place-items:center;width:24px;height:24px;font:12px/1 var(--mono);color:var(--page-text);
+  background:var(--card);border:2px solid var(--ink);border-image:var(--pix-ink) 1/2px/0 stretch}
+.cal-step-text{flex:1;display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:2px 10px;min-width:0}
+.cal-step-text b{font-weight:400}.cal-step-text small{font-size:12px;color:var(--muted)}
+.cal-steps button[aria-current=step]{--pix:var(--pix-info);background:var(--blue-soft)}
+.cal-steps button[data-status=done] .cal-step-n{color:var(--on-accent);background:var(--good-fill);border-image-source:var(--pix-good)}
+.cal-steps button[data-status=check] .cal-step-n{color:var(--warn-fill-ink);background:var(--warn-fill);border-image-source:var(--pix-warn)}
+.cal-steps button[data-status=redo] .cal-step-n{color:var(--on-accent);background:var(--danger);border-image-source:var(--pix-bad)}
+.cal-steps button[data-status=active] .cal-step-n{color:var(--accent-text);background:var(--info-soft);border-image-source:var(--pix-info)}
+.cal-next{--pix:var(--pix-info);display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0 0 10px;padding:10px 12px;
+  background:var(--info-soft);border:3px solid var(--ink);border-image:var(--pix) 1/3px/0 stretch}
+.cal-next p{flex:1 1 220px;margin:0;line-height:1.45}
+.cal-next[data-tone=good]{--pix:var(--pix-good);background:var(--good-soft)}.cal-next[data-tone=warn]{--pix:var(--pix-warn);background:var(--warn-soft)}
+.cal-next[data-tone=bad]{--pix:var(--pix-bad);background:var(--bad-soft)}.cal-next[data-tone=muted]{--pix:var(--pix-line);background:var(--sunken)}
+.cal-checks{display:flex;flex-wrap:wrap;gap:2px 14px;list-style:none;padding:0;margin:0 0 10px;font-size:12px}.cal-checks[hidden]{display:none}
+.cal-checks li::before{content:'✓ ';color:var(--good)}.cal-checks li.missing{color:var(--bad)}.cal-checks li.missing::before{content:'✗ '}
+.cal-warning{margin:0 0 10px;padding:8px 10px;font-size:12px;line-height:1.5;color:var(--warn-ink);background:var(--warn-soft);
+  border:3px solid var(--warn);border-image:var(--pix-warn) 1/3px/0 stretch}
+#calibration-role[hidden],.calibration-last[hidden]{display:none}
+.cal-progress{display:grid;gap:8px;margin:4px 0 10px}
+.cal-row{display:grid;grid-template-columns:8.5em minmax(60px,1fr) auto;grid-template-areas:"name bar grid" ". text text";align-items:center;
+  gap:2px 10px;font-size:12px}
+.cal-row-name{grid-area:name}.cal-bar{grid-area:bar}.cal-row-text{grid-area:text;color:var(--muted)}.cal-grid{grid-area:grid}
+.cal-row.chosen .cal-row-name{color:var(--accent-text)}
+.cal-bar{height:12px;background:var(--sunken);border:2px solid var(--ink);border-image:var(--pix-ink) 1/2px/0 stretch}
+.cal-bar span{display:block;height:100%;background:var(--blue)}.cal-row[data-done=true] .cal-bar span{background:var(--good-fill)}
+.cal-grid{display:grid;grid-template-columns:repeat(4,9px);grid-auto-rows:7px;gap:2px}
+.cal-grid span{background:var(--sunken);box-shadow:0 0 0 1px var(--line)}.cal-grid span.seen{background:var(--good-fill);box-shadow:none}
+.cal-plot{display:block;width:100%;max-width:320px;height:auto;margin:4px 0 0;font-family:var(--mono)}
+.cal-plot .frame{fill:var(--sunken);stroke:var(--ink)}.cal-plot .axis{stroke:var(--line);stroke-dasharray:2 3}
+.cal-plot .label{font-size:9px;fill:var(--muted)}.cal-plot .label.end{text-anchor:end}
+.cal-plot .target{fill:none;stroke:var(--info);stroke-dasharray:4 3;stroke-width:1.5}
+.cal-plot .still{fill:var(--good-fill);stroke:var(--ink)}.cal-plot .still.few{fill:var(--warn-fill)}.cal-plot .still.none{fill:none;stroke:var(--bad)}
+.cal-plot .now{fill:none;stroke:var(--accent-text);stroke-width:2}
+.cal-plot-note{margin:2px 0 0}
+.cal-verdict{--pix:var(--pix-line);margin:10px 0;padding:10px 12px;border:3px solid var(--ink);border-image:var(--pix) 1/3px/0 stretch}
+.cal-verdict p{margin:0}.cal-verdict ul{margin:6px 0 0;padding-left:18px;font-size:12px;line-height:1.5}.cal-verdict li.note{color:var(--muted)}
+.cal-verdict[data-level=good]{--pix:var(--pix-good);background:var(--good-soft)}.cal-verdict[data-level=good] p{color:var(--good)}
+.cal-verdict[data-level=check]{--pix:var(--pix-warn);background:var(--warn-soft)}.cal-verdict[data-level=check] p{color:var(--warn)}
+.cal-verdict[data-level=redo]{--pix:var(--pix-bad);background:var(--bad-soft)}.cal-verdict[data-level=redo] p{color:var(--bad)}
+.cal-details,.cal-how{margin:8px 0;font-size:12px}.cal-details summary,.cal-how summary{cursor:pointer;color:var(--muted)}
+.cal-how ul{margin:6px 0 0;padding-left:18px;line-height:1.5}
 .task-actions{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
 #task-recording{overflow-wrap:anywhere}
 body[data-mode="simulation"] #mode-pill{--pix:var(--pix-good);color:var(--good);background:var(--good-soft)}
