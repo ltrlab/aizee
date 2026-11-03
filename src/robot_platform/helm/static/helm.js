@@ -11,6 +11,8 @@ import {HeadsetMirror} from './headset_mirror.js';
 import {headSetupView} from './head_setup.js';
 import {captureBlock, countsText, headCaptureBlock, headCountsText, headLastText, headResultLines, lastText,
   resultLines} from './calibration.js';
+import {firstStep, headProgress, headVerdict, HOW, nextStep, sessionChecks, solveCurrent, STEPS, stepStatus, stepWarning,
+  WRISTS, wristProgress, wristVerdict} from './calibration_guide.js';
 import {mapCaptureBlock, mapLines, mapStatusText} from './maps.js';
 import {twinCanApply, twinLines, twinStatusText} from './twin.js';
 import {jointZeroBlocked, jointZeroResult, jointZeroStatus, pendingLines, zeroChoices} from './joint_zero.js';
@@ -681,43 +683,92 @@ function renderRecording(state) {
   if (document.title !== title) document.title = title;
 }
 
-// Camera calibration: stills in a live session, then the solve: the wrist cameras' (helm.calibration), or the head
-// camera's alignment (helm.head_alignment), which is saved for the head's pose feed.
-let calibrationRole = 'left_wrist', calibrationPending = false;
+// Camera calibration, guided (calibration_guide.js) in three steps: the wrist cameras' stills and solve
+// (helm.calibration), the head camera's alignment, saved for the head's pose feed (helm.head_alignment), and the
+// digital twin (helm.twin). The card says the one thing to do next, each camera's progress, and what a solve means.
+let calibrationStep = null, wristRole = 'left_wrist', calibrationPending = false, calibrationNext = null;
 try {
-  const role = localStorage.getItem('helm-calibration-role');
-  if (['left_wrist', 'right_wrist', 'head'].includes(role)) calibrationRole = role;
+  const step = localStorage.getItem('helm-calibration-step'), role = localStorage.getItem('helm-calibration-role');
+  if (STEPS.includes(step)) calibrationStep = step;
+  if (WRISTS.includes(role)) wristRole = role;
+  else if (role === 'head') calibrationStep ??= 'head';  // Chosen before the steps.
 } catch { /* storage unavailable */ }
-const headSelected = () => calibrationRole === 'head';
+const headSelected = () => calibrationStep === 'head';
+const calibrationRole = () => headSelected() ? 'head' : wristRole;
 let stillNote = {text: null, until: 0};  // What the last still found (stillOutcome), shown for NOTE_MS.
 // A still is being taken (this page's, or another's Helm reports): the arms hold until it is saved.
 const stillBusy = (state = last) => stillTaking({pending: calibrationPending, calibration: state?.calibration,
   headAlignment: state?.head_alignment});
 function stillLine(now) {
-  return pauseStillText(pauseStill.remaining(now), calibrationRole,
+  return pauseStillText(pauseStill.remaining(now), calibrationRole(),
     {taking: stillBusy(), note: now < stillNote.until ? stillNote.text : null, input: teleopView(last?.teleop).input});
 }
 function calibrationBlock(state) {
+  if (calibrationStep === 'twin') return 'The digital twin takes no stills.';
   return headSelected() ? headCaptureBlock(state?.head_alignment, state?.teleop)
     : captureBlock(state?.calibration, state?.teleop);
 }
+function chooseStep(step) {
+  calibrationStep = step;
+  try { localStorage.setItem('helm-calibration-step', step); } catch { /* storage unavailable */ }
+  if (last) renderCalibration(last);
+}
+function chooseRole(role) {
+  wristRole = role;
+  calibrationStep = 'wrists';
+  try {
+    localStorage.setItem('helm-calibration-role', role);
+    localStorage.setItem('helm-calibration-step', 'wrists');
+  } catch { /* storage unavailable */ }
+  if (last) renderCalibration(last);
+}
+const listItems = (texts, className = '') => texts.map(text =>
+  Object.assign(document.createElement('li'), {textContent: text, className}));
 function renderCalibration(state) {
-  const head = headSelected(), calibration = head ? state.head_alignment : state.calibration;
   const section = $('calibration');
-  section.hidden = (!state.calibration && !state.head_alignment) || !teleopView(state.teleop).cards.calibration;
+  section.hidden = (!state.calibration && !state.head_alignment && !state.twin)
+    || !teleopView(state.teleop).cards.calibration;
   if (section.hidden) return;
+  const statuses = stepStatus(state);
+  calibrationStep ??= firstStep(statuses);
+  const step = calibrationStep, head = step === 'head';
+  for (const button of document.querySelectorAll('#cal-steps button')) {
+    const key = button.dataset.step, status = statuses[key];
+    button.dataset.status = status.status;
+    button.setAttribute('aria-current', key === step ? 'step' : 'false');
+    button.querySelector('small').textContent = status.summary;
+  }
+  const next = calibrationNext = nextStep(state, step, wristRole);
+  $('cal-next').dataset.tone = next.tone;
+  $('cal-next-text').textContent = next.text;
+  const moves = Boolean(next.action && typeof next.action === 'object');
+  $('cal-next-go').hidden = !moves;
+  if (moves) $('cal-next-go').textContent = next.label;
+  const checks = sessionChecks(state.teleop, step);
+  $('cal-checks').hidden = checks.every(check => check.ok);
+  $('cal-checks').replaceChildren(...checks.map(check =>
+    Object.assign(document.createElement('li'), {textContent: check.text, className: check.ok ? 'ok' : 'missing'})));
+  const warning = stepWarning(state, step);
+  $('cal-warning').hidden = !warning;
+  $('cal-warning').textContent = warning || '';
+  $('cal-how-list').replaceChildren(...listItems(HOW[step]));
+  $('cal-stills').hidden = step === 'twin';
+  $('twin').hidden = step !== 'twin';
+  if (step === 'twin') return;
+  const calibration = head ? state.head_alignment : state.calibration;
   $('calibration-auto').textContent = stillLine(performance.now());
   const blocked = calibrationBlock(state);
+  $('calibration-role').hidden = head;
   for (const button of document.querySelectorAll('#calibration-role button')) {
-    button.setAttribute('aria-pressed', String(button.dataset.role === calibrationRole));
-    button.disabled = !(button.dataset.role === 'head' ? state.head_alignment : state.calibration);
+    button.setAttribute('aria-pressed', String(button.dataset.role === wristRole));
+    button.disabled = !state.calibration;
   }
   const idle = !calibrationPending && Boolean(calibration) && !calibration.busy && !calibration.solving;
   $('calibration-capture').disabled = calibrationPending || Boolean(blocked);
   $('calibration-capture').title = blocked || (head
     ? 'Average a stack of frames and find the tags; the head must stay still (P)'
     : 'Average a stack of frames and find the tags; the arm must stay still (P)');
-  const stills = head ? calibration?.stills || 0 : calibration?.counts?.[calibrationRole]?.stills || 0;
+  const stills = head ? calibration?.stills || 0 : calibration?.counts?.[wristRole]?.stills || 0;
   $('calibration-undo').disabled = !idle || !stills;
   $('calibration-solve').disabled = !idle || !(head ? calibration.tagged
     : Object.values(calibration.counts || {}).some(count => count.tagged));
@@ -726,23 +777,38 @@ function renderCalibration(state) {
   $('calibration-new').disabled = !idle;
   $('calibration-save').hidden = !head;
   $('calibration-save').disabled = !idle || !calibration?.result || Boolean(calibration.result.error);
-  $('calibration-counts').textContent = (head ? headCountsText(calibration) : countsText(calibration))
-    + (blocked && !calibration?.busy ? ` · ${blocked}` : '');
-  const last = calibration?.last;
-  $('calibration-last').hidden = !last;
-  if (last) {
-    const thumb = $('calibration-thumb');
-    thumb.hidden = !last.thumbnail;
-    const source = head ? 'head-alignment' : 'calibration';
-    if (last.thumbnail && thumb.dataset.still !== `${source}/${last.name}`) {  // Once per still, not every state.
-      thumb.dataset.still = `${source}/${last.name}`;
-      thumb.src = `/api/helm/${source}/thumbnail?still=${encodeURIComponent(last.name)}`;
-    }
-    $('calibration-last-text').textContent = head ? headLastText(last) : lastText(last);
+  // The guide's next action is the card's primary button.
+  const primary = {capture: 'calibration-capture', solve: 'calibration-solve', save: 'calibration-save',
+    new: 'calibration-new'}[next.action];
+  for (const id of ['calibration-capture', 'calibration-solve', 'calibration-save', 'calibration-new']) {
+    $(id).classList.toggle('primary', id === primary);
   }
-  const list = $('calibration-result');
+  $('calibration-counts').textContent = head ? headCountsText(calibration) : countsText(calibration);
+  renderCalibrationProgress(state, head);
+  const shown = calibration?.last;
+  $('calibration-last').hidden = !shown;
+  if (shown) {
+    const thumb = $('calibration-thumb');
+    thumb.hidden = !shown.thumbnail;
+    const source = head ? 'head-alignment' : 'calibration';
+    if (shown.thumbnail && thumb.dataset.still !== `${source}/${shown.name}`) {  // Once per still, not every state.
+      thumb.dataset.still = `${source}/${shown.name}`;
+      thumb.src = `/api/helm/${source}/thumbnail?still=${encodeURIComponent(shown.name)}`;
+    }
+    $('calibration-last-text').textContent = head ? headLastText(shown) : lastText(shown);
+  }
+  const verdict = head ? headVerdict(calibration?.result) : wristVerdict(calibration?.result);
+  $('cal-verdict').hidden = !verdict;
+  if (verdict) {
+    const stale = !solveCurrent(calibration);
+    $('cal-verdict').dataset.level = verdict.level;
+    $('cal-verdict-title').textContent = VERDICT_TITLES[verdict.level]
+      + (stale ? ' · stills were added since: Solve again' : '');
+    $('cal-verdict-reasons').replaceChildren(...listItems(verdict.reasons), ...listItems(verdict.notes || [], 'note'));
+  }
   const lines = head ? headResultLines(calibration?.result) : resultLines(calibration?.result);
-  list.replaceChildren(...lines.map(line => {
+  $('cal-details').hidden = !lines.length;
+  $('calibration-result').replaceChildren(...lines.map(line => {
     const item = document.createElement('li');
     const title = document.createElement('b');
     title.textContent = line.title;
@@ -753,11 +819,104 @@ function renderCalibration(state) {
   $('calibration-error').hidden = !calibration?.error;
   $('calibration-error').textContent = calibration?.error || '';
 }
+const VERDICT_TITLES = {good: 'Good: ready to use', check: 'Usable: check the points below', redo: 'Not usable yet'};
+// Each wrist camera's stills against its target, with where in its image tags have been seen; or the head's stills,
+// how far it turned and tilted, and a map of its stills' poses with the head now. Rebuilt only when it changes.
+function renderCalibrationProgress(state, head) {
+  const box = $('cal-progress');
+  const progress = head ? headProgress(state.head_alignment, state.teleop) : wristProgress(state.calibration);
+  const key = JSON.stringify([head, wristRole, progress]);
+  if (box.dataset.key === key) return;
+  box.dataset.key = key;
+  if (!head) {
+    box.replaceChildren(...progress.map(row => {
+      const item = progressRow(row.label, row.count, row.target, `${row.count} of ${row.target} with tags`
+        + (row.stills > row.count ? ` · ${row.stills - row.count} without` : ''));
+      item.classList.toggle('chosen', row.role === wristRole);
+      item.append(coverageGrid(row.grid, row.seen));
+      return item;
+    }));
+    return;
+  }
+  box.replaceChildren(
+    progressRow('Head', progress.count, progress.target, `${progress.count} of ${progress.target} with tags`
+      + (progress.stills > progress.count ? ` · ${progress.stills - progress.count} without` : '')),
+    progressRow('Turned', progress.turned, progress.spreadTarget,
+      `${progress.turned.toFixed(0)}° of ${progress.spreadTarget}°`),
+    progressRow('Tilted', progress.tilted, progress.spreadTarget,
+      `${progress.tilted.toFixed(0)}° of ${progress.spreadTarget}°`),
+    headPlot(progress),
+    Object.assign(document.createElement('p'), {className: 'muted cal-plot-note', textContent: 'Each dot is a still '
+      + 'where the head pointed (green: three or more tags, amber: fewer, a ring: none); the cross is the head now, '
+      + 'the dashed box the spread to cover.'}));
+}
+function progressRow(label, value, target, text) {
+  const row = document.createElement('div');
+  row.className = 'cal-row';
+  row.dataset.done = String(value >= target);
+  const name = Object.assign(document.createElement('span'), {className: 'cal-row-name', textContent: label});
+  const bar = Object.assign(document.createElement('span'), {className: 'cal-bar'});
+  const fill = document.createElement('span');
+  fill.style.width = `${Math.round(100 * Math.min(1, value / target))}%`;
+  bar.append(fill);
+  row.append(name, bar, Object.assign(document.createElement('span'), {className: 'cal-row-text', textContent: text}));
+  return row;
+}
+function coverageGrid(grid, seen) {
+  const box = Object.assign(document.createElement('span'), {className: 'cal-grid',
+    title: `Tags seen in ${seen} of 12 parts of the image`});
+  box.setAttribute('role', 'img');
+  box.setAttribute('aria-label', box.title);
+  for (const row of grid) {
+    for (const count of row) box.append(Object.assign(document.createElement('span'), {className: count ? 'seen' : ''}));
+  }
+  return box;
+}
+// The head's stills on a map of its turn (left to the left) and tilt (up at the top), its axes crossing at straight
+// ahead and level, the dashed box the ranges they should cover (headTarget), and a cross where the head is now.
+function headPlot(progress) {
+  const NS = 'http://www.w3.org/2000/svg', W = 240, H = 132, PAN = 40, UP = 5, DOWN = -65;
+  const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
+  const x = pan => W / 2 - clamp(pan, -PAN, PAN) * (W / 2 - 14) / PAN;
+  const y = tilt => 12 + (UP - clamp(tilt, DOWN, UP)) * (H - 24) / (UP - DOWN);
+  const element = (name, attributes, text) => {
+    const node = document.createElementNS(NS, name);
+    for (const [k, v] of Object.entries(attributes)) node.setAttribute(k, String(v));
+    if (text) node.textContent = text;
+    return node;
+  };
+  const svg = element('svg', {viewBox: `0 0 ${W} ${H}`, class: 'cal-plot', role: 'img',
+    'aria-label': `The head's stills: turned ${progress.turned.toFixed(0)}°, tilted ${progress.tilted.toFixed(0)}°`});
+  svg.append(element('rect', {x: .5, y: .5, width: W - 1, height: H - 1, class: 'frame'}),
+    element('line', {x1: x(0), y1: 4, x2: x(0), y2: H - 4, class: 'axis'}),
+    element('line', {x1: 4, y1: y(0), x2: W - 4, y2: y(0), class: 'axis'}),
+    element('text', {x: 6, y: y(0) - 4, class: 'label'}, 'left'),
+    element('text', {x: W - 6, y: y(0) - 4, class: 'label end'}, 'right'),
+    element('text', {x: x(0) + 4, y: 12, class: 'label'}, 'up'), element('text', {x: x(0) + 4, y: H - 5, class: 'label'}, 'down'));
+  const box = progress.box;
+  if (box) {
+    svg.append(element('rect', {x: x(box.pan[1]), y: y(box.tilt[1]), width: x(box.pan[0]) - x(box.pan[1]),
+      height: y(box.tilt[0]) - y(box.tilt[1]), class: 'target'}));
+  }
+  for (const point of progress.points) {
+    const dot = element('circle', {cx: x(point.pan), cy: y(point.tilt), r: 3.5,
+      class: point.tags >= 3 ? 'still' : point.tags ? 'still few' : 'still none'});
+    dot.append(element('title', {}, `${point.name}: ${point.tags} tag${point.tags === 1 ? '' : 's'}, turned `
+      + `${point.pan.toFixed(1)}°, tilted ${point.tilt.toFixed(1)}°`));
+    svg.append(dot);
+  }
+  if (progress.now) {
+    const cx = x(progress.now.pan), cy = y(progress.now.tilt);
+    svg.append(element('path', {d: `M${cx - 7} ${cy}h14M${cx} ${cy - 7}v14`, class: 'now'}),
+      element('circle', {cx, cy, r: 5, class: 'now'}));
+  }
+  return svg;
+}
 async function calibrationAction(action, payload = {}, timeoutMs = 15000) {
   if (calibrationPending) return;
   calibrationPending = true;
   if (last) renderCalibration(last);
-  const role = calibrationRole, head = headSelected();
+  const role = calibrationRole(), head = headSelected();
   let note = null, tone = 'bad';
   try {
     const path = head ? `/api/helm/head-alignment/${action}` : `/api/helm/calibration/${action}`;
@@ -781,7 +940,7 @@ async function calibrationAction(action, payload = {}, timeoutMs = 15000) {
   }
 }
 function captureStill() {
-  if (calibrationBlock(last) === null) calibrationAction('capture', {role: calibrationRole});
+  if (calibrationBlock(last) === null) calibrationAction('capture', {role: calibrationRole()});
 }
 // Calibrate: the still a pause takes once the arms have held SETTLE_MS (teleop_mode.js), checked every 100 ms.
 setInterval(() => {
@@ -789,26 +948,42 @@ setInterval(() => {
   if (pauseStill.due(last?.teleop, now, teleopView(last?.teleop).mode)) captureStill();
   if (last && !$('calibration').hidden) $('calibration-auto').textContent = stillLine(now);
 }, 100);
+for (const button of document.querySelectorAll('#cal-steps button')) button.onclick = () => chooseStep(button.dataset.step);
 for (const button of document.querySelectorAll('#calibration-role button')) {
-  button.onclick = () => {
-    calibrationRole = button.dataset.role;
-    try { localStorage.setItem('helm-calibration-role', calibrationRole); } catch { /* storage unavailable */ }
-    if (last) renderCalibration(last);
-  };
+  button.onclick = () => chooseRole(button.dataset.role);
 }
+$('cal-next-go').onclick = () => {
+  const action = calibrationNext?.action;
+  if (action?.step) chooseStep(action.step);
+  else if (action?.role) chooseRole(action.role);
+};
 $('calibration-capture').onclick = captureStill;
-$('calibration-undo').onclick = () => calibrationAction('undo', {role: calibrationRole});
+$('calibration-undo').onclick = () => calibrationAction('undo', {role: calibrationRole()});
 $('calibration-solve').onclick = () => calibrationAction('solve', {}, 600000);
 $('calibration-new').onclick = () => calibrationAction('new');
-$('calibration-save').onclick = () => calibrationAction('save');
+// A solve that is not usable saves only on a second press within 4 s (asked in the page: embedded browsers suppress
+// confirm()); the headset's 3D view and model would draw through its mount.
+let saveArmed = 0;
+$('calibration-save').onclick = () => {
+  if (headVerdict(last?.head_alignment?.result)?.level === 'redo' && performance.now() > saveArmed) {
+    saveArmed = performance.now() + 4000;
+    $('calibration-save').textContent = 'Save anyway? It is not usable';
+    setTimeout(() => { if (performance.now() > saveArmed) $('calibration-save').textContent = 'Save alignment'; }, 4100);
+    return;
+  }
+  saveArmed = 0;
+  $('calibration-save').textContent = 'Save alignment';
+  calibrationAction('save');
+};
 
-// The digital twin's correction (helm.twin), drawing only: Apply saves the proposal, Remove takes it away.
+// The digital twin's correction (helm.twin), drawing only: Apply saves the proposal, Remove takes it away. It is the
+// calibration card's third step.
 let twinPending = false;
 function renderTwin(state) {
-  const twin = state.twin, section = $('twin');
-  section.hidden = !twin;
+  const twin = state.twin;
   if (!twin) return;
   $('twin-apply').disabled = twinPending || !twinCanApply(twin);
+  $('twin-apply').classList.toggle('primary', !$('twin-apply').disabled);
   $('twin-clear').disabled = twinPending || twin.busy || !twin.applied;
   $('twin-status').textContent = twinStatusText(twin);
   $('twin-lines').replaceChildren(...twinLines(twin).map(line => {

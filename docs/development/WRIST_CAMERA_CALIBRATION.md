@@ -85,9 +85,12 @@ A board corner p is seen at `project(camera, X^-1 F(q)^-1 Y p)`, with F(q) the U
   11 px window put corners 3 px off on small tags (rehearsed).
 - **The light on each tag:** its black border and the white label half a cell outside, as levels, temporal noise and
   the white's R/G and B/G: exposure and white balance checked in the working scene.
-- **Helm:** the Teleop tab's "Wrist camera calibration" card: camera choice, Capture (P: C is pedal C, Next stage), Undo, Solve, New run, the
-  last still with its tags outlined, and the solve's lines. Runs live under `~/minerva/helm/calibration/<run>/`
-  (`stills.jsonl`, `images/`, `result.json`). Calibration exists only with Helm on Minerva.
+- **Helm:** the Teleop tab's Calibrate card, step 1, Wrist cameras (docs/HELM.md, Teleop): camera choice, Capture
+  (P: C is pedal C, Next stage), Undo, Solve, New run, each camera's stills against 15 and where in its image tags
+  were seen, the last still with its tags outlined, and the solve's verdict from the numbers in step 3 of the live
+  test below (good to 1.5 px, not usable past 3 px or with the arms' boards 25 mm apart) with its lines folded under
+  it. Runs live under `~/minerva/helm/calibration/<run>/` (`stills.jsonl`, `images/`, `result.json`). Calibration
+  exists only with Helm on Minerva.
 
 ## Rehearsals (before any live test)
 
@@ -153,8 +156,8 @@ degrees of the sim's guess (it is a guess); the placement within about 10 mm of 
 
 - `config/devices/minerva-table-board.json`, `config/devices/minerva-wrist-cameras.json`
 - `src/robot_platform/vision/` (`geometry`, `board`, `chain`, `rig`, `wrist_calibration`, `solve`, `synthetic`)
-- `src/robot_platform/helm/calibration.py`, `calibration_still.py`, `static/calibration.js`; the card in
-  `index.html`, `helm.js`, `helm.css`, `classic-helm.css`
+- `src/robot_platform/helm/calibration.py`, `calibration_still.py`, `static/calibration.js`, the guide in
+  `static/calibration_guide.js`; the card in `index.html`, `helm.js`, `helm.css`, `classic-helm.css`
 - `scripts/camera_noise_stack.py`
 - Tests: `tests/unit/test_vision_geometry.py`, `test_wrist_calibration.py`, `test_helm_calibration.py`,
-  `tests/ui/test_helm_calibration.mjs`
+  `tests/ui/test_helm_calibration.mjs`, `tests/ui/test_helm_calibration_guide.mjs`

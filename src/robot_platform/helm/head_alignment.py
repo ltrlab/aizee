@@ -230,6 +230,13 @@ class HeadAlignment:
 
     def snapshot(self):
         tagged = sum(1 for s in self.stills if s.get('tags'))
+        # For the page's guide: each still taken (when, how many tags it saw, and how the head was turned and tilted;
+        # None for a still without the angle, so one odd line cannot fail every state).
+        def degrees(still, joint):
+            value = (still.get('joints') or {}).get(joint)
+            return round(math.degrees(value), 2) if isinstance(value, (int, float)) else None
+        taken = [dict(name=s['name'], tags=len(s.get('tags') or {}), at=s.get('captured_at'),
+                      pan_deg=degrees(s, 'neck_z'), tilt_deg=degrees(s, 'neck_y')) for s in self.stills]
         return dict(run=self.run.name if self.run else None, stills=len(self.stills), tagged=tagged, busy=self.busy,
                     solving=self.solving, error=self.error, last=self.last, result=self.result, saved=self._saved(),
-                    frames=self.config['still']['frames'])
+                    frames=self.config['still']['frames'], taken=taken)

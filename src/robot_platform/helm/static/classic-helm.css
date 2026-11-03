@@ -254,6 +254,67 @@ body[data-teleop-state=FAULT] #t-state,#t-collision.bad,#t-control.bad{color:var
 .calibration-last p { flex: 1 1 200px; margin: 0; overflow-wrap: anywhere; }
 .calibration-result { list-style: none; padding: 0; margin: 8px 0; font-size: .86rem; line-height: 1.5; overflow-wrap: anywhere; }
 .calibration-result b { margin-right: 6px; }
+/* The guided calibration (calibration_guide.js): its three steps, the one thing to do next, each camera's progress
+   and what a solve means. */
+.cal-steps { display: grid; gap: 6px; list-style: none; padding: 0; margin: 10px 0 12px; }
+.cal-steps button { width: 100%; display: flex; align-items: center; gap: 10px; text-align: left; padding: 6px 10px 6px 7px; }
+.cal-step-n { flex: none; display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; font-size: 12px; font-weight: 650; border: 1px solid #5d646d; background: var(--raised); }
+.cal-step-text { flex: 1; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 10px; min-width: 0; }
+.cal-step-text b { font-weight: 600; }
+.cal-step-text small { font-size: 12px; color: var(--muted); }
+.cal-steps button[aria-current=step] { border-color: #4a9ee0; background: var(--accent-soft); }
+.cal-steps button[data-status=done] .cal-step-n { background: #1f5a3c; border-color: var(--good); color: #eafff2; }
+.cal-steps button[data-status=check] .cal-step-n { background: #5a4520; border-color: var(--warn); color: #fff4e0; }
+.cal-steps button[data-status=redo] .cal-step-n { background: #5a2430; border-color: var(--bad); color: #ffe8eb; }
+.cal-steps button[data-status=active] .cal-step-n { border-color: var(--accent); color: var(--accent); }
+.cal-next { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 10px; padding: 10px 12px; border: 1px solid #4a9ee0; border-radius: 8px; background: var(--accent-soft); }
+.cal-next p { flex: 1 1 220px; margin: 0; line-height: 1.5; }
+.cal-next[data-tone=good] { border-color: #3c6e55; background: #11241a; }
+.cal-next[data-tone=warn] { border-color: #6d5a37; background: #2b2216; }
+.cal-next[data-tone=bad] { border-color: #7c3a45; background: #33181e; }
+.cal-next[data-tone=muted] { border-color: var(--line); background: var(--raised); }
+.cal-checks { display: flex; flex-wrap: wrap; gap: 2px 14px; list-style: none; padding: 0; margin: 0 0 10px; font-size: 12px; }
+.cal-checks[hidden] { display: none; }
+.cal-checks li::before { content: '✓ '; color: var(--good); }
+.cal-checks li.missing { color: var(--bad); }
+.cal-checks li.missing::before { content: '✗ '; }
+.cal-warning { margin: 0 0 10px; padding: 8px 10px; font-size: 12.5px; line-height: 1.5; color: #ffe2b8; background: #3a2a1c; border: 1px solid #6d5a37; border-radius: 8px; }
+#calibration-role[hidden], .calibration-last[hidden] { display: none; }
+.cal-progress { display: grid; gap: 8px; margin: 4px 0 10px; }
+.cal-row { display: grid; grid-template-columns: 7.5em minmax(60px, 1fr) auto; grid-template-areas: "name bar grid" ". text text"; align-items: center; gap: 2px 10px; font-size: 12px; }
+.cal-row-name { grid-area: name; }
+.cal-bar { grid-area: bar; height: 8px; border-radius: 4px; background: #2a2e33; overflow: hidden; }
+.cal-bar span { display: block; height: 100%; background: var(--accent); }
+.cal-row[data-done=true] .cal-bar span { background: var(--good); }
+.cal-row-text { grid-area: text; color: var(--muted); }
+.cal-row.chosen .cal-row-name { color: var(--accent); font-weight: 650; }
+.cal-grid { grid-area: grid; display: grid; grid-template-columns: repeat(4, 9px); grid-auto-rows: 7px; gap: 2px; }
+.cal-grid span { border-radius: 1px; background: #2a2e33; }
+.cal-grid span.seen { background: var(--good); }
+.cal-plot { display: block; width: 100%; max-width: 320px; height: auto; margin: 4px 0 0; }
+.cal-plot .frame { fill: #101113; stroke: var(--line); }
+.cal-plot .axis { stroke: #3a3f46; stroke-dasharray: 2 3; }
+.cal-plot .label { font-size: 9px; fill: var(--muted); }
+.cal-plot .label.end { text-anchor: end; }
+.cal-plot .target { fill: none; stroke: var(--accent); stroke-dasharray: 4 3; }
+.cal-plot .still { fill: var(--good); stroke: #0b0c0e; }
+.cal-plot .still.few { fill: var(--warn); }
+.cal-plot .still.none { fill: none; stroke: var(--bad); }
+.cal-plot .now { fill: none; stroke: #fff; stroke-width: 1.5; }
+.cal-plot-note { margin: 2px 0 0; }
+.cal-verdict { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
+.cal-verdict p { margin: 0; font-weight: 650; }
+.cal-verdict ul { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; line-height: 1.5; }
+.cal-verdict li.note { color: var(--muted); }
+.cal-verdict[data-level=good] { border-color: #3c6e55; background: #11241a; }
+.cal-verdict[data-level=good] p { color: var(--good); }
+.cal-verdict[data-level=check] { border-color: #6d5a37; background: #2b2216; }
+.cal-verdict[data-level=check] p { color: var(--warn); }
+.cal-verdict[data-level=redo] { border-color: #7c3a45; background: #33181e; }
+.cal-verdict[data-level=redo] p { color: var(--bad); }
+.cal-details, .cal-how { margin: 8px 0; font-size: 12.5px; }
+.cal-details summary, .cal-how summary { cursor: pointer; color: var(--muted); }
+.cal-how ul { margin: 6px 0 0; padding-left: 18px; line-height: 1.5; }
 #task-recording { overflow-wrap: anywhere; }
 body[data-mode="simulation"] #mode-pill { color: #266344; background: #e6f5eb; }
 body[data-mode="simulation"] #via, body[data-mode="simulation"] #connect,

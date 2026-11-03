@@ -268,6 +268,10 @@ def test_a_still_records_the_arm_and_what_the_robot_saw(tmp_path):
     assert state['counts']['left_wrist'] == {'stills': 1, 'tagged': 1} and state['last']['thumbnail'] is True
     assert cal.thumbnail() == b'jpg'  # Served on its own, not in every state.
     assert state['last']['tags'] == [0] and state['last']['white'] == 201. and state['last']['r_over_g'] == 1.02
+    # The page's guide: each still taken, and where in the camera's image its tags were seen (top-left here).
+    assert state['taken'] == [{'name': '001-left_wrist', 'camera': 'left_wrist', 'tags': 1, 'at': record['captured_at']}]
+    assert state['coverage'] == {'left_wrist': [[4, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+                                 'right_wrist': [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}
 
 
 def test_an_arm_that_moves_spoils_the_still(tmp_path):

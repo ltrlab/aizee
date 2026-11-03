@@ -25,6 +25,7 @@ from robot_platform.vision.rig import DEFAULT_RIG, ROOT, load_rig
 
 SOLVE_TIMEOUT_S = 300.
 RECORDING = ('starting', 'recording', 'stopping', 'finishing')
+COVERAGE = (4, 3)  # The image grid (columns, rows) a camera's tag corners are counted over, as the solve reports it.
 MAX_REPLY = 1024 * 1024
 # Run before a helper's remote_main, which starts its threads: they inherit the background CPUs (when the robot has
 # the split, robot_platform.ops.cpu_partition) and the lower priority, as helm.episode_worker.background does. A
@@ -245,9 +246,29 @@ class CameraCalibration:
         counts = {role: dict(stills=sum(1 for s in self.stills if s['camera'] == role),
                              tagged=sum(1 for s in self.stills if s['camera'] == role and s.get('tags')))
                   for role in self.config['cameras']}
+        # For the page's guide: each still taken (when, and how many tags it saw), and where in each camera's image
+        # its tags have been seen.
+        taken = [dict(name=s['name'], camera=s['camera'], tags=len(s.get('tags') or {}), at=s.get('captured_at'))
+                 for s in self.stills]
+        coverage = {role: _coverage([s for s in self.stills if s['camera'] == role], camera['size'])
+                    for role, camera in self.config['cameras'].items()}
         return dict(run=self.run.name if self.run else None, counts=counts, busy=self.busy, solving=self.solving,
                     error=self.error, last=self.last, result=self.result, cameras=list(self.config['cameras']),
-                    frames=self.config['still']['frames'])
+                    frames=self.config['still']['frames'], taken=taken, coverage=coverage)
+
+
+def _coverage(stills, size):
+    """The stills' tag corners in each cell of the image grid (COVERAGE) over an image of `size` (width, height),
+    rows from the top (vision.wrist_calibration reports the same grid for a solve)."""
+    columns, rows = COVERAGE
+    (width, height), grid = size, [[0] * columns for _ in range(rows)]
+    for still in stills:
+        for corners in (still.get('tags') or {}).values():
+            for u, v in corners:
+                column, row = int(u / width * columns), int(v / height * rows)
+                if 0 <= column < columns and 0 <= row < rows:
+                    grid[row][column] += 1
+    return grid
 
 
 def _check_still(reads, limit, when):

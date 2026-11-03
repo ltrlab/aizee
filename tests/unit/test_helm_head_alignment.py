@@ -90,6 +90,10 @@ def test_a_head_still_records_the_neck_from_the_feed_and_refuses_a_moving_head(r
     assert record['intrinsics'] == INTRINSICS and record['link'] == 'awg_rgb_camera_5' and 'thumbnail' not in record
     assert state['stills'] == state['tagged'] == 1 and state['last']['joints_deg']['neck_z'] == pytest.approx(
         math.degrees(stills[0].joints['neck_z']), abs=.01)
+    # The page's guide: each still taken, with how the head was turned and tilted for it.
+    assert state['taken'] == [{'name': '001-head', 'tags': len(stills[0].corners), 'at': record['captured_at'],
+                               'pan_deg': pytest.approx(math.degrees(stills[0].joints['neck_z']), abs=.01),
+                               'tilt_deg': pytest.approx(math.degrees(stills[0].joints['neck_y']), abs=.01)}]
     assert alignment.thumbnail() == b'jpg'
     robot.moved = .004
     with pytest.raises(ValueError, match=r'moved 4\.0 mrad'):

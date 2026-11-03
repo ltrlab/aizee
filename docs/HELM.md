@@ -240,10 +240,31 @@ runs; `helm --loop pc` starts on this PC.
 
 - **Direct**: drive the arms with the leaders and record episodes (pedal A, or
   the task card's Record).
-- **Calibrate**: the camera calibration card instead of the task card. Choose
-  the camera (left wrist, right wrist or head), bring it over the table's tags
-  and pause (pedal B, or T while following): once the session has held for one
-  second, Helm takes a still of that camera. Resuming before then takes none,
+- **Calibrate**: the camera calibration card instead of the task card, a guide
+  in three steps: **1 Wrist cameras**, **2 Head camera**, **3 Digital twin**
+  (calibration_guide.js). Each step's tab says how far it got, and the card
+  opens on the first not done. A box says the one thing to do next: the card's
+  button for it is the blue one, or the box's own button moves on to the other
+  wrist camera or the next step. What a still needs (a live session, the arms or
+  head enabled, no recording) is listed only while something is missing. Each
+  wrist camera has a bar of its stills with tags (15 wanted) and a 4 x 3 map of
+  where in its image tags were seen; the box names the corner or edge to fill
+  next. The head has bars for its stills with tags (10), how far it turned and
+  how far it tilted (20 degrees each), and a map of where it pointed for each
+  still: a dashed box from the farthest still toward where the box sends it, and
+  a cross where it is now. A solve gets a verdict, good, check or not usable,
+  with its reasons worst first (the solve's own numbers fold away under it):
+  about 1 px is good, over 1.5 px is checked and over 3 px is not usable;
+  held-out stills fitting worse, an uncertain mount, too few stills or image
+  parts, and the two arms' boards more than 10 mm apart (25 mm: not usable) are
+  checked too, and for the head a turn or tilt under 20 degrees (10: not
+  usable) and a mount far from where it is fixed. Stills more than 30 minutes
+  apart in one run are flagged: the table or Minerva may have moved between
+  them (a head run mixing two days fitted at 21 px). Save alignment on a solve
+  that is not usable asks first: press it again within 4 s. To take a still,
+  bring the camera over the table's tags and pause (pedal B, or T while
+  following): once the session has held for one second, Helm takes a still of
+  that camera. Resuming before then takes none,
   and neither does a hold the operator did not ask for (a camera dropping off
   USB, a head fault). Once the still is being taken the arms hold until it is
   saved, about two seconds: Resume (B or T, or C's Engage) waits, and the card
