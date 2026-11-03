@@ -44,9 +44,11 @@ assert.deepEqual(lost.map(row => row[2]), ['warn', 'warn', '', 'warn', 'warn', '
 assert.deepEqual(panelRows({connected: true, error: 'Quest headset is steering the head'}, {}, stale)[0],
   ['Helm', 'Quest headset is steering the head', 'bad']);
 assert.equal(HINTS.length, 3);
-// The ring's middle: what the head does, and the head camera only while its picture is not current.
-assert.deepEqual(headLine({}), ['No teleop session: the head holds still', 'warn']);
+// The ring's card: what the head does, short, and the head camera only while its picture is not current.
+assert.deepEqual(headLine({}), ['Head still: no session', 'warn']);
 assert.deepEqual(headLine({head_fault: 'servo 2 silent'}), ['Head fault: servo 2 silent', 'bad']);
+assert.deepEqual(headLine({head: 'IDLE'}), ['Head idle: follows once engaged', 'warn']);
+assert.deepEqual(headLine(following), ['Head follows you', 'ok']);
 assert.equal(cameraLine(fresh), null);
 assert.deepEqual(cameraLine(stale), ['Head camera: last frame 3 s ago', 'warn']);
 

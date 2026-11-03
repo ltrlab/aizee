@@ -29,8 +29,9 @@ globalThis.document = {createElement: () => {
 }};
 
 const THREE = await import(three);
-const {ALERT_AHEAD_M, ALERT_BELOW, HeadsetScene, RING_AHEAD_M, RING_BELOW} = await import(
-  new URL('src/robot_platform/helm/static/xr_scene.js', root).href);
+const {ALERT_AHEAD_M, ALERT_BELOW, ALERT_W, CARD_GAP_M, CARD_H, HeadsetScene, RING_AHEAD_M, RING_BELOW, RING_W} =
+  await import(new URL('src/robot_platform/helm/static/xr_scene.js', root).href);
+const {SIZES, TEXT} = await import(new URL('src/robot_platform/helm/static/xr_panels.js', root).href);
 const {Ring} = await import(new URL('src/robot_platform/helm/static/xr_ring.js', root).href);
 const {DEFAULT_VIEW, FOLLOW_OFFSET, STORAGE_KEY, loadView, lookAngles, opacityStep, saveView} =
   await import(new URL('src/robot_platform/helm/static/xr_view.js', root).href);
@@ -154,10 +155,17 @@ FOLLOW_OFFSET.forEach((value, i) => close(fromEyes(moved.screen, -20, 10).getCom
 assert.deepEqual(JSON.parse(store.get(STORAGE_KEY)).offset, FOLLOW_OFFSET);
 
 // The ring: opened, it is drawn RING_AHEAD_M in front of the eyes, RING_BELOW under their look, facing them, and
-// stays there as the head turns; closed and opened again, it comes where the eyes look then.
+// stays there as the head turns; closed and opened again, it comes where the eyes look then. As wide across the view
+// as at first (36 degrees), its text large enough to read in the headset (the user, 2026-11-03: 21-38 pixel text was
+// too small): 1.5 degrees or more on the ring and its card, as on the alert.
+close(2 * Math.atan(RING_W / 2 / RING_AHEAD_M) * 180 / Math.PI, 36.4, .5);
+const perDegree = 1024 / (2 * Math.atan(RING_W / 2 / RING_AHEAD_M) * 180 / Math.PI);
+assert.ok(Object.values(TEXT).every(size => size / perDegree >= 1.5), JSON.stringify(TEXT));
+const alertDegrees = 2 * Math.atan(ALERT_W / 2 / ALERT_AHEAD_M) * 180 / Math.PI;
+assert.ok(TEXT.alert / (SIZES.alert[0] / alertDegrees) >= 1.5);
 const ring = new Ring(() => ({title: 'Minerva', items: [{id: 'a', label: 'Start', submenu: true}, {id: 'b',
   label: 'View', submenu: true}]}));
-ring.step([{hand: 'right', button: true, stick: [0, 0]}], 0);
+ring.step([{hand: 'right', menu: true, press: false, stick: [0, 0]}], 0);
 view.update(pose(30, 5));
 view.showRing(ring.drawing(0), [['No session', '']]);
 assert.equal(view.ring.visible, true);
@@ -168,14 +176,27 @@ close(ringAt.z, -Math.cos(RING_BELOW) * RING_AHEAD_M);
 const ringFacing = new THREE.Vector3(0, 0, 1).applyQuaternion(view.ring.quaternion);
 assert.ok(ringFacing.dot(eyes.position.clone().sub(view.ring.position).normalize()) > .999);
 const texts = view.ringCanvas.context.texts;
-assert.ok(texts.includes('Start ›') && texts.includes('View ›') && texts.includes('No session'));
+assert.ok(texts.includes('Start ›') && texts.includes('View ›') && texts.includes('Minerva'));
+// Its card just over it, facing the same way, with the status and how the ring is worked.
+const cardTexts = view.cardCanvas.context.texts;
+assert.ok(cardTexts.includes('No session'), cardTexts);
+assert.ok(cardTexts.some(text => /press the stick to choose/.test(text)), cardTexts);
+view.ring.updateMatrixWorld(true);
+const cardAt = view.card.getWorldPosition(new THREE.Vector3()).sub(view.ring.position);
+const ringUp = new THREE.Vector3(0, 1, 0).applyQuaternion(view.ring.quaternion);
+close(cardAt.length(), RING_W / 2 + CARD_GAP_M + CARD_H / 2);
+assert.ok(cardAt.normalize().dot(ringUp) > .999);
+assert.ok(view.card.visible);
 const placed = view.ring.position.clone();
 view.update(pose(-60, 0));
 view.showRing(ring.drawing(0), [['No session', '']]);
 assert.ok(view.ring.position.distanceTo(placed) < 1e-9);
-const drawn = texts.length;
+const drawn = texts.length, cardDrawn = cardTexts.length;
 view.showRing(ring.drawing(0), [['No session', '']]);
 assert.equal(texts.length, drawn);  // Unchanged: not drawn again.
+view.showRing(ring.drawing(0), [['Virtual · IDLE', 'warn']]);
+assert.equal(texts.length, drawn);  // The status changed: the card alone is drawn again.
+assert.ok(cardTexts.length > cardDrawn && cardTexts.includes('Virtual · IDLE'));
 view.showRing(null);
 assert.equal(view.ring.visible, false);
 view.showRing(ring.drawing(0));

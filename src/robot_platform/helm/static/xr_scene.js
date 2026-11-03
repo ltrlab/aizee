@@ -1,7 +1,8 @@
 // What the headset shows while it steers Minerva's head (xr.js): the head camera's picture, a ring of controls when
-// the operator opens it (xr_ring.js, worked with a controller's A or X and thumbstick), and a one-line alert low in
-// view with the ring closed. The floating status panel, the picture's status line and bar of controls, and the
-// controllers' pointing rays are gone (the user, 2026-11-03: they got in the way); the status shows in the ring.
+// the operator opens it (xr_ring.js: A or X opens it, the thumbstick tilts to pick and presses to choose), and a
+// one-line alert low in view with the ring closed. The floating status panel, the picture's status line and bar of
+// controls, and the controllers' pointing rays are gone (the user, 2026-11-03: they got in the way); the status
+// shows on the ring's card.
 // The ring's View level sets how the picture shows (xr_view.js, remembered by the headset's browser): Follow head
 // keeps it in front of the eyes as the head turns, level (as the robot's head, pan and tilt, keeps its camera), or
 // leaves it where it is; 3D shows the head camera's depth instead (xr_depth.js), where the head camera saw it in the
@@ -16,14 +17,17 @@ import {DepthView, depthRig, robotToWorld, zeroAnchor} from './xr_depth.js';
 import {WristScreens} from './xr_wrists.js';
 import {RobotModel} from './xr_model.js';
 import {SplatMap} from './xr_splat.js';
-import {SIZES, drawAlert, drawPlaceholder, drawRing} from './xr_panels.js';
+import {SIZES, drawAlert, drawCard, drawPlaceholder, drawRing} from './xr_panels.js';
 import {FOLLOW_OFFSET, SLIDERS, SWITCHES, loadView, lookAngles, offsetOf, opacityStep, saveView} from './xr_view.js';
 
 const SCREEN_W = 1.12, SCREEN_H = 0.84;
 // The ring: this wide, this far ahead and this far below where the eyes look as it opens; it stays there while open.
-export const RING_W = .36, RING_AHEAD_M = .55, RING_BELOW = 18 * Math.PI / 180;
-// The alert: low in view, following the eyes.
-export const ALERT_W = .5, ALERT_AHEAD_M = .9, ALERT_BELOW = 24 * Math.PI / 180;
+// About 36 degrees across, as at first (0.36 m at 0.55 m), a little farther off to focus on. Its card, as wide, sits
+// just over it.
+export const RING_W = .46, RING_AHEAD_M = .7, RING_BELOW = 20 * Math.PI / 180;
+export const CARD_H = RING_W * SIZES.card[1] / SIZES.card[0], CARD_GAP_M = .015;
+// The alert: low in view, following the eyes; about 38 degrees across.
+export const ALERT_W = .62, ALERT_AHEAD_M = .9, ALERT_BELOW = 24 * Math.PI / 180;
 
 function drawable([width, height]) {
   const canvas = document.createElement('canvas');
@@ -80,10 +84,16 @@ export class HeadsetScene {
     this.writePlaceholder('Waiting for the head camera…');
     this.scene.add(this.screen);
 
-    // The ring and the alert: hidden until there is something to show.
+    // The ring, its card (a child: it moves with the ring) and the alert: hidden until there is something to show.
     this.ringCanvas = drawable(SIZES.ring);
     this.ring = panelMesh(RING_W, RING_W, this.ringCanvas.texture);
     this.ringDrawn = null;
+    this.cardCanvas = drawable(SIZES.card);
+    this.card = panelMesh(RING_W, CARD_H, this.cardCanvas.texture);
+    this.card.visible = true;
+    this.card.position.set(0, RING_W / 2 + CARD_GAP_M + CARD_H / 2, 0);
+    this.ring.add(this.card);
+    this.cardDrawn = null;
     this.alertCanvas = drawable(SIZES.alert);
     this.alert = panelMesh(ALERT_W, ALERT_W * SIZES.alert[1] / SIZES.alert[0], this.alertCanvas.texture);
     this.alertDrawn = null;
@@ -337,23 +347,29 @@ export class HeadsetScene {
     mesh.updateMatrixWorld(true);
   }
 
-  // The ring as xr_ring.Ring.drawing gives it (null: closed), with the status for its middle: placed in front of the
-  // eyes as it opens, then left there; drawn again only when it changes.
+  // The ring as xr_ring.Ring.drawing gives it (null: closed), with the status for its card: placed in front of the
+  // eyes as it opens, then left there; each drawn again only when it changes.
   showRing(drawing, status = []) {
     if (!drawing) {
       this.ring.visible = false;
-      this.ringDrawn = null;
+      this.ringDrawn = this.cardDrawn = null;
       return;
     }
     if (!this.ring.visible) {
       this.inView(this.ring, RING_AHEAD_M, RING_BELOW);
       this.ring.visible = true;
     }
-    const key = JSON.stringify([drawing, status]);
-    if (key === this.ringDrawn) return;
-    this.ringDrawn = key;
-    drawRing(this.ringCanvas.context, drawing, status);
-    this.ringCanvas.texture.needsUpdate = true;
+    const ring = JSON.stringify(drawing), card = JSON.stringify([drawing, status]);
+    if (ring !== this.ringDrawn) {
+      this.ringDrawn = ring;
+      drawRing(this.ringCanvas.context, drawing);
+      this.ringCanvas.texture.needsUpdate = true;
+    }
+    if (card !== this.cardDrawn) {
+      this.cardDrawn = card;
+      drawCard(this.cardCanvas.context, drawing, status);
+      this.cardCanvas.texture.needsUpdate = true;
+    }
   }
 
   // The alert ({text, tone}; null: none), low in view while the ring is closed: placed as it shows, then following.

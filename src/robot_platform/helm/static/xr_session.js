@@ -41,8 +41,7 @@ function startLines(choice, access, collision) {
       `${arms} hang straight down in the reference pose, grippers closed.`,
       collision === 'disabled' ? 'Collision detection is disabled.'
         : choice === 'both' ? 'One arm is checked against the other: the hands stop about 30 cm apart.'
-          : 'Collision checks are advisory.',
-      'The controllers drive the arms: Engage (T) raises each hanging arm to its ready pose first.');
+          : 'Collision checks are advisory.');  // Engage's own confirmation says how it raises the arms.
   }
   return control ? [control, ...lines] : lines;
 }
@@ -92,7 +91,7 @@ export function ringMenu(state, path, view) {
           : 'ok'} : {id: 'step', label: teleop.fault ? 'Faulted' : teleop.state || '…',
         disabled: teleop.fault ? `Fault: ${teleop.fault}. End the session and start again.` : 'No step from here'});
       const powered = !!teleop.live && POWERED.includes(teleop.state);
-      items.push({id: 'key:X', label: 'Shut down (X)', detail: 'lower, then disable',
+      items.push({id: 'key:X', label: 'Shut down (X)', detail: 'lowers first',
         disabled: ['IDLE', 'HOLD', 'ENGAGING', 'TELEOP'].includes(teleop.state) ? undefined : 'Nothing to shut down'});
       items.push({id: 'stop', label: 'End session', tone: 'warn', disabled: controlled ? undefined : viewOnly,
         confirm: powered ? [`${receiverWord(teleop)} is powered (${teleop.state}).`, teleop.live.arm === 'head'

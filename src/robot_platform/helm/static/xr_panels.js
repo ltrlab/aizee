@@ -1,10 +1,11 @@
 // The headset's screens drawn on 2D canvases: the head camera picture's placeholder, its ring of controls
-// (xr_ring.js) and the one-line alert under the view; the headset textures them in its scene (xr_scene.js). The status
-// line and panel are Settings → Headset's flat copy on the operator PC (headset_mirror.js): the headset itself shows
-// its status in the ring (the user, 2026-11-03: the floating panels got in the way). No three.js here.
+// (xr_ring.js) with the card over it, and the alert under the view; the headset textures them in its scene
+// (xr_scene.js). The status line and panel are Settings → Headset's flat copy on the operator PC (headset_mirror.js):
+// the headset itself shows its status on the ring's card (the user, 2026-11-03: the floating panels got in the way).
+// No three.js here.
 export const TONE = {ok: '#3fbf7f', warn: '#e0a83a', bad: '#e05a5a', '': '#e9ecf1', muted: '#9aa3b2'};
 export const SIZES = {picture: [1024, 768], strip: [1536, 104], panel: [1024, 768], ring: [1024, 1024],
-  alert: [1536, 112]};  // Pixels.
+  card: [1024, 704], alert: [1536, 240]};  // Pixels.
 const BACKGROUND = 'rgba(16, 19, 24, 0.92)';
 const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 
@@ -76,12 +77,12 @@ function wrap(context, text, width) {
 
 // `texts` wrapped `width` wide in the largest of `sizes` (pixels) whose lines fit `height`, else the smallest:
 // [lines, size]. A live start's confirmation runs to five sentences, as the Teleop tab words it.
-function fitted(context, texts, width, height, sizes = [30, 27, 24, 21]) {
+function fitted(context, texts, width, height, sizes) {
   let lines = [];
   for (const size of sizes) {
     context.font = `${size}px ${FONT}`;
     lines = texts.flatMap(text => wrap(context, text, width));
-    if (lines.length * size * 1.2 <= height) return [lines, size];
+    if (lines.length * Math.round(size * 1.22) <= height) return [lines, size];
   }
   return [lines, sizes.at(-1)];
 }
@@ -97,103 +98,147 @@ function centred(context, lines, x, y, step, width) {
   return y;
 }
 
-export const RING = {inner: 300, outer: 498};  // Its segments' radii, in its canvas pixels.
+export const RING = {inner: 230, outer: 505};  // Its segments' radii, in its canvas pixels.
 
-// The ring (xr_ring.Ring.drawing): its items around it, clockwise from the top, the aimed one lit, one out of reach
-// dimmed; in its middle a slider being set, an aimed item's confirmation and its hold's progress, a notice, or the
-// level's title over the status (`status`: [text, tone] lines, xr_session.statusLines).
-export function drawRing(context, drawing, status = []) {
+// Text sizes, in canvas pixels. The ring's 1024 pixels span about 36 degrees of view, 28 pixels a degree (the Quest
+// Pro shows about 22): text of 21 to 38 pixels (0.75 to 1.35 degrees) was too small to read in the headset (the
+// user, 2026-11-03). All of it is now 44 pixels (1.55 degrees) or more; long text sits on the card over the ring.
+export const TEXT = {label: 52, detail: 44, title: 64, card: 48, least: 44, hint: 44, value: 120, alert: 72};
+
+// How wide a label may be in a segment around `angle` (radians from the right, clockwise): the segment's chord where
+// it runs across (top and bottom), its band's depth where it runs down (the sides).
+function labelRoom(angle, share) {
+  const middle = (RING.inner + RING.outer) / 2;
+  const chord = 2 * middle * Math.sin(share / 2), band = RING.outer - RING.inner;
+  return Math.min(chord, Math.abs(Math.sin(angle)) * chord + Math.abs(Math.cos(angle)) * band) - 28;
+}
+
+// The ring (xr_ring.Ring.drawing): its items around it, clockwise from the top, the picked one lit, one out of reach
+// dimmed, a label too wide for its segment on two lines; in its middle the level's title and the picked item, a
+// slider's value, or a hold's progress around it.
+export function drawRing(context, drawing) {
   const {canvas} = context;
   const [cx, cy] = [canvas.width / 2, canvas.height / 2];
   context.clearRect(0, 0, canvas.width, canvas.height);
   const count = drawing.items.length;
   const share = 2 * Math.PI / Math.max(1, count);
+  const middleRadius = (RING.inner + RING.outer) / 2;
   drawing.items.forEach((item, index) => {
     const middle = -Math.PI / 2 + index * share;
-    const aimed = index === drawing.aim;
+    const picked = index === drawing.aim;
     context.beginPath();
-    context.arc(cx, cy, RING.outer, middle - share / 2 + .02, middle + share / 2 - .02);
-    context.arc(cx, cy, RING.inner, middle + share / 2 - .02, middle - share / 2 + .02, true);
+    context.arc(cx, cy, RING.outer, middle - share / 2 + .015, middle + share / 2 - .015);
+    context.arc(cx, cy, RING.inner, middle + share / 2 - .015, middle - share / 2 + .015, true);
     context.closePath();
-    context.fillStyle = aimed ? (item.disabled ? '#4a4f5a' : '#2f5fbf') : 'rgba(16, 19, 24, 0.9)';
+    context.fillStyle = picked ? (item.disabled ? '#4a4f5a' : '#2f5fbf') : 'rgba(16, 19, 24, 0.92)';
     context.fill();
-    const [x, y] = [cx + Math.cos(middle) * (RING.inner + RING.outer) / 2, cy + Math.sin(middle) * (RING.inner + RING.outer) / 2];
+    const room = labelRoom(middle, share);
+    context.font = `600 ${TEXT.label}px ${FONT}`;
+    const label = wrap(context, item.label + (item.submenu ? ' ›' : ''), room).slice(0, 2);
+    const step = Math.round(TEXT.label * 1.1);
+    const tall = label.length * step + (item.detail ? TEXT.detail * 1.1 : 0);
+    const [x, y] = [cx + Math.cos(middle) * middleRadius, cy + Math.sin(middle) * middleRadius - tall / 2];
     context.fillStyle = item.disabled ? TONE.muted : TONE[item.tone] || TONE[''];
-    context.font = `600 ${aimed ? 42 : 38}px ${FONT}`;
-    context.textAlign = 'center';
-    context.fillText(item.label + (item.submenu ? ' ›' : ''), x, y + (item.detail ? -4 : 14), 190);
+    let below = centred(context, label, x, y + TEXT.label * .85, step, room);
     if (item.detail) {
-      context.font = `30px ${FONT}`;
-      context.fillStyle = TONE.muted;
-      context.fillText(item.detail, x, y + 34, 190);
+      context.font = `${TEXT.detail}px ${FONT}`;
+      context.fillStyle = picked ? TONE[''] : TONE.muted;
+      centred(context, [item.detail], x, below - step + TEXT.label * .15 + TEXT.detail, 0, room);
     }
-    context.textAlign = 'left';
   });
   context.beginPath();
-  context.arc(cx, cy, RING.inner - 12, 0, 2 * Math.PI);
+  context.arc(cx, cy, RING.inner - 10, 0, 2 * Math.PI);
   context.fillStyle = BACKGROUND;
   context.fill();
-  const width = 2 * (RING.inner - 60);
+  const width = 2 * (RING.inner - 30);
   if (drawing.progress > 0) {
     context.beginPath();
     context.arc(cx, cy, RING.inner - 22, -Math.PI / 2, -Math.PI / 2 + drawing.progress * 2 * Math.PI);
     context.strokeStyle = TONE.warn;
-    context.lineWidth = 14;
+    context.lineWidth = 20;
     context.stroke();
   }
+  const item = drawing.adjust ? drawing.items.find(other => other.id === drawing.adjust.id)
+    : drawing.aim === null ? null : drawing.items[drawing.aim];
   if (drawing.adjust) {
-    const item = drawing.items.find(other => other.id === drawing.adjust.id);
     context.fillStyle = TONE[''];
-    context.font = `600 44px ${FONT}`;
-    centred(context, [item?.label || ''], cx, cy - 60, 50, width);
-    context.font = `700 96px ${FONT}`;
-    centred(context, [`${Math.round(drawing.adjust.value * 100)} %`], cx, cy + 40, 90, width);
-    context.font = `30px ${FONT}`;
-    context.fillStyle = TONE.muted;
-    centred(context, ['Stick left or right · A/X: done'], cx, cy + 110, 36, width);
+    context.font = `600 ${TEXT.label}px ${FONT}`;
+    centred(context, [item?.label || ''], cx, cy - 50, 0, width);
+    context.font = `700 ${TEXT.value}px ${FONT}`;
+    centred(context, [`${Math.round(drawing.adjust.value * 100)} %`], cx, cy + 80, 0, width);
     return;
   }
-  if (drawing.confirm) {
-    // Narrower than the middle's widest, so the top and bottom lines stay inside its circle.
-    const [lines, size] = fitted(context, drawing.confirm, width - 60, 2 * (RING.inner - 90));
-    const step = Math.round(size * 1.2);
-    context.fillStyle = TONE[''];
-    const y = centred(context, lines, cx, cy - (lines.length * step + 40) / 2 + size, step, width);
-    context.font = `600 34px ${FONT}`;
-    context.fillStyle = TONE.warn;
-    centred(context, ['Hold A/X to confirm'], cx, y + 14, 40, width);
-    return;
-  }
-  if (drawing.notice) {
-    context.font = `600 34px ${FONT}`;
-    context.fillStyle = TONE.warn;
-    const lines = wrap(context, drawing.notice, width).slice(0, 6);
-    centred(context, lines, cx, cy - lines.length * 20 + 10, 40, width);
-    return;
-  }
-  context.font = `700 48px ${FONT}`;
-  context.fillStyle = TONE[''];
-  let y = centred(context, [drawing.title], cx, cy - 150, 60, width);
-  context.font = `32px ${FONT}`;
-  for (const [text, tone] of status.slice(0, 6)) {
-    context.fillStyle = TONE[tone] || TONE[''];
-    y = centred(context, wrap(context, text, width).slice(0, 2), cx, y, 38, width) + 4;
-  }
-  context.font = `26px ${FONT}`;
+  context.font = `700 ${TEXT.title}px ${FONT}`;
   context.fillStyle = TONE.muted;
-  centred(context, [drawing.depth ? 'Stick: aim · A/X: choose · centred: back' : 'Stick: aim · A/X: choose · centred: close'],
-    cx, cy + RING.inner - 70, 30, width);
+  centred(context, [drawing.title], cx, item ? cy - 62 : cy + TEXT.title * .35, 0, width);
+  if (!item) return;
+  context.font = `600 ${TEXT.label}px ${FONT}`;
+  context.fillStyle = item.disabled ? TONE.muted : TONE[item.tone] || TONE[''];
+  centred(context, [item.label], cx, cy + 18, 0, width);
+  const under = drawing.confirm ? 'Hold the stick' : item.detail;
+  if (under) {
+    context.font = `600 ${TEXT.detail}px ${FONT}`;
+    context.fillStyle = drawing.confirm ? TONE.warn : TONE.muted;
+    centred(context, [under], cx, cy + 82, 0, width - 40);
+  }
 }
 
-// The alert under the view with the ring closed: [text, tone].
+// The card over the ring while it is open (xr_ring.Ring.drawing, and `status`: [text, tone] lines,
+// xr_session.statusLines): a picked item's confirmation, a notice, or the status; and how the ring is worked now, at
+// its foot.
+export function drawCard(context, drawing, status = []) {
+  const {canvas} = context;
+  const [width, height] = [canvas.width, canvas.height];
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = BACKGROUND;
+  context.beginPath();
+  context.roundRect(0, 0, width, height, 36);
+  context.fill();
+  const text = width - 80;
+  const [hints, hintTone] = drawing.adjust ? [['Tilt left or right to set it', 'Press the stick: done'], '']
+    : drawing.confirm && drawing.notice ? [[drawing.notice], 'warn']  // A hold let go too soon.
+      : drawing.confirm ? [['Hold the stick down to confirm', 'A/X: back'], 'warn']
+        : [['Tilt to pick · press the stick to choose', `A/X: ${drawing.depth ? 'back' : 'close'}`], ''];
+  context.font = `600 ${TEXT.hint}px ${FONT}`;
+  context.fillStyle = hintTone ? TONE[hintTone] : TONE.muted;
+  const hintStep = Math.round(TEXT.hint * 1.2);
+  centred(context, hints, width / 2, height - 40 - (hints.length - 1) * hintStep, hintStep, text);
+  const room = height - 40 - hints.length * hintStep - 60;  // From the top to over the hints.
+  let lines, size = TEXT.card, weight = '';
+  if (drawing.confirm) {
+    const [wrapped, fit] = fitted(context, drawing.confirm, text, room, [TEXT.card, 46, TEXT.least]);
+    [lines, size] = [wrapped.map(line => [line, '']), fit];
+  } else if (drawing.notice) {
+    weight = '600 ';
+    context.font = `${weight}${size}px ${FONT}`;
+    lines = wrap(context, drawing.notice, text).map(line => [line, 'warn']);
+  } else {
+    context.font = `${size}px ${FONT}`;
+    lines = status.flatMap(([line, tone]) => wrap(context, line, text).map(part => [part, tone]));
+  }
+  const step = Math.round(size * 1.22);
+  lines = lines.slice(0, Math.floor(room / step));
+  let y = 36 + (room - lines.length * step) / 2 + size;
+  context.font = `${weight}${size}px ${FONT}`;
+  for (const [line, tone] of lines) {
+    context.fillStyle = TONE[tone] || TONE[''];
+    centred(context, [line], width / 2, y, 0, text);
+    y += step;
+  }
+}
+
+// The alert under the view with the ring closed: [text, tone], on one line or two.
 export function drawAlert(context, [text, tone]) {
   const {canvas} = context;
   context.clearRect(0, 0, canvas.width, canvas.height);
+  context.font = `600 ${TEXT.alert}px ${FONT}`;
+  const lines = wrap(context, text, canvas.width - 100).slice(0, 2);
+  const step = Math.round(TEXT.alert * 1.2), tall = lines.length * step + 48;
+  const top = (canvas.height - tall) / 2;
   context.fillStyle = BACKGROUND;
   context.beginPath();
-  context.roundRect(0, 0, canvas.width, canvas.height, canvas.height / 2);
+  context.roundRect(0, top, canvas.width, tall, Math.min(tall / 2, 60));
   context.fill();
-  context.font = `600 46px ${FONT}`;
   context.fillStyle = TONE[tone] || TONE[''];
-  centred(context, [text], canvas.width / 2, 72, 0, canvas.width - 80);
+  centred(context, lines, canvas.width / 2, top + 24 + TEXT.alert * .95, step, canvas.width - 100);
 }

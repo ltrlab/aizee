@@ -3,8 +3,9 @@
 // it, at most 60 times a second, over Helm's socket, with each controller's grip pose, grip, trigger and B/Y for the
 // arms' grab and drag (teleop/vr_arms.py). A thumbstick press zeroes the head where the headset looks; starting the
 // session or recentering the headset restarts the zero at the heading, level. Inside, the headset shows the head
-// camera's picture and, when the operator presses A or X, a ring of controls in front of them (xr_ring.js), worked
-// with that controller's thumbstick and A or X: start, step and end Helm's teleop session from the headset (taking
+// camera's picture and, when the operator presses A or X, a ring of controls in front of them (xr_ring.js): that
+// controller's thumbstick tilts to pick an item and presses down to choose it (its press is then the ring's, not the
+// head's zero), and A or X goes back or closes: start, step and end Helm's teleop session from the headset (taking
 // Helm's control from another device, which keeps showing the session, view-only: xr_session.js), the picture's view,
 // the head's zero. While the ring is open on a controller, its arm takes no part. With the ring closed, a one-line
 // alert shows a fault, a hold, lost control or a lost link. The wrist cameras' pictures sit on the model's wrists.
@@ -211,6 +212,7 @@ async function start() {
   let textAt = -Infinity, frameAt = null;
   renderer.setAnimationLoop((time, frame) => {
     const pose = frame?.getViewerPose(renderer.xr.getReferenceSpace());
+    const working = ring.hand;  // The controller on the ring as this frame began: its stick press is the ring's.
     for (const action of ring.step(ringInputs(), time / 1000, frameAt === null ? 0 : (time - frameAt) / 1000)) {
       choose(action);
     }
@@ -220,7 +222,7 @@ async function start() {
       send(poseMessage(pose.transform.orientation, sequence, controllers(frame)));
       lastSent = time;
     }
-    zeroOnThumbstick();
+    zeroOnThumbstick(working);
     if (camera && time - textAt >= TEXT_INTERVAL_MS) {
       textAt = time;
       const picture = camera.stats;
@@ -237,13 +239,13 @@ async function start() {
   });
 }
 
-// Each controller's A or X and thumbstick (xr-standard: button 4, axes 2 and 3), for the ring.
+// Each controller's A or X, thumbstick press and tilt (xr-standard: buttons 4 and 3, axes 2 and 3), for the ring.
 function ringInputs() {
   const inputs = [];
   for (const source of session.inputSources) {
     if (source.hand || !source.gamepad || !HANDS.includes(source.handedness)) continue;
     const {buttons, axes} = source.gamepad;
-    inputs.push({hand: source.handedness, button: Boolean(buttons[4]?.pressed),
+    inputs.push({hand: source.handedness, menu: Boolean(buttons[4]?.pressed), press: Boolean(buttons[3]?.pressed),
       stick: [Number(axes[2]) || 0, Number(axes[3]) || 0]});
   }
   return inputs;
@@ -286,13 +288,13 @@ function controllers(frame) {
   return hands;
 }
 
-// A thumbstick pressed (xr-standard button 3) zeroes the head where the headset looks, once a press; not the one
-// aiming the ring, whose stick may click as it tilts.
-function zeroOnThumbstick() {
+// A thumbstick pressed (xr-standard button 3) zeroes the head where the headset looks, once a press; not on the
+// controller working the ring (`working`: as the frame began), whose press chooses, even one that closed the ring.
+function zeroOnThumbstick(working) {
   for (const source of session.inputSources) {
     if (source.hand || !source.gamepad) continue;
     const pressed = Boolean(source.gamepad.buttons[3]?.pressed);
-    if (pressed && !sticks[source.handedness] && ring.hand !== source.handedness) {
+    if (pressed && !sticks[source.handedness] && working !== source.handedness && ring.hand !== source.handedness) {
       send({type: 'zero'});
       view.rezero();
     }

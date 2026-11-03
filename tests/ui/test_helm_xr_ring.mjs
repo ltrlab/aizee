@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 
-// The headset's ring of controls (xr_ring.js), worked with a controller's A or X and thumbstick, and what it offers
-// from Helm's state, the alerts with it closed, and the requests that start, step and stop a session (xr_session.js).
+// The headset's ring of controls (xr_ring.js), opened with a controller's A or X, its items picked with the
+// thumbstick's tilt and chosen with its press, and what it offers from Helm's state, the alerts with it closed, and the
+// requests that start, step and stop a session (xr_session.js).
 const root = new URL('../../', import.meta.url);
 const {DEAD_ZONE, HOLD_S, Ring, SLIDE_PER_S, aimed} = await import(new URL('src/robot_platform/helm/static/xr_ring.js', root).href);
 const {SessionControl, alertOf, receiverWord, ringMenu, statusLines} = await import(
@@ -18,11 +19,12 @@ assert.equal(aimed([1, 0], 0), null);
 
 // A ring over a small menu: a submenu, an item that asks for the hold, one out of reach, a slider, a switch that
 // keeps the ring open, and a plain item.
-let gone = false;
+let gone = false, swapped = false;
 const menu = path => {
   if (!path.length) {
     return {title: 'Top', items: [{id: 'sub', label: 'Sub', submenu: true}, {id: 'move', label: 'Move',
-      confirm: ['It moves.']}, {id: 'locked', label: 'Locked', disabled: 'Not now'}, {id: 'plain', label: 'Plain'}]};
+      confirm: ['It moves.']}, {id: 'locked', label: 'Locked', disabled: 'Not now'},
+    swapped ? {id: 'other', label: 'Other'} : {id: 'plain', label: 'Plain'}]};
   }
   if (path[0] === 'sub' && !gone) {
     return {title: 'Sub', items: [{id: 'slider:x', label: 'X', slider: .5}, {id: 'flag', label: 'Flag', stay: true}]};
@@ -30,85 +32,126 @@ const menu = path => {
   return null;
 };
 const ring = new Ring(menu);
-const right = (button, stick = [0, 0]) => ({hand: 'right', button, stick});
-const left = (button, stick = [0, 0]) => ({hand: 'left', button, stick});
+// A frame of one controller: A or X (menu), the thumbstick pressed down (press), its tilt.
+const on = hand => ({menu = false, press = false, stick = [0, 0]} = {}) => ({hand, menu, press, stick});
+const right = on('right'), left = on('left');
 const UP = [0, -1], RIGHT = [1, 0], DOWN = [0, 1], LEFT = [-1, 0];
 assert.equal(ring.drawing(0), null);
 
 // A or X opens it on that controller; the other is left alone while it is open.
-assert.deepEqual(ring.step([right(true)], 0), [{id: 'opened'}]);
+assert.deepEqual(ring.step([right({menu: true})], 0), [{id: 'opened'}]);
 assert.equal(ring.hand, 'right');
-assert.deepEqual(ring.step([right(false)], .1), []);
-assert.deepEqual(ring.step([left(true, LEFT)], .2), []);
+assert.deepEqual(ring.step([right()], .1), []);
+assert.deepEqual(ring.step([left({menu: true, stick: LEFT})], .2), []);
 assert.equal(ring.drawing(.2).aim, null);
-// Chosen with the stick centred at the top: it closes.
-ring.step([right(true), left(false)], .3);
+// Pressed with nothing picked: how to pick, and nothing chosen.
+assert.deepEqual(ring.step([right({press: true})], .25), []);
+assert.match(ring.drawing(.25).notice, /Tilt the stick toward an item/);
+// A or X again at the top: it closes.
+ring.step([right()], .28);
+ring.step([right({menu: true})], .3);
 assert.equal(ring.open, false);
 
-// Opened with X, an item aimed and chosen: it is sent, and the ring closes.
-ring.step([left(true)], 1);
-ring.step([left(false, LEFT)], 1.1);
+// Opened with X; the stick tilted picks an item, which stays picked as the stick comes back; pressed down, it is
+// chosen, and the ring closes. A or X alone chooses nothing.
+ring.step([left()], .9);
+ring.step([left({menu: true})], 1);
+ring.step([left({stick: LEFT})], 1.1);
 assert.equal(ring.drawing(1.1).aim, 3);
-assert.deepEqual(ring.step([left(true, LEFT)], 1.2), [{id: 'plain'}]);
+ring.step([left()], 1.15);
+assert.equal(ring.drawing(1.15).aim, 3);  // Centred: still picked.
+assert.deepEqual(ring.step([left({press: true})], 1.2), [{id: 'plain'}]);
 assert.equal(ring.open, false);
+// Pressed while still tilted toward it: chosen as well.
+ring.step([left()], 1.3);
+ring.step([left({menu: true})], 1.4);
+ring.step([left({stick: LEFT})], 1.5);
+assert.deepEqual(ring.step([left({press: true, stick: LEFT})], 1.6), [{id: 'plain'}]);
 
-// Out of reach: why, and nothing sent.
-ring.step([left(false)], 2);
-ring.step([left(true)], 2.1);
-ring.step([left(false, DOWN)], 2.2);
-assert.deepEqual(ring.step([left(true, DOWN)], 2.3), []);
+// The session changed another item into the picked one's place: no longer picked, and a press chooses nothing.
+ring.step([left()], 1.7);
+ring.step([left({menu: true})], 1.8);
+ring.step([left({stick: LEFT})], 1.9);
+ring.step([left()], 1.95);
+swapped = true;
+assert.equal(ring.drawing(2).aim, null);
+assert.deepEqual(ring.step([left({press: true})], 2), []);
+swapped = false;
+ring.step([left()], 2.05);
+
+// Out of reach: why, and nothing chosen.
+ring.step([left({stick: DOWN})], 2.2);
+assert.deepEqual(ring.step([left({press: true, stick: DOWN})], 2.3), []);
 assert.equal(ring.drawing(2.3).notice, 'Not now');
-ring.step([left(false, RIGHT)], 2.4);
-assert.equal(ring.drawing(2.4).notice, null);  // Aimed elsewhere: the notice goes.
+ring.step([left({stick: RIGHT})], 2.4);
+assert.equal(ring.drawing(2.4).notice, null);  // Picked another: the notice goes.
 
-// An item that moves the robot: its confirmation in the middle, then held HOLD_S on it to choose.
-assert.deepEqual(ring.drawing(2.4).confirm, ['It moves.']);
-assert.deepEqual(ring.step([left(true, RIGHT)], 3), []);
+// An item that moves the robot: its confirmation shown once picked, then the thumbstick held down HOLD_S to choose.
+ring.step([left()], 2.5);
+assert.deepEqual(ring.drawing(2.5).confirm, ['It moves.']);
+assert.deepEqual(ring.step([left({press: true})], 3), []);
 assert.equal(ring.drawing(3 + HOLD_S / 2).progress, .5);
 assert.equal(ring.drawing(3 + HOLD_S / 3).progress, .3);  // In twentieths.
 // Let go too soon: nothing, and why.
-assert.deepEqual(ring.step([left(false, RIGHT)], 3 + HOLD_S / 2), []);
+assert.deepEqual(ring.step([left()], 3 + HOLD_S / 2), []);
 assert.equal(ring.drawing(3.6).notice, 'Hold to confirm: let go too soon');
 assert.equal(ring.drawing(3.6).progress, 0);
-// Aimed away while held: cancelled.
-ring.step([left(true, RIGHT)], 4);
-ring.step([left(true, UP)], 4.2);
-assert.deepEqual(ring.step([left(true, RIGHT)], 4 + HOLD_S + .1), []);
-// Held on it the whole time: chosen once, and the ring closes.
-ring.step([left(false, RIGHT)], 6);
-ring.step([left(true, RIGHT)], 6.1);
-assert.deepEqual(ring.step([left(true, RIGHT)], 6.1 + HOLD_S / 2), []);
-assert.deepEqual(ring.step([left(true, RIGHT)], 6.1 + HOLD_S), [{id: 'move'}]);
+// Another item picked while held: cancelled.
+ring.step([left({press: true})], 4);
+ring.step([left({press: true, stick: UP})], 4.2);
+assert.deepEqual(ring.step([left({press: true, stick: RIGHT})], 4 + HOLD_S + .1), []);
+// Held down on it the whole time: chosen once, and the ring closes.
+ring.step([left({stick: RIGHT})], 6);
+ring.step([left({press: true})], 6.1);
+assert.deepEqual(ring.step([left({press: true})], 6.1 + HOLD_S / 2), []);
+assert.deepEqual(ring.step([left({press: true})], 6.1 + HOLD_S), [{id: 'move'}]);
 assert.equal(ring.open, false);
-assert.deepEqual(ring.step([left(true, RIGHT)], 7.5), []);  // Still held from the hold: not a new press.
+assert.deepEqual(ring.step([left({press: true})], 7.5), []);  // Still held from the hold: nothing opens.
+// A or X during a hold: the hold ends and the ring closes (the top), nothing chosen.
+ring.step([left()], 7.6);
+ring.step([left({menu: true})], 7.7);
+ring.step([left({stick: RIGHT})], 7.75);
+ring.step([left({press: true})], 7.8);
+assert.deepEqual(ring.step([left({press: true, menu: true})], 8.9), []);
+assert.equal(ring.open, false);
 
-// A submenu: in, a switch that keeps the ring open, a slider, and back out with the stick centred.
-ring.step([right(false)], 7.9);
-ring.step([right(true)], 8);
-ring.step([right(false, UP)], 8.1);
-ring.step([right(true, UP)], 8.2);
-assert.equal(ring.drawing(8.2).title, 'Sub');
-assert.equal(ring.drawing(8.2).depth, 1);
-ring.step([right(false, DOWN)], 8.3);
-assert.deepEqual(ring.step([right(true, DOWN)], 8.4), [{id: 'flag'}]);
+// A submenu: in, a switch that keeps the ring open, a slider, and back out with A or X.
+ring.step([right()], 9.9);
+ring.step([right({menu: true})], 10);
+ring.step([right({stick: UP})], 10.1);
+ring.step([right({press: true})], 10.2);
+assert.equal(ring.drawing(10.2).title, 'Sub');
+assert.equal(ring.drawing(10.2).depth, 1);
+assert.equal(ring.drawing(10.2).aim, null);  // A new level: nothing picked.
+ring.step([right({stick: DOWN})], 10.3);
+assert.deepEqual(ring.step([right({press: true})], 10.4), [{id: 'flag'}]);
 assert.ok(ring.open);
-ring.step([right(false, UP)], 8.5);
-assert.deepEqual(ring.step([right(true, UP)], 8.6), []);  // The slider takes the stick.
-assert.deepEqual(ring.drawing(8.6).adjust, {id: 'slider:x', value: .5});
+ring.step([right({stick: UP})], 10.5);
+assert.deepEqual(ring.step([right({press: true})], 10.6), []);  // The slider takes the stick.
+assert.deepEqual(ring.drawing(10.6).adjust, {id: 'slider:x', value: .5});
 const changes = [];
-for (let t = 8.7; t < 9.7; t += .05) changes.push(...ring.step([right(false, RIGHT)], t, .05));
+for (let t = 10.7; t < 11.7; t += .05) changes.push(...ring.step([right({stick: RIGHT})], t, .05));
 assert.ok(changes.length >= 8 && changes.every(change => change.id === 'slider:x' && !change.done));
 assert.equal(changes.at(-1).value, Number(Math.min(1, .5 + SLIDE_PER_S * 1).toFixed(2)));
-assert.deepEqual(ring.step([right(true, LEFT)], 9.8, .05), [{id: 'slider:x', value: changes.at(-1).value, done: true}]);
-assert.equal(ring.drawing(9.8).adjust, null);
-ring.step([right(false)], 9.9);
-ring.step([right(true)], 10);  // Centred: back to the top.
-assert.equal(ring.drawing(10).title, 'Top');
+assert.deepEqual(ring.step([right({press: true})], 11.8, .05), [{id: 'slider:x', value: changes.at(-1).value,
+  done: true}]);
+assert.equal(ring.drawing(11.8).adjust, null);
+ring.step([right()], 11.9);
+ring.step([right({menu: true})], 12);  // Back to the top.
+assert.equal(ring.drawing(12).title, 'Top');
+// A or X also finishes a slider.
+ring.step([right()], 12.05);
+ring.step([right({stick: UP})], 12.1);
+ring.step([right({press: true})], 12.2);
+ring.step([right({stick: UP})], 12.25);
+ring.step([right()], 12.3);
+ring.step([right({press: true})], 12.4);
+assert.ok(ring.drawing(12.4).adjust);
+assert.deepEqual(ring.step([right({menu: true})], 12.5), [{id: 'slider:x', value: .5, done: true}]);
+assert.equal(ring.drawing(12.5).title, 'Sub');  // Still in its level.
 // A submenu that goes (the session changed): back to the top.
-ring.step([right(false, UP)], 10.1);
-ring.step([right(true, UP)], 10.2);
 gone = true;
-assert.equal(ring.drawing(10.3).title, 'Top');
+assert.equal(ring.drawing(12.6).title, 'Top');
 ring.close();
 assert.equal(ring.open, false);
 

@@ -63,13 +63,19 @@ function headWord(headset) {
   return ['At its zero', 'teleop · at its zero', 'warn'];
 }
 
-// What the head does, as the ring's middle says it: [text, tone].
+// What the head does, as the ring's card says it: [text, tone], short; its yaw and pitch left out (they change at each
+// look, and the card would be drawn again each time).
 export function headLine(headset) {
-  const [text, , tone] = headWord(headset);
-  return [text, tone];
+  if (headset.head_fault) return [`Head fault: ${headset.head_fault}`, 'bad'];
+  const state = headset.head;
+  if (!state) return ['Head still: no session', 'warn'];
+  if (state !== 'TELEOP') return [`Head ${String(state).toLowerCase()}: follows once engaged`, 'warn'];
+  if (headset.source === 'headset') return ['Head follows you', 'ok'];
+  if (headset.source === 'holding') return ['Head holding: the headset went quiet', 'warn'];
+  return ['Head at its zero', 'warn'];
 }
 
-// The head camera's picture while it is not current, as the ring's middle says it: [text, tone], or null.
+// The head camera's picture while it is not current, as the ring's card says it: [text, tone], or null.
 export function cameraLine(camera) {
   return camera.fresh ? null : [`Head camera: ${cameraText(camera)}`, 'warn'];
 }
@@ -113,5 +119,5 @@ export function panelRows(link, headset, camera, depth = null, map = null) {
   ];
 }
 
-export const HINTS = ['A or X: the ring of controls (stick aims, A/X chooses)',
+export const HINTS = ['A or X: the ring of controls (tilt the stick to pick, press it to choose)',
   'Thumbstick press: zero the head where you look', 'Meta button: stop head tracking'];

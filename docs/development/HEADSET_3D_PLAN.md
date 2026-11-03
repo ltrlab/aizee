@@ -94,20 +94,30 @@ would; every other camera pose and every robot link follows through `M`.
 The user found the floating status panel, the picture's status line and its bar in the way, and asked for a ring of
 controls worked with the Quest Pro controllers' own buttons, and for starting and stopping sessions from the headset.
 
-- **Opening and choosing** (`static/xr_ring.js`): A or X opens the ring about 55 cm ahead and 18° below where the
-  eyes look; it stays there until closed. That controller's thumbstick, tilted past half, aims at an item (clockwise
-  from the top); A or X chooses it. With the stick centred, A or X goes back a level, or closes the ring. The
-  trigger, grip, B/Y and the thumbstick press keep their arm and head jobs; while the ring is open on a controller,
-  its arm takes no part (`ui`), and its stick press does not zero the head. The pointer rays and screen grabbing are
-  gone.
+- **Opening and choosing** (`static/xr_ring.js`): A or X opens the ring about 70 cm ahead and 20° below where the
+  eyes look, about 36° across; it stays there until closed. That controller's thumbstick, tilted past half, picks an
+  item (clockwise from the top), which stays picked as the stick comes back to the centre; pressing the thumbstick
+  down chooses it.
+  A or X goes back a level, or closes the ring. (First built with A or X choosing while the stick tilted; the user
+  found that awkward, 2026-11-03.) A pick is dropped when the session changes another item into its place. The
+  trigger, grip and B/Y keep their arm jobs; while the ring is open on a controller, its arm takes no part (`ui`),
+  and its thumbstick press is the ring's, never the head's zero (the other controller's still zeroes it). The pointer
+  rays and screen grabbing are gone.
 - **What it offers** (`static/xr_session.js`, from Helm's state polled every 0.5 s): Start ▸ (Virtual, Left arm,
   Right arm, Both arms, Head: the profile's receivers; live ones need Helm on Minerva), the session's next step
   (Idle (I) → Enable (E) → Engage (T); Hold (T) once engaged), Shut down (X), End session, Disable (H), View ▸
   (Follow head, 3D, Model, Wrists, Map, the two opacities, Recenter), Zero head, and Take control while another
-  device has it. Its middle shows the session, a fault, view-only, the head and the cameras.
-- **Held to confirm:** anything that powers or moves the robot needs A or X held 1 s on it, with the Teleop tab's own
-  words in the middle: a live Start, a live I, E and Engage, End session while powered, Disable under torque on a
-  live session (the arms drop), and Take control.
+  device has it. The ring's middle shows the level's title and the picked item.
+- **The card** over the ring, as wide, shows the status (the session, a fault, view-only, the head, the cameras),
+  a picked item's confirmation, or why it is out of reach, and at its foot how the ring is worked now.
+- **Text size:** first drawn at 21 to 38 canvas pixels (0.75 to 1.35° of view), the text was far too small in the
+  headset (the user, 2026-11-03). All of the ring's and card's text is now 44 pixels or more (1.55°; the ring's
+  1024 pixels span 36°, the Quest Pro shows about 22 pixels a degree), item labels 52 (1.85°) and wrapped onto two
+  lines where a segment is narrow; the alert's is 72 of 1536 pixels across 38° (1.8°).
+- **Held to confirm:** anything that powers or moves the robot needs the thumbstick held down 1 s on it, with the
+  Teleop tab's own words on the card: a live Start, a live I, E and Engage, End session while powered, Disable under
+  torque on a live session (the arms drop), and Take control. A live start leaves out how Engage raises the arms:
+  Engage's own confirmation says it.
 - **Control:** starting from the headset claims Helm's control (`/api/helm/control/claim`), as the Teleop tab's
   requests then are the headset's. The other device's page goes view-only, still showing the session live, and can
   still Disable (H) or Shut down (X). A view-only headset can do the same and offers Take control.
