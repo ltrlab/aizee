@@ -205,7 +205,8 @@ def test_the_socket_steers_the_head_and_zeroes_from_the_headset_or_the_teleop_ta
             # The headset's scene: three.js where the page's import map says, and the page's modules.
             assert '{"imports": {"three": "/static/vendor/three.module.js"}}' in text
             for path in ('/helm/xr.js', '/helm/xr_scene.js', '/helm/xr_camera.js', '/helm/xr_status.js',
-                         '/helm/camera_live.js', '/static/vendor/three.module.js'):
+                         '/helm/xr_ring.js', '/helm/xr_session.js', '/helm/xr_wrists.js', '/helm/camera_live.js',
+                         '/static/vendor/three.module.js'):
                 assert (await client.get(path)).status == 200, path
             for path, headers in (('/api/helm/xr', {}), ('/api/helm/xr?token=wrong', {}),
                                   ('/api/helm/xr?token=secret', {'Origin': 'https://elsewhere'})):

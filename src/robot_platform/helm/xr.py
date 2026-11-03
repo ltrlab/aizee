@@ -10,7 +10,7 @@ another device's is refused while it is connected; the same device reconnecting 
 
 A pose may carry the controllers (`hands`: {'left', 'right'}), for the arms' grab and drag (teleop.vr_arms, VR arm
 control): each its grip's position `p` (metres) and orientation `q` in the same space, `grip` and `trigger` (0 to 1),
-`b` (B or Y held) and `ui` (it is working the headset's screens). Helm keeps each hand's latest with the time it came
+`b` (B or Y held) and `ui` (it is working the headset's ring). Helm keeps each hand's latest with the time it came
 (this clock), and counts the XR sessions and recenters (`epoch`): a hand from before one is in another space.
 
 The headset shows the wrist cameras' pictures on the model's wrists (static/xr_wrists.js), each where its camera is:

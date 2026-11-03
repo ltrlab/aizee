@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import {register} from 'node:module';
 import {pathToFileURL} from 'node:url';
 
-// Minerva's model in the headset (xr_model.js), and the wrist cameras above the hands (xr_hands.js), on the real
-// three.js: the display model Helm serves, coarse, its head left out, posed by Helm's guide and placed by M; each
-// wrist camera's picture above its hand, facing the eyes, dimmed where the hand was lost.
+// Minerva's model in the headset (xr_model.js), and the wrist cameras' pictures on its wrists (xr_wrists.js), on the
+// real three.js: the display model Helm serves, coarse, its head left out, posed by Helm's guide and placed by M; each
+// wrist camera's picture where its camera is on the model's link, along its view, so it moves and turns with the
+// wrist (the user, 2026-11-03: not floating above the hands, facing the eyes).
 const root = new URL('../../', import.meta.url);
 const three = new URL('src/robot_platform/viewer/static/vendor/three.module.js', root).href;
 register('data:text/javascript,' + encodeURIComponent(`export async function resolve(specifier, context, next) {
@@ -13,7 +14,8 @@ register('data:text/javascript,' + encodeURIComponent(`export async function res
 const THREE = await import(three);
 const {MODEL_OPACITY, RETRY_MS, RobotModel, headLinks, meshGeometry} = await import(
   new URL('src/robot_platform/helm/static/xr_model.js', root).href);
-const {ABOVE_M, LOST_S, TURNED, WristScreens} = await import(new URL('src/robot_platform/helm/static/xr_hands.js', root).href);
+const {CAMERAS, WRIST_W, WristScreens, mountMatrix, windowAt} = await import(
+  new URL('src/robot_platform/helm/static/xr_wrists.js', root).href);
 const close = (actual, expected, tolerance = 1e-6) => assert.ok(Math.abs(actual - expected) <= tolerance,
   `${actual} is not ${expected}`);
 const at = (vector, expected) => expected.forEach((value, i) => close(vector.toArray()[i], value));
@@ -67,16 +69,24 @@ robot.pose({arm_j1: .5, neck_z: .2, neck_y: 0});
 assert.ok(robot.motions.get('arm_j1').quaternion.angleTo(
   new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), .5)) < 1e-6);
 close(robot.motions.get('finger').position.x, .005);
-// Hidden until placed; placed by M, it moves as a whole.
+// Hidden until placed; placed by M, it moves as a whole. Placed undrawn (for the wrists' pictures), it is hidden
+// but its links are where M puts them.
 assert.equal(robot.group.visible, false);
 const M = new THREE.Matrix4().makeTranslation(1, 2, 3);
+const linked = new THREE.Matrix4();
+assert.equal(robot.linkMatrix('arm', linked), null);  // Not placed: no link in the room.
 robot.place(M);
-assert.ok(robot.group.visible);
+assert.ok(robot.group.visible && robot.placed);
 robot.group.updateMatrixWorld(true);
 const base = new THREE.Vector3().setFromMatrixPosition(robot.group.children[0].matrixWorld);
 assert.deepEqual(base.toArray(), [1, 2, 3]);
+robot.place(M, false);
+assert.ok(!robot.group.visible && robot.placed);
+// The arm's link: M, then its joint's origin, turned by arm_j1 (.5 rad about z).
+at(new THREE.Vector3().setFromMatrixPosition(robot.linkMatrix('arm', linked)), [1, 2.1, 3.5]);
+assert.equal(robot.linkMatrix('nothing', linked), null);
 robot.place(null);
-assert.equal(robot.group.visible, false);
+assert.ok(!robot.group.visible && !robot.placed);
 robot.setOpacity(.5);
 assert.ok(robot.materials.every(material => material.opacity === MODEL_OPACITY * .5));
 // Shown, it follows Helm's guide: each fresh pose once, never a stale one or another model's.
@@ -135,51 +145,60 @@ clock += RETRY_MS;
 await assert.rejects(failing.load());
 assert.equal(tries, 2);
 
-// The wrist cameras above the hands.
-const hands = [new THREE.Group(), new THREE.Group()], grips = [new THREE.Group(), new THREE.Group()];
-const renderer = {xr: {getHand: i => hands[i], getControllerGrip: i => grips[i]}};
-const screens = new WristScreens(renderer);
-hands[0].dispatchEvent({type: 'connected', data: {handedness: 'left', hand: {}}});
-hands[1].dispatchEvent({type: 'connected', data: {handedness: 'right', hand: {}}});
-for (const hand of hands) {
-  hand.joints = {wrist: new THREE.Group()};
-  hand.add(hand.joints.wrist);
-}
-hands[0].joints.wrist.position.set(-.2, 1.0, -.4);
-hands[1].joints.wrist.position.set(.2, 1.0, -.4);
-const bitmap = {closed: 0, close() { this.closed++; }};
-screens.showFrame('left_wrist', bitmap);
-screens.showFrame('right_wrist', {close() {}});
-const eye = new THREE.Vector3(0, 1.6, 0);
-for (const object of [...hands, ...grips]) object.updateMatrixWorld(true);
-screens.update(eye, 10);
-const left = screens.screens.left.mesh;
-assert.ok(left.visible);
-at(left.position, [-.2, 1 + ABOVE_M, -.4]);
-// Facing the eyes.
-const facing = new THREE.Vector3(0, 0, 1).applyQuaternion(left.quaternion);
-const toEye = eye.clone().sub(left.position).normalize();
-assert.ok(facing.angleTo(toEye) < 1e-6);
-assert.equal(screens.screens.left.material.opacity, 1);
-// A half turn: the screen's top left shows the picture's bottom right (an ImageBitmap's rows run top down).
-assert.equal(TURNED, true);
+// The wrist cameras' pictures on the model's wrists: Helm's mounts (T_link_camera, optical axes x right, y down, z
+// ahead) on the model's links, each picture WRIST_W wide as far ahead of its lens as fills the camera's view.
+const [distance, height] = windowAt([90, 2 * Math.atan(.75) * 180 / Math.PI]);
+close(distance, WRIST_W / 2);  // 90 degrees across: half its width ahead.
+close(height, WRIST_W * .75);  // 4:3.
+assert.deepEqual(CAMERAS, ['left_wrist', 'right_wrist']);
+// A camera 35 mm along its link's y, looking along the link's x (a quarter turn about y, then about z).
+const MOUNT = [[0, 0, 1, 0], [-1, 0, 0, .035], [0, -1, 0, 0], [0, 0, 0, 1]];
+assert.deepEqual(mountMatrix(MOUNT).elements, [0, -1, 0, 0, 0, 0, -1, 0, 1, 0, 0, 0, 0, .035, 0, 1]);  // Row-major in.
+const screens = new WristScreens();
+screens.setMounts({left_wrist: {link: 'arm', matrix: MOUNT, fov_deg: [90, 2 * Math.atan(.75) * 180 / Math.PI]},
+  right_wrist: {link: 'arm', matrix: 'not a matrix', fov_deg: [90, 70]}, other: {link: 'arm'}});
+const left = screens.screens.left_wrist.mesh;
+assert.equal(screens.screens.right_wrist.mount, null);  // An unreadable mount: no picture.
+close(left.geometry.parameters.width, WRIST_W);
+close(left.geometry.parameters.height, WRIST_W * .75);
+// The picture upright as the camera takes it: the screen's top left shows the picture's top left (an ImageBitmap's
+// rows run top down, uploaded unflipped).
 const {position, uv} = left.geometry.attributes;
 const corner = [...Array(uv.count).keys()].find(i => position.getX(i) < 0 && position.getY(i) > 0);
-assert.deepEqual([uv.getX(corner), uv.getY(corner)], [1, 1]);
-// A newer frame releases the old one.
+assert.deepEqual([uv.getX(corner), uv.getY(corner)], [0, 0]);
+// Not placed, or no frame yet: hidden.
+robot.pose({arm_j1: 0, neck_z: 0, neck_y: 0});
+robot.place(M, false);
+screens.update(robot, true);
+assert.equal(left.visible, false);
+const bitmap = {closed: 0, close() { this.closed++; }};
+screens.showFrame('left_wrist', bitmap);
+screens.update(robot, false);
+assert.equal(left.visible, false);
+// Placed and framed: in front of the lens along its view, facing back at it, its right and up the camera's.
+screens.update(robot, true);
+assert.ok(left.visible);
+const lens = new THREE.Vector3(1, 2.135, 3.5);  // M, the arm's origin, the mount's 35 mm along y.
+const centre = new THREE.Vector3().setFromMatrixPosition(left.matrix);
+at(centre, lens.clone().add(new THREE.Vector3(WRIST_W / 2, 0, 0)).toArray());
+const axes = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+left.matrix.extractBasis(...axes);
+at(axes[0], [0, -1, 0]);  // Its right: the camera's x (the link's -y).
+at(axes[1], [0, 0, 1]);  // Its up: the camera's -y (the link's z).
+at(axes[2], [-1, 0, 0]);  // Its face: back at the lens.
+// The wrist turns: the picture turns with it.
+robot.pose({arm_j1: Math.PI / 2, neck_z: 0, neck_y: 0});
+screens.update(robot, true);
+at(new THREE.Vector3().setFromMatrixPosition(left.matrix), [1 - .035, 2.1 + WRIST_W / 2, 3.5]);
+// The model gone from the room: hidden; the wrists' own opacity.
+screens.setOpacity(.4);
+screens.update(robot, false);
+assert.equal(left.visible, false);
+assert.equal(screens.screens.left_wrist.material.opacity, .4);
+// A newer frame releases the old one; a frame for no camera is released at once.
 screens.showFrame('left_wrist', {close() {}});
 assert.equal(bitmap.closed, 1);
-// The left hand lost: its picture stays where it was, dimmed once LOST_S has passed.
-hands[0].joints.wrist.visible = false;
-screens.update(eye, 10 + LOST_S / 2);
-assert.equal(screens.screens.left.material.opacity, 1);
-screens.update(eye, 10 + LOST_S * 2);
-assert.ok(screens.screens.left.material.opacity < 1 && left.visible);
-at(left.position, [-.2, 1 + ABOVE_M, -.4]);
-// Without the hand, its controller carries it.
-grips[0].dispatchEvent({type: 'connected', data: {handedness: 'left'}});
-grips[0].position.set(-.3, .9, -.3);
-grips[0].updateMatrixWorld(true);
-screens.update(eye, 20);
-at(left.position, [-.3, .9 + ABOVE_M, -.3]);
+const stray = {closed: 0, close() { this.closed++; }};
+screens.showFrame('head', stray);
+assert.equal(stray.closed, 1);
 console.log('headset model and wrist cameras: ok');

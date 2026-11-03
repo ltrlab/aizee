@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import {register} from 'node:module';
 import {pathToFileURL} from 'node:url';
 
-// The headset's picture and its bar (xr_scene.js, on the real three.js): Follow head keeps the picture in front of
-// the eyes as the head turns, level, or leaves it where it is; the slider sets its opacity; a trigger on the bar is
-// the bar's, anywhere else it zeroes the head; the headset remembers the view (xr_view.js).
+// The headset's picture, its ring and its alert (xr_scene.js, on the real three.js): Follow head keeps the picture in
+// front of the eyes as the head turns, level, or leaves it where it is; the ring's View items switch it and set its
+// opacities; Recenter puts it back in front; the headset remembers the view (xr_view.js). The ring opens in front of
+// the eyes, a little low, and stays there while open; the alert sits low in view with the ring closed.
 const root = new URL('../../', import.meta.url);
 const three = new URL('src/robot_platform/viewer/static/vendor/three.module.js', root).href;
 register('data:text/javascript,' + encodeURIComponent(`export async function resolve(specifier, context, next) {
@@ -15,6 +16,7 @@ register('data:text/javascript,' + encodeURIComponent(`export async function res
 function context(canvas) {
   const noop = () => {};
   return {canvas, texts: [], clearRect: noop, fillRect: noop, beginPath: noop, roundRect: noop, fill: noop, arc: noop,
+    closePath: noop, stroke: noop, measureText: text => ({width: String(text).length * 18}),
     fillText(text) {
       this.texts.push(text);
     }};
@@ -27,8 +29,9 @@ globalThis.document = {createElement: () => {
 }};
 
 const THREE = await import(three);
-const {HeadsetScene} = await import(new URL('src/robot_platform/helm/static/xr_scene.js', root).href);
-const {CONTROLS, SIZES, controlAt, sliderAt} = await import(new URL('src/robot_platform/helm/static/xr_panels.js', root).href);
+const {ALERT_AHEAD_M, ALERT_BELOW, HeadsetScene, RING_AHEAD_M, RING_BELOW} = await import(
+  new URL('src/robot_platform/helm/static/xr_scene.js', root).href);
+const {Ring} = await import(new URL('src/robot_platform/helm/static/xr_ring.js', root).href);
 const {DEFAULT_VIEW, FOLLOW_OFFSET, STORAGE_KEY, loadView, lookAngles, opacityStep, saveView} =
   await import(new URL('src/robot_platform/helm/static/xr_view.js', root).href);
 
@@ -69,30 +72,13 @@ for (const [yaw, pitch, roll] of [[0, 0, 0], [30, -10, 20], [-120, 35, -15], [17
   close(p, degrees(pitch));
 }
 
-// The bar's controls, by where a controller points on it.
-assert.deepEqual(controlAt([280, 64]), {control: 'follow'});
-assert.deepEqual(controlAt([CONTROLS.depth.x + 100, 64]), {control: 'depth'});
-// The second row: the picture's opacity and the wrist cameras', each on its own half.
-const PICTURE = CONTROLS.opacity.track, WRISTS = CONTROLS.wristOpacity.track;
-assert.deepEqual(controlAt([PICTURE.x + PICTURE.width / 2, PICTURE.y]), {control: 'opacity', value: .5});
-assert.deepEqual(controlAt([CONTROLS.opacity.x + 2, CONTROLS.opacity.y + 4]), {control: 'opacity', value: 0});
-assert.deepEqual(controlAt([WRISTS.x + WRISTS.width / 4, WRISTS.y]), {control: 'wristOpacity', value: .25});
-assert.deepEqual(controlAt([CONTROLS.model.x + 100, 64]), {control: 'model'});
-assert.deepEqual(controlAt([CONTROLS.hands.x + 100, 64]), {control: 'hands'});
-assert.deepEqual(controlAt([CONTROLS.map.x + 100, 64]), {control: 'map'});
-assert.equal(controlAt([CONTROLS.hands.x + CONTROLS.hands.width + 6, 64]), null);  // Between two switches.
-assert.equal(controlAt([CONTROLS.map.x + CONTROLS.map.width + 6, 64]), null);  // Past the last.
-assert.equal(sliderAt('opacity', 5000), 1);
-
-// The scene, on a stand-in renderer: its controllers are three.js groups, as WebXR's are.
+// The scene: its renderer is WebXR's; it needs nothing of it here.
 const eyes = new THREE.PerspectiveCamera();
-const renderer = {xr: {getController: () => new THREE.Group(), getHand: () => new THREE.Group(),
-  getControllerGrip: () => new THREE.Group(), getCamera: () => eyes}};
-const view = new HeadsetScene(renderer, {storage});
+const view = new HeadsetScene({}, {storage});
 const picture = view.screen.children[0];
-const barTexts = () => view.controls.context.texts.slice(-9);  // Five switches; each slider's label and value.
 assert.equal(view.view.follow, true);
-assert.ok(barTexts().includes('Follow head · on') && barTexts().includes('100 %'));
+assert.equal(view.ring.visible, false);  // No ring, no alert, until there is something to show.
+assert.equal(view.alert.visible, false);
 
 function pose(yaw, pitch, roll = 0, position = [.1, 1.6, .2]) {
   const q = orientation(degrees(yaw), degrees(pitch), degrees(roll));
@@ -120,95 +106,96 @@ inFront(30, -10);
 view.update(pose(-75, 25));
 inFront(-75, 25);
 
-// A controller pointed at a point of the bar (canvas pixels), from the eyes.
-const controller = view.controllers[0];
-const source = {targetRayMode: 'tracked-pointer'};
-controller.dispatchEvent({type: 'connected', data: source});
-function aimAt(object, local) {
-  object.updateWorldMatrix(true, false);
-  const target = object.localToWorld(local.clone());
-  controller.position.copy(eyes.position);
-  controller.quaternion.setFromRotationMatrix(new THREE.Matrix4().lookAt(eyes.position, target, new THREE.Vector3(0, 1, 0)));
-  controller.updateMatrixWorld(true);
-}
-const [barWidth, barHeight] = SIZES.controls;
-const onBar = ([x, y]) => aimAt(view.bar, new THREE.Vector3((x / barWidth - .5) * 1.12, (.5 - y / barHeight) * view.bar.geometry.parameters.height, 0));
-const away = () => aimAt(view.bar, new THREE.Vector3(0, 3, 0));
+// Where something is from the eyes, in the frame of their look (yaw and pitch).
+const fromEyes = (object, yaw, pitch) => object.position.clone().sub(eyes.position)
+  .applyQuaternion(orientation(degrees(yaw), degrees(pitch), 0).invert());
 
-// A trigger anywhere but the bar is the head's zero (xr.js sends it).
-away();
-controller.dispatchEvent({type: 'selectstart'});
-assert.equal(view.select(source), false);
-controller.dispatchEvent({type: 'selectend'});
-
-// The switch, off: the picture stays where it is as the head turns, and the headset remembers it.
-onBar([280, 64]);
-view.update(pose(-75, 25));
-assert.equal(view.hover, 'follow');
-controller.dispatchEvent({type: 'selectstart'});
-assert.equal(view.select(source), true);
-controller.dispatchEvent({type: 'selectend'});
+// Follow head, off (the ring's View item): the picture stays where it is as the head turns; remembered.
+assert.equal(view.choose({id: 'view:follow'}), true);
 assert.equal(view.view.follow, false);
-assert.ok(barTexts().includes('Follow head · off'));
 assert.equal(JSON.parse(store.get(STORAGE_KEY)).follow, false);
 const kept = view.screen.position.clone();
 view.update(pose(40, 0));
 assert.ok(view.screen.position.distanceTo(kept) < 1e-9);
+// Anything not the view's is not the scene's to choose.
+assert.equal(view.choose({id: 'key:I'}), false);
+assert.equal(view.choose({id: 'view:nothing'}), false);
 
-// A press on the bar that slips off before the release is still the bar's: no zero, no switch.
-onBar([280, 64]);
-controller.dispatchEvent({type: 'selectstart'});
-away();
-assert.equal(view.select(source), true);
-assert.equal(view.view.follow, false);
-
-// The slider: pressed at its middle, dragged to a quarter (off the thin bar, still along it), let go.
-onBar([PICTURE.x + PICTURE.width / 2, PICTURE.y]);
-controller.dispatchEvent({type: 'selectstart'});
+// The picture's slider: it changes as the stick moves, remembered once let go.
+view.choose({id: 'slider:opacity', value: .5});
 assert.equal(view.view.opacity, .5);
 assert.ok(picture.material.transparent);
 close(picture.material.opacity, .5);
-onBar([PICTURE.x + PICTURE.width / 4, PICTURE.y + 400]);
-view.update(pose(40, 0));
+assert.equal(JSON.parse(store.get(STORAGE_KEY)).opacity, 1);
+view.choose({id: 'slider:opacity', value: .25, done: true});
 assert.equal(view.view.opacity, .25);
-assert.equal(view.select(source), true);
-controller.dispatchEvent({type: 'selectend'});
 assert.equal(JSON.parse(store.get(STORAGE_KEY)).opacity, .25);
-assert.ok(barTexts().includes('25 %'));
 // The wrist cameras' slider sets theirs alone (the user, 2026-10-31), remembered too.
-onBar([WRISTS.x + WRISTS.width * .6, WRISTS.y]);
-controller.dispatchEvent({type: 'selectstart'});
+view.choose({id: 'slider:wristOpacity', value: .6, done: true});
 assert.equal(view.view.wristOpacity, .6);
 assert.equal(view.wrists.opacity, .6);
 assert.equal(view.view.opacity, .25);
-view.select(source);
-controller.dispatchEvent({type: 'selectend'});
 assert.equal(JSON.parse(store.get(STORAGE_KEY)).wristOpacity, .6);
-assert.ok(barTexts().includes('60 %') && barTexts().includes('Hands'));
 
-// Following again: it goes back in front of the eyes. Carried with the grip and let go, it keeps that place there.
-onBar([280, 64]);
-controller.dispatchEvent({type: 'selectstart'});
-view.select(source);
-controller.dispatchEvent({type: 'selectend'});
+// Following again: it goes back in front of the eyes.
+view.choose({id: 'view:follow'});
 assert.equal(view.view.follow, true);
 view.update(pose(40, 0));
 inFront(40, 0);
-aimAt(picture, new THREE.Vector3(0, 0, 0));
-controller.dispatchEvent({type: 'squeezestart'});
-assert.equal(controller.userData.held, view.screen);
-controller.position.add(new THREE.Vector3(0, .25, 0).applyQuaternion(orientation(degrees(40), 0, 0)));
-controller.updateMatrixWorld(true);
-view.update(pose(40, 0));  // Carried: it does not follow.
-controller.dispatchEvent({type: 'squeezeend'});
-const offset = JSON.parse(store.get(STORAGE_KEY)).offset;
-close(offset[1], FOLLOW_OFFSET[1] + .25, 1e-3);
-close(Math.hypot(offset[0], offset[2]), Math.hypot(FOLLOW_OFFSET[0], FOLLOW_OFFSET[2]), 1e-3);
-view.update(pose(-20, 10));
-inFront(-20, 10, offset);
+
+// A picture remembered elsewhere in front of the eyes follows there; Recenter puts it back, remembered.
+store.set(STORAGE_KEY, JSON.stringify({...JSON.parse(store.get(STORAGE_KEY)), offset: [.3, .1, -1.2]}));
+const moved = new HeadsetScene({}, {storage});
+moved.update(pose(-20, 10));
+[.3, .1, -1.2].forEach((value, i) => close(fromEyes(moved.screen, -20, 10).getComponent(i), value));
+assert.equal(moved.choose({id: 'recenter'}), true);
+moved.update(pose(-20, 10));
+FOLLOW_OFFSET.forEach((value, i) => close(fromEyes(moved.screen, -20, 10).getComponent(i), value));
+assert.deepEqual(JSON.parse(store.get(STORAGE_KEY)).offset, FOLLOW_OFFSET);
+
+// The ring: opened, it is drawn RING_AHEAD_M in front of the eyes, RING_BELOW under their look, facing them, and
+// stays there as the head turns; closed and opened again, it comes where the eyes look then.
+const ring = new Ring(() => ({title: 'Minerva', items: [{id: 'a', label: 'Start', submenu: true}, {id: 'b',
+  label: 'View', submenu: true}]}));
+ring.step([{hand: 'right', button: true, stick: [0, 0]}], 0);
+view.update(pose(30, 5));
+view.showRing(ring.drawing(0), [['No session', '']]);
+assert.equal(view.ring.visible, true);
+const ringAt = fromEyes(view.ring, 30, 5);
+close(ringAt.x, 0);
+close(ringAt.y, -Math.sin(RING_BELOW) * RING_AHEAD_M);
+close(ringAt.z, -Math.cos(RING_BELOW) * RING_AHEAD_M);
+const ringFacing = new THREE.Vector3(0, 0, 1).applyQuaternion(view.ring.quaternion);
+assert.ok(ringFacing.dot(eyes.position.clone().sub(view.ring.position).normalize()) > .999);
+const texts = view.ringCanvas.context.texts;
+assert.ok(texts.includes('Start ›') && texts.includes('View ›') && texts.includes('No session'));
+const placed = view.ring.position.clone();
+view.update(pose(-60, 0));
+view.showRing(ring.drawing(0), [['No session', '']]);
+assert.ok(view.ring.position.distanceTo(placed) < 1e-9);
+const drawn = texts.length;
+view.showRing(ring.drawing(0), [['No session', '']]);
+assert.equal(texts.length, drawn);  // Unchanged: not drawn again.
+view.showRing(null);
+assert.equal(view.ring.visible, false);
+view.showRing(ring.drawing(0));
+assert.ok(view.ring.position.distanceTo(placed) > .1);  // Where the eyes look now.
+
+// The alert: hidden while the ring is open; with it closed, low in view, following the eyes.
+view.showAlert({text: 'Fault: limit', tone: 'bad'});
+assert.equal(view.alert.visible, false);
+view.showRing(null);
+view.showAlert({text: 'Fault: limit', tone: 'bad'});
+assert.equal(view.alert.visible, true);
+assert.ok(view.alertCanvas.context.texts.includes('Fault: limit'));
+view.update(pose(10, -20));
+const alertAt = fromEyes(view.alert, 10, -20);
+close(alertAt.y, -Math.sin(ALERT_BELOW) * ALERT_AHEAD_M);
+close(alertAt.z, -Math.cos(ALERT_BELOW) * ALERT_AHEAD_M);
+view.showAlert(null);
+assert.equal(view.alert.visible, false);
 
 // Remembered by the next session's scene.
-const again = new HeadsetScene(renderer, {storage});
-assert.deepEqual([again.view.follow, again.view.opacity], [true, .25]);
-again.view.offset.forEach((value, i) => close(value, offset[i]));
-console.log('headset follow and opacity: ok');
+const again = new HeadsetScene({}, {storage});
+assert.deepEqual([again.view.follow, again.view.opacity, again.view.wristOpacity], [true, .25, .6]);
+console.log('headset follow, ring and alert: ok');

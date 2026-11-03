@@ -334,7 +334,7 @@ class VRArms:
         elif sample.grip <= s.grip_off:
             state.pressed = False
         if sample.ui:
-            # Working the screens: the arm lets go, and its grip must be let go before it attaches again.
+            # Working the headset's ring: the arm lets go, and its grip must be let go before it attaches again.
             state.armed = False
             state.let_go()
             return self._command(state, True, state.closure, False, hold)

@@ -1,10 +1,12 @@
 // How the headset shows the head camera's picture (xr_scene.js): whether it follows the head, whether it shows in 3D
 // (the head camera's depth, xr_depth.js), whether Minerva's model (xr_model.js) and her splat map (xr_splat.js) show
-// with the 3D and the wrist cameras above the hands (xr_hands.js), its opacity, and where the flat picture sits in
-// front of the eyes while it follows. The operator changes them on the bar under the picture; the headset's browser
-// remembers them. No DOM and no three.js, so node tests it.
+// with the 3D and the wrist cameras on the model's wrists (xr_wrists.js), its opacity, and where the flat picture sits
+// in front of the eyes while it follows. The operator changes them on the ring's View level (xr_session.ringMenu); the
+// headset's browser remembers them. No DOM and no three.js, so node tests it.
 
 export const STORAGE_KEY = 'helm.xr.view';
+export const SWITCHES = ['follow', 'depth', 'model', 'hands', 'map'];
+export const SLIDERS = ['opacity', 'wristOpacity'];
 export const OPACITY_STEP = .05;
 // Following, the picture sits this far in front of the eyes (metres: x right, y up, z back), as it starts in front
 // of where the session began.
