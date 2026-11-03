@@ -13,17 +13,23 @@ export function presentation(state, fresh = true) {
   if (!running(t)) return {tone:'off', label:'Session stopped', detail:'Touch Start session first. Pedals cannot start a session.', stage:'off'};
   if (t.phase === 'starting') return {tone:'off', label:'Starting session', detail:'Waiting for the control worker. No pedal action yet.', stage:'off'};
   // A live replay follows a recorded episode, policy mode a policy, and the Headset input the controllers, in place
-  // of the leaders. With the headset Engage raises a hanging arm to its ready pose; the grippers go to the triggers.
-  const followed = t.replay ? "the episode's pose" : t.policy ? "the policy's first action"
+  // of the leaders. With takeover (policy corrections) the operator's leaders drive after a take over, until they
+  // hand back. With the headset Engage raises a hanging arm to its ready pose; the grippers go to the triggers.
+  const you = t.policy?.takeover && t.policy.driver === 'leaders', takeover = !!t.policy?.takeover;
+  const followed = t.replay ? "the episode's pose" : t.policy && !you ? "the policy's first action"
     : t.headset ? 'the ready pose (a hanging arm rises) and the triggers' : 'the leaders';
   const states = {
     DISABLED: ['off', 'Disabled', t.pedals?.actions?.c?.enabled === false && t.pedals.actions.c.reason
       ? t.pedals.actions.c.reason : 'C: Idle powers the motors with zero torque.', 'off'],
     IDLE: ['off', 'Idle', 'Motors on, zero torque. C: Enable holding.', 'idle'],
-    HOLD: ['hold', t.pedals?.paused ? 'Hold · paused' : 'Hold · enabled', 'Holding position; motors stay enabled.', 'hold'],
+    HOLD: ['hold', t.pedals?.paused ? 'Hold · paused' : 'Hold · enabled', takeover
+      ? `Holding position; motors stay enabled. ${you ? 'You drive' : 'The policy drives'} after Resume.`
+      : 'Holding position; motors stay enabled.', 'hold'],
     ENGAGING: ['engaging', 'Engaging · aligning', `Aligning to ${followed}. Waiting for reported Teleop.`, 'align'],
     TELEOP: t.replay ? ['teleop', 'Replay · following', 'Following the recorded episode. B pauses in Hold.', 'teleop']
-      : t.policy ? ['teleop', 'Policy · driving', 'The policy drives the arms. B pauses in Hold.', 'teleop']
+      : you ? ['teleop', 'Correcting · you drive', 'Following both leaders: a correction. B hands back through a Hold.', 'teleop']
+      : t.policy ? ['teleop', 'Policy · driving', takeover ? 'The policy drives the arms. B takes over through a Hold.'
+        : 'The policy drives the arms. B pauses in Hold.', 'teleop']
       : t.headset ? ['teleop', 'Headset · following', 'A held grip drags its arm. B/Y or pedal B pauses in Hold.', 'teleop']
       : ['teleop', 'Teleop · following', 'Following both leaders. B pauses in Hold.', 'teleop'],
     SHUTDOWN: ['shutdown', 'Shutdown · returning', 'Returning to the reference, then disabling. Keep the path clear.', 'shutdown'],
@@ -105,6 +111,8 @@ export class PedalControls {
     else if (this.pending.has(pedal) || (pedal !== 'a' && [...this.pending.keys()].some(k=>k !== 'a'))) reason='Motion input pending.';
     // Teleop's mode may record nothing (Calibrate); finishing a recording is never refused.
     else if (pedal === 'a' && context.noRecording && action.action === 'start_record') reason=context.noRecording;
+    // A camera still is being taken: the arms hold until it is saved, so nothing sets them moving (Helm refuses too).
+    else if (context.stillPending && ['engage','resume'].includes(action.action)) reason=context.stillPending;
     else if (!action.enabled) reason=action.reason || 'Action unavailable.';
     return {...action, enabled:!reason && action?.enabled === true, reason:reason || action?.reason || ''};
   }

@@ -9,8 +9,9 @@ steady around its exposure (a turning head blurs the picture and smears its pose
 as published (JPEG), its depth zlib-compressed as the trainer reads it, its pose the feed's sample nearest its exposure,
 with Minerva's pose in the world beside it (`robot_in_world`, from Helm: fixed while the base stands).
 
-Helm sends this file as source over its pinned SSH (helm.maps), so it imports only what the robot's python3 has:
-pyzmq and msgpack. Nothing here moves a motor or changes a camera setting. It prints one JSON reply.
+Helm on Minerva runs this file's source in the robot's python3 (helm.maps, through helm.calibration.run_helper), so it
+imports only what that python3 has: pyzmq and msgpack. Nothing here moves a motor or changes a camera setting. It
+prints one JSON reply.
 """
 import json
 import math

@@ -2,7 +2,7 @@ import {SettingsPanel} from './settings.js';
 import {LiveCameraView} from './camera_live.js';
 import {PedalControls, presentation, recordingLabel, recordingMode, StateOrder} from './pedals.js';
 import {LiveReplayCard, ReplayView, replayTelemetry} from './replay.js';
-import {HOLD_STILL, policyLabel, policyNote, policyOptions, policyStats} from './policy.js';
+import {driverText, HOLD_STILL, policyLabel, policyNote, policyOptions, policyStats, switchLabel} from './policy.js';
 import {GRIP_SETTINGS, gripLive, gripSettingText, gripSliderValue, gripView} from './grip.js';
 import {upsView} from './ups.js';
 import {bridgeView, headsetLinks, networkView} from './network.js';
@@ -14,8 +14,8 @@ import {captureBlock, countsText, headCaptureBlock, headCountsText, headLastText
 import {mapCaptureBlock, mapLines, mapStatusText} from './maps.js';
 import {twinCanApply, twinLines, twinStatusText} from './twin.js';
 import {jointZeroBlocked, jointZeroResult, jointZeroStatus, pendingLines, zeroChoices} from './joint_zero.js';
-import {headsetArm, inputChoice, knownInput, knownMode, modeCards, modeChoice, NO_RECORDING, PauseStill, pauseStillText,
-  sessionInput, sessionMode} from './teleop_mode.js';
+import {headsetArm, inputChoice, knownInput, knownMode, modeCards, modeChoice, NO_RECORDING, NOTE_MS, PauseStill,
+  pauseStillText, sessionInput, sessionMode, STILL_PENDING, stillOutcome, stillTaking} from './teleop_mode.js';
 
 // Helm operator page. Reads /api/helm/state; every action needs the session token.
 const $ = id => document.getElementById(id);
@@ -689,6 +689,14 @@ try {
   if (['left_wrist', 'right_wrist', 'head'].includes(role)) calibrationRole = role;
 } catch { /* storage unavailable */ }
 const headSelected = () => calibrationRole === 'head';
+let stillNote = {text: null, until: 0};  // What the last still found (stillOutcome), shown for NOTE_MS.
+// A still is being taken (this page's, or another's Helm reports): the arms hold until it is saved.
+const stillBusy = (state = last) => stillTaking({pending: calibrationPending, calibration: state?.calibration,
+  headAlignment: state?.head_alignment});
+function stillLine(now) {
+  return pauseStillText(pauseStill.remaining(now), calibrationRole,
+    {taking: stillBusy(), note: now < stillNote.until ? stillNote.text : null, input: teleopView(last?.teleop).input});
+}
 function calibrationBlock(state) {
   return headSelected() ? headCaptureBlock(state?.head_alignment, state?.teleop)
     : captureBlock(state?.calibration, state?.teleop);
@@ -698,8 +706,7 @@ function renderCalibration(state) {
   const section = $('calibration');
   section.hidden = (!state.calibration && !state.head_alignment) || !teleopView(state.teleop).cards.calibration;
   if (section.hidden) return;
-  $('calibration-auto').textContent = pauseStillText(pauseStill.remaining(performance.now()), calibrationRole,
-    teleopView(state.teleop).input);
+  $('calibration-auto').textContent = stillLine(performance.now());
   const blocked = calibrationBlock(state);
   for (const button of document.querySelectorAll('#calibration-role button')) {
     button.setAttribute('aria-pressed', String(button.dataset.role === calibrationRole));
@@ -750,13 +757,25 @@ async function calibrationAction(action, payload = {}, timeoutMs = 15000) {
   if (calibrationPending) return;
   calibrationPending = true;
   if (last) renderCalibration(last);
+  const role = calibrationRole, head = headSelected();
+  let note = null, tone = 'bad';
   try {
-    const path = headSelected() ? `/api/helm/head-alignment/${action}` : `/api/helm/calibration/${action}`;
-    render(await request(path, headSelected() ? {} : payload, timeoutMs));
+    const path = head ? `/api/helm/head-alignment/${action}` : `/api/helm/calibration/${action}`;
+    const state = await request(path, head ? {} : payload, timeoutMs);
+    render(state);
+    if (action === 'capture') {  // From the reply: the page's state may keep an older poll.
+      const still = (head ? state?.head_alignment : state?.calibration)?.last;
+      [note, tone] = [stillOutcome(still, null, role), still?.tags?.length ? 'good' : 'bad'];
+    }
   } catch (error) {
     $('calibration-error').hidden = false;
     $('calibration-error').textContent = error.message;
+    if (action === 'capture') note = stillOutcome(null, error.message, role);
   } finally {
+    if (note) {  // The card says it for NOTE_MS; the status line, until the next message.
+      stillNote = {text: note, until: performance.now() + NOTE_MS};
+      say(note, tone);
+    }
     calibrationPending = false;
     if (last) renderCalibration(last);
   }
@@ -768,9 +787,7 @@ function captureStill() {
 setInterval(() => {
   const now = performance.now();
   if (pauseStill.due(last?.teleop, now, teleopView(last?.teleop).mode)) captureStill();
-  if (last && !$('calibration').hidden)
-    $('calibration-auto').textContent = pauseStillText(pauseStill.remaining(now), calibrationRole,
-      teleopView(last.teleop).input);
+  if (last && !$('calibration').hidden) $('calibration-auto').textContent = stillLine(now);
 }, 100);
 for (const button of document.querySelectorAll('#calibration-role button')) {
   button.onclick = () => {
@@ -906,7 +923,9 @@ function renderTask(state) {
   $('task-mode').textContent = simulation ? 'SIMULATED CONTACT TASK' : 'BIMANUAL ROBOT CAPTURE';
   $('task-capability').textContent = simulation
     ? `${task.display_visual || 'Camera appearance is not reported yet.'} Dynamic object contacts with posed fingers; simulated arm response is not a validated coupled physics model. No synthetic grasp attachment.`
-    : 'Records the current guarded receiver and existing camera streams. Both arms and grippers must be healthy; camera timing must be verified.';
+    : teleopView(t).mode === 'policy'
+      ? "Records a policy rollout: the policy's stretches and your corrections in one episode, each frame labelled with who drove it. The export keeps each stretch and leaves out the holds and alignments between them."
+      : 'Records the current guarded receiver and existing camera streams. Both arms and grippers must be healthy; camera timing must be verified.';
   $('task-setup').disabled = running || !t;
   $('task-setup').textContent = configured ? 'Task configured' : 'Set up task';
   $('task-reset').hidden = !simulation;
@@ -1775,6 +1794,10 @@ function renderHeadsetArms(t, shown) {
 }
 
 async function sendKey(key) {
+  if (key === 'T' && last?.teleop?.state === 'HOLD' && stillBusy()) {  // The arms hold until the still is saved.
+    say(STILL_PENDING, 'bad');
+    return;
+  }
   if (key === 'T') pauseStill.keyPause(last?.teleop, performance.now());  // Calibrate: T while following pauses.
   // Never dropped behind another pending action: H and X must always get through.
   try {
@@ -1814,6 +1837,9 @@ function onKey(event) {
   } else if ('IETX'.includes(key) && key) {
     event.preventDefault();
     closeDisable();
+    sendKey(key);
+  } else if (key === 'O' && last?.teleop?.policy?.takeover) {  // Take over from the policy, or hand back.
+    event.preventDefault();
     sendKey(key);
   } else if (key === 'P' && !$('calibration').hidden) {  // Calibrate shows the card.
     event.preventDefault();
@@ -2034,9 +2060,15 @@ function renderPolicy(t, policyMode, active) {
   $('t-policy-start').hidden = active || !teleopView(t).cards.policyStart;
   $('t-policy').hidden = !policyMode;
   if (!policyMode) return;
-  const policy = t.policy;
+  const policy = t.policy, label = switchLabel(t.state, policy);
   $('t-policy-title').textContent = policy.policy || policyLabel(policy.spec);
   $('t-policy-stats').textContent = policyStats(policy);
+  // Policy corrections: who drives, and O as a button (pedal B does it while the arms follow).
+  $('t-policy-takeover').hidden = !policy.takeover;
+  $('t-policy-driver').textContent = driverText(policy);
+  $('t-policy-switch').hidden = !label;
+  $('t-policy-switch').disabled = t.phase !== 'running' || !!t.fault || !!t.recording_fault;
+  if (label) $('t-policy-switch').textContent = label;
   $('t-policy-note').textContent = policyNote(t.state, policy);
   $('t-policy-error').hidden = !policy.error;
   $('t-policy-error').textContent = policy.error || '';
@@ -2046,7 +2078,7 @@ function startPolicy(spec) {
   const t = last?.teleop;
   if (!t || !spec || ['running', 'starting'].includes(t.phase)) return;
   pedalControls.setTest(false);
-  const label = policyLabel(spec), policy = {policy: spec};
+  const label = policyLabel(spec), policy = {policy: spec, takeover: true};  // Policy corrections: leaders connected.
   const choice = t.receiver_choice || {mode: 'virtual'};
   if (choice.mode !== 'live') {
     act('/api/helm/teleop/start', {policy}, `Starting the policy ${label}: no motors move.`);
@@ -2069,6 +2101,8 @@ function startPolicy(spec) {
         + 'but for the task objects and stand clear.',
     'Hold (T) pauses; Shutdown (X) lowers the arms; Disable (H) removes torque at once. If the policy stops '
       + 'answering, the arms hold.',
+    'Your leaders stay connected: Take over (pedal B or O) holds the arms, then Resume aligns them to the leaders at '
+      + 'the alignment speed, so line the leaders up with the arms first.',
     direct ? 'Collision detection is disabled. Nothing checks the arms against each other or the body.'
       : arm === 'both' ? 'The two-arm collision bound is enforced as in teleop. Nothing checks the arms against the body.'
       : 'Collision checks are advisory: nothing stops the arm from reaching the body or the other arm.',
@@ -2076,6 +2110,7 @@ function startPolicy(spec) {
     `Starting the policy ${label} LIVE on ${arms}: checking that ${arm === 'both' ? 'they are' : 'it is'} still and in the reference pose, then the receiver.`));
 }
 $('t-policy-refresh').onclick = () => refreshPolicies(true);
+$('t-policy-switch').onclick = () => sendKey('O');
 $('t-policy-choice').onchange = () => { if (last) renderTeleop(last.teleop); };  // Start session needs a choice.
 for (const button of document.querySelectorAll('#t-mode button')) {
   button.onclick = () => {
@@ -2456,7 +2491,7 @@ const pedalControls=new PedalControls({
   request,onState:render,onError:message=>say(message,'bad'),onChange:renderPedals,
   context:()=>({tab:document.body.dataset.tab,hidden:document.hidden,
     confirming:!!pendingConfirm || $('disable-confirm').open,pedalTest:pedalTestShown(),
-    noRecording:teleopView(last?.teleop).mode==='calibrate'?NO_RECORDING:''}),
+    noRecording:teleopView(last?.teleop).mode==='calibrate'?NO_RECORDING:'',stillPending:stillBusy()?STILL_PENDING:''}),
 });
 for(const button of document.querySelectorAll('[data-pedal]'))button.onclick=()=>pedalControls.press(button.dataset.pedal);
 $('pedal-test').onclick=()=>pedalControls.setTest(!pedalControls.testMode);

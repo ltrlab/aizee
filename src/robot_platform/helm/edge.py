@@ -199,8 +199,10 @@ def serve(start, commands, views, *, root=ROOT, core_factory=None, scheduling=No
         views.close()
         return 1
     tune = (start.get('bundle') or {}).get('kind') == 'tune'
-    # Live replay or policy mode: an episode or a policy gives the loop its target in place of the leaders.
-    replay = (start.get('bundle') or {}).get('source') is not None
+    # Live replay or policy mode: an episode or a policy gives the loop its target in place of the leaders. A policy
+    # session with takeover (policy corrections) links the leaders as well, for the operator to take over.
+    source = (start.get('bundle') or {}).get('source')
+    replay = source is not None and not (isinstance(source, dict) and source.get('takeover') is True)
     head = head_only((start.get('bundle') or {}).get('receiver'))  # The head alone (helm.head_only): no leaders.
     # A Helm that beats says how long a silence ends the session; an older one never beats.
     silence = start.get('silence_s')

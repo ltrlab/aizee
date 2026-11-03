@@ -21,6 +21,9 @@
     - **Robot paths are unchanged.** Every robot path Helm takes is still pinned SSH, now to `127.0.0.1`: the live
       view, sessions, Tune, Check, cameras, episodes and the UPS. Each one checks the robot's host key and machine
       id as before.
+      - Except the camera stills and the map captures (since 2026-11-02): each runs as Helm's own child
+        (`helm.calibration.run_helper`), because a still's SSH logout stalled the arms' receiver during teleop
+        (`docs/development/JETSON_CPU_SPLIT.md`).
       - Helm uses its own key, which `authorized_keys` accepts only from `127.0.0.1`/`::1`, with no forwarding and
         no terminal.
       - The robot connection is `robot`, and it counts as wired, like the tether (`helm.session.WIRED`).

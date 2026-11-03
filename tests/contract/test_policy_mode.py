@@ -154,7 +154,7 @@ def test_enable_previews_engage_aligns_and_the_arms_follow_the_chunks_despite_la
     assert rows['policy']['chunk_age_s'] is not None and rows['replay'] is None
 
 
-def test_hold_pauses_and_engage_aligns_anew_and_a_rollout_is_not_recorded(policy):
+def test_hold_pauses_and_engage_aligns_anew_and_only_a_labelling_capture_records_a_rollout(policy):
     core, clock = policy.core, policy.clock
     if state(core) != 'TELEOP':
         pytest.skip('needs the previous test to leave the policy following')
@@ -167,8 +167,13 @@ def test_hold_pauses_and_engage_aligns_anew_and_a_rollout_is_not_recorded(policy
         core.route('flip', 'left_arm_j1')
     core.task_capture = SimpleNamespace(command=lambda action: pytest.fail('a rollout was recorded'))
     try:
-        with pytest.raises(ValueError, match='not recorded yet'):
+        with pytest.raises(ValueError, match='would label its frames human'):
             core.task_action('start_record')
+        commands = []  # The robot's capture labels each frame with who drove it (policy corrections).
+        core.task_capture = SimpleNamespace(labels=True, command=lambda action: commands.append(action) or {})
+        core.task_action('start_record')
+        assert commands == ['start_record']
+        assert core._capture_label() == {'authority': 'policy', 'lifecycle': 'TELEOP'}
     finally:
         core.task_capture = None
 

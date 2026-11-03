@@ -74,8 +74,11 @@ promoted. Original overhaul edits and prior releases remain preserved.
 
 The task simulation uses FK-driven links, approximate terminal finger pads and
 unmeasured contact properties. Coupled robot dynamics and sim-to-real transfer
-remain unqualified. Dataset validation/promotion, training, evaluation and
-inference takeover/correction remain platform work packages. See the
+remain unqualified. Dataset validation/promotion, training and evaluation remain
+platform work packages. Policy takeover and correction recording (pedal B / O in
+a policy session, frames labelled policy or correction) are built on
+`claude/policy-takeover` but not yet run live
+([policy mode](development/POLICY_MODE.md)). See the
 [integration record](development/PLATFORM_INTEGRATION_20261016.md),
 [physics limitations](development/MINERVA_TASK_SCENE.md) and
 [head orientation](development/HEAD_CAMERA_ORIENTATION.md).

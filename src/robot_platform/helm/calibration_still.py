@@ -3,8 +3,8 @@ the average, and the light on the tags (their black border and the white label a
 intrinsics the camera published with the frames, and for a head still (helm.head_alignment) the neck's measured
 angles over them, from the head's pose feed.
 
-Helm sends this file as source over its pinned SSH (as helm.cameras does), so it imports only what the robot's
-python3 has: numpy, OpenCV with cv2.aruco (4.5's API or 4.7's), pyzmq and msgpack. It reads the camera's published
+Helm on Minerva runs this file's source in the robot's python3 (helm.calibration.run_helper), so it imports only what
+that python3 has: numpy, OpenCV with cv2.aruco (4.5's API or 4.7's), pyzmq and msgpack. It reads the camera's published
 stream and the head's feed; nothing here moves a motor or changes a camera setting. It saves the averaged image as a
 PNG under the calibration folder and prints one JSON reply.
 """

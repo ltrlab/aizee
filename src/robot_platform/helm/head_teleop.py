@@ -32,6 +32,9 @@ POSE_FRESH_S = .2  # A headset pose this recent steers the head;
 RETURN_AFTER_S = 1.  # without one the head holds its last target this long, then returns to its zero pose.
 # With a shoulder clearance, the head's targets step at this share of its speeds: steps the lifecycle takes whole.
 SPEED_SHARE = .9
+# The head follows at most this share of its profile's speed, catching up included: its receiver trips at 1.25
+# times that speed (control.approach OVERSPEED_HEADROOM), and coming down at 1.0 rad/s its tilt read 1.30 (2026-11-02).
+FOLLOW_SHARE = .7
 
 
 class HeadTeleop:
@@ -147,7 +150,9 @@ class HeadTeleop:
                                              joint_names=names)
         # Each cycle reads the reply of the cycle before (DirectLifecycleSession), so its feedback and target ages
         # are bounded by the head's period, not the arms' 10 ms one.
-        lifecycle = TeleopLifecycle(derived['lifecycle'], clock=self.clock, max_step_s=2 * PERIOD_S,
+        # Its commands keep under FOLLOW_SHARE of the head's speed; its receiver keeps its own cap.
+        rows = [dict(row, max_velocity=FOLLOW_SHARE * row['max_velocity']) for row in derived['lifecycle']]
+        lifecycle = TeleopLifecycle(rows, clock=self.clock, max_step_s=2 * PERIOD_S,
                                     feedback_max_age_s=1.5 * PERIOD_S, target_max_age_s=2.5 * PERIOD_S,
                                     allow_repeated_source=True)
         # A cycle following nothing (Idle, Enable, Hold) takes the receiver, renews it or takes a fresh offer at
@@ -162,7 +167,7 @@ class HeadTeleop:
         self.axes = {row['actuator']: (joint, row['scale'], row['offset'])
                      for joint, row in derived['joint_map'].items()}
         self.speeds = {row['name']: {'align': row['align_speed'], 'follow': row['max_velocity'],
-                                     'return': row['shutdown_speed']} for row in derived['lifecycle']}
+                                     'return': row['shutdown_speed']} for row in rows}
         self.tolerance = {row['name']: row['tolerance'] for row in derived['lifecycle']}
         # Return ends where the head rested, inside its usable range and clear of the shoulder: the last of a droop
         # past them happens limp.

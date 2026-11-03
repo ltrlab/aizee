@@ -123,47 +123,47 @@ def test_the_helper_answers_with_json_even_when_it_fails(capsys):
     assert reply == {'ok': False, 'error': 'ValueError: Unknown calibration operation'}
 
 
-def test_a_helper_moves_off_the_arms_loops_cpus_before_it_starts(monkeypatch):
-    """Helm's SSH sessions may run on every CPU, the arms' loop's too: a map capture there let an arm command expire
-    (2026-11-01). Each helper moves onto the background CPUs at a lower priority before remote_main starts its
-    threads."""
+class Child:
+    """A stand-in for the helper's python3: what Helm started and sent, and how the child ends."""
+
+    def __init__(self, reply=None, *, returncode=0, stderr=b'', hangs=False):
+        self.reply = json.dumps({'ok': True, 'result': 'done'} if reply is None else reply).encode()
+        self.returncode, self.stderr, self.hangs = returncode, stderr, hangs
+        self.started, self.killed = [], False
+
+    def __call__(self, argv, **options):
+        self.started.append(dict(options, argv=argv))
+        return self
+
+    def communicate(self, source=None, timeout=None):
+        if source is not None:
+            self.source = source.decode('utf-8')
+            if self.hangs:
+                import subprocess
+                raise subprocess.TimeoutExpired('python3', timeout)
+        return self.reply, self.stderr
+
+    def kill(self):
+        self.killed = True
+
+
+def test_a_helper_runs_as_helms_child_off_the_arms_loops_cpus(monkeypatch):
+    """Helm on Minerva once ran each helper over SSH to itself, and a still's logout stalled the arms' receiver until
+    a command expired (2026-11-02): now the helper is Helm's own child, started as that login started it (from home,
+    without Helm's PYTHONPATH). A helper started over SSH could also run on every CPU, the arms' loop's too: a map
+    capture there let an arm command expire (2026-11-01). Each helper moves onto the background CPUs at a lower
+    priority before remote_main starts its threads."""
     from robot_platform.helm import calibration
-    from robot_platform.ops import ssh
-    sent = []
-
-    class Channel:
-        def __init__(self):
-            self.reply = json.dumps({'ok': True, 'result': 'done'}).encode()
-
-        def recv_ready(self):
-            return bool(self.reply)
-
-        def recv(self, _size):
-            reply, self.reply = self.reply, b''
-            return reply
-
-        settimeout = shutdown_write = close = lambda *_: None
-        recv_stderr_ready = lambda _: False
-        exit_status_ready = lambda _: True
-        recv_exit_status = lambda _: 0
-
-    class Out:
-        def __init__(self):
-            self.channel = Channel()
-
-    class Stdin:
-        write, flush = sent.append, lambda _: None
-
-    class Client:
-        close = lambda _: None
-
-    monkeypatch.setattr(ssh, 'open_command', lambda client, command, timeout: (Stdin(), Out(), None))
+    monkeypatch.setenv('PYTHONPATH', '/home/ltr/minerva/current/src')
     for script in ('calibration_still.py', 'scene_capture.py'):
-        sent.clear()
-        assert calibration.run_remote(None, lambda: '127.0.0.1', {'operation': 'x'}, script=script,
-                                      open_ssh=lambda *_, **__: Client()) == 'done'
-        source = ''.join(sent)
+        child = Child()
+        assert calibration.run_helper({'operation': 'x'}, script=script, popen=child) == 'done'
+        [started] = child.started
+        assert started['argv'] == ['python3', '-'] and started['cwd'] == os.path.expanduser('~')
+        assert 'PYTHONPATH' not in started['env'] and started['env'].get('PATH') == os.environ.get('PATH')
+        source = child.source
         assert source.index('def remote_main') < source.index(calibration.BACKGROUND) < source.index('\nremote_main(')
+        assert source.endswith("\nremote_main({'operation': 'x'})\n")
 
     calls = []
     monkeypatch.setattr(os, 'sched_setaffinity', lambda pid, cpus: calls.append(('cpus', pid, cpus)), raising=False)
@@ -180,6 +180,29 @@ def test_a_helper_moves_off_the_arms_loops_cpus_before_it_starts(monkeypatch):
     calls.clear()  # Without the split installed it only lowers its priority.
     exec(calibration.BACKGROUND, {'__builtins__': {**vars(builtins), 'open': missing}})
     assert calls == [('nice', 10)]
+
+
+def test_a_helper_that_fails_or_hangs_says_so_and_is_stopped():
+    from robot_platform.helm import calibration
+    with pytest.raises(RuntimeError, match='ValueError: Unknown calibration operation'):
+        calibration.run_helper({'operation': 'x'},
+                               popen=Child({'ok': False, 'error': 'ValueError: Unknown calibration operation'}))
+    with pytest.raises(RuntimeError, match='Calibration helper failed: Traceback'):
+        calibration.run_helper({'operation': 'x'}, popen=Child(returncode=1, stderr=b'Traceback (most recent call)'))
+    with pytest.raises(RuntimeError, match='output limit'):
+        calibration.run_helper({'operation': 'x'}, popen=Child('x' * calibration.MAX_REPLY))
+    hung = Child(hangs=True)
+    with pytest.raises(TimeoutError, match='scene_capture.py timed out on the robot'):
+        calibration.run_helper({'operation': 'scene'}, script='scene_capture.py', timeout_s=.01, popen=hung)
+    assert hung.killed
+
+
+def test_a_real_helper_child_answers():
+    """The child for real, in this python: the still helper refuses an unknown operation in its JSON reply."""
+    import sys
+    from robot_platform.helm import calibration
+    with pytest.raises(RuntimeError, match='ValueError: Unknown calibration operation'):
+        calibration.run_helper({'operation': 'x'}, python=sys.executable)
 
 
 # -- the capture ----------------------------------------------------------------------------------------------------
@@ -211,9 +234,8 @@ def still_reply(request):
 
 def calibration(tmp_path, session, *, remote=still_reply, solver=None):
     times = iter(range(1792900000, 1792999999, 7))
-    return CameraCalibration(None, address=lambda: '127.0.0.1', teleop=session, root=tmp_path / 'calibration',
-                             reference=lambda: 'arms-reference', remote=remote, solver=solver,
-                             clock=lambda: float(next(times)), sleep=lambda _: None)
+    return CameraCalibration(teleop=session, root=tmp_path / 'calibration', reference=lambda: 'arms-reference',
+                             remote=remote, solver=solver, clock=lambda: float(next(times)), sleep=lambda _: None)
 
 
 def test_a_still_needs_a_live_session_holding_or_following(tmp_path):

@@ -185,6 +185,26 @@ def test_process_latches_short_authority_loss_before_latest_mailbox_replacement(
     assert aborted and not received
 
 
+def test_the_loop_labels_each_sample_with_who_drives_and_the_child_checks_the_label(monkeypatch):
+    child = LiveTaskCaptureProcess.__new__(LiveTaskCaptureProcess)
+    child.names, child.config = NAMES, config()
+    child._lock = threading.Lock()
+    child._state = {'recording': {'active': True}, 'last_command': {}}
+    child._record_requested = False
+    received = []
+    monkeypatch.setattr(child, 'submit', lambda sample, **options: received.append(sample))
+    response, rows = receiver('executing', True)
+    child.receive(response, rows, started_at=10., received_at=10.004,
+                  label={'authority': 'correction', 'lifecycle': 'TELEOP'})
+    assert (received[-1]['authority'], received[-1]['lifecycle']) == ('correction', 'TELEOP')
+    assert _sample(received[-1]) is received[-1]
+    child.receive(response, rows, started_at=10., received_at=10.004)  # A teleop session's sample: human.
+    assert 'authority' not in received[-1] and _sample(received[-1])['command_valid']
+    for change, message in ((dict(authority='scripted_fixture'), 'authority'), (dict(lifecycle='ALIGNING'), 'lifecycle')):
+        with pytest.raises(ValueError, match=message):
+            _sample(dict(received[0], **change))
+
+
 def test_child_rejects_forged_command_validity():
     response, rows = receiver('disarmed', False)
     value = paired_receiver_sample(response, rows, NAMES, config(), started_at=10., received_at=10.004)

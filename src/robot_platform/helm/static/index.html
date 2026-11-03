@@ -221,6 +221,10 @@
         </section>
         <section id="t-policy" class="live-replay live-policy" aria-labelledby="t-policy-title" hidden>
           <div class="live-replay-head"><span class="eyebrow">POLICY</span><b id="t-policy-title">—</b><span id="t-policy-stats" class="replay-time"></span></div>
+          <div class="policy-start-actions" id="t-policy-takeover" hidden>
+            <b id="t-policy-driver" role="status"></b>
+            <button id="t-policy-switch" type="button" title="Take over from the policy, or hand back to it: the arms hold first, then Resume aligns them to whoever drives next">Take over (O)</button>
+          </div>
           <p id="t-policy-note" class="muted"></p>
           <p id="t-policy-error" class="bad" role="alert" hidden></p>
         </section>
@@ -294,7 +298,7 @@
         <div id="teleop-content" class="scroll">
           <section id="t-policy-start" class="policy-start" aria-labelledby="t-policy-start-title" hidden>
             <div class="policy-start-head"><span class="eyebrow">POLICY MODE</span><b id="t-policy-start-title">Run a policy on the arms</b></div>
-            <p class="muted">Choose a policy, then Start policy session above. A trained policy drives the arms in a teleop session: Enable shows its first action, Engage aligns to it at the alignment speed, then it drives; Hold pauses, Shutdown (X) lowers. Nothing is recorded.</p>
+            <p class="muted">Choose a policy, then Start policy session above. A trained policy drives the arms in a teleop session with your leaders connected: Enable shows its first action, Engage aligns to it at the alignment speed, then it drives. Take over with pedal B (or O): the arms hold, line up the leaders, and Resume aligns the arms to them; B again hands back the same way. Pedal A records an episode of both: the policy's stretches and your corrections, each frame labelled. Shutdown (X) lowers.</p>
             <div class="policy-start-actions">
               <select id="t-policy-choice" aria-label="Policy"></select>
               <button id="t-policy-refresh" type="button" title="Read the policies on Minerva again">Refresh</button>

@@ -143,8 +143,8 @@ class Session:
 
 def library(tmp_path, files, session=None, remote=None):
     times = iter(range(1793000000, 1793999999, 7))
-    return MapLibrary(None, address=lambda: '127.0.0.1', teleop=session or Session(), root=tmp_path / 'maps',
-                      files=lambda: files, remote=remote, clock=lambda: float(next(times)))
+    return MapLibrary(teleop=session or Session(), root=tmp_path / 'maps', files=lambda: files, remote=remote,
+                      clock=lambda: float(next(times)))
 
 
 def test_minervas_pose_in_the_boards_world_comes_from_a_current_alignment(tmp_path):

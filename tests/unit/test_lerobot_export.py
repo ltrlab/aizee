@@ -18,14 +18,16 @@ ROLES = ('left_wrist', 'right_wrist', 'head')
 SESSION = 'live-20261022T120000Z'
 
 
-def record(root, times, *, authority=None, finish=True, session=SESSION):
-    """An episode whose row i has qpos[i] = i + j/100 and images at level i (mod 250) on every camera."""
+def record(root, times, *, authority=None, lifecycle=None, finish=True, session=SESSION):
+    """An episode whose row i has qpos[i] = i + j/100 and images at level i (mod 250) on every camera; `lifecycle`
+    gives each row's lifecycle state in its task state, as a policy session's capture does."""
     writer = TaskEpisodeWriter(root / session / 'episodes', NAMES, {'data_source': 'real', 'camera_roles': list(ROLES)},
                                hz=15., max_pending=256)
     for i, t in enumerate(times):
         writer.append(q=[i + j / 100 for j in range(14)], qcmd=[i + j / 100 + .5 for j in range(14)], source_time=t,
                       scene_time=None, images={role: np.full((6, 8, 3), i % 250, dtype=np.uint8) for role in ROLES},
-                      camera_times={role: t - .02 for role in ROLES}, task_state={'row': i},
+                      camera_times={role: t - .02 for role in ROLES},
+                      task_state={'row': i, **({'lifecycle': lifecycle[i]} if lifecycle else {})},
                       authority=(authority or {}).get(i, 'human'))
     if finish:
         path = Path(writer.finish())
@@ -98,6 +100,65 @@ def test_a_planned_episode_keeps_its_human_span_and_a_different_roster_is_refuse
     assert len(plans) == 1 and plans[0]['first'] == 2 and plans[0]['last'] == 18  # Policy rows out; terminal row out.
     assert plans[0]['rows'].tolist() == list(range(2, 19))
     assert len(refused) == 1 and 'different joints' in refused[0][1]
+
+
+# A policy session at 15 Hz: the policy drives rows 0-44 (3 s); the operator takes over (hold 45-49, aligning to the
+# leaders 50-54) and corrects 55-84; hands back (hold 85-89, aligning to the policy 90-94); the policy drives 95-119.
+TAKEOVER = ['policy'] * 45 + ['correction'] * 40 + ['policy'] * 35
+STATES = ['TELEOP'] * 45 + ['HOLD'] * 5 + ['ENGAGING'] * 5 + ['TELEOP'] * 30 + ['HOLD'] * 5 + ['ENGAGING'] * 5 + ['TELEOP'] * 25
+
+
+def valid(authority):
+    return [a == b for a, b in zip(authority, authority[1:])] + [False]  # As the episode writer marks actions.
+
+
+def test_a_policy_sessions_stretches_leave_out_holds_alignments_and_the_policy_just_before_a_take_over():
+    telem = np.array(steady(120))
+    kept = export.corrected_stretches(telem, valid(TAKEOVER), TAKEOVER, STATES, pre_takeover_s=.9)
+    assert [(s['first'], s['last'], s['authority']) for s in kept] == [
+        (0, 29, 'policy'), (55, 83, 'correction'), (95, 118, 'policy')]  # Each row's action is a Teleop command.
+    assert kept[0]['trimmed_s'] == pytest.approx(14 / 15, abs=1e-3) and kept[1]['trimmed_s'] == kept[2]['trimmed_s'] == 0
+    # A camera drop paused the policy (hold, then the policy again): no take over, nothing trimmed.
+    paused = ['TELEOP'] * 40 + ['HOLD'] * 10 + ['ENGAGING'] * 5 + ['TELEOP'] * 45
+    kept = export.corrected_stretches(telem, valid(['policy'] * 100), ['policy'] * 100, paused)
+    assert [(s['first'], s['last'], s['trimmed_s']) for s in kept] == [(0, 38, 0.), (55, 98, 0.)]
+    # Taken over, then finished in the hold without correcting: still taken over.
+    ended = ['policy'] * 50 + ['correction'] * 10
+    kept = export.corrected_stretches(telem, valid(ended), ended, ['TELEOP'] * 50 + ['HOLD'] * 10, pre_takeover_s=.9)
+    assert [(s['first'], s['last']) for s in kept] == [(0, 34)]
+    # A stretch shorter than the minimum is left out.
+    short = ['TELEOP'] * 45 + ['HOLD'] * 5 + ['ENGAGING'] * 5 + ['TELEOP'] * 6 + ['HOLD'] * 59
+    kept = export.corrected_stretches(telem, valid(TAKEOVER), TAKEOVER, short, pre_takeover_s=.9)
+    assert [s['authority'] for s in kept] == ['policy']
+
+
+def test_a_policy_episode_exports_each_stretch_as_its_own_episode_saying_who_drove_it(tmp_path):
+    kept, _ = record(tmp_path, steady(120), authority=dict(enumerate(TAKEOVER)), lifecycle=STATES)
+    unlabelled, _ = record(tmp_path, steady(30), authority={i: 'policy' for i in range(30)})
+    episodes = Episodes(tmp_path)
+    episodes.review(kept, 'keep', 'took over at the handoff')
+    episodes.review(unlabelled, 'keep')
+    plans, refused = export.plan(tmp_path, 15, pre_takeover_s=.9)
+    assert len(refused) == 1 and 'do not all say their lifecycle state' in refused[0][1]
+    assert [(s['first'], s['last'], s['authority']) for s in plans[0]['stretches']] == [
+        (0, 29, 'policy'), (55, 83, 'correction'), (95, 118, 'policy')]
+
+    class Dataset:
+        frames, saved = [], []
+
+        def add_frame(self, frame):
+            Dataset.frames.append(frame)
+
+        def save_episode(self):
+            Dataset.saved.append(len(Dataset.frames))
+    out = tmp_path / 'dataset'
+    export.write(plans, out, 'minerva/handoff', 15, export.TASK, create=lambda **options: Dataset())
+    assert Dataset.saved == [30, 59, 83]  # One LeRobot episode a stretch: none spans a hold or an alignment.
+    assert np.allclose(Dataset.frames[30]['observation.state'], [55 + j / 100 for j in range(14)])
+    sidecar = json.loads((out / 'meta' / 'minerva_provenance.json').read_text(encoding='utf-8'))
+    assert [(e['episode_index'], e['source'], e['source_span'], e['authority']) for e in sidecar['episodes']] == [
+        (0, kept, [0, 29], 'policy'), (1, kept, [55, 83], 'correction'), (2, kept, [95, 118], 'policy')]
+    assert sidecar['episodes'][0]['trimmed_s'] == pytest.approx(14 / 15, abs=1e-3)
 
 
 def test_frames_carry_state_action_cameras_and_task_and_the_sidecar_records_provenance(tmp_path):

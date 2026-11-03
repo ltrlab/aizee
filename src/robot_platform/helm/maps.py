@@ -27,7 +27,7 @@ from robot_platform.neck import head
 from robot_platform.neck.head_pose import aligned_mount, pose7
 from robot_platform.vision.geometry import invert
 
-from .calibration import run_remote
+from .calibration import run_helper
 from .head_alignment import check_live_head
 from .scene_capture import CAPTURE_ROOT, MAX_SECONDS
 
@@ -52,12 +52,12 @@ class MapLibrary:
     head's files (neck.head.files); `correction()` the turn (4x4) the head camera's poses take from the digital twin's
     correction (helm.twin.TwinCorrection.camera_turn), None for none."""
 
-    def __init__(self, profile, *, address, teleop, root, files, correction=None, remote=None, clock=time.time):
-        self.profile, self.address, self.teleop, self.files = profile, address, teleop, files
+    def __init__(self, *, teleop, root, files, correction=None, remote=None, clock=time.time):
+        self.teleop, self.files = teleop, files
         self.correction = correction
         self.root = Path(os.path.expanduser(str(root)))
-        self.remote = remote or (lambda request, timeout_s: run_remote(
-            self.profile, self.address, request, timeout_s=timeout_s, script='scene_capture.py'))
+        self.remote = remote or (lambda request, timeout_s: run_helper(request, timeout_s=timeout_s,
+                                                                         script='scene_capture.py'))
         self.clock = clock
         self._lock = threading.Lock()
         self.busy, self.error, self.last = False, None, None

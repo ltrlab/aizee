@@ -172,11 +172,11 @@ def main(argv=None):
                                    operator_files=args.operator_files)
         calibration = head_alignment = maps = twin = None
         if args.on_robot and teleop is not None:
-            # Wrist camera stills during a live session; the robot saves their images under the same folder.
+            # Wrist camera stills during a live session; the robot saves their images under the same folder. Like the
+            # head's stills and the map captures below, each runs as a child of this Helm (helm.calibration.run_helper).
             from .calibration import CameraCalibration
             from .calibration_still import CALIBRATION_ROOT
-            calibration = CameraCalibration(session.profile_path, address=lambda: session.address,
-                                            teleop=teleop.snapshot, root=CALIBRATION_ROOT,
+            calibration = CameraCalibration(teleop=teleop.snapshot, root=CALIBRATION_ROOT,
                                             reference=lambda: session.bindings['reference'])
             # The head camera's alignment on the same tags; its stills go beside the wrists' runs.
             from robot_platform.control.servo_calibration import servo_path
@@ -185,9 +185,10 @@ def main(argv=None):
             operator_directory = lambda: servo_path(session.profile_path, session.asset_id,  # noqa: E731
                                                     session.operator_files).parent
             head_files = lambda: head.files(operator_directory(), session.asset_id)  # noqa: E731
-            head_alignment = HeadAlignment(session.profile_path, address=lambda: session.address,
-                                           teleop=teleop.snapshot, root=f'{CALIBRATION_ROOT}/head',
+            head_alignment = HeadAlignment(teleop=teleop.snapshot, root=f'{CALIBRATION_ROOT}/head',
                                            wrists=CALIBRATION_ROOT, files=head_files)
+            # The arms hold while a still is taken: Resume (T, or a pedal's Resume or Engage) waits for it.
+            teleop.still_busy = lambda: calibration.busy or head_alignment.busy
             # The digital twin's correction from both, for drawing only; its file beside the head's.
             from robot_platform.vision.twin import path as twin_path
             from .twin import TwinCorrection
@@ -197,8 +198,8 @@ def main(argv=None):
                                   history=f'{CALIBRATION_ROOT}/twin')
             # Head scene captures for splat maps, and the trained maps the headset draws.
             from .maps import MapLibrary
-            maps = MapLibrary(session.profile_path, address=lambda: session.address, teleop=teleop.snapshot,
-                              root='~/minerva/helm/maps', files=head_files, correction=twin.camera_turn)
+            maps = MapLibrary(teleop=teleop.snapshot, root='~/minerva/helm/maps', files=head_files,
+                              correction=twin.camera_turn)
         if tune is not None:
             # Minerva Check's live joint sweep runs through the Tune loop; its outcome goes into the report.
             tune.on_finished = lambda mode, arm, results, fault: (

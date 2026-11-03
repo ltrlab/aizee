@@ -34,11 +34,31 @@ export function policyStats(policy) {
   return parts.join(' · ');
 }
 
-// What the operator does next, by the lifecycle state.
+// Who drives a policy session with takeover (policy corrections): the policy, or the operator with the leaders.
+export function driverText(policy) {
+  if (!policy?.takeover) return '';
+  return policy.driver === 'leaders' ? 'You drive: your corrections are recorded as yours' : 'The policy drives';
+}
+
+// The card's switch: what O (or pedal B while the arms follow) does next; null where it means nothing.
+export function switchLabel(state, policy) {
+  if (!policy?.takeover || policy.loading || !['DISABLED', 'IDLE', 'HOLD', 'ENGAGING', 'TELEOP'].includes(state)) return null;
+  return policy.driver === 'leaders' ? 'Hand back (O)' : 'Take over (O)';
+}
+
+// What the operator does next, by the lifecycle state and, with takeover, by who drives.
 export function policyNote(state, policy) {
   if (!policy) return '';
   if (policy.loading) return 'Loading the policy onto the GPU: its first calls take a few seconds.';
-  if (state === 'TELEOP') return 'The policy drives the arms. Hold (T) pauses; Shutdown (X) lowers; the foot switch cuts power.';
+  if (policy.takeover && policy.driver === 'leaders') {
+    if (state === 'TELEOP') return 'You drive the arms with the leaders: a correction. Hand back (pedal B or O) holds them, then Resume gives them to the policy.';
+    if (state === 'ENGAGING') return 'Aligning the arms to your leaders at the alignment speed.';
+    if (state === 'HOLD') return 'You drive next: line up the leaders with the arms, then Resume (pedal B or T) aligns the arms to them. O gives them back to the policy instead.';
+    return 'You drive first: Enable (E), then Engage (T) aligns the arms to your leaders.';
+  }
+  if (state === 'TELEOP') return policy.takeover
+    ? 'The policy drives the arms. Take over (pedal B or O): they hold, then Resume aligns them to your leaders. Shutdown (X) lowers; the foot switch cuts power.'
+    : 'The policy drives the arms. Hold (T) pauses; Shutdown (X) lowers; the foot switch cuts power.';
   if (state === 'ENGAGING') return "Aligning to the policy's first action at the alignment speed.";
   if (state === 'HOLD') return policy.aligned
     ? "Engage (T) moves the arms to the policy's first action at the alignment speed, then the policy drives them."

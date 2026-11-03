@@ -51,7 +51,7 @@ class Pedals:
         record = task.get('recording') or {}
         motion = (context.get('phase'), state, bool(context.get('fault')),
                   bool(context.get('recording_fault')), bool(context.get('spent')),
-                  bool(context.get('closing')), self.paused, self.has_engaged, self.ended)
+                  bool(context.get('closing')), self.paused, self.has_engaged, self.ended, context.get('driver'))
         capture = (motion, bool(task.get('capture_ready')), bool(task.get('error')),
                    record.get('state'), bool(record.get('active')), bool(record.get('complete')),
                    self._capture, command.get('id'), command.get('state'))
@@ -74,7 +74,13 @@ class Pedals:
                   or rec.get('state') in ('starting', 'stopping', 'finishing'))
         a_ok = (healthy and bool(task) and not task.get('error') and not a_busy
                 and (stop_record or (state in ('HOLD', 'TELEOP') and task.get('capture_ready') is True)))
-        b = 'pause' if state in ('ENGAGING', 'TELEOP') else 'resume'
+        # A policy session with takeover (policy corrections): B pauses by handing the arms to the other driver,
+        # and resumes with whoever drives next. Who drives changes only through that hold.
+        driver = c.get('driver')
+        if state in ('ENGAGING', 'TELEOP'):
+            b = {'policy': 'take_over', 'leaders': 'hand_back'}.get(driver, 'pause')
+        else:
+            b = 'resume'
         b_ok = healthy and (state in ('ENGAGING', 'TELEOP') or (state == 'HOLD' and self.paused))
         if state == 'DISABLED':
             action = 'idle'
@@ -91,7 +97,9 @@ class Pedals:
         unfinished = (bool(rec.get('active')) or self._capture is not None
                       or pending.get('state') == 'pending' or rec.get('state') in ('starting', 'stopping', 'finishing'))
         labels = {'idle': 'Idle', 'enable': 'Enable / Hold', 'engage': 'Engage / Align',
-                  'pause': 'Pause / Hold', 'resume': 'Resume / Align', 'shutdown': 'Shutdown to reference',
+                  'pause': 'Pause / Hold', 'resume': {'policy': 'Resume: policy drives', 'leaders': 'Resume: you drive'}
+                  .get(driver, 'Resume / Align'), 'shutdown': 'Shutdown to reference',
+                  'take_over': 'Take over', 'hand_back': 'Hand back to policy',
                   'start_record': 'Start recording', 'stop_record': 'Finish recording'}
         result = {}
         for pedal, name, enabled, reason in (
@@ -148,17 +156,19 @@ class Pedals:
     def finish(self, intent, context, *, error=None, command_id=None):
         action, state = intent['action'], context.get('state')
         expected = {'idle': 'IDLE', 'enable': 'HOLD', 'engage': 'ENGAGING', 'pause': 'HOLD',
-                    'resume': 'ENGAGING', 'shutdown': 'SHUTDOWN'}
+                    'take_over': 'HOLD', 'hand_back': 'HOLD', 'resume': 'ENGAGING', 'shutdown': 'SHUTDOWN'}
         if error is None and action in expected:
             allowed = {expected[action]}
             if action in ('engage', 'resume'):
                 allowed.add('TELEOP')
             if action == 'shutdown':
                 allowed.add('DISABLED')
-            if context.get('fault') or state not in allowed:
+            # Taking over or handing back holds and switches who drives: both must have happened.
+            switched = {'take_over': 'leaders', 'hand_back': 'policy'}.get(action, context.get('driver'))
+            if context.get('fault') or state not in allowed or context.get('driver') != switched:
                 error = 'Pedal transition was not confirmed by the control worker'
         if error is None:
-            if action == 'pause':
+            if action in ('pause', 'take_over', 'hand_back'):
                 self.paused = True
             elif action in ('resume', 'engage'):
                 self.paused = False

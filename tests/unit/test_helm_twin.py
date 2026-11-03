@@ -156,8 +156,8 @@ def test_a_maps_board_turns_with_the_head_cameras_poses(rig, tmp_path):
     from robot_platform.vision.geometry import invert
     camera = camera_file(rig, 1.5)
     flow, files, _state, _clock = setup(tmp_path, camera=camera, recommended='plain')
-    maps = MapLibrary(None, address=lambda: '127.0.0.1', teleop=Teleop().snapshot, root=tmp_path / 'maps',
-                      files=lambda: files, correction=flow.camera_turn)
+    maps = MapLibrary(teleop=Teleop().snapshot, root=tmp_path / 'maps', files=lambda: files,
+                      correction=flow.camera_turn)
     board = np.array(camera['board_in_robot']['matrix'])
     np.testing.assert_allclose(maps.worlds()['board'], invert(board), atol=1e-12)
     flow.apply()

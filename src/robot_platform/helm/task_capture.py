@@ -291,11 +291,14 @@ class LiveTaskCapture:
         self._thread = threading.Thread(target=self._run, daemon=True, name='helm-task-capture')
         self._thread.start()
 
-    def receive(self, result, rows, *, dropped=0, started_at, received_at):
-        """Snapshot paired receiver values; never decode images, perform I/O or send commands."""
+    def receive(self, result, rows, *, dropped=0, started_at, received_at, label=None):
+        """Snapshot paired receiver values; never decode images, perform I/O or send commands. `label`: who drives
+        and the lifecycle state, for the frames this sample becomes (helm.teleop._capture_label)."""
         sample = paired_receiver_sample(result, rows, self.names, self.config, dropped=dropped,
                                         started_at=started_at, received_at=received_at)
         if sample is not None:
+            if label:
+                sample.update(authority=label.get('authority', 'human'), lifecycle=label.get('lifecycle'))
             self.receive_sample(sample)
 
     def receive_sample(self, sample):
@@ -522,11 +525,15 @@ class LiveTaskCapture:
         for name, frame in frames.items():
             if not 0 <= now-frame['sampled_at'] <= self.config['max_camera_age_s']:
                 raise ValueError(f'{name}: camera frame expired during recording preprocessing')
+        # Who drove the frame: a policy session's frames are the policy's, or a correction while the operator's
+        # leaders drive. The lifecycle state lets the export leave out holds and alignments (data.lerobot_export).
+        labels = ('q', 'qcmd', 'authority', 'lifecycle')
         writer.append(q=sample['q'], qcmd=sample['qcmd'], source_time=sample['source_time'], scene_time=None,
                       images=images, camera_times={n: f['sampled_at'] for n, f in frames.items()},
-                      task_state={'capture_admission_at': now,
-                                  'capture': {k: v for k, v in sample.items() if k not in ('q', 'qcmd')},
-                                  'cameras': provenance, 'success': 'operator_review_required'}, authority='human')
+                      task_state={'capture_admission_at': now, 'lifecycle': sample.get('lifecycle'),
+                                  'capture': {k: v for k, v in sample.items() if k not in labels},
+                                  'cameras': provenance, 'success': 'operator_review_required'},
+                      authority=sample.get('authority', 'human'))
 
     def _ready(self, sample, now, *, require_commands=False):
         if sample is None or sample.get('error'):

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import {INPUTS, MODES, NO_RECORDING, PAUSE_WAIT_MS, PauseStill, SETTLE_MS, headsetArm, inputChoice, knownInput,
-  knownMode, modeCards, modeChoice, pauseStillText, sessionInput, sessionMode}
-  from '../../src/robot_platform/helm/static/teleop_mode.js';
+import {INPUTS, MODES, NO_RECORDING, PAUSE_WAIT_MS, PauseStill, SETTLE_MS, STILL_PENDING, headsetArm,
+  inputChoice, knownInput, knownMode, modeCards, modeChoice, pauseStillText, sessionInput, sessionMode, stillOutcome,
+  stillTaking} from '../../src/robot_platform/helm/static/teleop_mode.js';
 
 // The modes, and an unknown or missing choice (a cleared browser) is Direct.
 assert.deepEqual(MODES, ['direct', 'calibrate', 'policy']);
@@ -16,8 +16,9 @@ assert.equal(sessionMode('calibrate'), 'calibrate');
 const cards = (task, calibration, policyStart, grip, headset = false) => ({task, calibration, policyStart, grip, headset});
 assert.deepEqual(modeCards('direct'), cards(true, false, false, true));
 assert.deepEqual(modeCards('calibrate'), cards(false, true, false, true));
-assert.deepEqual(modeCards('policy'), cards(false, false, true, true));
-assert.deepEqual(modeCards('policy', {policyMode: true}), cards(false, false, true, false));
+// Policy records too: the policy's stretches and the operator's corrections (policy corrections).
+assert.deepEqual(modeCards('policy'), cards(true, false, true, true));
+assert.deepEqual(modeCards('policy', {policyMode: true}), cards(true, false, true, false));
 // A replay shows its own card; the head alone takes head stills but neither records nor runs a policy.
 assert.deepEqual(modeCards('calibrate', {replaying: true}), cards(false, false, false, false));
 assert.deepEqual(modeCards('calibrate', {headOnly: true}), cards(false, true, false, false));
@@ -26,7 +27,7 @@ assert.deepEqual(modeCards('policy', {headOnly: true}), cards(false, false, fals
 // takes stills. Policy, a replay and the head alone take no input.
 assert.deepEqual(modeCards('direct', {input: 'headset'}), cards(false, false, false, false, true));
 assert.deepEqual(modeCards('calibrate', {input: 'headset'}), cards(false, true, false, false, true));
-assert.deepEqual(modeCards('policy', {input: 'headset'}), cards(false, false, true, true));
+assert.deepEqual(modeCards('policy', {input: 'headset'}), cards(true, false, true, true));
 assert.deepEqual(modeCards('direct', {input: 'headset', replaying: true}), cards(false, false, false, false));
 assert.deepEqual(modeCards('direct', {input: 'headset', headOnly: true}), cards(false, false, false, false));
 
@@ -138,10 +139,33 @@ assert.equal(still.due(held('TELEOP', 2), 3000, 'calibrate'), false);
 assert.equal(still.due(held('HOLD', 3), 3100, 'calibrate'), false);
 assert.equal(still.due(held('HOLD', 3), 3100 + SETTLE_MS, 'calibrate'), true);
 
-// The card's line: what a pause does, then the countdown.
+// The card's line: what a pause does, the countdown, that the still is being taken, then what it found.
 assert.match(pauseStillText(null, 'head'), /each pause \(pedal B or T\) takes a still of the head camera 1 s later/);
-assert.match(pauseStillText(null, 'left_wrist', 'headset'), /each pause \(B\/Y, pedal B or T\)/);
+assert.match(pauseStillText(null, 'left_wrist', {input: 'headset'}), /each pause \(B\/Y, pedal B or T\)/);
+assert.match(pauseStillText(null, 'head'), /the arms hold until it is saved/);
 assert.equal(pauseStillText(.42, 'right_wrist'), 'Still of the right wrist camera in 0.4 s: hold still.');
+assert.equal(pauseStillText(null, 'left_wrist', {taking: true}),
+  'Taking a still of the left wrist camera: hold still. Resume once it is saved.');
+assert.equal(pauseStillText(.2, 'left_wrist', {taking: true}), 'Still of the left wrist camera in 0.2 s: hold still.');
+const found = stillOutcome({name: '004-left_wrist', tags: [1, 4]}, null, 'left_wrist');
+assert.equal(found, '004-left_wrist saved: tags 1, 4. Resume for the next pose.');
+assert.equal(pauseStillText(null, 'left_wrist', {note: found}), found);
+assert.equal(pauseStillText(null, 'left_wrist', {taking: true, note: found}),  // The next still is on its way.
+  'Taking a still of the left wrist camera: hold still. Resume once it is saved.');
+// 2026-11-02: the first live still saw no tags and nothing said so.
+assert.equal(stillOutcome({name: '003-left_wrist', tags: []}, null, 'left_wrist'),
+  '003-left_wrist saved, but it saw no board tags: aim the left wrist camera at the board, then pause again (Undo drops it).');
+assert.equal(stillOutcome({name: '005-right_wrist', tags: [6]}, null, 'right_wrist'),
+  '005-right_wrist saved: tag 6. Resume for the next pose.');
+assert.equal(stillOutcome(null, 'The arm moved 2.0 mrad while the frames were taken', 'left_wrist'),
+  'No still: The arm moved 2.0 mrad while the frames were taken');
+assert.equal(stillOutcome(null, null, 'head'), null);
+// A still is being taken while this page's request is out, or Helm reports one (another page's).
+assert.equal(stillTaking(), false);
+assert.equal(stillTaking({pending: true}), true);
+assert.equal(stillTaking({calibration: {busy: false}, headAlignment: {busy: true}}), true);
+assert.equal(stillTaking({calibration: {busy: false}, headAlignment: null}), false);
+assert.equal(STILL_PENDING, 'Taking a still: resume once it is saved');  // helm.teleop STILL_PENDING says the same.
 assert.match(NO_RECORDING, /Calibrate records nothing/);
 
 // The headset card's arm lines: waiting, lost, free, dragging, and what holds a dragged arm back.

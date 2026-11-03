@@ -26,6 +26,15 @@ assert.equal(presentation({...base,teleop:{...base.teleop,status_age_ms:10,obser
 const headset={...base,teleop:{...base.teleop,headset:{arms:{}}}};
 assert.equal(presentation(headset).label,'Headset · following');
 assert.match(presentation({...headset,teleop:{...headset.teleop,state:'ENGAGING'}}).detail,/ready pose/);
+// Policy corrections: the policy drives until a take over, then the operator's leaders, each change through a Hold.
+const policyDrives={...base,teleop:{...base.teleop,state:'TELEOP',policy:{takeover:true,driver:'policy'}}};
+assert.equal(presentation(policyDrives).label,'Policy · driving');
+assert.match(presentation(policyDrives).detail,/B takes over/);
+const youDrive={...policyDrives,teleop:{...policyDrives.teleop,policy:{takeover:true,driver:'leaders'}}};
+assert.equal(presentation(youDrive).label,'Correcting · you drive');
+assert.match(presentation({...youDrive,teleop:{...youDrive.teleop,state:'ENGAGING'}}).detail,/Aligning to the leaders/);
+assert.match(presentation({...youDrive,teleop:{...youDrive.teleop,state:'HOLD'}}).detail,/You drive after Resume/);
+assert.match(presentation({...policyDrives,teleop:{...policyDrives.teleop,state:'ENGAGING'}}).detail,/policy's first action/);
 assert.match(recordingLabel({recording:{active:true},last_command:{state:'pending',action:'stop_record'}}),/Finishing/);
 assert.equal(recordingLabel({recording:{state:'complete',complete:false}}),'Not recording');
 assert.equal(recordingLabel({recording:{complete:true}}),'Complete · saved');
@@ -123,5 +132,21 @@ assert.equal(recordingMode({error:'task failed',recording:{active:true}}),'faile
   assert.equal(calibrate.offer('b').enabled,true);
   calibrate.update(clone(base));
   assert.equal(calibrate.offer('a').enabled,true);
+}
+// While a camera still is taken the arms hold: B's Resume and C's Engage wait until it is saved; a pause, a
+// recording and Shutdown do not.
+{
+  const waiting=new PedalControls({now:()=>time,context:()=>({...ctx,stillPending:'Taking a still: resume once it is saved'}),
+    request:()=>new Promise(()=>{})});
+  const held=clone(base);held.teleop.state='HOLD';held.teleop.pedals.actions.b=action('resume');
+  held.teleop.pedals.actions.c=action('engage');
+  waiting.update(held);
+  for(const pedal of ['b','c'])
+    assert.deepEqual([waiting.offer(pedal).enabled,waiting.offer(pedal).reason],[false,'Taking a still: resume once it is saved']);
+  assert.equal(waiting.offer('a').enabled,true);
+  held.teleop.pedals.actions.c=action('shutdown');waiting.update(held);
+  assert.equal(waiting.offer('c').enabled,true);
+  waiting.update(clone(base));
+  assert.equal(waiting.offer('b').enabled,true);  // Following: B pauses.
 }
 console.log('Pedal offers, independent safety input, held/editable keys, stale/order guards, true state and stopped tester passed.');
