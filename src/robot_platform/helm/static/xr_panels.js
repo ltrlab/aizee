@@ -5,7 +5,7 @@
 // No three.js here.
 export const TONE = {ok: '#3fbf7f', warn: '#e0a83a', bad: '#e05a5a', '': '#e9ecf1', muted: '#9aa3b2'};
 export const SIZES = {picture: [1024, 768], strip: [1536, 104], panel: [1024, 768], ring: [1024, 1024],
-  card: [1024, 704], alert: [1536, 240]};  // Pixels.
+  card: [1024, 704], alert: [1536, 480]};  // Pixels: the alert's tall enough for ALERT_LINES lines.
 const BACKGROUND = 'rgba(16, 19, 24, 0.92)';
 const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 
@@ -75,18 +75,6 @@ function wrap(context, text, width) {
   return lines;
 }
 
-// `texts` wrapped `width` wide in the largest of `sizes` (pixels) whose lines fit `height`, else the smallest:
-// [lines, size]. A live start's confirmation runs to five sentences, as the Teleop tab words it.
-function fitted(context, texts, width, height, sizes) {
-  let lines = [];
-  for (const size of sizes) {
-    context.font = `${size}px ${FONT}`;
-    lines = texts.flatMap(text => wrap(context, text, width));
-    if (lines.length * Math.round(size * 1.22) <= height) return [lines, size];
-  }
-  return [lines, sizes.at(-1)];
-}
-
 // Lines of text centred at x from y down, each `step` apart; returns the y after them.
 function centred(context, lines, x, y, step, width) {
   context.textAlign = 'center';
@@ -103,7 +91,17 @@ export const RING = {inner: 230, outer: 505};  // Its segments' radii, in its ca
 // Text sizes, in canvas pixels. The ring's 1024 pixels span about 36 degrees of view, 28 pixels a degree (the Quest
 // Pro shows about 22): text of 21 to 38 pixels (0.75 to 1.35 degrees) was too small to read in the headset (the
 // user, 2026-11-03). All of it is now 44 pixels (1.55 degrees) or more; long text sits on the card over the ring.
-export const TEXT = {label: 52, detail: 44, title: 64, card: 48, least: 44, hint: 44, value: 120, alert: 72};
+export const TEXT = {label: 52, detail: 44, title: 64, card: 48, least: 44, hint: 44, value: 120, alert: 72,
+  alertLeast: 62};
+export const ALERT_LINES = 5;  // An alert longer than this many lines at its least size ends with '…'.
+
+// `lines` cut to `count`, the last one ending with '…' when any were cut.
+function cut(lines, count) {
+  if (lines.length <= count) return lines;
+  const kept = lines.slice(0, count);
+  kept[count - 1] = `${kept[count - 1]} …`;
+  return kept;
+}
 
 // How wide a label may be in a segment around `angle` (radians from the right, clockwise): the segment's chord where
 // it runs across (top and bottom), its band's depth where it runs down (the sides).
@@ -204,20 +202,20 @@ export function drawCard(context, drawing, status = []) {
   const hintStep = Math.round(TEXT.hint * 1.2);
   centred(context, hints, width / 2, height - 40 - (hints.length - 1) * hintStep, hintStep, text);
   const room = height - 40 - hints.length * hintStep - 60;  // From the top to over the hints.
-  let lines, size = TEXT.card, weight = '';
-  if (drawing.confirm) {
-    const [wrapped, fit] = fitted(context, drawing.confirm, text, room, [TEXT.card, 46, TEXT.least]);
-    [lines, size] = [wrapped.map(line => [line, '']), fit];
-  } else if (drawing.notice) {
-    weight = '600 ';
+  // What it says, each [text, tone], in the largest size its lines fit (a fault's whole reason, the user, 2026-11-03:
+  // a session's start fault was cut short), cut with '…' only past the least.
+  const texts = drawing.confirm ? drawing.confirm.map(line => [line, ''])
+    : drawing.notice ? [[drawing.notice, 'warn']] : status;
+  const weight = drawing.notice && !drawing.confirm ? '600 ' : '';
+  let lines = [], size = TEXT.card;
+  for (size of [TEXT.card, 46, TEXT.least]) {
     context.font = `${weight}${size}px ${FONT}`;
-    lines = wrap(context, drawing.notice, text).map(line => [line, 'warn']);
-  } else {
-    context.font = `${size}px ${FONT}`;
-    lines = status.flatMap(([line, tone]) => wrap(context, line, text).map(part => [part, tone]));
+    lines = texts.flatMap(([line, tone]) => wrap(context, line, text).map(part => [part, tone]));
+    if (lines.length * Math.round(size * 1.22) <= room) break;
   }
   const step = Math.round(size * 1.22);
-  lines = lines.slice(0, Math.floor(room / step));
+  const shown = Math.floor(room / step);
+  if (lines.length > shown) lines = [...lines.slice(0, shown - 1), [`${lines[shown - 1][0]} …`, lines[shown - 1][1]]];
   let y = 36 + (room - lines.length * step) / 2 + size;
   context.font = `${weight}${size}px ${FONT}`;
   for (const [line, tone] of lines) {
@@ -227,18 +225,26 @@ export function drawCard(context, drawing, status = []) {
   }
 }
 
-// The alert under the view with the ring closed: [text, tone], on one line or two.
+// The alert under the view with the ring closed: [text, tone], whole (a fault's reason runs long: the user,
+// 2026-11-03, of a start fault cut short at two lines): two lines at its full size, else smaller, to ALERT_LINES
+// lines; past that it ends with '…' (the ring's card, opened, says all of it).
 export function drawAlert(context, [text, tone]) {
   const {canvas} = context;
   context.clearRect(0, 0, canvas.width, canvas.height);
-  context.font = `600 ${TEXT.alert}px ${FONT}`;
-  const lines = wrap(context, text, canvas.width - 100).slice(0, 2);
-  const step = Math.round(TEXT.alert * 1.2), tall = lines.length * step + 48;
+  const width = canvas.width - 100;
+  let lines = [], size = TEXT.alert;
+  for (size of [TEXT.alert, 66, TEXT.alertLeast]) {
+    context.font = `600 ${size}px ${FONT}`;
+    lines = wrap(context, text, width);
+    if (lines.length <= (size === TEXT.alert ? 2 : ALERT_LINES)) break;
+  }
+  lines = cut(lines, ALERT_LINES);
+  const step = Math.round(size * 1.2), tall = lines.length * step + 48;
   const top = (canvas.height - tall) / 2;
   context.fillStyle = BACKGROUND;
   context.beginPath();
   context.roundRect(0, top, canvas.width, tall, Math.min(tall / 2, 60));
   context.fill();
   context.fillStyle = TONE[tone] || TONE[''];
-  centred(context, lines, canvas.width / 2, top + 24 + TEXT.alert * .95, step, canvas.width - 100);
+  centred(context, lines, canvas.width / 2, top + 24 + size * .95, step, width);
 }

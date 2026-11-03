@@ -244,6 +244,15 @@ assert.deepEqual(statusLines({...live('HOLD', {fault: 'x'}), access: OTHER}, {co
   ['Helm: reconnecting…', 'warn'], ['LIVE both arms · HOLD', 'bad'], ['Fault: x', 'bad'],
   ['View only: Operator PC has control', 'warn']]);
 assert.deepEqual(statusLines({teleop: stopped, access: CONTROLLED}, {connected: true}), [['No session', '']]);
+// A session that faulted (on its start, say): Helm's whole message, in red.
+assert.deepEqual(statusLines({teleop: {...stopped, phase: 'fault', fault: 'Receiver fault: left J6 feedback skew',
+  message: 'Teleop stopped: Receiver fault: left J6 feedback skew'}, access: CONTROLLED}, {connected: true}),
+[['Teleop stopped: Receiver fault: left J6 feedback skew', 'bad']]);
+assert.deepEqual(statusLines({teleop: {...stopped, phase: 'fault', fault: 'x'}, access: CONTROLLED}, {connected: true}),
+  [['Teleop stopped: x', 'bad']]);
+// Faulted, a session can be started again.
+assert.equal(ringMenu({teleop: {...stopped, phase: 'fault', fault: 'x'}, access: CONTROLLED}, [], VIEW).items[0].id,
+  'start');
 
 // The alerts with the ring closed: a new fault stays; control lost during a session stays; a fall into a hold passes.
 const up = {connected: true};

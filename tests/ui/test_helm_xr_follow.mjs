@@ -31,7 +31,8 @@ globalThis.document = {createElement: () => {
 const THREE = await import(three);
 const {ALERT_AHEAD_M, ALERT_BELOW, ALERT_W, CARD_GAP_M, CARD_H, HeadsetScene, RING_AHEAD_M, RING_BELOW, RING_W} =
   await import(new URL('src/robot_platform/helm/static/xr_scene.js', root).href);
-const {SIZES, TEXT} = await import(new URL('src/robot_platform/helm/static/xr_panels.js', root).href);
+const {ALERT_LINES, SIZES, TEXT, drawAlert, drawCard} = await import(
+  new URL('src/robot_platform/helm/static/xr_panels.js', root).href);
 const {Ring} = await import(new URL('src/robot_platform/helm/static/xr_ring.js', root).href);
 const {DEFAULT_VIEW, FOLLOW_OFFSET, STORAGE_KEY, loadView, lookAngles, opacityStep, saveView} =
   await import(new URL('src/robot_platform/helm/static/xr_view.js', root).href);
@@ -163,6 +164,7 @@ const perDegree = 1024 / (2 * Math.atan(RING_W / 2 / RING_AHEAD_M) * 180 / Math.
 assert.ok(Object.values(TEXT).every(size => size / perDegree >= 1.5), JSON.stringify(TEXT));
 const alertDegrees = 2 * Math.atan(ALERT_W / 2 / ALERT_AHEAD_M) * 180 / Math.PI;
 assert.ok(TEXT.alert / (SIZES.alert[0] / alertDegrees) >= 1.5);
+assert.ok(TEXT.alertLeast / (SIZES.alert[0] / alertDegrees) >= 1.5);  // A long alert's smaller text too.
 const ring = new Ring(() => ({title: 'Minerva', items: [{id: 'a', label: 'Start', submenu: true}, {id: 'b',
   label: 'View', submenu: true}]}));
 ring.step([{hand: 'right', menu: true, press: false, stick: [0, 0]}], 0);
@@ -215,6 +217,24 @@ close(alertAt.y, -Math.sin(ALERT_BELOW) * ALERT_AHEAD_M);
 close(alertAt.z, -Math.cos(ALERT_BELOW) * ALERT_AHEAD_M);
 view.showAlert(null);
 assert.equal(view.alert.visible, false);
+
+// A fault's whole reason: a session's start fault was cut short at two lines (the user, 2026-11-03). The alert takes
+// up to ALERT_LINES lines, in smaller text past two, and only then ends with '…'; the card says all of it.
+const said = drawing => drawing.texts.join(' ').replace(/\s+/g, ' ').trim();
+const reason = 'Fault: ' + Array.from({length: 36}, (_, i) => `word${i}`).join(' ');  // About 240 characters.
+const alertDrawing = context({width: SIZES.alert[0], height: SIZES.alert[1]});
+drawAlert(alertDrawing, [reason, 'bad']);
+assert.equal(said(alertDrawing), reason);
+assert.ok(alertDrawing.texts.length > 2 && alertDrawing.texts.length <= ALERT_LINES, alertDrawing.texts);
+const endless = 'Fault: ' + Array.from({length: 120}, (_, i) => `word${i}`).join(' ');
+const cutDrawing = context({width: SIZES.alert[0], height: SIZES.alert[1]});
+drawAlert(cutDrawing, [endless, 'bad']);
+assert.equal(cutDrawing.texts.length, ALERT_LINES);
+assert.ok(cutDrawing.texts.at(-1).endsWith(' …'));
+const cardDrawing = context({width: SIZES.card[0], height: SIZES.card[1]});
+drawCard(cardDrawing, {title: 'Minerva', items: [], aim: null, notice: null, depth: 0, confirm: null, progress: 0,
+  adjust: null}, [[reason, 'bad'], ['Head still: no session', 'warn']]);
+assert.ok(said(cardDrawing).includes(reason), cardDrawing.texts);
 
 // Remembered by the next session's scene.
 const again = new HeadsetScene({}, {storage});

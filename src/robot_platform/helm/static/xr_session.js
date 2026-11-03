@@ -139,7 +139,9 @@ export function statusLines(state, link, more = []) {
   const lines = [];
   if (!link.connected) lines.push([link.message || 'Helm: reconnecting…', 'warn']);
   else if (link.error) lines.push([link.error, 'bad']);
-  if (!teleop || !running(teleop)) {
+  if (teleop?.phase === 'fault') {
+    lines.push([teleop.message || `Teleop stopped: ${teleop.fault}`, 'bad']);  // Its whole reason.
+  } else if (!teleop || !running(teleop)) {
     lines.push([teleop?.phase === 'stopped' || !teleop ? 'No session' : teleop.message || 'No session', '']);
   } else {
     lines.push([`${receiverWord(teleop)} · ${teleop.state || teleop.phase}`, teleop.fault ? 'bad'
