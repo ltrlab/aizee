@@ -1,6 +1,7 @@
 """Helm teleop plumbing without native builds: profile checks, advisory verdicts,
 route edits, the loop's messaging and the web endpoints."""
 import asyncio
+from collections import deque
 import json
 import os
 from pathlib import Path
@@ -13,7 +14,8 @@ import pytest
 
 from robot_platform.control.scheduling import prefer_responsive
 from robot_platform.helm.server import create_app
-from robot_platform.helm.teleop import AdvisoryCompiler, TeleopCore, TeleopSession, load_profile
+from robot_platform.helm.teleop import (PAUSE_ATTEMPTS, AdvisoryCompiler, TeleopCore, TeleopSession,
+                                        load_profile)
 
 ROOT = Path(__file__).resolve().parents[2]
 TELEOP = ROOT / 'config/devices/minerva-teleop.json'
@@ -473,3 +475,24 @@ def test_a_silent_helm_ends_the_loop_after_lowering_the_arm():
     run_loop(commands, SimpleNamespace(send=sent.append, close=lambda: None), core, silence_s=.2)
     assert .2 <= time.monotonic() - started < 2.
     assert core.gone == ['Helm went silent for 0.2 s'] and core.lowering == 0 and core.closed
+
+
+def test_only_a_joint_over_its_speed_holds_the_arms_and_a_few_times_a_minute():
+    """A receiver stop for a joint over its speed (its sustained_speed check) holds the arms where they stopped
+    (helm.teleop HOLD_TRIPS); any other trip, or a fourth pause in a minute, still lowers them."""
+    core = object.__new__(TeleopCore)  # Without __init__: no pauses yet.
+
+    def stopped(check, reason='limit_violation'):
+        return {'state': 'stopping', 'reason': reason,
+                'last_trip': {'reason': 'limit_violation', 'joint': 'left_arm_j4', 'check': check,
+                              'value': .86, 'limit': .78, 'at_ms': 1}}
+
+    assert core._trip_hold_due(stopped('sustained_speed'), 100.)
+    for check in ('speed', 'position_below_lower', 'position_above_upper', 'effort', 'temperature'):
+        assert not core._trip_hold_due(stopped(check), 100.), check
+    assert not core._trip_hold_due(stopped('sustained_speed', reason='command_expired'), 100.)  # An older trip's.
+    assert not core._trip_hold_due({'state': 'stopping', 'reason': 'limit_violation'}, 100.)
+    assert not core._trip_hold_due({}, 100.)
+    core._pauses = deque([60., 80., 99.], maxlen=PAUSE_ATTEMPTS)
+    assert not core._trip_hold_due(stopped('sustained_speed'), 100.)  # PAUSE_ATTEMPTS in the last minute.
+    assert core._trip_hold_due(stopped('sustained_speed'), 121.)  # The first of them is over a minute old.

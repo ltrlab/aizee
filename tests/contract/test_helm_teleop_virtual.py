@@ -299,6 +299,82 @@ def test_a_late_cycle_just_after_a_camera_dropped_holds_the_arm_where_it_stopped
     run(core, clock, 'T', until='TELEOP', seconds=16)
 
 
+def over_speed(core, harness, monkeypatch, joint, readings=3):
+    """`joint` read moving at 1.5 times its receiver cap toward its lower end, `readings` readings in a row: the
+    receiver's sustained_speed check (left J4 lurching into its lower end, 2026-11-03), not its one-reading check
+    at three times the allowed speed. Returns the joint's index and how far its stop may carry it."""
+    joints = core.derived['config']['joints']
+    index = [j['name'] for j in joints].index(joint)
+    cap, braking = joints[index]['max_velocity'], joints[index]['stop_acceleration']
+    step, left = harness.step, [readings]
+
+    def stepped(now_ms, request=None, **kwargs):
+        if left[0] > 0:
+            left[0] -= 1
+            measured = [{key: row[key] for key in ('position', 'velocity', 'effort')}
+                        for row in harness.last['feedback']]
+            measured[index]['velocity'] = -1.5 * cap
+            kwargs['feedback'] = measured
+        return step(now_ms, request, **kwargs)
+    monkeypatch.setattr(harness, 'step', stepped)
+    monkeypatch.setattr(core, '_pauses', deque(maxlen=PAUSE_ATTEMPTS))
+    return index, cap * cap / (2 * braking)
+
+
+def tick_until(core, clock, done, limit=400):
+    for _ in range(limit):
+        core.tick(None, clock())
+        clock.now += core.period_s
+        if done():
+            return
+
+
+def test_a_joint_over_its_speed_is_held_where_the_receiver_stopped_it_and_engage_follows_again(rig, monkeypatch):
+    core, clock, _leaders = rig
+    run(core, clock, 'I')
+    run(core, clock, 'E')
+    run(core, clock, 'T', until='TELEOP', seconds=16)
+    joint = next(name for name in core.session.lifecycle.names if name.endswith('_j4'))
+    index, travel = over_speed(core, core.harness, monkeypatch, joint)
+    before = [row['position'] for row in core.harness.last['feedback']]
+    tick_until(core, clock, lambda: core.fault, limit=10)
+    assert re.match(r'Receiver stop(ping|ped): limit_violation \(.* for three readings', core.fault), core.fault
+    assert 'PAUSED' in core.message and 'taking it back there' in core.message, core.message
+    tick_until(core, clock, lambda: core.fault is None)
+    # Held where the receiver braked it, not lowered or disabled: the fault clears and Engage follows again.
+    assert core.fault is None and core.session.lifecycle.state == 'HOLD', core.message
+    assert 'PAUSED: the receiver stopped the arms' in core.message, core.message
+    assert 'Engage (T) follows again' in core.message and core.harness.last['hardware_enabled']
+    held = [row['position'] for row in core.harness.last['feedback']]
+    assert all(abs(a - b) < (travel + .01 if i == index else .05)
+               for i, (a, b) in enumerate(zip(held, before))), (held, before)
+    run(core, clock, 'T', until='TELEOP', seconds=16)
+
+
+def test_a_joint_past_its_limit_still_lowers_the_arm(rig, monkeypatch):
+    core, clock, _leaders = rig
+    run(core, clock, 'I')
+    run(core, clock, 'E')
+    run(core, clock, 'T', until='TELEOP', seconds=16)
+    joints = core.derived['config']['joints']
+    index = next(i for i, j in enumerate(joints) if j['name'].endswith('_j4'))
+    step, left = core.harness.step, [1]
+
+    def stepped(now_ms, request=None, **kwargs):
+        if left[0] > 0:
+            left[0] -= 1
+            measured = [{key: row[key] for key in ('position', 'velocity', 'effort')}
+                        for row in core.harness.last['feedback']]
+            measured[index]['position'] = joints[index]['upper'] + .01
+            kwargs['feedback'] = measured
+        return step(now_ms, request, **kwargs)
+    monkeypatch.setattr(core.harness, 'step', stepped)
+    monkeypatch.setattr(core, '_pauses', deque(maxlen=PAUSE_ATTEMPTS))
+    tick_until(core, clock, lambda: core.fault, limit=10)
+    assert re.match(r'Receiver stop(ping|ped): limit_violation \(', core.fault), core.fault
+    assert 'lowering to the reference, then disabling' in core.message, core.message
+
+
 def test_a_drive_that_left_run_mode_is_named_while_the_receiver_holds_the_arm(rig, monkeypatch):
     from robot_platform.control.guarded import GuardRejected
     core, clock, _leaders = rig

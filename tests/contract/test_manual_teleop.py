@@ -9,6 +9,7 @@ from robot_platform.helm.manual_tuning import ManualTuning
 from robot_platform.helm.session import HelmSession
 from robot_platform.helm.teleop import TeleopCore, TeleopSession
 from tests.contract.test_helm_teleop_live import bundle, Clock, Leaders, Receiver, run, DEVICES, SEED
+from tests.contract.test_helm_teleop_virtual import over_speed, tick_until
 
 
 @pytest.fixture(params=[False, True], ids=['position-only', 'velocity-feedforward'])
@@ -150,6 +151,54 @@ def test_manual_tuning_drives_both_live_arms_in_one_receiver(manual_bundle):
             assert all(v == 0. for v in followed)
         else:
             assert all(0. < abs(v) <= .08 + 1e-9 for v in followed[-4:]), followed  # Its smoothed speed, in the cap.
+        run(core, clock, 'H')
+    finally:
+        core.close()
+
+
+def test_a_joint_over_its_speed_holds_both_arms_where_the_receiver_stopped_them(manual_bundle, monkeypatch):
+    """Left J4 lurched into its lower end in VR (2026-11-03): the receiver braked both arms for three readings over
+    its speed, and the loop lowered and disabled them. Now they hold where it stopped them; Engage follows again."""
+    data, manual = manual_bundle
+    clock = Clock()
+    leaders = Leaders(clock)
+    receivers = []
+
+    def receiver(config, device, reference):
+        receivers.append(Receiver(config, reference, clock))
+        return receivers[-1]
+
+    core = TeleopCore(dict(data, receiver={'mode': 'live', 'arm': 'both'}), clock=clock,
+        open_leaders=lambda _: leaders, open_receiver=receiver,
+        open_backend=lambda _: pytest.fail('No collision backend'))
+    try:
+        core.build()
+        run(core, clock, 'I')
+        run(core, clock, 'E')
+        run(core, clock)
+        # Left J4 following at the session's gains; a joint held still stays where Enable latched it.
+        update = manual.bundle()
+        next(r for r in update['joints'] if r['motor'] == 'left_arm_j4').update(kp=100., kd=2., follow=True, speed=1.)
+        core.queue_tuning(update)
+        for _ in range(4):
+            run(core, clock)
+            if core._tuning_result:
+                break
+        assert core._tuning_result[0] is None
+        run(core, clock, 'T', until='TELEOP', limit=1000)
+        harness = receivers[-1].harness
+        index, travel = over_speed(core, harness, monkeypatch, 'left_arm_j4')
+        before = [row['position'] for row in harness.last['feedback']]
+        tick_until(core, clock, lambda: core.fault, limit=10)
+        assert 'limit_violation (Left J4 moving at' in core.fault and 'for three readings' in core.fault, core.fault
+        tick_until(core, clock, lambda: core.fault is None)
+        assert core.fault is None and core.session.lifecycle.state == 'HOLD', core.message
+        assert 'Engage (T) follows again' in core.message, core.message
+        assert harness.last['hardware_enabled'] and harness.last['status']['state'] in ('holding', 'executing')
+        held = [row['position'] for row in harness.last['feedback']]
+        assert all(abs(a - b) < (travel + .01 if i == index else .05)
+                   for i, (a, b) in enumerate(zip(held, before))), (held, before)
+        run(core, clock, 'T', until='TELEOP', limit=1000)
         run(core, clock, 'H')
     finally:
         core.close()
