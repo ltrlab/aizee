@@ -1,0 +1,3 @@
+.pio/
+# The repository's root .gitignore drops every lib/ folder, for Python's sake. This one is source.
+!lib/
