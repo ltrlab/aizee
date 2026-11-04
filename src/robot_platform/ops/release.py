@@ -29,6 +29,7 @@ HEAD_MODEL = 'urdf/minerva/onshape-to-robot-head-v1/model.json'
 CALIBRATION = 'config/devices/minerva-joint-calibration.json'
 MANIFEST, LOCK = 'release.json', 'assets.lock.json'
 HELM_LOCK = 'requirements/helm-robot.lock'  # Helm on Minerva's own dependencies (ops.helm_service).
+WEBRTC_LOCK = 'requirements/helm-webrtc.lock'  # Its remote headset worker's, on that process's path only.
 BINARIES = ('guarded_controller', 'control_harness', 'motor_watchdog_trial', 'head_controller')
 LIBRARY = 'librobot_collision.so'
 # Each artifact is only as stale as its own crate: binaries come from control_core,
@@ -67,6 +68,7 @@ def collect(root=ROOT):
         if path.is_file() and '__pycache__' not in parts and (path.suffix == '.py') != ('static' in parts):
             files[_key(path, root)] = path
     files[HELM_LOCK] = root / HELM_LOCK
+    files[WEBRTC_LOCK] = root / WEBRTC_LOCK
     for path in sorted((root / 'config/devices').glob('*.json')):
         files[_key(path, root)] = path
     # Each bus's hardware profile: Helm's direct tuning and settings read the motor models from them

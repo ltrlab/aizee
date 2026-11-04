@@ -141,10 +141,10 @@ class Host:
             return False
 
 
-def lock_id(release=ROOT):
-    """The dependency folder name of a release: its Helm lock's digest."""
+def lock_id(release=ROOT, lock=None):
+    """The dependency folder name of a release: its Helm lock's digest, or `lock`'s."""
     from .release import HELM_LOCK
-    return hashlib.sha256((Path(release) / HELM_LOCK).read_bytes()).hexdigest()[:12]
+    return hashlib.sha256((Path(release) / (lock or HELM_LOCK)).read_bytes()).hexdigest()[:12]
 
 
 def _write(path, data, mode=0o644):
@@ -488,6 +488,13 @@ def run(argv=None, host=None, *, release=ROOT, main=None):
         return CONFIG_EXIT
     sys.path.insert(0, str(p.deps / report['dependencies']['lock']))  # Before anything imports aiohttp.
     os.environ['AIZEE_SSH_KEY_FILE'] = str(p.local_key)  # Every robot path: pinned SSH to 127.0.0.1 (ops.ssh).
+    from .release import WEBRTC_LOCK
+    try:  # The remote headset worker's own dependencies (helm.webrtc_link): Helm's path does not get them.
+        webrtc = p.deps / lock_id(release, WEBRTC_LOCK)
+    except OSError:
+        webrtc = None
+    if webrtc is not None and (webrtc / COMPLETE).is_file():
+        os.environ['HELM_WEBRTC_DEPS'] = str(webrtc)
     devices = Path(release) / 'config/devices'
     options = ['--on-robot', '--profile', str(Path(release) / PROFILE), '--host', '0.0.0.0', '--port', str(PORT),
                '--loopback-port', str(LOOPBACK_PORT), '--access', str(p.access), '--runs', str(p.runs), '--operator-files', str(p.operator),

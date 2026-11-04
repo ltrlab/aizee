@@ -1,0 +1,5 @@
+# The remote headset's WebRTC worker on Minerva's Jetson (helm.webrtc_worker): installed beside Helm's own dependencies
+# (helm-robot.lock), on that process's path only, so these versions of cryptography and the rest never reach Helm's
+# paramiko or the robot's system packages. Pinned: helm.webrtc_video replaces aiortc's encoder lookup. Regenerate:
+#   uv pip compile requirements/helm-webrtc.in --python-version 3.10 --python-platform aarch64-manylinux_2_28 --generate-hashes -o requirements/helm-webrtc.lock
+aiortc==1.15.0

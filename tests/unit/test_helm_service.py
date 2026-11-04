@@ -291,7 +291,7 @@ def test_deps_install_from_the_uploaded_wheels_only_once(tmp_path, monkeypatch):
     wheels.mkdir()
     (wheels / 'aiohttp-3.14.4-cp310-cp310-manylinux2014_aarch64.whl').write_bytes(b'wheel')
     monkeypatch.setattr(helm_robot, 'run', run)
-    monkeypatch.setattr(helm_robot, 'download_wheels', lambda root, cache: wheels)
+    monkeypatch.setattr(helm_robot, 'download_wheels', lambda root, cache, lock=None: wheels)
     client = type('Client', (), {'open_sftp': lambda self: Sftp()})()
     lock = helm_robot.deps(client, log=lambda message: None)
     assert lock == helm_robot.lock_id() == helm_service.lock_id(ROOT)

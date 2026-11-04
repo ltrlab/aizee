@@ -23,7 +23,7 @@ import subprocess
 import sys
 import zipfile
 
-from .release import HEAD_MODEL, HELM_LOCK, MODEL, ROOT
+from .release import HEAD_MODEL, HELM_LOCK, WEBRTC_LOCK, MODEL, ROOT
 from .ssh import TETHER, run
 
 SERVICE = 'cd ~/minerva/current && PYTHONPATH=src python3 -m robot_platform.ops.helm_service'
@@ -108,49 +108,63 @@ def meshes(client, *, root=ROOT, cache=None, log=print):
     return {'wanted': len(wanted), 'uploaded': len(expected), 'bytes': sent}
 
 
-def lock_id(root=ROOT):
-    return _sha((Path(root) / HELM_LOCK).read_bytes())[:12]
+def lock_id(root=ROOT, lock=HELM_LOCK):
+    return _sha((Path(root) / lock).read_bytes())[:12]
 
 
-def download_wheels(root=ROOT, cache=None, python=sys.executable):
+def download_wheels(root=ROOT, cache=None, python=sys.executable, lock=HELM_LOCK):
     """The lock's aarch64 wheels, downloaded with their hashes checked; returns their folder."""
-    folder = Path(cache or Path(root) / 'build' / 'helm-robot-deps') / lock_id(root)
+    folder = Path(cache or Path(root) / 'build' / 'helm-robot-deps') / lock_id(root, lock)
     platforms = [option for platform in PLATFORMS for option in ('--platform', platform)]
     subprocess.run([python, '-m', 'pip', 'download', '--disable-pip-version-check', '--quiet', '--only-binary=:all:',
                     '--no-deps', '--require-hashes', *platforms, '--python-version', '3.10', '--implementation', 'cp',
-                    '--abi', 'cp310', '--abi', 'abi3', '--abi', 'none', '-r', str(Path(root) / HELM_LOCK),
+                    '--abi', 'cp310', '--abi', 'abi3', '--abi', 'none', '-r', str(Path(root) / lock),
                     '-d', str(folder)], check=True)
     return folder
 
 
-def deps(client, *, root=ROOT, cache=None, log=print):
-    """Install this checkout's Helm lock on Minerva; returns the lock id. Nothing is fetched from there."""
-    lock = lock_id(root)
+def deps(client, *, root=ROOT, cache=None, log=print, source=HELM_LOCK,
+         check='import aiohttp, yarl, multidict; print("aiohttp", aiohttp.__version__)'):
+    """Install this checkout's Helm lock (or `source`) on Minerva; returns the lock id. Nothing is fetched from there.
+    `check`: run with the new folder on the path, its last line said in the log."""
+    lock = lock_id(root, source)
     target = f'minerva/helm/deps/{lock}'
     if run(client, f'test -f ~/{target}/.complete')[0] == 0:
         log(f'Dependencies {lock} already installed.')
         return lock
-    folder = download_wheels(root, cache)
+    folder = download_wheels(root, cache, lock=source)
     wheels = sorted(folder.glob('*.whl'))
     incoming = f'minerva/helm/wheels/{lock}'
     status, _out, err = run(client, f'rm -rf ~/{incoming} && mkdir -p ~/{incoming} ~/minerva/helm/deps')
     if status:
         raise RuntimeError(f'Could not prepare the upload: {err.strip()}')
     with client.open_sftp() as sftp:
-        for path in wheels + [Path(root) / HELM_LOCK]:
+        for path in wheels + [Path(root) / source]:
             sftp.put(str(path), f'{incoming}/{path.name}')
     q = shlex.quote
     partial = f'~/{target}.partial'
     command = (f'rm -rf {partial} && python3 -m pip install --disable-pip-version-check --no-index '
                f'--find-links ~/{incoming} --require-hashes --only-binary=:all: --no-deps --target {partial} '
-               f'-r ~/{incoming}/{q(Path(HELM_LOCK).name)} && '
-               f'PYTHONPATH={partial} python3 -c "import aiohttp, yarl, multidict; print(aiohttp.__version__)" && '
+               f'-r ~/{incoming}/{q(Path(source).name)} && '
+               f'PYTHONPATH={partial} python3 -c {q(check)} && '
                f'echo {q(lock)} > {partial}/.complete && mv {partial} ~/{target} && rm -rf ~/{incoming}')
     status, out, err = run(client, command, timeout=600)
     if status:
         raise RuntimeError(f'Installing the dependencies failed: {(err or out).strip()[-800:]}')
-    log(f'Dependencies {lock} installed: aiohttp {out.strip().splitlines()[-1]} ({len(wheels)} wheels).')
+    log(f'Dependencies {lock} installed: {out.strip().splitlines()[-1]} ({len(wheels)} wheels).')
     return lock
+
+
+def webrtc_deps(client, *, root=ROOT, cache=None, log=print):
+    """The remote headset worker's lock on Minerva. Helm runs without it (the headset stays on its ordinary link), so
+    a failure here is said and not raised."""
+    try:
+        return deps(client, root=root, cache=cache, log=log, source=WEBRTC_LOCK,
+                    check='import aiortc, av; print("aiortc", aiortc.__version__, "av", av.__version__, '
+                          '"libx264" in av.codecs_available)')
+    except (RuntimeError, OSError, subprocess.CalledProcessError) as exc:
+        log(f'The remote headset link is not installed: {exc}')
+        return None
 
 
 def remote(client, action, *args, timeout=120.):
@@ -173,6 +187,7 @@ def update(client, *, root=ROOT, log=print):
         log('Helm is not installed as a service on Minerva: nothing to update.')
         return report
     deps(client, root=root, log=log)
+    webrtc_deps(client, root=root, log=log)
     meshes(client, root=root, log=log)
     status, report, err = remote(client, 'restart', timeout=120.)
     if status:
@@ -226,6 +241,7 @@ def main(argv=None):
             print(json.dumps(meshes(client)))
         elif args.action == 'deps':
             deps(client)
+            webrtc_deps(client)
         elif args.action == 'update':
             update(client)
         else:
