@@ -19,6 +19,7 @@ import socket
 import time
 from .head_only import head_only
 from .session import WIRED
+from .webrtc_link import WebRTCLink
 
 STATIC = Path(__file__).parent / 'static'
 # Served before a login, so the login page has Helm's type: these exact paths, nothing else under /helm.
@@ -72,7 +73,9 @@ def task_visual_label(capabilities):
 
 # The logged-in session of the request being handled (helm.access), for the state it answers with.
 CURRENT_SESSION = contextvars.ContextVar('helm_session', default=None)
-OPEN_POSTS = ('/api/helm/logout', '/api/helm/control/claim', '/api/helm/control/release')
+# The remote headset's WebRTC offer needs a login, not control, as its socket does: the session the device in control
+# engages decides whether the head moves.
+OPEN_POSTS = ('/api/helm/logout', '/api/helm/control/claim', '/api/helm/control/release', '/api/helm/xr/remote')
 
 # A camera viewer on a slow link (a tablet on Minerva's Wi-Fi) gets fewer, fresh frames, not a closed stream or old
 # ones. About one frame waits in the connection's send buffer (VIDEO_BACKLOG) and newer ones are skipped beyond it;
@@ -126,6 +129,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     video_sockets = set()
     from .xr import Headset
     headset = Headset()  # The operator's headset steering the head (helm.xr).
+    xr_steered = {'count': 0}
     # Settings → Headset's preview: the 3D view's head follows the headset while no session drives the head.
     xr_preview = {'on': False}
     if simulation_only and live:
@@ -212,7 +216,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             session_token = request.cookies.get(COOKIE)
             if access.session(session_token) is None:
                 if request.method == 'GET' and not path.startswith('/api/'):
-                    raise web.HTTPFound('/login?next=/xr' if path == '/xr' else '/login')
+                    remote = '?remote' if 'remote' in request.query else ''  # Back to the page as it was opened.
+                    raise web.HTTPFound(f'/login?next=/xr{remote}' if path == '/xr' else '/login')
                 return web.json_response({'error': 'Log in to Helm first', 'login': True}, status=401)
             CURRENT_SESSION.set(session_token)
             if request.method == 'POST' and path not in OPEN_POSTS and not access.in_control(session_token):
@@ -1059,6 +1064,52 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     async def xr_page(_request):
         return web.FileResponse(STATIC / 'xr.html', headers={'Cache-Control': 'no-store'})
 
+    def xr_steer(connection, data):
+        """A pose from the headset's socket or its WebRTC channel, on `connection`: to the running session's head and
+        arms, and now and then what the head does with it, for the page (None otherwise)."""
+        pose = headset.receive(connection, data)
+        if pose is None:
+            return None
+        running = teleop is not None and teleop.head_pose(*pose)
+        # The controllers that came with it, as Helm checked them, to a headset session's grab and drag.
+        hands = {hand: {key: value for key, value in headset.hands[hand].items() if key != 'at'}
+                 for hand in (data.get('hands') or {}) if hand in headset.hands}
+        if hands and teleop is not None and hasattr(teleop, 'hands'):
+            teleop.hands(hands, headset.epoch, headset.zero_yaw)
+        xr_steered['count'] += 1
+        if xr_steered['count'] % 15 != 1:  # Now and then: what the head does with it.
+            return None
+        head = (((teleop.snapshot() if teleop is not None else None) or {}).get('head') or {})
+        return {'type': 'status', 'steering': bool(running), 'head': head.get('state'), 'source': head.get('source'),
+                'head_fault': head.get('fault'), **headset.status()}
+
+    def xr_channel_pose(text, owner):
+        """A message on a remote headset's pose channel. It steers only for the login that opened the link, on that
+        login's socket; a message that is not a good pose is dropped, as the channel has no way to say so."""
+        import json as _json
+        if not headset.connection or headset.owner != owner:
+            return
+        try:
+            data = _json.loads(text)
+            reply = xr_steer(headset.connection, data) if isinstance(data, dict) else None
+        except (ValueError, TypeError):
+            return
+        if reply is not None:
+            remote_link.status(reply)
+
+    remote_link = WebRTCLink(camera_video, xr_channel_pose)
+
+    async def xr_remote(request):
+        """A remote headset's WebRTC offer (helm.webrtc_link): its answer. The same login and token as its socket."""
+        payload = await body(request)
+        sdp, kind = payload.get('sdp'), payload.get('type')
+        if not isinstance(sdp, str) or kind != 'offer' or len(sdp) > 128 * 1024:
+            raise ValueError('A WebRTC offer is its sdp and type')
+        owner = CURRENT_SESSION.get() if access is not None else None
+        if headset.connection and headset.owner != owner:  # As the socket: it would end that headset's picture.
+            raise ValueError(f"{headset.device or 'Another headset'} is steering the head: stop head tracking there first")
+        return web.json_response(await remote_link.offer(sdp, kind, owner))
+
     async def xr_socket(request):
         """The headset's poses (helm.xr): each, as yaw and pitch from the zero, to the running teleop session's head.
         A logged-in device's page with Helm's action token, not control: the session the device in control engages
@@ -1078,7 +1129,6 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             await ws.send_json({'type': 'error', 'error': str(exc), 'busy': True})
             await ws.close()
             return ws
-        steered = 0
         try:
             async for message in ws:
                 if message.type != web.WSMsgType.TEXT:
@@ -1091,24 +1141,12 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
                         await ws.send_json({'type': 'status', 'zeroed': kind == 'zero', 'restarted': kind == 'start',
                                             **headset.status()})
                         continue
-                    pose = headset.receive(connection, data)
+                    reply = xr_steer(connection, data)
                 except ValueError as exc:
                     await ws.send_json({'type': 'error', 'error': str(exc)})
                     continue
-                if pose is None:
-                    continue
-                running = teleop is not None and teleop.head_pose(*pose)
-                # The controllers that came with it, as Helm checked them, to a headset session's grab and drag.
-                hands = {hand: {key: value for key, value in headset.hands[hand].items() if key != 'at'}
-                         for hand in (data.get('hands') or {}) if hand in headset.hands}
-                if hands and teleop is not None and hasattr(teleop, 'hands'):
-                    teleop.hands(hands, headset.epoch, headset.zero_yaw)
-                steered += 1
-                if steered % 15 == 1:  # Now and then: what the head does with it.
-                    head = (((teleop.snapshot() if teleop is not None else None) or {}).get('head') or {})
-                    await ws.send_json({'type': 'status', 'steering': bool(running), 'head': head.get('state'),
-                                        'source': head.get('source'), 'head_fault': head.get('fault'),
-                                        **headset.status()})
+                if reply is not None:
+                    await ws.send_json(reply)
         finally:
             headset.disconnect(connection)
         return ws
@@ -1327,6 +1365,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         await asyncio.gather(*(asyncio.wait_for(
             ws.close(code=1001, message=b'Helm shutting down'), 1.)
             for ws in list(video_sockets)), return_exceptions=True)
+        await remote_link.close()
         if camera_video is not None:
             await off_loop(camera_video.close)
         if episodes is not None:
@@ -1340,6 +1379,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     app.router.add_get('/xr', xr_page)
     app.router.add_post('/api/helm/network/ap', network_ap)
     app.router.add_get('/api/helm/xr', xr_socket)
+    app.router.add_post('/api/helm/xr/remote', xr_remote)
     app.router.add_post('/api/helm/xr/zero', xr_zero)
     app.router.add_get('/api/helm/xr/wrists', xr_wrists)
     app.router.add_post('/api/helm/xr/preview', xr_preview_switch)

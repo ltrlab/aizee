@@ -79,7 +79,8 @@
         if (!response.ok) throw new Error(data.error || `Helm answered HTTP ${response.status}`);
         try { localStorage.setItem('helm-device', device.value.trim()); } catch { /* storage unavailable */ }
         // Back where Helm sent the device from: only the headset page (no open redirect).
-        location.href = new URLSearchParams(location.search).get('next') === '/xr' ? '/xr' : '/';
+        const next = new URLSearchParams(location.search).get('next');
+        location.href = next === '/xr' || next === '/xr?remote' ? next : '/';
       } catch (failure) {
         error.textContent = failure.message;
         go.disabled = false;

@@ -69,7 +69,7 @@ CORE = [
     'tests/unit/test_ci_windows_gl.py', 'tests/unit/test_dev_gate.py', 'tests/unit/test_gate_time_study.py',
     'tests/unit/test_platform_packaging.py', 'tests/unit/test_neck_feetech.py', 'tests/unit/test_neck_head.py',
     'tests/contract/test_helm_tune_head.py', 'tests/contract/test_head_teleop.py',
-    'tests/contract/test_teleop_head.py', 'tests/unit/test_helm_xr.py', 'tests/unit/test_minerva_network.py',
+    'tests/contract/test_teleop_head.py', 'tests/unit/test_helm_xr.py', 'tests/unit/test_helm_webrtc.py', 'tests/unit/test_minerva_network.py',
     'tests/unit/test_helm_network.py', 'tests/unit/test_helm_display_model.py', 'tests/unit/test_helm_head_setup.py',
     'tests/unit/test_head_pose.py', 'tests/unit/test_head_loop.py', 'tests/unit/test_helm_camera_video.py',
     'tests/unit/test_wrist_calibration.py', 'tests/unit/test_helm_calibration.py', 'tests/unit/test_head_alignment.py',

@@ -41,10 +41,10 @@ export function meshGeometry(buffer) {
 export class RobotModel {
   // `fetch`, the timers and the clock (ms): the browser's (tests pass their own). Each is wrapped: called as this
   // object's method, the browser's own setTimeout throws "Illegal invocation" (it wants the window), and the model
-  // never followed Helm's guide in the headset (2026-10-31).
+  // never followed Helm's guide in the headset (2026-10-31). `guideMs`: how often to ask where the robot is.
   constructor({fetch: get = (...args) => fetch(...args), setTimer = (fn, ms) => setTimeout(fn, ms),
-    clearTimer = id => clearTimeout(id), now = () => performance.now()} = {}) {
-    Object.assign(this, {get, setTimer, clearTimer, now});
+    clearTimer = id => clearTimeout(id), now = () => performance.now(), guideMs = GUIDE_MS} = {}) {
+    Object.assign(this, {get, setTimer, clearTimer, now, guideMs});
     this.group = new THREE.Group();
     this.group.visible = false;
     this.group.matrixAutoUpdate = false;
@@ -162,7 +162,7 @@ export class RobotModel {
     } catch {
       // No guide (Helm without one, or a moment unreachable): the model keeps its last pose.
     }
-    if (this.tracking) this.timer = this.setTimer(() => this.poll(), GUIDE_MS);
+    if (this.tracking) this.timer = this.setTimer(() => this.poll(), this.guideMs);
   }
 
   // Where the robot's frame is in the room (M), or null: not in the room. `drawn` false: placed, but not drawn (its

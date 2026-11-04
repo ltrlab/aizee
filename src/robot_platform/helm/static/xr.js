@@ -9,8 +9,12 @@
 // Helm's control from another device, which keeps showing the session, view-only: xr_session.js), the picture's view,
 // the head's zero. While the ring is open on a controller, its arm takes no part. With the ring closed, a one-line
 // alert shows a fault, a hold, lost control or a lost link. The wrist cameras' pictures sit on the model's wrists.
+// Opened with ?remote, for a slow or lossy link (over Tailscale, say): the head camera and the poses go over WebRTC
+// (xr_remote.js), with no depth or wrist pictures, and the page asks Helm for less, less often.
 import * as THREE from 'three';
 import {HeadCamera} from './xr_camera.js';
+import {RobotModel} from './xr_model.js';
+import {RemoteCamera} from './xr_remote.js';
 import {Ring} from './xr_ring.js';
 import {HeadsetScene} from './xr_scene.js';
 import {ALERT_S, POLL_MS, SessionControl, alertOf, ringMenu, statusLines} from './xr_session.js';
@@ -25,6 +29,8 @@ const STATUS_STALE_MS = 1000;  // Helm answers every 15th pose: this long withou
 const RETRY_MS = 1000;
 const BUSY_RETRY_MS = 3000;  // Another device's headset steers: ask again now and then.
 const HANDS = ['left', 'right'];
+const REMOTE = typeof location !== 'undefined' && new URLSearchParams(location.search).has('remote');
+const REMOTE_POLL_MS = 2000, REMOTE_GUIDE_MS = 500;  // Helm's state and the model's pose: a link's worth, not Helm's.
 
 let socket = null;
 let token = null;
@@ -69,6 +75,28 @@ function show(id, text, tone) {
 
 function send(message) {
   if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
+}
+
+// A pose: on the remote link's channel while it is open, else the socket.
+function sendPose(message) {
+  const text = JSON.stringify(message);
+  if (camera?.sendPose?.(text)) return;
+  if (socket && socket.readyState === WebSocket.OPEN) socket.send(text);
+}
+
+// The page's WebRTC offer to Helm, its answer back.
+async function remoteOffer(offer) {
+  const response = await fetch('/api/helm/xr/remote', {method: 'POST', body: JSON.stringify(offer),
+    headers: {'Content-Type': 'application/json', 'X-Helm-Token': token || ''}});
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `Helm answered ${response.status}`);
+  return data;
+}
+
+function linkLine(camera) {
+  const {bitrate_bps: rate, rtt_ms: rtt} = camera.link || {};
+  return REMOTE ? [`Remote link${rate == null ? '' : ` · ${(rate / 1e6).toFixed(2)} Mbit/s`}${rtt == null ? ''
+    : ` · ${Math.round(rtt)} ms`}`, ''] : null;
 }
 
 // What the page says while no XR session runs.
@@ -157,7 +185,7 @@ async function poll(run) {
   } catch (error) {
     raise({text: `Helm: ${error.message}`, tone: 'warn', sticky: false});
   }
-  if (session && run === pollRun) polling = setTimeout(() => poll(run), POLL_MS);
+  if (session && run === pollRun) polling = setTimeout(() => poll(run), REMOTE ? REMOTE_POLL_MS : POLL_MS);
 }
 
 async function start() {
@@ -172,7 +200,7 @@ async function start() {
     renderer.xr.enabled = true;
     renderer.xr.setReferenceSpaceType('local');
     // The 3D switch asks Helm for the head camera's frames with their depth (or just the frames) from here on.
-    view = new HeadsetScene(renderer, {storage: browserStorage(),
+    view = new HeadsetScene(renderer, {storage: browserStorage(), ...(REMOTE && {robot: new RobotModel({guideMs: REMOTE_GUIDE_MS})}),
       onDepth: depth => camera?.setRole(depth ? 'head_depth' : 'head'), onHands: streamWrists});
   }
   renderer.setClearColor(0x0f1218, mode === 'immersive-ar' ? 0 : 1);  // Passthrough shows through a clear frame.
@@ -184,11 +212,12 @@ async function start() {
     send({type: 'start'});
     view.rezero();
   });
-  camera = new HeadCamera({token: () => token, role: view.view.depth ? 'head_depth' : 'head',
-    onFrame: (bitmap, _metadata, depth) => {
-      view.showFrame(bitmap);
-      if (depth) view.showDepth(depth);
-    }});
+  const onFrame = (bitmap, _metadata, depth) => {
+    view.showFrame(bitmap);
+    if (depth) view.showDepth(depth);
+  };
+  camera = REMOTE ? new RemoteCamera({offer: remoteOffer, onFrame, onStatus: onStatus})
+    : new HeadCamera({token: () => token, role: view.view.depth ? 'head_depth' : 'head', onFrame});
   camera.start();
   loadMounts();
   streamWrists(view.view.hands);
@@ -208,7 +237,7 @@ async function start() {
     show('status', 'Head tracking stopped: the head holds, then returns to its zero.', 'warn');
   });
   $('start').textContent = 'Stop head tracking';
-  show('status', `Tracking (${mode === 'immersive-ar' ? 'passthrough' : 'VR'}).`, 'ok');
+  show('status', `Tracking (${mode === 'immersive-ar' ? 'passthrough' : 'VR'}${REMOTE ? ', remote link' : ''}).`, 'ok');
   let textAt = -Infinity, frameAt = null;
   renderer.setAnimationLoop((time, frame) => {
     const pose = frame?.getViewerPose(renderer.xr.getReferenceSpace());
@@ -219,7 +248,7 @@ async function start() {
     frameAt = time;
     if (pose && time - lastSent >= SEND_INTERVAL_MS) {
       sequence += 1;
-      send(poseMessage(pose.transform.orientation, sequence, controllers(frame)));
+      sendPose(poseMessage(pose.transform.orientation, sequence, controllers(frame)));
       lastSent = time;
     }
     zeroOnThumbstick(working);
@@ -228,7 +257,8 @@ async function start() {
       const picture = camera.stats;
       const word = performance.now() - statusAt > STATUS_STALE_MS ? {...headset, tracking: false} : headset;
       const [, wristWhy] = view.wristState;
-      status = statusLines(control.state, link, [headLine(word), cameraLine(picture), wristWhy && [wristWhy, 'warn']]);
+      status = statusLines(control.state, link, [headLine(word), cameraLine(picture), linkLine(camera),
+        !REMOTE && wristWhy && [wristWhy, 'warn']]);
       view.setFresh(picture.fresh);
     }
     view.update(pose);  // This frame's pose: a following picture is drawn where the eyes are now.
@@ -320,7 +350,7 @@ function loadMounts() {
 // runs), else none.
 function streamWrists(on) {
   for (const stream of wrists) stream.stop();
-  wrists = on && session ? CAMERAS.map(role => {
+  wrists = on && session && !REMOTE ? CAMERAS.map(role => {
     const stream = new HeadCamera({token: () => token, role, onFrame: bitmap => view.showWrist(role, bitmap)});
     stream.start();
     return stream;

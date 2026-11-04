@@ -264,7 +264,9 @@ def test_the_headset_logs_in_back_to_its_page_and_another_device_cannot_take_the
             page = await client.get('/xr', allow_redirects=False)
             assert page.status == 302 and page.headers['Location'] == '/login?next=/xr'
             login = await client.get('/login')
-            assert "get('next') === '/xr'" in await login.text()
+            assert "next === '/xr' || next === '/xr?remote'" in await login.text()
+            page = await client.get('/xr?remote', allow_redirects=False)
+            assert page.status == 302 and page.headers['Location'] == '/login?next=/xr?remote'
             refused = await client.post('/api/helm/xr/zero', json={}, headers={'X-Helm-Token': 'secret'})
             assert refused.status == 401
             url = client.make_url('/api/helm/xr?token=secret')
