@@ -8,7 +8,7 @@ The receiver (`lift_controller`) and its Helm card are not written yet. Until th
 drive this.
 
 Nothing here has run on the real hardware. The logic is tested on a simulated ATmega328P against a made-up column, and
-`src/board.cpp`, which talks to the actual chips and pins, has only been compiled.
+`src/board.cpp`, which talks to the actual chips and pins, has only booted in that simulator, with no chips attached.
 
 ## How it behaves
 
@@ -77,7 +77,7 @@ python -m platformio run -e lift_bench -t upload
 ```
 
 ```bash
-python -m platformio device monitor
+python -m platformio device monitor -e lift_bench
 ```
 
 `?` in the monitor lists the commands. Any key stops whatever is moving. Printing is slow enough to miss a tick, so a
