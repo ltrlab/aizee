@@ -63,6 +63,14 @@ the virtual proof establishes moving-arm tracking or control-loop timing with
 real capture load. No physical cube demonstration or training-ready dataset has
 been produced by this acceptance.
 
+The vertical lift's firmware (`firmware/lift_actuator`) is rewritten for an Arduino
+Uno on USB serial, on `claude/lift-firmware`, replacing its CAN emulation: homing
+only on request, every trip latched, 56 tests on a simulated ATmega328P.
+**It has not run on the hardware.** `src/board.cpp` has only booted in the simulator
+with no chips attached, and `include/config.h` holds zeros until the column is
+measured, so HOME and ENABLE refuse. The receiver and its Helm card are not written.
+See [its README](../firmware/lift_actuator/README.md).
+
 ## Integration and broader platform work
 
 The published integration checkpoint `2c7867c` previously passed 879 Python /
