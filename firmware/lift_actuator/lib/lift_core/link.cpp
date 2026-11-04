@@ -20,9 +20,7 @@ uint8_t *putU32(uint8_t *out, uint32_t value) {
 
 uint16_t getU16(const uint8_t *in) { return (uint16_t)in[0] | ((uint16_t)in[1] << 8); }
 
-int32_t getI32(const uint8_t *in) {
-    return (int32_t)((uint32_t)getU16(in) | ((uint32_t)getU16(in + 2) << 16));
-}
+int32_t getI32(const uint8_t *in) { return (int32_t)((uint32_t)getU16(in) | ((uint32_t)getU16(in + 2) << 16)); }
 
 uint8_t finishFrame(uint8_t *reply, protocol::Reply type, uint8_t length) {
     reply[0] = protocol::sync0;

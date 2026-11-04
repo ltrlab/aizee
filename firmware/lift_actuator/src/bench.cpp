@@ -37,50 +37,82 @@ uint16_t jogLowestMillivolts = 0;
 
 const __FlashStringHelper *faultName(Fault fault) {
     switch (fault) {
-    case Fault::none: return F("none");
-    case Fault::overcurrent: return F("overcurrent");
-    case Fault::stall: return F("stall");
-    case Fault::wrongDirection: return F("wrong direction: swap encoderInverted or motorInverted");
-    case Fault::encoder: return F("encoder");
-    case Fault::magnet: return F("magnet");
-    case Fault::currentSensor: return F("current sensor");
-    case Fault::limitTop: return F("top switch");
-    case Fault::limitBottom: return F("bottom switch");
-    case Fault::switchWiring: return F("both switches open");
-    case Fault::undervoltage: return F("undervoltage");
-    case Fault::noSupply: return F("no supply");
-    case Fault::duty: return F("duty");
-    case Fault::commandTimeout: return F("command timeout");
-    case Fault::homeTimeout: return F("home timeout");
-    case Fault::uncommandedMotion: return F("moved with the motor off");
+    case Fault::none:
+        return F("none");
+    case Fault::overcurrent:
+        return F("overcurrent");
+    case Fault::stall:
+        return F("stall");
+    case Fault::wrongDirection:
+        return F("wrong direction: swap encoderInverted or motorInverted");
+    case Fault::encoder:
+        return F("encoder");
+    case Fault::magnet:
+        return F("magnet");
+    case Fault::currentSensor:
+        return F("current sensor");
+    case Fault::limitTop:
+        return F("top switch");
+    case Fault::limitBottom:
+        return F("bottom switch");
+    case Fault::switchWiring:
+        return F("both switches open");
+    case Fault::undervoltage:
+        return F("undervoltage");
+    case Fault::noSupply:
+        return F("no supply");
+    case Fault::duty:
+        return F("duty");
+    case Fault::commandTimeout:
+        return F("command timeout");
+    case Fault::homeTimeout:
+        return F("home timeout");
+    case Fault::uncommandedMotion:
+        return F("moved with the motor off");
     }
     return F("?");
 }
 
 const __FlashStringHelper *rejectName(Reject reject) {
     switch (reject) {
-    case Reject::none: return F("ok");
-    case Reject::badCommand: return F("bad command");
-    case Reject::unmeasured: return F("config.h still has zeros");
-    case Reject::faulted: return F("fault latched, c clears it");
-    case Reject::notHomed: return F("not homed, h first");
-    case Reject::notEnabled: return F("not enabled");
-    case Reject::busy: return F("busy");
-    case Reject::outOfRange: return F("out of range");
-    case Reject::sensors: return F("encoder or INA219 not answering");
-    case Reject::noSupply: return F("12 V low");
-    case Reject::switches: return F("limit switch");
-    case Reject::cooling: return F("motor cooling");
+    case Reject::none:
+        return F("ok");
+    case Reject::badCommand:
+        return F("bad command");
+    case Reject::unmeasured:
+        return F("config.h still has zeros");
+    case Reject::faulted:
+        return F("fault latched, c clears it");
+    case Reject::notHomed:
+        return F("not homed, h first");
+    case Reject::notEnabled:
+        return F("not enabled");
+    case Reject::busy:
+        return F("busy");
+    case Reject::outOfRange:
+        return F("out of range");
+    case Reject::sensors:
+        return F("encoder or INA219 not answering");
+    case Reject::noSupply:
+        return F("12 V low");
+    case Reject::switches:
+        return F("limit switch");
+    case Reject::cooling:
+        return F("motor cooling");
     }
     return F("?");
 }
 
 const __FlashStringHelper *modeName(Mode mode) {
     switch (mode) {
-    case Mode::disabled: return F("disabled");
-    case Mode::enabled: return F("enabled");
-    case Mode::homing: return F("homing");
-    case Mode::jog: return F("jog");
+    case Mode::disabled:
+        return F("disabled");
+    case Mode::enabled:
+        return F("enabled");
+    case Mode::homing:
+        return F("homing");
+    case Mode::jog:
+        return F("jog");
     }
     return F("?");
 }
@@ -187,9 +219,14 @@ void runCommand() {
     const uint16_t durationMs = second > 0 ? (uint16_t)min(second, 2000L) : 1000;
 
     switch (line[0]) {
-    case 0: break;
-    case 'u': startJog((int16_t)first, durationMs); break;
-    case 'd': startJog((int16_t)-first, durationMs); break;
+    case 0:
+        break;
+    case 'u':
+        startJog((int16_t)first, durationMs);
+        break;
+    case 'd':
+        startJog((int16_t)-first, durationMs);
+        break;
     case 'h': {
         const Reject reject = lift.home();
         printResult(reject);
@@ -202,17 +239,26 @@ void runCommand() {
         moveMs = 0;
         if (reject == Reject::none) reject = lift.move(moveTarget, 0);
         printResult(reject);
-        if (reject == Reject::none) task = Task::move;
-        else lift.disable();
+        if (reject == Reject::none)
+            task = Task::move;
+        else
+            lift.disable();
         break;
     }
-    case 'c': printResult(lift.clear()); printState(); break;
-    case 'w': watching = !watching; break;
+    case 'c':
+        printResult(lift.clear());
+        printState();
+        break;
+    case 'w':
+        watching = !watching;
+        break;
     case '?':
         printCommands();
         printState();
         break;
-    default: printResult(Reject::badCommand); break;
+    default:
+        printResult(Reject::badCommand);
+        break;
     }
 }
 

@@ -52,14 +52,14 @@ enum class Reply : uint8_t {
     state = 0x82,
 };
 
-const uint16_t flagHomed = 1u << 0;         // Counts are measured from the bottom switch.
-const uint16_t flagEncoderOk = 1u << 1;     // The AS5600 answers and sees its magnet.
+const uint16_t flagHomed = 1u << 0;          // Counts are measured from the bottom switch.
+const uint16_t flagEncoderOk = 1u << 1;      // The AS5600 answers and sees its magnet.
 const uint16_t flagMagnetMarginal = 1u << 2; // The AS5600 calls the magnet too weak or too strong.
-const uint16_t flagSensorOk = 1u << 3;      // The INA219 answers.
-const uint16_t flagAtTop = 1u << 4;         // Top switch open, or its wire broken.
-const uint16_t flagAtBottom = 1u << 5;      // Bottom switch open, or its wire broken.
-const uint16_t flagMeasured = 1u << 6;      // config.h holds a measured column.
-const uint16_t flagAtRest = 1u << 7;        // Nothing is being asked of the motor.
+const uint16_t flagSensorOk = 1u << 3;       // The INA219 answers.
+const uint16_t flagAtTop = 1u << 4;          // Top switch open, or its wire broken.
+const uint16_t flagAtBottom = 1u << 5;       // Bottom switch open, or its wire broken.
+const uint16_t flagMeasured = 1u << 6;       // config.h holds a measured column.
+const uint16_t flagAtRest = 1u << 7;         // Nothing is being asked of the motor.
 
 } // namespace protocol
 

@@ -300,8 +300,9 @@ void aTickFitsTheMillisecond() {
         if (took > worst) worst = took;
         plant.step(pwm);
     }
-    // Of the 1000 us, two I2C reads at 400 kHz should take about 300 and the pins about 25 (calculated, not measured). This
-    // limit leaves room for a serial frame in the same millisecond. On the board, late= counts any tick missed outright.
+    // Of the 1000 us, two I2C reads at 400 kHz should take about 300 and the pins about 25 (calculated, not measured).
+    // This limit leaves room for a serial frame in the same millisecond. On the board, late= counts any tick missed
+    // outright.
     char message[32];
     snprintf(message, sizeof(message), "worst tick %lu us", (unsigned long)worst);
     TEST_MESSAGE(message);

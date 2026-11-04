@@ -14,8 +14,8 @@ void begin(const LiftConfig &config);
 // True once per millisecond. `late` says this tick came more than a whole tick behind.
 bool tickDue(bool &late);
 
-// Reads what this tick's slot holds: the angle always, the shunt on odd ticks, the bus and the magnet on two of the even
-// ones, so a tick never makes more than two I2C reads.
+// Reads what this tick's slot holds: the angle always, the shunt on odd ticks, the bus and the magnet on two of the
+// even ones, so a tick never makes more than two I2C reads.
 LiftInputs read();
 
 // Signed PWM, up is positive. Zero coasts.

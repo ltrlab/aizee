@@ -111,7 +111,7 @@ void stateRepliesInTheDocumentedLayout() {
     TEST_ASSERT_EQUAL_UINT8((uint8_t)protocol::Reply::state, reply[2]);
     TEST_ASSERT_EQUAL_UINT8(protocol::stateLength, reply[3]);
     TEST_ASSERT_EQUAL_HEX16(0x1234, readU16(reply + 4));
-    TEST_ASSERT_EQUAL_INT32(30, readI32(reply + 6));  // Board ms.
+    TEST_ASSERT_EQUAL_INT32(30, readI32(reply + 6)); // Board ms.
     TEST_ASSERT_EQUAL_INT32(lift.counts(), readI32(reply + 10));
     TEST_ASSERT_EQUAL_UINT16(12000, readU16(reply + 20)); // mV.
     const uint16_t flags = readU16(reply + 24);
@@ -123,8 +123,7 @@ void stateRepliesInTheDocumentedLayout() {
     TEST_ASSERT_EQUAL_UINT8((uint8_t)Mode::disabled, reply[stateOffsetMode + 2]);
     TEST_ASSERT_EQUAL_UINT8((uint8_t)Fault::none, reply[stateOffsetFault + 2]);
     TEST_ASSERT_EQUAL_UINT8((uint8_t)Reject::none, reply[stateOffsetReject + 2]);
-    TEST_ASSERT_EQUAL_HEX16(crc16(reply + 2, protocol::stateLength + 2),
-                            readU16(reply + 4 + protocol::stateLength));
+    TEST_ASSERT_EQUAL_HEX16(crc16(reply + 2, protocol::stateLength + 2), readU16(reply + 4 + protocol::stateLength));
 }
 
 void identifyNamesTheBoardAndItsColumn() {

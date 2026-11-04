@@ -11,8 +11,8 @@ const int32_t largestError = 1L << 20;
 
 int32_t magnitude(int32_t value) { return value < 0 ? -value : value; }
 
-// Adds velocity * 1 ms to a position, keeping the part too small to count yet. 1049 / 2^20 is 1 / 1000 to within 0.04 %,
-// and it spares this path a 32-bit division, the slowest thing in the tick.
+// Adds velocity * 1 ms to a position, keeping the part too small to count yet. 1049 / 2^20 is within 0.04 % of
+// 1 / 1000, and it spares this path a 32-bit division, the slowest thing in the tick.
 void advance(int32_t &position, int32_t &remainder, int32_t velocityCps) {
     remainder += velocityCps * 1049;
     position += remainder >> 20;

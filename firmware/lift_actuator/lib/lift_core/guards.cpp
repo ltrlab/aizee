@@ -68,8 +68,7 @@ Fault Guards::checkCurrent(const LiftInputs &in, bool active) {
 
     shuntHistory_[shuntIndex_] = in.shuntRaw;
     shuntIndex_ = (shuntIndex_ + 1) % 4;
-    const int32_t sum =
-        (int32_t)shuntHistory_[0] + shuntHistory_[1] + shuntHistory_[2] + shuntHistory_[3];
+    const int32_t sum = (int32_t)shuntHistory_[0] + shuntHistory_[1] + shuntHistory_[2] + shuntHistory_[3];
     // 10 uV per count, over 4 samples: mA = sum * 10 / 4 / mOhm.
     const int32_t milliamps = sum * 5 / 2 / config_.shuntMilliohms;
     milliamps_ = milliamps > 32767 ? 32767 : (milliamps < -32767 ? -32767 : (int16_t)milliamps);
@@ -95,8 +94,10 @@ Fault Guards::checkSupply(const LiftInputs &in, bool active) {
     millivolts_ = in.busMillivolts;
 
     const bool low = in.busMillivolts < (uint16_t)config_.minMillivolts;
-    if (!low) lowSamples_ = 0;
-    else if (lowSamples_ < lowSampleLimit) lowSamples_++;
+    if (!low)
+        lowSamples_ = 0;
+    else if (lowSamples_ < lowSampleLimit)
+        lowSamples_++;
 
     if (!active || lowSamples_ < lowSampleLimit) return Fault::none;
     return in.busMillivolts < (uint16_t)config_.noSupplyMillivolts ? Fault::noSupply : Fault::undervoltage;
@@ -105,8 +106,10 @@ Fault Guards::checkSupply(const LiftInputs &in, bool active) {
 Fault Guards::checkEncoder(const LiftInputs &in, const Encoder &encoder, bool active) {
     if (in.magnet == Reading::good) {
         magnetMarginal_ = in.magnetMarginal;
-        if (in.magnetPresent) magnetAbsent_ = 0;
-        else if (magnetAbsent_ < magnetLimit) magnetAbsent_++;
+        if (in.magnetPresent)
+            magnetAbsent_ = 0;
+        else if (magnetAbsent_ < magnetLimit)
+            magnetAbsent_++;
     }
     if (encoder.jumped()) return Fault::encoder;
     if (!active) return Fault::none;
@@ -116,10 +119,14 @@ Fault Guards::checkEncoder(const LiftInputs &in, const Encoder &encoder, bool ac
 }
 
 Fault Guards::checkSwitches(const LiftInputs &in, bool active) {
-    if (!in.topOpen) topOpenTicks_ = 0;
-    else if (topOpenTicks_ < switchTicks) topOpenTicks_++;
-    if (!in.bottomOpen) bottomOpenTicks_ = 0;
-    else if (bottomOpenTicks_ < switchTicks) bottomOpenTicks_++;
+    if (!in.topOpen)
+        topOpenTicks_ = 0;
+    else if (topOpenTicks_ < switchTicks)
+        topOpenTicks_++;
+    if (!in.bottomOpen)
+        bottomOpenTicks_ = 0;
+    else if (bottomOpenTicks_ < switchTicks)
+        bottomOpenTicks_++;
     return active && atTop() && atBottom() ? Fault::switchWiring : Fault::none;
 }
 

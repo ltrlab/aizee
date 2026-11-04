@@ -7,7 +7,7 @@
 #include "protocol.h"
 
 enum class Reading : uint8_t {
-    none,   // Not read this tick.
+    none, // Not read this tick.
     good,
     failed, // The chip did not answer.
 };
