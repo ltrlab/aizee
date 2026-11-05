@@ -18,6 +18,7 @@
     button { font: inherit; font-weight: 600; padding: 16px 22px; border-radius: 10px; border: 0; cursor: pointer;
              background: var(--accent); color: #fff; min-height: 56px; }
     button:disabled { opacity: .45; cursor: default; }
+    button.quiet { background: none; color: var(--text); box-shadow: inset 0 0 0 1px var(--muted); }
     #status b { font-weight: 700; }
     .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); }
     dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 16px 0 0; }
@@ -32,6 +33,7 @@
     <p id="status" role="status">Connecting to Helm…</p>
     <div class="row">
       <button id="start" disabled>Start head tracking</button>
+      <button id="other-link" class="quiet"></button>
     </div>
     <p class="muted">Look straight ahead and level when you start: that is the head's zero. Inside you see the head
       camera's picture. Press A or X for the ring of controls, in front of you and a little low: tilt that controller's
@@ -48,6 +50,7 @@
       hold the leaders); recentering the headset (hold the Meta button) zeroes at the new heading, level. Take the
       headset off or press the Meta button to stop: the head holds, then returns to its zero.</p>
     <dl>
+      <dt>Video</dt><dd id="video">—</dd>
       <dt>Helm</dt><dd id="link">—</dd>
       <dt>Tracking</dt><dd id="tracking">—</dd>
       <dt>Yaw / pitch</dt><dd id="angles">—</dd>

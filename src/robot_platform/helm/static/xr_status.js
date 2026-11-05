@@ -119,5 +119,15 @@ export function panelRows(link, headset, camera, depth = null, map = null) {
   ];
 }
 
+// This page's link and the way to the other. Inside a session the two look alike, and a URL is hard to type on a headset,
+// so the page says which one it is before it starts.
+export function pageLink(remote) {
+  return remote
+    ? {page: '/xr?remote', name: 'Remote: H.264 over WebRTC, head camera only, flat', other: '/xr',
+      switchTo: 'Use the ordinary link'}
+    : {page: '/xr', name: 'Ordinary: JPEG over WebSockets, for a good network', other: '/xr?remote',
+      switchTo: 'Use the remote link'};
+}
+
 export const HINTS = ['A or X: the ring of controls (tilt the stick to pick, press it to choose)',
   'Thumbstick press: zero the head where you look', 'Meta button: stop head tracking'];

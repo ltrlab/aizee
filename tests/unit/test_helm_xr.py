@@ -202,6 +202,10 @@ def test_the_socket_steers_the_head_and_zeroes_from_the_headset_or_the_teleop_ta
             page = await client.get('/xr')
             text = await page.text()
             assert page.status == 200 and '/helm/xr.js' in text
+            assert 'id="video"' in text and 'id="other-link"' in text  # It says which link, and offers the other.
+            script = await (await client.get('/helm/xr.js')).text()
+            assert '/login?next=${PAGE.page}' in script  # A login returns to the page as it was opened.
+            assert "/login?next=/xr'" not in script
             # The headset's scene: three.js where the page's import map says, and the page's modules.
             assert '{"imports": {"three": "/static/vendor/three.module.js"}}' in text
             for path in ('/helm/xr.js', '/helm/xr_scene.js', '/helm/xr_camera.js', '/helm/xr_status.js',

@@ -18,7 +18,7 @@ import {RemoteCamera} from './xr_remote.js';
 import {Ring} from './xr_ring.js';
 import {HeadsetScene} from './xr_scene.js';
 import {ALERT_S, POLL_MS, SessionControl, alertOf, ringMenu, statusLines} from './xr_session.js';
-import {cameraLine, degrees, handMessage, headLine, otherLinks, poseMessage} from './xr_status.js';
+import {cameraLine, degrees, handMessage, headLine, otherLinks, pageLink, poseMessage} from './xr_status.js';
 import {DEFAULT_VIEW} from './xr_view.js';
 import {CAMERAS} from './xr_wrists.js';
 
@@ -30,6 +30,7 @@ const RETRY_MS = 1000;
 const BUSY_RETRY_MS = 3000;  // Another device's headset steers: ask again now and then.
 const HANDS = ['left', 'right'];
 const REMOTE = typeof location !== 'undefined' && new URLSearchParams(location.search).has('remote');
+const PAGE = pageLink(REMOTE);
 const REMOTE_POLL_MS = 2000, REMOTE_GUIDE_MS = 500;  // Helm's state and the model's pose: a link's worth, not Helm's.
 
 let socket = null;
@@ -106,7 +107,7 @@ function idle() {
     show('status', `This browser ${navigator.xr ? 'cannot start an immersive session' : 'has no WebXR'}: open this `
       + 'page in the headset\'s browser.', 'bad');
   } else if (socket && socket.readyState === WebSocket.OPEN && immersive) {
-    show('status', 'Ready: put the headset on and start head tracking.');
+    show('status', `Ready${REMOTE ? ' on the remote link' : ''}: put the headset on and start head tracking.`);
   }
 }
 
@@ -134,7 +135,7 @@ async function connect() {
   try {
     const response = await fetch('/api/helm/state', {cache: 'no-store'});
     if (response.status === 401) {
-      location.href = '/login?next=/xr';
+      location.href = `/login?next=${PAGE.page}`;  // Back to this page as it was opened: logins end with Helm.
       return;
     }
     const state = await response.json();
@@ -367,6 +368,11 @@ function browserStorage() {
 }
 
 if (typeof document !== 'undefined' && $('start')) {
+  show('video', PAGE.name, REMOTE ? 'ok' : '');
+  $('other-link').textContent = PAGE.switchTo;
+  $('other-link').onclick = () => {
+    location.href = PAGE.other;
+  };
   $('start').onclick = () => start().catch(error => {
     session = null;
     show('status', `Could not start: ${error.message}`, 'bad');
