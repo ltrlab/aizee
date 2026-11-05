@@ -45,8 +45,9 @@ async def until(condition, timeout):
         await asyncio.sleep(.02)
 
 
-def test_real_peer_answers_an_offer():
+def test_real_peer_answers_an_offer(tmp_path, monkeypatch):
     from aiortc import RTCPeerConnection, RTCSessionDescription
+    monkeypatch.setenv('HELM_WEBRTC_EVIDENCE', str(tmp_path))
 
     async def run():
         video, poses, frames = Video(), [], []
@@ -66,6 +67,7 @@ def test_real_peer_answers_an_offer():
         assert 'H264' in answer['sdp'] and 'VP8' not in answer['sdp']
         await browser.setRemoteDescription(RTCSessionDescription(sdp=answer['sdp'], type=answer['type']))
         await until(lambda: channel.readyState == 'open', 15.)
+        channel.send('{"type":"link","shown":3}')  # The page's look at the link: for the log, not for Helm.
         channel.send('{"type":"pose"}')
         await until(lambda: poses, 5.)
         assert poses == ['{"type":"pose"}']
@@ -73,4 +75,9 @@ def test_real_peer_answers_an_offer():
         assert (frames[0].width, frames[0].height) == (JPEG_SIDE, JPEG_SIDE)
         await browser.close()
         await link.close()
+        records = [line for path in tmp_path.glob('remote-link-*.jsonl') for line in path.read_text().splitlines()]
+        assert any('"kind":"offer"' in line and 'a=candidate' in line for line in records)
+        assert any('"kind":"answer"' in line and 'a=candidate' in line for line in records)
+        assert any('"kind":"page"' in line and '"shown":3' in line for line in records)
+        assert not any('"type":"pose"' in line for line in records)
     asyncio.run(run())

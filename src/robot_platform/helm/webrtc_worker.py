@@ -10,6 +10,7 @@ message a line from its stdout; it ends when its stdin does.
               {'kind': 'pose', 'text': ...}     a message on the pose channel
               {'kind': 'state', 'state': ...}   the peer's connection, and 'closed' when it has gone
               {'kind': 'stats', ...}            once a second while connected
+A message on the pose channel that starts with PAGE_REPORT is the page's own look at the link: it goes to the log only.
 
 One viewer at a time: an offer ends the last one. Read-only towards the robot: its only way in is the pose channel, whose
 messages go to Helm unread except for their size, and Helm checks them as it does the socket's.
@@ -19,6 +20,8 @@ import fractions
 import json
 import logging
 import os
+from pathlib import Path
+import queue
 import struct
 import sys
 import threading
@@ -30,6 +33,8 @@ MAX_POSE = 1024  # As Helm's socket (server.xr_socket).
 FPS = 10  # The camera relay's rate (camera_video_worker): x264 counts its bits by it.
 STATS_S = 1.
 PARTITION = '/etc/minerva/cpu-partition.json'
+EVIDENCE = 'HELM_WEBRTC_EVIDENCE'  # Helm on Minerva: the folder for this worker's log of the link, if any.
+PAGE_REPORT = '{"type":"link"'
 
 
 def write_message(output, header, payload=b''):
@@ -55,6 +60,47 @@ def read_messages(stream):
         yield json.loads(header), payload
 
 
+def candidates(sdp):
+    """What of an SDP tells how the two ends could reach each other."""
+    return [line for line in sdp.splitlines() if line.startswith('a=candidate')]
+
+
+def page_report(text):
+    """The page's look at the link as a record for the log, or None if `text` is anything else: a pose, for Helm."""
+    if not text.startswith(PAGE_REPORT):
+        return None
+    try:
+        return {'kind': 'page', **json.loads(text)}
+    except ValueError:
+        return {'kind': 'page', 'unreadable': text[:80]}
+
+
+class LinkLog:
+    """What the link did, a JSON line a record, in `folder` (none: nothing): a test from another network can only be read
+    afterwards. On a thread of its own, as a stalled microSD must not hold up the poses."""
+
+    def __init__(self, folder=None, clock=time.time):
+        self.clock, self.records, self.on = clock, queue.SimpleQueue(), bool(folder)
+        if folder:
+            self.path = Path(folder) / time.strftime('remote-link-%Y%m%dT%H%M%SZ.jsonl', time.gmtime(clock()))
+            threading.Thread(target=self._write, daemon=True).start()
+
+    def __call__(self, record):
+        if self.on:
+            self.records.put({'at': round(self.clock(), 3), **record})
+
+    def _write(self):
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.path, 'a', encoding='utf-8') as out:
+                while True:
+                    out.write(json.dumps(self.records.get(), separators=(',', ':')) + '\n')
+                    out.flush()
+        except OSError:
+            logging.exception('The link log')
+            self.on = False
+
+
 def background_cpus(path=PARTITION):
     """Onto the robot's background CPUs where it has a CPU split (as camera_video_worker), and nicer than Helm."""
     try:
@@ -69,7 +115,7 @@ def background_cpus(path=PARTITION):
 
 
 class Worker:
-    def __init__(self, output=None):
+    def __init__(self, output=None, log=None):
         from aiortc import MediaStreamTrack
         import av
         from .webrtc_rate import RateControl
@@ -78,9 +124,10 @@ class Worker:
         self.av, self.RateControl, self.LinkEncoder = av, RateControl, LinkEncoder
         self.follow_loss, self.peer_connection, self.prefer_h264 = follow_loss, peer_connection, prefer_h264
         self.output = output or sys.stdout.buffer
+        self.log = log or LinkLog()
         self.pc = self.channel = self.sender = self.track = self.rate = self.encoder = None
         self.tasks = set()
-        self.frames_in = 0
+        self.frames_in = self.poses_in = 0
         use_encoder(self.make_encoder)
 
         class Newest(MediaStreamTrack):
@@ -119,6 +166,8 @@ class Worker:
         return self.encoder
 
     def say(self, message):
+        if message.get('kind') != 'pose':
+            self.log(dict(message, sdp=candidates(message['sdp'])) if 'sdp' in message else message)
         try:
             self.output.write(json.dumps(message, allow_nan=False, separators=(',', ':')).encode() + b'\n')
             self.output.flush()
@@ -152,8 +201,14 @@ class Worker:
 
             @channel.on('message')
             def on_message(text):
-                if isinstance(text, str) and len(text) <= MAX_POSE:
-                    self.say({'kind': 'pose', 'text': text})
+                if not isinstance(text, str) or len(text) > MAX_POSE:
+                    return
+                report = page_report(text)
+                if report is not None:
+                    self.log(report)
+                    return
+                self.poses_in += 1
+                self.say({'kind': 'pose', 'text': text})
 
         @pc.on('connectionstatechange')
         async def on_state():
@@ -182,7 +237,7 @@ class Worker:
                       'resends': self.resends.resent, 'resends_refused': self.resends.refused,
                       'target_bps': self.rate.target,
                       'estimate_bps': self.rate.estimated, 'fraction_lost': lost, 'rtt_s': rtt,
-                      'frames_in': self.frames_in})
+                      'frames_in': self.frames_in, 'poses_in': self.poses_in})
 
     async def handle(self, header, payload):
         kind = header.get('kind')
@@ -196,6 +251,7 @@ class Worker:
         elif kind == 'close':
             await self.close_peer()
         elif kind == 'offer':
+            self.log({'kind': 'offer', 'sdp': candidates(header.get('sdp', ''))})
             try:
                 self.say({'kind': 'answer', 'id': header['id'], **await self.offer(header)})
             except Exception as exc:  # noqa: BLE001 - an offer that cannot be answered ends the peer, not the worker.
@@ -221,7 +277,7 @@ class Worker:
 def main():
     logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
     background_cpus()
-    asyncio.run(Worker().run(sys.stdin.buffer))
+    asyncio.run(Worker(log=LinkLog(os.environ.get(EVIDENCE))).run(sys.stdin.buffer))
 
 
 if __name__ == '__main__':

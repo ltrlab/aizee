@@ -17,7 +17,8 @@ from robot_platform.helm.session import HelmSession
 from robot_platform.helm.webrtc_link import WebRTCLink
 from robot_platform.helm.webrtc_rate import (MAXIMUM_BPS, MINIMUM_BPS, RESEND_AGAIN_S, RESEND_BURST, RESEND_MINIMUM_PER_S,
                                              RateControl, ResendBudget)
-from robot_platform.helm.webrtc_worker import MAX_HEADER, MAX_PAYLOAD, read_messages, write_message
+from robot_platform.helm.webrtc_worker import (MAX_HEADER, MAX_PAYLOAD, LinkLog, candidates, page_report, read_messages,
+                                               write_message)
 
 ROOT = Path(__file__).resolve().parents[2]
 JPEG = b'\xff\xd8 a frame \xff\xd9'
@@ -177,6 +178,24 @@ async def until(condition, timeout=8.):
     while not condition():
         assert time.monotonic() < deadline, 'Timed out'
         await asyncio.sleep(.01)
+
+
+def test_the_link_log_keeps_an_sdps_candidates_and_the_pages_reports_apart_from_poses(tmp_path):
+    assert candidates('v=0\r\na=candidate:1 1 udp 1 198.51.100.7 5000 typ host\r\nm=video 9\r\n') == [
+        'a=candidate:1 1 udp 1 198.51.100.7 5000 typ host']
+    assert page_report('{"type":"pose","seq":1}') is None
+    assert page_report('{"type":"link","shown":3}') == {'kind': 'page', 'type': 'link', 'shown': 3}
+    assert page_report('{"type":"link",broken')['unreadable'].startswith('{"type":"link"')  # Still not a pose.
+    LinkLog()({'kind': 'state'})  # No folder: nothing, and no complaint.
+    log = LinkLog(tmp_path / 'evidence', clock=lambda: 1000.)
+    log({'kind': 'state', 'state': 'connected'})
+    log({'kind': 'stats', 'frames_in': 3})
+    deadline = time.monotonic() + 5.
+    while time.monotonic() < deadline and not (log.path.is_file() and log.path.read_text().count('\n') == 2):
+        time.sleep(.01)
+    assert log.path.name == 'remote-link-19700101T001640Z.jsonl'
+    assert [json.loads(line) for line in log.path.read_text().splitlines()] == [
+        {'at': 1000., 'kind': 'state', 'state': 'connected'}, {'at': 1000., 'kind': 'stats', 'frames_in': 3}]
 
 
 def test_link_sends_only_the_head_camera_and_passes_poses_back():

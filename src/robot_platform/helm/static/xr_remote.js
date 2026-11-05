@@ -5,6 +5,7 @@
 // carries neither, so the screen stays flat. Read-only for the picture; poses go to Helm, which checks them as it does
 // the socket's. No three.js here.
 const FRAME_CHECK_MS = 33, STALE_S = 1, FPS_WINDOW_MS = 2000, RETRY_MS = 3000, GATHER_MS = 2000, STATS_MS = 1000;
+const REPORT_EVERY = 2, REPORT_TEXT = 120;  // Reads of the counters per report for Minerva's log, and a report's longest text.
 const POSE_CHANNEL = {ordered: false, maxRetransmits: 0};  // Late is useless: the next pose is 17 ms away.
 
 export class RemoteCamera {
@@ -13,13 +14,15 @@ export class RemoteCamera {
   constructor({offer, onFrame, onStatus = () => {}, peer = () => new RTCPeerConnection({iceServers: []}),
     video = () => makeVideo(), grab = element => createImageBitmap(element), now = () => performance.now(),
     every = (fn, ms) => setInterval(fn, ms), stopEvery = id => clearInterval(id), after = (fn, ms) => setTimeout(fn, ms),
-    stopAfter = id => clearTimeout(id)}) {
-    Object.assign(this, {offer, onFrame, onStatus, peer, video, grab, now, every, stopEvery, after, stopAfter});
+    stopAfter = id => clearTimeout(id), visibility = () => document.visibilityState}) {
+    Object.assign(this, {offer, onFrame, onStatus, peer, video, grab, now, every, stopEvery, after, stopAfter, visibility});
     this.stopped = true;
     this.pc = this.channel = this.element = null;
     this.arrivals = [];
     this.shownAt = null;
     this.frames = 0;  // Frames the browser had decoded at the last look.
+    this.shown = 0;  // Frames handed to the screen.
+    this.reads = 0;
     this.grabbing = false;
     this.message = 'connecting…';
     this.link = {};  // The last look at the link: {bitrate_bps, lost, rtt_ms, decoder}.
@@ -121,6 +124,7 @@ export class RemoteCamera {
       const now = this.now();
       this.shownAt = now;
       this.arrivals = [...this.arrivals.filter(at => now - at < FPS_WINDOW_MS), now];
+      this.shown += 1;
       this.onFrame(bitmap, {role: 'head'}, null);
     } catch (error) {
       this.message = `undecodable frame (${error.message})`;
@@ -134,6 +138,7 @@ export class RemoteCamera {
     const report = await this.pc?.getStats?.().catch(() => null);
     if (!report) return;
     const now = this.now();
+    const look = {};
     for (const item of report.values()) {
       if (item.type === 'inbound-rtp' && item.kind === 'video') {
         if (this.bytes !== null && now > this.bytesAt) {
@@ -143,10 +148,29 @@ export class RemoteCamera {
         this.bytesAt = now;
         this.link.lost = item.packetsLost;
         this.link.decoder = item.decoderImplementation;
+        Object.assign(look, {bytes: item.bytesReceived, packets: item.packetsReceived, lost: item.packetsLost,
+          received: item.framesReceived, decoded: item.framesDecoded, dropped: item.framesDropped,
+          keyframes: item.keyFramesDecoded, freezes: item.freezeCount, nacks: item.nackCount, plis: item.pliCount,
+          decoder: item.decoderImplementation});
       } else if (item.type === 'candidate-pair' && item.nominated && item.currentRoundTripTime !== undefined) {
         this.link.rtt_ms = item.currentRoundTripTime * 1000;
+        const local = report.get?.(item.localCandidateId), remote = report.get?.(item.remoteCandidateId);
+        Object.assign(look, {rtt_ms: Math.round(this.link.rtt_ms),
+          path: `${local?.candidateType} to ${remote?.candidateType} ${remote?.address}:${remote?.port}`});
       }
     }
+    this.reads += 1;
+    if (this.reads % REPORT_EVERY === 0) this.report(look);
+  }
+
+  // That look, on the channel for Minerva's log (webrtc_worker.LinkLog): whether frames reach this browser, whether it
+  // decodes them and whether they reach the screen, which nothing outside a headset can see. Not for Helm.
+  report(look) {
+    if (this.channel?.readyState !== 'open') return;
+    const element = this.element, quality = element?.getVideoPlaybackQuality?.();
+    this.channel.send(JSON.stringify({type: 'link', ms: Math.round(this.now()), shown: this.shown, page: this.visibility(),
+      ready: element?.readyState, paused: element?.paused, video_frames: quality?.totalVideoFrames,
+      message: String(this.message).slice(0, REPORT_TEXT), ...look}));
   }
 
   // {fresh, fps, age_s, message}, as HeadCamera's: how old a frame was when it left the camera is unknown here, so the

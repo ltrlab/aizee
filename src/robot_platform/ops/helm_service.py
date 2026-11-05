@@ -495,6 +495,7 @@ def run(argv=None, host=None, *, release=ROOT, main=None):
         webrtc = None
     if webrtc is not None and (webrtc / COMPLETE).is_file():
         os.environ['HELM_WEBRTC_DEPS'] = str(webrtc)
+        os.environ['HELM_WEBRTC_EVIDENCE'] = str(p.base / 'evidence')
     devices = Path(release) / 'config/devices'
     options = ['--on-robot', '--profile', str(Path(release) / PROFILE), '--host', '0.0.0.0', '--port', str(PORT),
                '--loopback-port', str(LOOPBACK_PORT), '--access', str(p.access), '--runs', str(p.runs), '--operator-files', str(p.operator),

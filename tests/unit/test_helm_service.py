@@ -183,6 +183,8 @@ def test_install_writes_the_unit_and_restart_waits_for_an_idle_robot(tmp_path):
 def test_run_starts_helm_with_minervas_options_or_says_what_is_missing(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(sys, 'path', list(sys.path))
     monkeypatch.setenv('AIZEE_SSH_KEY_FILE', 'unset')
+    monkeypatch.setenv('HELM_WEBRTC_DEPS', 'unset')
+    monkeypatch.setenv('HELM_WEBRTC_EVIDENCE', 'unset')
     robot = Robot(tmp_path)
     started = []
     assert helm_service.run([], robot, main=started.append) == helm_service.CONFIG_EXIT
@@ -193,6 +195,10 @@ def test_run_starts_helm_with_minervas_options_or_says_what_is_missing(tmp_path,
     lock = helm_service.lock_id(ROOT)
     (p.deps / lock).mkdir()
     (p.deps / lock / helm_service.COMPLETE).write_text(lock)
+    from robot_platform.ops.release import WEBRTC_LOCK
+    webrtc = p.deps / helm_service.lock_id(ROOT, WEBRTC_LOCK)
+    webrtc.mkdir()
+    (webrtc / helm_service.COMPLETE).write_text('done')
     from robot_platform.control import scheduling
     monkeypatch.setattr(scheduling, 'prefer_background', lambda: started.append('background') or [])
     assert helm_service.run(['--teleop', 'minerva-teleop.json'], robot, main=lambda options: started.append(options) or 0) == 0
@@ -205,6 +211,8 @@ def test_run_starts_helm_with_minervas_options_or_says_what_is_missing(tmp_path,
     assert Path(flags['--operator-files']) == p.operator and Path(flags['--mesh-store']) == p.meshes
     assert Path(flags['--access']) == p.access and '--no-live' in options and '--tls-cert' in options
     assert os.environ['AIZEE_SSH_KEY_FILE'] == str(p.local_key) and sys.path[0] == str(p.deps / lock)
+    assert os.environ['HELM_WEBRTC_DEPS'] == str(webrtc)  # The remote link's worker: its packages, and where it logs.
+    assert os.environ['HELM_WEBRTC_EVIDENCE'] == str(p.base / 'evidence') and str(webrtc) not in sys.path
 
 
 def test_the_mesh_store_gets_the_head_models_meshes_too():

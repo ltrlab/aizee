@@ -8,7 +8,8 @@ is already out of date.
 ## What it does
 
 Open the headset's page as `/xr?remote`. Everything else about the headset is unchanged, and the ordinary `/xr` still uses
-its WebSockets.
+its WebSockets. The page's Video row names its link and a button leads to the other. Inside a session they look alike, except
+that the ordinary link has wrist pictures and the remote one has a `Remote link` line in the ring.
 
 | | `/xr` | `/xr?remote` |
 |---|---|---|
@@ -93,6 +94,25 @@ reached the worker. No resends.
 
 The worker sat on CPUs 0-2 at nice 5, with 71-77 MB resident. Most of the baseline is the wrist cameras, and part of the rise
 is the test's own SSH pipe. Nothing was measured at a hotspot's 0.3 Mbit/s, or beside a teleop session.
+
+## Reading a test afterwards
+
+Each run of the worker writes `~/minerva/evidence/remote-link-<UTC>.jsonl`:
+
+- `offer` and `answer`, with their candidates, and each `state` of the connection.
+- `stats` each second: the rate and its target, loss, round trip, resends, JPEGs in from Helm, poses in.
+- `page` every 2 s, the headset's own counters: bytes and frames received, frames decoded, frames handed to the screen, the
+  video element's state, the page's visibility, and the path it uses.
+
+So `received` rising with `shown` flat means the picture is lost inside the headset, and `frames_in` flat means the camera
+stopped, not the link. No file and no worker at all means the page was on the ordinary link.
+
+## The first test of it, 2026-11-05
+
+A Quest Pro on a phone hotspot opened what was meant to be `/xr?remote`, and saw 2-3 head frames and a few wrist frames. It
+ran on the ordinary link: the remote page opens no wrist streams, and no worker had started since Helm's restart. So this says
+nothing of WebRTC. How `?remote` was lost is not known. One way was found and fixed: logins end when Helm restarts, and a page
+left open went to `/login?next=/xr`.
 
 ## Not tried yet
 

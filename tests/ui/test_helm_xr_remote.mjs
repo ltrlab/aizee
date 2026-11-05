@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 
 import {RemoteCamera} from '../../src/robot_platform/helm/static/xr_remote.js';
+import {pageLink} from '../../src/robot_platform/helm/static/xr_status.js';
 
 // The remote headset's camera and pose channel (xr_remote.js), with the browser's parts replaced: what it asks of the
 // peer, that poses leave by the channel only while it is open, that a frame is handed over once, and that a lost peer
@@ -190,6 +191,59 @@ const settle = () => new Promise(done => setImmediate(done));
     packetsLost: 5, decoderImplementation: 'hardware'}]);
   await remote.read();
   assert.deepEqual(remote.link, {lost: 5, decoder: 'hardware', rtt_ms: 60, bitrate_bps: 1e6});
+  remote.stop();
+}
+
+// Each page names its link and leads to the other, and a login returns to the one it left.
+{
+  assert.equal(pageLink(true).page, '/xr?remote');
+  assert.equal(pageLink(true).other, '/xr');
+  assert.equal(pageLink(false).page, '/xr');
+  assert.equal(pageLink(false).other, '/xr?remote');
+  assert.match(pageLink(true).name, /^Remote/);
+  assert.match(pageLink(false).name, /^Ordinary/);
+}
+
+// Every second read goes on the channel for Minerva's log: what arrived, what decoded, what reached the screen, and by
+// which path. Nothing is sent while the channel is shut, and a long message does not overrun the worker's bound.
+{
+  const [remote, made] = camera({visibility: () => 'visible'});
+  remote.start();
+  await settle();
+  const [peer] = made.peers;
+  const [channel] = peer.channels;
+  peer.getStats = async () => new Map([
+    ['a', {id: 'a', type: 'inbound-rtp', kind: 'video', bytesReceived: 1000, packetsReceived: 9, packetsLost: 3,
+      framesReceived: 7, framesDecoded: 6, framesDropped: 1, keyFramesDecoded: 1, freezeCount: 2, nackCount: 4, pliCount: 5,
+      decoderImplementation: 'hardware'}],
+    ['b', {id: 'b', type: 'candidate-pair', nominated: true, currentRoundTripTime: .06, localCandidateId: 'l',
+      remoteCandidateId: 'r'}],
+    ['l', {id: 'l', type: 'local-candidate', candidateType: 'prflx'}],
+    ['r', {id: 'r', type: 'remote-candidate', candidateType: 'host', address: '198.51.100.9', port: 5000}]]);
+  await remote.read();
+  await remote.read();
+  assert.deepEqual(channel.sent, []);  // Shut.
+  channel.readyState = 'open';
+  channel.onopen();
+  made.element.count = 1;
+  await remote.check();
+  remote.message = 'x'.repeat(5000);
+  await remote.read();
+  assert.deepEqual(channel.sent, []);  // Every second read.
+  await remote.read();
+  assert.equal(channel.sent.length, 1);
+  assert.ok(channel.sent[0].startsWith('{"type":"link"'));  // webrtc_worker.PAGE_REPORT: for the log, not for Helm.
+  assert.ok(channel.sent[0].length < 1024);  // webrtc_worker.MAX_POSE.
+  const sent = JSON.parse(channel.sent[0]);
+  assert.equal(sent.shown, 1);
+  assert.equal(sent.video_frames, 1);
+  assert.equal(sent.ready, 4);
+  assert.equal(sent.page, 'visible');
+  assert.equal(sent.bytes, 1000);
+  assert.equal(sent.decoded, 6);
+  assert.equal(sent.freezes, 2);
+  assert.equal(sent.rtt_ms, 60);
+  assert.equal(sent.path, 'prflx to host 198.51.100.9:5000');
   remote.stop();
 }
 
