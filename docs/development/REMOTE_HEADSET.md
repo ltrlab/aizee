@@ -34,8 +34,8 @@ offers need a login, not control, as the socket does.
 - `requirements/helm-webrtc.lock`: installed by `ops.helm_robot deps` (and a deploy) into its own folder, on the worker's path only,
   so its cryptography never reaches Helm's paramiko. If it is missing, Helm runs and refuses `?remote` with a message.
 
-The Orin Nano has no hardware encoder, and no GPU encoder exists for it, so this is CPU work. The worker's load on the
-Jetson has not been measured.
+The Orin Nano has no hardware encoder, and no GPU encoder exists for it, so this is CPU work: 17 % of one core when measured
+on the Jetson, below.
 
 ## Limits on x264
 
@@ -76,5 +76,29 @@ what exceeds a token bucket, 45 s each. The rehearsal scripts are not in the rep
 Decoding and encoding took 15 % of one Raspberry Pi 4 core at 10 frames a second, on those JPEGs. aiortc's own Python comes
 on top and is not in that figure.
 
-This has not run on a Quest, on the Jetson, on a real carrier, or through Tailscale. `xr_remote.js` reads frames with `createImageBitmap` on a timer because a video element's frame callback may pause in
-an immersive session, which also has not been tried on a Quest.
+This rehearsal ran on neither a Quest, the Jetson, a real carrier nor Tailscale.
+
+## On the Jetson
+
+2026-11-05, release `20261105T014134Z-8d47e2f`, with nothing running on the arms: the real worker on Minerva and a real peer
+on a PC on the LAN, without Helm between them, fed the same 68 kB JPEGs at 10 frames a second through an SSH pipe, with poses
+coming back on the channel. 599 of 600 frames arrived at 640x480, the first after 0.3 s, the worst gap 0.19 s, and 2687 poses
+reached the worker. No resends.
+
+| Rate | Worker | CPUs 0-2, each |
+|---|---|---|
+| Target climbing 0.44 to 1.0 Mbit/s | 16.8 % of one core | 47-50 % busy |
+| Target 1.5 Mbit/s, 0.93 sent | 17.1 % of one core | 43-50 % busy |
+| No worker | none | 35-39 % busy |
+
+The worker sat on CPUs 0-2 at nice 5, with 71-77 MB resident. Most of the baseline is the wrist cameras, and part of the rise
+is the test's own SSH pipe. Nothing was measured at a hotspot's 0.3 Mbit/s, or beside a teleop session.
+
+## Not tried yet
+
+- Real camera video in a Quest's immersive session. `xr_remote.js` reads frames with `createImageBitmap` on a timer because a
+  video element's frame callback may pause there.
+- Helm's own relay feeding the worker on Minerva, which needs a login.
+- The path through `ltr-portal`'s subnet route to Minerva, where the Quest's address is not reachable from Minerva and the
+  connection depends on the Quest's checks arriving first.
+- The worker beside the arms, and arm control over the channel.
