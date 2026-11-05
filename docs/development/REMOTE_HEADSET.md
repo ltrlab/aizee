@@ -112,7 +112,15 @@ stopped, not the link. No file and no worker at all means the page was on the or
 A Quest Pro on a phone hotspot opened what was meant to be `/xr?remote`, and saw 2-3 head frames and a few wrist frames. It
 ran on the ordinary link: the remote page opens no wrist streams, and no worker had started since Helm's restart. So this says
 nothing of WebRTC. How `?remote` was lost is not known. One way was found and fixed: logins end when Helm restarts, and a page
-left open went to `/login?next=/xr`.
+left open went to `/login?next=/xr`. The head camera published 15 frames a second throughout: the picture was lost on the link.
+
+The head faulted in that session, `command_expired`, with its next command about 15 ms late. A command's lifetime counts from
+the reply before it, so `command_ms` of 100 spans two 40 ms gaps and leaves about 20 ms. The head's Python loop runs at nice 0
+on CPUs 0-2 with the cameras and Helm. The arms kept every cycle on time. Why the loop ran late is not proven. The dropped
+sockets restarted the camera relay 11 times in about 7 minutes, each with a loopback SSH login, and one login landed within
+0.2 ms of the last good reply. But a stand-in loop on an otherwise quiet machine was at worst 9.7 ms late beside logins that
+start Python, against 6.6 ms with none, and 0.9 and 0.4 ms on CPU 3. `/xr?remote` keeps one viewer, so it should not restart
+the relay, but the thin margin remains in any session.
 
 ## Not tried yet
 
