@@ -122,6 +122,29 @@ sockets restarted the camera relay 11 times in about 7 minutes, each with a loop
 start Python, against 6.6 ms with none, and 0.9 and 0.4 ms on CPU 3. `/xr?remote` keeps one viewer, so it should not restart
 the relay, but the thin margin remains in any session.
 
+## The second test, 2026-11-05
+
+Release `20261105T040341Z-fc68d9d`, which keeps `?remote` through a login and adds the Video row and the link button, also ran
+on the ordinary link. The headset saw about a frame in 30 s from the head and from the wrists, and control stayed very good. No
+worker started, no `remote-link` file exists, and the remote page opens no wrist streams. So WebRTC with real video on a Quest
+is still untried. How the page came to be on `/xr` is still not known. The button beside Start tells the links apart: "Use the
+remote link" means the ordinary one is open.
+
+The head faulted again, `command_expired`, 3 min 20 s into following, and this one rules out the login. No login or logout came
+near it, and the relay had run steadily since 04:04:04Z. Its cycle also started on time, 40.4 ms after the request before it,
+and the head was still. The receiver stopped 60 ms after the last accepted command (298257, stopped at 298317). The cycle
+finished after 28.2 ms with one exchange. The receiver's stats for the session: 35046 ticks, 2 deadline misses, 11.1 ms worst
+lateness, 5.2 ms worst work, no overruns. The arms had 20023 cycles, 10.9 ms worst gap.
+
+The margin, from the code. A command takes the offer of the reply before it, so it expires 60 ms after it was accepted. The
+service checks expiry at each 10 ms tick before it reads its socket, so the next command must be read at the tick 50 ms after
+the last, where it is due at 40. That is one tick: 10-20 ms from a cycle's start to the receiver. Here the request took more
+than that. The next limits are close: feedback older than 60 ms (`feedback_max_age_s`) and more than 80 ms between steps
+(`max_step_s`) fault the head too.
+
+Not known: where those milliseconds went, since nothing records the head's cycles, and why both faults came in hotspot
+sessions, 4 and 3.3 minutes into following, when 29 minutes on the LAN on the same CPUs had none.
+
 ## Not tried yet
 
 - Real camera video in a Quest's immersive session. `xr_remote.js` reads frames with `createImageBitmap` on a timer because a
