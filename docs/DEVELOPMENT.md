@@ -16,7 +16,8 @@ Check builds/tests both portable Rust crates, builds the receiver harness and
 collision library, checks their presence/ABI, then runs the required control and
 rehearsal tests. A skip or xfail fails this gate. `--offline` uses Cargo's cache.
 The tests run in two phases: first across the CPU cores (pytest-xdist; `ROBOT_GATE_WORKERS`
-sets the workers, by default half the CPUs up to 12), each test file on one worker unless
+sets the workers, by default half the CPUs up to 6, a cap memory sets: 11 on a 15.4 GB laptop
+paged hard enough to fail wall-clock tests), each test file on one worker unless
 `tests/conftest.py` lists it as independent tests, then the tests marked `serial` alone.
 Those wait on wall-clock progress (real rendering, live loops), which the other workers' load
 only slows. Mark a test `serial` for that reason only, never to hide a race between tests.

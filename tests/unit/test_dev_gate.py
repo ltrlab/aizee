@@ -49,14 +49,14 @@ def test_both_phases_count_and_a_skip_in_either_fails(tmp_path):
         dev.required_test_results([parallel, skipped])
 
 
-def test_the_parallel_phase_uses_half_the_cpus_up_to_twelve_unless_told(monkeypatch):
+def test_the_parallel_phase_uses_half_the_cpus_up_to_six_unless_told(monkeypatch):
     monkeypatch.delenv('ROBOT_GATE_WORKERS', raising=False)
     monkeypatch.setattr(dev.os, 'cpu_count', lambda: 22)
-    assert dev.workers(['t'] * 100) == 11 and dev.workers(['t'] * 3) == 3
-    monkeypatch.setattr(dev.os, 'cpu_count', lambda: 64)
-    assert dev.workers(['t'] * 100) == 12
-    monkeypatch.setenv('ROBOT_GATE_WORKERS', '4')
+    assert dev.workers(['t'] * 100) == 6 and dev.workers(['t'] * 3) == 3
+    monkeypatch.setattr(dev.os, 'cpu_count', lambda: 8)
     assert dev.workers(['t'] * 100) == 4
+    monkeypatch.setenv('ROBOT_GATE_WORKERS', '9')
+    assert dev.workers(['t'] * 100) == 9
 
 
 def test_the_parallel_phase_runs_one_blas_thread_per_worker_and_stops_at_a_crash(tmp_path):

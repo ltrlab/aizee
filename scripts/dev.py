@@ -224,9 +224,11 @@ WORKER_ENV = {'OPENBLAS_NUM_THREADS': '1'}
 
 
 def workers(tests):
-    """The parallel phase's workers: ROBOT_GATE_WORKERS, else half the CPUs up to 12, never more than test files."""
+    """The parallel phase's workers: ROBOT_GATE_WORKERS, else half the CPUs up to 6, never more than test files. Memory
+    sets the cap, not the cores: 11 workers took a 15.4 GB laptop down to 5-35 MB free and each run lost a different
+    wall-clock test to the paging, while 6 kept 500 MB free and finished as fast (2026-11-06)."""
     configured = os.environ.get('ROBOT_GATE_WORKERS')
-    count = int(configured) if configured else min(12, max(1, (os.cpu_count() or 2) // 2))
+    count = int(configured) if configured else min(6, max(1, (os.cpu_count() or 2) // 2))
     return max(1, min(count, len(tests)))
 
 
