@@ -15,6 +15,7 @@ from robot_platform.helm.cli import SimulationLink
 from robot_platform.helm.server import create_app
 from robot_platform.helm.session import HelmSession
 from robot_platform.helm.webrtc_link import WebRTCLink
+from robot_platform.helm.xr import MAX_RATE_HZ
 from robot_platform.helm.webrtc_rate import (MAXIMUM_BPS, MINIMUM_BPS, RESEND_AGAIN_S, RESEND_BURST, RESEND_MINIMUM_PER_S,
                                              RateControl, ResendBudget)
 from robot_platform.helm.webrtc_worker import (MAX_HEADER, MAX_PAYLOAD, LinkLog, candidates, page_report, read_messages,
@@ -363,7 +364,10 @@ def test_channel_poses_steer_like_the_socket_for_the_login_that_opened_the_link(
             for bad in ('not json', '[1]', pose(2, q=[1, 2]), pose(3, hands={'left': {'p': 1}})):  # All dropped quietly.
                 link.on_pose(bad, None)
             assert teleop.heads == [(0., 0.)]
-            await asyncio.sleep(1 / 100)
+            # Wait on the clock that limits the rate: Windows ticks it every 15.6 ms, so a short sleep can read as none.
+            accepted = time.monotonic()
+            while time.monotonic() - accepted < 1 / MAX_RATE_HZ:
+                await asyncio.sleep(1 / 100)
             link.on_pose(pose(4), None)
             link.on_pose(pose(4), None)  # An old sequence: a resend or one out of order counts for nothing.
             assert len(teleop.heads) == 2
