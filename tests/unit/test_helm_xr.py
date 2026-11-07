@@ -258,8 +258,8 @@ def test_the_headset_logs_in_back_to_its_page_and_another_device_cannot_take_the
     from aiohttp.test_utils import TestClient, TestServer
     save_password(tmp_path / 'access.json', 'minerva-helm')
     access = Access(tmp_path / 'access.json')
-    quest = access.login('minerva-helm', device='Quest headset', address='192.168.8.60')
-    tablet = access.login('minerva-helm', device='Tablet', address='192.168.8.61')
+    quest = access.login('minerva-helm', device='Quest headset', address='192.0.2.60')
+    tablet = access.login('minerva-helm', device='Tablet', address='192.0.2.61')
     session = HelmSession(PROFILE, runs=tmp_path / 'runs', limits=tmp_path / 'limits.json', on_robot=True)
 
     async def run():

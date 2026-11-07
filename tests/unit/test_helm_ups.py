@@ -142,10 +142,10 @@ def test_the_watcher_reconnects_after_a_lost_link_and_follows_a_route_change():
         opened[0][1].lines.put(None)  # The link drops; the next attempt fails, the one after reads again.
         until(lambda: len(opened) == 3)
         assert opened[1] == ('10.42.0.1', None)
-        route['address'] = '192.168.8.180'
+        route['address'] = '192.0.2.180'
         opened[2][1].lines.put({'state': ON_POWER, 'age_s': 1., 'missing': False})
         until(lambda: len(opened) == 4)
-        assert opened[3][0] == '192.168.8.180' and opened[2][1].closed
+        assert opened[3][0] == '192.0.2.180' and opened[2][1].closed
     finally:
         watch.close()
     assert opened[3][1].closed

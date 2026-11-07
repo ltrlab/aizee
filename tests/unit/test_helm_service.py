@@ -1,4 +1,5 @@
 """Helm on Minerva's install: the robot-side service (ops.helm_service) and the build PC's part (ops.helm_robot)."""
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -11,9 +12,11 @@ import pytest
 
 from robot_platform.ops import helm_robot, helm_service
 from robot_platform.ops.release import HELM_LOCK
-from robot_platform.ops.ssh import TETHER
+from robot_platform.ops.ssh import DEFAULT_PROFILE, TETHER, robot_identity
 
 ROOT = Path(__file__).resolve().parents[2]
+ADDRESS = robot_identity(DEFAULT_PROFILE)[0]['address']  # The unit's own, from its device profile.
+LAN = str(ipaddress.ip_network(f'{ADDRESS}/24', strict=False))
 BRIDGE_KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEnykGnVsgM3uUhoxQHByeKsZ1VBPh2wsL094geYmsMN claude@3080'
 LOCAL_KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK0zH6tHk6bE5mR8m5H2Z1q7JcVb9jK5S8u4v2W1x3y0 minerva-helm-local'
 
@@ -69,7 +72,7 @@ def test_prepare_makes_the_folders_key_and_a_certificate_phones_accept_once(tmp_
     if os.name != 'nt':
         assert (p.keys.stat().st_mode & 0o777) == 0o700 and (p.tls_key.stat().st_mode & 0o777) == 0o600
     assert p.local_key.is_file() and p.cert.read_text() == 'CERT' and p.tls_key.read_text() == 'KEY'
-    for line in ('IP:10.42.0.1', 'IP:127.0.0.1', 'IP:192.168.8.180', 'basicConstraints = critical, CA:FALSE',
+    for line in ('IP:10.42.0.1', 'IP:127.0.0.1', f'IP:{ADDRESS}', 'basicConstraints = critical, CA:FALSE',
                  'extendedKeyUsage = serverAuth'):
         assert line in robot.config
     assert ('-days', '825') == robot.calls[1][robot.calls[1].index('-days'):][:2]
@@ -132,13 +135,13 @@ def test_keys_are_authorized_narrowly_once_and_removed_cleanly(tmp_path):
     assert list(p.authorized.parent.glob('authorized_keys.before-helm-*'))  # A copy of what was there.
     # An earlier release's line for this bridge (the tether only) ...
     narrower = helm_service.bridge_line(BRIDGE_KEY, 'operator-3080').replace(
-        'from="10.42.0.0/16,192.168.8.0/24"', 'from="10.42.0.0/24"')
+        f'from="10.42.0.0/16,{LAN}"', 'from="10.42.0.0/24"')
     p.authorized.write_text(p.authorized.read_text() + narrower + '\n')
     helm_service.authorize_bridge(BRIDGE_KEY, 'operator-3080', robot)
     bridge = p.authorized.read_text().splitlines()[2]
     # ... becomes the tether, the access point and Minerva's network, in place.
     assert bridge.startswith('command="cd ~/minerva/current && PYTHONPATH=src exec python3 -u -m '
-                             'robot_platform.helm.bridge relay",from="10.42.0.0/16,192.168.8.0/24",')
+                             f'robot_platform.helm.bridge relay",from="10.42.0.0/16,{LAN}",')
     assert bridge.endswith(' minerva-gello-bridge:operator-3080') and 'no-port-forwarding' in bridge
     helm_service.authorize_bridge(BRIDGE_KEY, 'operator-3080', robot)  # Again: no second line.
     assert len(p.authorized.read_text().splitlines()) == 3

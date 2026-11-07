@@ -13,9 +13,9 @@ Supports:
 - UPS power monitoring
 
 Usage:
-    python rerun_bridge.py --cameras tcp://192.168.0.2:5557
-    python rerun_bridge.py --cameras tcp://192.168.0.2:5557 tcp://192.168.0.3:5558 --lidar tcp://192.168.0.27:5561
-    python rerun_bridge.py --cameras tcp://192.168.0.2:5557 --save logs/session_001.mcap
+    python rerun_bridge.py --cameras tcp://192.0.2.2:5557
+    python rerun_bridge.py --cameras tcp://192.0.2.2:5557 tcp://192.0.2.3:5558 --lidar tcp://192.168.0.27:5561
+    python rerun_bridge.py --cameras tcp://192.0.2.2:5557 --save logs/session_001.mcap
     python rerun_bridge.py --telemetry tcp://192.168.0.27:5556 --lidar tcp://192.168.0.27:5561 --ups tcp://192.168.0.27:5562
 """
 

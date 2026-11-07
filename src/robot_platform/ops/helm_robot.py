@@ -1,6 +1,6 @@
 """Helm on Minerva, from the build PC: what the Jetson cannot make itself (ops.helm_service).
 
-    python -m robot_platform.ops.helm_robot [--address 192.168.8.180] ACTION
+    python -m robot_platform.ops.helm_robot [--address <address>] ACTION
 
     meshes   convert this checkout's model meshes for the 3D view and upload the ones Minerva lacks (~/minerva/meshes).
              The CAD stays here, as for every release; the robot serves the converted meshes by their digests.

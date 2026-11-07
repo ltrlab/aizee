@@ -107,6 +107,8 @@ CORE = [
     'tests/unit/test_twin.py', 'tests/unit/test_helm_twin.py',
     'tests/unit/test_joint_zero.py', 'tests/unit/test_camera_watch.py',
     'tests/unit/test_camera_node_orientation.py', 'tests/unit/test_camera_node_usb3.py',
+    'tests/contract/test_headset_mode.py', 'tests/unit/test_arm_ik.py', 'tests/unit/test_headset_source.py',
+    'tests/unit/test_vr_arms.py', 'tests/unit/test_vr_worker.py',
 ]
 # The motion contract (AGENTS.md: approach, collision envelope, guarded lifecycle and receiver checks, the receiver
 # and collision crates) and the locks: a change there runs the whole check, never the quick lane.

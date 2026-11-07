@@ -47,7 +47,7 @@ def _local_ipv4s() -> list[str]:
     # Also the route-out address (works without DNS).
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("10.255.255.255", 1))
+            s.connect(("10.255.255.255", 1))  # ltr-code: allow private-ip (no packet: a UDP connect only picks the route)
             addrs.add(s.getsockname()[0])
     except Exception:
         pass

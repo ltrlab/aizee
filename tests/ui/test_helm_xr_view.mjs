@@ -161,7 +161,7 @@ tick(250);
 assert.equal(first.readyState, 3);
 assert.equal(camera.stats.message, 'last frame 8 s ago');
 assert.equal(sockets.length, 1);
-token = 'restarted';  // Helm restarted meanwhile: the next socket carries its new token.
+token = 'restarted';  // ltr-code: allow password-assignment (a test's token). Helm restarted meanwhile: the next socket carries its new token.
 tick(2000);
 assert.equal(sockets.length, 2);
 const second = sockets[1];

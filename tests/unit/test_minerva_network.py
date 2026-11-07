@@ -12,7 +12,7 @@ import pytest
 from robot_platform.ops import network
 from robot_platform.ops.network import AP, ETHERNET, LAN, LOCAL, LOCAL_DEVICE, TETHER, WIFI
 
-ADDRESSES = {LAN: '192.168.8.43/24', TETHER: '10.42.0.1/24', 'birdnest': '192.168.8.180/24', AP: '10.42.1.1/24',
+ADDRESSES = {LAN: '192.0.2.43/24', TETHER: '10.42.0.1/24', 'birdnest': '192.0.2.180/24', AP: '10.42.1.1/24',
              LOCAL: '10.42.0.1/32'}
 
 
@@ -88,7 +88,7 @@ def test_on_a_network_the_port_takes_its_address_and_the_wifi_steps_aside(bench)
     bench.service.step()
     state = bench.state()
     assert state['mode'] == 'lan' and bench.nm.connections[ETHERNET] == LAN
-    assert state['ethernet']['addresses'] == ['192.168.8.43/24'] and state['wifi']['mode'] == 'off'
+    assert state['ethernet']['addresses'] == ['192.0.2.43/24'] and state['wifi']['mode'] == 'off'
     assert state['local'] == '10.42.0.1'
     bench.nm.cable = None  # Unplugged: the Wi-Fi client comes back.
     bench.service.step()

@@ -32,7 +32,7 @@ def test_a_password_logs_a_device_in_and_one_device_at_a_time_is_in_control(tmp_
     save_password(tmp_path / 'access.json', 'minerva-helm')
     clock = Clock()
     access = Access(tmp_path / 'access.json', clock=clock)
-    tablet = access.login('minerva-helm', device='Tablet', address='192.168.8.50')
+    tablet = access.login('minerva-helm', device='Tablet', address='192.0.2.50')
     pc = access.login('minerva-helm', device='Operator PC', address='10.42.0.33')
     assert access.view(tablet) == {'enabled': True, 'device': 'Tablet', 'in_control': False, 'holder': None}
     access.claim(tablet)
@@ -53,18 +53,18 @@ def test_wrong_passwords_wait_longer_each_time(tmp_path):
     clock = Clock()
     access = Access(tmp_path / 'access.json', clock=clock)
     with pytest.raises(ValueError, match='Wrong password'):
-        access.login('guess-one', device='x', address='192.168.8.99')
+        access.login('guess-one', device='x', address='192.0.2.99')
     with pytest.raises(PermissionError, match='try again'):
-        access.login('minerva-helm', device='x', address='192.168.8.99')  # Even the right one, too soon.
+        access.login('minerva-helm', device='x', address='192.0.2.99')  # Even the right one, too soon.
     clock.now += 1.1
     with pytest.raises(ValueError):
-        access.login('guess-two', device='x', address='192.168.8.99')
+        access.login('guess-two', device='x', address='192.0.2.99')
     clock.now += 1.1
     with pytest.raises(PermissionError):
-        access.login('minerva-helm', device='x', address='192.168.8.99')  # Two failures: a two-second wait.
+        access.login('minerva-helm', device='x', address='192.0.2.99')  # Two failures: a two-second wait.
     clock.now += 1.
-    assert access.login('minerva-helm', device='x', address='192.168.8.99')
-    assert access.login('minerva-helm', device='y', address='192.168.8.98')  # Another address never waited.
+    assert access.login('minerva-helm', device='x', address='192.0.2.99')
+    assert access.login('minerva-helm', device='y', address='192.0.2.98')  # Another address never waited.
 
 
 def test_only_stopping_is_a_stop():
@@ -119,7 +119,7 @@ def test_the_page_needs_a_login_and_changes_need_control_but_any_device_may_stop
         wrong = await client.post('/api/helm/login', json={'password': 'nope-nope', 'device': 'Tablet'})
         assert wrong.status == 401
         await asyncio.sleep(1.1)  # The wait after one wrong password.
-        right = await client.post('/api/helm/login', json={'password': 'minerva-helm', 'device': 'Tablet'})
+        right = await client.post('/api/helm/login', json={'password': 'minerva-helm', 'device': 'Tablet'})  # ltr-code: allow password-assignment (a test's)
         assert right.status == 200 and 'helm_session' in right.cookies
         state = await (await client.get('/api/helm/state')).json()
         assert state['access'] == {'enabled': True, 'device': 'Tablet', 'in_control': False, 'holder': None}
@@ -385,7 +385,7 @@ def test_teleop_on_the_robot_binds_its_link_where_the_bridge_reached_minerva(tmp
     helm = SimpleNamespace(profile_path=PROFILE, bindings={}, mapping={}, saved_limits={'joints': {}},
                            asset_id='minerva-production-01', connection='robot', address='127.0.0.1', on_robot=True)
     # The bridge reached Minerva at its network address, over Wi-Fi (helm.bridge's relay and path).
-    bridge = SimpleNamespace(connected=True, serve_link=lambda *a, **k: None, robot_address='192.168.8.43',
+    bridge = SimpleNamespace(connected=True, serve_link=lambda *a, **k: None, robot_address='192.0.2.43',
                              path='wifi')
     made = []
 
@@ -410,7 +410,7 @@ def test_teleop_on_the_robot_binds_its_link_where_the_bridge_reached_minerva(tmp
     session.set_receiver('virtual')
     session.start()
     try:
-        assert made[-1]['link_bind'] == '192.168.8.43'
+        assert made[-1]['link_bind'] == '192.0.2.43'
         assert 'leader link runs over Wi-Fi' in session.snapshot()['message']  # Allowed, and said.
     finally:
         session.stop()

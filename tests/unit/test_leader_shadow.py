@@ -26,7 +26,7 @@ def routes():
                         dict(actuator="b", leader="right", channel=6, scale=-.01)])
 
 
-@pytest.mark.parametrize("url", ["http://example.com:8767", "http://192.168.8.180:8767/",
+@pytest.mark.parametrize("url", ["http://example.com:8767", "http://192.0.2.180:8767/",
     "http://localhost:8767", "http://127.0.0.1:5555", "https://127.0.0.1:8767",
     "http://user@127.0.0.1:8767", "http://127.0.0.1:8767/api/sample",
     "http://127.0.0.1:8767/?target=remote", "http://127.0.0.1:8767/#remote"])

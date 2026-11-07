@@ -16,19 +16,19 @@ ROOT = Path(__file__).resolve().parents[2]
 PROFILE = ROOT / 'config/devices/minerva-joint-calibration.json'
 
 STATE = {'version': 1, 'mode': 'lan', 'updated_at': 1000., 'local': '10.42.0.1',
-         'ethernet': {'carrier': True, 'connection': 'minerva-lan', 'addresses': ['192.168.8.43/24']},
+         'ethernet': {'carrier': True, 'connection': 'minerva-lan', 'addresses': ['192.0.2.43/24']},
          'wifi': {'connection': None, 'mode': 'off', 'addresses': []},
          'ap': {'wanted': False, 'on': False, 'ssid': 'minerva', 'address': '10.42.1.1'}}
 
 
 def routes(device):
-    return lambda command, **_: SimpleNamespace(stdout=f'{command[-1]} dev {device} src 192.168.8.43 uid 1000\n')
+    return lambda command, **_: SimpleNamespace(stdout=f'{command[-1]} dev {device} src 192.0.2.43 uid 1000\n')
 
 
 def test_the_path_is_the_kind_of_interface_the_route_leaves_on(tmp_path):
     (tmp_path / 'wlP1p1s0' / 'wireless').mkdir(parents=True)
     (tmp_path / 'enP8p1s0').mkdir()
-    assert path_of('192.168.8.225', run=routes('enP8p1s0'), interfaces=tmp_path) == 'wired'
+    assert path_of('192.0.2.225', run=routes('enP8p1s0'), interfaces=tmp_path) == 'wired'
     assert path_of('10.42.1.23', run=routes('wlP1p1s0'), interfaces=tmp_path) == 'wifi'
     assert path_of('127.0.0.1', run=routes('lo'), interfaces=tmp_path) == 'local'
     assert path_of(None, run=routes('enP8p1s0'), interfaces=tmp_path) is None
@@ -37,7 +37,7 @@ def test_the_path_is_the_kind_of_interface_the_route_leaves_on(tmp_path):
 
     def missing(*args, **kwargs):
         raise FileNotFoundError('ip')
-    assert path_of('192.168.8.225', run=missing, interfaces=tmp_path) is None
+    assert path_of('192.0.2.225', run=missing, interfaces=tmp_path) is None
 
 
 def test_the_view_reads_the_service_state_and_orders_the_addresses(tmp_path):
@@ -47,10 +47,10 @@ def test_the_view_reads_the_service_state_and_orders_the_addresses(tmp_path):
     state.write_text(json.dumps(STATE), encoding='utf-8')
     snapshot = view.snapshot()
     assert snapshot['installed'] and snapshot['running'] and snapshot['age_s'] == 3. and snapshot['mode'] == 'lan'
-    assert view.addresses() == ['192.168.8.43', '10.42.0.1']  # Wired first, then the tether/access point address.
-    state.write_text(json.dumps(dict(STATE, wifi={'addresses': ['192.168.8.180/24']}, updated_at=980.)),
+    assert view.addresses() == ['192.0.2.43', '10.42.0.1']  # Wired first, then the tether/access point address.
+    state.write_text(json.dumps(dict(STATE, wifi={'addresses': ['192.0.2.180/24']}, updated_at=980.)),
                      encoding='utf-8')
-    assert view.addresses() == ['192.168.8.43', '10.42.0.1', '192.168.8.180']
+    assert view.addresses() == ['192.0.2.43', '10.42.0.1', '192.0.2.180']
     assert view.snapshot()['running'] is False  # Not written for 23 s: the service is not running.
 
 
@@ -147,7 +147,7 @@ def test_the_access_point_switch_in_helm(tmp_path):
         app = create_app(session, Link(), teleop=teleop, token='secret', network=network)
         async with TestClient(TestServer(app)) as client:
             state = await (await client.get('/api/helm/state')).json()
-            assert state['network']['mode'] == 'lan' and state['network']['ethernet']['addresses'] == ['192.168.8.43/24']
+            assert state['network']['mode'] == 'lan' and state['network']['ethernet']['addresses'] == ['192.0.2.43/24']
             assert [link['mode'] for link in state['network']['links']] == ['access_point']  # The headset's links.
             headers = {'X-Helm-Token': 'secret'}
             for payload in ({'on': 'yes'}, {'on': True, 'x': 1}, {}):

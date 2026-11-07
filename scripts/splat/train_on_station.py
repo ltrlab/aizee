@@ -2,8 +2,8 @@
 (docs/development/HEADSET_3D_PLAN.md, phase 4). Run on the build PC, which holds both keys: the robot's (the device
 profile's, pinned by ops.ssh) and the station's.
 
-    python scripts/splat/train_on_station.py --station skavrx@100.87.96.68 --station-key ../ssh-keys/minerva_operator_id \
-        --station-host-key SHA256:JSZ/ck61GbBqrrsMDLOSwggvg6vIN6SiXyc3Cn6aCk4 [--robot 192.168.8.180] \
+    python scripts/splat/train_on_station.py --station <user>@<station> --station-key <key file> \
+        --station-host-key SHA256:<its host key> [--robot <address>] \
         [--capture NAME] [--steps 7000] [--min-free-mb 3000]
 
 1. Minerva: the capture under ~/minerva/helm/maps/captures (Helm's map card records them; the newest without a map
