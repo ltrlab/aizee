@@ -436,14 +436,17 @@ class LiveTaskCapture:
             finalizing = getattr(self, '_finalizing', False)
             stalled = bool(progress is not None and not finalizing
                            and self.clock()-progress > STATUS_TIMEOUT_S)
+            # A failed capture is neither available nor ready, as ProcessCapture.health reports a failed child:
+            # the worker publishes its failure first and clears its own flags only once its teardown ends.
+            failed = self._state['failed'] or stalled
             camera_deadline = self._state.get('camera_valid_until')
             camera_expired = 'camera_valid_until' in self._state and (camera_deadline is None
                               or self.clock() > camera_deadline)
-            return dict(available=self._state['available'] and not stalled,
+            return dict(available=self._state['available'] and not failed,
                         error='Capture camera worker stalled' if stalled else self._state['error'],
-                        failed=self._state['failed'] or stalled, source_age_s=age, camera_valid_until=camera_deadline,
+                        failed=failed, source_age_s=age, camera_valid_until=camera_deadline,
                         capture_ready=bool(self._state['capture_ready'] and not camera_expired
-                            and not stalled and not finalizing and age is not None
+                            and not failed and not finalizing and age is not None
                             and 0 <= age <= self.config['max_receiver_age_s']),
                         recording={key: recording.get(key) for key in ('active', 'error', 'state', 'complete')})
 
