@@ -82,10 +82,10 @@ hooks keep running. `ltr-code check --all` audits the whole tree and `ltr-code s
 Minerva's own networks (USB-C Ethernet, its access points, L4T's USB device mode) are allowed in
 `.ltr-code/secrets.toml`; a home LAN or tailnet address is not: take it from configuration instead.
 
-Formatting only warns until the one-time format commit that follows the merges for the public main, because a
-formatter rewrites whole files and every open branch would conflict with it. That commit is
-`ltr-code format --all`, on its own, then listed in `.git-blame-ignore-revs`; delete `.ltr-code/checks.toml` with it.
-The house style is in `ruff.toml`, `rustfmt.toml`, `.clang-format`, `.prettierrc.json` and `.editorconfig`.
+The house style is in `ruff.toml`, `rustfmt.toml`, `.clang-format`, `.prettierrc.json` and `.editorconfig`, and a commit
+that breaks it is refused: `ltr-code format` fixes what you changed. The hook needs each formatter on PATH, rustfmt
+included (`ltr-code doctor` lists them). `git config blame.ignoreRevsFile .git-blame-ignore-revs` keeps the one-time
+format commit out of `git blame`.
 
 ## Dependency updates
 

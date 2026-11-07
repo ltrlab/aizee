@@ -1,5 +1,4 @@
-# Minerva's changes to the LTR LABS standard's format.toml (github.com/ltrlab/ltr-code, config/format.toml).
-# Formatting warns until the one-time format commit (checks.toml).
+# This repository's changes to the LTR LABS standard's format.toml (github.com/ltrlab/ltr-code, config/format.toml).
 
 [settings]
 extend-exclude = [
