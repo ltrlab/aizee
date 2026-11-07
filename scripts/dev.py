@@ -67,6 +67,7 @@ CORE = [
     'tests/unit/test_qualify_direct_motion.py', 'tests/unit/test_position_only_trial.py',
     'tests/unit/test_teleop_lifecycle.py', 'tests/unit/test_guarded_config.py',
     'tests/unit/test_helm_teleop.py', 'tests/unit/test_live_receiver.py',
+    'tests/contract/test_helm_teleop_virtual.py',
     'tests/contract/test_direct_benchmark.py', 'tests/unit/test_benchmark_direct_loop.py',
     'tests/unit/test_direct_readiness.py', 'tests/unit/test_ssh_worktree.py',
     'tests/unit/test_minerva_check.py', 'tests/unit/test_helm_check.py',

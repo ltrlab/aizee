@@ -505,6 +505,14 @@ session takes the arm back where it is held, lowers it to its reference and
 disables it; the reason stays on screen. A stop the receiver makes itself (its
 lease or collision verdict lapsing) ends the same way.
 
+Two stops end in a hold instead (PAUSED): a joint too fast for three readings
+in a row (the receiver's `sustained_speed` check, such as left J4 lurching
+into its lower end in VR on 2026-11-03), and a late cycle within 10 s of a
+camera dropping off USB. The session takes the arms back where the receiver
+held them and holds them there, with the reason on screen; Engage (T) follows
+again. These count together: a fourth within a minute is lowered and disabled
+as above.
+
 **One drive going quiet holds the arm too.** The receiver holds the arm on the
 drives still answering while one stops answering, and refuses to re-arm until it
 answers again; the session then lowers the arm. A drive that drops out of Run

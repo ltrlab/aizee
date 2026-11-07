@@ -63,6 +63,11 @@ WAIT_TO_REARM = ('feedback_stale', 'limit_violation', 'invalid_state')
 HOST_STALL = ('command_expired', 'collision_expired')
 CAMERA_PAUSE_S = 10.
 PAUSE_ATTEMPTS, PAUSE_WINDOW_S = 3, 60.
+# A joint over the speed allowed where it is, reading after reading (the receiver's sustained_speed check), is braked
+# to a hold, and the arms are held there as after a camera drop rather than lowered: left J4 lurched into its lower
+# end in VR (2026-11-03; the user: "if this fault happens, it doesn't trigger full shutdown, just a hold"). Engage
+# (T) follows again. Pauses of either kind count together: more than PAUSE_ATTEMPTS in PAUSE_WINDOW_S are lowered.
+HOLD_TRIPS = ('sustained_speed',)
 
 
 def load_profile(path):
@@ -382,10 +387,12 @@ class TeleopCore:
         # After a fault the receiver holds the arm: it is taken back and lowered (the lifecycle's shutdown).
         self._lowering, self._lowerings = False, 0
         # A camera that dropped off USB (camera_watch, live sessions only) pauses the arms; a late cycle's trip just
-        # after is held where the receiver braked the arm (_pause), not lowered.
+        # after, or a joint over its speed (HOLD_TRIPS), is held where the receiver braked the arm (_pause), not
+        # lowered.
         self.camera_watch = None
         self._camera_dropped = self._camera_dropped_at = None
         self._camera_hold = self._pausing = False
+        self._paused_by = None  # 'camera' or 'trip': what the pause in progress holds the arms after.
         self._pauses = deque(maxlen=PAUSE_ATTEMPTS)
         self._land = False  # Closing: shut down (lower, then disable) before the receiver closes.
         self.late_targets, self.sequence, self.overruns = 0, 0, 0
@@ -1274,7 +1281,8 @@ class TeleopCore:
                 self._head_after_fault(key, started)
             # The receiver stopped itself and revoked the lease. It holds the arm: take it back there and
             # lower it, keeping the original reason on screen; a new session is needed to follow again. After a
-            # camera dropped out, it is held there instead, and Engage (T) follows again (_pause).
+            # camera dropped out, or a joint over its speed, it is held there instead, and Engage (T) follows again
+            # (_pause).
             if key == 'H':
                 self._lowering = self._pausing = False
                 try:
@@ -1426,12 +1434,15 @@ class TeleopCore:
             detail = fault_detail(self.harness.last, self.derived['config'], self.labels) if self.harness else ''
             self.fault = (f"Receiver {status.get('state')}: {reason}" + (f' ({detail})' if detail else '')
                           + f' · {exc}') if reason not in (None, 'ok') else str(exc)
-            if (reason in HOST_STALL and previous in ('HOLD', *ENGAGED) and self._camera_pause_due(started)
+            camera = reason in HOST_STALL and self._camera_pause_due(started)
+            if (previous in ('HOLD', *ENGAGED) and (camera or self._trip_hold_due(status, started))
                     and self._held()):
-                self._pausing = True
+                self._pausing, self._paused_by = True, 'camera' if camera else 'trip'
                 self._head_cycle(None, started)
-                self.message = (f'{self._receiver_name} PAUSED · {self.fault} · {self._camera_dropped} dropped off '
-                                f'USB and the receiver braked {self._the_arm} to a hold; taking it back there…')
+                self.message = (f'{self._receiver_name} PAUSED · {self.fault} · '
+                                + (f'{self._camera_dropped} dropped off USB and the receiver' if camera
+                                   else 'The receiver')
+                                + f' braked {self._the_arm} to a hold; taking it back there…')
                 return
             self._head_after_fault(key, started)  # The head goes back to its rest while the arms are lowered.
             if self._held():
@@ -1558,27 +1569,40 @@ class TeleopCore:
                 self.message = (f'{self._receiver_name} FAULT · {self.fault} · Lowering stopped: {exc}. '
                                 'Stop the session and start it again.')
 
+    def _pauses_left(self, now):
+        """Whether fewer than PAUSE_ATTEMPTS pauses took the arm back in the last PAUSE_WINDOW_S."""
+        return sum(now - at <= PAUSE_WINDOW_S for at in getattr(self, '_pauses', ())) < PAUSE_ATTEMPTS
+
     def _camera_pause_due(self, now):
         """Whether a late cycle's trip now pauses the arms rather than lowering them: a camera dropped off USB
         within CAMERA_PAUSE_S, and fewer than PAUSE_ATTEMPTS pauses took the arm back in the last PAUSE_WINDOW_S."""
         dropped_at = getattr(self, '_camera_dropped_at', None)
-        pauses = getattr(self, '_pauses', ())
-        return (dropped_at is not None and now - dropped_at <= CAMERA_PAUSE_S
-                and sum(now - at <= PAUSE_WINDOW_S for at in pauses) < PAUSE_ATTEMPTS)
+        return dropped_at is not None and now - dropped_at <= CAMERA_PAUSE_S and self._pauses_left(now)
+
+    def _trip_hold_due(self, status, now):
+        """Whether the receiver's stop in `status` holds the arms rather than lowering them: its last trip, the one
+        that stopped them, was a joint over its speed (HOLD_TRIPS), and fewer than PAUSE_ATTEMPTS pauses took the
+        arm back in the last PAUSE_WINDOW_S."""
+        trip = (status or {}).get('last_trip') or {}
+        return (trip.get('check') in HOLD_TRIPS and trip.get('reason') == (status or {}).get('reason')
+                and self._pauses_left(now))
 
     def _pause(self, started):
-        """After a camera dropped out and the receiver braked the arm for a late cycle: take the arm back where the
-        receiver holds it, as _lower does, and hold it there (the lifecycle's shutdown disengaged at once, to HOLD)
-        instead of lowering it. The fault clears; Engage (T) follows again. Another trip while it is taken back
-        tries again, PAUSE_ATTEMPTS times in PAUSE_WINDOW_S, then the arm is lowered as after any other fault."""
+        """After a camera dropped out and the receiver braked the arm for a late cycle, or after it braked the arm
+        for a joint over its speed (HOLD_TRIPS): take the arm back where the receiver holds it, as _lower does, and
+        hold it there (the lifecycle's shutdown disengaged at once, to HOLD) instead of lowering it. The fault
+        clears; Engage (T) follows again. Another trip while it is taken back tries again, PAUSE_ATTEMPTS times in
+        PAUSE_WINDOW_S, then the arm is lowered as after any other fault."""
         session = self.session
+        camera = getattr(self, '_paused_by', None) != 'trip'
         try:
             if session.lifecycle.state == 'FAULT':
-                if sum(started - at <= PAUSE_WINDOW_S for at in self._pauses) >= PAUSE_ATTEMPTS:
+                if not self._pauses_left(started):
                     self._pausing, self._lowering, self._lowerings = False, True, 0
                     self.message = (f'{self._receiver_name} FAULT · {self.fault} · The receiver stopped the arms '
-                                    f'{PAUSE_ATTEMPTS} times in a minute after cameras dropped out; lowering to the '
-                                    'reference, then disabling…')
+                                    f'{PAUSE_ATTEMPTS} times in a minute'
+                                    + (' after cameras dropped out' if camera else '')
+                                    + '; lowering to the reference, then disabling…')
                     return
                 if session.recover():
                     self._pauses.append(started)
@@ -1591,7 +1615,9 @@ class TeleopCore:
                 self._pausing = False
                 self.message = (f'{self._receiver_name} · HOLD · PAUSED: {self._camera_dropped} dropped off USB and '
                                 f'a late cycle stopped the arms ({self.fault}). They hold where the receiver stopped '
-                                'them: Engage (T) follows again once the camera is back.')
+                                'them: Engage (T) follows again once the camera is back.' if camera else
+                                f'{self._receiver_name} · HOLD · PAUSED: the receiver stopped the arms '
+                                f'({self.fault}). They hold where it stopped them: Engage (T) follows again.')
                 self.fault = None
         except Exception as exc:
             self._record(session.last_cycle or {}, failure=str(exc))
