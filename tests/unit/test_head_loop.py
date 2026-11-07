@@ -3,6 +3,8 @@ actions in order, its own grid between them, a fault ending it, and a prompt sto
 import threading
 import time
 
+import pytest
+
 from robot_platform.helm.head_teleop import PERIOD_S, HeadLoop
 
 
@@ -35,6 +37,7 @@ def wait_for(condition, timeout=2.):
     return condition()
 
 
+@pytest.mark.serial  # Its thread's cycles per period on this computer's clock, which the gate's workers would slow.
 def test_the_head_takes_the_arms_actions_in_order_and_cycles_on_its_grid_between_them():
     head = Head()
     head.busy.clear()  # Its first cycle waits for its receiver while the arms' actions arrive.

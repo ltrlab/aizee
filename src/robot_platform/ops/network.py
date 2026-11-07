@@ -310,7 +310,21 @@ def _write_json(path, value, mode=0o644):
     partial = path.with_name(path.name + '.partial')
     partial.write_text(json.dumps(value, indent=1), encoding='utf-8')
     os.chmod(partial, mode)
-    os.replace(partial, path)
+    _replace(partial, path)
+
+
+def _replace(partial, path, patience_s=1.):
+    """os.replace, waiting out Windows' brief refusal while another process (a virus scanner) still has a new file
+    open. Linux, where the service runs, never refuses; the tests on Windows did, under the gate's 11 workers: 0.3 %
+    of replaces, each for at most 82 ms (2026-11-01). A refusal that outlasts the patience is raised."""
+    deadline = time.monotonic() + patience_s
+    while True:
+        try:
+            return os.replace(partial, path)
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(.01)
 
 
 def serve(network, *, sleep=time.sleep, stop=lambda: False):
@@ -408,7 +422,7 @@ def _write(path, data, mode=0o644):
     os.chmod(partial, mode)
     if path.exists() and not os.access(path, os.W_OK):
         os.chmod(path, 0o600)  # A read-only file (the sudoers rule) refuses replacing where renames honour it.
-    os.replace(partial, path)
+    _replace(partial, path)
 
 
 def install(host=None, source=None, *, psk=None, ask=getpass.getpass, start=True):

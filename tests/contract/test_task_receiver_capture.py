@@ -30,6 +30,7 @@ fixtures = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(fixtures)
 
 
+@pytest.mark.serial  # Real rendering on a wall-clock wait: the gate runs it alone (scripts/dev.py run_tests).
 def test_receiver_rows_and_two_real_rendered_cameras_form_one_episode_and_worker_death_fails_closed(tmp_path):
     assert default_binary().is_file(), 'Required contract: build the actual native control_harness first'
     plan, _, device, reference, _, _, bindings = load_plan(DEVICES/'minerva-joint-calibration.json')

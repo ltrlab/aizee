@@ -21,6 +21,9 @@ KEY = b'k' * 32
 MACHINE = 'minerva-machine-id'
 
 
+LIVE = pytest.mark.serial  # A live relay and bridge session on real sockets, 10 s wall-clock waits: run alone.
+
+
 def wait_until(predicate, timeout=10.):
     deadline = time.monotonic() + timeout
     while not predicate():
@@ -49,6 +52,7 @@ def attach(hub, tmp_path, *, machine_id=MACHINE, **options):
     return session, thread
 
 
+@LIVE
 def test_a_session_link_served_through_the_bridge_gets_the_robot_signed_samples(hub, tmp_path):
     with pytest.raises(BridgeError, match='not connected: start it on the PC'):
         hub.serve_link(PROFILE, KEY, ('127.0.0.1', 9))
@@ -68,6 +72,7 @@ def test_a_session_link_served_through_the_bridge_gets_the_robot_signed_samples(
     assert link.close() is report  # Closing twice is harmless.
 
 
+@LIVE
 def test_the_leaders_workspace_reads_samples_restamped_on_arrival(hub, tmp_path):
     attach(hub, tmp_path)
     wait_until(lambda: hub.connected)
@@ -99,6 +104,7 @@ def test_the_leaders_workspace_reads_samples_restamped_on_arrival(hub, tmp_path)
         robot.close()
 
 
+@LIVE
 def test_a_wrong_robot_or_token_is_refused(hub, tmp_path):
     session, thread = attach(hub, tmp_path, machine_id='another-computer')
     thread.join(10.)
@@ -247,6 +253,7 @@ def test_names_resolve_to_ipv4_only(monkeypatch):
     assert set(families) == {socket.AF_INET}
 
 
+@LIVE
 def test_a_newer_bridge_cuts_the_older_relay_at_once(hub):
     """A bridge that reconnects (Minerva moved from Wi-Fi to a cable) replaces its old relay: the hub ends the old
     connection now, not when TCP gives up on it (2026-10-25: close() left it open under its reader thread)."""

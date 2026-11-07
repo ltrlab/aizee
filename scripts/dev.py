@@ -23,6 +23,29 @@ import xml.etree.ElementTree as ET
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON = ROOT / '.venv-dev' / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
 CORE = [
+    # Every other test file that runs without torch or OpenCV (2026-11-01): Helm's leaders, limits, cameras and
+    # Tune tab, live and virtual teleop, the collision model, the neck's clearance and the shared session transport.
+    'tests/unit/test_actuator_char.py', 'tests/unit/test_camera_node_orientation.py',
+    'tests/unit/test_can_driver_maintenance.py', 'tests/unit/test_characterization_measurements.py',
+    'tests/unit/test_collision.py', 'tests/unit/test_collision_cli.py', 'tests/unit/test_commissioning.py',
+    'tests/unit/test_compose_collision_model.py', 'tests/unit/test_gravity.py', 'tests/unit/test_helm_cameras.py',
+    'tests/unit/test_helm_leaders.py', 'tests/unit/test_helm_limits.py', 'tests/unit/test_leader_input.py',
+    'tests/unit/test_leader_ranges.py', 'tests/unit/test_leader_routes.py', 'tests/unit/test_leader_shadow.py',
+    'tests/unit/test_leader_viewer.py', 'tests/unit/test_limit_probe.py', 'tests/unit/test_limit_sweep.py',
+    'tests/unit/test_mechanical_zero.py', 'tests/unit/test_minerva_guarded_adapter.py',
+    'tests/unit/test_model_audit.py', 'tests/unit/test_model_audit_cli.py', 'tests/unit/test_model_viewer.py',
+    'tests/unit/test_neck_clearance.py', 'tests/unit/test_openrb_parallel.py', 'tests/unit/test_power_on_range.py',
+    'tests/unit/test_profiles.py', 'tests/unit/test_servo_analysis.py', 'tests/unit/test_servo_sweep.py',
+    'tests/unit/test_transmission_calibration.py', 'tests/unit/test_vision_geometry.py',
+    'tests/contract/test_aizee_session_adapter.py', 'tests/contract/test_application_launch.py',
+    'tests/contract/test_head_only.py', 'tests/contract/test_helm_teleop_live.py',
+    'tests/contract/test_helm_teleop_virtual.py', 'tests/contract/test_helm_tune.py',
+    'tests/contract/test_minerva_session_adapter.py', 'tests/contract/test_session_background.py',
+    'tests/contract/test_session_inproc.py', 'tests/contract/test_session_routing.py',
+    'tests/contract/test_session_transport.py', 'tests/contract/test_shared_discovery.py',
+    'tests/contract/test_shared_recording.py', 'tests/contract/test_shared_wire.py',
+    'tests/contract/test_source_freshness.py', 'tests/contract/test_verified_release_model.py',
+    'tests/evidence/test_sim2real_20261015.py',
     'tests/unit/test_approach.py', 'tests/unit/test_joint_box_bound.py',
     'tests/unit/test_runtime_collision.py', 'tests/contract/test_guarded_controller.py',
     'tests/contract/test_collision_envelope.py', 'tests/contract/test_motion_envelope.py',
@@ -157,8 +180,10 @@ def release_artifacts(env):
     return json.loads(result.stdout)
 
 
-def required_test_results(path, report=None):
-    cases = ET.parse(path).findall('.//testcase')
+def required_test_results(paths, report=None):
+    """The JUnit reports of a run (one path, or the parallel and serial phases'): every test executed, none skipped."""
+    paths = [paths] if isinstance(paths, (str, Path)) else paths
+    cases = [case for path in paths for case in ET.parse(path).findall('.//testcase')]
     skipped = [case.get('name') for case in cases if case.find('skipped') is not None]
     results = {'collected': len(cases), 'skipped': skipped}
     if report is not None:
@@ -175,7 +200,7 @@ def new_run(folder, gate):
     run_dir.mkdir(parents=True)
     report = {'schema_version': 1, 'gate': gate, 'passed': False, 'commands': []}
 
-    def run(args, env):
+    def run(args, env, ok=(0,)):
         args = list(map(str, args))
         args[0] = shutil.which(args[0], path=env['PATH']) or args[0]
         print('+ ' + ' '.join(args), flush=True)
@@ -184,9 +209,39 @@ def new_run(folder, gate):
             log.flush()
             result = subprocess.run(args, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
         report['commands'].append({'args': args, 'returncode': result.returncode})
-        if result.returncode:
+        if result.returncode not in ok:
             raise RuntimeError(f'Command failed ({result.returncode}); see {run_dir / "output.log"}')
     return run_dir, report, run
+
+
+SERIAL = 'serial'  # Tests that wait on wall-clock progress (pyproject.toml's markers): run alone.
+NO_TESTS = 5  # pytest's exit code when a phase selects nothing (no serial test among those given).
+# One BLAS thread per worker: numpy's and scipy's OpenBLAS each commit a buffer per CPU thread at import, and Windows
+# never overcommits. That was 1.4 GB per process on a 22-thread laptop (80 MB with one thread), and 11 workers reached
+# the commit limit: fcl aborted loading meshes in from_urdf (2026-11-01).
+WORKER_ENV = {'OPENBLAS_NUM_THREADS': '1'}
+
+
+def workers(tests):
+    """The parallel phase's workers: ROBOT_GATE_WORKERS, else half the CPUs up to 12, never more than test files."""
+    configured = os.environ.get('ROBOT_GATE_WORKERS')
+    count = int(configured) if configured else min(12, max(1, (os.cpu_count() or 2) // 2))
+    return max(1, min(count, len(tests)))
+
+
+def run_tests(run, env, run_dir, tests, report):
+    """The tests across the cores (pytest-xdist; tests/conftest.py keeps each file on one worker, so its tests keep
+    their order and fixtures as in one process, except files of independent tests), then those marked serial alone: they
+    wait on wall-clock progress (real rendering, live loops), which the other workers' load only slows (a capture
+    test's 20 s wait ran out at 8 workers). Both phases count, and neither may skip. A worker that crashes fails the
+    run at once, naming its test: xdist's replacement worker crashed its loadgroup scheduler, or hung it for hours."""
+    common = [PYTHON, '-m', 'pytest', '-q', '--strict-markers', '-o', 'xfail_strict=true']
+    run([*common, '-n', workers(tests), '--max-worker-restart', '0', '--dist', 'loadgroup', '-m', f'not {SERIAL}',
+         '--basetemp', run_dir / 'pytest', '--junitxml', run_dir / 'tests.xml', *tests], {**env, **WORKER_ENV},
+        ok=(0, NO_TESTS))
+    run([*common, '-m', SERIAL, '--basetemp', run_dir / 'pytest-serial', '--junitxml', run_dir / 'tests-serial.xml',
+         *tests], env, ok=(0, NO_TESTS))
+    return required_test_results([run_dir / 'tests.xml', run_dir / 'tests-serial.xml'], report)
 
 
 def gate_environment(run_dir):
@@ -233,9 +288,7 @@ def check(offline=False):
         run([PYTHON, '-c', 'import ctypes, os; '
              'lib=ctypes.CDLL(os.environ["ROBOT_COLLISION_LIBRARY"]); '
              'assert lib.rpc_abi_version() == 3; import fcl, numpy, scipy, pytest, mujoco, hypothesis'], env)
-        run([PYTHON, '-m', 'pytest', '-q', '--strict-markers', '-o', 'xfail_strict=true',
-             '--basetemp', run_dir / 'pytest', '--junitxml', run_dir / 'tests.xml', *CORE], env)
-        required_test_results(run_dir / 'tests.xml', report)
+        run_tests(run, env, run_dir, CORE, report)
         report['source_after'] = source_identity()
         if report['source_before'] != report['source_after']:
             raise RuntimeError('Source changed during verification; rerun in an isolated worktree')
@@ -319,9 +372,7 @@ def quick(base=None, named=()):
         print(f'{len(changed)} file(s) changed since {base[:10]}; {len(tests)} test file(s) touch them', flush=True)
         if tests:
             env = gate_environment(run_dir)
-            run([PYTHON, '-m', 'pytest', '-q', '--strict-markers', '-o', 'xfail_strict=true',
-                 '--basetemp', run_dir / 'pytest', '--junitxml', run_dir / 'tests.xml', *tests], env)
-            required_test_results(run_dir / 'tests.xml', report)
+            run_tests(run, env, run_dir, tests, report)
         else:
             print('No test of the gate touches this change.', flush=True)
         report['source_after'] = source_identity()

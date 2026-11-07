@@ -10,11 +10,16 @@ Builds locally; never connects to a robot or installs services.
 param(
     [switch]$Bootstrap,
     [switch]$Offline,
-    [ValidateSet('motor_control', 'lidar_control', 'robot_collision', 'robot_control')]
+    # One or more of motor_control, lidar_control, robot_collision, robot_control. Comma-separated also works under
+    # `powershell -File`, which passes `-Package a,b` as the single string 'a,b'.
     [string[]]$Package = @('motor_control', 'lidar_control')
 )
 
 $ErrorActionPreference = 'Stop'
+$Package = @($Package | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+$known = @('motor_control', 'lidar_control', 'robot_collision', 'robot_control')
+$unknown = @($Package | Where-Object { $known -notcontains $_ })
+if ($unknown.Count -or !$Package.Count) { throw "-Package takes $($known -join ', '); not: $($unknown -join ', ')" }
 if ([Environment]::OSVersion.Platform -ne 'Win32NT' -or ![Environment]::Is64BitProcess) {
     throw 'This build helper requires a 64-bit Windows PowerShell process.'
 }
@@ -27,6 +32,19 @@ $cargo = Join-Path $tools 'cargo-home/bin/cargo.exe'
 $rustup = Join-Path $tools 'cargo-home/bin/rustup.exe'
 $zig = Join-Path $tools "zig-x86_64-windows-$zigVersion/zig.exe"
 $zigbuildDir = Join-Path $tools 'cargo-zigbuild'
+
+# Windows PowerShell 5.1 turns a native tool's stderr into a terminating error under 'Stop' when the output is
+# redirected (a CI job, or another program reading it), and cargo reports its progress on stderr. Run tools with
+# 'Continue', print their stderr as plain lines, and let the exit code decide.
+function Invoke-Native([scriptblock]$Command) {
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $Command 2>&1 | ForEach-Object {
+            if ($_ -is [Management.Automation.ErrorRecord]) { $_.Exception.Message } else { "$_" }
+        }
+    } finally { $ErrorActionPreference = $previous }
+}
 
 function Get-VerifiedDownload([string]$Url, [string]$Destination, [string]$Sha256) {
     if (!(Test-Path -LiteralPath $Destination)) {
@@ -59,7 +77,7 @@ try {
             $installer = Join-Path $tools 'rustup-init.exe'
             # rustup verifies downloaded Rust component hashes.
             Invoke-WebRequest -UseBasicParsing -Uri 'https://win.rustup.rs/x86_64' -OutFile $installer
-            & $installer -y --no-modify-path --profile minimal --default-host x86_64-pc-windows-msvc --default-toolchain $rustVersion --target aarch64-unknown-linux-gnu
+            Invoke-Native { & $installer -y --no-modify-path --profile minimal --default-host x86_64-pc-windows-msvc --default-toolchain $rustVersion --target aarch64-unknown-linux-gnu }
             if ($LASTEXITCODE -ne 0) { throw 'Rust installation failed.' }
         }
         if (!(Test-Path -LiteralPath $zig)) {
@@ -84,10 +102,10 @@ try {
     $toolchain = "$rustVersion-x86_64-pc-windows-msvc"
     $stableCompiler = Join-Path $env:RUSTUP_HOME 'toolchains/stable-x86_64-pc-windows-msvc/bin/rustc.exe'
     if (!(Test-Path (Join-Path $env:RUSTUP_HOME "toolchains/$toolchain/bin/rustc.exe"))) {
-        if ((Test-Path $stableCompiler) -and ((& $stableCompiler --version) -match "^rustc $([regex]::Escape($rustVersion)) ")) {
+        if ((Test-Path $stableCompiler) -and ((Invoke-Native { & $stableCompiler --version }) -match "^rustc $([regex]::Escape($rustVersion)) ")) {
             $toolchain = 'stable-x86_64-pc-windows-msvc'
         } elseif ($Bootstrap) {
-            & $rustup toolchain install $rustVersion --profile minimal --target aarch64-unknown-linux-gnu
+            Invoke-Native { & $rustup toolchain install $rustVersion --profile minimal --target aarch64-unknown-linux-gnu }
             if ($LASTEXITCODE -ne 0) { throw 'Pinned Rust toolchain installation failed.' }
         } else {
             throw "Rust $rustVersion is required. Run with -Bootstrap."
@@ -96,13 +114,13 @@ try {
     $env:RUSTUP_TOOLCHAIN = $toolchain
     $env:PATH = "$env:CARGO_HOME/bin;$($zigbuild.DirectoryName);$env:PATH"
     if ($Bootstrap) {
-        & $rustup target add aarch64-unknown-linux-gnu --toolchain $toolchain
+        Invoke-Native { & $rustup target add aarch64-unknown-linux-gnu --toolchain $toolchain }
         if ($LASTEXITCODE -ne 0) { throw 'Rust target installation failed.' }
     }
 
-    & $cargo --version
-    & $zig version
-    & $zigbuild.FullName --version
+    Invoke-Native { & $cargo --version }
+    Invoke-Native { & $zig version }
+    Invoke-Native { & $zigbuild.FullName --version }
     if (!(Test-Path -LiteralPath (Join-Path $repo 'Cargo.lock'))) {
         throw 'Cargo.lock is missing; restore the shared workspace lockfile before building.'
     }
@@ -110,7 +128,7 @@ try {
     foreach ($item in $Package) { $arguments += @('-p', $item) }
     if ($Package -contains 'robot_control') { $arguments += @('--features', 'robot_control/linux-service') }
     if ($Offline) { $arguments += '--offline' }
-    & $cargo @arguments
+    Invoke-Native { & $cargo @arguments }
     if ($LASTEXITCODE -ne 0) { throw "Jetson cross-build failed (exit $LASTEXITCODE)." }
 
     foreach ($item in $Package) {

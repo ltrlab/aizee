@@ -22,6 +22,12 @@ device and architecture documents; current work and blockers go in the status fi
 - `python scripts/dev.py setup` creates this checkout's `.venv-dev` from the
   hash-locked development requirements. `python scripts/dev.py check` builds and
   tests Rust, then runs required control contracts with zero skips/xfails.
+- A small change that leaves the motion contract, Rust and the locks untouched may
+  be deployed (with the deployment owner's approval) once `python scripts/dev.py
+  quick` passes; it runs the gate's tests that touch what changed since the last
+  passing check (name the tests when a widely imported module changed). The full
+  `check` still passes before merging, and before any motion-contract, Rust or
+  lock change is deployed (user decision, 2026-10-29).
 - A passing offline gate is not hardware qualification. Follow deterministic
   tests, Linux vcan, Jetson timing, then supervised hardware validation in order.
   Do not start physical services, deploy, or command motors without authorization.

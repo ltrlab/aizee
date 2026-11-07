@@ -38,6 +38,7 @@ def link():
     robot.close()
 
 
+@pytest.mark.serial  # A 50 ms round trip on this computer's clock, as tight as the budgets that failed beside workers.
 def test_the_robot_gets_fresh_authenticated_pairs(link):
     robot, server, _inputs = link
     first, second = robot.poll(), robot.poll()

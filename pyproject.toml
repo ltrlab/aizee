@@ -47,4 +47,5 @@ include = ["robot_platform*"]
 [tool.pytest.ini_options]
 testpaths = ["tests/unit", "tests/contract"]
 addopts = "--import-mode=importlib"
-markers = ["hardware: requires explicit physical robot access", "integration: offline process or application integration"]
+markers = ["hardware: requires explicit physical robot access", "integration: offline process or application integration",
+           "serial: waits on wall-clock progress (real rendering, live loops); the gate runs it alone, after the parallel phase"]
