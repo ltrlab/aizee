@@ -851,14 +851,14 @@ def test_every_live_setting_has_a_slider_within_its_bounds():
 
     static = ROOT / 'src/robot_platform/helm/static'
     table = re.findall(
-        r"\{key: '(\w+)', id: '([\w-]+)', label: '[^']+', scale: (\d+)",
+        r"\{\s*key: '(\w+)',\s*id: '([\w-]+)',\s*label: '[^']+',\s*scale: (\d+)",
         (static / 'grip.js').read_text(encoding='utf-8'),
     )
     assert sorted(key for key, _, _ in table) == sorted(SETTINGS)
     page = (static / 'index.html').read_text(encoding='utf-8')
     bounds = dict(BOUNDS, strength=(0.0, 1.0))
     for key, element, scale in table:
-        slider = re.search(rf'<input id="{element}" type="range" min="([\d.]+)" max="([\d.]+)"', page)
+        slider = re.search(rf'<input\s+id="{element}"\s+type="range"\s+min="([\d.]+)"\s+max="([\d.]+)"', page)
         assert slider, element
         low, high = (float(value) / int(scale) for value in slider.groups())
         assert bounds[key][0] <= low < high <= bounds[key][1], key

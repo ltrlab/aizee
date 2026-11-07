@@ -240,7 +240,8 @@ def test_the_socket_steers_the_head_and_zeroes_from_the_headset_or_the_teleop_ta
             assert '/login?next=${PAGE.page}' in script  # A login returns to the page as it was opened.
             assert "/login?next=/xr'" not in script
             # The headset's scene: three.js where the page's import map says, and the page's modules.
-            assert '{"imports": {"three": "/static/vendor/three.module.js"}}' in text
+            imports = text.split('<script type="importmap">')[1].split('</script>')[0]
+            assert json.loads(imports) == {'imports': {'three': '/static/vendor/three.module.js'}}
             for path in (
                 '/helm/xr.js',
                 '/helm/xr_scene.js',

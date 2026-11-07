@@ -84,7 +84,7 @@ class NativeControlHarness:
                     raise RuntimeError('Invalid native harness response size')
                 body = self.process.stdout.read(length)
                 if len(body) != length:
-                    raise RuntimeError('Truncated native harness reply')
+                    raise RuntimeError(f'Truncated native harness reply ({self._ended()})')
                 self._responses.put(unpack_msg(body))
         except Exception as exc:
             self._responses.put(exc)
@@ -155,7 +155,10 @@ class NativeControlHarness:
     def close(self):
         try:
             if self.process.stdin and not self.process.stdin.closed:
-                self.process.stdin.close()
+                try:
+                    self.process.stdin.close()
+                except OSError:
+                    pass  # A dead process cannot take what was left unsent; the wait below reads how it ended.
             try:
                 self.process.wait(timeout=2)
             except subprocess.TimeoutExpired:

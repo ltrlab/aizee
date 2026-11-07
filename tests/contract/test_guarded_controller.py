@@ -280,3 +280,13 @@ def test_native_feedback_preserves_source_age_when_republished():
         repeated = h.telemetry()['motors']['joint']['feedback']
         assert repeated['sequence'] == first['sequence']
         assert repeated['age_s'] == 0.01
+
+
+def test_closing_a_harness_that_died_with_a_frame_unsent_does_not_raise():
+    """A plant fault drops the plant to record the trial's abort; the dead process's pipe must not replace it."""
+    harness = NativeControlHarness(config(), [0.0])
+    harness.process.kill()
+    harness.process.wait(timeout=5)
+    harness.process.stdin.write(b'\x00' * 8)  # What a last request leaves buffered when its write fails.
+    harness.close()
+    assert harness.process.stdin.closed
